@@ -18,13 +18,14 @@
 
 | 파일 | 용도 |
 |------|------|
-| `application.yml` | 모든 환경 공통 설정 (앱 이름, 기본 활성 프로파일) |
-| `application-local.yml` | 로컬 개발 (DB compose.yaml 매칭, JPA `update`, SQL 로그) |
+| `application.yml` | 모든 환경 공통 설정 (앱 이름, 기본 활성 프로파일, CORS 기본값) |
+| `application-local.yml` | 로컬 개발 (JPA `update`, SQL 로그). DB 접속은 yml에 두지 않는다 |
 | `application-prod.yml` | 운영 (DB / CORS는 환경변수 주입, JPA `validate`) |
 
 - 기본 활성 프로파일은 `application.yml`의 `spring.profiles.active: local`. 운영 배포 시 `SPRING_PROFILES_ACTIVE=prod`로 덮어쓴다.
 - 운영 환경 설정값(DB 접속 정보, 허용 origin 등)은 `${ENV_VAR}` 플레이스홀더로 두고, yml에 평문으로 적지 않는다.
 - 새로운 설정 키를 추가할 때는 base / local / prod 각 위치를 의식적으로 결정한다.
+- **로컬 DB 접속 정보는 `compose.yaml` 단일 출처로 둔다.** `spring-boot-docker-compose` 의존성이 컨테이너에서 호스트/포트/사용자/비밀번호를 자동 추출해 `ServiceConnection` 빈으로 주입한다. yml에 `spring.datasource.*`를 중복 작성하지 않는다 (그림자 설정 방지).
 
 ### Package Structure
 
