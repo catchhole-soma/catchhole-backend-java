@@ -29,8 +29,12 @@ org.monitoring.catchholebackend
 ├── domain
 └── global
     ├── common
+    │   ├── entity
     │   └── response
     ├── config
+    │   ├── cors
+    │   ├── jpa
+    │   ├── security
     │   └── swagger
     └── exception
 ```
@@ -56,6 +60,9 @@ domain/<domain>
 
 - `controller`는 API 진입점만 담당하고, 비즈니스 로직은 `service`에 둔다.
 - `entity` 패키지에는 JPA Entity와 해당 도메인 전용 enum (예: `UserStatus`)을 함께 둔다.
+- 모든 JPA Entity는 `global.common.entity.BaseEntity`를 상속한다.
+  - `createdAt`, `updatedAt`이 자동 관리된다 (`@CreatedDate`, `@LastModifiedDate`).
+  - JPA Auditing은 `global.config.jpa.JpaConfig`의 `@EnableJpaAuditing`으로 활성화되어 있다.
 - `dto`는 `request` / `response`로 명확히 분리한다.
   - request DTO 네이밍: `UserCreateRequest`, `UserUpdateRequest` (목적이 드러나게)
   - response DTO 네이밍: `UserResponse`, `UserDetailResponse`
