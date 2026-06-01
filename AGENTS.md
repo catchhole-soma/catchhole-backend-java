@@ -31,6 +31,121 @@ org.monitoring.catchholebackend
     └── exception
 ```
 
+### Domain Package
+
+도메인 단위로 패키지를 나누고, 그 안은 레이어드 구조를 따른다.
+
+```text
+domain/<domain>
+├── controller/
+├── service/
+│   ├── <Domain>Service.java        (interface)
+│   └── <Domain>ServiceImpl.java    (구현체)
+├── repository/
+├── entity/                 (Entity + 해당 도메인 전용 enum)
+├── dto/
+│   ├── request/
+│   └── response/
+├── mapper/                 (도메인 전용 Mapper)
+└── exception/              (도메인 전용 ErrorCode)
+```
+
+- `controller`는 API 진입점만 담당하고, 비즈니스 로직은 `service`에 둔다.
+- `entity` 패키지에는 JPA Entity와 해당 도메인 전용 enum (예: `UserStatus`)을 함께 둔다.
+- `dto`는 `request` / `response`로 명확히 분리한다.
+  - request DTO 네이밍: `UserCreateRequest`, `UserUpdateRequest` (목적이 드러나게)
+  - response DTO 네이밍: `UserResponse`, `UserDetailResponse`
+- **도메인 전용 예외 클래스는 만들지 않는다.** 모든 비즈니스 예외는 `AppException`에 도메인 `ErrorCode`를 담아서 던진다.
+  - 예: `throw new AppException(UserErrorCode.USER_NOT_FOUND);`
+  - 응답의 `error.code`가 도메인 prefix를 포함하므로 클라이언트에서 도메인 식별이 가능하다.
+  - 예외 케이스마다 클래스를 만들지 않아 보일러플레이트를 줄이고, ErrorCode enum 한 곳에서 도메인 에러를 관리한다.
+- 도메인 전용 `ErrorCode`는 `exception` 패키지에 두고 `ResultCode`를 구현한다.
+  - 예: `UserErrorCode` (`USER_NOT_FOUND`, `USER_EMAIL_DUPLICATED`)
+- 여러 도메인에서 공통으로 쓰는 enum은 `global.common` 아래에 둔다.
+
+#### Service Layer
+
+- Service는 **interface와 구현체를 분리**한다.
+  - interface: `<Domain>Service` (예: `UserService`)
+  - 구현체: `<Domain>ServiceImpl` (예: `UserServiceImpl`)
+  - 같은 `service/` 패키지에 함께 둔다 (flat 구조).
+- 구현체는 `@Service`를 붙이고, 의존성은 `@RequiredArgsConstructor`로 생성자 주입한다.
+- Controller는 interface에만 의존한다 (`UserService`를 주입받고 `UserServiceImpl`을 직접 참조하지 않는다).
+- 트랜잭션 어노테이션(`@Transactional`)은 **구현체**에 붙인다.
+- 읽기 전용 메서드는 클래스 레벨 `@Transactional(readOnly = true)` 후 쓰기 메서드에 `@Transactional`을 덮어쓴다.
+
+예시:
+
+```java
+public interface UserService {
+    UserResponse getUser(Long id);
+    UserResponse createUser(UserCreateRequest request);
+}
+
+@Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
+public class UserServiceImpl implements UserService {
+
+    private final UserRepository userRepository;
+    private final UserMapper userMapper;
+
+    @Override
+    public UserResponse getUser(Long id) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new AppException(UserErrorCode.USER_NOT_FOUND));
+        return userMapper.toResponse(user);
+    }
+
+    @Override
+    @Transactional
+    public UserResponse createUser(UserCreateRequest request) {
+        User saved = userRepository.save(userMapper.toEntity(request));
+        return userMapper.toResponse(saved);
+    }
+}
+```
+
+#### Mapping
+
+- Entity ↔ DTO 변환은 **별도 Mapper 클래스**를 만들어 처리한다 (MapStruct 사용하지 않는다).
+- 매퍼는 `domain/<domain>/mapper/` 아래에 두고 `@Component`로 선언한다.
+  - 다른 빈 주입이 필요해질 수 있으므로 일관되게 Spring 빈으로 관리한다.
+- 메서드 네이밍은 변환 방향이 드러나도록 통일한다.
+  - `toEntity(request)` — Request DTO → Entity
+  - `toResponse(entity)` — Entity → Response DTO
+  - `toResponseList(entities)` — Entity 목록 → Response DTO 목록
+- 매퍼는 단순 변환만 수행하고, 비즈니스 로직은 `service`에 둔다.
+
+예시:
+
+```java
+@Component
+public class UserMapper {
+
+    public User toEntity(UserCreateRequest request) {
+        return User.builder()
+                .email(request.email())
+                .name(request.name())
+                .build();
+    }
+
+    public UserResponse toResponse(User user) {
+        return new UserResponse(user.getId(), user.getEmail(), user.getName());
+    }
+
+    public List<UserResponse> toResponseList(List<User> users) {
+        return users.stream().map(this::toResponse).toList();
+    }
+}
+```
+
+### API URL Convention
+
+- 모든 API는 `/api/v1/<resource>` 형식을 따른다.
+- `<resource>`는 복수형 명사를 사용한다 (예: `/api/v1/users`, `/api/v1/orders`).
+- 버전이 바뀌면 새 prefix로 분리한다 (`/api/v2/...`). 기존 버전은 deprecate 정책 정해질 때까지 유지한다.
+
 ### Common Response
 
 - API 응답 Envelope는 `CommonResponse<T>`를 사용한다.
