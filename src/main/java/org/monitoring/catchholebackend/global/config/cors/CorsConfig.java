@@ -1,7 +1,8 @@
 package org.monitoring.catchholebackend.global.config.cors;
 
 import java.util.List;
-import org.springframework.beans.factory.annotation.Value;
+import lombok.RequiredArgsConstructor;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.cors.CorsConfiguration;
@@ -9,15 +10,16 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
+@EnableConfigurationProperties(CorsProperties.class)
+@RequiredArgsConstructor
 public class CorsConfig {
 
-    @Value("${cors.allowed-origins}")
-    private List<String> allowedOrigins;
+    private final CorsProperties corsProperties;
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(allowedOrigins);
+        config.setAllowedOrigins(corsProperties.allowedOrigins());
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);
