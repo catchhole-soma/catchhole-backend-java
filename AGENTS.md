@@ -19,6 +19,8 @@
 - 전역 공통 코드는 `global` 아래에 둔다.
 - 공통 응답 코드는 `global.common.response` 아래에 둔다.
 - 전역 예외 코드는 `global.exception` 아래에 둔다.
+- 전역 `@Configuration` 클래스는 `global.config.<영역>` 아래에 둔다.
+  - 영역별 서브패키지로 분리한다 (예: `global.config.swagger`, `global.config.security`).
 
 예시:
 
@@ -28,6 +30,8 @@ org.monitoring.catchholebackend
 └── global
     ├── common
     │   └── response
+    ├── config
+    │   └── swagger
     └── exception
 ```
 
