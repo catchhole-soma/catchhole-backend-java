@@ -65,7 +65,18 @@ org.monitoring.catchholebackend
 
 ### Commit Convention
 
-커밋 메시지 형식: `type(scope): 한국어 설명`
+커밋 메시지 형식:
+
+```
+type(scope): 한국어 제목 (50자 이내)
+
+<본문 — 무엇을, 왜 변경했는지 한 줄 72자 이내>
+<- 여러 항목은 bullet으로 정리>
+
+<footer — Breaking Changes, 이슈 참조 등 선택>
+```
+
+#### Type
 
 | type | 용도 |
 |------|------|
@@ -77,12 +88,49 @@ org.monitoring.catchholebackend
 | `docs` | 문서 수정 |
 | `chore` | 기타 잡무 (설정 파일 등) |
 
-- `scope`는 변경 영역 (예: `global`, `auth`, `user`)
-- 하나의 커밋은 하나의 목적만 담는다 (의존성 추가, 기능 구현, 테스트는 각각 분리)
-- 예시
-  - `build: swagger-annotations-jakarta 의존성 추가`
-  - `feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가`
-  - `test(global): GlobalExceptionHandler 통합 테스트 추가`
+#### Scope
+
+- 변경 영역을 명시한다. 예: `global`, `auth`, `user`
+- 변경 영역이 명확하지 않거나 전역 설정이면 생략 가능 (`build:`, `chore:`)
+
+#### 원칙
+
+- 하나의 커밋은 하나의 목적만 담는다. 의존성 추가 / 기능 구현 / 테스트는 각각 분리한다.
+- 제목은 명령조로, 마침표 없이 작성한다.
+- 본문이 필요한 커밋과 불필요한 커밋을 구분한다.
+
+#### 본문 작성 기준
+
+**본문이 필요한 경우 (반드시 작성)**
+
+- `feat`, `refactor` 등 여러 파일 / 개념이 묶인 변경
+- 설계 의도, 대안 대비 선택 이유 등 "왜"를 설명해야 하는 변경
+- 추가된 컴포넌트 / 클래스가 여러 개라 제목만으로 파악이 어려운 변경
+
+**본문 생략 가능한 경우**
+
+- 단일 의존성 추가 같은 한 줄로 끝나는 `build:` / `chore:`
+- 오타 수정, 단순 리네임
+
+#### 예시
+
+본문 생략:
+
+```
+build: swagger-annotations-jakarta 의존성 추가
+```
+
+본문 포함:
+
+```
+feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
+
+- CommonResponse<T> envelope 추가 (success/message/data/error/timestamp)
+- ErrorResponse, FieldErrorResponse 분리하여 검증 실패 응답 표준화
+- AppException + ResultCode/CommonErrorCode 도입으로 비즈니스 예외 처리
+- GlobalExceptionHandler에서 validation, AppException, 알 수 없는 예외 분기
+- 향후 모든 API는 본 envelope를 통해 응답하도록 통일
+```
 
 ### Tests
 
