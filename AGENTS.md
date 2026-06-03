@@ -20,6 +20,7 @@
   - 새로운 설정 파일 / 프로파일 / 환경변수 도입
   - 새 라이브러리 도입으로 사용 패턴이 바뀜 (예: `@ConfigurationProperties`, `ServiceConnection` 자동 주입)
   - 도메인 / 레이어 간 규약 변경 (예: Service 분리 방식, 예외 처리 정책)
+  - GitHub PR/Issue 템플릿, 리뷰 규칙, 브랜치 운영 방식 등 협업 워크플로우 변경
 - 다음 경우는 갱신하지 않는다.
   - 기존 컨벤션을 그대로 따르는 단순 기능 추가
   - 버그 수정 / 동작 변경 없는 리팩터링
@@ -307,6 +308,15 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - `Jira 이슈`는 키(예: `CATCH-123`)와 링크를 함께 적는다. 없으면 "없음"으로 표시한다.
 - PR 제목은 커밋 제목 컨벤션(`type(scope): 한국어 설명`)을 그대로 따른다.
 - `gh pr create --body`로 본문을 전달할 때는 HEREDOC을 사용해 줄바꿈과 체크박스 마크다운이 정확히 보존되도록 한다.
+
+### GitHub Issue Templates
+
+- GitHub Issue는 `.github/ISSUE_TEMPLATE/` 아래의 Issue Form을 사용한다.
+- 버그는 `bug_report.yml`, 기능 요청은 `feature_request.yml`, 일반 작업/문서는 `task.yml`을 사용한다.
+- 빈 이슈 생성을 막기 위해 `config.yml`의 `blank_issues_enabled: false`를 유지한다.
+- 템플릿을 추가하거나 필드를 바꿀 때는 이 문서의 협업 규칙도 함께 갱신한다.
+
+이 방식을 선택한 이유는 이슈 생성 시 재현 절차, 요구사항, 완료 기준 같은 필수 정보를 누락하지 않도록 하기 위함이다.
 
 ### Tests
 
