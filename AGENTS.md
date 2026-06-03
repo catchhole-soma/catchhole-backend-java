@@ -74,6 +74,12 @@ org.monitoring.catchholebackend
 
 도메인 단위로 패키지를 나누고, 그 안은 레이어드 구조를 따른다.
 
+본 프로젝트는 도메인 중심 설계를 지향하되, 현재의 도메인별 레이어드 구조를 유지한다.
+Entity는 단순 데이터 보관 객체가 아니라 핵심 상태 변경과 도메인 규칙을 표현하는 객체로 설계한다.
+Service는 Entity 조회, 트랜잭션, 저장, DTO 변환 등 유스케이스 흐름을 조율한다.
+
+이 방식을 선택한 이유는 MVP 개발 속도를 유지하면서도, 비즈니스 규칙이 Service나 Mapper에 흩어지는 것을 줄이고 도메인 객체 내부에 일관되게 모으기 위함이다.
+
 ```text
 domain/<domain>
 ├── controller/
@@ -94,6 +100,9 @@ domain/<domain>
 - 모든 JPA Entity는 `global.common.entity.BaseEntity`를 상속한다.
   - `createdAt`, `updatedAt`이 자동 관리된다 (`@CreatedDate`, `@LastModifiedDate`).
   - JPA Auditing은 `global.config.jpa.JpaConfig`의 `@EnableJpaAuditing`으로 활성화되어 있다.
+- Entity의 상태 변경은 setter 직접 호출보다 `approve()`, `close()`, `changeTitle()`처럼 의미가 드러나는 메서드로 표현한다.
+- Entity 내부 메서드는 자기 필드 기반의 검증, 상태 전이, 계산처럼 해당 도메인 객체가 책임져야 하는 규칙을 담당한다.
+- Repository 조회/저장, 외부 API 호출, 파일 처리, 이메일 발송, DTO 변환, 트랜잭션 제어는 Entity에 두지 않고 Service 또는 별도 컴포넌트에서 조율한다.
 - `dto`는 `request` / `response`로 명확히 분리한다.
   - request DTO 네이밍: `UserCreateRequest`, `UserUpdateRequest` (목적이 드러나게)
   - response DTO 네이밍: `UserResponse`, `UserDetailResponse`
