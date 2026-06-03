@@ -1,0 +1,50 @@
+name: 작업 / 문서
+description: 리팩터링, 설정, 문서화, 운영성 개선 작업을 등록합니다.
+title: "[Task] "
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: 작업 요약
+      description: 어떤 작업을 하려는지 간단히 작성해주세요.
+      placeholder: 예) AGENTS.md에 Entity 설계 원칙을 보강합니다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reason
+    attributes:
+      label: 작업 이유
+      description: 왜 이 작업이 필요한지 작성해주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: todo
+    attributes:
+      label: 할 일
+      description: 필요한 작업을 체크리스트로 작성해주세요.
+      placeholder: |
+        - [ ] 문서 초안 작성
+        - [ ] 팀 컨벤션과 충돌 여부 확인
+        - [ ] PR 본문에 변경 사항 반영
+    validations:
+      required: true
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: 확인 방법
+      description: 작업 완료 후 어떻게 확인할지 작성해주세요.
+      placeholder: 예) 문서 변경만 해당하므로 별도 테스트 없이 diff 확인
+    validations:
+      required: false
+
+  - type: input
+    id: related
+    attributes:
+      label: 관련 이슈
+      description: 관련 Jira, PR, GitHub Issue 링크를 작성해주세요.
+      placeholder: 예) NVM-123, #12
+    validations:
+      required: false
