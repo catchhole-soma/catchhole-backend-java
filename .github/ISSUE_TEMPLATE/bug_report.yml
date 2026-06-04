@@ -1,0 +1,57 @@
+name: 버그 리포트
+description: 재현 가능한 버그나 예외 상황을 제보합니다.
+title: "[Bug] "
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: 문제 요약
+      description: 어떤 문제가 발생했는지 간단히 설명해주세요.
+      placeholder: 예) 로컬 실행 시 Swagger UI 접근이 401로 막힙니다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 재현 절차
+      description: 문제가 발생하기까지의 단계를 순서대로 작성해주세요.
+      placeholder: |
+        1. `./gradlew bootRun` 실행
+        2. `/swagger-ui/index.html` 접속
+        3. 401 응답 확인
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대 동작
+      description: 원래 기대한 동작을 작성해주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 실제 동작
+      description: 실제로 발생한 동작, 에러 메시지, 로그를 작성해주세요.
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: 실행 환경
+      description: OS, Java 버전, Spring profile 등 관련 환경을 작성해주세요.
+      placeholder: 예) macOS, Java 21, local profile
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: 참고 사항
+      description: 스크린샷, 로그, 관련 PR/Jira 이슈가 있다면 첨부해주세요.
+    validations:
+      required: false

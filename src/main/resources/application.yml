@@ -1,0 +1,10 @@
+spring:
+  application:
+    name: CatchHole-Backend
+  profiles:
+    active: local
+
+# 개발 기본값. prod에서는 환경변수로 override.
+cors:
+  allowed-origins:
+    - http://localhost:3000
