@@ -61,6 +61,7 @@ org.monitoring.catchholebackend
 ├── domain
 │   └── work
 │       ├── entity
+│       ├── exception
 │       └── repository
 └── global
     ├── common
