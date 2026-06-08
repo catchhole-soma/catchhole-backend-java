@@ -59,6 +59,8 @@
 ```text
 org.monitoring.catchholebackend
 ├── domain
+│   └── work
+│       └── entity
 └── global
     ├── common
     │   ├── entity
