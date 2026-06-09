@@ -8,9 +8,15 @@ public final class SecurityConstant {
     private SecurityConstant() {
     }
 
+    public static final String REFRESH_TOKEN_COOKIE_PATH = "/api/v1/auth";
+
     // 도메인별 공개 경로 (인증 불필요)
     // 도메인 추가 시 카테고리 주석과 함께 여기에 등록한다.
     public static final String[] PUBLIC_AUTH_URLS = {
+            "/api/v1/auth/signup",
+            "/api/v1/auth/login",
+            "/api/v1/auth/refresh",
+            "/api/v1/auth/logout"
     };
 
     // Swagger UI 관련 공개 경로
