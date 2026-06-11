@@ -14,7 +14,6 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.util.UUID;
 import lombok.AccessLevel;
-import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
@@ -57,21 +56,17 @@ public class Work extends BaseEntity {
     @Column(name = "latest_episode_no", nullable = false)
     private int latestEpisodeNo;
 
-    @Builder
-    private Work(
-            Member member,
-            String title,
-            String genre,
-            String description,
-            WorkStatus status,
-            Integer latestEpisodeNo
-    ) {
+    private Work(Member member, String title, String genre, String description) {
         this.member = member;
         this.title = title;
         this.genre = genre;
         this.description = description;
-        this.status = status == null ? WorkStatus.ACTIVE : status;
-        this.latestEpisodeNo = latestEpisodeNo == null ? 0 : latestEpisodeNo;
+        this.status = WorkStatus.ACTIVE;
+        this.latestEpisodeNo = 0;
+    }
+
+    public static Work create(Member member, String title, String genre, String description) {
+        return new Work(member, title, genre, description);
     }
 
     public void updateInfo(String title, String genre, String description) {
