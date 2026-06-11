@@ -38,6 +38,7 @@
 | `application.yml` | 모든 환경 공통 설정 (앱 이름, 기본 활성 프로파일, CORS 기본값) |
 | `application-local.yml` | 로컬 개발 (JPA `update`, SQL 로그). DB 접속은 yml에 두지 않는다 |
 | `application-prod.yml` | 운영 (DB / CORS는 환경변수 주입, JPA `validate`) |
+| `src/test/resources/application-test.yml` | 통합 테스트 (H2 인메모리 DB, JPA `create-drop`) |
 
 - 기본 활성 프로파일은 `application.yml`의 `spring.profiles.active: local`. 운영 배포 시 `SPRING_PROFILES_ACTIVE=prod`로 덮어쓴다.
 - 운영 환경 설정값(DB 접속 정보, 허용 origin 등)은 `${ENV_VAR}` 플레이스홀더로 두고, yml에 평문으로 적지 않는다.
@@ -61,6 +62,7 @@
 org.monitoring.catchholebackend
 ├── domain
 │   └── work
+│       ├── controller
 │       ├── dto
 │       │   ├── request
 │       │   └── response
@@ -364,4 +366,4 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 
 - 테스트는 `apps/CatchHole-Backend`에서 실행한다.
 - API 응답 규약을 바꾸면 MockMvc 테스트도 함께 갱신한다.
-- DB 설정이 필요한 통합 테스트는 별도 profile 또는 테스트 설정을 명확히 둔다.
+- DB 설정이 필요한 통합 테스트는 `test` profile의 H2 인메모리 DB를 기본으로 사용한다.
