@@ -61,6 +61,9 @@
 org.monitoring.catchholebackend
 ├── domain
 │   └── work
+│       ├── dto
+│       │   ├── request
+│       │   └── response
 │       ├── entity
 │       ├── exception
 │       └── repository
