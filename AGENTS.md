@@ -138,6 +138,13 @@ domain/<domain>
 - Refresh token은 `HttpOnly` 쿠키로 전달한다. 쿠키 path는 `/api/v1/auth`, SameSite 기본값은 `Lax`, 운영 환경에서는 `Secure=true`를 사용한다.
 - 회원가입 시 휴대폰 번호는 하이픈 없는 `010` 시작 11자리 숫자로 받고, `members.phone_number`에 unique로 저장한다. SMS 인증은 별도 기능에서 구현하며, 현재는 `phone_verified=false` 기본값을 유지한다.
 
+#### Work Domain Policy
+
+- Work는 로그인한 회원의 개인 작업공간 리소스로 취급한다.
+- Work 생성 시 서버에서 인증된 `Member`를 소유자로 연결하며, 요청 DTO에서 소유자 식별값을 받지 않는다.
+- Work 목록 조회, 수정, 삭제는 `memberId` 기준으로 본인 작품만 허용한다.
+- 존재하지 않는 작품과 다른 회원의 작품 접근은 모두 `WORK_NOT_FOUND`로 응답해 리소스 존재 여부를 노출하지 않는다.
+
 #### Service Layer
 
 - Service는 **interface와 구현체를 분리**한다.
