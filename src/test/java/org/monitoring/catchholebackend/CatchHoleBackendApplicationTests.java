@@ -3,6 +3,7 @@ package org.monitoring.catchholebackend;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.auth.service.AuthService;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
+import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.jpa.mapping.JpaMetamodelMappingContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -19,6 +20,9 @@ class CatchHoleBackendApplicationTests {
 
     @MockitoBean
     private MemberRepository memberRepository;
+
+    @MockitoBean
+    private WorkRepository workRepository;
 
     @MockitoBean
     private JpaMetamodelMappingContext jpaMetamodelMappingContext;

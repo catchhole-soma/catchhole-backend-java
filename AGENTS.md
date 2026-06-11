@@ -67,7 +67,8 @@ org.monitoring.catchholebackend
 │       ├── entity
 │       ├── exception
 │       ├── mapper
-│       └── repository
+│       ├── repository
+│       └── service
 └── global
     ├── common
     │   ├── entity
