@@ -8,3 +8,13 @@ spring:
 cors:
   allowed-origins:
     - http://localhost:3000
+
+auth:
+  jwt:
+    # local 개발용 기본값. prod에서는 JWT_SECRET 환경변수로 override.
+    secret: local-development-jwt-secret-must-be-at-least-32-bytes-long
+    access-token-expiration: 30m
+  refresh-token-expiration: 14d
+  cookie:
+    secure: false
+    same-site: Lax
