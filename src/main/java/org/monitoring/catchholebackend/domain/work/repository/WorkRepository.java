@@ -8,7 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface WorkRepository extends JpaRepository<Work, UUID> {
 
-    Optional<Work> findByIdAndOwnerUserId(UUID id, UUID ownerUserId);
+    Optional<Work> findByIdAndMemberId(UUID id, Long memberId);
 
-    List<Work> findAllByOwnerUserIdOrderByCreatedAtDesc(UUID ownerUserId);
+    List<Work> findAllByMemberIdOrderByCreatedAtDesc(Long memberId);
 }

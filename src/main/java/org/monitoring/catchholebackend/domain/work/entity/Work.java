@@ -4,15 +4,20 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 
 @Getter
@@ -26,8 +31,14 @@ public class Work extends BaseEntity {
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 
-    @Column(name = "owner_user_id", nullable = false, updatable = false)
-    private UUID ownerUserId;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(
+            name = "member_id",
+            nullable = false,
+            updatable = false,
+            foreignKey = @ForeignKey(name = "fk_works_member")
+    )
+    private Member member;
 
     @Column(name = "title", nullable = false, length = 100)
     private String title;
@@ -48,14 +59,14 @@ public class Work extends BaseEntity {
 
     @Builder
     private Work(
-            UUID ownerUserId,
+            Member member,
             String title,
             String genre,
             String description,
             WorkStatus status,
             Integer latestEpisodeNo
     ) {
-        this.ownerUserId = ownerUserId;
+        this.member = member;
         this.title = title;
         this.genre = genre;
         this.description = description;
@@ -81,7 +92,7 @@ public class Work extends BaseEntity {
         this.status = WorkStatus.ARCHIVED;
     }
 
-    public boolean isOwnedBy(UUID userId) {
-        return ownerUserId.equals(userId);
+    public boolean isOwnedBy(Long memberId) {
+        return member.getId().equals(memberId);
     }
 }
