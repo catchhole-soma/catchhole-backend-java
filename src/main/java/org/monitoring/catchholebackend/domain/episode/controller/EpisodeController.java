@@ -55,8 +55,8 @@ public class EpisodeController {
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(
-            summary = "단일 회차 업로드",
-            description = "로그인한 사용자가 본인 작품에 단일 회차 원고 파일을 업로드합니다. 다회차 파싱은 별도 작업에서 지원합니다."
+            summary = "회차 원고 업로드",
+            description = "로그인한 사용자가 본인 작품에 단일 회차, 단일 파일 다회차, 여러 파일 다회차 방식으로 원고를 업로드합니다."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "회차 업로드 성공"),
