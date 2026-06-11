@@ -35,7 +35,7 @@ class GlobalExceptionHandlerTestController {
 
     @GetMapping("/unknown-error")
     CommonResponse<Void> unknownError() {
-        throw new IllegalStateException("database password leaked");
+        throw new IllegalStateException("데이터베이스 비밀번호가 노출되었습니다.");
     }
 
     record TestRequest(

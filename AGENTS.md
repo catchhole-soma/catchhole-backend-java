@@ -41,6 +41,7 @@
 
 - 기본 활성 프로파일은 `application.yml`의 `spring.profiles.active: local`. 운영 배포 시 `SPRING_PROFILES_ACTIVE=prod`로 덮어쓴다.
 - 운영 환경 설정값(DB 접속 정보, 허용 origin 등)은 `${ENV_VAR}` 플레이스홀더로 두고, yml에 평문으로 적지 않는다.
+- 운영 JWT 서명키는 `JWT_SECRET` 환경변수로 주입한다. 최소 32바이트 이상이어야 하며, 로그/응답/테스트 실패 메시지에 노출하지 않는다.
 - 새로운 설정 키를 추가할 때는 base / local / prod 각 위치를 의식적으로 결정한다.
 - **로컬 DB 접속 정보는 `compose.yaml` 단일 출처로 둔다.** `spring-boot-docker-compose` 의존성이 컨테이너에서 호스트/포트/사용자/비밀번호를 자동 추출해 `ServiceConnection` 빈으로 주입한다. yml에 `spring.datasource.*`를 중복 작성하지 않는다 (그림자 설정 방지).
 
@@ -68,6 +69,7 @@ org.monitoring.catchholebackend
     │   ├── entity
     │   └── response
     ├── config
+    │   ├── auth
     │   ├── cors
     │   ├── jpa
     │   ├── security
@@ -118,6 +120,16 @@ domain/<domain>
 - 도메인 전용 `ErrorCode`는 `exception` 패키지에 두고 `ResultCode`를 구현한다.
   - 예: `UserErrorCode` (`USER_NOT_FOUND`, `USER_EMAIL_DUPLICATED`)
 - 여러 도메인에서 공통으로 쓰는 enum은 `global.common` 아래에 둔다.
+- 사용자 계정 도메인은 `member`로 명명한다. Java 도메인은 `Member`, DB 테이블은 `members`, FK는 `member_id`를 사용한다.
+- 인증 흐름은 `auth` 도메인에 둔다. JWT 발급/검증, refresh token 발급/폐기, 인증 쿠키 생성은 `domain/auth` 아래에서 관리한다.
+
+#### Auth and Token Policy
+
+- Access token은 JWT로 발급하고, refresh token은 랜덤 opaque token으로 발급한다.
+- Access token 만료 기본값은 30분, refresh token 만료 기본값은 14일이다.
+- Refresh token 원문은 저장하지 않는다. `refresh_tokens.token_hash`에 SHA-256 해시만 저장하고, 재발급 시 기존 token은 `revoked_at`으로 폐기한 뒤 새 token을 저장한다.
+- Refresh token은 `HttpOnly` 쿠키로 전달한다. 쿠키 path는 `/api/v1/auth`, SameSite 기본값은 `Lax`, 운영 환경에서는 `Secure=true`를 사용한다.
+- 회원가입 시 휴대폰 번호는 하이픈 없는 `010` 시작 11자리 숫자로 받고, `members.phone_number`에 unique로 저장한다. SMS 인증은 별도 기능에서 구현하며, 현재는 `phone_verified=false` 기본값을 유지한다.
 
 #### Service Layer
 
@@ -202,6 +214,20 @@ public class UserMapper {
 - `<resource>`는 복수형 명사를 사용한다 (예: `/api/v1/users`, `/api/v1/orders`).
 - 버전이 바뀌면 새 prefix로 분리한다 (`/api/v2/...`). 기존 버전은 deprecate 정책 정해질 때까지 유지한다.
 
+### Swagger / OpenAPI Documentation
+
+- 모든 Controller에는 `@Tag(name, description)`를 붙여 API 그룹의 용도를 설명한다.
+- 모든 API 메서드에는 `@Operation(summary, description)`와 주요 `@ApiResponses`를 작성한다.
+  - 성공 응답뿐 아니라 validation 실패, 인증 실패, 권한 실패, 중복/존재하지 않음 같은 대표 실패 케이스도 함께 적는다.
+- 인증이 필요한 API에는 `@SecurityRequirement(name = "bearerAuth")`를 명시한다.
+- Swagger에 노출하지 않을 framework 파라미터(`JwtAuthenticationToken` 등)는 `@Parameter(hidden = true)`로 숨긴다.
+- 쿠키/헤더/쿼리 파라미터는 `@Parameter(in = ParameterIn.COOKIE/HEADER/QUERY, name, description)`로 문서화한다.
+- request / response DTO record에는 class-level `@Schema(description)`를 붙이고, 주요 필드에는 `@Schema(description, example)`를 작성한다.
+- 비밀번호, 토큰, 쿠키처럼 민감한 값은 실제 값이 아닌 더미 예시를 사용한다.
+- 예외 메시지, validation 메시지, OAuth2Error description, Swagger/OpenAPI description처럼 사람이 읽는 문장은 한국어로 작성한다. `accessToken`, `refreshToken`, `JWT`, `Bearer`, enum code처럼 API 필드명이나 기술 식별자는 그대로 사용할 수 있다.
+
+이 방식을 선택한 이유는 Swagger UI만 보고도 프론트엔드와 백엔드 작업자가 요청 값, 인증 방식, 성공/실패 응답을 빠르게 확인하고 테스트할 수 있도록 하기 위함이다.
+
 ### Common Response
 
 - API 응답 Envelope는 `CommonResponse<T>`를 사용한다.
@@ -223,7 +249,8 @@ public class UserMapper {
   - 예: `AUTH_UNAUTHORIZED`, `REQUEST_VALIDATION_FAILED`, `RESOURCE_NOT_FOUND`
 - validation 실패 응답에는 `rejectedValue`를 넣지 않는다.
 - 예상하지 못한 예외는 내부 메시지를 그대로 노출하지 않고 공통 서버 오류 메시지로 응답한다.
-- Spring Security의 인증/인가 실패 응답도 이후 같은 `CommonResponse` 규약에 맞춘다.
+- Spring Security의 인증/인가 실패 응답도 `CommonResponse` 규약에 맞춘다.
+- 코드에서 직접 던지는 예외 메시지와 OAuth2 인증 실패 description은 한국어로 작성한다. 한국어 프로젝트에서 디버깅과 API 문서 이해 비용을 줄이기 위함이다.
 
 ### Java Style
 
