@@ -2,6 +2,8 @@ package org.monitoring.catchholebackend.domain.work.controller;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -104,6 +106,31 @@ class WorkControllerIntegrationTest {
     }
 
     @Test
+    void getWorkReturnsAuthenticatedMembersWork() throws Exception {
+        Work work = workRepository.save(Work.create(member, "상세 작품", "판타지", "상세 설명"));
+
+        mockMvc.perform(get("/api/v1/works/{workId}", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.id").value(work.getId().toString()))
+                .andExpect(jsonPath("$.data.title").value("상세 작품"))
+                .andExpect(jsonPath("$.data.genre").value("판타지"))
+                .andExpect(jsonPath("$.data.description").value("상세 설명"));
+    }
+
+    @Test
+    void getWorkRejectsOtherMemberWork() throws Exception {
+        Work otherWork = workRepository.save(Work.create(otherMember, "다른 회원 작품", "무협", "다른 설명"));
+
+        mockMvc.perform(get("/api/v1/works/{workId}", otherWork.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("WORK_NOT_FOUND"));
+    }
+
+    @Test
     void updateWorkUpdatesAuthenticatedMembersWork() throws Exception {
         Work work = workRepository.save(Work.create(member, "수정 전", "로맨스", "수정 전 설명"));
 
@@ -143,6 +170,32 @@ class WorkControllerIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.error.code").value("WORK_NOT_FOUND"));
+    }
+
+    @Test
+    void deleteWorkDeletesAuthenticatedMembersWork() throws Exception {
+        Work work = workRepository.save(Work.create(member, "삭제할 작품", "로맨스", "삭제 설명"));
+
+        mockMvc.perform(delete("/api/v1/works/{workId}", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("작품이 삭제되었습니다."));
+
+        assertThat(workRepository.existsById(work.getId())).isFalse();
+    }
+
+    @Test
+    void deleteWorkRejectsOtherMemberWork() throws Exception {
+        Work otherWork = workRepository.save(Work.create(otherMember, "다른 회원 작품", "무협", "다른 설명"));
+
+        mockMvc.perform(delete("/api/v1/works/{workId}", otherWork.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("WORK_NOT_FOUND"));
+
+        assertThat(workRepository.existsById(otherWork.getId())).isTrue();
     }
 
     @Test

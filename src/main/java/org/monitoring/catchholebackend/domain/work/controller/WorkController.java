@@ -68,6 +68,23 @@ public class WorkController {
         return CommonResponse.success(workService.getMyWorks(member.memberId()));
     }
 
+    @GetMapping("/{workId}")
+    @Operation(
+            summary = "내 작품 상세 조회",
+            description = "로그인한 사용자가 본인 작품의 상세 정보를 조회합니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "작품 상세 조회 성공"),
+            @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패"),
+            @ApiResponse(responseCode = "404", description = "작품을 찾을 수 없음")
+    })
+    public CommonResponse<WorkResponse> getWork(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId
+    ) {
+        return CommonResponse.success(workService.getWork(member.memberId(), workId));
+    }
+
     @PatchMapping("/{workId}")
     @Operation(
             summary = "내 작품 수정",

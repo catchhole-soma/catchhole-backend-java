@@ -40,6 +40,11 @@ public class WorkServiceImpl implements WorkService {
     }
 
     @Override
+    public WorkResponse getWork(Long memberId, UUID workId) {
+        return workMapper.toResponse(getOwnedWork(workId, memberId));
+    }
+
+    @Override
     @Transactional
     public WorkResponse updateWork(Long memberId, UUID workId, WorkUpdateRequest request) {
         Work work = getOwnedWork(workId, memberId);

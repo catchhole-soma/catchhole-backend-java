@@ -12,6 +12,8 @@ public interface WorkService {
 
     List<WorkResponse> getMyWorks(Long memberId);
 
+    WorkResponse getWork(Long memberId, UUID workId);
+
     WorkResponse updateWork(Long memberId, UUID workId, WorkUpdateRequest request);
 
     void deleteWork(Long memberId, UUID workId);
