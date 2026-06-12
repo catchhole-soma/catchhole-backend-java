@@ -70,7 +70,8 @@ org.monitoring.catchholebackend
 │       ├── exception
 │       ├── mapper
 │       ├── repository
-│       └── service
+│       ├── service
+│       └── type
 └── global
     ├── common
     │   ├── entity
@@ -101,7 +102,8 @@ domain/<domain>
 │   ├── <Domain>Service.java        (interface)
 │   └── <Domain>ServiceImpl.java    (구현체)
 ├── repository/
-├── entity/                 (Entity + 해당 도메인 전용 enum)
+├── entity/                 (JPA Entity)
+├── type/                   (도메인 전용 enum)
 ├── dto/
 │   ├── request/
 │   └── response/
@@ -110,7 +112,8 @@ domain/<domain>
 ```
 
 - `controller`는 API 진입점만 담당하고, 비즈니스 로직은 `service`에 둔다.
-- `entity` 패키지에는 JPA Entity와 해당 도메인 전용 enum (예: `UserStatus`)을 함께 둔다.
+- `entity` 패키지에는 JPA Entity만 둔다.
+- 도메인 전용 enum은 `type` 패키지에 둔다 (예: `UserStatus`). Entity와 enum을 분리해 JPA Entity 목록을 빠르게 파악하기 위함이다.
 - 모든 JPA Entity는 `global.common.entity.BaseEntity`를 상속한다.
   - `createdAt`, `updatedAt`이 자동 관리된다 (`@CreatedDate`, `@LastModifiedDate`).
   - JPA Auditing은 `global.config.jpa.JpaConfig`의 `@EnableJpaAuditing`으로 활성화되어 있다.
@@ -347,8 +350,9 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 ### Pull Request
 
 - PR 본문은 `.github/pull_request_template.md`의 템플릿을 그대로 따른다. `gh pr create`로 만들 때도 템플릿 구조를 본문에 그대로 채워 넣는다.
-- 모든 섹션(개요, Jira 이슈, PR 유형, 확인 사항, 참고 사항)을 작성한다.
+- 모든 섹션(개요, 작업 내용, Jira 이슈, PR 유형, 확인 사항, 참고 사항)을 작성한다.
   - 해당 없는 섹션이라도 삭제하지 말고 "없음" 또는 "해당 없음"으로 명시한다.
+- `작업 내용`은 도메인, API, DB, 테스트, 문서처럼 리뷰어가 변경 흐름을 따라가기 쉬운 단위로 구체적으로 작성한다.
 - `PR 유형` / `확인 사항`은 해당 항목을 `[x]`로 체크한다. 체크되지 않은 항목은 `[ ]`로 그대로 둔다.
 - `Jira 이슈`는 키(예: `CATCH-123`)와 링크를 함께 적는다. 없으면 "없음"으로 표시한다.
 - PR 제목은 커밋 제목 컨벤션(`type(scope): 한국어 설명`)을 그대로 따른다.
