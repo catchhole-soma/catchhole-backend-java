@@ -5,10 +5,22 @@ import org.monitoring.catchholebackend.domain.upload.dto.response.UploadBatchRes
 import org.monitoring.catchholebackend.domain.upload.dto.response.UploadFileResponse;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
+import org.monitoring.catchholebackend.domain.upload.type.UploadFileRole;
 import org.springframework.stereotype.Component;
 
 @Component
 public class UploadMapper {
+
+    public UploadFile toEntity(
+            UploadBatch batch,
+            UploadFileRole fileRole,
+            String originalFilename,
+            String mimeType,
+            String storageUrl,
+            long fileSize
+    ) {
+        return UploadFile.create(batch, fileRole, originalFilename, mimeType, storageUrl, fileSize);
+    }
 
     public UploadFileResponse toFileResponse(UploadFile uploadFile) {
         return new UploadFileResponse(
