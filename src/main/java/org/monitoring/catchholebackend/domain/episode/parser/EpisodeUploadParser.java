@@ -8,6 +8,7 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeUploadRequest;
 import org.monitoring.catchholebackend.domain.upload.type.UploadType;
 import org.monitoring.catchholebackend.domain.upload.exception.UploadErrorCode;
@@ -18,6 +19,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class EpisodeUploadParser {
 
     private static final Pattern EPISODE_HEADING_PATTERN = Pattern.compile(
@@ -84,6 +86,12 @@ public class EpisodeUploadParser {
         if (headings.isEmpty()) {
             throw new AppException(UploadErrorCode.UPLOAD_EPISODE_NO_DETECTION_FAILED);
         }
+        log.info(
+                "Detected {} episode headings from upload file. filename={}, textLength={}",
+                headings.size(),
+                resolveOriginalFilename(file),
+                text.length()
+        );
 
         List<ParsedEpisode> episodes = new ArrayList<>();
         for (int index = 0; index < headings.size(); index++) {
@@ -93,9 +101,22 @@ public class EpisodeUploadParser {
             if (!StringUtils.hasText(content)) {
                 throw new AppException(UploadErrorCode.UPLOAD_FILE_PARSE_FAILED);
             }
+            String title = resolveHeadingTitle(heading);
+            log.info(
+                    "Parsed episode from upload file. filename={}, episodeNo={}, title={}, headingLine={}, headingOffset={}..{}, contentOffset={}..{}, contentCharCount={}",
+                    resolveOriginalFilename(file),
+                    heading.episodeNo(),
+                    title,
+                    lineNumberOf(text, heading.start()),
+                    heading.start(),
+                    heading.end(),
+                    heading.end(),
+                    contentEnd,
+                    content.length()
+            );
             episodes.add(new ParsedEpisode(
                     heading.episodeNo(),
-                    resolveHeadingTitle(heading),
+                    title,
                     content
             ));
         }
@@ -152,6 +173,21 @@ public class EpisodeUploadParser {
         } catch (IOException exception) {
             throw new AppException(UploadErrorCode.UPLOAD_FILE_READ_FAILED, exception);
         }
+    }
+
+    private int lineNumberOf(String text, int offset) {
+        int lineNumber = 1;
+        int end = Math.min(offset, text.length());
+        for (int index = 0; index < end; index++) {
+            if (text.charAt(index) == '\n') {
+                lineNumber++;
+            }
+        }
+        return lineNumber;
+    }
+
+    private String resolveOriginalFilename(MultipartFile file) {
+        return StringUtils.hasText(file.getOriginalFilename()) ? file.getOriginalFilename() : "untitled.txt";
     }
 
     private String resolveTitle(String requestedTitle, String originalFilename, int episodeNo) {
