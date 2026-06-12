@@ -29,7 +29,7 @@ public class WorkServiceImpl implements WorkService {
     @Override
     @Transactional
     public WorkResponse createWork(Long memberId, WorkCreateRequest request) {
-        Member member = getMember(memberId);
+        Member member = memberRepository.getByIdOrThrow(memberId);
         Work work = workMapper.toEntity(request, member);
         return workMapper.toResponse(workRepository.save(work));
     }
@@ -53,12 +53,6 @@ public class WorkServiceImpl implements WorkService {
         Work work = getOwnedWork(workId, memberId);
         workRepository.delete(work);
     }
-
-    private Member getMember(Long memberId) {
-        return memberRepository.findById(memberId)
-                .orElseThrow(() -> new AppException(MemberErrorCode.MEMBER_NOT_FOUND));
-    }
-
     private Work getOwnedWork(UUID workId, Long memberId) {
         return workRepository.findByIdAndMemberId(workId, memberId)
                 .orElseThrow(() -> new AppException(WorkErrorCode.WORK_NOT_FOUND));
