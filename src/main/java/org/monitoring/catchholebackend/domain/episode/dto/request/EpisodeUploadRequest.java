@@ -4,7 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
-import org.monitoring.catchholebackend.domain.upload.entity.UploadType;
+import org.monitoring.catchholebackend.domain.upload.type.UploadType;
 
 @Schema(description = "회차 업로드 요청 메타데이터")
 public record EpisodeUploadRequest(

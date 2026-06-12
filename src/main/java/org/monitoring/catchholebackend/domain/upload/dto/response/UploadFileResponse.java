@@ -2,8 +2,8 @@ package org.monitoring.catchholebackend.domain.upload.dto.response;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.UUID;
-import org.monitoring.catchholebackend.domain.upload.entity.UploadFileParseStatus;
-import org.monitoring.catchholebackend.domain.upload.entity.UploadFileRole;
+import org.monitoring.catchholebackend.domain.upload.type.UploadFileParseStatus;
+import org.monitoring.catchholebackend.domain.upload.type.UploadFileRole;
 
 @Schema(description = "업로드 파일 응답")
 public record UploadFileResponse(

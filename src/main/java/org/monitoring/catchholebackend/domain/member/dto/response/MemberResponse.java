@@ -2,8 +2,8 @@ package org.monitoring.catchholebackend.domain.member.dto.response;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import org.monitoring.catchholebackend.domain.auth.security.MemberPrincipal;
-import org.monitoring.catchholebackend.domain.member.entity.MemberRole;
-import org.monitoring.catchholebackend.domain.member.entity.MemberStatus;
+import org.monitoring.catchholebackend.domain.member.type.MemberRole;
+import org.monitoring.catchholebackend.domain.member.type.MemberStatus;
 
 @Schema(description = "회원 응답")
 public record MemberResponse(

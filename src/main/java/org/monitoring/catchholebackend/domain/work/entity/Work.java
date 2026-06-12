@@ -17,6 +17,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
+import org.monitoring.catchholebackend.domain.work.type.WorkStatus;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 
 @Getter

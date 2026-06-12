@@ -4,8 +4,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.upload.dto.response.UploadFileResponse;
-import org.monitoring.catchholebackend.domain.upload.entity.UploadStatus;
-import org.monitoring.catchholebackend.domain.upload.entity.UploadType;
+import org.monitoring.catchholebackend.domain.upload.type.UploadStatus;
+import org.monitoring.catchholebackend.domain.upload.type.UploadType;
 
 @Schema(description = "회차 업로드 결과 응답")
 public record EpisodeUploadResponse(

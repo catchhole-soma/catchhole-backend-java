@@ -12,8 +12,8 @@ import org.monitoring.catchholebackend.domain.auth.security.MemberPrincipal;
 import org.monitoring.catchholebackend.domain.auth.service.AuthService;
 import org.monitoring.catchholebackend.domain.auth.service.AuthTokenIssueResult;
 import org.monitoring.catchholebackend.domain.auth.token.RefreshTokenCookieFactory;
-import org.monitoring.catchholebackend.domain.member.entity.MemberRole;
-import org.monitoring.catchholebackend.domain.member.entity.MemberStatus;
+import org.monitoring.catchholebackend.domain.member.type.MemberRole;
+import org.monitoring.catchholebackend.domain.member.type.MemberStatus;
 import org.monitoring.catchholebackend.global.config.auth.AuthProperties;
 import org.springframework.http.HttpHeaders;
 

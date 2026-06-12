@@ -9,7 +9,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeUploadRequest;
-import org.monitoring.catchholebackend.domain.upload.entity.UploadType;
+import org.monitoring.catchholebackend.domain.upload.type.UploadType;
 import org.monitoring.catchholebackend.domain.upload.exception.UploadErrorCode;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.stereotype.Component;

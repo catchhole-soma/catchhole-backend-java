@@ -1,4 +1,4 @@
-package org.monitoring.catchholebackend.domain.upload.entity;
+package org.monitoring.catchholebackend.domain.upload.type;
 
 public enum UploadFileParseStatus {
     PENDING,

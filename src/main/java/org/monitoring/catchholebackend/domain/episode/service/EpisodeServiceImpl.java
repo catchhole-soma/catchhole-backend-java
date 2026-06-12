@@ -24,8 +24,8 @@ import org.monitoring.catchholebackend.domain.episode.parser.ParsedUploadFile;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
-import org.monitoring.catchholebackend.domain.upload.entity.UploadFileRole;
-import org.monitoring.catchholebackend.domain.upload.entity.UploadSourceType;
+import org.monitoring.catchholebackend.domain.upload.type.UploadFileRole;
+import org.monitoring.catchholebackend.domain.upload.type.UploadSourceType;
 import org.monitoring.catchholebackend.domain.upload.exception.UploadErrorCode;
 import org.monitoring.catchholebackend.domain.upload.mapper.UploadMapper;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
@@ -246,7 +246,6 @@ public class EpisodeServiceImpl implements EpisodeService {
                 sha256(parsedEpisode.content()),
                 parsedEpisode.content().length()
         );
-        episode.markParsed();
         return episode;
     }
 

@@ -3,7 +3,7 @@ package org.monitoring.catchholebackend.domain.episode.dto.response;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.util.UUID;
-import org.monitoring.catchholebackend.domain.episode.entity.EpisodeStatus;
+import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 
 @Schema(description = "회차 목록 응답")
 public record EpisodeSummaryResponse(

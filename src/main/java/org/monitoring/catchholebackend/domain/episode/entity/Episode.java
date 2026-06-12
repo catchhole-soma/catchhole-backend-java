@@ -17,6 +17,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
+import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 
 @Getter
@@ -118,7 +119,7 @@ public class Episode extends BaseEntity {
         this.contentS3Version = contentS3Version;
         this.contentHash = contentHash;
         this.charCount = charCount;
-        this.status = EpisodeStatus.PARSED;
+        this.status = EpisodeStatus.UPLOADED;
     }
 
     public void updateContentStorage(String contentS3Key, String contentS3Version, String contentHash) {
@@ -127,8 +128,24 @@ public class Episode extends BaseEntity {
         this.contentHash = contentHash;
     }
 
-    public void markParsed() {
-        this.status = EpisodeStatus.PARSED;
+    public void markChunking() {
+        this.status = EpisodeStatus.CHUNKING;
+    }
+
+    public void markChunked() {
+        this.status = EpisodeStatus.CHUNKED;
+    }
+
+    public void markPreprocessing() {
+        this.status = EpisodeStatus.PREPROCESSING;
+    }
+
+    public void markPreprocessed() {
+        this.status = EpisodeStatus.PREPROCESSED;
+    }
+
+    public void markAnalyzing() {
+        this.status = EpisodeStatus.ANALYZING;
     }
 
     public void markAnalyzed() {

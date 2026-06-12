@@ -16,6 +16,8 @@ import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.monitoring.catchholebackend.domain.upload.type.UploadFileParseStatus;
+import org.monitoring.catchholebackend.domain.upload.type.UploadFileRole;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 
 @Getter

@@ -3,7 +3,7 @@ package org.monitoring.catchholebackend.domain.work.dto.response;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.util.UUID;
-import org.monitoring.catchholebackend.domain.work.entity.WorkStatus;
+import org.monitoring.catchholebackend.domain.work.type.WorkStatus;
 
 @Schema(description = "작품 응답")
 public record WorkResponse(

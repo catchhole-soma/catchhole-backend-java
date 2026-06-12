@@ -4,9 +4,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
-import org.monitoring.catchholebackend.domain.upload.entity.UploadSourceType;
-import org.monitoring.catchholebackend.domain.upload.entity.UploadStatus;
-import org.monitoring.catchholebackend.domain.upload.entity.UploadType;
+import org.monitoring.catchholebackend.domain.upload.type.UploadSourceType;
+import org.monitoring.catchholebackend.domain.upload.type.UploadStatus;
+import org.monitoring.catchholebackend.domain.upload.type.UploadType;
 
 @Schema(description = "업로드 배치 응답")
 public record UploadBatchResponse(
