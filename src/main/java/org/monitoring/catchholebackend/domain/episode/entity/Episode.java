@@ -104,6 +104,23 @@ public class Episode extends BaseEntity {
         this.charCount = charCount;
     }
 
+    public void updateContent(
+            int episodeNo,
+            String title,
+            String contentS3Key,
+            String contentS3Version,
+            String contentHash,
+            int charCount
+    ) {
+        this.episodeNo = episodeNo;
+        this.title = title;
+        this.contentS3Key = contentS3Key;
+        this.contentS3Version = contentS3Version;
+        this.contentHash = contentHash;
+        this.charCount = charCount;
+        this.status = EpisodeStatus.PARSED;
+    }
+
     public void updateContentStorage(String contentS3Key, String contentS3Version, String contentHash) {
         this.contentS3Key = contentS3Key;
         this.contentS3Version = contentS3Version;

@@ -12,5 +12,7 @@ public interface EpisodeRepository extends JpaRepository<Episode, UUID> {
 
     List<Episode> findAllByWorkIdOrderByEpisodeNoDesc(UUID workId);
 
+    Optional<Episode> findFirstByWorkIdOrderByEpisodeNoDesc(UUID workId);
+
     boolean existsByWorkIdAndEpisodeNo(UUID workId, int episodeNo);
 }

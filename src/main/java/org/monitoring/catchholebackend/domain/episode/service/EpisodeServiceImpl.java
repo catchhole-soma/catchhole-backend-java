@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.episode.service;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -9,6 +10,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeUpdateRequest;
 import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeUploadRequest;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeResponse;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeSummaryResponse;
@@ -24,6 +26,7 @@ import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFileRole;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadSourceType;
+import org.monitoring.catchholebackend.domain.upload.exception.UploadErrorCode;
 import org.monitoring.catchholebackend.domain.upload.mapper.UploadMapper;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
@@ -31,6 +34,8 @@ import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.exception.WorkErrorCode;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.global.exception.AppException;
+import org.monitoring.catchholebackend.global.storage.ObjectStorage;
+import org.monitoring.catchholebackend.global.storage.StoredObject;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -48,6 +53,7 @@ public class EpisodeServiceImpl implements EpisodeService {
     private final EpisodeMapper episodeMapper;
     private final UploadMapper uploadMapper;
     private final EpisodeUploadParser episodeUploadParser;
+    private final ObjectStorage objectStorage;
 
     @Override
     public List<EpisodeSummaryResponse> getEpisodes(Long memberId, UUID workId) {
@@ -61,7 +67,52 @@ public class EpisodeServiceImpl implements EpisodeService {
         Work work = getOwnedWork(workId, memberId);
         Episode episode = episodeRepository.findByIdAndWorkId(episodeId, work.getId())
                 .orElseThrow(() -> new AppException(EpisodeErrorCode.EPISODE_NOT_FOUND));
-        return episodeMapper.toResponse(episode);
+        return episodeMapper.toResponse(episode, objectStorage.getText(episode.getContentS3Key()));
+    }
+
+    @Override
+    @Transactional
+    public EpisodeResponse updateEpisode(
+            Long memberId,
+            UUID workId,
+            UUID episodeId,
+            EpisodeUpdateRequest request
+    ) {
+        Work work = getOwnedWork(workId, memberId);
+        Episode episode = getEpisodeInWork(episodeId, work);
+        if (episode.getEpisodeNo() != request.episodeNo()
+                && episodeRepository.existsByWorkIdAndEpisodeNo(work.getId(), request.episodeNo())) {
+            throw new AppException(EpisodeErrorCode.EPISODE_DUPLICATED);
+        }
+
+        String oldContentS3Key = episode.getContentS3Key();
+        String newContentS3Key = buildContentS3Key(work.getId(), request.episodeNo());
+        StoredObject storedObject = objectStorage.putText(newContentS3Key, request.content());
+        if (!oldContentS3Key.equals(newContentS3Key)) {
+            objectStorage.delete(oldContentS3Key);
+        }
+
+        episode.updateContent(
+                request.episodeNo(),
+                request.title(),
+                storedObject.key(),
+                storedObject.versionId(),
+                sha256(request.content()),
+                request.content().length()
+        );
+        refreshLatestEpisodeNo(work);
+        return episodeMapper.toResponse(episode, request.content());
+    }
+
+    @Override
+    @Transactional
+    public void deleteEpisode(Long memberId, UUID workId, UUID episodeId) {
+        Work work = getOwnedWork(workId, memberId);
+        Episode episode = getEpisodeInWork(episodeId, work);
+        objectStorage.delete(episode.getContentS3Key());
+        episodeRepository.delete(episode);
+        episodeRepository.flush();
+        refreshLatestEpisodeNo(work);
     }
 
     @Override
@@ -99,10 +150,16 @@ public class EpisodeServiceImpl implements EpisodeService {
 
         if (isPresent(settingBookFile)) {
             // 설정집은 이번 범위에서 분석하지 않고, 함께 업로드된 파일 메타데이터까지만 저장한다.
+            StoredObject storedSettingBookFile = objectStorage.putBytes(
+                    buildUploadFileS3Key(batch.getId(), resolveOriginalFilename(settingBookFile)),
+                    readBytes(settingBookFile),
+                    settingBookFile.getContentType()
+            );
             UploadFile uploadedSettingBookFile = uploadFileRepository.save(createUploadFile(
                     batch,
                     UploadFileRole.SETTING_BOOK,
-                    settingBookFile
+                    settingBookFile,
+                    storedSettingBookFile.key()
             ));
             uploadedSettingBookFile.markParsed(null, null, null);
         }
@@ -121,6 +178,11 @@ public class EpisodeServiceImpl implements EpisodeService {
     private Work getOwnedWork(UUID workId, Long memberId) {
         return workRepository.findByIdAndMemberId(workId, memberId)
                 .orElseThrow(() -> new AppException(WorkErrorCode.WORK_NOT_FOUND));
+    }
+
+    private Episode getEpisodeInWork(UUID episodeId, Work work) {
+        return episodeRepository.findByIdAndWorkId(episodeId, work.getId())
+                .orElseThrow(() -> new AppException(EpisodeErrorCode.EPISODE_NOT_FOUND));
     }
 
     private int countFiles(List<MultipartFile> episodeFiles, MultipartFile settingBookFile) {
@@ -145,11 +207,18 @@ public class EpisodeServiceImpl implements EpisodeService {
             ParsedUploadFile parsedUploadFile,
             List<Episode> episodes
     ) {
-        // 업로드된 원본 파일 자체의 메타데이터를 저장한다. 실제 파일 저장 위치는 S3 연동 시 교체한다.
+        StoredObject storedUploadFile = objectStorage.putBytes(
+                buildUploadFileS3Key(batch.getId(), resolveOriginalFilename(parsedUploadFile.file())),
+                readBytes(parsedUploadFile.file()),
+                parsedUploadFile.file().getContentType()
+        );
+
+        // 업로드된 원본 파일 자체의 메타데이터를 저장한다. 원본 파일도 S3에 함께 저장한다.
         UploadFile uploadedEpisodeFile = uploadFileRepository.save(createUploadFile(
                 batch,
                 UploadFileRole.EPISODE,
-                parsedUploadFile.file()
+                parsedUploadFile.file(),
+                storedUploadFile.key()
         ));
         uploadedEpisodeFile.markParsed(
                 parsedUploadFile.detectedEpisodeStartNo(),
@@ -163,14 +232,17 @@ public class EpisodeServiceImpl implements EpisodeService {
     }
 
     private Episode createEpisode(Work work, UploadFile uploadedEpisodeFile, ParsedEpisode parsedEpisode) {
-        // S3 연동 전 임시 흐름이다. 원문은 해시와 글자 수 계산에만 사용하고, 아직 영속 저장하지 않는다.
+        StoredObject storedObject = objectStorage.putText(
+                buildContentS3Key(work.getId(), parsedEpisode.episodeNo()),
+                parsedEpisode.content()
+        );
         Episode episode = Episode.create(
                 work,
                 uploadedEpisodeFile.getId(),
                 parsedEpisode.episodeNo(),
                 parsedEpisode.title(),
-                buildContentS3Key(work.getId(), parsedEpisode.episodeNo()),
-                null,
+                storedObject.key(),
+                storedObject.versionId(),
                 sha256(parsedEpisode.content()),
                 parsedEpisode.content().length()
         );
@@ -178,23 +250,40 @@ public class EpisodeServiceImpl implements EpisodeService {
         return episode;
     }
 
-    private UploadFile createUploadFile(UploadBatch batch, UploadFileRole fileRole, MultipartFile file) {
+    private UploadFile createUploadFile(
+            UploadBatch batch,
+            UploadFileRole fileRole,
+            MultipartFile file,
+            String storageKey
+    ) {
         return UploadFile.create(
                 batch,
                 fileRole,
                 resolveOriginalFilename(file),
                 file.getContentType(),
-                buildStorageUrl(batch.getId(), resolveOriginalFilename(file)),
+                buildStorageUrl(storageKey),
                 file.getSize()
         );
+    }
+
+    private byte[] readBytes(MultipartFile file) {
+        try {
+            return file.getBytes();
+        } catch (IOException exception) {
+            throw new AppException(UploadErrorCode.UPLOAD_FILE_READ_FAILED, exception);
+        }
     }
 
     private String resolveOriginalFilename(MultipartFile file) {
         return StringUtils.hasText(file.getOriginalFilename()) ? file.getOriginalFilename() : "untitled.txt";
     }
 
-    private String buildStorageUrl(UUID batchId, String originalFilename) {
-        return "pending://upload-batches/" + batchId + "/" + originalFilename;
+    private String buildStorageUrl(String storageKey) {
+        return "s3://" + storageKey;
+    }
+
+    private String buildUploadFileS3Key(UUID batchId, String originalFilename) {
+        return "upload-batches/" + batchId + "/" + UUID.randomUUID() + "-" + originalFilename;
     }
 
     private String buildContentS3Key(UUID workId, int episodeNo) {
@@ -203,6 +292,13 @@ public class EpisodeServiceImpl implements EpisodeService {
 
     private boolean isPresent(MultipartFile file) {
         return file != null && !file.isEmpty();
+    }
+
+    private void refreshLatestEpisodeNo(Work work) {
+        int latestEpisodeNo = episodeRepository.findFirstByWorkIdOrderByEpisodeNoDesc(work.getId())
+                .map(Episode::getEpisodeNo)
+                .orElse(0);
+        work.updateLatestEpisodeNo(latestEpisodeNo);
     }
 
     private String sha256(String text) {

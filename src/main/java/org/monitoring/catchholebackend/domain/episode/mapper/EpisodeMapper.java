@@ -9,13 +9,14 @@ import org.springframework.stereotype.Component;
 @Component
 public class EpisodeMapper {
 
-    public EpisodeResponse toResponse(Episode episode) {
+    public EpisodeResponse toResponse(Episode episode, String content) {
         return new EpisodeResponse(
                 episode.getId(),
                 episode.getWork().getId(),
                 episode.getSourceFileId(),
                 episode.getEpisodeNo(),
                 episode.getTitle(),
+                content,
                 episode.getContentS3Key(),
                 episode.getContentS3Version(),
                 episode.getContentHash(),

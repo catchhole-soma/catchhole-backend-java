@@ -9,6 +9,12 @@ cors:
   allowed-origins:
     - http://localhost:3000
 
+storage:
+  s3:
+    bucket: ${AWS_S3_BUCKET:catchhole-local}
+    region: ${AWS_REGION:ap-northeast-2}
+    endpoint-override: ${AWS_S3_ENDPOINT_OVERRIDE:}
+
 auth:
   jwt:
     # local 개발용 기본값. prod에서는 JWT_SECRET 환경변수로 override.

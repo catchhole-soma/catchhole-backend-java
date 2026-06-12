@@ -22,6 +22,9 @@ public record EpisodeResponse(
         @Schema(description = "회차 제목", example = "운명의 실타래", nullable = true)
         String title,
 
+        @Schema(description = "회차 원문", example = "어둠이 짙게 깔린 성벽 너머로 차가운 바람이 불어왔다.")
+        String content,
+
         @Schema(description = "원문 S3 key", example = "works/{workId}/episodes/{episodeId}.txt", nullable = true)
         String contentS3Key,
 
