@@ -3,6 +3,8 @@ spring:
     name: CatchHole-Backend
   profiles:
     active: local
+  config:
+    import: optional:file:.env[.properties]
 
 # 개발 기본값. prod에서는 환경변수로 override.
 cors:
@@ -14,6 +16,8 @@ storage:
     bucket: ${AWS_S3_BUCKET:catchhole-local}
     region: ${AWS_REGION:ap-northeast-2}
     endpoint-override: ${AWS_S3_ENDPOINT_OVERRIDE:}
+    access-key-id: ${AWS_ACCESS_KEY_ID:}
+    secret-access-key: ${AWS_SECRET_ACCESS_KEY:}
 
 auth:
   jwt:

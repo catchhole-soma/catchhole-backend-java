@@ -14,4 +14,8 @@ public class S3StorageProperties {
     private String region;
 
     private String endpointOverride;
+
+    private String accessKeyId;
+
+    private String secretAccessKey;
 }

@@ -43,6 +43,7 @@
 - 기본 활성 프로파일은 `application.yml`의 `spring.profiles.active: local`. 운영 배포 시 `SPRING_PROFILES_ACTIVE=prod`로 덮어쓴다.
 - 운영 환경 설정값(DB 접속 정보, 허용 origin 등)은 `${ENV_VAR}` 플레이스홀더로 두고, yml에 평문으로 적지 않는다.
 - 운영 JWT 서명키는 `JWT_SECRET` 환경변수로 주입한다. 최소 32바이트 이상이어야 하며, 로그/응답/테스트 실패 메시지에 노출하지 않는다.
+- 로컬 실행 시 `application.yml`이 `apps/CatchHole-Backend/.env`를 optional import한다. AWS/S3 같은 로컬 비밀값은 `.env`에 둘 수 있지만, `.env`는 커밋하지 않는다.
 - 새로운 설정 키를 추가할 때는 base / local / prod 각 위치를 의식적으로 결정한다.
 - **로컬 DB 접속 정보는 `compose.yaml` 단일 출처로 둔다.** `spring-boot-docker-compose` 의존성이 컨테이너에서 호스트/포트/사용자/비밀번호를 자동 추출해 `ServiceConnection` 빈으로 주입한다. yml에 `spring.datasource.*`를 중복 작성하지 않는다 (그림자 설정 방지).
 
@@ -82,7 +83,8 @@ org.monitoring.catchholebackend
     │   ├── jpa
     │   ├── security
     │   └── swagger
-    └── exception
+    ├── exception
+    └── storage
 ```
 
 ### Domain Package
@@ -92,6 +94,7 @@ org.monitoring.catchholebackend
 본 프로젝트는 도메인 중심 설계를 지향하되, 현재의 도메인별 레이어드 구조를 유지한다.
 Entity는 단순 데이터 보관 객체가 아니라 핵심 상태 변경과 도메인 규칙을 표현하는 객체로 설계한다.
 Service는 Entity 조회, 트랜잭션, 저장, DTO 변환 등 유스케이스 흐름을 조율한다.
+파일 저장소 키/URL 생성, 해시 계산처럼 여러 도메인에서 재사용되거나 인프라 세부사항에 가까운 로직은 Service에 두지 말고 `global`의 별도 컴포넌트에 둔다.
 
 이 방식을 선택한 이유는 MVP 개발 속도를 유지하면서도, 비즈니스 규칙이 Service나 Mapper에 흩어지는 것을 줄이고 도메인 객체 내부에 일관되게 모으기 위함이다.
 
@@ -104,6 +107,8 @@ domain/<domain>
 ├── repository/
 ├── entity/                 (JPA Entity)
 ├── type/                   (도메인 전용 enum)
+├── parser/                 (도메인 전용 입력 파싱 컴포넌트)
+├── processor/              (도메인 전용 처리 흐름 컴포넌트)
 ├── dto/
 │   ├── request/
 │   └── response/
@@ -158,6 +163,7 @@ domain/<domain>
 - Controller는 interface에만 의존한다 (`UserService`를 주입받고 `UserServiceImpl`을 직접 참조하지 않는다).
 - 트랜잭션 어노테이션(`@Transactional`)은 **구현체**에 붙인다.
 - 읽기 전용 메서드는 클래스 레벨 `@Transactional(readOnly = true)` 후 쓰기 메서드에 `@Transactional`을 덮어쓴다.
+- 구현체가 길어질 때는 전체 유스케이스의 소유권은 Service에 남기되, 파싱/업로드 처리/외부 저장소 조작 같은 세부 흐름은 `parser`, `mapper`, 도메인 전용 processor, `global` 컴포넌트로 분리한다.
 
 예시:
 
@@ -193,14 +199,15 @@ public class UserServiceImpl implements UserService {
 
 #### Mapping
 
-- Entity ↔ DTO 변환은 **별도 Mapper 클래스**를 만들어 처리한다 (MapStruct 사용하지 않는다).
+- 도메인 객체, DTO, 파싱 결과, 외부 저장소 결과처럼 계층 사이를 오가는 값 변환과 단순 객체 조립은 **별도 Mapper 클래스**를 만들어 처리한다 (MapStruct 사용하지 않는다).
 - 매퍼는 `domain/<domain>/mapper/` 아래에 두고 `@Component`로 선언한다.
   - 다른 빈 주입이 필요해질 수 있으므로 일관되게 Spring 빈으로 관리한다.
-- 메서드 네이밍은 변환 방향이 드러나도록 통일한다.
+- 메서드 네이밍은 변환/조립 결과가 드러나도록 통일한다.
   - `toEntity(request)` — Request DTO → Entity
+  - `toEntity(parsed, stored)` — 파싱 결과 / 저장소 결과 → Entity
   - `toResponse(entity)` — Entity → Response DTO
   - `toResponseList(entities)` — Entity 목록 → Response DTO 목록
-- 매퍼는 단순 변환만 수행하고, 비즈니스 로직은 `service`에 둔다.
+- 매퍼는 값 복사와 단순 조립만 수행하고, 검증/저장/상태 전이 같은 비즈니스 흐름은 `service`, 도메인 전용 processor, Entity에 둔다.
 
 예시:
 
