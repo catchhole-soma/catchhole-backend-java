@@ -1,0 +1,268 @@
+# Analysis Domain
+
+## 목적
+
+Analysis 도메인은 작품 단위 AI 분석 작업의 상태와 결과 메타데이터를 추적합니다.
+
+이번 범위에서는 실제 Python AI Worker, SQS 연동, LLM 호출을 구현하지 않고, 백엔드가 분석 작업을 생성하고 조회할 수 있는 상태 모델과 API를 제공합니다.
+
+## 핵심 결정
+
+### 원문 저장
+
+분석 작업은 원문 텍스트를 DB에 복사하지 않습니다.
+
+회차 원문은 기존 `Episode`의 S3 저장 구조를 재사용합니다.
+
+- `episodes.content_s3_key`
+- `episodes.content_s3_version`
+- `episodes.content_hash`
+- `episodes.char_count`
+
+`analysis_jobs`에는 분석 상태와 결과 메타데이터만 저장합니다.
+
+### 생성 요청 단위
+
+분석 작업 생성 API는 `batchId`를 필수 입력으로 받습니다.
+
+업로드 배치 하나에는 파일이 여러 개 있을 수 있고, 각 파일에서 여러 회차가 생성될 수 있습니다. 백엔드는 이미 batch 기준으로 어떤 업로드 파일과 회차가 연결되는지 추적할 수 있으므로 클라이언트가 `episodeId`를 직접 넘기지 않습니다.
+
+현재 연결 흐름은 다음과 같습니다.
+
+```text
+upload_batches.id
+  -> upload_files.batch_id
+  -> episodes.source_file_id
+```
+
+회차별 세부 작업이 필요해지면 워커 또는 내부 서비스가 batch에 속한 episode 목록을 조회해 처리합니다.
+
+### 진행률
+
+`progress` 숫자 필드는 사용하지 않습니다.
+
+실제 분석 진행률을 정확히 계산하기 어렵기 때문에 fake percentage를 저장하지 않습니다. 클라이언트는 `status` enum과 필요한 경우 `currentStep`을 사용해 사용자에게 현재 상태를 보여줍니다.
+
+## 상태 모델
+
+`AnalysisJobStatus`
+
+| 상태 | 의미 |
+| --- | --- |
+| `PENDING` | 작업 생성 후 분석 대기 |
+| `RUNNING` | 분석 진행 중 |
+| `SUCCEEDED` | 분석 성공 |
+| `FAILED` | 분석 실패 |
+
+`AnalysisJobType`
+
+| 유형 | 의미 |
+| --- | --- |
+| `SETTING_EXTRACTION` | 설정집 추출 |
+| `EPISODE_VALIDATION` | 회차 검수 |
+
+## DB 모델
+
+`analysis_jobs`
+
+| 필드 | 설명 |
+| --- | --- |
+| `id` | 분석 작업 ID |
+| `work_id` | 분석 대상 작품 ID |
+| `batch_id` | 분석 대상 업로드 배치 ID |
+| `episode_id` | 회차별 내부 작업이 필요할 때 사용할 선택 연결 |
+| `job_type` | 분석 작업 유형 |
+| `status` | 분석 작업 상태 |
+| `current_step` | 워커가 기록하는 현재 처리 단계 |
+| `model_name` | 사용한 AI 모델명 |
+| `input_token_count` | 입력 토큰 수 |
+| `output_token_count` | 출력 토큰 수 |
+| `summary_json` | 분석 결과 요약 JSON |
+| `error_message` | 실패 사유 |
+| `started_at` | 분석 시작 시각 |
+| `completed_at` | 분석 완료 시각 |
+| `created_at` | 생성 시각 |
+| `updated_at` | 수정 시각 |
+
+## API
+
+### 분석 작업 생성
+
+```http
+POST /api/v1/works/{workId}/analysis-jobs
+```
+
+Request
+
+```json
+{
+  "jobType": "EPISODE_VALIDATION",
+  "batchId": "01970c2e-7e6d-7000-8e5d-2a9bc4b6d111"
+}
+```
+
+Response
+
+```json
+{
+  "success": true,
+  "message": "분석 작업이 생성되었습니다.",
+  "data": {
+    "id": "01970c2e-7e6d-7000-8e5d-2a9bc4b6d333",
+    "workId": "01970c2e-7e6d-7000-8e5d-2a9bc4b6d444",
+    "workTitle": "내 작품",
+    "batchId": "01970c2e-7e6d-7000-8e5d-2a9bc4b6d111",
+    "target": {
+      "batchId": "01970c2e-7e6d-7000-8e5d-2a9bc4b6d111",
+      "uploadType": "INITIAL_IMPORT",
+      "sourceType": "FILE",
+      "status": "COMPLETED",
+      "fileCount": 2,
+      "episodeStartNo": 1,
+      "episodeEndNo": 10,
+      "episodeCount": 10
+    },
+    "episodeId": null,
+    "jobType": "EPISODE_VALIDATION",
+    "status": "PENDING",
+    "currentStep": null,
+    "modelName": null,
+    "inputTokenCount": null,
+    "outputTokenCount": null,
+    "summaryJson": null,
+    "errorMessage": null,
+    "startedAt": null,
+    "completedAt": null,
+    "createdAt": "2026-06-14T10:29:00",
+    "updatedAt": "2026-06-14T10:29:00"
+  },
+  "error": null,
+  "timestamp": "2026-06-14T10:29:00"
+}
+```
+
+### 분석 작업 목록 조회
+
+```http
+GET /api/v1/works/{workId}/analysis-jobs
+```
+
+로그인한 사용자의 해당 작품에 생성된 분석 작업을 최신 생성순으로 조회합니다.
+
+### 분석 작업 상세 조회
+
+```http
+GET /api/v1/works/{workId}/analysis-jobs/{analysisJobId}
+```
+
+로그인한 사용자의 해당 작품에 속한 특정 분석 작업 상태와 결과 메타데이터를 조회합니다.
+
+## API Workflow
+
+시각적인 흐름도는 [Analysis Workflow](analysis-workflow.md)에서 확인합니다.
+
+### `POST /api/v1/works/{workId}/analysis-jobs`
+
+분석 작업 생성 흐름입니다.
+
+1. Controller가 인증된 `MemberPrincipal`에서 `memberId`를 꺼냅니다.
+2. Request body의 `jobType`, `batchId`를 validation 합니다.
+3. Service가 `workId`, `memberId`로 본인 작품을 조회합니다.
+4. 작품이 없거나 다른 회원의 작품이면 `WORK_NOT_FOUND`를 반환합니다.
+5. Service가 `batchId`, `workId`로 업로드 배치를 조회합니다.
+6. batch가 없거나 해당 작품에 속하지 않으면 `ANALYSIS_JOB_TARGET_NOT_FOUND`를 반환합니다.
+7. `AnalysisJob`을 `PENDING` 상태로 생성합니다.
+8. 생성된 작업을 저장하고 `AnalysisJobResponse`로 반환합니다.
+
+```text
+Client
+  -> AnalysisJobController
+  -> AnalysisJobService
+  -> WorkRepository.getOwnedWork(workId, memberId)
+  -> UploadBatchRepository.findByIdAndWorkId(batchId, workId)
+  -> AnalysisJobRepository.save(PENDING job)
+  -> AnalysisJobResponse
+```
+
+이 API는 분석을 즉시 수행하지 않습니다. 현재 범위에서는 “분석해야 할 작업을 등록한다”까지만 담당합니다.
+
+### `GET /api/v1/works/{workId}/analysis-jobs`
+
+분석 작업 목록 조회 흐름입니다.
+
+1. Controller가 인증된 `MemberPrincipal`에서 `memberId`를 꺼냅니다.
+2. Service가 `workId`, `memberId`로 본인 작품을 조회합니다.
+3. 작품이 없거나 다른 회원의 작품이면 `WORK_NOT_FOUND`를 반환합니다.
+4. 해당 작품의 분석 작업을 최신 생성순으로 조회합니다.
+5. 각 `AnalysisJob`을 `AnalysisJobResponse`로 변환해 반환합니다.
+
+```text
+Client
+  -> AnalysisJobController
+  -> AnalysisJobService
+  -> WorkRepository.getOwnedWork(workId, memberId)
+  -> AnalysisJobRepository.findAllByWorkIdOrderByCreatedAtDesc(workId)
+  -> List<AnalysisJobResponse>
+```
+
+프론트엔드는 목록 응답의 `status`, `currentStep`, `createdAt`, `updatedAt`을 사용해 작업 현황을 표시합니다.
+`workTitle`과 `target.episodeStartNo`, `target.episodeEndNo`, `target.episodeCount`를 사용하면 추가 조회 없이 분석 대상 표시 문구를 만들 수 있습니다.
+
+### `GET /api/v1/works/{workId}/analysis-jobs/{analysisJobId}`
+
+분석 작업 상세 조회 흐름입니다.
+
+1. Controller가 인증된 `MemberPrincipal`에서 `memberId`를 꺼냅니다.
+2. Service가 `workId`, `memberId`로 본인 작품을 조회합니다.
+3. 작품이 없거나 다른 회원의 작품이면 `WORK_NOT_FOUND`를 반환합니다.
+4. `analysisJobId`, `workId`로 분석 작업을 조회합니다.
+5. 작업이 없거나 해당 작품에 속하지 않으면 `ANALYSIS_JOB_NOT_FOUND`를 반환합니다.
+6. 작업 상태와 결과 메타데이터를 `AnalysisJobResponse`로 반환합니다.
+
+```text
+Client
+  -> AnalysisJobController
+  -> AnalysisJobService
+  -> WorkRepository.getOwnedWork(workId, memberId)
+  -> AnalysisJobRepository.findByIdAndWorkId(analysisJobId, workId)
+  -> AnalysisJobResponse
+```
+
+상세 조회는 분석 결과 전체 원문을 내려주기보다, 작업 상태와 요약 메타데이터를 확인하는 API로 둡니다.
+
+## Internal Batch Workflow
+
+분석 생성 request는 `batchId`만 받지만, 실제 분석 처리 단계에서는 batch 안의 회차들을 찾아야 합니다.
+
+현재 코드 기준 연결은 다음 순서로 풀 수 있습니다.
+
+1. `upload_batches.id`로 업로드 배치를 찾습니다.
+2. `upload_files.batch_id`로 batch에 속한 업로드 파일들을 찾습니다.
+3. `episodes.source_file_id`로 각 업로드 파일에서 생성된 회차들을 찾습니다.
+4. 워커 또는 내부 서비스가 회차 목록을 순회하며 분석합니다.
+5. 분석 작업 상태를 `RUNNING`, `SUCCEEDED`, `FAILED`로 변경합니다.
+6. 필요하면 `currentStep`, `modelName`, token count, `summaryJson`, `errorMessage`를 기록합니다.
+
+예상 조회 흐름은 다음과 같습니다.
+
+```text
+analysis_jobs.batch_id
+  -> upload_batches.id
+  -> upload_files.batch_id
+  -> episodes.source_file_id
+```
+
+이 흐름을 사용하면 batch에 회차가 한 개이든 여러 개이든 같은 분석 작업 생성 API를 유지할 수 있습니다.
+
+## 접근 제어
+
+- 본인 작품의 분석 작업만 생성하고 조회할 수 있습니다.
+- 다른 회원의 작품 접근은 `WORK_NOT_FOUND`로 응답합니다.
+- 요청한 `batchId`가 해당 작품에 속하지 않으면 `ANALYSIS_JOB_TARGET_NOT_FOUND`로 응답합니다.
+
+## 이후 작업
+
+- batch에 속한 upload file과 episode 목록 조회 유스케이스 추가
+- Python AI Worker가 사용할 작업 수신/상태 변경 API 또는 메시지 계약 정의
+- `summary_json` 구조 확정
+- 실패 재시도 정책 정의
