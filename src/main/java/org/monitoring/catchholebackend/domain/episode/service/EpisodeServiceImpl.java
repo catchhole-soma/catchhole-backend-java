@@ -14,7 +14,6 @@ import org.monitoring.catchholebackend.domain.episode.mapper.EpisodeMapper;
 import org.monitoring.catchholebackend.domain.episode.processor.EpisodeUploadProcessor;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
-import org.monitoring.catchholebackend.domain.work.exception.WorkErrorCode;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
@@ -36,14 +35,14 @@ public class EpisodeServiceImpl implements EpisodeService {
 
     @Override
     public List<EpisodeSummaryResponse> getEpisodes(Long memberId, UUID workId) {
-        Work work = getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWork(workId, memberId);
         List<Episode> episodes = episodeRepository.findAllByWorkIdOrderByEpisodeNoDesc(work.getId());
         return episodeMapper.toSummaryResponseList(episodes);
     }
 
     @Override
     public EpisodeResponse getEpisode(Long memberId, UUID workId, UUID episodeId) {
-        Work work = getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWork(workId, memberId);
         Episode episode = getEpisodeInWork(episodeId, work);
         return episodeMapper.toResponse(episode, objectStorageService.getText(episode.getContentS3Key()));
     }
@@ -56,7 +55,7 @@ public class EpisodeServiceImpl implements EpisodeService {
             UUID episodeId,
             EpisodeUpdateRequest request
     ) {
-        Work work = getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWork(workId, memberId);
         Episode episode = getEpisodeInWork(episodeId, work);
         validateEpisodeNoForUpdate(work, episode, request.episodeNo());
 
@@ -82,7 +81,7 @@ public class EpisodeServiceImpl implements EpisodeService {
     @Override
     @Transactional
     public void deleteEpisode(Long memberId, UUID workId, UUID episodeId) {
-        Work work = getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWork(workId, memberId);
         Episode episode = getEpisodeInWork(episodeId, work);
         objectStorageService.delete(episode.getContentS3Key());
         episodeRepository.delete(episode);
@@ -99,13 +98,8 @@ public class EpisodeServiceImpl implements EpisodeService {
             List<MultipartFile> episodeFiles,
             MultipartFile settingBookFile
     ) {
-        Work work = getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWork(workId, memberId);
         return episodeUploadProcessor.upload(work, request, episodeFiles, settingBookFile);
-    }
-
-    private Work getOwnedWork(UUID workId, Long memberId) {
-        return workRepository.findByIdAndMemberId(workId, memberId)
-                .orElseThrow(() -> new AppException(WorkErrorCode.WORK_NOT_FOUND));
     }
 
     private Episode getEpisodeInWork(UUID episodeId, Work work) {
