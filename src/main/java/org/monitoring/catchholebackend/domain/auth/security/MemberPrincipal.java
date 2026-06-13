@@ -3,8 +3,8 @@ package org.monitoring.catchholebackend.domain.auth.security;
 import java.util.Collection;
 import java.util.List;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
-import org.monitoring.catchholebackend.domain.member.entity.MemberRole;
-import org.monitoring.catchholebackend.domain.member.entity.MemberStatus;
+import org.monitoring.catchholebackend.domain.member.type.MemberRole;
+import org.monitoring.catchholebackend.domain.member.type.MemberStatus;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 

@@ -38,10 +38,12 @@
 | `application.yml` | 모든 환경 공통 설정 (앱 이름, 기본 활성 프로파일, CORS 기본값) |
 | `application-local.yml` | 로컬 개발 (JPA `update`, SQL 로그). DB 접속은 yml에 두지 않는다 |
 | `application-prod.yml` | 운영 (DB / CORS는 환경변수 주입, JPA `validate`) |
+| `src/test/resources/application-test.yml` | 통합 테스트 (H2 인메모리 DB, JPA `create-drop`) |
 
 - 기본 활성 프로파일은 `application.yml`의 `spring.profiles.active: local`. 운영 배포 시 `SPRING_PROFILES_ACTIVE=prod`로 덮어쓴다.
 - 운영 환경 설정값(DB 접속 정보, 허용 origin 등)은 `${ENV_VAR}` 플레이스홀더로 두고, yml에 평문으로 적지 않는다.
 - 운영 JWT 서명키는 `JWT_SECRET` 환경변수로 주입한다. 최소 32바이트 이상이어야 하며, 로그/응답/테스트 실패 메시지에 노출하지 않는다.
+- 로컬 실행 시 `application.yml`이 `apps/CatchHole-Backend/.env`를 optional import한다. AWS/S3 같은 로컬 비밀값은 `.env`에 둘 수 있지만, `.env`는 커밋하지 않는다.
 - 새로운 설정 키를 추가할 때는 base / local / prod 각 위치를 의식적으로 결정한다.
 - **로컬 DB 접속 정보는 `compose.yaml` 단일 출처로 둔다.** `spring-boot-docker-compose` 의존성이 컨테이너에서 호스트/포트/사용자/비밀번호를 자동 추출해 `ServiceConnection` 빈으로 주입한다. yml에 `spring.datasource.*`를 중복 작성하지 않는다 (그림자 설정 방지).
 
@@ -60,6 +62,17 @@
 ```text
 org.monitoring.catchholebackend
 ├── domain
+│   └── work
+│       ├── controller
+│       ├── dto
+│       │   ├── request
+│       │   └── response
+│       ├── entity
+│       ├── exception
+│       ├── mapper
+│       ├── repository
+│       ├── service
+│       └── type
 └── global
     ├── common
     │   ├── entity
@@ -70,7 +83,8 @@ org.monitoring.catchholebackend
     │   ├── jpa
     │   ├── security
     │   └── swagger
-    └── exception
+    ├── exception
+    └── storage
 ```
 
 ### Domain Package
@@ -80,6 +94,7 @@ org.monitoring.catchholebackend
 본 프로젝트는 도메인 중심 설계를 지향하되, 현재의 도메인별 레이어드 구조를 유지한다.
 Entity는 단순 데이터 보관 객체가 아니라 핵심 상태 변경과 도메인 규칙을 표현하는 객체로 설계한다.
 Service는 Entity 조회, 트랜잭션, 저장, DTO 변환 등 유스케이스 흐름을 조율한다.
+파일 저장소 키/URL 생성, 해시 계산처럼 여러 도메인에서 재사용되거나 인프라 세부사항에 가까운 로직은 Service에 두지 말고 `global`의 별도 컴포넌트에 둔다.
 
 이 방식을 선택한 이유는 MVP 개발 속도를 유지하면서도, 비즈니스 규칙이 Service나 Mapper에 흩어지는 것을 줄이고 도메인 객체 내부에 일관되게 모으기 위함이다.
 
@@ -90,7 +105,10 @@ domain/<domain>
 │   ├── <Domain>Service.java        (interface)
 │   └── <Domain>ServiceImpl.java    (구현체)
 ├── repository/
-├── entity/                 (Entity + 해당 도메인 전용 enum)
+├── entity/                 (JPA Entity)
+├── type/                   (도메인 전용 enum)
+├── parser/                 (도메인 전용 입력 파싱 컴포넌트)
+├── processor/              (도메인 전용 처리 흐름 컴포넌트)
 ├── dto/
 │   ├── request/
 │   └── response/
@@ -99,7 +117,8 @@ domain/<domain>
 ```
 
 - `controller`는 API 진입점만 담당하고, 비즈니스 로직은 `service`에 둔다.
-- `entity` 패키지에는 JPA Entity와 해당 도메인 전용 enum (예: `UserStatus`)을 함께 둔다.
+- `entity` 패키지에는 JPA Entity만 둔다.
+- 도메인 전용 enum은 `type` 패키지에 둔다 (예: `UserStatus`). Entity와 enum을 분리해 JPA Entity 목록을 빠르게 파악하기 위함이다.
 - 모든 JPA Entity는 `global.common.entity.BaseEntity`를 상속한다.
   - `createdAt`, `updatedAt`이 자동 관리된다 (`@CreatedDate`, `@LastModifiedDate`).
   - JPA Auditing은 `global.config.jpa.JpaConfig`의 `@EnableJpaAuditing`으로 활성화되어 있다.
@@ -127,6 +146,13 @@ domain/<domain>
 - Refresh token은 `HttpOnly` 쿠키로 전달한다. 쿠키 path는 `/api/v1/auth`, SameSite 기본값은 `Lax`, 운영 환경에서는 `Secure=true`를 사용한다.
 - 회원가입 시 휴대폰 번호는 하이픈 없는 `010` 시작 11자리 숫자로 받고, `members.phone_number`에 unique로 저장한다. SMS 인증은 별도 기능에서 구현하며, 현재는 `phone_verified=false` 기본값을 유지한다.
 
+#### Work Domain Policy
+
+- Work는 로그인한 회원의 개인 작업공간 리소스로 취급한다.
+- Work 생성 시 서버에서 인증된 `Member`를 소유자로 연결하며, 요청 DTO에서 소유자 식별값을 받지 않는다.
+- Work 목록 조회, 수정, 삭제는 `memberId` 기준으로 본인 작품만 허용한다.
+- 존재하지 않는 작품과 다른 회원의 작품 접근은 모두 `WORK_NOT_FOUND`로 응답해 리소스 존재 여부를 노출하지 않는다.
+
 #### Service Layer
 
 - Service는 **interface와 구현체를 분리**한다.
@@ -137,6 +163,7 @@ domain/<domain>
 - Controller는 interface에만 의존한다 (`UserService`를 주입받고 `UserServiceImpl`을 직접 참조하지 않는다).
 - 트랜잭션 어노테이션(`@Transactional`)은 **구현체**에 붙인다.
 - 읽기 전용 메서드는 클래스 레벨 `@Transactional(readOnly = true)` 후 쓰기 메서드에 `@Transactional`을 덮어쓴다.
+- 구현체가 길어질 때는 전체 유스케이스의 소유권은 Service에 남기되, 파싱/업로드 처리/외부 저장소 조작 같은 세부 흐름은 `parser`, `mapper`, 도메인 전용 processor, `global` 컴포넌트로 분리한다.
 
 예시:
 
@@ -172,14 +199,15 @@ public class UserServiceImpl implements UserService {
 
 #### Mapping
 
-- Entity ↔ DTO 변환은 **별도 Mapper 클래스**를 만들어 처리한다 (MapStruct 사용하지 않는다).
+- 도메인 객체, DTO, 파싱 결과, 외부 저장소 결과처럼 계층 사이를 오가는 값 변환과 단순 객체 조립은 **별도 Mapper 클래스**를 만들어 처리한다 (MapStruct 사용하지 않는다).
 - 매퍼는 `domain/<domain>/mapper/` 아래에 두고 `@Component`로 선언한다.
   - 다른 빈 주입이 필요해질 수 있으므로 일관되게 Spring 빈으로 관리한다.
-- 메서드 네이밍은 변환 방향이 드러나도록 통일한다.
+- 메서드 네이밍은 변환/조립 결과가 드러나도록 통일한다.
   - `toEntity(request)` — Request DTO → Entity
+  - `toEntity(parsed, stored)` — 파싱 결과 / 저장소 결과 → Entity
   - `toResponse(entity)` — Entity → Response DTO
   - `toResponseList(entities)` — Entity 목록 → Response DTO 목록
-- 매퍼는 단순 변환만 수행하고, 비즈니스 로직은 `service`에 둔다.
+- 매퍼는 값 복사와 단순 조립만 수행하고, 검증/저장/상태 전이 같은 비즈니스 흐름은 `service`, 도메인 전용 processor, Entity에 둔다.
 
 예시:
 
@@ -329,8 +357,9 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 ### Pull Request
 
 - PR 본문은 `.github/pull_request_template.md`의 템플릿을 그대로 따른다. `gh pr create`로 만들 때도 템플릿 구조를 본문에 그대로 채워 넣는다.
-- 모든 섹션(개요, Jira 이슈, PR 유형, 확인 사항, 참고 사항)을 작성한다.
+- 모든 섹션(개요, 작업 내용, Jira 이슈, PR 유형, 확인 사항, 참고 사항)을 작성한다.
   - 해당 없는 섹션이라도 삭제하지 말고 "없음" 또는 "해당 없음"으로 명시한다.
+- `작업 내용`은 도메인, API, DB, 테스트, 문서처럼 리뷰어가 변경 흐름을 따라가기 쉬운 단위로 구체적으로 작성한다.
 - `PR 유형` / `확인 사항`은 해당 항목을 `[x]`로 체크한다. 체크되지 않은 항목은 `[ ]`로 그대로 둔다.
 - `Jira 이슈`는 키(예: `CATCH-123`)와 링크를 함께 적는다. 없으면 "없음"으로 표시한다.
 - PR 제목은 커밋 제목 컨벤션(`type(scope): 한국어 설명`)을 그대로 따른다.
@@ -355,4 +384,4 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 
 - 테스트는 `apps/CatchHole-Backend`에서 실행한다.
 - API 응답 규약을 바꾸면 MockMvc 테스트도 함께 갱신한다.
-- DB 설정이 필요한 통합 테스트는 별도 profile 또는 테스트 설정을 명확히 둔다.
+- DB 설정이 필요한 통합 테스트는 `test` profile의 H2 인메모리 DB를 기본으로 사용한다.

@@ -1,4 +1,4 @@
-package org.monitoring.catchholebackend.domain.member.entity;
+package org.monitoring.catchholebackend.domain.member.type;
 
 public enum MemberStatus {
     ACTIVE,

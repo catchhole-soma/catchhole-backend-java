@@ -10,6 +10,8 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.monitoring.catchholebackend.domain.member.exception.MemberErrorCode;
+import org.monitoring.catchholebackend.domain.member.type.MemberRole;
+import org.monitoring.catchholebackend.domain.member.type.MemberStatus;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 import org.monitoring.catchholebackend.global.exception.AppException;
 
