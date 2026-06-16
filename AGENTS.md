@@ -62,6 +62,17 @@
 ```text
 org.monitoring.catchholebackend
 ├── domain
+│   ├── analysis
+│   │   ├── controller
+│   │   ├── dto
+│   │   │   ├── request
+│   │   │   └── response
+│   │   ├── entity
+│   │   ├── exception
+│   │   ├── mapper
+│   │   ├── repository
+│   │   ├── service
+│   │   └── type
 │   └── work
 │       ├── controller
 │       ├── dto
@@ -159,7 +170,7 @@ domain/<domain>
 - Work 생성 시 서버에서 인증된 `Member`를 소유자로 연결하며, 요청 DTO에서 소유자 식별값을 받지 않는다.
 - Work 목록 조회, 수정, 삭제는 `memberId` 기준으로 본인 작품만 허용한다.
 - 존재하지 않는 작품과 다른 회원의 작품 접근은 모두 `WORK_NOT_FOUND`로 응답해 리소스 존재 여부를 노출하지 않는다.
-- 본인 작품 조회가 필요한 도메인 서비스는 `workId + memberId`로 소유권을 먼저 확인한다.
+- 본인 작품 조회가 필요한 도메인 서비스는 `WorkRepository.getOwnedWork(workId, memberId)`를 사용해 소유권 확인과 `WORK_NOT_FOUND` 응답을 일관되게 처리한다.
 
 #### Episode / Upload Domain Policy
 
@@ -168,6 +179,13 @@ domain/<domain>
 - 업로드에서 생성된 회차는 `episodes.source_file_id`로 원본 업로드 파일을 추적한다.
 - 같은 작품 안에서 회차 번호는 중복될 수 없다.
 - 회차 조회, 수정, 삭제, 업로드는 모두 먼저 작품 소유권을 확인한다.
+
+#### Analysis Domain Policy
+
+- AnalysisJob은 작품 단위 AI 분석 작업의 상태와 결과 메타데이터를 추적한다.
+- 원문 텍스트는 `Episode`의 S3 저장 구조를 재사용하고, `analysis_jobs`에는 상태, 현재 단계, 모델명, 토큰 수, 요약 JSON, 실패 사유만 저장한다.
+- 분석 작업 생성 API는 업로드 흐름의 단위인 `batch_id`를 필수 입력으로 받는다. `episode_id`는 회차별 세부 작업이 필요해질 때 내부 작업 모델에서 선택적으로 사용할 수 있다.
+- 본인 작품의 분석 작업만 생성/조회할 수 있으며, 다른 회원의 작품이나 다른 작품에 속한 분석 대상은 404로 응답한다.
 
 #### Service Layer
 
