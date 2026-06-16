@@ -70,3 +70,6 @@ docs/.obsidian/
 ### macOS ###
 .DS_Store
 **/.DS_Store
+
+### Docs local workspace ###
+docs/.obsidian/
