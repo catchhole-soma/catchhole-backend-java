@@ -13,8 +13,18 @@ erDiagram
     members ||--o{ upload_batches : uploads
     works ||--o{ episodes : contains
     works ||--o{ upload_batches : groups
+    works ||--o{ analysis_jobs : runs
+    works ||--o{ characters : has
+    works ||--o{ setting_candidates : extracts
+    characters ||--o{ character_facts : records
     upload_batches ||--o{ upload_files : contains
     upload_files ||--o{ episodes : source
+    upload_batches ||--o{ analysis_jobs : targets
+    episodes ||--o{ analysis_jobs : optional_target
+    episodes ||--o{ setting_candidates : optional_source
+    episodes ||--o{ character_facts : optional_source
+    analysis_jobs ||--o{ setting_candidates : creates
+    analysis_jobs ||--o{ character_facts : extracts
 
     members {
         bigint id PK
@@ -67,6 +77,83 @@ erDiagram
         datetime updated_at
     }
 
+    analysis_jobs {
+        uuid id PK
+        uuid work_id FK
+        uuid batch_id FK
+        uuid episode_id FK
+        varchar job_type
+        varchar status
+        varchar current_step
+        varchar model_name
+        int input_token_count
+        int output_token_count
+        text summary_json
+        text error_message
+        datetime started_at
+        datetime completed_at
+        datetime created_at
+        datetime updated_at
+    }
+
+    characters {
+        uuid id PK
+        uuid work_id FK
+        varchar name
+        varchar role_label
+        int current_age
+        int current_level
+        jsonb profile_json
+        jsonb stats_json
+        jsonb skills_json
+        jsonb items_json
+        jsonb statuses_json
+        uuid first_appearance_episode_id
+        varchar review_status
+        varchar status
+        datetime created_at
+        datetime updated_at
+    }
+
+    character_facts {
+        uuid id PK
+        uuid character_id FK
+        varchar fact_type
+        varchar fact_key
+        text fact_value
+        text normalized_value
+        jsonb value_json
+        uuid source_episode_id FK
+        uuid source_chunk_id
+        uuid extracted_by_job_id FK
+        decimal confidence
+        varchar review_status
+        boolean is_current
+        int effective_from_episode_no
+        datetime created_at
+        datetime updated_at
+    }
+
+    setting_candidates {
+        uuid id PK
+        uuid work_id FK
+        uuid episode_id FK
+        uuid source_chunk_id
+        uuid analysis_job_id FK
+        varchar entity_type
+        varchar entity_name
+        varchar attribute_name
+        text attribute_value
+        varchar value_type
+        jsonb value_json
+        jsonb evidence_spans
+        decimal confidence
+        varchar review_status
+        jsonb raw_ai_result_json
+        datetime created_at
+        datetime updated_at
+    }
+
     upload_batches {
         uuid id PK
         uuid work_id FK
@@ -107,12 +194,16 @@ erDiagram
 | `episodes` | 작품에 속한 회차 메타데이터. 원문은 S3에 저장하고 DB에는 key/version/hash/글자 수만 둡니다. |
 | `upload_batches` | 한 번의 업로드 요청 단위. 업로드 유형, 소스, 전체 처리 상태를 기록합니다. |
 | `upload_files` | batch에 포함된 개별 파일. 원본 파일 S3 위치와 파싱 결과를 기록합니다. |
+| `analysis_jobs` | 작품 단위 AI 분석 작업. 작업 유형, 상태, 대상 batch/episode, 결과 메타데이터를 기록합니다. |
+| `characters` | 작품별 캐릭터 대표/현재 설정. 핵심 조회 값은 일반 컬럼, 작품마다 달라지는 상세 설정은 JSONB로 저장합니다. |
+| `character_facts` | 캐릭터별 설정 값과 회차별 변경 이력. 현재 유효값과 충돌 검수 기준을 추적합니다. |
+| `setting_candidates` | AI가 추출한 검토 전 설정 후보. 설정 값, 근거 span, AI 원본 응답을 JSONB로 보존합니다. |
 
 ## Notion 기반 후속 AI 분석 ERD
 
 아래 모델은 Notion의 “흐름 정리 - 임준우” 문서에 있던 분석/검수 설계를 백엔드 ERD 초안으로 옮긴 것입니다.
 
-현재 `main` 코드에 모두 구현된 Entity는 아니며, `Episode`, `UploadFile`, `UploadBatch`처럼 이미 구현된 모델과 이어질 후속 분석 모델을 구분하기 위한 설계 초안입니다.
+현재 `main` 코드에 모두 구현된 Entity는 아니며, `Episode`, `UploadFile`, `UploadBatch`, `AnalysisJob`, `WorkCharacter`, `CharacterFact`, `SettingCandidate`처럼 이미 구현된 모델과 이어질 후속 분석 모델을 구분하기 위한 설계 초안입니다.
 
 ```mermaid
 erDiagram
@@ -260,6 +351,8 @@ erDiagram
 | `OriginalManuscriptFile` | 현재 `upload_files`가 원본 파일 참조 역할을 담당합니다. |
 | `Episode.processingStatus` | 현재 코드에서는 `episodes.status` / `EpisodeStatus`입니다. |
 | `AnalysisJob.type` | 현재 분석 초안에서는 `analysis_jobs.job_type` / `AnalysisJobType`입니다. |
+| `SettingCandidate` | 현재 `setting_candidates`가 AI 설정 후보 저장 역할을 담당합니다. 청크 모델 구현 전까지 `source_chunk_id`는 FK 없는 UUID 값으로 저장합니다. |
+| `SettingSnapshot` | 캐릭터 중심 MVP에서는 현재 `character_facts`가 설정 변화 이력과 current 기준값 역할을 우선 담당합니다. |
 | `ValidationReport.reportType` | 후속 리포트 모델의 `report_type`으로 둡니다. |
 | `ValidationFinding.reviewStatus` | 후속 finding 모델의 `review_status`로 둡니다. |
 
@@ -270,11 +363,14 @@ erDiagram
 - 업로드 원본 파일과 회차 원문은 분리 저장합니다. 원본 파일은 `upload_files.storage_url`, 회차 원문은 `episodes.content_s3_key`에 연결됩니다.
 - `episodes.source_file_id`는 해당 회차가 어떤 업로드 파일에서 파생되었는지 추적하는 선택 연결입니다.
 - `upload_batches`는 이후 분석 작업의 대상 단위로 재사용할 수 있도록 `work_id`, `upload_type`, `file_count`, `status`를 유지합니다.
-- 후속 분석 모델에서는 구조화 조회(`setting_snapshots`, `setting_candidates`)와 벡터 검색(`manuscript_chunks.embedding`)을 함께 사용합니다. 구조화 조회는 수치/상태 비교 기준이고, 벡터 검색은 원문 맥락과 근거 문장을 찾는 보조 수단입니다.
+- 캐릭터 설정은 `setting_candidates`, `character_facts`, `characters`로 나누어 저장합니다. AI 추출 후보는 `setting_candidates`, 회차별 확정/검토 이력은 `character_facts`, 화면 표시용 현재 스냅샷은 `characters`가 담당합니다.
+- 화면 표시와 구조화 조회에 자주 쓰는 값은 일반 컬럼으로 두고, 스탯/스킬/아이템/상태 상세값과 AI 원본 응답은 JSONB로 보존합니다.
+- 후속 분석 모델에서는 구조화 조회(`character_facts`, `setting_candidates`)와 벡터 검색(`manuscript_chunks.embedding`)을 함께 사용합니다. 구조화 조회는 수치/상태 비교 기준이고, 벡터 검색은 원문 맥락과 근거 문장을 찾는 보조 수단입니다.
 
 ## 현재 코드와 추가 검토가 필요한 부분
 
 - `episodes.source_file_id`는 코드상 FK 어노테이션 없이 UUID 값으로 저장합니다. 실제 DB 제약을 강제할지 여부는 마이그레이션 도입 시 결정합니다.
 - 회차 번호 unique 제약은 현재 DB 제약이 아니라 서비스에서 `work_id + episode_no` 중복을 검사합니다.
-- 후속 ERD의 `manuscript_chunks`, `preprocessed_manuscript_chunks`, `setting_candidates`, `setting_snapshots`, `validation_reports`, `validation_findings`는 아직 현재 `main` 기준 Entity가 아닙니다.
+- 후속 ERD의 `manuscript_chunks`, `preprocessed_manuscript_chunks`, `setting_snapshots`, `validation_reports`, `validation_findings`는 아직 현재 `main` 기준 Entity가 아닙니다. 캐릭터 중심 MVP의 설정 이력은 우선 `character_facts`로 구현합니다.
+- `setting_candidates.source_chunk_id`와 `character_facts.source_chunk_id`는 아직 `manuscript_chunks` Entity가 없으므로 DB FK를 강제하지 않습니다. 청킹 모델이 구현되면 실제 FK 여부를 다시 결정합니다.
 - Notion 설계의 `AnalysisJob.status`에는 `CANCELED`가 있지만, 현재 분석 문서 초안은 `PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`만 포함합니다. 취소 정책이 필요해질 때 enum을 확장합니다.
