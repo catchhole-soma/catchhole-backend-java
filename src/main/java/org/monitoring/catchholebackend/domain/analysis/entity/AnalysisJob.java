@@ -111,8 +111,12 @@ public class AnalysisJob extends BaseEntity {
 
     public void start(String modelName, String currentStep) {
         this.status = AnalysisJobStatus.RUNNING;
-        this.modelName = modelName;
-        this.currentStep = currentStep;
+        if (modelName != null) {
+            this.modelName = modelName;
+        }
+        if (currentStep != null) {
+            this.currentStep = currentStep;
+        }
         this.errorMessage = null;
         this.startedAt = LocalDateTime.now();
     }
