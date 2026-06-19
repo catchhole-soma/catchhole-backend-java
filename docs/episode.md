@@ -168,4 +168,4 @@ DELETE /api/v1/works/{workId}/episodes/{episodeId}
 
 - DB 레벨 `work_id + episode_no` unique 제약 도입 여부 결정
 - 회차 보관 상태(`ARCHIVED`)를 사용하는 soft delete 정책 정의
-- 청킹/전처리/분석 상태 전이 API 또는 내부 worker 계약 정의
+- 실제 청킹/전처리/분석 Worker 구현과 `EpisodeStatus` 세부 상태 전이 연결

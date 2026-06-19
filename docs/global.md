@@ -203,6 +203,7 @@ upload-batches/{batchId}/{randomUUID}-{originalFilename}
 | `auth.refresh-token-expiration` | refresh token 만료 시간 |
 | `auth.cookie.secure` | refresh token cookie Secure 여부 |
 | `auth.cookie.same-site` | refresh token cookie SameSite 값 |
+| `internal.api-key` | Python AI Worker 내부 API 인증 key. 운영에서는 `INTERNAL_API_KEY`로 주입 |
 
 프로파일별 기준
 

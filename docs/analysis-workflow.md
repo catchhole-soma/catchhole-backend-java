@@ -24,7 +24,7 @@ flowchart TD
 
 아래 흐름은 Notion의 “흐름 정리 - 임준우”에 있는 전체 작업 흐름을 백엔드 기준 용어로 옮긴 것입니다.
 
-현재 구현 범위는 분석 작업 생성/조회와 업로드 batch 연결까지이며, 청킹, LLM 전처리, 설정 후보, 검수 리포트 저장은 후속 AI Worker 연동 범위입니다.
+현재 구현 범위는 분석 작업 생성/조회, 업로드 batch 연결, Worker 내부 claim/상태 변경 API까지입니다. 실제 청킹, LLM 전처리, 설정 후보, 검수 리포트 저장은 후속 AI Worker 구현 범위입니다.
 
 ```mermaid
 flowchart TD
@@ -70,8 +70,8 @@ flowchart TD
 7. 청크마다 회차 번호, 문단 번호, 장면 번호, 문자 offset 같은 원문 위치 메타데이터를 저장합니다.
 8. 기존 설정 구축용 업로드라면 `SETTING_EXTRACTION` 작업을 생성합니다.
 9. 신규 회차 검수용 업로드라면 `EPISODE_VALIDATION` 작업을 생성합니다.
-10. Spring Boot 서버는 작업 상태를 `PENDING`으로 두고 SQS 같은 큐를 통해 Python AI Worker에 작업 ID를 전달합니다.
-11. Worker는 작업 ID로 DB를 조회해 청크, 회차 메타데이터, 작품 정보를 가져옵니다.
+10. Spring Boot 서버는 작업 상태를 `PENDING`으로 둡니다.
+11. Worker는 내부 claim API를 polling해 작업 ID와 회차 메타데이터를 가져옵니다.
 12. Worker는 청킹된 원문을 LLM 데이터 전처리에 넣고, 결과를 `PreprocessedManuscriptChunk`로 저장합니다.
 13. Worker는 전처리 결과를 기준으로 임베딩 생성, 설정 정보 추출, 후보 저장을 수행합니다.
 
@@ -188,6 +188,42 @@ flowchart LR
     F --> G["AI Worker 분석 대상"]
 ```
 
+## Worker 내부 API Polling
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Worker as Python AI Worker
+    participant Controller as AnalysisJobWorkerController
+    participant Service as AnalysisJobWorkerService
+    participant JobRepo as AnalysisJobRepository
+    participant UploadRepo as UploadFileRepository
+    participant EpisodeRepo as EpisodeRepository
+
+    Worker->>Controller: POST /api/internal/v1/analysis-jobs/claim
+    Note over Worker,Controller: header: X-Internal-Api-Key
+    Controller->>Service: claimAnalysisJob(request)
+    Service->>JobRepo: find oldest PENDING with pessimistic lock
+    alt claim할 작업 없음
+        JobRepo-->>Service: empty
+        Service-->>Controller: empty
+        Controller-->>Worker: 204 No Content
+    else 작업 있음
+        JobRepo-->>Service: AnalysisJob
+        Service->>Service: status = RUNNING
+        Service->>UploadRepo: findAllByBatchIdAndFileRole(batchId, EPISODE)
+        Service->>EpisodeRepo: findAllBySourceFileIdInOrderByEpisodeNoAsc(sourceFileIds)
+        alt 대상 회차 없음
+            Service->>Service: status = FAILED
+            Service-->>Controller: empty
+            Controller-->>Worker: 204 No Content
+        else 대상 회차 있음
+            Service-->>Controller: WorkerAnalysisJobPayload
+            Controller-->>Worker: 200 OK
+        end
+    end
+```
+
 ## 상태 전이
 
 ```mermaid
@@ -200,7 +236,7 @@ stateDiagram-v2
     SUCCEEDED --> [*]
 ```
 
-현재 구현 범위에서는 생성 시 `PENDING` 상태로 저장하고, 이후 `RUNNING`, `SUCCEEDED`, `FAILED` 전이는 워커 연동 작업에서 연결합니다.
+Worker가 내부 claim API로 작업을 가져가면 `RUNNING`으로 전환합니다. 이후 Worker가 내부 상태 변경 API로 `SUCCEEDED` 또는 `FAILED`를 기록합니다.
 
 ## Episode 처리 상태
 
@@ -343,7 +379,7 @@ LLM 전처리 출력은 다음 정보를 포함합니다.
 | 원문 저장 | 파일 형식 오류, 빈 원문, 권한 없음 | 동기 API에서 실패 응답 |
 | 원본 파일 저장 | S3 업로드 실패, 파일 크기 초과 | 원본 파일 참조를 만들지 않고 업로드 실패 응답 |
 | 청킹 | 텍스트 파싱 오류, 너무 긴 문단 | `Episode`와 `AnalysisJob`을 `FAILED` 처리하고 실패 사유 저장 |
-| 큐 전달 | SQS 전송 실패, Worker가 작업 수신 실패 | `AnalysisJob`은 `PENDING` 유지 또는 `FAILED` 처리 후 재시도 |
+| Worker claim | 내부 API 인증 실패, Worker가 작업 수신 실패 | 인증 실패는 401로 응답하고, 수신 실패 시 `AnalysisJob`은 `PENDING` 유지 |
 | LLM 데이터 전처리 | LLM API 오류, 전처리 응답 스키마 오류, 장면/문단 매핑 실패 | `Episode`와 `AnalysisJob`을 `FAILED` 처리하고 재시도 가능 |
 | AI 설정 추출 | LLM API 오류, 응답 스키마 오류, timeout | `AnalysisJob` 실패 처리, 재시도 가능 |
 | 후보 저장 | DB 오류, 근거 청크 매핑 실패 | 작업 실패 처리, 중복 저장 방지를 위해 작업 단위 idempotency 필요 |
