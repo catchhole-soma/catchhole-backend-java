@@ -4,7 +4,7 @@
 
 Analysis 도메인은 작품 단위 AI 분석 작업의 상태와 결과 메타데이터를 추적합니다.
 
-이번 범위에서는 실제 Python AI Worker, SQS 연동, LLM 호출을 구현하지 않고, 백엔드가 분석 작업을 생성하고 조회할 수 있는 상태 모델과 API를 제공합니다.
+이번 범위에서는 실제 Python AI Worker와 LLM 호출을 구현하지 않고, 백엔드가 분석 작업을 생성/조회하고 Worker가 내부 API로 작업을 claim/상태 갱신할 수 있는 계약을 제공합니다.
 
 ## 핵심 결정
 
@@ -36,6 +36,14 @@ upload_batches.id
 ```
 
 회차별 세부 작업이 필요해지면 워커 또는 내부 서비스가 batch에 속한 episode 목록을 조회해 처리합니다.
+
+### Worker 연동 방식
+
+Kafka/SQS 없이 내부 API polling 방식을 사용합니다.
+
+Python AI Worker는 주기적으로 내부 claim API를 호출해 `PENDING` 작업을 가져갑니다. 백엔드는 claim된 작업을 `RUNNING`으로 변경하고, Worker가 S3에서 원문을 읽을 수 있도록 회차 원문 메타데이터만 내려줍니다.
+
+Worker는 분석 작업 생성과 `AnalysisJob` 상태 전이를 위해 백엔드 DB에 직접 접근하지 않습니다. 다만 청킹, 설정 후보, 리포트 같은 분석 산출물 저장은 데이터 양과 모델 안정성에 따라 내부 API 또는 Worker의 DB 직접 저장 중 선택할 수 있습니다. DB 직접 저장을 선택하면 백엔드 문서와 스키마 변경 규칙을 함께 관리합니다.
 
 ### 진행률
 
@@ -157,6 +165,107 @@ GET /api/v1/works/{workId}/analysis-jobs/{analysisJobId}
 
 로그인한 사용자의 해당 작품에 속한 특정 분석 작업 상태와 결과 메타데이터를 조회합니다.
 
+## Internal Worker API
+
+내부 API는 Python AI Worker 전용입니다.
+
+모든 내부 API는 `X-Internal-Api-Key` 헤더가 필요합니다. 값은 서버 설정 `internal.api-key`와 일치해야 합니다.
+
+### 분석 작업 claim
+
+```http
+POST /api/internal/v1/analysis-jobs/claim
+X-Internal-Api-Key: {internalApiKey}
+```
+
+Request body는 선택입니다.
+
+```json
+{
+  "modelName": "gpt-4.1-mini",
+  "currentStep": "원문 청킹"
+}
+```
+
+claim할 `PENDING` 작업이 없으면 `204 No Content`를 반환합니다.
+
+claim할 작업이 있으면 가장 오래된 `PENDING` 작업 하나를 `RUNNING`으로 바꾸고 다음 payload를 반환합니다.
+
+```json
+{
+  "success": true,
+  "message": "분석 작업을 claim했습니다.",
+  "data": {
+    "analysisJobId": "01970c2e-7e6d-7000-8e5d-2a9bc4b6d333",
+    "jobType": "EPISODE_VALIDATION",
+    "workId": "01970c2e-7e6d-7000-8e5d-2a9bc4b6d444",
+    "workTitle": "내 작품",
+    "batchId": "01970c2e-7e6d-7000-8e5d-2a9bc4b6d111",
+    "modelName": "gpt-4.1-mini",
+    "currentStep": "원문 청킹",
+    "episodes": [
+      {
+        "episodeId": "01970c2e-7e6d-7000-8e5d-2a9bc4b6d555",
+        "episodeNo": 1,
+        "title": "첫 번째 회차",
+        "contentS3Key": "works/{workId}/episodes/1.txt",
+        "contentS3Version": "s3-version-id",
+        "contentHash": "sha256-hash",
+        "charCount": 12345
+      }
+    ]
+  },
+  "error": null,
+  "timestamp": "2026-06-19T15:20:00"
+}
+```
+
+원문 본문은 응답에 포함하지 않습니다. Worker는 `contentS3Key`, `contentS3Version`을 사용해 S3에서 원문을 직접 읽습니다.
+
+### 진행 단계 갱신
+
+```http
+PATCH /api/internal/v1/analysis-jobs/{analysisJobId}/progress
+```
+
+```json
+{
+  "currentStep": "LLM 전처리"
+}
+```
+
+`RUNNING` 작업에만 사용할 수 있습니다.
+
+### 작업 완료
+
+```http
+POST /api/internal/v1/analysis-jobs/{analysisJobId}/complete
+```
+
+```json
+{
+  "summaryJson": "{\"status\":\"ok\"}",
+  "inputTokenCount": 1200,
+  "outputTokenCount": 300
+}
+```
+
+`RUNNING` 작업을 `SUCCEEDED`로 변경합니다.
+
+### 작업 실패
+
+```http
+POST /api/internal/v1/analysis-jobs/{analysisJobId}/fail
+```
+
+```json
+{
+  "errorMessage": "LLM 응답 스키마 오류"
+}
+```
+
+`RUNNING` 작업을 `FAILED`로 변경합니다.
+
 ## API Workflow
 
 시각적인 흐름도는 [Analysis Workflow](analysis-workflow.md)에서 확인합니다.
@@ -239,9 +348,10 @@ Client
 1. `upload_batches.id`로 업로드 배치를 찾습니다.
 2. `upload_files.batch_id`로 batch에 속한 업로드 파일들을 찾습니다.
 3. `episodes.source_file_id`로 각 업로드 파일에서 생성된 회차들을 찾습니다.
-4. 워커 또는 내부 서비스가 회차 목록을 순회하며 분석합니다.
-5. 분석 작업 상태를 `RUNNING`, `SUCCEEDED`, `FAILED`로 변경합니다.
-6. 필요하면 `currentStep`, `modelName`, token count, `summaryJson`, `errorMessage`를 기록합니다.
+4. Worker claim API가 회차 목록을 payload로 내려줍니다.
+5. Worker가 회차 목록을 순회하며 S3 원문을 읽고 분석합니다.
+6. Worker가 내부 API로 분석 작업 상태를 `RUNNING`, `SUCCEEDED`, `FAILED`로 변경합니다.
+7. 필요하면 `currentStep`, `modelName`, token count, `summaryJson`, `errorMessage`를 기록합니다.
 
 예상 조회 흐름은 다음과 같습니다.
 
@@ -262,7 +372,6 @@ analysis_jobs.batch_id
 
 ## 이후 작업
 
-- batch에 속한 upload file과 episode 목록 조회 유스케이스 추가
-- Python AI Worker가 사용할 작업 수신/상태 변경 API 또는 메시지 계약 정의
+- Python AI Worker 실제 청킹/LLM 처리 구현
 - `summary_json` 구조 확정
 - 실패 재시도 정책 정의

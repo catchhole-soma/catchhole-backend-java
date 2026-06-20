@@ -9,6 +9,11 @@ public final class SecurityConstant {
     }
 
     public static final String REFRESH_TOKEN_COOKIE_PATH = "/api/v1/auth";
+    public static final String INTERNAL_API_KEY_HEADER = "X-Internal-Api-Key";
+
+    public static final String[] INTERNAL_URLS = {
+            "/api/internal/**"
+    };
 
     // 도메인별 공개 경로 (인증 불필요)
     // 도메인 추가 시 카테고리 주석과 함께 여기에 등록한다.
