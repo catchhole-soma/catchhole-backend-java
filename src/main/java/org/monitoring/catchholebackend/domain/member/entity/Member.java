@@ -40,9 +40,11 @@ public class Member extends BaseEntity {
     @Column(name = "phone_number", nullable = false, length = 20)
     private String phoneNumber;
 
+    //핸드폰 인증 여부 회원가입시에 전화번호 인증을 받아야 회원가입이 가능
     @Column(name = "phone_verified", nullable = false)
     private boolean phoneVerified;
 
+    //화면에서 보이는 닉네임
     @Column(name = "display_name", nullable = false, length = 50)
     private String displayName;
 

@@ -57,9 +57,12 @@ public class WorkCharacter extends BaseEntity {
     @Column(name = "role_label", length = 50)
     private String roleLabel;
 
+    //소설 최신 회차에서의 현재 나이
     @Column(name = "current_age")
     private Integer currentAge;
 
+    //레벨이 존재하는 판타자 소설인경우
+    //TODO: 소설 장르별로 캐릭터 DB를 다르게 가져갈건지 고민 필요함(추후 MVP이후 회의 예정)
     @Column(name = "current_level")
     private Integer currentLevel;
 
@@ -91,6 +94,7 @@ public class WorkCharacter extends BaseEntity {
     @Column(name = "first_appearance_episode_id")
     private UUID firstAppearanceEpisodeId;
 
+    //TODO : 불필요한 데이터 삭제 예정(대신에 jsonb 컬럼 저장시에 상세 내역 수정할때 들어 갈 수도 있음)
     @Enumerated(EnumType.STRING)
     @Column(name = "review_status", nullable = false, length = 30)
     private CharacterReviewStatus reviewStatus;

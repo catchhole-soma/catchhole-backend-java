@@ -43,6 +43,8 @@ public class Work extends BaseEntity {
     @Column(name = "title", nullable = false, length = 100)
     private String title;
 
+    //작품 장르 ex) 판타지 , 로맨스 , 기타 사용자 입력
+    //TODO:enum 타입으로 전환할지 고민
     @Column(name = "genre", length = 50)
     private String genre;
 
@@ -52,8 +54,10 @@ public class Work extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     //이후에 작품 보관 등 확장을 위한 필드
+    //TODO: 없애도 괜찮은 필드
     private WorkStatus status;
 
+    //최대 몇회차까지 올라갔는지
     @Column(name = "latest_episode_no", nullable = false)
     private int latestEpisodeNo;
 

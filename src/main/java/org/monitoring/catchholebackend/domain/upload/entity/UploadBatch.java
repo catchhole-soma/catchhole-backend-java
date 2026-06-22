@@ -28,6 +28,13 @@ import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 @Entity
 @Table(name = "upload_batches")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
+/*
+ * upload_batches 테이블
+ * 회차 업로드 요청 1건을 batch 단위로 추적한다.
+ * batch에 속한 원본 파일은 upload_files로 저장하고,
+ * 분석 작업은 batchId를 기준으로 작업하며 이후 해당 ID 를 가지고있는 upload_files -> episodes를 따라
+ * 분석 대상 회차를 찾는다.
+ */
 public class UploadBatch extends BaseEntity {
 
     @Id
@@ -44,6 +51,7 @@ public class UploadBatch extends BaseEntity {
     )
     private Work work;
 
+    //TODO: member_id 로 네이밍 통일
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
             name = "uploaded_by_id",
@@ -53,18 +61,24 @@ public class UploadBatch extends BaseEntity {
     )
     private Member uploadedBy;
 
+    //업로드 타입 유무에 관련해서 서비스 로직이 다름(자세한 내용은 python ai worker 쪽 확인)
     @Enumerated(EnumType.STRING)
     @Column(name = "upload_type", nullable = false, length = 40)
     private UploadType uploadType;
 
+    //파일 형식 필드 (현재 txt 파일만 지원 가능 txt 의 경우가 FILE)
     @Enumerated(EnumType.STRING)
     @Column(name = "source_type", nullable = false, length = 20)
     private UploadSourceType sourceType;
 
+    //TODO: 실패 로직 생각해서 구현 수정하기
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private UploadStatus status;
 
+
+    //업로드 한 파일의 개수 (설정집 포함)
+    //TODO : 설정집 있는지 여부를 boolean 형식으로 둘지 말지 논의 필요
     @Column(name = "file_count", nullable = false)
     private int fileCount;
 

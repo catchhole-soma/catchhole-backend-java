@@ -50,6 +50,9 @@ public class EpisodeUploadProcessor {
             List<MultipartFile> episodeFiles,
             MultipartFile settingBookFile
     ) {
+        //TODO: 해당 코드의 경우 pending -> processing 단계로 넘어가는 코드가 하나도 존재하지 않음 로직 수정하기
+        //TODO: 실패 처리 로직이 하나도 존재하지 않음 추가해야함 (실패로직의 경우 서로 상의하고 문서작업 pr 후 코드 리뷰 하기)
+        //TODO: 현재 코드 구현 로직에서 변수네이밍이 이상함. 함수의 매개변수와 호출할때의 인자값의 네이밍이 달라서 코드 리뷰가 힘듦 (episode mapper 부분)
         List<ParsedUploadFile> parsedUploadFiles = episodeUploadParser.parse(request, episodeFiles);
         validateEpisodeNumbers(work, parsedUploadFiles);
 
@@ -57,6 +60,7 @@ public class EpisodeUploadProcessor {
                 UploadBatch.create(work, work.getMember(), request.uploadType(), UploadSourceType.FILE)
         );
         batch.startProcessing();
+
         batch.updateFileCount(countFiles(episodeFiles, settingBookFile));
 
         List<Episode> episodes = new ArrayList<>();
@@ -86,7 +90,8 @@ public class EpisodeUploadProcessor {
             for (ParsedEpisode parsedEpisode : parsedUploadFile.episodes()) {
                 if (!episodeNos.add(parsedEpisode.episodeNo())
                         || episodeRepository.existsByWorkIdAndEpisodeNo(work.getId(), parsedEpisode.episodeNo())) {
-                    throw new AppException(EpisodeErrorCode.EPISODE_DUPLICATED);
+                    //TODO: 에러메세지에 중복 회차가 몇회차인지 추가로 작성해놓기
+                    throw new AppException(EpisodeErrorCode.EPISODE_DUPLICATED , parsedEpisode.episodeNo() + " 화가 중복입니다.");
                 }
             }
         }
@@ -138,6 +143,7 @@ public class EpisodeUploadProcessor {
         uploadedSettingBookFile.markParsed(null, null, null);
     }
 
+    //TODO: 함수명의 이름이 S3에 저장하는 작업을 한다는걸 예상하기 힘듦 네이밍 수정 필요함
     private Episode createEpisode(Work work, UploadFile uploadedEpisodeFile, ParsedEpisode parsedEpisode) {
         StoredTextObject storedContent = objectStorageService.putEpisodeContent(
                 work.getId(),
