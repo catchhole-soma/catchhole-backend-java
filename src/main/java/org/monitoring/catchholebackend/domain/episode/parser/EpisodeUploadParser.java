@@ -20,6 +20,7 @@ import org.springframework.web.multipart.MultipartFile;
 @Component
 @RequiredArgsConstructor
 @Slf4j
+//TODO: 해당 클래스 네이밍 이상함;
 public class EpisodeUploadParser {
 
     private static final Pattern EPISODE_HEADING_PATTERN = Pattern.compile(

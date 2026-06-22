@@ -40,12 +40,15 @@ public class Episode extends BaseEntity {
     )
     private Work work;
 
+    //UploadFile_id
+    //TODO: 네이밍 수정 필요 직관적이지 않음
     @Column(name = "source_file_id")
     private UUID sourceFileId;
 
     @Column(name = "episode_no", nullable = false)
     private int episodeNo;
 
+    // ParsedEpisode record 의 title 에서 가져옴(분리 작업은 EpisodeUploadParser 에서 작업함)
     @Column(name = "title", length = 100)
     private String title;
 
@@ -55,12 +58,15 @@ public class Episode extends BaseEntity {
     @Column(name = "content_s3_version", length = 100)
     private String contentS3Version;
 
+    //S3 내용 변조 확인용
     @Column(name = "content_hash", length = 64)
     private String contentHash;
 
+    // 파싱된 회차 본문 길이. byte 크기가 아니라 Java String.length() 기준 문자 길이이다.
     @Column(name = "char_count", nullable = false)
     private int charCount;
 
+    //episode 분석 상태 변수
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private EpisodeStatus status;
@@ -132,6 +138,7 @@ public class Episode extends BaseEntity {
         this.status = EpisodeStatus.CHUNKING;
     }
 
+    //TODO: 에피소드별로 status 관리 api가 현재 존재하지 않음
     public void markChunked() {
         this.status = EpisodeStatus.CHUNKED;
     }

@@ -43,9 +43,11 @@ public class RefreshToken extends BaseEntity {
     @Column(name = "token_hash", nullable = false, length = 64)
     private String tokenHash;
 
+    //refresh 에만 체크
     @Column(name = "expires_at", nullable = false)
     private LocalDateTime expiresAt;
 
+    //사용자가 로그아웃 , 리프레쉬 api 요청시 채워짐 (새로 로그인하는 경우는 추가 토큰 발급)
     @Column(name = "revoked_at")
     private LocalDateTime revokedAt;
 

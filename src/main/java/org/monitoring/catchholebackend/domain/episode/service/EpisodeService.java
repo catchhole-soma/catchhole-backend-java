@@ -11,6 +11,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 public interface EpisodeService {
 
+    //TODO: 함수들이 어떤일들을 하는지에 대해서 조금이라도 작성해두자.
     List<EpisodeSummaryResponse> getEpisodes(Long memberId, UUID workId);
 
     EpisodeResponse getEpisode(Long memberId, UUID workId, UUID episodeId);
