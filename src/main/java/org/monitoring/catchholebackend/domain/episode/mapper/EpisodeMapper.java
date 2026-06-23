@@ -13,16 +13,21 @@ import org.springframework.stereotype.Component;
 @Component
 public class EpisodeMapper {
 
-    public Episode toEntity(Work work, UploadFile sourceFile, ParsedEpisode parsedEpisode, StoredTextObject content) {
+    public Episode toEntity(
+            Work work,
+            UploadFile sourceFile,
+            ParsedEpisode parsedEpisode,
+            StoredTextObject storedEpisodeContent
+    ) {
         return Episode.create(
                 work,
                 sourceFile.getId(),
                 parsedEpisode.episodeNo(),
                 parsedEpisode.title(),
-                content.key(),
-                content.versionId(),
-                content.contentHash(),
-                content.charCount()
+                storedEpisodeContent.key(),
+                storedEpisodeContent.versionId(),
+                storedEpisodeContent.contentHash(),
+                storedEpisodeContent.charCount()
         );
     }
 

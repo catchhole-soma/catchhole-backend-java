@@ -59,7 +59,7 @@ public class EpisodeServiceImpl implements EpisodeService {
         Episode episode = getEpisodeInWork(episodeId, work);
         validateEpisodeNoForUpdate(work, episode, request.episodeNo());
 
-        StoredTextObject storedContent = objectStorageService.replaceEpisodeContent(
+        StoredTextObject storedEpisodeContent = objectStorageService.replaceEpisodeContent(
                 work.getId(),
                 request.episodeNo(),
                 episode.getContentS3Key(),
@@ -69,10 +69,10 @@ public class EpisodeServiceImpl implements EpisodeService {
         episode.updateContent(
                 request.episodeNo(),
                 request.title(),
-                storedContent.key(),
-                storedContent.versionId(),
-                storedContent.contentHash(),
-                storedContent.charCount()
+                storedEpisodeContent.key(),
+                storedEpisodeContent.versionId(),
+                storedEpisodeContent.contentHash(),
+                storedEpisodeContent.charCount()
         );
         refreshLatestEpisodeNo(work);
         return episodeMapper.toResponse(episode, request.content());

@@ -4,8 +4,8 @@ import java.util.Comparator;
 import java.util.List;
 import org.springframework.web.multipart.MultipartFile;
 
-public record ParsedUploadFile(
-        MultipartFile file,
+public record ParsedEpisodeFile(
+        MultipartFile episodeFile,
         List<ParsedEpisode> episodes
 ) {
 
