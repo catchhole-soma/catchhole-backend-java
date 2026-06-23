@@ -12,7 +12,7 @@ flowchart TD
     B --> C["작품 소유권 확인"]
     C --> D{"본인 작품인가?"}
     D -- "아니오" --> E["WORK_NOT_FOUND"]
-    D -- "예" --> F["EpisodeUploadParser.parse"]
+    D -- "예" --> F["EpisodeFileParser.parse"]
     F --> G{"업로드 유형/파일 유효한가?"}
     G -- "아니오" --> H["UploadErrorCode"]
     G -- "예" --> I["회차 번호 중복 검사"]
@@ -38,7 +38,7 @@ sequenceDiagram
     participant Controller as EpisodeController
     participant Service as EpisodeService
     participant Processor as EpisodeUploadProcessor
-    participant Parser as EpisodeUploadParser
+    participant Parser as EpisodeFileParser
     participant BatchRepo as UploadBatchRepository
     participant FileRepo as UploadFileRepository
     participant EpisodeRepo as EpisodeRepository
@@ -49,7 +49,7 @@ sequenceDiagram
     Service->>Service: getOwnedWork(workId, memberId)
     Service->>Processor: upload(work, request, files, settingBook)
     Processor->>Parser: parse(request, episodeFiles)
-    Parser-->>Processor: List<ParsedUploadFile>
+    Parser-->>Processor: List<ParsedEpisodeFile>
     Processor->>EpisodeRepo: existsByWorkIdAndEpisodeNo(...)
     alt 회차 번호 중복
         EpisodeRepo-->>Processor: true

@@ -122,7 +122,7 @@ DELETE /api/v1/works/{workId}
 ## 다른 도메인과의 연결
 
 - `Episode`는 `work_id`로 작품에 속합니다.
-- `UploadBatch`는 `work_id`와 `uploaded_by_id`를 함께 저장합니다.
+- `UploadBatch`는 `work_id`와 `member_id`를 함께 저장합니다.
 - Analysis 작업은 batch 기반 설계를 사용할 때 `work_id`와 `batch_id`를 함께 검증합니다.
 
 ## 이후 작업
