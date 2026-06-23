@@ -71,17 +71,17 @@ public class AuthServiceImpl implements AuthService {
             throw new AppException(AuthErrorCode.AUTH_REFRESH_TOKEN_NOT_FOUND);
         }
 
-        RefreshToken savedToken = refreshTokenRepository.findByTokenHash(tokenHashProvider.hash(refreshToken))
+        RefreshToken savedRefreshToken = refreshTokenRepository.findByTokenHash(tokenHashProvider.hash(refreshToken))
                 .orElseThrow(() -> new AppException(AuthErrorCode.AUTH_REFRESH_TOKEN_INVALID));
 
         LocalDateTime now = LocalDateTime.now();
-        if (savedToken.isRevoked() || savedToken.isExpired(now)) {
+        if (savedRefreshToken.isRevoked() || savedRefreshToken.isExpired(now)) {
             throw new AppException(AuthErrorCode.AUTH_REFRESH_TOKEN_INVALID);
         }
 
-        Member member = savedToken.getMember();
+        Member member = savedRefreshToken.getMember();
         member.validateActive();
-        savedToken.revoke(now);
+        savedRefreshToken.revoke(now);
 
         return issueTokens(member);
     }
@@ -107,11 +107,11 @@ public class AuthServiceImpl implements AuthService {
                 .build();
         refreshTokenRepository.save(savedRefreshToken);
 
-        AuthTokenResponse response = AuthTokenResponse.bearer(
+        AuthTokenResponse tokenResponse = AuthTokenResponse.bearer(
                 accessToken,
                 jwtTokenProvider.getAccessTokenExpiresInSeconds()
         );
-        return new AuthTokenIssueResult(response, refreshToken);
+        return new AuthTokenIssueResult(tokenResponse, refreshToken);
     }
 
     private void validateSignupUniqueness(AuthSignupRequest request) {

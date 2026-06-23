@@ -14,10 +14,10 @@ public class ObjectStorageService {
     private final ObjectStorage objectStorage;
 
     public StoredTextObject putEpisodeContent(UUID workId, int episodeNo, String content) {
-        StoredObject storedObject = objectStorage.putText(buildEpisodeContentKey(workId, episodeNo), content);
+        StoredObject storedEpisodeContent = objectStorage.putText(buildEpisodeContentKey(workId, episodeNo), content);
         return new StoredTextObject(
-                storedObject.key(),
-                storedObject.versionId(),
+                storedEpisodeContent.key(),
+                storedEpisodeContent.versionId(),
                 sha256(content),
                 content.length()
         );
@@ -29,11 +29,11 @@ public class ObjectStorageService {
             String oldContentKey,
             String content
     ) {
-        StoredTextObject storedTextObject = putEpisodeContent(workId, episodeNo, content);
-        if (oldContentKey != null && !oldContentKey.equals(storedTextObject.key())) {
+        StoredTextObject storedEpisodeContent = putEpisodeContent(workId, episodeNo, content);
+        if (oldContentKey != null && !oldContentKey.equals(storedEpisodeContent.key())) {
             objectStorage.delete(oldContentKey);
         }
-        return storedTextObject;
+        return storedEpisodeContent;
     }
 
     public StoredObject putUploadFile(UUID batchId, String originalFilename, byte[] bytes, String contentType) {
