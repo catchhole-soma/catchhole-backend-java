@@ -47,7 +47,7 @@ public class UploadMapper {
         return new UploadBatchResponse(
                 uploadBatch.getId(),
                 uploadBatch.getWork().getId(),
-                uploadBatch.getUploadedBy().getId(),
+                uploadBatch.getMember().getId(),
                 uploadBatch.getUploadType(),
                 uploadBatch.getSourceType(),
                 uploadBatch.getStatus(),
