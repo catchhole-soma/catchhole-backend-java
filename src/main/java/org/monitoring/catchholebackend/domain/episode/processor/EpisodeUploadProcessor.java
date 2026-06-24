@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeUploadRequest;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeUploadResponse;
@@ -92,15 +93,47 @@ public class EpisodeUploadProcessor {
      */
     private void validateEpisodeNumbers(Work work, List<ParsedEpisodeFile> parsedEpisodeFiles) {
         Set<Integer> uniqueEpisodeNosInRequest = new HashSet<>();
+        Set<Integer> duplicatedEpisodeNosInRequest = new TreeSet<>();
+        Set<Integer> duplicatedEpisodeNosInWork = new TreeSet<>();
+
         for (ParsedEpisodeFile parsedEpisodeFile : parsedEpisodeFiles) {
             for (ParsedEpisode parsedEpisode : parsedEpisodeFile.episodes()) {
-                if (!uniqueEpisodeNosInRequest.add(parsedEpisode.episodeNo())
-                        || episodeRepository.existsByWorkIdAndEpisodeNo(work.getId(), parsedEpisode.episodeNo())) {
-                    //TODO: 에러메세지에 중복 회차가 몇회차인지 추가로 작성해놓기
-                    throw new AppException(EpisodeErrorCode.EPISODE_DUPLICATED , parsedEpisode.episodeNo() + " 화가 중복입니다.");
+                int episodeNo = parsedEpisode.episodeNo();
+                if (!uniqueEpisodeNosInRequest.add(episodeNo)) {
+                    duplicatedEpisodeNosInRequest.add(episodeNo);
+                }
+                if (episodeRepository.existsByWorkIdAndEpisodeNo(work.getId(), episodeNo)) {
+                    duplicatedEpisodeNosInWork.add(episodeNo);
                 }
             }
         }
+
+        if (!duplicatedEpisodeNosInRequest.isEmpty() || !duplicatedEpisodeNosInWork.isEmpty()) {
+            throw new AppException(
+                    EpisodeErrorCode.EPISODE_UPLOAD_DUPLICATED,
+                    buildDuplicateEpisodeMessage(duplicatedEpisodeNosInRequest, duplicatedEpisodeNosInWork)
+            );
+        }
+    }
+
+    private String buildDuplicateEpisodeMessage(
+            Set<Integer> duplicatedEpisodeNosInRequest,
+            Set<Integer> duplicatedEpisodeNosInWork
+    ) {
+        List<String> messages = new ArrayList<>();
+        if (!duplicatedEpisodeNosInRequest.isEmpty()) {
+            messages.add("업로드 파일 안에서 중복된 회차: " + formatEpisodeNos(duplicatedEpisodeNosInRequest) + ".");
+        }
+        if (!duplicatedEpisodeNosInWork.isEmpty()) {
+            messages.add("이미 등록된 회차와 중복된 회차: " + formatEpisodeNos(duplicatedEpisodeNosInWork) + ".");
+        }
+        return String.join(" ", messages);
+    }
+
+    private String formatEpisodeNos(Set<Integer> episodeNos) {
+        return String.join(", ", episodeNos.stream()
+                .map(episodeNo -> episodeNo + "화")
+                .toList());
     }
 
     /**

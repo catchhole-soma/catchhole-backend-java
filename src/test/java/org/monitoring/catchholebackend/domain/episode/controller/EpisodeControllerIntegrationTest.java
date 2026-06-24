@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.episode.controller;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -157,6 +158,69 @@ class EpisodeControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.files[0].detectedEpisodeStartNo").value(1))
                 .andExpect(jsonPath("$.data.files[0].detectedEpisodeEndNo").value(2))
                 .andExpect(jsonPath("$.data.files[0].detectedEpisodeCount").value(2));
+    }
+
+    @Test
+    void uploadMultiEpisodeSingleFileRejectsDuplicateEpisodeNosInUploadFile() throws Exception {
+        MockMultipartFile data = jsonPart("""
+                {
+                  "uploadType": "MULTI_EPISODE_SINGLE_FILE"
+                }
+                """);
+        MockMultipartFile episodeFile = textFile(
+                "episodeFiles",
+                "episodes.txt",
+                """
+                        제 1화 시작
+                        첫 번째 본문입니다.
+
+                        제 2화 튜토리얼
+                        두 번째 본문입니다.
+
+                        제 1화 반복
+                        세 번째 본문입니다.
+
+                        제 2화 반복
+                        네 번째 본문입니다.
+                        """
+        );
+
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(data)
+                        .file(episodeFile)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value(containsString("업로드 파일 안에서 중복된 회차: 1화, 2화.")))
+                .andExpect(jsonPath("$.message").value(containsString("업로드 요청에 중복된 회차 번호가 있습니다.")))
+                .andExpect(jsonPath("$.error.code").value("EPISODE_UPLOAD_DUPLICATED"))
+                .andExpect(jsonPath("$.error.status").value(409))
+                .andExpect(jsonPath("$.error.details", hasSize(0)));
+    }
+
+    @Test
+    void uploadMultiEpisodeMultiFileRejectsExistingEpisodeNosInWork() throws Exception {
+        episodeRepository.save(Episode.create(work, null, 2, "2화", "works/test/episodes/2.txt", "v1", "hash2", 20));
+        episodeRepository.save(Episode.create(work, null, 4, "4화", "works/test/episodes/4.txt", "v1", "hash4", 40));
+        MockMultipartFile data = jsonPart("""
+                {
+                  "uploadType": "MULTI_EPISODE_MULTI_FILE"
+                }
+                """);
+
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(data)
+                        .file(textFile("episodeFiles", "episode-2.txt", "두 번째 본문입니다."))
+                        .file(textFile("episodeFiles", "episode-3.txt", "세 번째 본문입니다."))
+                        .file(textFile("episodeFiles", "episode-4.txt", "네 번째 본문입니다."))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value(containsString("이미 등록된 회차와 중복된 회차: 2화, 4화.")))
+                .andExpect(jsonPath("$.message").value(containsString("업로드 요청에 중복된 회차 번호가 있습니다.")))
+                .andExpect(jsonPath("$.error.code").value("EPISODE_UPLOAD_DUPLICATED"))
+                .andExpect(jsonPath("$.error.status").value(409))
+                .andExpect(jsonPath("$.error.details", hasSize(0)));
     }
 
     @Test
