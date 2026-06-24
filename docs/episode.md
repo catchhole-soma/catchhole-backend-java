@@ -35,19 +35,26 @@ works/{workId}/episodes/{episodeNo}.txt
 
 `EpisodeStatus`
 
-| 상태 | 의미 |
-| --- | --- |
-| `UPLOADED` | 원문 저장 완료 |
-| `CHUNKING` | 원문 청킹 중 |
-| `CHUNKED` | 청크 저장 완료 |
-| `PREPROCESSING` | LLM 전처리 중 |
-| `PREPROCESSED` | LLM 전처리 완료 |
-| `ANALYZING` | AI 분석 중 |
-| `ANALYZED` | AI 분석 완료 |
-| `FAILED` | 처리 실패 |
-| `ARCHIVED` | 보관됨 |
+| 상태 | 의미 | 전이 시점 |
+| --- | --- | --- |
+| `UPLOADED` | 원문 저장 완료 | `Episode.create()`로 새 회차를 만들거나 `Episode.updateContent()`로 원문을 다시 저장할 때 설정됩니다. |
+| `CHUNKING` | 원문 청킹 중 | `Episode.markChunking()` 상태입니다. 청킹 Worker 또는 내부 API 연결 지점은 아직 확정되지 않았습니다. |
+| `CHUNKED` | 청크 저장 완료 | `Episode.markChunked()` 상태입니다. `ManuscriptChunk` 모델 구현 후 호출 위치를 확정합니다. |
+| `PREPROCESSING` | LLM 전처리 중 | `Episode.markPreprocessing()` 상태입니다. 전처리 산출물 저장 모델 확정 후 호출 위치를 정합니다. |
+| `PREPROCESSED` | LLM 전처리 완료 | `Episode.markPreprocessed()` 상태입니다. 전처리 결과 저장이 끝난 뒤로 예상합니다. |
+| `ANALYZING` | AI 분석 중 | `Episode.markAnalyzing()` 상태입니다. `AnalysisJob` 진행 단계와 Episode 단위 상태 동기화 정책이 필요합니다. |
+| `ANALYZED` | AI 분석 완료 | `Episode.markAnalyzed()` 상태입니다. 설정 후보 또는 검수 결과 저장 완료 후로 예상합니다. |
+| `FAILED` | 처리 실패 | `Episode.markFailed()` 상태입니다. 실패 사유 저장 위치는 아직 확정되지 않았습니다. |
+| `ARCHIVED` | 보관됨 | `Episode.archive()` 상태입니다. 현재 삭제 API는 hard delete이며 보관/복구 API는 아직 없습니다. |
 
 현재 회차 업로드/수정은 `UPLOADED` 상태로 저장합니다. 이후 청킹, 전처리, 분석 단계에서 상태 전이가 연결됩니다.
+
+정책 미확정 TODO:
+
+- 청킹/전처리/분석 Worker가 상태를 바꿀 때 단계별 상태 변경 API로 나눌지, `EpisodeStatus`를 파라미터로 받는 단일 전이 API로 둘지 검토합니다.
+- `AnalysisJob.status`와 `Episode.status`가 서로 어긋날 때 어느 상태를 우선 표시할지 결정해야 합니다.
+- 회차 단위 실패 사유를 `Episode`, `AnalysisJob`, 리포트 계층에 둘지, 공통 실패 이력 테이블 분리까지 고려할지 검토합니다.
+- `ARCHIVED`를 soft delete로 사용할지, 현재 hard delete 정책을 유지할지 결정해야 합니다.
 
 ## DB 모델
 

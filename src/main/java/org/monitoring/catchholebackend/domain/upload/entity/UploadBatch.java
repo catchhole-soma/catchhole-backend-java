@@ -70,7 +70,7 @@ public class UploadBatch extends BaseEntity {
     @Column(name = "source_type", nullable = false, length = 20)
     private UploadSourceType sourceType;
 
-    //TODO: 실패 로직 생각해서 구현 수정하기
+    // TODO: 동기 업로드 실패 이력을 남길 필요가 있으면 batch 선커밋/별도 트랜잭션/비동기 처리 중 적절한 방식을 검토한다.
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private UploadStatus status;

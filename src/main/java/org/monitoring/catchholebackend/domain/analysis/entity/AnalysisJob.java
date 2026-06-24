@@ -112,7 +112,7 @@ public class AnalysisJob extends BaseEntity {
     private String summaryJson;
 
     //분석 실패시의 errorMessage 내용
-    //TODO : 해당 컬럼은 다른 테이블에서 필요할 수 있음 논의 후 별도의 Table 로 분리할지 고민하기
+    //TODO : 실패 사유가 여러 도메인에서 필요해지면 공통 실패 이력 Table 로 분리하는 방안도 검토하기
     @Column(name = "error_message", columnDefinition = "text")
     private String errorMessage;
 

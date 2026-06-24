@@ -23,10 +23,10 @@ Work는 로그인한 회원의 개인 리소스입니다.
 
 `WorkStatus`
 
-| 상태 | 의미 |
-| --- | --- |
-| `ACTIVE` | 사용 중인 작품 |
-| `ARCHIVED` | 보관된 작품 |
+| 상태 | 의미 | 전이 시점 |
+| --- | --- | --- |
+| `ACTIVE` | 사용 중인 작품 | `Work.create()`로 작품을 만들 때 기본값으로 설정됩니다. 보관 복구가 생기면 `Work.activate()`로 전환합니다. |
+| `ARCHIVED` | 보관된 작품 | `Work.archive()` 상태입니다. 현재 API는 hard delete를 사용하므로 아직 실제 사용자 흐름에는 연결되지 않았습니다. |
 
 현재 API는 삭제 시 hard delete를 수행합니다. `ARCHIVED`는 이후 보관/복구 흐름을 위한 상태입니다.
 
