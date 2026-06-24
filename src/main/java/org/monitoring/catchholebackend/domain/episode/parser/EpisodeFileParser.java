@@ -27,8 +27,8 @@ public class EpisodeFileParser {
      * 한글 표기에서는 회차 번호와 제목을 앞쪽 괄호 쌍으로, EP/Episode 표기에서는 뒤쪽 괄호 쌍으로 잡는다.
      */
     private static final Pattern EPISODE_HEADING_PATTERN = Pattern.compile(
-            "(?im)^\\s*(?:제\\s*)?(\\d+)\\s*(?:화|회|편|장)\\s*[:：\\-.\\)]?\\s*(.*)$"
-                    + "|^\\s*(?:EP|Episode)\\s*[._\\s-]?(\\d+)\\s*[:：\\-.\\)]?\\s*(.*)$"
+            "(?im)^\\h*(?:제\\h*)?(\\d+)\\h*(?:화|회|편|장)\\h*[:：\\-.\\)]?\\h*(.*)$"
+                    + "|^\\h*(?:EP|Episode)\\h*[._\\h-]?(\\d+)\\h*[:：\\-.\\)]?\\h*(.*)$"
     );
 
     /*
