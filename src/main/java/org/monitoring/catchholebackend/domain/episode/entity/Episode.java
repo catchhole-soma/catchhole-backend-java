@@ -48,7 +48,7 @@ public class Episode extends BaseEntity {
     @Column(name = "episode_no", nullable = false)
     private int episodeNo;
 
-    // ParsedEpisode record 의 title 에서 가져옴(분리 작업은 EpisodeUploadParser 에서 작업함)
+    // ParsedEpisode record 의 title 에서 가져옴(분리 작업은 EpisodeFileParser 에서 작업함)
     @Column(name = "title", length = 100)
     private String title;
 

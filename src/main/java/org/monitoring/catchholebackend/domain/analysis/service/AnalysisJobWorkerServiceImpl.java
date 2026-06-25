@@ -41,24 +41,24 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     @Override
     @Transactional
     public Optional<WorkerAnalysisJobPayload> claimAnalysisJob(WorkerAnalysisJobClaimRequest request) {
-        List<AnalysisJob> candidates = analysisJobRepository.findClaimCandidates(
+        List<AnalysisJob> claimCandidates = analysisJobRepository.findClaimCandidates(
                 AnalysisJobStatus.PENDING,
                 PageRequest.of(0, CLAIM_SIZE)
         );
-        if (candidates.isEmpty()) {
+        if (claimCandidates.isEmpty()) {
             return Optional.empty();
         }
 
-        AnalysisJob analysisJob = candidates.getFirst();
+        AnalysisJob analysisJob = claimCandidates.getFirst();
         analysisJob.start(resolveModelName(request), resolveCurrentStep(request));
 
-        List<Episode> episodes = findTargetEpisodes(analysisJob);
-        if (episodes.isEmpty()) {
+        List<Episode> targetEpisodes = findTargetEpisodes(analysisJob);
+        if (targetEpisodes.isEmpty()) {
             analysisJob.fail(NO_TARGET_EPISODES_MESSAGE);
             return Optional.empty();
         }
 
-        return Optional.of(analysisJobWorkerMapper.toPayload(analysisJob, episodes));
+        return Optional.of(analysisJobWorkerMapper.toPayload(analysisJob, targetEpisodes));
     }
 
     @Override
@@ -97,17 +97,17 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             return List.of();
         }
 
-        List<UUID> sourceFileIds = uploadFileRepository.findAllByBatchIdAndFileRole(
+        List<UUID> episodeUploadFileIds = uploadFileRepository.findAllByBatchIdAndFileRole(
                         batch.getId(),
                         UploadFileRole.EPISODE
                 )
                 .stream()
                 .map(UploadFile::getId)
                 .toList();
-        if (sourceFileIds.isEmpty()) {
+        if (episodeUploadFileIds.isEmpty()) {
             return List.of();
         }
-        return episodeRepository.findAllBySourceFileIdInOrderByEpisodeNoAsc(sourceFileIds);
+        return episodeRepository.findAllBySourceFileIdInOrderByEpisodeNoAsc(episodeUploadFileIds);
     }
 
     private String resolveModelName(WorkerAnalysisJobClaimRequest request) {

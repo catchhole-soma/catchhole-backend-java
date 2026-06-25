@@ -34,7 +34,7 @@ public class S3ObjectStorage implements ObjectStorage {
     @Override
     public StoredObject putBytes(String key, byte[] bytes, String contentType) {
         try {
-            var response = s3Client.putObject(
+            var putObjectResponse = s3Client.putObject(
                     PutObjectRequest.builder()
                             .bucket(properties.getBucket())
                             .key(key)
@@ -42,7 +42,7 @@ public class S3ObjectStorage implements ObjectStorage {
                             .build(),
                     RequestBody.fromBytes(bytes)
             );
-            return new StoredObject(key, response.versionId());
+            return new StoredObject(key, putObjectResponse.versionId());
         } catch (S3Exception exception) {
             throw new AppException(CommonErrorCode.COMMON_INTERNAL_SERVER_ERROR, "S3 파일 저장에 실패했습니다.", exception);
         }
@@ -50,13 +50,13 @@ public class S3ObjectStorage implements ObjectStorage {
 
     @Override
     public String getText(String key) {
-        try (ResponseInputStream<GetObjectResponse> object = s3Client.getObject(
+        try (ResponseInputStream<GetObjectResponse> getObjectResponseStream = s3Client.getObject(
                 GetObjectRequest.builder()
                         .bucket(properties.getBucket())
                         .key(key)
                         .build()
         )) {
-            return new String(object.readAllBytes(), StandardCharsets.UTF_8);
+            return new String(getObjectResponseStream.readAllBytes(), StandardCharsets.UTF_8);
         } catch (S3Exception | IOException exception) {
             throw new AppException(CommonErrorCode.COMMON_INTERNAL_SERVER_ERROR, "S3 파일 조회에 실패했습니다.", exception);
         }
