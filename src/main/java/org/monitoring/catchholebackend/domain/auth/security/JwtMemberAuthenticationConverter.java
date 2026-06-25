@@ -17,6 +17,10 @@ public class JwtMemberAuthenticationConverter implements Converter<Jwt, Abstract
 
     private final MemberRepository memberRepository;
 
+    /**
+     * JWT subject를 회원 ID로 해석한 뒤 DB의 현재 회원 상태로 인증 객체를 만든다.
+     * 토큰 서명이 유효해도 탈퇴 또는 비활성 회원이면 인증을 거부한다.
+     */
     @Override
     public AbstractAuthenticationToken convert(Jwt jwt) {
         Long memberId = parseMemberId(jwt.getSubject());

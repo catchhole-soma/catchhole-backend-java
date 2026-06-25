@@ -21,15 +21,27 @@ import org.springframework.web.multipart.MultipartFile;
 @Slf4j
 public class EpisodeFileParser {
 
+    /*
+     * 단일 txt 파일 안에서 회차 구분선으로 쓰는 줄 전체를 찾는다.
+     * 지원 예: "12화 제목", "제 12 장 - 제목", "EP 12: 제목", "Episode_12 제목"
+     * 한글 표기에서는 회차 번호와 제목을 앞쪽 괄호 쌍으로, EP/Episode 표기에서는 뒤쪽 괄호 쌍으로 잡는다.
+     */
     private static final Pattern EPISODE_HEADING_PATTERN = Pattern.compile(
             "(?im)^\\s*(?:제\\s*)?(\\d+)\\s*(?:화|회|편|장)\\s*[:：\\-.\\)]?\\s*(.*)$"
                     + "|^\\s*(?:EP|Episode)\\s*[._\\s-]?(\\d+)\\s*[:：\\-.\\)]?\\s*(.*)$"
     );
 
+    /*
+     * 파일명 또는 본문 일부에서 회차 번호만 뽑을 때 사용한다.
+     * 한글 표기와 EP/Episode 표기 모두에서 숫자 회차만 추출한다.
+     */
     private static final Pattern EPISODE_NO_PATTERN = Pattern.compile(
             "(?i)(?:제\\s*)?(\\d+)\\s*(?:화|회|편|장)|(?:EP|Episode)\\s*[._\\s-]?(\\d+)"
     );
 
+    /**
+     * 업로드 타입에 따라 회차 파일을 ParsedEpisodeFile 목록으로 변환한다. 단일 회차, 다중 파일, 단일 파일 내 다중 회차를 서로 다른 규칙으로 파싱한다.
+     */
     public List<ParsedEpisodeFile> parse(EpisodeUploadRequest request, List<MultipartFile> episodeFiles) {
         validateEpisodeFiles(episodeFiles);
         return switch (request.uploadType()) {
@@ -74,6 +86,9 @@ public class EpisodeFileParser {
         return parsedEpisodeFiles;
     }
 
+    /**
+     * 하나의 원고 파일 안에서 회차 heading을 찾아 여러 회차 본문으로 분리한다. 각 heading의 끝부터 다음 heading의 시작 직전까지를 해당 회차 본문으로 본다.
+     */
     private List<ParsedEpisodeFile> parseMultiEpisodeSingleFile(List<MultipartFile> episodeFiles) {
         if (episodeFiles.size() != 1) {
             throw new AppException(UploadErrorCode.UPLOAD_FILE_REQUIRED);
@@ -134,6 +149,9 @@ public class EpisodeFileParser {
         }
     }
 
+    /**
+     * 회차 번호는 파일명에서 먼저 찾고, 찾지 못하면 파일 본문에서 다시 탐지한다.
+     */
     private int detectEpisodeNo(MultipartFile episodeFile) {
         return detectEpisodeNo(episodeFile.getOriginalFilename())
                 .or(() -> detectEpisodeNo(readText(episodeFile)))
@@ -152,6 +170,9 @@ public class EpisodeFileParser {
         return Optional.of(Integer.parseInt(episodeNoText));
     }
 
+    /**
+     * 단일 파일 다중 회차 업로드에서 본문을 나눌 기준 heading의 위치와 회차 번호를 찾는다.
+     */
     private List<EpisodeHeading> findEpisodeHeadings(String episodeText) {
         Matcher matcher = EPISODE_HEADING_PATTERN.matcher(episodeText);
         List<EpisodeHeading> headings = new ArrayList<>();

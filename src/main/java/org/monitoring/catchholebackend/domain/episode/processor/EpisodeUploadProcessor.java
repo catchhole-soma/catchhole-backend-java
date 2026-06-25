@@ -44,6 +44,11 @@ public class EpisodeUploadProcessor {
     private final EpisodeFileParser episodeFileParser;
     private final ObjectStorageService objectStorageService;
 
+    /**
+     * 회차 업로드 요청 하나를 batch 단위로 처리한다.
+     * 업로드 타입에 맞게 파일을 파싱하고, 회차 번호 중복을 검증한 뒤 UploadBatch와 UploadFile 추적 정보를 만든다.
+     * 파싱된 회차 본문은 S3에 저장하고 Episode에는 저장소 key/version/hash/글자 수 메타데이터만 남긴다.
+     */
     public EpisodeUploadResponse upload(
             Work work,
             EpisodeUploadRequest request,
@@ -83,6 +88,9 @@ public class EpisodeUploadProcessor {
         );
     }
 
+    /**
+     * 업로드 요청 안의 회차 번호 중복과 같은 작품에 이미 존재하는 회차 번호를 함께 검증한다.
+     */
     private void validateEpisodeNumbers(Work work, List<ParsedEpisodeFile> parsedEpisodeFiles) {
         Set<Integer> uniqueEpisodeNosInRequest = new HashSet<>();
         for (ParsedEpisodeFile parsedEpisodeFile : parsedEpisodeFiles) {
@@ -96,6 +104,10 @@ public class EpisodeUploadProcessor {
         }
     }
 
+    /**
+     * 파싱된 원본 회차 파일 하나를 S3에 저장하고 UploadFile 추적 정보를 PARSED 상태로 갱신한다.
+     * 파일 안에서 분리된 각 회차는 별도 S3 원문과 Episode로 저장한다.
+     */
     private void saveEpisodeUploadFileAndEpisodes(
             UploadBatch batch,
             Work work,
@@ -130,6 +142,10 @@ public class EpisodeUploadProcessor {
         }
     }
 
+    /**
+     * 설정집 파일을 업로드 batch에 포함된 보조 파일로 저장하고 UploadFile로 추적한다.
+     * 설정집은 회차 범위가 없으므로 감지된 시작/끝 회차와 회차 개수는 비워둔다.
+     */
     private void saveSettingBookUploadFile(UploadBatch batch, MultipartFile settingBookFile) {
         StoredObject storedSettingBookFile = objectStorageService.putUploadFile(
                 batch.getId(),
@@ -146,6 +162,9 @@ public class EpisodeUploadProcessor {
         savedSettingBookFile.markParsed(null, null, null);
     }
 
+    /**
+     * 파싱된 회차 본문을 S3에 먼저 저장한 뒤, 저장소 메타데이터를 포함한 Episode 엔티티를 조립한다.
+     */
     private Episode storeEpisodeContentAndCreateEpisode(
             Work work,
             UploadFile savedEpisodeFile,
@@ -175,6 +194,10 @@ public class EpisodeUploadProcessor {
         );
     }
 
+    /**
+     * 이번 업로드로 생성된 회차 번호 중 가장 큰 값을 작품의 최신 회차 번호에 반영한다.
+     * 기존 최신 회차 번호보다 작은 회차만 추가된 경우에는 값을 낮추지 않는다.
+     */
     private void updateLatestEpisodeNo(Work work, List<Episode> episodes) {
         int latestEpisodeNo = episodes.stream()
                 .mapToInt(Episode::getEpisodeNo)

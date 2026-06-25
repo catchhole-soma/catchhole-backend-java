@@ -91,6 +91,10 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         return analysisJob;
     }
 
+    /**
+     * 작업에 연결된 업로드 배치에서 회차 파일만 골라 분석 대상 회차 목록을 만든다.
+     * 배치가 없거나 회차 파일이 없으면 워커에 넘길 대상이 없으므로 빈 목록을 반환한다.
+     */
     private List<Episode> findTargetEpisodes(AnalysisJob analysisJob) {
         UploadBatch batch = analysisJob.getBatch();
         if (batch == null) {
