@@ -18,10 +18,10 @@ public class ObjectStorageService {
      * 원문 본문은 반환하지 않고 S3 key, version, SHA-256 hash, 글자 수만 반환한다.
      */
     public StoredTextObject putEpisodeContent(UUID workId, int episodeNo, String content) {
-        StoredObject storedObject = objectStorage.putText(buildEpisodeContentKey(workId, episodeNo), content);
+        StoredObject storedEpisodeContent = objectStorage.putText(buildEpisodeContentKey(workId, episodeNo), content);
         return new StoredTextObject(
-                storedObject.key(),
-                storedObject.versionId(),
+                storedEpisodeContent.key(),
+                storedEpisodeContent.versionId(),
                 sha256(content),
                 content.length()
         );
@@ -37,11 +37,11 @@ public class ObjectStorageService {
             String oldContentKey,
             String content
     ) {
-        StoredTextObject storedTextObject = putEpisodeContent(workId, episodeNo, content);
-        if (oldContentKey != null && !oldContentKey.equals(storedTextObject.key())) {
+        StoredTextObject storedEpisodeContent = putEpisodeContent(workId, episodeNo, content);
+        if (oldContentKey != null && !oldContentKey.equals(storedEpisodeContent.key())) {
             objectStorage.delete(oldContentKey);
         }
-        return storedTextObject;
+        return storedEpisodeContent;
     }
 
     /**

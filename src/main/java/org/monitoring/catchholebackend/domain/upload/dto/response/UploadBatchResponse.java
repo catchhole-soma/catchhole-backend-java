@@ -16,8 +16,8 @@ public record UploadBatchResponse(
         @Schema(description = "작품 ID", example = "550e8400-e29b-41d4-a716-446655440000")
         UUID workId,
 
-        @Schema(description = "업로드 회원 ID", example = "1")
-        Long uploadedById,
+        @Schema(description = "회원 ID", example = "1")
+        Long memberId,
 
         @Schema(description = "업로드 방식", example = "SINGLE_EPISODE")
         UploadType uploadType,

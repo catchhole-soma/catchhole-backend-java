@@ -19,8 +19,7 @@ import org.springframework.web.multipart.MultipartFile;
 @Component
 @RequiredArgsConstructor
 @Slf4j
-//TODO: 해당 클래스 네이밍 이상함;
-public class EpisodeUploadParser {
+public class EpisodeFileParser {
 
     /*
      * 단일 txt 파일 안에서 회차 구분선으로 쓰는 줄 전체를 찾는다.
@@ -41,9 +40,9 @@ public class EpisodeUploadParser {
     );
 
     /**
-     * 업로드 타입에 따라 회차 파일을 ParsedUploadFile 목록으로 변환한다. 단일 회차, 다중 파일, 단일 파일 내 다중 회차를 서로 다른 규칙으로 파싱한다.
+     * 업로드 타입에 따라 회차 파일을 ParsedEpisodeFile 목록으로 변환한다. 단일 회차, 다중 파일, 단일 파일 내 다중 회차를 서로 다른 규칙으로 파싱한다.
      */
-    public List<ParsedUploadFile> parse(EpisodeUploadRequest request, List<MultipartFile> episodeFiles) {
+    public List<ParsedEpisodeFile> parse(EpisodeUploadRequest request, List<MultipartFile> episodeFiles) {
         validateEpisodeFiles(episodeFiles);
         return switch (request.uploadType()) {
             case SINGLE_EPISODE -> parseSingleEpisode(request, episodeFiles);
@@ -53,7 +52,7 @@ public class EpisodeUploadParser {
         };
     }
 
-    private List<ParsedUploadFile> parseSingleEpisode(
+    private List<ParsedEpisodeFile> parseSingleEpisode(
             EpisodeUploadRequest request,
             List<MultipartFile> episodeFiles
     ) {
@@ -64,79 +63,81 @@ public class EpisodeUploadParser {
             throw new AppException(UploadErrorCode.UPLOAD_EPISODE_NO_REQUIRED);
         }
 
-        MultipartFile file = episodeFiles.get(0);
+        MultipartFile episodeFile = episodeFiles.get(0);
         ParsedEpisode episode = new ParsedEpisode(
                 request.episodeNo(),
-                resolveTitle(request.title(), file.getOriginalFilename(), request.episodeNo()),
-                readText(file)
+                resolveTitle(request.title(), episodeFile.getOriginalFilename(), request.episodeNo()),
+                readText(episodeFile)
         );
-        return List.of(new ParsedUploadFile(file, List.of(episode)));
+        return List.of(new ParsedEpisodeFile(episodeFile, List.of(episode)));
     }
 
-    private List<ParsedUploadFile> parseMultiEpisodeMultiFile(List<MultipartFile> episodeFiles) {
-        List<ParsedUploadFile> parsedUploadFiles = new ArrayList<>();
-        for (MultipartFile file : episodeFiles) {
-            int episodeNo = detectEpisodeNo(file);
+    private List<ParsedEpisodeFile> parseMultiEpisodeMultiFile(List<MultipartFile> episodeFiles) {
+        List<ParsedEpisodeFile> parsedEpisodeFiles = new ArrayList<>();
+        for (MultipartFile episodeFile : episodeFiles) {
+            int episodeNo = detectEpisodeNo(episodeFile);
             ParsedEpisode episode = new ParsedEpisode(
                     episodeNo,
-                    resolveTitle(null, file.getOriginalFilename(), episodeNo),
-                    readText(file)
+                    resolveTitle(null, episodeFile.getOriginalFilename(), episodeNo),
+                    readText(episodeFile)
             );
-            parsedUploadFiles.add(new ParsedUploadFile(file, List.of(episode)));
+            parsedEpisodeFiles.add(new ParsedEpisodeFile(episodeFile, List.of(episode)));
         }
-        return parsedUploadFiles;
+        return parsedEpisodeFiles;
     }
 
     /**
      * 하나의 원고 파일 안에서 회차 heading을 찾아 여러 회차 본문으로 분리한다. 각 heading의 끝부터 다음 heading의 시작 직전까지를 해당 회차 본문으로 본다.
      */
-    private List<ParsedUploadFile> parseMultiEpisodeSingleFile(List<MultipartFile> episodeFiles) {
+    private List<ParsedEpisodeFile> parseMultiEpisodeSingleFile(List<MultipartFile> episodeFiles) {
         if (episodeFiles.size() != 1) {
             throw new AppException(UploadErrorCode.UPLOAD_FILE_REQUIRED);
         }
 
-        MultipartFile file = episodeFiles.get(0);
-        String text = readText(file);
-        List<EpisodeHeading> headings = findEpisodeHeadings(text);
+        MultipartFile episodeFile = episodeFiles.get(0);
+        String episodeText = readText(episodeFile);
+        List<EpisodeHeading> headings = findEpisodeHeadings(episodeText);
         if (headings.isEmpty()) {
             throw new AppException(UploadErrorCode.UPLOAD_EPISODE_NO_DETECTION_FAILED);
         }
         log.info(
                 "Detected {} episode headings from upload file. filename={}, textLength={}",
                 headings.size(),
-                resolveOriginalFilename(file),
-                text.length()
+                resolveOriginalFilename(episodeFile),
+                episodeText.length()
         );
 
         List<ParsedEpisode> episodes = new ArrayList<>();
         for (int index = 0; index < headings.size(); index++) {
             EpisodeHeading heading = headings.get(index);
-            int contentEnd = index + 1 < headings.size() ? headings.get(index + 1).start() : text.length();
-            String content = text.substring(heading.end(), contentEnd).trim();
-            if (!StringUtils.hasText(content)) {
+            int episodeContentEndOffset = index + 1 < headings.size()
+                    ? headings.get(index + 1).start()
+                    : episodeText.length();
+            String episodeContent = episodeText.substring(heading.end(), episodeContentEndOffset).trim();
+            if (!StringUtils.hasText(episodeContent)) {
                 throw new AppException(UploadErrorCode.UPLOAD_FILE_PARSE_FAILED);
             }
             String title = resolveHeadingTitle(heading);
             log.info(
                     "Parsed episode from upload file. filename={}, episodeNo={}, title={}, headingLine={}, headingOffset={}..{}, contentOffset={}..{}, contentCharCount={}",
-                    resolveOriginalFilename(file),
+                    resolveOriginalFilename(episodeFile),
                     heading.episodeNo(),
                     title,
-                    lineNumberOf(text, heading.start()),
+                    lineNumberOf(episodeText, heading.start()),
                     heading.start(),
                     heading.end(),
                     heading.end(),
-                    contentEnd,
-                    content.length()
+                    episodeContentEndOffset,
+                    episodeContent.length()
             );
             episodes.add(new ParsedEpisode(
                     heading.episodeNo(),
                     title,
-                    content
+                    episodeContent
             ));
         }
 
-        return List.of(new ParsedUploadFile(file, episodes));
+        return List.of(new ParsedEpisodeFile(episodeFile, episodes));
     }
 
     private void validateEpisodeFiles(List<MultipartFile> episodeFiles) {
@@ -151,64 +152,64 @@ public class EpisodeUploadParser {
     /**
      * 회차 번호는 파일명에서 먼저 찾고, 찾지 못하면 파일 본문에서 다시 탐지한다.
      */
-    private int detectEpisodeNo(MultipartFile file) {
-        return detectEpisodeNo(file.getOriginalFilename())
-                .or(() -> detectEpisodeNo(readText(file)))
+    private int detectEpisodeNo(MultipartFile episodeFile) {
+        return detectEpisodeNo(episodeFile.getOriginalFilename())
+                .or(() -> detectEpisodeNo(readText(episodeFile)))
                 .orElseThrow(() -> new AppException(UploadErrorCode.UPLOAD_EPISODE_NO_DETECTION_FAILED));
     }
 
-    private Optional<Integer> detectEpisodeNo(String text) {
-        if (!StringUtils.hasText(text)) {
+    private Optional<Integer> detectEpisodeNo(String episodeText) {
+        if (!StringUtils.hasText(episodeText)) {
             return Optional.empty();
         }
-        Matcher matcher = EPISODE_NO_PATTERN.matcher(text);
+        Matcher matcher = EPISODE_NO_PATTERN.matcher(episodeText);
         if (!matcher.find()) {
             return Optional.empty();
         }
-        String episodeNo = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
-        return Optional.of(Integer.parseInt(episodeNo));
+        String episodeNoText = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
+        return Optional.of(Integer.parseInt(episodeNoText));
     }
 
     /**
      * 단일 파일 다중 회차 업로드에서 본문을 나눌 기준 heading의 위치와 회차 번호를 찾는다.
      */
-    private List<EpisodeHeading> findEpisodeHeadings(String text) {
-        Matcher matcher = EPISODE_HEADING_PATTERN.matcher(text);
+    private List<EpisodeHeading> findEpisodeHeadings(String episodeText) {
+        Matcher matcher = EPISODE_HEADING_PATTERN.matcher(episodeText);
         List<EpisodeHeading> headings = new ArrayList<>();
         while (matcher.find()) {
-            String episodeNo = matcher.group(1) != null ? matcher.group(1) : matcher.group(3);
+            String episodeNoText = matcher.group(1) != null ? matcher.group(1) : matcher.group(3);
             String title = matcher.group(2) != null ? matcher.group(2) : matcher.group(4);
             headings.add(new EpisodeHeading(
                     matcher.start(),
                     matcher.end(),
-                    Integer.parseInt(episodeNo),
+                    Integer.parseInt(episodeNoText),
                     title == null ? null : title.trim()
             ));
         }
         return headings;
     }
 
-    private String readText(MultipartFile file) {
+    private String readText(MultipartFile episodeFile) {
         try {
-            return new String(file.getBytes(), StandardCharsets.UTF_8);
+            return new String(episodeFile.getBytes(), StandardCharsets.UTF_8);
         } catch (IOException exception) {
             throw new AppException(UploadErrorCode.UPLOAD_FILE_READ_FAILED, exception);
         }
     }
 
-    private int lineNumberOf(String text, int offset) {
+    private int lineNumberOf(String episodeText, int offset) {
         int lineNumber = 1;
-        int end = Math.min(offset, text.length());
-        for (int index = 0; index < end; index++) {
-            if (text.charAt(index) == '\n') {
+        int endOffset = Math.min(offset, episodeText.length());
+        for (int index = 0; index < endOffset; index++) {
+            if (episodeText.charAt(index) == '\n') {
                 lineNumber++;
             }
         }
         return lineNumber;
     }
 
-    private String resolveOriginalFilename(MultipartFile file) {
-        return StringUtils.hasText(file.getOriginalFilename()) ? file.getOriginalFilename() : "untitled.txt";
+    private String resolveOriginalFilename(MultipartFile episodeFile) {
+        return StringUtils.hasText(episodeFile.getOriginalFilename()) ? episodeFile.getOriginalFilename() : "untitled.txt";
     }
 
     private String resolveTitle(String requestedTitle, String originalFilename, int episodeNo) {

@@ -157,7 +157,7 @@ erDiagram
     upload_batches {
         uuid id PK
         uuid work_id FK
-        bigint uploaded_by_id FK
+        bigint member_id FK
         varchar upload_type
         varchar source_type
         varchar status

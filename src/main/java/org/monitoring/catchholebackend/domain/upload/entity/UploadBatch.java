@@ -51,15 +51,14 @@ public class UploadBatch extends BaseEntity {
     )
     private Work work;
 
-    //TODO: member_id 로 네이밍 통일
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
-            name = "uploaded_by_id",
+            name = "member_id",
             nullable = false,
             updatable = false,
             foreignKey = @ForeignKey(name = "fk_upload_batches_member")
     )
-    private Member uploadedBy;
+    private Member member;
 
     //업로드 타입 유무에 관련해서 서비스 로직이 다름(자세한 내용은 python ai worker 쪽 확인)
     @Enumerated(EnumType.STRING)
@@ -85,9 +84,9 @@ public class UploadBatch extends BaseEntity {
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
 
-    private UploadBatch(Work work, Member uploadedBy, UploadType uploadType, UploadSourceType sourceType) {
+    private UploadBatch(Work work, Member member, UploadType uploadType, UploadSourceType sourceType) {
         this.work = work;
-        this.uploadedBy = uploadedBy;
+        this.member = member;
         this.uploadType = uploadType;
         this.sourceType = sourceType;
         this.status = UploadStatus.PENDING;
@@ -96,11 +95,11 @@ public class UploadBatch extends BaseEntity {
 
     public static UploadBatch create(
             Work work,
-            Member uploadedBy,
+            Member member,
             UploadType uploadType,
             UploadSourceType sourceType
     ) {
-        return new UploadBatch(work, uploadedBy, uploadType, sourceType);
+        return new UploadBatch(work, member, uploadType, sourceType);
     }
 
     public void updateFileCount(int fileCount) {

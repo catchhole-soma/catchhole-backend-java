@@ -11,9 +11,9 @@ import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeUpload
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.exception.EpisodeErrorCode;
 import org.monitoring.catchholebackend.domain.episode.mapper.EpisodeMapper;
-import org.monitoring.catchholebackend.domain.episode.parser.EpisodeUploadParser;
+import org.monitoring.catchholebackend.domain.episode.parser.EpisodeFileParser;
 import org.monitoring.catchholebackend.domain.episode.parser.ParsedEpisode;
-import org.monitoring.catchholebackend.domain.episode.parser.ParsedUploadFile;
+import org.monitoring.catchholebackend.domain.episode.parser.ParsedEpisodeFile;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
@@ -41,7 +41,7 @@ public class EpisodeUploadProcessor {
     private final UploadFileRepository uploadFileRepository;
     private final EpisodeMapper episodeMapper;
     private final UploadMapper uploadMapper;
-    private final EpisodeUploadParser episodeUploadParser;
+    private final EpisodeFileParser episodeFileParser;
     private final ObjectStorageService objectStorageService;
 
     /**
@@ -57,9 +57,8 @@ public class EpisodeUploadProcessor {
     ) {
         //TODO: 해당 코드의 경우 pending -> processing 단계로 넘어가는 코드가 하나도 존재하지 않음 로직 수정하기
         //TODO: 실패 처리 로직이 하나도 존재하지 않음 추가해야함 (실패로직의 경우 서로 상의하고 문서작업 pr 후 코드 리뷰 하기)
-        //TODO: 현재 코드 구현 로직에서 변수네이밍이 이상함. 함수의 매개변수와 호출할때의 인자값의 네이밍이 달라서 코드 리뷰가 힘듦 (episode mapper 부분)
-        List<ParsedUploadFile> parsedUploadFiles = episodeUploadParser.parse(request, episodeFiles);
-        validateEpisodeNumbers(work, parsedUploadFiles);
+        List<ParsedEpisodeFile> parsedEpisodeFiles = episodeFileParser.parse(request, episodeFiles);
+        validateEpisodeNumbers(work, parsedEpisodeFiles);
 
         UploadBatch batch = uploadBatchRepository.save(
                 UploadBatch.create(work, work.getMember(), request.uploadType(), UploadSourceType.FILE)
@@ -68,14 +67,14 @@ public class EpisodeUploadProcessor {
 
         batch.updateFileCount(countFiles(episodeFiles, settingBookFile));
 
-        List<Episode> episodes = new ArrayList<>();
-        for (ParsedUploadFile parsedUploadFile : parsedUploadFiles) {
-            saveParsedUploadFile(batch, work, parsedUploadFile, episodes);
+        List<Episode> savedEpisodes = new ArrayList<>();
+        for (ParsedEpisodeFile parsedEpisodeFile : parsedEpisodeFiles) {
+            saveEpisodeUploadFileAndEpisodes(batch, work, parsedEpisodeFile, savedEpisodes);
         }
-        updateLatestEpisodeNo(work, episodes);
+        updateLatestEpisodeNo(work, savedEpisodes);
 
         if (isPresent(settingBookFile)) {
-            saveSettingBookFile(batch, settingBookFile);
+            saveSettingBookUploadFile(batch, settingBookFile);
         }
 
         batch.complete();
@@ -84,7 +83,7 @@ public class EpisodeUploadProcessor {
                 batch.getId(),
                 batch.getUploadType(),
                 batch.getStatus(),
-                episodes.size(),
+                savedEpisodes.size(),
                 uploadMapper.toFileResponseList(uploadFiles)
         );
     }
@@ -92,11 +91,11 @@ public class EpisodeUploadProcessor {
     /**
      * 업로드 요청 안의 회차 번호 중복과 같은 작품에 이미 존재하는 회차 번호를 함께 검증한다.
      */
-    private void validateEpisodeNumbers(Work work, List<ParsedUploadFile> parsedUploadFiles) {
-        Set<Integer> episodeNos = new HashSet<>();
-        for (ParsedUploadFile parsedUploadFile : parsedUploadFiles) {
-            for (ParsedEpisode parsedEpisode : parsedUploadFile.episodes()) {
-                if (!episodeNos.add(parsedEpisode.episodeNo())
+    private void validateEpisodeNumbers(Work work, List<ParsedEpisodeFile> parsedEpisodeFiles) {
+        Set<Integer> uniqueEpisodeNosInRequest = new HashSet<>();
+        for (ParsedEpisodeFile parsedEpisodeFile : parsedEpisodeFiles) {
+            for (ParsedEpisode parsedEpisode : parsedEpisodeFile.episodes()) {
+                if (!uniqueEpisodeNosInRequest.add(parsedEpisode.episodeNo())
                         || episodeRepository.existsByWorkIdAndEpisodeNo(work.getId(), parsedEpisode.episodeNo())) {
                     //TODO: 에러메세지에 중복 회차가 몇회차인지 추가로 작성해놓기
                     throw new AppException(EpisodeErrorCode.EPISODE_DUPLICATED , parsedEpisode.episodeNo() + " 화가 중복입니다.");
@@ -109,33 +108,37 @@ public class EpisodeUploadProcessor {
      * 파싱된 원본 회차 파일 하나를 S3에 저장하고 UploadFile 추적 정보를 PARSED 상태로 갱신한다.
      * 파일 안에서 분리된 각 회차는 별도 S3 원문과 Episode로 저장한다.
      */
-    private void saveParsedUploadFile(
+    private void saveEpisodeUploadFileAndEpisodes(
             UploadBatch batch,
             Work work,
-            ParsedUploadFile parsedUploadFile,
-            List<Episode> episodes
+            ParsedEpisodeFile parsedEpisodeFile,
+            List<Episode> savedEpisodes
     ) {
-        StoredObject storedUploadFile = objectStorageService.putUploadFile(
+        StoredObject storedEpisodeFile = objectStorageService.putUploadFile(
                 batch.getId(),
-                resolveOriginalFilename(parsedUploadFile.file()),
-                readBytes(parsedUploadFile.file()),
-                parsedUploadFile.file().getContentType()
+                resolveOriginalFilename(parsedEpisodeFile.episodeFile()),
+                readBytes(parsedEpisodeFile.episodeFile()),
+                parsedEpisodeFile.episodeFile().getContentType()
         );
 
-        UploadFile uploadedEpisodeFile = uploadFileRepository.save(createUploadFile(
+        UploadFile savedEpisodeFile = uploadFileRepository.save(createUploadFile(
                 batch,
                 UploadFileRole.EPISODE,
-                parsedUploadFile.file(),
-                storedUploadFile.key()
+                parsedEpisodeFile.episodeFile(),
+                storedEpisodeFile.key()
         ));
-        uploadedEpisodeFile.markParsed(
-                parsedUploadFile.detectedEpisodeStartNo(),
-                parsedUploadFile.detectedEpisodeEndNo(),
-                parsedUploadFile.detectedEpisodeCount()
+        savedEpisodeFile.markParsed(
+                parsedEpisodeFile.detectedEpisodeStartNo(),
+                parsedEpisodeFile.detectedEpisodeEndNo(),
+                parsedEpisodeFile.detectedEpisodeCount()
         );
 
-        for (ParsedEpisode parsedEpisode : parsedUploadFile.episodes()) {
-            episodes.add(episodeRepository.save(createEpisode(work, uploadedEpisodeFile, parsedEpisode)));
+        for (ParsedEpisode parsedEpisode : parsedEpisodeFile.episodes()) {
+            savedEpisodes.add(episodeRepository.save(storeEpisodeContentAndCreateEpisode(
+                    work,
+                    savedEpisodeFile,
+                    parsedEpisode
+            )));
         }
     }
 
@@ -143,33 +146,36 @@ public class EpisodeUploadProcessor {
      * 설정집 파일을 업로드 batch에 포함된 보조 파일로 저장하고 UploadFile로 추적한다.
      * 설정집은 회차 범위가 없으므로 감지된 시작/끝 회차와 회차 개수는 비워둔다.
      */
-    private void saveSettingBookFile(UploadBatch batch, MultipartFile settingBookFile) {
+    private void saveSettingBookUploadFile(UploadBatch batch, MultipartFile settingBookFile) {
         StoredObject storedSettingBookFile = objectStorageService.putUploadFile(
                 batch.getId(),
                 resolveOriginalFilename(settingBookFile),
                 readBytes(settingBookFile),
                 settingBookFile.getContentType()
         );
-        UploadFile uploadedSettingBookFile = uploadFileRepository.save(createUploadFile(
+        UploadFile savedSettingBookFile = uploadFileRepository.save(createUploadFile(
                 batch,
                 UploadFileRole.SETTING_BOOK,
                 settingBookFile,
                 storedSettingBookFile.key()
         ));
-        uploadedSettingBookFile.markParsed(null, null, null);
+        savedSettingBookFile.markParsed(null, null, null);
     }
 
-    //TODO: 함수명의 이름이 S3에 저장하는 작업을 한다는걸 예상하기 힘듦 네이밍 수정 필요함
     /**
      * 파싱된 회차 본문을 S3에 먼저 저장한 뒤, 저장소 메타데이터를 포함한 Episode 엔티티를 조립한다.
      */
-    private Episode createEpisode(Work work, UploadFile uploadedEpisodeFile, ParsedEpisode parsedEpisode) {
-        StoredTextObject storedContent = objectStorageService.putEpisodeContent(
+    private Episode storeEpisodeContentAndCreateEpisode(
+            Work work,
+            UploadFile savedEpisodeFile,
+            ParsedEpisode parsedEpisode
+    ) {
+        StoredTextObject storedEpisodeContent = objectStorageService.putEpisodeContent(
                 work.getId(),
                 parsedEpisode.episodeNo(),
                 parsedEpisode.content()
         );
-        return episodeMapper.toEntity(work, uploadedEpisodeFile, parsedEpisode, storedContent);
+        return episodeMapper.toEntity(work, savedEpisodeFile, parsedEpisode, storedEpisodeContent);
     }
 
     private UploadFile createUploadFile(
