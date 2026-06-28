@@ -47,7 +47,7 @@ public record AnalysisJobResponse(
         @Schema(description = "분석 결과 요약 JSON")
         String summaryJson,
 
-        @Schema(description = "실패 사유")
+        @Schema(description = "마지막 실패 사유")
         String errorMessage,
 
         @Schema(description = "분석 시작 시각", example = "2026-06-14T10:30:00")

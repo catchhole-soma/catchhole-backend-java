@@ -335,7 +335,7 @@ erDiagram
 | --- | --- |
 | `manuscript_chunks` | 회차 원문을 문단/장면/길이 기준으로 나눈 분석 단위. 원문 위치와 pgvector 검색용 embedding을 보존합니다. |
 | `preprocessed_manuscript_chunks` | LLM 전처리 결과. 청크 요약, 등장인물 후보, 설정 유형 후보, 노이즈 여부, 장면 경계 보정 필요 여부를 저장합니다. |
-| `analysis_jobs` | Python AI Worker에 전달되는 비동기 작업 단위. 작업 목적, 상태, 재시도 횟수, 실패 사유, 토큰 수를 추적합니다. |
+| `analysis_jobs` | Python AI Worker에 전달되는 비동기 작업 단위. 작업 목적, 상태, 재시도 횟수, 마지막 실패 사유, 토큰 수를 추적합니다. |
 | `setting_candidates` | AI가 추출한 설정 후보. 설정 유형, 값, 신뢰도, 근거 청크, 원본 AI 응답, 검토 상태를 저장합니다. |
 | `setting_snapshots` | 사용자가 확정한 기준 설정 또는 설정 변화 이력. 신규 회차 검수의 구조화 기준입니다. |
 | `validation_reports` | 기존 원고 내부 정합성 검수와 신규 회차 검수 리포트의 묶음입니다. |

@@ -189,7 +189,8 @@ domain/<domain>
 #### Analysis Domain Policy
 
 - AnalysisJob은 작품 단위 AI 분석 작업의 상태와 결과 메타데이터를 추적한다.
-- 원문 텍스트는 `Episode`의 S3 저장 구조를 재사용하고, `analysis_jobs`에는 상태, 현재 단계, 모델명, 토큰 수, 요약 JSON, 실패 사유만 저장한다.
+- 원문 텍스트는 `Episode`의 S3 저장 구조를 재사용하고, `analysis_jobs`에는 상태, 현재 단계, 모델명, 토큰 수, 요약 JSON, 마지막 실패 사유만 저장한다.
+- 분석 실패 처리 이력은 `analysis_jobs.error_message`에 누적하지 않고, 후속 모니터링 기능에서 별도 기록/조회한다.
 - 분석 작업 생성 API는 업로드 흐름의 단위인 `batch_id`를 필수 입력으로 받는다. `episode_id`는 회차별 세부 작업이 필요해질 때 내부 작업 모델에서 선택적으로 사용할 수 있다.
 - 본인 작품의 분석 작업만 생성/조회할 수 있으며, 다른 회원의 작품이나 다른 작품에 속한 분석 대상은 404로 응답한다.
 - Python AI Worker는 작업 claim과 `AnalysisJob` 상태 변경에 `/api/internal/**` 내부 API를 `X-Internal-Api-Key`로 인증해 사용한다. Worker에는 원문 본문을 응답하지 않고 `Episode`의 S3 key/version/hash/charCount 메타데이터만 전달한다.

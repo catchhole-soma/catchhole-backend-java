@@ -56,7 +56,7 @@ public class EpisodeUploadProcessor {
             List<MultipartFile> episodeFiles,
             MultipartFile settingBookFile
     ) {
-        // TODO: 현재 동기 업로드는 예외 시 트랜잭션 rollback으로 batch도 함께 사라질 수 있다. 실패 이력을 남길 필요가 있으면 batch 선커밋/별도 트랜잭션/비동기 처리 중 어떤 방식이 맞을지 후속으로 검토한다.
+        // TODO: 현재 동기 업로드는 예외 시 트랜잭션 rollback으로 batch도 함께 사라질 수 있다. 모니터링 이력 기록이 필요하면 batch 선커밋/별도 트랜잭션/비동기 처리 중 어떤 방식이 맞을지 후속으로 검토한다.
         List<ParsedEpisodeFile> parsedEpisodeFiles = episodeFileParser.parse(request, episodeFiles);
         validateEpisodeNumbers(work, parsedEpisodeFiles);
 
