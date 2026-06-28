@@ -75,8 +75,15 @@ org.monitoring.catchholebackend
 │   │   ├── service
 │   │   └── type
 │   ├── character
+│   │   ├── controller
+│   │   ├── dto
+│   │   │   ├── request
+│   │   │   └── response
 │   │   ├── entity
+│   │   ├── exception
+│   │   ├── mapper
 │   │   ├── repository
+│   │   ├── service
 │   │   └── type
 │   └── work
 │       ├── controller
@@ -201,6 +208,8 @@ domain/<domain>
 #### Character Setting Domain Policy
 
 - 캐릭터 설정 저장 토대는 `domain/character`에 둔다. `WorkCharacter`는 작품별 캐릭터 대표/현재 설정을, `SettingCandidate`는 AI가 추출한 사용자 검토 전 후보를 저장한다.
+- `SettingCandidate` 생성은 Python AI Worker가 담당하고, Spring API는 사용자 검토를 위한 조회/수정부터 담당한다. 후보 생성 API를 Spring에 추가해야 할 때는 Worker 저장 책임을 함께 재검토한다.
+- `SettingCandidate` 수정은 `PENDING_REVIEW` 상태에서만 허용한다. 확정/무시 이후 수정은 `CharacterFact` 반영 정책과 동기화 문제가 생기므로 별도 정책이 정해질 때까지 막는다.
 - 화면 표시, 검색, 비교에 자주 쓰는 캐릭터 이름, 역할, 현재 나이, 현재 레벨은 일반 컬럼으로 둔다.
 - 검토 상태는 `SettingCandidate`에만 둔다. `WorkCharacter`와 `CharacterFact`는 사용자가 후보를 승인한 뒤 저장되는 대표 설정과 설정 이력이므로 별도 review status를 두지 않는다.
 - 작품마다 구조가 달라지는 프로필, 스탯, 스킬, 아이템, 상태 상세값과 AI 원본 응답, 근거 span은 `JsonNode` + Hibernate JSON 매핑으로 JSONB 컬럼에 저장한다. 이 구조는 장르별 설정 차이를 수용하면서도 자주 조회하는 핵심 값은 일반 컬럼으로 유지하기 위한 선택이다.
@@ -436,5 +445,8 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 ```
 
 - 테스트는 `apps/CatchHole-Backend`에서 실행한다.
+- 테스트 클래스와 테스트 메서드에는 리뷰어가 의도를 바로 이해할 수 있도록 한글 `@DisplayName`을 작성한다. Java 메서드명은 기존처럼 영어 동작 설명형으로 유지한다.
+- 도메인 Entity 상태 전이, Mapper 변환, Service 분기/검증처럼 Spring Context 없이 검증 가능한 로직은 단위 테스트를 우선 추가한다.
+- API 인증/인가, 요청/응답 JSON, Repository 쿼리, JPA 매핑처럼 프레임워크 경계가 중요한 흐름은 MockMvc 또는 JPA 통합 테스트로 검증한다.
 - API 응답 규약을 바꾸면 MockMvc 테스트도 함께 갱신한다.
 - DB 설정이 필요한 통합 테스트는 `test` profile의 H2 인메모리 DB를 기본으로 사용한다.
