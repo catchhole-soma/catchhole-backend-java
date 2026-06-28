@@ -21,14 +21,7 @@ Work는 로그인한 회원의 개인 리소스입니다.
 
 ## 상태 모델
 
-`WorkStatus`
-
-| 상태 | 의미 | 전이 시점 |
-| --- | --- | --- |
-| `ACTIVE` | 사용 중인 작품 | `Work.create()`로 작품을 만들 때 기본값으로 설정됩니다. 보관 복구가 생기면 `Work.activate()`로 전환합니다. |
-| `ARCHIVED` | 보관된 작품 | `Work.archive()` 상태입니다. 현재 API는 hard delete를 사용하므로 아직 실제 사용자 흐름에는 연결되지 않았습니다. |
-
-현재 API는 삭제 시 hard delete를 수행합니다. `ARCHIVED`는 이후 보관/복구 흐름을 위한 상태입니다.
+현재 Work API는 삭제 시 hard delete를 수행하므로 별도 `WorkStatus`를 두지 않습니다. 보관/복구 흐름을 구현할 때 상태 컬럼과 전이 메서드를 함께 추가합니다.
 
 ## DB 모델
 
@@ -41,7 +34,6 @@ Work는 로그인한 회원의 개인 리소스입니다.
 | `title` | 작품 제목 |
 | `genre` | 작품 장르 |
 | `description` | 작품 설명 |
-| `status` | 작품 상태 |
 | `latest_episode_no` | 가장 큰 회차 번호. 회차 생성/수정/삭제 시 갱신 |
 | `created_at` | 생성 시각 |
 | `updated_at` | 수정 시각 |
@@ -71,7 +63,7 @@ Request
 1. 인증 principal에서 `memberId`를 꺼냅니다.
 2. `MemberRepository.getByIdOrThrow(memberId)`로 회원을 조회합니다.
 3. `Work.create(member, title, genre, description)`으로 작품을 생성합니다.
-4. 초기 상태는 `ACTIVE`, `latestEpisodeNo`는 `0`입니다.
+4. `latestEpisodeNo`는 `0`으로 초기화합니다.
 
 ### 내 작품 목록 조회
 

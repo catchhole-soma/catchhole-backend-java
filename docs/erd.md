@@ -56,7 +56,6 @@ erDiagram
         varchar title
         varchar genre
         text description
-        varchar status
         int latest_episode_no
         datetime created_at
         datetime updated_at

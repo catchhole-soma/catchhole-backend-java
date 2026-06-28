@@ -38,7 +38,7 @@ public class WorkController {
     @PostMapping
     @Operation(
             summary = "내 작품 생성",
-            description = "로그인한 사용자의 새 작품을 등록합니다. 작품 상태와 최신 회차 번호는 서버에서 초기화합니다."
+            description = "로그인한 사용자의 새 작품을 등록합니다. 최신 회차 번호는 서버에서 초기화합니다."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "작품 생성 성공"),
