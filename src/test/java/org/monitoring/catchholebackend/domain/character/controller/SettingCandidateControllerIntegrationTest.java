@@ -188,9 +188,9 @@ class SettingCandidateControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "entityName": "아리아",
-                                  "attributeName": "level",
-                                  "attributeValue": "23",
+                                  "entityName": "  아리아  ",
+                                  "attributeName": "  level  ",
+                                  "attributeValue": "  23  ",
                                   "valueType": "NUMBER",
                                   "valueJson": {
                                     "value": 23,
@@ -208,13 +208,46 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").value("설정 후보가 수정되었습니다."))
                 .andExpect(jsonPath("$.data.id").value(candidate.getId().toString()))
+                .andExpect(jsonPath("$.data.episodeId").value(episode.getId().toString()))
+                .andExpect(jsonPath("$.data.sourceChunkId").value(candidate.getSourceChunkId().toString()))
+                .andExpect(jsonPath("$.data.analysisJobId").value(analysisJob.getId().toString()))
                 .andExpect(jsonPath("$.data.entityName").value("아리아"))
                 .andExpect(jsonPath("$.data.attributeName").value("level"))
                 .andExpect(jsonPath("$.data.attributeValue").value("23"))
                 .andExpect(jsonPath("$.data.valueType").value("NUMBER"))
                 .andExpect(jsonPath("$.data.valueJson.value").value(23))
                 .andExpect(jsonPath("$.data.evidenceSpans[0].paragraph_index").value(2))
-                .andExpect(jsonPath("$.data.reviewStatus").value("PENDING_REVIEW"));
+                .andExpect(jsonPath("$.data.reviewStatus").value("PENDING_REVIEW"))
+                .andExpect(jsonPath("$.data.rawAiResultJson.raw_value").value("17"));
+    }
+
+    @Test
+    @DisplayName("확정 또는 무시된 설정 후보 수정은 거절한다")
+    void updateSettingCandidateRejectsNonPendingCandidates() throws Exception {
+        SettingCandidate confirmed = candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "age",
+                "17"
+        );
+        confirmed.confirm();
+        confirmed = settingCandidateRepository.save(confirmed);
+
+        SettingCandidate dismissed = candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "level",
+                "23"
+        );
+        dismissed.dismiss();
+        dismissed = settingCandidateRepository.save(dismissed);
+
+        assertEditRejected(confirmed);
+        assertEditRejected(dismissed);
     }
 
     @Test
@@ -259,6 +292,27 @@ class SettingCandidateControllerIntegrationTest {
                 new BigDecimal("0.8000"),
                 rawAiResultJson(attributeValue)
         );
+    }
+
+    private void assertEditRejected(SettingCandidate candidate) throws Exception {
+        mockMvc.perform(patch("/api/v1/works/{workId}/setting-candidates/{candidateId}", work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "entityName": "아리아",
+                                  "attributeName": "level",
+                                  "attributeValue": "23",
+                                  "valueType": "NUMBER",
+                                  "valueJson": {
+                                    "value": 23
+                                  },
+                                  "evidenceSpans": []
+                                }
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_NOT_EDITABLE"));
     }
 
     private JsonNode valueJson(String value) {
