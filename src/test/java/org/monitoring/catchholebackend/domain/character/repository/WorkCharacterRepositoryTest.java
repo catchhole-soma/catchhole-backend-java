@@ -9,7 +9,6 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
-import org.monitoring.catchholebackend.domain.character.type.CharacterReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
@@ -101,7 +100,6 @@ class WorkCharacterRepositoryTest {
         assertThat(found.getCurrentAge()).isEqualTo(17);
         assertThat(found.getCurrentLevel()).isEqualTo(23);
         assertThat(found.getFirstAppearanceEpisodeId()).isEqualTo(firstAppearanceEpisodeId);
-        assertThat(found.getReviewStatus()).isEqualTo(CharacterReviewStatus.PENDING_REVIEW);
         assertThat(found.getStatus()).isEqualTo(CharacterStatus.ACTIVE);
         assertThat(found.getProfileJson()).isEqualTo(profileJson);
         assertThat(found.getStatsJson()).isEqualTo(statsJson);
@@ -134,22 +132,14 @@ class WorkCharacterRepositoryTest {
     }
 
     @Test
-    void confirmDismissAndArchiveUpdateCharacterStatuses() {
-        WorkCharacter confirmed = workCharacterRepository.save(WorkCharacter.create(
-                work, "아리아", "protagonist", 17, 23, null, null, null, null, null, null
-        ));
-        WorkCharacter dismissed = workCharacterRepository.save(WorkCharacter.create(
+    void archiveUpdatesCharacterStatus() {
+        WorkCharacter archived = workCharacterRepository.save(WorkCharacter.create(
                 work, "세이라", "supporter", null, null, null, null, null, null, null, null
         ));
 
-        confirmed.confirm();
-        dismissed.dismiss();
-        dismissed.archive();
+        archived.archive();
 
-        assertThat(confirmed.getReviewStatus()).isEqualTo(CharacterReviewStatus.CONFIRMED);
-        assertThat(confirmed.getStatus()).isEqualTo(CharacterStatus.ACTIVE);
-        assertThat(dismissed.getReviewStatus()).isEqualTo(CharacterReviewStatus.DISMISSED);
-        assertThat(dismissed.getStatus()).isEqualTo(CharacterStatus.ARCHIVED);
+        assertThat(archived.getStatus()).isEqualTo(CharacterStatus.ARCHIVED);
     }
 
     private String uniqueEmail(String prefix) {

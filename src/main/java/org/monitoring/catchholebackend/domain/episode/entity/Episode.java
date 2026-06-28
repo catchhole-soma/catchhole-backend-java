@@ -138,7 +138,7 @@ public class Episode extends BaseEntity {
         this.status = EpisodeStatus.CHUNKING;
     }
 
-    //TODO: 에피소드별로 status 관리 api가 현재 존재하지 않음
+    // TODO: 후속 내부 API는 EpisodeStatus를 파라미터로 받는 단일 전이 API로 구현한다.
     public void markChunked() {
         this.status = EpisodeStatus.CHUNKED;
     }

@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeUploadRequest;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeUploadResponse;
@@ -55,8 +56,7 @@ public class EpisodeUploadProcessor {
             List<MultipartFile> episodeFiles,
             MultipartFile settingBookFile
     ) {
-        //TODO: 해당 코드의 경우 pending -> processing 단계로 넘어가는 코드가 하나도 존재하지 않음 로직 수정하기
-        //TODO: 실패 처리 로직이 하나도 존재하지 않음 추가해야함 (실패로직의 경우 서로 상의하고 문서작업 pr 후 코드 리뷰 하기)
+        // TODO: 현재 동기 업로드는 예외 시 트랜잭션 rollback으로 batch도 함께 사라질 수 있다. 모니터링 이력 기록이 필요하면 batch 선커밋/별도 트랜잭션/비동기 처리 중 어떤 방식이 맞을지 후속으로 검토한다.
         List<ParsedEpisodeFile> parsedEpisodeFiles = episodeFileParser.parse(request, episodeFiles);
         validateEpisodeNumbers(work, parsedEpisodeFiles);
 
@@ -93,15 +93,47 @@ public class EpisodeUploadProcessor {
      */
     private void validateEpisodeNumbers(Work work, List<ParsedEpisodeFile> parsedEpisodeFiles) {
         Set<Integer> uniqueEpisodeNosInRequest = new HashSet<>();
+        Set<Integer> duplicatedEpisodeNosInRequest = new TreeSet<>();
+        Set<Integer> duplicatedEpisodeNosInWork = new TreeSet<>();
+
         for (ParsedEpisodeFile parsedEpisodeFile : parsedEpisodeFiles) {
             for (ParsedEpisode parsedEpisode : parsedEpisodeFile.episodes()) {
-                if (!uniqueEpisodeNosInRequest.add(parsedEpisode.episodeNo())
-                        || episodeRepository.existsByWorkIdAndEpisodeNo(work.getId(), parsedEpisode.episodeNo())) {
-                    //TODO: 에러메세지에 중복 회차가 몇회차인지 추가로 작성해놓기
-                    throw new AppException(EpisodeErrorCode.EPISODE_DUPLICATED , parsedEpisode.episodeNo() + " 화가 중복입니다.");
+                int episodeNo = parsedEpisode.episodeNo();
+                if (!uniqueEpisodeNosInRequest.add(episodeNo)) {
+                    duplicatedEpisodeNosInRequest.add(episodeNo);
+                }
+                if (episodeRepository.existsByWorkIdAndEpisodeNo(work.getId(), episodeNo)) {
+                    duplicatedEpisodeNosInWork.add(episodeNo);
                 }
             }
         }
+
+        if (!duplicatedEpisodeNosInRequest.isEmpty() || !duplicatedEpisodeNosInWork.isEmpty()) {
+            throw new AppException(
+                    EpisodeErrorCode.EPISODE_UPLOAD_DUPLICATED,
+                    buildDuplicateEpisodeMessage(duplicatedEpisodeNosInRequest, duplicatedEpisodeNosInWork)
+            );
+        }
+    }
+
+    private String buildDuplicateEpisodeMessage(
+            Set<Integer> duplicatedEpisodeNosInRequest,
+            Set<Integer> duplicatedEpisodeNosInWork
+    ) {
+        List<String> messages = new ArrayList<>();
+        if (!duplicatedEpisodeNosInRequest.isEmpty()) {
+            messages.add("업로드 파일 안에서 중복된 회차: " + formatEpisodeNos(duplicatedEpisodeNosInRequest) + ".");
+        }
+        if (!duplicatedEpisodeNosInWork.isEmpty()) {
+            messages.add("이미 등록된 회차와 중복된 회차: " + formatEpisodeNos(duplicatedEpisodeNosInWork) + ".");
+        }
+        return String.join(" ", messages);
+    }
+
+    private String formatEpisodeNos(Set<Integer> episodeNos) {
+        return String.join(", ", episodeNos.stream()
+                .map(episodeNo -> episodeNo + "화")
+                .toList());
     }
 
     /**

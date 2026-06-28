@@ -2,8 +2,6 @@ package org.monitoring.catchholebackend.domain.work.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
@@ -17,7 +15,6 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
-import org.monitoring.catchholebackend.domain.work.type.WorkStatus;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 
 @Getter
@@ -51,12 +48,6 @@ public class Work extends BaseEntity {
     @Column(name = "description", columnDefinition = "text")
     private String description;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, length = 20)
-    //이후에 작품 보관 등 확장을 위한 필드
-    //TODO: 없애도 괜찮은 필드
-    private WorkStatus status;
-
     //최대 몇회차까지 올라갔는지
     @Column(name = "latest_episode_no", nullable = false)
     private int latestEpisodeNo;
@@ -66,7 +57,6 @@ public class Work extends BaseEntity {
         this.title = title;
         this.genre = genre;
         this.description = description;
-        this.status = WorkStatus.ACTIVE;
         this.latestEpisodeNo = 0;
     }
 
@@ -82,14 +72,6 @@ public class Work extends BaseEntity {
 
     public void updateLatestEpisodeNo(int latestEpisodeNo) {
         this.latestEpisodeNo = latestEpisodeNo;
-    }
-
-    public void activate() {
-        this.status = WorkStatus.ACTIVE;
-    }
-
-    public void archive() {
-        this.status = WorkStatus.ARCHIVED;
     }
 
     public boolean isOwnedBy(Long memberId) {

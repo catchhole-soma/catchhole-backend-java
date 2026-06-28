@@ -14,7 +14,6 @@ import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRep
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
-import org.monitoring.catchholebackend.domain.character.type.CharacterFactReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
@@ -133,7 +132,6 @@ class CharacterFactRepositoryTest {
         assertThat(found.getSourceChunkId()).isEqualTo(sourceChunkId);
         assertThat(found.getExtractedByJob().getId()).isEqualTo(analysisJob.getId());
         assertThat(found.getConfidence()).isEqualByComparingTo("0.9100");
-        assertThat(found.getReviewStatus()).isEqualTo(CharacterFactReviewStatus.PENDING_REVIEW);
         assertThat(found.isCurrent()).isTrue();
         assertThat(found.getEffectiveFromEpisodeNo()).isEqualTo(3);
     }
@@ -176,44 +174,6 @@ class CharacterFactRepositoryTest {
 
         assertThat(currentLevel.isCurrent()).isFalse();
         assertThat(currentFacts).isEmpty();
-    }
-
-    @Test
-    void confirmAndDismissFactsAreFilteredByReviewStatus() {
-        CharacterFact confirmed = fact(CharacterFactType.LEVEL, "level", "23", "23", 3);
-        confirmed.confirm();
-        characterFactRepository.save(confirmed);
-
-        CharacterFact dismissed = fact(CharacterFactType.ITEM, "item.검은단검.state", "OWNED", "OWNED", 3);
-        dismissed.markCurrent();
-        dismissed.dismiss();
-        characterFactRepository.save(dismissed);
-
-        characterFactRepository.save(fact(CharacterFactType.STAT, "strength", "42", "42", 3));
-
-        List<CharacterFact> confirmedFacts =
-                characterFactRepository.findAllByWorkCharacterIdAndReviewStatusOrderByCreatedAtDesc(
-                        character.getId(),
-                        CharacterFactReviewStatus.CONFIRMED
-                );
-        List<CharacterFact> dismissedFacts =
-                characterFactRepository.findAllByWorkCharacterIdAndReviewStatusOrderByCreatedAtDesc(
-                        character.getId(),
-                        CharacterFactReviewStatus.DISMISSED
-                );
-        List<CharacterFact> pendingFacts =
-                characterFactRepository.findAllByWorkCharacterIdAndReviewStatusOrderByCreatedAtDesc(
-                        character.getId(),
-                        CharacterFactReviewStatus.PENDING_REVIEW
-                );
-
-        assertThat(confirmedFacts).hasSize(1);
-        assertThat(confirmedFacts.getFirst().getFactKey()).isEqualTo("level");
-        assertThat(dismissedFacts).hasSize(1);
-        assertThat(dismissedFacts.getFirst().getFactKey()).isEqualTo("item.검은단검.state");
-        assertThat(dismissedFacts.getFirst().isCurrent()).isFalse();
-        assertThat(pendingFacts).hasSize(1);
-        assertThat(pendingFacts.getFirst().getFactKey()).isEqualTo("strength");
     }
 
     @Test

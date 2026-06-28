@@ -67,7 +67,7 @@ class WorkControllerIntegrationTest {
     }
 
     @Test
-    void createWorkCreatesActiveWorkForAuthenticatedMember() throws Exception {
+    void createWorkCreatesWorkForAuthenticatedMember() throws Exception {
         mockMvc.perform(post("/api/v1/works")
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -85,7 +85,6 @@ class WorkControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.title").value("빛나는 검사 로맨스"))
                 .andExpect(jsonPath("$.data.genre").value("로맨스"))
                 .andExpect(jsonPath("$.data.description").value("검사 주인공의 성장과 로맨스"))
-                .andExpect(jsonPath("$.data.status").value("ACTIVE"))
                 .andExpect(jsonPath("$.data.latestEpisodeNo").value(0));
     }
 

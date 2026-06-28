@@ -3,7 +3,6 @@ package org.monitoring.catchholebackend.domain.work.dto.response;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.util.UUID;
-import org.monitoring.catchholebackend.domain.work.type.WorkStatus;
 
 @Schema(description = "작품 응답")
 public record WorkResponse(
@@ -18,9 +17,6 @@ public record WorkResponse(
 
         @Schema(description = "작품 설명", example = "검사 주인공의 성장과 로맨스를 다룬 웹소설입니다.", nullable = true)
         String description,
-
-        @Schema(description = "작품 상태", example = "ACTIVE")
-        WorkStatus status,
 
         @Schema(description = "가장 최근 회차 번호", example = "0")
         int latestEpisodeNo,

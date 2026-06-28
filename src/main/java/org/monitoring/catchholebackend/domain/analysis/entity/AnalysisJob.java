@@ -36,7 +36,7 @@ import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
  * Episode에 저장된 S3 원문 메타데이터를 사용해 분석을 수행한다.
  *
  * 이 테이블에는 원문 본문을 저장하지 않고, 작업 유형, 상태, 현재 단계,
- * 사용 모델명, 토큰 수, 요약 결과 JSON, 실패 사유, 시작/완료 시각 같은
+ * 사용 모델명, 토큰 수, 요약 결과 JSON, 마지막 실패 사유, 시작/완료 시각 같은
  * 분석 작업의 상태와 결과 메타데이터만 저장한다.
  *
  * episode_id는 batch 전체가 아니라 특정 회차 단위 분석이 필요할 때 사용하는 선택 연결이다.
@@ -111,8 +111,8 @@ public class AnalysisJob extends BaseEntity {
     @Column(name = "summary_json", columnDefinition = "text")
     private String summaryJson;
 
-    //분석 실패시의 errorMessage 내용
-    //TODO : 해당 컬럼은 다른 테이블에서 필요할 수 있음 논의 후 별도의 Table 로 분리할지 고민하기
+    // 분석 작업 상세 조회에 보여줄 마지막 실패 메시지.
+    // 실패 처리 이력은 후속 모니터링 기능에서 별도 기록/조회한다.
     @Column(name = "error_message", columnDefinition = "text")
     private String errorMessage;
 
