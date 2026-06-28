@@ -185,12 +185,14 @@ domain/<domain>
 - 업로드에서 생성된 회차는 `episodes.source_file_id`로 원본 업로드 파일을 추적한다.
 - 같은 작품 안에서 회차 번호는 중복될 수 없다.
 - 회차 조회, 수정, 삭제, 업로드는 모두 먼저 작품 소유권을 확인한다.
+- 후속 Worker의 회차 처리 상태 변경은 단계별 엔드포인트를 나누지 않고, `EpisodeStatus`를 파라미터로 받는 단일 내부 전이 API로 구현한다.
 
 #### Analysis Domain Policy
 
 - AnalysisJob은 작품 단위 AI 분석 작업의 상태와 결과 메타데이터를 추적한다.
 - 원문 텍스트는 `Episode`의 S3 저장 구조를 재사용하고, `analysis_jobs`에는 상태, 현재 단계, 모델명, 토큰 수, 요약 JSON, 마지막 실패 사유만 저장한다.
 - 분석 실패 처리 이력은 `analysis_jobs.error_message`에 누적하지 않고, 후속 모니터링 기능에서 별도 기록/조회한다.
+- 화면에서 분석 작업은 `AnalysisJob.status`를 상위 상태로 표시하고, 분석 작업 상세에 들어갔을 때 포함된 각 회차의 `Episode.status`를 단계별 상태로 보여준다.
 - 분석 작업 생성 API는 업로드 흐름의 단위인 `batch_id`를 필수 입력으로 받는다. `episode_id`는 회차별 세부 작업이 필요해질 때 내부 작업 모델에서 선택적으로 사용할 수 있다.
 - 본인 작품의 분석 작업만 생성/조회할 수 있으며, 다른 회원의 작품이나 다른 작품에 속한 분석 대상은 404로 응답한다.
 - Python AI Worker는 작업 claim과 `AnalysisJob` 상태 변경에 `/api/internal/**` 내부 API를 `X-Internal-Api-Key`로 인증해 사용한다. Worker에는 원문 본문을 응답하지 않고 `Episode`의 S3 key/version/hash/charCount 메타데이터만 전달한다.
