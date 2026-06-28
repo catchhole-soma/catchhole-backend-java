@@ -187,4 +187,24 @@ public class SettingCandidate extends BaseEntity {
     public void dismiss() {
         this.reviewStatus = SettingCandidateReviewStatus.DISMISSED;
     }
+
+    public void updateReviewContent(
+            String entityName,
+            String attributeName,
+            String attributeValue,
+            SettingValueType valueType,
+            JsonNode valueJson,
+            JsonNode evidenceSpans
+    ) {
+        this.entityName = entityName;
+        this.attributeName = attributeName;
+        this.attributeValue = attributeValue;
+        this.valueType = valueType;
+        this.valueJson = valueJson;
+        this.evidenceSpans = evidenceSpans;
+    }
+
+    public boolean isPendingReview() {
+        return reviewStatus == SettingCandidateReviewStatus.PENDING_REVIEW;
+    }
 }
