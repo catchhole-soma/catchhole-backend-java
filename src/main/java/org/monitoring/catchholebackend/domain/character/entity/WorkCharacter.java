@@ -20,7 +20,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
-import org.monitoring.catchholebackend.domain.character.type.CharacterReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
@@ -94,11 +93,6 @@ public class WorkCharacter extends BaseEntity {
     @Column(name = "first_appearance_episode_id")
     private UUID firstAppearanceEpisodeId;
 
-    //TODO : 불필요한 데이터 삭제 예정(대신에 jsonb 컬럼 저장시에 상세 내역 수정할때 들어 갈 수도 있음)
-    @Enumerated(EnumType.STRING)
-    @Column(name = "review_status", nullable = false, length = 30)
-    private CharacterReviewStatus reviewStatus;
-
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 30)
     private CharacterStatus status;
@@ -127,7 +121,6 @@ public class WorkCharacter extends BaseEntity {
         this.itemsJson = itemsJson;
         this.statusesJson = statusesJson;
         this.firstAppearanceEpisodeId = firstAppearanceEpisodeId;
-        this.reviewStatus = CharacterReviewStatus.PENDING_REVIEW;
         this.status = CharacterStatus.ACTIVE;
     }
 
@@ -157,14 +150,6 @@ public class WorkCharacter extends BaseEntity {
                 statusesJson,
                 firstAppearanceEpisodeId
         );
-    }
-
-    public void confirm() {
-        this.reviewStatus = CharacterReviewStatus.CONFIRMED;
-    }
-
-    public void dismiss() {
-        this.reviewStatus = CharacterReviewStatus.DISMISSED;
     }
 
     public void archive() {

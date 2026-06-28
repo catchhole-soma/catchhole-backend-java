@@ -108,7 +108,6 @@ erDiagram
         jsonb items_json
         jsonb statuses_json
         uuid first_appearance_episode_id
-        varchar review_status
         varchar status
         datetime created_at
         datetime updated_at
@@ -126,7 +125,6 @@ erDiagram
         uuid source_chunk_id
         uuid extracted_by_job_id FK
         decimal confidence
-        varchar review_status
         boolean is_current
         int effective_from_episode_no
         datetime created_at

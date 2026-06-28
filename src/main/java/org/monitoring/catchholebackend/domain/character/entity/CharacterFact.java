@@ -22,7 +22,6 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
-import org.monitoring.catchholebackend.domain.character.type.CharacterFactReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
@@ -99,10 +98,6 @@ public class CharacterFact extends BaseEntity {
     @Column(name = "confidence", precision = 5, scale = 4)
     private BigDecimal confidence;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "review_status", nullable = false, length = 30)
-    private CharacterFactReviewStatus reviewStatus;
-
     @Column(name = "is_current", nullable = false)
     private boolean isCurrent;
 
@@ -132,7 +127,6 @@ public class CharacterFact extends BaseEntity {
         this.sourceChunkId = sourceChunkId;
         this.extractedByJob = extractedByJob;
         this.confidence = confidence;
-        this.reviewStatus = CharacterFactReviewStatus.PENDING_REVIEW;
         this.isCurrent = false;
         this.effectiveFromEpisodeNo = effectiveFromEpisodeNo;
     }
@@ -170,15 +164,6 @@ public class CharacterFact extends BaseEntity {
     }
 
     public void markHistorical() {
-        this.isCurrent = false;
-    }
-
-    public void confirm() {
-        this.reviewStatus = CharacterFactReviewStatus.CONFIRMED;
-    }
-
-    public void dismiss() {
-        this.reviewStatus = CharacterFactReviewStatus.DISMISSED;
         this.isCurrent = false;
     }
 }
