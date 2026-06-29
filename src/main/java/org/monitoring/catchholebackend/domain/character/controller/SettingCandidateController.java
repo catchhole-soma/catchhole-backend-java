@@ -78,7 +78,8 @@ public class SettingCandidateController {
     @PatchMapping("/{candidateId}")
     @Operation(
             summary = "설정 후보 수정",
-            description = "로그인한 사용자가 본인 작품의 검토 대기 설정 후보 내용을 보정합니다."
+            description = "로그인한 사용자가 본인 작품의 PENDING_REVIEW 설정 후보에서 검토용 필드만 보정합니다. "
+                    + "CONFIRMED 또는 DISMISSED 후보는 수정할 수 없습니다."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "설정 후보 수정 성공"),

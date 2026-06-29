@@ -60,9 +60,9 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         validateEditable(candidate);
 
         candidate.updateReviewContent(
-                request.entityName(),
-                request.attributeName(),
-                request.attributeValue(),
+                normalizeRequiredText(request.entityName()),
+                normalizeRequiredText(request.attributeName()),
+                normalizeOptionalText(request.attributeValue()),
                 request.valueType(),
                 toJsonNode(request.valueJson()),
                 toJsonNode(request.evidenceSpans())
@@ -103,6 +103,14 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         if (!candidate.isPendingReview()) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
         }
+    }
+
+    private String normalizeRequiredText(String value) {
+        return value.trim();
+    }
+
+    private String normalizeOptionalText(String value) {
+        return value == null ? null : value.trim();
     }
 
     private JsonNode toJsonNode(Object value) {

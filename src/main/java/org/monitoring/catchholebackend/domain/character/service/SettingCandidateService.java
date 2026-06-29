@@ -26,7 +26,7 @@ public interface SettingCandidateService {
 
     /**
      * 작품 소유권과 설정 후보 소속을 확인한 뒤 사용자가 검토할 후보 내용을 수정한다.
-     * 확정/무시된 후보는 CharacterFact 반영 정책과 충돌할 수 있으므로 PENDING_REVIEW 상태만 수정한다.
+     * 후보 편집은 PENDING_REVIEW 상태에서만 허용하며, 확정/무시와 CharacterFact 반영은 처리하지 않는다.
      */
     SettingCandidateResponse updateSettingCandidate(
             Long memberId,

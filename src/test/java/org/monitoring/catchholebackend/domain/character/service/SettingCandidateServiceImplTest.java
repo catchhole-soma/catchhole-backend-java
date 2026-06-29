@@ -169,9 +169,9 @@ class SettingCandidateServiceImplTest {
         SettingCandidate candidate = candidate(work, "아리아", "age", "17");
         SettingCandidateResponse response = response(workId);
         SettingCandidateUpdateRequest request = new SettingCandidateUpdateRequest(
-                "아리아",
-                "level",
-                "23",
+                "  아리아  ",
+                "  level  ",
+                "  23  ",
                 SettingValueType.NUMBER,
                 Map.of("value", 23, "source", "user_review"),
                 List.of(Map.of("paragraph_index", 2, "quote", "아리아는 스물셋의 경지에 올랐다."))
