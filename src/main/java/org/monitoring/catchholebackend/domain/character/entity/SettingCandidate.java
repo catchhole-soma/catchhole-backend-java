@@ -182,12 +182,12 @@ public class SettingCandidate extends BaseEntity {
         );
     }
 
-    public void confirm() {
-        transitionReviewStatus(SettingCandidateReviewStatus.CONFIRMED);
+    public boolean confirm() {
+        return transitionReviewStatus(SettingCandidateReviewStatus.CONFIRMED);
     }
 
-    public void dismiss() {
-        transitionReviewStatus(SettingCandidateReviewStatus.DISMISSED);
+    public boolean dismiss() {
+        return transitionReviewStatus(SettingCandidateReviewStatus.DISMISSED);
     }
 
     public void updateReviewContent(
@@ -212,12 +212,26 @@ public class SettingCandidate extends BaseEntity {
         return reviewStatus == SettingCandidateReviewStatus.PENDING_REVIEW;
     }
 
-    private void transitionReviewStatus(SettingCandidateReviewStatus targetStatus) {
+    private boolean transitionReviewStatus(SettingCandidateReviewStatus targetStatus) {
         if (reviewStatus == targetStatus) {
-            return;
+            return false;
         }
-        validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
+        validateReviewStatusTransition(targetStatus);
         this.reviewStatus = targetStatus;
+        return true;
+    }
+
+    private void validateReviewStatusTransition(SettingCandidateReviewStatus targetStatus) {
+        if (!isPendingReview()) {
+            String message = String.format(
+                    "현재 검토 상태가 %s(%s)인 설정 후보는 %s(%s)로 전환할 수 없습니다.",
+                    reviewStatus,
+                    reviewStatus.getToKorean(),
+                    targetStatus,
+                    targetStatus.getToKorean()
+            );
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT, message);
+        }
     }
 
     private void validatePendingReview(CharacterErrorCode errorCode) {

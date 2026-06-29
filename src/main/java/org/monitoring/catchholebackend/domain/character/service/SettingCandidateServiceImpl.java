@@ -28,6 +28,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
     private final WorkRepository workRepository;
     private final SettingCandidateRepository settingCandidateRepository;
     private final SettingCandidateMapper settingCandidateMapper;
+    private final SettingCandidatePromotionService settingCandidatePromotionService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
@@ -79,7 +80,10 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
     ) {
         Work work = workRepository.getOwnedWork(workId, memberId);
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
-        candidate.confirm();
+        boolean newlyConfirmed = candidate.confirm();
+        if (newlyConfirmed) {
+            settingCandidatePromotionService.promote(candidate);
+        }
         return settingCandidateMapper.toReviewStatusResponse(candidate);
     }
 

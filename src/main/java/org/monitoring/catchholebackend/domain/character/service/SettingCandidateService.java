@@ -38,13 +38,15 @@ public interface SettingCandidateService {
 
     /**
      * 작품 소유권과 설정 후보 소속을 확인한 뒤 후보를 확정 상태로 전환한다.
-     * 이미 확정된 후보는 성공으로 처리하고, 무시된 후보는 상태 충돌로 거절한다.
+     * 처음 확정되는 후보는 CharacterFact와 WorkCharacter 현재 스냅샷에 반영한다.
+     * 이미 확정된 후보는 성공으로 처리하되 중복 반영하지 않고, 무시된 후보는 상태 충돌로 거절한다.
      */
     SettingCandidateReviewStatusResponse confirmSettingCandidate(Long memberId, UUID workId, UUID candidateId);
 
     /**
      * 작품 소유권과 설정 후보 소속을 확인한 뒤 후보를 무시 상태로 전환한다.
      * 이미 무시된 후보는 성공으로 처리하고, 확정된 후보는 상태 충돌로 거절한다.
+     * 무시 처리에서는 확정 데이터 반영을 수행하지 않는다.
      */
     SettingCandidateReviewStatusResponse dismissSettingCandidate(Long memberId, UUID workId, UUID candidateId);
 }
