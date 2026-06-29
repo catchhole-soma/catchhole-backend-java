@@ -50,11 +50,19 @@ class SettingCandidateServiceImplTest {
     @Mock
     private SettingCandidateMapper settingCandidateMapper;
 
+    @Mock
+    private SettingCandidatePromotionService settingCandidatePromotionService;
+
     private SettingCandidateServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new SettingCandidateServiceImpl(workRepository, settingCandidateRepository, settingCandidateMapper);
+        service = new SettingCandidateServiceImpl(
+                workRepository,
+                settingCandidateRepository,
+                settingCandidateMapper,
+                settingCandidatePromotionService
+        );
     }
 
     @Test
@@ -243,6 +251,7 @@ class SettingCandidateServiceImplTest {
 
         assertThat(result).isSameAs(response);
         assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+        verify(settingCandidatePromotionService).promote(candidate);
     }
 
     @Test
@@ -266,6 +275,7 @@ class SettingCandidateServiceImplTest {
 
         assertThat(result).isSameAs(response);
         assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.DISMISSED);
+        verify(settingCandidatePromotionService, never()).promote(any(SettingCandidate.class));
     }
 
     @Test
@@ -290,6 +300,7 @@ class SettingCandidateServiceImplTest {
 
         assertThat(result).isSameAs(response);
         assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+        verify(settingCandidatePromotionService, never()).promote(any(SettingCandidate.class));
     }
 
     @Test
@@ -318,6 +329,7 @@ class SettingCandidateServiceImplTest {
                                 .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT));
 
         verify(settingCandidateMapper, never()).toReviewStatusResponse(any(SettingCandidate.class));
+        verify(settingCandidatePromotionService, never()).promote(any(SettingCandidate.class));
     }
 
     @Test

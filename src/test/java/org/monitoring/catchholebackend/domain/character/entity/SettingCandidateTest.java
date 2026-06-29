@@ -66,9 +66,11 @@ class SettingCandidateTest {
         SettingCandidate confirmed = candidate("age", "17");
         SettingCandidate dismissed = candidate("level", "23");
 
-        confirmed.confirm();
-        dismissed.dismiss();
+        boolean newlyConfirmed = confirmed.confirm();
+        boolean newlyDismissed = dismissed.dismiss();
 
+        assertThat(newlyConfirmed).isTrue();
+        assertThat(newlyDismissed).isTrue();
         assertThat(confirmed.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
         assertThat(confirmed.isPendingReview()).isFalse();
         assertThat(dismissed.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.DISMISSED);
@@ -81,11 +83,15 @@ class SettingCandidateTest {
         SettingCandidate confirmed = candidate("age", "17");
         SettingCandidate dismissed = candidate("level", "23");
 
-        confirmed.confirm();
-        confirmed.confirm();
-        dismissed.dismiss();
-        dismissed.dismiss();
+        boolean firstConfirm = confirmed.confirm();
+        boolean secondConfirm = confirmed.confirm();
+        boolean firstDismiss = dismissed.dismiss();
+        boolean secondDismiss = dismissed.dismiss();
 
+        assertThat(firstConfirm).isTrue();
+        assertThat(secondConfirm).isFalse();
+        assertThat(firstDismiss).isTrue();
+        assertThat(secondDismiss).isFalse();
         assertThat(confirmed.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
         assertThat(dismissed.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.DISMISSED);
     }
@@ -101,11 +107,13 @@ class SettingCandidateTest {
         assertThatThrownBy(confirmed::dismiss)
                 .isInstanceOfSatisfying(AppException.class, exception ->
                         assertThat(exception.getResultCode())
-                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT));
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT))
+                .hasMessageContaining("현재 검토 상태가 CONFIRMED(확정됨)인 설정 후보는 DISMISSED(무시됨)로 전환할 수 없습니다.");
         assertThatThrownBy(dismissed::confirm)
                 .isInstanceOfSatisfying(AppException.class, exception ->
                         assertThat(exception.getResultCode())
-                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT));
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT))
+                .hasMessageContaining("현재 검토 상태가 DISMISSED(무시됨)인 설정 후보는 CONFIRMED(확정됨)로 전환할 수 없습니다.");
     }
 
     @Test
