@@ -1,17 +1,20 @@
 package org.monitoring.catchholebackend.domain.character.entity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
+import org.monitoring.catchholebackend.global.exception.AppException;
 
 @DisplayName("설정 후보 Entity 단위 테스트")
 class SettingCandidateTest {
@@ -70,6 +73,58 @@ class SettingCandidateTest {
         assertThat(confirmed.isPendingReview()).isFalse();
         assertThat(dismissed.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.DISMISSED);
         assertThat(dismissed.isPendingReview()).isFalse();
+    }
+
+    @Test
+    @DisplayName("이미 같은 검토 상태로 전이하면 상태를 그대로 유지한다")
+    void sameReviewStatusTransitionKeepsCurrentStatus() {
+        SettingCandidate confirmed = candidate("age", "17");
+        SettingCandidate dismissed = candidate("level", "23");
+
+        confirmed.confirm();
+        confirmed.confirm();
+        dismissed.dismiss();
+        dismissed.dismiss();
+
+        assertThat(confirmed.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+        assertThat(dismissed.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.DISMISSED);
+    }
+
+    @Test
+    @DisplayName("확정 또는 무시된 후보의 반대 검토 상태 전이는 거절한다")
+    void oppositeReviewedStatusTransitionIsRejected() {
+        SettingCandidate confirmed = candidate("age", "17");
+        SettingCandidate dismissed = candidate("level", "23");
+        confirmed.confirm();
+        dismissed.dismiss();
+
+        assertThatThrownBy(confirmed::dismiss)
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT));
+        assertThatThrownBy(dismissed::confirm)
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT));
+    }
+
+    @Test
+    @DisplayName("확정 또는 무시된 후보의 검토용 내용 수정은 거절한다")
+    void reviewedCandidateUpdateReviewContentIsRejected() {
+        SettingCandidate candidate = candidate("age", "17");
+        candidate.confirm();
+
+        assertThatThrownBy(() -> candidate.updateReviewContent(
+                "아리아",
+                "level",
+                "23",
+                SettingValueType.NUMBER,
+                objectMapper.createObjectNode().put("value", 23),
+                objectMapper.createArrayNode()
+        ))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE));
     }
 
     private SettingCandidate candidate(String attributeName, String attributeValue) {

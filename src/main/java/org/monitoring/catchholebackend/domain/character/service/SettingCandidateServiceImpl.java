@@ -7,6 +7,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateUpdateRequest;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
+import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.mapper.SettingCandidateMapper;
@@ -57,7 +58,6 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
     ) {
         Work work = workRepository.getOwnedWork(workId, memberId);
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
-        validateEditable(candidate);
 
         candidate.updateReviewContent(
                 normalizeRequiredText(request.entityName()),
@@ -68,6 +68,32 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 toJsonNode(request.evidenceSpans())
         );
         return settingCandidateMapper.toResponse(candidate);
+    }
+
+    @Override
+    @Transactional
+    public SettingCandidateReviewStatusResponse confirmSettingCandidate(
+            Long memberId,
+            UUID workId,
+            UUID candidateId
+    ) {
+        Work work = workRepository.getOwnedWork(workId, memberId);
+        SettingCandidate candidate = getCandidateInWork(candidateId, work);
+        candidate.confirm();
+        return settingCandidateMapper.toReviewStatusResponse(candidate);
+    }
+
+    @Override
+    @Transactional
+    public SettingCandidateReviewStatusResponse dismissSettingCandidate(
+            Long memberId,
+            UUID workId,
+            UUID candidateId
+    ) {
+        Work work = workRepository.getOwnedWork(workId, memberId);
+        SettingCandidate candidate = getCandidateInWork(candidateId, work);
+        candidate.dismiss();
+        return settingCandidateMapper.toReviewStatusResponse(candidate);
     }
 
     private List<SettingCandidate> findCandidates(
@@ -97,12 +123,6 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
     private SettingCandidate getCandidateInWork(UUID candidateId, Work work) {
         return settingCandidateRepository.findByIdAndWorkId(candidateId, work.getId())
                 .orElseThrow(() -> new AppException(CharacterErrorCode.SETTING_CANDIDATE_NOT_FOUND));
-    }
-
-    private void validateEditable(SettingCandidate candidate) {
-        if (!candidate.isPendingReview()) {
-            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
-        }
     }
 
     private String normalizeRequiredText(String value) {

@@ -21,6 +21,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateUpdateRequest;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
+import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.mapper.SettingCandidateMapper;
@@ -221,6 +222,120 @@ class SettingCandidateServiceImplTest {
         verify(settingCandidateMapper, never()).toResponse(any(SettingCandidate.class));
     }
 
+    @Test
+    @DisplayName("검토 대기 후보를 확정 상태로 전환한다")
+    void confirmSettingCandidateConfirmsPendingCandidate() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(work, "아리아", "age", "17");
+        SettingCandidateReviewStatusResponse response = reviewStatusResponse(
+                candidateId,
+                SettingCandidateReviewStatus.CONFIRMED
+        );
+        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateMapper.toReviewStatusResponse(candidate)).thenReturn(response);
+
+        SettingCandidateReviewStatusResponse result =
+                service.confirmSettingCandidate(memberId, workId, candidateId);
+
+        assertThat(result).isSameAs(response);
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+    }
+
+    @Test
+    @DisplayName("검토 대기 후보를 무시 상태로 전환한다")
+    void dismissSettingCandidateDismissesPendingCandidate() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(work, "아리아", "age", "17");
+        SettingCandidateReviewStatusResponse response = reviewStatusResponse(
+                candidateId,
+                SettingCandidateReviewStatus.DISMISSED
+        );
+        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateMapper.toReviewStatusResponse(candidate)).thenReturn(response);
+
+        SettingCandidateReviewStatusResponse result =
+                service.dismissSettingCandidate(memberId, workId, candidateId);
+
+        assertThat(result).isSameAs(response);
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.DISMISSED);
+    }
+
+    @Test
+    @DisplayName("이미 같은 검토 상태인 후보 전이는 성공으로 처리한다")
+    void transitionReviewStatusAllowsSameStatus() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(work, "아리아", "age", "17");
+        candidate.confirm();
+        SettingCandidateReviewStatusResponse response = reviewStatusResponse(
+                candidateId,
+                SettingCandidateReviewStatus.CONFIRMED
+        );
+        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateMapper.toReviewStatusResponse(candidate)).thenReturn(response);
+
+        SettingCandidateReviewStatusResponse result =
+                service.confirmSettingCandidate(memberId, workId, candidateId);
+
+        assertThat(result).isSameAs(response);
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+    }
+
+    @Test
+    @DisplayName("확정 또는 무시된 후보의 반대 검토 상태 전이는 거절한다")
+    void transitionReviewStatusRejectsOppositeReviewedStatus() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID confirmedId = UUID.randomUUID();
+        UUID dismissedId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate confirmed = candidate(work, "아리아", "age", "17");
+        confirmed.confirm();
+        SettingCandidate dismissed = candidate(work, "아리아", "level", "23");
+        dismissed.dismiss();
+        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(confirmedId, workId)).thenReturn(Optional.of(confirmed));
+        when(settingCandidateRepository.findByIdAndWorkId(dismissedId, workId)).thenReturn(Optional.of(dismissed));
+
+        assertThatThrownBy(() -> service.dismissSettingCandidate(memberId, workId, confirmedId))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT));
+        assertThatThrownBy(() -> service.confirmSettingCandidate(memberId, workId, dismissedId))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT));
+
+        verify(settingCandidateMapper, never()).toReviewStatusResponse(any(SettingCandidate.class));
+    }
+
+    @Test
+    @DisplayName("작품 안에서 확정할 후보를 찾지 못하면 예외를 던진다")
+    void confirmSettingCandidateRejectsMissingCandidateInWork() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.confirmSettingCandidate(memberId, workId, candidateId))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_NOT_FOUND));
+    }
+
     private SettingCandidate candidate(
             Work work,
             String entityName,
@@ -264,6 +379,13 @@ class SettingCandidateServiceImplTest {
                 null,
                 null
         );
+    }
+
+    private SettingCandidateReviewStatusResponse reviewStatusResponse(
+            UUID candidateId,
+            SettingCandidateReviewStatus reviewStatus
+    ) {
+        return new SettingCandidateReviewStatusResponse(candidateId, reviewStatus);
     }
 
     private Work work(UUID id) {
