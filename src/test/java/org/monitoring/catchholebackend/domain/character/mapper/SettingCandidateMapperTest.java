@@ -12,7 +12,9 @@ import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
+import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
@@ -103,6 +105,35 @@ class SettingCandidateMapperTest {
         assertThat(response.valueJson()).isNull();
         assertThat(response.evidenceSpans()).isNull();
         assertThat(response.rawAiResultJson()).isNull();
+    }
+
+    @Test
+    @DisplayName("설정 후보 Entity를 검토 상태 응답 DTO로 변환한다")
+    void toReviewStatusResponseMapsSettingCandidate() {
+        Work work = work(UUID.randomUUID());
+        SettingCandidate candidate = SettingCandidate.create(
+                work,
+                null,
+                null,
+                null,
+                SettingEntityType.CHARACTER,
+                "아리아",
+                "age",
+                "17",
+                SettingValueType.NUMBER,
+                null,
+                null,
+                null,
+                null
+        );
+        UUID candidateId = UUID.randomUUID();
+        ReflectionTestUtils.setField(candidate, "id", candidateId);
+        candidate.confirm();
+
+        SettingCandidateReviewStatusResponse response = mapper.toReviewStatusResponse(candidate);
+
+        assertThat(response.id()).isEqualTo(candidateId);
+        assertThat(response.reviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
     }
 
     private Work work(UUID id) {

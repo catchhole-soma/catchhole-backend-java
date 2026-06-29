@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.auth.security.MemberPrincipal;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateUpdateRequest;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
+import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
 import org.monitoring.catchholebackend.domain.character.service.SettingCandidateService;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
@@ -20,6 +21,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -28,7 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/works/{workId}/setting-candidates")
-@Tag(name = "SettingCandidate", description = "로그인한 사용자의 작품별 캐릭터 설정 후보 조회 및 수정 API")
+@Tag(name = "SettingCandidate", description = "로그인한 사용자의 작품별 캐릭터 설정 후보 조회, 수정, 검토 상태 전이 API")
 @SecurityRequirement(name = "bearerAuth")
 public class SettingCandidateController {
 
@@ -97,6 +99,54 @@ public class SettingCandidateController {
         return CommonResponse.success(
                 "설정 후보가 수정되었습니다.",
                 settingCandidateService.updateSettingCandidate(member.memberId(), workId, candidateId, request)
+        );
+    }
+
+    @PostMapping("/{candidateId}/confirm")
+    @Operation(
+            summary = "설정 후보 확정",
+            description = "로그인한 사용자가 본인 작품의 설정 후보를 CONFIRMED 상태로 전환합니다. "
+                    + "이미 확정된 후보는 성공으로 처리하며, 무시된 후보는 상태 충돌로 거절합니다. "
+                    + "이 API는 확정 데이터 반영을 처리하지 않고 reviewStatus만 변경합니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "설정 후보 확정 성공"),
+            @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패"),
+            @ApiResponse(responseCode = "404", description = "작품 또는 설정 후보를 찾을 수 없음"),
+            @ApiResponse(responseCode = "409", description = "설정 후보 검토 상태 충돌")
+    })
+    public CommonResponse<SettingCandidateReviewStatusResponse> confirmSettingCandidate(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId,
+            @PathVariable UUID candidateId
+    ) {
+        return CommonResponse.success(
+                "설정 후보가 확정되었습니다.",
+                settingCandidateService.confirmSettingCandidate(member.memberId(), workId, candidateId)
+        );
+    }
+
+    @PostMapping("/{candidateId}/dismiss")
+    @Operation(
+            summary = "설정 후보 무시",
+            description = "로그인한 사용자가 본인 작품의 설정 후보를 DISMISSED 상태로 전환합니다. "
+                    + "이미 무시된 후보는 성공으로 처리하며, 확정된 후보는 상태 충돌로 거절합니다. "
+                    + "이 API는 확정 데이터 반영을 처리하지 않고 reviewStatus만 변경합니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "설정 후보 무시 성공"),
+            @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패"),
+            @ApiResponse(responseCode = "404", description = "작품 또는 설정 후보를 찾을 수 없음"),
+            @ApiResponse(responseCode = "409", description = "설정 후보 검토 상태 충돌")
+    })
+    public CommonResponse<SettingCandidateReviewStatusResponse> dismissSettingCandidate(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId,
+            @PathVariable UUID candidateId
+    ) {
+        return CommonResponse.success(
+                "설정 후보가 무시되었습니다.",
+                settingCandidateService.dismissSettingCandidate(member.memberId(), workId, candidateId)
         );
     }
 }

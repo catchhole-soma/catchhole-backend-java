@@ -1,7 +1,9 @@
 package org.monitoring.catchholebackend.domain.character.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -18,6 +20,7 @@ import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
@@ -251,6 +254,134 @@ class SettingCandidateControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("검토 대기 설정 후보를 확정한다")
+    void confirmSettingCandidateConfirmsPendingCandidate() throws Exception {
+        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "age",
+                "17"
+        ));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
+                                work.getId(),
+                                candidate.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("설정 후보가 확정되었습니다."))
+                .andExpect(jsonPath("$.data.id").value(candidate.getId().toString()))
+                .andExpect(jsonPath("$.data.reviewStatus").value("CONFIRMED"));
+
+        SettingCandidate saved = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(saved.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+    }
+
+    @Test
+    @DisplayName("검토 대기 설정 후보를 무시한다")
+    void dismissSettingCandidateDismissesPendingCandidate() throws Exception {
+        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "level",
+                "23"
+        ));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/setting-candidates/{candidateId}/dismiss",
+                                work.getId(),
+                                candidate.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("설정 후보가 무시되었습니다."))
+                .andExpect(jsonPath("$.data.id").value(candidate.getId().toString()))
+                .andExpect(jsonPath("$.data.reviewStatus").value("DISMISSED"));
+
+        SettingCandidate saved = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(saved.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.DISMISSED);
+    }
+
+    @Test
+    @DisplayName("이미 같은 검토 상태인 설정 후보 전이는 성공으로 응답한다")
+    void reviewStatusTransitionAllowsSameStatusRetry() throws Exception {
+        SettingCandidate confirmed = candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "age",
+                "17"
+        );
+        confirmed.confirm();
+        confirmed = settingCandidateRepository.save(confirmed);
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
+                                work.getId(),
+                                confirmed.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.id").value(confirmed.getId().toString()))
+                .andExpect(jsonPath("$.data.reviewStatus").value("CONFIRMED"));
+    }
+
+    @Test
+    @DisplayName("확정 또는 무시된 설정 후보의 반대 검토 상태 전이는 거절한다")
+    void reviewStatusTransitionRejectsOppositeReviewedStatus() throws Exception {
+        SettingCandidate confirmed = candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "age",
+                "17"
+        );
+        confirmed.confirm();
+        confirmed = settingCandidateRepository.save(confirmed);
+
+        SettingCandidate dismissed = candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "level",
+                "23"
+        );
+        dismissed.dismiss();
+        dismissed = settingCandidateRepository.save(dismissed);
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/setting-candidates/{candidateId}/dismiss",
+                                work.getId(),
+                                confirmed.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT"));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
+                                work.getId(),
+                                dismissed.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT"));
+    }
+
+    @Test
     @DisplayName("다른 회원 작품의 설정 후보 목록 조회는 거절한다")
     void getSettingCandidatesRejectsOtherMemberWork() throws Exception {
         mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates", otherWork.getId())
@@ -261,9 +392,36 @@ class SettingCandidateControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("다른 회원 작품의 설정 후보 확정은 거절한다")
+    void confirmSettingCandidateRejectsOtherMemberWork() throws Exception {
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
+                                otherWork.getId(),
+                                UUID.randomUUID()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("WORK_NOT_FOUND"));
+    }
+
+    @Test
     @DisplayName("설정 후보 목록 조회는 인증을 요구한다")
     void getSettingCandidatesRequiresAuthentication() throws Exception {
         mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates", work.getId()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("AUTH_UNAUTHORIZED"));
+    }
+
+    @Test
+    @DisplayName("설정 후보 확정은 인증을 요구한다")
+    void confirmSettingCandidateRequiresAuthentication() throws Exception {
+        mockMvc.perform(post(
+                        "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
+                        work.getId(),
+                        UUID.randomUUID()
+                ))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.error.code").value("AUTH_UNAUTHORIZED"));

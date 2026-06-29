@@ -22,12 +22,14 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
+import org.monitoring.catchholebackend.global.exception.AppException;
 
 @Getter
 @Entity
@@ -181,11 +183,11 @@ public class SettingCandidate extends BaseEntity {
     }
 
     public void confirm() {
-        this.reviewStatus = SettingCandidateReviewStatus.CONFIRMED;
+        transitionReviewStatus(SettingCandidateReviewStatus.CONFIRMED);
     }
 
     public void dismiss() {
-        this.reviewStatus = SettingCandidateReviewStatus.DISMISSED;
+        transitionReviewStatus(SettingCandidateReviewStatus.DISMISSED);
     }
 
     public void updateReviewContent(
@@ -196,6 +198,8 @@ public class SettingCandidate extends BaseEntity {
             JsonNode valueJson,
             JsonNode evidenceSpans
     ) {
+        validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
+
         this.entityName = entityName;
         this.attributeName = attributeName;
         this.attributeValue = attributeValue;
@@ -206,5 +210,19 @@ public class SettingCandidate extends BaseEntity {
 
     public boolean isPendingReview() {
         return reviewStatus == SettingCandidateReviewStatus.PENDING_REVIEW;
+    }
+
+    private void transitionReviewStatus(SettingCandidateReviewStatus targetStatus) {
+        if (reviewStatus == targetStatus) {
+            return;
+        }
+        validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
+        this.reviewStatus = targetStatus;
+    }
+
+    private void validatePendingReview(CharacterErrorCode errorCode) {
+        if (!isPendingReview()) {
+            throw new AppException(errorCode);
+        }
     }
 }
