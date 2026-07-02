@@ -36,6 +36,7 @@ docker compose --env-file .env -f compose.prod.yml logs -f ai-worker
 
 `Deploy EC2` workflow는 `Publish Backend Image` workflow가 main 브랜치에서 성공하면 이어서 실행된다.
 또한 Actions 화면에서 수동 실행할 수 있으므로 AI 이미지만 갱신한 뒤에도 재배포할 수 있다.
+AI 이미지 발행 workflow는 `ai-image-published` repository dispatch 이벤트로 이 workflow를 호출할 수 있다.
 
 GitHub Secrets에는 아래 값을 설정한다.
 
@@ -54,6 +55,15 @@ GHCR_READ_TOKEN=replace-with-read-packages-token
 ```
 
 자동 배포는 서버의 `/opt/catchhole/.env`를 그대로 사용한다. `.env`는 GitHub에 올리지 않는다.
+
+AI repo에서 backend 배포를 호출하려면 AI repo의 Repository Secrets에 아래 값을 추가한다.
+
+```text
+BACKEND_DEPLOY_TOKEN=replace-with-token-that-can-create-repository-dispatch
+```
+
+이 토큰은 `catchhole-soma/catchhole-backend-java`에 `repository_dispatch` 이벤트를 만들 수 있어야 한다.
+classic PAT를 쓰면 `repo` scope가 필요하고, fine-grained PAT를 쓰면 백엔드 repo에 대한 `Contents: write` 권한이 필요하다.
 
 ## AWS 권한
 
