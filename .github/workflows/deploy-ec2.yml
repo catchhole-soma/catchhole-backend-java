@@ -96,7 +96,20 @@ jobs:
           runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file .env -f compose.prod.yml pull"
           runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file .env -f compose.prod.yml up -d"
           runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file .env -f compose.prod.yml ps"
-          curl -fsS https://api.catchhole.com/actuator/health
+
+          for i in \$(seq 1 30); do
+            if curl -fsS https://api.catchhole.com/actuator/health; then
+              exit 0
+            fi
+
+            echo "Health check failed. Retrying in 5 seconds... (\$i/30)"
+            sleep 5
+          done
+
+          echo "Health check failed after retries. Printing container logs."
+          runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file .env -f compose.prod.yml logs --tail=200 backend"
+          runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file .env -f compose.prod.yml logs --tail=100 caddy"
+          exit 1
           EOF
 
           jq -n --rawfile script /tmp/catchhole-deploy.sh '{commands: [$script]}' > /tmp/ssm-parameters.json
