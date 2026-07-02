@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: deploy-ec2
@@ -26,69 +27,100 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      EC2_HOST: ${{ secrets.EC2_HOST }}
-      EC2_USER: ${{ secrets.EC2_USER }}
-      EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+      DEPLOY_AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      DEPLOY_AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
       EC2_DEPLOY_PATH: ${{ secrets.EC2_DEPLOY_PATH }}
-      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-      GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+      EC2_DEPLOY_USER: ${{ secrets.EC2_DEPLOY_USER }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Prepare SSH
+      - name: Validate deploy settings
         run: |
           set -euo pipefail
 
-          if [ -z "$EC2_HOST" ]; then
-            echo "::error::EC2_HOST secret is required."
+          if [ -z "$AWS_REGION" ]; then
+            echo "::error::AWS_REGION secret is required."
             exit 1
           fi
 
-          if [ -z "$EC2_SSH_KEY" ]; then
-            echo "::error::EC2_SSH_KEY secret is required."
+          if [ -z "$EC2_INSTANCE_ID" ]; then
+            echo "::error::EC2_INSTANCE_ID secret is required."
             exit 1
           fi
 
-          mkdir -p ~/.ssh
-          printf '%s' "$EC2_SSH_KEY" | tr -d '\r' > ~/.ssh/catchhole-ec2
-          chmod 600 ~/.ssh/catchhole-ec2
-          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
-
-      - name: Upload compose files
-        run: |
-          set -euo pipefail
-
-          EC2_USER="${EC2_USER:-ubuntu}"
-          EC2_DEPLOY_PATH="${EC2_DEPLOY_PATH:-/opt/catchhole}"
-          REMOTE="${EC2_USER}@${EC2_HOST}"
-
-          ssh -i ~/.ssh/catchhole-ec2 "$REMOTE" "mkdir -p '$EC2_DEPLOY_PATH'"
-          scp -i ~/.ssh/catchhole-ec2 \
-            deploy/compose.prod.yml deploy/Caddyfile \
-            "$REMOTE:$EC2_DEPLOY_PATH/"
-
-      - name: Deploy
-        run: |
-          set -euo pipefail
-
-          EC2_USER="${EC2_USER:-ubuntu}"
-          EC2_DEPLOY_PATH="${EC2_DEPLOY_PATH:-/opt/catchhole}"
-          REMOTE="${EC2_USER}@${EC2_HOST}"
-
-          if [ -n "$GHCR_READ_TOKEN" ]; then
-            GHCR_USERNAME="${GHCR_USERNAME:-$GITHUB_ACTOR}"
-            printf '%s' "$GHCR_READ_TOKEN" \
-              | ssh -i ~/.ssh/catchhole-ec2 "$REMOTE" "docker login ghcr.io -u '$GHCR_USERNAME' --password-stdin"
+          if [ -z "$AWS_ROLE_TO_ASSUME" ] && { [ -z "$DEPLOY_AWS_ACCESS_KEY_ID" ] || [ -z "$DEPLOY_AWS_SECRET_ACCESS_KEY" ]; }; then
+            echo "::error::Set AWS_ROLE_TO_ASSUME for OIDC or set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY."
+            exit 1
           fi
 
-          ssh -i ~/.ssh/catchhole-ec2 "$REMOTE" "
-            set -euo pipefail
-            cd '$EC2_DEPLOY_PATH'
-            test -f .env
-            docker compose --env-file .env -f compose.prod.yml pull
-            docker compose --env-file .env -f compose.prod.yml up -d
-            docker compose --env-file .env -f compose.prod.yml ps
-            curl -fsS https://api.catchhole.com/actuator/health
-          "
+      - name: Configure AWS credentials with OIDC
+        if: ${{ env.AWS_ROLE_TO_ASSUME != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          role-session-name: catchhole-github-deploy
+
+      - name: Configure AWS credentials with access keys
+        if: ${{ env.AWS_ROLE_TO_ASSUME == '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Deploy with SSM
+        run: |
+          set -euo pipefail
+
+          EC2_DEPLOY_PATH="${EC2_DEPLOY_PATH:-/opt/catchhole}"
+          EC2_DEPLOY_USER="${EC2_DEPLOY_USER:-ubuntu}"
+          RAW_BASE="https://raw.githubusercontent.com/catchhole-soma/catchhole-backend-java/main/deploy"
+
+          cat > /tmp/catchhole-deploy.sh <<EOF
+          set -euo pipefail
+
+          DEPLOY_PATH='$EC2_DEPLOY_PATH'
+          DEPLOY_USER='$EC2_DEPLOY_USER'
+          RAW_BASE='$RAW_BASE'
+
+          mkdir -p "\$DEPLOY_PATH"
+          curl -fsSL "\$RAW_BASE/compose.prod.yml" -o "\$DEPLOY_PATH/compose.prod.yml"
+          curl -fsSL "\$RAW_BASE/Caddyfile" -o "\$DEPLOY_PATH/Caddyfile"
+          test -f "\$DEPLOY_PATH/.env"
+          chown "\$DEPLOY_USER:\$DEPLOY_USER" "\$DEPLOY_PATH/compose.prod.yml" "\$DEPLOY_PATH/Caddyfile"
+
+          runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file .env -f compose.prod.yml pull"
+          runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file .env -f compose.prod.yml up -d"
+          runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file .env -f compose.prod.yml ps"
+          curl -fsS https://api.catchhole.com/actuator/health
+          EOF
+
+          jq -n --rawfile script /tmp/catchhole-deploy.sh '{commands: [$script]}' > /tmp/ssm-parameters.json
+
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy CatchHole compose from GitHub Actions run ${GITHUB_RUN_ID}" \
+            --parameters file:///tmp/ssm-parameters.json \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "SSM command id: $COMMAND_ID"
+
+          set +e
+          aws ssm wait command-executed \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$EC2_INSTANCE_ID"
+          WAIT_STATUS=$?
+          set -e
+
+          aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$EC2_INSTANCE_ID" \
+            --query '{Status:Status,StatusDetails:StatusDetails,StandardOutput:StandardOutputContent,StandardError:StandardErrorContent}' \
+            --output json
+
+          exit "$WAIT_STATUS"
