@@ -9,6 +9,9 @@ spring:
       ddl-auto: update
     show-sql: false
 
+server:
+  forward-headers-strategy: framework
+
 auth:
   jwt:
     secret: ${JWT_SECRET}
