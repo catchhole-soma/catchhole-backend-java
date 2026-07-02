@@ -80,7 +80,8 @@ jobs:
           RAW_BASE="https://raw.githubusercontent.com/catchhole-soma/catchhole-backend-java/main/deploy"
 
           cat > /tmp/catchhole-deploy.sh <<EOF
-          set -euo pipefail
+          # AWS-RunShellScript executes this block with /bin/sh, so keep it POSIX-compatible.
+          set -eu
 
           DEPLOY_PATH='$EC2_DEPLOY_PATH'
           DEPLOY_USER='$EC2_DEPLOY_USER'
