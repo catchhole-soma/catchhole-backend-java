@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.character.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -10,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -18,8 +20,13 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
+import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
@@ -72,6 +79,12 @@ class SettingCandidateControllerIntegrationTest {
     private SettingCandidateRepository settingCandidateRepository;
 
     @Autowired
+    private WorkCharacterRepository workCharacterRepository;
+
+    @Autowired
+    private CharacterFactRepository characterFactRepository;
+
+    @Autowired
     private JwtTokenProvider jwtTokenProvider;
 
     private Member member;
@@ -84,7 +97,9 @@ class SettingCandidateControllerIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        characterFactRepository.deleteAll();
         settingCandidateRepository.deleteAll();
+        workCharacterRepository.deleteAll();
         analysisJobRepository.deleteAll();
         episodeRepository.deleteAll();
         uploadFileRepository.deleteAll();
@@ -279,6 +294,20 @@ class SettingCandidateControllerIntegrationTest {
 
         SettingCandidate saved = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
         assertThat(saved.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+
+        WorkCharacter character = workCharacterRepository.findByWorkIdAndName(work.getId(), "아리아").orElseThrow();
+        List<CharacterFact> facts =
+                characterFactRepository.findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(
+                        character.getId(),
+                        CharacterFactType.AGE,
+                        "age"
+                );
+        assertThat(character.getCurrentAge()).isEqualTo(17);
+        assertThat(character.getFirstAppearanceEpisodeId()).isEqualTo(episode.getId());
+        assertThat(facts).hasSize(1);
+        assertThat(facts.getFirst().isCurrent()).isTrue();
+        assertThat(facts.getFirst().getFactValue()).isEqualTo("17");
+        assertThat(facts.getFirst().getEffectiveFromEpisodeNo()).isEqualTo(1);
     }
 
     @Test
@@ -336,6 +365,46 @@ class SettingCandidateControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("이미 확정된 설정 후보 재시도는 CharacterFact를 중복 생성하지 않는다")
+    void confirmSettingCandidateRetryDoesNotDuplicateCharacterFact() throws Exception {
+        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "age",
+                "17"
+        ));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
+                                work.getId(),
+                                candidate.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
+                                work.getId(),
+                                candidate.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.reviewStatus").value("CONFIRMED"));
+
+        WorkCharacter character = workCharacterRepository.findByWorkIdAndName(work.getId(), "아리아").orElseThrow();
+        List<CharacterFact> facts =
+                characterFactRepository.findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(
+                        character.getId(),
+                        CharacterFactType.AGE,
+                        "age"
+                );
+        assertThat(facts).hasSize(1);
+        assertThat(facts.getFirst().isCurrent()).isTrue();
+    }
+
+    @Test
     @DisplayName("확정 또는 무시된 설정 후보의 반대 검토 상태 전이는 거절한다")
     void reviewStatusTransitionRejectsOppositeReviewedStatus() throws Exception {
         SettingCandidate confirmed = candidate(
@@ -368,6 +437,10 @@ class SettingCandidateControllerIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath(
+                        "$.message",
+                        containsString("현재 검토 상태가 CONFIRMED(확정됨)인 설정 후보는 DISMISSED(무시됨)로 전환할 수 없습니다.")
+                ))
                 .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT"));
 
         mockMvc.perform(post(
@@ -378,7 +451,13 @@ class SettingCandidateControllerIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath(
+                        "$.message",
+                        containsString("현재 검토 상태가 DISMISSED(무시됨)인 설정 후보는 CONFIRMED(확정됨)로 전환할 수 없습니다.")
+                ))
                 .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT"));
+
+        assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId())).isEmpty();
     }
 
     @Test

@@ -3,7 +3,9 @@ package org.monitoring.catchholebackend;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.auth.service.AuthService;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
@@ -43,6 +45,12 @@ class CatchHoleBackendApplicationTests {
 
     @MockitoBean
     private SettingCandidateRepository settingCandidateRepository;
+
+    @MockitoBean
+    private WorkCharacterRepository workCharacterRepository;
+
+    @MockitoBean
+    private CharacterFactRepository characterFactRepository;
 
     @MockitoBean
     private JpaMetamodelMappingContext jpaMetamodelMappingContext;

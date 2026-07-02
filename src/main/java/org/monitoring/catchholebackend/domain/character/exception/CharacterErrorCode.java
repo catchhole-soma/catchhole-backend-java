@@ -11,7 +11,8 @@ public enum CharacterErrorCode implements ResultCode {
 
     SETTING_CANDIDATE_NOT_FOUND(HttpStatus.NOT_FOUND, "설정 후보를 찾을 수 없습니다."),
     SETTING_CANDIDATE_NOT_EDITABLE(HttpStatus.CONFLICT, "검토 대기 상태의 설정 후보만 수정할 수 있습니다."),
-    SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT(HttpStatus.CONFLICT, "설정 후보 검토 상태 전이가 올바르지 않습니다.");
+    SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT(HttpStatus.CONFLICT, "설정 후보 검토 상태 전이가 올바르지 않습니다."),
+    SETTING_CANDIDATE_FACT_TYPE_UNSUPPORTED(HttpStatus.BAD_REQUEST, "지원하지 않는 설정 후보 속성입니다.");
 
     private final HttpStatus status;
     private final String message;

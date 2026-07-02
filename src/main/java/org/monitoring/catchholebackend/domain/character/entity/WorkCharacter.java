@@ -155,4 +155,52 @@ public class WorkCharacter extends BaseEntity {
     public void archive() {
         this.status = CharacterStatus.ARCHIVED;
     }
+
+    public void applyCurrentFact(CharacterFact fact) {
+        switch (fact.getFactType()) {
+            case AGE -> applyCurrentAge(fact);
+            case LEVEL -> applyCurrentLevel(fact);
+            case STAT -> this.statsJson = fact.getValueJson();
+            case SKILL -> this.skillsJson = fact.getValueJson();
+            case ITEM -> this.itemsJson = fact.getValueJson();
+            case STATUS, TIME -> this.statusesJson = fact.getValueJson();
+        }
+    }
+
+    public void updateFirstAppearanceEpisodeId(UUID firstAppearanceEpisodeId) {
+        this.firstAppearanceEpisodeId = firstAppearanceEpisodeId;
+    }
+
+    private void applyCurrentAge(CharacterFact fact) {
+        Integer currentAge = resolveIntegerSnapshot(fact);
+        if (currentAge != null) {
+            this.currentAge = currentAge;
+        }
+    }
+
+    private void applyCurrentLevel(CharacterFact fact) {
+        Integer currentLevel = resolveIntegerSnapshot(fact);
+        if (currentLevel != null) {
+            this.currentLevel = currentLevel;
+        }
+    }
+
+    private Integer resolveIntegerSnapshot(CharacterFact fact) {
+        JsonNode valueNode = fact.getValueJson();
+        if (valueNode != null && valueNode.has("value") && valueNode.get("value").canConvertToInt()) {
+            return valueNode.get("value").asInt();
+        }
+        return parseInteger(fact.getFactValue());
+    }
+
+    private Integer parseInteger(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
 }
