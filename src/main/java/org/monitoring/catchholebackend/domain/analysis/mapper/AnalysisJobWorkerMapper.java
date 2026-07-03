@@ -3,14 +3,20 @@ package org.monitoring.catchholebackend.domain.analysis.mapper;
 import java.util.List;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisEpisodePayload;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisJobPayload;
+import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisKnownCharacterPayload;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.springframework.stereotype.Component;
 
 @Component
 public class AnalysisJobWorkerMapper {
 
-    public WorkerAnalysisJobPayload toPayload(AnalysisJob analysisJob, List<Episode> episodes) {
+    public WorkerAnalysisJobPayload toPayload(
+            AnalysisJob analysisJob,
+            List<Episode> episodes,
+            List<WorkCharacter> knownCharacters
+    ) {
         return new WorkerAnalysisJobPayload(
                 analysisJob.getId(),
                 analysisJob.getJobType(),
@@ -19,9 +25,20 @@ public class AnalysisJobWorkerMapper {
                 analysisJob.getBatch().getId(),
                 analysisJob.getModelName(),
                 analysisJob.getCurrentStep(),
+                knownCharacters.stream()
+                        .map(this::toKnownCharacterPayload)
+                        .toList(),
                 episodes.stream()
                         .map(this::toEpisodePayload)
                         .toList()
+        );
+    }
+
+    private WorkerAnalysisKnownCharacterPayload toKnownCharacterPayload(WorkCharacter character) {
+        return new WorkerAnalysisKnownCharacterPayload(
+                character.getId(),
+                character.getName(),
+                List.of()
         );
     }
 

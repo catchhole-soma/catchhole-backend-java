@@ -27,6 +27,7 @@ import org.monitoring.catchholebackend.domain.character.repository.CharacterFact
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
@@ -159,6 +160,9 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data[0].id").value(candidate.getId().toString()))
                 .andExpect(jsonPath("$.data[0].workId").value(work.getId().toString()))
                 .andExpect(jsonPath("$.data[0].entityName").value("아리아"))
+                .andExpect(jsonPath("$.data[0].rawEntityMention").doesNotExist())
+                .andExpect(jsonPath("$.data[0].matchedCharacterId").doesNotExist())
+                .andExpect(jsonPath("$.data[0].matchStatus").value("UNRESOLVED"))
                 .andExpect(jsonPath("$.data[0].attributeName").value("age"))
                 .andExpect(jsonPath("$.data[0].reviewStatus").value("PENDING_REVIEW"));
     }
@@ -183,6 +187,9 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.episodeId").value(episode.getId().toString()))
                 .andExpect(jsonPath("$.data.analysisJobId").value(analysisJob.getId().toString()))
                 .andExpect(jsonPath("$.data.entityType").value("CHARACTER"))
+                .andExpect(jsonPath("$.data.rawEntityMention").doesNotExist())
+                .andExpect(jsonPath("$.data.matchedCharacterId").doesNotExist())
+                .andExpect(jsonPath("$.data.matchStatus").value("UNRESOLVED"))
                 .andExpect(jsonPath("$.data.valueType").value("NUMBER"))
                 .andExpect(jsonPath("$.data.valueJson.value").value(17))
                 .andExpect(jsonPath("$.data.evidenceSpans[0].paragraph_index").value(1))
@@ -521,6 +528,9 @@ class SettingCandidateControllerIntegrationTest {
                 targetAnalysisJob,
                 SettingEntityType.CHARACTER,
                 entityName,
+                null,
+                null,
+                SettingCandidateMatchStatus.UNRESOLVED,
                 attributeName,
                 attributeValue,
                 SettingValueType.NUMBER,

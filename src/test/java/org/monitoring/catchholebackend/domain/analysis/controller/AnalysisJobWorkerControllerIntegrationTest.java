@@ -14,6 +14,8 @@ import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRep
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
+import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
+import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
@@ -66,6 +68,9 @@ class AnalysisJobWorkerControllerIntegrationTest {
     private AnalysisJobRepository analysisJobRepository;
 
     @Autowired
+    private WorkCharacterRepository workCharacterRepository;
+
+    @Autowired
     private JwtTokenProvider jwtTokenProvider;
 
     private Member member;
@@ -79,6 +84,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
         episodeRepository.deleteAll();
         uploadFileRepository.deleteAll();
         uploadBatchRepository.deleteAll();
+        workCharacterRepository.deleteAll();
         workRepository.deleteAll();
         memberRepository.deleteAll();
 
@@ -144,6 +150,19 @@ class AnalysisJobWorkerControllerIntegrationTest {
         AnalysisJob secondJob = analysisJobRepository.save(
                 AnalysisJob.create(work, uploadBatch, null, AnalysisJobType.EPISODE_VALIDATION)
         );
+        WorkCharacter knownCharacter = workCharacterRepository.save(WorkCharacter.create(
+                work,
+                "아리아",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        ));
 
         mockMvc.perform(post(CLAIM_URL)
                         .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
@@ -163,6 +182,10 @@ class AnalysisJobWorkerControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.batchId").value(uploadBatch.getId().toString()))
                 .andExpect(jsonPath("$.data.modelName").value("gpt-4.1-mini"))
                 .andExpect(jsonPath("$.data.currentStep").value("원문 청킹"))
+                .andExpect(jsonPath("$.data.knownCharacters", hasSize(1)))
+                .andExpect(jsonPath("$.data.knownCharacters[0].characterId").value(knownCharacter.getId().toString()))
+                .andExpect(jsonPath("$.data.knownCharacters[0].name").value("아리아"))
+                .andExpect(jsonPath("$.data.knownCharacters[0].aliases", hasSize(0)))
                 .andExpect(jsonPath("$.data.episodes", hasSize(2)))
                 .andExpect(jsonPath("$.data.episodes[0].episodeNo").value(1))
                 .andExpect(jsonPath("$.data.episodes[0].title").value("첫 번째 회차"))
