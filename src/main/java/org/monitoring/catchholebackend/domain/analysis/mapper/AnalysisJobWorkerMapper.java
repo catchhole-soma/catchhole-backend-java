@@ -37,8 +37,7 @@ public class AnalysisJobWorkerMapper {
     private WorkerAnalysisKnownCharacterPayload toKnownCharacterPayload(WorkCharacter character) {
         return new WorkerAnalysisKnownCharacterPayload(
                 character.getId(),
-                character.getName(),
-                List.of()
+                character.getName()
         );
     }
 

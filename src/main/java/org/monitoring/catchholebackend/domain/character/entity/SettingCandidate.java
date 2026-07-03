@@ -94,6 +94,15 @@ public class SettingCandidate extends BaseEntity {
     @Column(name = "matched_character_id")
     private UUID matchedCharacterId;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(
+            name = "matched_character_id",
+            insertable = false,
+            updatable = false,
+            foreignKey = @ForeignKey(name = "fk_setting_candidates_matched_character")
+    )
+    private WorkCharacter matchedCharacter;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "match_status", nullable = false, length = 30)
     private SettingCandidateMatchStatus matchStatus;

@@ -185,7 +185,6 @@ class AnalysisJobWorkerControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.knownCharacters", hasSize(1)))
                 .andExpect(jsonPath("$.data.knownCharacters[0].characterId").value(knownCharacter.getId().toString()))
                 .andExpect(jsonPath("$.data.knownCharacters[0].name").value("아리아"))
-                .andExpect(jsonPath("$.data.knownCharacters[0].aliases", hasSize(0)))
                 .andExpect(jsonPath("$.data.episodes", hasSize(2)))
                 .andExpect(jsonPath("$.data.episodes[0].episodeNo").value(1))
                 .andExpect(jsonPath("$.data.episodes[0].title").value("첫 번째 회차"))

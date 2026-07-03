@@ -199,7 +199,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `entity_type` | 설정 대상 유형 |
 | `entity_name` | 캐릭터명 또는 대상명 |
 | `raw_entity_mention` | 원문에 실제 등장한 대상 표현. 예: `나`, `프넬린의 두 번째 딸 아이나르` |
-| `matched_character_id` | 기존 `characters.id`와 확실히 매칭된 경우 저장하는 캐릭터 ID |
+| `matched_character_id` | 기존 `characters.id`와 확실히 매칭된 경우 저장하는 캐릭터 FK |
 | `match_status` | 기존 캐릭터 매칭 상태. `MATCHED`, `UNRESOLVED`, `AMBIGUOUS` |
 | `attribute_name` | age, level, stats, skills, items 등 속성명 |
 | `attribute_value` | 목록/검색 표시용 값 |

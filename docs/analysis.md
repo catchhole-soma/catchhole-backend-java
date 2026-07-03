@@ -217,8 +217,7 @@ claim할 작업이 있으면 가장 오래된 `PENDING` 작업 하나를 `RUNNIN
     "knownCharacters": [
       {
         "characterId": "01970c2e-7e6d-7000-8e5d-2a9bc4b6d666",
-        "name": "아리아",
-        "aliases": []
+        "name": "아리아"
       }
     ],
     "episodes": [
@@ -239,7 +238,7 @@ claim할 작업이 있으면 가장 오래된 `PENDING` 작업 하나를 `RUNNIN
 ```
 
 원문 본문은 응답에 포함하지 않습니다. Worker는 `contentS3Key`, `contentS3Version`을 사용해 S3에서 원문을 직접 읽습니다.
-`knownCharacters`는 Python Worker가 `setting_candidates`의 `matched_character_id`, `match_status`를 계산할 때 사용하는 기존 캐릭터 목록입니다. 현재는 `characters.name`만 내려주며 별칭 관리 구조가 생기면 `aliases`를 함께 채웁니다.
+`knownCharacters`는 Python Worker가 `setting_candidates`의 `matched_character_id`, `match_status`를 계산할 때 사용하는 기존 캐릭터 목록입니다. 현재는 `characters.name`만 내려줍니다.
 
 ### 진행 단계 갱신
 
