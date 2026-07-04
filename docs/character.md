@@ -64,13 +64,24 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 
 `SettingCandidate.CONFIRMED` 후 확정 데이터는 `CharacterFact`로 저장하고, 현재 기준값은 `WorkCharacter` 스냅샷에 반영합니다.
 
-- `entityName`으로 같은 작품의 `WorkCharacter`를 찾고, 없으면 새로 생성합니다.
+- 현재 confirm 반영은 `entityName`으로 같은 작품의 `WorkCharacter`를 찾고, 없으면 새로 생성합니다.
+- `rawEntityMention`, `matchedCharacterId`, `matchStatus`는 후보 생성/조회 단계에 저장되지만, confirm 승격 기준에는 아직 반영하지 않습니다.
 - `attributeName`은 `CharacterFactType`으로 매핑합니다. 지원하지 않는 속성은 캐릭터 생성 전에 `SETTING_CANDIDATE_FACT_TYPE_UNSUPPORTED / 400`으로 거절해 부수효과를 남기지 않습니다.
 - `CharacterFact.effectiveFromEpisodeNo`는 후보의 `episode.episodeNo`를 사용합니다. episode가 없으면 `null`로 저장하고 current 우선순위는 가장 낮게 봅니다.
 - 같은 캐릭터의 같은 `factType + factKey`에서는 가장 큰 `effectiveFromEpisodeNo`를 가진 fact만 current로 둡니다. 같은 회차라면 나중에 생성된 fact가 current가 됩니다.
 - `WorkCharacter.firstAppearanceEpisodeId`는 확정 순서가 아니라 가장 이른 업로드 회차 기준으로 유지합니다.
 - current fact가 바뀌면 해당 fact 기준으로 `WorkCharacter`의 `currentAge`, `currentLevel`, `statsJson`, `skillsJson`, `itemsJson`, `statusesJson`을 갱신합니다. 현재 JSON snapshot은 같은 컬럼 안에 여러 key를 누적 merge하지 않고 선택된 current fact의 `valueJson`으로 교체합니다.
 - `AGE`, `LEVEL`은 숫자 파싱에 성공한 경우에만 숫자 스냅샷을 갱신합니다. 파싱 실패 시 fact는 남기고 기존 숫자 스냅샷은 유지합니다.
+
+캐릭터 매칭 기반 confirm 후속 TODO:
+
+- `rawEntityMention`은 원문에 실제 등장한 표현이므로 캐릭터 대표명으로 직접 사용하지 않습니다. 다만 Python resolver는 raw/entity 표현을 기존 캐릭터와 비교해 `matchedCharacterId`, `matchStatus`를 계산할 수 있습니다.
+- 후속 adjacent chunk fallback이 `나`, `그`, `그녀` 같은 지칭어 후보를 해소한 뒤, confirm에서 `matchedCharacterId`와 `matchStatus`를 어떻게 사용할지 확정합니다.
+- `MATCHED` + `matchedCharacterId`가 있는 후보는 `entityName`이 아니라 `matchedCharacterId`의 `WorkCharacter`를 우선 사용하는 방향을 검토합니다. 이때 후보의 work와 matched character의 work가 같은지 검증해야 합니다.
+- `UNRESOLVED` 후보는 새 캐릭터 가능성이 있으므로 사용자가 검토/수정한 `entityName`으로 `WorkCharacter`를 find/create할 수 있습니다.
+- `AMBIGUOUS` 후보는 바로 confirm을 허용할지, 사용자 수정 또는 후속 resolver로 해소된 뒤에만 confirm을 허용할지 정책을 정해야 합니다.
+- PATCH로 `entityName`이 수정됐을 때 `matchStatus`, `matchedCharacterId`를 재계산할지도 함께 결정합니다.
+- 이 confirm 정책은 청크 덧대기 기반 후보 해소 흐름이 완성된 뒤 별도 PR에서 구현합니다.
 
 작중 시간 정렬 후속 TODO:
 
@@ -313,6 +324,7 @@ flowchart TD
 상세 처리 기준:
 
 - `mapper.toFactType(factKey)`를 `WorkCharacter` 조회/생성보다 먼저 실행합니다. 지원하지 않는 속성은 캐릭터 생성 전에 거절해 부수효과를 남기지 않습니다.
+- 현재 구현은 후보 캐릭터 결정에 `entityName.trim()`을 사용합니다. `matchedCharacterId` 기반 기존 캐릭터 재사용, `AMBIGUOUS` 후보 confirm 차단/해소 정책은 후속 TODO입니다.
 - `mapper.toWorkCharacter(candidate)`와 `mapper.toCharacterFact(...)`가 Entity factory를 호출합니다. service는 `Entity.create()` 파라미터를 직접 조립하지 않습니다.
 - `saveAndFlush(newFact)` 후 같은 `character + factType + factKey`의 전체 이력을 다시 조회합니다. confirm 순서와 회차 순서가 다를 수 있기 때문입니다.
 - `selectCurrentFact`는 `effectiveFromEpisodeNo`가 가장 큰 fact를 current로 고릅니다. `effectiveFromEpisodeNo = null`인 fact는 가장 오래된 값으로 봅니다.
