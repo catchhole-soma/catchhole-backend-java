@@ -14,6 +14,7 @@ import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
@@ -67,6 +68,9 @@ class SettingCandidateMapperTest {
         assertThat(response.sourceChunkId()).isEqualTo(sourceChunkId);
         assertThat(response.analysisJobId()).isEqualTo(analysisJobId);
         assertThat(response.entityName()).isEqualTo("아리아");
+        assertThat(response.rawEntityMention()).isNull();
+        assertThat(response.matchedCharacterId()).isNull();
+        assertThat(response.matchStatus()).isEqualTo(SettingCandidateMatchStatus.UNRESOLVED);
         assertThat(response.attributeName()).isEqualTo("age");
         assertThat(response.attributeValue()).isEqualTo("17");
         assertThat(response.valueJson()).isInstanceOf(Map.class);
@@ -74,6 +78,38 @@ class SettingCandidateMapperTest {
         assertThat(response.rawAiResultJson()).isInstanceOf(Map.class);
         assertThat(response.valueJson()).asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
                 .containsEntry("value", 17);
+    }
+
+    @Test
+    @DisplayName("캐릭터 매칭 필드를 응답 DTO로 변환한다")
+    void toResponseMapsCharacterMatchFields() {
+        UUID matchedCharacterId = UUID.randomUUID();
+        Work work = work(UUID.randomUUID());
+        SettingCandidate candidate = SettingCandidate.create(
+                work,
+                null,
+                null,
+                null,
+                SettingEntityType.CHARACTER,
+                "아이나르",
+                "프넬린의 두 번째 딸 아이나르",
+                matchedCharacterId,
+                SettingCandidateMatchStatus.MATCHED,
+                "status.야만인",
+                "야만인",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode().put("name", "야만인"),
+                null,
+                new BigDecimal("0.9000"),
+                null
+        );
+
+        SettingCandidateResponse response = mapper.toResponse(candidate);
+
+        assertThat(response.entityName()).isEqualTo("아이나르");
+        assertThat(response.rawEntityMention()).isEqualTo("프넬린의 두 번째 딸 아이나르");
+        assertThat(response.matchedCharacterId()).isEqualTo(matchedCharacterId);
+        assertThat(response.matchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
     }
 
     @Test
@@ -102,6 +138,9 @@ class SettingCandidateMapperTest {
         assertThat(response.episodeId()).isNull();
         assertThat(response.sourceChunkId()).isNull();
         assertThat(response.analysisJobId()).isNull();
+        assertThat(response.rawEntityMention()).isNull();
+        assertThat(response.matchedCharacterId()).isNull();
+        assertThat(response.matchStatus()).isEqualTo(SettingCandidateMatchStatus.UNRESOLVED);
         assertThat(response.valueJson()).isNull();
         assertThat(response.evidenceSpans()).isNull();
         assertThat(response.rawAiResultJson()).isNull();

@@ -28,6 +28,9 @@ public record WorkerAnalysisJobPayload(
         @Schema(description = "현재 처리 단계", nullable = true)
         String currentStep,
 
+        @Schema(description = "캐릭터명 매칭에 사용할 기존 캐릭터 목록")
+        List<WorkerAnalysisKnownCharacterPayload> knownCharacters,
+
         @Schema(description = "분석 대상 회차 목록")
         List<WorkerAnalysisEpisodePayload> episodes
 ) {

@@ -20,11 +20,33 @@ flowchart TD
     J --> K["AnalysisJobResponse 반환"]
 ```
 
+## 현재 구현된 Worker 연동 흐름
+
+현재 코드 기준으로 Spring은 분석 작업과 내부 API 계약을 관리하고, Python Worker는 S3 원문을 읽어 청킹/LLM 설정 후보 추출/후보 저장을 수행합니다.
+
+```mermaid
+flowchart TD
+    A["분석 작업 생성<br/>AnalysisJob PENDING"] --> B["Python Worker claim"]
+    B --> C["AnalysisJob RUNNING"]
+    C --> D["Worker payload 수신<br/>episodes + knownCharacters"]
+    D --> E["S3 원문 조회"]
+    E --> F["Python에서 원문 정규화/청킹"]
+    F --> G["episode_chunks 저장"]
+    G --> H["chunk별 LLM 설정 후보 추출"]
+    H --> I["evidence quote offset 보정"]
+    I --> J["raw/entity/knownCharacters 기반 캐릭터 매칭"]
+    J --> K["setting_candidates 직접 저장"]
+    K --> L["Worker complete"]
+    L --> M["AnalysisJob SUCCEEDED"]
+```
+
+현재 구현에서 Spring은 `setting_candidates` 생성 API를 제공하지 않습니다. 후보 생성은 Worker의 DB 직접 저장 흐름이며, Spring은 생성된 후보의 조회/수정/확정/무시와 `AnalysisJob` 상태 전이를 담당합니다.
+
 ## Notion 기준 전체 분석 흐름
 
 아래 흐름은 Notion의 “흐름 정리 - 임준우”에 있는 전체 작업 흐름을 백엔드 기준 용어로 옮긴 것입니다.
 
-현재 구현 범위는 분석 작업 생성/조회, 업로드 batch 연결, Worker 내부 claim/상태 변경 API까지입니다. 실제 청킹, LLM 전처리, 설정 후보, 검수 리포트 저장은 후속 AI Worker 구현 범위입니다.
+현재 구현과 다르게 `ManuscriptChunk`, `PreprocessedManuscriptChunk`, `SettingSnapshot`, `ValidationReport` 같은 후속 모델까지 포함한 목표 흐름입니다. 현재 캐릭터 설정 후보 MVP에서는 `episode_chunks`, `setting_candidates`, `CharacterFact`, `WorkCharacter` 중심으로 먼저 구현합니다.
 
 ```mermaid
 flowchart TD
@@ -71,9 +93,10 @@ flowchart TD
 8. 기존 설정 구축용 업로드라면 `SETTING_EXTRACTION` 작업을 생성합니다.
 9. 신규 회차 검수용 업로드라면 `EPISODE_VALIDATION` 작업을 생성합니다.
 10. Spring Boot 서버는 작업 상태를 `PENDING`으로 둡니다.
-11. Worker는 내부 claim API를 polling해 작업 ID와 회차 메타데이터를 가져옵니다.
-12. Worker는 청킹된 원문을 LLM 데이터 전처리에 넣고, 결과를 `PreprocessedManuscriptChunk`로 저장합니다.
-13. Worker는 전처리 결과를 기준으로 임베딩 생성, 설정 정보 추출, 후보 저장을 수행합니다.
+11. Worker는 내부 claim API를 polling해 작업 ID, 회차 메타데이터, 기존 캐릭터 목록을 가져옵니다.
+12. 현재 Worker는 S3 원문을 읽어 직접 정규화/청킹하고 `episode_chunks`를 저장합니다.
+13. Worker는 청크별 LLM 설정 후보를 추출하고, quote offset 보정과 캐릭터 매칭 상태 계산 후 `setting_candidates`를 저장합니다.
+14. `PreprocessedManuscriptChunk`, `SettingSnapshot`, `ValidationReport` 기반 흐름은 후속 검수 모델 구현 때 확장합니다.
 
 ## 분석 작업 생성 API
 
@@ -199,6 +222,7 @@ sequenceDiagram
     participant JobRepo as AnalysisJobRepository
     participant UploadRepo as UploadFileRepository
     participant EpisodeRepo as EpisodeRepository
+    participant CharacterRepo as WorkCharacterRepository
 
     Worker->>Controller: POST /api/internal/v1/analysis-jobs/claim
     Note over Worker,Controller: header: X-Internal-Api-Key
@@ -213,6 +237,7 @@ sequenceDiagram
         Service->>Service: status = RUNNING
         Service->>UploadRepo: findAllByBatchIdAndFileRole(batchId, EPISODE)
         Service->>EpisodeRepo: findAllBySourceFileIdInOrderByEpisodeNoAsc(sourceFileIds)
+        Service->>CharacterRepo: findAllByWorkIdOrderByCreatedAtDesc(workId)
         alt 대상 회차 없음
             Service->>Service: status = FAILED
             Service-->>Controller: empty
@@ -239,7 +264,8 @@ stateDiagram-v2
 Worker가 내부 claim API로 작업을 가져가면 `RUNNING`으로 전환합니다. 이후 Worker가 내부 상태 변경 API로 `SUCCEEDED` 또는 `FAILED`를 기록합니다.
 `FAILED` 이후 재시도는 현재 코드에 직접 전이로 연결되어 있지 않습니다. 같은 작업을 재사용할지 새 작업을 만들지는 후속 정책으로 결정합니다.
 
-화면에서는 `AnalysisJob.status`를 분석 작업의 상위 상태로 표시합니다. 사용자가 하나의 분석 작업을 클릭하면, 상세 화면에서 포함된 각 회차의 `Episode.status`를 단계별 상태로 보여줍니다.
+화면에서는 `AnalysisJob.status`를 분석 작업의 상위 상태로 표시합니다. 현재 분석 작업 상세 응답은 회차별 `Episode.status` 목록을 포함하지 않습니다.
+회차별 단계 표시는 Worker 단계별 회차 상태 전이와 상세 응답 확장이 연결된 뒤 후속으로 구현합니다.
 후속 Worker의 회차 상태 변경은 단계별 엔드포인트를 나누지 않고, `EpisodeStatus`를 파라미터로 받는 단일 내부 전이 API로 구현합니다.
 
 ## Episode 처리 상태
@@ -281,7 +307,29 @@ Notion 기준 `AnalysisJob.status`
 
 현재 코드에는 `CANCELED`가 없습니다. 취소 API 또는 시스템 취소 정책이 정해질 때 추가합니다.
 
-## LLM 전처리와 설정 후보 저장
+## 현재 설정 후보 저장 흐름
+
+현재 구현은 별도 `PreprocessedManuscriptChunk` 없이 Python Worker가 청크 원문을 LLM에 직접 넣어 `setting_candidates`를 저장합니다.
+
+1. Spring claim payload는 `analysisJobId`, `workId`, `batchId`, episode S3 메타데이터, `knownCharacters`를 내려줍니다.
+2. Python Worker는 `contentS3Key`, `contentS3Version`으로 S3 원문을 읽습니다.
+3. Worker는 원문을 정규화/청킹하고 `episode_chunks`를 저장합니다.
+4. Worker는 chunk별 LLM 설정 후보를 추출합니다.
+5. Worker는 LLM이 반환한 `evidence_spans[].quote`를 chunk 원문에서 다시 찾아 `start_offset`, `end_offset`을 보정합니다.
+6. Worker는 `rawEntityMention`, `entityName`, `knownCharacters`를 비교해 `matchedCharacterId`, `matchStatus`를 계산합니다.
+7. Worker는 후보를 `PENDING_REVIEW` 상태의 `setting_candidates`로 저장합니다.
+8. 저장이 끝나면 complete API를 호출해 `AnalysisJob.status=SUCCEEDED`로 변경합니다.
+
+현재 complete API는 `AnalysisJob` 상태와 summary/token 메타데이터를 반영합니다. 회차별 `Episode.status=ANALYZED` 전이는 아직 Worker 내부 API와 연결하지 않았고, 후속 정책으로 둡니다.
+
+캐릭터 매칭 후속 TODO:
+
+- adjacent chunk fallback으로 `나`, `그`, `그녀` 같은 지칭어 후보를 해소한 뒤 `matchStatus` 품질을 높입니다.
+- confirm API에서 `MATCHED`, `UNRESOLVED`, `AMBIGUOUS`를 각각 어떻게 처리할지 결정합니다.
+- `MATCHED` 후보는 `matchedCharacterId`의 기존 캐릭터를 우선 사용할지 검토합니다.
+- `AMBIGUOUS` 후보는 confirm을 막을지, 사용자 수정 후 confirm을 허용할지 정합니다.
+
+## 후속 LLM 전처리와 검수 확장
 
 LLM 전처리 입력은 다음 정보를 포함합니다.
 
@@ -303,10 +351,10 @@ LLM 전처리 출력은 다음 정보를 포함합니다.
 
 설정 후보 저장 규칙은 다음과 같습니다.
 
-- Worker는 원문 청크와 LLM 전처리 결과를 함께 사용해 설정 후보를 추출합니다.
+- Worker는 원문 청크와 LLM 전처리 결과를 함께 사용해 설정 후보를 추출할 수 있습니다.
 - 추출 결과는 `SettingCandidate`에 `PENDING_REVIEW` 상태로 저장합니다.
 - 후보에는 설정 유형, 설정 값, 신뢰도, 근거 청크, AI 원본 응답, 추출 작업 ID를 연결합니다.
-- 저장이 끝나면 `AnalysisJob.status=SUCCEEDED`, `Episode.status=ANALYZED`로 변경합니다.
+- 저장이 끝나면 `AnalysisJob.status=SUCCEEDED`로 변경합니다. `Episode.status=ANALYZED` 전이는 후속 상태 전이 API와 함께 연결합니다.
 - 여러 기존 회차의 설정 후보가 생성된 뒤에는 작품 단위 `BASELINE_CONSISTENCY_CHECK` 작업을 생성해 기존 원고 내부 충돌 후보를 탐지할 수 있습니다.
 
 ## 기존 원고 내부 정합성 검수
@@ -382,9 +430,9 @@ LLM 전처리 출력은 다음 정보를 포함합니다.
 | --- | --- | --- |
 | 원문 저장 | 파일 형식 오류, 빈 원문, 권한 없음 | 동기 API에서 실패 응답 |
 | 원본 파일 저장 | S3 업로드 실패, 파일 크기 초과 | 원본 파일 참조를 만들지 않고 업로드 실패 응답 |
-| 청킹 | 텍스트 파싱 오류, 너무 긴 문단 | `Episode`와 `AnalysisJob`을 `FAILED` 처리하고 마지막 실패 사유 저장 |
+| 청킹 | 텍스트 파싱 오류, 너무 긴 문단 | 현재는 `AnalysisJob` 실패 처리 대상입니다. `Episode.status=FAILED` 연결은 후속 상태 전이 API 구현 후 적용합니다. |
 | Worker claim | 내부 API 인증 실패, Worker가 작업 수신 실패 | 인증 실패는 401로 응답하고, 수신 실패 시 `AnalysisJob`은 `PENDING` 유지 |
-| LLM 데이터 전처리 | LLM API 오류, 전처리 응답 스키마 오류, 장면/문단 매핑 실패 | `Episode`와 `AnalysisJob`을 `FAILED` 처리하고 재시도 가능 |
+| LLM 데이터 전처리 | LLM API 오류, 전처리 응답 스키마 오류, 장면/문단 매핑 실패 | `AnalysisJob` 실패 처리 대상입니다. 회차별 실패 표시는 후속 `Episode.status` 전이와 함께 연결합니다. |
 | AI 설정 추출 | LLM API 오류, 응답 스키마 오류, timeout | `AnalysisJob` 실패 처리, 재시도 가능 |
 | 후보 저장 | DB 오류, 근거 청크 매핑 실패 | 작업 실패 처리, 중복 저장 방지를 위해 작업 단위 idempotency 필요 |
 | 기존 원고 내부 검수 | 비교 대상 후보 부족, 회차 순서 누락, LLM 응답 스키마 오류 | `ValidationReport` 실패 처리 또는 근거 부족 리포트로 저장 |
@@ -393,4 +441,5 @@ LLM 전처리 출력은 다음 정보를 포함합니다.
 | 리포트 저장 | 일부 finding 저장 실패 | 트랜잭션으로 전체 롤백 후 재시도 |
 | 사용자 검토 | 이미 처리된 후보 수정, 권한 없음 | 동기 API에서 실패 응답 |
 
-재시도는 같은 `AnalysisJob`을 재사용하되 `retryCount`를 증가시킵니다. 같은 작업이 중복 실행되어도 `Episode`, `SettingCandidate`, `ValidationReport`가 중복 생성되지 않도록 작업 ID와 대상 회차 ID를 기준으로 멱등성을 확보합니다.
+현재 `AnalysisJob`에는 `retryCount`가 없습니다. 재시도는 같은 `AnalysisJob`을 되살릴지, 새 `AnalysisJob`을 만들지 먼저 정책을 정해야 합니다.
+후속 재시도 구현 시 같은 작업이 중복 실행되어도 `Episode`, `SettingCandidate`, `ValidationReport`가 중복 생성되지 않도록 작업 ID와 대상 회차 ID를 기준으로 멱등성을 확보합니다.

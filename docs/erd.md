@@ -139,6 +139,9 @@ erDiagram
         uuid analysis_job_id FK
         varchar entity_type
         varchar entity_name
+        varchar raw_entity_mention
+        uuid matched_character_id FK
+        varchar match_status
         varchar attribute_name
         text attribute_value
         varchar value_type

@@ -23,6 +23,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
@@ -85,6 +86,27 @@ public class SettingCandidate extends BaseEntity {
     @Column(name = "entity_name", nullable = false, length = 100)
     private String entityName;
 
+    // 예: "나", "홍길동의 두 번째 딸 홍둘째"처럼 원문에 실제 등장한 표현입니다.
+    @Column(name = "raw_entity_mention", length = 100)
+    private String rawEntityMention;
+
+    // 기존 characters.id와 확실히 매칭된 경우에만 채웁니다.
+    @Column(name = "matched_character_id")
+    private UUID matchedCharacterId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(
+            name = "matched_character_id",
+            insertable = false,
+            updatable = false,
+            foreignKey = @ForeignKey(name = "fk_setting_candidates_matched_character")
+    )
+    private WorkCharacter matchedCharacter;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "match_status", nullable = false, length = 30)
+    private SettingCandidateMatchStatus matchStatus;
+
     // 예: "level", "stats", "skills", "items", "current_status"
     @Column(name = "attribute_name", nullable = false, length = 100)
     private String attributeName;
@@ -126,6 +148,9 @@ public class SettingCandidate extends BaseEntity {
             AnalysisJob analysisJob,
             SettingEntityType entityType,
             String entityName,
+            String rawEntityMention,
+            UUID matchedCharacterId,
+            SettingCandidateMatchStatus matchStatus,
             String attributeName,
             String attributeValue,
             SettingValueType valueType,
@@ -140,6 +165,9 @@ public class SettingCandidate extends BaseEntity {
         this.analysisJob = analysisJob;
         this.entityType = entityType;
         this.entityName = entityName;
+        this.rawEntityMention = rawEntityMention;
+        this.matchedCharacterId = matchedCharacterId;
+        this.matchStatus = matchStatus == null ? SettingCandidateMatchStatus.UNRESOLVED : matchStatus;
         this.attributeName = attributeName;
         this.attributeValue = attributeValue;
         this.valueType = valueType;
@@ -172,6 +200,47 @@ public class SettingCandidate extends BaseEntity {
                 analysisJob,
                 entityType,
                 entityName,
+                null,
+                null,
+                SettingCandidateMatchStatus.UNRESOLVED,
+                attributeName,
+                attributeValue,
+                valueType,
+                valueJson,
+                evidenceSpans,
+                confidence,
+                rawAiResultJson
+        );
+    }
+
+    public static SettingCandidate create(
+            Work work,
+            Episode episode,
+            UUID sourceChunkId,
+            AnalysisJob analysisJob,
+            SettingEntityType entityType,
+            String entityName,
+            String rawEntityMention,
+            UUID matchedCharacterId,
+            SettingCandidateMatchStatus matchStatus,
+            String attributeName,
+            String attributeValue,
+            SettingValueType valueType,
+            JsonNode valueJson,
+            JsonNode evidenceSpans,
+            BigDecimal confidence,
+            JsonNode rawAiResultJson
+    ) {
+        return new SettingCandidate(
+                work,
+                episode,
+                sourceChunkId,
+                analysisJob,
+                entityType,
+                entityName,
+                rawEntityMention,
+                matchedCharacterId,
+                matchStatus,
                 attributeName,
                 attributeValue,
                 valueType,

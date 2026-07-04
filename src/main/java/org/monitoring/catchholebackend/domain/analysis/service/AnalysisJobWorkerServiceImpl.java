@@ -14,6 +14,8 @@ import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErro
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisJobWorkerMapper;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
+import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
@@ -36,6 +38,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     private final AnalysisJobRepository analysisJobRepository;
     private final UploadFileRepository uploadFileRepository;
     private final EpisodeRepository episodeRepository;
+    private final WorkCharacterRepository workCharacterRepository;
     private final AnalysisJobWorkerMapper analysisJobWorkerMapper;
 
     @Override
@@ -58,7 +61,9 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             return Optional.empty();
         }
 
-        return Optional.of(analysisJobWorkerMapper.toPayload(analysisJob, targetEpisodes));
+        List<WorkCharacter> knownCharacters =
+                workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(analysisJob.getWork().getId());
+        return Optional.of(analysisJobWorkerMapper.toPayload(analysisJob, targetEpisodes, knownCharacters));
     }
 
     @Override

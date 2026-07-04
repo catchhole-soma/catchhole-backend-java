@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
@@ -30,6 +31,15 @@ public record SettingCandidateResponse(
 
         @Schema(description = "설정 대상 이름", example = "아리아")
         String entityName,
+
+        @Schema(description = "원문에 실제 등장한 설정 대상 표현", example = "프넬린의 두 번째 딸 아이나르", nullable = true)
+        String rawEntityMention,
+
+        @Schema(description = "기존 캐릭터와 확실히 매칭된 경우 characters.id", example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d666", nullable = true)
+        UUID matchedCharacterId,
+
+        @Schema(description = "기존 캐릭터 매칭 상태", example = "UNRESOLVED")
+        SettingCandidateMatchStatus matchStatus,
 
         @Schema(description = "설정 속성명", example = "level")
         String attributeName,

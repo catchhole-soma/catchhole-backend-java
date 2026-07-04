@@ -4,7 +4,7 @@
 
 Analysis 도메인은 작품 단위 AI 분석 작업의 상태와 결과 메타데이터를 추적합니다.
 
-이번 범위에서는 실제 Python AI Worker와 LLM 호출을 구현하지 않고, 백엔드가 분석 작업을 생성/조회하고 Worker가 내부 API로 작업을 claim/상태 갱신할 수 있는 계약을 제공합니다.
+현재 범위에서는 백엔드가 분석 작업을 생성/조회하고 Worker가 내부 API로 작업을 claim/상태 갱신할 수 있는 계약을 제공합니다. 실제 원문 청킹, LLM 설정 후보 추출, quote 위치 보정은 Python AI Worker가 담당하며, Spring은 분석 작업 상태와 사용자 검토 도메인을 관리합니다.
 
 ## 핵심 결정
 
@@ -41,9 +41,11 @@ upload_batches.id
 
 Kafka/SQS 없이 내부 API polling 방식을 사용합니다.
 
-Python AI Worker는 주기적으로 내부 claim API를 호출해 `PENDING` 작업을 가져갑니다. 백엔드는 claim된 작업을 `RUNNING`으로 변경하고, Worker가 S3에서 원문을 읽을 수 있도록 회차 원문 메타데이터만 내려줍니다.
+Python AI Worker는 주기적으로 내부 claim API를 호출해 `PENDING` 작업을 가져갑니다. 백엔드는 claim된 작업을 `RUNNING`으로 변경하고, Worker가 S3에서 원문을 읽을 수 있도록 회차 원문 메타데이터와 캐릭터 매칭에 사용할 `knownCharacters`를 내려줍니다.
 
-Worker는 분석 작업 생성과 `AnalysisJob` 상태 전이를 위해 백엔드 DB에 직접 접근하지 않습니다. 다만 청킹, 설정 후보, 리포트 같은 분석 산출물 저장은 데이터 양과 모델 안정성에 따라 내부 API 또는 Worker의 DB 직접 저장 중 선택할 수 있습니다. DB 직접 저장을 선택하면 백엔드 문서와 스키마 변경 규칙을 함께 관리합니다.
+Worker는 분석 작업 생성과 `AnalysisJob` 상태 전이를 위해 백엔드 DB에 직접 접근하지 않습니다. 다만 현재 설정 후보 생성은 Python Worker가 `setting_candidates`에 직접 저장합니다. Spring은 후보 조회/수정/확정/무시 API와 `AnalysisJob` 상태 전이 API를 담당합니다.
+
+검수 리포트, 추가 전처리 산출물, 캐릭터 매칭 보정 결과를 모두 내부 API로 받을지 Worker DB 직접 저장으로 유지할지는 후속 설계에서 다시 결정합니다.
 
 ### 진행률
 
@@ -71,7 +73,8 @@ Worker는 분석 작업 생성과 `AnalysisJob` 상태 전이를 위해 백엔�
 상태 표시 기준:
 
 - 분석 작업 목록과 분석 작업 카드에서는 `AnalysisJob.status`를 상위 상태로 표시합니다.
-- 사용자가 하나의 분석 작업을 클릭해 상세로 들어가면, 해당 작업에 포함된 각 회차의 `Episode.status`를 단계별 상태로 표시합니다.
+- 현재 분석 작업 상세 응답은 `AnalysisJob.status`, `currentStep`, token count, summary/error metadata를 반환합니다.
+- 회차별 `Episode.status`를 함께 내려주는 상세 응답은 Worker 단계별 회차 상태 전이가 연결된 뒤 후속으로 확장합니다.
 
 `AnalysisJobType`
 
@@ -174,7 +177,7 @@ GET /api/v1/works/{workId}/analysis-jobs
 GET /api/v1/works/{workId}/analysis-jobs/{analysisJobId}
 ```
 
-로그인한 사용자의 해당 작품에 속한 특정 분석 작업 상태와 결과 메타데이터를 조회합니다. 상세 화면에서는 분석 작업에 포함된 회차들의 `Episode.status`를 함께 보여줘 에피소드별 분석 단계를 확인합니다.
+로그인한 사용자의 해당 작품에 속한 특정 분석 작업 상태와 결과 메타데이터를 조회합니다. 현재 응답은 분석 작업 단위 상태와 대상 업로드 batch 요약을 반환합니다. 회차별 `Episode.status` 목록은 후속 상세 응답 확장 대상입니다.
 
 ## Internal Worker API
 
@@ -214,6 +217,12 @@ claim할 작업이 있으면 가장 오래된 `PENDING` 작업 하나를 `RUNNIN
     "batchId": "01970c2e-7e6d-7000-8e5d-2a9bc4b6d111",
     "modelName": "gpt-4.1-mini",
     "currentStep": "원문 청킹",
+    "knownCharacters": [
+      {
+        "characterId": "01970c2e-7e6d-7000-8e5d-2a9bc4b6d666",
+        "name": "아리아"
+      }
+    ],
     "episodes": [
       {
         "episodeId": "01970c2e-7e6d-7000-8e5d-2a9bc4b6d555",
@@ -232,6 +241,7 @@ claim할 작업이 있으면 가장 오래된 `PENDING` 작업 하나를 `RUNNIN
 ```
 
 원문 본문은 응답에 포함하지 않습니다. Worker는 `contentS3Key`, `contentS3Version`을 사용해 S3에서 원문을 직접 읽습니다.
+`knownCharacters`는 Python Worker가 `setting_candidates`의 `matched_character_id`, `match_status`를 계산할 때 사용하는 기존 캐릭터 목록입니다. 현재는 `characters.id`, `characters.name`을 내려줍니다.
 
 ### 진행 단계 갱신
 
@@ -383,6 +393,8 @@ analysis_jobs.batch_id
 
 ## 이후 작업
 
-- Python AI Worker 실제 청킹/LLM 처리 구현
-- `summary_json` 구조 확정
+- Python AI Worker의 청킹/LLM 처리 운영 안정화
+- `summary_json` 구조와 token count 집계 정책 확정
+- `Episode.status`와 Worker 단계별 상태 전이 연결
+- 설정 후보 외 검수 리포트 저장 흐름 구현
 - 실패 재시도 정책 정의

@@ -26,6 +26,7 @@ import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.mapper.SettingCandidateMapper;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
@@ -380,6 +381,9 @@ class SettingCandidateServiceImplTest {
                 null,
                 SettingEntityType.CHARACTER,
                 "아리아",
+                null,
+                null,
+                SettingCandidateMatchStatus.UNRESOLVED,
                 "age",
                 "17",
                 SettingValueType.NUMBER,
