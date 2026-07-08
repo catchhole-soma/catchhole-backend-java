@@ -7,12 +7,15 @@ import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
+import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.mapper.SettingCandidatePromotionMapper;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
+import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
+import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,7 +34,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         // 지원하지 않는 속성은 캐릭터 생성 전에 거절해 부수효과를 남기지 않는다.
         String factKey = settingCandidatePromotionMapper.toFactKey(candidate);
         CharacterFactType factType = settingCandidatePromotionMapper.toFactType(factKey);
-        WorkCharacter character = getOrCreateCharacter(candidate);
+        WorkCharacter character = resolveCharacterForPromotion(candidate);
         updateFirstAppearance(character, candidate.getEpisode());
 
         CharacterFact newFact = characterFactRepository.saveAndFlush(
@@ -50,12 +53,39 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         character.applyCurrentFact(currentFact);
     }
 
-    private WorkCharacter getOrCreateCharacter(SettingCandidate candidate) {
-        String characterName = settingCandidatePromotionMapper.toCharacterName(candidate);
-        return workCharacterRepository.findByWorkIdAndName(candidate.getWork().getId(), characterName)
-                .orElseGet(() -> workCharacterRepository.save(
-                        settingCandidatePromotionMapper.toWorkCharacter(candidate)
+    private WorkCharacter resolveCharacterForPromotion(SettingCandidate candidate) {
+        return switch (candidate.getMatchStatus()) {
+            case MATCHED -> getMatchedCharacter(candidate);
+            case UNRESOLVED -> createUnresolvedCharacter(candidate);
+            case AMBIGUOUS -> throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
+        };
+    }
+
+    private WorkCharacter getMatchedCharacter(SettingCandidate candidate) {
+        UUID matchedCharacterId = candidate.getMatchedCharacterId();
+        if (matchedCharacterId == null) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
+        }
+        WorkCharacter character = workCharacterRepository
+                .findByIdAndWorkId(matchedCharacterId, candidate.getWork().getId())
+                .orElseThrow(() -> new AppException(
+                        CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID
                 ));
+        if (character.getStatus() != CharacterStatus.ACTIVE) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID);
+        }
+        return character;
+    }
+
+    private WorkCharacter createUnresolvedCharacter(SettingCandidate candidate) {
+        if (candidate.getMatchedCharacterId() != null) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
+        }
+        String characterName = settingCandidatePromotionMapper.toCharacterName(candidate);
+        if (workCharacterRepository.findByWorkIdAndName(candidate.getWork().getId(), characterName).isPresent()) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
+        }
+        return workCharacterRepository.save(settingCandidatePromotionMapper.toWorkCharacter(candidate));
     }
 
     private void updateFirstAppearance(WorkCharacter character, Episode sourceEpisode) {

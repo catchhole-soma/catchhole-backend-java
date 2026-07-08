@@ -44,7 +44,7 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 
 - 편집 가능 상태는 `PENDING_REVIEW`로 제한합니다.
 - `CONFIRMED`, `DISMISSED` 후보 수정 요청은 `SETTING_CANDIDATE_NOT_EDITABLE / 409`로 거절합니다.
-- NVM-232 이후 일반 후보 수정 API는 설정 내용 보정용으로 유지하고, 수정 가능한 필드는 `attributeName`, `attributeValue`, `valueType`, `valueJson`, `evidenceSpans`로 좁힙니다.
+- 일반 후보 수정 API는 설정 내용 보정용으로 유지하고, 수정 가능한 필드는 `attributeName`, `attributeValue`, `valueType`, `valueJson`, `evidenceSpans`로 좁힙니다.
 - `attributeName`, `attributeValue`는 저장 전에 앞뒤 공백을 제거합니다. `attributeValue`는 `null`이면 표시용 값을 비웁니다.
 - `valueJson`, `evidenceSpans`는 요청 payload를 JSON으로 변환해 저장합니다. `null`이면 해당 JSONB 값을 비웁니다.
 - 사용자가 일반 후보 수정 API의 요청 body로 직접 수정하지 않는 값은 `work`, `episode`, `sourceChunkId`, `analysisJob`, `entityType`, `entityName`, `rawEntityMention`, `matchedCharacterId`, `matchStatus`, `confidence`, `reviewStatus`, `rawAiResultJson`입니다.
@@ -65,8 +65,9 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 
 `SettingCandidate.CONFIRMED` 후 확정 데이터는 `CharacterFact`로 저장하고, 현재 기준값은 `WorkCharacter` 스냅샷에 반영합니다.
 
-- 현재 confirm 반영은 `entityName`으로 같은 작품의 `WorkCharacter`를 찾고, 없으면 새로 생성합니다.
-- `rawEntityMention`, `matchedCharacterId`, `matchStatus`는 후보 생성/조회 단계에 저장되지만, confirm 승격 기준에는 아직 반영하지 않습니다.
+- confirm 반영은 `matchStatus` 기준으로 대상 `WorkCharacter`를 결정합니다.
+- `MATCHED` 후보는 `matchedCharacterId`의 기존 캐릭터를 사용하고, `UNRESOLVED` 후보는 같은 이름의 기존 캐릭터가 없을 때만 `entityName` 기준으로 새 캐릭터를 생성합니다.
+- `AMBIGUOUS` 후보는 사용자 해소 전까지 confirm을 거절합니다.
 - `attributeName`은 `CharacterFactType`으로 매핑합니다. 지원하지 않는 속성은 캐릭터 생성 전에 `SETTING_CANDIDATE_FACT_TYPE_UNSUPPORTED / 400`으로 거절해 부수효과를 남기지 않습니다.
 - `CharacterFact.effectiveFromEpisodeNo`는 후보의 `episode.episodeNo`를 사용합니다. episode가 없으면 `null`로 저장하고 current 우선순위는 가장 낮게 봅니다.
 - 같은 캐릭터의 같은 `factType + factKey`에서는 가장 큰 `effectiveFromEpisodeNo`를 가진 fact만 current로 둡니다. 같은 회차라면 나중에 생성된 fact가 current가 됩니다.
@@ -76,7 +77,7 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 
 ### 캐릭터 매칭 상태 기반 confirm 정책
 
-NVM-232에서는 `matchStatus`를 "AI 최초 판단값"으로 고정하지 않고, 현재 설정 후보가 어떤 캐릭터에 연결될 예정인지를 나타내는 상태로 봅니다.
+`matchStatus`는 "AI 최초 판단값"으로 고정하지 않고, 현재 설정 후보가 어떤 캐릭터에 연결될 예정인지를 나타내는 상태로 봅니다.
 
 Python Worker는 후보 생성 시 `rawEntityMention`, `entityName`, 기존 캐릭터 목록을 비교해 초기 `matchedCharacterId`, `matchStatus`를 계산합니다. 이후 사용자가 후보의 캐릭터 연결을 수정하면 `entityName`, `matchedCharacterId`, `matchStatus`도 현재 결정 상태에 맞게 함께 갱신합니다.
 
@@ -87,7 +88,7 @@ Python Worker는 후보 생성 시 `rawEntityMention`, `entityName`, 기존 캐�
 | 상태 | confirm 처리 |
 | --- | --- |
 | `MATCHED` + `matchedCharacterId` 있음 | `matchedCharacterId`의 기존 `WorkCharacter`에 `CharacterFact`를 생성합니다. `entityName`이 다르더라도 명시적으로 매칭된 캐릭터를 우선합니다. |
-| `UNRESOLVED` | 사용자가 검토/수정한 `entityName` 기준으로 같은 작품의 `WorkCharacter`를 찾고, 없으면 새로 생성합니다. |
+| `UNRESOLVED` | 사용자가 검토/수정한 `entityName` 기준으로 새 `WorkCharacter`를 생성합니다. 같은 작품에 완전히 동일한 이름의 캐릭터가 이미 있으면 조용히 재사용하지 않고 confirm을 거절합니다. |
 | `AMBIGUOUS` | 그대로는 confirm을 허용하지 않습니다. 사용자가 기존 캐릭터에 연결하거나 새 캐릭터로 확정해 `MATCHED` 또는 `UNRESOLVED` 상태로 해소한 뒤 confirm합니다. |
 
 confirm 데이터 계약 위반으로 보고 거절할 조합:
@@ -96,6 +97,7 @@ confirm 데이터 계약 위반으로 보고 거절할 조합:
 | --- | --- |
 | `MATCHED`인데 `matchedCharacterId`가 없음 | `SETTING_CANDIDATE_MATCH_STATUS_CONFLICT / 409`로 confirm 거절 |
 | `UNRESOLVED`인데 `matchedCharacterId`가 있음 | `SETTING_CANDIDATE_MATCH_STATUS_CONFLICT / 409`로 confirm 거절 |
+| `UNRESOLVED` 후보의 `entityName`과 완전히 동일한 이름의 캐릭터가 같은 작품에 이미 있음 | `SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED / 409`로 confirm 거절 |
 | `AMBIGUOUS` 후보를 그대로 confirm하려는 경우 | `SETTING_CANDIDATE_MATCH_STATUS_CONFLICT / 409`로 confirm 거절 |
 | `MATCHED` 후보의 `matchedCharacterId`가 존재하지 않거나, 다른 작품 소속이거나, 보관된 캐릭터를 가리킴 | `SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID / 409`로 confirm 거절 |
 
@@ -263,7 +265,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 캐릭터 매칭 상태 기준:
 
 - `MATCHED`: 기존 캐릭터 하나와 확실히 연결된 상태입니다. `matched_character_id`가 있어야 합니다.
-- `UNRESOLVED`: 연결할 기존 캐릭터를 찾지 못한 상태입니다. 새 캐릭터일 가능성이 있습니다.
+- `UNRESOLVED`: 아직 기존 캐릭터로 확정 연결되지 않은 상태입니다. 새 캐릭터일 가능성이 있습니다.
 - `AMBIGUOUS`: 후보가 여러 명이거나 `나`, `그`, `그녀`, `주인공`처럼 지칭 대상이 문맥 의존적이라 기존 캐릭터 하나로 확정하지 못한 상태입니다. 단, Worker가 `entityName`을 기존 캐릭터 1명과 유일하게 매칭하면 `MATCHED`로 저장될 수 있습니다.
 - `UNRESOLVED`, `AMBIGUOUS`에서는 `matched_character_id`를 비워두고 사용자 검토 또는 후속 resolver 대상으로 남깁니다.
 
@@ -350,7 +352,7 @@ flowchart TD
 
 `confirm` API는 후보 상태 전이와 확정 데이터 반영을 같은 트랜잭션에서 처리합니다. 단, 이미 `CONFIRMED`인 후보 재호출은 성공 응답만 반환하고 `CharacterFact`를 다시 만들지 않습니다.
 
-아래 흐름은 NVM-232와 NVM-228/#59 정책을 반영한 목표 순서입니다. 현재 구현은 아직 `entityName` 기준으로 캐릭터를 결정하며, schema 매칭과 snapshot merge 정책은 후속 작업에서 연결됩니다.
+아래 흐름은 현재 confirm 반영 순서와 NVM-228/#59 schema 매칭 후속 정책을 함께 보여줍니다. 캐릭터 결정은 `matchStatus` 기준으로 동작하며, schema 매칭과 snapshot merge 정책은 후속 작업에서 연결됩니다.
 
 ```mermaid
 flowchart TD
@@ -362,12 +364,14 @@ flowchart TD
     D -->|"DISMISSED 후보를 확정하려는 경우"| X["상태 충돌 응답<br/>SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT / 409"]
     D -->|"PENDING_REVIEW에서 처음 CONFIRMED 됨"| E["확정 데이터 반영 시작<br/>SettingCandidatePromotionService.promote(candidate)"]
 
-    E --> F["NVM-232<br/>matchStatus 기반 대상 WorkCharacter 결정"]
+    E --> F["matchStatus 기반 대상 WorkCharacter 결정"]
     F -->|"MATCHED"| F1["matchedCharacterId 캐릭터 검증 후 사용"]
-    F -->|"UNRESOLVED"| F2["entityName 기준 WorkCharacter find/create"]
+    F -->|"UNRESOLVED"| F2["entityName 중복 확인"]
     F -->|"AMBIGUOUS"| F3["해소 전 confirm 거절"]
     F1 --> G["후보 속성명을 설정 key로 정규화<br/>attributeName trim -> factKey"]
-    F2 --> G
+    F2 -->|"동일 이름 캐릭터 있음"| W["중복 이름 응답<br/>SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED / 409"]
+    F2 -->|"동일 이름 캐릭터 없음"| F4["entityName 기준 새 WorkCharacter 생성"]
+    F4 --> G
     G --> H["설정 key를 fact 유형으로 분류<br/>age, level, stats, skills, items, status, time"]
     H -->|"매핑 불가한 attributeName"| Y["확정 반영 거절<br/>SETTING_CANDIDATE_FACT_TYPE_UNSUPPORTED / 400"]
     H -->|"CharacterFactType으로 매핑 가능"| I["첫 등장 회차 보정<br/>더 이른 episode면 firstAppearanceEpisodeId 갱신"]
@@ -386,8 +390,8 @@ flowchart TD
 상세 처리 기준:
 
 - 현재 구현은 `mapper.toFactType(factKey)`를 `WorkCharacter` 조회/생성보다 먼저 실행해 지원하지 않는 속성을 캐릭터 생성 전에 거절합니다.
-- NVM-232와 NVM-228/#59 반영 후에도 확정 반영 중 오류가 발생하면 후보 상태 전이, 신규 캐릭터 생성, `CharacterFact` 생성이 같은 트랜잭션에서 함께 롤백되어야 합니다.
-- NVM-232 반영 후 후보 캐릭터 결정은 `matchStatus`를 기준으로 수행합니다. `MATCHED`는 `matchedCharacterId`, `UNRESOLVED`는 `entityName`, `AMBIGUOUS`는 해소 전 거절을 사용합니다.
+- 확정 반영 중 오류가 발생하면 후보 상태 전이, 신규 캐릭터 생성, `CharacterFact` 생성이 같은 트랜잭션에서 함께 롤백되어야 합니다.
+- 후보 캐릭터 결정은 `matchStatus`를 기준으로 수행합니다. `MATCHED`는 `matchedCharacterId`, `UNRESOLVED`는 중복 이름 검증 후 `entityName`으로 새 캐릭터 생성, `AMBIGUOUS`는 해소 전 거절을 사용합니다.
 - `mapper.toWorkCharacter(candidate)`와 `mapper.toCharacterFact(...)`가 Entity factory를 호출합니다. service는 `Entity.create()` 파라미터를 직접 조립하지 않습니다.
 - `saveAndFlush(newFact)` 후 같은 `character + factType + factKey`의 전체 이력을 다시 조회합니다. confirm 순서와 회차 순서가 다를 수 있기 때문입니다.
 - `selectCurrentFact`는 `effectiveFromEpisodeNo`가 가장 큰 fact를 current로 고릅니다. `effectiveFromEpisodeNo = null`인 fact는 가장 오래된 값으로 봅니다.
