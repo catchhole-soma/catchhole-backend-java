@@ -2,6 +2,7 @@ package org.monitoring.catchholebackend.domain.character.service;
 
 import java.util.List;
 import java.util.UUID;
+import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateCharacterMatchRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateUpdateRequest;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
@@ -34,6 +35,17 @@ public interface SettingCandidateService {
             UUID workId,
             UUID candidateId,
             SettingCandidateUpdateRequest request
+    );
+
+    /**
+     * 작품 소유권과 설정 후보 소속을 확인한 뒤 후보의 캐릭터 연결 상태를 해소한다.
+     * 후보는 PENDING_REVIEW 상태여야 하며, 검토 상태는 변경하지 않는다.
+     */
+    SettingCandidateResponse updateSettingCandidateCharacterMatch(
+            Long memberId,
+            UUID workId,
+            UUID candidateId,
+            SettingCandidateCharacterMatchRequest request
     );
 
     /**

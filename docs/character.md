@@ -90,17 +90,14 @@ Python Worker는 후보 생성 시 `rawEntityMention`, `entityName`, 기존 캐�
 | `UNRESOLVED` | 사용자가 검토/수정한 `entityName` 기준으로 같은 작품의 `WorkCharacter`를 찾고, 없으면 새로 생성합니다. |
 | `AMBIGUOUS` | 그대로는 confirm을 허용하지 않습니다. 사용자가 기존 캐릭터에 연결하거나 새 캐릭터로 확정해 `MATCHED` 또는 `UNRESOLVED` 상태로 해소한 뒤 confirm합니다. |
 
-데이터 계약 위반으로 보고 거절할 조합:
+confirm 데이터 계약 위반으로 보고 거절할 조합:
 
 | 조합 | 처리 |
 | --- | --- |
 | `MATCHED`인데 `matchedCharacterId`가 없음 | `SETTING_CANDIDATE_MATCH_STATUS_CONFLICT / 409`로 confirm 거절 |
 | `UNRESOLVED`인데 `matchedCharacterId`가 있음 | `SETTING_CANDIDATE_MATCH_STATUS_CONFLICT / 409`로 confirm 거절 |
 | `AMBIGUOUS` 후보를 그대로 confirm하려는 경우 | `SETTING_CANDIDATE_MATCH_STATUS_CONFLICT / 409`로 confirm 거절 |
-| `AMBIGUOUS`인데 `matchedCharacterId`가 있음 | `SETTING_CANDIDATE_MATCH_STATUS_CONFLICT / 409`로 confirm 또는 연결 해소 요청 거절 |
-| `matchedCharacterId`가 다른 작품의 캐릭터를 가리킴 | `SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID / 409`로 confirm 또는 연결 해소 요청 거절 |
-| `matchedCharacterId`가 존재하지 않음 | `SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID / 409`로 confirm 또는 연결 해소 요청 거절 |
-| `matchedCharacterId`가 보관된 캐릭터를 가리킴 | 보관/복구 정책이 생기기 전까지 `SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID / 409`로 거절 |
+| `MATCHED` 후보의 `matchedCharacterId`가 존재하지 않거나, 다른 작품 소속이거나, 보관된 캐릭터를 가리킴 | `SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID / 409`로 confirm 거절 |
 
 사용자 캐릭터 연결 해소 액션:
 
@@ -109,6 +106,15 @@ Python Worker는 후보 생성 시 `rawEntityMention`, `entityName`, 기존 캐�
 | 기존 캐릭터에 연결 | `entityName = 선택한 캐릭터 이름`, `matchedCharacterId = 선택한 캐릭터 ID`, `matchStatus = MATCHED` |
 | 새 캐릭터로 확정 | `entityName = 사용자가 입력한 이름`, `matchedCharacterId = null`, `matchStatus = UNRESOLVED` |
 | 후보 무시 | 기존 `dismiss` API로 `reviewStatus = DISMISSED` 전환 |
+
+캐릭터 연결 해소 API 요청 거절 케이스:
+
+| 조합 | 처리 |
+| --- | --- |
+| 기존 캐릭터에 연결하는데 `matchedCharacterId`가 없음 | `SETTING_CANDIDATE_MATCHED_CHARACTER_REQUIRED / 400` |
+| 새 캐릭터로 확정하는데 `entityName`이 비어 있음 | `SETTING_CANDIDATE_NEW_CHARACTER_NAME_REQUIRED / 400` |
+| 새 캐릭터로 확정하는데 같은 작품에 완전히 동일한 이름의 캐릭터가 이미 있음 | `SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED / 409` |
+| `matchedCharacterId`가 존재하지 않거나, 다른 작품 소속이거나, 보관된 캐릭터를 가리킴 | `SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID / 409` |
 
 새 캐릭터로 확정할 때 같은 작품에 완전히 동일한 이름의 캐릭터가 이미 있으면 거절합니다. 이 경우 사용자는 "기존 캐릭터에 연결" 액션을 사용해야 합니다.
 
@@ -296,7 +302,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 
 Spring API는 `SettingCandidate` 생성 API를 제공하지 않습니다. 후보 생성은 Python AI Worker가 담당하고, Spring은 사용자 검토 단계의 조회/수정/확정/무시를 담당합니다.
 
-NVM-232에서 추가할 캐릭터 연결 해소 API:
+캐릭터 연결 해소 API:
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
@@ -328,7 +334,7 @@ flowchart TD
     C --> D["GET 목록 조회"]
     C --> E["GET 상세 조회"]
     C --> F["PATCH 후보 수정"]
-    C --> M["PATCH 캐릭터 연결 해소<br/>NVM-232 추가 예정"]
+    C --> M["PATCH 캐릭터 연결 해소"]
     C --> G["POST 후보 확정/무시"]
 
     F --> H["PENDING_REVIEW 후보만 수정 가능"]

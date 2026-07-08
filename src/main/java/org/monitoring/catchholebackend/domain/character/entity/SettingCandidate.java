@@ -266,7 +266,7 @@ public class SettingCandidate extends BaseEntity {
             JsonNode valueJson,
             JsonNode evidenceSpans
     ) {
-        validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
+        validateEditable();
 
         this.attributeName = attributeName;
         this.attributeValue = attributeValue;
@@ -276,7 +276,7 @@ public class SettingCandidate extends BaseEntity {
     }
 
     public void matchExistingCharacter(WorkCharacter character) {
-        validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
+        validateEditable();
 
         this.entityName = character.getName();
         this.matchedCharacterId = character.getId();
@@ -284,7 +284,7 @@ public class SettingCandidate extends BaseEntity {
     }
 
     public void markAsNewCharacter(String entityName) {
-        validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
+        validateEditable();
 
         this.entityName = entityName;
         this.matchedCharacterId = null;
@@ -293,6 +293,10 @@ public class SettingCandidate extends BaseEntity {
 
     public boolean isPendingReview() {
         return reviewStatus == SettingCandidateReviewStatus.PENDING_REVIEW;
+    }
+
+    public void validateEditable() {
+        validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
     }
 
     private boolean transitionReviewStatus(SettingCandidateReviewStatus targetStatus) {

@@ -5,13 +5,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateCharacterMatchRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateUpdateRequest;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
+import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.mapper.SettingCandidateMapper;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
+import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
@@ -27,6 +31,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
 
     private final WorkRepository workRepository;
     private final SettingCandidateRepository settingCandidateRepository;
+    private final WorkCharacterRepository workCharacterRepository;
     private final SettingCandidateMapper settingCandidateMapper;
     private final SettingCandidatePromotionService settingCandidatePromotionService;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -67,6 +72,26 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 toJsonNode(request.valueJson()),
                 toJsonNode(request.evidenceSpans())
         );
+        return settingCandidateMapper.toResponse(candidate);
+    }
+
+    @Override
+    @Transactional
+    public SettingCandidateResponse updateSettingCandidateCharacterMatch(
+            Long memberId,
+            UUID workId,
+            UUID candidateId,
+            SettingCandidateCharacterMatchRequest request
+    ) {
+        Work work = workRepository.getOwnedWork(workId, memberId);
+        SettingCandidate candidate = getCandidateInWork(candidateId, work);
+        candidate.validateEditable();
+
+        switch (request.resolutionType()) {
+            case MATCH_EXISTING -> connectExistingCharacter(candidate, work, request.matchedCharacterId());
+            case CREATE_NEW -> markCandidateAsNewCharacter(candidate, work, request.entityName());
+        }
+
         return settingCandidateMapper.toResponse(candidate);
     }
 
@@ -123,12 +148,41 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         return settingCandidateRepository.findAllByWorkIdOrderByCreatedAtDesc(workId);
     }
 
+    private void connectExistingCharacter(SettingCandidate candidate, Work work, UUID matchedCharacterId) {
+        if (matchedCharacterId == null) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_REQUIRED);
+        }
+        WorkCharacter character = workCharacterRepository.findByIdAndWorkId(matchedCharacterId, work.getId())
+                .orElseThrow(() -> new AppException(
+                        CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID
+                ));
+        if (character.getStatus() != CharacterStatus.ACTIVE) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID);
+        }
+        candidate.matchExistingCharacter(character);
+    }
+
+    private void markCandidateAsNewCharacter(SettingCandidate candidate, Work work, String entityName) {
+        String normalizedEntityName = normalizeRequiredCharacterName(entityName);
+        if (workCharacterRepository.findByWorkIdAndName(work.getId(), normalizedEntityName).isPresent()) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
+        }
+        candidate.markAsNewCharacter(normalizedEntityName);
+    }
+
     private SettingCandidate getCandidateInWork(UUID candidateId, Work work) {
         return settingCandidateRepository.findByIdAndWorkId(candidateId, work.getId())
                 .orElseThrow(() -> new AppException(CharacterErrorCode.SETTING_CANDIDATE_NOT_FOUND));
     }
 
     private String normalizeRequiredText(String value) {
+        return value.trim();
+    }
+
+    private String normalizeRequiredCharacterName(String value) {
+        if (!StringUtils.hasText(value)) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_NEW_CHARACTER_NAME_REQUIRED);
+        }
         return value.trim();
     }
 
