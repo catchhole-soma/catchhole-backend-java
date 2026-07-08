@@ -94,12 +94,13 @@ Python Worker는 후보 생성 시 `rawEntityMention`, `entityName`, 기존 캐�
 
 | 조합 | 처리 |
 | --- | --- |
-| `MATCHED`인데 `matchedCharacterId`가 없음 | confirm 거절 |
-| `UNRESOLVED`인데 `matchedCharacterId`가 있음 | confirm 거절 |
-| `AMBIGUOUS`인데 `matchedCharacterId`가 있음 | confirm 거절 |
-| `matchedCharacterId`가 다른 작품의 캐릭터를 가리킴 | confirm 또는 연결 해소 요청 거절 |
-| `matchedCharacterId`가 존재하지 않음 | confirm 또는 연결 해소 요청 거절 |
-| `matchedCharacterId`가 보관된 캐릭터를 가리킴 | 보관/복구 정책이 생기기 전까지 거절 |
+| `MATCHED`인데 `matchedCharacterId`가 없음 | `SETTING_CANDIDATE_MATCH_STATUS_CONFLICT / 409`로 confirm 거절 |
+| `UNRESOLVED`인데 `matchedCharacterId`가 있음 | `SETTING_CANDIDATE_MATCH_STATUS_CONFLICT / 409`로 confirm 거절 |
+| `AMBIGUOUS` 후보를 그대로 confirm하려는 경우 | `SETTING_CANDIDATE_MATCH_STATUS_CONFLICT / 409`로 confirm 거절 |
+| `AMBIGUOUS`인데 `matchedCharacterId`가 있음 | `SETTING_CANDIDATE_MATCH_STATUS_CONFLICT / 409`로 confirm 또는 연결 해소 요청 거절 |
+| `matchedCharacterId`가 다른 작품의 캐릭터를 가리킴 | `SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID / 409`로 confirm 또는 연결 해소 요청 거절 |
+| `matchedCharacterId`가 존재하지 않음 | `SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID / 409`로 confirm 또는 연결 해소 요청 거절 |
+| `matchedCharacterId`가 보관된 캐릭터를 가리킴 | 보관/복구 정책이 생기기 전까지 `SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID / 409`로 거절 |
 
 사용자 캐릭터 연결 해소 액션:
 

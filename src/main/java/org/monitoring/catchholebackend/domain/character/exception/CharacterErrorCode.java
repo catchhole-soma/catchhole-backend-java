@@ -12,6 +12,8 @@ public enum CharacterErrorCode implements ResultCode {
     SETTING_CANDIDATE_NOT_FOUND(HttpStatus.NOT_FOUND, "설정 후보를 찾을 수 없습니다."),
     SETTING_CANDIDATE_NOT_EDITABLE(HttpStatus.CONFLICT, "검토 대기 상태의 설정 후보만 수정할 수 있습니다."),
     SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT(HttpStatus.CONFLICT, "설정 후보 검토 상태 전이가 올바르지 않습니다."),
+    SETTING_CANDIDATE_MATCH_STATUS_CONFLICT(HttpStatus.CONFLICT, "설정 후보 캐릭터 매칭 상태가 올바르지 않습니다."),
+    SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID(HttpStatus.CONFLICT, "설정 후보에 연결된 캐릭터가 유효하지 않습니다."),
     SETTING_CANDIDATE_FACT_TYPE_UNSUPPORTED(HttpStatus.BAD_REQUEST, "지원하지 않는 설정 후보 속성입니다.");
 
     private final HttpStatus status;
