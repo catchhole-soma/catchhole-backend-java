@@ -61,7 +61,6 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
 
         candidate.updateReviewContent(
-                normalizeRequiredText(request.entityName()),
                 normalizeRequiredText(request.attributeName()),
                 normalizeOptionalText(request.attributeValue()),
                 request.valueType(),

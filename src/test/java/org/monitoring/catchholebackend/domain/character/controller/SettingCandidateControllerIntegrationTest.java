@@ -213,7 +213,6 @@ class SettingCandidateControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "entityName": "  아리아  ",
                                   "attributeName": "  level  ",
                                   "attributeValue": "  23  ",
                                   "valueType": "NUMBER",
@@ -547,7 +546,6 @@ class SettingCandidateControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "entityName": "아리아",
                                   "attributeName": "level",
                                   "attributeValue": "23",
                                   "valueType": "NUMBER",

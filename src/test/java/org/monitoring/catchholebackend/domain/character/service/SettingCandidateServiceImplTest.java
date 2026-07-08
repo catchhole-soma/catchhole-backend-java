@@ -179,7 +179,6 @@ class SettingCandidateServiceImplTest {
         SettingCandidate candidate = candidate(work, "아리아", "age", "17");
         SettingCandidateResponse response = response(workId);
         SettingCandidateUpdateRequest request = new SettingCandidateUpdateRequest(
-                "  아리아  ",
                 "  level  ",
                 "  23  ",
                 SettingValueType.NUMBER,
@@ -194,6 +193,8 @@ class SettingCandidateServiceImplTest {
 
         assertThat(result).isSameAs(response);
         assertThat(candidate.getEntityName()).isEqualTo("아리아");
+        assertThat(candidate.getMatchedCharacterId()).isNull();
+        assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.UNRESOLVED);
         assertThat(candidate.getAttributeName()).isEqualTo("level");
         assertThat(candidate.getAttributeValue()).isEqualTo("23");
         assertThat(candidate.getValueJson().get("value").asInt()).isEqualTo(23);
@@ -213,7 +214,6 @@ class SettingCandidateServiceImplTest {
         SettingCandidate candidate = candidate(work, "아리아", "age", "17");
         candidate.confirm();
         SettingCandidateUpdateRequest request = new SettingCandidateUpdateRequest(
-                "아리아",
                 "level",
                 "23",
                 SettingValueType.NUMBER,
