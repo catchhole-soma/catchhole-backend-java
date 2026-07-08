@@ -109,6 +109,10 @@ confirm 데이터 계약 위반으로 보고 거절할 조합:
 | 새 캐릭터로 확정 | `entityName = 사용자가 입력한 이름`, `matchedCharacterId = null`, `matchStatus = UNRESOLVED` |
 | 후보 무시 | 기존 `dismiss` API로 `reviewStatus = DISMISSED` 전환 |
 
+프론트에서는 `AMBIGUOUS` 후보에 "기존 캐릭터에 연결" 액션을 제공하고, 모달에서 기존 캐릭터를 선택하면 `character-match` API를 호출해 캐릭터명을 고정합니다. 이후 `attributeName`, `attributeValue`, `valueType`, `valueJson`, `evidenceSpans` 같은 설정값 보정은 일반 후보 수정 API로 처리합니다.
+
+현재 저장 구조에는 `AMBIGUOUS`가 어떤 기존 캐릭터 후보들과 겹쳐서 발생했는지에 대한 후보 목록이나 판단 사유를 보관하지 않습니다. 따라서 화면에서는 "연결할 캐릭터가 확실하지 않음" 정도로 안내하고, 사용자가 기존 캐릭터 연결 또는 새 캐릭터 확정 중 하나를 직접 선택하게 합니다.
+
 캐릭터 연결 해소 API 요청 거절 케이스:
 
 | 조합 | 처리 |
@@ -335,13 +339,16 @@ flowchart TD
 
     C --> D["GET 목록 조회"]
     C --> E["GET 상세 조회"]
-    C --> F["PATCH 후보 수정"]
-    C --> M["PATCH 캐릭터 연결 해소"]
-    C --> G["POST 후보 확정/무시"]
+    C --> M{"캐릭터 연결이 확실한가?"}
+    M -->|"AMBIGUOUS 또는 사용자가 대상 변경"| N["PATCH 캐릭터 연결 해소<br/>기존 캐릭터 연결 또는 새 캐릭터 확정"]
+    M -->|"이미 대상 확정"| F["PATCH 후보 수정<br/>설정값 보정"]
+    N --> O["matchStatus / matchedCharacterId / entityName 갱신"]
+    O --> F
+    F --> G["POST 후보 확정/무시"]
 
     F --> H["PENDING_REVIEW 후보만 수정 가능"]
-    M --> N["기존 캐릭터 연결<br/>또는 새 캐릭터 확정"]
-    N --> O["matchStatus / matchedCharacterId / entityName 갱신"]
+    H --> P["attributeName / attributeValue / valueType<br/>valueJson / evidenceSpans 보정"]
+    P --> G
     G --> I["reviewStatus 변경"]
     I --> J["처음 확정된 후보만 CharacterFact 저장"]
     J --> K["episodeNo 기준 current 재계산"]
