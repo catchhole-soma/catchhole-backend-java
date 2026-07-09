@@ -19,13 +19,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateCharacterMatchRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateUpdateRequest;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
+import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.mapper.SettingCandidateMapper;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateCharacterMatchResolutionType;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
@@ -49,6 +53,9 @@ class SettingCandidateServiceImplTest {
     private SettingCandidateRepository settingCandidateRepository;
 
     @Mock
+    private WorkCharacterRepository workCharacterRepository;
+
+    @Mock
     private SettingCandidateMapper settingCandidateMapper;
 
     @Mock
@@ -61,6 +68,7 @@ class SettingCandidateServiceImplTest {
         service = new SettingCandidateServiceImpl(
                 workRepository,
                 settingCandidateRepository,
+                workCharacterRepository,
                 settingCandidateMapper,
                 settingCandidatePromotionService
         );
@@ -179,7 +187,6 @@ class SettingCandidateServiceImplTest {
         SettingCandidate candidate = candidate(work, "아리아", "age", "17");
         SettingCandidateResponse response = response(workId);
         SettingCandidateUpdateRequest request = new SettingCandidateUpdateRequest(
-                "  아리아  ",
                 "  level  ",
                 "  23  ",
                 SettingValueType.NUMBER,
@@ -194,6 +201,8 @@ class SettingCandidateServiceImplTest {
 
         assertThat(result).isSameAs(response);
         assertThat(candidate.getEntityName()).isEqualTo("아리아");
+        assertThat(candidate.getMatchedCharacterId()).isNull();
+        assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.UNRESOLVED);
         assertThat(candidate.getAttributeName()).isEqualTo("level");
         assertThat(candidate.getAttributeValue()).isEqualTo("23");
         assertThat(candidate.getValueJson().get("value").asInt()).isEqualTo(23);
@@ -213,7 +222,6 @@ class SettingCandidateServiceImplTest {
         SettingCandidate candidate = candidate(work, "아리아", "age", "17");
         candidate.confirm();
         SettingCandidateUpdateRequest request = new SettingCandidateUpdateRequest(
-                "아리아",
                 "level",
                 "23",
                 SettingValueType.NUMBER,
@@ -228,6 +236,198 @@ class SettingCandidateServiceImplTest {
                         assertThat(exception.getResultCode())
                                 .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE));
 
+        verify(settingCandidateMapper, never()).toResponse(any(SettingCandidate.class));
+    }
+
+    @Test
+    @DisplayName("기존 캐릭터에 연결하면 후보 매칭 상태를 MATCHED로 갱신한다")
+    void updateSettingCandidateCharacterMatchConnectsExistingCharacter() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        UUID characterId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(work, "미상", "age", "17");
+        WorkCharacter character = character(work, characterId, "아리아");
+        SettingCandidateResponse response = response(workId);
+        SettingCandidateCharacterMatchRequest request = new SettingCandidateCharacterMatchRequest(
+                SettingCandidateCharacterMatchResolutionType.MATCH_EXISTING,
+                characterId,
+                null
+        );
+        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(workCharacterRepository.findByIdAndWorkId(characterId, workId)).thenReturn(Optional.of(character));
+        when(settingCandidateMapper.toResponse(candidate)).thenReturn(response);
+
+        SettingCandidateResponse result =
+                service.updateSettingCandidateCharacterMatch(memberId, workId, candidateId, request);
+
+        assertThat(result).isSameAs(response);
+        assertThat(candidate.getEntityName()).isEqualTo("아리아");
+        assertThat(candidate.getMatchedCharacterId()).isEqualTo(characterId);
+        assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+    }
+
+    @Test
+    @DisplayName("새 캐릭터로 확정하면 후보 매칭 상태를 UNRESOLVED로 갱신한다")
+    void updateSettingCandidateCharacterMatchMarksAsNewCharacter() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(work, "미상", "age", "17");
+        SettingCandidateResponse response = response(workId);
+        SettingCandidateCharacterMatchRequest request = new SettingCandidateCharacterMatchRequest(
+                SettingCandidateCharacterMatchResolutionType.CREATE_NEW,
+                null,
+                "  아리아  "
+        );
+        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(workCharacterRepository.findByWorkIdAndName(workId, "아리아")).thenReturn(Optional.empty());
+        when(settingCandidateMapper.toResponse(candidate)).thenReturn(response);
+
+        SettingCandidateResponse result =
+                service.updateSettingCandidateCharacterMatch(memberId, workId, candidateId, request);
+
+        assertThat(result).isSameAs(response);
+        assertThat(candidate.getEntityName()).isEqualTo("아리아");
+        assertThat(candidate.getMatchedCharacterId()).isNull();
+        assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.UNRESOLVED);
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+    }
+
+    @Test
+    @DisplayName("기존 캐릭터 연결 요청에 캐릭터 ID가 없으면 거절한다")
+    void updateSettingCandidateCharacterMatchRejectsMissingMatchedCharacterId() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(work, "미상", "age", "17");
+        SettingCandidateCharacterMatchRequest request = new SettingCandidateCharacterMatchRequest(
+                SettingCandidateCharacterMatchResolutionType.MATCH_EXISTING,
+                null,
+                null
+        );
+        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+
+        assertThatThrownBy(() -> service.updateSettingCandidateCharacterMatch(memberId, workId, candidateId, request))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_REQUIRED));
+
+        verify(workCharacterRepository, never()).findByIdAndWorkId(any(UUID.class), any(UUID.class));
+        verify(settingCandidateMapper, never()).toResponse(any(SettingCandidate.class));
+    }
+
+    @Test
+    @DisplayName("새 캐릭터 확정 요청에 이름이 없으면 거절한다")
+    void updateSettingCandidateCharacterMatchRejectsMissingNewCharacterName() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(work, "미상", "age", "17");
+        SettingCandidateCharacterMatchRequest request = new SettingCandidateCharacterMatchRequest(
+                SettingCandidateCharacterMatchResolutionType.CREATE_NEW,
+                null,
+                "  "
+        );
+        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+
+        assertThatThrownBy(() -> service.updateSettingCandidateCharacterMatch(memberId, workId, candidateId, request))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_NEW_CHARACTER_NAME_REQUIRED));
+
+        verify(workCharacterRepository, never()).findByWorkIdAndName(any(UUID.class), any(String.class));
+        verify(settingCandidateMapper, never()).toResponse(any(SettingCandidate.class));
+    }
+
+    @Test
+    @DisplayName("새 캐릭터 이름이 기존 캐릭터와 같으면 거절한다")
+    void updateSettingCandidateCharacterMatchRejectsDuplicateNewCharacterName() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        UUID characterId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(work, "미상", "age", "17");
+        WorkCharacter character = character(work, characterId, "아리아");
+        SettingCandidateCharacterMatchRequest request = new SettingCandidateCharacterMatchRequest(
+                SettingCandidateCharacterMatchResolutionType.CREATE_NEW,
+                null,
+                "아리아"
+        );
+        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(workCharacterRepository.findByWorkIdAndName(workId, "아리아")).thenReturn(Optional.of(character));
+
+        assertThatThrownBy(() -> service.updateSettingCandidateCharacterMatch(memberId, workId, candidateId, request))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED));
+
+        verify(settingCandidateMapper, never()).toResponse(any(SettingCandidate.class));
+    }
+
+    @Test
+    @DisplayName("보관된 캐릭터 연결은 거절한다")
+    void updateSettingCandidateCharacterMatchRejectsArchivedCharacter() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        UUID characterId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(work, "미상", "age", "17");
+        WorkCharacter character = character(work, characterId, "아리아");
+        character.archive();
+        SettingCandidateCharacterMatchRequest request = new SettingCandidateCharacterMatchRequest(
+                SettingCandidateCharacterMatchResolutionType.MATCH_EXISTING,
+                characterId,
+                null
+        );
+        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(workCharacterRepository.findByIdAndWorkId(characterId, workId)).thenReturn(Optional.of(character));
+
+        assertThatThrownBy(() -> service.updateSettingCandidateCharacterMatch(memberId, workId, candidateId, request))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID));
+
+        verify(settingCandidateMapper, never()).toResponse(any(SettingCandidate.class));
+    }
+
+    @Test
+    @DisplayName("검토 완료 후보의 캐릭터 연결 해소는 캐릭터 조회 전에 거절한다")
+    void updateSettingCandidateCharacterMatchRejectsReviewedCandidateBeforeCharacterLookup() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        UUID characterId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(work, "미상", "age", "17");
+        candidate.confirm();
+        SettingCandidateCharacterMatchRequest request = new SettingCandidateCharacterMatchRequest(
+                SettingCandidateCharacterMatchResolutionType.MATCH_EXISTING,
+                characterId,
+                null
+        );
+        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+
+        assertThatThrownBy(() -> service.updateSettingCandidateCharacterMatch(memberId, workId, candidateId, request))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE));
+
+        verify(workCharacterRepository, never()).findByIdAndWorkId(any(UUID.class), any(UUID.class));
         verify(settingCandidateMapper, never()).toResponse(any(SettingCandidate.class));
     }
 
@@ -395,6 +595,24 @@ class SettingCandidateServiceImplTest {
                 null,
                 null
         );
+    }
+
+    private WorkCharacter character(Work work, UUID id, String name) {
+        WorkCharacter character = WorkCharacter.create(
+                work,
+                name,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+        ReflectionTestUtils.setField(character, "id", id);
+        return character;
     }
 
     private SettingCandidateReviewStatusResponse reviewStatusResponse(

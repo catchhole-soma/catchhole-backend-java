@@ -325,9 +325,8 @@ Notion 기준 `AnalysisJob.status`
 캐릭터 매칭 후속 TODO:
 
 - adjacent chunk fallback으로 `나`, `그`, `그녀` 같은 지칭어 후보를 해소한 뒤 `matchStatus` 품질을 높입니다.
-- confirm API에서 `MATCHED`, `UNRESOLVED`, `AMBIGUOUS`를 각각 어떻게 처리할지 결정합니다.
-- `MATCHED` 후보는 `matchedCharacterId`의 기존 캐릭터를 우선 사용할지 검토합니다.
-- `AMBIGUOUS` 후보는 confirm을 막을지, 사용자 수정 후 confirm을 허용할지 정합니다.
+- `MATCHED`, `UNRESOLVED`, `AMBIGUOUS`별 Spring confirm 처리 정책은 `docs/character.md`의 캐릭터 매칭 상태 기반 confirm 정책을 따릅니다.
+- `AMBIGUOUS` 후보는 사용자가 character-match API로 `MATCHED` 또는 `UNRESOLVED` 상태로 해소한 뒤 confirm합니다.
 
 ## 후속 LLM 전처리와 검수 확장
 

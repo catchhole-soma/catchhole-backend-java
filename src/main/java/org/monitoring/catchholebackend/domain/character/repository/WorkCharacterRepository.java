@@ -8,6 +8,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface WorkCharacterRepository extends JpaRepository<WorkCharacter, UUID> {
 
+    Optional<WorkCharacter> findByIdAndWorkId(UUID id, UUID workId);
+
     Optional<WorkCharacter> findByWorkIdAndName(UUID workId, String name);
 
     List<WorkCharacter> findAllByWorkIdOrderByCreatedAtDesc(UUID workId);

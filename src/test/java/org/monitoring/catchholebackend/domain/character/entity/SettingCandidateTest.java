@@ -6,15 +6,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.global.exception.AppException;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @DisplayName("설정 후보 Entity 단위 테스트")
 class SettingCandidateTest {
@@ -31,9 +34,12 @@ class SettingCandidateTest {
     }
 
     @Test
-    @DisplayName("검토용 설정 후보 내용을 수정한다")
+    @DisplayName("검토용 설정 후보 내용만 수정하고 캐릭터 연결 정보는 유지한다")
     void updateReviewContentChangesEditableFields() {
-        SettingCandidate candidate = candidate("age", "17");
+        Work work = work();
+        SettingCandidate candidate = candidate(work, "age", "17");
+        WorkCharacter character = character(work, "이안");
+        candidate.matchExistingCharacter(character);
         JsonNode valueJson = objectMapper.createObjectNode()
                 .put("value", 23)
                 .put("source", "user_review");
@@ -43,7 +49,6 @@ class SettingCandidateTest {
                         .put("quote", "아리아는 스물셋의 경지에 올랐다."));
 
         candidate.updateReviewContent(
-                "아리아",
                 "level",
                 "23",
                 SettingValueType.NUMBER,
@@ -51,12 +56,45 @@ class SettingCandidateTest {
                 evidenceSpans
         );
 
-        assertThat(candidate.getEntityName()).isEqualTo("아리아");
+        assertThat(candidate.getEntityName()).isEqualTo("이안");
+        assertThat(candidate.getMatchedCharacterId()).isEqualTo(character.getId());
+        assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
         assertThat(candidate.getAttributeName()).isEqualTo("level");
         assertThat(candidate.getAttributeValue()).isEqualTo("23");
         assertThat(candidate.getValueType()).isEqualTo(SettingValueType.NUMBER);
         assertThat(candidate.getValueJson()).isEqualTo(valueJson);
         assertThat(candidate.getEvidenceSpans()).isEqualTo(evidenceSpans);
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+    }
+
+    @Test
+    @DisplayName("기존 캐릭터에 연결하면 대상 이름과 매칭 상태를 갱신한다")
+    void matchExistingCharacterChangesCharacterMatchState() {
+        Work work = work();
+        SettingCandidate candidate = candidate(work, "age", "17");
+        WorkCharacter character = character(work, "이안");
+
+        candidate.matchExistingCharacter(character);
+
+        assertThat(candidate.getEntityName()).isEqualTo("이안");
+        assertThat(candidate.getMatchedCharacterId()).isEqualTo(character.getId());
+        assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+    }
+
+    @Test
+    @DisplayName("새 캐릭터로 확정하면 기존 캐릭터 연결을 제거하고 미해소 상태로 둔다")
+    void markAsNewCharacterClearsMatchedCharacter() {
+        Work work = work();
+        SettingCandidate candidate = candidate(work, "age", "17");
+        WorkCharacter character = character(work, "이안");
+        candidate.matchExistingCharacter(character);
+
+        candidate.markAsNewCharacter("아리아");
+
+        assertThat(candidate.getEntityName()).isEqualTo("아리아");
+        assertThat(candidate.getMatchedCharacterId()).isNull();
+        assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.UNRESOLVED);
         assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
     }
 
@@ -123,7 +161,6 @@ class SettingCandidateTest {
         candidate.confirm();
 
         assertThatThrownBy(() -> candidate.updateReviewContent(
-                "아리아",
                 "level",
                 "23",
                 SettingValueType.NUMBER,
@@ -136,8 +173,12 @@ class SettingCandidateTest {
     }
 
     private SettingCandidate candidate(String attributeName, String attributeValue) {
+        return candidate(work(), attributeName, attributeValue);
+    }
+
+    private SettingCandidate candidate(Work work, String attributeName, String attributeValue) {
         return SettingCandidate.create(
-                work(),
+                work,
                 null,
                 null,
                 null,
@@ -151,6 +192,24 @@ class SettingCandidateTest {
                 new BigDecimal("0.8000"),
                 objectMapper.createObjectNode().put("raw_value", attributeValue)
         );
+    }
+
+    private WorkCharacter character(Work work, String name) {
+        WorkCharacter character = WorkCharacter.create(
+                work,
+                name,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+        ReflectionTestUtils.setField(character, "id", UUID.randomUUID());
+        return character;
     }
 
     private Work work() {

@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.auth.security.MemberPrincipal;
+import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateCharacterMatchRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateUpdateRequest;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
@@ -112,6 +113,41 @@ public class SettingCandidateController {
         return CommonResponse.success(
                 "설정 후보가 수정되었습니다.",
                 settingCandidateService.updateSettingCandidate(member.memberId(), workId, candidateId, request)
+        );
+    }
+
+    @PatchMapping("/{candidateId}/character-match")
+    @Operation(
+            summary = "설정 후보 캐릭터 연결 해소",
+            description = "로그인한 사용자가 본인 작품의 PENDING_REVIEW 설정 후보를 기존 캐릭터에 연결하거나 새 캐릭터로 확정합니다. "
+                    + "검토 상태는 PENDING_REVIEW로 유지합니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "설정 후보 캐릭터 연결 해소 성공"),
+            @ApiResponse(responseCode = "400", description = "요청 값 검증 실패"),
+            @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패"),
+            @ApiResponse(responseCode = "404", description = "작품 또는 설정 후보를 찾을 수 없음"),
+            @ApiResponse(responseCode = "409", description = "검토 대기 상태가 아니거나 캐릭터 연결 요청이 올바르지 않음")
+    })
+    public CommonResponse<SettingCandidateResponse> updateSettingCandidateCharacterMatch(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @Parameter(description = "설정 후보가 속한 작품 ID", example = "0198a3f0-0000-7000-8000-000000000001")
+            @PathVariable UUID workId,
+            @Parameter(
+                    description = "캐릭터 연결을 해소할 설정 후보 ID. setting_candidates.id 값을 사용합니다.",
+                    example = "0198a3f0-0000-7000-8000-000000000301"
+            )
+            @PathVariable UUID candidateId,
+            @Valid @RequestBody SettingCandidateCharacterMatchRequest request
+    ) {
+        return CommonResponse.success(
+                "설정 후보 캐릭터 연결이 수정되었습니다.",
+                settingCandidateService.updateSettingCandidateCharacterMatch(
+                        member.memberId(),
+                        workId,
+                        candidateId,
+                        request
+                )
         );
     }
 

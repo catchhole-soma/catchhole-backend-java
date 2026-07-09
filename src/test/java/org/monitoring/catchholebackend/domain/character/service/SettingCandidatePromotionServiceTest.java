@@ -18,6 +18,7 @@ import org.monitoring.catchholebackend.domain.character.repository.CharacterFact
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
@@ -81,9 +82,9 @@ class SettingCandidatePromotionServiceTest {
         Episode episode10 = episode(10);
 
         promote(candidate(episode3, "level", "3"));
-        promote(candidate(episode10, "level", "10"));
-
         WorkCharacter character = character("아리아");
+        promote(matchedCandidate(episode10, character, "level", "10"));
+
         CharacterFact currentFact = currentFact(character, CharacterFactType.LEVEL, "level");
         assertThat(currentFact.getFactValue()).isEqualTo("10");
         assertThat(currentFact.getEffectiveFromEpisodeNo()).isEqualTo(10);
@@ -97,9 +98,9 @@ class SettingCandidatePromotionServiceTest {
         Episode episode10 = episode(10);
 
         promote(candidate(episode10, "level", "10"));
-        promote(candidate(episode3, "level", "3"));
-
         WorkCharacter character = character("아리아");
+        promote(matchedCandidate(episode3, character, "level", "3"));
+
         CharacterFact currentFact = currentFact(character, CharacterFactType.LEVEL, "level");
         assertThat(currentFact.getFactValue()).isEqualTo("10");
         assertThat(currentFact.getEffectiveFromEpisodeNo()).isEqualTo(10);
@@ -113,9 +114,9 @@ class SettingCandidatePromotionServiceTest {
         Episode episode3 = episode(3);
 
         promote(candidate(episode3, "level", "3"));
-        promote(candidate(episode3, "level", "4"));
-
         WorkCharacter character = character("아리아");
+        promote(matchedCandidate(episode3, character, "level", "4"));
+
         CharacterFact currentFact = currentFact(character, CharacterFactType.LEVEL, "level");
         assertThat(currentFact.getFactValue()).isEqualTo("4");
         assertThat(character.getCurrentLevel()).isEqualTo(4);
@@ -127,9 +128,9 @@ class SettingCandidatePromotionServiceTest {
         Episode episode3 = episode(3);
 
         promote(candidate(episode3, "level", "3"));
-        promote(candidate(null, "level", "99"));
-
         WorkCharacter character = character("아리아");
+        promote(matchedCandidate(null, character, "level", "99"));
+
         CharacterFact currentFact = currentFact(character, CharacterFactType.LEVEL, "level");
         assertThat(currentFact.getFactValue()).isEqualTo("3");
         assertThat(currentFact.getEffectiveFromEpisodeNo()).isEqualTo(3);
@@ -167,6 +168,119 @@ class SettingCandidatePromotionServiceTest {
         assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId())).isEmpty();
     }
 
+    @Test
+    @DisplayName("MATCHED 후보는 entityName이 달라도 matchedCharacterId 캐릭터에 반영한다")
+    void promoteMatchedCandidateUsesMatchedCharacter() {
+        Episode episode3 = episode(3);
+        WorkCharacter matchedCharacter = workCharacterRepository.save(workCharacter("이안"));
+        SettingCandidate candidate = candidate(
+                episode3,
+                "아리아",
+                matchedCharacter.getId(),
+                SettingCandidateMatchStatus.MATCHED,
+                "level",
+                "5"
+        );
+
+        promote(candidate);
+
+        CharacterFact currentFact = currentFact(matchedCharacter, CharacterFactType.LEVEL, "level");
+        assertThat(currentFact.getFactValue()).isEqualTo("5");
+        assertThat(workCharacterRepository.findByWorkIdAndName(work.getId(), "아리아")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("MATCHED 후보에 matchedCharacterId가 없으면 확정 반영을 거절한다")
+    void promoteRejectsMatchedCandidateWithoutMatchedCharacterId() {
+        Episode episode3 = episode(3);
+        SettingCandidate candidate = candidate(
+                episode3,
+                "아리아",
+                null,
+                SettingCandidateMatchStatus.MATCHED,
+                "level",
+                "5"
+        );
+
+        assertThatThrownBy(() -> promote(candidate))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT));
+    }
+
+    @Test
+    @DisplayName("MATCHED 후보가 보관된 캐릭터를 가리키면 확정 반영을 거절한다")
+    void promoteRejectsMatchedCandidateWithArchivedCharacter() {
+        Episode episode3 = episode(3);
+        WorkCharacter matchedCharacter = workCharacterRepository.save(workCharacter("이안"));
+        matchedCharacter.archive();
+        SettingCandidate candidate = candidate(
+                episode3,
+                "이안",
+                matchedCharacter.getId(),
+                SettingCandidateMatchStatus.MATCHED,
+                "level",
+                "5"
+        );
+
+        assertThatThrownBy(() -> promote(candidate))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID));
+    }
+
+    @Test
+    @DisplayName("UNRESOLVED 후보에 matchedCharacterId가 있으면 확정 반영을 거절한다")
+    void promoteRejectsUnresolvedCandidateWithMatchedCharacterId() {
+        Episode episode3 = episode(3);
+        WorkCharacter matchedCharacter = workCharacterRepository.save(workCharacter("이안"));
+        SettingCandidate candidate = candidate(
+                episode3,
+                "아리아",
+                matchedCharacter.getId(),
+                SettingCandidateMatchStatus.UNRESOLVED,
+                "level",
+                "5"
+        );
+
+        assertThatThrownBy(() -> promote(candidate))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT));
+    }
+
+    @Test
+    @DisplayName("UNRESOLVED 후보 이름이 기존 캐릭터와 같으면 확정 반영을 거절한다")
+    void promoteRejectsUnresolvedCandidateWithDuplicatedCharacterName() {
+        Episode episode3 = episode(3);
+        workCharacterRepository.save(workCharacter("아리아"));
+        SettingCandidate candidate = candidate(episode3, "level", "5");
+
+        assertThatThrownBy(() -> promote(candidate))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED));
+    }
+
+    @Test
+    @DisplayName("AMBIGUOUS 후보는 해소 전 확정 반영을 거절한다")
+    void promoteRejectsAmbiguousCandidate() {
+        Episode episode3 = episode(3);
+        SettingCandidate candidate = candidate(
+                episode3,
+                "미상",
+                null,
+                SettingCandidateMatchStatus.AMBIGUOUS,
+                "level",
+                "5"
+        );
+
+        assertThatThrownBy(() -> promote(candidate))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT));
+    }
+
     private void promote(SettingCandidate candidate) {
         candidate.confirm();
         promotionService.promote(candidate);
@@ -174,6 +288,22 @@ class SettingCandidatePromotionServiceTest {
 
     private WorkCharacter character(String name) {
         return workCharacterRepository.findByWorkIdAndName(work.getId(), name).orElseThrow();
+    }
+
+    private WorkCharacter workCharacter(String name) {
+        return WorkCharacter.create(
+                work,
+                name,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
     }
 
     private CharacterFact currentFact(WorkCharacter character, CharacterFactType factType, String factKey) {
@@ -191,6 +321,50 @@ class SettingCandidatePromotionServiceTest {
 
     private SettingCandidate candidate(Episode episode, String attributeName, String attributeValue) {
         return candidate(episode, attributeName, attributeValue, SettingValueType.NUMBER, valueJson(attributeValue));
+    }
+
+    private SettingCandidate matchedCandidate(
+            Episode episode,
+            WorkCharacter character,
+            String attributeName,
+            String attributeValue
+    ) {
+        return candidate(
+                episode,
+                character.getName(),
+                character.getId(),
+                SettingCandidateMatchStatus.MATCHED,
+                attributeName,
+                attributeValue
+        );
+    }
+
+    private SettingCandidate candidate(
+            Episode episode,
+            String entityName,
+            UUID matchedCharacterId,
+            SettingCandidateMatchStatus matchStatus,
+            String attributeName,
+            String attributeValue
+    ) {
+        return settingCandidateRepository.save(SettingCandidate.create(
+                work,
+                episode,
+                UUID.randomUUID(),
+                null,
+                SettingEntityType.CHARACTER,
+                entityName,
+                entityName,
+                matchedCharacterId,
+                matchStatus,
+                attributeName,
+                attributeValue,
+                SettingValueType.NUMBER,
+                valueJson(attributeValue),
+                objectMapper.createArrayNode(),
+                new BigDecimal("0.8000"),
+                objectMapper.createObjectNode().put("raw_value", attributeValue)
+        ));
     }
 
     private SettingCandidate candidate(

@@ -213,7 +213,6 @@ class SettingCandidateControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "entityName": "  아리아  ",
                                   "attributeName": "  level  ",
                                   "attributeValue": "  23  ",
                                   "valueType": "NUMBER",
@@ -244,6 +243,119 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.evidenceSpans[0].paragraph_index").value(2))
                 .andExpect(jsonPath("$.data.reviewStatus").value("PENDING_REVIEW"))
                 .andExpect(jsonPath("$.data.rawAiResultJson.raw_value").value("17"));
+    }
+
+    @Test
+    @DisplayName("설정 후보를 기존 캐릭터에 연결한다")
+    void updateSettingCandidateCharacterMatchConnectsExistingCharacter() throws Exception {
+        WorkCharacter character = workCharacterRepository.save(character(work, "이안"));
+        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "미상",
+                "age",
+                "17"
+        ));
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/setting-candidates/{candidateId}/character-match",
+                                work.getId(),
+                                candidate.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "resolutionType": "MATCH_EXISTING",
+                                  "matchedCharacterId": "%s"
+                                }
+                                """.formatted(character.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("설정 후보 캐릭터 연결이 수정되었습니다."))
+                .andExpect(jsonPath("$.data.id").value(candidate.getId().toString()))
+                .andExpect(jsonPath("$.data.entityName").value("이안"))
+                .andExpect(jsonPath("$.data.matchedCharacterId").value(character.getId().toString()))
+                .andExpect(jsonPath("$.data.matchStatus").value("MATCHED"))
+                .andExpect(jsonPath("$.data.reviewStatus").value("PENDING_REVIEW"));
+
+        SettingCandidate saved = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(saved.getEntityName()).isEqualTo("이안");
+        assertThat(saved.getMatchedCharacterId()).isEqualTo(character.getId());
+        assertThat(saved.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(saved.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+    }
+
+    @Test
+    @DisplayName("설정 후보를 새 캐릭터로 확정한다")
+    void updateSettingCandidateCharacterMatchMarksAsNewCharacter() throws Exception {
+        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "미상",
+                "age",
+                "17"
+        ));
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/setting-candidates/{candidateId}/character-match",
+                                work.getId(),
+                                candidate.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "resolutionType": "CREATE_NEW",
+                                  "entityName": "  아리아  "
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.id").value(candidate.getId().toString()))
+                .andExpect(jsonPath("$.data.entityName").value("아리아"))
+                .andExpect(jsonPath("$.data.matchedCharacterId").doesNotExist())
+                .andExpect(jsonPath("$.data.matchStatus").value("UNRESOLVED"))
+                .andExpect(jsonPath("$.data.reviewStatus").value("PENDING_REVIEW"));
+
+        SettingCandidate saved = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(saved.getEntityName()).isEqualTo("아리아");
+        assertThat(saved.getMatchedCharacterId()).isNull();
+        assertThat(saved.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.UNRESOLVED);
+        assertThat(saved.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+    }
+
+    @Test
+    @DisplayName("새 캐릭터 이름이 기존 캐릭터와 같으면 캐릭터 연결 해소를 거절한다")
+    void updateSettingCandidateCharacterMatchRejectsDuplicateNewCharacterName() throws Exception {
+        workCharacterRepository.save(character(work, "아리아"));
+        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "미상",
+                "age",
+                "17"
+        ));
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/setting-candidates/{candidateId}/character-match",
+                                work.getId(),
+                                candidate.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "resolutionType": "CREATE_NEW",
+                                  "entityName": "아리아"
+                                }
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED"));
     }
 
     @Test
@@ -541,13 +653,28 @@ class SettingCandidateControllerIntegrationTest {
         );
     }
 
+    private WorkCharacter character(Work targetWork, String name) {
+        return WorkCharacter.create(
+                targetWork,
+                name,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+    }
+
     private void assertEditRejected(SettingCandidate candidate) throws Exception {
         mockMvc.perform(patch("/api/v1/works/{workId}/setting-candidates/{candidateId}", work.getId(), candidate.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "entityName": "아리아",
                                   "attributeName": "level",
                                   "attributeValue": "23",
                                   "valueType": "NUMBER",
