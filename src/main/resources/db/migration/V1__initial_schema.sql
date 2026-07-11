@@ -91,7 +91,9 @@ CREATE TABLE episodes (
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
     CONSTRAINT fk_episodes_work
-        FOREIGN KEY (work_id) REFERENCES works (id)
+        FOREIGN KEY (work_id) REFERENCES works (id),
+    CONSTRAINT fk_episodes_source_file
+        FOREIGN KEY (source_file_id) REFERENCES upload_files (id)
 );
 
 CREATE TABLE analysis_jobs (

@@ -71,7 +71,7 @@ works/{workId}/episodes/{episodeNo}.txt
 | --- | --- |
 | `id` | 회차 UUID |
 | `work_id` | 회차가 속한 작품 |
-| `source_file_id` | 회차를 만든 업로드 파일 ID |
+| `source_file_id` | 회차를 만든 `upload_files.id` FK. 직접 생성 등 출처 파일이 없는 경우 nullable |
 | `episode_no` | 작품 내 회차 번호 |
 | `title` | 회차 제목 |
 | `content_s3_key` | 회차 원문 S3 key |

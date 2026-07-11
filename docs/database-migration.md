@@ -44,6 +44,19 @@ V1은 현재 Java Entity 전체와 Python Worker가 관리하는 `episode_chunks
 
 `embedding_model`, `embedding_version`, `embedded_at`은 모델 또는 생성 로직 변경 시 재생성 대상을 판별하기 위한 메타데이터입니다.
 
+## 논리 참조와 FK 기준
+
+ID 컬럼이 다른 테이블을 논리적으로 가리키더라도 삭제·재처리 정책이 정해지지 않았다면 FK를 먼저 강제하지 않습니다. V1의 선택은 다음과 같습니다.
+
+| 컬럼 | 참조 대상 | V1 정책 | 이유 및 후속 논의 |
+| --- | --- | --- | --- |
+| `episodes.source_file_id` | `upload_files.id` | nullable FK, 기본 `NO ACTION` | 업로드 파일을 먼저 저장한 뒤 회차를 생성하고 현재 업로드 파일 삭제 API가 없으므로 원본 추적 무결성을 강제합니다. 삭제 기능을 추가하면 연결된 회차 처리 정책을 함께 정합니다. |
+| `characters.first_appearance_episode_id` | `episodes.id` | FK 보류 | 회차 hard delete 시 최초 등장 회차를 재계산할지 `NULL`로 둘지 먼저 결정해야 합니다. |
+| `setting_candidates.source_chunk_id` | `episode_chunks.id` | FK 보류 | 재청킹이 기존 청크를 삭제하고 새 UUID로 교체하므로 일반 FK는 재청킹을 막고, cascade 또는 set null은 근거를 손실할 수 있습니다. |
+| `character_facts.source_chunk_id` | `episode_chunks.id` | FK 보류 | 확정 설정의 원문 근거이므로 청크 ID 안정화 또는 청크 이력 보존 정책을 정한 뒤 FK를 검토합니다. |
+
+FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 저장하는 논리 연결입니다. 후속 정책이 정해지면 새 migration에서 제약조건과 삭제 동작을 추가합니다.
+
 ## 로컬 검증
 
 빈 PostgreSQL에서 Backend를 시작한 뒤 다음 내용을 확인합니다.
