@@ -54,7 +54,7 @@ services:
       SPRING_INTERNAL_API_KEY: ${INTERNAL_API_KEY}
 
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:0.8.2-pg16
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}

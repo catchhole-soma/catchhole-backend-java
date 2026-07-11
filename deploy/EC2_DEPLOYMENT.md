@@ -2,6 +2,8 @@
 
 EC2 단일 서버에서 Caddy, Spring Backend, Python AI Worker, PostgreSQL을 Docker Compose로 실행한다.
 
+PostgreSQL은 로컬과 운영 모두 `pgvector/pgvector:0.8.2-pg16` 이미지를 사용한다. 이 이미지는 pgvector extension 파일을 제공하며, 실제 `CREATE EXTENSION vector`와 vector 컬럼 생성은 Flyway migration에서 관리한다.
+
 ## EC2 배치 경로
 
 운영 서버에서는 아래 파일들을 `/opt/catchhole`에 둔다.

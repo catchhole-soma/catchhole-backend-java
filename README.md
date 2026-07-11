@@ -10,7 +10,7 @@
 | JDK | JDK 21 |
 | Spring Boot | 4.0.6 |
 | Build Tool | Gradle |
-| Database | PostgreSQL |
+| Database | PostgreSQL 16 + pgvector 0.8.2 |
 | Package | `org.monitoring` |
 
 ## 주요 종속성
