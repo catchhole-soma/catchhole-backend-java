@@ -21,6 +21,7 @@
 | Spring Security | 인증/인가 기반 |
 | Spring Data JPA | DB 연동 |
 | PostgreSQL Driver | PostgreSQL 연결 |
+| Flyway | PostgreSQL schema migration 관리 |
 | Validation | 요청값 검증 |
 | Actuator | 헬스 체크 및 모니터링 |
 | Lombok | 반복 코드 감소 |
@@ -50,3 +51,5 @@
 ## 참고
 
 Spring Security가 포함되어 있어 초기 실행 시 기본 로그인 화면이나 `401 Unauthorized` 응답이 나올 수 있습니다. 이후 개발용 보안 설정을 추가할 예정입니다.
+
+DB schema 작성 규칙과 최초 운영 전환 절차는 [Database Migration](docs/database-migration.md)을 참고합니다.

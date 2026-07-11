@@ -155,6 +155,9 @@ CREATE TABLE episode_chunks (
     paragraph_end_index INTEGER NOT NULL,
     metadata_json JSONB,
     embedding VECTOR(1536),
+    embedding_model VARCHAR(100),
+    embedding_version VARCHAR(50),
+    embedded_at TIMESTAMP,
     created_at TIMESTAMP,
     updated_at TIMESTAMP,
     CONSTRAINT uk_episode_chunks_episode_index
