@@ -160,8 +160,8 @@ CREATE TABLE episode_chunks (
     embedding_model VARCHAR(100),
     embedding_version VARCHAR(50),
     embedded_at TIMESTAMP,
-    created_at TIMESTAMP,
-    updated_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
     CONSTRAINT uk_episode_chunks_episode_index
         UNIQUE (episode_id, chunk_index),
     CONSTRAINT fk_episode_chunks_episode

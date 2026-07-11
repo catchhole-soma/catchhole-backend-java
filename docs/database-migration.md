@@ -43,6 +43,7 @@ V1은 현재 Java Entity 전체와 Python Worker가 관리하는 `episode_chunks
 | 미생성 상태 | `embedding`과 관련 메타데이터가 모두 `NULL` |
 
 `embedding_model`, `embedding_version`, `embedded_at`은 모델 또는 생성 로직 변경 시 재생성 대상을 판별하기 위한 메타데이터입니다.
+청크의 `created_at`, `updated_at`은 Python Worker가 항상 기록하며 nullable로 두지 않습니다.
 
 ## 논리 참조와 FK 기준
 
