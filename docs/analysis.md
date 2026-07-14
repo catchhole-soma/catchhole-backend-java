@@ -41,7 +41,7 @@ upload_batches.id
 
 Kafka/SQS 없이 내부 API polling 방식을 사용합니다.
 
-Python AI Worker는 주기적으로 내부 claim API를 호출해 `PENDING` 작업을 가져갑니다. 백엔드는 claim된 작업을 `RUNNING`으로 변경하고, Worker가 S3에서 원문을 읽을 수 있도록 회차 원문 메타데이터와 캐릭터 매칭에 사용할 `knownCharacters`를 내려줍니다.
+Python AI Worker는 주기적으로 내부 claim API를 호출해 `PENDING` 작업을 가져갑니다. 백엔드는 claim된 작업을 `RUNNING`으로 변경하고, Worker가 S3에서 원문을 읽을 수 있도록 회차 원문 메타데이터, 캐릭터 매칭에 사용할 `knownCharacters`, `attributeName` 해석에 사용할 `characterSettingSchemas`를 내려줍니다.
 
 Worker는 분석 작업 생성과 `AnalysisJob` 상태 전이를 위해 백엔드 DB에 직접 접근하지 않습니다. 다만 현재 설정 후보 생성은 Python Worker가 `setting_candidates`에 직접 저장합니다. Spring은 후보 조회/수정/확정/무시 API와 `AnalysisJob` 상태 전이 API를 담당합니다.
 
@@ -217,6 +217,22 @@ claim할 작업이 있으면 가장 오래된 `PENDING` 작업 하나를 `RUNNIN
     "batchId": "01970c2e-7e6d-7000-8e5d-2a9bc4b6d111",
     "modelName": "gpt-4.1-mini",
     "currentStep": "원문 청킹",
+    "characterSettingSchemas": [
+      {
+        "schemaKey": "stats.physique",
+        "displayName": "육체",
+        "attributePattern": null,
+        "aliases": ["육체", "physical", "physique"],
+        "valueType": "NUMBER"
+      },
+      {
+        "schemaKey": "statuses.condition",
+        "displayName": "상태",
+        "attributePattern": "status.*",
+        "aliases": [],
+        "valueType": "JSON"
+      }
+    ],
     "knownCharacters": [
       {
         "characterId": "01970c2e-7e6d-7000-8e5d-2a9bc4b6d666",
@@ -241,6 +257,7 @@ claim할 작업이 있으면 가장 오래된 `PENDING` 작업 하나를 `RUNNIN
 ```
 
 원문 본문은 응답에 포함하지 않습니다. Worker는 `contentS3Key`, `contentS3Version`을 사용해 S3에서 원문을 직접 읽습니다.
+`characterSettingSchemas`는 job type과 관계없이 활성 전역 schema와 현재 작품의 활성 추가 schema를 `schemaKey` 오름차순으로 내려줍니다. registry row가 없으면 빈 배열입니다. Worker에는 canonical key 해석에 필요한 5개 필드만 공개하며 source와 merge 정책은 포함하지 않습니다.
 `knownCharacters`는 Python Worker가 `setting_candidates`의 `matched_character_id`, `match_status`를 계산할 때 사용하는 기존 캐릭터 목록입니다. 현재는 `characters.id`, `characters.name`을 내려줍니다.
 
 ### 진행 단계 갱신
@@ -369,7 +386,7 @@ Client
 1. `upload_batches.id`로 업로드 배치를 찾습니다.
 2. `upload_files.batch_id`로 batch에 속한 업로드 파일들을 찾습니다.
 3. `episodes.source_file_id`로 각 업로드 파일에서 생성된 회차들을 찾습니다.
-4. Worker claim API가 회차 목록을 payload로 내려줍니다.
+4. Worker claim API가 회차 목록, `knownCharacters`, 활성 `characterSettingSchemas`를 payload로 내려줍니다.
 5. Worker가 회차 목록을 순회하며 S3 원문을 읽고 분석합니다.
 6. Worker가 내부 API로 분석 작업 상태를 `RUNNING`, `SUCCEEDED`, `FAILED`로 변경합니다.
 7. 필요하면 `currentStep`, `modelName`, token count, `summaryJson`, 마지막 실패 사유인 `errorMessage`를 기록합니다.

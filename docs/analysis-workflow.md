@@ -28,7 +28,7 @@ flowchart TD
 flowchart TD
     A["분석 작업 생성<br/>AnalysisJob PENDING"] --> B["Python Worker claim"]
     B --> C["AnalysisJob RUNNING"]
-    C --> D["Worker payload 수신<br/>episodes + knownCharacters"]
+    C --> D["Worker payload 수신<br/>episodes + knownCharacters<br/>+ characterSettingSchemas"]
     D --> E["S3 원문 조회"]
     E --> F["Python에서 원문 정규화/청킹"]
     F --> G["episode_chunks 저장"]
@@ -40,13 +40,13 @@ flowchart TD
     L --> M["AnalysisJob SUCCEEDED"]
 ```
 
-현재 구현에서 Spring은 `setting_candidates` 생성 API를 제공하지 않습니다. 후보 생성은 Worker의 DB 직접 저장 흐름이며, Spring은 생성된 후보의 조회/수정/확정/무시와 `AnalysisJob` 상태 전이를 담당합니다.
+현재 구현에서 Spring은 `setting_candidates` 생성 API를 제공하지 않습니다. 후보 생성은 Worker의 DB 직접 저장 흐름이며, Spring은 생성된 후보의 조회/수정/확정/무시와 `AnalysisJob` 상태 전이를 담당합니다. Claim은 `characterSettingSchemas`를 전달하지만 exact → alias → pattern 매칭과 값 검증은 NVM-234의 Python Worker 후속 범위입니다.
 
 ## Notion 기준 전체 분석 흐름
 
 아래 흐름은 Notion의 “흐름 정리 - 임준우”에 있는 전체 작업 흐름을 백엔드 기준 용어로 옮긴 것입니다.
 
-현재 구현과 다르게 `ManuscriptChunk`, `PreprocessedManuscriptChunk`, `SettingSnapshot`, `ValidationReport` 같은 후속 모델까지 포함한 목표 흐름입니다. 현재 캐릭터 설정 후보 MVP에서는 `episode_chunks`, `setting_candidates`, `CharacterFact`, `WorkCharacter` 중심으로 먼저 구현합니다.
+현재 구현과 다르게 `ManuscriptChunk`, `PreprocessedManuscriptChunk`, `SettingSnapshot`, `ValidationReport` 같은 후속 모델까지 포함한 목표 흐름입니다. 현재 캐릭터 설정 후보 MVP에서는 `episode_chunks`, `setting_candidates`, `CharacterSettingSchema`, `CharacterFact`, `WorkCharacter` 중심으로 먼저 구현합니다.
 
 ```mermaid
 flowchart TD
@@ -93,7 +93,7 @@ flowchart TD
 8. 기존 설정 구축용 업로드라면 `SETTING_EXTRACTION` 작업을 생성합니다.
 9. 신규 회차 검수용 업로드라면 `EPISODE_VALIDATION` 작업을 생성합니다.
 10. Spring Boot 서버는 작업 상태를 `PENDING`으로 둡니다.
-11. Worker는 내부 claim API를 polling해 작업 ID, 회차 메타데이터, 기존 캐릭터 목록을 가져옵니다.
+11. Worker는 내부 claim API를 polling해 작업 ID, 회차 메타데이터, 기존 캐릭터 목록, 활성 캐릭터 설정 schema를 가져옵니다.
 12. 현재 Worker는 S3 원문을 읽어 직접 정규화/청킹하고 `episode_chunks`를 저장합니다.
 13. Worker는 청크별 LLM 설정 후보를 추출하고, quote offset 보정과 캐릭터 매칭 상태 계산 후 `setting_candidates`를 저장합니다.
 14. `PreprocessedManuscriptChunk`, `SettingSnapshot`, `ValidationReport` 기반 흐름은 후속 검수 모델 구현 때 확장합니다.
@@ -222,6 +222,7 @@ sequenceDiagram
     participant JobRepo as AnalysisJobRepository
     participant UploadRepo as UploadFileRepository
     participant EpisodeRepo as EpisodeRepository
+    participant SchemaRepo as CharacterSettingSchemaRepository
     participant CharacterRepo as WorkCharacterRepository
 
     Worker->>Controller: POST /api/internal/v1/analysis-jobs/claim
@@ -237,17 +238,20 @@ sequenceDiagram
         Service->>Service: status = RUNNING
         Service->>UploadRepo: findAllByBatchIdAndFileRole(batchId, EPISODE)
         Service->>EpisodeRepo: findAllBySourceFileIdInOrderByEpisodeNoAsc(sourceFileIds)
-        Service->>CharacterRepo: findAllByWorkIdOrderByCreatedAtDesc(workId)
         alt 대상 회차 없음
             Service->>Service: status = FAILED
             Service-->>Controller: empty
             Controller-->>Worker: 204 No Content
         else 대상 회차 있음
+            Service->>SchemaRepo: findAllActiveForWork(workId)
+            Service->>CharacterRepo: findAllByWorkIdOrderByCreatedAtDesc(workId)
             Service-->>Controller: WorkerAnalysisJobPayload
             Controller-->>Worker: 200 OK
         end
     end
 ```
+
+Claim payload의 `characterSettingSchemas`는 `enabled = true`인 전역 schema와 현재 작품의 추가 schema를 `schemaKey` 오름차순으로 조회한 결과입니다. Registry row가 없으면 빈 배열이며, Worker에는 `schemaKey`, `displayName`, `attributePattern`, `aliases`, `valueType`만 노출합니다.
 
 ## 상태 전이
 
@@ -311,7 +315,7 @@ Notion 기준 `AnalysisJob.status`
 
 현재 구현은 별도 `PreprocessedManuscriptChunk` 없이 Python Worker가 청크 원문을 LLM에 직접 넣어 `setting_candidates`를 저장합니다.
 
-1. Spring claim payload는 `analysisJobId`, `workId`, `batchId`, episode S3 메타데이터, `knownCharacters`를 내려줍니다.
+1. Spring claim payload는 `analysisJobId`, `workId`, `batchId`, episode S3 메타데이터, `knownCharacters`, `characterSettingSchemas`를 내려줍니다.
 2. Python Worker는 `contentS3Key`, `contentS3Version`으로 S3 원문을 읽습니다.
 3. Worker는 원문을 정규화/청킹하고 `episode_chunks`를 저장합니다.
 4. Worker는 chunk별 LLM 설정 후보를 추출합니다.

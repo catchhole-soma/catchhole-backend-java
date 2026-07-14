@@ -17,6 +17,7 @@ erDiagram
     works ||--o{ analysis_jobs : runs
     works ||--o{ characters : has
     works ||--o{ setting_candidates : extracts
+    works o|--o{ character_setting_schemas : optionally_scopes
     characters ||--o{ character_facts : records
     upload_batches ||--o{ upload_files : contains
     upload_files ||--o{ episodes : source
@@ -173,6 +174,23 @@ erDiagram
         datetime updated_at
     }
 
+    character_setting_schemas {
+        uuid id PK
+        uuid work_id FK
+        varchar schema_key
+        varchar attribute_pattern
+        varchar display_name
+        varchar fact_type
+        varchar value_type
+        varchar value_semantics
+        varchar merge_policy
+        jsonb aliases_json
+        varchar source
+        boolean enabled
+        datetime created_at
+        datetime updated_at
+    }
+
     upload_batches {
         uuid id PK
         uuid work_id FK
@@ -218,6 +236,7 @@ erDiagram
 | `characters` | 작품별 캐릭터 대표/현재 설정. 핵심 조회 값은 일반 컬럼, 작품마다 달라지는 상세 설정은 JSONB로 저장합니다. |
 | `character_facts` | 캐릭터별 설정 값과 회차별 변경 이력. 현재 유효값과 충돌 검수 기준을 추적합니다. |
 | `setting_candidates` | AI가 추출한 검토 전 설정 후보. 설정 값, 근거 span, AI 원본 응답을 JSONB로 보존합니다. |
+| `character_setting_schemas` | AI의 `attributeName`을 canonical key로 해석하기 위한 전역/작품별 alias·pattern·값 타입·정책 registry입니다. 실제 캐릭터 값은 저장하지 않습니다. |
 
 ## Notion 기반 후속 AI 분석 ERD
 
@@ -384,6 +403,8 @@ erDiagram
 - `episodes.source_file_id`는 해당 회차가 어떤 업로드 파일에서 파생되었는지 추적하는 nullable FK입니다. 현재 업로드 파일 삭제 API가 없으므로 기본 `NO ACTION`으로 원본 추적 관계를 보호합니다.
 - `upload_batches`는 이후 분석 작업의 대상 단위로 재사용할 수 있도록 `work_id`, `upload_type`, `file_count`, `status`를 유지합니다.
 - 캐릭터 설정은 `setting_candidates`, `character_facts`, `characters`로 나누어 저장합니다. AI 추출 후보는 `setting_candidates`, 회차별 확정/검토 이력은 `character_facts`, 화면 표시용 현재 스냅샷은 `characters`가 담당합니다.
+- `character_setting_schemas.work_id`가 `NULL`이면 전역 schema이고 값이 있으면 해당 작품의 추가 schema입니다. 전역과 작품 범위에서 각각 `schema_key` 중복을 막으며, 작품 schema override와 중복 병합은 현재 지원하지 않습니다.
+- 초기 registry는 공통 `SYSTEM_SEED` 7개와 판타지 POC `DEV_SEED` 15개를 모두 활성 전역 schema로 둡니다. source는 선정 근거를 구분할 뿐 Worker 적용 여부를 나누지 않습니다.
 - 화면 표시와 구조화 조회에 자주 쓰는 값은 일반 컬럼으로 두고, 스탯/스킬/아이템/상태 상세값과 AI 원본 응답은 JSONB로 보존합니다.
 - 분석 흐름에서는 구조화 조회(`character_facts`, `setting_candidates`)와 벡터 검색(`episode_chunks.embedding`)을 함께 사용합니다. 구조화 조회는 수치/상태 비교 기준이고, 벡터 검색은 원문 맥락과 근거 문장을 찾는 보조 수단입니다.
 

@@ -9,7 +9,7 @@
 | 문서 | 내용 |
 | --- | --- |
 | [ERD](erd.md) | 현재 Flyway schema와 JPA Entity 기준 테이블, 관계, 주요 제약 |
-| [Database Migration](database-migration.md) | Flyway schema 관리 규칙, V1 검증 및 최초 운영 전환 절차 |
+| [Database Migration](database-migration.md) | Flyway schema 관리 규칙, V1·V2 검증 및 최초 운영 전환 절차 |
 | [Global](global.md) | 공통 응답, 예외 처리, 보안, 설정, 스토리지 기반 구조 |
 | [Auth](auth.md) | 회원가입, 로그인, JWT/refresh token, 세션 API 흐름 |
 | [Work](work.md) | 작품 모델, 소유권 정책, 작품 CRUD API 흐름 |
@@ -18,7 +18,7 @@
 | [Upload Episode Workflow](upload-episode-workflow.md) | 회차 업로드 시 batch/file/episode 생성 Mermaid workflow |
 | [Analysis](analysis.md) | 분석 작업 상태 모델, 생성 API, batch 기반 처리 흐름 |
 | [Analysis Workflow](analysis-workflow.md) | 분석 API별 Mermaid workflow와 상태 전이 |
-| [Character](character.md) | 캐릭터 설정 저장 모델, JSONB 기준, AI 설정 후보 저장 구조 |
+| [Character](character.md) | 캐릭터 설정 저장 모델, Schema Registry, JSONB 기준, AI 설정 후보 저장 구조 |
 
 ## 작성 기준
 
