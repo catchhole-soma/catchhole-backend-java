@@ -2,20 +2,31 @@ package org.monitoring.catchholebackend.domain.analysis.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
+import org.monitoring.catchholebackend.domain.character.type.CharacterSettingMergePolicy;
+import org.monitoring.catchholebackend.domain.character.type.CharacterSettingSchemaSource;
+import org.monitoring.catchholebackend.domain.character.type.CharacterSettingValueSemantics;
+import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
@@ -41,10 +52,13 @@ import org.springframework.test.web.servlet.MockMvc;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+@DisplayName("분석 작업 Worker 내부 API 통합 테스트")
 class AnalysisJobWorkerControllerIntegrationTest {
 
     private static final String INTERNAL_API_KEY = "local-development-internal-api-key";
     private static final String CLAIM_URL = "/api/internal/v1/analysis-jobs/claim";
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Autowired
     private MockMvc mockMvc;
@@ -71,6 +85,9 @@ class AnalysisJobWorkerControllerIntegrationTest {
     private WorkCharacterRepository workCharacterRepository;
 
     @Autowired
+    private CharacterSettingSchemaRepository characterSettingSchemaRepository;
+
+    @Autowired
     private JwtTokenProvider jwtTokenProvider;
 
     private Member member;
@@ -85,6 +102,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
         uploadFileRepository.deleteAll();
         uploadBatchRepository.deleteAll();
         workCharacterRepository.deleteAll();
+        characterSettingSchemaRepository.deleteAll();
         workRepository.deleteAll();
         memberRepository.deleteAll();
 
@@ -107,6 +125,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("내부 API key가 없으면 claim 요청을 거절한다")
     void claimRequiresInternalApiKey() throws Exception {
         mockMvc.perform(post(CLAIM_URL))
                 .andExpect(status().isUnauthorized())
@@ -115,6 +134,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("내부 API key가 일치하지 않으면 claim 요청을 거절한다")
     void claimRejectsInvalidInternalApiKey() throws Exception {
         mockMvc.perform(post(CLAIM_URL)
                         .header(SecurityConstant.INTERNAL_API_KEY_HEADER, "wrong-key"))
@@ -124,6 +144,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("회원 JWT만 있는 claim 요청을 거절한다")
     void claimRejectsMemberJwtWithoutInternalApiKey() throws Exception {
         String accessToken = jwtTokenProvider.generateAccessToken(member);
 
@@ -135,6 +156,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("대기 중인 분석 작업이 없으면 204를 응답한다")
     void claimReturnsNoContentWhenNoPendingJob() throws Exception {
         mockMvc.perform(post(CLAIM_URL)
                         .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY))
@@ -142,6 +164,23 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("활성 registry schema가 없으면 빈 characterSettingSchemas를 응답한다")
+    void claimReturnsEmptyCharacterSettingSchemasWhenRegistryHasNoRows() throws Exception {
+        analysisJobRepository.save(
+                AnalysisJob.create(work, uploadBatch, null, AnalysisJobType.EPISODE_VALIDATION)
+        );
+
+        mockMvc.perform(post(CLAIM_URL)
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.jobType").value("EPISODE_VALIDATION"))
+                .andExpect(jsonPath("$.data.characterSettingSchemas", hasSize(0)))
+                .andExpect(jsonPath("$.data.knownCharacters", hasSize(0)))
+                .andExpect(jsonPath("$.data.episodes", hasSize(2)));
+    }
+
+    @Test
+    @DisplayName("가장 오래된 대기 작업을 claim하고 회차·캐릭터·설정 schema를 응답한다")
     void claimOldestPendingJobAndReturnsEpisodeMetadata() throws Exception {
         AnalysisJob firstJob = analysisJobRepository.save(
                 AnalysisJob.create(work, uploadBatch, null, AnalysisJobType.SETTING_EXTRACTION)
@@ -163,6 +202,51 @@ class AnalysisJobWorkerControllerIntegrationTest {
                 null,
                 null
         ));
+        Work otherWork = workRepository.save(Work.create(member, "다른 작품", "현대물", "다른 schema 범위"));
+        characterSettingSchemaRepository.save(settingSchema(
+                null,
+                "statuses.condition",
+                "status.*",
+                "상태",
+                CharacterFactType.STATUS,
+                SettingValueType.JSON,
+                aliases(),
+                CharacterSettingSchemaSource.SYSTEM_SEED,
+                true
+        ));
+        characterSettingSchemaRepository.save(settingSchema(
+                work,
+                "stats.physique",
+                null,
+                "육체",
+                CharacterFactType.STAT,
+                SettingValueType.NUMBER,
+                aliases("육체", "physical", "physique"),
+                CharacterSettingSchemaSource.DEV_SEED,
+                true
+        ));
+        characterSettingSchemaRepository.save(settingSchema(
+                work,
+                "stats.disabled",
+                null,
+                "비활성",
+                CharacterFactType.STAT,
+                SettingValueType.NUMBER,
+                aliases("비활성"),
+                CharacterSettingSchemaSource.DEV_SEED,
+                false
+        ));
+        characterSettingSchemaRepository.save(settingSchema(
+                otherWork,
+                "stats.other_work",
+                null,
+                "다른 작품",
+                CharacterFactType.STAT,
+                SettingValueType.NUMBER,
+                aliases("다른 작품"),
+                CharacterSettingSchemaSource.DEV_SEED,
+                true
+        ));
 
         mockMvc.perform(post(CLAIM_URL)
                         .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
@@ -182,6 +266,22 @@ class AnalysisJobWorkerControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.batchId").value(uploadBatch.getId().toString()))
                 .andExpect(jsonPath("$.data.modelName").value("gpt-4.1-mini"))
                 .andExpect(jsonPath("$.data.currentStep").value("원문 청킹"))
+                .andExpect(jsonPath("$.data.characterSettingSchemas", hasSize(2)))
+                .andExpect(jsonPath("$.data.characterSettingSchemas[0].schemaKey").value("stats.physique"))
+                .andExpect(jsonPath("$.data.characterSettingSchemas[0].displayName").value("육체"))
+                .andExpect(jsonPath("$.data.characterSettingSchemas[0].attributePattern").value(nullValue()))
+                .andExpect(jsonPath("$.data.characterSettingSchemas[0].aliases", hasSize(3)))
+                .andExpect(jsonPath("$.data.characterSettingSchemas[0].aliases[0]").value("육체"))
+                .andExpect(jsonPath("$.data.characterSettingSchemas[0].valueType").value("NUMBER"))
+                .andExpect(jsonPath("$.data.characterSettingSchemas[0].source").doesNotExist())
+                .andExpect(jsonPath("$.data.characterSettingSchemas[0].id").doesNotExist())
+                .andExpect(jsonPath("$.data.characterSettingSchemas[0].workId").doesNotExist())
+                .andExpect(jsonPath("$.data.characterSettingSchemas[0].enabled").doesNotExist())
+                .andExpect(jsonPath("$.data.characterSettingSchemas[0].mergePolicy").doesNotExist())
+                .andExpect(jsonPath("$.data.characterSettingSchemas[1].schemaKey").value("statuses.condition"))
+                .andExpect(jsonPath("$.data.characterSettingSchemas[1].attributePattern").value("status.*"))
+                .andExpect(jsonPath("$.data.characterSettingSchemas[1].aliases", hasSize(0)))
+                .andExpect(jsonPath("$.data.characterSettingSchemas[1].valueType").value("JSON"))
                 .andExpect(jsonPath("$.data.knownCharacters", hasSize(1)))
                 .andExpect(jsonPath("$.data.knownCharacters[0].characterId").value(knownCharacter.getId().toString()))
                 .andExpect(jsonPath("$.data.knownCharacters[0].name").value("아리아"))
@@ -203,6 +303,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("분석 대상 회차가 없으면 claim한 작업을 실패 처리한다")
     void claimMarksJobFailedWhenTargetEpisodesMissing() throws Exception {
         UploadBatch emptyBatch = uploadBatchRepository.save(UploadBatch.create(
                 work,
@@ -224,6 +325,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("실행 중인 작업의 현재 진행 단계를 갱신한다")
     void updateProgressUpdatesRunningJobCurrentStep() throws Exception {
         AnalysisJob analysisJob = runningJob();
 
@@ -243,6 +345,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("실행 중인 작업을 완료하고 결과 메타데이터를 기록한다")
     void completeRunningJobRecordsResultMetadata() throws Exception {
         AnalysisJob analysisJob = runningJob();
 
@@ -268,6 +371,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("실행 중인 작업을 실패 처리하고 오류 메시지를 기록한다")
     void failRunningJobRecordsErrorMessage() throws Exception {
         AnalysisJob analysisJob = runningJob();
 
@@ -289,6 +393,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("실행 중이 아닌 작업의 상태 변경을 거절한다")
     void statusUpdateRejectsNonRunningJob() throws Exception {
         AnalysisJob analysisJob = analysisJobRepository.save(
                 AnalysisJob.create(work, uploadBatch, null, AnalysisJobType.EPISODE_VALIDATION)
@@ -304,6 +409,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("존재하지 않는 작업의 상태 변경 요청에 404를 응답한다")
     void statusUpdateReturnsNotFoundForUnknownJob() throws Exception {
         mockMvc.perform(patch("/api/internal/v1/analysis-jobs/{analysisJobId}/progress", java.util.UUID.randomUUID())
                         .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
@@ -322,6 +428,42 @@ class AnalysisJobWorkerControllerIntegrationTest {
         AnalysisJob analysisJob = AnalysisJob.create(work, uploadBatch, null, AnalysisJobType.EPISODE_VALIDATION);
         analysisJob.start("gpt-4.1-mini", "원문 청킹");
         return analysisJobRepository.save(analysisJob);
+    }
+
+    private CharacterSettingSchema settingSchema(
+            Work schemaWork,
+            String schemaKey,
+            String attributePattern,
+            String displayName,
+            CharacterFactType factType,
+            SettingValueType valueType,
+            JsonNode aliases,
+            CharacterSettingSchemaSource source,
+            boolean enabled
+    ) {
+        return CharacterSettingSchema.create(
+                schemaWork,
+                schemaKey,
+                attributePattern,
+                displayName,
+                factType,
+                valueType,
+                CharacterSettingValueSemantics.BASE_VALUE,
+                factType == CharacterFactType.STATUS
+                        ? CharacterSettingMergePolicy.UPSERT_BY_NAME
+                        : CharacterSettingMergePolicy.REPLACE,
+                aliases,
+                source,
+                enabled
+        );
+    }
+
+    private JsonNode aliases(String... values) {
+        var aliases = objectMapper.createArrayNode();
+        for (String value : values) {
+            aliases.add(value);
+        }
+        return aliases;
     }
 
     private Episode episode(int episodeNo, String title, String contentS3Key) {
