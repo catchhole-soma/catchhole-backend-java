@@ -14,7 +14,9 @@ import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErro
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisJobWorkerMapper;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
@@ -39,6 +41,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     private final UploadFileRepository uploadFileRepository;
     private final EpisodeRepository episodeRepository;
     private final WorkCharacterRepository workCharacterRepository;
+    private final CharacterSettingSchemaRepository characterSettingSchemaRepository;
     private final AnalysisJobWorkerMapper analysisJobWorkerMapper;
 
     @Override
@@ -61,9 +64,16 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             return Optional.empty();
         }
 
-        List<WorkCharacter> knownCharacters =
-                workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(analysisJob.getWork().getId());
-        return Optional.of(analysisJobWorkerMapper.toPayload(analysisJob, targetEpisodes, knownCharacters));
+        UUID workId = analysisJob.getWork().getId();
+        List<CharacterSettingSchema> characterSettingSchemas =
+                characterSettingSchemaRepository.findAllActiveForWork(workId);
+        List<WorkCharacter> knownCharacters = workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(workId);
+        return Optional.of(analysisJobWorkerMapper.toPayload(
+                analysisJob,
+                targetEpisodes,
+                characterSettingSchemas,
+                knownCharacters
+        ));
     }
 
     @Override
