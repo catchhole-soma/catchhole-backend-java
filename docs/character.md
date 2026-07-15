@@ -316,22 +316,30 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 
 | 필드 | 설명 |
 | --- | --- |
-| `id` | registry schema UUID |
-| `work_id` | 작품별 추가 schema의 작품 FK. 전역 schema는 `NULL` |
-| `schema_key` | 저장·비교에 사용하는 canonical key |
-| `attribute_pattern` | 여러 동적 attribute를 수용하는 nullable pattern |
-| `display_name` | 화면과 prompt에서 사용할 이름 |
-| `fact_type` | 재사용하는 `CharacterFactType` |
-| `value_type` | 재사용하는 `SettingValueType` |
-| `value_semantics` | `BASE_VALUE`, `MODIFIER`, `DERIVED` |
-| `merge_policy` | `REPLACE`, `UPSERT_BY_NAME`, `UPSERT_BY_SLOT`, `APPEND`, `DERIVED` |
-| `aliases_json` | alias 문자열 배열 JSONB. DB 제약으로 JSON 배열만 허용 |
-| `source` | `SYSTEM_SEED` 또는 `DEV_SEED` |
-| `enabled` | Worker claim 포함 여부 |
-| `created_at` | 생성 시각 |
-| `updated_at` | 수정 시각 |
+| `id` | registry row를 식별하는 UUID입니다. Worker claim에는 노출하지 않습니다. |
+| `work_id` | 적용 범위를 정하는 작품 FK입니다. `NULL`이면 모든 작품에 적용하는 전역 schema이고, 값이 있으면 해당 작품에만 key를 추가합니다. 현재는 작품 schema가 같은 전역 `schema_key`를 override하거나 병합하지 않습니다. |
+| `schema_key` | 입력 속성이 어느 schema인지 판별된 뒤 저장·비교에 사용할 canonical 논리 키입니다. 실제 DB 컬럼명이나 JSON 경로가 아니며, NVM-234의 정규화 결과로 `CharacterFact.factKey`에 사용할 식별자입니다. 예: `items.item`. |
+| `attribute_pattern` | exact `schema_key`와 alias로 일치하지 않은 동적 `SettingCandidate.attributeName`을 이 schema로 분류하기 위한 nullable 입력 패턴입니다. 예: `item.*`. 병합 방식이나 저장 위치를 의미하지 않습니다. |
+| `display_name` | Worker prompt와 화면에서 사람이 schema를 식별할 때 사용할 표시명입니다. 저장·비교 식별자로 사용하지 않습니다. |
+| `fact_type` | 이 schema로 확정된 값을 저장할 상위 `CharacterFactType`입니다. 예: `ITEM`, `SKILL`, `STAT`. |
+| `value_type` | Worker가 추출하고 NVM-234에서 검증할 값의 자료형입니다. `STRING`, `NUMBER`, `BOOLEAN`, `JSON`, `UNKNOWN` 중 하나이며 Java의 `SettingValueType`을 재사용합니다. |
+| `value_semantics` | 값이 원문에서 확인한 기준값(`BASE_VALUE`), 기준값에 적용하는 보정값(`MODIFIER`), 다른 값으로 계산한 파생값(`DERIVED`) 중 무엇인지 나타냅니다. |
+| `merge_policy` | 같은 canonical key의 새 값을 snapshot에 반영할 정책입니다. 패턴 매칭과는 별도이며 `REPLACE`, `UPSERT_BY_NAME`, `UPSERT_BY_SLOT`, `APPEND`, `DERIVED` 중 하나입니다. 실제 병합은 NVM-233에서 구현합니다. |
+| `aliases_json` | `schema_key`와 동일한 schema로 해석할 exact alias 문자열 배열입니다. JSONB 배열만 허용하며 alias가 없으면 `[]`를 저장합니다. |
+| `source` | schema seed의 관리 출처입니다. 공통 기본값은 `SYSTEM_SEED`, 판타지 POC 검증값은 `DEV_SEED`이며 Worker 포함 여부를 결정하지 않습니다. |
+| `enabled` | 활성 여부입니다. `true`인 전역 schema와 현재 작품 schema만 Worker claim에 포함합니다. |
+| `created_at` | registry row가 생성된 시각입니다. |
+| `updated_at` | registry row가 마지막으로 수정된 시각입니다. |
 
 전역 row는 `schema_key`, 작품 row는 `work_id + schema_key`가 각각 unique입니다. 활성 조회를 위해 `(work_id, enabled, schema_key)` 인덱스를 사용합니다.
+
+`items.item` row는 다음처럼 읽습니다.
+
+- `schema_key = items.item`: 아이템 설정을 저장·비교할 때 사용할 canonical 논리 키입니다.
+- `attribute_pattern = item.*`: `item.검은단검`처럼 이름이 동적으로 달라지는 입력 속성을 이 row로 분류하는 패턴입니다.
+- `merge_policy = UPSERT_BY_NAME`: 패턴에 매칭됐다는 사실과 별개로, snapshot 안에서 같은 `name`의 아이템은 갱신하고 없으면 추가한다는 정책입니다.
+
+예를 들어 `attributeName = item.검은단검`, `valueJson = {"name":"검은단검","quantity":1}`인 후보는 NVM-234에서 `item.*` 패턴을 통해 `items.item` schema로 정규화할 대상입니다. 이후 NVM-233에서 `UPSERT_BY_NAME` 정책을 적용합니다. 현재 Registry PR은 이 해석에 필요한 정책을 저장하고 Worker에 전달하는 범위이며, pattern 매칭과 snapshot 병합 자체는 수행하지 않습니다.
 
 캐릭터 매칭 상태 기준:
 
