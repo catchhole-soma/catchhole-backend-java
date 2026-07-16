@@ -226,12 +226,17 @@ domain/<domain>
 - 화면에서 분석 작업은 `AnalysisJob.status`를 상위 상태로 표시하고, 분석 작업 상세에 들어갔을 때 포함된 각 회차의 `Episode.status`를 단계별 상태로 보여준다.
 - 분석 작업 생성 API는 업로드 흐름의 단위인 `batch_id`를 필수 입력으로 받는다. `episode_id`는 회차별 세부 작업이 필요해질 때 내부 작업 모델에서 선택적으로 사용할 수 있다.
 - 본인 작품의 분석 작업만 생성/조회할 수 있으며, 다른 회원의 작품이나 다른 작품에 속한 분석 대상은 404로 응답한다.
-- Python AI Worker는 작업 claim과 `AnalysisJob` 상태 변경에 `/api/internal/**` 내부 API를 `X-Internal-Api-Key`로 인증해 사용한다. Worker에는 원문 본문을 응답하지 않고 `Episode`의 S3 key/version/hash/charCount 메타데이터만 전달한다.
+- Python AI Worker는 작업 claim과 `AnalysisJob` 상태 변경에 `/api/internal/**` 내부 API를 `X-Internal-Api-Key`로 인증해 사용한다. Worker에는 원문 본문을 응답하지 않으며, 분석 입력으로 `Episode`의 S3 key/version/hash/charCount 메타데이터, 기존 캐릭터 목록, 활성 캐릭터 설정 schema를 전달한다.
 - Worker는 분석 작업 생성과 상태 전이를 위해 백엔드 DB에 직접 접근하지 않는다. 다만 청킹, 설정 후보, 리포트 같은 분석 산출물 저장은 데이터 양과 모델 안정성에 따라 내부 API 또는 Worker의 DB 직접 저장 중 선택할 수 있으며, DB 직접 저장을 선택하면 관련 스키마/문서 변경을 함께 관리한다.
 
 #### Character Setting Domain Policy
 
 - 캐릭터 설정 저장 토대는 `domain/character`에 둔다. `WorkCharacter`는 작품별 캐릭터 대표/현재 설정을, `SettingCandidate`는 AI가 추출한 사용자 검토 전 후보를 저장한다.
+- `CharacterSettingSchema` registry는 실제 캐릭터 능력치 값이나 작품 내용을 저장하지 않고, AI의 `SettingCandidate.attributeName`을 해석하기 위한 canonical key, alias, pattern, 값 타입, 값 의미, merge 정책만 저장한다. 정책과 실제 값을 분리해 같은 해석 기준을 여러 작품과 Worker claim에서 재사용하기 위함이다.
+- Character Setting Registry의 정책 enum은 상수별 의미를 Javadoc으로 설명하고, 화면·문서에서 재사용할 한글 표시명을 `toKorean` 필드로 둔다.
+- `character_setting_schemas.work_id`가 `NULL`이면 전역 schema, 값이 있으면 해당 작품에 전역에 없는 key를 추가하는 schema로 사용한다. 작품별 override와 같은 key 중복 병합은 별도 우선순위 정책이 정해질 때까지 구현하지 않는다.
+- Worker claim에는 활성 전역 schema와 현재 작품의 활성 추가 schema를 모든 분석 job type에 포함하되 `schemaKey`, `displayName`, `attributePattern`, `aliases`, `valueType`만 노출한다. registry 식별자, source, enabled, merge 정책은 내부 정책으로 유지한다.
+- 적용된 registry seed의 승격이나 alias 수정이 필요하면 기존 Flyway migration을 수정하지 않고 다음 migration에서 변경한다. 환경별 checksum과 schema 해석 이력을 보존하기 위함이다.
 - `SettingCandidate` 생성은 Python AI Worker가 담당하고, Spring API는 사용자 검토를 위한 조회/수정부터 담당한다. 후보 생성 API를 Spring에 추가해야 할 때는 Worker 저장 책임을 함께 재검토한다.
 - `SettingCandidate` 수정은 `PENDING_REVIEW` 상태에서만 허용한다. 확정/무시 이후 수정은 `CharacterFact` 반영 정책과 동기화 문제가 생기므로 별도 정책이 정해질 때까지 막는다.
 - `SettingCandidate` 확정/무시는 POST action API로 처리한다. 처음 `CONFIRMED`로 전환되는 후보는 `CharacterFact`로 저장하고 `WorkCharacter` 현재 스냅샷을 갱신한다. 동일 상태 재호출은 성공으로 처리하되 `CharacterFact`를 중복 생성하지 않고, `CONFIRMED`와 `DISMISSED` 사이의 반대 전이는 상태 충돌로 거절한다.
@@ -375,6 +380,7 @@ public class UserMapper {
   - 예: `@Getter`, `@RequiredArgsConstructor`
 - 불필요한 추상화나 미래 대비용 확장 포인트를 만들지 않는다.
 - 주석은 복잡한 의도를 설명할 때만 짧게 작성한다.
+- Entity에서 nullable 여부가 전역/작품 범위 같은 도메인 의미를 갖거나, JSON·정책 컬럼의 저장 목적이 이름만으로 명확하지 않으면 필드 위에 한국어 주석으로 의미와 필요한 예시를 남긴다.
 
 ### Commit Convention
 

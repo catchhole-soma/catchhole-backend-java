@@ -28,6 +28,27 @@ MVP에서 우선 관리할 캐릭터 설정은 숫자, 아이템, 스킬, 능력
 
 Java 타입은 `JsonNode`로 통일하고 Hibernate JSON 매핑을 사용합니다. AI 출력 구조를 과하게 평탄화하지 않고 보존하기 위한 선택입니다.
 
+### 캐릭터 설정 Schema Registry
+
+`CharacterSettingSchema`는 캐릭터의 실제 능력치 값이나 작품 설정을 저장하지 않습니다. AI가 만든 `SettingCandidate.attributeName`을 canonical `schemaKey`로 해석하기 위한 이름, alias, pattern, 값 타입, 저장 정책을 보관합니다.
+
+- `work_id = NULL`인 row는 모든 작품에 적용하는 전역 schema입니다.
+- `work_id`가 있는 row는 해당 작품에 전역에 없는 key를 추가하는 schema입니다. 이번 범위에서는 같은 key override나 중복 병합을 지원하지 않습니다.
+- Worker claim은 `enabled = true AND (work_id IS NULL OR work_id = :workId)`인 row를 `schema_key` 오름차순으로 제공합니다.
+- Worker에는 `schemaKey`, `displayName`, `attributePattern`, `aliases`, `valueType`만 공개합니다. DB 식별자와 source, enabled, merge 정책은 백엔드 내부 정책입니다.
+- exact → alias → pattern 매칭과 값 검증은 NVM-234, snapshot merge는 NVM-233에서 구현합니다.
+
+초기 전역 seed는 목적에 따라 구분합니다.
+
+| source | 개수 | schema key | 목적 |
+| --- | ---: | --- | --- |
+| `SYSTEM_SEED` | 7 | `age`, `level`, `stats.strength`, `stats.mana`, `statuses.condition`, `skills.skill`, `items.item` | 장르와 작품에 공통으로 사용할 최소 canonical schema |
+| `DEV_SEED` | 15 | `stats.physique`, `stats.mental`, `stats.supernatural`, `stats.item_level`, `stats.combat_power`, `stats.agility`, `stats.endurance`, `stats.soul_power`, `stats.magic_resistance`, `stats.physical_resistance`, `stats.natural_regeneration`, `stats.bone_strength`, `stats.energy`, `stats.perception`, `stats.mental_power` | 판타지 작품에서 수치형 스테이터스 추출을 검증하기 위한 POC schema |
+
+판타지 POC의 이름과 alias는 《게임 속 바바리안》 공개 팬 아카이브의 [비요른 스테이터스](https://www.deokhu.com/status), [정수 도감](https://www.deokhu.com/essences)을 schema 이름 선정 근거로만 참고했습니다. 현재 수치, 장비·정수 목록, 파티 정보, 작품 설명은 seed에 저장하지 않습니다. `정신`과 `정신력`처럼 별도 능력치가 될 수 있는 표현도 alias로 강제 병합하지 않습니다.
+
+적용된 seed를 승격하거나 alias를 수정할 때는 기존 Flyway migration을 고치지 않고 다음 migration에서 `UPDATE`합니다.
+
 ### AI 설정 후보
 
 `SettingCandidate`는 AI가 추출한 사용자 검토 전 후보를 저장합니다.
@@ -199,6 +220,31 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `STATUS` | 상태 |
 | `TIME` | 시간 |
 
+`CharacterSettingValueSemantics`
+
+| 유형 | 한글 표시명 | 의미 |
+| --- | --- | --- |
+| `BASE_VALUE` | 기본값 | 원문에서 직접 확인한 계산 기준값 |
+| `MODIFIER` | 보정값 | 기본값에 더하거나 빼는 장비·상태 효과 등의 값 |
+| `DERIVED` | 파생값 | 다른 설정값을 이용해 계산한 결과값 |
+
+`CharacterSettingMergePolicy`
+
+| 유형 | 한글 표시명 | 의미 |
+| --- | --- | --- |
+| `REPLACE` | 값 교체 | 기존 값을 새 값으로 완전히 교체 |
+| `UPSERT_BY_NAME` | 이름 기준 추가·갱신 | `name`이 같은 목록 원소를 갱신하고 없으면 추가 |
+| `UPSERT_BY_SLOT` | 슬롯 기준 추가·갱신 | 장비 위치 같은 `slot`이 같은 원소를 갱신하고 없으면 추가 |
+| `APPEND` | 목록에 추가 | 기존 원소와의 일치 여부를 확인하지 않고 새 원소 추가 |
+| `DERIVED` | 파생값 계산 | 직접 병합하지 않고 다른 설정값을 바탕으로 계산 |
+
+`CharacterSettingSchemaSource`
+
+| 유형 | 한글 표시명 | 의미 |
+| --- | --- | --- |
+| `SYSTEM_SEED` | 시스템 기본 시드 | 장르와 작품에 공통으로 적용하는 기본 schema |
+| `DEV_SEED` | 개발 검증 시드 | POC와 개발 검증을 위해 추가한 schema |
+
 ## DB 모델
 
 `characters`
@@ -266,6 +312,35 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `created_at` | 생성 시각 |
 | `updated_at` | 수정 시각 |
 
+`character_setting_schemas`
+
+| 필드 | 설명 |
+| --- | --- |
+| `id` | registry row를 식별하는 UUID입니다. Worker claim에는 노출하지 않습니다. |
+| `work_id` | 적용 범위를 정하는 작품 FK입니다. `NULL`이면 모든 작품에 적용하는 전역 schema이고, 값이 있으면 해당 작품에만 key를 추가합니다. 현재는 작품 schema가 같은 전역 `schema_key`를 override하거나 병합하지 않습니다. |
+| `schema_key` | 입력 속성이 어느 schema인지 판별된 뒤 저장·비교에 사용할 canonical 논리 키입니다. 실제 DB 컬럼명이나 JSON 경로가 아니며, NVM-234의 정규화 결과로 `CharacterFact.factKey`에 사용할 식별자입니다. 예: `items.item`. |
+| `attribute_pattern` | exact `schema_key`와 alias로 일치하지 않은 동적 `SettingCandidate.attributeName`을 이 schema로 분류하기 위한 nullable 입력 패턴입니다. 예: `item.*`. 병합 방식이나 저장 위치를 의미하지 않습니다. |
+| `display_name` | Worker prompt와 화면에서 사람이 schema를 식별할 때 사용할 표시명입니다. 저장·비교 식별자로 사용하지 않습니다. |
+| `fact_type` | 이 schema로 확정된 값을 저장할 상위 `CharacterFactType`입니다. 예: `ITEM`, `SKILL`, `STAT`. |
+| `value_type` | Worker가 추출하고 NVM-234에서 검증할 값의 자료형입니다. `STRING`, `NUMBER`, `BOOLEAN`, `JSON`, `UNKNOWN` 중 하나이며 Java의 `SettingValueType`을 재사용합니다. |
+| `value_semantics` | 값이 원문에서 확인한 기준값(`BASE_VALUE`), 기준값에 적용하는 보정값(`MODIFIER`), 다른 값으로 계산한 파생값(`DERIVED`) 중 무엇인지 나타냅니다. |
+| `merge_policy` | 같은 canonical key의 새 값을 snapshot에 반영할 정책입니다. 패턴 매칭과는 별도이며 `REPLACE`, `UPSERT_BY_NAME`, `UPSERT_BY_SLOT`, `APPEND`, `DERIVED` 중 하나입니다. 실제 병합은 NVM-233에서 구현합니다. |
+| `aliases_json` | `schema_key`와 동일한 schema로 해석할 exact alias 문자열 배열입니다. JSONB 배열만 허용하며 alias가 없으면 `[]`를 저장합니다. |
+| `source` | schema seed의 관리 출처입니다. 공통 기본값은 `SYSTEM_SEED`, 판타지 POC 검증값은 `DEV_SEED`이며 Worker 포함 여부를 결정하지 않습니다. |
+| `enabled` | 활성 여부입니다. `true`인 전역 schema와 현재 작품 schema만 Worker claim에 포함합니다. |
+| `created_at` | registry row가 생성된 시각입니다. |
+| `updated_at` | registry row가 마지막으로 수정된 시각입니다. |
+
+전역 row는 `schema_key`, 작품 row는 `work_id + schema_key`가 각각 unique입니다. 활성 조회를 위해 `(work_id, enabled, schema_key)` 인덱스를 사용합니다.
+
+`items.item` row는 다음처럼 읽습니다.
+
+- `schema_key = items.item`: 아이템 설정을 저장·비교할 때 사용할 canonical 논리 키입니다.
+- `attribute_pattern = item.*`: `item.검은단검`처럼 이름이 동적으로 달라지는 입력 속성을 이 row로 분류하는 패턴입니다.
+- `merge_policy = UPSERT_BY_NAME`: 패턴에 매칭됐다는 사실과 별개로, snapshot 안에서 같은 `name`의 아이템은 갱신하고 없으면 추가한다는 정책입니다.
+
+예를 들어 `attributeName = item.검은단검`, `valueJson = {"name":"검은단검","quantity":1}`인 후보는 NVM-234에서 `item.*` 패턴을 통해 `items.item` schema로 정규화할 대상입니다. 이후 NVM-233에서 `UPSERT_BY_NAME` 정책을 적용합니다. 현재 Registry PR은 이 해석에 필요한 정책을 저장하고 Worker에 전달하는 범위이며, pattern 매칭과 snapshot 병합 자체는 수행하지 않습니다.
+
 캐릭터 매칭 상태 기준:
 
 - `MATCHED`: 기존 캐릭터 하나와 확실히 연결된 상태입니다. `matched_character_id`가 있어야 합니다.
@@ -293,6 +368,10 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 - `findAllByWorkCharacterIdOrderByCreatedAtDesc(characterId)`
 - `findAllByWorkCharacterIdAndIsCurrentTrueOrderByFactTypeAscFactKeyAsc(characterId)`
 - `findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(characterId, factType, factKey)`
+
+`CharacterSettingSchemaRepository`
+
+- `findAllActiveForWork(workId)`: 활성 전역 schema와 해당 작품의 활성 추가 schema를 `schemaKey` 오름차순으로 조회합니다.
 
 ## HTTP API
 
@@ -519,7 +598,12 @@ flowchart TD
 
 - 설정 후보 생성 API
 - 확정/무시된 후보 재편집 API
-- AI Worker 연동과 실제 설정 추출 로직
+- Python AI Worker의 exact → alias → pattern 매칭, 값 검증과 실제 설정 추출 로직
+- Registry에 등록되지 않은 고정 속성을 자동으로 확정·반영하는 처리
+- 분석 결과를 바탕으로 신규 `character_setting_schemas` row를 자동 생성하는 기능
+- 부분 문자열 또는 fuzzy 방식의 alias 매칭
+- LLM을 이용한 alias 자동 생성
+- 사용자·관리자용 Schema Registry 조회·등록·수정·비활성화 기능
 - `ManuscriptChunk`, `PreprocessedManuscriptChunk`
 - 검수 리포트 모델인 `ValidationReport`, `ValidationFinding`
 - 작중 시간 메타데이터 기반 current/snapshot 계산

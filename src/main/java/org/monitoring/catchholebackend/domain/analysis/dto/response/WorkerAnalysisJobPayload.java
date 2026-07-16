@@ -28,6 +28,9 @@ public record WorkerAnalysisJobPayload(
         @Schema(description = "현재 처리 단계", nullable = true)
         String currentStep,
 
+        @Schema(description = "캐릭터 설정 attribute 해석 schema 목록")
+        List<WorkerAnalysisCharacterSettingSchemaPayload> characterSettingSchemas,
+
         @Schema(description = "캐릭터명 매칭에 사용할 기존 캐릭터 목록")
         List<WorkerAnalysisKnownCharacterPayload> knownCharacters,
 

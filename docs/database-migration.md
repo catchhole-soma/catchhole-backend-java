@@ -18,8 +18,7 @@ H2 기반 테스트는 PostgreSQL의 `vector` 타입을 지원하지 않으므�
 ```text
 src/main/resources/db/migration/
 ├── V1__initial_schema.sql
-├── V2__add_validation_reports.sql
-└── V3__add_episode_lookup_index.sql
+└── V2__add_character_setting_schema_registry.sql
 ```
 
 - 파일명은 `V{순번}__{snake_case_설명}.sql` 형식을 사용합니다.
@@ -30,7 +29,7 @@ src/main/resources/db/migration/
 
 ## V1 기준
 
-V1은 현재 Java Entity 전체와 Python Worker가 관리하는 `episode_chunks`를 생성합니다.
+V1은 Flyway 도입 시점의 Java Entity와 Python Worker가 관리하는 `episode_chunks`를 생성합니다. 이후 추가된 Entity는 V2 이상의 migration에서 누적합니다.
 
 `episode_chunks`의 임베딩 계약은 다음과 같습니다.
 
@@ -44,6 +43,16 @@ V1은 현재 Java Entity 전체와 Python Worker가 관리하는 `episode_chunks
 
 `embedding_model`, `embedding_version`, `embedded_at`은 모델 또는 생성 로직 변경 시 재생성 대상을 판별하기 위한 메타데이터입니다.
 청크의 `created_at`, `updated_at`은 Python Worker가 항상 기록하며 nullable로 두지 않습니다.
+
+## V2 기준
+
+V2는 AI의 `SettingCandidate.attributeName`을 canonical key로 해석하기 위한 `character_setting_schemas` registry를 추가합니다. 실제 캐릭터 능력치 값이나 작품 내용은 저장하지 않습니다.
+
+- `work_id = NULL`인 row는 전역 schema이고, 값이 있으면 해당 작품에 전역에 없는 key를 추가하는 schema입니다.
+- 전역 `schema_key`와 작품별 `work_id + schema_key`는 partial unique index로 각각 중복을 막습니다.
+- `aliases_json`은 JSON 배열만 허용하고, 활성 조회에는 `(work_id, enabled, schema_key)` 인덱스를 사용합니다.
+- 초기 전역 seed는 공통 `SYSTEM_SEED` 7개와 판타지 POC `DEV_SEED` 15개로 구성합니다.
+- 적용된 seed나 alias를 변경할 때는 V2를 수정하지 않고 다음 migration에서 `UPDATE`합니다.
 
 ## 논리 참조와 FK 기준
 
@@ -60,15 +69,16 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
 
 ## 로컬 검증
 
-빈 PostgreSQL에서 Backend를 시작한 뒤 다음 내용을 확인합니다.
+V1 적용 DB에 현재 Backend를 시작해 V2만 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V2가 순서대로 적용되는 경로를 각각 확인합니다.
 
-- Flyway 로그에 V1 적용 성공이 출력됩니다.
-- `flyway_schema_history`에 version 1이 성공으로 기록됩니다.
+- Flyway 로그에 V1과 V2 적용 성공이 출력됩니다.
+- `flyway_schema_history`에 version 1과 2가 성공으로 기록됩니다.
 - `vector` extension이 활성화됩니다.
 - `episode_chunks.embedding`이 `vector(1536)`으로 생성됩니다.
 - cosine HNSW 인덱스가 생성됩니다.
+- `character_setting_schemas`에 전역 seed 22개(`SYSTEM_SEED=7`, `DEV_SEED=15`)가 생성됩니다.
 - Hibernate schema validation을 통과하고 Backend가 정상 시작됩니다.
-- Backend를 재시작해도 V1이 중복 적용되지 않습니다.
+- Backend를 재시작해도 V1과 V2가 중복 적용되지 않습니다.
 
 ## 최초 운영 전환
 
@@ -79,7 +89,7 @@ Flyway 도입 전에 JPA가 만든 운영 테스트 DB에는 `flyway_schema_hist
 1. 필요한 데이터가 없는지 확인하고 필요하면 `pg_dump`로 백업합니다.
 2. Backend와 AI Worker를 중지합니다.
 3. PostgreSQL 데이터 volume만 제거하고 빈 PostgreSQL 16 DB를 시작합니다.
-4. Backend를 시작해 Flyway V1과 Hibernate validation 성공을 확인합니다.
+4. Backend를 시작해 Flyway V1·V2와 Hibernate validation 성공을 확인합니다.
 5. DB schema와 Swagger 기본 API를 확인한 뒤 AI Worker를 시작합니다.
 
 실제 사용자 데이터가 생긴 뒤에는 이 초기화 절차를 사용하지 않습니다. 기존 데이터를 보존하는 V2 이상의 `ALTER` migration과 사전 백업·롤백 계획을 별도로 작성합니다.

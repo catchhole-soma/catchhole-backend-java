@@ -1,9 +1,11 @@
 package org.monitoring.catchholebackend;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.auth.service.AuthService;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
@@ -20,6 +22,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
                 + "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration,"
                 + "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration"
 })
+@DisplayName("애플리케이션 Context 통합 테스트")
 class CatchHoleBackendApplicationTests {
 
     @MockitoBean
@@ -53,9 +56,13 @@ class CatchHoleBackendApplicationTests {
     private CharacterFactRepository characterFactRepository;
 
     @MockitoBean
+    private CharacterSettingSchemaRepository characterSettingSchemaRepository;
+
+    @MockitoBean
     private JpaMetamodelMappingContext jpaMetamodelMappingContext;
 
     @Test
+    @DisplayName("Spring ApplicationContext를 로드한다")
     void contextLoads() {
     }
 
