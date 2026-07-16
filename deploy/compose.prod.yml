@@ -56,6 +56,8 @@ services:
   postgres:
     image: pgvector/pgvector:0.8.2-pg16
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
