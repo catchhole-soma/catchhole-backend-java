@@ -216,7 +216,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `skills_json` | 스킬 상세 JSONB |
 | `items_json` | 아이템 상세 JSONB |
 | `statuses_json` | 시간/상태/능력 상세 JSONB |
-| `first_appearance_episode_id` | 최초 등장 회차 ID. 현재는 UUID 값으로 저장 |
+| `first_appearance_episode_id` | 최초 등장 회차 ID. 회차 hard delete 시 처리 정책이 정해지지 않아 현재 FK 없이 UUID 값으로 저장 |
 | `status` | 캐릭터 보관 상태 |
 | `created_at` | 생성 시각 |
 | `updated_at` | 수정 시각 |
@@ -233,7 +233,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `normalized_value` | 비교를 쉽게 하기 위한 정규화 값 |
 | `value_json` | 스킬/아이템/상태 이상처럼 복잡한 설정 값 JSONB |
 | `source_episode_id` | 이 설정이 확인된 회차 ID |
-| `source_chunk_id` | 이 설정이 확인된 청크 ID. 현재는 FK 없이 UUID 값으로 저장 |
+| `source_chunk_id` | 이 설정이 확인된 `episode_chunks.id`. 재청킹 시 근거 보존 정책이 정해지지 않아 현재 FK 없이 저장 |
 | `extracted_by_job_id` | 이 설정을 추출한 분석 작업 ID |
 | `confidence` | AI 추출 신뢰도 |
 | `is_current` | 현재 기준으로 유효한 최신 설정인지 여부 |
@@ -248,7 +248,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `id` | 설정 후보 UUID |
 | `work_id` | 후보가 속한 작품 ID |
 | `episode_id` | 후보가 추출된 회차 ID. 없을 수 있음 |
-| `source_chunk_id` | 근거 청크 ID. 청킹 모델 구현 전까지 FK 없이 UUID 값으로 저장 |
+| `source_chunk_id` | 근거 `episode_chunks.id`. 재청킹 시 근거 보존 정책이 정해지지 않아 현재 FK 없이 저장 |
 | `analysis_job_id` | 후보를 만든 분석 작업 ID. 없을 수 있음 |
 | `entity_type` | 설정 대상 유형 |
 | `entity_name` | 캐릭터명 또는 대상명 |
@@ -513,7 +513,7 @@ flowchart TD
 - `CharacterFact.extracted_by_job_id`는 설정을 추출한 분석 작업을 가리킬 수 있습니다.
 - `SettingCandidate.episode_id`는 후보가 나온 회차를 가리킬 수 있습니다.
 - `SettingCandidate.analysis_job_id`는 후보를 만든 분석 작업을 가리킬 수 있습니다.
-- `source_chunk_id`는 Notion 작업 흐름의 `ManuscriptChunk`와 연결될 예정이지만, 현재 청킹 Entity가 없으므로 FK를 강제하지 않습니다.
+- `source_chunk_id`는 현재 `episode_chunks` 식별자를 저장합니다. Worker가 재청킹할 때 기존 청크를 삭제하고 새 UUID로 교체하므로, 근거 청크 ID 안정화 또는 이력 보존 정책을 정하기 전까지 FK를 강제하지 않습니다.
 
 ## 이번 범위에서 제외한 것
 
@@ -529,7 +529,8 @@ flowchart TD
 ## 이후 작업
 
 - 캐릭터 목록/상세 API 정의
-- `ManuscriptChunk` 구현 후 `source_chunk_id` FK 여부 결정
+- 재청킹 시 청크 ID 안정화 또는 근거 이력 보존 방식을 정한 뒤 `source_chunk_id` FK 여부 결정
+- 회차 hard delete 시 최초 등장 회차를 재계산할지 `NULL`로 둘지 정한 뒤 `first_appearance_episode_id` FK와 삭제 동작 결정
 - AI Worker 시간 메타데이터가 정해진 뒤 `episodeNo` 기준 current/snapshot 계산을 작중 시간 기준으로 확장
 - 스킬/아이템/상태처럼 여러 key가 공존하는 JSON snapshot을 map 또는 array로 누적할지 정책 결정
 - 신규 회차 검수에서 구조화 조회와 벡터 검색을 함께 사용하는 흐름 연결

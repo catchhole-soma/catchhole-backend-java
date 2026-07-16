@@ -1,8 +1,8 @@
 # Backend ERD
 
-이 문서는 Notion에 정리한 ERD를 현재 백엔드 JPA Entity 기준으로 옮긴 문서입니다.
+이 문서는 Notion에 정리한 ERD를 현재 Flyway schema와 백엔드 JPA Entity 기준으로 옮긴 문서입니다.
 
-DB 컬럼과 관계는 코드가 기준입니다. Notion 원본과 다르면 이 문서에는 현재 구현을 우선 기록하고, 차이는 해당 도메인 문서의 이후 작업에 남깁니다.
+DB 컬럼과 관계는 Flyway migration이 기준입니다. JPA Entity와 Python SQLAlchemy 모델은 migration 결과에 맞춰 매핑하며, Notion 원본과 다르면 이 문서에는 현재 구현을 우선 기록합니다.
 
 ## 관계 요약
 
@@ -12,6 +12,7 @@ erDiagram
     members ||--o{ works : owns
     members ||--o{ upload_batches : uploads
     works ||--o{ episodes : contains
+    episodes ||--o{ episode_chunks : splits
     works ||--o{ upload_batches : groups
     works ||--o{ analysis_jobs : runs
     works ||--o{ characters : has
@@ -72,6 +73,24 @@ erDiagram
         varchar content_hash
         int char_count
         varchar status
+        datetime created_at
+        datetime updated_at
+    }
+
+    episode_chunks {
+        uuid id PK
+        uuid episode_id FK
+        int chunk_index
+        text chunk_text
+        int start_offset
+        int end_offset
+        int paragraph_start_index
+        int paragraph_end_index
+        jsonb metadata_json
+        vector embedding
+        varchar embedding_model
+        varchar embedding_version
+        datetime embedded_at
         datetime created_at
         datetime updated_at
     }
@@ -192,6 +211,7 @@ erDiagram
 | `refresh_tokens` | refresh token 세션. token 원문은 저장하지 않고 `token_hash`만 저장합니다. |
 | `works` | 회원이 소유한 작품. 회차/업로드/분석 작업의 최상위 리소스입니다. |
 | `episodes` | 작품에 속한 회차 메타데이터. 원문은 S3에 저장하고 DB에는 key/version/hash/글자 수만 둡니다. |
+| `episode_chunks` | 회차 원문 청크와 위치 정보, `vector(1536)` 임베딩 및 재생성 판단 메타데이터를 저장합니다. `(episode_id, chunk_index)`는 unique입니다. |
 | `upload_batches` | 한 번의 업로드 요청 단위. 업로드 유형, 소스, 전체 처리 상태를 기록합니다. |
 | `upload_files` | batch에 포함된 개별 파일. 원본 파일 S3 위치와 파싱 결과를 기록합니다. |
 | `analysis_jobs` | 작품 단위 AI 분석 작업. 작업 유형, 상태, 대상 batch/episode, 결과 메타데이터를 기록합니다. |
@@ -351,7 +371,7 @@ erDiagram
 | `OriginalManuscriptFile` | 현재 `upload_files`가 원본 파일 참조 역할을 담당합니다. |
 | `Episode.processingStatus` | 현재 코드에서는 `episodes.status` / `EpisodeStatus`입니다. |
 | `AnalysisJob.type` | 현재 분석 초안에서는 `analysis_jobs.job_type` / `AnalysisJobType`입니다. |
-| `SettingCandidate` | 현재 `setting_candidates`가 AI 설정 후보 저장 역할을 담당합니다. 청크 모델 구현 전까지 `source_chunk_id`는 FK 없는 UUID 값으로 저장합니다. |
+| `SettingCandidate` | 현재 `setting_candidates`가 AI 설정 후보 저장 역할을 담당합니다. `source_chunk_id`는 `episode_chunks` 식별자를 저장하지만 현재 DB FK는 강제하지 않습니다. |
 | `SettingSnapshot` | 캐릭터 중심 MVP에서는 현재 `character_facts`가 설정 변화 이력과 current 기준값 역할을 우선 담당합니다. |
 | `ValidationReport.reportType` | 후속 리포트 모델의 `report_type`으로 둡니다. |
 | `ValidationFinding.reviewStatus` | 후속 finding 모델의 `review_status`로 둡니다. |
@@ -361,16 +381,16 @@ erDiagram
 - 회원이 소유한 리소스는 `works.member_id`를 루트로 접근 제어합니다.
 - 회차 원문 전문은 DB에 저장하지 않습니다. `episodes.content_s3_key`를 통해 S3에서 조회합니다.
 - 업로드 원본 파일과 회차 원문은 분리 저장합니다. 원본 파일은 `upload_files.storage_url`, 회차 원문은 `episodes.content_s3_key`에 연결됩니다.
-- `episodes.source_file_id`는 해당 회차가 어떤 업로드 파일에서 파생되었는지 추적하는 선택 연결입니다.
+- `episodes.source_file_id`는 해당 회차가 어떤 업로드 파일에서 파생되었는지 추적하는 nullable FK입니다. 현재 업로드 파일 삭제 API가 없으므로 기본 `NO ACTION`으로 원본 추적 관계를 보호합니다.
 - `upload_batches`는 이후 분석 작업의 대상 단위로 재사용할 수 있도록 `work_id`, `upload_type`, `file_count`, `status`를 유지합니다.
 - 캐릭터 설정은 `setting_candidates`, `character_facts`, `characters`로 나누어 저장합니다. AI 추출 후보는 `setting_candidates`, 회차별 확정/검토 이력은 `character_facts`, 화면 표시용 현재 스냅샷은 `characters`가 담당합니다.
 - 화면 표시와 구조화 조회에 자주 쓰는 값은 일반 컬럼으로 두고, 스탯/스킬/아이템/상태 상세값과 AI 원본 응답은 JSONB로 보존합니다.
-- 후속 분석 모델에서는 구조화 조회(`character_facts`, `setting_candidates`)와 벡터 검색(`manuscript_chunks.embedding`)을 함께 사용합니다. 구조화 조회는 수치/상태 비교 기준이고, 벡터 검색은 원문 맥락과 근거 문장을 찾는 보조 수단입니다.
+- 분석 흐름에서는 구조화 조회(`character_facts`, `setting_candidates`)와 벡터 검색(`episode_chunks.embedding`)을 함께 사용합니다. 구조화 조회는 수치/상태 비교 기준이고, 벡터 검색은 원문 맥락과 근거 문장을 찾는 보조 수단입니다.
 
 ## 현재 코드와 추가 검토가 필요한 부분
 
-- `episodes.source_file_id`는 코드상 FK 어노테이션 없이 UUID 값으로 저장합니다. 실제 DB 제약을 강제할지 여부는 마이그레이션 도입 시 결정합니다.
 - 회차 번호 unique 제약은 현재 DB 제약이 아니라 서비스에서 `work_id + episode_no` 중복을 검사합니다.
 - 후속 ERD의 `manuscript_chunks`, `preprocessed_manuscript_chunks`, `setting_snapshots`, `validation_reports`, `validation_findings`는 아직 현재 `main` 기준 Entity가 아닙니다. 캐릭터 중심 MVP의 설정 이력은 우선 `character_facts`로 구현합니다.
-- `setting_candidates.source_chunk_id`와 `character_facts.source_chunk_id`는 아직 `manuscript_chunks` Entity가 없으므로 DB FK를 강제하지 않습니다. 청킹 모델이 구현되면 실제 FK 여부를 다시 결정합니다.
+- `characters.first_appearance_episode_id`는 회차 hard delete 시 재계산 또는 `NULL` 처리 정책이 정해지지 않아 현재 FK를 강제하지 않습니다.
+- `setting_candidates.source_chunk_id`와 `character_facts.source_chunk_id`는 `episode_chunks`를 가리키지만 현재 DB FK를 강제하지 않습니다. Worker가 재청킹 시 기존 청크를 삭제하고 새 UUID로 교체하므로, 청크 ID 안정화 또는 근거 이력 보존 정책을 정한 뒤 다시 검토합니다.
 - Notion 설계의 `AnalysisJob.status`에는 `CANCELED`가 있지만, 현재 분석 문서 초안은 `PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`만 포함합니다. 취소 정책이 필요해질 때 enum을 확장합니다.

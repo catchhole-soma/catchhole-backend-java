@@ -2,6 +2,8 @@
 
 EC2 단일 서버에서 Caddy, Spring Backend, Python AI Worker, PostgreSQL을 Docker Compose로 실행한다.
 
+PostgreSQL은 로컬과 운영 모두 `pgvector/pgvector:0.8.2-pg16` 이미지를 사용한다. 이 이미지는 pgvector extension 파일을 제공하며, 실제 `CREATE EXTENSION vector`와 vector 컬럼 생성은 Flyway migration에서 관리한다.
+
 ## EC2 배치 경로
 
 운영 서버에서는 아래 파일들을 `/opt/catchhole`에 둔다.
@@ -23,6 +25,23 @@ docker compose --env-file .env -f compose.prod.yml pull
 docker compose --env-file .env -f compose.prod.yml up -d
 docker compose --env-file .env -f compose.prod.yml ps
 ```
+
+Backend 컨테이너가 시작될 때 Flyway가 미적용 migration을 먼저 실행하고, 이후 Hibernate가 JPA Entity와 schema 일치 여부를 `validate`한다. AI Worker의 SQLAlchemy 모델은 schema를 생성하지 않고 Flyway가 만든 테이블을 사용한다.
+
+## 기존 테스트 DB의 최초 V1 전환
+
+이 절차는 Flyway 도입 전에 JPA `ddl-auto=update`로 생성한 기존 DB를 V1 기준으로 다시 만드는 최초 1회 작업이다. 현재 데이터가 테스트용이고 삭제에 팀 동의가 있을 때만 수행한다.
+
+1. 배포 전에 필요한 데이터가 없는지 팀에 확인하고, 보존이 필요하면 `pg_dump`로 백업한다.
+2. Backend와 AI Worker를 중지해 DB 쓰기를 막는다.
+3. PostgreSQL 컨테이너와 `postgres_data` volume 이름을 확인한다.
+4. 삭제 대상을 다시 확인한 뒤 PostgreSQL volume만 제거한다. Caddy volume은 제거하지 않는다.
+5. PostgreSQL을 먼저 시작해 빈 DB가 준비될 때까지 health 상태를 확인한다.
+6. Backend를 시작하고 로그에서 Flyway V1 성공과 Hibernate validation 성공을 확인한다.
+7. `flyway_schema_history`, pgvector extension, `episode_chunks`의 `vector(1536)` 컬럼을 확인한다.
+8. AI Worker를 시작하고 Swagger에서 회원·작품·회차·분석 작업의 기본 동작을 확인한다.
+
+V1이 공유 환경에 적용된 뒤에는 파일을 수정하지 않는다. 이후 schema 변경은 V2 이상의 새 migration으로 추가한다.
 
 ## 확인
 

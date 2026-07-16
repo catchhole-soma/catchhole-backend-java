@@ -36,13 +36,13 @@
 | 파일 | 용도 |
 |------|------|
 | `application.yml` | 모든 환경 공통 설정 (앱 이름, 기본 활성 프로파일, CORS 기본값) |
-| `application-local.yml` | 로컬 개발 (JPA `update`, SQL 로그). DB 접속은 yml에 두지 않는다 |
-| `application-prod.yml` | 운영 (DB / CORS는 환경변수 주입, MVP 배포 기간 JPA `update`) |
+| `application-local.yml` | 로컬 개발 (JPA `validate`, SQL 로그). DB 접속은 yml에 두지 않는다 |
+| `application-prod.yml` | 운영 (DB / CORS는 환경변수 주입, JPA `validate`) |
 | `src/test/resources/application-test.yml` | 통합 테스트 (H2 인메모리 DB, JPA `create-drop`) |
 
 - 기본 활성 프로파일은 `application.yml`의 `spring.profiles.active: local`. 운영 배포 시 `SPRING_PROFILES_ACTIVE=prod`로 덮어쓴다.
 - 운영 환경 설정값(DB 접속 정보, 허용 origin 등)은 `${ENV_VAR}` 플레이스홀더로 두고, yml에 평문으로 적지 않는다.
-- MVP 단일 EC2 배포 기간에는 별도 마이그레이션 도구 없이 `application-prod.yml`의 JPA `ddl-auto`를 `update`로 둔다. 공유 환경에서 데이터 삭제 위험이 있으므로 `create-drop`은 사용하지 않는다.
+- 로컬과 운영 PostgreSQL schema의 단일 변경 주체는 Flyway다. JPA `ddl-auto`는 `validate`로 두어 Entity와 migration 결과의 일치 여부만 검사하며, 공유 환경에서 `update`나 `create-drop`으로 schema를 변경하지 않는다.
 - 운영 JWT 서명키는 `JWT_SECRET` 환경변수로 주입한다. 최소 32바이트 이상이어야 하며, 로그/응답/테스트 실패 메시지에 노출하지 않는다.
 - 운영 Worker 내부 API key는 `INTERNAL_API_KEY` 환경변수로 주입한다. 로컬 기본값은 개발 편의를 위한 값이며 운영에서는 반드시 별도 secret을 사용한다.
 - 로컬 실행 시 `application.yml`이 `apps/CatchHole-Backend/.env`를 optional import한다. AWS/S3 같은 로컬 비밀값은 `.env`에 둘 수 있지만, `.env`는 커밋하지 않는다.
@@ -50,11 +50,22 @@
 - 운영 환경은 Caddy `reverse_proxy` 뒤에서 실행되므로 `application-prod.yml`에 `server.forward-headers-strategy: framework`를 둔다. Swagger/OpenAPI server URL과 보안/리다이렉트 처리가 외부 HTTPS scheme/host를 기준으로 동작하게 하기 위함이다.
 - **로컬 DB 접속 정보는 `compose.yaml` 단일 출처로 둔다.** `spring-boot-docker-compose` 의존성이 컨테이너에서 호스트/포트/사용자/비밀번호를 자동 추출해 `ServiceConnection` 빈으로 주입한다. yml에 `spring.datasource.*`를 중복 작성하지 않는다 (그림자 설정 방지).
 
+### Database Migration
+
+- PostgreSQL schema 변경은 `src/main/resources/db/migration`의 Flyway SQL로 관리한다.
+- migration 파일은 `V{순번}__{snake_case_설명}.sql` 형식으로 작성한다.
+- 공유 환경에 한 번이라도 적용된 migration은 수정하거나 삭제하지 않는다. 변경이 필요하면 다음 버전 파일에 `ALTER`, `CREATE`, `DROP`을 누적한다. Flyway checksum과 환경별 schema 이력을 일치시키기 위함이다.
+- 새 Entity나 컬럼을 추가하는 작업은 JPA 매핑과 Flyway migration을 같은 PR에서 변경한다.
+- Python SQLAlchemy 모델은 schema를 생성하지 않고 Flyway가 만든 공유 테이블을 조회·저장하는 매핑으로만 사용한다. 공유 컬럼을 변경하면 Java migration과 Python 매핑의 이름, 타입, nullable 여부를 함께 확인한다.
+- PostgreSQL 전용 migration은 H2 기반 `test` profile에서 실행하지 않는다. migration 자체는 빈 pgvector PostgreSQL에서 실행하고, 이후 JPA `validate` 상태로 애플리케이션 기동까지 확인한다.
+- 최초 V1 기준과 운영 적용 절차는 `docs/database-migration.md`를 따른다.
+
 ### Docker Deployment
 
 - 백엔드 컨테이너 이미지는 루트 `Dockerfile`에서 빌드한다.
 - Dockerfile은 Gradle Wrapper로 `bootJar`를 만드는 JDK 21 빌드 스테이지와 JRE 21 런타임 스테이지를 분리한다. 런타임 컨테이너는 non-root 사용자로 실행한다.
 - 운영 컨테이너는 `SPRING_PROFILES_ACTIVE=prod`와 외부 환경변수로 설정을 주입한다. AWS/S3 자격 증명은 가능하면 EC2 IAM Role을 사용하고, access key를 이미지나 커밋 파일에 넣지 않는다.
+- 로컬과 운영 PostgreSQL은 `pgvector/pgvector:0.8.2-pg16` 이미지로 통일한다. `latest`나 major version만 지정한 가변 태그를 사용하지 않고 PostgreSQL/pgvector 버전을 함께 고정해 로컬·운영의 vector extension 실행 환경을 일치시킨다.
 - 단일 EC2 운영 배포 파일은 `deploy/` 아래에 둔다. `compose.prod.yml`, `Caddyfile`, `.env.example`을 기준으로 서버의 `/opt/catchhole`에 배치하되, 실제 `.env`는 서버에만 두고 커밋하지 않는다.
 - `main` 브랜치에 push되면 `.github/workflows/publish-image.yml`이 GHCR에 `ghcr.io/catchhole-soma/catchhole-backend-java:main`과 short SHA 태그를 발행한다.
 

@@ -210,12 +210,12 @@ upload-batches/{batchId}/{randomUUID}-{originalFilename}
 | 파일 | 역할 |
 | --- | --- |
 | `application.yml` | 공통 기본값과 local 개발 기본값 |
-| `application-local.yml` | 로컬 JPA update, SQL 로그 |
-| `application-prod.yml` | 운영 DB, JWT secret, CORS, cookie secure |
+| `application-local.yml` | 로컬 JPA validate, SQL 로그 |
+| `application-prod.yml` | 운영 DB, JPA validate, JWT secret, CORS, cookie secure |
 | `src/test/resources/application-test.yml` | H2 PostgreSQL mode 통합 테스트 |
 
 ## 이후 작업
 
 - `ADMIN_URLS`가 생기면 경로와 권한 정책을 함께 문서화합니다.
 - S3 object 삭제 실패 시 보상/재시도 정책이 필요해지면 storage 문서를 분리합니다.
-- Flyway/Liquibase 같은 migration 도구 도입 시 ERD와 auditing 기준을 함께 갱신합니다.
+- DB schema 변경은 Flyway migration으로 관리하며 상세 규칙은 [Database Migration](database-migration.md)을 따릅니다.

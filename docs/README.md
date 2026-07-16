@@ -8,7 +8,8 @@
 
 | 문서 | 내용 |
 | --- | --- |
-| [ERD](erd.md) | 현재 JPA Entity 기준 테이블, 관계, 주요 제약 |
+| [ERD](erd.md) | 현재 Flyway schema와 JPA Entity 기준 테이블, 관계, 주요 제약 |
+| [Database Migration](database-migration.md) | Flyway schema 관리 규칙, V1 검증 및 최초 운영 전환 절차 |
 | [Global](global.md) | 공통 응답, 예외 처리, 보안, 설정, 스토리지 기반 구조 |
 | [Auth](auth.md) | 회원가입, 로그인, JWT/refresh token, 세션 API 흐름 |
 | [Work](work.md) | 작품 모델, 소유권 정책, 작품 CRUD API 흐름 |
