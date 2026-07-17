@@ -59,13 +59,13 @@ public class CharacterSettingSchema extends BaseEntity {
     )
     private Work work;
 
-    // SettingCandidate.attributeName을 정규화한 뒤 CharacterFact.factKey로 사용할 canonical key입니다.
-    // 예: "age", "stats.strength", "items.item"
+    // SettingCandidate.attributeName을 해석할 canonical key입니다. exact/alias 매칭에서는 factKey로 사용하고,
+    // pattern 매칭에서는 실제 동적 attributeName을 factKey로 유지합니다. 예: "age", "stats.strength", "items.item"
     @Column(name = "schema_key", nullable = false, length = 100, updatable = false)
     private String schemaKey;
 
-    // exact key와 alias로 매칭되지 않은 동적 속성을 수용하는 nullable pattern입니다. 예: "status.*"
-    // exact → alias → pattern 매칭은 NVM-234에서 구현합니다.
+    // exact key와 alias로 매칭되지 않은 동적 속성을 수용하는 nullable trailing wildcard pattern입니다.
+    // 예: "status.*"
     @Column(name = "attribute_pattern", length = 100)
     private String attributePattern;
 
@@ -78,7 +78,7 @@ public class CharacterSettingSchema extends BaseEntity {
     @Column(name = "fact_type", nullable = false, length = 30)
     private CharacterFactType factType;
 
-    // Worker가 추출해야 하는 값 타입이며, 실제 값 검증은 NVM-234에서 구현합니다.
+    // Worker가 추출해야 하는 값 타입이며, 후보 확정 시 SettingCandidate.valueType과 일치해야 합니다.
     @Enumerated(EnumType.STRING)
     @Column(name = "value_type", nullable = false, length = 30)
     private SettingValueType valueType;
@@ -93,8 +93,8 @@ public class CharacterSettingSchema extends BaseEntity {
     @Column(name = "merge_policy", nullable = false, length = 30)
     private CharacterSettingMergePolicy mergePolicy;
 
-    // schemaKey와 같은 값으로 정규화할 수 있는 문자열 alias 배열입니다.
-    // DB 제약으로 JSON 배열만 허용하며, 비어 있으면 []을 저장합니다.
+    // schemaKey와 같은 값으로 해석할 분류 경로 없는 별칭 문자열 배열입니다.
+    // 후보 비교에 필요한 schemaKey의 분류 경로는 Resolver가 붙이며, 비어 있으면 []을 저장합니다.
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "aliases_json", nullable = false, columnDefinition = "jsonb")
     private JsonNode aliasesJson;
