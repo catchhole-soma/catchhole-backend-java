@@ -10,6 +10,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
@@ -24,6 +26,7 @@ import org.monitoring.catchholebackend.domain.character.type.CharacterSettingMer
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingSchemaSource;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingValueSemantics;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
@@ -83,11 +86,22 @@ class SettingCandidatePromotionServiceTest {
         work = workRepository.save(Work.create(member, "은빛 검사", "판타지", "검사 성장물"));
         characterSettingSchemaRepository.save(settingSchema(
                 null,
+                "age",
+                null,
+                CharacterFactType.AGE,
+                SettingValueType.NUMBER,
+                true,
+                CharacterSettingMergePolicy.REPLACE,
+                "나이"
+        ));
+        characterSettingSchemaRepository.save(settingSchema(
+                null,
                 "level",
                 null,
                 CharacterFactType.LEVEL,
                 SettingValueType.NUMBER,
                 true,
+                CharacterSettingMergePolicy.REPLACE,
                 "레벨"
         ));
         characterSettingSchemaRepository.save(settingSchema(
@@ -97,7 +111,18 @@ class SettingCandidatePromotionServiceTest {
                 CharacterFactType.STAT,
                 SettingValueType.NUMBER,
                 true,
+                CharacterSettingMergePolicy.REPLACE,
                 "힘"
+        ));
+        characterSettingSchemaRepository.save(settingSchema(
+                null,
+                "stats.agility",
+                null,
+                CharacterFactType.STAT,
+                SettingValueType.NUMBER,
+                true,
+                CharacterSettingMergePolicy.REPLACE,
+                "민첩"
         ));
         characterSettingSchemaRepository.save(settingSchema(
                 work,
@@ -105,7 +130,26 @@ class SettingCandidatePromotionServiceTest {
                 "skill.*",
                 CharacterFactType.SKILL,
                 SettingValueType.JSON,
-                true
+                true,
+                CharacterSettingMergePolicy.UPSERT_BY_NAME
+        ));
+        characterSettingSchemaRepository.save(settingSchema(
+                work,
+                "items.item",
+                "item.*",
+                CharacterFactType.ITEM,
+                SettingValueType.JSON,
+                true,
+                CharacterSettingMergePolicy.UPSERT_BY_NAME
+        ));
+        characterSettingSchemaRepository.save(settingSchema(
+                work,
+                "statuses.status",
+                "status.*",
+                CharacterFactType.STATUS,
+                SettingValueType.JSON,
+                true,
+                CharacterSettingMergePolicy.UPSERT_BY_NAME
         ));
     }
 
@@ -185,7 +229,160 @@ class SettingCandidatePromotionServiceTest {
         WorkCharacter character = character("아리아");
         CharacterFact currentFact = currentFact(character, CharacterFactType.SKILL, "skill.은월참");
         assertThat(currentFact.getValueJson()).isEqualTo(skillJson);
-        assertThat(character.getSkillsJson()).isEqualTo(skillJson);
+        assertThat(character.getSkillsJson().get("skill.은월참")).isEqualTo(skillJson);
+    }
+
+    @Test
+    @DisplayName("서로 다른 factKey의 current 값을 타입별 JSON object map에 함께 유지한다")
+    void promoteBuildsSnapshotsFromAllCurrentFacts() {
+        Episode episode3 = episode(3);
+        JsonNode skillJson = objectMapper.createObjectNode().put("name", "은월참").put("level", 3);
+        JsonNode itemJson = objectMapper.createObjectNode().put("name", "회복포션").put("quantity", 2);
+        JsonNode statusJson = objectMapper.createObjectNode().put("name", "부상").put("active", true);
+
+        promote(candidate(episode3, "stats.strength", "12"));
+        WorkCharacter character = character("아리아");
+        promote(matchedCandidate(episode3, character, "stats.agility", "8"));
+        promote(matchedCandidate(
+                episode3,
+                character,
+                "skill.은월참",
+                "은월참",
+                SettingValueType.JSON,
+                skillJson
+        ));
+        promote(matchedCandidate(
+                episode3,
+                character,
+                "item.회복포션",
+                "회복포션",
+                SettingValueType.JSON,
+                itemJson
+        ));
+        promote(matchedCandidate(
+                episode3,
+                character,
+                "status.부상",
+                "부상",
+                SettingValueType.JSON,
+                statusJson
+        ));
+
+        assertThat(character.getStatsJson().get("stats.strength")).isEqualTo(valueJson("12"));
+        assertThat(character.getStatsJson().get("stats.agility")).isEqualTo(valueJson("8"));
+        assertThat(character.getSkillsJson().get("skill.은월참")).isEqualTo(skillJson);
+        assertThat(character.getItemsJson().get("item.회복포션")).isEqualTo(itemJson);
+        assertThat(character.getStatusesJson().get("status.부상")).isEqualTo(statusJson);
+    }
+
+    @Test
+    @DisplayName("과거 회차의 같은 JSON factKey를 나중에 확정해도 최신 current 값만 snapshot에 둔다")
+    void promoteKeepsLatestCurrentValueForSameJsonFactKey() {
+        Episode episode3 = episode(3);
+        Episode episode10 = episode(10);
+        JsonNode latestSkill = objectMapper.createObjectNode().put("name", "은월참").put("level", 10);
+        JsonNode olderSkill = objectMapper.createObjectNode().put("name", "은월참").put("level", 3);
+
+        promote(candidate(episode10, "skill.은월참", "은월참", SettingValueType.JSON, latestSkill));
+        WorkCharacter character = character("아리아");
+        promote(matchedCandidate(
+                episode3,
+                character,
+                "skill.은월참",
+                "은월참",
+                SettingValueType.JSON,
+                olderSkill
+        ));
+
+        assertThat(character.getSkillsJson().get("skill.은월참")).isEqualTo(latestSkill);
+    }
+
+    @Test
+    @DisplayName("다음 confirm에서 legacy JSON snapshot을 전체 current Fact map으로 정규화한다")
+    void promoteNormalizesLegacySnapshotsFromCurrentFacts() {
+        WorkCharacter character = workCharacterRepository.save(WorkCharacter.create(
+                work,
+                "아리아",
+                null,
+                null,
+                null,
+                null,
+                objectMapper.createArrayNode().add(1),
+                objectMapper.createArrayNode().add(2),
+                objectMapper.createArrayNode().add(3),
+                objectMapper.createArrayNode().add(4),
+                null
+        ));
+        JsonNode itemJson = objectMapper.createObjectNode().put("name", "회복포션").put("quantity", 2);
+        CharacterFact itemFact = CharacterFact.create(
+                character,
+                null,
+                CharacterFactType.ITEM,
+                "item.회복포션",
+                "회복포션",
+                "회복포션",
+                itemJson,
+                null,
+                UUID.randomUUID(),
+                null,
+                new BigDecimal("0.8000"),
+                null
+        );
+        itemFact.markCurrent();
+        characterFactRepository.saveAndFlush(itemFact);
+
+        promote(matchedCandidate(episode(3), character, "level", "5"));
+
+        assertThat(character.getStatsJson()).isNull();
+        assertThat(character.getSkillsJson()).isNull();
+        assertThat(character.getItemsJson().get("item.회복포션")).isEqualTo(itemJson);
+        assertThat(character.getStatusesJson()).isNull();
+    }
+
+    @Test
+    @DisplayName("AGE와 LEVEL current Fact는 기존 일반 컬럼 snapshot을 계속 갱신한다")
+    void promoteKeepsAgeAndLevelSnapshots() {
+        Episode episode3 = episode(3);
+
+        promote(candidate(episode3, "age", "17"));
+        WorkCharacter character = character("아리아");
+        promote(matchedCandidate(episode3, character, "level", "5"));
+
+        assertThat(character.getCurrentAge()).isEqualTo(17);
+        assertThat(character.getCurrentLevel()).isEqualTo(5);
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = CharacterSettingMergePolicy.class,
+            names = {"UPSERT_BY_SLOT", "APPEND", "DERIVED"}
+    )
+    @DisplayName("미지원 merge policy는 캐릭터와 Fact 생성 전에 거절한다")
+    void promoteRejectsUnsupportedMergePolicyWithoutSideEffects(CharacterSettingMergePolicy mergePolicy) {
+        characterSettingSchemaRepository.save(settingSchema(
+                work,
+                "status.log",
+                null,
+                CharacterFactType.STATUS,
+                SettingValueType.JSON,
+                true,
+                mergePolicy
+        ));
+        SettingCandidate candidate = candidate(
+                episode(3),
+                "status.log",
+                "기록",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode().put("name", "기록")
+        );
+
+        assertThatThrownBy(() -> promote(candidate))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_MERGE_POLICY_UNSUPPORTED));
+
+        assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId())).isEmpty();
+        assertThat(characterFactRepository.findAll()).isEmpty();
     }
 
     @Test
@@ -381,16 +578,86 @@ class SettingCandidatePromotionServiceTest {
     }
 
     @Test
-    @DisplayName("UNRESOLVED 후보 이름이 기존 캐릭터와 같으면 확정 반영을 거절한다")
-    void promoteRejectsUnresolvedCandidateWithDuplicatedCharacterName() {
+    @DisplayName("UNRESOLVED 후보 이름과 같은 활성 캐릭터가 있으면 해당 캐릭터를 재사용한다")
+    void promoteReusesActiveCharacterWithSameName() {
         Episode episode3 = episode(3);
-        workCharacterRepository.save(workCharacter("아리아"));
+        WorkCharacter existingCharacter = workCharacterRepository.save(workCharacter("아리아"));
         SettingCandidate candidate = candidate(episode3, "level", "5");
+
+        promote(candidate);
+
+        assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId()))
+                .containsExactly(existingCharacter);
+        assertThat(candidate.getMatchedCharacterId()).isEqualTo(existingCharacter.getId());
+        assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        CharacterFact fact = currentFact(existingCharacter, CharacterFactType.LEVEL, "level");
+        assertThat(fact.getFactValue()).isEqualTo("5");
+        assertThat(fact.getSettingCandidate().getId()).isEqualTo(candidate.getId());
+    }
+
+    @Test
+    @DisplayName("UNRESOLVED 후보 이름과 같은 보관 캐릭터가 있으면 확정 반영을 거절한다")
+    void promoteRejectsArchivedCharacterWithSameName() {
+        WorkCharacter archivedCharacter = workCharacterRepository.save(workCharacter("아리아"));
+        archivedCharacter.archive();
+        SettingCandidate candidate = candidate(episode(3), "level", "5");
 
         assertThatThrownBy(() -> promote(candidate))
                 .isInstanceOfSatisfying(AppException.class, exception ->
                         assertThat(exception.getResultCode())
                                 .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED));
+
+        assertThat(characterFactRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("신규 캐릭터 확정은 같은 이름의 미해소 형제 후보를 연결하고 이후 설정을 병합한다")
+    void promoteMatchesPendingUnresolvedSiblingsForNewCharacter() {
+        Episode episode3 = episode(3);
+        SettingCandidate first = candidate(
+                episode3,
+                "아리아",
+                null,
+                SettingCandidateMatchStatus.UNRESOLVED,
+                "stats.strength",
+                "12"
+        );
+        SettingCandidate sibling = candidate(
+                episode3,
+                "  아리아  ",
+                null,
+                SettingCandidateMatchStatus.UNRESOLVED,
+                "stats.agility",
+                "8"
+        );
+        SettingCandidate ambiguous = candidate(
+                episode3,
+                "아리아",
+                null,
+                SettingCandidateMatchStatus.AMBIGUOUS,
+                "level",
+                "5"
+        );
+
+        promote(first);
+
+        WorkCharacter character = character("아리아");
+        assertThat(first.getMatchedCharacterId()).isEqualTo(character.getId());
+        assertThat(first.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(first.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+        assertThat(sibling.getEntityName()).isEqualTo("아리아");
+        assertThat(sibling.getMatchedCharacterId()).isEqualTo(character.getId());
+        assertThat(sibling.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(sibling.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+        assertThat(ambiguous.getMatchedCharacterId()).isNull();
+        assertThat(ambiguous.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.AMBIGUOUS);
+
+        promote(sibling);
+
+        assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId()))
+                .containsExactly(character);
+        assertThat(character.getStatsJson().get("stats.strength")).isEqualTo(valueJson("12"));
+        assertThat(character.getStatsJson().get("stats.agility")).isEqualTo(valueJson("8"));
     }
 
     @Test
@@ -470,6 +737,26 @@ class SettingCandidatePromotionServiceTest {
         );
     }
 
+    private SettingCandidate matchedCandidate(
+            Episode episode,
+            WorkCharacter character,
+            String attributeName,
+            String attributeValue,
+            SettingValueType valueType,
+            JsonNode valueJson
+    ) {
+        return candidate(
+                episode,
+                character.getName(),
+                character.getId(),
+                SettingCandidateMatchStatus.MATCHED,
+                attributeName,
+                attributeValue,
+                valueType,
+                valueJson
+        );
+    }
+
     private SettingCandidate candidate(
             Episode episode,
             String entityName,
@@ -477,6 +764,28 @@ class SettingCandidatePromotionServiceTest {
             SettingCandidateMatchStatus matchStatus,
             String attributeName,
             String attributeValue
+    ) {
+        return candidate(
+                episode,
+                entityName,
+                matchedCharacterId,
+                matchStatus,
+                attributeName,
+                attributeValue,
+                SettingValueType.NUMBER,
+                valueJson(attributeValue)
+        );
+    }
+
+    private SettingCandidate candidate(
+            Episode episode,
+            String entityName,
+            UUID matchedCharacterId,
+            SettingCandidateMatchStatus matchStatus,
+            String attributeName,
+            String attributeValue,
+            SettingValueType valueType,
+            JsonNode valueJson
     ) {
         return settingCandidateRepository.save(SettingCandidate.create(
                 work,
@@ -490,8 +799,8 @@ class SettingCandidatePromotionServiceTest {
                 matchStatus,
                 attributeName,
                 attributeValue,
-                SettingValueType.NUMBER,
-                valueJson(attributeValue),
+                valueType,
+                valueJson,
                 objectMapper.createArrayNode(),
                 new BigDecimal("0.8000"),
                 objectMapper.createObjectNode().put("raw_value", attributeValue)
@@ -539,6 +848,28 @@ class SettingCandidatePromotionServiceTest {
             boolean enabled,
             String... aliases
     ) {
+        return settingSchema(
+                schemaWork,
+                schemaKey,
+                attributePattern,
+                factType,
+                valueType,
+                enabled,
+                CharacterSettingMergePolicy.REPLACE,
+                aliases
+        );
+    }
+
+    private CharacterSettingSchema settingSchema(
+            Work schemaWork,
+            String schemaKey,
+            String attributePattern,
+            CharacterFactType factType,
+            SettingValueType valueType,
+            boolean enabled,
+            CharacterSettingMergePolicy mergePolicy,
+            String... aliases
+    ) {
         var aliasesJson = objectMapper.createArrayNode();
         for (String alias : aliases) {
             aliasesJson.add(alias);
@@ -551,7 +882,7 @@ class SettingCandidatePromotionServiceTest {
                 factType,
                 valueType,
                 CharacterSettingValueSemantics.BASE_VALUE,
-                CharacterSettingMergePolicy.REPLACE,
+                mergePolicy,
                 aliasesJson,
                 CharacterSettingSchemaSource.SYSTEM_SEED,
                 enabled

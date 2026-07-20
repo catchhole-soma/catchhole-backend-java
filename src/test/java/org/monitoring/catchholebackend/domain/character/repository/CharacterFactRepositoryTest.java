@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
@@ -13,8 +14,11 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
+import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
+import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
+import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
@@ -50,6 +54,12 @@ class CharacterFactRepositoryTest {
 
     @Autowired
     private CharacterFactRepository characterFactRepository;
+
+    @Autowired
+    private SettingCandidateRepository settingCandidateRepository;
+
+    @Autowired
+    private EntityManager entityManager;
 
     private Work work;
     private Episode episode;
@@ -103,9 +113,27 @@ class CharacterFactRepositoryTest {
                 .put("name", "검은단검")
                 .put("quantity", 1)
                 .put("state", "OWNED");
+        JsonNode evidenceSpans = objectMapper.createArrayNode()
+                .add(objectMapper.createObjectNode().put("quote", "아리아는 검은단검을 집어 들었다."));
+        SettingCandidate settingCandidate = settingCandidateRepository.save(SettingCandidate.create(
+                work,
+                episode,
+                sourceChunkId,
+                analysisJob,
+                SettingEntityType.CHARACTER,
+                "아리아",
+                "item.검은단검",
+                "검은단검",
+                SettingValueType.JSON,
+                valueJson,
+                evidenceSpans,
+                new BigDecimal("0.9100"),
+                objectMapper.createObjectNode()
+        ));
 
         CharacterFact fact = CharacterFact.create(
                 character,
+                settingCandidate,
                 CharacterFactType.ITEM,
                 "item.검은단검.quantity",
                 "1",
@@ -118,11 +146,15 @@ class CharacterFactRepositoryTest {
                 3
         );
         fact.markCurrent();
-        CharacterFact saved = characterFactRepository.save(fact);
+        CharacterFact saved = characterFactRepository.saveAndFlush(fact);
+        UUID savedFactId = saved.getId();
+        entityManager.clear();
 
-        CharacterFact found = characterFactRepository.findById(saved.getId()).orElseThrow();
+        CharacterFact found = characterFactRepository.findById(savedFactId).orElseThrow();
 
         assertThat(found.getWorkCharacter().getId()).isEqualTo(character.getId());
+        assertThat(found.getSettingCandidate().getId()).isEqualTo(settingCandidate.getId());
+        assertThat(found.getSettingCandidate().getEvidenceSpans()).isEqualTo(evidenceSpans);
         assertThat(found.getFactType()).isEqualTo(CharacterFactType.ITEM);
         assertThat(found.getFactKey()).isEqualTo("item.검은단검.quantity");
         assertThat(found.getFactValue()).isEqualTo("1");
@@ -213,6 +245,7 @@ class CharacterFactRepositoryTest {
         characterFactRepository.save(fact(CharacterFactType.LEVEL, "level", "23", "23", 3));
         characterFactRepository.save(CharacterFact.create(
                 otherCharacter,
+                null,
                 CharacterFactType.LEVEL,
                 "level",
                 "99",
@@ -246,6 +279,7 @@ class CharacterFactRepositoryTest {
     ) {
         return CharacterFact.create(
                 character,
+                null,
                 factType,
                 factKey,
                 factValue,

@@ -447,6 +447,66 @@ class SettingCandidateControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("같은 이름의 신규 캐릭터 후보를 차례로 확정하면 한 캐릭터에 함께 반영한다")
+    void confirmSettingCandidatesWithSameNewCharacterUsesSingleCharacter() throws Exception {
+        characterSettingSchemaRepository.save(settingSchema(
+                null,
+                "level",
+                null,
+                CharacterFactType.LEVEL,
+                SettingValueType.NUMBER,
+                "레벨"
+        ));
+        SettingCandidate ageCandidate = settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "age",
+                "17"
+        ));
+        SettingCandidate levelCandidate = settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "  아리아  ",
+                "level",
+                "5"
+        ));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
+                                work.getId(),
+                                ageCandidate.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
+
+        WorkCharacter character = workCharacterRepository.findByWorkIdAndName(work.getId(), "아리아").orElseThrow();
+        SettingCandidate linkedSibling = settingCandidateRepository.findById(levelCandidate.getId()).orElseThrow();
+        assertThat(linkedSibling.getEntityName()).isEqualTo("아리아");
+        assertThat(linkedSibling.getMatchedCharacterId()).isEqualTo(character.getId());
+        assertThat(linkedSibling.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(linkedSibling.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
+                                work.getId(),
+                                levelCandidate.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
+
+        WorkCharacter updatedCharacter = workCharacterRepository.findById(character.getId()).orElseThrow();
+        List<WorkCharacter> characters = workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId());
+        assertThat(characters).hasSize(1);
+        assertThat(characters.getFirst().getId()).isEqualTo(updatedCharacter.getId());
+        assertThat(updatedCharacter.getCurrentAge()).isEqualTo(17);
+        assertThat(updatedCharacter.getCurrentLevel()).isEqualTo(5);
+        assertThat(characterFactRepository.findAll()).hasSize(2);
+    }
+
+    @Test
     @DisplayName("활성 schema와 매칭되지 않는 후보 확정은 rollback하고 부수효과를 남기지 않는다")
     void confirmSettingCandidateRollsBackUnmatchedSchema() throws Exception {
         SettingCandidate candidate = settingCandidateRepository.save(candidate(
@@ -497,6 +557,45 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_VALUE_TYPE_MISMATCH"));
+
+        SettingCandidate saved = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(saved.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+        assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId())).isEmpty();
+        assertThat(characterFactRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("미지원 merge policy 후보 확정은 409로 rollback하고 부수효과를 남기지 않는다")
+    void confirmSettingCandidateRollsBackUnsupportedMergePolicy() throws Exception {
+        characterSettingSchemaRepository.save(settingSchema(
+                work,
+                "status.log",
+                null,
+                CharacterFactType.STATUS,
+                SettingValueType.JSON,
+                CharacterSettingMergePolicy.APPEND
+        ));
+        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "status.log",
+                "기록",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode().put("name", "기록")
+        ));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
+                                work.getId(),
+                                candidate.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code")
+                        .value("SETTING_CANDIDATE_MERGE_POLICY_UNSUPPORTED"));
 
         SettingCandidate saved = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
         assertThat(saved.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
@@ -851,6 +950,26 @@ class SettingCandidateControllerIntegrationTest {
             SettingValueType valueType,
             String... aliases
     ) {
+        return settingSchema(
+                schemaWork,
+                schemaKey,
+                attributePattern,
+                factType,
+                valueType,
+                CharacterSettingMergePolicy.REPLACE,
+                aliases
+        );
+    }
+
+    private CharacterSettingSchema settingSchema(
+            Work schemaWork,
+            String schemaKey,
+            String attributePattern,
+            CharacterFactType factType,
+            SettingValueType valueType,
+            CharacterSettingMergePolicy mergePolicy,
+            String... aliases
+    ) {
         var aliasesJson = objectMapper.createArrayNode();
         for (String alias : aliases) {
             aliasesJson.add(alias);
@@ -863,7 +982,7 @@ class SettingCandidateControllerIntegrationTest {
                 factType,
                 valueType,
                 CharacterSettingValueSemantics.BASE_VALUE,
-                CharacterSettingMergePolicy.REPLACE,
+                mergePolicy,
                 aliasesJson,
                 CharacterSettingSchemaSource.SYSTEM_SEED,
                 true
