@@ -33,6 +33,7 @@ public class SettingCandidatePromotionMapper {
     ) {
         return CharacterFact.create(
                 character,
+                candidate,
                 factType,
                 factKey,
                 normalizeFactValue(candidate.getAttributeValue()),

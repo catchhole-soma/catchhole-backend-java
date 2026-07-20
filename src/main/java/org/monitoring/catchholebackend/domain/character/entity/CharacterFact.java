@@ -33,6 +33,7 @@ import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
         indexes = {
                 @Index(name = "idx_character_facts_character_current", columnList = "character_id,is_current"),
                 @Index(name = "idx_character_facts_character_key", columnList = "character_id,fact_type,fact_key"),
+                @Index(name = "idx_character_facts_setting_candidate", columnList = "setting_candidate_id"),
                 @Index(name = "idx_character_facts_source_episode", columnList = "source_episode_id"),
                 @Index(name = "idx_character_facts_job", columnList = "extracted_by_job_id")
         }
@@ -54,11 +55,20 @@ public class CharacterFact extends BaseEntity {
     )
     private WorkCharacter workCharacter;
 
+    // confirm 근거 후보입니다. V3 이전 Fact는 null이며, 원문 인용은 연결된 후보의 evidenceSpans에서 조회합니다.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(
+            name = "setting_candidate_id",
+            updatable = false,
+            foreignKey = @ForeignKey(name = "fk_character_facts_setting_candidate")
+    )
+    private SettingCandidate settingCandidate;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "fact_type", nullable = false, length = 30)
     private CharacterFactType factType;
 
-    // 예: "age", "level", "strength", "skill.흑염.level", "item.검은단검.quantity"
+    // 예: "age", "level", "stats.strength", "skill.흑염", "item.검은단검"
     @Column(name = "fact_key", nullable = false, length = 150)
     private String factKey;
 
@@ -106,6 +116,7 @@ public class CharacterFact extends BaseEntity {
 
     private CharacterFact(
             WorkCharacter workCharacter,
+            SettingCandidate settingCandidate,
             CharacterFactType factType,
             String factKey,
             String factValue,
@@ -118,6 +129,7 @@ public class CharacterFact extends BaseEntity {
             Integer effectiveFromEpisodeNo
     ) {
         this.workCharacter = workCharacter;
+        this.settingCandidate = settingCandidate;
         this.factType = factType;
         this.factKey = factKey;
         this.factValue = factValue;
@@ -133,6 +145,7 @@ public class CharacterFact extends BaseEntity {
 
     public static CharacterFact create(
             WorkCharacter workCharacter,
+            SettingCandidate settingCandidate,
             CharacterFactType factType,
             String factKey,
             String factValue,
@@ -146,6 +159,7 @@ public class CharacterFact extends BaseEntity {
     ) {
         return new CharacterFact(
                 workCharacter,
+                settingCandidate,
                 factType,
                 factKey,
                 factValue,
