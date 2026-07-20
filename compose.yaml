@@ -7,3 +7,5 @@ services:
       - 'POSTGRES_USER=myuser'
     ports:
       - '15432:5432'
+    labels:
+      org.springframework.boot.service-connection: postgres
