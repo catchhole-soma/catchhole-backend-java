@@ -241,14 +241,18 @@ domain/<domain>
 - 후보 confirm의 schema 해석은 `domain/character/processor/SettingCandidateSchemaResolver`가 담당한다. 활성 전역/현재 작품 schema 전체에서 앞뒤 공백을 제거하고 대소문자를 유지한 채 schemaKey 정확 일치 → 별칭 → 마지막이 `.*`로 끝나는 속성 패턴 순으로 매칭한다. 같은 단계에서 여러 schema가 일치하면 임의 선택하지 않고 오류로 거절한다.
 - `aliases_json`에는 분류 경로가 없는 별칭 문자열만 저장한다. 후보 속성명은 별칭 자체 또는 `schemaKey`와 같은 분류 경로를 붙인 값만 정확히 비교하며, 다른 분류 경로·부분 문자열·대소문자 변환·fuzzy/LLM 매칭을 허용하지 않는다.
 - exact/alias 매칭은 canonical `schemaKey`, pattern 매칭은 trim한 원본 `attributeName`을 `CharacterFact.factKey`로 사용한다. `CharacterFact.factType`은 matched schema에서 가져온다.
-- matched schema와 `SettingCandidate`의 `SettingValueType` enum이 같은지 검증한 뒤에만 캐릭터 조회/생성과 `CharacterFact` 저장을 진행한다. 매칭 없음·복수 매칭·타입 불일치는 confirm 트랜잭션을 롤백해 후보 상태와 캐릭터 설정에 부수효과를 남기지 않는다.
+- matched schema와 `SettingCandidate`의 `SettingValueType` enum이 같은지, merge policy가 현재 지원하는 `REPLACE` 또는 `UPSERT_BY_NAME`인지 검증한 뒤에만 캐릭터 조회/생성과 `CharacterFact` 저장을 진행한다. 매칭 없음·복수 매칭·타입 불일치·미지원 정책은 confirm 트랜잭션을 롤백해 후보 상태와 캐릭터 설정에 부수효과를 남기지 않는다.
 - 적용된 registry seed의 승격이나 alias 수정이 필요하면 기존 Flyway migration을 수정하지 않고 다음 migration에서 변경한다. 환경별 checksum과 schema 해석 이력을 보존하기 위함이다.
 - `SettingCandidate` 생성은 Python AI Worker가 담당하고, Spring API는 사용자 검토를 위한 조회/수정부터 담당한다. 후보 생성 API를 Spring에 추가해야 할 때는 Worker 저장 책임을 함께 재검토한다.
 - `SettingCandidate` 수정은 `PENDING_REVIEW` 상태에서만 허용한다. 확정/무시 이후 수정은 `CharacterFact` 반영 정책과 동기화 문제가 생기므로 별도 정책이 정해질 때까지 막는다.
 - `SettingCandidate` 확정/무시는 POST action API로 처리한다. 처음 `CONFIRMED`로 전환되는 후보는 `CharacterFact`로 저장하고 `WorkCharacter` 현재 스냅샷을 갱신한다. 동일 상태 재호출은 성공으로 처리하되 `CharacterFact`를 중복 생성하지 않고, `CONFIRMED`와 `DISMISSED` 사이의 반대 전이는 상태 충돌로 거절한다.
+- `UNRESOLVED` 캐릭터 후보를 confirm할 때 같은 작품의 trim 후 exact-name 활성 캐릭터가 있으면 재사용하고, 없으면 새로 생성한다. 결정된 캐릭터는 확정 후보와 같은 작품·이름의 `PENDING_REVIEW + UNRESOLVED + CHARACTER` 형제 후보에 `MATCHED`로 연결한다. `AMBIGUOUS`와 이미 검토된 후보는 자동 변경하지 않으며, 조회-생성 구간은 작품 row의 pessimistic write lock으로 직렬화한다.
+- confirm으로 생성하는 `CharacterFact`는 `setting_candidate_id` FK로 원본 `SettingCandidate`를 연결하고, 구체적인 원문 인용은 후보의 `evidence_spans`에서 조회한다. 기존 Fact는 추정 backfill하지 않고 `NULL`로 유지하며, 근거 JSON을 Fact에 중복 저장하지 않는다.
 - `SettingCandidate` 확정 반영처럼 후보/요청 데이터를 저장용 Entity로 변환하는 코드는 service에서 `Entity.create()` 파라미터를 직접 조립하지 말고 mapper의 `toEntity` 계열 메서드로 분리한다. service는 권한 확인, 조회, 트랜잭션 흐름, 저장 호출, 도메인 메서드 조율에 집중한다.
 - `CharacterFact` current 여부와 `WorkCharacter` 스냅샷은 우선 `Episode.episodeNo` 기준으로 계산한다. episode가 없는 fact는 current 우선순위를 가장 낮게 보고, 같은 회차의 같은 key는 나중에 생성된 fact를 current로 둔다. 작중 시간 정렬은 AI Worker의 시간 메타데이터 정책이 정해진 뒤 확장한다.
-- 현재 `WorkCharacter` JSON snapshot은 여러 `factKey`를 누적 merge하지 않고, 선택된 current fact의 `valueJson`으로 교체한다. 스킬/아이템/상태처럼 여러 key가 공존하는 snapshot 누적 정책은 NVM-233에서 map/array 구조와 삭제 표현을 정한 뒤 확장한다.
+- 기존 `MATCHED` 캐릭터에 후보를 반영할 때는 해당 `WorkCharacter`를 pessimistic write lock으로 조회한 뒤 Fact current 재선정과 snapshot 재구성을 같은 트랜잭션에서 수행한다. 서로 다른 factKey의 동시 confirm이 snapshot을 덮어쓰지 않게 하기 위함이다.
+- `WorkCharacter.statsJson`, `skillsJson`, `itemsJson`, `statusesJson`은 nullable한 `factKey -> current CharacterFact.valueJson` object map이다. confirm마다 전체 current Fact로 네 컬럼을 일괄 재구성하며, 빈 그룹은 `null`로 둔다. `REPLACE`와 `UPSERT_BY_NAME` 모두 factKey entry 전체를 교체하고 `valueJson.name`은 식별자로 사용하지 않는다. object deep merge, 삭제/비활성 표현과 나머지 merge policy는 NVM-229 후속 정책으로 둔다.
+- 별도 migration이나 일괄 backfill 없이, 다음 성공 confirm에서 전체 current Fact를 기준으로 기존 JSON snapshot을 map 또는 `null` 계약에 맞게 정규화한다.
 - `WorkCharacter.firstAppearanceEpisodeId`는 확정 순서가 아니라 가장 이른 업로드 회차 기준으로 유지한다.
 - 화면 표시, 검색, 비교에 자주 쓰는 캐릭터 이름, 역할, 현재 나이, 현재 레벨은 일반 컬럼으로 둔다.
 - 검토 상태는 `SettingCandidate`에만 둔다. `WorkCharacter`와 `CharacterFact`는 사용자가 후보를 승인한 뒤 저장되는 대표 설정과 설정 이력이므로 별도 review status를 두지 않는다.

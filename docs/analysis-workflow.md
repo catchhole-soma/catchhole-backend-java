@@ -40,7 +40,7 @@ flowchart TD
     L --> M["AnalysisJob SUCCEEDED"]
 ```
 
-현재 구현에서 Spring은 `setting_candidates` 생성 API를 제공하지 않습니다. 후보 생성은 Worker의 DB 직접 저장 흐름이며, Spring은 생성된 후보의 조회/수정/확정/무시와 `AnalysisJob` 상태 전이를 담당합니다. Claim의 `characterSettingSchemas`는 Worker에 전달되는 schema hint이고, Spring Backend가 사용자 confirm 시 활성 schema를 schemaKey 정확 일치 → 별칭 → 마지막이 `.*`로 끝나는 속성 패턴 순으로 최종 매칭하고 후보/schema의 `SettingValueType`을 검증합니다. Worker가 hint를 실제 추출에 사용하는 방식과 Worker 측 schema 매칭·값 검증은 현재 범위에서 제외합니다.
+현재 구현에서 Spring은 `setting_candidates` 생성 API를 제공하지 않습니다. 후보 생성은 Worker의 DB 직접 저장 흐름이며, Spring은 생성된 후보의 조회/수정/확정/무시와 `AnalysisJob` 상태 전이를 담당합니다. Claim의 `characterSettingSchemas`는 Worker에 전달되는 schema hint이고, 동반 AI Worker 변경은 이 hint를 실제 추출 prompt의 canonical key, alias, pattern, value type 지침으로 사용합니다. Spring Backend는 사용자 confirm 시 schemaKey 정확 일치 → 별칭 → 마지막이 `.*`로 끝나는 속성 패턴 순으로 최종 매칭하고 후보/schema의 `SettingValueType`과 merge policy를 검증합니다. 미지원 정책은 부수효과 전에 거절하며, 검증된 Fact는 `setting_candidate_id`로 확정 후보를 연결해 `evidence_spans`를 역추적할 수 있게 합니다. 이후 episodeNo 기준 current를 재선정하고 `factKey -> current valueJson` object map snapshot으로 반영합니다.
 
 ## Notion 기준 전체 분석 흐름
 
@@ -330,6 +330,7 @@ Notion 기준 `AnalysisJob.status`
 
 - adjacent chunk fallback으로 `나`, `그`, `그녀` 같은 지칭어 후보를 해소한 뒤 `matchStatus` 품질을 높입니다.
 - `MATCHED`, `UNRESOLVED`, `AMBIGUOUS`별 Spring confirm 처리 정책은 `docs/character.md`의 캐릭터 매칭 상태 기반 confirm 정책을 따릅니다.
+- Spring은 `UNRESOLVED` 후보의 첫 confirm에서 trim 후 exact-name 활성 캐릭터를 재사용하거나 새 캐릭터를 생성하고, 같은 작품·이름의 `PENDING_REVIEW + UNRESOLVED + CHARACTER` 후보를 모두 해당 캐릭터에 `MATCHED`로 연결합니다. 같은 분석 claim에서 신규 캐릭터의 속성이 여러 후보로 생성되어도 이후 confirm이 한 캐릭터로 모이게 하기 위한 보정입니다.
 - `AMBIGUOUS` 후보는 사용자가 character-match API로 `MATCHED` 또는 `UNRESOLVED` 상태로 해소한 뒤 confirm합니다.
 
 ## 후속 LLM 전처리와 검수 확장
