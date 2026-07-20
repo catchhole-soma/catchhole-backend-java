@@ -107,7 +107,7 @@ public class SettingCandidate extends BaseEntity {
     @Column(name = "match_status", nullable = false, length = 30)
     private SettingCandidateMatchStatus matchStatus;
 
-    // 예: "level", "stats", "skills", "items", "current_status"
+    // 예: "level", "stats.strength", "skill.은월참", "item.화염검", "status.악령_깃들임"
     @Column(name = "attribute_name", nullable = false, length = 100)
     private String attributeName;
 

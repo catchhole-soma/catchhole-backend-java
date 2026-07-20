@@ -40,7 +40,7 @@ flowchart TD
     L --> M["AnalysisJob SUCCEEDED"]
 ```
 
-현재 구현에서 Spring은 `setting_candidates` 생성 API를 제공하지 않습니다. 후보 생성은 Worker의 DB 직접 저장 흐름이며, Spring은 생성된 후보의 조회/수정/확정/무시와 `AnalysisJob` 상태 전이를 담당합니다. Claim은 `characterSettingSchemas`를 전달하지만 exact → alias → pattern 매칭과 값 검증은 NVM-234의 Python Worker 후속 범위입니다.
+현재 구현에서 Spring은 `setting_candidates` 생성 API를 제공하지 않습니다. 후보 생성은 Worker의 DB 직접 저장 흐름이며, Spring은 생성된 후보의 조회/수정/확정/무시와 `AnalysisJob` 상태 전이를 담당합니다. Claim의 `characterSettingSchemas`는 Worker에 전달되는 schema hint이고, Spring Backend가 사용자 confirm 시 활성 schema를 schemaKey 정확 일치 → 별칭 → 마지막이 `.*`로 끝나는 속성 패턴 순으로 최종 매칭하고 후보/schema의 `SettingValueType`을 검증합니다. Worker가 hint를 실제 추출에 사용하는 방식과 Worker 측 schema 매칭·값 검증은 현재 범위에서 제외합니다.
 
 ## Notion 기준 전체 분석 흐름
 

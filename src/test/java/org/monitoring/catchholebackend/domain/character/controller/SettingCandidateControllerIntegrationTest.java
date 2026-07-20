@@ -21,12 +21,17 @@ import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRep
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
+import org.monitoring.catchholebackend.domain.character.type.CharacterSettingMergePolicy;
+import org.monitoring.catchholebackend.domain.character.type.CharacterSettingSchemaSource;
+import org.monitoring.catchholebackend.domain.character.type.CharacterSettingValueSemantics;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
@@ -86,6 +91,9 @@ class SettingCandidateControllerIntegrationTest {
     private CharacterFactRepository characterFactRepository;
 
     @Autowired
+    private CharacterSettingSchemaRepository characterSettingSchemaRepository;
+
+    @Autowired
     private JwtTokenProvider jwtTokenProvider;
 
     private Member member;
@@ -105,6 +113,7 @@ class SettingCandidateControllerIntegrationTest {
         episodeRepository.deleteAll();
         uploadFileRepository.deleteAll();
         uploadBatchRepository.deleteAll();
+        characterSettingSchemaRepository.deleteAll();
         workRepository.deleteAll();
         memberRepository.deleteAll();
 
@@ -137,6 +146,14 @@ class SettingCandidateControllerIntegrationTest {
                 null,
                 episode,
                 AnalysisJobType.SETTING_EXTRACTION
+        ));
+        characterSettingSchemaRepository.save(settingSchema(
+                null,
+                "age",
+                null,
+                CharacterFactType.AGE,
+                SettingValueType.NUMBER,
+                "나이"
         ));
         accessToken = jwtTokenProvider.generateAccessToken(member);
     }
@@ -430,6 +447,99 @@ class SettingCandidateControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("활성 schema와 매칭되지 않는 후보 확정은 rollback하고 부수효과를 남기지 않는다")
+    void confirmSettingCandidateRollsBackUnmatchedSchema() throws Exception {
+        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "profile",
+                "북부 기사단"
+        ));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
+                                work.getId(),
+                                candidate.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_SCHEMA_NOT_MATCHED"));
+
+        SettingCandidate saved = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(saved.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+        assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId())).isEmpty();
+        assertThat(characterFactRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("schema와 값 타입이 다른 후보 확정은 rollback하고 부수효과를 남기지 않는다")
+    void confirmSettingCandidateRollsBackMismatchedValueType() throws Exception {
+        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "age",
+                "열일곱",
+                SettingValueType.STRING,
+                objectMapper.createObjectNode().put("value", "열일곱")
+        ));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
+                                work.getId(),
+                                candidate.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_VALUE_TYPE_MISMATCH"));
+
+        SettingCandidate saved = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(saved.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+        assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId())).isEmpty();
+        assertThat(characterFactRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("전역과 작품 schema가 같은 단계에서 매칭되면 확정을 rollback한다")
+    void confirmSettingCandidateRollsBackAmbiguousSchemaMatch() throws Exception {
+        characterSettingSchemaRepository.save(settingSchema(
+                work,
+                "age",
+                null,
+                CharacterFactType.AGE,
+                SettingValueType.NUMBER
+        ));
+        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "age",
+                "17"
+        ));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
+                                work.getId(),
+                                candidate.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_SCHEMA_MATCH_AMBIGUOUS"));
+
+        SettingCandidate saved = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(saved.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+        assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId())).isEmpty();
+        assertThat(characterFactRepository.findAll()).isEmpty();
+    }
+
+    @Test
     @DisplayName("검토 대기 설정 후보를 무시한다")
     void dismissSettingCandidateDismissesPendingCandidate() throws Exception {
         SettingCandidate candidate = settingCandidateRepository.save(candidate(
@@ -633,6 +743,28 @@ class SettingCandidateControllerIntegrationTest {
             String attributeName,
             String attributeValue
     ) {
+        return candidate(
+                targetWork,
+                targetEpisode,
+                targetAnalysisJob,
+                entityName,
+                attributeName,
+                attributeValue,
+                SettingValueType.NUMBER,
+                valueJson(attributeValue)
+        );
+    }
+
+    private SettingCandidate candidate(
+            Work targetWork,
+            Episode targetEpisode,
+            AnalysisJob targetAnalysisJob,
+            String entityName,
+            String attributeName,
+            String attributeValue,
+            SettingValueType valueType,
+            JsonNode candidateValueJson
+    ) {
         return SettingCandidate.create(
                 targetWork,
                 targetEpisode,
@@ -645,8 +777,8 @@ class SettingCandidateControllerIntegrationTest {
                 SettingCandidateMatchStatus.UNRESOLVED,
                 attributeName,
                 attributeValue,
-                SettingValueType.NUMBER,
-                valueJson(attributeValue),
+                valueType,
+                candidateValueJson,
                 evidenceSpans(),
                 new BigDecimal("0.8000"),
                 rawAiResultJson(attributeValue)
@@ -709,6 +841,33 @@ class SettingCandidateControllerIntegrationTest {
     private JsonNode rawAiResultJson(String value) {
         return objectMapper.createObjectNode()
                 .put("raw_value", value);
+    }
+
+    private CharacterSettingSchema settingSchema(
+            Work schemaWork,
+            String schemaKey,
+            String attributePattern,
+            CharacterFactType factType,
+            SettingValueType valueType,
+            String... aliases
+    ) {
+        var aliasesJson = objectMapper.createArrayNode();
+        for (String alias : aliases) {
+            aliasesJson.add(alias);
+        }
+        return CharacterSettingSchema.create(
+                schemaWork,
+                schemaKey,
+                attributePattern,
+                schemaKey,
+                factType,
+                valueType,
+                CharacterSettingValueSemantics.BASE_VALUE,
+                CharacterSettingMergePolicy.REPLACE,
+                aliasesJson,
+                CharacterSettingSchemaSource.SYSTEM_SEED,
+                true
+        );
     }
 
     private String bearer(String accessToken) {

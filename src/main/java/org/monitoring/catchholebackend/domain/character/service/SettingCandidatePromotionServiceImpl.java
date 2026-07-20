@@ -5,11 +5,15 @@ import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.mapper.SettingCandidatePromotionMapper;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaMatch;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
@@ -25,15 +29,25 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
 
     private final WorkCharacterRepository workCharacterRepository;
     private final CharacterFactRepository characterFactRepository;
+    private final CharacterSettingSchemaRepository characterSettingSchemaRepository;
     private final EpisodeRepository episodeRepository;
     private final SettingCandidatePromotionMapper settingCandidatePromotionMapper;
+    private final SettingCandidateSchemaResolver settingCandidateSchemaResolver;
 
     @Override
     @Transactional
     public void promote(SettingCandidate candidate) {
-        // 지원하지 않는 속성은 캐릭터 생성 전에 거절해 부수효과를 남기지 않는다.
-        String factKey = settingCandidatePromotionMapper.toFactKey(candidate);
-        CharacterFactType factType = settingCandidatePromotionMapper.toFactType(factKey);
+        List<CharacterSettingSchema> schemas =
+                characterSettingSchemaRepository.findAllActiveForWork(candidate.getWork().getId());
+        SettingCandidateSchemaMatch schemaMatch = settingCandidateSchemaResolver.resolve(
+                candidate.getAttributeName(),
+                candidate.getValueType(),
+                schemas
+        );
+        String factKey = schemaMatch.factKey();
+        CharacterFactType factType = schemaMatch.matchedSchema().getFactType();
+
+        // schema 매칭과 값 타입 검증을 통과한 후보만 캐릭터 생성과 Fact 저장으로 진행한다.
         WorkCharacter character = resolveCharacterForPromotion(candidate);
         updateFirstAppearance(character, candidate.getEpisode());
 

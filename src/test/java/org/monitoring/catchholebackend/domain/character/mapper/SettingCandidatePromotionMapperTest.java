@@ -1,7 +1,6 @@
 package org.monitoring.catchholebackend.domain.character.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -12,14 +11,12 @@ import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
-import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
-import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @DisplayName("설정 후보 확정 반영 Mapper 테스트")
@@ -46,20 +43,23 @@ class SettingCandidatePromotionMapperTest {
     void toCharacterFactMapsCandidateToFact() {
         SettingCandidate candidate = candidate(
                 episode(UUID.randomUUID(), 3),
-                "  skills.은월참  ",
+                "  skill.은월참  ",
                 "  은월참  ",
                 SettingValueType.JSON,
                 objectMapper.createArrayNode().add(objectMapper.createObjectNode().put("name", "은월참"))
         );
         WorkCharacter character = mapper.toWorkCharacter(candidate);
-        String factKey = mapper.toFactKey(candidate);
-        CharacterFactType factType = mapper.toFactType(factKey);
 
-        CharacterFact fact = mapper.toCharacterFact(candidate, character, factType, factKey);
+        CharacterFact fact = mapper.toCharacterFact(
+                candidate,
+                character,
+                CharacterFactType.SKILL,
+                "skill.은월참"
+        );
 
         assertThat(fact.getWorkCharacter()).isSameAs(character);
         assertThat(fact.getFactType()).isEqualTo(CharacterFactType.SKILL);
-        assertThat(fact.getFactKey()).isEqualTo("skills.은월참");
+        assertThat(fact.getFactKey()).isEqualTo("skill.은월참");
         assertThat(fact.getFactValue()).isEqualTo("은월참");
         assertThat(fact.getNormalizedValue()).isEqualTo("은월참");
         assertThat(fact.getValueJson()).isEqualTo(candidate.getValueJson());
@@ -67,18 +67,6 @@ class SettingCandidatePromotionMapperTest {
         assertThat(fact.getSourceChunkId()).isEqualTo(candidate.getSourceChunkId());
         assertThat(fact.getConfidence()).isEqualByComparingTo("0.8000");
         assertThat(fact.getEffectiveFromEpisodeNo()).isEqualTo(3);
-    }
-
-    @Test
-    @DisplayName("지원하지 않는 attributeName은 거절한다")
-    void toCharacterFactRejectsUnsupportedAttributeName() {
-        SettingCandidate candidate = candidate(episode(UUID.randomUUID(), 3), "profile", "북부 기사단");
-        String factKey = mapper.toFactKey(candidate);
-
-        assertThatThrownBy(() -> mapper.toFactType(factKey))
-                .isInstanceOfSatisfying(AppException.class, exception ->
-                        assertThat(exception.getResultCode())
-                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_FACT_TYPE_UNSUPPORTED));
     }
 
     private SettingCandidate candidate(Episode episode, String attributeName, String attributeValue) {
