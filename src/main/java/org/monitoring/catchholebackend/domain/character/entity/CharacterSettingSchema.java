@@ -59,8 +59,9 @@ public class CharacterSettingSchema extends BaseEntity {
     )
     private Work work;
 
-    // SettingCandidate.attributeName을 해석할 canonical key입니다. exact/alias 매칭에서는 factKey로 사용하고,
-    // pattern 매칭에서는 실제 동적 attributeName을 factKey로 유지합니다. 예: "age", "stats.strength", "items.item"
+    // SettingCandidate.attributeName을 해석할 canonical registry key입니다. 예: "age", "stats.strength", "items.item"
+    // exact/alias 매칭에서는 이 값이 factKey이고, pattern 매칭에서는 동적 attributeName이 factKey입니다.
+    // 예: schemaKey "items.item"에 매칭된 attributeName "item.검은단검"은 factKey "item.검은단검"을 사용합니다.
     @Column(name = "schema_key", nullable = false, length = 100, updatable = false)
     private String schemaKey;
 
@@ -88,7 +89,7 @@ public class CharacterSettingSchema extends BaseEntity {
     @Column(name = "value_semantics", nullable = false, length = 30)
     private CharacterSettingValueSemantics valueSemantics;
 
-    // 같은 canonical key의 값을 snapshot에 반영할 방식입니다. 실제 병합은 NVM-233에서 구현합니다.
+    // Resolver가 결정한 factKey entry를 snapshot에 반영할 방식입니다. 현재 REPLACE와 UPSERT_BY_NAME만 지원합니다.
     @Enumerated(EnumType.STRING)
     @Column(name = "merge_policy", nullable = false, length = 30)
     private CharacterSettingMergePolicy mergePolicy;

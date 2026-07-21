@@ -70,22 +70,22 @@ public class WorkCharacter extends BaseEntity {
     @Column(name = "profile_json", columnDefinition = "jsonb")
     private JsonNode profileJson;
 
-    // 예: {"strength": 80, "agility": 65, "mana": 120, "source": "3화 기준"}
+    // factKey -> current CharacterFact.valueJson. 예: {"stats.strength": {"value": 80}}
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "stats_json", columnDefinition = "jsonb")
     private JsonNode statsJson;
 
-    // 예: [{"name": "화염검술", "level": 3, "effect": "화염 속성 공격력 증가"}]
+    // factKey -> current CharacterFact.valueJson. 예: {"skill.화염검술": {"name": "화염검술", "level": 3}}
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "skills_json", columnDefinition = "jsonb")
     private JsonNode skillsJson;
 
-    // 예: [{"name": "화염검", "type": "weapon", "equipped": true, "quantity": 1}]
+    // factKey -> current CharacterFact.valueJson. 예: {"item.화염검": {"name": "화염검", "quantity": 1}}
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "items_json", columnDefinition = "jsonb")
     private JsonNode itemsJson;
 
-    // 예: [{"episodeNumber": 5, "status": "부상", "active": true, "description": "왼팔 골절"}]
+    // STATUS/TIME factKey -> current CharacterFact.valueJson. 예: {"status.부상": {"active": true}}
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "statuses_json", columnDefinition = "jsonb")
     private JsonNode statusesJson;
@@ -160,11 +160,22 @@ public class WorkCharacter extends BaseEntity {
         switch (fact.getFactType()) {
             case AGE -> applyCurrentAge(fact);
             case LEVEL -> applyCurrentLevel(fact);
-            case STAT -> this.statsJson = fact.getValueJson();
-            case SKILL -> this.skillsJson = fact.getValueJson();
-            case ITEM -> this.itemsJson = fact.getValueJson();
-            case STATUS, TIME -> this.statusesJson = fact.getValueJson();
+            case STAT, SKILL, ITEM, STATUS, TIME -> {
+                // JSON snapshot은 전체 current fact를 모은 뒤 replaceJsonSnapshots로 일괄 갱신한다.
+            }
         }
+    }
+
+    public void replaceJsonSnapshots(
+            JsonNode statsJson,
+            JsonNode skillsJson,
+            JsonNode itemsJson,
+            JsonNode statusesJson
+    ) {
+        this.statsJson = statsJson;
+        this.skillsJson = skillsJson;
+        this.itemsJson = itemsJson;
+        this.statusesJson = statusesJson;
     }
 
     public void updateFirstAppearanceEpisodeId(UUID firstAppearanceEpisodeId) {

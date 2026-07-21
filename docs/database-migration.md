@@ -18,7 +18,8 @@ H2 기반 테스트는 PostgreSQL의 `vector` 타입을 지원하지 않으므�
 ```text
 src/main/resources/db/migration/
 ├── V1__initial_schema.sql
-└── V2__add_character_setting_schema_registry.sql
+├── V2__add_character_setting_schema_registry.sql
+└── V3__link_character_facts_to_setting_candidates.sql
 ```
 
 - 파일명은 `V{순번}__{snake_case_설명}.sql` 형식을 사용합니다.
@@ -54,6 +55,15 @@ V2는 AI의 `SettingCandidate.attributeName`을 canonical key로 해석하기 �
 - 초기 전역 seed는 공통 `SYSTEM_SEED` 7개와 판타지 POC `DEV_SEED` 15개로 구성합니다.
 - 적용된 seed나 alias를 변경할 때는 V2를 수정하지 않고 다음 migration에서 `UPDATE`합니다.
 
+## V3 기준
+
+V3는 confirm으로 생성된 `character_facts`에서 원본 후보의 `evidence_spans`를 정확히 역추적할 수 있도록 nullable `setting_candidate_id` FK와 조회 인덱스를 추가합니다.
+
+- V3 이후 confirm Fact는 `setting_candidate_id`를 채웁니다.
+- 기존 Fact는 후보를 휴리스틱하게 추정하지 않고 `NULL`로 유지합니다.
+- 근거 인용문과 offset JSON은 `setting_candidates.evidence_spans`를 단일 저장 위치로 사용하고 Fact에 중복 저장하지 않습니다.
+- FK의 기본 `NO ACTION`으로 근거 후보가 연결된 채 임의 삭제되는 것을 막습니다.
+
 ## 논리 참조와 FK 기준
 
 ID 컬럼이 다른 테이블을 논리적으로 가리키더라도 삭제·재처리 정책이 정해지지 않았다면 FK를 먼저 강제하지 않습니다. V1의 선택은 다음과 같습니다.
@@ -69,16 +79,17 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
 
 ## 로컬 검증
 
-V1 적용 DB에 현재 Backend를 시작해 V2만 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V2가 순서대로 적용되는 경로를 각각 확인합니다.
+V1·V2 적용 DB에 현재 Backend를 시작해 V3만 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V2→V3가 순서대로 적용되는 경로를 각각 확인합니다.
 
-- Flyway 로그에 V1과 V2 적용 성공이 출력됩니다.
-- `flyway_schema_history`에 version 1과 2가 성공으로 기록됩니다.
+- Flyway 로그에 V1부터 V3까지 적용 성공이 출력됩니다.
+- `flyway_schema_history`에 version 1, 2, 3이 성공으로 기록됩니다.
 - `vector` extension이 활성화됩니다.
 - `episode_chunks.embedding`이 `vector(1536)`으로 생성됩니다.
 - cosine HNSW 인덱스가 생성됩니다.
 - `character_setting_schemas`에 전역 seed 22개(`SYSTEM_SEED=7`, `DEV_SEED=15`)가 생성됩니다.
+- `character_facts.setting_candidate_id`와 FK·조회 인덱스가 생성됩니다.
 - Hibernate schema validation을 통과하고 Backend가 정상 시작됩니다.
-- Backend를 재시작해도 V1과 V2가 중복 적용되지 않습니다.
+- Backend를 재시작해도 V1부터 V3까지 중복 적용되지 않습니다.
 
 ## 최초 운영 전환
 
@@ -89,7 +100,7 @@ Flyway 도입 전에 JPA가 만든 운영 테스트 DB에는 `flyway_schema_hist
 1. 필요한 데이터가 없는지 확인하고 필요하면 `pg_dump`로 백업합니다.
 2. Backend와 AI Worker를 중지합니다.
 3. PostgreSQL 데이터 volume만 제거하고 빈 PostgreSQL 16 DB를 시작합니다.
-4. Backend를 시작해 Flyway V1·V2와 Hibernate validation 성공을 확인합니다.
+4. Backend를 시작해 Flyway V1~V3와 Hibernate validation 성공을 확인합니다.
 5. DB schema와 Swagger 기본 API를 확인한 뒤 AI Worker를 시작합니다.
 
 실제 사용자 데이터가 생긴 뒤에는 이 초기화 절차를 사용하지 않습니다. 기존 데이터를 보존하는 V2 이상의 `ALTER` migration과 사전 백업·롤백 계획을 별도로 작성합니다.

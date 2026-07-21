@@ -10,15 +10,24 @@ import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.mapper.SettingCandidatePromotionMapper;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshot;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAssembler;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaMatch;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
+import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
+import org.monitoring.catchholebackend.domain.character.type.CharacterSettingMergePolicy;
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
+import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
+import org.monitoring.catchholebackend.domain.work.exception.WorkErrorCode;
+import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,9 +39,12 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
     private final WorkCharacterRepository workCharacterRepository;
     private final CharacterFactRepository characterFactRepository;
     private final CharacterSettingSchemaRepository characterSettingSchemaRepository;
+    private final SettingCandidateRepository settingCandidateRepository;
     private final EpisodeRepository episodeRepository;
+    private final WorkRepository workRepository;
     private final SettingCandidatePromotionMapper settingCandidatePromotionMapper;
     private final SettingCandidateSchemaResolver settingCandidateSchemaResolver;
+    private final CharacterSnapshotAssembler characterSnapshotAssembler;
 
     @Override
     @Transactional
@@ -44,10 +56,11 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                 candidate.getValueType(),
                 schemas
         );
+        validateMergePolicy(schemaMatch.matchedSchema().getMergePolicy());
         String factKey = schemaMatch.factKey();
         CharacterFactType factType = schemaMatch.matchedSchema().getFactType();
 
-        // schema 매칭과 값 타입 검증을 통과한 후보만 캐릭터 생성과 Fact 저장으로 진행한다.
+        // schema 매칭, 값 타입, merge policy 검증을 통과한 후보만 캐릭터 생성과 Fact 저장으로 진행한다.
         WorkCharacter character = resolveCharacterForPromotion(candidate);
         updateFirstAppearance(character, candidate.getEpisode());
 
@@ -65,23 +78,48 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         CharacterFact currentFact = selectCurrentFact(facts, newFact);
         facts.forEach(fact -> updateCurrentState(fact, currentFact));
         character.applyCurrentFact(currentFact);
+
+        // dirty isCurrent 변경을 바로 다음 all-current 조회에 반영한다.
+        characterFactRepository.flush();
+
+        // 전체 current Fact 재구성으로 다른 key를 보존하고 legacy snapshot도 현재 map 계약으로 정규화한다.
+        List<CharacterFact> currentFacts = characterFactRepository
+                .findAllByWorkCharacterIdAndIsCurrentTrueOrderByFactTypeAscFactKeyAsc(character.getId());
+        CharacterSnapshot snapshot = characterSnapshotAssembler.assemble(currentFacts);
+        character.replaceJsonSnapshots(
+                snapshot.statsJson(),
+                snapshot.skillsJson(),
+                snapshot.itemsJson(),
+                snapshot.statusesJson()
+        );
+    }
+
+    private void validateMergePolicy(CharacterSettingMergePolicy mergePolicy) {
+        if (mergePolicy == CharacterSettingMergePolicy.REPLACE
+                || mergePolicy == CharacterSettingMergePolicy.UPSERT_BY_NAME) {
+            return;
+        }
+        throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MERGE_POLICY_UNSUPPORTED);
     }
 
     private WorkCharacter resolveCharacterForPromotion(SettingCandidate candidate) {
+        // MATCHED는 명시된 ID로 검증/조회하고, UNRESOLVED만 이름으로 재사용/생성하며, AMBIGUOUS는 사용자 해소가 필요하다.
         return switch (candidate.getMatchStatus()) {
             case MATCHED -> getMatchedCharacter(candidate);
-            case UNRESOLVED -> createUnresolvedCharacter(candidate);
+            case UNRESOLVED -> resolveUnresolvedCharacter(candidate);
             case AMBIGUOUS -> throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
         };
     }
 
     private WorkCharacter getMatchedCharacter(SettingCandidate candidate) {
+        // MATCHED와 캐릭터 ID는 항상 함께 있어야 하며 불완전한 조합은 임의 복구하지 않는다.
         UUID matchedCharacterId = candidate.getMatchedCharacterId();
         if (matchedCharacterId == null) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
         }
+        // whole-map snapshot 교체를 직렬화해 서로 다른 factKey confirm 사이의 lost update를 막는다.
         WorkCharacter character = workCharacterRepository
-                .findByIdAndWorkId(matchedCharacterId, candidate.getWork().getId())
+                .findByIdAndWorkIdForUpdate(matchedCharacterId, candidate.getWork().getId())
                 .orElseThrow(() -> new AppException(
                         CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID
                 ));
@@ -91,15 +129,60 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         return character;
     }
 
-    private WorkCharacter createUnresolvedCharacter(SettingCandidate candidate) {
+    private WorkCharacter resolveUnresolvedCharacter(SettingCandidate candidate) {
+        // UNRESOLVED인데 ID가 채워진 모순 상태에서는 어느 값을 신뢰할지 결정하지 않고 confirm을 중단한다.
         if (candidate.getMatchedCharacterId() != null) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
         }
+        UUID workId = candidate.getWork().getId();
         String characterName = settingCandidatePromotionMapper.toCharacterName(candidate);
-        if (workCharacterRepository.findByWorkIdAndName(candidate.getWork().getId(), characterName).isPresent()) {
+
+        // 동일 이름 신규 후보의 조회-생성을 작품 단위로 직렬화해 중복 캐릭터 생성을 막는다.
+        workRepository.findByIdForUpdate(workId)
+                .orElseThrow(() -> new AppException(WorkErrorCode.WORK_NOT_FOUND));
+
+        // 동일 이름의 활성 캐릭터는 재사용하고, 이름 자체가 없을 때만 새 캐릭터를 만든다.
+        WorkCharacter character = workCharacterRepository.findByWorkIdAndName(workId, characterName)
+                .map(existingCharacter -> lockActiveCharacter(existingCharacter, workId))
+                .orElseGet(() -> workCharacterRepository.save(
+                        settingCandidatePromotionMapper.toWorkCharacter(candidate)
+                ));
+
+        // 현재 후보는 이미 CONFIRMED이고, 나머지 동일 이름 형제 후보는 아직 PENDING_REVIEW인 상태에서 연결한다.
+        candidate.matchPromotedCharacter(character);
+        matchPendingUnresolvedSiblings(workId, characterName, character);
+        return character;
+    }
+
+    private WorkCharacter lockActiveCharacter(WorkCharacter character, UUID workId) {
+        // 기존 MATCHED confirm과 같은 캐릭터 row lock을 사용해 Fact current 및 snapshot 갱신을 직렬화한다.
+        WorkCharacter lockedCharacter = workCharacterRepository
+                .findByIdAndWorkIdForUpdate(character.getId(), workId)
+                .orElseThrow(() -> new AppException(
+                        CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID
+                ));
+
+        // 보관 캐릭터를 자동 복구하거나 같은 이름으로 새로 만들지 않고 사용자 판단이 필요한 충돌로 남긴다.
+        if (lockedCharacter.getStatus() != CharacterStatus.ACTIVE) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
         }
-        return workCharacterRepository.save(settingCandidatePromotionMapper.toWorkCharacter(candidate));
+        return lockedCharacter;
+    }
+
+    private void matchPendingUnresolvedSiblings(
+            UUID workId,
+            String normalizedEntityName,
+            WorkCharacter character
+    ) {
+        // AMBIGUOUS와 이미 검토된 후보는 유지하고, exact-name 형제 후보만 다음 confirm에 재사용한다.
+        settingCandidateRepository.findAllByNormalizedEntityNameAndMatchState(
+                        workId,
+                        normalizedEntityName,
+                        SettingEntityType.CHARACTER,
+                        SettingCandidateReviewStatus.PENDING_REVIEW,
+                        SettingCandidateMatchStatus.UNRESOLVED
+                )
+                .forEach(sibling -> sibling.matchExistingCharacter(character));
     }
 
     private void updateFirstAppearance(WorkCharacter character, Episode sourceEpisode) {

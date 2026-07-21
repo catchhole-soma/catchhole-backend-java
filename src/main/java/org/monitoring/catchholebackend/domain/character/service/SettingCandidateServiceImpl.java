@@ -87,6 +87,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
         candidate.validateEditable();
 
+        // 사용자가 기존 캐릭터를 지정하면 즉시 MATCHED로, 신규로 판단하면 confirm 전까지 UNRESOLVED로 둔다.
         switch (request.resolutionType()) {
             case MATCH_EXISTING -> connectExistingCharacter(candidate, work, request.matchedCharacterId());
             case CREATE_NEW -> markCandidateAsNewCharacter(candidate, work, request.entityName());
@@ -104,6 +105,8 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
     ) {
         Work work = workRepository.getOwnedWork(workId, memberId);
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
+
+        // 최초 PENDING_REVIEW -> CONFIRMED 전이만 true다. 동일 confirm 재시도는 false로 Fact 중복 생성을 막는다.
         boolean newlyConfirmed = candidate.confirm();
         if (newlyConfirmed) {
             settingCandidatePromotionService.promote(candidate);

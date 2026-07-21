@@ -276,14 +276,31 @@ public class SettingCandidate extends BaseEntity {
     }
 
     public void matchExistingCharacter(WorkCharacter character) {
+        // 사용자 연결 수정과 아직 검토 대기 중인 형제 후보 자동 연결에 사용한다.
         validateEditable();
 
+        applyCharacterMatch(character);
+    }
+
+    public void matchPromotedCharacter(WorkCharacter character) {
+        // confirm()이 먼저 CONFIRMED로 바꾼 현재 후보에 promotion이 결정한 최종 캐릭터를 기록한다.
+        // 사용자 편집 경로가 확정 후보를 다시 연결하지 못하도록 UNRESOLVED + 미연결 상태까지 함께 검증한다.
+        if (reviewStatus != SettingCandidateReviewStatus.CONFIRMED
+                || matchStatus != SettingCandidateMatchStatus.UNRESOLVED
+                || matchedCharacterId != null) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
+        }
+        applyCharacterMatch(character);
+    }
+
+    private void applyCharacterMatch(WorkCharacter character) {
         this.entityName = character.getName();
         this.matchedCharacterId = character.getId();
         this.matchStatus = SettingCandidateMatchStatus.MATCHED;
     }
 
     public void markAsNewCharacter(String entityName) {
+        // 사용자가 기존 매칭을 취소하고 신규 캐릭터로 판단한 상태다. 실제 생성은 confirm까지 미룬다.
         validateEditable();
 
         this.entityName = entityName;
@@ -300,9 +317,12 @@ public class SettingCandidate extends BaseEntity {
     }
 
     private boolean transitionReviewStatus(SettingCandidateReviewStatus targetStatus) {
+        // 같은 action 재요청은 성공 가능한 no-op으로 두고, 호출자가 부수효과를 생략하도록 false를 반환한다.
         if (reviewStatus == targetStatus) {
             return false;
         }
+
+        // 실제 상태 변경은 PENDING_REVIEW에서 CONFIRMED 또는 DISMISSED로 갈 때만 허용한다.
         validateReviewStatusTransition(targetStatus);
         this.reviewStatus = targetStatus;
         return true;

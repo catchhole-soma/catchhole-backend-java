@@ -21,12 +21,12 @@ MVP에서 우선 관리할 캐릭터 설정은 숫자, 아이템, 스킬, 능력
 그래서 자주 조회하는 핵심 값은 일반 컬럼으로 두고, 작품마다 구조가 달라지는 상세값은 JSONB로 저장합니다.
 
 - `profile_json`: 성별, 종족, 소속, 설명 등 프로필성 값
-- `stats_json`: 근력, 민첩, 마력 같은 작품별 스탯
-- `skills_json`: 스킬명, 분류, 레벨, 효과, 제한 조건
-- `items_json`: 아이템명, 분류, 수량, 장착 여부
-- `statuses_json`: 시간 상태, 상태 이상, 능력, 현재 타임라인 적용 여부
+- `stats_json`: nullable한 `STAT` factKey → current `CharacterFact.valueJson` object map
+- `skills_json`: nullable한 `SKILL` factKey → current `CharacterFact.valueJson` object map
+- `items_json`: nullable한 `ITEM` factKey → current `CharacterFact.valueJson` object map
+- `statuses_json`: nullable한 `STATUS`, `TIME` factKey → current `CharacterFact.valueJson` object map
 
-Java 타입은 `JsonNode`로 통일하고 Hibernate JSON 매핑을 사용합니다. AI 출력 구조를 과하게 평탄화하지 않고 보존하기 위한 선택입니다.
+네 snapshot 컬럼은 metadata envelope 없이 raw `valueJson`을 entry 값으로 저장하고, 해당 그룹의 current Fact가 없으면 `null`로 둡니다. Java 타입은 `JsonNode`로 통일하고 Hibernate JSON 매핑을 사용합니다. AI 출력 구조를 과하게 평탄화하지 않고 보존하기 위한 선택입니다.
 
 ### 캐릭터 설정 Schema Registry
 
@@ -36,7 +36,7 @@ Java 타입은 `JsonNode`로 통일하고 Hibernate JSON 매핑을 사용합니�
 - `work_id`가 있는 row는 해당 작품에 전역에 없는 key를 추가하는 schema입니다. 이번 범위에서는 같은 key override나 중복 병합을 지원하지 않습니다.
 - Worker claim은 `enabled = true AND (work_id IS NULL OR work_id = :workId)`인 row를 `schema_key` 오름차순으로 제공합니다.
 - Worker에는 `schemaKey`, `displayName`, `attributePattern`, `aliases`, `valueType`만 공개합니다. DB 식별자와 source, enabled, merge 정책은 백엔드 내부 정책입니다.
-- Spring Backend는 후보를 처음 confirm할 때 활성 전역/현재 작품 schema를 schemaKey 정확 일치 → 별칭 → 마지막이 `.*`로 끝나는 속성 패턴 순으로 매칭하고 `SettingValueType` enum 일치를 검증합니다. snapshot 누적 merge는 NVM-233에서 구현합니다.
+- Spring Backend는 후보를 처음 confirm할 때 활성 전역/현재 작품 schema를 schemaKey 정확 일치 → 별칭 → 마지막이 `.*`로 끝나는 속성 패턴 순으로 매칭하고 `SettingValueType` enum과 지원 merge policy를 검증합니다. 검증된 Fact는 factKey별 current map snapshot으로 반영합니다.
 
 초기 전역 seed는 목적에 따라 구분합니다.
 
@@ -86,17 +86,18 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 
 `SettingCandidate.CONFIRMED` 후 확정 데이터는 `CharacterFact`로 저장하고, 현재 기준값은 `WorkCharacter` 스냅샷에 반영합니다.
 
-- confirm 반영은 활성 전역/현재 작품 schema를 조회해 속성 매칭과 값 타입 검증을 먼저 통과한 뒤 `matchStatus` 기준으로 대상 `WorkCharacter`를 결정합니다.
-- `MATCHED` 후보는 `matchedCharacterId`의 기존 캐릭터를 사용하고, `UNRESOLVED` 후보는 같은 이름의 기존 캐릭터가 없을 때만 `entityName` 기준으로 새 캐릭터를 생성합니다.
+- confirm 반영은 활성 전역/현재 작품 schema를 조회해 속성 매칭, 값 타입, merge policy 검증을 먼저 통과한 뒤 `matchStatus` 기준으로 대상 `WorkCharacter`를 결정합니다.
+- `MATCHED` 후보는 `matchedCharacterId`의 기존 캐릭터를 사용합니다. `UNRESOLVED` 후보는 trim한 `entityName`과 exact-name인 활성 캐릭터가 있으면 재사용하고, 없으면 새 캐릭터를 생성합니다. 결정된 캐릭터는 확정 후보와 같은 이름의 검토 대기 미해소 형제 후보에도 자동 연결합니다.
 - `AMBIGUOUS` 후보는 사용자 해소 전까지 confirm을 거절합니다.
 - schema 매칭은 trim 후 대소문자를 유지한 exact → alias → pattern 순서입니다. alias는 bare 값 또는 `schemaKey`와 같은 namespace에서만 exact 비교하며 fuzzy/부분 일치를 허용하지 않습니다.
 - exact/alias 매칭의 `factKey`는 canonical `schemaKey`이고, pattern 매칭은 trim한 원본 `attributeName`을 `factKey`로 유지합니다. `factType`은 matched schema에서 가져옵니다.
-- 매칭 결과가 없으면 `SETTING_CANDIDATE_SCHEMA_NOT_MATCHED / 400`, 같은 단계에 여러 개면 `SETTING_CANDIDATE_SCHEMA_MATCH_AMBIGUOUS / 409`, 후보와 schema의 `SettingValueType`이 다르면 `SETTING_CANDIDATE_VALUE_TYPE_MISMATCH / 400`으로 거절합니다.
-- schema 매칭과 타입 검증은 캐릭터 조회/생성 전에 수행합니다. 실패하면 confirm 상태 전이까지 같은 트랜잭션에서 롤백되어 캐릭터와 `CharacterFact` 부수효과가 남지 않습니다.
+- 매칭 결과가 없으면 `SETTING_CANDIDATE_SCHEMA_NOT_MATCHED / 400`, 같은 단계에 여러 개면 `SETTING_CANDIDATE_SCHEMA_MATCH_AMBIGUOUS / 409`, 후보와 schema의 `SettingValueType`이 다르면 `SETTING_CANDIDATE_VALUE_TYPE_MISMATCH / 400`으로 거절합니다. `UPSERT_BY_SLOT`, `APPEND`, `DERIVED`는 `SETTING_CANDIDATE_MERGE_POLICY_UNSUPPORTED / 409`로 거절합니다.
+- schema 매칭, 타입 검증, merge policy 검증은 캐릭터 조회/생성 전에 수행합니다. 실패하면 confirm 상태 전이까지 같은 트랜잭션에서 롤백되어 캐릭터와 `CharacterFact` 부수효과가 남지 않습니다.
+- `MATCHED` 캐릭터는 pessimistic write lock으로 조회해 같은 캐릭터의 동시 confirm을 직렬화합니다.
 - `CharacterFact.effectiveFromEpisodeNo`는 후보의 `episode.episodeNo`를 사용합니다. episode가 없으면 `null`로 저장하고 current 우선순위는 가장 낮게 봅니다.
 - 같은 캐릭터의 같은 `factType + factKey`에서는 가장 큰 `effectiveFromEpisodeNo`를 가진 fact만 current로 둡니다. 같은 회차라면 나중에 생성된 fact가 current가 됩니다.
 - `WorkCharacter.firstAppearanceEpisodeId`는 확정 순서가 아니라 가장 이른 업로드 회차 기준으로 유지합니다.
-- current fact가 바뀌면 해당 fact 기준으로 `WorkCharacter`의 `currentAge`, `currentLevel`, `statsJson`, `skillsJson`, `itemsJson`, `statusesJson`을 갱신합니다. 현재 JSON snapshot은 같은 컬럼 안에 여러 key를 누적 merge하지 않고 선택된 current fact의 `valueJson`으로 교체하며, 누적 merge는 NVM-233 범위입니다.
+- current fact가 바뀌면 `currentAge`, `currentLevel`은 선택된 숫자 Fact로 갱신하고, 네 JSON snapshot은 모든 current Fact를 `factKey -> valueJson` object map으로 다시 조립해 일괄 교체합니다. 해당 타입의 current Fact가 없으면 컬럼을 `null`로 둡니다.
 - `AGE`, `LEVEL`은 숫자 파싱에 성공한 경우에만 숫자 스냅샷을 갱신합니다. 파싱 실패 시 fact는 남기고 기존 숫자 스냅샷은 유지합니다.
 
 ### 캐릭터 매칭 상태 기반 confirm 정책
@@ -107,12 +108,14 @@ Python Worker는 후보 생성 시 `rawEntityMention`, `entityName`, 기존 캐�
 
 `CharacterFact`에는 `matchStatus`를 저장하지 않습니다. `CharacterFact`는 최종 확정된 `WorkCharacter`에 붙은 설정 이력만 표현합니다. AI가 처음 어떤 캐릭터로 판단했는지, 사용자가 어떻게 바꿨는지까지 추적해야 한다면 후속으로 `SettingCandidateReviewLog` 같은 별도 검토 이력 테이블을 설계합니다.
 
+Worker claim은 분석 시작 시점의 기존 캐릭터 목록을 사용하므로, 같은 분석에서 처음 발견된 캐릭터의 여러 속성이 모두 `UNRESOLVED`로 저장될 수 있습니다. 첫 후보가 confirm되면 Backend가 확정 후보와 같은 작품에서 trim 후 exact-name인 `PENDING_REVIEW + UNRESOLVED + CHARACTER` 후보를 새로 결정된 캐릭터에 연결합니다. 대소문자 변환, alias/fuzzy 매칭은 하지 않고 `AMBIGUOUS`, `CONFIRMED`, `DISMISSED` 후보도 자동 변경하지 않습니다. 이 연결과 캐릭터·Fact·snapshot 반영은 같은 confirm 트랜잭션에서 처리합니다.
+
 후보 상태별 confirm 정책:
 
 | 상태 | confirm 처리 |
 | --- | --- |
 | `MATCHED` + `matchedCharacterId` 있음 | `matchedCharacterId`의 기존 `WorkCharacter`에 `CharacterFact`를 생성합니다. `entityName`이 다르더라도 명시적으로 매칭된 캐릭터를 우선합니다. |
-| `UNRESOLVED` | 사용자가 검토/수정한 `entityName` 기준으로 새 `WorkCharacter`를 생성합니다. 같은 작품에 완전히 동일한 이름의 캐릭터가 이미 있으면 조용히 재사용하지 않고 confirm을 거절합니다. |
+| `UNRESOLVED` | trim한 `entityName` 기준으로 같은 작품의 exact-name 활성 `WorkCharacter`를 재사용하고, 없으면 새로 생성합니다. 확정 후보 자체와 같은 작품·이름의 `PENDING_REVIEW + UNRESOLVED + CHARACTER` 후보를 해당 캐릭터에 `MATCHED`로 연결합니다. |
 | `AMBIGUOUS` | 그대로는 confirm을 허용하지 않습니다. 사용자가 기존 캐릭터에 연결하거나 새 캐릭터로 확정해 `MATCHED` 또는 `UNRESOLVED` 상태로 해소한 뒤 confirm합니다. |
 
 confirm 데이터 계약 위반으로 보고 거절할 조합:
@@ -121,7 +124,8 @@ confirm 데이터 계약 위반으로 보고 거절할 조합:
 | --- | --- |
 | `MATCHED`인데 `matchedCharacterId`가 없음 | `SETTING_CANDIDATE_MATCH_STATUS_CONFLICT / 409`로 confirm 거절 |
 | `UNRESOLVED`인데 `matchedCharacterId`가 있음 | `SETTING_CANDIDATE_MATCH_STATUS_CONFLICT / 409`로 confirm 거절 |
-| `UNRESOLVED` 후보의 `entityName`과 완전히 동일한 이름의 캐릭터가 같은 작품에 이미 있음 | `SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED / 409`로 confirm 거절 |
+| `UNRESOLVED` 후보의 `entityName`과 완전히 동일한 이름의 활성 캐릭터가 같은 작품에 이미 있음 | 기존 활성 캐릭터를 pessimistic write lock으로 조회해 재사용 |
+| `UNRESOLVED` 후보의 `entityName`과 완전히 동일한 이름의 보관 캐릭터만 있음 | `SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED / 409`로 confirm 거절 |
 | `AMBIGUOUS` 후보를 그대로 confirm하려는 경우 | `SETTING_CANDIDATE_MATCH_STATUS_CONFLICT / 409`로 confirm 거절 |
 | `MATCHED` 후보의 `matchedCharacterId`가 존재하지 않거나, 다른 작품 소속이거나, 보관된 캐릭터를 가리킴 | `SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID / 409`로 confirm 거절 |
 
@@ -156,17 +160,20 @@ confirm 데이터 계약 위반으로 보고 거절할 조합:
 - 웹소설은 회상, 과거편, 프롤로그 등으로 회차 순서와 작중 시간 순서가 다를 수 있습니다.
 - 후속 AI Worker가 `narrativeTime`, `timelineOrder`, `effectiveAt`, `isFlashback` 같은 시간 메타데이터를 어떤 형태로 줄지 정한 뒤 current 판단과 snapshot 갱신 기준을 확장합니다.
 
-JSON snapshot 누적 후속 TODO:
+JSON snapshot 계약과 후속 TODO:
 
-- 현재 `statsJson`, `skillsJson`, `itemsJson`, `statusesJson`은 여러 factKey의 current 값을 모아 누적하는 구조가 아닙니다.
-- 예를 들어 `item.화염검`과 `item.회복포션`을 각각 확정해도 `WorkCharacter.itemsJson`에 두 항목이 map/array 형태로 함께 쌓이지 않고, 마지막으로 snapshot 반영된 current fact의 `valueJson`이 들어갑니다.
-- NVM-233에서 `factKey` 기준 object map으로 merge할지, array로 누적할지, 삭제/비활성 상태를 어떻게 표현할지 먼저 정한 뒤 snapshot 갱신 정책을 확장합니다.
+- `statsJson`, `skillsJson`, `itemsJson`, `statusesJson`은 여러 current Fact가 공존하는 `factKey -> valueJson` object map입니다. 같은 factKey의 current가 바뀌면 해당 entry 전체를 교체합니다.
+- `REPLACE`와 `UPSERT_BY_NAME`은 모두 factKey를 식별자로 사용합니다. `valueJson.name`은 self-contained 표시 데이터이며 Backend 병합 식별자가 아닙니다.
+- 별도 migration이나 일괄 backfill은 하지 않습니다. 기존 단일 object/array snapshot은 다음 성공 confirm에서 전체 current Fact 기준 map 또는 `null`로 정규화합니다.
+- object 내부 deep merge, 삭제/비활성 표현, `UPSERT_BY_SLOT`, `APPEND`, `DERIVED` 실제 병합은 NVM-229 후속 정책으로 결정합니다.
 
 ### 캐릭터 설정 이력
 
 `CharacterFact`는 캐릭터의 개별 설정 값과 변경 이력을 저장합니다.
 
 `characters`가 현재 화면에 보여줄 확정된 대표/현재 스냅샷이라면, `character_facts`는 나이, 레벨, 스탯, 아이템, 스킬 같은 설정이 어느 회차에서 어떤 값으로 등장했는지 추적합니다.
+
+confirm으로 생성된 Fact는 `setting_candidate_id`로 원본 후보를 연결합니다. 따라서 Fact의 구체적인 인용문과 offset은 연결된 `setting_candidates.evidence_spans`에서 정확히 조회합니다. V3 이전 Fact는 신뢰할 수 있는 후보를 추정해 backfill하지 않고 `NULL`로 유지하며, evidence JSON을 `character_facts`에 중복 저장하지 않습니다.
 
 AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용자가 승인한 값은 `CharacterFact`로 남긴 뒤, 필요하면 `WorkCharacter`의 현재 스냅샷 필드에도 반영합니다.
 
@@ -236,10 +243,10 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | 유형 | 한글 표시명 | 의미 |
 | --- | --- | --- |
 | `REPLACE` | 값 교체 | 기존 값을 새 값으로 완전히 교체 |
-| `UPSERT_BY_NAME` | 이름 기준 추가·갱신 | `name`이 같은 목록 원소를 갱신하고 없으면 추가 |
-| `UPSERT_BY_SLOT` | 슬롯 기준 추가·갱신 | 장비 위치 같은 `slot`이 같은 원소를 갱신하고 없으면 추가 |
-| `APPEND` | 목록에 추가 | 기존 원소와의 일치 여부를 확인하지 않고 새 원소 추가 |
-| `DERIVED` | 파생값 계산 | 직접 병합하지 않고 다른 설정값을 바탕으로 계산 |
+| `UPSERT_BY_NAME` | 이름 기준 추가·갱신 | 현재 MVP에서는 동적 factKey entry 전체를 추가·교체. `valueJson.name` 기반 병합은 후속 정책 |
+| `UPSERT_BY_SLOT` | 슬롯 기준 추가·갱신 | 현재 confirm 미지원(409). slot 병합은 후속 정책 |
+| `APPEND` | 목록에 추가 | 현재 confirm 미지원(409). 목록 append는 후속 정책 |
+| `DERIVED` | 파생값 계산 | 현재 confirm 미지원(409). 파생값 계산은 후속 정책 |
 
 `CharacterSettingSchemaSource`
 
@@ -261,10 +268,10 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `current_age` | 현재 나이 확정값 |
 | `current_level` | 현재 레벨 확정값 |
 | `profile_json` | 프로필 상세 JSONB |
-| `stats_json` | 스탯 상세 JSONB |
-| `skills_json` | 스킬 상세 JSONB |
-| `items_json` | 아이템 상세 JSONB |
-| `statuses_json` | 시간/상태/능력 상세 JSONB |
+| `stats_json` | nullable한 `STAT` factKey → current `CharacterFact.valueJson` object map |
+| `skills_json` | nullable한 `SKILL` factKey → current `CharacterFact.valueJson` object map |
+| `items_json` | nullable한 `ITEM` factKey → current `CharacterFact.valueJson` object map |
+| `statuses_json` | nullable한 `STATUS`, `TIME` factKey → current `CharacterFact.valueJson` object map |
 | `first_appearance_episode_id` | 최초 등장 회차 ID. 회차 hard delete 시 처리 정책이 정해지지 않아 현재 FK 없이 UUID 값으로 저장 |
 | `status` | 캐릭터 보관 상태 |
 | `created_at` | 생성 시각 |
@@ -276,8 +283,9 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | --- | --- |
 | `id` | 캐릭터 설정 이력 UUID |
 | `character_id` | 어떤 캐릭터의 설정인지 나타내는 FK |
+| `setting_candidate_id` | 이 Fact로 승격된 원본 `setting_candidates.id` FK. V3 이전 Fact는 `NULL` |
 | `fact_type` | 설정 유형. 예: AGE, LEVEL, STAT, SKILL, ITEM, STATUS, TIME |
-| `fact_key` | 구체적인 설정 키. 예: age, level, strength, skill.흑염.level |
+| `fact_key` | snapshot entry 전체를 식별하는 설정 키. 예: age, level, stats.strength, skill.흑염, item.검은단검 |
 | `fact_value` | 확정된 표시값. 예: 17, 12, 35, OWNED |
 | `normalized_value` | 비교를 쉽게 하기 위한 정규화 값 |
 | `value_json` | 스킬/아이템/상태 이상처럼 복잡한 설정 값 JSONB |
@@ -304,7 +312,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `raw_entity_mention` | 원문에 실제 등장한 대상 표현. 예: `나`, `프넬린의 두 번째 딸 아이나르` |
 | `matched_character_id` | 기존 `characters.id`와 확실히 매칭된 경우 저장하는 캐릭터 FK |
 | `match_status` | 기존 캐릭터 매칭 상태. `MATCHED`, `UNRESOLVED`, `AMBIGUOUS` |
-| `attribute_name` | age, level, stats, skills, items 등 속성명 |
+| `attribute_name` | `age`, `level`, `stats.strength`, `skill.은월참`, `item.화염검`, `status.악령_깃들임` 등 속성명 |
 | `attribute_value` | 목록/검색 표시용 값 |
 | `value_type` | 값 타입 |
 | `value_json` | 복합 값 JSONB |
@@ -327,7 +335,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `fact_type` | 이 schema로 확정된 값을 저장할 상위 `CharacterFactType`입니다. 예: `ITEM`, `SKILL`, `STAT`. |
 | `value_type` | Worker가 추출하고 Spring Backend가 confirm 시 후보의 `valueType`과 enum equality로 검증하는 자료형입니다. `STRING`, `NUMBER`, `BOOLEAN`, `JSON`, `UNKNOWN` 중 하나이며 Java의 `SettingValueType`을 재사용합니다. `valueJson` 내부 node 구조까지 검증하는 값은 아닙니다. |
 | `value_semantics` | 값이 원문에서 확인한 기준값(`BASE_VALUE`), 기준값에 적용하는 보정값(`MODIFIER`), 다른 값으로 계산한 파생값(`DERIVED`) 중 무엇인지 나타냅니다. |
-| `merge_policy` | 같은 canonical key의 새 값을 snapshot에 반영할 정책입니다. 패턴 매칭과는 별도이며 `REPLACE`, `UPSERT_BY_NAME`, `UPSERT_BY_SLOT`, `APPEND`, `DERIVED` 중 하나입니다. 실제 병합은 NVM-233에서 구현합니다. |
+| `merge_policy` | Resolver가 결정한 factKey entry의 새 값을 snapshot에 반영할 정책입니다. 현재 confirm은 `REPLACE`, `UPSERT_BY_NAME`만 entry 전체 교체로 지원하고 나머지는 409로 거절합니다. object 내부 deep merge는 하지 않습니다. |
 | `aliases_json` | `schema_key`와 동일한 schema로 해석할 분류 경로 없는 별칭 문자열 배열입니다. 후보 속성명은 별칭 자체 또는 `schemaKey`와 같은 분류 경로를 붙인 값만 정확히 비교하며, 다른 분류 경로·대소문자 변환·부분 일치·fuzzy 매칭은 하지 않습니다. JSONB 배열만 허용하며 별칭이 없으면 `[]`를 저장합니다. |
 | `source` | schema seed의 관리 출처입니다. 공통 기본값은 `SYSTEM_SEED`, 판타지 POC 검증값은 `DEV_SEED`이며 Worker 포함 여부를 결정하지 않습니다. |
 | `enabled` | 활성 여부입니다. `true`인 전역 schema와 현재 작품 schema만 Worker claim과 confirm 매칭에 사용합니다. |
@@ -340,9 +348,9 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 
 - `schema_key = items.item`: 아이템 설정을 저장·비교할 때 사용할 canonical 논리 키입니다.
 - `attribute_pattern = item.*`: `item.검은단검`처럼 이름이 동적으로 달라지는 입력 속성을 이 row로 분류하는 패턴입니다.
-- `merge_policy = UPSERT_BY_NAME`: 패턴에 매칭됐다는 사실과 별개로, snapshot 안에서 같은 `name`의 아이템은 갱신하고 없으면 추가한다는 정책입니다.
+- `merge_policy = UPSERT_BY_NAME`: 현재 MVP에서는 동적 factKey entry를 추가하거나 같은 factKey entry 전체를 교체합니다. `valueJson.name`은 표시 데이터입니다.
 
-예를 들어 `attributeName = item.검은단검`, `valueJson = {"name":"검은단검","quantity":1}`인 후보는 confirm 시 `item.*` 패턴을 통해 `items.item` schema와 매칭됩니다. `matchedSchema`는 `items.item`이지만 `CharacterFact.factKey`는 동적 대상을 구분하기 위해 `item.검은단검`을 유지합니다. 후보와 schema의 `valueType`이 일치할 때만 `ITEM` fact를 생성하며, NVM-233의 `UPSERT_BY_NAME` snapshot 병합은 별도입니다.
+예를 들어 `attributeName = item.검은단검`, `valueJson = {"name":"검은단검","quantity":1}`인 후보는 confirm 시 `item.*` 패턴을 통해 `items.item` schema와 매칭됩니다. `matchedSchema`는 `items.item`이지만 `CharacterFact.factKey`는 동적 대상을 구분하기 위해 `item.검은단검`을 유지합니다. 타입과 merge policy 검증을 통과하면 `itemsJson["item.검은단검"]`에 current Fact의 `valueJson` 전체를 저장합니다.
 
 캐릭터 매칭 상태 기준:
 
@@ -353,8 +361,13 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 
 ## Repository
 
+`WorkRepository`
+
+- `findByIdForUpdate(id)`: `UNRESOLVED` 후보의 exact-name 캐릭터 조회와 신규 생성을 작품 단위로 직렬화합니다.
+
 `WorkCharacterRepository`
 
+- `findByIdAndWorkIdForUpdate(id, workId)`: 기존 캐릭터 confirm 시 pessimistic write lock으로 조회해 whole-map snapshot lost update를 방지합니다.
 - `findByWorkIdAndName(workId, name)`
 - `findAllByWorkIdOrderByCreatedAtDesc(workId)`
 
@@ -364,6 +377,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 - `findAllByWorkIdAndReviewStatusOrderByCreatedAtDesc(workId, reviewStatus)`
 - `findAllByWorkIdAndEntityNameOrderByCreatedAtDesc(workId, entityName)`
 - `findAllByWorkIdAndEntityNameAndReviewStatusOrderByCreatedAtDesc(workId, entityName, reviewStatus)`
+- `findAllByNormalizedEntityNameAndMatchState(...)`: 같은 작품의 trim 후 exact-name 후보를 entity/review/match 상태와 함께 조회해 형제 후보 자동 연결 범위를 제한합니다.
 - `findByIdAndWorkId(candidateId, workId)`
 
 `CharacterFactRepository`
@@ -384,6 +398,11 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 - 정확히 하나의 schema가 결정되고 후보와 schema의 `SettingValueType`이 같을 때 `matchedSchema + factKey` 결과를 반환합니다.
 - 매칭 없음, 같은 단계 복수 매칭, 값 타입 불일치는 `AppException`으로 fail-closed 처리하며 Repository 조회나 저장은 직접 수행하지 않습니다.
 
+`CharacterSnapshotAssembler`
+
+- 호출자가 제공한 current Fact를 `STAT`, `SKILL`, `ITEM`, `STATUS/TIME`별 `factKey -> raw valueJson` object map으로 조립하며 entry 내부를 deep merge하지 않습니다.
+- `AGE`, `LEVEL`은 일반 컬럼 대상이므로 제외하고, current Fact가 없는 JSON 그룹은 `null`을 반환합니다.
+
 ## HTTP API
 
 설정 후보 API는 모두 로그인한 사용자의 본인 작품에서만 동작합니다. 다른 회원의 작품 접근은 기존 Work 정책과 동일하게 `WORK_NOT_FOUND`로 응답합니다.
@@ -393,7 +412,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `GET` | `/api/v1/works/{workId}/setting-candidates` | 설정 후보 목록을 최신 생성순으로 조회합니다. `reviewStatus`, `entityName` query parameter로 필터링할 수 있습니다. |
 | `GET` | `/api/v1/works/{workId}/setting-candidates/{candidateId}` | 특정 설정 후보 상세를 조회합니다. |
 | `PATCH` | `/api/v1/works/{workId}/setting-candidates/{candidateId}` | `PENDING_REVIEW` 후보의 `attributeName`, `attributeValue`, `valueType`, `valueJson`, `evidenceSpans`만 보정합니다. 캐릭터 대상 변경은 캐릭터 연결 해소 API에서 처리합니다. |
-| `POST` | `/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm` | 설정 후보를 `CONFIRMED` 상태로 전환하고, 처음 확정되는 후보는 캐릭터 설정 이력과 현재 스냅샷에 반영합니다. |
+| `POST` | `/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm` | 설정 후보를 `CONFIRMED` 상태로 전환하고, 처음 확정되는 후보는 schema, 값 타입, merge policy 검증 후 캐릭터 설정 이력과 현재 스냅샷에 반영합니다. |
 | `POST` | `/api/v1/works/{workId}/setting-candidates/{candidateId}/dismiss` | 설정 후보를 `DISMISSED` 상태로 전환합니다. |
 
 Spring API는 `SettingCandidate` 생성 API를 제공하지 않습니다. 후보 생성은 Python AI Worker가 담당하고, Spring은 사용자 검토 단계의 조회/수정/확정/무시를 담당합니다.
@@ -442,7 +461,7 @@ flowchart TD
     G --> I{"사용자 검토 결정"}
     I -->|"처음 confirm"| I1["CONFIRMED로 전환"]
     I -->|"dismiss"| I2["DISMISSED로 전환"]
-    I1 --> V["활성 schema 매칭 + 값 타입 검증"]
+    I1 --> V["활성 schema 매칭 + 값 타입 + merge policy 검증"]
     V --> J["검증을 통과한 후보만 CharacterFact 저장"]
     J --> K["episodeNo 기준 current 재계산"]
     K --> L["WorkCharacter 현재 스냅샷 갱신"]
@@ -454,7 +473,7 @@ flowchart TD
 
 `confirm` API는 후보 상태 전이와 확정 데이터 반영을 같은 트랜잭션에서 처리합니다. 단, 이미 `CONFIRMED`인 후보 재호출은 성공 응답만 반환하고 `CharacterFact`를 다시 만들지 않습니다.
 
-아래 흐름은 현재 confirm 반영 순서를 보여줍니다. schema 매칭과 값 타입 검증을 먼저 통과한 뒤 `matchStatus` 기준으로 캐릭터를 결정하며, snapshot 누적 merge만 NVM-233 후속 범위로 남습니다.
+아래 흐름은 현재 confirm 반영 순서를 보여줍니다. schema 매칭, 값 타입, merge policy 검증을 먼저 통과한 뒤 `matchStatus` 기준으로 캐릭터를 결정하고 전체 current Fact로 snapshot을 재구성합니다.
 
 ```mermaid
 flowchart TD
@@ -472,39 +491,45 @@ flowchart TD
     R -->|"같은 단계 복수 매칭"| Y2["확정 반영 거절<br/>SETTING_CANDIDATE_SCHEMA_MATCH_AMBIGUOUS / 409"]
     R -->|"schema 하나 결정"| V["후보와 schema의 SettingValueType 비교"]
     V -->|"타입 불일치"| Y3["확정 반영 거절<br/>SETTING_CANDIDATE_VALUE_TYPE_MISMATCH / 400"]
-    V -->|"타입 일치"| F["matchStatus 기반 대상 WorkCharacter 결정"]
-    F -->|"MATCHED"| F1["matchedCharacterId 캐릭터 검증 후 사용"]
-    F -->|"UNRESOLVED"| F2["entityName 중복 확인"]
+    V -->|"타입 일치"| MP["merge policy 검증<br/>REPLACE 또는 UPSERT_BY_NAME"]
+    MP -->|"UPSERT_BY_SLOT, APPEND, DERIVED"| Y4["확정 반영 거절<br/>SETTING_CANDIDATE_MERGE_POLICY_UNSUPPORTED / 409"]
+    MP -->|"지원 정책"| F["matchStatus 기반 대상 WorkCharacter 결정"]
+    F -->|"MATCHED"| F1["matchedCharacterId 캐릭터 검증 후<br/>pessimistic write lock 조회"]
+    F -->|"UNRESOLVED"| F2["작품 row write lock 후<br/>trim한 entityName exact 조회"]
     F -->|"AMBIGUOUS"| F3["해소 전 confirm 거절"]
-    F2 -->|"동일 이름 캐릭터 있음"| W["중복 이름 응답<br/>SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED / 409"]
+    F2 -->|"동일 이름 활성 캐릭터 있음"| F5["기존 WorkCharacter<br/>write lock 조회 후 재사용"]
     F2 -->|"동일 이름 캐릭터 없음"| F4["entityName 기준 새 WorkCharacter 생성"]
+    F2 -->|"동일 이름 보관 캐릭터만 있음"| W["이름 충돌 응답<br/>SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED / 409"]
+    F5 --> H["확정 후보와 같은 이름의<br/>PENDING_REVIEW + UNRESOLVED 형제 후보를 MATCHED로 연결"]
+    F4 --> H
     F1 --> I["첫 등장 회차 보정<br/>더 이른 episode면 firstAppearanceEpisodeId 갱신"]
-    F4 --> I
+    H --> I
 
-    I --> J["후보를 CharacterFact 생성값으로 변환<br/>factType, factKey, value, source, confidence, episodeNo"]
+    I --> J["후보를 CharacterFact 생성값으로 변환<br/>settingCandidate, factType, factKey, value, source, confidence, episodeNo"]
     J --> K["새 CharacterFact 저장<br/>saveAndFlush(newFact)"]
     K --> L["같은 캐릭터의 같은 설정 이력 전체 조회<br/>character + factType + factKey"]
     L --> M2["current fact 재선택<br/>episodeNo 가장 큼, 같은 회차면 최신 생성"]
     M2 --> N2["선택된 fact만 current 처리"]
     M2 --> O2["나머지 fact는 historical 처리"]
-    N2 --> P["current fact 기준으로 WorkCharacter 스냅샷 갱신<br/>age, level, stats, skills, items, statuses"]
-    O2 --> P
+    N2 --> FL["current 상태 flush 후<br/>캐릭터의 전체 current Fact 조회"]
+    O2 --> FL
+    FL --> P["전체 current Fact로 WorkCharacter 스냅샷 재구성<br/>factKey → valueJson object map"]
     P --> Q["confirm API 응답 반환<br/>id, reviewStatus"]
 ```
 
 상세 처리 기준:
 
 - `SettingCandidateSchemaResolver`는 앞뒤 공백을 제거한 `attributeName`을 schemaKey 정확 일치 → 별칭 → 마지막이 `.*`로 끝나는 속성 패턴 순으로 해석합니다. 정확 일치/별칭의 factKey는 기준 `schemaKey`, 속성 패턴의 factKey는 공백을 제거한 원본 속성명입니다.
-- matched schema의 `factType`을 `CharacterFact`에 사용하고, 후보와 schema의 `SettingValueType` enum이 다르면 캐릭터를 결정하기 전에 거절합니다.
-- 매칭 없음·복수 매칭·타입 불일치를 포함해 확정 반영 중 오류가 발생하면 후보 상태 전이, 신규 캐릭터 생성, `CharacterFact` 생성이 같은 트랜잭션에서 함께 롤백됩니다.
-- 후보 캐릭터 결정은 `matchStatus`를 기준으로 수행합니다. `MATCHED`는 `matchedCharacterId`, `UNRESOLVED`는 중복 이름 검증 후 `entityName`으로 새 캐릭터 생성, `AMBIGUOUS`는 해소 전 거절을 사용합니다.
-- `mapper.toWorkCharacter(candidate)`와 `mapper.toCharacterFact(...)`가 Entity factory를 호출합니다. service는 `Entity.create()` 파라미터를 직접 조립하지 않습니다.
+- matched schema의 `factType`을 `CharacterFact`에 사용하고, 후보와 schema의 `SettingValueType` enum이 다르거나 merge policy가 `REPLACE`, `UPSERT_BY_NAME`이 아니면 캐릭터를 결정하기 전에 거절합니다.
+- 매칭 없음·복수 매칭·타입 불일치·미지원 정책을 포함해 확정 반영 중 오류가 발생하면 후보 상태 전이, 신규 캐릭터 생성, `CharacterFact` 생성이 같은 트랜잭션에서 함께 롤백됩니다.
+- 후보 캐릭터 결정은 `matchStatus`를 기준으로 수행합니다. `MATCHED`는 `matchedCharacterId`를 사용합니다. `UNRESOLVED`는 작품 row를 pessimistic write lock으로 잡은 뒤 trim한 `entityName` exact-name 활성 캐릭터를 재사용하거나 새 캐릭터를 생성하고, 확정 후보와 같은 작품·이름의 `PENDING_REVIEW + UNRESOLVED + CHARACTER` 후보를 `MATCHED`로 연결합니다. `AMBIGUOUS`와 이미 검토된 후보는 자동 변경하지 않습니다.
+- `mapper.toWorkCharacter(candidate)`와 `mapper.toCharacterFact(...)`가 Entity factory를 호출합니다. `toCharacterFact`는 원본 후보를 `settingCandidate`로 연결해 `evidenceSpans`를 역추적할 수 있게 하며, service는 `Entity.create()` 파라미터를 직접 조립하지 않습니다.
 - `saveAndFlush(newFact)` 후 같은 `character + factType + factKey`의 전체 이력을 다시 조회합니다. confirm 순서와 회차 순서가 다를 수 있기 때문입니다.
 - `selectCurrentFact`는 `effectiveFromEpisodeNo`가 가장 큰 fact를 current로 고릅니다. `effectiveFromEpisodeNo = null`인 fact는 가장 오래된 값으로 봅니다.
 - 같은 회차의 같은 key는 `createdAt`이 늦은 fact를 current로 보고, 생성 시각까지 같으면 방금 저장한 `newFact`를 우선합니다.
 - `updateFirstAppearance`는 `firstAppearanceEpisodeId`가 비어 있으면 후보 episode로 채우고, 기존 첫 등장 회차보다 더 이른 episode 후보가 확정되면 더 이른 episode로 갱신합니다.
-- `WorkCharacter.applyCurrentFact(currentFact)`는 `AGE`, `LEVEL`, `STAT`, `SKILL`, `ITEM`, `STATUS`, `TIME`에 따라 현재 스냅샷 컬럼을 갱신합니다.
-- 현재 JSON snapshot 갱신은 current fact의 `valueJson` 교체 방식입니다. 여러 `factKey`의 current fact를 한 JSON 컬럼에 누적 merge하는 정책은 NVM-233 범위입니다.
+- `WorkCharacter.applyCurrentFact(currentFact)`는 `AGE`, `LEVEL` 일반 컬럼을 갱신합니다.
+- current 상태를 명시적으로 flush한 뒤 전체 current Fact를 조회하고, `CharacterSnapshotAssembler`가 `STAT`, `SKILL`, `ITEM`, `STATUS/TIME`별 factKey object map을 조립합니다. 네 JSON 컬럼은 빈 그룹의 `null`까지 포함해 한 번에 교체합니다.
 
 설정 후보 API는 다음 공통 접근 흐름을 먼저 통과합니다.
 
@@ -582,7 +607,7 @@ flowchart TD
 
 수정 API에서 변경하지 않는 값은 `work`, `episode`, `sourceChunkId`, `analysisJob`, `entityType`, `confidence`, `reviewStatus`, `rawAiResultJson`입니다.
 
-무시 API는 후보의 검토 상태만 변경합니다. 처음 실행되는 확정 API는 같은 트랜잭션에서 schema 매칭·값 타입 검증과 확정 데이터 반영까지 수행합니다.
+무시 API는 후보의 검토 상태만 변경합니다. 처음 실행되는 확정 API는 같은 트랜잭션에서 schema 매칭·값 타입·merge policy 검증과 확정 데이터 반영까지 수행합니다.
 
 ```mermaid
 flowchart TD
@@ -599,7 +624,7 @@ flowchart TD
     G -->|예 + confirm| I["CONFIRMED로 전환"]
     G -->|예 + dismiss| J["DISMISSED로 전환"]
 
-    I --> L["활성 schema 매칭 + 값 타입 검증"]
+    I --> L["활성 schema 매칭 + 값 타입 + merge policy 검증"]
     L --> M["CharacterFact 저장 + current 재계산<br/>WorkCharacter 스냅샷 갱신"]
     M --> K["id + reviewStatus 응답"]
     J --> K
@@ -610,6 +635,7 @@ flowchart TD
 
 - `WorkCharacter`와 `SettingCandidate`는 모두 `work_id`로 작품에 속합니다.
 - `CharacterFact`는 `character_id`로 `WorkCharacter`에 속합니다.
+- `CharacterFact.setting_candidate_id`는 confirm된 원본 `SettingCandidate`를 가리키며, 구체적인 원문 근거는 해당 후보의 `evidence_spans`에서 조회합니다.
 - `CharacterFact.source_episode_id`는 설정이 확인된 회차를 가리킬 수 있습니다.
 - `CharacterFact.extracted_by_job_id`는 설정을 추출한 분석 작업을 가리킬 수 있습니다.
 - `SettingCandidate.episode_id`는 후보가 나온 회차를 가리킬 수 있습니다.
@@ -620,7 +646,7 @@ flowchart TD
 
 - 설정 후보 생성 API
 - 확정/무시된 후보 재편집 API
-- Python AI Worker 측 exact → alias → pattern 매칭, 값 검증과 실제 설정 추출 로직
+- Python AI Worker의 deterministic exact/alias/pattern 후처리와 schema 기반 `valueJson` 내부 구조 검증
 - Registry에 등록되지 않은 고정 속성을 자동으로 확정·반영하는 처리
 - 분석 결과를 바탕으로 신규 `character_setting_schemas` row를 자동 생성하는 기능
 - 부분 문자열 또는 fuzzy 방식의 alias 매칭
@@ -629,7 +655,8 @@ flowchart TD
 - `ManuscriptChunk`, `PreprocessedManuscriptChunk`
 - 검수 리포트 모델인 `ValidationReport`, `ValidationFinding`
 - 작중 시간 메타데이터 기반 current/snapshot 계산
-- NVM-233의 `factKey`별 current JSON snapshot 누적/merge 정책
+- JSON entry 내부 deep merge와 삭제·비활성 표현
+- `UPSERT_BY_SLOT`, `APPEND`, `DERIVED` merge policy 실제 반영
 - enum 타입 검증을 넘어서는 `valueJson` 내부 구조와 JSONB DB 레벨 검증
 
 ## 이후 작업
@@ -638,5 +665,5 @@ flowchart TD
 - 재청킹 시 청크 ID 안정화 또는 근거 이력 보존 방식을 정한 뒤 `source_chunk_id` FK 여부 결정
 - 회차 hard delete 시 최초 등장 회차를 재계산할지 `NULL`로 둘지 정한 뒤 `first_appearance_episode_id` FK와 삭제 동작 결정
 - AI Worker 시간 메타데이터가 정해진 뒤 `episodeNo` 기준 current/snapshot 계산을 작중 시간 기준으로 확장
-- NVM-233에서 스킬/아이템/상태처럼 여러 key가 공존하는 JSON snapshot을 map 또는 array로 누적할지 정책 결정
+- NVM-229에서 JSON entry 내부 deep merge, 삭제·비활성 표현과 미지원 merge policy 결정
 - 신규 회차 검수에서 구조화 조회와 벡터 검색을 함께 사용하는 흐름 연결

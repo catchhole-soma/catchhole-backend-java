@@ -58,6 +58,7 @@ class SettingCandidatePromotionMapperTest {
         );
 
         assertThat(fact.getWorkCharacter()).isSameAs(character);
+        assertThat(fact.getSettingCandidate()).isSameAs(candidate);
         assertThat(fact.getFactType()).isEqualTo(CharacterFactType.SKILL);
         assertThat(fact.getFactKey()).isEqualTo("skill.은월참");
         assertThat(fact.getFactValue()).isEqualTo("은월참");

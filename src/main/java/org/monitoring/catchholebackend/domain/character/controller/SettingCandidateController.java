@@ -155,7 +155,8 @@ public class SettingCandidateController {
     @Operation(
             summary = "설정 후보 확정",
             description = "로그인한 사용자가 본인 작품의 설정 후보를 CONFIRMED 상태로 전환합니다. "
-                    + "PENDING_REVIEW 후보가 처음 확정되는 경우 활성 schema를 schemaKey 정확 일치, 별칭, 마지막이 .*로 끝나는 속성 패턴 순으로 매칭하고 값 타입을 검증합니다. "
+                    + "PENDING_REVIEW 후보가 처음 확정되는 경우 활성 schema를 schemaKey 정확 일치, 별칭, 마지막이 .*로 끝나는 속성 패턴 순으로 매칭하고 값 타입과 merge policy를 검증합니다. "
+                    + "UNRESOLVED 캐릭터 후보는 같은 이름의 활성 캐릭터를 재사용하거나 새로 생성하고, 같은 이름의 검토 대기 미해소 후보도 해당 캐릭터에 연결합니다. "
                     + "검증을 통과하면 CharacterFact를 생성하고 WorkCharacter 현재 스냅샷을 갱신합니다. "
                     + "이미 확정된 후보는 성공으로 처리하되 CharacterFact를 중복 생성하지 않으며, 무시된 후보는 상태 충돌로 거절합니다."
     )
@@ -166,7 +167,8 @@ public class SettingCandidateController {
             @ApiResponse(responseCode = "404", description = "작품 또는 설정 후보를 찾을 수 없음"),
             @ApiResponse(
                     responseCode = "409",
-                    description = "검토/캐릭터 매칭 상태 충돌, 유효하지 않은 연결, 중복 이름 또는 schema 복수 매칭"
+                    description = "검토/캐릭터 매칭 상태 충돌, 유효하지 않은 연결, 비활성 동일 이름 충돌, "
+                            + "schema 복수 매칭 또는 미지원 merge policy"
             )
     })
     public CommonResponse<SettingCandidateReviewStatusResponse> confirmSettingCandidate(

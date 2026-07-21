@@ -83,6 +83,23 @@ class SettingCandidateTest {
     }
 
     @Test
+    @DisplayName("확정 반영이 결정한 캐릭터는 후보를 다시 편집 가능하게 만들지 않고 연결한다")
+    void matchPromotedCharacterConnectsConfirmedCandidate() {
+        Work work = work();
+        SettingCandidate candidate = candidate(work, "age", "17");
+        WorkCharacter character = character(work, "아리아");
+        candidate.confirm();
+
+        candidate.matchPromotedCharacter(character);
+
+        assertThat(candidate.getEntityName()).isEqualTo("아리아");
+        assertThat(candidate.getMatchedCharacterId()).isEqualTo(character.getId());
+        assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+        assertThat(candidate.isPendingReview()).isFalse();
+    }
+
+    @Test
     @DisplayName("새 캐릭터로 확정하면 기존 캐릭터 연결을 제거하고 미해소 상태로 둔다")
     void markAsNewCharacterClearsMatchedCharacter() {
         Work work = work();
