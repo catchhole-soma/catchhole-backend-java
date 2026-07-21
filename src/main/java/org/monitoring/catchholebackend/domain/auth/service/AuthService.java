@@ -2,15 +2,14 @@ package org.monitoring.catchholebackend.domain.auth.service;
 
 import org.monitoring.catchholebackend.domain.auth.dto.request.AuthLoginRequest;
 import org.monitoring.catchholebackend.domain.auth.dto.request.AuthSignupRequest;
-import org.monitoring.catchholebackend.domain.member.dto.response.MemberResponse;
 
 public interface AuthService {
 
     /**
      * 회원가입 요청의 이메일과 휴대폰 번호 중복을 검증하고 새 회원을 등록한다.
-     * 비밀번호는 해시로 저장하며, 회원가입 단계에서는 access/refresh token을 발급하지 않는다.
+     * 비밀번호는 해시로 저장하며, 가입 완료 후 access token과 refresh token을 발급한다.
      */
-    MemberResponse signup(AuthSignupRequest request);
+    AuthTokenIssueResult signup(AuthSignupRequest request);
 
     /**
      * 이메일과 비밀번호, 회원 활성 상태를 검증한 뒤 access token과 refresh token을 발급한다.
