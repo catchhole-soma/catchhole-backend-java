@@ -87,11 +87,36 @@ Request
 
 처리 흐름
 
-1. 이메일, 비밀번호, 휴대폰 번호, 표시 이름을 validation 합니다.
+1. 이메일 형식, 영문·숫자를 포함한 8~64자 비밀번호, `010`으로 시작하는 11자리 휴대폰 번호, 20자 이하 표시 이름을 validation 합니다.
 2. 이메일 중복 시 `AUTH_EMAIL_DUPLICATED`를 반환합니다.
 3. 휴대폰 번호 중복 시 `AUTH_PHONE_NUMBER_DUPLICATED`를 반환합니다.
 4. 비밀번호를 `PasswordEncoder`로 hash 합니다.
 5. `Member.register()`로 `ACTIVE`, `AUTHOR`, `phoneVerified=false` 회원을 생성합니다.
+6. 회원을 저장한 뒤 access token과 refresh token을 발급합니다.
+7. refresh token 원문은 저장하지 않고 SHA-256 hash와 만료 시각을 `refresh_tokens`에 저장합니다.
+8. access token은 응답 body로 반환하고, refresh token은 `HttpOnly` 쿠키로 전달합니다. 회원가입 후 별도 로그인 요청은 필요하지 않습니다.
+
+Response
+
+```http
+Set-Cookie: refreshToken=<opaque-token>; Path=/api/v1/auth; Max-Age=1209600; HttpOnly; SameSite=Lax
+```
+
+```json
+{
+  "success": true,
+  "message": "회원가입이 완료되었습니다.",
+  "data": {
+    "accessToken": "<access-token>",
+    "tokenType": "Bearer",
+    "expiresIn": 1800
+  },
+  "error": null,
+  "timestamp": "2026-07-22T13:30:00"
+}
+```
+
+운영 환경의 refresh token 쿠키에는 `Secure` 속성을 추가합니다.
 
 ### 로그인
 

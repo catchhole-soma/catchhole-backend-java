@@ -11,6 +11,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -25,7 +26,6 @@ import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.auth.token.RefreshTokenGenerator;
 import org.monitoring.catchholebackend.domain.auth.token.TokenHashProvider;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
-import org.monitoring.catchholebackend.domain.member.mapper.MemberMapper;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.monitoring.catchholebackend.global.config.auth.AuthProperties;
 import org.monitoring.catchholebackend.global.exception.AppException;
@@ -33,6 +33,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("인증 서비스")
 class AuthServiceImplTest {
 
     @Mock
@@ -69,13 +70,13 @@ class AuthServiceImplTest {
                 jwtTokenProvider,
                 refreshTokenGenerator,
                 tokenHashProvider,
-                new MemberMapper(),
                 authProperties
         );
     }
 
     @Test
-    void signupCreatesMemberWithHashedPassword() {
+    @DisplayName("회원가입은 비밀번호를 암호화해 회원을 저장하고 인증 토큰을 발급한다")
+    void signupCreatesMemberAndIssuesTokens() {
         AuthSignupRequest request = new AuthSignupRequest(
                 "writer@example.com",
                 "password123",
@@ -87,17 +88,26 @@ class AuthServiceImplTest {
         when(memberRepository.existsByPhoneNumber(request.phoneNumber())).thenReturn(false);
         when(passwordEncoder.encode(request.password())).thenReturn("encoded-password");
         when(memberRepository.save(any(Member.class))).thenReturn(savedMember);
+        when(jwtTokenProvider.generateAccessToken(savedMember)).thenReturn("access-token");
+        when(jwtTokenProvider.getAccessTokenExpiresInSeconds()).thenReturn(1800L);
+        when(refreshTokenGenerator.generate()).thenReturn("refresh-token");
+        when(tokenHashProvider.hash("refresh-token")).thenReturn("refresh-token-hash");
 
-        var response = authService.signup(request);
+        AuthTokenIssueResult result = authService.signup(request);
 
-        assertThat(response.email()).isEqualTo("writer@example.com");
-        assertThat(response.phoneVerified()).isFalse();
+        assertThat(result.tokenResponse().accessToken()).isEqualTo("access-token");
+        assertThat(result.refreshToken()).isEqualTo("refresh-token");
         ArgumentCaptor<Member> memberCaptor = ArgumentCaptor.forClass(Member.class);
         verify(memberRepository).save(memberCaptor.capture());
         assertThat(memberCaptor.getValue().getPasswordHash()).isEqualTo("encoded-password");
+        ArgumentCaptor<RefreshToken> tokenCaptor = ArgumentCaptor.forClass(RefreshToken.class);
+        verify(refreshTokenRepository).save(tokenCaptor.capture());
+        assertThat(tokenCaptor.getValue().getMember()).isEqualTo(savedMember);
+        assertThat(tokenCaptor.getValue().getTokenHash()).isEqualTo("refresh-token-hash");
     }
 
     @Test
+    @DisplayName("회원가입은 중복 이메일을 거부한다")
     void signupRejectsDuplicatedEmail() {
         AuthSignupRequest request = new AuthSignupRequest(
                 "writer@example.com",
@@ -116,6 +126,7 @@ class AuthServiceImplTest {
     }
 
     @Test
+    @DisplayName("로그인은 access token을 발급하고 refresh token 해시를 저장한다")
     void loginIssuesAccessTokenAndStoresRefreshTokenHash() {
         Member member = member("writer@example.com", "encoded-password", "01012345678", "작가");
         when(memberRepository.findByEmail("writer@example.com")).thenReturn(Optional.of(member));
@@ -137,6 +148,7 @@ class AuthServiceImplTest {
     }
 
     @Test
+    @DisplayName("토큰 재발급은 기존 refresh token을 폐기하고 새 토큰을 발급한다")
     void refreshRevokesOldTokenAndIssuesNewToken() {
         Member member = member("writer@example.com", "encoded-password", "01012345678", "작가");
         RefreshToken oldToken = RefreshToken.builder()
@@ -159,6 +171,7 @@ class AuthServiceImplTest {
     }
 
     @Test
+    @DisplayName("로그아웃은 저장된 refresh token을 폐기한다")
     void logoutRevokesRefreshTokenWhenItExists() {
         RefreshToken refreshToken = RefreshToken.builder()
                 .member(member("writer@example.com", "encoded-password", "01012345678", "작가"))

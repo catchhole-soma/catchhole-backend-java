@@ -200,7 +200,9 @@ domain/<domain>
 - Access token 만료 기본값은 30분, refresh token 만료 기본값은 14일이다.
 - Refresh token 원문은 저장하지 않는다. `refresh_tokens.token_hash`에 SHA-256 해시만 저장하고, 재발급 시 기존 token은 `revoked_at`으로 폐기한 뒤 새 token을 저장한다.
 - Refresh token은 `HttpOnly` 쿠키로 전달한다. 쿠키 path는 `/api/v1/auth`, SameSite 기본값은 `Lax`, 운영 환경에서는 `Secure=true`를 사용한다.
+- 회원가입과 로그인은 access token을 응답 body로, refresh token을 HttpOnly 쿠키로 함께 발급한다. 회원가입 후 별도 로그인 요청을 요구하지 않는다.
 - 회원가입 시 휴대폰 번호는 하이픈 없는 `010` 시작 11자리 숫자로 받고, `members.phone_number`에 unique로 저장한다. SMS 인증은 별도 기능에서 구현하며, 현재는 `phone_verified=false` 기본값을 유지한다.
+- 회원가입 표시 이름은 20자 이하, 비밀번호는 8~64자이면서 영문과 숫자를 각각 하나 이상 포함하도록 검증한다. 프론트 검증과 OpenAPI schema도 같은 제약을 사용한다.
 
 #### Work Domain Policy
 
@@ -349,11 +351,13 @@ public class UserMapper {
 - 모든 Controller에는 `@Tag(name, description)`를 붙여 API 그룹의 용도를 설명한다.
 - 모든 API 메서드에는 `@Operation(summary, description)`와 주요 `@ApiResponses`를 작성한다.
   - 성공 응답뿐 아니라 validation 실패, 인증 실패, 권한 실패, 중복/존재하지 않음 같은 대표 실패 케이스도 함께 적는다.
-- 인증이 필요한 API에는 `@SecurityRequirement(name = "bearerAuth")`를 명시한다.
+- 클라이언트 코드 생성에 사용할 수 있도록 operationId는 API별로 고유하고 안정적인 이름을 명시한다.
+- OpenAPI 전역 security requirement는 사용하지 않는다. 사용자 JWT 인증이 필요한 Controller 또는 API에는 `@SecurityRequirement(name = "bearerAuth")`를, `/api/internal/**` 내부 API에는 `@SecurityRequirement(name = "internalApiKey")`를 명시한다. `internalApiKey`는 `X-Internal-Api-Key` 헤더를 사용하는 API Key 방식으로 정의하고, signup/login/refresh 같은 공개 Auth API는 security requirement 없이 노출한다.
 - Swagger에 노출하지 않을 framework 파라미터(`JwtAuthenticationToken` 등)는 `@Parameter(hidden = true)`로 숨긴다.
 - 쿠키/헤더/쿼리 파라미터는 `@Parameter(in = ParameterIn.COOKIE/HEADER/QUERY, name, description)`로 문서화한다.
 - request / response DTO record에는 class-level `@Schema(description)`를 붙이고, 주요 필드에는 `@Schema(description, example)`를 작성한다.
 - 비밀번호, 토큰, 쿠키처럼 민감한 값은 실제 값이 아닌 더미 예시를 사용한다.
+- 실패 응답은 성공 payload schema가 아니라 실제 `CommonResponse<Void>` 형태를 표현하는 오류 schema로 문서화한다.
 - 예외 메시지, validation 메시지, OAuth2Error description, Swagger/OpenAPI description처럼 사람이 읽는 문장은 한국어로 작성한다. `accessToken`, `refreshToken`, `JWT`, `Bearer`, enum code처럼 API 필드명이나 기술 식별자는 그대로 사용할 수 있다.
 
 이 방식을 선택한 이유는 Swagger UI만 보고도 프론트엔드와 백엔드 작업자가 요청 값, 인증 방식, 성공/실패 응답을 빠르게 확인하고 테스트할 수 있도록 하기 위함이다.

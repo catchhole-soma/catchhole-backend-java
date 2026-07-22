@@ -11,9 +11,7 @@ import org.monitoring.catchholebackend.domain.auth.repository.RefreshTokenReposi
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.auth.token.RefreshTokenGenerator;
 import org.monitoring.catchholebackend.domain.auth.token.TokenHashProvider;
-import org.monitoring.catchholebackend.domain.member.dto.response.MemberResponse;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
-import org.monitoring.catchholebackend.domain.member.mapper.MemberMapper;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.monitoring.catchholebackend.global.config.auth.AuthProperties;
 import org.monitoring.catchholebackend.global.exception.AppException;
@@ -32,12 +30,11 @@ public class AuthServiceImpl implements AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final RefreshTokenGenerator refreshTokenGenerator;
     private final TokenHashProvider tokenHashProvider;
-    private final MemberMapper memberMapper;
     private final AuthProperties authProperties;
 
     @Override
     @Transactional
-    public MemberResponse signup(AuthSignupRequest request) {
+    public AuthTokenIssueResult signup(AuthSignupRequest request) {
         validateSignupUniqueness(request);
 
         Member member = Member.register(
@@ -47,7 +44,8 @@ public class AuthServiceImpl implements AuthService {
                 request.displayName()
         );
 
-        return memberMapper.toResponse(memberRepository.save(member));
+        Member savedMember = memberRepository.save(member);
+        return issueTokens(savedMember);
     }
 
     @Override

@@ -13,9 +13,10 @@ public record AuthSignupRequest(
         @Email(message = "이메일 형식이 올바르지 않습니다.")
         String email,
 
-        @Schema(description = "8자 이상 72자 이하의 비밀번호", example = "password123!", format = "password")
+        @Schema(description = "영문과 숫자를 포함한 8자 이상 64자 이하의 비밀번호", example = "password123!", format = "password")
         @NotBlank(message = "비밀번호는 필수입니다.")
-        @Size(min = 8, max = 72, message = "비밀번호는 8자 이상 72자 이하로 입력해주세요.")
+        @Size(min = 8, max = 64, message = "비밀번호는 8자 이상 64자 이하로 입력해주세요.")
+        @Pattern(regexp = "^(?=.*[A-Za-z])(?=.*\\d).*$", message = "비밀번호는 영문과 숫자를 각각 하나 이상 포함해야 합니다.")
         String password,
 
         @Schema(description = "하이픈 없이 010으로 시작하는 11자리 휴대폰 번호", example = "01012345678")
@@ -25,7 +26,7 @@ public record AuthSignupRequest(
 
         @Schema(description = "서비스 화면에 표시할 사용자 이름", example = "장은호")
         @NotBlank(message = "표시 이름은 필수입니다.")
-        @Size(max = 50, message = "표시 이름은 50자 이하로 입력해주세요.")
+        @Size(max = 20, message = "표시 이름은 20자 이하로 입력해주세요.")
         String displayName
 ) {
 }
