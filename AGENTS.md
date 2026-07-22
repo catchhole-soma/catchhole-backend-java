@@ -352,7 +352,7 @@ public class UserMapper {
 - 모든 API 메서드에는 `@Operation(summary, description)`와 주요 `@ApiResponses`를 작성한다.
   - 성공 응답뿐 아니라 validation 실패, 인증 실패, 권한 실패, 중복/존재하지 않음 같은 대표 실패 케이스도 함께 적는다.
 - 클라이언트 코드 생성에 사용할 수 있도록 operationId는 API별로 고유하고 안정적인 이름을 명시한다.
-- OpenAPI 전역 security requirement는 사용하지 않는다. 인증이 필요한 Controller 또는 API에만 `@SecurityRequirement(name = "bearerAuth")`를 명시하고, signup/login/refresh 같은 공개 Auth API는 security requirement 없이 노출한다.
+- OpenAPI 전역 security requirement는 사용하지 않는다. 사용자 JWT 인증이 필요한 Controller 또는 API에는 `@SecurityRequirement(name = "bearerAuth")`를, `/api/internal/**` 내부 API에는 `@SecurityRequirement(name = "internalApiKey")`를 명시한다. `internalApiKey`는 `X-Internal-Api-Key` 헤더를 사용하는 API Key 방식으로 정의하고, signup/login/refresh 같은 공개 Auth API는 security requirement 없이 노출한다.
 - Swagger에 노출하지 않을 framework 파라미터(`JwtAuthenticationToken` 등)는 `@Parameter(hidden = true)`로 숨긴다.
 - 쿠키/헤더/쿼리 파라미터는 `@Parameter(in = ParameterIn.COOKIE/HEADER/QUERY, name, description)`로 문서화한다.
 - request / response DTO record에는 class-level `@Schema(description)`를 붙이고, 주요 필드에는 `@Schema(description, example)`를 작성한다.

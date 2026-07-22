@@ -3,6 +3,7 @@ package org.monitoring.catchholebackend.domain.analysis.controller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.Optional;
@@ -27,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 @RequestMapping("/api/internal/v1/analysis-jobs")
 @Tag(name = "Internal AnalysisJob Worker", description = "AI Worker 내부 분석 작업 claim 및 상태 변경 API")
+@SecurityRequirement(name = "internalApiKey")
 public class AnalysisJobWorkerController {
 
     private final AnalysisJobWorkerService analysisJobWorkerService;
