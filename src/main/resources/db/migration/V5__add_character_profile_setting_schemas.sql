@@ -1,3 +1,4 @@
+-- Add profile schemas after the work metadata normalization migration.
 INSERT INTO character_setting_schemas (
     id,
     work_id,
