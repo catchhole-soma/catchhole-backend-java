@@ -55,6 +55,22 @@ class CharacterSnapshotAssemblerTest {
         assertThat(snapshot.statusesJson()).isNull();
     }
 
+    @Test
+    @DisplayName("프로필과 나이, 레벨 current Fact를 대표 snapshot으로 조립한다")
+    void assembleBuildsProfileAndCoreSnapshots() {
+        JsonNode gender = objectMapper.createObjectNode().put("value", "여성");
+
+        CharacterSnapshot snapshot = assembler.assemble(List.of(
+                fact(CharacterFactType.PROFILE, "profile.gender", gender),
+                fact(CharacterFactType.AGE, "age", objectMapper.createObjectNode().put("value", 23)),
+                fact(CharacterFactType.LEVEL, "level", objectMapper.createObjectNode().put("value", 15))
+        ));
+
+        assertThat(snapshot.currentAge()).isEqualTo(23);
+        assertThat(snapshot.currentLevel()).isEqualTo(15);
+        assertThat(snapshot.profileJson().get("profile.gender")).isEqualTo(gender);
+    }
+
     private CharacterFact fact(CharacterFactType factType, String factKey, JsonNode valueJson) {
         return CharacterFact.create(
                 null,
