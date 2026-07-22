@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
@@ -28,6 +29,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+@DisplayName("작품 API 통합 테스트")
 class WorkControllerIntegrationTest {
 
     @Autowired
@@ -86,6 +88,62 @@ class WorkControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.genre").value("로맨스"))
                 .andExpect(jsonPath("$.data.description").value("검사 주인공의 성장과 로맨스"))
                 .andExpect(jsonPath("$.data.latestEpisodeNo").value(0));
+    }
+
+    @Test
+    @DisplayName("작품 생성 시 빈 장르를 거절한다")
+    void createWorkRejectsBlankGenre() throws Exception {
+        mockMvc.perform(post("/api/v1/works")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "장르 없는 작품",
+                                  "genre": ""
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.error.details[0].field").value("genre"))
+                .andExpect(jsonPath("$.error.details[0].message").value("작품 장르는 필수입니다."));
+    }
+
+    @Test
+    @DisplayName("작품 생성 시 MVP 목록에 없는 장르를 거절한다")
+    void createWorkRejectsUnsupportedGenre() throws Exception {
+        mockMvc.perform(post("/api/v1/works")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "지원하지 않는 장르 작품",
+                                  "genre": "추리"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.error.details[0].field").value("genre"))
+                .andExpect(jsonPath("$.error.details[0].message").value("지원하지 않는 작품 장르입니다."));
+    }
+
+    @Test
+    @DisplayName("작품 생성 시 100자를 초과한 제목을 거절한다")
+    void createWorkRejectsTitleLongerThanOneHundredCharacters() throws Exception {
+        String title = "가".repeat(101);
+
+        mockMvc.perform(post("/api/v1/works")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "%s",
+                                  "genre": "판타지"
+                                }
+                                """.formatted(title)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.error.details[0].field").value("title"))
+                .andExpect(jsonPath("$.error.details[0].message").value("작품 제목은 100자 이하로 입력해주세요."));
     }
 
     @Test

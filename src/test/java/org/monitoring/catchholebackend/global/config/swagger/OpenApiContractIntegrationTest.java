@@ -15,7 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-@DisplayName("OpenAPI 인증 계약")
+@DisplayName("OpenAPI 인증 및 프론트 연동 계약")
 class OpenApiContractIntegrationTest {
 
     @Autowired
@@ -52,6 +52,20 @@ class OpenApiContractIntegrationTest {
                 .andExpect(jsonPath("$['components']['schemas']['AuthSignupRequest']['properties']['password']['maxLength']")
                         .value(64))
                 .andExpect(jsonPath("$['components']['schemas']['AuthSignupRequest']['properties']['displayName']['maxLength']")
-                        .value(20));
+                        .value(20))
+                .andExpect(jsonPath("$['paths']['/api/v1/works']['get']['operationId']").value("getMyWorks"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works']['post']['operationId']").value("createWork"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works']['post']['responses']['400']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['components']['schemas']['WorkCreateRequest']['required']")
+                        .value(org.hamcrest.Matchers.hasItems("title", "genre")))
+                .andExpect(jsonPath("$['components']['schemas']['WorkCreateRequest']['properties']['genre']['enum']")
+                        .value(org.hamcrest.Matchers.contains(
+                                "로맨스", "판타지", "무협", "현대", "미스터리", "기타"
+                        )))
+                .andExpect(jsonPath("$['components']['schemas']['WorkResponse']['required']")
+                        .value(org.hamcrest.Matchers.hasItems(
+                                "id", "title", "genre", "latestEpisodeNo", "createdAt", "updatedAt"
+                        )));
     }
 }

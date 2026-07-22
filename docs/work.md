@@ -23,6 +23,16 @@ Work는 로그인한 회원의 개인 리소스입니다.
 
 현재 Work API는 삭제 시 hard delete를 수행하므로 별도 `WorkStatus`를 두지 않습니다. 보관/복구 흐름을 구현할 때 상태 컬럼과 전이 메서드를 함께 추가합니다.
 
+## 작품 선택·등록 MVP 계약
+
+- 작품 목록은 로그인한 회원의 작품만 최신 생성순으로 반환합니다.
+- 목록 카드에는 `id`, `title`, `genre`, `latestEpisodeNo`를 사용합니다.
+- `latestEpisodeNo`가 `0`인 작품도 정상 작품이며 프론트에서는 `등록된 회차 없음`으로 표시합니다.
+- 작품 등록은 회차·설정집 업로드와 분리합니다. 제목과 장르만으로 먼저 작품을 만들 수 있습니다.
+- 제목은 공백일 수 없고 100자 이하여야 합니다.
+- 장르는 필수이며 `로맨스`, `판타지`, `무협`, `현대`, `미스터리`, `기타` 중 하나여야 합니다.
+- 입력 검증 실패는 `REQUEST_VALIDATION_FAILED`와 `error.details[]`의 필드명·메시지로 반환합니다.
+
 ## DB 모델
 
 `works`
@@ -53,8 +63,7 @@ Request
 ```json
 {
   "title": "빛나는 검사 로맨스",
-  "genre": "로맨스",
-  "description": "검사 주인공의 성장과 로맨스를 다룬 웹소설입니다."
+  "genre": "로맨스"
 }
 ```
 
@@ -64,6 +73,8 @@ Request
 2. `MemberRepository.getByIdOrThrow(memberId)`로 회원을 조회합니다.
 3. `Work.create(member, title, genre, description)`으로 작품을 생성합니다.
 4. `latestEpisodeNo`는 `0`으로 초기화합니다.
+
+생성 성공 후 프론트는 응답의 `id`를 사용해 `/dashboard?workId={id}&nav=manuscripts`로 이동합니다.
 
 ### 내 작품 목록 조회
 

@@ -2,6 +2,8 @@ package org.monitoring.catchholebackend.domain.work.controller;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -15,7 +17,9 @@ import org.monitoring.catchholebackend.domain.work.dto.request.WorkCreateRequest
 import org.monitoring.catchholebackend.domain.work.dto.request.WorkUpdateRequest;
 import org.monitoring.catchholebackend.domain.work.dto.response.WorkResponse;
 import org.monitoring.catchholebackend.domain.work.service.WorkService;
+import org.monitoring.catchholebackend.global.common.response.CommonErrorResponse;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,7 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/v1/works")
+@RequestMapping(value = "/api/v1/works", produces = MediaType.APPLICATION_JSON_VALUE)
 @Tag(name = "Work", description = "로그인한 사용자의 작품 등록, 조회, 수정, 삭제 API")
 @SecurityRequirement(name = "bearerAuth")
 public class WorkController {
@@ -37,14 +41,28 @@ public class WorkController {
 
     @PostMapping
     @Operation(
+            operationId = "createWork",
             summary = "내 작품 생성",
-            description = "로그인한 사용자의 새 작품을 등록합니다. 최신 회차 번호는 서버에서 초기화합니다."
+            description = "로그인한 사용자의 새 작품을 제목과 MVP 고정 장르로 등록합니다. "
+                    + "회차 업로드와 독립된 요청이며 최신 회차 번호는 0으로 초기화합니다."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "작품 생성 성공"),
-            @ApiResponse(responseCode = "400", description = "요청 값 검증 실패"),
-            @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패"),
-            @ApiResponse(responseCode = "404", description = "인증된 회원 정보를 찾을 수 없음")
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "제목 또는 장르 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "액세스 토큰 없음, 만료 또는 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "인증된 회원 정보를 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            )
     })
     public CommonResponse<WorkResponse> createWork(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
@@ -55,12 +73,17 @@ public class WorkController {
 
     @GetMapping
     @Operation(
+            operationId = "getMyWorks",
             summary = "내 작품 목록 조회",
             description = "로그인한 사용자가 등록한 작품 목록을 최신 생성순으로 조회합니다."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "작품 목록 조회 성공"),
-            @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패")
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "액세스 토큰 없음, 만료 또는 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            )
     })
     public CommonResponse<List<WorkResponse>> getMyWorks(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member
@@ -70,6 +93,7 @@ public class WorkController {
 
     @GetMapping("/{workId}")
     @Operation(
+            operationId = "getWork",
             summary = "내 작품 상세 조회",
             description = "로그인한 사용자가 본인 작품의 상세 정보를 조회합니다."
     )
@@ -87,6 +111,7 @@ public class WorkController {
 
     @PatchMapping("/{workId}")
     @Operation(
+            operationId = "updateWork",
             summary = "내 작품 수정",
             description = "로그인한 사용자가 본인 작품의 제목, 장르, 설명을 수정합니다."
     )
@@ -106,6 +131,7 @@ public class WorkController {
 
     @DeleteMapping("/{workId}")
     @Operation(
+            operationId = "deleteWork",
             summary = "내 작품 삭제",
             description = "로그인한 사용자가 본인 작품을 삭제합니다."
     )
