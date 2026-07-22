@@ -173,6 +173,29 @@ public class CharacterFact extends BaseEntity {
         );
     }
 
+    public static CharacterFact createManual(
+            WorkCharacter workCharacter,
+            CharacterFactType factType,
+            String factKey,
+            String factValue,
+            JsonNode valueJson
+    ) {
+        return new CharacterFact(
+                workCharacter,
+                null,
+                factType,
+                factKey,
+                factValue,
+                factValue,
+                valueJson,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+    }
+
     public void markCurrent() {
         this.isCurrent = true;
     }

@@ -77,8 +77,6 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                 );
         CharacterFact currentFact = selectCurrentFact(facts, newFact);
         facts.forEach(fact -> updateCurrentState(fact, currentFact));
-        character.applyCurrentFact(currentFact);
-
         // dirty isCurrent 변경을 바로 다음 all-current 조회에 반영한다.
         characterFactRepository.flush();
 
@@ -86,7 +84,10 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         List<CharacterFact> currentFacts = characterFactRepository
                 .findAllByWorkCharacterIdAndIsCurrentTrueOrderByFactTypeAscFactKeyAsc(character.getId());
         CharacterSnapshot snapshot = characterSnapshotAssembler.assemble(currentFacts);
-        character.replaceJsonSnapshots(
+        character.replaceCurrentSnapshots(
+                snapshot.currentAge(),
+                snapshot.currentLevel(),
+                snapshot.profileJson(),
                 snapshot.statsJson(),
                 snapshot.skillsJson(),
                 snapshot.itemsJson(),

@@ -56,12 +56,12 @@ public class WorkCharacter extends BaseEntity {
     @Column(name = "role_label", length = 50)
     private String roleLabel;
 
-    //소설 최신 회차에서의 현재 나이
+    // 소설 최신 회차에서의 현재 나이
     @Column(name = "current_age")
     private Integer currentAge;
 
-    //레벨이 존재하는 판타자 소설인경우
-    //TODO: 소설 장르별로 캐릭터 DB를 다르게 가져갈건지 고민 필요함(추후 MVP이후 회의 예정)
+    // 레벨이 존재하는 판타지 소설인 경우
+    // TODO: 소설 장르별로 캐릭터 DB를 다르게 가져갈지 MVP 이후 논의가 필요하다.
     @Column(name = "current_level")
     private Integer currentLevel;
 
@@ -156,22 +156,23 @@ public class WorkCharacter extends BaseEntity {
         this.status = CharacterStatus.ARCHIVED;
     }
 
-    public void applyCurrentFact(CharacterFact fact) {
-        switch (fact.getFactType()) {
-            case AGE -> applyCurrentAge(fact);
-            case LEVEL -> applyCurrentLevel(fact);
-            case STAT, SKILL, ITEM, STATUS, TIME -> {
-                // JSON snapshot은 전체 current fact를 모은 뒤 replaceJsonSnapshots로 일괄 갱신한다.
-            }
-        }
+    public void updateBasicInfo(String name, String roleLabel) {
+        this.name = name;
+        this.roleLabel = roleLabel;
     }
 
-    public void replaceJsonSnapshots(
+    public void replaceCurrentSnapshots(
+            Integer currentAge,
+            Integer currentLevel,
+            JsonNode profileJson,
             JsonNode statsJson,
             JsonNode skillsJson,
             JsonNode itemsJson,
             JsonNode statusesJson
     ) {
+        this.currentAge = currentAge;
+        this.currentLevel = currentLevel;
+        this.profileJson = profileJson;
         this.statsJson = statsJson;
         this.skillsJson = skillsJson;
         this.itemsJson = itemsJson;
@@ -182,36 +183,4 @@ public class WorkCharacter extends BaseEntity {
         this.firstAppearanceEpisodeId = firstAppearanceEpisodeId;
     }
 
-    private void applyCurrentAge(CharacterFact fact) {
-        Integer currentAge = resolveIntegerSnapshot(fact);
-        if (currentAge != null) {
-            this.currentAge = currentAge;
-        }
-    }
-
-    private void applyCurrentLevel(CharacterFact fact) {
-        Integer currentLevel = resolveIntegerSnapshot(fact);
-        if (currentLevel != null) {
-            this.currentLevel = currentLevel;
-        }
-    }
-
-    private Integer resolveIntegerSnapshot(CharacterFact fact) {
-        JsonNode valueNode = fact.getValueJson();
-        if (valueNode != null && valueNode.has("value") && valueNode.get("value").canConvertToInt()) {
-            return valueNode.get("value").asInt();
-        }
-        return parseInteger(fact.getFactValue());
-    }
-
-    private Integer parseInteger(String value) {
-        if (value == null) {
-            return null;
-        }
-        try {
-            return Integer.valueOf(value.trim());
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
 }

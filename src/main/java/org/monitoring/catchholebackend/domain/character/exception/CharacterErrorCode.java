@@ -9,6 +9,11 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 public enum CharacterErrorCode implements ResultCode {
 
+    CHARACTER_NOT_FOUND(HttpStatus.NOT_FOUND, "캐릭터 정보를 찾을 수 없습니다."),
+    CHARACTER_NAME_DUPLICATED(HttpStatus.CONFLICT, "이미 같은 이름의 캐릭터가 있습니다."),
+    CHARACTER_SETTING_KEY_INVALID(HttpStatus.BAD_REQUEST, "캐릭터 설정 key가 설정 유형과 일치하지 않습니다."),
+    CHARACTER_SETTING_KEY_DUPLICATED(HttpStatus.BAD_REQUEST, "캐릭터 설정 key가 중복되었습니다."),
+    CHARACTER_SETTING_VALUE_INVALID(HttpStatus.BAD_REQUEST, "캐릭터 설정 값이 지정한 값 타입과 일치하지 않습니다."),
     SETTING_CANDIDATE_NOT_FOUND(HttpStatus.NOT_FOUND, "설정 후보를 찾을 수 없습니다."),
     SETTING_CANDIDATE_NOT_EDITABLE(HttpStatus.CONFLICT, "검토 대기 상태의 설정 후보만 수정할 수 있습니다."),
     SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT(HttpStatus.CONFLICT, "설정 후보 검토 상태 전이가 올바르지 않습니다."),
