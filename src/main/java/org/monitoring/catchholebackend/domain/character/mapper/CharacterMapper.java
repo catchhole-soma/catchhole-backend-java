@@ -40,10 +40,13 @@ public class CharacterMapper {
             Map<UUID, Integer> firstAppearanceEpisodeNosById
     ) {
         return characters.stream()
-                .map(character -> toSummaryResponse(
-                        character,
-                        firstAppearanceEpisodeNosById.get(character.getFirstAppearanceEpisodeId())
-                ))
+                .map(character -> {
+                    UUID firstAppearanceEpisodeId = character.getFirstAppearanceEpisodeId();
+                    Integer firstAppearanceEpisodeNo = firstAppearanceEpisodeId == null
+                            ? null
+                            : firstAppearanceEpisodeNosById.get(firstAppearanceEpisodeId);
+                    return toSummaryResponse(character, firstAppearanceEpisodeNo);
+                })
                 .toList();
     }
 

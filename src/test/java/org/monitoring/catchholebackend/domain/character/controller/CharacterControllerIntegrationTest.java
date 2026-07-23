@@ -172,6 +172,21 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("첫 등장 회차가 없는 캐릭터도 목록에서 조회한다")
+    void getCharactersReturnsCharacterWithoutFirstAppearanceEpisode() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", 23, 15));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(character.getId().toString()))
+                .andExpect(jsonPath("$.data[0].name").value("수아"))
+                .andExpect(jsonPath("$.data[0].firstAppearanceEpisodeNo").doesNotExist());
+    }
+
+    @Test
     @DisplayName("캐릭터 목록은 다른 작품 회차를 첫 등장 회차로 노출하지 않는다")
     void getCharactersDoesNotExposeAnotherWorkEpisode() throws Exception {
         Episode otherEpisode = episodeRepository.save(Episode.create(

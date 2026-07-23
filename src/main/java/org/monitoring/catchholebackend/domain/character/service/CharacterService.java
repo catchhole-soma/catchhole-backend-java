@@ -12,6 +12,7 @@ public interface CharacterService {
     /**
      * 작품 소유권을 확인한 뒤 보관되지 않은 캐릭터 카드 목록을 최신 생성순으로 조회한다.
      * 첫 등장 회차 ID가 유효하면 카드에 표시할 회차 번호를 함께 응답한다.
+     * 첫 등장 회차가 없거나 현재 작품에서 유효하지 않으면 해당 값만 null로 응답한다.
      */
     List<CharacterSummaryResponse> getCharacters(Long memberId, UUID workId);
 
