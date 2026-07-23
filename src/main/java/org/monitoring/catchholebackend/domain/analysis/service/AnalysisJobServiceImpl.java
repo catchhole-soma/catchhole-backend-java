@@ -2,8 +2,8 @@ package org.monitoring.catchholebackend.domain.analysis.service;
 
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.dto.request.AnalysisJobCreateRequest;
@@ -13,9 +13,9 @@ import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErro
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisJobMapper;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
-import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
+import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
@@ -48,26 +48,27 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_ALREADY_IN_PROGRESS);
         }
 
+        List<UploadFile> uploadFiles = getUploadFiles(batch);
+        List<Episode> targetEpisodes = episode == null
+                ? findCurrentBatchEpisodes(uploadFiles)
+                : List.of(episode);
         AnalysisJob analysisJob = AnalysisJob.create(work, batch, episode, request.jobType());
+        analysisJob.addTargetEpisodes(targetEpisodes);
         AnalysisJob savedAnalysisJob = analysisJobRepository.save(analysisJob);
 
-        return toResponse(savedAnalysisJob);
+        return analysisJobMapper.toResponse(savedAnalysisJob, uploadFiles, targetEpisodes);
     }
 
     @Override
     public List<AnalysisJobResponse> getAnalysisJobs(Long memberId, UUID workId) {
         Work work = workRepository.getOwnedWork(workId, memberId);
-        List<AnalysisJob> analysisJobs = analysisJobRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId());
+        List<AnalysisJob> analysisJobs =
+                analysisJobRepository.findAllWithTargetsByWorkIdOrderByCreatedAtDesc(work.getId());
         Map<UUID, List<UploadFile>> uploadFilesByBatchId = getUploadFilesByBatchId(analysisJobs);
         Map<UUID, List<Episode>> episodesByJobId = analysisJobs.stream()
                 .collect(Collectors.toMap(
                         AnalysisJob::getId,
-                        analysisJob -> getTargetEpisodes(
-                                analysisJob,
-                                analysisJob.getBatch() == null
-                                        ? List.of()
-                                        : uploadFilesByBatchId.getOrDefault(analysisJob.getBatch().getId(), List.of())
-                        )
+                        this::getTargetEpisodes
                 ));
         return analysisJobMapper.toResponseList(analysisJobs, uploadFilesByBatchId, episodesByJobId);
     }
@@ -89,9 +90,11 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         if (failedJob.getStatus() != AnalysisJobStatus.FAILED) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
         }
+        if (hasActiveBatchWideAnalysisJob(failedJob.getBatch())) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_ALREADY_IN_PROGRESS);
+        }
 
-        List<UploadFile> uploadFiles = getUploadFiles(failedJob);
-        List<Episode> failedEpisodes = getTargetEpisodes(failedJob, uploadFiles).stream()
+        List<Episode> failedEpisodes = getTargetEpisodes(failedJob).stream()
                 .filter(episode -> episode.getStatus() == EpisodeStatus.FAILED)
                 .toList();
         if (failedEpisodes.isEmpty()) {
@@ -109,14 +112,15 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         return analysisJobMapper.toResponse(
                 analysisJob,
                 uploadFiles,
-                getTargetEpisodes(analysisJob, uploadFiles)
+                getTargetEpisodes(analysisJob)
         );
     }
 
-    private List<Episode> getTargetEpisodes(AnalysisJob analysisJob, List<UploadFile> uploadFiles) {
-        if (analysisJob.getEpisode() != null) {
-            return List.of(analysisJob.getEpisode());
-        }
+    private List<Episode> getTargetEpisodes(AnalysisJob analysisJob) {
+        return List.copyOf(analysisJob.getTargetEpisodes());
+    }
+
+    private List<Episode> findCurrentBatchEpisodes(List<UploadFile> uploadFiles) {
         List<UUID> sourceFileIds = uploadFiles.stream()
                 .map(UploadFile::getId)
                 .toList();
@@ -157,6 +161,12 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 episode.getId(), batch.getId(), activeStatuses);
     }
 
+    private boolean hasActiveBatchWideAnalysisJob(UploadBatch batch) {
+        Set<AnalysisJobStatus> activeStatuses = Set.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING);
+        return batch != null && analysisJobRepository.existsByBatchIdAndEpisodeIsNullAndStatusIn(
+                batch.getId(), activeStatuses);
+    }
+
     private AnalysisJob getOrCreateRetryJob(Work work, AnalysisJob failedJob, Episode episode) {
         Set<AnalysisJobStatus> activeStatuses = Set.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING);
         return analysisJobRepository
@@ -167,10 +177,14 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     }
 
     private List<UploadFile> getUploadFiles(AnalysisJob analysisJob) {
-        if (analysisJob.getBatch() == null) {
+        return getUploadFiles(analysisJob.getBatch());
+    }
+
+    private List<UploadFile> getUploadFiles(UploadBatch batch) {
+        if (batch == null) {
             return List.of();
         }
-        return uploadFileRepository.findAllByBatchIdOrderByCreatedAtAsc(analysisJob.getBatch().getId());
+        return uploadFileRepository.findAllByBatchIdOrderByCreatedAtAsc(batch.getId());
     }
 
     private Map<UUID, List<UploadFile>> getUploadFilesByBatchId(List<AnalysisJob> analysisJobs) {

@@ -8,8 +8,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
@@ -178,25 +182,77 @@ class AnalysisJobControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.status").value("PENDING"));
     }
 
+    @ParameterizedTest
+    @EnumSource(AnalysisJobType.class)
+    @DisplayName("공개 생성 API는 모든 분석 작업 유형에서 선택 회차 범위를 허용한다")
+    void createAnalysisJobTargetsOnlyRequestedEpisode(AnalysisJobType jobType) throws Exception {
+        mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "jobType": "%s",
+                                  "batchId": "%s",
+                                  "episodeId": "%s"
+                                }
+                                """.formatted(jobType, uploadBatch.getId(), firstEpisode.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.episodeId").value(firstEpisode.getId().toString()))
+                .andExpect(jsonPath("$.data.episodes", hasSize(1)))
+                .andExpect(jsonPath("$.data.episodes[0].id").value(firstEpisode.getId().toString()))
+                .andExpect(jsonPath("$.data.jobType").value(jobType.name()));
+
+        AnalysisJob savedJob = analysisJobRepository.findAll().getFirst();
+        assertThat(savedJob.getEpisode().getId()).isEqualTo(firstEpisode.getId());
+    }
+
     @Test
-    void createAnalysisJobTargetsOnlyRequestedEpisode() throws Exception {
+    @DisplayName("완료된 배치 작업의 대상 회차는 원본 교체와 보관 후에도 유지된다")
+    void completedBatchJobKeepsTargetSnapshotAfterEpisodeChanges() throws Exception {
         mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
                                   "jobType": "EPISODE_VALIDATION",
-                                  "batchId": "%s",
-                                  "episodeId": "%s"
+                                  "batchId": "%s"
                                 }
-                                """.formatted(uploadBatch.getId(), firstEpisode.getId())))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.episodeId").value(firstEpisode.getId().toString()))
-                .andExpect(jsonPath("$.data.episodes", hasSize(1)))
-                .andExpect(jsonPath("$.data.episodes[0].id").value(firstEpisode.getId().toString()));
+                                """.formatted(uploadBatch.getId())))
+                .andExpect(status().isOk());
 
-        AnalysisJob savedJob = analysisJobRepository.findAll().getFirst();
-        assertThat(savedJob.getEpisode().getId()).isEqualTo(firstEpisode.getId());
+        AnalysisJob analysisJob = analysisJobRepository.findAll().getFirst();
+        analysisJob.succeed("{}", 0, 0);
+        analysisJobRepository.save(analysisJob);
+
+        UploadBatch replacementBatch = uploadBatchRepository.save(UploadBatch.create(
+                work,
+                member,
+                UploadType.SINGLE_EPISODE,
+                UploadSourceType.FILE
+        ));
+        UploadFile replacementFile = uploadFileRepository.save(
+                parsedEpisodeFile(replacementBatch, "replacement.txt", 1, 1, 1));
+        firstEpisode.replaceSourceFileAndContent(
+                replacementFile.getId(),
+                "episodes/replacement/1.txt",
+                null,
+                "replacement-hash",
+                20
+        );
+        secondEpisode.archive();
+        episodeRepository.saveAll(List.of(firstEpisode, secondEpisode));
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/analysis-jobs/{analysisJobId}",
+                                work.getId(),
+                                analysisJob.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.episodes", hasSize(2)))
+                .andExpect(jsonPath("$.data.episodes[0].id").value(firstEpisode.getId().toString()))
+                .andExpect(jsonPath("$.data.episodes[1].id").value(secondEpisode.getId().toString()))
+                .andExpect(jsonPath("$.data.episodes[1].status").value("ARCHIVED"));
     }
 
     @Test
@@ -237,6 +293,32 @@ class AnalysisJobControllerIntegrationTest {
                                 """.formatted(uploadBatch.getId(), firstEpisode.getId())))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("ANALYSIS_JOB_ALREADY_IN_PROGRESS"));
+    }
+
+    @Test
+    @DisplayName("같은 배치의 전체 분석 작업이 활성 상태면 실패 작업 재시도를 거절한다")
+    void retryFailedAnalysisJobRejectsActiveBatchJob() throws Exception {
+        firstEpisode.markFailed();
+        secondEpisode.markFailed();
+        episodeRepository.saveAll(List.of(firstEpisode, secondEpisode));
+
+        AnalysisJob failedJob = AnalysisJob.create(
+                work, uploadBatch, null, AnalysisJobType.EPISODE_VALIDATION);
+        failedJob.fail("분석 실패");
+        analysisJobRepository.save(failedJob);
+        analysisJobRepository.save(AnalysisJob.create(
+                work, uploadBatch, null, AnalysisJobType.EPISODE_VALIDATION));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/analysis-jobs/{analysisJobId}/retry",
+                                work.getId(),
+                                failedJob.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ANALYSIS_JOB_ALREADY_IN_PROGRESS"));
+
+        assertThat(analysisJobRepository.count()).isEqualTo(2);
     }
 
     @Test

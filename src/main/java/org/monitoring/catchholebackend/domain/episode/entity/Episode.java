@@ -12,12 +12,13 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import java.time.LocalDateTime;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
+import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 
 @Getter
@@ -62,6 +63,10 @@ public class Episode extends BaseEntity {
     @Column(name = "content_hash", length = 64)
     private String contentHash;
 
+    // 제목 변경과 구분되는 현재 원문 업로드·교체 시각
+    @Column(name = "content_updated_at", nullable = false)
+    private LocalDateTime contentUpdatedAt;
+
     // byte 크기가 아니라 공백을 제외한 Unicode code point 기준 본문 글자 수
     @Column(name = "char_count", nullable = false)
     private int charCount;
@@ -88,6 +93,7 @@ public class Episode extends BaseEntity {
         this.contentS3Key = contentS3Key;
         this.contentS3Version = contentS3Version;
         this.contentHash = contentHash;
+        this.contentUpdatedAt = LocalDateTime.now();
         this.charCount = charCount;
         this.status = EpisodeStatus.UPLOADED;
     }
@@ -128,6 +134,7 @@ public class Episode extends BaseEntity {
         this.contentS3Key = contentS3Key;
         this.contentS3Version = contentS3Version;
         this.contentHash = contentHash;
+        this.contentUpdatedAt = LocalDateTime.now();
         this.charCount = charCount;
         this.status = EpisodeStatus.UPLOADED;
     }
@@ -136,6 +143,7 @@ public class Episode extends BaseEntity {
         this.contentS3Key = contentS3Key;
         this.contentS3Version = contentS3Version;
         this.contentHash = contentHash;
+        this.contentUpdatedAt = LocalDateTime.now();
     }
 
     public void replaceSourceFileAndContent(
@@ -149,6 +157,7 @@ public class Episode extends BaseEntity {
         this.contentS3Key = contentS3Key;
         this.contentS3Version = contentS3Version;
         this.contentHash = contentHash;
+        this.contentUpdatedAt = LocalDateTime.now();
         this.charCount = charCount;
         this.status = EpisodeStatus.UPLOADED;
     }
@@ -157,7 +166,6 @@ public class Episode extends BaseEntity {
         this.status = EpisodeStatus.CHUNKING;
     }
 
-    // TODO: 후속 내부 API는 EpisodeStatus를 파라미터로 받는 단일 전이 API로 구현한다.
     public void markChunked() {
         this.status = EpisodeStatus.CHUNKED;
     }
@@ -180,6 +188,10 @@ public class Episode extends BaseEntity {
 
     public void markFailed() {
         this.status = EpisodeStatus.FAILED;
+    }
+
+    public void updateStatus(EpisodeStatus status) {
+        this.status = status;
     }
 
     public void archive() {

@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -95,6 +96,8 @@ class AnalysisJobWorkerControllerIntegrationTest {
     private Work work;
     private UploadBatch uploadBatch;
     private UploadFile uploadFile;
+    private Episode firstEpisode;
+    private Episode secondEpisode;
 
     @BeforeEach
     void setUp() {
@@ -121,8 +124,10 @@ class AnalysisJobWorkerControllerIntegrationTest {
                 UploadSourceType.FILE
         ));
         uploadFile = uploadFileRepository.save(parsedEpisodeFile(uploadBatch, "episodes.txt", 1, 2, 2));
-        episodeRepository.save(episode(2, "두 번째 회차", "works/%s/episodes/2.txt".formatted(work.getId())));
-        episodeRepository.save(episode(1, "첫 번째 회차", "works/%s/episodes/1.txt".formatted(work.getId())));
+        secondEpisode = episodeRepository.save(
+                episode(2, "두 번째 회차", "works/%s/episodes/2.txt".formatted(work.getId())));
+        firstEpisode = episodeRepository.save(
+                episode(1, "첫 번째 회차", "works/%s/episodes/1.txt".formatted(work.getId())));
     }
 
     @Test
@@ -168,7 +173,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
     @DisplayName("활성 registry schema가 없으면 빈 characterSettingSchemas를 응답한다")
     void claimReturnsEmptyCharacterSettingSchemasWhenRegistryHasNoRows() throws Exception {
         analysisJobRepository.save(
-                AnalysisJob.create(work, uploadBatch, null, AnalysisJobType.EPISODE_VALIDATION)
+                batchJob(AnalysisJobType.EPISODE_VALIDATION)
         );
 
         mockMvc.perform(post(CLAIM_URL)
@@ -184,11 +189,11 @@ class AnalysisJobWorkerControllerIntegrationTest {
     @DisplayName("가장 오래된 대기 작업을 claim하고 회차·캐릭터·설정 schema를 응답한다")
     void claimOldestPendingJobAndReturnsEpisodeMetadata() throws Exception {
         AnalysisJob firstJob = analysisJobRepository.save(
-                AnalysisJob.create(work, uploadBatch, null, AnalysisJobType.SETTING_EXTRACTION)
+                batchJob(AnalysisJobType.SETTING_EXTRACTION)
         );
         Thread.sleep(10);
         AnalysisJob secondJob = analysisJobRepository.save(
-                AnalysisJob.create(work, uploadBatch, null, AnalysisJobType.EPISODE_VALIDATION)
+                batchJob(AnalysisJobType.EPISODE_VALIDATION)
         );
         WorkCharacter knownCharacter = workCharacterRepository.save(WorkCharacter.create(
                 work,
@@ -335,7 +340,8 @@ class AnalysisJobWorkerControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "currentStep": "LLM 전처리"
+                                  "currentStep": "LLM 전처리",
+                                  "episodeStatus": "PREPROCESSING"
                                 }
                                 """))
                 .andExpect(status().isOk())
@@ -343,6 +349,10 @@ class AnalysisJobWorkerControllerIntegrationTest {
 
         AnalysisJob updatedJob = analysisJobRepository.findById(analysisJob.getId()).orElseThrow();
         assertThat(updatedJob.getCurrentStep()).isEqualTo("LLM 전처리");
+        assertThat(episodeRepository.findById(firstEpisode.getId()).orElseThrow().getStatus())
+                .isEqualTo(org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.PREPROCESSING);
+        assertThat(episodeRepository.findById(secondEpisode.getId()).orElseThrow().getStatus())
+                .isEqualTo(org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.PREPROCESSING);
     }
 
     @Test
@@ -397,7 +407,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
     @DisplayName("실행 중이 아닌 작업의 상태 변경을 거절한다")
     void statusUpdateRejectsNonRunningJob() throws Exception {
         AnalysisJob analysisJob = analysisJobRepository.save(
-                AnalysisJob.create(work, uploadBatch, null, AnalysisJobType.EPISODE_VALIDATION)
+                batchJob(AnalysisJobType.EPISODE_VALIDATION)
         );
 
         mockMvc.perform(post("/api/internal/v1/analysis-jobs/{analysisJobId}/complete", analysisJob.getId())
@@ -417,7 +427,8 @@ class AnalysisJobWorkerControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "currentStep": "원문 청킹"
+                                  "currentStep": "원문 청킹",
+                                  "episodeStatus": "CHUNKING"
                                 }
                                 """))
                 .andExpect(status().isNotFound())
@@ -426,9 +437,15 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     private AnalysisJob runningJob() {
-        AnalysisJob analysisJob = AnalysisJob.create(work, uploadBatch, null, AnalysisJobType.EPISODE_VALIDATION);
+        AnalysisJob analysisJob = batchJob(AnalysisJobType.EPISODE_VALIDATION);
         analysisJob.start("gpt-4.1-mini", "원문 청킹");
         return analysisJobRepository.save(analysisJob);
+    }
+
+    private AnalysisJob batchJob(AnalysisJobType jobType) {
+        AnalysisJob analysisJob = AnalysisJob.create(work, uploadBatch, null, jobType);
+        analysisJob.addTargetEpisodes(List.of(firstEpisode, secondEpisode));
+        return analysisJob;
     }
 
     private CharacterSettingSchema settingSchema(

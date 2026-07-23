@@ -10,9 +10,15 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.ManyToMany;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -31,8 +37,8 @@ import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
  * 사용자가 분석을 요청하면 AnalysisJob이 PENDING 상태로 생성되고,
  * Python AI Worker가 내부 API로 작업을 claim하면서 RUNNING 상태로 변경된다.
  *
- * 분석 대상은 주로 upload_batches.batch_id를 기준으로 연결한다.
- * Worker는 batch -> upload_files -> episodes 흐름으로 실제 분석할 회차 목록을 찾고,
+ * 생성 시점의 실제 분석 대상은 targetEpisodes에 스냅샷으로 연결한다.
+ * Worker는 이 연결을 기준으로 분석할 회차를 찾고,
  * Episode에 저장된 S3 원문 메타데이터를 사용해 분석을 수행한다.
  *
  * 이 테이블에는 원문 본문을 저장하지 않고, 작업 유형, 상태, 현재 단계,
@@ -78,6 +84,22 @@ public class AnalysisJob extends BaseEntity {
             foreignKey = @ForeignKey(name = "fk_analysis_jobs_episode")
     )
     private Episode episode;
+
+    // 생성 시점의 실제 분석 대상 회차를 보존해 이후 원본 교체·보관과 무관하게 이력을 조회한다.
+    @ManyToMany
+    @JoinTable(
+            name = "analysis_job_episode_targets",
+            joinColumns = @JoinColumn(
+                    name = "analysis_job_id",
+                    foreignKey = @ForeignKey(name = "fk_analysis_job_episode_targets_job")
+            ),
+            inverseJoinColumns = @JoinColumn(
+                    name = "episode_id",
+                    foreignKey = @ForeignKey(name = "fk_analysis_job_episode_targets_episode")
+            )
+    )
+    @OrderBy("episodeNo ASC")
+    private Set<Episode> targetEpisodes = new LinkedHashSet<>();
 
     //분석작업의 종류(설정집 , 회차 검수)
     @Enumerated(EnumType.STRING)
@@ -130,6 +152,9 @@ public class AnalysisJob extends BaseEntity {
         this.episode = episode;
         this.jobType = jobType;
         this.status = AnalysisJobStatus.PENDING;
+        if (episode != null) {
+            this.targetEpisodes.add(episode);
+        }
     }
 
     public static AnalysisJob create(
@@ -155,6 +180,10 @@ public class AnalysisJob extends BaseEntity {
 
     public void updateCurrentStep(String currentStep) {
         this.currentStep = currentStep;
+    }
+
+    public void addTargetEpisodes(Collection<Episode> episodes) {
+        this.targetEpisodes.addAll(episodes);
     }
 
     public void succeed(String summaryJson, Integer inputTokenCount, Integer outputTokenCount) {

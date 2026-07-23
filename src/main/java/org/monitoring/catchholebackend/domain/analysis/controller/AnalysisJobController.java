@@ -104,7 +104,7 @@ public class AnalysisJobController {
             @ApiResponse(responseCode = "200", description = "실패 회차 재시도 작업 생성 성공"),
             @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패"),
             @ApiResponse(responseCode = "404", description = "작품, 분석 작업 또는 실패 회차를 찾을 수 없음"),
-            @ApiResponse(responseCode = "409", description = "실패 상태가 아닌 작업")
+            @ApiResponse(responseCode = "409", description = "실패 상태가 아니거나 같은 batch의 전체 작업이 진행 중")
     })
     public CommonResponse<List<AnalysisJobResponse>> retryAnalysisJob(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
