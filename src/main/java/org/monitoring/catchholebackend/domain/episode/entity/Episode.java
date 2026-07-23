@@ -48,7 +48,7 @@ public class Episode extends BaseEntity {
     @Column(name = "episode_no", nullable = false)
     private int episodeNo;
 
-    // ParsedEpisode record 의 title 에서 가져옴(분리 작업은 EpisodeFileParser 에서 작업함)
+    // 감지 결과에 사용자 확정값을 적용한 finalized 회차 제목
     @Column(name = "title", length = 100)
     private String title;
 
@@ -62,7 +62,7 @@ public class Episode extends BaseEntity {
     @Column(name = "content_hash", length = 64)
     private String contentHash;
 
-    // 파싱된 회차 본문 길이. byte 크기가 아니라 Java String.length() 기준 문자 길이이다.
+    // byte 크기가 아니라 공백을 제외한 Unicode code point 기준 본문 글자 수
     @Column(name = "char_count", nullable = false)
     private int charCount;
 
@@ -111,6 +111,10 @@ public class Episode extends BaseEntity {
         this.charCount = charCount;
     }
 
+    public void updateTitle(String title) {
+        this.title = title;
+    }
+
     public void updateContent(
             int episodeNo,
             String title,
@@ -132,6 +136,21 @@ public class Episode extends BaseEntity {
         this.contentS3Key = contentS3Key;
         this.contentS3Version = contentS3Version;
         this.contentHash = contentHash;
+    }
+
+    public void replaceSourceFileAndContent(
+            UUID sourceFileId,
+            String contentS3Key,
+            String contentS3Version,
+            String contentHash,
+            int charCount
+    ) {
+        this.sourceFileId = sourceFileId;
+        this.contentS3Key = contentS3Key;
+        this.contentS3Version = contentS3Version;
+        this.contentHash = contentHash;
+        this.charCount = charCount;
+        this.status = EpisodeStatus.UPLOADED;
     }
 
     public void markChunking() {

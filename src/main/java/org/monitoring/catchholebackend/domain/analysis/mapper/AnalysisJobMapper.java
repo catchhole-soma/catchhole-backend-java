@@ -68,7 +68,7 @@ public class AnalysisJobMapper {
 
     private Integer minEpisodeStartNo(List<UploadFile> uploadFiles) {
         return uploadFiles.stream()
-                .map(UploadFile::getDetectedEpisodeStartNo)
+                .map(UploadFile::getEpisodeStartNo)
                 .filter(value -> value != null)
                 .min(Integer::compareTo)
                 .orElse(null);
@@ -76,7 +76,7 @@ public class AnalysisJobMapper {
 
     private Integer maxEpisodeEndNo(List<UploadFile> uploadFiles) {
         return uploadFiles.stream()
-                .map(UploadFile::getDetectedEpisodeEndNo)
+                .map(UploadFile::getEpisodeEndNo)
                 .filter(value -> value != null)
                 .max(Integer::compareTo)
                 .orElse(null);
@@ -84,7 +84,7 @@ public class AnalysisJobMapper {
 
     private Integer sumEpisodeCount(List<UploadFile> uploadFiles) {
         List<Integer> episodeCounts = uploadFiles.stream()
-                .map(UploadFile::getDetectedEpisodeCount)
+                .map(UploadFile::getEpisodeCount)
                 .filter(value -> value != null)
                 .toList();
         if (episodeCounts.isEmpty()) {

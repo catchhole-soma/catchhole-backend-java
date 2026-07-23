@@ -494,7 +494,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
                 "uploads/%s".formatted(filename),
                 100L
         );
-        file.markParsed(startNo, endNo, episodeCount);
+        file.markEpisodesParsed(startNo, endNo, episodeCount);
         return file;
     }
 }

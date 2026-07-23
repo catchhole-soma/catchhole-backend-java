@@ -30,9 +30,9 @@ public class UploadMapper {
                 uploadFile.getMimeType(),
                 uploadFile.getStorageUrl(),
                 uploadFile.getFileSize(),
-                uploadFile.getDetectedEpisodeStartNo(),
-                uploadFile.getDetectedEpisodeEndNo(),
-                uploadFile.getDetectedEpisodeCount(),
+                uploadFile.getEpisodeStartNo(),
+                uploadFile.getEpisodeEndNo(),
+                uploadFile.getEpisodeCount(),
                 uploadFile.getParseStatus()
         );
     }

@@ -2,8 +2,11 @@ package org.monitoring.catchholebackend.domain.episode.service;
 
 import java.util.List;
 import java.util.UUID;
+import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeDetectionRequest;
+import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeTitleUpdateRequest;
 import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeUpdateRequest;
 import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeUploadRequest;
+import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeDetectionResponse;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeResponse;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeSummaryResponse;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeUploadResponse;
@@ -28,6 +31,22 @@ public interface EpisodeService {
      */
     EpisodeResponse updateEpisode(Long memberId, UUID workId, UUID episodeId, EpisodeUpdateRequest request);
 
+    /** 제목만 수정하며 원문 저장 위치, 원문 변경 시점과 분석 상태는 유지한다. */
+    EpisodeSummaryResponse updateEpisodeTitle(
+            Long memberId,
+            UUID workId,
+            UUID episodeId,
+            EpisodeTitleUpdateRequest request
+    );
+
+    /** 회차 번호·제목은 유지하고 새 원본 파일로 교체해 재분석 필요 상태로 전환한다. */
+    EpisodeSummaryResponse replaceEpisodeFile(
+            Long memberId,
+            UUID workId,
+            UUID episodeId,
+            MultipartFile file
+    );
+
     /**
      * 작품 소유권과 회차 소속을 확인한 뒤 S3 원문과 회차 데이터를 삭제한다.
      * 삭제 후 작품의 최신 회차 번호를 다시 계산한다.
@@ -43,8 +62,18 @@ public interface EpisodeService {
     EpisodeUploadResponse uploadEpisodes(
             Long memberId,
             UUID workId,
-            EpisodeUploadRequest request,
-            List<MultipartFile> episodeFiles,
-            MultipartFile settingBookFile
+            EpisodeUploadRequest uploadRequest,
+            List<MultipartFile> sourceEpisodeFiles,
+            MultipartFile attachedSettingBookFile
+    );
+
+    /**
+     * 영구 저장 없이 업로드 파일을 읽어 명시적인 회차 제목 행과 회차 메타데이터를 감지한다.
+     */
+    EpisodeDetectionResponse detectEpisodes(
+            Long memberId,
+            UUID workId,
+            EpisodeDetectionRequest detectionRequest,
+            List<MultipartFile> sourceEpisodeFiles
     );
 }

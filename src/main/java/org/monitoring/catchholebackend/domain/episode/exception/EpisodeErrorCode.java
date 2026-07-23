@@ -11,6 +11,7 @@ public enum EpisodeErrorCode implements ResultCode {
 
     EPISODE_NOT_FOUND(HttpStatus.NOT_FOUND, "회차를 찾을 수 없습니다."),
     EPISODE_DUPLICATED(HttpStatus.CONFLICT, "이미 등록된 회차 번호입니다."),
+    EPISODE_ANALYSIS_IN_PROGRESS(HttpStatus.CONFLICT, "분석 중인 회차는 변경하거나 삭제할 수 없습니다."),
     EPISODE_UPLOAD_DUPLICATED(HttpStatus.CONFLICT, "업로드 요청에 중복된 회차 번호가 있습니다.");
 
     private final HttpStatus status;

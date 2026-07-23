@@ -25,14 +25,14 @@ public record UploadFileResponse(
         @Schema(description = "파일 크기", example = "20480")
         long fileSize,
 
-        @Schema(description = "탐지된 시작 회차 번호", example = "1", nullable = true)
-        Integer detectedEpisodeStartNo,
+        @Schema(description = "사용자 확정값이 적용된 시작 회차 번호", example = "1", nullable = true)
+        Integer episodeStartNo,
 
-        @Schema(description = "탐지된 마지막 회차 번호", example = "10", nullable = true)
-        Integer detectedEpisodeEndNo,
+        @Schema(description = "사용자 확정값이 적용된 마지막 회차 번호", example = "10", nullable = true)
+        Integer episodeEndNo,
 
-        @Schema(description = "탐지된 회차 수", example = "10", nullable = true)
-        Integer detectedEpisodeCount,
+        @Schema(description = "파일에서 최종 생성된 회차 수", example = "10", nullable = true)
+        Integer episodeCount,
 
         @Schema(description = "파일 파싱 상태", example = "PARSED")
         UploadFileParseStatus parseStatus

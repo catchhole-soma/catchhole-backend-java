@@ -2,25 +2,48 @@ package org.monitoring.catchholebackend.domain.episode.service;
 
 import java.util.List;
 import java.util.UUID;
+import java.io.IOException;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeDetectionRequest;
+import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeTitleUpdateRequest;
 import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeUpdateRequest;
 import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeUploadRequest;
+import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeDetectionResponse;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeResponse;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeSummaryResponse;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeUploadResponse;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.exception.EpisodeErrorCode;
 import org.monitoring.catchholebackend.domain.episode.mapper.EpisodeMapper;
+import org.monitoring.catchholebackend.domain.episode.mapper.EpisodeDetectionMapper;
+import org.monitoring.catchholebackend.domain.episode.parser.EpisodeFileParser;
 import org.monitoring.catchholebackend.domain.episode.processor.EpisodeUploadProcessor;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
+import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
+import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
+import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
+import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
+import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
+import org.monitoring.catchholebackend.domain.upload.mapper.UploadMapper;
+import org.monitoring.catchholebackend.domain.upload.parser.TextDocumentReader;
+import org.monitoring.catchholebackend.domain.upload.type.UploadFileRole;
+import org.monitoring.catchholebackend.domain.upload.type.UploadSourceType;
+import org.monitoring.catchholebackend.domain.upload.exception.UploadErrorCode;
+import org.monitoring.catchholebackend.domain.upload.type.UploadType;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
+import org.monitoring.catchholebackend.global.storage.StoredObject;
 import org.monitoring.catchholebackend.global.storage.StoredTextObject;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.util.StringUtils;
 
 @Service
 @RequiredArgsConstructor
@@ -32,19 +55,38 @@ public class EpisodeServiceImpl implements EpisodeService {
     private final EpisodeMapper episodeMapper;
     private final ObjectStorageService objectStorageService;
     private final EpisodeUploadProcessor episodeUploadProcessor;
+    private final EpisodeFileParser episodeFileParser;
+    private final TextDocumentReader textDocumentReader;
+    private final EpisodeDetectionMapper episodeDetectionMapper;
+    private final UploadFileRepository uploadFileRepository;
+    private final AnalysisJobRepository analysisJobRepository;
+    private final UploadBatchRepository uploadBatchRepository;
+    private final UploadMapper uploadMapper;
 
     @Override
     public List<EpisodeSummaryResponse> getEpisodes(Long memberId, UUID workId) {
         Work work = workRepository.getOwnedWork(workId, memberId);
-        List<Episode> episodes = episodeRepository.findAllByWorkIdOrderByEpisodeNoDesc(work.getId());
-        return episodeMapper.toSummaryResponseList(episodes);
+        List<Episode> episodes = episodeRepository.findAllByWorkIdAndStatusNotOrderByEpisodeNoDesc(
+                work.getId(),
+                EpisodeStatus.ARCHIVED
+        );
+        return episodes.stream()
+                .map(this::toSummaryResponse)
+                .toList();
     }
 
     @Override
     public EpisodeResponse getEpisode(Long memberId, UUID workId, UUID episodeId) {
         Work work = workRepository.getOwnedWork(workId, memberId);
         Episode episode = getEpisodeInWork(episodeId, work);
-        return episodeMapper.toResponse(episode, objectStorageService.getText(episode.getContentS3Key()));
+        UploadFile sourceFile = episode.getSourceFileId() == null
+                ? null
+                : uploadFileRepository.findById(episode.getSourceFileId()).orElse(null);
+        return episodeMapper.toResponse(
+                episode,
+                objectStorageService.getText(episode.getContentS3Key()),
+                sourceFile
+        );
     }
 
     @Override
@@ -80,12 +122,67 @@ public class EpisodeServiceImpl implements EpisodeService {
 
     @Override
     @Transactional
+    public EpisodeSummaryResponse updateEpisodeTitle(
+            Long memberId,
+            UUID workId,
+            UUID episodeId,
+            EpisodeTitleUpdateRequest request
+    ) {
+        Work work = workRepository.getOwnedWork(workId, memberId);
+        Episode episode = getEpisodeInWork(episodeId, work);
+        episode.updateTitle(StringUtils.hasText(request.title()) ? request.title().trim() : null);
+        return toSummaryResponse(episode);
+    }
+
+    @Override
+    @Transactional
+    public EpisodeSummaryResponse replaceEpisodeFile(
+            Long memberId,
+            UUID workId,
+            UUID episodeId,
+            MultipartFile file
+    ) {
+        Work work = workRepository.getOwnedWork(workId, memberId);
+        Episode episode = getEpisodeInWork(episodeId, work);
+        assertEpisodeIsNotAnalyzing(episode);
+        String content = textDocumentReader.readText(file);
+
+        UploadBatch batch = uploadBatchRepository.save(UploadBatch.create(
+                work, work.getMember(), UploadType.SINGLE_EPISODE, UploadSourceType.FILE));
+        batch.startProcessing();
+        batch.updateFileCount(1);
+        StoredObject storedOriginal = objectStorageService.putUploadFile(
+                batch.getId(), resolveOriginalFilename(file), readBytes(file), file.getContentType());
+        UploadFile sourceFile = uploadFileRepository.save(uploadMapper.toEntity(
+                batch,
+                UploadFileRole.EPISODE,
+                resolveOriginalFilename(file),
+                file.getContentType(),
+                objectStorageService.toStorageUrl(storedOriginal.key()),
+                file.getSize()
+        ));
+        sourceFile.markEpisodesParsed(episode.getEpisodeNo(), episode.getEpisodeNo(), 1);
+
+        StoredTextObject storedContent = objectStorageService.putEpisodeReplacementContent(
+                work.getId(), episode.getId(), content);
+        episode.replaceSourceFileAndContent(
+                sourceFile.getId(),
+                storedContent.key(),
+                storedContent.versionId(),
+                storedContent.contentHash(),
+                storedContent.charCount()
+        );
+        batch.complete();
+        return episodeMapper.toSummaryResponse(episode, sourceFile, null);
+    }
+
+    @Override
+    @Transactional
     public void deleteEpisode(Long memberId, UUID workId, UUID episodeId) {
         Work work = workRepository.getOwnedWork(workId, memberId);
         Episode episode = getEpisodeInWork(episodeId, work);
-        objectStorageService.delete(episode.getContentS3Key());
-        episodeRepository.delete(episode);
-        episodeRepository.flush();
+        assertEpisodeIsNotAnalyzing(episode);
+        episode.archive();
         refreshLatestEpisodeNo(work);
     }
 
@@ -94,30 +191,114 @@ public class EpisodeServiceImpl implements EpisodeService {
     public EpisodeUploadResponse uploadEpisodes(
             Long memberId,
             UUID workId,
-            EpisodeUploadRequest request,
-            List<MultipartFile> episodeFiles,
-            MultipartFile settingBookFile
+            EpisodeUploadRequest uploadRequest,
+            List<MultipartFile> sourceEpisodeFiles,
+            MultipartFile attachedSettingBookFile
     ) {
         Work work = workRepository.getOwnedWork(workId, memberId);
-        return episodeUploadProcessor.upload(work, request, episodeFiles, settingBookFile);
+        return episodeUploadProcessor.processEpisodeUpload(
+                work,
+                uploadRequest,
+                sourceEpisodeFiles,
+                attachedSettingBookFile
+        );
+    }
+
+    @Override
+    public EpisodeDetectionResponse detectEpisodes(
+            Long memberId,
+            UUID workId,
+            EpisodeDetectionRequest detectionRequest,
+            List<MultipartFile> sourceEpisodeFiles
+    ) {
+        workRepository.getOwnedWork(workId, memberId);
+        return episodeDetectionMapper.toResponse(
+                detectionRequest.uploadType(),
+                episodeFileParser.parseEpisodeFiles(
+                        detectionRequest.uploadType(),
+                        detectionRequest.singleEpisodeNo(),
+                        detectionRequest.singleEpisodeTitle(),
+                        sourceEpisodeFiles
+                )
+        );
     }
 
     private Episode getEpisodeInWork(UUID episodeId, Work work) {
-        return episodeRepository.findByIdAndWorkId(episodeId, work.getId())
+        return episodeRepository.findByIdAndWorkIdAndStatusNot(episodeId, work.getId(), EpisodeStatus.ARCHIVED)
                 .orElseThrow(() -> new AppException(EpisodeErrorCode.EPISODE_NOT_FOUND));
     }
 
     private void validateEpisodeNoForUpdate(Work work, Episode episode, int episodeNo) {
         if (episode.getEpisodeNo() != episodeNo
-                && episodeRepository.existsByWorkIdAndEpisodeNo(work.getId(), episodeNo)) {
+                && episodeRepository.existsByWorkIdAndEpisodeNoAndStatusNot(
+                work.getId(), episodeNo, EpisodeStatus.ARCHIVED)) {
             throw new AppException(EpisodeErrorCode.EPISODE_DUPLICATED);
         }
     }
 
     private void refreshLatestEpisodeNo(Work work) {
-        int latestEpisodeNo = episodeRepository.findFirstByWorkIdOrderByEpisodeNoDesc(work.getId())
+        int latestEpisodeNo = episodeRepository.findFirstByWorkIdAndStatusNotOrderByEpisodeNoDesc(
+                        work.getId(), EpisodeStatus.ARCHIVED)
                 .map(Episode::getEpisodeNo)
                 .orElse(0);
         work.updateLatestEpisodeNo(latestEpisodeNo);
+    }
+
+    private EpisodeSummaryResponse toSummaryResponse(Episode episode) {
+        UploadFile sourceFile = episode.getSourceFileId() == null
+                ? null
+                : uploadFileRepository.findById(episode.getSourceFileId()).orElse(null);
+        AnalysisJob latestAnalysisJob = sourceFile == null ? null : resolveLatestAnalysisJob(episode, sourceFile);
+        return episodeMapper.toSummaryResponse(episode, sourceFile, latestAnalysisJob);
+    }
+
+    private AnalysisJob resolveLatestAnalysisJob(Episode episode, UploadFile sourceFile) {
+        UUID batchId = sourceFile.getBatch().getId();
+        AnalysisJob episodeJob = analysisJobRepository
+                .findFirstByEpisodeIdAndBatchIdOrderByCreatedAtDesc(episode.getId(), batchId)
+                .orElse(null);
+        AnalysisJob batchJob = analysisJobRepository
+                .findFirstByBatchIdAndEpisodeIsNullOrderByCreatedAtDesc(batchId)
+                .orElse(null);
+        if (episodeJob == null || batchJob == null) {
+            return episodeJob == null ? batchJob : episodeJob;
+        }
+        return episodeJob.getCreatedAt().isAfter(batchJob.getCreatedAt()) ? episodeJob : batchJob;
+    }
+
+    private void assertEpisodeIsNotAnalyzing(Episode episode) {
+        if (episode.getStatus() == EpisodeStatus.CHUNKING
+                || episode.getStatus() == EpisodeStatus.CHUNKED
+                || episode.getStatus() == EpisodeStatus.PREPROCESSING
+                || episode.getStatus() == EpisodeStatus.PREPROCESSED
+                || episode.getStatus() == EpisodeStatus.ANALYZING) {
+            throw new AppException(EpisodeErrorCode.EPISODE_ANALYSIS_IN_PROGRESS);
+        }
+        if (episode.getSourceFileId() == null) {
+            return;
+        }
+        Set<AnalysisJobStatus> activeStatuses = Set.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING);
+        uploadFileRepository.findById(episode.getSourceFileId())
+                .map(UploadFile::getBatch)
+                .map(UploadBatch::getId)
+                .filter(batchId -> analysisJobRepository.existsByBatchIdAndEpisodeIsNullAndStatusIn(
+                        batchId, activeStatuses)
+                        || analysisJobRepository.existsByEpisodeIdAndBatchIdAndStatusIn(
+                        episode.getId(), batchId, activeStatuses))
+                .ifPresent(batchId -> {
+                    throw new AppException(EpisodeErrorCode.EPISODE_ANALYSIS_IN_PROGRESS);
+                });
+    }
+
+    private byte[] readBytes(MultipartFile file) {
+        try {
+            return file.getBytes();
+        } catch (IOException exception) {
+            throw new AppException(UploadErrorCode.UPLOAD_FILE_READ_FAILED, exception);
+        }
+    }
+
+    private String resolveOriginalFilename(MultipartFile file) {
+        return StringUtils.hasText(file.getOriginalFilename()) ? file.getOriginalFilename() : "untitled.txt";
     }
 }

@@ -25,6 +25,12 @@ public record EpisodeResponse(
         @Schema(description = "회차 원문", example = "어둠이 짙게 깔린 성벽 너머로 차가운 바람이 불어왔다.")
         String content,
 
+        @Schema(description = "현재 원본 파일명", example = "EP_159_운명의_실타래.txt", nullable = true)
+        String originalFilename,
+
+        @Schema(description = "현재 원문 업로드 또는 교체 시각", nullable = true)
+        LocalDateTime contentUpdatedAt,
+
         @Schema(description = "원문 S3 key", example = "works/{workId}/episodes/{episodeId}.txt", nullable = true)
         String contentS3Key,
 

@@ -3,6 +3,7 @@ package org.monitoring.catchholebackend.domain.analysis.repository;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Collection;
 import jakarta.persistence.LockModeType;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
@@ -17,6 +18,31 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
     Optional<AnalysisJob> findByIdAndWorkId(UUID id, UUID workId);
 
     List<AnalysisJob> findAllByWorkIdOrderByCreatedAtDesc(UUID workId);
+
+    Optional<AnalysisJob> findFirstByBatchIdOrderByCreatedAtDesc(UUID batchId);
+
+    Optional<AnalysisJob> findFirstByBatchIdAndEpisodeIsNullOrderByCreatedAtDesc(UUID batchId);
+
+    Optional<AnalysisJob> findFirstByEpisodeIdAndBatchIdOrderByCreatedAtDesc(UUID episodeId, UUID batchId);
+
+    boolean existsByBatchIdAndStatusIn(UUID batchId, Collection<AnalysisJobStatus> statuses);
+
+    boolean existsByBatchIdAndEpisodeIsNullAndStatusIn(
+            UUID batchId,
+            Collection<AnalysisJobStatus> statuses
+    );
+
+    boolean existsByEpisodeIdAndBatchIdAndStatusIn(
+            UUID episodeId,
+            UUID batchId,
+            Collection<AnalysisJobStatus> statuses
+    );
+
+    Optional<AnalysisJob> findFirstByEpisodeIdAndBatchIdAndStatusInOrderByCreatedAtDesc(
+            UUID episodeId,
+            UUID batchId,
+            Collection<AnalysisJobStatus> statuses
+    );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
