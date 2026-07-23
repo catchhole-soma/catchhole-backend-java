@@ -184,7 +184,7 @@ upload-batches/{batchId}/{randomUUID}-{originalFilename}
 | `key` | S3 object key |
 | `versionId` | S3 version ID |
 | `contentHash` | UTF-8 원문 SHA-256 hash |
-| `charCount` | Java 문자열 길이 기준 글자 수 |
+| `charCount` | 공백을 제외한 Unicode code point 기준 글자 수 |
 
 도메인은 원문 자체 대신 이 메타데이터를 Entity에 저장합니다.
 

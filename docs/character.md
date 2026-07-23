@@ -272,7 +272,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `skills_json` | nullable한 `SKILL` factKey → current `CharacterFact.valueJson` object map |
 | `items_json` | nullable한 `ITEM` factKey → current `CharacterFact.valueJson` object map |
 | `statuses_json` | nullable한 `STATUS`, `TIME` factKey → current `CharacterFact.valueJson` object map |
-| `first_appearance_episode_id` | 최초 등장 회차 ID. 회차 hard delete 시 처리 정책이 정해지지 않아 현재 FK 없이 UUID 값으로 저장 |
+| `first_appearance_episode_id` | 최초 등장 회차 ID. 현재 회차 삭제는 `ARCHIVED` soft delete이며, 향후 물리 삭제 시 재계산/NULL 정책이 정해지지 않아 FK 없이 UUID 값으로 저장 |
 | `status` | 캐릭터 보관 상태 |
 | `created_at` | 생성 시각 |
 | `updated_at` | 수정 시각 |
@@ -663,7 +663,7 @@ flowchart TD
 
 - 캐릭터 목록/상세 API 정의
 - 재청킹 시 청크 ID 안정화 또는 근거 이력 보존 방식을 정한 뒤 `source_chunk_id` FK 여부 결정
-- 회차 hard delete 시 최초 등장 회차를 재계산할지 `NULL`로 둘지 정한 뒤 `first_appearance_episode_id` FK와 삭제 동작 결정
+- 현재 `ARCHIVED` soft delete 이후 복구·표시 정책과, 향후 물리 삭제 시 최초 등장 회차를 재계산할지 `NULL`로 둘지 정한 뒤 `first_appearance_episode_id` FK와 삭제 동작 결정
 - AI Worker 시간 메타데이터가 정해진 뒤 `episodeNo` 기준 current/snapshot 계산을 작중 시간 기준으로 확장
 - NVM-229에서 JSON entry 내부 deep merge, 삭제·비활성 표현과 미지원 merge policy 결정
 - 신규 회차 검수에서 구조화 조회와 벡터 검색을 함께 사용하는 흐름 연결

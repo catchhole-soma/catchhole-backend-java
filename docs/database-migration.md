@@ -71,7 +71,7 @@ ID 컬럼이 다른 테이블을 논리적으로 가리키더라도 삭제·재�
 | 컬럼 | 참조 대상 | V1 정책 | 이유 및 후속 논의 |
 | --- | --- | --- | --- |
 | `episodes.source_file_id` | `upload_files.id` | nullable FK, 기본 `NO ACTION` | 업로드 파일을 먼저 저장한 뒤 회차를 생성하고 현재 업로드 파일 삭제 API가 없으므로 원본 추적 무결성을 강제합니다. 삭제 기능을 추가하면 연결된 회차 처리 정책을 함께 정합니다. |
-| `characters.first_appearance_episode_id` | `episodes.id` | FK 보류 | 회차 hard delete 시 최초 등장 회차를 재계산할지 `NULL`로 둘지 먼저 결정해야 합니다. |
+| `characters.first_appearance_episode_id` | `episodes.id` | FK 보류 | 현재 회차 삭제는 `ARCHIVED` soft delete이며, 향후 물리 삭제 시 최초 등장 회차를 재계산할지 `NULL`로 둘지 먼저 결정해야 합니다. |
 | `setting_candidates.source_chunk_id` | `episode_chunks.id` | FK 보류 | 재청킹이 기존 청크를 삭제하고 새 UUID로 교체하므로 일반 FK는 재청킹을 막고, cascade 또는 set null은 근거를 손실할 수 있습니다. |
 | `character_facts.source_chunk_id` | `episode_chunks.id` | FK 보류 | 확정 설정의 원문 근거이므로 청크 ID 안정화 또는 청크 이력 보존 정책을 정한 뒤 FK를 검토합니다. |
 

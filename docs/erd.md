@@ -412,6 +412,6 @@ erDiagram
 
 - 회차 번호 unique 제약은 현재 DB 제약이 아니라 서비스에서 `work_id + episode_no` 중복을 검사합니다.
 - 후속 ERD의 `manuscript_chunks`, `preprocessed_manuscript_chunks`, `setting_snapshots`, `validation_reports`, `validation_findings`는 아직 현재 `main` 기준 Entity가 아닙니다. 캐릭터 중심 MVP의 설정 이력은 우선 `character_facts`로 구현합니다.
-- `characters.first_appearance_episode_id`는 회차 hard delete 시 재계산 또는 `NULL` 처리 정책이 정해지지 않아 현재 FK를 강제하지 않습니다.
+- `characters.first_appearance_episode_id`는 현재 `ARCHIVED` soft delete된 회차 row를 계속 참조할 수 있습니다. 향후 물리 삭제 시 재계산 또는 `NULL` 처리 정책이 정해지지 않아 현재 FK를 강제하지 않습니다.
 - `setting_candidates.source_chunk_id`와 `character_facts.source_chunk_id`는 `episode_chunks`를 가리키지만 현재 DB FK를 강제하지 않습니다. Worker가 재청킹 시 기존 청크를 삭제하고 새 UUID로 교체하므로, 청크 ID 안정화 또는 근거 이력 보존 정책을 정한 뒤 다시 검토합니다.
 - Notion 설계의 `AnalysisJob.status`에는 `CANCELED`가 있지만, 현재 분석 문서 초안은 `PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`만 포함합니다. 취소 정책이 필요해질 때 enum을 확장합니다.

@@ -219,6 +219,14 @@ domain/<domain>
 - 회차 업로드 요청 한 번은 `UploadBatch` 하나로 추적하고, 원본 파일 단위는 `UploadFile`로 추적한다.
 - 업로드에서 생성된 회차는 `episodes.source_file_id`로 원본 업로드 파일을 추적한다.
 - 같은 작품 안에서 회차 번호는 중복될 수 없다.
+- 회차 삭제는 `ARCHIVED` 전이로 처리하고 원문 S3 객체는 유지한다. 활성 목록, 최신 회차 번호 계산과 회차 번호 중복 검사는 `ARCHIVED` 회차를 제외한다.
+- 회차 제목은 사용자 확정값 또는 원문의 명시적 회차 제목 행에서만 가져온다. 감지하지 못하면 `null`로 두며 원본 파일명을 제목으로 대체하지 않는다.
+- 회차 원고와 설정집 원본은 TXT·DOCX만 허용하고, 빈 파일과 10MB 초과 파일을 서버에서도 거절한다.
+- 회차 파일 처리 단계는 `source`(요청 원본) → `detected`(`DetectedEpisode*`) → `confirmation`(사용자 확정 입력) → `finalized`(`FinalizedEpisode*`) → `created`/`saved`(영속화 결과) 용어와 타입으로 구분한다. 서로 다른 단계의 값을 `episodes`, `parsed`처럼 같은 이름이나 타입으로 뭉뚱그리지 않는다.
+- 회차 API의 업로드 방식은 공용 `UploadType`이 아니라 `EpisodeUploadType`의 세 값만 노출한다. 사전 감지는 `EpisodeDetectionRequest`, 최종 저장은 `EpisodeUploadRequest`로 DTO를 분리하고 multipart JSON part는 `metadata`로 통일한다.
+- 최종 업로드에서 `SINGLE_EPISODE`는 `singleEpisodeNo`가 필수이며 `episodeConfirmations`를 보내지 않는다. 두 다회차 방식은 단일 회차 전용 필드를 보내지 않고, 필수 `episodeConfirmations`의 각 `detectionOrder`를 감지 결과와 일치시킨다.
+- `TextDocumentReader`는 TXT·DOCX 형식/크기/빈 파일 검증과 텍스트 추출을, `EpisodeFileParser`는 원본 파일과 단일 회차 감지 힌트에서 회차 경계·번호·제목·본문을 `DetectedEpisode*`로 만드는 일을 담당한다. confirmation은 parser에 전달하지 않으며, 사용자 확정 번호·제목 적용과 `FinalizedEpisode*` 조립은 `EpisodeUploadProcessor`가 담당한다.
+- 회차 원본 `UploadFile`은 `markEpisodesParsed(episodeStartNo, episodeEndNo, episodeCount)`로 최종 생성 범위와 파싱 완료를 함께 기록하고, 회차 범위가 없는 설정집은 `markParsed()`만 사용한다. API 응답도 `episodeStartNo`/`episodeEndNo`/`episodeCount`로 노출한다.
 - 회차 조회, 수정, 삭제, 업로드는 모두 먼저 작품 소유권을 확인한다.
 - 후속 Worker의 회차 처리 상태 변경은 단계별 엔드포인트를 나누지 않고, `EpisodeStatus`를 파라미터로 받는 단일 내부 전이 API로 구현한다.
 
@@ -228,6 +236,7 @@ domain/<domain>
 - 원문 텍스트는 `Episode`의 S3 저장 구조를 재사용하고, `analysis_jobs`에는 상태, 현재 단계, 모델명, 토큰 수, 요약 JSON, 마지막 실패 사유만 저장한다.
 - 분석 실패 처리 이력은 `analysis_jobs.error_message`에 누적하지 않고, 후속 모니터링 기능에서 별도 기록/조회한다.
 - 화면에서 분석 작업은 `AnalysisJob.status`를 상위 상태로 표시하고, 분석 작업 상세에 들어갔을 때 포함된 각 회차의 `Episode.status`를 단계별 상태로 보여준다.
+- 분석 작업 상세 응답에는 실제 대상 회차 목록을 포함하고, Worker의 claim·진행·완료·실패 처리에서 해당 `Episode.status`도 함께 전이한다.
 - 분석 작업 생성 API는 업로드 흐름의 단위인 `batch_id`를 필수 입력으로 받는다. `episode_id`는 회차별 세부 작업이 필요해질 때 내부 작업 모델에서 선택적으로 사용할 수 있다.
 - 본인 작품의 분석 작업만 생성/조회할 수 있으며, 다른 회원의 작품이나 다른 작품에 속한 분석 대상은 404로 응답한다.
 - Python AI Worker는 작업 claim과 `AnalysisJob` 상태 변경에 `/api/internal/**` 내부 API를 `X-Internal-Api-Key`로 인증해 사용한다. Worker에는 원문 본문을 응답하지 않으며, 분석 입력으로 `Episode`의 S3 key/version/hash/charCount 메타데이터, 기존 캐릭터 목록, 활성 캐릭터 설정 schema를 전달한다.
