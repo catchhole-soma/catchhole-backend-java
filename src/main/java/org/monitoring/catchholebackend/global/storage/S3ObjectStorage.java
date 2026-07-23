@@ -50,13 +50,18 @@ public class S3ObjectStorage implements ObjectStorage {
 
     @Override
     public String getText(String key) {
+        return new String(getBytes(key), StandardCharsets.UTF_8);
+    }
+
+    @Override
+    public byte[] getBytes(String key) {
         try (ResponseInputStream<GetObjectResponse> getObjectResponseStream = s3Client.getObject(
                 GetObjectRequest.builder()
                         .bucket(properties.getBucket())
                         .key(key)
                         .build()
         )) {
-            return new String(getObjectResponseStream.readAllBytes(), StandardCharsets.UTF_8);
+            return getObjectResponseStream.readAllBytes();
         } catch (S3Exception | IOException exception) {
             throw new AppException(CommonErrorCode.COMMON_INTERNAL_SERVER_ERROR, "S3 파일 조회에 실패했습니다.", exception);
         }

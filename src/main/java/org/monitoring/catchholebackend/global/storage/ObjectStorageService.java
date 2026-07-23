@@ -23,7 +23,18 @@ public class ObjectStorageService {
                 storedEpisodeContent.key(),
                 storedEpisodeContent.versionId(),
                 sha256(content),
-                content.length()
+                countNonWhitespaceCharacters(content)
+        );
+    }
+
+    public StoredTextObject putEpisodeReplacementContent(UUID workId, UUID episodeId, String content) {
+        String key = "works/" + workId + "/episode-replacements/" + episodeId + "/" + UUID.randomUUID() + ".txt";
+        StoredObject storedEpisodeContent = objectStorage.putText(key, content);
+        return new StoredTextObject(
+                storedEpisodeContent.key(),
+                storedEpisodeContent.versionId(),
+                sha256(content),
+                countNonWhitespaceCharacters(content)
         );
     }
 
@@ -54,6 +65,13 @@ public class ObjectStorageService {
 
     public String getText(String key) {
         return objectStorage.getText(key);
+    }
+
+    public byte[] getBytesFromStorageUrl(String storageUrl) {
+        if (storageUrl == null || !storageUrl.startsWith("s3://")) {
+            throw new IllegalArgumentException("지원하지 않는 저장소 URL입니다.");
+        }
+        return objectStorage.getBytes(storageUrl.substring("s3://".length()));
     }
 
     public void delete(String key) {
@@ -90,5 +108,11 @@ public class ObjectStorageService {
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 algorithm is not available.", exception);
         }
+    }
+
+    private int countNonWhitespaceCharacters(String content) {
+        return Math.toIntExact(content.codePoints()
+                .filter(codePoint -> !Character.isWhitespace(codePoint))
+                .count());
     }
 }

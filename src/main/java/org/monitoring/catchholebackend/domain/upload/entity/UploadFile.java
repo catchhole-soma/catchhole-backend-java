@@ -13,6 +13,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.util.UUID;
+import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -92,6 +93,9 @@ public class UploadFile extends BaseEntity {
     @Column(name = "parse_status", nullable = false, length = 20)
     private UploadFileParseStatus parseStatus;
 
+    @Column(name = "archived_at")
+    private LocalDateTime archivedAt;
+
     private UploadFile(
             UploadBatch batch,
             UploadFileRole fileRole,
@@ -135,7 +139,15 @@ public class UploadFile extends BaseEntity {
         this.parseStatus = UploadFileParseStatus.PARSED;
     }
 
+    public void markParsed() {
+        this.parseStatus = UploadFileParseStatus.PARSED;
+    }
+
     public void markFailed() {
         this.parseStatus = UploadFileParseStatus.FAILED;
+    }
+
+    public void archive() {
+        this.archivedAt = LocalDateTime.now();
     }
 }

@@ -8,5 +8,7 @@ public interface ObjectStorage {
 
     String getText(String key);
 
+    byte[] getBytes(String key);
+
     void delete(String key);
 }
