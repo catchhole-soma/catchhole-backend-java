@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.global.config.swagger;
 
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -53,5 +54,91 @@ class OpenApiContractIntegrationTest {
                         .value(64))
                 .andExpect(jsonPath("$['components']['schemas']['AuthSignupRequest']['properties']['displayName']['maxLength']")
                         .value(20));
+    }
+
+    @Test
+    @DisplayName("회차 감지와 최종 업로드 계약의 역할별 이름을 노출한다")
+    void openApiContractExposesEpisodeDetectionAndConfirmationNames() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/episodes']['post']['operationId']")
+                        .value("uploadEpisodes"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/episodes']['post']['requestBody']['required']")
+                        .value(true))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/episodes/detect']['post']['operationId']")
+                        .value("detectEpisodes"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/episodes/detect']['post']['requestBody']['required']")
+                        .value(true))
+                .andExpect(jsonPath("$['components']['schemas']['EpisodeDetectionRequest']['properties']['uploadType']['enum']")
+                        .value(containsInAnyOrder(
+                                "SINGLE_EPISODE",
+                                "MULTI_EPISODE_SINGLE_FILE",
+                                "MULTI_EPISODE_MULTI_FILE"
+                        )))
+                .andExpect(jsonPath("$['components']['schemas']['EpisodeDetectionRequest']['properties']['singleEpisodeNo']")
+                        .exists())
+                .andExpect(jsonPath("$['components']['schemas']['EpisodeDetectionRequest']['properties']['singleEpisodeTitle']")
+                        .exists())
+                .andExpect(jsonPath("$['components']['schemas']['EpisodeDetectionRequest']['properties']['episodeConfirmations']")
+                        .doesNotExist())
+                .andExpect(jsonPath("$['components']['schemas']['EpisodeUploadRequest']['properties']['episodeConfirmations']")
+                        .exists())
+                .andExpect(jsonPath("$['components']['schemas']['EpisodeUploadRequest']['properties']['uploadType']['enum']")
+                        .value(containsInAnyOrder(
+                                "SINGLE_EPISODE",
+                                "MULTI_EPISODE_SINGLE_FILE",
+                                "MULTI_EPISODE_MULTI_FILE"
+                        )))
+                .andExpect(jsonPath("$['components']['schemas']['EpisodeUploadRequest']['properties']['episodes']")
+                        .doesNotExist())
+                .andExpect(jsonPath("$['components']['schemas']['EpisodeUploadConfirmationRequest']['properties']['detectionOrder']")
+                        .exists())
+                .andExpect(jsonPath("$['components']['schemas']['EpisodeDetectionResponse']['properties']['detectedEpisodes']")
+                        .exists())
+                .andExpect(jsonPath("$['components']['schemas']['EpisodeDetectionResponse']['required']")
+                        .value(containsInAnyOrder(
+                                "uploadType",
+                                "episodeCount",
+                                "totalCharCount",
+                                "detectedEpisodes"
+                        )))
+                .andExpect(jsonPath("$['components']['schemas']['EpisodeDetectionResponse']['properties']['episodes']")
+                        .doesNotExist())
+                .andExpect(jsonPath("$['components']['schemas']['DetectedEpisodeResponse']['properties']['detectionOrder']")
+                        .exists())
+                .andExpect(jsonPath("$['components']['schemas']['DetectedEpisodeResponse']['properties']['sourceFileIndex']")
+                        .exists())
+                .andExpect(jsonPath("$['components']['schemas']['DetectedEpisodeResponse']['required']")
+                        .value(containsInAnyOrder(
+                                "detectionOrder",
+                                "sourceFileIndex",
+                                "episodeNo",
+                                "title",
+                                "charCount",
+                                "content"
+                        )))
+                .andExpect(jsonPath("$['components']['schemas']['DetectedEpisodeResponse']['properties']['tempId']")
+                        .doesNotExist())
+                .andExpect(jsonPath("$['components']['schemas']['EpisodeUploadResponse']['properties']['createdEpisodes']")
+                        .exists())
+                .andExpect(jsonPath("$['components']['schemas']['EpisodeUploadResponse']['required']")
+                        .value(containsInAnyOrder(
+                                "batchId",
+                                "uploadType",
+                                "status",
+                                "episodeCount",
+                                "createdEpisodes",
+                                "files"
+                        )))
+                .andExpect(jsonPath("$['components']['schemas']['EpisodeUploadResponse']['properties']['episodes']")
+                        .doesNotExist())
+                .andExpect(jsonPath("$['components']['schemas']['UploadFileResponse']['properties']['episodeStartNo']")
+                        .exists())
+                .andExpect(jsonPath("$['components']['schemas']['UploadFileResponse']['properties']['episodeEndNo']")
+                        .exists())
+                .andExpect(jsonPath("$['components']['schemas']['UploadFileResponse']['properties']['episodeCount']")
+                        .exists())
+                .andExpect(jsonPath("$['components']['schemas']['UploadFileResponse']['properties']['detectedEpisodeStartNo']")
+                        .doesNotExist());
     }
 }

@@ -63,6 +63,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             analysisJob.fail(NO_TARGET_EPISODES_MESSAGE);
             return Optional.empty();
         }
+        targetEpisodes.forEach(Episode::markChunking);
 
         UUID workId = analysisJob.getWork().getId();
         List<CharacterSettingSchema> characterSettingSchemas =
@@ -81,12 +82,14 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     public void updateProgress(UUID analysisJobId, WorkerAnalysisJobProgressRequest request) {
         AnalysisJob analysisJob = getRunningJob(analysisJobId);
         analysisJob.updateCurrentStep(request.currentStep());
+        updateEpisodeProgress(findTargetEpisodes(analysisJob), request.currentStep());
     }
 
     @Override
     @Transactional
     public void completeAnalysisJob(UUID analysisJobId, WorkerAnalysisJobCompleteRequest request) {
         AnalysisJob analysisJob = getRunningJob(analysisJobId);
+        findTargetEpisodes(analysisJob).forEach(Episode::markAnalyzed);
         analysisJob.succeed(request.summaryJson(), request.inputTokenCount(), request.outputTokenCount());
     }
 
@@ -94,6 +97,9 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     @Transactional
     public void failAnalysisJob(UUID analysisJobId, WorkerAnalysisJobFailRequest request) {
         AnalysisJob analysisJob = getRunningJob(analysisJobId);
+        findTargetEpisodes(analysisJob).stream()
+                .filter(episode -> episode.getStatus() != org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ANALYZED)
+                .forEach(Episode::markFailed);
         analysisJob.fail(request.errorMessage());
     }
 
@@ -111,6 +117,9 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
      * 배치가 없거나 회차 파일이 없으면 워커에 넘길 대상이 없으므로 빈 목록을 반환한다.
      */
     private List<Episode> findTargetEpisodes(AnalysisJob analysisJob) {
+        if (analysisJob.getEpisode() != null) {
+            return List.of(analysisJob.getEpisode());
+        }
         UploadBatch batch = analysisJob.getBatch();
         if (batch == null) {
             return List.of();
@@ -126,7 +135,28 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         if (episodeUploadFileIds.isEmpty()) {
             return List.of();
         }
-        return episodeRepository.findAllBySourceFileIdInOrderByEpisodeNoAsc(episodeUploadFileIds);
+        return episodeRepository.findAllBySourceFileIdInAndStatusNotOrderByEpisodeNoAsc(
+                episodeUploadFileIds,
+                org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ARCHIVED
+        );
+    }
+
+    private void updateEpisodeProgress(List<Episode> episodes, String currentStep) {
+        if (currentStep == null) {
+            return;
+        }
+        String normalizedStep = currentStep.toUpperCase();
+        if (normalizedStep.contains("PREPROCESSED") || currentStep.contains("전처리 완료")) {
+            episodes.forEach(Episode::markPreprocessed);
+        } else if (normalizedStep.contains("PREPROCESS") || currentStep.contains("전처리")) {
+            episodes.forEach(Episode::markPreprocessing);
+        } else if (normalizedStep.contains("CHUNKED") || currentStep.contains("청크 저장")) {
+            episodes.forEach(Episode::markChunked);
+        } else if (normalizedStep.contains("CHUNK") || currentStep.contains("청킹")) {
+            episodes.forEach(Episode::markChunking);
+        } else if (normalizedStep.contains("ANALYZ") || currentStep.contains("분석") || currentStep.contains("추출")) {
+            episodes.forEach(Episode::markAnalyzing);
+        }
     }
 
     private String resolveModelName(WorkerAnalysisJobClaimRequest request) {

@@ -24,4 +24,9 @@ public interface AnalysisJobService {
      * batch 기반 작업이면 연결된 업로드 파일 목록도 함께 조회해 응답에 포함한다.
      */
     AnalysisJobResponse getAnalysisJob(Long memberId, UUID workId, UUID analysisJobId);
+
+    /**
+     * 실패한 기존 작업은 이력으로 유지하고, 서버가 확인한 FAILED 회차마다 새 PENDING 작업을 생성한다.
+     */
+    List<AnalysisJobResponse> retryFailedAnalysisJob(Long memberId, UUID workId, UUID analysisJobId);
 }

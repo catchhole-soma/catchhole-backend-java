@@ -2,6 +2,7 @@ package org.monitoring.catchholebackend.domain.analysis.dto.response;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
@@ -25,6 +26,9 @@ public record AnalysisJobResponse(
 
         @Schema(description = "회차 ID", example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d222")
         UUID episodeId,
+
+        @Schema(description = "분석 대상 회차 목록")
+        List<AnalysisJobEpisodeResponse> episodes,
 
         @Schema(description = "분석 작업 유형", example = "EPISODE_VALIDATION")
         AnalysisJobType jobType,

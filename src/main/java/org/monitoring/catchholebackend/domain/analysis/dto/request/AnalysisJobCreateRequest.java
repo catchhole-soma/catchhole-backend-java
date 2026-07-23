@@ -13,6 +13,9 @@ public record AnalysisJobCreateRequest(
 
         @NotNull(message = "분석 대상 업로드 배치 ID는 필수입니다.")
         @Schema(description = "분석 대상 업로드 배치 ID", example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d111")
-        UUID batchId
+        UUID batchId,
+
+        @Schema(description = "배치 전체가 아닌 특정 회차만 재분석할 때 사용하는 회차 ID", nullable = true)
+        UUID episodeId
 ) {
 }

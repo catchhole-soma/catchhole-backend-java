@@ -14,6 +14,8 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
+import org.monitoring.catchholebackend.domain.episode.entity.Episode;
+import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
@@ -57,6 +59,9 @@ class AnalysisJobControllerIntegrationTest {
     private AnalysisJobRepository analysisJobRepository;
 
     @Autowired
+    private EpisodeRepository episodeRepository;
+
+    @Autowired
     private JwtTokenProvider jwtTokenProvider;
 
     private Member member;
@@ -65,11 +70,14 @@ class AnalysisJobControllerIntegrationTest {
     private Work otherWork;
     private UploadBatch uploadBatch;
     private UploadBatch otherUploadBatch;
+    private Episode firstEpisode;
+    private Episode secondEpisode;
     private String accessToken;
 
     @BeforeEach
     void setUp() {
         analysisJobRepository.deleteAll();
+        episodeRepository.deleteAll();
         uploadFileRepository.deleteAll();
         uploadBatchRepository.deleteAll();
         workRepository.deleteAll();
@@ -97,8 +105,14 @@ class AnalysisJobControllerIntegrationTest {
         ));
         uploadBatch.updateFileCount(2);
         uploadBatchRepository.save(uploadBatch);
-        uploadFileRepository.save(parsedEpisodeFile(uploadBatch, "episodes-1.txt", 1, 3, 3));
-        uploadFileRepository.save(parsedEpisodeFile(uploadBatch, "episodes-2.txt", 4, 5, 2));
+        UploadFile firstUploadFile = uploadFileRepository.save(
+                parsedEpisodeFile(uploadBatch, "episodes-1.txt", 1, 3, 3));
+        UploadFile secondUploadFile = uploadFileRepository.save(
+                parsedEpisodeFile(uploadBatch, "episodes-2.txt", 4, 5, 2));
+        firstEpisode = episodeRepository.save(Episode.create(
+                work, firstUploadFile.getId(), 1, "첫 회차", "episodes/1.txt", null, "hash-1", 10));
+        secondEpisode = episodeRepository.save(Episode.create(
+                work, secondUploadFile.getId(), 4, "넷째 회차", "episodes/4.txt", null, "hash-4", 10));
 
         otherUploadBatch = uploadBatchRepository.save(UploadBatch.create(
                 otherWork,
@@ -161,6 +175,67 @@ class AnalysisJobControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.target.episodeCount").value(5))
                 .andExpect(jsonPath("$.data.jobType").value("SETTING_EXTRACTION"))
                 .andExpect(jsonPath("$.data.status").value("PENDING"));
+    }
+
+    @Test
+    void createAnalysisJobTargetsOnlyRequestedEpisode() throws Exception {
+        mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "jobType": "EPISODE_VALIDATION",
+                                  "batchId": "%s",
+                                  "episodeId": "%s"
+                                }
+                                """.formatted(uploadBatch.getId(), firstEpisode.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.episodeId").value(firstEpisode.getId().toString()))
+                .andExpect(jsonPath("$.data.episodes", hasSize(1)))
+                .andExpect(jsonPath("$.data.episodes[0].id").value(firstEpisode.getId().toString()));
+
+        AnalysisJob savedJob = analysisJobRepository.findAll().getFirst();
+        assertThat(savedJob.getEpisode().getId()).isEqualTo(firstEpisode.getId());
+    }
+
+    @Test
+    void createAnalysisJobAllowsDifferentEpisodeTargetsInSameBatch() throws Exception {
+        analysisJobRepository.save(AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.EPISODE_VALIDATION));
+
+        mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "jobType": "EPISODE_VALIDATION",
+                                  "batchId": "%s",
+                                  "episodeId": "%s"
+                                }
+                                """.formatted(uploadBatch.getId(), secondEpisode.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.episodeId").value(secondEpisode.getId().toString()));
+
+        assertThat(analysisJobRepository.count()).isEqualTo(2);
+    }
+
+    @Test
+    void createAnalysisJobRejectsDuplicateActiveEpisodeTarget() throws Exception {
+        analysisJobRepository.save(AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.EPISODE_VALIDATION));
+
+        mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "jobType": "EPISODE_VALIDATION",
+                                  "batchId": "%s",
+                                  "episodeId": "%s"
+                                }
+                                """.formatted(uploadBatch.getId(), firstEpisode.getId())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ANALYSIS_JOB_ALREADY_IN_PROGRESS"));
     }
 
     @Test
