@@ -18,7 +18,7 @@ public class LocalFileObjectStorage implements ObjectStorage {
     private final Path root;
 
     public LocalFileObjectStorage(
-            @Value("${storage.local.root:/private/tmp/catchhole-e2e-storage}") String root
+            @Value("${storage.local.root}") String root
     ) {
         this.root = Path.of(root).toAbsolutePath().normalize();
     }
