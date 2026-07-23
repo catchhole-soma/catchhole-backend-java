@@ -14,8 +14,8 @@ public class ObjectStorageService {
     private final ObjectStorage objectStorage;
 
     /**
-     * 회차 원문을 작품/회차 번호 기반 key로 저장하고, DB에 남길 저장소 메타데이터를 만든다.
-     * 원문 본문은 반환하지 않고 S3 key, version, SHA-256 hash, 글자 수만 반환한다.
+     * 회차 원문을 작품/회차/저장본 UUID 기반의 고유 key로 저장한다.
+     * 사람이 S3에서 회차를 식별할 수 있도록 마지막 파일명은 회차 번호를 유지한다.
      */
     public StoredTextObject putEpisodeContent(UUID workId, int episodeNo, String content) {
         StoredObject storedEpisodeContent = objectStorage.putText(buildEpisodeContentKey(workId, episodeNo), content);
@@ -27,32 +27,16 @@ public class ObjectStorageService {
         );
     }
 
-    public StoredTextObject putEpisodeReplacementContent(UUID workId, UUID episodeId, String content) {
-        String key = "works/" + workId + "/episode-replacements/" + episodeId + "/" + UUID.randomUUID() + ".txt";
-        StoredObject storedEpisodeContent = objectStorage.putText(key, content);
-        return new StoredTextObject(
-                storedEpisodeContent.key(),
-                storedEpisodeContent.versionId(),
-                sha256(content),
-                countNonWhitespaceCharacters(content)
-        );
+    public StoredTextObject putEpisodeReplacementContent(UUID workId, int episodeNo, String content) {
+        return putEpisodeContent(workId, episodeNo, content);
     }
 
     /**
-     * 회차 원문을 새 내용으로 저장하고, 저장 key가 달라진 경우 이전 객체를 삭제한다.
+     * 회차 원문을 새 고유 key에 저장하고 이전 객체는 분석 이력 확인을 위해 보존한다.
      * 호출자는 반환된 key/version/hash/글자 수로 Episode 메타데이터를 갱신한다.
      */
-    public StoredTextObject replaceEpisodeContent(
-            UUID workId,
-            int episodeNo,
-            String oldContentKey,
-            String content
-    ) {
-        StoredTextObject storedEpisodeContent = putEpisodeContent(workId, episodeNo, content);
-        if (oldContentKey != null && !oldContentKey.equals(storedEpisodeContent.key())) {
-            objectStorage.delete(oldContentKey);
-        }
-        return storedEpisodeContent;
+    public StoredTextObject replaceEpisodeContent(UUID workId, int episodeNo, String content) {
+        return putEpisodeContent(workId, episodeNo, content);
     }
 
     /**
@@ -89,11 +73,9 @@ public class ObjectStorageService {
         return "upload-batches/" + batchId + "/" + UUID.randomUUID() + "-" + originalFilename;
     }
 
-    /**
-     * 회차 본문 key는 작품과 회차 번호로 결정해 같은 회차를 다시 저장할 때 동일 위치를 갱신한다.
-     */
     private String buildEpisodeContentKey(UUID workId, int episodeNo) {
-        return "works/" + workId + "/episodes/" + episodeNo + ".txt";
+        return "works/" + workId + "/episodes/" + episodeNo + "/"
+                + UUID.randomUUID() + "/" + episodeNo + ".txt";
     }
 
     private String sha256(String text) {

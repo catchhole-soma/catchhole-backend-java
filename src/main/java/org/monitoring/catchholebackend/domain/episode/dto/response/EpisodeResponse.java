@@ -31,7 +31,11 @@ public record EpisodeResponse(
         @Schema(description = "현재 원문 업로드 또는 교체 시각", nullable = true)
         LocalDateTime contentUpdatedAt,
 
-        @Schema(description = "원문 S3 key", example = "works/{workId}/episodes/{episodeId}.txt", nullable = true)
+        @Schema(
+                description = "원문 S3 key",
+                example = "works/{workId}/episodes/159/{UUID}/159.txt",
+                nullable = true
+        )
         String contentS3Key,
 
         @Schema(description = "원문 S3 version", example = "3Lgk4...", nullable = true)

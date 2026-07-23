@@ -1,10 +1,17 @@
 package org.monitoring.catchholebackend.domain.episode.service;
 
-import java.util.List;
-import java.util.UUID;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeDetectionRequest;
 import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeTitleUpdateRequest;
 import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeUpdateRequest;
@@ -15,24 +22,21 @@ import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeSummar
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeUploadResponse;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.exception.EpisodeErrorCode;
-import org.monitoring.catchholebackend.domain.episode.mapper.EpisodeMapper;
 import org.monitoring.catchholebackend.domain.episode.mapper.EpisodeDetectionMapper;
+import org.monitoring.catchholebackend.domain.episode.mapper.EpisodeMapper;
 import org.monitoring.catchholebackend.domain.episode.parser.EpisodeFileParser;
 import org.monitoring.catchholebackend.domain.episode.processor.EpisodeUploadProcessor;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
-import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
-import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
-import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
-import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
-import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
-import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
+import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
+import org.monitoring.catchholebackend.domain.upload.exception.UploadErrorCode;
 import org.monitoring.catchholebackend.domain.upload.mapper.UploadMapper;
 import org.monitoring.catchholebackend.domain.upload.parser.TextDocumentReader;
+import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
+import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
 import org.monitoring.catchholebackend.domain.upload.type.UploadFileRole;
 import org.monitoring.catchholebackend.domain.upload.type.UploadSourceType;
-import org.monitoring.catchholebackend.domain.upload.exception.UploadErrorCode;
 import org.monitoring.catchholebackend.domain.upload.type.UploadType;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
@@ -42,8 +46,8 @@ import org.monitoring.catchholebackend.global.storage.StoredObject;
 import org.monitoring.catchholebackend.global.storage.StoredTextObject;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
 import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 @RequiredArgsConstructor
@@ -70,9 +74,7 @@ public class EpisodeServiceImpl implements EpisodeService {
                 work.getId(),
                 EpisodeStatus.ARCHIVED
         );
-        return episodes.stream()
-                .map(this::toSummaryResponse)
-                .toList();
+        return toSummaryResponses(episodes);
     }
 
     @Override
@@ -100,11 +102,11 @@ public class EpisodeServiceImpl implements EpisodeService {
         Work work = workRepository.getOwnedWork(workId, memberId);
         Episode episode = getEpisodeInWork(episodeId, work);
         validateEpisodeNoForUpdate(work, episode, request.episodeNo());
+        assertEpisodeIsNotAnalyzing(episode);
 
         StoredTextObject storedEpisodeContent = objectStorageService.replaceEpisodeContent(
                 work.getId(),
                 request.episodeNo(),
-                episode.getContentS3Key(),
                 request.content()
         );
 
@@ -164,7 +166,7 @@ public class EpisodeServiceImpl implements EpisodeService {
         sourceFile.markEpisodesParsed(episode.getEpisodeNo(), episode.getEpisodeNo(), 1);
 
         StoredTextObject storedContent = objectStorageService.putEpisodeReplacementContent(
-                work.getId(), episode.getId(), content);
+                work.getId(), episode.getEpisodeNo(), content);
         episode.replaceSourceFileAndContent(
                 sourceFile.getId(),
                 storedContent.key(),
@@ -252,6 +254,80 @@ public class EpisodeServiceImpl implements EpisodeService {
         return episodeMapper.toSummaryResponse(episode, sourceFile, latestAnalysisJob);
     }
 
+    private List<EpisodeSummaryResponse> toSummaryResponses(List<Episode> episodes) {
+        List<UUID> sourceFileIds = episodes.stream()
+                .map(Episode::getSourceFileId)
+                .filter(sourceFileId -> sourceFileId != null)
+                .distinct()
+                .toList();
+        if (sourceFileIds.isEmpty()) {
+            return episodes.stream()
+                    .map(episode -> episodeMapper.toSummaryResponse(episode, null, null))
+                    .toList();
+        }
+
+        Map<UUID, UploadFile> sourceFilesById = uploadFileRepository.findAllByIdIn(sourceFileIds).stream()
+                .collect(Collectors.toMap(UploadFile::getId, Function.identity()));
+        Set<UUID> batchIds = sourceFilesById.values().stream()
+                .map(UploadFile::getBatch)
+                .map(UploadBatch::getId)
+                .collect(Collectors.toSet());
+        List<UUID> episodeIds = episodes.stream()
+                .map(Episode::getId)
+                .toList();
+
+        Map<UUID, AnalysisJob> latestBatchJobs = new HashMap<>();
+        Map<UUID, Map<UUID, AnalysisJob>> latestEpisodeJobsByBatch = new HashMap<>();
+        analysisJobRepository.findAllRelevantForEpisodeSummaries(batchIds, episodeIds)
+                .forEach(analysisJob -> collectLatestAnalysisJob(
+                        analysisJob,
+                        latestBatchJobs,
+                        latestEpisodeJobsByBatch
+                ));
+
+        return episodes.stream()
+                .map(episode -> {
+                    UploadFile sourceFile = sourceFilesById.get(episode.getSourceFileId());
+                    AnalysisJob latestAnalysisJob = sourceFile == null
+                            ? null
+                            : resolveLatestAnalysisJob(
+                                    episode,
+                                    sourceFile.getBatch().getId(),
+                                    latestBatchJobs,
+                                    latestEpisodeJobsByBatch
+                            );
+                    return episodeMapper.toSummaryResponse(episode, sourceFile, latestAnalysisJob);
+                })
+                .toList();
+    }
+
+    private void collectLatestAnalysisJob(
+            AnalysisJob analysisJob,
+            Map<UUID, AnalysisJob> latestBatchJobs,
+            Map<UUID, Map<UUID, AnalysisJob>> latestEpisodeJobsByBatch
+    ) {
+        UUID batchId = analysisJob.getBatch().getId();
+        if (analysisJob.getEpisode() == null) {
+            latestBatchJobs.putIfAbsent(batchId, analysisJob);
+            return;
+        }
+        latestEpisodeJobsByBatch
+                .computeIfAbsent(batchId, ignored -> new HashMap<>())
+                .putIfAbsent(analysisJob.getEpisode().getId(), analysisJob);
+    }
+
+    private AnalysisJob resolveLatestAnalysisJob(
+            Episode episode,
+            UUID batchId,
+            Map<UUID, AnalysisJob> latestBatchJobs,
+            Map<UUID, Map<UUID, AnalysisJob>> latestEpisodeJobsByBatch
+    ) {
+        AnalysisJob episodeJob = latestEpisodeJobsByBatch
+                .getOrDefault(batchId, Map.of())
+                .get(episode.getId());
+        return laterOf(episodeJob, latestBatchJobs.get(batchId));
+    }
+
     private AnalysisJob resolveLatestAnalysisJob(Episode episode, UploadFile sourceFile) {
         UUID batchId = sourceFile.getBatch().getId();
         AnalysisJob episodeJob = analysisJobRepository
@@ -260,6 +336,10 @@ public class EpisodeServiceImpl implements EpisodeService {
         AnalysisJob batchJob = analysisJobRepository
                 .findFirstByBatchIdAndEpisodeIsNullOrderByCreatedAtDesc(batchId)
                 .orElse(null);
+        return laterOf(episodeJob, batchJob);
+    }
+
+    private AnalysisJob laterOf(AnalysisJob episodeJob, AnalysisJob batchJob) {
         if (episodeJob == null || batchJob == null) {
             return episodeJob == null ? batchJob : episodeJob;
         }

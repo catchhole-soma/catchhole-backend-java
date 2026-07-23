@@ -51,7 +51,7 @@ public class EpisodeMapper {
                 episode.getTitle(),
                 content,
                 sourceFile == null ? null : sourceFile.getOriginalFilename(),
-                sourceFile == null ? episode.getCreatedAt() : sourceFile.getCreatedAt(),
+                episode.getContentUpdatedAt(),
                 episode.getContentS3Key(),
                 episode.getContentS3Version(),
                 episode.getContentHash(),
@@ -83,24 +83,24 @@ public class EpisodeMapper {
                 analysisStatus,
                 resolveUnresolvedFindingCount(analysisStatus, latestAnalysisJob),
                 latestAnalysisJob == null ? null : latestAnalysisJob.getId(),
-                uploadFile == null ? episode.getCreatedAt() : uploadFile.getCreatedAt(),
+                episode.getContentUpdatedAt(),
                 episode.getCreatedAt(),
                 episode.getUpdatedAt()
         );
     }
 
     private EpisodeAnalysisStatus resolveAnalysisStatus(Episode episode, AnalysisJob latestAnalysisJob) {
+        if (latestAnalysisJob != null
+                && (latestAnalysisJob.getStatus() == AnalysisJobStatus.PENDING
+                || latestAnalysisJob.getStatus() == AnalysisJobStatus.RUNNING)) {
+            return EpisodeAnalysisStatus.IN_PROGRESS;
+        }
         if (episode.getStatus() == org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.FAILED
                 || latestAnalysisJob != null && latestAnalysisJob.getStatus() == AnalysisJobStatus.FAILED) {
             return EpisodeAnalysisStatus.FAILED;
         }
         if (episode.getStatus() == org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ANALYZED) {
             return EpisodeAnalysisStatus.COMPLETED;
-        }
-        if (latestAnalysisJob != null
-                && (latestAnalysisJob.getStatus() == AnalysisJobStatus.PENDING
-                || latestAnalysisJob.getStatus() == AnalysisJobStatus.RUNNING)) {
-            return EpisodeAnalysisStatus.IN_PROGRESS;
         }
         return EpisodeAnalysisStatus.REANALYSIS_REQUIRED;
     }
