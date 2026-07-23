@@ -21,7 +21,8 @@ src/main/resources/db/migration/
 ├── V2__add_character_setting_schema_registry.sql
 ├── V3__link_character_facts_to_setting_candidates.sql
 ├── V4__normalize_work_metadata.sql
-└── V5__add_upload_file_archive.sql
+├── V5__add_upload_file_archive.sql
+└── V6__preserve_episode_content_and_analysis_targets.sql
 ```
 
 - 파일명은 `V{순번}__{snake_case_설명}.sql` 형식을 사용합니다.
@@ -84,6 +85,16 @@ V5는 설정집 원본 교체 시 기존 `upload_files` 행을 삭제하지 않�
 - `(batch_id, file_role, archived_at)` 인덱스로 업로드 묶음의 활성 설정집을 조회합니다.
 - 기존 업로드 파일은 모두 활성 상태로 유지되도록 `archived_at`을 nullable로 추가합니다.
 
+## V6 기준
+
+V6는 제목 수정과 구분되는 회차 원문 변경 시각과 분석 작업 대상 스냅샷을 추가합니다.
+
+- `episodes.content_updated_at`은 기존 원본 `upload_files.created_at`, 원본 파일이 없으면 `episodes.created_at`으로 backfill한 뒤 `NOT NULL`로 전환합니다.
+- 신규·수정 회차는 원문 직접 수정이나 파일 교체 때만 `content_updated_at`을 갱신합니다.
+- `analysis_job_episode_targets`는 `(analysis_job_id, episode_id)` 복합 PK로 작업 생성 시점의 실제 대상 회차를 보존합니다.
+- 기존 단일 회차 작업은 `analysis_jobs.episode_id`, 기존 배치 작업은 migration 시점의 batch→upload file→episode 관계로 backfill합니다.
+- 이후 원본 파일 교체나 회차 보관은 과거 작업의 대상 연결을 삭제하지 않습니다.
+
 ## 논리 참조와 FK 기준
 
 ID 컬럼이 다른 테이블을 논리적으로 가리키더라도 삭제·재처리 정책이 정해지지 않았다면 FK를 먼저 강제하지 않습니다. V1의 선택은 다음과 같습니다.
@@ -99,10 +110,10 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
 
 ## 로컬 검증
 
-V1~V4 적용 DB에 현재 Backend를 시작해 V5만 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V5가 순서대로 적용되는 경로를 각각 확인합니다.
+V1~V5 적용 DB에 현재 Backend를 시작해 V6만 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V6이 순서대로 적용되는 경로를 각각 확인합니다.
 
-- Flyway 로그에 V1부터 V5까지 적용 성공이 출력됩니다.
-- `flyway_schema_history`에 version 1, 2, 3, 4, 5가 성공으로 기록됩니다.
+- Flyway 로그에 V1부터 V6까지 적용 성공이 출력됩니다.
+- `flyway_schema_history`에 version 1, 2, 3, 4, 5, 6이 성공으로 기록됩니다.
 - `vector` extension이 활성화됩니다.
 - `episode_chunks.embedding`이 `vector(1536)`으로 생성됩니다.
 - cosine HNSW 인덱스가 생성됩니다.
@@ -111,8 +122,10 @@ V1~V4 적용 DB에 현재 Backend를 시작해 V5만 추가 적용되는 경로�
 - `works.genre`가 enum 상수명으로 저장되고 `NOT NULL`·`chk_works_genre` 제약을 가집니다.
 - `works.description`이 기존 값의 앞 50자로 정규화되고 `VARCHAR(50)` 타입을 가집니다.
 - `upload_files.archived_at`과 `idx_upload_files_active_setting_books` 인덱스가 생성됩니다.
+- `episodes.content_updated_at`이 기존 데이터까지 채워지고 `NOT NULL` 제약을 가집니다.
+- `analysis_job_episode_targets`와 회차 역방향 조회 인덱스가 생성되고 기존 작업 대상이 backfill됩니다.
 - Hibernate schema validation을 통과하고 Backend가 정상 시작됩니다.
-- Backend를 재시작해도 V1부터 V5까지 중복 적용되지 않습니다.
+- Backend를 재시작해도 V1부터 V6까지 중복 적용되지 않습니다.
 
 ## 최초 운영 전환
 
@@ -123,7 +136,7 @@ Flyway 도입 전에 JPA가 만든 운영 테스트 DB에는 `flyway_schema_hist
 1. 필요한 데이터가 없는지 확인하고 필요하면 `pg_dump`로 백업합니다.
 2. Backend와 AI Worker를 중지합니다.
 3. PostgreSQL 데이터 volume만 제거하고 빈 PostgreSQL 16 DB를 시작합니다.
-4. Backend를 시작해 Flyway V1~V5와 Hibernate validation 성공을 확인합니다.
+4. Backend를 시작해 Flyway V1~V6과 Hibernate validation 성공을 확인합니다.
 5. DB schema와 Swagger 기본 API를 확인한 뒤 AI Worker를 시작합니다.
 
 실제 사용자 데이터가 생긴 뒤에는 이 초기화 절차를 사용하지 않습니다. 기존 데이터를 보존하는 V2 이상의 `ALTER` migration과 사전 백업·롤백 계획을 별도로 작성합니다.

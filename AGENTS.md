@@ -37,6 +37,7 @@
 |------|------|
 | `application.yml` | 모든 환경 공통 설정 (앱 이름, 기본 활성 프로파일, CORS 기본값) |
 | `application-local.yml` | 로컬 개발 (JPA `validate`, SQL 로그). DB 접속은 yml에 두지 않는다 |
+| `application-e2e.yml` | 브라우저 E2E (JPA `validate`, S3 대신 임시 로컬 파일 저장소) |
 | `application-prod.yml` | 운영 (DB / CORS는 환경변수 주입, JPA `validate`) |
 | `src/test/resources/application-test.yml` | 통합 테스트 (H2 인메모리 DB, JPA `create-drop`) |
 
@@ -46,6 +47,7 @@
 - 운영 JWT 서명키는 `JWT_SECRET` 환경변수로 주입한다. 최소 32바이트 이상이어야 하며, 로그/응답/테스트 실패 메시지에 노출하지 않는다.
 - 운영 Worker 내부 API key는 `INTERNAL_API_KEY` 환경변수로 주입한다. 로컬 기본값은 개발 편의를 위한 값이며 운영에서는 반드시 별도 secret을 사용한다.
 - 로컬 실행 시 `application.yml`이 `apps/CatchHole-Backend/.env`를 optional import한다. AWS/S3 같은 로컬 비밀값은 `.env`에 둘 수 있지만, `.env`는 커밋하지 않는다.
+- E2E는 `SPRING_PROFILES_ACTIVE=e2e`로 활성화하고 운영에서는 사용하지 않는다. 이 프로파일에서만 `LocalFileObjectStorage`를 사용하며 `storage.local.root` 기본값은 `${java.io.tmpdir}/catchhole-e2e-storage`, 명시적 override는 `CATCHHOLE_E2E_STORAGE_ROOT`로 둔다.
 - 새로운 설정 키를 추가할 때는 base / local / prod 각 위치를 의식적으로 결정한다.
 - 운영 환경은 Caddy `reverse_proxy` 뒤에서 실행되므로 `application-prod.yml`에 `server.forward-headers-strategy: framework`를 둔다. Swagger/OpenAPI server URL과 보안/리다이렉트 처리가 외부 HTTPS scheme/host를 기준으로 동작하게 하기 위함이다.
 - **로컬 DB 접속 정보는 `compose.yaml` 단일 출처로 둔다.** `spring-boot-docker-compose` 의존성이 컨테이너에서 호스트/포트/사용자/비밀번호를 자동 추출해 `ServiceConnection` 빈으로 주입한다. yml에 `spring.datasource.*`를 중복 작성하지 않는다 (그림자 설정 방지).
@@ -220,20 +222,22 @@ domain/<domain>
 
 #### Episode / Upload Domain Policy
 
-- 회차 원문 전문은 DB에 저장하지 않고 S3에 저장한다. DB에는 `content_s3_key`, `content_s3_version`, `content_hash`, `char_count`만 둔다.
+- 회차 원문 전문은 DB에 저장하지 않고 S3에 저장한다. DB에는 `content_s3_key`, `content_s3_version`, `content_hash`, `char_count`, `content_updated_at`만 둔다.
+- 회차 원문 key는 `works/{workId}/episodes/{episodeNo}/{UUID}/{episodeNo}.txt`로 매 저장본을 고유하게 만든다. 보관된 회차 번호를 재사용해도 기존 원문을 덮어쓰지 않으면서 S3에서 회차 번호를 식별하기 위함이다.
+- `episodes.content_updated_at`은 원문 직접 수정이나 파일 교체 때만 갱신하고 제목만 바꿀 때는 유지한다.
 - 회차 업로드 요청 한 번은 `UploadBatch` 하나로 추적하고, 원본 파일 단위는 `UploadFile`로 추적한다.
 - 업로드에서 생성된 회차는 `episodes.source_file_id`로 원본 업로드 파일을 추적한다.
 - 같은 작품 안에서 회차 번호는 중복될 수 없다.
 - 회차 삭제는 `ARCHIVED` 전이로 처리하고 원문 S3 객체는 유지한다. 활성 목록, 최신 회차 번호 계산과 회차 번호 중복 검사는 `ARCHIVED` 회차를 제외한다.
 - 회차 제목은 사용자 확정값 또는 원문의 명시적 회차 제목 행에서만 가져온다. 감지하지 못하면 `null`로 두며 원본 파일명을 제목으로 대체하지 않는다.
-- 회차 원고와 설정집 원본은 TXT·DOCX만 허용하고, 빈 파일과 10MB 초과 파일을 서버에서도 거절한다.
+- 회차 원고와 설정집 원본은 TXT·DOCX만 허용하고, 명시적으로 첨부한 빈 파일과 파일당 10MB 초과를 서버에서도 거절한다. multipart 요청 전체 제한은 25MB로 둔다.
 - 회차 파일 처리 단계는 `source`(요청 원본) → `detected`(`DetectedEpisode*`) → `confirmation`(사용자 확정 입력) → `finalized`(`FinalizedEpisode*`) → `created`/`saved`(영속화 결과) 용어와 타입으로 구분한다. 서로 다른 단계의 값을 `episodes`, `parsed`처럼 같은 이름이나 타입으로 뭉뚱그리지 않는다.
 - 회차 API의 업로드 방식은 공용 `UploadType`이 아니라 `EpisodeUploadType`의 세 값만 노출한다. 사전 감지는 `EpisodeDetectionRequest`, 최종 저장은 `EpisodeUploadRequest`로 DTO를 분리하고 multipart JSON part는 `metadata`로 통일한다.
 - 최종 업로드에서 `SINGLE_EPISODE`는 `singleEpisodeNo`가 필수이며 `episodeConfirmations`를 보내지 않는다. 두 다회차 방식은 단일 회차 전용 필드를 보내지 않고, 필수 `episodeConfirmations`의 각 `detectionOrder`를 감지 결과와 일치시킨다.
 - `TextDocumentReader`는 TXT·DOCX 형식/크기/빈 파일 검증과 텍스트 추출을, `EpisodeFileParser`는 원본 파일과 단일 회차 감지 힌트에서 회차 경계·번호·제목·본문을 `DetectedEpisode*`로 만드는 일을 담당한다. confirmation은 parser에 전달하지 않으며, 사용자 확정 번호·제목 적용과 `FinalizedEpisode*` 조립은 `EpisodeUploadProcessor`가 담당한다.
 - 회차 원본 `UploadFile`은 `markEpisodesParsed(episodeStartNo, episodeEndNo, episodeCount)`로 최종 생성 범위와 파싱 완료를 함께 기록하고, 회차 범위가 없는 설정집은 `markParsed()`만 사용한다. API 응답도 `episodeStartNo`/`episodeEndNo`/`episodeCount`로 노출한다.
 - 회차 조회, 수정, 삭제, 업로드는 모두 먼저 작품 소유권을 확인한다.
-- 후속 Worker의 회차 처리 상태 변경은 단계별 엔드포인트를 나누지 않고, `EpisodeStatus`를 파라미터로 받는 단일 내부 전이 API로 구현한다.
+- Worker의 회차 처리 상태 변경은 단계별 엔드포인트를 나누지 않고, progress 요청의 `episodeStatus`로 명시적으로 전달한다. 자유 형식 표시 문구인 `currentStep`에서 상태를 추론하지 않는다.
 
 #### Analysis Domain Policy
 
@@ -241,8 +245,9 @@ domain/<domain>
 - 원문 텍스트는 `Episode`의 S3 저장 구조를 재사용하고, `analysis_jobs`에는 상태, 현재 단계, 모델명, 토큰 수, 요약 JSON, 마지막 실패 사유만 저장한다.
 - 분석 실패 처리 이력은 `analysis_jobs.error_message`에 누적하지 않고, 후속 모니터링 기능에서 별도 기록/조회한다.
 - 화면에서 분석 작업은 `AnalysisJob.status`를 상위 상태로 표시하고, 분석 작업 상세에 들어갔을 때 포함된 각 회차의 `Episode.status`를 단계별 상태로 보여준다.
-- 분석 작업 상세 응답에는 실제 대상 회차 목록을 포함하고, Worker의 claim·진행·완료·실패 처리에서 해당 `Episode.status`도 함께 전이한다.
-- 분석 작업 생성 API는 업로드 흐름의 단위인 `batch_id`를 필수 입력으로 받는다. `episode_id`는 회차별 세부 작업이 필요해질 때 내부 작업 모델에서 선택적으로 사용할 수 있다.
+- 분석 작업 생성 시 실제 대상 회차를 `analysis_job_episode_targets`에 스냅샷으로 저장한다. 이후 회차 원본 교체나 `ARCHIVED` 전이로 과거 작업의 대상 목록이 바뀌지 않게 하며, 상세 응답과 Worker 처리는 이 연결을 사용한다.
+- 분석 작업 상세 응답에는 생성 시점의 대상 회차 목록을 포함하고, Worker의 claim·진행·완료·실패 처리에서 해당 `Episode.status`도 함께 전이한다.
+- 공개 분석 작업 생성 API는 업로드 흐름의 단위인 `batch_id`를 필수 입력으로 받고 `episode_id`를 선택 범위 지정자로 허용한다. `episode_id`가 없으면 batch 전체, 있으면 해당 회차 하나이며 지원하는 모든 `jobType`에 같은 규칙을 적용한다.
 - 본인 작품의 분석 작업만 생성/조회할 수 있으며, 다른 회원의 작품이나 다른 작품에 속한 분석 대상은 404로 응답한다.
 - Python AI Worker는 작업 claim과 `AnalysisJob` 상태 변경에 `/api/internal/**` 내부 API를 `X-Internal-Api-Key`로 인증해 사용한다. Worker에는 원문 본문을 응답하지 않으며, 분석 입력으로 `Episode`의 S3 key/version/hash/charCount 메타데이터, 기존 캐릭터 목록, 활성 캐릭터 설정 schema를 전달한다.
 - Worker는 분석 작업 생성과 상태 전이를 위해 백엔드 DB에 직접 접근하지 않는다. 다만 청킹, 설정 후보, 리포트 같은 분석 산출물 저장은 데이터 양과 모델 안정성에 따라 내부 API 또는 Worker의 DB 직접 저장 중 선택할 수 있으며, DB 직접 저장을 선택하면 관련 스키마/문서 변경을 함께 관리한다.

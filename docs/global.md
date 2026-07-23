@@ -166,7 +166,7 @@ multipart 요청에서 JSON part를 처리하기 위해 `MultipartJackson2HttpMe
 회차 원문
 
 ```text
-works/{workId}/episodes/{episodeNo}.txt
+works/{workId}/episodes/{episodeNo}/{UUID}/{episodeNo}.txt
 ```
 
 업로드 원본 파일

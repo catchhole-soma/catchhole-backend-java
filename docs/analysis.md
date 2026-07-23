@@ -28,7 +28,9 @@ Analysis 도메인은 작품의 업로드 배치 전체 또는 특정 회차를 
 - `episodeId == null`: `batchId`에 연결된 보관되지 않은 전체 회차를 분석합니다.
 - `episodeId != null`: 해당 회차 하나만 분석합니다. 서버는 회차가 같은 작품과 `batchId`에 실제로 속하는지 검증합니다.
 
-배치 전체 작업의 연결 흐름은 다음과 같습니다.
+이 범위 지정 규칙은 공개 생성 API가 지원하는 모든 `jobType`에 동일하게 적용됩니다. 작업 생성 시 실제 대상 회차를 `analysis_job_episode_targets`에 저장하고, 이후 조회와 Worker 처리는 이 스냅샷을 사용합니다.
+
+배치 전체 작업의 최초 대상 선정 흐름은 다음과 같습니다.
 
 ```text
 upload_batches.id
@@ -36,13 +38,13 @@ upload_batches.id
   -> episodes.source_file_id
 ```
 
-특정 회차 작업은 `analysis_jobs.episode_id`를 사용합니다. 같은 배치의 전체 작업이 `PENDING` 또는 `RUNNING`이면 단일 회차 작업을 만들 수 없고, 같은 회차에 활성 작업이 있어도 중복 생성할 수 없습니다. 서로 다른 회차의 단일 작업은 동시에 생성할 수 있습니다.
+특정 회차 작업은 범위 표시를 위해 `analysis_jobs.episode_id`도 함께 사용합니다. 같은 배치의 전체 작업이 `PENDING` 또는 `RUNNING`이면 단일 회차 작업을 만들 수 없고, 같은 회차에 활성 작업이 있어도 중복 생성할 수 없습니다. 서로 다른 회차의 단일 작업은 동시에 생성할 수 있습니다.
 
 ### Worker 연동 방식
 
 Kafka/SQS 없이 내부 API polling 방식을 사용합니다.
 
-Python AI Worker는 주기적으로 내부 claim API를 호출해 `PENDING` 작업을 가져갑니다. 백엔드는 claim된 작업을 `RUNNING`으로 변경하고, Worker가 S3에서 원문을 읽을 수 있도록 회차 원문 메타데이터, 캐릭터 매칭에 사용할 `knownCharacters`, `attributeName` 해석에 사용할 `characterSettingSchemas`를 내려줍니다. 작업에 `episodeId`가 있으면 그 회차 하나만, 없으면 배치 전체 회차를 payload에 포함합니다.
+Python AI Worker는 주기적으로 내부 claim API를 호출해 `PENDING` 작업을 가져갑니다. 백엔드는 claim된 작업을 `RUNNING`으로 변경하고, Worker가 S3에서 원문을 읽을 수 있도록 생성 시 저장한 대상 회차의 원문 메타데이터, 캐릭터 매칭에 사용할 `knownCharacters`, `attributeName` 해석에 사용할 `characterSettingSchemas`를 내려줍니다.
 
 Worker는 분석 작업 생성과 `AnalysisJob` 상태 전이를 위해 백엔드 DB에 직접 접근하지 않습니다. 다만 현재 설정 후보 생성은 Python Worker가 `setting_candidates`에 직접 저장합니다. Spring은 후보 조회/수정/확정/무시 API와 `AnalysisJob` 상태 전이 API를 담당합니다.
 
@@ -52,7 +54,7 @@ Worker는 분석 작업 생성과 `AnalysisJob` 상태 전이를 위해 백엔�
 
 `progress` 숫자 필드는 사용하지 않습니다.
 
-실제 분석 진행률을 정확히 계산하기 어렵기 때문에 fake percentage를 저장하지 않습니다. 클라이언트는 `status` enum과 필요한 경우 `currentStep`을 사용해 사용자에게 현재 상태를 보여줍니다.
+실제 분석 진행률을 정확히 계산하기 어렵기 때문에 fake percentage를 저장하지 않습니다. 클라이언트는 `status` enum과 필요한 경우 `currentStep`을 사용해 사용자에게 현재 상태를 보여줍니다. Worker progress 요청은 표시 문구인 `currentStep`과 별도로 `episodeStatus`를 보내며, 백엔드는 문자열을 파싱하지 않고 이 enum을 대상 회차에 적용합니다.
 
 ## 상태 모델
 
@@ -69,6 +71,7 @@ Worker는 분석 작업 생성과 `AnalysisJob` 상태 전이를 위해 백엔�
 
 - 기존 `FAILED` 작업은 이력으로 유지합니다.
 - 재시도 API는 대상 중 `Episode.status == FAILED`인 회차마다 같은 `jobType`의 단일 회차 작업을 새로 만듭니다.
+- 같은 배치의 전체 작업이 `PENDING` 또는 `RUNNING`이면 중복 분석을 막기 위해 `ANALYSIS_JOB_ALREADY_IN_PROGRESS`로 거절합니다.
 - 해당 회차에 이미 `PENDING` 또는 `RUNNING` 재시도 작업이 있으면 새 작업을 중복 생성하지 않고 그 활성 작업을 반환합니다.
 
 정책 미확정 TODO:
@@ -98,7 +101,7 @@ Worker는 분석 작업 생성과 `AnalysisJob` 상태 전이를 위해 백엔�
 | `id` | 분석 작업 ID |
 | `work_id` | 분석 대상 작품 ID |
 | `batch_id` | 분석 대상 업로드 배치 ID |
-| `episode_id` | 회차별 내부 작업이 필요할 때 사용할 선택 연결 |
+| `episode_id` | 공개 생성 요청에서 특정 회차 범위를 표시하는 선택 연결 |
 | `job_type` | 분석 작업 유형 |
 | `status` | 분석 작업 상태 |
 | `current_step` | 워커가 기록하는 현재 처리 단계 |
@@ -111,6 +114,15 @@ Worker는 분석 작업 생성과 `AnalysisJob` 상태 전이를 위해 백엔�
 | `completed_at` | 분석 완료 시각 |
 | `created_at` | 생성 시각 |
 | `updated_at` | 수정 시각 |
+
+`analysis_job_episode_targets`
+
+| 필드 | 설명 |
+| --- | --- |
+| `analysis_job_id` | 분석 작업 ID |
+| `episode_id` | 생성 시점에 확정한 실제 대상 회차 ID |
+
+두 필드가 복합 PK입니다. 회차의 `source_file_id`가 바뀌거나 상태가 `ARCHIVED`가 되어도 과거 작업의 대상 목록은 변경하지 않습니다.
 
 ## API
 
@@ -204,7 +216,7 @@ GET /api/v1/works/{workId}/analysis-jobs/{analysisJobId}
 POST /api/v1/works/{workId}/analysis-jobs/{analysisJobId}/retry
 ```
 
-원본 작업이 `FAILED`인 경우에만 사용할 수 있습니다. 서버가 원본 작업의 대상 회차 중 `Episode.status == FAILED`인 회차를 찾고, 회차마다 같은 `jobType`과 `batchId`를 사용하는 단일 회차 작업을 생성해 목록으로 반환합니다. 기존 실패 작업 자체의 상태는 변경하지 않습니다.
+원본 작업이 `FAILED`인 경우에만 사용할 수 있습니다. 같은 batch의 전체 작업이 이미 `PENDING` 또는 `RUNNING`이면 409로 거절합니다. 그렇지 않으면 서버가 원본 작업의 대상 회차 중 `Episode.status == FAILED`인 회차를 찾고, 회차마다 같은 `jobType`과 `batchId`를 사용하는 단일 회차 작업을 생성해 목록으로 반환합니다. 기존 실패 작업 자체의 상태는 변경하지 않습니다.
 
 ## Internal Worker API
 
@@ -295,13 +307,14 @@ PATCH /api/internal/v1/analysis-jobs/{analysisJobId}/progress
 
 ```json
 {
-  "currentStep": "LLM 전처리"
+  "currentStep": "LLM 전처리",
+  "episodeStatus": "PREPROCESSING"
 }
 ```
 
 `RUNNING` 작업에만 사용할 수 있습니다.
 
-`currentStep` 값에 따라 대상 회차 상태도 `CHUNKING`, `CHUNKED`, `PREPROCESSING`, `PREPROCESSED`, `ANALYZING` 중 하나로 갱신합니다.
+`currentStep`은 표시용 문구로 저장하고, 대상 회차 상태는 명시적인 `episodeStatus` 값으로 갱신합니다.
 
 ### 작업 완료
 
@@ -349,8 +362,9 @@ POST /api/internal/v1/analysis-jobs/{analysisJobId}/fail
 6. batch가 없거나 해당 작품에 속하지 않으면 `ANALYSIS_JOB_TARGET_NOT_FOUND`를 반환합니다.
 7. `episodeId`가 있으면 회차가 같은 작품과 batch에 속하는지 검증합니다.
 8. 배치 전체 또는 같은 회차에 이미 활성 작업이 있는지 검사합니다.
-9. `AnalysisJob`을 `PENDING` 상태로 생성합니다.
-10. 생성된 작업을 대상 `episodes`와 함께 `AnalysisJobResponse`로 반환합니다.
+9. 현재 batch 전체 또는 선택 회차 목록을 `analysis_job_episode_targets`에 스냅샷으로 저장합니다.
+10. `AnalysisJob`을 `PENDING` 상태로 생성합니다.
+11. 생성된 작업을 대상 `episodes`와 함께 `AnalysisJobResponse`로 반환합니다.
 
 ```text
 Client
@@ -358,7 +372,7 @@ Client
   -> AnalysisJobService
   -> WorkRepository.getOwnedWork(workId, memberId)
   -> UploadBatchRepository.findByIdAndWorkId(batchId, workId)
-  -> optional EpisodeRepository.findByIdAndWorkId(episodeId, workId)
+  -> optional EpisodeRepository.findByIdAndWorkIdAndStatusNot(episodeId, workId, ARCHIVED)
   -> active job validation
   -> AnalysisJobRepository.save(PENDING job)
   -> AnalysisJobResponse
@@ -374,7 +388,7 @@ Client
 2. Service가 `workId`, `memberId`로 본인 작품을 조회합니다.
 3. 작품이 없거나 다른 회원의 작품이면 `WORK_NOT_FOUND`를 반환합니다.
 4. 해당 작품의 분석 작업을 최신 생성순으로 조회합니다.
-5. 각 작업의 `episodeId` 또는 batch에 연결된 대상 회차 목록을 조회합니다.
+5. 각 작업의 `analysis_job_episode_targets`에 저장된 대상 회차 목록을 조회합니다.
 6. 각 `AnalysisJob`을 대상 `episodes`가 포함된 `AnalysisJobResponse`로 변환해 반환합니다.
 
 ```text
@@ -382,7 +396,7 @@ Client
   -> AnalysisJobController
   -> AnalysisJobService
   -> WorkRepository.getOwnedWork(workId, memberId)
-  -> AnalysisJobRepository.findAllByWorkIdOrderByCreatedAtDesc(workId)
+  -> AnalysisJobRepository.findAllWithTargetsByWorkIdOrderByCreatedAtDesc(workId)
   -> List<AnalysisJobResponse>
 ```
 
@@ -415,27 +429,28 @@ Client
 
 분석 생성 request는 `batchId`와 선택적인 `episodeId`를 받습니다.
 
-`episodeId`가 없으면 다음 순서로 batch 전체 회차를 찾습니다.
+`episodeId`가 없으면 작업 생성 시 다음 순서로 batch 전체 회차를 찾습니다.
 
 1. `upload_batches.id`로 업로드 배치를 찾습니다.
 2. `upload_files.batch_id`로 batch에 속한 업로드 파일들을 찾습니다.
 3. `episodes.source_file_id`로 각 업로드 파일에서 생성된 회차들을 찾습니다.
 4. `ARCHIVED`가 아닌 회차만 선택합니다.
-5. Worker claim API가 회차 목록, `knownCharacters`, 활성 `characterSettingSchemas`를 payload로 내려줍니다.
-6. Worker가 회차 목록을 순회하며 S3 원문을 읽고 분석합니다.
-7. Worker가 내부 API로 분석 작업과 대상 회차 상태를 함께 변경합니다.
-8. 필요하면 `currentStep`, `modelName`, token count, `summaryJson`, 마지막 실패 사유인 `errorMessage`를 기록합니다.
+5. 선정된 회차를 `analysis_job_episode_targets`에 저장합니다.
+6. Worker claim API가 저장된 대상 회차 목록, `knownCharacters`, 활성 `characterSettingSchemas`를 payload로 내려줍니다.
+7. Worker가 회차 목록을 순회하며 S3 원문을 읽고 분석합니다.
+8. Worker가 내부 API로 분석 작업과 대상 회차 상태를 함께 변경합니다.
+9. 필요하면 `currentStep`, `modelName`, token count, `summaryJson`, 마지막 실패 사유인 `errorMessage`를 기록합니다.
 
 예상 조회 흐름은 다음과 같습니다.
 
 ```text
-analysis_jobs.batch_id
-  -> upload_batches.id
-  -> upload_files.batch_id
-  -> episodes.source_file_id
+analysis_jobs.id
+  -> analysis_job_episode_targets.analysis_job_id
+  -> analysis_job_episode_targets.episode_id
+  -> episodes.id
 ```
 
-`episodeId`가 있으면 위 batch 탐색 대신 연결된 회차 하나를 바로 사용합니다.
+`episodeId`가 있으면 생성 시 batch 탐색 대신 검증된 회차 하나를 스냅샷에 저장합니다.
 
 ## 접근 제어
 

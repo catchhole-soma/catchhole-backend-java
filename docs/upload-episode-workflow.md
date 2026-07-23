@@ -124,14 +124,16 @@ flowchart LR
 upload-batches/{batchId}/{randomUUID}-{originalFilename}
 
 회차 원문:
-works/{workId}/episodes/{episodeNo}.txt
+works/{workId}/episodes/{episodeNo}/{UUID}/{episodeNo}.txt
 ```
+
+회차 저장본마다 UUID 경로를 사용하므로 보관 회차 번호를 재사용해도 기존 원문을 덮어쓰지 않습니다. 명시적으로 첨부한 `settingBookFile`은 빈 파일이면 `UPLOAD_FILE_EMPTY`로 거절하며, part를 생략한 경우에만 설정집 없음으로 처리합니다.
 
 ## 분석 작업과의 연결
 
 업로드 저장과 분석 작업 생성은 별도 요청입니다. 회차 업로드 응답의 `batchId`를 사용해 `POST /api/v1/works/{workId}/analysis-jobs`를 호출합니다. 최초 분석은 `episodeId=null`인 배치 전체 작업이며, 파일 변경 뒤 특정 회차만 재분석할 때는 같은 요청에 `episodeId`를 전달합니다.
 
-회차 업로드가 끝나면 다음 관계로 분석 대상을 찾을 수 있습니다.
+회차 업로드가 끝나면 다음 관계로 분석 작업 생성 시 대상을 선정하고 스냅샷으로 저장합니다.
 
 ```mermaid
 flowchart LR
@@ -140,8 +142,9 @@ flowchart LR
     C --> D["upload_files.id"]
     D --> E["episodes.source_file_id"]
     E --> F["Episode"]
+    F --> G["analysis_job_episode_targets"]
 ```
 
-배치 전체 활성 작업은 같은 배치의 새 분석을 막습니다. 회차 대상 활성 작업은 동일 회차의 중복 요청만 막으므로, 같은 배치 안의 서로 다른 회차는 각각 재분석할 수 있습니다. Worker의 claim·complete·fail 결과는 작업 대상 회차 상태에도 반영됩니다.
+배치 전체 활성 작업은 같은 배치의 새 분석을 막습니다. 회차 대상 활성 작업은 동일 회차의 중복 요청만 막으므로, 같은 배치 안의 서로 다른 회차는 각각 재분석할 수 있습니다. Worker와 과거 작업 조회는 생성 시 저장된 대상 스냅샷을 사용합니다.
 
 설정집 원본은 회차 업로드에 선택 첨부할 수 있지만 프런트 화면에서는 독립 저장 결과로 취급합니다. 단독 재시도는 `/api/v1/works/{workId}/setting-books`를 사용하며 설정집 저장 성공 여부가 이미 생성된 회차 분석을 취소하지 않습니다.
