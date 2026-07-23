@@ -21,6 +21,7 @@ import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepos
 import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
+import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.global.storage.ObjectStorage;
 import org.monitoring.catchholebackend.global.storage.StoredObject;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -63,7 +64,7 @@ class SettingBookControllerIntegrationTest {
 
         Member member = memberRepository.save(Member.register(
                 "setting-writer@example.com", "encoded-password", "01011112222", "설정 작가"));
-        work = workRepository.save(Work.create(member, "설정집 작품", "판타지", null));
+        work = workRepository.save(Work.create(member, "설정집 작품", WorkGenre.FANTASY, null));
         accessToken = jwtTokenProvider.generateAccessToken(member);
         when(objectStorage.putBytes(anyString(), any(byte[].class), any()))
                 .thenAnswer(invocation -> new StoredObject(invocation.getArgument(0), "test-version"));

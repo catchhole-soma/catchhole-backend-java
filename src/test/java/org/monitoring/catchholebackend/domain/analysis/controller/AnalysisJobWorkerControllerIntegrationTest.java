@@ -40,6 +40,7 @@ import org.monitoring.catchholebackend.domain.upload.type.UploadSourceType;
 import org.monitoring.catchholebackend.domain.upload.type.UploadType;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
+import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.global.config.security.SecurityConstant;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -112,7 +113,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
                 "01012345678",
                 "작가"
         ));
-        work = workRepository.save(Work.create(member, "내 작품", "판타지", "내 설명"));
+        work = workRepository.save(Work.create(member, "내 작품", WorkGenre.FANTASY, "내 설명"));
         uploadBatch = uploadBatchRepository.save(UploadBatch.create(
                 work,
                 member,
@@ -202,7 +203,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
                 null,
                 null
         ));
-        Work otherWork = workRepository.save(Work.create(member, "다른 작품", "현대물", "다른 schema 범위"));
+        Work otherWork = workRepository.save(Work.create(member, "다른 작품", WorkGenre.ETC, "다른 schema 범위"));
         characterSettingSchemaRepository.save(settingSchema(
                 null,
                 "statuses.condition",

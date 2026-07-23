@@ -14,6 +14,7 @@ import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
+import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -45,7 +46,7 @@ class WorkCharacterRepositoryTest {
                 uniquePhoneNumber(),
                 "작가"
         ));
-        work = workRepository.save(Work.create(member, "은빛 검사", "판타지", "검사 성장물"));
+        work = workRepository.save(Work.create(member, "은빛 검사", WorkGenre.FANTASY, "검사 성장물"));
     }
 
     @Test
@@ -116,7 +117,7 @@ class WorkCharacterRepositoryTest {
                 uniquePhoneNumber(),
                 "다른 작가"
         ));
-        Work otherWork = workRepository.save(Work.create(otherMember, "다른 작품", "무협", "다른 설명"));
+        Work otherWork = workRepository.save(Work.create(otherMember, "다른 작품", WorkGenre.MARTIAL_ARTS, "다른 설명"));
 
         workCharacterRepository.save(WorkCharacter.create(
                 work, "아리아", "protagonist", 17, 23, null, null, null, null, null, null

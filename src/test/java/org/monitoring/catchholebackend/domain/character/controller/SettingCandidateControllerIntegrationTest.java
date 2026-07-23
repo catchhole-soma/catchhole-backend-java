@@ -44,6 +44,7 @@ import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepos
 import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
+import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -129,8 +130,8 @@ class SettingCandidateControllerIntegrationTest {
                 "01087654321",
                 "다른 작가"
         ));
-        work = workRepository.save(Work.create(member, "내 작품", "판타지", "내 설명"));
-        otherWork = workRepository.save(Work.create(otherMember, "다른 작품", "무협", "다른 설명"));
+        work = workRepository.save(Work.create(member, "내 작품", WorkGenre.FANTASY, "내 설명"));
+        otherWork = workRepository.save(Work.create(otherMember, "다른 작품", WorkGenre.MARTIAL_ARTS, "다른 설명"));
         episode = episodeRepository.save(Episode.create(
                 work,
                 null,
