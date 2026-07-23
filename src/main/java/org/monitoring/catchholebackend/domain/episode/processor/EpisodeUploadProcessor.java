@@ -76,7 +76,7 @@ public class EpisodeUploadProcessor {
                 uploadRequest.episodeConfirmations()
         );
         validateEpisodeNumberAvailability(work, finalizedEpisodeFiles);
-        if (hasFile(attachedSettingBookFile)) {
+        if (isAttached(attachedSettingBookFile)) {
             textDocumentReader.readText(attachedSettingBookFile);
             validateSettingBookFilenameAvailable(work, attachedSettingBookFile);
         }
@@ -99,7 +99,7 @@ public class EpisodeUploadProcessor {
         }
         updateLatestEpisodeNo(work, savedEpisodes);
 
-        if (hasFile(attachedSettingBookFile)) {
+        if (isAttached(attachedSettingBookFile)) {
             saveAttachedSettingBookFile(uploadBatch, attachedSettingBookFile);
         }
 
@@ -392,7 +392,7 @@ public class EpisodeUploadProcessor {
             List<MultipartFile> sourceEpisodeFiles,
             MultipartFile attachedSettingBookFile
     ) {
-        return sourceEpisodeFiles.size() + (hasFile(attachedSettingBookFile) ? 1 : 0);
+        return sourceEpisodeFiles.size() + (isAttached(attachedSettingBookFile) ? 1 : 0);
     }
 
     private byte[] readBytes(MultipartFile file) {
@@ -411,7 +411,7 @@ public class EpisodeUploadProcessor {
         return StringUtils.hasText(title) ? title.trim() : null;
     }
 
-    private boolean hasFile(MultipartFile file) {
-        return file != null && !file.isEmpty();
+    private boolean isAttached(MultipartFile file) {
+        return file != null;
     }
 }

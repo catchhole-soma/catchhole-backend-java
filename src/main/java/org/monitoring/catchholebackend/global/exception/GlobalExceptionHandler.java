@@ -3,6 +3,7 @@ package org.monitoring.catchholebackend.global.exception;
 import jakarta.validation.ConstraintViolationException;
 import java.util.Comparator;
 import java.util.List;
+import org.monitoring.catchholebackend.domain.upload.exception.UploadErrorCode;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
 import org.monitoring.catchholebackend.global.common.response.ErrorResponse;
 import org.monitoring.catchholebackend.global.common.response.FieldErrorResponse;
@@ -11,6 +12,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
@@ -54,6 +56,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<CommonResponse<Void>> handleHttpMessageNotReadableException() {
         return buildErrorResponse(CommonErrorCode.REQUEST_INVALID_ARGUMENT, List.of());
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<CommonResponse<Void>> handleMaxUploadSizeExceededException() {
+        return buildErrorResponse(UploadErrorCode.UPLOAD_SIZE_LIMIT_EXCEEDED, List.of());
     }
 
     @ExceptionHandler(NoResourceFoundException.class)

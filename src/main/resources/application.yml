@@ -5,6 +5,10 @@ spring:
     active: local
   config:
     import: optional:file:.env[.properties]
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 25MB
 
 # 개발 기본값. prod에서는 환경변수로 override.
 cors:

@@ -20,6 +20,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class TextDocumentReader {
 
     private static final long MAX_FILE_SIZE = 10L * 1024 * 1024;
+    private static final int MAX_DOCX_DOCUMENT_XML_SIZE = 10 * 1024 * 1024;
     private static final String DOCX_DOCUMENT_ENTRY = "word/document.xml";
 
     public String readText(MultipartFile sourceFile) {
@@ -80,7 +81,11 @@ public class TextDocumentReader {
                 XMLInputFactory factory = XMLInputFactory.newFactory();
                 factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
                 factory.setProperty("javax.xml.stream.isSupportingExternalEntities", false);
-                XMLStreamReader reader = factory.createXMLStreamReader(zipInputStream);
+                byte[] documentXml = zipInputStream.readNBytes(MAX_DOCX_DOCUMENT_XML_SIZE + 1);
+                if (documentXml.length > MAX_DOCX_DOCUMENT_XML_SIZE) {
+                    throw new AppException(UploadErrorCode.UPLOAD_FILE_TOO_LARGE);
+                }
+                XMLStreamReader reader = factory.createXMLStreamReader(new ByteArrayInputStream(documentXml));
                 StringBuilder text = new StringBuilder();
                 while (reader.hasNext()) {
                     int event = reader.next();

@@ -385,6 +385,21 @@ class EpisodeFileParserTest {
         assertThat(textDocumentReader.readText(docx)).isEqualTo("첫 문단\n둘째 문단");
     }
 
+    @Test
+    @DisplayName("압축 해제된 document.xml이 10MB를 초과하는 DOCX를 거부한다")
+    void readTextRejectsOversizedDocxDocumentXml() throws IOException {
+        MockMultipartFile docx = docxFile("oversized.docx", """
+                <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                  <w:body><w:p><w:r><w:t>%s</w:t></w:r></w:p></w:body>
+                </w:document>
+                """.formatted("a".repeat(10 * 1024 * 1024)));
+
+        assertThat(docx.getSize()).isLessThan(10L * 1024 * 1024);
+        assertThatThrownBy(() -> textDocumentReader.readText(docx))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode()).isEqualTo(UploadErrorCode.UPLOAD_FILE_TOO_LARGE));
+    }
+
     private List<DetectedEpisodeFile> parseEpisodeFiles(
             EpisodeUploadType uploadType,
             List<MultipartFile> sourceEpisodeFiles

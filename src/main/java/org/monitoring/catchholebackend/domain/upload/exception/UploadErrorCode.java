@@ -13,6 +13,10 @@ public enum UploadErrorCode implements ResultCode {
     UPLOAD_FILE_REQUIRED(HttpStatus.BAD_REQUEST, "업로드할 회차 파일이 필요합니다."),
     UPLOAD_FILE_EMPTY(HttpStatus.BAD_REQUEST, "빈 파일은 업로드할 수 없습니다."),
     UPLOAD_FILE_TOO_LARGE(HttpStatus.BAD_REQUEST, "업로드 파일은 10MB 이하여야 합니다."),
+    UPLOAD_SIZE_LIMIT_EXCEEDED(
+            HttpStatus.BAD_REQUEST,
+            "업로드 파일은 각각 10MB, 요청 전체는 25MB 이하여야 합니다."
+    ),
     UPLOAD_FILE_TYPE_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "TXT 또는 DOCX 파일만 업로드할 수 있습니다."),
     UPLOAD_MULTI_FILE_TYPE_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "다회차 여러 파일 업로드는 TXT 파일만 지원합니다."),
     UPLOAD_EPISODE_NO_REQUIRED(HttpStatus.BAD_REQUEST, "단일 회차 업로드에는 회차 번호가 필요합니다."),
