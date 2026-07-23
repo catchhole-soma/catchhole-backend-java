@@ -23,6 +23,19 @@ Work는 로그인한 회원의 개인 리소스입니다.
 
 현재 Work API는 삭제 시 hard delete를 수행하므로 별도 `WorkStatus`를 두지 않습니다. 보관/복구 흐름을 구현할 때 상태 컬럼과 전이 메서드를 함께 추가합니다.
 
+## 작품 선택·등록 MVP 계약
+
+- 작품 목록은 로그인한 회원의 작품만 최신 생성순으로 반환합니다.
+- 목록 카드에는 `id`, `title`, `genre`, `latestEpisodeNo`를 사용합니다.
+- `latestEpisodeNo`가 `0`인 작품도 정상 작품이며 프론트에서는 `등록된 회차 없음`으로 표시합니다.
+- 작품 등록은 회차·설정집 업로드와 분리합니다. 제목과 장르만으로 먼저 작품을 만들 수 있습니다.
+- 제목은 공백일 수 없고 100자 이하여야 합니다.
+- 장르는 필수이며 `WorkGenre` enum에 정의된 `판타지`, `로맨스`, `추리`, `코미디`, `SF`, `스포츠`, `호러`, `무협`, `일상`, `기타` 중 하나여야 합니다.
+- 작품 설명은 선택값이며 작품 목록에 한 줄로 표시할 50자 이하의 짧은 소개입니다.
+- 작품 설명이 `null`, 빈 문자열 또는 공백뿐이면 저장 시 `null`로 정규화합니다.
+- 필수값·길이 검증 실패는 `REQUEST_VALIDATION_FAILED`와 `error.details[]`의 필드명·메시지로 반환합니다.
+- 빈 문자열이나 지원하지 않는 문자열처럼 `WorkGenre`로 역직렬화할 수 없는 장르는 `REQUEST_INVALID_ARGUMENT`로 반환합니다.
+
 ## DB 모델
 
 `works`
@@ -32,11 +45,28 @@ Work는 로그인한 회원의 개인 리소스입니다.
 | `id` | 작품 UUID |
 | `member_id` | 작품 소유 회원 |
 | `title` | 작품 제목 |
-| `genre` | 작품 장르 |
-| `description` | 작품 설명 |
+| `genre` | 작품 장르. `WorkGenre` enum 상수명을 `VARCHAR(50) NOT NULL`로 저장 |
+| `description` | 최대 50자의 작품 설명 |
 | `latest_episode_no` | 가장 큰 회차 번호. 회차 생성/수정/삭제 시 갱신 |
 | `created_at` | 생성 시각 |
 | `updated_at` | 수정 시각 |
+
+### 장르 표현과 저장
+
+| enum·DB 값 | API 값 |
+| --- | --- |
+| `FANTASY` | `판타지` |
+| `ROMANCE` | `로맨스` |
+| `MYSTERY` | `추리` |
+| `COMEDY` | `코미디` |
+| `SF` | `SF` |
+| `SPORTS` | `스포츠` |
+| `HORROR` | `호러` |
+| `MARTIAL_ARTS` | `무협` |
+| `SLICE_OF_LIFE` | `일상` |
+| `ETC` | `기타` |
+
+Java와 DB는 다른 도메인 enum과 동일하게 enum 상수명을 사용합니다. JSON만 `@JsonValue`·`@JsonCreator`로 한글 값을 주고받습니다. V4 migration은 기존 한글 값을 enum 상수명으로 변환하고, `NULL`이나 지원 목록 밖의 테스트 값은 `ETC`로 정규화한 뒤 `NOT NULL`과 허용값 `CHECK`를 적용합니다. 기존 작품 설명은 앞 50자까지 보존해 `VARCHAR(50)`로 변경합니다.
 
 ## API
 
@@ -54,7 +84,7 @@ Request
 {
   "title": "빛나는 검사 로맨스",
   "genre": "로맨스",
-  "description": "검사 주인공의 성장과 로맨스를 다룬 웹소설입니다."
+  "description": "검사 주인공의 성장 로맨스"
 }
 ```
 
@@ -64,6 +94,8 @@ Request
 2. `MemberRepository.getByIdOrThrow(memberId)`로 회원을 조회합니다.
 3. `Work.create(member, title, genre, description)`으로 작품을 생성합니다.
 4. `latestEpisodeNo`는 `0`으로 초기화합니다.
+
+생성 성공 후 프론트는 응답의 `id`를 사용해 `/dashboard?workId={id}&nav=manuscripts`로 이동합니다.
 
 ### 내 작품 목록 조회
 
@@ -95,7 +127,7 @@ Request
 {
   "title": "수정된 작품 제목",
   "genre": "판타지",
-  "description": "수정된 작품 설명입니다."
+  "description": "수정된 작품의 짧은 소개"
 }
 ```
 

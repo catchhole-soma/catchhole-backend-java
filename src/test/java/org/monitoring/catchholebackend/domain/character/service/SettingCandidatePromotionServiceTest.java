@@ -35,6 +35,7 @@ import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
+import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -83,7 +84,7 @@ class SettingCandidatePromotionServiceTest {
                 uniquePhoneNumber(),
                 "작가"
         ));
-        work = workRepository.save(Work.create(member, "은빛 검사", "판타지", "검사 성장물"));
+        work = workRepository.save(Work.create(member, "은빛 검사", WorkGenre.FANTASY, "검사 성장물"));
         characterSettingSchemaRepository.save(settingSchema(
                 null,
                 "age",
@@ -470,7 +471,7 @@ class SettingCandidatePromotionServiceTest {
                 uniquePhoneNumber(),
                 "다른 작가"
         ));
-        Work otherWork = workRepository.save(Work.create(otherMember, "다른 작품", "판타지", "설명"));
+        Work otherWork = workRepository.save(Work.create(otherMember, "다른 작품", WorkGenre.FANTASY, "설명"));
         characterSettingSchemaRepository.save(settingSchema(
                 otherWork,
                 "profile.rank",
