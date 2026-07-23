@@ -1,24 +1,29 @@
 package org.monitoring.catchholebackend.domain.episode.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import jakarta.persistence.EntityManagerFactory;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.hibernate.SessionFactory;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
@@ -79,6 +84,9 @@ class EpisodeControllerIntegrationTest {
 
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     @MockitoBean
     private ObjectStorage objectStorage;
@@ -148,6 +156,33 @@ class EpisodeControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.files[0].episodeStartNo").value(1))
                 .andExpect(jsonPath("$.data.files[0].episodeEndNo").value(1))
                 .andExpect(jsonPath("$.data.files[0].episodeCount").value(1));
+    }
+
+    @Test
+    @DisplayName("명시적으로 첨부한 빈 설정집 파일을 누락된 part로 취급하지 않고 거절한다")
+    void uploadEpisodesRejectsExplicitEmptySettingBook() throws Exception {
+        MockMultipartFile emptySettingBook = new MockMultipartFile(
+                "settingBookFile",
+                "empty-setting.txt",
+                MediaType.TEXT_PLAIN_VALUE,
+                new byte[0]
+        );
+
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(metadataPart("""
+                                {
+                                  "uploadType": "SINGLE_EPISODE",
+                                  "singleEpisodeNo": 1
+                                }
+                                """))
+                        .file(textFile("episodeFiles", "episode-1.txt", "첫 문장입니다."))
+                        .file(emptySettingBook)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("UPLOAD_FILE_EMPTY"));
+
+        assertThat(episodeRepository.count()).isZero();
+        assertThat(uploadBatchRepository.count()).isZero();
     }
 
     @Test
@@ -482,6 +517,7 @@ class EpisodeControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("분석된 회차의 새 활성 작업은 완료 상태보다 우선하고 형제 회차에는 전파되지 않는다")
     void targetedAnalysisStatusDoesNotLeakToSiblingEpisodeInSameBatch() throws Exception {
         UploadBatch batch = uploadBatchRepository.save(UploadBatch.create(
                 work, member, UploadType.MULTI_EPISODE_SINGLE_FILE, UploadSourceType.FILE));
@@ -493,6 +529,8 @@ class EpisodeControllerIntegrationTest {
                 work, sourceFile.getId(), 1, "첫 회차", "works/1.txt", "v1", "hash-1", 10));
         Episode secondEpisode = episodeRepository.save(Episode.create(
                 work, sourceFile.getId(), 2, "둘째 회차", "works/2.txt", "v1", "hash-2", 10));
+        firstEpisode.markAnalyzed();
+        episodeRepository.save(firstEpisode);
         analysisJobRepository.save(AnalysisJob.create(
                 work, batch, firstEpisode, AnalysisJobType.EPISODE_VALIDATION));
 
@@ -507,6 +545,160 @@ class EpisodeControllerIntegrationTest {
         mockMvc.perform(delete("/api/v1/works/{workId}/episodes/{episodeId}", work.getId(), secondEpisode.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("활성 분석 중에는 원문 수정을 막지만 제목 수정과 원문 변경 시각은 유지한다")
+    void activeAnalysisBlocksContentEditButAllowsTitleEdit() throws Exception {
+        UploadBatch batch = uploadBatchRepository.save(UploadBatch.create(
+                work, member, UploadType.SINGLE_EPISODE, UploadSourceType.FILE));
+        UploadFile sourceFile = uploadFileRepository.save(UploadFile.create(
+                batch, UploadFileRole.EPISODE, "episode.txt", MediaType.TEXT_PLAIN_VALUE,
+                "s3://episode.txt", 100));
+        sourceFile.markEpisodesParsed(1, 1, 1);
+        Episode episode = episodeRepository.save(Episode.create(
+                work, sourceFile.getId(), 1, "기존 제목", "works/original.txt", "v1", "hash", 10));
+        var originalContentUpdatedAt =
+                episodeRepository.findById(episode.getId()).orElseThrow().getContentUpdatedAt();
+        analysisJobRepository.save(AnalysisJob.create(
+                work, batch, episode, AnalysisJobType.EPISODE_VALIDATION));
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/episodes/{episodeId}/title",
+                                work.getId(),
+                                episode.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "수정한 제목"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.title").value("수정한 제목"));
+
+        Episode titleUpdated = episodeRepository.findById(episode.getId()).orElseThrow();
+        assertThat(titleUpdated.getContentUpdatedAt()).isEqualTo(originalContentUpdatedAt);
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/episodes/{episodeId}",
+                                work.getId(),
+                                episode.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "episodeNo": 1,
+                                  "title": "수정한 제목",
+                                  "content": "분석 중 바꾸려는 원문"
+                                }
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("EPISODE_ANALYSIS_IN_PROGRESS"));
+
+        verify(objectStorage, never()).putText(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("원문 수정은 contentUpdatedAt을 갱신한다")
+    void contentEditUpdatesContentTimestamp() throws Exception {
+        Episode episode = episodeRepository.save(Episode.create(
+                work, null, 1, "기존 제목", "works/original.txt", "v1", "hash", 10));
+        var originalContentUpdatedAt =
+                episodeRepository.findById(episode.getId()).orElseThrow().getContentUpdatedAt();
+        Thread.sleep(10);
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/episodes/{episodeId}",
+                                work.getId(),
+                                episode.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "episodeNo": 1,
+                                  "title": "수정한 제목",
+                                  "content": "새롭게 수정한 원문"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.contentUpdatedAt").isNotEmpty());
+
+        Episode updated = episodeRepository.findById(episode.getId()).orElseThrow();
+        assertThat(updated.getContentUpdatedAt()).isAfter(originalContentUpdatedAt);
+        verify(objectStorage, never()).delete("works/original.txt");
+    }
+
+    @Test
+    @DisplayName("보관한 회차 번호를 재사용해도 S3 원문 key를 덮어쓰지 않는다")
+    void reusedArchivedEpisodeNumberGetsUniqueReadableStorageKey() throws Exception {
+        uploadSingleEpisode(10, "old-10.txt", "기존 10화 원문")
+                .andExpect(status().isOk());
+        Episode archivedEpisode = episodeRepository
+                .findAllByWorkIdAndStatusNotOrderByEpisodeNoDesc(work.getId(), EpisodeStatus.ARCHIVED)
+                .getFirst();
+
+        mockMvc.perform(delete(
+                                "/api/v1/works/{workId}/episodes/{episodeId}",
+                                work.getId(),
+                                archivedEpisode.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
+
+        uploadSingleEpisode(10, "new-10.txt", "새로운 10화 원문")
+                .andExpect(status().isOk());
+
+        assertThat(episodeRepository.findAll())
+                .extracting(Episode::getContentS3Key)
+                .hasSize(2)
+                .doesNotHaveDuplicates()
+                .allMatch(key -> key.matches(
+                        "works/" + work.getId() + "/episodes/10/[0-9a-f-]{36}/10\\.txt"
+                ));
+    }
+
+    @Test
+    @DisplayName("회차 목록 메타데이터는 회차 수와 무관한 고정 쿼리 수로 일괄 조회한다")
+    void getEpisodesBulkLoadsMetadata() throws Exception {
+        UploadBatch batch = uploadBatchRepository.save(UploadBatch.create(
+                work, member, UploadType.MULTI_EPISODE_SINGLE_FILE, UploadSourceType.FILE));
+        UploadFile sourceFile = uploadFileRepository.save(UploadFile.create(
+                batch, UploadFileRole.EPISODE, "episodes.txt", MediaType.TEXT_PLAIN_VALUE,
+                "s3://episodes.txt", 100));
+        sourceFile.markEpisodesParsed(1, 30, 30);
+        List<Episode> episodes = new ArrayList<>();
+        for (int episodeNo = 1; episodeNo <= 30; episodeNo++) {
+            episodes.add(Episode.create(
+                    work,
+                    sourceFile.getId(),
+                    episodeNo,
+                    episodeNo + "화",
+                    "works/" + episodeNo + ".txt",
+                    "v1",
+                    "hash-" + episodeNo,
+                    10
+            ));
+        }
+        episodes = episodeRepository.saveAll(episodes);
+        AnalysisJob batchJob = AnalysisJob.create(
+                work, batch, null, AnalysisJobType.EPISODE_VALIDATION);
+        batchJob.addTargetEpisodes(episodes);
+        analysisJobRepository.save(batchJob);
+
+        var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+
+        mockMvc.perform(get("/api/v1/works/{workId}/episodes", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", hasSize(30)));
+
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(6);
     }
 
     @Test
@@ -648,6 +840,22 @@ class EpisodeControllerIntegrationTest {
         return mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
                 .file(metadata)
                 .file(sourceEpisodeFile)
+                .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)));
+    }
+
+    private ResultActions uploadSingleEpisode(
+            int episodeNo,
+            String filename,
+            String content
+    ) throws Exception {
+        return mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                .file(metadataPart("""
+                        {
+                          "uploadType": "SINGLE_EPISODE",
+                          "singleEpisodeNo": %d
+                        }
+                        """.formatted(episodeNo)))
+                .file(textFile("episodeFiles", filename, content))
                 .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)));
     }
 
