@@ -31,7 +31,7 @@ Work는 로그인한 회원의 개인 리소스입니다.
 - 작품 등록은 회차·설정집 업로드와 분리합니다. 제목과 장르만으로 먼저 작품을 만들 수 있습니다.
 - 제목은 공백일 수 없고 100자 이하여야 합니다.
 - 장르는 필수이며 `WorkGenre` enum에 정의된 `판타지`, `로맨스`, `추리`, `코미디`, `SF`, `스포츠`, `호러`, `무협`, `일상`, `기타` 중 하나여야 합니다.
-- 작품 설명은 선택값이며 작품 목록에 한 줄로 표시할 20자 이하의 짧은 소개입니다.
+- 작품 설명은 선택값이며 작품 목록에 한 줄로 표시할 50자 이하의 짧은 소개입니다.
 - 작품 설명이 `null`, 빈 문자열 또는 공백뿐이면 저장 시 `null`로 정규화합니다.
 - 필수값·길이 검증 실패는 `REQUEST_VALIDATION_FAILED`와 `error.details[]`의 필드명·메시지로 반환합니다.
 - 빈 문자열이나 지원하지 않는 문자열처럼 `WorkGenre`로 역직렬화할 수 없는 장르는 `REQUEST_INVALID_ARGUMENT`로 반환합니다.
@@ -46,7 +46,7 @@ Work는 로그인한 회원의 개인 리소스입니다.
 | `member_id` | 작품 소유 회원 |
 | `title` | 작품 제목 |
 | `genre` | 작품 장르. `WorkGenre` enum 상수명을 `VARCHAR(50) NOT NULL`로 저장 |
-| `description` | 작품 설명 |
+| `description` | 최대 50자의 작품 설명 |
 | `latest_episode_no` | 가장 큰 회차 번호. 회차 생성/수정/삭제 시 갱신 |
 | `created_at` | 생성 시각 |
 | `updated_at` | 수정 시각 |
@@ -66,7 +66,7 @@ Work는 로그인한 회원의 개인 리소스입니다.
 | `SLICE_OF_LIFE` | `일상` |
 | `ETC` | `기타` |
 
-Java와 DB는 다른 도메인 enum과 동일하게 enum 상수명을 사용합니다. JSON만 `@JsonValue`·`@JsonCreator`로 한글 값을 주고받습니다. V4 migration은 기존 한글 값을 enum 상수명으로 변환하고, `NULL`이나 지원 목록 밖의 테스트 값은 `ETC`로 정규화한 뒤 `NOT NULL`과 허용값 `CHECK`를 적용합니다.
+Java와 DB는 다른 도메인 enum과 동일하게 enum 상수명을 사용합니다. JSON만 `@JsonValue`·`@JsonCreator`로 한글 값을 주고받습니다. V4 migration은 기존 한글 값을 enum 상수명으로 변환하고, `NULL`이나 지원 목록 밖의 테스트 값은 `ETC`로 정규화한 뒤 `NOT NULL`과 허용값 `CHECK`를 적용합니다. 기존 작품 설명은 앞 50자까지 보존해 `VARCHAR(50)`로 변경합니다.
 
 ## API
 

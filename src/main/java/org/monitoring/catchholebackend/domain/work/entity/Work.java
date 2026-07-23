@@ -47,7 +47,7 @@ public class Work extends BaseEntity {
     @Column(name = "genre", nullable = false, length = 50)
     private WorkGenre genre;
 
-    @Column(name = "description", columnDefinition = "text")
+    @Column(name = "description", length = 50)
     private String description;
 
     //최대 몇회차까지 올라갔는지

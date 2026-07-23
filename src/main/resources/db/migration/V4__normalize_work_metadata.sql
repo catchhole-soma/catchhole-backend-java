@@ -39,3 +39,7 @@ ALTER TABLE works
             'SLICE_OF_LIFE',
             'ETC'
         ));
+
+ALTER TABLE works
+    ALTER COLUMN description TYPE VARCHAR(50)
+        USING LEFT(description, 50);

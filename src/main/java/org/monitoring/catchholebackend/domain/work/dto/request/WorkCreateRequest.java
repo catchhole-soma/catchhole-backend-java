@@ -28,10 +28,10 @@ public record WorkCreateRequest(
         @Schema(
                 description = "작품 목록에 한 줄로 표시할 짧은 소개",
                 example = "검사 주인공의 성장 로맨스",
-                maxLength = 20,
+                maxLength = 50,
                 nullable = true
         )
-        @Size(max = 20, message = "작품 설명은 20자 이하로 입력해주세요.")
+        @Size(max = 50, message = "작품 설명은 50자 이하로 입력해주세요.")
         String description
 ) {
 }

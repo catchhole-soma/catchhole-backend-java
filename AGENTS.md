@@ -212,7 +212,7 @@ domain/<domain>
 - MVP 작품 장르는 `WorkGenre` enum의 `판타지`, `로맨스`, `추리`, `코미디`, `SF`, `스포츠`, `호러`, `무협`, `일상`, `기타`로 고정하고 생성·수정 요청에서 필수 검증한다.
 - Entity와 DB에는 `WorkGenre` enum 상수명을 사용하고 다른 도메인 enum과 같이 `@Enumerated(EnumType.STRING)`으로 저장한다. API는 사용자 화면 계약을 위해 `@JsonValue`·`@JsonCreator`로 한글 장르 값을 유지한다.
 - `works.genre`는 `NOT NULL`과 허용 enum 상수 `CHECK`를 적용해 OpenAPI 응답 계약 밖의 값이 저장되지 않게 한다.
-- 작품 설명은 목록 한 줄 소개용 선택값으로 최대 20자까지 허용하고, 빈 문자열이나 공백뿐인 값은 엔티티에서 `null`로 정규화한다.
+- 작품 설명은 목록 한 줄 소개용 선택값으로 최대 50자까지 허용하고, 빈 문자열이나 공백뿐인 값은 엔티티에서 `null`로 정규화한다.
 - Work 목록 조회, 수정, 삭제는 `memberId` 기준으로 본인 작품만 허용한다.
 - 존재하지 않는 작품과 다른 회원의 작품 접근은 모두 `WORK_NOT_FOUND`로 응답해 리소스 존재 여부를 노출하지 않는다.
 - 본인 작품 조회가 필요한 도메인 서비스는 `WorkRepository.getOwnedWork(workId, memberId)`를 사용해 소유권 확인과 `WORK_NOT_FOUND` 응답을 일관되게 처리한다.

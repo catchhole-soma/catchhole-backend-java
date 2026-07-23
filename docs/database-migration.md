@@ -20,7 +20,7 @@ src/main/resources/db/migration/
 ├── V1__initial_schema.sql
 ├── V2__add_character_setting_schema_registry.sql
 ├── V3__link_character_facts_to_setting_candidates.sql
-└── V4__normalize_work_genre_enum.sql
+└── V4__normalize_work_metadata.sql
 ```
 
 - 파일명은 `V{순번}__{snake_case_설명}.sql` 형식을 사용합니다.
@@ -67,12 +67,13 @@ V3는 confirm으로 생성된 `character_facts`에서 원본 후보의 `evidence
 
 ## V4 기준
 
-V4는 자유 문자열이던 `works.genre`를 Java `WorkGenre` enum 저장 규칙과 일치시킵니다. 작품 API가 캐릭터 API보다 먼저 main에 반영되므로, 캐릭터 API 브랜치의 기존 V4 migration은 main rebase 시점에 다음 가용 버전으로 변경합니다.
+V4는 자유 문자열이던 `works.genre`를 Java `WorkGenre` enum 저장 규칙과 일치시키고, 작품 설명을 API의 최대 50자 계약에 맞춥니다. 작품 API가 캐릭터 API보다 먼저 main에 반영되므로, 캐릭터 API 브랜치의 기존 V4 migration은 main rebase 시점에 다음 가용 버전으로 변경합니다.
 
 - 기존 한글 장르 값은 `FANTASY`, `ROMANCE` 같은 enum 상수명으로 변환합니다.
 - 기존 enum 상수명은 그대로 유지해 migration 재실행 전후 의미가 달라지지 않게 합니다.
 - 현재 데이터가 테스트용이라는 합의에 따라 `NULL`과 지원 목록 밖의 문자열은 `ETC`로 정규화합니다.
 - 정규화 후 `NOT NULL`과 `chk_works_genre`를 적용해 OpenAPI가 선언한 열 가지 장르 밖의 값이 저장되지 않게 합니다.
+- 기존 작품 설명이 50자를 초과하면 앞 50자까지 보존하고 `works.description`을 `VARCHAR(50)`로 변경합니다.
 
 ## 논리 참조와 FK 기준
 
@@ -99,6 +100,7 @@ V1~V3 적용 DB에 현재 Backend를 시작해 V4만 추가 적용되는 경로�
 - `character_setting_schemas`에 전역 seed 22개(`SYSTEM_SEED=7`, `DEV_SEED=15`)가 생성됩니다.
 - `character_facts.setting_candidate_id`와 FK·조회 인덱스가 생성됩니다.
 - `works.genre`가 enum 상수명으로 저장되고 `NOT NULL`·`chk_works_genre` 제약을 가집니다.
+- `works.description`이 기존 값의 앞 50자로 정규화되고 `VARCHAR(50)` 타입을 가집니다.
 - Hibernate schema validation을 통과하고 Backend가 정상 시작됩니다.
 - Backend를 재시작해도 V1부터 V4까지 중복 적용되지 않습니다.
 

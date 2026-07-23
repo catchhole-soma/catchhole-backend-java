@@ -174,9 +174,9 @@ class WorkControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("작품 생성 시 20자를 초과한 설명을 거절한다")
-    void createWorkRejectsDescriptionLongerThanTwentyCharacters() throws Exception {
-        String description = "가".repeat(21);
+    @DisplayName("작품 생성 시 50자를 초과한 설명을 거절한다")
+    void createWorkRejectsDescriptionLongerThanFiftyCharacters() throws Exception {
+        String description = "가".repeat(51);
 
         mockMvc.perform(post("/api/v1/works")
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
@@ -191,7 +191,7 @@ class WorkControllerIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.error.details[0].field").value("description"))
-                .andExpect(jsonPath("$.error.details[0].message").value("작품 설명은 20자 이하로 입력해주세요."));
+                .andExpect(jsonPath("$.error.details[0].message").value("작품 설명은 50자 이하로 입력해주세요."));
     }
 
     @Test
@@ -281,10 +281,10 @@ class WorkControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("작품 수정 시 20자를 초과한 설명을 거절한다")
-    void updateWorkRejectsDescriptionLongerThanTwentyCharacters() throws Exception {
+    @DisplayName("작품 수정 시 50자를 초과한 설명을 거절한다")
+    void updateWorkRejectsDescriptionLongerThanFiftyCharacters() throws Exception {
         Work work = workRepository.save(Work.create(member, "수정 전", WorkGenre.ROMANCE, "수정 전 설명"));
-        String description = "가".repeat(21);
+        String description = "가".repeat(51);
 
         mockMvc.perform(patch("/api/v1/works/{workId}", work.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
@@ -299,7 +299,7 @@ class WorkControllerIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.error.details[0].field").value("description"))
-                .andExpect(jsonPath("$.error.details[0].message").value("작품 설명은 20자 이하로 입력해주세요."));
+                .andExpect(jsonPath("$.error.details[0].message").value("작품 설명은 50자 이하로 입력해주세요."));
     }
 
     @Test

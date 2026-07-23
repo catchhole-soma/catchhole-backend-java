@@ -31,7 +31,7 @@ public record WorkResponse(
         @Schema(
                 description = "작품 목록에 한 줄로 표시할 짧은 소개",
                 example = "검사 주인공의 성장 로맨스",
-                maxLength = 20,
+                maxLength = 50,
                 nullable = true
         )
         String description,

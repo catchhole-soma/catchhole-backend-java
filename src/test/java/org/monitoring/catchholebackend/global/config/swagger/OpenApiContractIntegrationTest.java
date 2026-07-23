@@ -65,11 +65,11 @@ class OpenApiContractIntegrationTest {
                                 "스포츠", "호러", "무협", "일상", "기타"
                         )))
                 .andExpect(jsonPath("$['components']['schemas']['WorkCreateRequest']['properties']['description']['maxLength']")
-                        .value(20))
+                        .value(50))
                 .andExpect(jsonPath("$['components']['schemas']['WorkUpdateRequest']['properties']['description']['maxLength']")
-                        .value(20))
+                        .value(50))
                 .andExpect(jsonPath("$['components']['schemas']['WorkResponse']['properties']['description']['maxLength']")
-                        .value(20))
+                        .value(50))
                 .andExpect(jsonPath("$['components']['schemas']['WorkResponse']['required']")
                         .value(org.hamcrest.Matchers.hasItems(
                                 "id", "title", "genre", "latestEpisodeNo", "createdAt", "updatedAt"
