@@ -2,6 +2,7 @@ package org.monitoring.catchholebackend.domain.work.controller;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -117,7 +118,7 @@ class WorkControllerIntegrationTest {
                         .content("""
                                 {
                                   "title": "지원하지 않는 장르 작품",
-                                  "genre": "추리"
+                                  "genre": "역사"
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
@@ -144,6 +145,49 @@ class WorkControllerIntegrationTest {
                 .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.error.details[0].field").value("title"))
                 .andExpect(jsonPath("$.error.details[0].message").value("작품 제목은 100자 이하로 입력해주세요."));
+    }
+
+    @Test
+    @DisplayName("작품 생성 시 20자를 초과한 설명을 거절한다")
+    void createWorkRejectsDescriptionLongerThanTwentyCharacters() throws Exception {
+        String description = "가".repeat(21);
+
+        mockMvc.perform(post("/api/v1/works")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "설명이 긴 작품",
+                                  "genre": "판타지",
+                                  "description": "%s"
+                                }
+                                """.formatted(description)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.error.details[0].field").value("description"))
+                .andExpect(jsonPath("$.error.details[0].message").value("작품 설명은 20자 이하로 입력해주세요."));
+    }
+
+    @Test
+    @DisplayName("작품 생성 시 공백뿐인 설명은 null로 정규화한다")
+    void createWorkNormalizesBlankDescriptionToNull() throws Exception {
+        mockMvc.perform(post("/api/v1/works")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "설명 없는 작품",
+                                  "genre": "일상",
+                                  "description": "   "
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.description").value(nullValue()));
+
+        assertThat(workRepository.findAll())
+                .singleElement()
+                .extracting(Work::getDescription)
+                .isNull();
     }
 
     @Test
@@ -208,6 +252,52 @@ class WorkControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.title").value("수정 후"))
                 .andExpect(jsonPath("$.data.genre").value("판타지"))
                 .andExpect(jsonPath("$.data.description").value("수정 후 설명"));
+    }
+
+    @Test
+    @DisplayName("작품 수정 시 20자를 초과한 설명을 거절한다")
+    void updateWorkRejectsDescriptionLongerThanTwentyCharacters() throws Exception {
+        Work work = workRepository.save(Work.create(member, "수정 전", "로맨스", "수정 전 설명"));
+        String description = "가".repeat(21);
+
+        mockMvc.perform(patch("/api/v1/works/{workId}", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "수정 후",
+                                  "genre": "SF",
+                                  "description": "%s"
+                                }
+                                """.formatted(description)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.error.details[0].field").value("description"))
+                .andExpect(jsonPath("$.error.details[0].message").value("작품 설명은 20자 이하로 입력해주세요."));
+    }
+
+    @Test
+    @DisplayName("작품 수정 시 공백뿐인 설명은 null로 정규화한다")
+    void updateWorkNormalizesBlankDescriptionToNull() throws Exception {
+        Work work = workRepository.save(Work.create(member, "수정 전", "로맨스", "기존 설명"));
+
+        mockMvc.perform(patch("/api/v1/works/{workId}", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "수정 후",
+                                  "genre": "일상",
+                                  "description": "   "
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.description").value(nullValue()));
+
+        assertThat(workRepository.findById(work.getId()))
+                .get()
+                .extracting(Work::getDescription)
+                .isNull();
     }
 
     @Test

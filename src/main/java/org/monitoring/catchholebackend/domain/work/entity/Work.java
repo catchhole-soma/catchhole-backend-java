@@ -56,7 +56,7 @@ public class Work extends BaseEntity {
         this.member = member;
         this.title = title;
         this.genre = genre;
-        this.description = description;
+        this.description = normalizeDescription(description);
         this.latestEpisodeNo = 0;
     }
 
@@ -67,7 +67,7 @@ public class Work extends BaseEntity {
     public void updateInfo(String title, String genre, String description) {
         this.title = title;
         this.genre = genre;
-        this.description = description;
+        this.description = normalizeDescription(description);
     }
 
     public void updateLatestEpisodeNo(int latestEpisodeNo) {
@@ -76,5 +76,12 @@ public class Work extends BaseEntity {
 
     public boolean isOwnedBy(Long memberId) {
         return member.getId().equals(memberId);
+    }
+
+    private static String normalizeDescription(String description) {
+        if (description == null || description.isBlank()) {
+            return null;
+        }
+        return description.trim();
     }
 }

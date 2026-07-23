@@ -61,8 +61,15 @@ class OpenApiContractIntegrationTest {
                         .value(org.hamcrest.Matchers.hasItems("title", "genre")))
                 .andExpect(jsonPath("$['components']['schemas']['WorkCreateRequest']['properties']['genre']['enum']")
                         .value(org.hamcrest.Matchers.contains(
-                                "로맨스", "판타지", "무협", "현대", "미스터리", "기타"
+                                "판타지", "로맨스", "추리", "코미디", "SF",
+                                "스포츠", "호러", "무협", "일상", "기타"
                         )))
+                .andExpect(jsonPath("$['components']['schemas']['WorkCreateRequest']['properties']['description']['maxLength']")
+                        .value(20))
+                .andExpect(jsonPath("$['components']['schemas']['WorkUpdateRequest']['properties']['description']['maxLength']")
+                        .value(20))
+                .andExpect(jsonPath("$['components']['schemas']['WorkResponse']['properties']['description']['maxLength']")
+                        .value(20))
                 .andExpect(jsonPath("$['components']['schemas']['WorkResponse']['required']")
                         .value(org.hamcrest.Matchers.hasItems(
                                 "id", "title", "genre", "latestEpisodeNo", "createdAt", "updatedAt"

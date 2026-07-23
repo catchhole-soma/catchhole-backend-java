@@ -23,12 +23,20 @@ public record WorkResponse(
         @Schema(
                 description = "작품 장르",
                 example = "로맨스",
-                allowableValues = {"로맨스", "판타지", "무협", "현대", "미스터리", "기타"},
+                allowableValues = {
+                        "판타지", "로맨스", "추리", "코미디", "SF",
+                        "스포츠", "호러", "무협", "일상", "기타"
+                },
                 requiredMode = Schema.RequiredMode.REQUIRED
         )
         String genre,
 
-        @Schema(description = "작품 설명", example = "검사 주인공의 성장과 로맨스를 다룬 웹소설입니다.", nullable = true)
+        @Schema(
+                description = "작품 목록에 한 줄로 표시할 짧은 소개",
+                example = "검사 주인공의 성장 로맨스",
+                maxLength = 20,
+                nullable = true
+        )
         String description,
 
         @Schema(

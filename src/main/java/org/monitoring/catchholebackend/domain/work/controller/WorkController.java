@@ -43,14 +43,14 @@ public class WorkController {
     @Operation(
             operationId = "createWork",
             summary = "내 작품 생성",
-            description = "로그인한 사용자의 새 작품을 제목과 MVP 고정 장르로 등록합니다. "
+            description = "로그인한 사용자의 새 작품을 제목, 선택형 20자 한 줄 소개와 MVP 고정 장르로 등록합니다. "
                     + "회차 업로드와 독립된 요청이며 최신 회차 번호는 0으로 초기화합니다."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "작품 생성 성공"),
             @ApiResponse(
                     responseCode = "400",
-                    description = "제목 또는 장르 검증 실패",
+                    description = "제목, 작품 설명 또는 장르 검증 실패",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
             ),
             @ApiResponse(

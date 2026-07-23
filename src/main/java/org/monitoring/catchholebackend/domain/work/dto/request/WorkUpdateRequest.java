@@ -19,18 +19,26 @@ public record WorkUpdateRequest(
         @Schema(
                 description = "작품 장르",
                 example = "로맨스",
-                allowableValues = {"로맨스", "판타지", "무협", "현대", "미스터리", "기타"},
+                allowableValues = {
+                        "판타지", "로맨스", "추리", "코미디", "SF",
+                        "스포츠", "호러", "무협", "일상", "기타"
+                },
                 requiredMode = Schema.RequiredMode.REQUIRED
         )
         @NotBlank(message = "작품 장르는 필수입니다.")
         @Pattern(
-                regexp = "^(?:\\s*|로맨스|판타지|무협|현대|미스터리|기타)$",
+                regexp = "^(?:\\s*|판타지|로맨스|추리|코미디|SF|스포츠|호러|무협|일상|기타)$",
                 message = "지원하지 않는 작품 장르입니다."
         )
         String genre,
 
-        @Schema(description = "작품 설명", example = "검사 주인공의 성장과 로맨스를 다룬 웹소설입니다.", nullable = true)
-        @Size(max = 1000, message = "작품 설명은 1000자 이하로 입력해주세요.")
+        @Schema(
+                description = "작품 목록에 한 줄로 표시할 짧은 소개",
+                example = "검사 주인공의 성장 로맨스",
+                maxLength = 20,
+                nullable = true
+        )
+        @Size(max = 20, message = "작품 설명은 20자 이하로 입력해주세요.")
         String description
 ) {
 }
