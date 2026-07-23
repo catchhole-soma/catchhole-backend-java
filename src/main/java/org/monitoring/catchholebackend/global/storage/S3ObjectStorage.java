@@ -7,6 +7,7 @@ import org.monitoring.catchholebackend.global.config.S3StorageProperties;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.monitoring.catchholebackend.global.exception.CommonErrorCode;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Profile;
 import org.springframework.util.StringUtils;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -18,6 +19,7 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
 @Component
+@Profile("!e2e")
 @RequiredArgsConstructor
 public class S3ObjectStorage implements ObjectStorage {
 
