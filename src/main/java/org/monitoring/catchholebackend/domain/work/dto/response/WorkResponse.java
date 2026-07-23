@@ -3,6 +3,7 @@ package org.monitoring.catchholebackend.domain.work.dto.response;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 
 @Schema(description = "작품 응답")
 public record WorkResponse(
@@ -23,13 +24,9 @@ public record WorkResponse(
         @Schema(
                 description = "작품 장르",
                 example = "로맨스",
-                allowableValues = {
-                        "판타지", "로맨스", "추리", "코미디", "SF",
-                        "스포츠", "호러", "무협", "일상", "기타"
-                },
                 requiredMode = Schema.RequiredMode.REQUIRED
         )
-        String genre,
+        WorkGenre genre,
 
         @Schema(
                 description = "작품 목록에 한 줄로 표시할 짧은 소개",

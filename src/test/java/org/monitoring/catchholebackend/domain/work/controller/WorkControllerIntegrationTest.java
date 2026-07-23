@@ -19,11 +19,13 @@ import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
+import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -44,6 +46,9 @@ class WorkControllerIntegrationTest {
 
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private Member member;
     private Member otherMember;
@@ -89,10 +94,16 @@ class WorkControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.genre").value("로맨스"))
                 .andExpect(jsonPath("$.data.description").value("검사 주인공의 성장과 로맨스"))
                 .andExpect(jsonPath("$.data.latestEpisodeNo").value(0));
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT genre FROM works WHERE title = ?",
+                String.class,
+                "빛나는 검사 로맨스"
+        )).isEqualTo("ROMANCE");
     }
 
     @Test
-    @DisplayName("작품 생성 시 빈 장르를 거절한다")
+    @DisplayName("작품 생성 시 빈 장르 문자열을 잘못된 요청으로 거절한다")
     void createWorkRejectsBlankGenre() throws Exception {
         mockMvc.perform(post("/api/v1/works")
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
@@ -104,13 +115,12 @@ class WorkControllerIntegrationTest {
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"))
-                .andExpect(jsonPath("$.error.details[0].field").value("genre"))
-                .andExpect(jsonPath("$.error.details[0].message").value("작품 장르는 필수입니다."));
+                .andExpect(jsonPath("$.error.code").value("REQUEST_INVALID_ARGUMENT"))
+                .andExpect(jsonPath("$.error.details").isEmpty());
     }
 
     @Test
-    @DisplayName("작품 생성 시 MVP 목록에 없는 장르를 거절한다")
+    @DisplayName("작품 생성 시 enum 목록에 없는 장르를 잘못된 요청으로 거절한다")
     void createWorkRejectsUnsupportedGenre() throws Exception {
         mockMvc.perform(post("/api/v1/works")
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
@@ -122,9 +132,25 @@ class WorkControllerIntegrationTest {
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_INVALID_ARGUMENT"))
+                .andExpect(jsonPath("$.error.details").isEmpty());
+    }
+
+    @Test
+    @DisplayName("작품 생성 시 장르 필드가 없으면 필수값 검증으로 거절한다")
+    void createWorkRejectsMissingGenre() throws Exception {
+        mockMvc.perform(post("/api/v1/works")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "장르 없는 작품"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.error.details[0].field").value("genre"))
-                .andExpect(jsonPath("$.error.details[0].message").value("지원하지 않는 작품 장르입니다."));
+                .andExpect(jsonPath("$.error.details[0].message").value("작품 장르는 필수입니다."));
     }
 
     @Test
@@ -192,10 +218,10 @@ class WorkControllerIntegrationTest {
 
     @Test
     void getMyWorksReturnsOnlyAuthenticatedMemberWorks() throws Exception {
-        workRepository.save(Work.create(member, "첫 번째 작품", "로맨스", "첫 번째 설명"));
+        workRepository.save(Work.create(member, "첫 번째 작품", WorkGenre.ROMANCE, "첫 번째 설명"));
         Thread.sleep(10);
-        workRepository.save(Work.create(member, "두 번째 작품", "무협", "두 번째 설명"));
-        workRepository.save(Work.create(otherMember, "다른 회원 작품", "판타지", "다른 설명"));
+        workRepository.save(Work.create(member, "두 번째 작품", WorkGenre.MARTIAL_ARTS, "두 번째 설명"));
+        workRepository.save(Work.create(otherMember, "다른 회원 작품", WorkGenre.FANTASY, "다른 설명"));
 
         mockMvc.perform(get("/api/v1/works")
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
@@ -208,7 +234,7 @@ class WorkControllerIntegrationTest {
 
     @Test
     void getWorkReturnsAuthenticatedMembersWork() throws Exception {
-        Work work = workRepository.save(Work.create(member, "상세 작품", "판타지", "상세 설명"));
+        Work work = workRepository.save(Work.create(member, "상세 작품", WorkGenre.FANTASY, "상세 설명"));
 
         mockMvc.perform(get("/api/v1/works/{workId}", work.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
@@ -222,7 +248,7 @@ class WorkControllerIntegrationTest {
 
     @Test
     void getWorkRejectsOtherMemberWork() throws Exception {
-        Work otherWork = workRepository.save(Work.create(otherMember, "다른 회원 작품", "무협", "다른 설명"));
+        Work otherWork = workRepository.save(Work.create(otherMember, "다른 회원 작품", WorkGenre.MARTIAL_ARTS, "다른 설명"));
 
         mockMvc.perform(get("/api/v1/works/{workId}", otherWork.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
@@ -233,7 +259,7 @@ class WorkControllerIntegrationTest {
 
     @Test
     void updateWorkUpdatesAuthenticatedMembersWork() throws Exception {
-        Work work = workRepository.save(Work.create(member, "수정 전", "로맨스", "수정 전 설명"));
+        Work work = workRepository.save(Work.create(member, "수정 전", WorkGenre.ROMANCE, "수정 전 설명"));
 
         mockMvc.perform(patch("/api/v1/works/{workId}", work.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
@@ -257,7 +283,7 @@ class WorkControllerIntegrationTest {
     @Test
     @DisplayName("작품 수정 시 20자를 초과한 설명을 거절한다")
     void updateWorkRejectsDescriptionLongerThanTwentyCharacters() throws Exception {
-        Work work = workRepository.save(Work.create(member, "수정 전", "로맨스", "수정 전 설명"));
+        Work work = workRepository.save(Work.create(member, "수정 전", WorkGenre.ROMANCE, "수정 전 설명"));
         String description = "가".repeat(21);
 
         mockMvc.perform(patch("/api/v1/works/{workId}", work.getId())
@@ -279,7 +305,7 @@ class WorkControllerIntegrationTest {
     @Test
     @DisplayName("작품 수정 시 공백뿐인 설명은 null로 정규화한다")
     void updateWorkNormalizesBlankDescriptionToNull() throws Exception {
-        Work work = workRepository.save(Work.create(member, "수정 전", "로맨스", "기존 설명"));
+        Work work = workRepository.save(Work.create(member, "수정 전", WorkGenre.ROMANCE, "기존 설명"));
 
         mockMvc.perform(patch("/api/v1/works/{workId}", work.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
@@ -302,7 +328,7 @@ class WorkControllerIntegrationTest {
 
     @Test
     void updateWorkRejectsOtherMemberWork() throws Exception {
-        Work otherWork = workRepository.save(Work.create(otherMember, "다른 회원 작품", "무협", "다른 설명"));
+        Work otherWork = workRepository.save(Work.create(otherMember, "다른 회원 작품", WorkGenre.MARTIAL_ARTS, "다른 설명"));
 
         mockMvc.perform(patch("/api/v1/works/{workId}", otherWork.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
@@ -321,7 +347,7 @@ class WorkControllerIntegrationTest {
 
     @Test
     void deleteWorkDeletesAuthenticatedMembersWork() throws Exception {
-        Work work = workRepository.save(Work.create(member, "삭제할 작품", "로맨스", "삭제 설명"));
+        Work work = workRepository.save(Work.create(member, "삭제할 작품", WorkGenre.ROMANCE, "삭제 설명"));
 
         mockMvc.perform(delete("/api/v1/works/{workId}", work.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
@@ -334,7 +360,7 @@ class WorkControllerIntegrationTest {
 
     @Test
     void deleteWorkRejectsOtherMemberWork() throws Exception {
-        Work otherWork = workRepository.save(Work.create(otherMember, "다른 회원 작품", "무협", "다른 설명"));
+        Work otherWork = workRepository.save(Work.create(otherMember, "다른 회원 작품", WorkGenre.MARTIAL_ARTS, "다른 설명"));
 
         mockMvc.perform(delete("/api/v1/works/{workId}", otherWork.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))

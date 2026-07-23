@@ -2,6 +2,8 @@ package org.monitoring.catchholebackend.domain.work.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
@@ -15,6 +17,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
+import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 
 @Getter
@@ -40,10 +43,9 @@ public class Work extends BaseEntity {
     @Column(name = "title", nullable = false, length = 100)
     private String title;
 
-    //작품 장르 ex) 판타지 , 로맨스 , 기타 사용자 입력
-    //TODO:enum 타입으로 전환할지 고민
-    @Column(name = "genre", length = 50)
-    private String genre;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "genre", nullable = false, length = 50)
+    private WorkGenre genre;
 
     @Column(name = "description", columnDefinition = "text")
     private String description;
@@ -52,7 +54,7 @@ public class Work extends BaseEntity {
     @Column(name = "latest_episode_no", nullable = false)
     private int latestEpisodeNo;
 
-    private Work(Member member, String title, String genre, String description) {
+    private Work(Member member, String title, WorkGenre genre, String description) {
         this.member = member;
         this.title = title;
         this.genre = genre;
@@ -60,11 +62,11 @@ public class Work extends BaseEntity {
         this.latestEpisodeNo = 0;
     }
 
-    public static Work create(Member member, String title, String genre, String description) {
+    public static Work create(Member member, String title, WorkGenre genre, String description) {
         return new Work(member, title, genre, description);
     }
 
-    public void updateInfo(String title, String genre, String description) {
+    public void updateInfo(String title, WorkGenre genre, String description) {
         this.title = title;
         this.genre = genre;
         this.description = normalizeDescription(description);

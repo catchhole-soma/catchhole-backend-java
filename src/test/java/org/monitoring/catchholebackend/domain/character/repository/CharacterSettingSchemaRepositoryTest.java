@@ -19,6 +19,7 @@ import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
+import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -52,7 +53,7 @@ class CharacterSettingSchemaRepositoryTest {
                 uniquePhoneNumber(),
                 "작가"
         ));
-        work = workRepository.save(Work.create(member, "게임 속 바바리안 POC", "판타지", "schema 검증 작품"));
+        work = workRepository.save(Work.create(member, "게임 속 바바리안 POC", WorkGenre.FANTASY, "schema 검증 작품"));
     }
 
     @Test
@@ -90,7 +91,7 @@ class CharacterSettingSchemaRepositoryTest {
     @Test
     @DisplayName("활성 전역 schema와 현재 작품 schema만 schemaKey 순서로 조회한다")
     void findAllActiveForWorkIncludesGlobalAndCurrentWorkOnlyAndSortsBySchemaKey() {
-        Work otherWork = workRepository.save(Work.create(member, "다른 작품", "현대물", "다른 schema 범위"));
+        Work otherWork = workRepository.save(Work.create(member, "다른 작품", WorkGenre.ETC, "다른 schema 범위"));
         characterSettingSchemaRepository.save(schema(
                 null,
                 "stats.strength",

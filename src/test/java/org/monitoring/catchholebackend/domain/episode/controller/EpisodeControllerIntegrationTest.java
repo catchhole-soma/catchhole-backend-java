@@ -23,6 +23,7 @@ import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepos
 import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
+import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.global.storage.ObjectStorage;
 import org.monitoring.catchholebackend.global.storage.StoredObject;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -90,8 +91,8 @@ class EpisodeControllerIntegrationTest {
                 "01087654321",
                 "다른 작가"
         ));
-        work = workRepository.save(Work.create(member, "내 작품", "판타지", "내 설명"));
-        otherWork = workRepository.save(Work.create(otherMember, "다른 작품", "무협", "다른 설명"));
+        work = workRepository.save(Work.create(member, "내 작품", WorkGenre.FANTASY, "내 설명"));
+        otherWork = workRepository.save(Work.create(otherMember, "다른 작품", WorkGenre.MARTIAL_ARTS, "다른 설명"));
         accessToken = jwtTokenProvider.generateAccessToken(member);
 
         when(objectStorage.putText(anyString(), anyString()))

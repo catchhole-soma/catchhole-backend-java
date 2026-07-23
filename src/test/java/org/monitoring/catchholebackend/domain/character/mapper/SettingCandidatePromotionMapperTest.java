@@ -17,6 +17,7 @@ import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
+import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @DisplayName("설정 후보 확정 반영 Mapper 테스트")
@@ -121,6 +122,6 @@ class SettingCandidatePromotionMapperTest {
 
     private Work work() {
         Member member = Member.register("writer@example.com", "encoded-password", "01012345678", "작가");
-        return Work.create(member, "내 작품", "판타지", "내 설명");
+        return Work.create(member, "내 작품", WorkGenre.FANTASY, "내 설명");
     }
 }
