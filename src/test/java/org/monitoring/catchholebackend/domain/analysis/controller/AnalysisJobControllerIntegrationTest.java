@@ -182,6 +182,41 @@ class AnalysisJobControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.status").value("PENDING"));
     }
 
+    @Test
+    @DisplayName("현재 대상 회차가 없는 배치에는 분석 작업을 생성하지 않는다")
+    void createAnalysisJobRejectsBatchWithoutTargetEpisodes() throws Exception {
+        UploadBatch settingBookBatch = uploadBatchRepository.save(UploadBatch.create(
+                work,
+                member,
+                UploadType.SETTING_BOOK,
+                UploadSourceType.FILE
+        ));
+        UploadFile settingBook = UploadFile.create(
+                settingBookBatch,
+                UploadFileRole.SETTING_BOOK,
+                "setting-book.txt",
+                MediaType.TEXT_PLAIN_VALUE,
+                "uploads/setting-book.txt",
+                100L
+        );
+        settingBook.markParsed();
+        uploadFileRepository.save(settingBook);
+
+        mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "jobType": "SETTING_EXTRACTION",
+                                  "batchId": "%s"
+                                }
+                                """.formatted(settingBookBatch.getId())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("ANALYSIS_JOB_TARGET_NOT_FOUND"));
+
+        assertThat(analysisJobRepository.count()).isZero();
+    }
+
     @ParameterizedTest
     @EnumSource(AnalysisJobType.class)
     @DisplayName("공개 생성 API는 모든 분석 작업 유형에서 선택 회차 범위를 허용한다")

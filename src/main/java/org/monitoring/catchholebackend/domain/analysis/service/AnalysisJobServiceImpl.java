@@ -52,6 +52,9 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         List<Episode> targetEpisodes = episode == null
                 ? findCurrentBatchEpisodes(uploadFiles)
                 : List.of(episode);
+        if (targetEpisodes.isEmpty()) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_TARGET_NOT_FOUND);
+        }
         AnalysisJob analysisJob = AnalysisJob.create(work, batch, episode, request.jobType());
         analysisJob.addTargetEpisodes(targetEpisodes);
         AnalysisJob savedAnalysisJob = analysisJobRepository.save(analysisJob);
