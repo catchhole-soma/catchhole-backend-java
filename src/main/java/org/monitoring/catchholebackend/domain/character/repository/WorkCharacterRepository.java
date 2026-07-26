@@ -6,6 +6,8 @@ import java.util.Optional;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -47,7 +49,11 @@ public interface WorkCharacterRepository extends JpaRepository<WorkCharacter, UU
 
     List<WorkCharacter> findAllByWorkIdOrderByCreatedAtDesc(UUID workId);
 
-    List<WorkCharacter> findAllByWorkIdAndStatusOrderByCreatedAtDesc(UUID workId, CharacterStatus status);
+    Page<WorkCharacter> findAllByWorkIdAndStatusOrderByCreatedAtDescIdDesc(
+            UUID workId,
+            CharacterStatus status,
+            Pageable pageable
+    );
 
     boolean existsByWorkIdAndNameAndIdNot(UUID workId, String name, UUID id);
 }

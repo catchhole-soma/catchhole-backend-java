@@ -41,7 +41,10 @@ import org.monitoring.catchholebackend.domain.episode.exception.EpisodeErrorCode
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
+import org.monitoring.catchholebackend.global.common.response.PageResponse;
 import org.monitoring.catchholebackend.global.exception.AppException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -68,15 +71,27 @@ public class CharacterServiceImpl implements CharacterService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
-    public List<CharacterSummaryResponse> getCharacters(Long memberId, UUID workId) {
+    public PageResponse<CharacterSummaryResponse> getCharacters(
+            Long memberId,
+            UUID workId,
+            int page,
+            int size
+    ) {
         Work work = workRepository.getOwnedWork(workId, memberId);
-        List<WorkCharacter> characters = workCharacterRepository
-                .findAllByWorkIdAndStatusOrderByCreatedAtDesc(work.getId(), CharacterStatus.ACTIVE);
+        Page<WorkCharacter> characters = workCharacterRepository
+                .findAllByWorkIdAndStatusOrderByCreatedAtDescIdDesc(
+                        work.getId(),
+                        CharacterStatus.ACTIVE,
+                        PageRequest.of(page, size)
+                );
         Map<UUID, Integer> firstAppearanceEpisodeNosById = findFirstAppearanceEpisodeNosById(
-                characters,
+                characters.getContent(),
                 work.getId()
         );
-        return characterMapper.toSummaryResponseList(characters, firstAppearanceEpisodeNosById);
+        return PageResponse.from(
+                characters,
+                characterMapper.toSummaryResponseList(characters.getContent(), firstAppearanceEpisodeNosById)
+        );
     }
 
     @Override
@@ -300,9 +315,15 @@ public class CharacterServiceImpl implements CharacterService {
         }
 
         ObjectNode valueJson = JsonNodeFactory.instance.objectNode();
+        if (request.valueType() != SettingValueType.JSON) {
+            valueJson.set("value", toValueNode(request.value(), request.valueType()));
+        }
         Set<String> keys = new HashSet<>();
         for (CharacterSettingPropertyRequest property : request.properties()) {
             String key = property.key().trim();
+            if (key.equals("value")) {
+                throw new AppException(CharacterErrorCode.CHARACTER_SETTING_KEY_INVALID);
+            }
             if (!keys.add(key)) {
                 throw new AppException(CharacterErrorCode.CHARACTER_SETTING_KEY_DUPLICATED);
             }

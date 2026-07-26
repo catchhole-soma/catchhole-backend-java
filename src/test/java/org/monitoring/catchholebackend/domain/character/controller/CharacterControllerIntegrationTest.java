@@ -9,7 +9,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -18,6 +20,7 @@ import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
+import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
@@ -28,6 +31,7 @@ import org.monitoring.catchholebackend.domain.character.type.CharacterSettingMer
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingSchemaSource;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingValueSemantics;
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
+import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
@@ -162,13 +166,18 @@ class CharacterControllerIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.length()").value(1))
-                .andExpect(jsonPath("$.data[0].id").value(activeCharacter.getId().toString()))
-                .andExpect(jsonPath("$.data[0].name").value("수아"))
-                .andExpect(jsonPath("$.data[0].currentAge").value(23))
-                .andExpect(jsonPath("$.data[0].representativeAttributeLabel").value("레벨"))
-                .andExpect(jsonPath("$.data[0].representativeAttributeValue").value("15"))
-                .andExpect(jsonPath("$.data[0].firstAppearanceEpisodeNo").value(1));
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].id").value(activeCharacter.getId().toString()))
+                .andExpect(jsonPath("$.data.content[0].name").value("수아"))
+                .andExpect(jsonPath("$.data.content[0].currentAge").value(23))
+                .andExpect(jsonPath("$.data.content[0].representativeAttributeLabel").value("레벨"))
+                .andExpect(jsonPath("$.data.content[0].representativeAttributeValue").value("15"))
+                .andExpect(jsonPath("$.data.content[0].firstAppearanceEpisodeNo").value(1))
+                .andExpect(jsonPath("$.data.page").value(0))
+                .andExpect(jsonPath("$.data.size").value(24))
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.totalPages").value(1))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
     }
 
     @Test
@@ -180,10 +189,10 @@ class CharacterControllerIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.length()").value(1))
-                .andExpect(jsonPath("$.data[0].id").value(character.getId().toString()))
-                .andExpect(jsonPath("$.data[0].name").value("수아"))
-                .andExpect(jsonPath("$.data[0].firstAppearanceEpisodeNo").doesNotExist());
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].id").value(character.getId().toString()))
+                .andExpect(jsonPath("$.data.content[0].name").value("수아"))
+                .andExpect(jsonPath("$.data.content[0].firstAppearanceEpisodeNo").doesNotExist());
     }
 
     @Test
@@ -206,8 +215,52 @@ class CharacterControllerIntegrationTest {
         mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(1))
-                .andExpect(jsonPath("$.data[0].firstAppearanceEpisodeNo").doesNotExist());
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].firstAppearanceEpisodeNo").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("캐릭터 목록을 요청 크기로 나누고 페이지 메타데이터를 응답한다")
+    void getCharactersReturnsRequestedPage() throws Exception {
+        WorkCharacter first = workCharacterRepository.saveAndFlush(character(work, "첫 번째", 20, 1));
+        WorkCharacter second = workCharacterRepository.saveAndFlush(character(work, "두 번째", 21, 2));
+        WorkCharacter third = workCharacterRepository.saveAndFlush(character(work, "세 번째", 22, 3));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("page", "0")
+                        .queryParam("size", "2")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(2))
+                .andExpect(jsonPath("$.data.content[0].id").value(third.getId().toString()))
+                .andExpect(jsonPath("$.data.content[1].id").value(second.getId().toString()))
+                .andExpect(jsonPath("$.data.page").value(0))
+                .andExpect(jsonPath("$.data.size").value(2))
+                .andExpect(jsonPath("$.data.totalElements").value(3))
+                .andExpect(jsonPath("$.data.totalPages").value(2))
+                .andExpect(jsonPath("$.data.hasNext").value(true));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("page", "1")
+                        .queryParam("size", "2")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].id").value(first.getId().toString()))
+                .andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
+    }
+
+    @Test
+    @DisplayName("캐릭터 목록의 페이지 번호와 크기 범위를 검증한다")
+    void getCharactersRejectsInvalidPageRequest() throws Exception {
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("page", "-1")
+                        .queryParam("size", "25")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.error.details.length()").value(2));
     }
 
     @Test
@@ -216,6 +269,41 @@ class CharacterControllerIntegrationTest {
         WorkCharacter character = workCharacterRepository.save(character(work, "수아", 23, 15));
         character.updateFirstAppearanceEpisodeId(firstEpisode.getId());
         workCharacterRepository.saveAndFlush(character);
+        SettingCandidate ageCandidate = settingCandidateRepository.save(SettingCandidate.create(
+                work,
+                firstEpisode,
+                UUID.randomUUID(),
+                null,
+                SettingEntityType.CHARACTER,
+                "수아",
+                "age",
+                "23",
+                SettingValueType.NUMBER,
+                JsonNodeFactory.instance.objectNode().put("value", 23),
+                JsonNodeFactory.instance.arrayNode().add(
+                        JsonNodeFactory.instance.objectNode()
+                                .put("quote", "수아는 스물세 살이었다.")
+                                .put("startOffset", 0)
+                                .put("endOffset", 13)
+                ),
+                new BigDecimal("0.9000"),
+                JsonNodeFactory.instance.objectNode()
+        ));
+        CharacterFact age = currentFact(
+                character,
+                ageCandidate,
+                CharacterFactType.AGE,
+                "age",
+                "23",
+                JsonNodeFactory.instance.objectNode().put("value", 23)
+        );
+        CharacterFact level = currentFact(
+                character,
+                CharacterFactType.LEVEL,
+                "level",
+                "15",
+                JsonNodeFactory.instance.objectNode().put("value", 15)
+        );
         CharacterFact gender = currentFact(
                 character,
                 CharacterFactType.PROFILE,
@@ -230,7 +318,7 @@ class CharacterControllerIntegrationTest {
                 "42",
                 JsonNodeFactory.instance.objectNode().put("value", 42)
         );
-        characterFactRepository.saveAllAndFlush(List.of(gender, strength));
+        characterFactRepository.saveAllAndFlush(List.of(age, level, gender, strength));
 
         mockMvc.perform(get(
                                 "/api/v1/works/{workId}/characters/{characterId}",
@@ -242,6 +330,10 @@ class CharacterControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.name").value("수아"))
                 .andExpect(jsonPath("$.data.firstAppearanceEpisode.episodeNo").value(1))
                 .andExpect(jsonPath("$.data.firstAppearanceEpisode.title").doesNotExist())
+                .andExpect(jsonPath("$.data.currentAgeFact.characterFactId").value(age.getId().toString()))
+                .andExpect(jsonPath("$.data.currentAgeFact.hasEvidence").value(true))
+                .andExpect(jsonPath("$.data.currentLevelFact.characterFactId").value(level.getId().toString()))
+                .andExpect(jsonPath("$.data.currentLevelFact.hasEvidence").value(false))
                 .andExpect(jsonPath("$.data.profile[0].characterFactId").value(gender.getId().toString()))
                 .andExpect(jsonPath("$.data.profile[0].key").value("profile.gender"))
                 .andExpect(jsonPath("$.data.profile[0].displayName").value("성별"))
@@ -292,6 +384,14 @@ class CharacterControllerIntegrationTest {
                                       "value": "여성",
                                       "valueType": "STRING",
                                       "properties": []
+                                    },
+                                    {
+                                      "key": "profile.manual_motto",
+                                      "value": "끝까지 포기하지 않는다",
+                                      "valueType": "STRING",
+                                      "properties": [
+                                        {"key": "name", "value": "좌우명", "valueType": "STRING"}
+                                      ]
                                     }
                                   ],
                                   "stats": [
@@ -300,6 +400,14 @@ class CharacterControllerIntegrationTest {
                                       "value": "42",
                                       "valueType": "NUMBER",
                                       "properties": []
+                                    },
+                                    {
+                                      "key": "stats.manual_luck",
+                                      "value": "7",
+                                      "valueType": "NUMBER",
+                                      "properties": [
+                                        {"key": "name", "value": "행운", "valueType": "STRING"}
+                                      ]
                                     }
                                   ],
                                   "skills": [
@@ -314,7 +422,17 @@ class CharacterControllerIntegrationTest {
                                     }
                                   ],
                                   "items": [],
-                                  "statuses": []
+                                  "statuses": [
+                                    {
+                                      "key": "status.manual_injury",
+                                      "value": "경상",
+                                      "valueType": "JSON",
+                                      "properties": [
+                                        {"key": "name", "value": "부상", "valueType": "STRING"},
+                                        {"key": "active", "value": "true", "valueType": "BOOLEAN"}
+                                      ]
+                                    }
+                                  ]
                                 }
                                 """))
                 .andExpect(status().isOk())
@@ -324,7 +442,9 @@ class CharacterControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.currentAge").value(23))
                 .andExpect(jsonPath("$.data.currentLevel").value(15))
                 .andExpect(jsonPath("$.data.profile[0].hasEvidence").value(false))
-                .andExpect(jsonPath("$.data.stats[0].value").value("42"))
+                .andExpect(jsonPath("$.data.profile[1].displayName").value("좌우명"))
+                .andExpect(jsonPath("$.data.stats.length()").value(2))
+                .andExpect(jsonPath("$.data.statuses[0].displayName").value("부상"))
                 .andExpect(jsonPath("$.data.skills[0].displayName").value("기본 검술"))
                 .andExpect(jsonPath("$.data.skills[0].properties[1].displayName").value("레벨"))
                 .andExpect(jsonPath("$.data.skills[0].properties[1].valueType").value("NUMBER"));
@@ -340,8 +460,59 @@ class CharacterControllerIntegrationTest {
         assertThat(savedCharacter.getCurrentLevel()).isEqualTo(15);
         assertThat(savedCharacter.getFirstAppearanceEpisodeId()).isEqualTo(firstEpisode.getId());
         assertThat(savedCharacter.getProfileJson().get("profile.gender").get("value").asText()).isEqualTo("여성");
+        assertThat(savedCharacter.getProfileJson().get("profile.manual_motto").get("value").asText())
+                .isEqualTo("끝까지 포기하지 않는다");
         assertThat(savedCharacter.getStatsJson().get("stats.strength").get("value").asInt()).isEqualTo(42);
+        assertThat(savedCharacter.getStatsJson().get("stats.manual_luck").get("value").asInt()).isEqualTo(7);
         assertThat(savedCharacter.getSkillsJson().get("skill.기본 검술").get("level").asInt()).isEqualTo(3);
+        assertThat(savedCharacter.getStatusesJson().get("status.manual_injury").get("active").asBoolean()).isTrue();
+
+        assertThat(characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId()))
+                .filteredOn(fact -> fact.isCurrent() && fact.getFactKey().startsWith("profile.manual"))
+                .allSatisfy(fact -> {
+                    assertThat(fact.getSettingCandidate()).isNull();
+                    assertThat(fact.getSourceEpisode()).isNull();
+                    assertThat(fact.getSourceChunkId()).isNull();
+                });
+    }
+
+    @Test
+    @DisplayName("설정 속성에서 scalar envelope 예약 key인 value를 거절한다")
+    void updateCharacterRejectsReservedValuePropertyKey() throws Exception {
+        WorkCharacter character = workCharacterRepository.save(character(work, "수아", null, null));
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "수아",
+                                  "roleLabel": null,
+                                  "currentAge": null,
+                                  "currentLevel": null,
+                                  "firstAppearanceEpisodeNo": null,
+                                  "profile": [
+                                    {
+                                      "key": "profile.manual",
+                                      "value": "기사",
+                                      "valueType": "STRING",
+                                      "properties": [
+                                        {"key": "value", "value": "숨겨진 값", "valueType": "STRING"}
+                                      ]
+                                    }
+                                  ],
+                                  "stats": [],
+                                  "skills": [],
+                                  "items": [],
+                                  "statuses": []
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("CHARACTER_SETTING_KEY_INVALID"));
     }
 
     @Test
@@ -441,7 +612,8 @@ class CharacterControllerIntegrationTest {
         mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(0));
+                .andExpect(jsonPath("$.data.content.length()").value(0))
+                .andExpect(jsonPath("$.data.totalElements").value(0));
 
         mockMvc.perform(get(
                                 "/api/v1/works/{workId}/characters/{characterId}",
@@ -511,6 +683,32 @@ class CharacterControllerIntegrationTest {
             ObjectNode valueJson
     ) {
         CharacterFact fact = CharacterFact.createManual(character, factType, factKey, factValue, valueJson);
+        fact.markCurrent();
+        return fact;
+    }
+
+    private CharacterFact currentFact(
+            WorkCharacter character,
+            SettingCandidate settingCandidate,
+            CharacterFactType factType,
+            String factKey,
+            String factValue,
+            ObjectNode valueJson
+    ) {
+        CharacterFact fact = CharacterFact.create(
+                character,
+                settingCandidate,
+                factType,
+                factKey,
+                factValue,
+                factValue,
+                valueJson,
+                firstEpisode,
+                settingCandidate.getSourceChunkId(),
+                null,
+                settingCandidate.getConfidence(),
+                firstEpisode.getEpisodeNo()
+        );
         fact.markCurrent();
         return fact;
     }

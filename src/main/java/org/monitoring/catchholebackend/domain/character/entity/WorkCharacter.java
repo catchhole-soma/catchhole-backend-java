@@ -30,7 +30,11 @@ import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
         name = "characters",
         indexes = {
                 @Index(name = "idx_characters_work_name", columnList = "work_id,name"),
-                @Index(name = "idx_characters_work_status", columnList = "work_id,status")
+                @Index(name = "idx_characters_work_status", columnList = "work_id,status"),
+                @Index(
+                        name = "idx_characters_work_status_created_id",
+                        columnList = "work_id,status,created_at DESC,id DESC"
+                )
         }
 )
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

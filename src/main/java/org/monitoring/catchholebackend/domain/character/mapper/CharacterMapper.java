@@ -8,6 +8,7 @@ import java.util.UUID;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterArchiveResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterDetailResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterEpisodeResponse;
+import org.monitoring.catchholebackend.domain.character.dto.response.CharacterFactReferenceResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterSettingPropertyResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterSettingResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterSummaryResponse;
@@ -61,7 +62,9 @@ public class CharacterMapper {
                 character.getName(),
                 character.getRoleLabel(),
                 character.getCurrentAge(),
+                toFactReferenceResponse(currentFacts, CharacterFactType.AGE),
                 character.getCurrentLevel(),
+                toFactReferenceResponse(currentFacts, CharacterFactType.LEVEL),
                 toEpisodeResponse(firstAppearanceEpisode),
                 toSettingResponses(currentFacts, schemas, CharacterFactType.PROFILE),
                 toSettingResponses(currentFacts, schemas, CharacterFactType.STAT),
@@ -80,6 +83,20 @@ public class CharacterMapper {
             return null;
         }
         return new CharacterEpisodeResponse(episode.getId(), episode.getEpisodeNo());
+    }
+
+    private CharacterFactReferenceResponse toFactReferenceResponse(
+            List<CharacterFact> currentFacts,
+            CharacterFactType factType
+    ) {
+        return currentFacts.stream()
+                .filter(fact -> fact.getFactType() == factType)
+                .findFirst()
+                .map(fact -> new CharacterFactReferenceResponse(
+                        fact.getId(),
+                        hasEvidence(fact.getSettingCandidate())
+                ))
+                .orElse(null);
     }
 
     private List<CharacterSettingResponse> toSettingResponses(

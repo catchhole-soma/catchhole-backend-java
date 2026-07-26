@@ -18,8 +18,14 @@ public record CharacterDetailResponse(
         @Schema(description = "현재 나이", example = "23", nullable = true)
         Integer currentAge,
 
+        @Schema(description = "현재 나이에 대응하는 Fact와 원문 근거 정보", nullable = true)
+        CharacterFactReferenceResponse currentAgeFact,
+
         @Schema(description = "현재 레벨", example = "15", nullable = true)
         Integer currentLevel,
+
+        @Schema(description = "현재 레벨에 대응하는 Fact와 원문 근거 정보", nullable = true)
+        CharacterFactReferenceResponse currentLevelFact,
 
         @Schema(description = "첫 등장 회차", nullable = true)
         CharacterEpisodeResponse firstAppearanceEpisode,

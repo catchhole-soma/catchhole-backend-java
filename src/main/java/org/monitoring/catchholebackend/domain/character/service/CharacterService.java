@@ -1,20 +1,21 @@
 package org.monitoring.catchholebackend.domain.character.service;
 
-import java.util.List;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.character.dto.request.CharacterUpdateRequest;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterArchiveResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterDetailResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterSummaryResponse;
+import org.monitoring.catchholebackend.global.common.response.PageResponse;
 
 public interface CharacterService {
 
     /**
-     * 작품 소유권을 확인한 뒤 보관되지 않은 캐릭터 카드 목록을 최신 생성순으로 조회한다.
+     * 작품 소유권을 확인한 뒤 보관되지 않은 캐릭터 카드 목록을 페이지 단위로 조회한다.
+     * 페이지 사이 순서를 고정하기 위해 생성 시각과 ID를 모두 내림차순으로 정렬한다.
      * 첫 등장 회차 ID가 유효하면 카드에 표시할 회차 번호를 함께 응답한다.
      * 첫 등장 회차가 없거나 현재 작품에서 유효하지 않으면 해당 값만 null로 응답한다.
      */
-    List<CharacterSummaryResponse> getCharacters(Long memberId, UUID workId);
+    PageResponse<CharacterSummaryResponse> getCharacters(Long memberId, UUID workId, int page, int size);
 
     /**
      * 작품 소유권과 캐릭터 소속을 확인한 뒤 활성 캐릭터의 기본 정보와 현재 설정 전체를 조회한다.

@@ -103,12 +103,15 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 ### 캐릭터 현재 설정 수정·삭제 정책
 
 - 캐릭터 목록과 상세는 `ACTIVE` 상태만 조회합니다. 다른 작품 캐릭터와 `ARCHIVED` 캐릭터는 `CHARACTER_NOT_FOUND / 404`로 응답합니다.
-- 목록은 기존 Repository 정책에 맞춰 `createdAt DESC`로 정렬하고 현재 PR에서는 페이징하지 않습니다.
+- 목록은 `page`(0부터 시작)와 `size`(1~24)를 받아 서버에서 페이징합니다. 기본값은 `page=0`, `size=24`입니다.
+- 페이지 사이 순서가 흔들리지 않도록 `createdAt DESC, id DESC`로 정렬하며,
+  `(work_id, status, created_at DESC, id DESC)` 복합 인덱스를 사용합니다.
+- 응답은 `content`, `page`, `size`, `totalElements`, `totalPages`, `hasNext`를 제공합니다.
 - 목록의 `firstAppearanceEpisodeNo`는 첫 등장 회차가 없거나 현재 작품에서 유효한 회차를 찾지 못하면 `null`로 응답합니다. 해당 캐릭터만 값 없음으로 표시하며 목록 전체 조회는 실패시키지 않습니다.
 - 카드 대표 속성은 우선 현재 레벨을 `레벨`로 제공합니다. 레벨이 없으면 대표 속성 표시명과 값을 모두 `null`로 둡니다. 장르별 대표 속성은 후속 정책입니다.
 - 이름·역할·첫 등장 회차는 `WorkCharacter` 대표 필드에 반영합니다. 같은 작품의 다른 캐릭터와 이름이 같으면 `CHARACTER_NAME_DUPLICATED / 409`로 거절합니다.
 - 캐릭터 직접 수정은 AI 후보를 기존 값에 병합하는 과정이 아니라 사용자가 편집 가능한 현재 설정의 최종 상태를 확정하는 과정입니다. 따라서 schema의 `mergePolicy`를 다시 적용하지 않고 `factType + factKey` entry 단위의 `REPLACE`로 처리합니다.
-- 나이·레벨·프로필·스탯·스킬·아이템·상태 수정은 변경된 `factType + factKey`마다 출처 후보와 회차가 없는 수동 정정 `CharacterFact`를 새로 만들고, 이전 current Fact를 historical로 전환합니다.
+- 나이·레벨·프로필·스탯·스킬·아이템·상태는 기존 항목의 값 변경뿐 아니라 새 항목 추가와 기존 항목 제거도 지원합니다. 변경·추가된 `factType + factKey`마다 출처 후보와 회차가 없는 수동 정정 `CharacterFact`를 새로 만들고, 변경·제거된 이전 current Fact는 historical로 전환합니다.
 - 수정 요청은 편집 가능한 현재 설정 전체를 전달합니다. 값이 동일한 Fact는 ID와 원문 근거를 포함해 그대로 유지하고, 기존 current Fact가 요청에서 빠지면 historical로 전환한 뒤 대응 snapshot에서 제거합니다. 화면 편집 범위가 아닌 `TIME` Fact는 요청과 비교하지 않고 유지합니다.
 - 여러 설정 변경과 snapshot 재구성은 같은 트랜잭션에서 처리합니다.
 - 화면의 버튼과 API 동사는 `삭제`이지만 DB 행은 지우지 않습니다. `DELETE` 요청은 `WorkCharacter.status`만 `ACTIVE → ARCHIVED`로 바꾸며 `CharacterFact`, `SettingCandidate`, 원문 근거는 유지합니다.
@@ -438,7 +441,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `PATCH` | `/api/v1/works/{workId}/characters/{characterId}` | 기본 정보와 현재 설정 전체를 수정하고 변경된 설정을 수동 정정 Fact로 기록합니다. |
 | `DELETE` | `/api/v1/works/{workId}/characters/{characterId}` | 삭제 버튼 요청을 처리하되 데이터를 지우지 않고 상태를 `ARCHIVED`로 전환합니다. |
 
-상세 설정 항목은 `characterFactId`, canonical `key`, `displayName`, 사용자용 `value`, `valueType`, 복합값의 `properties`, `hasEvidence`를 제공합니다. raw JSON snapshot은 응답하지 않습니다.
+상세 설정 항목은 `characterFactId`, canonical `key`, `displayName`, 사용자용 `value`, `valueType`, 복합값의 `properties`, `hasEvidence`를 제공합니다. 기본 정보로 분리해 표시하는 현재 나이와 레벨도 각각 `currentAgeFact`, `currentLevelFact`에 `characterFactId`, `hasEvidence`를 제공하므로 같은 방식으로 원문 근거 진입 여부를 판단할 수 있습니다. raw JSON snapshot은 응답하지 않습니다.
 
 설정 후보 API:
 
@@ -493,6 +496,14 @@ Spring API는 `SettingCandidate` 생성 API를 제공하지 않습니다. 후보
       "value": "여성",
       "valueType": "STRING",
       "properties": []
+    },
+    {
+      "key": "profile.manual_motto",
+      "value": "끝까지 포기하지 않는다",
+      "valueType": "STRING",
+      "properties": [
+        {"key": "name", "value": "좌우명", "valueType": "STRING"}
+      ]
     }
   ],
   "stats": [
@@ -550,6 +561,7 @@ flowchart TD
 - 현재 이름 중복 검사는 서비스 조회이며 DB의 `(work_id, name)` unique 제약은 없습니다. 서로 다른 캐릭터 행을 동시에 같은 이름으로 수정하는 경쟁 요청은 각자 다른 행 잠금을 획득하므로 완전히 차단되지 않습니다. DB unique 제약과 제약 위반의 `CHARACTER_NAME_DUPLICATED` 변환은 후속 보완 대상입니다.
 - 첫 등장 회차 번호가 `null`이면 연결을 제거하고, 값이 있으면 반드시 같은 작품의 회차여야 합니다. 이름·역할·첫 등장 회차는 Fact가 아니라 `WorkCharacter` 대표 필드에서 직접 관리합니다.
 - `toDesiredFacts`는 `currentAge`, `currentLevel`, `profile`, `stats`, `skills`, `items`, `statuses`를 `(factType, factKey)` 기준의 목표 상태로 변환합니다. 나이와 레벨은 각각 `(AGE, age)`, `(LEVEL, level)`을 사용하고 나머지 설정은 유형별 key prefix와 요청 내 중복 key를 검증합니다.
+- 프로필·스탯처럼 단일 값을 가지면서 사용자 정의 표시명이 필요한 수동 설정은 `valueJson.value`에 타입이 보존된 대표값을, `valueJson.name`에 화면 표시명을 저장합니다. 요청 `properties`의 `value` key는 대표값 envelope와 충돌하므로 `CHARACTER_SETTING_KEY_INVALID / 400`으로 거절합니다.
 - 직접 수정은 schema merge 정책의 적용 대상이 아닙니다. AI 후보 확정은 새 관찰값을 현재값에 반영하는 방법을 결정하기 위해 `REPLACE`, `UPSERT_BY_NAME`을 검증하지만, 직접 수정은 사용자가 최종 상태를 명시하므로 모든 편집 가능 설정을 `factType + factKey` entry 단위 `REPLACE`로 처리합니다. `valueJson` 내부 deep merge도 하지 않습니다.
 - 값 비교는 사용자 표시값인 `factValue`와 구조화 값인 `valueJson`이 모두 같은지 확인합니다. JSON 객체는 key 순서와 무관하게 비교하고 숫자는 `42`와 `42.0`처럼 표현만 다른 경우 같은 값으로 봅니다. 배열은 원소 순서까지 같아야 합니다.
 - 값이 같은 Fact는 새로 만들지 않으므로 기존 `characterFactId`, `settingCandidate`, 출처 회차와 근거 인용문을 유지합니다. 값이 바뀐 Fact는 기존 행의 값이나 근거를 수정하지 않고 `isCurrent=false`로 전환합니다.
@@ -804,7 +816,7 @@ flowchart TD
 ## 이후 작업
 
 - 보관된 캐릭터 목록과 1주 이내 복구 정책 및 API 정의
-- 작품 장르·schema에 따른 카드 대표 속성 선정 정책과 캐릭터 목록 페이징 정의
+- 작품 장르·schema에 따른 카드 대표 속성 선정 정책
 - 재청킹 시 청크 ID 안정화 또는 근거 이력 보존 방식을 정한 뒤 `source_chunk_id` FK 여부 결정
 - 현재 `ARCHIVED` soft delete 이후 복구·표시 정책과, 향후 물리 삭제 시 최초 등장 회차를 재계산할지 `NULL`로 둘지 정한 뒤 `first_appearance_episode_id` FK와 삭제 동작 결정
 - AI Worker 시간 메타데이터가 정해진 뒤 `episodeNo` 기준 current/snapshot 계산을 작중 시간 기준으로 확장

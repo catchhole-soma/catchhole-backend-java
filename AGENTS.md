@@ -386,6 +386,9 @@ public class UserMapper {
 ### Common Response
 
 - API 응답 Envelope는 `CommonResponse<T>`를 사용한다.
+- 서버 페이지네이션 응답은 `PageResponse<T>`를 사용하고 `content`, 0부터 시작하는 `page`, `size`,
+  `totalElements`, `totalPages`, `hasNext`를 제공한다. 도메인마다 페이지 메타데이터 DTO를 반복하지 않고
+  프론트 생성 클라이언트가 같은 구조를 재사용할 수 있게 하기 위함이다.
 - 컨트롤러는 v1 기준으로 자동 래핑을 사용하지 않고 명시적으로 `CommonResponse.success(...)`를 반환한다.
 - 성공/실패 응답은 다음 필드를 유지한다.
   - `success`
