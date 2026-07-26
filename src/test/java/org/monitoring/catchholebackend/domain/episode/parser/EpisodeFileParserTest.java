@@ -421,6 +421,45 @@ class EpisodeFileParserTest {
                         assertThat(exception.getResultCode()).isEqualTo(UploadErrorCode.UPLOAD_FILE_TOO_LARGE));
     }
 
+    @Test
+    @DisplayName("document.xml 앞 엔트리까지 누적 압축 해제량이 20MB를 초과하는 DOCX를 거부한다")
+    void readTextRejectsOversizedDocxEntryBeforeDocumentXml() throws IOException {
+        MockMultipartFile docx = docxFile(
+                "oversized-leading-entry.docx",
+                """
+                        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                          <w:body><w:p><w:r><w:t>정상 본문</w:t></w:r></w:p></w:body>
+                        </w:document>
+                        """,
+                1,
+                20 * 1024 * 1024 + 1
+        );
+
+        assertThat(docx.getSize()).isLessThan(10L * 1024 * 1024);
+        assertThatThrownBy(() -> textDocumentReader.readText(docx))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode()).isEqualTo(UploadErrorCode.UPLOAD_FILE_TOO_LARGE));
+    }
+
+    @Test
+    @DisplayName("document.xml까지 ZIP 엔트리가 256개를 초과하는 DOCX를 거부한다")
+    void readTextRejectsTooManyDocxEntriesBeforeDocumentXml() throws IOException {
+        MockMultipartFile docx = docxFile(
+                "too-many-entries.docx",
+                """
+                        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                          <w:body><w:p><w:r><w:t>정상 본문</w:t></w:r></w:p></w:body>
+                        </w:document>
+                        """,
+                256,
+                0
+        );
+
+        assertThatThrownBy(() -> textDocumentReader.readText(docx))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode()).isEqualTo(UploadErrorCode.UPLOAD_FILE_TOO_LARGE));
+    }
+
     private List<DetectedEpisodeFile> parseEpisodeFiles(
             EpisodeUploadType uploadType,
             List<MultipartFile> sourceEpisodeFiles
@@ -438,8 +477,31 @@ class EpisodeFileParserTest {
     }
 
     private MockMultipartFile docxFile(String filename, String documentXml) throws IOException {
+        return docxFile(filename, documentXml, 1, 8);
+    }
+
+    private MockMultipartFile docxFile(
+            String filename,
+            String documentXml,
+            int leadingEntryCount,
+            int leadingEntrySize
+    ) throws IOException {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         try (ZipOutputStream zip = new ZipOutputStream(output)) {
+            byte[] chunk = "a".repeat(8 * 1024).getBytes(StandardCharsets.UTF_8);
+            for (int index = 0; index < leadingEntryCount; index++) {
+                String entryName = index == 0
+                        ? "[Content_Types].xml"
+                        : "customXml/item" + index + ".xml";
+                zip.putNextEntry(new ZipEntry(entryName));
+                int remaining = leadingEntrySize;
+                while (remaining > 0) {
+                    int writeSize = Math.min(remaining, chunk.length);
+                    zip.write(chunk, 0, writeSize);
+                    remaining -= writeSize;
+                }
+                zip.closeEntry();
+            }
             zip.putNextEntry(new ZipEntry("word/document.xml"));
             zip.write(documentXml.getBytes(StandardCharsets.UTF_8));
             zip.closeEntry();

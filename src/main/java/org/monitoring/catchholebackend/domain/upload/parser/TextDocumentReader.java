@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.upload.parser;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
@@ -20,7 +21,10 @@ import org.springframework.web.multipart.MultipartFile;
 public class TextDocumentReader {
 
     private static final long MAX_FILE_SIZE = 10L * 1024 * 1024;
+    private static final long MAX_DOCX_TOTAL_UNCOMPRESSED_SIZE = 20L * 1024 * 1024;
     private static final int MAX_DOCX_DOCUMENT_XML_SIZE = 10 * 1024 * 1024;
+    private static final int MAX_DOCX_ENTRY_COUNT = 256;
+    private static final int DOCX_READ_BUFFER_SIZE = 8 * 1024;
     private static final String DOCX_DOCUMENT_ENTRY = "word/document.xml";
 
     public String readText(MultipartFile sourceFile) {
@@ -73,19 +77,43 @@ public class TextDocumentReader {
 
     private String readDocxText(byte[] fileBytes) throws IOException, XMLStreamException {
         try (ZipInputStream zipInputStream = new ZipInputStream(new ByteArrayInputStream(fileBytes))) {
+            byte[] buffer = new byte[DOCX_READ_BUFFER_SIZE];
+            long totalUncompressedBytes = 0;
+            int entryCount = 0;
+
             ZipEntry entry;
             while ((entry = zipInputStream.getNextEntry()) != null) {
-                if (!DOCX_DOCUMENT_ENTRY.equals(entry.getName())) {
+                entryCount++;
+                if (entryCount > MAX_DOCX_ENTRY_COUNT) {
+                    throw new AppException(UploadErrorCode.UPLOAD_FILE_TOO_LARGE);
+                }
+
+                boolean documentEntry = DOCX_DOCUMENT_ENTRY.equals(entry.getName());
+                ByteArrayOutputStream documentXmlOutput = documentEntry
+                        ? new ByteArrayOutputStream()
+                        : null;
+                int read;
+                while ((read = zipInputStream.read(buffer)) != -1) {
+                    totalUncompressedBytes += read;
+                    if (totalUncompressedBytes > MAX_DOCX_TOTAL_UNCOMPRESSED_SIZE) {
+                        throw new AppException(UploadErrorCode.UPLOAD_FILE_TOO_LARGE);
+                    }
+                    if (documentEntry) {
+                        if (documentXmlOutput.size() + read > MAX_DOCX_DOCUMENT_XML_SIZE) {
+                            throw new AppException(UploadErrorCode.UPLOAD_FILE_TOO_LARGE);
+                        }
+                        documentXmlOutput.write(buffer, 0, read);
+                    }
+                }
+                if (!documentEntry) {
                     continue;
                 }
+
                 XMLInputFactory factory = XMLInputFactory.newFactory();
                 factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
                 factory.setProperty("javax.xml.stream.isSupportingExternalEntities", false);
-                byte[] documentXml = zipInputStream.readNBytes(MAX_DOCX_DOCUMENT_XML_SIZE + 1);
-                if (documentXml.length > MAX_DOCX_DOCUMENT_XML_SIZE) {
-                    throw new AppException(UploadErrorCode.UPLOAD_FILE_TOO_LARGE);
-                }
-                XMLStreamReader reader = factory.createXMLStreamReader(new ByteArrayInputStream(documentXml));
+                XMLStreamReader reader = factory.createXMLStreamReader(
+                        new ByteArrayInputStream(documentXmlOutput.toByteArray()));
                 StringBuilder text = new StringBuilder();
                 while (reader.hasNext()) {
                     int event = reader.next();
