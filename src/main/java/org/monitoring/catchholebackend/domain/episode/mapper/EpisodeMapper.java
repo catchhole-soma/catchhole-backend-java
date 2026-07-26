@@ -1,19 +1,19 @@
 package org.monitoring.catchholebackend.domain.episode.mapper;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
+import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeResponse;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeSummaryResponse;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.processor.FinalizedEpisode;
-import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
-import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeAnalysisStatus;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.global.storage.StoredTextObject;
 import org.springframework.stereotype.Component;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Component
 public class EpisodeMapper {
@@ -113,18 +113,20 @@ public class EpisodeMapper {
             return null;
         }
         if (latestAnalysisJob == null || latestAnalysisJob.getSummaryJson() == null) {
-            return 0;
+            return null;
         }
         try {
             JsonNode summary = objectMapper.readTree(latestAnalysisJob.getSummaryJson());
             JsonNode explicitCount = summary.path("unresolvedFindingCount");
-            if (explicitCount.canConvertToInt()) {
-                return Math.max(0, explicitCount.intValue());
+            if (explicitCount.isIntegralNumber()
+                    && explicitCount.canConvertToInt()
+                    && explicitCount.intValue() >= 0) {
+                return explicitCount.intValue();
             }
             JsonNode findings = summary.path("findings");
-            return findings.isArray() ? findings.size() : 0;
+            return findings.isArray() ? findings.size() : null;
         } catch (Exception ignored) {
-            return 0;
+            return null;
         }
     }
 
