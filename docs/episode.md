@@ -96,6 +96,8 @@ GET /api/v1/works/{workId}/episodes
 3. 원본 파일과 최신 배치/회차 분석 작업 메타데이터는 회차별 재조회하지 않고 ID 목록으로 일괄 조회합니다.
 4. 목록 응답은 원문 전체를 포함하지 않는 summary 형태입니다.
 
+완료된 분석의 `unresolvedFindingCount`는 요약에 0 이상의 `unresolvedFindingCount`가 명시되었거나 이전 형식의 `findings` 배열이 있을 때만 숫자로 반환합니다. 요약이 없거나 알 수 없는 구조이거나 JSON 파싱에 실패하면 문제 없음으로 단정하지 않고 `null`을 반환하며, 화면은 이를 `—`로 표시합니다.
+
 ### 회차 원고 업로드
 
 ```http

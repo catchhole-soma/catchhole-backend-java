@@ -38,6 +38,8 @@ upload_batches.id
   -> episodes.source_file_id
 ```
 
+대상 선정 결과가 비어 있으면 `PENDING` 작업을 저장하지 않고 `ANALYSIS_JOB_TARGET_NOT_FOUND`로 거절합니다. 현재 Worker payload와 처리 흐름은 `Episode`만 분석 입력으로 지원하므로 설정집 파일만 있는 batch도 이 규칙을 적용합니다. 설정집 원본 분석을 도입할 때는 설정집을 `Episode`로 간주하지 않고 별도 분석 입력과 대상 스냅샷을 추가한 뒤 이 검증을 확장합니다.
+
 특정 회차 작업은 범위 표시를 위해 `analysis_jobs.episode_id`도 함께 사용합니다. 같은 배치의 전체 작업이 `PENDING` 또는 `RUNNING`이면 단일 회차 작업을 만들 수 없고, 같은 회차에 활성 작업이 있어도 중복 생성할 수 없습니다. 서로 다른 회차의 단일 작업은 동시에 생성할 수 있습니다.
 
 ### Worker 연동 방식

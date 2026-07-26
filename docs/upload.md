@@ -23,7 +23,7 @@ batch에는 작품, 회원, 업로드 방식, 파일 개수, 전체 처리 상�
 
 원본 파일 자체는 S3에 저장하고, DB에는 `storage_url`, 원본 파일명, mime type, size, 파싱 결과를 저장합니다.
 
-TXT·DOCX 원본은 파일당 10MB까지 허용하고 multipart 요청 전체는 25MB로 제한합니다. 선택 part를 생략하는 것과 명시적으로 빈 파일을 첨부하는 것을 구분하며, 빈 파일은 `UPLOAD_FILE_EMPTY`로 거절합니다.
+TXT·DOCX 원본은 파일당 10MB까지 허용하고 multipart 요청 전체는 25MB로 제한합니다. 선택 part를 생략하는 것과 명시적으로 빈 파일을 첨부하는 것을 구분하며, 빈 파일은 `UPLOAD_FILE_EMPTY`로 거절합니다. multipart 파일의 원본 파일명은 필수이며, 누락되거나 공백이면 서버가 확장자를 추정하지 않고 `UPLOAD_FILE_TYPE_NOT_SUPPORTED`로 거절합니다.
 
 ## 상태 모델
 
