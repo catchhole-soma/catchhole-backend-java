@@ -26,7 +26,7 @@ public class TextDocumentReader {
     public String readText(MultipartFile sourceFile) {
         validateTextDocument(sourceFile);
         try {
-            return readText(resolveOriginalFilename(sourceFile), sourceFile.getBytes());
+            return readText(requireOriginalFilename(sourceFile), sourceFile.getBytes());
         } catch (IOException exception) {
             throw new AppException(UploadErrorCode.UPLOAD_FILE_READ_FAILED, exception);
         }
@@ -51,7 +51,7 @@ public class TextDocumentReader {
         if (sourceFile == null || sourceFile.isEmpty()) {
             throw new AppException(UploadErrorCode.UPLOAD_FILE_EMPTY);
         }
-        validateTextDocument(resolveOriginalFilename(sourceFile), sourceFile.getSize());
+        validateTextDocument(requireOriginalFilename(sourceFile), sourceFile.getSize());
     }
 
     private void validateTextDocument(String originalFilename, byte[] fileBytes) {
@@ -117,9 +117,10 @@ public class TextDocumentReader {
         return content.startsWith("\uFEFF") ? content.substring(1) : content;
     }
 
-    private String resolveOriginalFilename(MultipartFile sourceFile) {
-        return StringUtils.hasText(sourceFile.getOriginalFilename())
-                ? sourceFile.getOriginalFilename()
-                : "untitled.txt";
+    public String requireOriginalFilename(MultipartFile sourceFile) {
+        if (sourceFile == null || !StringUtils.hasText(sourceFile.getOriginalFilename())) {
+            throw new AppException(UploadErrorCode.UPLOAD_FILE_TYPE_NOT_SUPPORTED);
+        }
+        return sourceFile.getOriginalFilename();
     }
 }

@@ -11,6 +11,9 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeUploadType;
 import org.monitoring.catchholebackend.domain.upload.exception.UploadErrorCode;
 import org.monitoring.catchholebackend.domain.upload.parser.TextDocumentReader;
@@ -368,6 +371,24 @@ class EpisodeFileParserTest {
         assertThatThrownBy(() -> textDocumentReader.readText(textFile("blank.txt", " \n\t")))
                 .isInstanceOfSatisfying(AppException.class, exception ->
                         assertThat(exception.getResultCode()).isEqualTo(UploadErrorCode.UPLOAD_FILE_EMPTY));
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = "   ")
+    @DisplayName("원본 파일명이 없는 multipart 파일은 지원 형식을 추정하지 않고 거절한다")
+    void readTextRejectsMissingOriginalFilename(String originalFilename) {
+        MockMultipartFile sourceFile = new MockMultipartFile(
+                "episodeFiles",
+                originalFilename,
+                MediaType.APPLICATION_OCTET_STREAM_VALUE,
+                new byte[]{(byte) 0xFF, 0x00, 0x01}
+        );
+
+        assertThatThrownBy(() -> textDocumentReader.readText(sourceFile))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(UploadErrorCode.UPLOAD_FILE_TYPE_NOT_SUPPORTED));
     }
 
     @Test

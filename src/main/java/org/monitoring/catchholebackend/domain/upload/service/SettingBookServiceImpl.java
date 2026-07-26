@@ -23,7 +23,6 @@ import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
 import org.monitoring.catchholebackend.global.storage.StoredObject;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 @Service
@@ -127,6 +126,6 @@ public class SettingBookServiceImpl implements SettingBookService {
     }
 
     private String resolveOriginalFilename(MultipartFile file) {
-        return StringUtils.hasText(file.getOriginalFilename()) ? file.getOriginalFilename() : "untitled.txt";
+        return textDocumentReader.requireOriginalFilename(file);
     }
 }

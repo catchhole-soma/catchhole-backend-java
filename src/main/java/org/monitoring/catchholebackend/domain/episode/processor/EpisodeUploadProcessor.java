@@ -404,7 +404,7 @@ public class EpisodeUploadProcessor {
     }
 
     private String resolveOriginalFilename(MultipartFile file) {
-        return StringUtils.hasText(file.getOriginalFilename()) ? file.getOriginalFilename() : "untitled.txt";
+        return textDocumentReader.requireOriginalFilename(file);
     }
 
     private String normalizeTitle(String title) {

@@ -275,9 +275,7 @@ public class EpisodeFileParser {
     }
 
     private String resolveOriginalFilename(MultipartFile sourceFile) {
-        return StringUtils.hasText(sourceFile.getOriginalFilename())
-                ? sourceFile.getOriginalFilename()
-                : "untitled.txt";
+        return textDocumentReader.requireOriginalFilename(sourceFile);
     }
 
     private record EpisodeHeading(int startOffset, int endOffset, int episodeNo, String title) {
