@@ -100,9 +100,10 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 - 후보에 episode가 없으면 첫 등장 회차를 임의로 만들지 않고 `null`을 유지하며, 이후 유효한 회차가 있는 후보가 확정되면 해당 회차로 채웁니다.
 - current fact가 바뀌면 `currentAge`, `currentLevel`과 다섯 JSON snapshot을 모든 current Fact 기준으로 다시 조립해 일괄 교체합니다. 해당 타입의 current Fact가 없거나 숫자 파싱에 실패하면 대응 스냅샷을 `null`로 둡니다.
 
-### 캐릭터 현재 설정 수정·삭제 정책
+### 캐릭터 현재 설정 수정·보관·복구 정책
 
-- 캐릭터 목록과 상세는 `ACTIVE` 상태만 조회합니다. 다른 작품 캐릭터와 `ARCHIVED` 캐릭터는 `CHARACTER_NOT_FOUND / 404`로 응답합니다.
+- 기본 캐릭터 목록과 상세는 `ACTIVE` 상태만 조회합니다. 다른 작품 캐릭터와 `ARCHIVED` 캐릭터의 상세는 `CHARACTER_NOT_FOUND / 404`로 응답합니다.
+- 보관함 목록은 `ARCHIVED` 상태만 조회하며 활성 목록과 동일한 페이지·정렬·첫 등장 회차 표시 계약을 사용합니다.
 - 목록은 `page`(0부터 시작)와 `size`(1~24)를 받아 서버에서 페이징합니다. 기본값은 `page=0`, `size=24`입니다.
 - 페이지 사이 순서가 흔들리지 않도록 `createdAt DESC, id DESC`로 정렬하며,
   `(work_id, status, created_at DESC, id DESC)` 복합 인덱스를 사용합니다.
@@ -115,7 +116,8 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 - 수정 요청은 편집 가능한 현재 설정 전체를 전달합니다. 값이 동일한 Fact는 ID와 원문 근거를 포함해 그대로 유지하고, 기존 current Fact가 요청에서 빠지면 historical로 전환한 뒤 대응 snapshot에서 제거합니다. 화면 편집 범위가 아닌 `TIME` Fact는 요청과 비교하지 않고 유지합니다.
 - 여러 설정 변경과 snapshot 재구성은 같은 트랜잭션에서 처리합니다.
 - 화면의 버튼과 API 동사는 `삭제`이지만 DB 행은 지우지 않습니다. `DELETE` 요청은 `WorkCharacter.status`만 `ACTIVE → ARCHIVED`로 바꾸며 `CharacterFact`, `SettingCandidate`, 원문 근거는 유지합니다.
-- 보관된 캐릭터 목록과 복구 API는 아직 제공하지 않습니다.
+- 복구 요청은 보관 캐릭터 행을 잠금 조회하고 이름 중복을 확인한 뒤 `ARCHIVED → ACTIVE`로 바꿉니다. 보관과 복구 모두 기존 설정 이력과 원문 근거를 수정하지 않습니다.
+- 복구 대상이 이미 활성 상태이거나 다른 작품에 속하면 `CHARACTER_NOT_FOUND / 404`, 작품 안에서 같은 이름이 이미 사용 중이면 `CHARACTER_NAME_DUPLICATED / 409`로 응답합니다.
 
 ### 캐릭터 매칭 상태 기반 confirm 정책
 
@@ -200,8 +202,8 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 
 | 상태 | 의미 | 전이 시점 |
 | --- | --- | --- |
-| `ACTIVE` | 활성 | `WorkCharacter.create()`로 캐릭터 대표 설정을 만들 때 기본값으로 설정됩니다. |
-| `ARCHIVED` | 보관됨 | `WorkCharacter.archive()`로 전환합니다. 복구 API는 아직 정의하지 않았습니다. |
+| `ACTIVE` | 활성 | `WorkCharacter.create()`의 기본값이며 보관함 복구 시 `WorkCharacter.restore()`로 전환합니다. |
+| `ARCHIVED` | 보관됨 | 화면의 삭제 요청에서 `WorkCharacter.archive()`로 전환합니다. |
 
 `SettingCandidateReviewStatus`
 
@@ -437,9 +439,11 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
 | `GET` | `/api/v1/works/{workId}/characters` | `ACTIVE` 캐릭터 카드 목록을 최신 생성순으로 조회합니다. |
+| `GET` | `/api/v1/works/{workId}/characters/archived` | `ARCHIVED` 캐릭터 카드 목록을 최신 생성순으로 조회합니다. |
 | `GET` | `/api/v1/works/{workId}/characters/{characterId}` | 기본 정보와 `PROFILE`, `STAT`, `SKILL`, `ITEM`, `STATUS` current Fact를 사용자용 목록으로 조회합니다. `TIME`과 과거 Fact는 제외합니다. |
 | `PATCH` | `/api/v1/works/{workId}/characters/{characterId}` | 기본 정보와 현재 설정 전체를 수정하고 변경된 설정을 수동 정정 Fact로 기록합니다. |
 | `DELETE` | `/api/v1/works/{workId}/characters/{characterId}` | 삭제 버튼 요청을 처리하되 데이터를 지우지 않고 상태를 `ARCHIVED`로 전환합니다. |
+| `PATCH` | `/api/v1/works/{workId}/characters/{characterId}/restore` | 보관된 캐릭터의 설정 이력을 유지한 채 상태를 `ACTIVE`로 복구합니다. |
 
 상세 설정 항목은 `characterFactId`, canonical `key`, `displayName`, 사용자용 `value`, `valueType`, 복합값의 `properties`, `hasEvidence`를 제공합니다. 기본 정보로 분리해 표시하는 현재 나이와 레벨도 각각 `currentAgeFact`, `currentLevelFact`에 `characterFactId`, `hasEvidence`를 제공하므로 같은 방식으로 원문 근거 진입 여부를 판단할 수 있습니다. raw JSON snapshot은 응답하지 않습니다.
 
@@ -557,7 +561,9 @@ flowchart TD
 상세 처리 기준:
 
 - `getActiveCharacterForUpdate`는 동일 캐릭터의 수정·보관·후보 확정이 동시에 current Fact와 snapshot을 바꾸지 않도록 `WorkCharacter` 행에 pessimistic write lock을 획득합니다. 잠금은 트랜잭션이 커밋되거나 롤백될 때까지 유지됩니다.
+- `getArchivedCharacterForUpdate`도 복구 대상 행을 같은 방식으로 잠금 조회해 동시에 같은 캐릭터를 복구하는 요청을 직렬화합니다.
 - 이름은 앞뒤 공백을 제거한 뒤 `(workId, name, id != characterId)`로 중복 검사합니다. `id != characterId`는 이름을 바꾸지 않고 저장할 때 자기 자신을 중복으로 판단하지 않기 위한 조건입니다. `status` 조건을 두지 않으므로 복구 가능한 `ARCHIVED` 캐릭터의 이름도 작품 내에서 계속 예약됩니다.
+- 복구도 같은 이름 예약 정책을 다시 검증합니다. 정상 API 흐름에서는 보관된 이름이 계속 예약되지만, 과거 데이터나 직접 입력으로 중복 행이 존재해도 활성 캐릭터 두 개를 만들지 않기 위한 방어입니다.
 - 현재 이름 중복 검사는 서비스 조회이며 DB의 `(work_id, name)` unique 제약은 없습니다. 서로 다른 캐릭터 행을 동시에 같은 이름으로 수정하는 경쟁 요청은 각자 다른 행 잠금을 획득하므로 완전히 차단되지 않습니다. DB unique 제약과 제약 위반의 `CHARACTER_NAME_DUPLICATED` 변환은 후속 보완 대상입니다.
 - 첫 등장 회차 번호가 `null`이면 연결을 제거하고, 값이 있으면 반드시 같은 작품의 회차여야 합니다. 이름·역할·첫 등장 회차는 Fact가 아니라 `WorkCharacter` 대표 필드에서 직접 관리합니다.
 - `toDesiredFacts`는 `currentAge`, `currentLevel`, `profile`, `stats`, `skills`, `items`, `statuses`를 `(factType, factKey)` 기준의 목표 상태로 변환합니다. 나이와 레벨은 각각 `(AGE, age)`, `(LEVEL, level)`을 사용하고 나머지 설정은 유형별 key prefix와 요청 내 중복 key를 검증합니다.

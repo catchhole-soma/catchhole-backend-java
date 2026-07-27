@@ -160,6 +160,10 @@ public class WorkCharacter extends BaseEntity {
         this.status = CharacterStatus.ARCHIVED;
     }
 
+    public void restore() {
+        this.status = CharacterStatus.ACTIVE;
+    }
+
     public void updateBasicInfo(String name, String roleLabel) {
         this.name = name;
         this.roleLabel = roleLabel;

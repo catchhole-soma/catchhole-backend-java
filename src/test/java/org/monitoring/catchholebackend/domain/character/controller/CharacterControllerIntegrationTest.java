@@ -1057,6 +1057,96 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("보관함은 보관된 캐릭터만 페이지로 조회한다")
+    void getArchivedCharactersReturnsOnlyArchivedCharacters() throws Exception {
+        workCharacterRepository.saveAndFlush(character(work, "활성 인물", 23, 15));
+        WorkCharacter archivedCharacter = workCharacterRepository.save(character(work, "보관 인물", 30, 8));
+        archivedCharacter.updateFirstAppearanceEpisodeId(firstEpisode.getId());
+        archivedCharacter.archive();
+        workCharacterRepository.saveAndFlush(archivedCharacter);
+
+        mockMvc.perform(get("/api/v1/works/{workId}/characters/archived", work.getId())
+                        .queryParam("page", "0")
+                        .queryParam("size", "12")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].id").value(archivedCharacter.getId().toString()))
+                .andExpect(jsonPath("$.data.content[0].name").value("보관 인물"))
+                .andExpect(jsonPath("$.data.content[0].firstAppearanceEpisodeNo").value(1))
+                .andExpect(jsonPath("$.data.page").value(0))
+                .andExpect(jsonPath("$.data.size").value(12))
+                .andExpect(jsonPath("$.data.totalElements").value(1));
+    }
+
+    @Test
+    @DisplayName("보관 캐릭터를 설정 이력과 함께 활성 상태로 복구한다")
+    void restoreCharacterActivatesCharacterAndKeepsFacts() throws Exception {
+        WorkCharacter character = workCharacterRepository.save(character(work, "수아", 23, 15));
+        CharacterFact fact = currentFact(
+                character,
+                CharacterFactType.STAT,
+                "stats.strength",
+                "42",
+                JsonNodeFactory.instance.objectNode().put("value", 42)
+        );
+        characterFactRepository.saveAndFlush(fact);
+        character.archive();
+        workCharacterRepository.saveAndFlush(character);
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}/restore",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("캐릭터가 복구되었습니다."))
+                .andExpect(jsonPath("$.data.id").value(character.getId().toString()))
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"));
+
+        WorkCharacter restored = workCharacterRepository.findById(character.getId()).orElseThrow();
+        assertThat(restored.getStatus()).isEqualTo(CharacterStatus.ACTIVE);
+        assertThat(characterFactRepository.existsById(fact.getId())).isTrue();
+    }
+
+    @Test
+    @DisplayName("같은 작품에서 이름이 이미 사용 중이면 보관 캐릭터 복구를 거절한다")
+    void restoreCharacterRejectsDuplicatedName() throws Exception {
+        workCharacterRepository.saveAndFlush(character(work, "수아", 23, 15));
+        WorkCharacter archivedCharacter = workCharacterRepository.save(character(work, "수아", 30, 8));
+        archivedCharacter.archive();
+        workCharacterRepository.saveAndFlush(archivedCharacter);
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}/restore",
+                                work.getId(),
+                                archivedCharacter.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("CHARACTER_NAME_DUPLICATED"));
+
+        assertThat(workCharacterRepository.findById(archivedCharacter.getId()).orElseThrow().getStatus())
+                .isEqualTo(CharacterStatus.ARCHIVED);
+    }
+
+    @Test
+    @DisplayName("활성 캐릭터는 복구 대상으로 처리하지 않는다")
+    void restoreCharacterRejectsActiveCharacter() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", 23, 15));
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}/restore",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("CHARACTER_NOT_FOUND"));
+    }
+
+    @Test
     @DisplayName("다른 회원 작품의 캐릭터 조회를 거절한다")
     void getCharactersRejectsOtherMemberWork() throws Exception {
         WorkCharacter otherCharacter = workCharacterRepository.save(character(otherWork, "다른 인물", 40, 20));
@@ -1080,14 +1170,17 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("OpenAPI 문서에 캐릭터 조회와 수정, 삭제 경로를 노출한다")
+    @DisplayName("OpenAPI 문서에 캐릭터 조회와 수정, 보관, 복구 경로를 노출한다")
     void openApiContainsCharacterPaths() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paths['/api/v1/works/{workId}/characters'].get").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/works/{workId}/characters/archived'].get").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/works/{workId}/characters/{characterId}'].get").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/works/{workId}/characters/{characterId}'].patch").exists())
-                .andExpect(jsonPath("$.paths['/api/v1/works/{workId}/characters/{characterId}'].delete").exists());
+                .andExpect(jsonPath("$.paths['/api/v1/works/{workId}/characters/{characterId}'].delete").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/works/{workId}/characters/{characterId}/restore'].patch")
+                        .exists());
     }
 
     private WorkCharacter character(Work ownerWork, String name, Integer age, Integer level) {

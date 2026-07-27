@@ -22,6 +22,7 @@ import org.monitoring.catchholebackend.domain.character.dto.request.CharacterSet
 import org.monitoring.catchholebackend.domain.character.dto.request.CharacterUpdateRequest;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterArchiveResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterDetailResponse;
+import org.monitoring.catchholebackend.domain.character.dto.response.CharacterRestoreResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterSummaryResponse;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
@@ -78,15 +79,38 @@ public class CharacterServiceImpl implements CharacterService {
             int size
     ) {
         Work work = workRepository.getOwnedWork(workId, memberId);
+        return getCharacterPage(work.getId(), CharacterStatus.ACTIVE, page, size);
+    }
+
+    @Override
+    public PageResponse<CharacterSummaryResponse> getArchivedCharacters(
+            Long memberId,
+            UUID workId,
+            int page,
+            int size
+    ) {
+        Work work = workRepository.getOwnedWork(workId, memberId);
+        return getCharacterPage(work.getId(), CharacterStatus.ARCHIVED, page, size);
+    }
+
+    /**
+     * 상태별 캐릭터 카드 목록과 첫 등장 회차 번호를 같은 페이지 계약으로 조립한다.
+     */
+    private PageResponse<CharacterSummaryResponse> getCharacterPage(
+            UUID workId,
+            CharacterStatus status,
+            int page,
+            int size
+    ) {
         Page<WorkCharacter> characters = workCharacterRepository
                 .findAllByWorkIdAndStatusOrderByCreatedAtDescIdDesc(
-                        work.getId(),
-                        CharacterStatus.ACTIVE,
+                        workId,
+                        status,
                         PageRequest.of(page, size)
                 );
         Map<UUID, Integer> firstAppearanceEpisodeNosById = findFirstAppearanceEpisodeNosById(
                 characters.getContent(),
-                work.getId()
+                workId
         );
         return PageResponse.from(
                 characters,
@@ -153,6 +177,22 @@ public class CharacterServiceImpl implements CharacterService {
         return characterMapper.toArchiveResponse(character);
     }
 
+    @Override
+    @Transactional
+    public CharacterRestoreResponse restoreCharacter(Long memberId, UUID workId, UUID characterId) {
+        Work work = workRepository.getOwnedWork(workId, memberId);
+        WorkCharacter character = getArchivedCharacterForUpdate(work.getId(), characterId);
+        if (workCharacterRepository.existsByWorkIdAndNameAndIdNot(
+                work.getId(),
+                character.getName(),
+                characterId
+        )) {
+            throw new AppException(CharacterErrorCode.CHARACTER_NAME_DUPLICATED);
+        }
+        character.restore();
+        return characterMapper.toRestoreResponse(character);
+    }
+
     /**
      * 캐릭터 카드에 표시할 첫 등장 회차 번호를 작품 범위에서 일괄 조회한다.
      */
@@ -188,6 +228,18 @@ public class CharacterServiceImpl implements CharacterService {
                         characterId,
                         workId,
                         CharacterStatus.ACTIVE
+                )
+                .orElseThrow(() -> new AppException(CharacterErrorCode.CHARACTER_NOT_FOUND));
+    }
+
+    /**
+     * 복구 중 동일 캐릭터의 동시 상태 변경을 막기 위해 보관 캐릭터를 비관적 잠금으로 조회한다.
+     */
+    private WorkCharacter getArchivedCharacterForUpdate(UUID workId, UUID characterId) {
+        return workCharacterRepository.findByIdAndWorkIdAndStatusForUpdate(
+                        characterId,
+                        workId,
+                        CharacterStatus.ARCHIVED
                 )
                 .orElseThrow(() -> new AppException(CharacterErrorCode.CHARACTER_NOT_FOUND));
     }

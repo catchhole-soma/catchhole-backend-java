@@ -9,6 +9,7 @@ import org.monitoring.catchholebackend.domain.character.dto.response.CharacterAr
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterDetailResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterEpisodeResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterFactReferenceResponse;
+import org.monitoring.catchholebackend.domain.character.dto.response.CharacterRestoreResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterSettingPropertyResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterSettingResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterSummaryResponse;
@@ -76,6 +77,10 @@ public class CharacterMapper {
 
     public CharacterArchiveResponse toArchiveResponse(WorkCharacter character) {
         return new CharacterArchiveResponse(character.getId(), character.getStatus());
+    }
+
+    public CharacterRestoreResponse toRestoreResponse(WorkCharacter character) {
+        return new CharacterRestoreResponse(character.getId(), character.getStatus());
     }
 
     public CharacterFact toManualFact(

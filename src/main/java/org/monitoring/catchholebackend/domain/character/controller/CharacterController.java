@@ -17,6 +17,7 @@ import org.monitoring.catchholebackend.domain.auth.security.MemberPrincipal;
 import org.monitoring.catchholebackend.domain.character.dto.request.CharacterUpdateRequest;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterArchiveResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterDetailResponse;
+import org.monitoring.catchholebackend.domain.character.dto.response.CharacterRestoreResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterSummaryResponse;
 import org.monitoring.catchholebackend.domain.character.service.CharacterService;
 import org.monitoring.catchholebackend.global.common.response.CommonErrorResponse;
@@ -41,7 +42,7 @@ import org.springframework.web.bind.annotation.RestController;
         value = "/api/v1/works/{workId}/characters",
         produces = MediaType.APPLICATION_JSON_VALUE
 )
-@Tag(name = "Character", description = "작품별 활성 캐릭터 조회, 수정, 삭제 버튼 처리 API")
+@Tag(name = "Character", description = "작품별 캐릭터 조회, 수정, 보관, 복구 API")
 @SecurityRequirement(name = "bearerAuth")
 public class CharacterController {
 
@@ -86,6 +87,48 @@ public class CharacterController {
             int size
     ) {
         return CommonResponse.success(characterService.getCharacters(member.memberId(), workId, page, size));
+    }
+
+    @GetMapping("/archived")
+    @Operation(
+            operationId = "getArchivedCharacters",
+            summary = "보관 캐릭터 목록 조회",
+            description = "본인 작품의 ARCHIVED 캐릭터 카드를 createdAt DESC, id DESC 순서로 페이지 조회합니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "보관 캐릭터 목록 조회 성공"),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "페이지 번호 또는 크기 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "액세스 토큰 없음, 만료 또는 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "작품을 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            )
+    })
+    public CommonResponse<PageResponse<CharacterSummaryResponse>> getArchivedCharacters(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId,
+            @Parameter(description = "0부터 시작하는 페이지 번호", example = "0")
+            @RequestParam(defaultValue = "0")
+            @Min(value = 0, message = "페이지 번호는 0 이상이어야 합니다.")
+            int page,
+            @Parameter(description = "페이지 크기. 1~24 사이로 요청합니다.", example = "12")
+            @RequestParam(defaultValue = "12")
+            @Min(value = 1, message = "페이지 크기는 1 이상이어야 합니다.")
+            @Max(value = 24, message = "페이지 크기는 24 이하여야 합니다.")
+            int size
+    ) {
+        return CommonResponse.success(
+                characterService.getArchivedCharacters(member.memberId(), workId, page, size)
+        );
     }
 
     @GetMapping("/{characterId}")
@@ -183,6 +226,41 @@ public class CharacterController {
         return CommonResponse.success(
                 "캐릭터가 삭제되었습니다.",
                 characterService.archiveCharacter(member.memberId(), workId, characterId)
+        );
+    }
+
+    @PatchMapping("/{characterId}/restore")
+    @Operation(
+            operationId = "restoreCharacter",
+            summary = "보관 캐릭터 복구",
+            description = "보관된 캐릭터의 설정 이력과 원문 근거는 유지한 채 상태를 ARCHIVED에서 ACTIVE로 변경합니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "캐릭터 복구 성공"),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "액세스 토큰 없음, 만료 또는 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "작품 또는 보관 캐릭터를 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "409",
+                    description = "같은 작품 안의 캐릭터 이름 중복",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            )
+    })
+    public CommonResponse<CharacterRestoreResponse> restoreCharacter(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId,
+            @PathVariable UUID characterId
+    ) {
+        return CommonResponse.success(
+                "캐릭터가 복구되었습니다.",
+                characterService.restoreCharacter(member.memberId(), workId, characterId)
         );
     }
 }

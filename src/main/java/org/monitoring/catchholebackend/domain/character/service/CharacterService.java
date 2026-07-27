@@ -4,6 +4,7 @@ import java.util.UUID;
 import org.monitoring.catchholebackend.domain.character.dto.request.CharacterUpdateRequest;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterArchiveResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterDetailResponse;
+import org.monitoring.catchholebackend.domain.character.dto.response.CharacterRestoreResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterSummaryResponse;
 import org.monitoring.catchholebackend.global.common.response.PageResponse;
 
@@ -16,6 +17,12 @@ public interface CharacterService {
      * 첫 등장 회차가 없거나 현재 작품에서 유효하지 않으면 해당 값만 null로 응답한다.
      */
     PageResponse<CharacterSummaryResponse> getCharacters(Long memberId, UUID workId, int page, int size);
+
+    /**
+     * 작품 소유권을 확인한 뒤 보관된 캐릭터 카드 목록을 페이지 단위로 조회한다.
+     * 활성 목록과 같은 고정 정렬과 첫 등장 회차 표시 계약을 사용한다.
+     */
+    PageResponse<CharacterSummaryResponse> getArchivedCharacters(Long memberId, UUID workId, int page, int size);
 
     /**
      * 작품 소유권과 캐릭터 소속을 확인한 뒤 활성 캐릭터의 기본 정보와 현재 설정 전체를 조회한다.
@@ -38,4 +45,10 @@ public interface CharacterService {
      * 화면의 삭제 요청을 처리하되 캐릭터와 설정 이력은 삭제하지 않고 ARCHIVED 상태로 전환한다.
      */
     CharacterArchiveResponse archiveCharacter(Long memberId, UUID workId, UUID characterId);
+
+    /**
+     * 보관된 캐릭터를 잠금 조회한 뒤 설정 이력은 유지한 채 ACTIVE 상태로 복구한다.
+     * 작품 안에서 이름이 이미 사용 중이면 복구하지 않는다.
+     */
+    CharacterRestoreResponse restoreCharacter(Long memberId, UUID workId, UUID characterId);
 }

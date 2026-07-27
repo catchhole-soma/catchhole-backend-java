@@ -15,7 +15,7 @@ public enum CharacterStatus {
 
     /**
      * 캐릭터를 일반 조회/분석 기준에서 제외할 때 사용하는 보관 상태.
-     * WorkCharacter.archive()로 전환하며, 복구 API는 아직 정의하지 않았다.
+     * WorkCharacter.archive()로 전환하고 보관함에서 restore()로 복구한다.
      */
     ARCHIVED("보관됨");
 

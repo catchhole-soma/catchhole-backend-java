@@ -275,6 +275,7 @@ domain/<domain>
 - `WorkCharacter.profileJson`, `statsJson`, `skillsJson`, `itemsJson`, `statusesJson`은 nullable한 `factKey -> current CharacterFact.valueJson` object map이다. confirm마다 전체 current Fact로 다섯 컬럼을 일괄 재구성하며, 빈 그룹은 `null`로 둔다. `REPLACE`와 `UPSERT_BY_NAME` 모두 factKey entry 전체를 교체하고 `valueJson.name`은 식별자로 사용하지 않는다. object deep merge, 삭제/비활성 표현과 나머지 merge policy는 NVM-229 후속 정책으로 둔다. 프로필 후보와 수동 수정도 다른 설정 유형과 같은 이력·snapshot 규칙을 사용한다.
 - 캐릭터 현재 설정 전체 수정은 변경된 `factType + factKey`마다 출처 없는 수동 정정 `CharacterFact`를 새로 만들고 기존 current Fact를 historical로 전환한다. 원본 후보·원문·과거 Fact는 수정하지 않으며 전체 변경과 snapshot 재구성을 한 트랜잭션에서 처리한다.
 - 캐릭터 화면의 삭제 액션은 hard delete가 아니다. `DELETE /api/v1/works/{workId}/characters/{characterId}`는 `WorkCharacter.status`를 `ACTIVE`에서 `ARCHIVED`로 바꾸고 Fact와 근거 데이터를 유지한다. 기본 목록·상세·수정은 `ACTIVE` 캐릭터만 대상으로 한다.
+- 보관함은 `ARCHIVED` 캐릭터만 페이지 조회하며, 복구는 보관 캐릭터를 pessimistic write lock으로 조회한 뒤 이름 중복을 검증하고 `ACTIVE`로 전환한다. 보관·복구는 `CharacterFact`, `SettingCandidate`, 원문 근거를 수정하지 않는다.
 - 별도 migration이나 일괄 backfill 없이, 다음 성공 confirm에서 전체 current Fact를 기준으로 기존 JSON snapshot을 map 또는 `null` 계약에 맞게 정규화한다.
 - `WorkCharacter.firstAppearanceEpisodeId`는 확정 순서가 아니라 가장 이른 업로드 회차 기준으로 유지한다.
 - 화면 표시, 검색, 비교에 자주 쓰는 캐릭터 이름, 역할, 현재 나이, 현재 레벨은 일반 컬럼으로 둔다.
