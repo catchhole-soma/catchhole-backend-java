@@ -354,7 +354,7 @@ public class CharacterServiceImpl implements CharacterService {
     }
 
     /**
-     * 화면에 노출되지 않는 기존 JSON의 예약 value envelope는 보존하고,
+     * 화면에 노출되지 않는 propertyless raw 값과 JSON의 예약 value envelope는 보존하고,
      * 사용자가 전달한 properties만 현재 목표 상태로 재구성한다.
      */
     private JsonNode toDesiredValueJson(
@@ -362,11 +362,10 @@ public class CharacterServiceImpl implements CharacterService {
             CharacterFact currentFact,
             String factValue
     ) {
-        if (request.valueType() == SettingValueType.JSON
-                && request.properties().isEmpty()
+        if (request.properties().isEmpty()
                 && currentFact != null
                 && Objects.equals(currentFact.getFactValue(), factValue)
-                && isPropertylessRawJson(currentFact.getValueJson())) {
+                && isPropertylessRawValue(currentFact.getValueJson())) {
             return currentFact.getValueJson();
         }
 
@@ -383,9 +382,9 @@ public class CharacterServiceImpl implements CharacterService {
     }
 
     /**
-     * 상세 응답의 properties로 복원할 수 없는 raw JSON 표현인지 확인한다.
+     * 상세 응답의 properties로 복원할 수 없는 raw 값 표현인지 확인한다.
      */
-    private boolean isPropertylessRawJson(JsonNode valueJson) {
+    private boolean isPropertylessRawValue(JsonNode valueJson) {
         if (valueJson == null || !valueJson.isObject()) {
             return true;
         }

@@ -669,6 +669,81 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("primitive scalar Fact를 그대로 저장하면 raw 값과 근거를 유지한다")
+    void updateCharacterKeepsPrimitiveScalarFact() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+        JsonNode valueJson = JsonNodeFactory.instance.textNode("여성");
+        SettingCandidate genderCandidate = settingCandidateRepository.save(SettingCandidate.create(
+                work,
+                firstEpisode,
+                UUID.randomUUID(),
+                null,
+                SettingEntityType.CHARACTER,
+                "수아",
+                "profile.gender",
+                "여성",
+                SettingValueType.STRING,
+                valueJson,
+                JsonNodeFactory.instance.arrayNode().add(
+                        JsonNodeFactory.instance.objectNode()
+                                .put("quote", "수아는 여성이었다.")
+                                .put("startOffset", 0)
+                                .put("endOffset", 10)
+                ),
+                new BigDecimal("0.9000"),
+                JsonNodeFactory.instance.objectNode()
+        ));
+        CharacterFact gender = currentFact(
+                character,
+                genderCandidate,
+                CharacterFactType.PROFILE,
+                "profile.gender",
+                "여성",
+                valueJson
+        );
+        characterFactRepository.saveAndFlush(gender);
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "수아",
+                                  "roleLabel": "주인공",
+                                  "currentAge": null,
+                                  "currentLevel": null,
+                                  "firstAppearanceEpisodeNo": null,
+                                  "profile": [
+                                    {
+                                      "key": "profile.gender",
+                                      "value": "여성",
+                                      "valueType": "STRING",
+                                      "properties": []
+                                    }
+                                  ],
+                                  "stats": [],
+                                  "skills": [],
+                                  "items": [],
+                                  "statuses": []
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.profile[0].characterFactId").value(gender.getId().toString()))
+                .andExpect(jsonPath("$.data.profile[0].hasEvidence").value(true));
+
+        List<CharacterFact> savedFacts =
+                characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId());
+        assertThat(savedFacts).hasSize(1);
+        assertThat(savedFacts.getFirst().getId()).isEqualTo(gender.getId());
+        assertThat(savedFacts.getFirst().getValueJson()).isEqualTo(valueJson);
+        assertThat(savedFacts.getFirst().getSettingCandidate().getId()).isEqualTo(genderCandidate.getId());
+    }
+
+    @Test
     @DisplayName("속성 없는 JSON Fact를 그대로 저장하면 raw JSON과 근거를 유지한다")
     void updateCharacterKeepsPropertylessJsonFact() throws Exception {
         WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
