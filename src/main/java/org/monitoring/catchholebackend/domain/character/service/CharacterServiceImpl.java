@@ -120,21 +120,28 @@ public class CharacterServiceImpl implements CharacterService {
                 work.getId(),
                 request.firstAppearanceEpisodeNo()
         );
+        List<CharacterSettingSchema> schemas = characterSettingSchemaRepository
+                .findAllActiveForWork(work.getId());
+        List<CharacterFact> currentFacts = characterFactRepository
+                .findAllByWorkCharacterIdAndIsCurrentTrueOrderByFactTypeAscFactKeyAsc(characterId);
+        Map<FactIdentity, DesiredFact> desiredFacts = toDesiredFacts(request, schemas, currentFacts);
         character.updateBasicInfo(name, normalizeNullableText(request.roleLabel()));
         character.updateFirstAppearanceEpisodeId(
                 firstAppearanceEpisode == null ? null : firstAppearanceEpisode.getId()
         );
 
-        List<CharacterFact> currentFacts = characterFactRepository
-                .findAllByWorkCharacterIdAndIsCurrentTrueOrderByFactTypeAscFactKeyAsc(characterId);
-        Map<FactIdentity, DesiredFact> desiredFacts = toDesiredFacts(request);
         applyManualCorrections(character, currentFacts, desiredFacts);
         characterFactRepository.flush();
 
         List<CharacterFact> updatedCurrentFacts = characterFactRepository
                 .findAllByWorkCharacterIdAndIsCurrentTrueOrderByFactTypeAscFactKeyAsc(characterId);
         replaceSnapshots(character, updatedCurrentFacts);
-        return toDetailResponse(character, firstAppearanceEpisode, updatedCurrentFacts);
+        return characterMapper.toDetailResponse(
+                character,
+                firstAppearanceEpisode,
+                updatedCurrentFacts,
+                schemas
+        );
     }
 
     @Override
@@ -235,7 +242,11 @@ public class CharacterServiceImpl implements CharacterService {
     /**
      * 화면에서 전달한 현재 설정 전체를 Fact 유형과 key로 식별되는 목표 상태로 변환한다.
      */
-    private Map<FactIdentity, DesiredFact> toDesiredFacts(CharacterUpdateRequest request) {
+    private Map<FactIdentity, DesiredFact> toDesiredFacts(
+            CharacterUpdateRequest request,
+            List<CharacterSettingSchema> schemas,
+            List<CharacterFact> currentFacts
+    ) {
         Map<FactIdentity, DesiredFact> desiredFacts = new LinkedHashMap<>();
         if (request.currentAge() != null) {
             addDesiredFact(desiredFacts, integerFact(CharacterFactType.AGE, "age", request.currentAge()));
@@ -243,11 +254,11 @@ public class CharacterServiceImpl implements CharacterService {
         if (request.currentLevel() != null) {
             addDesiredFact(desiredFacts, integerFact(CharacterFactType.LEVEL, "level", request.currentLevel()));
         }
-        addDesiredFacts(desiredFacts, CharacterFactType.PROFILE, request.profile());
-        addDesiredFacts(desiredFacts, CharacterFactType.STAT, request.stats());
-        addDesiredFacts(desiredFacts, CharacterFactType.SKILL, request.skills());
-        addDesiredFacts(desiredFacts, CharacterFactType.ITEM, request.items());
-        addDesiredFacts(desiredFacts, CharacterFactType.STATUS, request.statuses());
+        addDesiredFacts(desiredFacts, CharacterFactType.PROFILE, request.profile(), schemas, currentFacts);
+        addDesiredFacts(desiredFacts, CharacterFactType.STAT, request.stats(), schemas, currentFacts);
+        addDesiredFacts(desiredFacts, CharacterFactType.SKILL, request.skills(), schemas, currentFacts);
+        addDesiredFacts(desiredFacts, CharacterFactType.ITEM, request.items(), schemas, currentFacts);
+        addDesiredFacts(desiredFacts, CharacterFactType.STATUS, request.statuses(), schemas, currentFacts);
         return desiredFacts;
     }
 
@@ -257,7 +268,7 @@ public class CharacterServiceImpl implements CharacterService {
     private DesiredFact integerFact(CharacterFactType factType, String key, Integer value) {
         ObjectNode valueJson = JsonNodeFactory.instance.objectNode();
         valueJson.put("value", value);
-        return new DesiredFact(factType, key, value.toString(), valueJson);
+        return new DesiredFact(factType, key, value.toString(), SettingValueType.NUMBER, valueJson);
     }
 
     /**
@@ -266,19 +277,44 @@ public class CharacterServiceImpl implements CharacterService {
     private void addDesiredFacts(
             Map<FactIdentity, DesiredFact> desiredFacts,
             CharacterFactType factType,
-            List<CharacterSettingUpdateRequest> requests
+            List<CharacterSettingUpdateRequest> requests,
+            List<CharacterSettingSchema> schemas,
+            List<CharacterFact> currentFacts
     ) {
         for (CharacterSettingUpdateRequest request : requests) {
             String key = request.key().trim();
             validateKey(factType, key);
-            JsonNode valueJson = toValueJson(request);
+            validateRegisteredValueType(factType, key, request.valueType(), schemas);
+            String factValue = normalizeNullableText(request.value());
+            CharacterFact currentFact = currentFacts.stream()
+                    .filter(fact -> fact.getFactType() == factType && fact.getFactKey().equals(key))
+                    .findFirst()
+                    .orElse(null);
+            JsonNode valueJson = request.valueType() == SettingValueType.JSON
+                    && request.properties().isEmpty()
+                    && currentFact != null
+                    && Objects.equals(currentFact.getFactValue(), factValue)
+                    && isPropertylessRawJson(currentFact.getValueJson())
+                    ? currentFact.getValueJson()
+                    : toValueJson(request);
             addDesiredFact(desiredFacts, new DesiredFact(
                     factType,
                     key,
-                    normalizeNullableText(request.value()),
+                    factValue,
+                    request.valueType(),
                     valueJson
             ));
         }
+    }
+
+    /**
+     * 상세 응답의 properties로 복원할 수 없는 raw JSON 표현인지 확인한다.
+     */
+    private boolean isPropertylessRawJson(JsonNode valueJson) {
+        if (valueJson == null || !valueJson.isObject()) {
+            return true;
+        }
+        return valueJson.isEmpty() || (valueJson.size() == 1 && valueJson.has("value"));
     }
 
     /**
@@ -292,6 +328,40 @@ public class CharacterServiceImpl implements CharacterService {
         if (requiredPrefix == null || !key.startsWith(requiredPrefix) || key.length() == requiredPrefix.length()) {
             throw new AppException(CharacterErrorCode.CHARACTER_SETTING_KEY_INVALID);
         }
+    }
+
+    /**
+     * 등록된 exact 또는 pattern schema가 있는 key만 요청 값 타입과 일치하는지 검증한다.
+     * 등록되지 않은 수동 custom key는 기존 정책대로 허용한다.
+     */
+    private void validateRegisteredValueType(
+            CharacterFactType factType,
+            String key,
+            SettingValueType valueType,
+            List<CharacterSettingSchema> schemas
+    ) {
+        List<CharacterSettingSchema> matchedSchemas = schemas.stream()
+                .filter(schema -> schema.getFactType() == factType)
+                .filter(schema -> schema.getSchemaKey().trim().equals(key))
+                .toList();
+        if (matchedSchemas.isEmpty()) {
+            matchedSchemas = schemas.stream()
+                    .filter(schema -> schema.getFactType() == factType)
+                    .filter(schema -> matchesPattern(schema.getAttributePattern(), key))
+                    .toList();
+        }
+        if (matchedSchemas.stream().anyMatch(schema -> schema.getValueType() != valueType)) {
+            throw new AppException(CharacterErrorCode.CHARACTER_SETTING_VALUE_TYPE_MISMATCH);
+        }
+    }
+
+    private boolean matchesPattern(String pattern, String key) {
+        if (pattern == null || !pattern.trim().endsWith(".*")) {
+            return false;
+        }
+        String normalizedPattern = pattern.trim();
+        String prefix = normalizedPattern.substring(0, normalizedPattern.length() - 1);
+        return key.startsWith(prefix) && key.length() > prefix.length();
     }
 
     /**
@@ -397,7 +467,7 @@ public class CharacterServiceImpl implements CharacterService {
             CharacterFact currentFact = currentByIdentity.get(entry.getKey());
             DesiredFact desiredFact = entry.getValue();
             if (currentFact == null || !isSameValue(currentFact, desiredFact)) {
-                CharacterFact manualFact = CharacterFact.createManual(
+                CharacterFact manualFact = characterMapper.toManualFact(
                         character,
                         desiredFact.factType(),
                         desiredFact.factKey(),
@@ -412,11 +482,36 @@ public class CharacterServiceImpl implements CharacterService {
     }
 
     /**
-     * 사용자 표시값과 구조화된 JSON 값이 모두 같을 때 동일한 설정값으로 판단한다.
+     * 사용자 표시값과 구조화된 JSON 값이 같거나, 레거시 scalar의 null JSON 표현만 다르면
+     * 동일한 설정값으로 판단한다.
      */
     private boolean isSameValue(CharacterFact currentFact, DesiredFact desiredFact) {
-        return Objects.equals(currentFact.getFactValue(), desiredFact.factValue())
-                && isSameJson(currentFact.getValueJson(), desiredFact.valueJson());
+        if (!Objects.equals(currentFact.getFactValue(), desiredFact.factValue())) {
+            return false;
+        }
+        return isSameJson(currentFact.getValueJson(), desiredFact.valueJson())
+                || isEquivalentLegacyScalar(currentFact, desiredFact);
+    }
+
+    /**
+     * valueJson이 없던 scalar Fact와 요청에서 재조립한 {"value": ...}만 의미상 같게 본다.
+     * JSON 설정이나 추가 속성이 있는 값은 기존의 전체 JSON 비교를 유지한다.
+     */
+    private boolean isEquivalentLegacyScalar(CharacterFact currentFact, DesiredFact desiredFact) {
+        JsonNode currentValueJson = currentFact.getValueJson();
+        JsonNode desiredValueJson = desiredFact.valueJson();
+        if ((currentValueJson != null && !currentValueJson.isNull())
+                || desiredFact.valueType() == SettingValueType.JSON
+                || desiredValueJson == null
+                || !desiredValueJson.isObject()
+                || desiredValueJson.size() != 1
+                || !desiredValueJson.has("value")) {
+            return false;
+        }
+        return isSameJson(
+                desiredValueJson.get("value"),
+                toValueNode(desiredFact.factValue(), desiredFact.valueType())
+        );
     }
 
     /**
@@ -490,6 +585,7 @@ public class CharacterServiceImpl implements CharacterService {
             CharacterFactType factType,
             String factKey,
             String factValue,
+            SettingValueType valueType,
             JsonNode valueJson
     ) {
     }

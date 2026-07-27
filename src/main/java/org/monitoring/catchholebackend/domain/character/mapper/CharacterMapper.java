@@ -78,6 +78,16 @@ public class CharacterMapper {
         return new CharacterArchiveResponse(character.getId(), character.getStatus());
     }
 
+    public CharacterFact toManualFact(
+            WorkCharacter character,
+            CharacterFactType factType,
+            String factKey,
+            String factValue,
+            JsonNode valueJson
+    ) {
+        return CharacterFact.createManual(character, factType, factKey, factValue, valueJson);
+    }
+
     private CharacterEpisodeResponse toEpisodeResponse(Episode episode) {
         if (episode == null) {
             return null;

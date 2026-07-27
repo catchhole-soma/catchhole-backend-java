@@ -7,8 +7,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
@@ -516,6 +516,437 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("등록된 exact와 pattern schema의 값 타입이 다른 직접 수정을 거절한다")
+    void updateCharacterRejectsRegisteredSchemaValueTypeMismatch() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+        List<String> requests = List.of(
+                """
+                        {
+                          "name": "변경될 이름",
+                          "roleLabel": null,
+                          "currentAge": null,
+                          "currentLevel": null,
+                          "firstAppearanceEpisodeNo": null,
+                          "profile": [],
+                          "stats": [
+                            {
+                              "key": "stats.strength",
+                              "value": "42",
+                              "valueType": "STRING",
+                              "properties": []
+                            }
+                          ],
+                          "skills": [],
+                          "items": [],
+                          "statuses": []
+                        }
+                        """,
+                """
+                        {
+                          "name": "변경될 이름",
+                          "roleLabel": null,
+                          "currentAge": null,
+                          "currentLevel": null,
+                          "firstAppearanceEpisodeNo": null,
+                          "profile": [],
+                          "stats": [],
+                          "skills": [
+                            {
+                              "key": "skill.기본 검술",
+                              "value": "Lv.3",
+                              "valueType": "STRING",
+                              "properties": []
+                            }
+                          ],
+                          "items": [],
+                          "statuses": []
+                        }
+                        """
+        );
+
+        for (String request : requests) {
+            mockMvc.perform(patch(
+                                    "/api/v1/works/{workId}/characters/{characterId}",
+                                    work.getId(),
+                                    character.getId()
+                            )
+                            .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(request))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code")
+                            .value("CHARACTER_SETTING_VALUE_TYPE_MISMATCH"));
+        }
+
+        assertThat(workCharacterRepository.findById(character.getId()).orElseThrow().getName()).isEqualTo("수아");
+        assertThat(characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId()))
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("valueJson이 없던 scalar Fact를 그대로 저장하면 Fact와 근거를 유지한다")
+    void updateCharacterKeepsLegacyScalarFactWithoutValueJson() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+        SettingCandidate strengthCandidate = settingCandidateRepository.save(SettingCandidate.create(
+                work,
+                firstEpisode,
+                UUID.randomUUID(),
+                null,
+                SettingEntityType.CHARACTER,
+                "수아",
+                "stats.strength",
+                "42",
+                SettingValueType.NUMBER,
+                null,
+                JsonNodeFactory.instance.arrayNode().add(
+                        JsonNodeFactory.instance.objectNode()
+                                .put("quote", "수아의 근력은 42였다.")
+                                .put("startOffset", 0)
+                                .put("endOffset", 13)
+                ),
+                new BigDecimal("0.9000"),
+                JsonNodeFactory.instance.objectNode()
+        ));
+        CharacterFact strength = currentFact(
+                character,
+                strengthCandidate,
+                CharacterFactType.STAT,
+                "stats.strength",
+                "42",
+                null
+        );
+        characterFactRepository.saveAndFlush(strength);
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "수아",
+                                  "roleLabel": "주인공",
+                                  "currentAge": null,
+                                  "currentLevel": null,
+                                  "firstAppearanceEpisodeNo": null,
+                                  "profile": [],
+                                  "stats": [
+                                    {
+                                      "key": "stats.strength",
+                                      "value": "42",
+                                      "valueType": "NUMBER",
+                                      "properties": []
+                                    }
+                                  ],
+                                  "skills": [],
+                                  "items": [],
+                                  "statuses": []
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.stats[0].characterFactId").value(strength.getId().toString()))
+                .andExpect(jsonPath("$.data.stats[0].hasEvidence").value(true));
+
+        List<CharacterFact> savedFacts =
+                characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId());
+        assertThat(savedFacts).hasSize(1);
+        assertThat(savedFacts.getFirst().getId()).isEqualTo(strength.getId());
+        assertThat(savedFacts.getFirst().isCurrent()).isTrue();
+        assertThat(savedFacts.getFirst().getSettingCandidate().getId()).isEqualTo(strengthCandidate.getId());
+    }
+
+    @Test
+    @DisplayName("속성 없는 JSON Fact를 그대로 저장하면 raw JSON과 근거를 유지한다")
+    void updateCharacterKeepsPropertylessJsonFact() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+        SettingCandidate skillCandidate = settingCandidateRepository.save(SettingCandidate.create(
+                work,
+                firstEpisode,
+                UUID.randomUUID(),
+                null,
+                SettingEntityType.CHARACTER,
+                "수아",
+                "skill.생존 감각",
+                "Lv.3",
+                SettingValueType.JSON,
+                null,
+                JsonNodeFactory.instance.arrayNode().add(
+                        JsonNodeFactory.instance.objectNode()
+                                .put("quote", "수아는 생존 감각을 익혔다.")
+                                .put("startOffset", 0)
+                                .put("endOffset", 16)
+                ),
+                new BigDecimal("0.9000"),
+                JsonNodeFactory.instance.objectNode()
+        ));
+        CharacterFact skill = currentFact(
+                character,
+                skillCandidate,
+                CharacterFactType.SKILL,
+                "skill.생존 감각",
+                "Lv.3",
+                null
+        );
+        characterFactRepository.saveAndFlush(skill);
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(characterUpdateRequest(
+                                "수아 수정",
+                                """
+                                        [
+                                          {
+                                            "key": "skill.생존 감각",
+                                            "value": "Lv.3",
+                                            "valueType": "JSON",
+                                            "properties": []
+                                          }
+                                        ]
+                                        """
+                        )))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.name").value("수아 수정"))
+                .andExpect(jsonPath("$.data.skills[0].characterFactId").value(skill.getId().toString()))
+                .andExpect(jsonPath("$.data.skills[0].hasEvidence").value(true));
+
+        List<CharacterFact> savedFacts =
+                characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId());
+        assertThat(savedFacts).hasSize(1);
+        assertThat(savedFacts.getFirst().getId()).isEqualTo(skill.getId());
+        assertThat(savedFacts.getFirst().getValueJson()).isNull();
+        assertThat(savedFacts.getFirst().getSettingCandidate().getId()).isEqualTo(skillCandidate.getId());
+    }
+
+    @Test
+    @DisplayName("속성 없는 JSON 요청은 기존 value-only object와 primitive raw 값을 보존한다")
+    void updateCharacterKeepsPropertylessObjectAndPrimitiveJson() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+        JsonNode objectValue = JsonNodeFactory.instance.objectNode().set(
+                "value",
+                JsonNodeFactory.instance.objectNode()
+                        .put("name", "숨은 구조")
+                        .put("level", 3)
+        );
+        JsonNode primitiveValue = JsonNodeFactory.instance.numberNode(7);
+        CharacterFact objectFact = currentFact(
+                character,
+                CharacterFactType.SKILL,
+                "skill.객체",
+                "객체 표시값",
+                objectValue
+        );
+        CharacterFact primitiveFact = currentFact(
+                character,
+                CharacterFactType.SKILL,
+                "skill.원시값",
+                "일곱",
+                primitiveValue
+        );
+        characterFactRepository.saveAllAndFlush(List.of(objectFact, primitiveFact));
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(characterUpdateRequest(
+                                "수아",
+                                """
+                                        [
+                                          {
+                                            "key": "skill.객체",
+                                            "value": "객체 표시값",
+                                            "valueType": "JSON",
+                                            "properties": []
+                                          },
+                                          {
+                                            "key": "skill.원시값",
+                                            "value": "일곱",
+                                            "valueType": "JSON",
+                                            "properties": []
+                                          }
+                                        ]
+                                        """
+                        )))
+                .andExpect(status().isOk());
+
+        assertThat(characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId()))
+                .hasSize(2);
+        assertThat(characterFactRepository.findById(objectFact.getId()).orElseThrow().getValueJson())
+                .isEqualTo(objectValue);
+        assertThat(characterFactRepository.findById(primitiveFact.getId()).orElseThrow().getValueJson())
+                .isEqualTo(primitiveValue);
+    }
+
+    @Test
+    @DisplayName("표시 가능한 JSON 속성 제거 요청은 raw object를 보존하지 않는다")
+    void updateCharacterDoesNotKeepVisibleJsonPropertiesWhenRequestIsEmpty() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+        JsonNode visibleObject = JsonNodeFactory.instance.objectNode()
+                .put("name", "생존 감각")
+                .put("level", 3);
+        CharacterFact skill = currentFact(
+                character,
+                CharacterFactType.SKILL,
+                "skill.생존 감각",
+                "Lv.3",
+                visibleObject
+        );
+        characterFactRepository.saveAndFlush(skill);
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(characterUpdateRequest(
+                                "변경될 이름",
+                                """
+                                        [
+                                          {
+                                            "key": "skill.생존 감각",
+                                            "value": "Lv.3",
+                                            "valueType": "JSON",
+                                            "properties": []
+                                          }
+                                        ]
+                                        """
+                        )))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("CHARACTER_SETTING_VALUE_INVALID"));
+
+        assertThat(workCharacterRepository.findById(character.getId()).orElseThrow().getName()).isEqualTo("수아");
+        assertThat(characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId()))
+                .singleElement()
+                .satisfies(savedFact -> {
+                    assertThat(savedFact.getId()).isEqualTo(skill.getId());
+                    assertThat(savedFact.isCurrent()).isTrue();
+                    assertThat(savedFact.getValueJson()).isEqualTo(visibleObject);
+                });
+    }
+
+    @Test
+    @DisplayName("속성 없는 JSON Fact의 opaque 표시값 변경은 부수효과 없이 거절한다")
+    void updateCharacterRejectsChangedOpaqueJsonValue() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+        CharacterFact skill = currentFact(
+                character,
+                CharacterFactType.SKILL,
+                "skill.생존 감각",
+                "Lv.3",
+                null
+        );
+        characterFactRepository.saveAndFlush(skill);
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(characterUpdateRequest(
+                                "변경될 이름",
+                                """
+                                        [
+                                          {
+                                            "key": "skill.생존 감각",
+                                            "value": "Lv.4",
+                                            "valueType": "JSON",
+                                            "properties": []
+                                          }
+                                        ]
+                                        """
+                        )))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("CHARACTER_SETTING_VALUE_INVALID"));
+
+        assertThat(workCharacterRepository.findById(character.getId()).orElseThrow().getName()).isEqualTo("수아");
+        assertThat(characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId()))
+                .singleElement()
+                .satisfies(savedFact -> {
+                    assertThat(savedFact.getId()).isEqualTo(skill.getId());
+                    assertThat(savedFact.isCurrent()).isTrue();
+                    assertThat(savedFact.getValueJson()).isNull();
+                });
+    }
+
+    @Test
+    @DisplayName("표시값이 같아도 구조화 JSON이 달라지면 새 수동 Fact를 만든다")
+    void updateCharacterDetectsStructuredJsonChange() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+        CharacterFact oldSkill = currentFact(
+                character,
+                CharacterFactType.SKILL,
+                "skill.기본 검술",
+                "Lv.3",
+                JsonNodeFactory.instance.objectNode()
+                        .put("name", "기본 검술")
+                        .put("level", 3)
+        );
+        characterFactRepository.saveAndFlush(oldSkill);
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "수아",
+                                  "roleLabel": "주인공",
+                                  "currentAge": null,
+                                  "currentLevel": null,
+                                  "firstAppearanceEpisodeNo": null,
+                                  "profile": [],
+                                  "stats": [],
+                                  "skills": [
+                                    {
+                                      "key": "skill.기본 검술",
+                                      "value": "Lv.3",
+                                      "valueType": "JSON",
+                                      "properties": [
+                                        {"key": "name", "value": "기본 검술", "valueType": "STRING"},
+                                        {"key": "level", "value": "4", "valueType": "NUMBER"}
+                                      ]
+                                    }
+                                  ],
+                                  "items": [],
+                                  "statuses": []
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.skills[0].value").value("Lv.3"))
+                .andExpect(jsonPath("$.data.skills[0].properties[1].value").value("4"));
+
+        List<CharacterFact> savedFacts =
+                characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId());
+        assertThat(savedFacts).hasSize(2);
+        assertThat(characterFactRepository.findById(oldSkill.getId()).orElseThrow().isCurrent()).isFalse();
+        assertThat(savedFacts)
+                .filteredOn(CharacterFact::isCurrent)
+                .singleElement()
+                .satisfies(fact -> {
+                    assertThat(fact.getId()).isNotEqualTo(oldSkill.getId());
+                    assertThat(fact.getValueJson().get("level").asInt()).isEqualTo(4);
+                    assertThat(fact.getSettingCandidate()).isNull();
+                });
+    }
+
+    @Test
     @DisplayName("동일한 현재 설정 재저장은 Fact를 중복 생성하지 않고 TIME Fact를 유지한다")
     void updateCharacterKeepsUnchangedAndTimeFacts() throws Exception {
         WorkCharacter character = workCharacterRepository.save(character(work, "수아", 23, null));
@@ -680,7 +1111,7 @@ class CharacterControllerIntegrationTest {
             CharacterFactType factType,
             String factKey,
             String factValue,
-            ObjectNode valueJson
+            JsonNode valueJson
     ) {
         CharacterFact fact = CharacterFact.createManual(character, factType, factKey, factValue, valueJson);
         fact.markCurrent();
@@ -693,7 +1124,7 @@ class CharacterControllerIntegrationTest {
             CharacterFactType factType,
             String factKey,
             String factValue,
-            ObjectNode valueJson
+            JsonNode valueJson
     ) {
         CharacterFact fact = CharacterFact.create(
                 character,
@@ -733,6 +1164,23 @@ class CharacterControllerIntegrationTest {
                 CharacterSettingSchemaSource.SYSTEM_SEED,
                 true
         );
+    }
+
+    private String characterUpdateRequest(String name, String skills) {
+        return """
+                {
+                  "name": "%s",
+                  "roleLabel": "주인공",
+                  "currentAge": null,
+                  "currentLevel": null,
+                  "firstAppearanceEpisodeNo": null,
+                  "profile": [],
+                  "stats": [],
+                  "skills": %s,
+                  "items": [],
+                  "statuses": []
+                }
+                """.formatted(name, skills);
     }
 
     private String bearer(String token) {
