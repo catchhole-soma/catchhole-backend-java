@@ -52,8 +52,11 @@ public class CharacterSnapshotAssembler {
 
     private Integer resolveInteger(CharacterFact fact) {
         JsonNode valueNode = fact.getValueJson();
-        if (valueNode != null && valueNode.has("value") && valueNode.get("value").canConvertToInt()) {
-            return valueNode.get("value").asInt();
+        if (valueNode != null && valueNode.isObject()) {
+            valueNode = valueNode.get("value");
+        }
+        if (valueNode != null && valueNode.canConvertToInt()) {
+            return valueNode.asInt();
         }
         String value = fact.getFactValue();
         if (value == null) {

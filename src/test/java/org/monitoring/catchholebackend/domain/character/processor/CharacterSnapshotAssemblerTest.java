@@ -71,14 +71,35 @@ class CharacterSnapshotAssemblerTest {
         assertThat(snapshot.profileJson().get("profile.gender")).isEqualTo(gender);
     }
 
+    @Test
+    @DisplayName("primitive 숫자 AGE와 LEVEL Fact를 대표 snapshot으로 조립한다")
+    void assembleBuildsCoreSnapshotsFromPrimitiveNumbers() {
+        CharacterSnapshot snapshot = assembler.assemble(List.of(
+                fact(CharacterFactType.AGE, "age", "23세", objectMapper.getNodeFactory().numberNode(23)),
+                fact(CharacterFactType.LEVEL, "level", "15.0", objectMapper.getNodeFactory().numberNode(15))
+        ));
+
+        assertThat(snapshot.currentAge()).isEqualTo(23);
+        assertThat(snapshot.currentLevel()).isEqualTo(15);
+    }
+
     private CharacterFact fact(CharacterFactType factType, String factKey, JsonNode valueJson) {
+        return fact(factType, factKey, null, valueJson);
+    }
+
+    private CharacterFact fact(
+            CharacterFactType factType,
+            String factKey,
+            String factValue,
+            JsonNode valueJson
+    ) {
         return CharacterFact.create(
                 null,
                 null,
                 factType,
                 factKey,
-                null,
-                null,
+                factValue,
+                factValue,
                 valueJson,
                 null,
                 null,

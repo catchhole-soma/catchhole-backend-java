@@ -369,13 +369,15 @@ public class CharacterServiceImpl implements CharacterService {
             return currentFact.getValueJson();
         }
 
-        JsonNode valueJson = toValueJson(request);
-        if (request.valueType() == SettingValueType.JSON
-                && !request.properties().isEmpty()
+        boolean preserveCurrentValue = !request.properties().isEmpty()
                 && currentFact != null
                 && currentFact.getValueJson() != null
                 && currentFact.getValueJson().isObject()
-                && currentFact.getValueJson().has("value")) {
+                && currentFact.getValueJson().has("value")
+                && (request.valueType() == SettingValueType.JSON
+                    || Objects.equals(currentFact.getFactValue(), factValue));
+        JsonNode valueJson = toValueJson(request, !preserveCurrentValue);
+        if (preserveCurrentValue) {
             ((ObjectNode) valueJson).set("value", currentFact.getValueJson().get("value"));
         }
         return valueJson;
@@ -457,7 +459,10 @@ public class CharacterServiceImpl implements CharacterService {
     /**
      * 단일 값 또는 속성 목록을 요청에 선언된 값 유형에 맞는 JSON 객체로 변환한다.
      */
-    private JsonNode toValueJson(CharacterSettingUpdateRequest request) {
+    private JsonNode toValueJson(
+            CharacterSettingUpdateRequest request,
+            boolean includePrimaryValue
+    ) {
         if (request.properties().isEmpty()) {
             ObjectNode valueJson = JsonNodeFactory.instance.objectNode();
             valueJson.set("value", toValueNode(request.value(), request.valueType()));
@@ -465,7 +470,7 @@ public class CharacterServiceImpl implements CharacterService {
         }
 
         ObjectNode valueJson = JsonNodeFactory.instance.objectNode();
-        if (request.valueType() != SettingValueType.JSON) {
+        if (includePrimaryValue && request.valueType() != SettingValueType.JSON) {
             valueJson.set("value", toValueNode(request.value(), request.valueType()));
         }
         Set<String> keys = new HashSet<>();

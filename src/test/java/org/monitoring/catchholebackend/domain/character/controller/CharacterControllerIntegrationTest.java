@@ -744,6 +744,92 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("공개 속성이 있는 scalar value envelope를 그대로 저장하면 Fact와 근거를 유지한다")
+    void updateCharacterKeepsScalarValueEnvelopeWithProperties() throws Exception {
+        characterSettingSchemaRepository.save(settingSchema(
+                "profile.active",
+                null,
+                "활성 여부",
+                CharacterFactType.PROFILE,
+                SettingValueType.BOOLEAN
+        ));
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+        ObjectNode valueJson = JsonNodeFactory.instance.objectNode()
+                .put("value", true)
+                .put("name", "활성 여부");
+        SettingCandidate activeCandidate = settingCandidateRepository.save(SettingCandidate.create(
+                work,
+                firstEpisode,
+                UUID.randomUUID(),
+                null,
+                SettingEntityType.CHARACTER,
+                "수아",
+                "profile.active",
+                "활성",
+                SettingValueType.BOOLEAN,
+                valueJson,
+                JsonNodeFactory.instance.arrayNode().add(
+                        JsonNodeFactory.instance.objectNode()
+                                .put("quote", "수아는 현재 활동 중이다.")
+                                .put("startOffset", 0)
+                                .put("endOffset", 13)
+                ),
+                new BigDecimal("0.9000"),
+                JsonNodeFactory.instance.objectNode()
+        ));
+        CharacterFact active = currentFact(
+                character,
+                activeCandidate,
+                CharacterFactType.PROFILE,
+                "profile.active",
+                "활성",
+                valueJson
+        );
+        characterFactRepository.saveAndFlush(active);
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "수아",
+                                  "roleLabel": "주인공",
+                                  "currentAge": null,
+                                  "currentLevel": null,
+                                  "firstAppearanceEpisodeNo": null,
+                                  "profile": [
+                                    {
+                                      "key": "profile.active",
+                                      "value": "활성",
+                                      "valueType": "BOOLEAN",
+                                      "properties": [
+                                        {"key": "name", "value": "활성 여부", "valueType": "STRING"}
+                                      ]
+                                    }
+                                  ],
+                                  "stats": [],
+                                  "skills": [],
+                                  "items": [],
+                                  "statuses": []
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.profile[0].characterFactId").value(active.getId().toString()))
+                .andExpect(jsonPath("$.data.profile[0].hasEvidence").value(true));
+
+        List<CharacterFact> savedFacts =
+                characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId());
+        assertThat(savedFacts).hasSize(1);
+        assertThat(savedFacts.getFirst().getId()).isEqualTo(active.getId());
+        assertThat(savedFacts.getFirst().getValueJson()).isEqualTo(valueJson);
+        assertThat(savedFacts.getFirst().getSettingCandidate().getId()).isEqualTo(activeCandidate.getId());
+    }
+
+    @Test
     @DisplayName("속성 없는 JSON Fact를 그대로 저장하면 raw JSON과 근거를 유지한다")
     void updateCharacterKeepsPropertylessJsonFact() throws Exception {
         WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
