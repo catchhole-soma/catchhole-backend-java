@@ -412,7 +412,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 `CharacterFactRepository`
 
 - `findAllByWorkCharacterIdOrderByCreatedAtDesc(characterId)`
-- `findAllByWorkCharacterIdAndIsCurrentTrueOrderByFactTypeAscFactKeyAsc(characterId)`
+- `findAllByWorkCharacterIdAndIsCurrentTrueOrderByFactTypeAscFactKeyAsc(characterId)`: 상세 응답의 `hasEvidence` 계산이 Fact마다 추가 조회를 만들지 않도록 `settingCandidate`를 entity graph로 함께 조회합니다.
 - `findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(characterId, factType, factKey)`
 
 `CharacterSettingSchemaRepository`
