@@ -55,8 +55,12 @@ public class CharacterSnapshotAssembler {
         if (valueNode != null && valueNode.isObject()) {
             valueNode = valueNode.get("value");
         }
-        if (valueNode != null && valueNode.canConvertToInt()) {
-            return valueNode.asInt();
+        if (valueNode != null && valueNode.isNumber()) {
+            if (valueNode.canConvertToInt()
+                    && valueNode.decimalValue().stripTrailingZeros().scale() <= 0) {
+                return valueNode.asInt();
+            }
+            return null;
         }
         String value = fact.getFactValue();
         if (value == null) {

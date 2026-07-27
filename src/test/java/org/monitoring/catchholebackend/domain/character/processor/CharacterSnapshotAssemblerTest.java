@@ -83,6 +83,23 @@ class CharacterSnapshotAssemblerTest {
         assertThat(snapshot.currentLevel()).isEqualTo(15);
     }
 
+    @Test
+    @DisplayName("소수 AGE와 LEVEL Fact를 정수 snapshot으로 절삭하지 않는다")
+    void assembleDoesNotTruncateFractionalCoreNumbers() {
+        CharacterSnapshot snapshot = assembler.assemble(List.of(
+                fact(CharacterFactType.AGE, "age", "23", objectMapper.getNodeFactory().numberNode(23.5)),
+                fact(
+                        CharacterFactType.LEVEL,
+                        "level",
+                        "15",
+                        objectMapper.createObjectNode().put("value", 15.5)
+                )
+        ));
+
+        assertThat(snapshot.currentAge()).isNull();
+        assertThat(snapshot.currentLevel()).isNull();
+    }
+
     private CharacterFact fact(CharacterFactType factType, String factKey, JsonNode valueJson) {
         return fact(factType, factKey, null, valueJson);
     }

@@ -336,13 +336,23 @@ public class CharacterServiceImpl implements CharacterService {
         for (CharacterSettingUpdateRequest request : requests) {
             String key = request.key().trim();
             validateKey(factType, key, schemas);
-            validateRegisteredValueType(factType, key, request.valueType(), schemas);
+            boolean hasRegisteredSchema = validateRegisteredValueType(
+                    factType,
+                    key,
+                    request.valueType(),
+                    schemas
+            );
             String factValue = normalizeNullableText(request.value());
             CharacterFact currentFact = currentFacts.stream()
                     .filter(fact -> fact.getFactType() == factType && fact.getFactKey().equals(key))
                     .findFirst()
                     .orElse(null);
-            JsonNode valueJson = toDesiredValueJson(request, currentFact, factValue);
+            JsonNode valueJson = toDesiredValueJson(
+                    request,
+                    currentFact,
+                    factValue,
+                    hasRegisteredSchema
+            );
             addDesiredFact(desiredFacts, new DesiredFact(
                     factType,
                     key,
@@ -360,12 +370,17 @@ public class CharacterServiceImpl implements CharacterService {
     private JsonNode toDesiredValueJson(
             CharacterSettingUpdateRequest request,
             CharacterFact currentFact,
-            String factValue
+            String factValue,
+            boolean hasRegisteredSchema
     ) {
         if (request.properties().isEmpty()
                 && currentFact != null
                 && Objects.equals(currentFact.getFactValue(), factValue)
-                && isPropertylessRawValue(currentFact.getValueJson())) {
+                && isPropertylessRawValue(currentFact.getValueJson())
+                && (hasRegisteredSchema || matchesValueType(
+                        currentFact.getValueJson(),
+                        request.valueType()
+                ))) {
             return currentFact.getValueJson();
         }
 
@@ -394,6 +409,26 @@ public class CharacterServiceImpl implements CharacterService {
     }
 
     /**
+     * schema가 없는 raw 값은 저장 JSON에서 추론한 타입과 요청 타입이 같을 때만 보존한다.
+     */
+    private boolean matchesValueType(JsonNode valueJson, SettingValueType valueType) {
+        JsonNode valueNode = valueJson;
+        if (valueJson != null && valueJson.isObject() && valueJson.has("value")) {
+            valueNode = valueJson.get("value");
+        }
+        if (valueNode == null || valueNode.isNull()) {
+            return valueType == SettingValueType.UNKNOWN;
+        }
+        return switch (valueType) {
+            case STRING -> valueNode.isTextual();
+            case NUMBER -> valueNode.isNumber();
+            case BOOLEAN -> valueNode.isBoolean();
+            case JSON -> valueNode.isContainerNode();
+            case UNKNOWN -> false;
+        };
+    }
+
+    /**
      * 등록된 exact schema key를 우선 허용하고, custom key는 Fact 유형별 prefix 규칙을 검증한다.
      */
     private void validateKey(
@@ -414,9 +449,9 @@ public class CharacterServiceImpl implements CharacterService {
 
     /**
      * 등록된 exact 또는 pattern schema가 있는 key만 요청 값 타입과 일치하는지 검증한다.
-     * 등록되지 않은 수동 custom key는 기존 정책대로 허용한다.
+     * 등록되지 않은 수동 custom key는 기존 정책대로 허용하고 schema 존재 여부를 반환한다.
      */
-    private void validateRegisteredValueType(
+    private boolean validateRegisteredValueType(
             CharacterFactType factType,
             String key,
             SettingValueType valueType,
@@ -435,6 +470,7 @@ public class CharacterServiceImpl implements CharacterService {
         if (matchedSchemas.stream().anyMatch(schema -> schema.getValueType() != valueType)) {
             throw new AppException(CharacterErrorCode.CHARACTER_SETTING_VALUE_TYPE_MISMATCH);
         }
+        return !matchedSchemas.isEmpty();
     }
 
     private boolean matchesPattern(String pattern, String key) {

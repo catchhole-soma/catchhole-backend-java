@@ -744,6 +744,66 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("schema가 없는 custom 설정의 타입 변경을 저장한다")
+    void updateCharacterChangesSchemaLessCustomValueType() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+        CharacterFact score = currentFact(
+                character,
+                CharacterFactType.STAT,
+                "stats.custom_score",
+                "42",
+                JsonNodeFactory.instance.numberNode(42)
+        );
+        characterFactRepository.saveAndFlush(score);
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "수아",
+                                  "roleLabel": "주인공",
+                                  "currentAge": null,
+                                  "currentLevel": null,
+                                  "firstAppearanceEpisodeNo": null,
+                                  "profile": [],
+                                  "stats": [
+                                    {
+                                      "key": "stats.custom_score",
+                                      "value": "42",
+                                      "valueType": "STRING",
+                                      "properties": []
+                                    }
+                                  ],
+                                  "skills": [],
+                                  "items": [],
+                                  "statuses": []
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.stats[0].valueType").value("STRING"));
+
+        CharacterFact historicalScore = characterFactRepository.findById(score.getId()).orElseThrow();
+        assertThat(historicalScore.isCurrent()).isFalse();
+
+        List<CharacterFact> savedFacts =
+                characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId());
+        assertThat(savedFacts).hasSize(2);
+        assertThat(savedFacts)
+                .filteredOn(CharacterFact::isCurrent)
+                .singleElement()
+                .satisfies(currentScore -> {
+                    assertThat(currentScore.getId()).isNotEqualTo(score.getId());
+                    assertThat(currentScore.getValueJson())
+                            .isEqualTo(JsonNodeFactory.instance.objectNode().put("value", "42"));
+                });
+    }
+
+    @Test
     @DisplayName("공개 속성이 있는 scalar value envelope를 그대로 저장하면 Fact와 근거를 유지한다")
     void updateCharacterKeepsScalarValueEnvelopeWithProperties() throws Exception {
         characterSettingSchemaRepository.save(settingSchema(
