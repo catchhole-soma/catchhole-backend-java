@@ -43,7 +43,7 @@ public class WorkController {
     @Operation(
             operationId = "createWork",
             summary = "내 작품 생성",
-            description = "로그인한 사용자의 새 작품을 제목, 선택형 20자 한 줄 소개와 MVP 고정 장르로 등록합니다. "
+            description = "로그인한 사용자의 새 작품을 제목, 선택형 50자 한 줄 소개와 MVP 고정 장르로 등록합니다. "
                     + "회차 업로드와 독립된 요청이며 최신 회차 번호는 0으로 초기화합니다."
     )
     @ApiResponses({
