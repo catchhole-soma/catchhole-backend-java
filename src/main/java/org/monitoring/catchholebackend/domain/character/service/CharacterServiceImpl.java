@@ -335,20 +335,14 @@ public class CharacterServiceImpl implements CharacterService {
     ) {
         for (CharacterSettingUpdateRequest request : requests) {
             String key = request.key().trim();
-            validateKey(factType, key);
+            validateKey(factType, key, schemas);
             validateRegisteredValueType(factType, key, request.valueType(), schemas);
             String factValue = normalizeNullableText(request.value());
             CharacterFact currentFact = currentFacts.stream()
                     .filter(fact -> fact.getFactType() == factType && fact.getFactKey().equals(key))
                     .findFirst()
                     .orElse(null);
-            JsonNode valueJson = request.valueType() == SettingValueType.JSON
-                    && request.properties().isEmpty()
-                    && currentFact != null
-                    && Objects.equals(currentFact.getFactValue(), factValue)
-                    && isPropertylessRawJson(currentFact.getValueJson())
-                    ? currentFact.getValueJson()
-                    : toValueJson(request);
+            JsonNode valueJson = toDesiredValueJson(request, currentFact, factValue);
             addDesiredFact(desiredFacts, new DesiredFact(
                     factType,
                     key,
@@ -357,6 +351,35 @@ public class CharacterServiceImpl implements CharacterService {
                     valueJson
             ));
         }
+    }
+
+    /**
+     * 화면에 노출되지 않는 기존 JSON의 예약 value envelope는 보존하고,
+     * 사용자가 전달한 properties만 현재 목표 상태로 재구성한다.
+     */
+    private JsonNode toDesiredValueJson(
+            CharacterSettingUpdateRequest request,
+            CharacterFact currentFact,
+            String factValue
+    ) {
+        if (request.valueType() == SettingValueType.JSON
+                && request.properties().isEmpty()
+                && currentFact != null
+                && Objects.equals(currentFact.getFactValue(), factValue)
+                && isPropertylessRawJson(currentFact.getValueJson())) {
+            return currentFact.getValueJson();
+        }
+
+        JsonNode valueJson = toValueJson(request);
+        if (request.valueType() == SettingValueType.JSON
+                && !request.properties().isEmpty()
+                && currentFact != null
+                && currentFact.getValueJson() != null
+                && currentFact.getValueJson().isObject()
+                && currentFact.getValueJson().has("value")) {
+            ((ObjectNode) valueJson).set("value", currentFact.getValueJson().get("value"));
+        }
+        return valueJson;
     }
 
     /**
@@ -370,10 +393,16 @@ public class CharacterServiceImpl implements CharacterService {
     }
 
     /**
-     * 설정 key가 Fact 유형별 예약 prefix 규칙을 따르는지 검증한다.
+     * 등록된 exact schema key를 우선 허용하고, custom key는 Fact 유형별 prefix 규칙을 검증한다.
      */
-    private void validateKey(CharacterFactType factType, String key) {
-        if (factType == CharacterFactType.PROFILE && key.equals("profile")) {
+    private void validateKey(
+            CharacterFactType factType,
+            String key,
+            List<CharacterSettingSchema> schemas
+    ) {
+        boolean registeredExactKey = schemas.stream()
+                .anyMatch(schema -> schema.getFactType() == factType && schema.getSchemaKey().trim().equals(key));
+        if (registeredExactKey || (factType == CharacterFactType.PROFILE && key.equals("profile"))) {
             return;
         }
         String requiredPrefix = KEY_PREFIXES.get(factType);
@@ -534,15 +563,53 @@ public class CharacterServiceImpl implements CharacterService {
     }
 
     /**
-     * 사용자 표시값과 구조화된 JSON 값이 같거나, 레거시 scalar의 null JSON 표현만 다르면
-     * 동일한 설정값으로 판단한다.
+     * AGE/LEVEL은 구조화된 숫자를 우선 비교하고, 나머지는 표시값과 JSON 전체가 같거나
+     * 레거시 scalar의 null JSON 표현만 다르면 동일한 설정값으로 판단한다.
      */
     private boolean isSameValue(CharacterFact currentFact, DesiredFact desiredFact) {
+        if (isCoreNumericFact(currentFact.getFactType())) {
+            BigDecimal currentNumber = resolveFactNumber(
+                    currentFact.getValueJson(),
+                    currentFact.getFactValue()
+            );
+            BigDecimal desiredNumber = resolveFactNumber(
+                    desiredFact.valueJson(),
+                    desiredFact.factValue()
+            );
+            if (currentNumber != null && desiredNumber != null) {
+                return currentNumber.compareTo(desiredNumber) == 0;
+            }
+        }
         if (!Objects.equals(currentFact.getFactValue(), desiredFact.factValue())) {
             return false;
         }
         return isSameJson(currentFact.getValueJson(), desiredFact.valueJson())
                 || isEquivalentLegacyScalar(currentFact, desiredFact);
+    }
+
+    private boolean isCoreNumericFact(CharacterFactType factType) {
+        return factType == CharacterFactType.AGE || factType == CharacterFactType.LEVEL;
+    }
+
+    /**
+     * AGE/LEVEL snapshot의 기준인 valueJson.value를 우선 사용하고, 없으면 표시값을 숫자로 해석한다.
+     */
+    private BigDecimal resolveFactNumber(JsonNode valueJson, String factValue) {
+        JsonNode valueNode = valueJson;
+        if (valueNode != null && valueNode.isObject()) {
+            valueNode = valueNode.get("value");
+        }
+        if (valueNode != null && valueNode.isNumber()) {
+            return valueNode.decimalValue();
+        }
+        if (factValue == null) {
+            return null;
+        }
+        try {
+            return new BigDecimal(factValue.trim());
+        } catch (NumberFormatException exception) {
+            return null;
+        }
     }
 
     /**

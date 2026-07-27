@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
@@ -732,6 +733,266 @@ class CharacterControllerIntegrationTest {
         assertThat(savedFacts.getFirst().getId()).isEqualTo(skill.getId());
         assertThat(savedFacts.getFirst().getValueJson()).isNull();
         assertThat(savedFacts.getFirst().getSettingCandidate().getId()).isEqualTo(skillCandidate.getId());
+    }
+
+    @Test
+    @DisplayName("Registry의 canonical 설정 key를 그대로 저장해도 현재 Fact를 유지한다")
+    void updateCharacterAcceptsCanonicalRegistryKeys() throws Exception {
+        characterSettingSchemaRepository.saveAll(List.of(
+                settingSchema("items.item", "item.*", "아이템", CharacterFactType.ITEM, SettingValueType.JSON),
+                settingSchema(
+                        "statuses.condition",
+                        "status.*",
+                        "상태",
+                        CharacterFactType.STATUS,
+                        SettingValueType.JSON
+                )
+        ));
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+        CharacterFact skill = currentFact(
+                character,
+                CharacterFactType.SKILL,
+                "skills.skill",
+                "검술",
+                JsonNodeFactory.instance.objectNode().put("name", "검술")
+        );
+        CharacterFact item = currentFact(
+                character,
+                CharacterFactType.ITEM,
+                "items.item",
+                "치유 물약",
+                JsonNodeFactory.instance.objectNode().put("name", "치유 물약")
+        );
+        CharacterFact status = currentFact(
+                character,
+                CharacterFactType.STATUS,
+                "statuses.condition",
+                "부상",
+                JsonNodeFactory.instance.objectNode().put("name", "부상")
+        );
+        characterFactRepository.saveAllAndFlush(List.of(skill, item, status));
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "수아",
+                                  "roleLabel": "주인공",
+                                  "currentAge": null,
+                                  "currentLevel": null,
+                                  "firstAppearanceEpisodeNo": null,
+                                  "profile": [],
+                                  "stats": [],
+                                  "skills": [
+                                    {
+                                      "key": "skills.skill",
+                                      "value": "검술",
+                                      "valueType": "JSON",
+                                      "properties": [
+                                        {"key": "name", "value": "검술", "valueType": "STRING"}
+                                      ]
+                                    }
+                                  ],
+                                  "items": [
+                                    {
+                                      "key": "items.item",
+                                      "value": "치유 물약",
+                                      "valueType": "JSON",
+                                      "properties": [
+                                        {"key": "name", "value": "치유 물약", "valueType": "STRING"}
+                                      ]
+                                    }
+                                  ],
+                                  "statuses": [
+                                    {
+                                      "key": "statuses.condition",
+                                      "value": "부상",
+                                      "valueType": "JSON",
+                                      "properties": [
+                                        {"key": "name", "value": "부상", "valueType": "STRING"}
+                                      ]
+                                    }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.skills[0].characterFactId").value(skill.getId().toString()))
+                .andExpect(jsonPath("$.data.items[0].characterFactId").value(item.getId().toString()))
+                .andExpect(jsonPath("$.data.statuses[0].characterFactId").value(status.getId().toString()));
+
+        assertThat(characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId()))
+                .hasSize(3)
+                .allMatch(CharacterFact::isCurrent);
+    }
+
+    @Test
+    @DisplayName("공개 속성과 함께 저장된 JSON value envelope를 그대로 저장하면 Fact와 근거를 유지한다")
+    void updateCharacterKeepsJsonValueEnvelopeWithProperties() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+        ObjectNode valueJson = JsonNodeFactory.instance.objectNode();
+        valueJson.set("value", JsonNodeFactory.instance.objectNode().put("power", 3));
+        valueJson.put("name", "검술");
+        SettingCandidate skillCandidate = settingCandidateRepository.save(SettingCandidate.create(
+                work,
+                firstEpisode,
+                UUID.randomUUID(),
+                null,
+                SettingEntityType.CHARACTER,
+                "수아",
+                "skill.검술",
+                "검술",
+                SettingValueType.JSON,
+                valueJson,
+                JsonNodeFactory.instance.arrayNode().add(
+                        JsonNodeFactory.instance.objectNode()
+                                .put("quote", "수아는 검술을 익혔다.")
+                                .put("startOffset", 0)
+                                .put("endOffset", 12)
+                ),
+                new BigDecimal("0.9000"),
+                JsonNodeFactory.instance.objectNode()
+        ));
+        CharacterFact skill = currentFact(
+                character,
+                skillCandidate,
+                CharacterFactType.SKILL,
+                "skill.검술",
+                "검술",
+                valueJson
+        );
+        characterFactRepository.saveAndFlush(skill);
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(characterUpdateRequest(
+                                "수아",
+                                """
+                                        [
+                                          {
+                                            "key": "skill.검술",
+                                            "value": "검술",
+                                            "valueType": "JSON",
+                                            "properties": [
+                                              {"key": "name", "value": "검술", "valueType": "STRING"}
+                                            ]
+                                          }
+                                        ]
+                                        """
+                        )))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.skills[0].characterFactId").value(skill.getId().toString()))
+                .andExpect(jsonPath("$.data.skills[0].hasEvidence").value(true));
+
+        List<CharacterFact> savedFacts =
+                characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId());
+        assertThat(savedFacts).hasSize(1);
+        assertThat(savedFacts.getFirst().getId()).isEqualTo(skill.getId());
+        assertThat(savedFacts.getFirst().getValueJson()).isEqualTo(valueJson);
+        assertThat(savedFacts.getFirst().getSettingCandidate().getId()).isEqualTo(skillCandidate.getId());
+    }
+
+    @Test
+    @DisplayName("AGE와 LEVEL의 표시 문자열이 달라도 숫자가 같으면 Fact와 근거를 유지한다")
+    void updateCharacterKeepsCoreNumericFactsByNumericValue() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", 23, 15));
+        SettingCandidate ageCandidate = settingCandidateRepository.save(SettingCandidate.create(
+                work,
+                firstEpisode,
+                UUID.randomUUID(),
+                null,
+                SettingEntityType.CHARACTER,
+                "수아",
+                "age",
+                "23세",
+                SettingValueType.NUMBER,
+                JsonNodeFactory.instance.objectNode().put("value", 23),
+                JsonNodeFactory.instance.arrayNode().add(
+                        JsonNodeFactory.instance.objectNode()
+                                .put("quote", "수아는 스물세 살이었다.")
+                                .put("startOffset", 0)
+                                .put("endOffset", 14)
+                ),
+                new BigDecimal("0.9000"),
+                JsonNodeFactory.instance.objectNode()
+        ));
+        SettingCandidate levelCandidate = settingCandidateRepository.save(SettingCandidate.create(
+                work,
+                firstEpisode,
+                UUID.randomUUID(),
+                null,
+                SettingEntityType.CHARACTER,
+                "수아",
+                "level",
+                "15.0",
+                SettingValueType.NUMBER,
+                JsonNodeFactory.instance.objectNode().put("value", 15),
+                JsonNodeFactory.instance.arrayNode().add(
+                        JsonNodeFactory.instance.objectNode()
+                                .put("quote", "수아의 레벨은 15였다.")
+                                .put("startOffset", 0)
+                                .put("endOffset", 13)
+                ),
+                new BigDecimal("0.9000"),
+                JsonNodeFactory.instance.objectNode()
+        ));
+        CharacterFact age = currentFact(
+                character,
+                ageCandidate,
+                CharacterFactType.AGE,
+                "age",
+                "23세",
+                JsonNodeFactory.instance.objectNode().put("value", 23)
+        );
+        CharacterFact level = currentFact(
+                character,
+                levelCandidate,
+                CharacterFactType.LEVEL,
+                "level",
+                "15.0",
+                JsonNodeFactory.instance.objectNode().put("value", 15)
+        );
+        characterFactRepository.saveAllAndFlush(List.of(age, level));
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "수아",
+                                  "roleLabel": "주인공",
+                                  "currentAge": 23,
+                                  "currentLevel": 15,
+                                  "firstAppearanceEpisodeNo": null,
+                                  "profile": [],
+                                  "stats": [],
+                                  "skills": [],
+                                  "items": [],
+                                  "statuses": []
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.currentAgeFact.characterFactId").value(age.getId().toString()))
+                .andExpect(jsonPath("$.data.currentAgeFact.hasEvidence").value(true))
+                .andExpect(jsonPath("$.data.currentLevelFact.characterFactId").value(level.getId().toString()))
+                .andExpect(jsonPath("$.data.currentLevelFact.hasEvidence").value(true));
+
+        assertThat(characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId()))
+                .hasSize(2)
+                .allMatch(CharacterFact::isCurrent);
     }
 
     @Test
