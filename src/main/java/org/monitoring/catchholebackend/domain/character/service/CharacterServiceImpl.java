@@ -133,7 +133,7 @@ public class CharacterServiceImpl implements CharacterService {
             UUID characterId,
             CharacterUpdateRequest request
     ) {
-        Work work = workRepository.getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         WorkCharacter character = getActiveCharacterForUpdate(work.getId(), characterId);
         String name = request.name().trim();
         if (workCharacterRepository.existsByWorkIdAndNameAndIdNot(work.getId(), name, characterId)) {
@@ -180,7 +180,7 @@ public class CharacterServiceImpl implements CharacterService {
     @Override
     @Transactional
     public CharacterRestoreResponse restoreCharacter(Long memberId, UUID workId, UUID characterId) {
-        Work work = workRepository.getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         WorkCharacter character = getArchivedCharacterForUpdate(work.getId(), characterId);
         if (workCharacterRepository.existsByWorkIdAndNameAndIdNot(
                 work.getId(),

@@ -249,7 +249,7 @@ domain/<domain>
 - Worker의 claim·진행·완료·실패 처리는 신규 Job의 단일 대상 `Episode.status`만 전이한다. 한 회차 실패가 다른 회차 Job이나 상태를 변경하면 안 된다.
 - 공개 분석 작업 생성 API는 `batch_id`를 필수 입력으로 받고 `episode_id`를 선택 범위 지정자로 허용한다. `episode_id`가 없으면 batch의 현재 회차마다 Job을 하나씩 생성해 목록으로 반환하고, 있으면 해당 회차 Job 하나를 목록으로 반환한다.
 - 본인 작품의 분석 작업만 생성/조회할 수 있으며, 다른 회원의 작품이나 다른 작품에 속한 분석 대상은 404로 응답한다.
-- Python AI Worker는 작업 claim과 `AnalysisJob` 상태 변경에 `/api/internal/**` 내부 API를 `X-Internal-Api-Key`로 인증해 사용한다. Worker에는 원문 본문을 응답하지 않으며, 단일 `episode`의 S3 key/version/hash/charCount 메타데이터, 기존 캐릭터 목록, 활성 캐릭터 설정 schema를 전달한다.
+- Python AI Worker는 작업 claim과 `AnalysisJob` 상태 변경에 `/api/internal/**` 내부 API를 `X-Internal-Api-Key`로 인증해 사용한다. Worker에는 원문 본문을 응답하지 않으며, 단일 `episode`의 S3 key/version/hash/charCount 메타데이터, `ACTIVE` 캐릭터 목록, 활성 캐릭터 설정 schema를 전달한다. `ARCHIVED` 캐릭터는 이후 원고 매칭 대상에서 제외한다.
 - Worker는 분석 작업 생성과 상태 전이를 위해 백엔드 DB에 직접 접근하지 않는다. 다만 청킹, 설정 후보, 리포트 같은 분석 산출물 저장은 데이터 양과 모델 안정성에 따라 내부 API 또는 Worker의 DB 직접 저장 중 선택할 수 있으며, DB 직접 저장을 선택하면 관련 스키마/문서 변경을 함께 관리한다.
 
 #### Character Setting Domain Policy
@@ -275,7 +275,9 @@ domain/<domain>
 - `WorkCharacter.profileJson`, `statsJson`, `skillsJson`, `itemsJson`, `statusesJson`은 nullable한 `factKey -> current CharacterFact.valueJson` object map이다. confirm마다 전체 current Fact로 다섯 컬럼을 일괄 재구성하며, 빈 그룹은 `null`로 둔다. `REPLACE`와 `UPSERT_BY_NAME` 모두 factKey entry 전체를 교체하고 `valueJson.name`은 식별자로 사용하지 않는다. object deep merge, 삭제/비활성 표현과 나머지 merge policy는 NVM-229 후속 정책으로 둔다. 프로필 후보와 수동 수정도 다른 설정 유형과 같은 이력·snapshot 규칙을 사용한다.
 - 캐릭터 현재 설정 전체 수정은 변경된 `factType + factKey`마다 출처 없는 수동 정정 `CharacterFact`를 새로 만들고 기존 current Fact를 historical로 전환한다. 원본 후보·원문·과거 Fact는 수정하지 않으며 전체 변경과 snapshot 재구성을 한 트랜잭션에서 처리한다.
 - 캐릭터 화면의 삭제 액션은 hard delete가 아니다. `DELETE /api/v1/works/{workId}/characters/{characterId}`는 `WorkCharacter.status`를 `ACTIVE`에서 `ARCHIVED`로 바꾸고 Fact와 근거 데이터를 유지한다. 기본 목록·상세·수정은 `ACTIVE` 캐릭터만 대상으로 한다.
-- 보관함은 `ARCHIVED` 캐릭터만 페이지 조회하며, 복구는 보관 캐릭터를 pessimistic write lock으로 조회한 뒤 이름 중복을 검증하고 `ACTIVE`로 전환한다. 보관·복구는 `CharacterFact`, `SettingCandidate`, 원문 근거를 수정하지 않는다.
+- 보관함은 `ARCHIVED` 캐릭터만 페이지 조회하며 기본 페이지 크기는 9다. 복구는 작품 row와 보관 캐릭터를 순서대로 pessimistic write lock으로 조회한 뒤 이름 중복을 검증하고 `ACTIVE`로 전환한다. 보관·복구는 `CharacterFact`, `SettingCandidate`, 원문 근거를 수정하지 않는다.
+- 캐릭터 이름 수정과 복구의 작품 내 중복 검사는 먼저 작품 row를 pessimistic write lock으로 조회해 같은 작품의 이름 검사·변경을 직렬화한다. 수정 대상 캐릭터 row 잠금만으로는 서로 다른 캐릭터를 동시에 같은 이름으로 바꾸는 요청을 막을 수 없기 때문이다.
+- 캐릭터 상세가 제공하는 `characterFactId`와 `hasEvidence`는 MVP 후속 PR의 CharacterFact 상세·원문 근거 조회 진입점을 위한 계약이다. 현재 PR은 Fact에서 근거를 조회하는 API를 제공하지 않는다.
 - 별도 migration이나 일괄 backfill 없이, 다음 성공 confirm에서 전체 current Fact를 기준으로 기존 JSON snapshot을 map 또는 `null` 계약에 맞게 정규화한다.
 - `WorkCharacter.firstAppearanceEpisodeId`는 확정 순서가 아니라 가장 이른 업로드 회차 기준으로 유지한다.
 - 화면 표시, 검색, 비교에 자주 쓰는 캐릭터 이름, 역할, 현재 나이, 현재 레벨은 일반 컬럼으로 둔다.

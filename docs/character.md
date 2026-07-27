@@ -104,7 +104,7 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 
 - 기본 캐릭터 목록과 상세는 `ACTIVE` 상태만 조회합니다. 다른 작품 캐릭터와 `ARCHIVED` 캐릭터의 상세는 `CHARACTER_NOT_FOUND / 404`로 응답합니다.
 - 보관함 목록은 `ARCHIVED` 상태만 조회하며 활성 목록과 동일한 페이지·정렬·첫 등장 회차 표시 계약을 사용합니다.
-- 목록은 `page`(0부터 시작)와 `size`(1~24)를 받아 서버에서 페이징합니다. 기본값은 `page=0`, `size=24`입니다.
+- 목록은 `page`(0부터 시작)와 `size`(1~24)를 받아 서버에서 페이징합니다. 활성 목록의 기본값은 `page=0`, `size=24`이고 보관함은 한 화면에 9개를 표시하기 위해 `page=0`, `size=9`를 사용합니다.
 - 페이지 사이 순서가 흔들리지 않도록 `createdAt DESC, id DESC`로 정렬하며,
   `(work_id, status, created_at DESC, id DESC)` 복합 인덱스를 사용합니다.
 - 응답은 `content`, `page`, `size`, `totalElements`, `totalPages`, `hasNext`를 제공합니다.
@@ -384,15 +384,17 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 `WorkRepository`
 
 - `findByIdForUpdate(id)`: `UNRESOLVED` 후보의 exact-name 캐릭터 조회와 신규 생성을 작품 단위로 직렬화합니다.
+- `findByIdAndMemberIdForUpdate(id, memberId)`: 소유권을 확인하면서 작품 row를 잠가 캐릭터 이름 수정·복구의 중복 검사를 작품 단위로 직렬화합니다.
 
 `WorkCharacterRepository`
 
 - `findByIdAndWorkIdForUpdate(id, workId)`: 기존 캐릭터 confirm 시 pessimistic write lock으로 조회해 whole-map snapshot lost update를 방지합니다.
 - `findByIdAndWorkIdAndStatus(id, workId, ACTIVE)`: 활성 캐릭터 상세 조회에 사용합니다.
 - `findByIdAndWorkIdAndStatusForUpdate(id, workId, ACTIVE)`: 수정·삭제 대상 활성 캐릭터를 pessimistic write lock으로 조회합니다.
-- `findAllByWorkIdAndStatusOrderByCreatedAtDesc(workId, ACTIVE)`: 보관 캐릭터를 제외한 카드 목록을 조회합니다.
+- `findAllByWorkIdAndStatusOrderByCreatedAtDesc(workId, ACTIVE)`: Worker claim에 전달할 활성 캐릭터만 조회합니다.
+- `findAllByWorkIdAndStatusOrderByCreatedAtDescIdDesc(workId, status, pageable)`: 활성 목록과 보관함을 상태별로 안정적인 순서로 페이지 조회합니다.
 - `findByWorkIdAndName(workId, name)`
-- `findAllByWorkIdOrderByCreatedAtDesc(workId)`
+- `findAllByWorkIdOrderByCreatedAtDesc(workId)`: 후보 확정 과정에서 상태와 무관한 작품 캐릭터 전체를 조회합니다.
 
 `EpisodeRepository`
 
@@ -445,7 +447,9 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `DELETE` | `/api/v1/works/{workId}/characters/{characterId}` | 삭제 버튼 요청을 처리하되 데이터를 지우지 않고 상태를 `ARCHIVED`로 전환합니다. |
 | `PATCH` | `/api/v1/works/{workId}/characters/{characterId}/restore` | 보관된 캐릭터의 설정 이력을 유지한 채 상태를 `ACTIVE`로 복구합니다. |
 
-상세 설정 항목은 `characterFactId`, canonical `key`, `displayName`, 사용자용 `value`, `valueType`, 복합값의 `properties`, `hasEvidence`를 제공합니다. 기본 정보로 분리해 표시하는 현재 나이와 레벨도 각각 `currentAgeFact`, `currentLevelFact`에 `characterFactId`, `hasEvidence`를 제공하므로 같은 방식으로 원문 근거 진입 여부를 판단할 수 있습니다. raw JSON snapshot은 응답하지 않습니다.
+상세 설정 항목은 `characterFactId`, canonical `key`, `displayName`, 사용자용 `value`, `valueType`, 복합값의 `properties`, `hasEvidence`를 제공합니다. 기본 정보로 분리해 표시하는 현재 나이와 레벨도 각각 `currentAgeFact`, `currentLevelFact`에 `characterFactId`, `hasEvidence`를 제공합니다. raw JSON snapshot은 응답하지 않습니다.
+
+`characterFactId`와 `hasEvidence`는 MVP 전체 범위에 포함된 원문 근거 패널을 후속 PR에서 연결하기 위한 계약입니다. 현재 PR은 캐릭터 현재 설정 조회·전체 수정·보관·복구까지만 제공하며, `characterFactId`로 Fact 또는 `SettingCandidate.evidenceSpans`를 조회하는 API는 포함하지 않습니다. 후속 PR에서 CharacterFact 상세·근거 조회 경로를 추가하기 전까지 클라이언트는 이 ID를 즉시 조회 가능한 근거 링크로 해석하지 않습니다.
 
 설정 후보 API:
 
@@ -528,7 +532,7 @@ Spring API는 `SettingCandidate` 생성 API를 제공하지 않습니다. 후보
 
 ```mermaid
 flowchart TD
-    A["캐릭터 수정 요청 수신<br/>PATCH /characters/{characterId}"] --> B["작품 소유권 확인<br/>getOwnedWork(workId, memberId)"]
+    A["캐릭터 수정 요청 수신<br/>PATCH /characters/{characterId}"] --> B["작품 소유권 확인과 write lock<br/>getOwnedWorkForUpdate(workId, memberId)"]
     B --> C["활성 캐릭터를 write lock으로 조회<br/>getActiveCharacterForUpdate"]
     C --> D["이름 trim 후 작품 내 중복 확인<br/>수정 대상 ID는 검사에서 제외"]
     D -->|"다른 활성·보관 캐릭터와 같은 이름"| X1["이름 중복 응답<br/>CHARACTER_NAME_DUPLICATED / 409"]
@@ -560,11 +564,12 @@ flowchart TD
 
 상세 처리 기준:
 
-- `getActiveCharacterForUpdate`는 동일 캐릭터의 수정·보관·후보 확정이 동시에 current Fact와 snapshot을 바꾸지 않도록 `WorkCharacter` 행에 pessimistic write lock을 획득합니다. 잠금은 트랜잭션이 커밋되거나 롤백될 때까지 유지됩니다.
-- `getArchivedCharacterForUpdate`도 복구 대상 행을 같은 방식으로 잠금 조회해 동시에 같은 캐릭터를 복구하는 요청을 직렬화합니다.
+- `getOwnedWorkForUpdate`는 소유권을 확인하면서 `Work` 행에 pessimistic write lock을 획득합니다. 같은 작품의 이름 수정·복구 요청은 이 잠금을 먼저 획득하므로 서로 다른 캐릭터를 동시에 같은 이름으로 바꾸는 경쟁 요청도 중복 검사 전에 직렬화됩니다.
+- `getActiveCharacterForUpdate`는 작품 잠금 다음에 동일 캐릭터의 수정·보관·후보 확정이 동시에 current Fact와 snapshot을 바꾸지 않도록 `WorkCharacter` 행에 pessimistic write lock을 획득합니다. 잠금은 트랜잭션이 커밋되거나 롤백될 때까지 유지됩니다.
+- `getArchivedCharacterForUpdate`도 복구 대상 행을 같은 순서로 잠금 조회해 동시에 같은 캐릭터를 복구하는 요청을 직렬화합니다.
 - 이름은 앞뒤 공백을 제거한 뒤 `(workId, name, id != characterId)`로 중복 검사합니다. `id != characterId`는 이름을 바꾸지 않고 저장할 때 자기 자신을 중복으로 판단하지 않기 위한 조건입니다. `status` 조건을 두지 않으므로 복구 가능한 `ARCHIVED` 캐릭터의 이름도 작품 내에서 계속 예약됩니다.
 - 복구도 같은 이름 예약 정책을 다시 검증합니다. 정상 API 흐름에서는 보관된 이름이 계속 예약되지만, 과거 데이터나 직접 입력으로 중복 행이 존재해도 활성 캐릭터 두 개를 만들지 않기 위한 방어입니다.
-- 현재 이름 중복 검사는 서비스 조회이며 DB의 `(work_id, name)` unique 제약은 없습니다. 서로 다른 캐릭터 행을 동시에 같은 이름으로 수정하는 경쟁 요청은 각자 다른 행 잠금을 획득하므로 완전히 차단되지 않습니다. DB unique 제약과 제약 위반의 `CHARACTER_NAME_DUPLICATED` 변환은 후속 보완 대상입니다.
+- DB의 `(work_id, name)` 인덱스는 unique 제약이 아니지만, 정상 API의 이름 수정·복구와 신규 캐릭터 생성은 모두 작품 row 잠금을 먼저 획득해 이름 조회와 변경을 직렬화합니다. DB에 직접 쓰는 운영 외 경로는 이 애플리케이션 잠금 규칙을 우회하므로 허용하지 않습니다.
 - 첫 등장 회차 번호가 `null`이면 연결을 제거하고, 값이 있으면 반드시 같은 작품의 회차여야 합니다. 이름·역할·첫 등장 회차는 Fact가 아니라 `WorkCharacter` 대표 필드에서 직접 관리합니다.
 - `toDesiredFacts`는 `currentAge`, `currentLevel`, `profile`, `stats`, `skills`, `items`, `statuses`를 `(factType, factKey)` 기준의 목표 상태로 변환합니다. 나이와 레벨은 각각 `(AGE, age)`, `(LEVEL, level)`을 사용하고 나머지 설정은 유형별 key prefix와 요청 내 중복 key를 검증합니다.
 - 활성 schema의 `schemaKey`와 정확히 일치하거나 `attributePattern`에 일치하는 설정은 요청 `valueType`도 schema와 같아야 합니다. 다르면 `CHARACTER_SETTING_VALUE_TYPE_MISMATCH / 400`으로 거절하며, 어떤 활성 schema에도 등록되지 않은 수동 custom key는 기존 정책대로 유형별 prefix만 유효하면 허용합니다.

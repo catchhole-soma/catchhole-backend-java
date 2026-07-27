@@ -13,6 +13,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
@@ -61,6 +62,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<CommonResponse<Void>> handleMaxUploadSizeExceededException() {
         return buildErrorResponse(UploadErrorCode.UPLOAD_SIZE_LIMIT_EXCEEDED, List.of());
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<CommonResponse<Void>> handleMethodArgumentTypeMismatchException() {
+        return buildErrorResponse(CommonErrorCode.REQUEST_INVALID_ARGUMENT, List.of());
     }
 
     @ExceptionHandler(NoResourceFoundException.class)

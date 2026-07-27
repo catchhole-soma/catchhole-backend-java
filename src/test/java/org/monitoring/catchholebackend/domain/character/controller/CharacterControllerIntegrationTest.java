@@ -264,6 +264,16 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("숫자가 아닌 페이지 파라미터를 잘못된 요청으로 응답한다")
+    void getCharactersRejectsMalformedPageRequest() throws Exception {
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("page", "abc")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_INVALID_ARGUMENT"));
+    }
+
+    @Test
     @DisplayName("캐릭터 상세에서 현재 설정을 사용자용 항목 목록으로 응답한다")
     void getCharacterReturnsCurrentSettingLists() throws Exception {
         WorkCharacter character = workCharacterRepository.save(character(work, "수아", 23, 15));
@@ -725,6 +735,151 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("schema 없는 object 설정을 JSON으로 응답하고 그대로 저장하면 근거를 유지한다")
+    void updateCharacterKeepsSchemaLessObjectFact() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+        JsonNode valueJson = JsonNodeFactory.instance.objectNode()
+                .put("name", "특수 능력")
+                .put("amount", 30);
+        SettingCandidate candidate = settingCandidateRepository.save(SettingCandidate.create(
+                work,
+                firstEpisode,
+                UUID.randomUUID(),
+                null,
+                SettingEntityType.CHARACTER,
+                "수아",
+                "stats.custom_power",
+                "강함",
+                SettingValueType.JSON,
+                valueJson,
+                JsonNodeFactory.instance.arrayNode().add(
+                        JsonNodeFactory.instance.objectNode()
+                                .put("quote", "수아는 특수 능력을 발휘했다.")
+                                .put("startOffset", 0)
+                                .put("endOffset", 17)
+                ),
+                new BigDecimal("0.9000"),
+                JsonNodeFactory.instance.objectNode()
+        ));
+        CharacterFact fact = currentFact(
+                character,
+                candidate,
+                CharacterFactType.STAT,
+                "stats.custom_power",
+                "강함",
+                valueJson
+        );
+        characterFactRepository.saveAndFlush(fact);
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.stats[0].valueType").value("JSON"))
+                .andExpect(jsonPath("$.data.stats[0].properties.length()").value(2));
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "수아",
+                                  "roleLabel": "주인공",
+                                  "currentAge": null,
+                                  "currentLevel": null,
+                                  "firstAppearanceEpisodeNo": null,
+                                  "profile": [],
+                                  "stats": [
+                                    {
+                                      "key": "stats.custom_power",
+                                      "value": "강함",
+                                      "valueType": "JSON",
+                                      "properties": [
+                                        {"key": "name", "value": "특수 능력", "valueType": "STRING"},
+                                        {"key": "amount", "value": "30", "valueType": "NUMBER"}
+                                      ]
+                                    }
+                                  ],
+                                  "skills": [],
+                                  "items": [],
+                                  "statuses": []
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.stats[0].characterFactId").value(fact.getId().toString()))
+                .andExpect(jsonPath("$.data.stats[0].hasEvidence").value(true));
+
+        List<CharacterFact> savedFacts =
+                characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId());
+        assertThat(savedFacts).hasSize(1);
+        assertThat(savedFacts.getFirst().getId()).isEqualTo(fact.getId());
+        assertThat(savedFacts.getFirst().getValueJson()).isEqualTo(valueJson);
+    }
+
+    @Test
+    @DisplayName("현재 설정과 세부 속성 목록의 null 항목을 검증 오류로 응답한다")
+    void updateCharacterRejectsNullSettingElements() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+        List<String> requests = List.of(
+                """
+                        {
+                          "name": "수아",
+                          "roleLabel": null,
+                          "currentAge": null,
+                          "currentLevel": null,
+                          "firstAppearanceEpisodeNo": null,
+                          "profile": [],
+                          "stats": [null],
+                          "skills": [],
+                          "items": [],
+                          "statuses": []
+                        }
+                        """,
+                """
+                        {
+                          "name": "수아",
+                          "roleLabel": null,
+                          "currentAge": null,
+                          "currentLevel": null,
+                          "firstAppearanceEpisodeNo": null,
+                          "profile": [],
+                          "stats": [
+                            {
+                              "key": "stats.strength",
+                              "value": "42",
+                              "valueType": "NUMBER",
+                              "properties": [null]
+                            }
+                          ],
+                          "skills": [],
+                          "items": [],
+                          "statuses": []
+                        }
+                        """
+        );
+
+        for (String request : requests) {
+            mockMvc.perform(patch(
+                                    "/api/v1/works/{workId}/characters/{characterId}",
+                                    work.getId(),
+                                    character.getId()
+                            )
+                            .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(request))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"));
+        }
+    }
+
+    @Test
     @DisplayName("속성 없는 JSON 요청은 기존 value-only object와 primitive raw 값을 보존한다")
     void updateCharacterKeepsPropertylessObjectAndPrimitiveJson() throws Exception {
         WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
@@ -1066,8 +1221,6 @@ class CharacterControllerIntegrationTest {
         workCharacterRepository.saveAndFlush(archivedCharacter);
 
         mockMvc.perform(get("/api/v1/works/{workId}/characters/archived", work.getId())
-                        .queryParam("page", "0")
-                        .queryParam("size", "12")
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(1))
@@ -1075,7 +1228,7 @@ class CharacterControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.content[0].name").value("보관 인물"))
                 .andExpect(jsonPath("$.data.content[0].firstAppearanceEpisodeNo").value(1))
                 .andExpect(jsonPath("$.data.page").value(0))
-                .andExpect(jsonPath("$.data.size").value(12))
+                .andExpect(jsonPath("$.data.size").value(9))
                 .andExpect(jsonPath("$.data.totalElements").value(1));
     }
 
@@ -1175,7 +1328,23 @@ class CharacterControllerIntegrationTest {
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paths['/api/v1/works/{workId}/characters'].get").exists())
+                .andExpect(jsonPath(
+                        "$.paths['/api/v1/works/{workId}/characters'].get.parameters"
+                                + "[?(@.name == 'page' && @.in == 'query')]"
+                ).exists())
+                .andExpect(jsonPath(
+                        "$.paths['/api/v1/works/{workId}/characters'].get.parameters"
+                                + "[?(@.name == 'size' && @.in == 'query')]"
+                ).exists())
                 .andExpect(jsonPath("$.paths['/api/v1/works/{workId}/characters/archived'].get").exists())
+                .andExpect(jsonPath(
+                        "$.paths['/api/v1/works/{workId}/characters/archived'].get.parameters"
+                                + "[?(@.name == 'page' && @.in == 'query')]"
+                ).exists())
+                .andExpect(jsonPath(
+                        "$.paths['/api/v1/works/{workId}/characters/archived'].get.parameters"
+                                + "[?(@.name == 'size' && @.in == 'query')]"
+                ).exists())
                 .andExpect(jsonPath("$.paths['/api/v1/works/{workId}/characters/{characterId}'].get").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/works/{workId}/characters/{characterId}'].patch").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/works/{workId}/characters/{characterId}'].delete").exists())

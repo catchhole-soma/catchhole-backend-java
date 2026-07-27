@@ -2,6 +2,7 @@ package org.monitoring.catchholebackend.domain.character.controller;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -76,11 +77,21 @@ public class CharacterController {
     public CommonResponse<PageResponse<CharacterSummaryResponse>> getCharacters(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,
-            @Parameter(description = "0부터 시작하는 페이지 번호", example = "0")
+            @Parameter(
+                    name = "page",
+                    in = ParameterIn.QUERY,
+                    description = "0부터 시작하는 페이지 번호",
+                    example = "0"
+            )
             @RequestParam(defaultValue = "0")
             @Min(value = 0, message = "페이지 번호는 0 이상이어야 합니다.")
             int page,
-            @Parameter(description = "페이지 크기. 화면 배치에 맞춰 1~24 사이로 요청합니다.", example = "12")
+            @Parameter(
+                    name = "size",
+                    in = ParameterIn.QUERY,
+                    description = "페이지 크기. 화면 배치에 맞춰 1~24 사이로 요청합니다.",
+                    example = "12"
+            )
             @RequestParam(defaultValue = "24")
             @Min(value = 1, message = "페이지 크기는 1 이상이어야 합니다.")
             @Max(value = 24, message = "페이지 크기는 24 이하여야 합니다.")
@@ -116,12 +127,22 @@ public class CharacterController {
     public CommonResponse<PageResponse<CharacterSummaryResponse>> getArchivedCharacters(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,
-            @Parameter(description = "0부터 시작하는 페이지 번호", example = "0")
+            @Parameter(
+                    name = "page",
+                    in = ParameterIn.QUERY,
+                    description = "0부터 시작하는 페이지 번호",
+                    example = "0"
+            )
             @RequestParam(defaultValue = "0")
             @Min(value = 0, message = "페이지 번호는 0 이상이어야 합니다.")
             int page,
-            @Parameter(description = "페이지 크기. 1~24 사이로 요청합니다.", example = "12")
-            @RequestParam(defaultValue = "12")
+            @Parameter(
+                    name = "size",
+                    in = ParameterIn.QUERY,
+                    description = "페이지 크기. 보관함은 기본 9개이며 1~24 사이로 요청합니다.",
+                    example = "9"
+            )
+            @RequestParam(defaultValue = "9")
             @Min(value = 1, message = "페이지 크기는 1 이상이어야 합니다.")
             @Max(value = 24, message = "페이지 크기는 24 이하여야 합니다.")
             int size

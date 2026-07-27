@@ -24,6 +24,6 @@ public record CharacterSettingUpdateRequest(
 
         @Schema(description = "스킬, 아이템, 상태 등 복합 설정의 세부 속성")
         @NotNull(message = "세부 속성 목록은 필수입니다.")
-        List<@Valid CharacterSettingPropertyRequest> properties
+        List<@NotNull(message = "세부 속성 항목은 null일 수 없습니다.") @Valid CharacterSettingPropertyRequest> properties
 ) {
 }

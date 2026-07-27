@@ -34,22 +34,22 @@ public record CharacterUpdateRequest(
 
         @Schema(description = "프로필 현재 설정 전체")
         @NotNull(message = "프로필 설정 목록은 필수입니다.")
-        List<@Valid CharacterSettingUpdateRequest> profile,
+        List<@NotNull(message = "프로필 설정 항목은 null일 수 없습니다.") @Valid CharacterSettingUpdateRequest> profile,
 
         @Schema(description = "스탯 현재 설정 전체")
         @NotNull(message = "스탯 설정 목록은 필수입니다.")
-        List<@Valid CharacterSettingUpdateRequest> stats,
+        List<@NotNull(message = "스탯 설정 항목은 null일 수 없습니다.") @Valid CharacterSettingUpdateRequest> stats,
 
         @Schema(description = "스킬 현재 설정 전체")
         @NotNull(message = "스킬 설정 목록은 필수입니다.")
-        List<@Valid CharacterSettingUpdateRequest> skills,
+        List<@NotNull(message = "스킬 설정 항목은 null일 수 없습니다.") @Valid CharacterSettingUpdateRequest> skills,
 
         @Schema(description = "아이템 현재 설정 전체")
         @NotNull(message = "아이템 설정 목록은 필수입니다.")
-        List<@Valid CharacterSettingUpdateRequest> items,
+        List<@NotNull(message = "아이템 설정 항목은 null일 수 없습니다.") @Valid CharacterSettingUpdateRequest> items,
 
         @Schema(description = "상태 현재 설정 전체")
         @NotNull(message = "상태 설정 목록은 필수입니다.")
-        List<@Valid CharacterSettingUpdateRequest> statuses
+        List<@NotNull(message = "상태 설정 항목은 null일 수 없습니다.") @Valid CharacterSettingUpdateRequest> statuses
 ) {
 }

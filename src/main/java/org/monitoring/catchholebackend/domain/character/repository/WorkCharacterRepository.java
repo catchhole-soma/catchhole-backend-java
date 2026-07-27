@@ -47,6 +47,11 @@ public interface WorkCharacterRepository extends JpaRepository<WorkCharacter, UU
 
     Optional<WorkCharacter> findByWorkIdAndName(UUID workId, String name);
 
+    List<WorkCharacter> findAllByWorkIdAndStatusOrderByCreatedAtDesc(
+            UUID workId,
+            CharacterStatus status
+    );
+
     List<WorkCharacter> findAllByWorkIdOrderByCreatedAtDesc(UUID workId);
 
     Page<WorkCharacter> findAllByWorkIdAndStatusOrderByCreatedAtDescIdDesc(

@@ -136,7 +136,7 @@ public class CharacterMapper {
                 fact.getFactKey(),
                 resolveDisplayName(fact.getFactKey(), valueJson, schema),
                 fact.getFactValue(),
-                schema == null ? inferValueType(resolvePrimaryValue(valueJson)) : schema.getValueType(),
+                resolveValueType(schema, valueJson),
                 toProperties(valueJson),
                 hasEvidence(fact.getSettingCandidate())
         );
@@ -205,6 +205,20 @@ public class CharacterMapper {
             return null;
         }
         return valueJson.isObject() ? valueJson.get("value") : valueJson;
+    }
+
+    /**
+     * 등록 schema가 없는 구조화 설정도 object 자체를 JSON 값으로 판단해 왕복 저장 타입을 보존한다.
+     */
+    private SettingValueType resolveValueType(CharacterSettingSchema schema, JsonNode valueJson) {
+        if (schema != null) {
+            return schema.getValueType();
+        }
+        JsonNode primaryValue = resolvePrimaryValue(valueJson);
+        if (primaryValue == null && valueJson != null && valueJson.isObject()) {
+            return SettingValueType.JSON;
+        }
+        return inferValueType(primaryValue);
     }
 
     private boolean hasEvidence(SettingCandidate candidate) {

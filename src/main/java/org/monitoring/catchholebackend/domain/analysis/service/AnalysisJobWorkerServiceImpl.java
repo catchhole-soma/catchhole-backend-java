@@ -18,6 +18,7 @@ import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingS
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
+import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.data.domain.PageRequest;
@@ -68,7 +69,8 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         UUID workId = analysisJob.getWork().getId();
         List<CharacterSettingSchema> characterSettingSchemas =
                 characterSettingSchemaRepository.findAllActiveForWork(workId);
-        List<WorkCharacter> knownCharacters = workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(workId);
+        List<WorkCharacter> knownCharacters = workCharacterRepository
+                .findAllByWorkIdAndStatusOrderByCreatedAtDesc(workId, CharacterStatus.ACTIVE);
         return Optional.of(analysisJobWorkerMapper.toPayload(
                 analysisJob,
                 targetEpisode,
