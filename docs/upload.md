@@ -12,7 +12,7 @@ Upload 도메인은 회차 업로드 요청의 batch와 개별 파일 메타데�
 
 한 번의 업로드 요청은 하나의 `UploadBatch`입니다.
 
-batch에는 작품, 회원, 업로드 방식, 파일 개수, 전체 처리 상태를 기록합니다. 이후 분석 작업은 `batchId`를 기준으로 업로드 대상 회차들을 찾을 수 있습니다.
+batch에는 작품, 회원, 업로드 방식, 파일 개수, 전체 처리 상태를 기록합니다. 분석 생성 요청은 `batchId`로 현재 대상 회차를 찾지만, 실제 실행은 회차마다 별도 `AnalysisJob`을 생성합니다. 따라서 `UploadBatch`는 업로드 출처 묶음이지 분석 실패·성공의 원자 단위가 아닙니다.
 
 ### File 단위 추적
 
@@ -147,7 +147,7 @@ source
 
 최종 업로드의 OpenAPI `operationId`는 `uploadEpisodes`입니다. `TextDocumentReader`는 TXT·DOCX 검증과 텍스트 추출을 담당합니다. `EpisodeFileParser`는 원본 파일과 단일 회차 감지 힌트를 `DetectedEpisode*`로 변환하며 confirmation을 알지 못합니다. `EpisodeUploadProcessor.processEpisodeUpload(...)`이 confirmation 검증·적용과 `FinalizedEpisode*` 조립·저장을 조율합니다. 요청 내부 또는 기존 활성 회차와 번호가 중복되면 `EPISODE_UPLOAD_DUPLICATED`를 반환합니다.
 
-감지 응답과 저장된 Episode의 `charCount`는 공백 문자를 제외한 Unicode code point 수입니다. 감지 응답의 `totalCharCount`는 `detectedEpisodes[].charCount`의 합입니다.
+감지 응답의 `sourceHeading`은 원본에서 경계로 감지한 회차 제목 행을 그대로 담고, `content`에는 그 제목 행 다음의 회차 본문만 담습니다. 제목 행을 본문 경계로 분리하는 다회차 단일 파일 외에는 `sourceHeading`이 `null`일 수 있습니다. 감지 응답과 저장된 Episode의 `charCount`는 공백 문자를 제외한 Unicode code point 수입니다. 감지 응답의 `totalCharCount`는 `detectedEpisodes[].charCount`의 합입니다.
 
 ## 파싱 규칙
 
@@ -171,6 +171,7 @@ source
 
 - `episodeFiles`는 정확히 1개여야 합니다.
 - 파일 본문에서 회차 heading을 찾고 heading 사이의 본문을 개별 회차로 분리합니다.
+- 각 감지 결과의 `sourceHeading`에는 경계로 사용한 heading 문자열을 원본 그대로 보존하고, `content`에는 heading 다음 본문만 담습니다.
 - 회차 heading은 두 개 이상이어야 하고 번호가 엄격한 오름차순이어야 합니다.
 - 첫 heading 앞에 본문이 있거나 heading 사이에 빈 본문이 생기면 업로드를 실패 처리합니다.
 - 최종 업로드에서는 필수 `episodeConfirmations`의 개수와 각 `detectionOrder`를 감지 순서와 대조한 뒤 번호·제목만 적용하고 본문 경계는 유지합니다.

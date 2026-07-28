@@ -52,7 +52,7 @@ works/{workId}/episodes/{episodeNo}/{UUID}/{episodeNo}.txt
 
 청킹/전처리/분석 Worker는 progress 요청에 `episodeStatus`를 명시적으로 전달합니다. `currentStep`은 화면 표시용 자유 형식 문구이며 회차 상태 판정에 사용하지 않습니다.
 
-회차 단위 재분석은 `AnalysisJob.episode_id`로 대상을 한정합니다. 배치 전체 작업과 같은 회차의 작업은 동시에 중복 실행하지 않지만, 같은 배치의 서로 다른 회차는 각각 재분석할 수 있습니다. Worker가 작업을 claim·완료·실패 처리할 때 대상 회차 상태도 함께 전이합니다.
+신규 분석과 재분석은 모두 `AnalysisJob.episode_id`로 단일 회차를 지정합니다. 업로드 배치에 여러 회차가 있어도 회차마다 Job을 따로 생성하므로 같은 배치의 서로 다른 회차는 독립적으로 대기·성공·실패할 수 있습니다. Worker가 작업을 claim·완료·실패 처리할 때 해당 Job의 단일 대상 회차 상태만 함께 전이합니다.
 
 상태 표시 기준:
 
@@ -186,6 +186,7 @@ Parts
       "sourceFileIndex": 0,
       "episodeNo": 159,
       "title": "운명의 실타래",
+      "sourceHeading": "제 159화 운명의 실타래",
       "charCount": 6782,
       "content": "감지된 첫 회차 본문"
     },
@@ -194,6 +195,7 @@ Parts
       "sourceFileIndex": 0,
       "episodeNo": 160,
       "title": "새로운 동료",
+      "sourceHeading": "제 160화 새로운 동료",
       "charCount": 6338,
       "content": "감지된 두 번째 회차 본문"
     }
@@ -201,7 +203,7 @@ Parts
 }
 ```
 
-`detectionOrder`는 최종 업로드의 `episodeConfirmations[].detectionOrder`와 연결되는 0부터 시작하는 순서입니다. `charCount`는 공백을 제외한 Unicode code point 수이고 `totalCharCount`는 각 감지 회차 `charCount`의 합입니다. 다회차 단일 파일에서는 명시적인 heading 사이의 고정 경계를 미리 확인하는 용도로 사용합니다.
+`detectionOrder`는 최종 업로드의 `episodeConfirmations[].detectionOrder`와 연결되는 0부터 시작하는 순서입니다. `sourceHeading`은 원본에서 경계로 감지한 회차 제목 행을 그대로 담으며 다회차 단일 파일 외에는 `null`일 수 있습니다. `content`에는 제목 행 다음의 회차 본문만 담습니다. `charCount`는 공백을 제외한 Unicode code point 수이고 `totalCharCount`는 각 감지 회차 `charCount`의 합입니다. 다회차 단일 파일에서는 `sourceHeading`과 `content`를 함께 사용해 명시적인 heading 사이의 고정 경계를 미리 확인합니다.
 
 ### 회차 상세 조회
 

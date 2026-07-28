@@ -16,7 +16,7 @@
 | [Episode](episode.md) | 회차 모델, 원문 S3 저장, 회차 CRUD와 업로드 진입점 |
 | [Upload](upload.md) | 업로드 배치/파일 추적 모델, 업로드 유형과 파싱 상태 |
 | [Upload Episode Workflow](upload-episode-workflow.md) | 회차 업로드 시 batch/file/episode 생성 Mermaid workflow |
-| [Analysis](analysis.md) | 분석 작업 상태 모델, 생성 API, batch 기반 처리 흐름 |
+| [Analysis](analysis.md) | 회차별 분석 작업 상태 모델, 생성 API, 단일 회차 Worker 처리 흐름 |
 | [Analysis Workflow](analysis-workflow.md) | 분석 API별 Mermaid workflow와 상태 전이 |
 | [Character](character.md) | 캐릭터 설정 저장 모델, Schema Registry, JSONB 기준, AI 설정 후보 저장 구조 |
 

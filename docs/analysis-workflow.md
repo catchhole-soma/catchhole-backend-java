@@ -17,12 +17,12 @@ flowchart TD
     G -- "아니오" --> H["ANALYSIS_JOB_TARGET_NOT_FOUND"]
     G -- "예" --> I{"episodeId가 있는가?"}
     I -- "예" --> J["회차가 같은 작품·batch에<br/>속하는지 검증"]
-    I -- "아니오" --> K["batch 전체 작업"]
+    I -- "아니오" --> K["batch의 현재 회차 목록 조회"]
     J --> L{"대상에 활성 작업이 있는가?"}
     K --> L
     L -- "예" --> M["ANALYSIS_JOB_ALREADY_IN_PROGRESS"]
-    L -- "아니오" --> N["AnalysisJob 생성<br/>status = PENDING"]
-    N --> O["대상 episodes를 포함한<br/>AnalysisJobResponse 반환"]
+    L -- "아니오" --> N["회차마다 AnalysisJob 생성<br/>status = PENDING"]
+    N --> O["회차별 Job 목록<br/>List&lt;AnalysisJobResponse&gt; 반환"]
 ```
 
 ## 현재 구현된 Worker 연동 흐름
@@ -32,8 +32,8 @@ flowchart TD
 ```mermaid
 flowchart TD
     A["분석 작업 생성<br/>AnalysisJob PENDING"] --> B["Python Worker claim"]
-    B --> C["AnalysisJob RUNNING<br/>대상 Episode CHUNKING"]
-    C --> D["episodeId가 있으면 한 회차,<br/>없으면 batch 전체 회차 payload"]
+    B --> C["회차별 Job 하나 RUNNING<br/>대상 Episode CHUNKING"]
+    C --> D["단일 episode payload"]
     D --> E["S3 원문 조회"]
     E --> F["Python에서 원문 정규화/청킹"]
     F --> G["episode_chunks 저장"]
@@ -42,7 +42,9 @@ flowchart TD
     I --> J["raw/entity/knownCharacters 기반 캐릭터 매칭"]
     J --> K["setting_candidates 직접 저장"]
     K --> L["Worker complete"]
-    L --> M["대상 Episode ANALYZED<br/>AnalysisJob SUCCEEDED"]
+    L --> M["해당 Episode ANALYZED<br/>AnalysisJob SUCCEEDED"]
+    H -. "실패" .-> X["해당 Job/Episode만 FAILED"]
+    X --> B
 ```
 
 현재 구현에서 Spring은 `setting_candidates` 생성 API를 제공하지 않습니다. 후보 생성은 Worker의 DB 직접 저장 흐름이며, Spring은 생성된 후보의 조회/수정/확정/무시와 `AnalysisJob` 상태 전이를 담당합니다. Claim의 `characterSettingSchemas`는 Worker에 전달되는 schema hint이고, 동반 AI Worker 변경은 이 hint를 실제 추출 prompt의 canonical key, alias, pattern, value type 지침으로 사용합니다. Spring Backend는 사용자 confirm 시 schemaKey 정확 일치 → 별칭 → 마지막이 `.*`로 끝나는 속성 패턴 순으로 최종 매칭하고 후보/schema의 `SettingValueType`과 merge policy를 검증합니다. 미지원 정책은 부수효과 전에 거절하며, 검증된 Fact는 `setting_candidate_id`로 확정 후보를 연결해 `evidence_spans`를 역추적할 수 있게 합니다. 이후 episodeNo 기준 current를 재선정하고 `factKey -> current valueJson` object map snapshot으로 반영합니다.
@@ -64,7 +66,8 @@ flowchart TD
     B5 --> B6["Episode 여러 개 생성"]
     B3 --> C["분석 작업 생성"]
     B6 --> C
-    C --> C1["각 Episode 청킹"]
+    C --> C0["각 Episode별 AnalysisJob 생성"]
+    C0 --> C1["각 Episode 청킹"]
     C1 --> D["ManuscriptChunk 저장"]
     D --> R["LLM 데이터 전처리"]
     R --> R1["PreprocessedManuscriptChunk 저장"]
@@ -118,7 +121,7 @@ sequenceDiagram
 
     Client->>Controller: POST /works/{workId}/analysis-jobs
     Note over Client,Controller: body: jobType, batchId, optional episodeId
-    Controller->>Service: createAnalysisJob(memberId, workId, request)
+    Controller->>Service: createAnalysisJobs(memberId, workId, request)
     Service->>WorkRepo: getOwnedWork(workId, memberId)
     alt 작품 없음 또는 타인 작품
         WorkRepo-->>Service: empty
@@ -137,15 +140,17 @@ sequenceDiagram
                 Service->>EpisodeRepo: findByIdAndWorkIdAndStatusNot(episodeId, workId, ARCHIVED)
                 Service->>Service: sourceFile.batchId 일치 검증
             end
-            Service->>JobRepo: 같은 batch 전체 또는 회차의 활성 작업 조회
+            Service->>Service: batch 현재 회차 또는 선택 회차를 대상 목록으로 확정
+            Service->>JobRepo: 각 대상 회차의 활성 작업 조회
             alt 활성 작업 있음
                 Service-->>Controller: ANALYSIS_JOB_ALREADY_IN_PROGRESS
                 Controller-->>Client: 409
             else 활성 작업 없음
-                Service->>Service: 현재 batch 전체 또는 선택 회차를 대상 스냅샷으로 확정
-                Service->>JobRepo: save(AnalysisJob PENDING + episode targets)
-                JobRepo-->>Service: saved AnalysisJob
-                Service-->>Controller: AnalysisJobResponse with episodes
+                loop 대상 회차별
+                    Service->>JobRepo: save(AnalysisJob PENDING + single episode target)
+                end
+                JobRepo-->>Service: saved AnalysisJobs
+                Service-->>Controller: List of AnalysisJobResponse
                 Controller-->>Client: 200 OK
             end
         end
@@ -229,11 +234,11 @@ sequenceDiagram
         Service-->>Controller: ANALYSIS_JOB_STATUS_CONFLICT
         Controller-->>Client: 409
     else FAILED 작업
-        Service->>JobRepo: 같은 batch의 활성 전체 작업 조회
-        alt 활성 전체 작업 있음
+        Service->>JobRepo: 같은 batch의 활성 과거 batch-wide 작업 조회
+        alt 활성 과거 batch-wide 작업 있음
             Service-->>Controller: ANALYSIS_JOB_ALREADY_IN_PROGRESS
             Controller-->>Client: 409
-        else 활성 전체 작업 없음
+        else 활성 과거 batch-wide 작업 없음
             Service->>Service: 원본 작업 대상 스냅샷에서 FAILED 회차 선택
             alt 실패 회차 없음
                 Service-->>Controller: ANALYSIS_JOB_TARGET_NOT_FOUND
@@ -250,15 +255,15 @@ sequenceDiagram
     end
 ```
 
-기존 `FAILED` 작업은 변경하지 않습니다. 같은 batch의 전체 작업이 활성 상태면 재시도를 거절합니다. 각 회차에 이미 `PENDING` 또는 `RUNNING` 작업이 있으면 중복 생성하지 않고 해당 작업을 반환합니다.
+기존 `FAILED` 작업은 변경하지 않습니다. 같은 batch의 과거 batch-wide 작업이 활성 상태면 재시도를 거절합니다. 해당 회차에 이미 `PENDING` 또는 `RUNNING` 작업이 있으면 중복 생성하지 않고 그 작업을 반환합니다.
 
 ## 분석 대상 회차 조회
 
-분석 작업 생성 request는 `batchId`와 선택적인 `episodeId`를 받습니다.
+분석 작업 생성 request는 `batchId`와 선택적인 `episodeId`를 받습니다. `UploadBatch`는 대상 탐색과 출처 표시를 위한 묶음이고, 실행 단위는 회차별 `AnalysisJob`입니다.
 
 - 이 공개 범위 지정 계약은 지원하는 모든 `jobType`에 적용됩니다.
-- `episodeId`가 있으면 검증한 한 회차를 대상 스냅샷으로 저장합니다.
-- `episodeId`가 없으면 생성 시 다음 관계를 따라 batch에 속한 보관되지 않은 전체 회차를 선정합니다.
+- `episodeId`가 있으면 검증한 한 회차 Job을 생성합니다.
+- `episodeId`가 없으면 다음 관계를 따라 batch에 속한 보관되지 않은 회차를 선정하고 각각 Job을 생성합니다.
 
 ```mermaid
 flowchart LR
@@ -267,8 +272,9 @@ flowchart LR
     C --> D["upload_files.id"]
     D --> E["episodes.source_file_id"]
     E --> F["생성 시 Episode list 확정"]
-    F --> G["analysis_job_episode_targets 저장"]
-    G --> H["조회·AI Worker 분석 대상"]
+    F --> G["회차별 analysis_jobs 생성"]
+    G --> H["Job마다 단일 target 저장"]
+    H --> I["조회·AI Worker 단일 회차 분석"]
 ```
 
 감지·업로드 단계의 `detectionOrder`는 분석 대상 조회에 사용하지 않습니다. `UploadBatch`, `UploadFile`, `Episode.sourceFileId` 관계는 생성 시 대상을 선정할 때만 사용하고, 이후에는 `analysis_job_episode_targets`를 사용합니다. 따라서 원본 파일 교체나 회차 보관 이후에도 과거 작업의 대상 목록은 유지됩니다.
@@ -297,15 +303,15 @@ sequenceDiagram
         JobRepo-->>Service: AnalysisJob
         Service->>Service: AnalysisJob status = RUNNING
         Service->>Service: analysis_job_episode_targets에서 대상 회차 조회
-        alt 대상 회차 없음
+        alt 대상 회차가 정확히 1개가 아님
             Service->>Service: status = FAILED
             Service-->>Controller: empty
             Controller-->>Worker: 204 No Content
-        else 대상 회차 있음
-            Service->>Service: 대상 Episode status = CHUNKING
+        else 단일 대상 회차
+            Service->>Service: 해당 Episode status = CHUNKING
             Service->>SchemaRepo: findAllActiveForWork(workId)
             Service->>CharacterRepo: findAllByWorkIdOrderByCreatedAtDesc(workId)
-            Service-->>Controller: WorkerAnalysisJobPayload
+            Service-->>Controller: WorkerAnalysisJobPayload with episode
             Controller-->>Worker: 200 OK
         end
     end
@@ -320,7 +326,7 @@ stateDiagram-v2
     [*] --> PENDING: 분석 작업 생성
     PENDING --> RUNNING: Worker claim
     RUNNING --> SUCCEEDED: Worker complete
-    RUNNING --> FAILED: Worker fail 또는 대상 회차 없음
+    RUNNING --> FAILED: Worker fail 또는 단일 대상 계약 위반
     SUCCEEDED --> [*]
     FAILED --> RETRY_PENDING: 재시도 API
     RETRY_PENDING: 새 단일 회차 AnalysisJob PENDING
@@ -330,7 +336,7 @@ stateDiagram-v2
 Worker가 내부 claim API로 작업을 가져가면 `RUNNING`으로 전환합니다. 이후 Worker가 내부 상태 변경 API로 `SUCCEEDED` 또는 `FAILED`를 기록합니다.
 `FAILED` 이후 재시도는 기존 작업을 `PENDING`으로 되돌리는 전이가 아닙니다. `POST /analysis-jobs/{analysisJobId}/retry`가 실패 회차별로 새로운 `PENDING` 단일 회차 작업을 만듭니다.
 
-화면에서는 `AnalysisJob.status`를 분석 작업의 상위 상태로 표시하고, 응답의 `episodes`로 대상 회차별 `Episode.status`를 표시합니다. Worker progress는 `currentStep` 표시 문구와 `episodeStatus` enum을 함께 보내며, 백엔드는 문자열을 해석하지 않고 명시적 상태를 적용합니다. claim/complete/fail API도 작업 상태와 대상 회차 상태를 함께 갱신합니다.
+화면에서는 같은 upload batch에 생성된 회차별 `AnalysisJob.status`를 집계하고, 각 응답의 단일 `episodes` 항목으로 `Episode.status`를 표시합니다. Worker progress는 `currentStep` 표시 문구와 `episodeStatus` enum을 함께 보내며, 백엔드는 문자열을 해석하지 않고 해당 Job의 회차에만 명시적 상태를 적용합니다. 한 Job이 실패해도 다음 회차 Job은 계속 claim할 수 있습니다.
 
 ## Episode 처리 상태
 
