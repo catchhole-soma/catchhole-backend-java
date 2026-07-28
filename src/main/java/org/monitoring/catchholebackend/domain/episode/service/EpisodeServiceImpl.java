@@ -276,12 +276,10 @@ public class EpisodeServiceImpl implements EpisodeService {
                 .map(Episode::getId)
                 .toList();
 
-        Map<UUID, AnalysisJob> latestBatchJobs = new HashMap<>();
         Map<UUID, Map<UUID, AnalysisJob>> latestEpisodeJobsByBatch = new HashMap<>();
         analysisJobRepository.findAllRelevantForEpisodeSummaries(batchIds, episodeIds)
                 .forEach(analysisJob -> collectLatestAnalysisJob(
                         analysisJob,
-                        latestBatchJobs,
                         latestEpisodeJobsByBatch
                 ));
 
@@ -293,7 +291,6 @@ public class EpisodeServiceImpl implements EpisodeService {
                             : resolveLatestAnalysisJob(
                                     episode,
                                     sourceFile.getBatch().getId(),
-                                    latestBatchJobs,
                                     latestEpisodeJobsByBatch
                             );
                     return episodeMapper.toSummaryResponse(episode, sourceFile, latestAnalysisJob);
@@ -303,14 +300,9 @@ public class EpisodeServiceImpl implements EpisodeService {
 
     private void collectLatestAnalysisJob(
             AnalysisJob analysisJob,
-            Map<UUID, AnalysisJob> latestBatchJobs,
             Map<UUID, Map<UUID, AnalysisJob>> latestEpisodeJobsByBatch
     ) {
         UUID batchId = analysisJob.getBatch().getId();
-        if (analysisJob.getEpisode() == null) {
-            latestBatchJobs.putIfAbsent(batchId, analysisJob);
-            return;
-        }
         latestEpisodeJobsByBatch
                 .computeIfAbsent(batchId, ignored -> new HashMap<>())
                 .putIfAbsent(analysisJob.getEpisode().getId(), analysisJob);
@@ -319,31 +311,18 @@ public class EpisodeServiceImpl implements EpisodeService {
     private AnalysisJob resolveLatestAnalysisJob(
             Episode episode,
             UUID batchId,
-            Map<UUID, AnalysisJob> latestBatchJobs,
             Map<UUID, Map<UUID, AnalysisJob>> latestEpisodeJobsByBatch
     ) {
-        AnalysisJob episodeJob = latestEpisodeJobsByBatch
+        return latestEpisodeJobsByBatch
                 .getOrDefault(batchId, Map.of())
                 .get(episode.getId());
-        return laterOf(episodeJob, latestBatchJobs.get(batchId));
     }
 
     private AnalysisJob resolveLatestAnalysisJob(Episode episode, UploadFile sourceFile) {
         UUID batchId = sourceFile.getBatch().getId();
-        AnalysisJob episodeJob = analysisJobRepository
+        return analysisJobRepository
                 .findFirstByEpisodeIdAndBatchIdOrderByCreatedAtDesc(episode.getId(), batchId)
                 .orElse(null);
-        AnalysisJob batchJob = analysisJobRepository
-                .findFirstByBatchIdAndEpisodeIsNullOrderByCreatedAtDesc(batchId)
-                .orElse(null);
-        return laterOf(episodeJob, batchJob);
-    }
-
-    private AnalysisJob laterOf(AnalysisJob episodeJob, AnalysisJob batchJob) {
-        if (episodeJob == null || batchJob == null) {
-            return episodeJob == null ? batchJob : episodeJob;
-        }
-        return episodeJob.getCreatedAt().isAfter(batchJob.getCreatedAt()) ? episodeJob : batchJob;
     }
 
     private void assertEpisodeIsNotAnalyzing(Episode episode) {

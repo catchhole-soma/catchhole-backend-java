@@ -33,17 +33,15 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
 
     Optional<AnalysisJob> findFirstByBatchIdOrderByCreatedAtDesc(UUID batchId);
 
-    Optional<AnalysisJob> findFirstByBatchIdAndEpisodeIsNullOrderByCreatedAtDesc(UUID batchId);
-
     Optional<AnalysisJob> findFirstByEpisodeIdAndBatchIdOrderByCreatedAtDesc(UUID episodeId, UUID batchId);
 
     @Query("""
             select analysisJob
             from AnalysisJob analysisJob
             left join fetch analysisJob.batch
-            left join fetch analysisJob.episode
+            join fetch analysisJob.episode
             where analysisJob.batch.id in :batchIds
-              and (analysisJob.episode is null or analysisJob.episode.id in :episodeIds)
+              and analysisJob.episode.id in :episodeIds
             order by analysisJob.createdAt desc
             """)
     List<AnalysisJob> findAllRelevantForEpisodeSummaries(

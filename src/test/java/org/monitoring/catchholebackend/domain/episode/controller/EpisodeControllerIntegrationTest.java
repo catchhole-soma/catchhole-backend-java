@@ -3,6 +3,7 @@ package org.monitoring.catchholebackend.domain.episode.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -578,6 +579,49 @@ class EpisodeControllerIntegrationTest {
         mockMvc.perform(delete("/api/v1/works/{workId}/episodes/{episodeId}", work.getId(), secondEpisode.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("격리된 과거 batch-wide 작업은 현재 회차별 분석 요약에 반영하지 않는다")
+    void quarantinedLegacyBatchJobDoesNotOverrideEpisodeAnalysisSummaries() throws Exception {
+        UploadBatch batch = uploadBatchRepository.save(UploadBatch.create(
+                work, member, UploadType.MULTI_EPISODE_SINGLE_FILE, UploadSourceType.FILE));
+        UploadFile sourceFile = uploadFileRepository.save(UploadFile.create(
+                batch, UploadFileRole.EPISODE, "episodes.txt", MediaType.TEXT_PLAIN_VALUE,
+                "s3://episodes.txt", 100));
+        sourceFile.markEpisodesParsed(1, 2, 2);
+        Episode firstEpisode = episodeRepository.save(Episode.create(
+                work, sourceFile.getId(), 1, "첫 회차", "works/1.txt", "v1", "hash-1", 10));
+        Episode secondEpisode = episodeRepository.save(Episode.create(
+                work, sourceFile.getId(), 2, "둘째 회차", "works/2.txt", "v1", "hash-2", 10));
+        firstEpisode.markAnalyzed();
+        episodeRepository.save(firstEpisode);
+
+        AnalysisJob completedEpisodeJob = AnalysisJob.create(
+                work, batch, firstEpisode, AnalysisJobType.EPISODE_VALIDATION);
+        completedEpisodeJob.succeed("{\"unresolvedFindingCount\":2}", 10, 5);
+        analysisJobRepository.save(completedEpisodeJob);
+        Thread.sleep(10);
+
+        AnalysisJob quarantinedLegacyJob = AnalysisJob.create(
+                work, batch, null, AnalysisJobType.EPISODE_VALIDATION);
+        quarantinedLegacyJob.addTargetEpisodes(List.of(firstEpisode, secondEpisode));
+        quarantinedLegacyJob.fail("분석 작업은 정확히 한 회차를 대상으로 해야 합니다.");
+        analysisJobRepository.save(quarantinedLegacyJob);
+
+        mockMvc.perform(get("/api/v1/works/{workId}/episodes", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].id").value(secondEpisode.getId().toString()))
+                .andExpect(jsonPath("$.data[0].status").value("UPLOADED"))
+                .andExpect(jsonPath("$.data[0].analysisStatus").value("REANALYSIS_REQUIRED"))
+                .andExpect(jsonPath("$.data[0].latestAnalysisJobId").value(nullValue()))
+                .andExpect(jsonPath("$.data[1].id").value(firstEpisode.getId().toString()))
+                .andExpect(jsonPath("$.data[1].status").value("ANALYZED"))
+                .andExpect(jsonPath("$.data[1].analysisStatus").value("COMPLETED"))
+                .andExpect(jsonPath("$.data[1].unresolvedFindingCount").value(2))
+                .andExpect(jsonPath("$.data[1].latestAnalysisJobId")
+                        .value(completedEpisodeJob.getId().toString()));
     }
 
     @Test
