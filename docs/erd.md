@@ -23,6 +23,8 @@ erDiagram
     upload_files ||--o{ episodes : source
     upload_batches ||--o{ analysis_jobs : targets
     episodes ||--o{ analysis_jobs : optional_target
+    analysis_jobs ||--o{ analysis_job_episode_targets : snapshots
+    episodes ||--o{ analysis_job_episode_targets : included
     episodes ||--o{ setting_candidates : optional_source
     episodes ||--o{ character_facts : optional_source
     analysis_jobs ||--o{ setting_candidates : creates
@@ -72,6 +74,7 @@ erDiagram
         varchar content_s3_key
         varchar content_s3_version
         varchar content_hash
+        datetime content_updated_at
         int char_count
         varchar status
         datetime created_at
@@ -113,6 +116,11 @@ erDiagram
         datetime completed_at
         datetime created_at
         datetime updated_at
+    }
+
+    analysis_job_episode_targets {
+        uuid analysis_job_id PK,FK
+        uuid episode_id PK,FK
     }
 
     characters {
@@ -233,6 +241,7 @@ erDiagram
 | `upload_batches` | 한 번의 업로드 요청 단위. 업로드 유형, 소스, 전체 처리 상태를 기록합니다. |
 | `upload_files` | batch에 포함된 개별 파일. 원본 파일 S3 위치와 파싱 결과를 기록합니다. |
 | `analysis_jobs` | 작품 단위 AI 분석 작업. 작업 유형, 상태, 대상 batch/episode, 결과 메타데이터를 기록합니다. |
+| `analysis_job_episode_targets` | 분석 작업 생성 시 확정한 대상 회차 스냅샷. 이후 원본 교체·회차 보관과 무관하게 과거 작업 대상을 유지합니다. |
 | `characters` | 작품별 캐릭터 대표/현재 설정. 핵심 조회 값은 일반 컬럼, 작품마다 달라지는 상세 설정은 JSONB로 저장합니다. |
 | `character_facts` | 캐릭터별 설정 값과 회차별 변경 이력. 현재 유효값과 충돌 검수 기준을 추적합니다. |
 | `setting_candidates` | AI가 추출한 검토 전 설정 후보. 설정 값, 근거 span, AI 원본 응답을 JSONB로 보존합니다. |
@@ -412,6 +421,6 @@ erDiagram
 
 - 회차 번호 unique 제약은 현재 DB 제약이 아니라 서비스에서 `work_id + episode_no` 중복을 검사합니다.
 - 후속 ERD의 `manuscript_chunks`, `preprocessed_manuscript_chunks`, `setting_snapshots`, `validation_reports`, `validation_findings`는 아직 현재 `main` 기준 Entity가 아닙니다. 캐릭터 중심 MVP의 설정 이력은 우선 `character_facts`로 구현합니다.
-- `characters.first_appearance_episode_id`는 회차 hard delete 시 재계산 또는 `NULL` 처리 정책이 정해지지 않아 현재 FK를 강제하지 않습니다.
+- `characters.first_appearance_episode_id`는 현재 `ARCHIVED` soft delete된 회차 row를 계속 참조할 수 있습니다. 향후 물리 삭제 시 재계산 또는 `NULL` 처리 정책이 정해지지 않아 현재 FK를 강제하지 않습니다.
 - `setting_candidates.source_chunk_id`와 `character_facts.source_chunk_id`는 `episode_chunks`를 가리키지만 현재 DB FK를 강제하지 않습니다. Worker가 재청킹 시 기존 청크를 삭제하고 새 UUID로 교체하므로, 청크 ID 안정화 또는 근거 이력 보존 정책을 정한 뒤 다시 검토합니다.
 - Notion 설계의 `AnalysisJob.status`에는 `CANCELED`가 있지만, 현재 분석 문서 초안은 `PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`만 포함합니다. 취소 정책이 필요해질 때 enum을 확장합니다.

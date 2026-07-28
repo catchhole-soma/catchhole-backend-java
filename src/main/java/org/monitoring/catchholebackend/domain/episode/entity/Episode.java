@@ -12,12 +12,13 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import java.time.LocalDateTime;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
+import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 
 @Getter
@@ -48,7 +49,7 @@ public class Episode extends BaseEntity {
     @Column(name = "episode_no", nullable = false)
     private int episodeNo;
 
-    // ParsedEpisode record 의 title 에서 가져옴(분리 작업은 EpisodeFileParser 에서 작업함)
+    // 감지 결과에 사용자 확정값을 적용한 finalized 회차 제목
     @Column(name = "title", length = 100)
     private String title;
 
@@ -62,7 +63,11 @@ public class Episode extends BaseEntity {
     @Column(name = "content_hash", length = 64)
     private String contentHash;
 
-    // 파싱된 회차 본문 길이. byte 크기가 아니라 Java String.length() 기준 문자 길이이다.
+    // 제목 변경과 구분되는 현재 원문 업로드·교체 시각
+    @Column(name = "content_updated_at", nullable = false)
+    private LocalDateTime contentUpdatedAt;
+
+    // byte 크기가 아니라 공백을 제외한 Unicode code point 기준 본문 글자 수
     @Column(name = "char_count", nullable = false)
     private int charCount;
 
@@ -88,6 +93,7 @@ public class Episode extends BaseEntity {
         this.contentS3Key = contentS3Key;
         this.contentS3Version = contentS3Version;
         this.contentHash = contentHash;
+        this.contentUpdatedAt = LocalDateTime.now();
         this.charCount = charCount;
         this.status = EpisodeStatus.UPLOADED;
     }
@@ -111,6 +117,10 @@ public class Episode extends BaseEntity {
         this.charCount = charCount;
     }
 
+    public void updateTitle(String title) {
+        this.title = title;
+    }
+
     public void updateContent(
             int episodeNo,
             String title,
@@ -124,6 +134,7 @@ public class Episode extends BaseEntity {
         this.contentS3Key = contentS3Key;
         this.contentS3Version = contentS3Version;
         this.contentHash = contentHash;
+        this.contentUpdatedAt = LocalDateTime.now();
         this.charCount = charCount;
         this.status = EpisodeStatus.UPLOADED;
     }
@@ -132,13 +143,29 @@ public class Episode extends BaseEntity {
         this.contentS3Key = contentS3Key;
         this.contentS3Version = contentS3Version;
         this.contentHash = contentHash;
+        this.contentUpdatedAt = LocalDateTime.now();
+    }
+
+    public void replaceSourceFileAndContent(
+            UUID sourceFileId,
+            String contentS3Key,
+            String contentS3Version,
+            String contentHash,
+            int charCount
+    ) {
+        this.sourceFileId = sourceFileId;
+        this.contentS3Key = contentS3Key;
+        this.contentS3Version = contentS3Version;
+        this.contentHash = contentHash;
+        this.contentUpdatedAt = LocalDateTime.now();
+        this.charCount = charCount;
+        this.status = EpisodeStatus.UPLOADED;
     }
 
     public void markChunking() {
         this.status = EpisodeStatus.CHUNKING;
     }
 
-    // TODO: 후속 내부 API는 EpisodeStatus를 파라미터로 받는 단일 전이 API로 구현한다.
     public void markChunked() {
         this.status = EpisodeStatus.CHUNKED;
     }
@@ -161,6 +188,10 @@ public class Episode extends BaseEntity {
 
     public void markFailed() {
         this.status = EpisodeStatus.FAILED;
+    }
+
+    public void updateStatus(EpisodeStatus status) {
+        this.status = status;
     }
 
     public void archive() {

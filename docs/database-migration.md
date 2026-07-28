@@ -20,7 +20,9 @@ src/main/resources/db/migration/
 ├── V1__initial_schema.sql
 ├── V2__add_character_setting_schema_registry.sql
 ├── V3__link_character_facts_to_setting_candidates.sql
-└── V4__normalize_work_metadata.sql
+├── V4__normalize_work_metadata.sql
+├── V5__add_upload_file_archive.sql
+└── V6__preserve_episode_content_and_analysis_targets.sql
 ```
 
 - 파일명은 `V{순번}__{snake_case_설명}.sql` 형식을 사용합니다.
@@ -67,13 +69,31 @@ V3는 confirm으로 생성된 `character_facts`에서 원본 후보의 `evidence
 
 ## V4 기준
 
-V4는 자유 문자열이던 `works.genre`를 Java `WorkGenre` enum 저장 규칙과 일치시키고, 작품 설명을 API의 최대 50자 계약에 맞춥니다. 작품 API가 캐릭터 API보다 먼저 main에 반영되므로, 캐릭터 API 브랜치의 기존 V4 migration은 main rebase 시점에 다음 가용 버전으로 변경합니다.
+V4는 자유 문자열이던 `works.genre`를 Java `WorkGenre` enum 저장 규칙과 일치시키고, 작품 설명을 API의 최대 50자 계약에 맞춥니다.
 
 - 기존 한글 장르 값은 `FANTASY`, `ROMANCE` 같은 enum 상수명으로 변환합니다.
 - 기존 enum 상수명은 그대로 유지해 migration 재실행 전후 의미가 달라지지 않게 합니다.
 - 현재 데이터가 테스트용이라는 합의에 따라 `NULL`과 지원 목록 밖의 문자열은 `ETC`로 정규화합니다.
 - 정규화 후 `NOT NULL`과 `chk_works_genre`를 적용해 OpenAPI가 선언한 열 가지 장르 밖의 값이 저장되지 않게 합니다.
 - 기존 작품 설명이 50자를 초과하면 앞 50자까지 보존하고 `works.description`을 `VARCHAR(50)`로 변경합니다.
+
+## V5 기준
+
+V5는 설정집 원본 교체 시 기존 `upload_files` 행을 삭제하지 않고 보관할 수 있도록 `archived_at`을 추가합니다.
+
+- 활성 파일은 `archived_at IS NULL`, 교체된 파일은 보관 시각이 기록된 행으로 구분합니다.
+- `(batch_id, file_role, archived_at)` 인덱스로 업로드 묶음의 활성 설정집을 조회합니다.
+- 기존 업로드 파일은 모두 활성 상태로 유지되도록 `archived_at`을 nullable로 추가합니다.
+
+## V6 기준
+
+V6는 제목 수정과 구분되는 회차 원문 변경 시각과 분석 작업 대상 스냅샷을 추가합니다.
+
+- `episodes.content_updated_at`은 기존 원본 `upload_files.created_at`, 원본 파일이 없으면 `episodes.created_at`으로 backfill한 뒤 `NOT NULL`로 전환합니다.
+- 신규·수정 회차는 원문 직접 수정이나 파일 교체 때만 `content_updated_at`을 갱신합니다.
+- `analysis_job_episode_targets`는 `(analysis_job_id, episode_id)` 복합 PK로 작업 생성 시점의 실제 대상 회차를 보존합니다.
+- 기존 단일 회차 작업은 `analysis_jobs.episode_id`, 기존 배치 작업은 migration 시점의 batch→upload file→episode 관계로 backfill합니다.
+- 이후 원본 파일 교체나 회차 보관은 과거 작업의 대상 연결을 삭제하지 않습니다.
 
 ## 논리 참조와 FK 기준
 
@@ -82,7 +102,7 @@ ID 컬럼이 다른 테이블을 논리적으로 가리키더라도 삭제·재�
 | 컬럼 | 참조 대상 | V1 정책 | 이유 및 후속 논의 |
 | --- | --- | --- | --- |
 | `episodes.source_file_id` | `upload_files.id` | nullable FK, 기본 `NO ACTION` | 업로드 파일을 먼저 저장한 뒤 회차를 생성하고 현재 업로드 파일 삭제 API가 없으므로 원본 추적 무결성을 강제합니다. 삭제 기능을 추가하면 연결된 회차 처리 정책을 함께 정합니다. |
-| `characters.first_appearance_episode_id` | `episodes.id` | FK 보류 | 회차 hard delete 시 최초 등장 회차를 재계산할지 `NULL`로 둘지 먼저 결정해야 합니다. |
+| `characters.first_appearance_episode_id` | `episodes.id` | FK 보류 | 현재 회차 삭제는 `ARCHIVED` soft delete이며, 향후 물리 삭제 시 최초 등장 회차를 재계산할지 `NULL`로 둘지 먼저 결정해야 합니다. |
 | `setting_candidates.source_chunk_id` | `episode_chunks.id` | FK 보류 | 재청킹이 기존 청크를 삭제하고 새 UUID로 교체하므로 일반 FK는 재청킹을 막고, cascade 또는 set null은 근거를 손실할 수 있습니다. |
 | `character_facts.source_chunk_id` | `episode_chunks.id` | FK 보류 | 확정 설정의 원문 근거이므로 청크 ID 안정화 또는 청크 이력 보존 정책을 정한 뒤 FK를 검토합니다. |
 
@@ -90,10 +110,10 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
 
 ## 로컬 검증
 
-V1~V3 적용 DB에 현재 Backend를 시작해 V4만 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V4가 순서대로 적용되는 경로를 각각 확인합니다.
+V1~V5 적용 DB에 현재 Backend를 시작해 V6만 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V6이 순서대로 적용되는 경로를 각각 확인합니다.
 
-- Flyway 로그에 V1부터 V4까지 적용 성공이 출력됩니다.
-- `flyway_schema_history`에 version 1, 2, 3, 4가 성공으로 기록됩니다.
+- Flyway 로그에 V1부터 V6까지 적용 성공이 출력됩니다.
+- `flyway_schema_history`에 version 1, 2, 3, 4, 5, 6이 성공으로 기록됩니다.
 - `vector` extension이 활성화됩니다.
 - `episode_chunks.embedding`이 `vector(1536)`으로 생성됩니다.
 - cosine HNSW 인덱스가 생성됩니다.
@@ -101,8 +121,11 @@ V1~V3 적용 DB에 현재 Backend를 시작해 V4만 추가 적용되는 경로�
 - `character_facts.setting_candidate_id`와 FK·조회 인덱스가 생성됩니다.
 - `works.genre`가 enum 상수명으로 저장되고 `NOT NULL`·`chk_works_genre` 제약을 가집니다.
 - `works.description`이 기존 값의 앞 50자로 정규화되고 `VARCHAR(50)` 타입을 가집니다.
+- `upload_files.archived_at`과 `idx_upload_files_active_setting_books` 인덱스가 생성됩니다.
+- `episodes.content_updated_at`이 기존 데이터까지 채워지고 `NOT NULL` 제약을 가집니다.
+- `analysis_job_episode_targets`와 회차 역방향 조회 인덱스가 생성되고 기존 작업 대상이 backfill됩니다.
 - Hibernate schema validation을 통과하고 Backend가 정상 시작됩니다.
-- Backend를 재시작해도 V1부터 V4까지 중복 적용되지 않습니다.
+- Backend를 재시작해도 V1부터 V6까지 중복 적용되지 않습니다.
 
 ## 최초 운영 전환
 
@@ -113,7 +136,7 @@ Flyway 도입 전에 JPA가 만든 운영 테스트 DB에는 `flyway_schema_hist
 1. 필요한 데이터가 없는지 확인하고 필요하면 `pg_dump`로 백업합니다.
 2. Backend와 AI Worker를 중지합니다.
 3. PostgreSQL 데이터 volume만 제거하고 빈 PostgreSQL 16 DB를 시작합니다.
-4. Backend를 시작해 Flyway V1~V4와 Hibernate validation 성공을 확인합니다.
+4. Backend를 시작해 Flyway V1~V6과 Hibernate validation 성공을 확인합니다.
 5. DB schema와 Swagger 기본 API를 확인한 뒤 AI Worker를 시작합니다.
 
 실제 사용자 데이터가 생긴 뒤에는 이 초기화 절차를 사용하지 않습니다. 기존 데이터를 보존하는 V2 이상의 `ALTER` migration과 사전 백업·롤백 계획을 별도로 작성합니다.

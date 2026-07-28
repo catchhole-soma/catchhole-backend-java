@@ -34,7 +34,7 @@ public record WorkerAnalysisJobPayload(
         @Schema(description = "캐릭터명 매칭에 사용할 기존 캐릭터 목록")
         List<WorkerAnalysisKnownCharacterPayload> knownCharacters,
 
-        @Schema(description = "분석 대상 회차 목록")
-        List<WorkerAnalysisEpisodePayload> episodes
+        @Schema(description = "분석 대상 단일 회차")
+        WorkerAnalysisEpisodePayload episode
 ) {
 }

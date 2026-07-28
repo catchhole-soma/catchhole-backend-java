@@ -5,7 +5,9 @@ import java.util.Map;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobResponse;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobTargetResponse;
+import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobEpisodeResponse;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
 import org.springframework.stereotype.Component;
@@ -13,7 +15,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class AnalysisJobMapper {
 
-    public AnalysisJobResponse toResponse(AnalysisJob analysisJob, List<UploadFile> uploadFiles) {
+    public AnalysisJobResponse toResponse(
+            AnalysisJob analysisJob,
+            List<UploadFile> uploadFiles,
+            List<Episode> episodes
+    ) {
         return new AnalysisJobResponse(
                 analysisJob.getId(),
                 analysisJob.getWork().getId(),
@@ -21,6 +27,7 @@ public class AnalysisJobMapper {
                 analysisJob.getBatch() == null ? null : analysisJob.getBatch().getId(),
                 toTargetResponse(analysisJob.getBatch(), uploadFiles),
                 analysisJob.getEpisode() == null ? null : analysisJob.getEpisode().getId(),
+                episodes.stream().map(this::toEpisodeResponse).toList(),
                 analysisJob.getJobType(),
                 analysisJob.getStatus(),
                 analysisJob.getCurrentStep(),
@@ -38,16 +45,29 @@ public class AnalysisJobMapper {
 
     public List<AnalysisJobResponse> toResponseList(
             List<AnalysisJob> analysisJobs,
-            Map<UUID, List<UploadFile>> uploadFilesByBatchId
+            Map<UUID, List<UploadFile>> uploadFilesByBatchId,
+            Map<UUID, List<Episode>> episodesByJobId
     ) {
         return analysisJobs.stream()
                 .map(analysisJob -> toResponse(
                         analysisJob,
                         analysisJob.getBatch() == null
                                 ? List.of()
-                                : uploadFilesByBatchId.getOrDefault(analysisJob.getBatch().getId(), List.of())
+                                : uploadFilesByBatchId.getOrDefault(analysisJob.getBatch().getId(), List.of()),
+                        episodesByJobId.getOrDefault(analysisJob.getId(), List.of())
                 ))
                 .toList();
+    }
+
+    private AnalysisJobEpisodeResponse toEpisodeResponse(Episode episode) {
+        return new AnalysisJobEpisodeResponse(
+                episode.getId(),
+                episode.getEpisodeNo(),
+                episode.getTitle(),
+                episode.getStatus(),
+                null,
+                episode.getUpdatedAt()
+        );
     }
 
     private AnalysisJobTargetResponse toTargetResponse(UploadBatch batch, List<UploadFile> uploadFiles) {
@@ -68,7 +88,7 @@ public class AnalysisJobMapper {
 
     private Integer minEpisodeStartNo(List<UploadFile> uploadFiles) {
         return uploadFiles.stream()
-                .map(UploadFile::getDetectedEpisodeStartNo)
+                .map(UploadFile::getEpisodeStartNo)
                 .filter(value -> value != null)
                 .min(Integer::compareTo)
                 .orElse(null);
@@ -76,7 +96,7 @@ public class AnalysisJobMapper {
 
     private Integer maxEpisodeEndNo(List<UploadFile> uploadFiles) {
         return uploadFiles.stream()
-                .map(UploadFile::getDetectedEpisodeEndNo)
+                .map(UploadFile::getEpisodeEndNo)
                 .filter(value -> value != null)
                 .max(Integer::compareTo)
                 .orElse(null);
@@ -84,7 +104,7 @@ public class AnalysisJobMapper {
 
     private Integer sumEpisodeCount(List<UploadFile> uploadFiles) {
         List<Integer> episodeCounts = uploadFiles.stream()
-                .map(UploadFile::getDetectedEpisodeCount)
+                .map(UploadFile::getEpisodeCount)
                 .filter(value -> value != null)
                 .toList();
         if (episodeCounts.isEmpty()) {

@@ -11,6 +11,7 @@ public enum AnalysisJobErrorCode implements ResultCode {
 
     ANALYSIS_JOB_NOT_FOUND(HttpStatus.NOT_FOUND, "분석 작업을 찾을 수 없습니다."),
     ANALYSIS_JOB_TARGET_NOT_FOUND(HttpStatus.NOT_FOUND, "분석 대상 리소스를 찾을 수 없습니다."),
+    ANALYSIS_JOB_ALREADY_IN_PROGRESS(HttpStatus.CONFLICT, "같은 대상의 분석 작업이 이미 진행 중입니다."),
     ANALYSIS_JOB_STATUS_CONFLICT(HttpStatus.CONFLICT, "분석 작업 상태가 올바르지 않습니다.");
 
     private final HttpStatus status;

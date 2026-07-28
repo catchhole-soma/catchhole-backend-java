@@ -1,0 +1,9 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+storage:
+  local:
+    root: ${CATCHHOLE_E2E_STORAGE_ROOT:${java.io.tmpdir}/catchhole-e2e-storage}

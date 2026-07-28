@@ -4,7 +4,7 @@
 
 Episode 도메인은 작품에 속한 회차 원고의 메타데이터와 원문 저장 위치를 관리합니다.
 
-회차 원문 전문은 DB에 직접 저장하지 않고 S3에 저장합니다. DB에는 원문 key, version, hash, 글자 수를 기록합니다.
+회차 원문 전문은 DB에 직접 저장하지 않고 S3에 저장합니다. DB에는 원문 key, version, hash, 글자 수를 기록합니다. `charCount`와 `char_count`는 Java `String.length()`가 아니라 공백 문자를 제외한 Unicode code point 수입니다.
 
 ## 핵심 결정
 
@@ -13,7 +13,7 @@ Episode 도메인은 작품에 속한 회차 원고의 메타데이터와 원문
 회차 원문 저장 key는 현재 다음 형식을 사용합니다.
 
 ```text
-works/{workId}/episodes/{episodeNo}.txt
+works/{workId}/episodes/{episodeNo}/{UUID}/{episodeNo}.txt
 ```
 
 저장 후 `episodes`에는 다음 메타데이터만 남깁니다.
@@ -22,8 +22,9 @@ works/{workId}/episodes/{episodeNo}.txt
 - `content_s3_version`
 - `content_hash`
 - `char_count`
+- `content_updated_at`
 
-이 구조는 분석 도메인이 원문을 DB에서 복사하지 않고 S3 저장 구조를 재사용할 수 있게 합니다.
+저장본마다 UUID 경로를 사용하므로 보관된 회차 번호를 재사용해도 기존 원문을 덮어쓰지 않습니다. 마지막 파일명은 `{episodeNo}.txt`로 유지해 S3에서도 회차를 식별할 수 있습니다. `content_updated_at`은 원문 직접 수정이나 파일 교체에만 갱신되고 제목만 수정할 때는 유지됩니다.
 
 ### 회차 번호 중복
 
@@ -45,18 +46,13 @@ works/{workId}/episodes/{episodeNo}.txt
 | `ANALYZING` | AI 분석 중 | `Episode.markAnalyzing()` 상태입니다. 분석 작업 상세에서 회차별 분석 단계로 표시합니다. |
 | `ANALYZED` | AI 분석 완료 | `Episode.markAnalyzed()` 상태입니다. 설정 후보 또는 검수 결과 저장 완료 후로 예상합니다. |
 | `FAILED` | 처리 실패 | `Episode.markFailed()` 상태입니다. 상세 실패 처리 이력은 후속 모니터링 기능에서 조회합니다. |
-| `ARCHIVED` | 보관됨 | `Episode.archive()` 상태입니다. 현재 삭제 API는 hard delete이며 보관/복구 API는 아직 없습니다. |
+| `ARCHIVED` | 보관됨 | 삭제 API가 `Episode.archive()`를 호출하는 soft delete 상태입니다. 활성 목록·중복 검사·최신 회차 계산에서는 제외합니다. |
 
 현재 회차 업로드/수정은 `UPLOADED` 상태로 저장합니다. 이후 청킹, 전처리, 분석 단계에서 상태 전이가 연결됩니다.
 
-확정된 후속 구현:
+청킹/전처리/분석 Worker는 progress 요청에 `episodeStatus`를 명시적으로 전달합니다. `currentStep`은 화면 표시용 자유 형식 문구이며 회차 상태 판정에 사용하지 않습니다.
 
-- 청킹/전처리/분석 Worker가 회차 상태를 바꿀 때는 `EpisodeStatus`를 파라미터로 받는 단일 내부 전이 API를 사용합니다.
-
-정책 미확정 TODO:
-
-- 회차 단위 실패가 `AnalysisJob.status`와 `Episode.status`에 어떻게 함께 반영될지 결정해야 합니다.
-- `ARCHIVED`를 soft delete로 사용할지, 현재 hard delete 정책을 유지할지 결정해야 합니다.
+신규 분석과 재분석은 모두 `AnalysisJob.episode_id`로 단일 회차를 지정합니다. 업로드 배치에 여러 회차가 있어도 회차마다 Job을 따로 생성하므로 같은 배치의 서로 다른 회차는 독립적으로 대기·성공·실패할 수 있습니다. Worker가 작업을 claim·완료·실패 처리할 때 해당 Job의 단일 대상 회차 상태만 함께 전이합니다.
 
 상태 표시 기준:
 
@@ -77,7 +73,8 @@ works/{workId}/episodes/{episodeNo}.txt
 | `content_s3_key` | 회차 원문 S3 key |
 | `content_s3_version` | S3 version ID |
 | `content_hash` | 원문 SHA-256 hash |
-| `char_count` | 원문 글자 수 |
+| `content_updated_at` | 현재 원문 업로드 또는 교체 시각. 제목만 수정할 때는 유지 |
+| `char_count` | 공백을 제외한 원문 Unicode code point 수 |
 | `status` | 회차 처리 상태 |
 | `created_at` | 생성 시각 |
 | `updated_at` | 수정 시각 |
@@ -96,7 +93,10 @@ GET /api/v1/works/{workId}/episodes
 
 1. `workId + memberId`로 본인 작품을 확인합니다.
 2. 회차 목록을 `episodeNo` 내림차순으로 조회합니다.
-3. 목록 응답은 원문 전체를 포함하지 않는 summary 형태입니다.
+3. 원본 파일과 최신 배치/회차 분석 작업 메타데이터는 회차별 재조회하지 않고 ID 목록으로 일괄 조회합니다.
+4. 목록 응답은 원문 전체를 포함하지 않는 summary 형태입니다.
+
+완료된 분석의 `unresolvedFindingCount`는 요약에 0 이상의 `unresolvedFindingCount`가 명시되었거나 이전 형식의 `findings` 배열이 있을 때만 숫자로 반환합니다. 요약이 없거나 알 수 없는 구조이거나 JSON 파싱에 실패하면 문제 없음으로 단정하지 않고 `null`을 반환하며, 화면은 이를 `—`로 표시합니다.
 
 ### 회차 원고 업로드
 
@@ -105,25 +105,105 @@ POST /api/v1/works/{workId}/episodes
 Content-Type: multipart/form-data
 ```
 
+OpenAPI `operationId`는 여러 회차를 한 번에 만들 수 있다는 의미를 반영한 `uploadEpisodes`입니다.
+
 Parts
 
 | part | 설명 |
 | --- | --- |
-| `data` | `EpisodeUploadRequest` JSON |
+| `metadata` | `EpisodeUploadRequest` JSON |
 | `episodeFiles` | 회차 원고 파일 목록 |
 | `settingBookFile` | 선택 설정집 파일 |
 
-`EpisodeUploadRequest`
+단일 회차 `EpisodeUploadRequest`
 
 ```json
 {
   "uploadType": "SINGLE_EPISODE",
-  "episodeNo": 159,
-  "title": "운명의 실타래"
+  "singleEpisodeNo": 159,
+  "singleEpisodeTitle": "운명의 실타래"
 }
 ```
 
+다회차 `EpisodeUploadRequest`
+
+```json
+{
+  "uploadType": "MULTI_EPISODE_SINGLE_FILE",
+  "episodeConfirmations": [
+    {
+      "detectionOrder": 0,
+      "episodeNo": 159,
+      "title": "운명의 실타래"
+    },
+    {
+      "detectionOrder": 1,
+      "episodeNo": 160,
+      "title": "새로운 동료"
+    }
+  ]
+}
+```
+
+회차 API의 `uploadType`은 `EpisodeUploadType`의 세 값만 허용합니다. 단일 회차 최종 업로드는 `singleEpisodeNo`가 필수이고 `episodeConfirmations`를 보내면 거절합니다. 두 다회차 방식에서는 단일 회차 전용 필드를 보내지 않으며, `episodeConfirmations`가 필수이고 사전 감지 응답의 `detectedEpisodes`와 개수·`detectionOrder`가 일치해야 합니다.
+
+회차 원고와 선택 설정집은 파일당 10MB, multipart 요청 전체는 25MB까지 허용합니다. `settingBookFile` part를 생략하는 것은 허용하지만, part를 명시적으로 보내고 내용이 비어 있으면 `UPLOAD_FILE_EMPTY`로 거절합니다.
+
+서버는 최종 업로드에서도 원본 파일을 다시 파싱해 `DetectedEpisode*`를 만들고, `EpisodeUploadProcessor.processEpisodeUpload(...)`이 감지된 본문 경계에는 손대지 않은 채 사용자가 확정한 번호와 제목을 적용해 `FinalizedEpisode*`를 만듭니다. 저장 응답의 영속화된 회차 목록 필드는 `createdEpisodes`입니다. 함께 반환되는 업로드 파일 범위는 `files[].episodeStartNo`, `episodeEndNo`, `episodeCount`로 표시합니다.
+
 업로드 상세 흐름은 [Upload Episode Workflow](upload-episode-workflow.md)를 기준으로 확인합니다.
+
+### 회차 원고 사전 감지
+
+```http
+POST /api/v1/works/{workId}/episodes/detect
+Content-Type: multipart/form-data
+```
+
+Parts
+
+| part | 설명 |
+| --- | --- |
+| `metadata` | `EpisodeDetectionRequest` JSON |
+| `episodeFiles` | 감지할 회차 원고 파일 목록 |
+
+```json
+{
+  "uploadType": "MULTI_EPISODE_SINGLE_FILE"
+}
+```
+
+이 API는 영구 저장하지 않습니다. `TextDocumentReader`가 TXT·DOCX를 검증하고 텍스트를 추출한 뒤, `EpisodeFileParser`가 회차 경계와 메타데이터를 `DetectedEpisode*`로 변환해 반환합니다. 단일 회차에서는 선택적인 `singleEpisodeNo`와 `singleEpisodeTitle`을 감지 힌트로 사용할 수 있습니다.
+
+```json
+{
+  "uploadType": "MULTI_EPISODE_SINGLE_FILE",
+  "episodeCount": 2,
+  "totalCharCount": 13120,
+  "detectedEpisodes": [
+    {
+      "detectionOrder": 0,
+      "sourceFileIndex": 0,
+      "episodeNo": 159,
+      "title": "운명의 실타래",
+      "sourceHeading": "제 159화 운명의 실타래",
+      "charCount": 6782,
+      "content": "감지된 첫 회차 본문"
+    },
+    {
+      "detectionOrder": 1,
+      "sourceFileIndex": 0,
+      "episodeNo": 160,
+      "title": "새로운 동료",
+      "sourceHeading": "제 160화 새로운 동료",
+      "charCount": 6338,
+      "content": "감지된 두 번째 회차 본문"
+    }
+  ]
+}
+```
+
+`detectionOrder`는 최종 업로드의 `episodeConfirmations[].detectionOrder`와 연결되는 0부터 시작하는 순서입니다. `sourceHeading`은 원본에서 경계로 감지한 회차 제목 행을 그대로 담으며 다회차 단일 파일 외에는 `null`일 수 있습니다. `content`에는 제목 행 다음의 회차 본문만 담습니다. `charCount`는 공백을 제외한 Unicode code point 수이고 `totalCharCount`는 각 감지 회차 `charCount`의 합입니다. 다회차 단일 파일에서는 `sourceHeading`과 `content`를 함께 사용해 명시적인 heading 사이의 고정 경계를 미리 확인합니다.
 
 ### 회차 상세 조회
 
@@ -157,10 +237,36 @@ Request
 
 1. 본인 작품과 회차를 확인합니다.
 2. 회차 번호가 바뀌면 같은 작품 안의 중복 번호를 검사합니다.
-3. 새 원문을 S3에 저장합니다.
-4. 기존 S3 key와 새 key가 다르면 기존 원문을 삭제합니다.
-5. `Episode.updateContent()`로 번호, 제목, S3 메타데이터, 글자 수를 갱신합니다.
-6. 작품의 `latestEpisodeNo`를 다시 계산합니다.
+3. 회차 상태와 연결된 배치/회차 분석 작업을 확인해 `PENDING` 또는 `RUNNING`이면 `EPISODE_ANALYSIS_IN_PROGRESS`로 거절합니다.
+4. 새 원문을 S3에 저장합니다.
+5. 기존 S3 key와 새 key가 다르면 기존 원문을 삭제합니다.
+6. `Episode.updateContent()`로 번호, 제목, S3 메타데이터, 글자 수와 `content_updated_at`을 갱신합니다.
+7. 작품의 `latestEpisodeNo`를 다시 계산합니다.
+
+이 API는 기존 범용 수정 계약입니다. 원고 목록 MVP에서는 회차 번호·본문 직접 편집을 노출하지 않고 아래 제목 수정과 파일 변경 API를 사용합니다.
+
+### 회차 제목 수정
+
+```http
+PATCH /api/v1/works/{workId}/episodes/{episodeId}/title
+```
+
+```json
+{
+  "title": "수정된 회차 제목"
+}
+```
+
+앞뒤 공백을 제거해 제목만 갱신합니다. 원문 변경 시점, 원문 메타데이터, 회차 상태와 최신 분석 결과는 유지합니다.
+
+### 회차 원문 파일 변경
+
+```http
+PUT /api/v1/works/{workId}/episodes/{episodeId}/file
+Content-Type: multipart/form-data
+```
+
+`file` part로 TXT 또는 DOCX 한 개를 받습니다. 분석 중인 회차는 변경할 수 없습니다. 새 `UploadBatch`와 `UploadFile`을 만든 뒤 회차 번호·제목·ID는 유지하고 원문 메타데이터, `content_updated_at`, `source_file_id`를 새 파일 기준으로 바꾸며 상태는 `UPLOADED`로 돌아갑니다. 기존 업로드 원본과 분석 작업은 이력·참조 무결성을 위해 물리 삭제하지 않고, 자동 재분석도 시작하지 않습니다.
 
 ### 회차 삭제
 
@@ -168,9 +274,7 @@ Request
 DELETE /api/v1/works/{workId}/episodes/{episodeId}
 ```
 
-본인 작품과 회차를 확인한 뒤 S3 원문을 삭제하고 DB row를 삭제합니다.
-
-삭제 후 작품의 `latestEpisodeNo`를 다시 계산합니다.
+본인 작품과 활성 회차를 확인한 뒤 `ARCHIVED`로 전환합니다. 분석 중인 회차는 삭제할 수 없습니다. DB row, 업로드 원본과 저장 객체는 물리 삭제하지 않으며, 활성 목록에서 숨기고 작품의 `latestEpisodeNo`를 다시 계산합니다.
 
 ## 접근 제어
 
@@ -181,5 +285,5 @@ DELETE /api/v1/works/{workId}/episodes/{episodeId}
 ## 이후 작업
 
 - DB 레벨 `work_id + episode_no` unique 제약 도입 여부 결정
-- 회차 보관 상태(`ARCHIVED`)를 사용하는 soft delete 정책 정의
-- 실제 청킹/전처리/분석 Worker 구현과 `EpisodeStatus` 세부 상태 전이 연결
+- 보관 회차 복구·영구 삭제 정책이 필요해질 때 별도 관리 API 정의
+- 실제 분석 산출물 저장 도메인과 최신 유효 리포트의 미처리 항목 집계 계약 연결

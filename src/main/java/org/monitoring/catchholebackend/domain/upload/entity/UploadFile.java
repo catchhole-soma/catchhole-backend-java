@@ -13,6 +13,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.util.UUID;
+import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -33,7 +34,7 @@ import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
  * 회차 원고 파일과 설정집 파일을 fileRole로 구분하고,
  * 원본 파일명, MIME 타입, S3 저장 위치, 파일 크기, 파싱 상태를 기록한다.
  *
- * 회차 원고 파일의 경우 파싱 결과로 감지된 시작 회차, 끝 회차,
+ * 회차 원고 파일의 경우 사용자 확정값이 적용된 시작 회차, 끝 회차,
  * 회차 개수를 저장한다.
  *
  * 업로드로 생성된 Episode는 episodes.source_file_id를 통해
@@ -79,18 +80,21 @@ public class UploadFile extends BaseEntity {
     private long fileSize;
 
     @Column(name = "detected_episode_start_no")
-    private Integer detectedEpisodeStartNo;
+    private Integer episodeStartNo;
 
     @Column(name = "detected_episode_end_no")
-    private Integer detectedEpisodeEndNo;
+    private Integer episodeEndNo;
 
-    //해당 파일의 탐지된 에피소드 개수
+    // 해당 파일에서 최종 생성한 회차 개수
     @Column(name = "detected_episode_count")
-    private Integer detectedEpisodeCount;
+    private Integer episodeCount;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "parse_status", nullable = false, length = 20)
     private UploadFileParseStatus parseStatus;
+
+    @Column(name = "archived_at")
+    private LocalDateTime archivedAt;
 
     private UploadFile(
             UploadBatch batch,
@@ -124,18 +128,26 @@ public class UploadFile extends BaseEntity {
         this.storageUrl = storageUrl;
     }
 
-    public void markParsed(
-            Integer detectedEpisodeStartNo,
-            Integer detectedEpisodeEndNo,
-            Integer detectedEpisodeCount
+    public void markEpisodesParsed(
+            int episodeStartNo,
+            int episodeEndNo,
+            int episodeCount
     ) {
-        this.detectedEpisodeStartNo = detectedEpisodeStartNo;
-        this.detectedEpisodeEndNo = detectedEpisodeEndNo;
-        this.detectedEpisodeCount = detectedEpisodeCount;
+        this.episodeStartNo = episodeStartNo;
+        this.episodeEndNo = episodeEndNo;
+        this.episodeCount = episodeCount;
+        this.parseStatus = UploadFileParseStatus.PARSED;
+    }
+
+    public void markParsed() {
         this.parseStatus = UploadFileParseStatus.PARSED;
     }
 
     public void markFailed() {
         this.parseStatus = UploadFileParseStatus.FAILED;
+    }
+
+    public void archive() {
+        this.archivedAt = LocalDateTime.now();
     }
 }

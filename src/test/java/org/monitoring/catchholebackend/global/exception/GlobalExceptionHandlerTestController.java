@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 @RestController
 @RequestMapping("/test")
@@ -31,6 +32,11 @@ class GlobalExceptionHandlerTestController {
     @GetMapping("/conflict")
     CommonResponse<Void> conflict() {
         throw new AppException(CommonErrorCode.CONFLICT, "이미 사용 중인 이메일입니다.");
+    }
+
+    @GetMapping("/upload-too-large")
+    CommonResponse<Void> uploadTooLarge() {
+        throw new MaxUploadSizeExceededException(10L * 1024 * 1024);
     }
 
     @GetMapping("/unknown-error")

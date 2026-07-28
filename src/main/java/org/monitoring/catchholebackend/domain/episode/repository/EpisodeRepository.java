@@ -11,11 +11,18 @@ public interface EpisodeRepository extends JpaRepository<Episode, UUID> {
 
     Optional<Episode> findByIdAndWorkId(UUID id, UUID workId);
 
-    List<Episode> findAllByWorkIdOrderByEpisodeNoDesc(UUID workId);
+    Optional<Episode> findByIdAndWorkIdAndStatusNot(UUID id, UUID workId, org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus status);
 
-    Optional<Episode> findFirstByWorkIdOrderByEpisodeNoDesc(UUID workId);
+    List<Episode> findAllByWorkIdAndStatusNotOrderByEpisodeNoDesc(UUID workId, org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus status);
+
+    Optional<Episode> findFirstByWorkIdAndStatusNotOrderByEpisodeNoDesc(UUID workId, org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus status);
 
     List<Episode> findAllBySourceFileIdInOrderByEpisodeNoAsc(Collection<UUID> sourceFileIds);
 
-    boolean existsByWorkIdAndEpisodeNo(UUID workId, int episodeNo);
+    List<Episode> findAllBySourceFileIdInAndStatusNotOrderByEpisodeNoAsc(
+            Collection<UUID> sourceFileIds,
+            org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus status
+    );
+
+    boolean existsByWorkIdAndEpisodeNoAndStatusNot(UUID workId, int episodeNo, org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus status);
 }

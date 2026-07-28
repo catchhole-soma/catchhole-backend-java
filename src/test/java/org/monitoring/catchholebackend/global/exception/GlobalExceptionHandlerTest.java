@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.global.exception;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -74,6 +75,16 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.error.code").value("CONFLICT"))
                 .andExpect(jsonPath("$.error.status").value(409))
                 .andExpect(jsonPath("$.timestamp", notNullValue()));
+    }
+
+    @Test
+    @DisplayName("서블릿 multipart 제한 초과를 공통 업로드 오류 응답으로 변환한다")
+    void multipartLimitFailureUsesControlledUploadError() throws Exception {
+        mockMvc.perform(get("/test/upload-too-large"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("UPLOAD_SIZE_LIMIT_EXCEEDED"))
+                .andExpect(jsonPath("$.error.status").value(400));
     }
 
     @Test

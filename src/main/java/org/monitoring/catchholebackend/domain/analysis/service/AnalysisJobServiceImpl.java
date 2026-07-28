@@ -2,6 +2,7 @@ package org.monitoring.catchholebackend.domain.analysis.service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +12,10 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisJobMapper;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.episode.entity.Episode;
+import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
+import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
@@ -31,24 +36,55 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     private final UploadBatchRepository uploadBatchRepository;
     private final UploadFileRepository uploadFileRepository;
     private final AnalysisJobMapper analysisJobMapper;
+    private final EpisodeRepository episodeRepository;
 
     @Override
     @Transactional
-    public AnalysisJobResponse createAnalysisJob(Long memberId, UUID workId, AnalysisJobCreateRequest request) {
+    public List<AnalysisJobResponse> createAnalysisJobs(
+            Long memberId,
+            UUID workId,
+            AnalysisJobCreateRequest request
+    ) {
         Work work = workRepository.getOwnedWork(workId, memberId);
         UploadBatch batch = getBatchInWork(request.batchId(), work);
+        Episode episode = request.episodeId() == null ? null : getEpisodeInBatch(request.episodeId(), work, batch);
 
-        AnalysisJob analysisJob = AnalysisJob.create(work, batch, null, request.jobType());
-        AnalysisJob savedAnalysisJob = analysisJobRepository.save(analysisJob);
+        List<UploadFile> uploadFiles = getUploadFiles(batch);
+        List<Episode> targetEpisodes = episode == null
+                ? findCurrentBatchEpisodes(uploadFiles)
+                : List.of(episode);
+        if (targetEpisodes.isEmpty()) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_TARGET_NOT_FOUND);
+        }
 
-        return analysisJobMapper.toResponse(savedAnalysisJob, getUploadFiles(savedAnalysisJob));
+        if (targetEpisodes.stream().anyMatch(targetEpisode -> hasActiveAnalysisJob(batch, targetEpisode))) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_ALREADY_IN_PROGRESS);
+        }
+
+        List<AnalysisJob> analysisJobs = targetEpisodes.stream()
+                .map(targetEpisode -> AnalysisJob.create(work, batch, targetEpisode, request.jobType()))
+                .toList();
+        return analysisJobRepository.saveAll(analysisJobs).stream()
+                .map(savedJob -> analysisJobMapper.toResponse(
+                        savedJob,
+                        uploadFiles,
+                        List.of(savedJob.getEpisode())
+                ))
+                .toList();
     }
 
     @Override
     public List<AnalysisJobResponse> getAnalysisJobs(Long memberId, UUID workId) {
         Work work = workRepository.getOwnedWork(workId, memberId);
-        List<AnalysisJob> analysisJobs = analysisJobRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId());
-        return analysisJobMapper.toResponseList(analysisJobs, getUploadFilesByBatchId(analysisJobs));
+        List<AnalysisJob> analysisJobs =
+                analysisJobRepository.findAllWithTargetsByWorkIdOrderByCreatedAtDesc(work.getId());
+        Map<UUID, List<UploadFile>> uploadFilesByBatchId = getUploadFilesByBatchId(analysisJobs);
+        Map<UUID, List<Episode>> episodesByJobId = analysisJobs.stream()
+                .collect(Collectors.toMap(
+                        AnalysisJob::getId,
+                        this::getTargetEpisodes
+                ));
+        return analysisJobMapper.toResponseList(analysisJobs, uploadFilesByBatchId, episodesByJobId);
     }
 
     @Override
@@ -56,7 +92,56 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         Work work = workRepository.getOwnedWork(workId, memberId);
         AnalysisJob analysisJob = analysisJobRepository.findByIdAndWorkId(analysisJobId, work.getId())
                 .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND , "해당 아이디가 존재하지 않습니다."));
-        return analysisJobMapper.toResponse(analysisJob, getUploadFiles(analysisJob));
+        return toResponse(analysisJob);
+    }
+
+    @Override
+    @Transactional
+    public List<AnalysisJobResponse> retryFailedAnalysisJob(Long memberId, UUID workId, UUID analysisJobId) {
+        Work work = workRepository.getOwnedWork(workId, memberId);
+        AnalysisJob failedJob = analysisJobRepository.findByIdAndWorkId(analysisJobId, work.getId())
+                .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND));
+        if (failedJob.getStatus() != AnalysisJobStatus.FAILED) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
+        }
+        if (hasActiveBatchWideAnalysisJob(failedJob.getBatch())) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_ALREADY_IN_PROGRESS);
+        }
+
+        List<Episode> failedEpisodes = getTargetEpisodes(failedJob).stream()
+                .filter(episode -> episode.getStatus() == EpisodeStatus.FAILED)
+                .toList();
+        if (failedEpisodes.isEmpty()) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_TARGET_NOT_FOUND);
+        }
+
+        return failedEpisodes.stream()
+                .map(episode -> getOrCreateRetryJob(work, failedJob, episode))
+                .map(this::toResponse)
+                .toList();
+    }
+
+    private AnalysisJobResponse toResponse(AnalysisJob analysisJob) {
+        List<UploadFile> uploadFiles = getUploadFiles(analysisJob);
+        return analysisJobMapper.toResponse(
+                analysisJob,
+                uploadFiles,
+                getTargetEpisodes(analysisJob)
+        );
+    }
+
+    private List<Episode> getTargetEpisodes(AnalysisJob analysisJob) {
+        return List.copyOf(analysisJob.getTargetEpisodes());
+    }
+
+    private List<Episode> findCurrentBatchEpisodes(List<UploadFile> uploadFiles) {
+        List<UUID> sourceFileIds = uploadFiles.stream()
+                .map(UploadFile::getId)
+                .toList();
+        return sourceFileIds.isEmpty()
+                ? List.of()
+                : episodeRepository.findAllBySourceFileIdInAndStatusNotOrderByEpisodeNoAsc(
+                        sourceFileIds, EpisodeStatus.ARCHIVED);
     }
 
     private UploadBatch getBatchInWork(UUID batchId, Work work) {
@@ -67,11 +152,50 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_TARGET_NOT_FOUND));
     }
 
+    private Episode getEpisodeInBatch(UUID episodeId, Work work, UploadBatch batch) {
+        Episode episode = episodeRepository
+                .findByIdAndWorkIdAndStatusNot(episodeId, work.getId(), EpisodeStatus.ARCHIVED)
+                .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_TARGET_NOT_FOUND));
+        UploadFile sourceFile = episode.getSourceFileId() == null
+                ? null
+                : uploadFileRepository.findById(episode.getSourceFileId()).orElse(null);
+        if (sourceFile == null || !sourceFile.getBatch().getId().equals(batch.getId())) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_TARGET_NOT_FOUND);
+        }
+        return episode;
+    }
+
+    private boolean hasActiveAnalysisJob(UploadBatch batch, Episode episode) {
+        Set<AnalysisJobStatus> activeStatuses = Set.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING);
+        return analysisJobRepository.existsByBatchIdAndEpisodeIsNullAndStatusIn(batch.getId(), activeStatuses)
+                || analysisJobRepository.existsByEpisodeIdAndBatchIdAndStatusIn(
+                episode.getId(), batch.getId(), activeStatuses);
+    }
+
+    private boolean hasActiveBatchWideAnalysisJob(UploadBatch batch) {
+        Set<AnalysisJobStatus> activeStatuses = Set.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING);
+        return batch != null && analysisJobRepository.existsByBatchIdAndEpisodeIsNullAndStatusIn(
+                batch.getId(), activeStatuses);
+    }
+
+    private AnalysisJob getOrCreateRetryJob(Work work, AnalysisJob failedJob, Episode episode) {
+        Set<AnalysisJobStatus> activeStatuses = Set.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING);
+        return analysisJobRepository
+                .findFirstByEpisodeIdAndBatchIdAndStatusInOrderByCreatedAtDesc(
+                        episode.getId(), failedJob.getBatch().getId(), activeStatuses)
+                .orElseGet(() -> analysisJobRepository.save(AnalysisJob.create(
+                        work, failedJob.getBatch(), episode, failedJob.getJobType())));
+    }
+
     private List<UploadFile> getUploadFiles(AnalysisJob analysisJob) {
-        if (analysisJob.getBatch() == null) {
+        return getUploadFiles(analysisJob.getBatch());
+    }
+
+    private List<UploadFile> getUploadFiles(UploadBatch batch) {
+        if (batch == null) {
             return List.of();
         }
-        return uploadFileRepository.findAllByBatchIdOrderByCreatedAtAsc(analysisJob.getBatch().getId());
+        return uploadFileRepository.findAllByBatchIdOrderByCreatedAtAsc(batch.getId());
     }
 
     private Map<UUID, List<UploadFile>> getUploadFilesByBatchId(List<AnalysisJob> analysisJobs) {

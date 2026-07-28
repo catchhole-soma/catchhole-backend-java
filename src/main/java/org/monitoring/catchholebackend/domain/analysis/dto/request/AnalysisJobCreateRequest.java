@@ -13,6 +13,12 @@ public record AnalysisJobCreateRequest(
 
         @NotNull(message = "분석 대상 업로드 배치 ID는 필수입니다.")
         @Schema(description = "분석 대상 업로드 배치 ID", example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d111")
-        UUID batchId
+        UUID batchId,
+
+        @Schema(
+                description = "분석 범위 회차 ID. 없으면 batch의 각 회차별 작업을 생성하고, 있으면 해당 회차 작업만 생성합니다.",
+                nullable = true
+        )
+        UUID episodeId
 ) {
 }
