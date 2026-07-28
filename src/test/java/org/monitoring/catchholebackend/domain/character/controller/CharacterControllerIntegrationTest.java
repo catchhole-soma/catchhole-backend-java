@@ -488,6 +488,44 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("보관 캐릭터와 같은 이름으로 활성 캐릭터를 수정할 수 있다")
+    void updateCharacterAllowsNameUsedOnlyByArchivedCharacter() throws Exception {
+        WorkCharacter activeCharacter = workCharacterRepository.save(character(work, "현재 이름", null, null));
+        WorkCharacter archivedCharacter = workCharacterRepository.save(character(work, "수아", null, null));
+        archivedCharacter.archive();
+        workCharacterRepository.saveAndFlush(archivedCharacter);
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                activeCharacter.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "수아",
+                                  "roleLabel": null,
+                                  "currentAge": null,
+                                  "currentLevel": null,
+                                  "firstAppearanceEpisodeNo": null,
+                                  "profile": [],
+                                  "stats": [],
+                                  "skills": [],
+                                  "items": [],
+                                  "statuses": []
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.name").value("수아"));
+
+        assertThat(workCharacterRepository.findById(activeCharacter.getId()).orElseThrow().getStatus())
+                .isEqualTo(CharacterStatus.ACTIVE);
+        assertThat(workCharacterRepository.findById(archivedCharacter.getId()).orElseThrow().getStatus())
+                .isEqualTo(CharacterStatus.ARCHIVED);
+    }
+
+    @Test
     @DisplayName("보관된 회차는 캐릭터의 새 첫 등장 회차로 지정할 수 없다")
     void updateCharacterRejectsArchivedFirstAppearanceEpisode() throws Exception {
         WorkCharacter character = workCharacterRepository.save(character(work, "수아", null, null));
@@ -1540,6 +1578,57 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("빈 JSON 설정과 trailing token 속성은 부수효과 없이 거절한다")
+    void updateCharacterRejectsIncompleteJsonValuesWithoutSideEffects() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+
+        List<String> invalidSkills = List.of(
+                """
+                        [
+                          {
+                            "key": "skill.빈_JSON",
+                            "value": "",
+                            "valueType": "JSON",
+                            "properties": []
+                          }
+                        ]
+                        """,
+                """
+                        [
+                          {
+                            "key": "skill.복수_JSON",
+                            "value": "표시값",
+                            "valueType": "JSON",
+                            "properties": [
+                              {
+                                "key": "payload",
+                                "value": "{} {}",
+                                "valueType": "JSON"
+                              }
+                            ]
+                          }
+                        ]
+                        """
+        );
+
+        for (String skills : invalidSkills) {
+            mockMvc.perform(patch(
+                                    "/api/v1/works/{workId}/characters/{characterId}",
+                                    work.getId(),
+                                    character.getId()
+                            )
+                            .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(characterUpdateRequest("변경될 이름", skills)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("CHARACTER_SETTING_VALUE_INVALID"));
+        }
+
+        assertThat(workCharacterRepository.findById(character.getId()).orElseThrow().getName()).isEqualTo("수아");
+        assertThat(characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId())).isEmpty();
+    }
+
+    @Test
     @DisplayName("속성 없는 JSON Fact의 opaque 표시값 변경은 부수효과 없이 거절한다")
     void updateCharacterRejectsChangedOpaqueJsonValue() throws Exception {
         WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
@@ -1829,6 +1918,30 @@ class CharacterControllerIntegrationTest {
                 .andExpect(jsonPath("$.error.code").value("CHARACTER_NAME_DUPLICATED"));
 
         assertThat(workCharacterRepository.findById(archivedCharacter.getId()).orElseThrow().getStatus())
+                .isEqualTo(CharacterStatus.ARCHIVED);
+    }
+
+    @Test
+    @DisplayName("같은 이름의 다른 보관 캐릭터가 있어도 복구할 수 있다")
+    void restoreCharacterAllowsNameUsedOnlyByAnotherArchivedCharacter() throws Exception {
+        WorkCharacter restoreTarget = workCharacterRepository.save(character(work, "수아", 23, 15));
+        restoreTarget.archive();
+        WorkCharacter otherArchivedCharacter = workCharacterRepository.save(character(work, "수아", 30, 8));
+        otherArchivedCharacter.archive();
+        workCharacterRepository.saveAllAndFlush(List.of(restoreTarget, otherArchivedCharacter));
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}/restore",
+                                work.getId(),
+                                restoreTarget.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"));
+
+        assertThat(workCharacterRepository.findById(restoreTarget.getId()).orElseThrow().getStatus())
+                .isEqualTo(CharacterStatus.ACTIVE);
+        assertThat(workCharacterRepository.findById(otherArchivedCharacter.getId()).orElseThrow().getStatus())
                 .isEqualTo(CharacterStatus.ARCHIVED);
     }
 

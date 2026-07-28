@@ -93,7 +93,11 @@ class WorkCharacterRepositoryTest {
                 firstAppearanceEpisodeId
         ));
 
-        WorkCharacter found = workCharacterRepository.findByWorkIdAndName(work.getId(), "아리아").orElseThrow();
+        WorkCharacter found = workCharacterRepository.findByWorkIdAndNameAndStatus(
+                work.getId(),
+                "아리아",
+                CharacterStatus.ACTIVE
+        ).orElseThrow();
 
         assertThat(found.getId()).isEqualTo(character.getId());
         assertThat(found.getName()).isEqualTo("아리아");

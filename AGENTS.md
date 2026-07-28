@@ -268,16 +268,18 @@ domain/<domain>
 - `SettingCandidate` 수정은 `PENDING_REVIEW` 상태에서만 허용한다. 확정/무시 이후 수정은 `CharacterFact` 반영 정책과 동기화 문제가 생기므로 별도 정책이 정해질 때까지 막는다.
 - `SettingCandidate` 확정/무시는 POST action API로 처리한다. 처음 `CONFIRMED`로 전환되는 후보는 `CharacterFact`로 저장하고 `WorkCharacter` 현재 스냅샷을 갱신한다. 동일 상태 재호출은 성공으로 처리하되 `CharacterFact`를 중복 생성하지 않고, `CONFIRMED`와 `DISMISSED` 사이의 반대 전이는 상태 충돌로 거절한다.
 - `AGE`, `LEVEL` 후보는 확정 전에 구조화 대표값을 우선 확인하고, 값이 없을 때만 표시값을 사용해 0 이상이면서 Java `Integer` 범위의 정확한 정수인지 검증한다. 소수·음수·범위 초과 값은 캐릭터 결정과 Fact 저장 전에 거절해 상세 응답과 전체 수정 계약이 어긋나지 않게 한다.
-- `UNRESOLVED` 캐릭터 후보를 confirm할 때 같은 작품의 trim 후 exact-name 활성 캐릭터가 있으면 재사용하고, 없으면 새로 생성한다. 결정된 캐릭터는 확정 후보와 같은 작품·이름의 `PENDING_REVIEW + UNRESOLVED + CHARACTER` 형제 후보에 `MATCHED`로 연결한다. `AMBIGUOUS`와 이미 검토된 후보는 자동 변경하지 않으며, 조회-생성 구간은 작품 row의 pessimistic write lock으로 직렬화한다.
+- 후보 `valueJson` object의 정확한 `value` key는 숨겨진 대표값 envelope로 유지한다. `PROFILE`, `STAT`, `SKILL`, `ITEM`, `STATUS`의 나머지 최상위 공개 property는 상세 응답을 전체 수정 요청으로 그대로 왕복할 수 있도록 key가 공백 없이 100자 이하이고 앞뒤 공백·예약 key 충돌·정규화 후 중복이 없어야 하며, 직접 문자열 값은 비어 있지 않고 앞뒤 공백이 없어야 한다. 공개 property가 있는 scalar schema는 선언 타입과 호환되는 `value` envelope도 가져야 한다. 위반 후보는 캐릭터 결정과 Fact 저장 전에 거절한다.
+- `UNRESOLVED` 캐릭터 후보를 confirm할 때 같은 작품의 trim 후 exact-name `ACTIVE` 캐릭터가 있으면 재사용하고, 보관 캐릭터만 있거나 동명 캐릭터가 없으면 새 `ACTIVE` 캐릭터를 생성한다. 결정된 캐릭터는 확정 후보와 같은 작품·이름의 `PENDING_REVIEW + UNRESOLVED + CHARACTER` 형제 후보에 `MATCHED`로 연결한다. `AMBIGUOUS`와 이미 검토된 후보는 자동 변경하지 않으며, 조회-생성 구간은 작품 row의 pessimistic write lock으로 직렬화한다.
 - confirm으로 생성하는 `CharacterFact`는 `setting_candidate_id` FK로 원본 `SettingCandidate`를 연결하고, 구체적인 원문 인용은 후보의 `evidence_spans`에서 조회한다. 기존 Fact는 추정 backfill하지 않고 `NULL`로 유지하며, 근거 JSON을 Fact에 중복 저장하지 않는다.
 - `SettingCandidate` 확정 반영처럼 후보/요청 데이터를 저장용 Entity로 변환하는 코드는 service에서 `Entity.create()` 파라미터를 직접 조립하지 말고 mapper의 `toEntity` 계열 메서드로 분리한다. service는 권한 확인, 조회, 트랜잭션 흐름, 저장 호출, 도메인 메서드 조율에 집중한다.
 - `CharacterFact` current 여부와 `WorkCharacter` 스냅샷은 우선 `Episode.episodeNo` 기준으로 계산한다. episode가 없는 fact는 current 우선순위를 가장 낮게 보고, 같은 회차의 같은 key는 나중에 생성된 fact를 current로 둔다. 작중 시간 정렬은 AI Worker의 시간 메타데이터 정책이 정해진 뒤 확장한다.
 - 기존 `MATCHED` 캐릭터에 후보를 반영할 때는 해당 `WorkCharacter`를 pessimistic write lock으로 조회한 뒤 Fact current 재선정과 snapshot 재구성을 같은 트랜잭션에서 수행한다. 서로 다른 factKey의 동시 confirm이 snapshot을 덮어쓰지 않게 하기 위함이다.
 - `WorkCharacter.profileJson`, `statsJson`, `skillsJson`, `itemsJson`, `statusesJson`은 nullable한 `factKey -> current CharacterFact.valueJson` object map이다. confirm마다 전체 current Fact로 다섯 컬럼을 일괄 재구성하며, 빈 그룹은 `null`로 둔다. `REPLACE`와 `UPSERT_BY_NAME` 모두 factKey entry 전체를 교체하고 `valueJson.name`은 식별자로 사용하지 않는다. object deep merge, 삭제/비활성 표현과 나머지 merge policy는 NVM-229 후속 정책으로 둔다. 프로필 후보와 수동 수정도 다른 설정 유형과 같은 이력·snapshot 규칙을 사용한다.
 - 캐릭터 현재 설정 전체 수정은 변경된 `factType + factKey`마다 출처 없는 수동 정정 `CharacterFact`를 새로 만들고 기존 current Fact를 historical로 전환한다. 원본 후보·원문·과거 Fact는 수정하지 않으며 전체 변경과 snapshot 재구성을 한 트랜잭션에서 처리한다.
+- 캐릭터 현재 설정 수정 요청의 `JSON` 문자열은 정확히 하나의 완전한 JSON 값이어야 한다. 빈 문자열이나 한 문자열에 여러 JSON 값이 이어진 입력은 `CHARACTER_SETTING_VALUE_INVALID`로 거절하고 캐릭터·Fact 변경을 남기지 않는다.
 - 캐릭터 화면의 삭제 액션은 hard delete가 아니다. `DELETE /api/v1/works/{workId}/characters/{characterId}`는 `WorkCharacter.status`를 `ACTIVE`에서 `ARCHIVED`로 바꾸고 Fact와 근거 데이터를 유지한다. 기본 목록·상세·수정은 `ACTIVE` 캐릭터만 대상으로 한다.
-- 보관함은 `ARCHIVED` 캐릭터만 페이지 조회하며 기본 페이지 크기는 9다. 복구는 작품 row와 보관 캐릭터를 순서대로 pessimistic write lock으로 조회한 뒤 이름 중복을 검증하고 `ACTIVE`로 전환한다. 보관·복구는 `CharacterFact`, `SettingCandidate`, 원문 근거를 수정하지 않는다.
-- 캐릭터 이름 수정과 복구의 작품 내 중복 검사는 먼저 작품 row를 pessimistic write lock으로 조회해 같은 작품의 이름 검사·변경을 직렬화한다. 수정 대상 캐릭터 row 잠금만으로는 서로 다른 캐릭터를 동시에 같은 이름으로 바꾸는 요청을 막을 수 없기 때문이다.
+- 보관함은 `ARCHIVED` 캐릭터만 페이지 조회하며 기본 페이지 크기는 9다. 복구는 작품 row와 보관 캐릭터를 순서대로 pessimistic write lock으로 조회한 뒤 `ACTIVE` 이름 중복을 검증하고 `ACTIVE`로 전환한다. 보관·복구는 `CharacterFact`, `SettingCandidate`, 원문 근거를 수정하지 않는다.
+- 작품 내 캐릭터 이름 중복은 `ACTIVE` 상태끼리만 금지한다. 이름 수정과 복구는 다른 `ACTIVE` 동명이 있을 때만 거절하고, `ARCHIVED` 캐릭터끼리 또는 `ACTIVE`와 `ARCHIVED` 사이의 동명은 허용한다. 후보 확정·이름 수정·복구는 작품 row의 pessimistic write lock 아래에서 검사와 생성을 직렬화해 `(workId, name)`별 `ACTIVE` 캐릭터가 최대 하나만 존재하도록 한다.
 - 캐릭터 상세가 제공하는 `characterFactId`와 `hasEvidence`는 MVP 후속 PR의 CharacterFact 상세·원문 근거 조회 진입점을 위한 계약이다. 현재 PR은 Fact에서 근거를 조회하는 API를 제공하지 않는다.
 - 별도 migration이나 일괄 backfill 없이, 다음 성공 confirm에서 전체 current Fact를 기준으로 기존 JSON snapshot을 map 또는 `null` 계약에 맞게 정규화한다.
 - `WorkCharacter.firstAppearanceEpisodeId`는 확정 순서가 아니라 가장 이른 업로드 회차 기준으로 유지한다.

@@ -3,7 +3,9 @@ package org.monitoring.catchholebackend.domain.character.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
@@ -26,6 +28,7 @@ import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
+import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.work.exception.WorkErrorCode;
@@ -37,6 +40,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class SettingCandidatePromotionServiceImpl implements SettingCandidatePromotionService {
+
+    private static final int MAX_PROPERTY_KEY_LENGTH = 100;
 
     private final WorkCharacterRepository workCharacterRepository;
     private final CharacterFactRepository characterFactRepository;
@@ -62,6 +67,11 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         String factKey = schemaMatch.factKey();
         CharacterFactType factType = schemaMatch.matchedSchema().getFactType();
         validateCoreSnapshotValue(candidate, factType);
+        validateStructuredProperties(
+                candidate.getValueJson(),
+                factType,
+                schemaMatch.matchedSchema().getValueType()
+        );
 
         // schema 매칭, 값 타입, merge policy 검증을 통과한 후보만 캐릭터 생성과 Fact 저장으로 진행한다.
         WorkCharacter character = resolveCharacterForPromotion(candidate);
@@ -127,6 +137,68 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
     }
 
     /**
+     * 상세 응답에 공개되는 최상위 속성과 scalar envelope가 전체 수정 요청으로 왕복 가능한지 검증한다.
+     */
+    private void validateStructuredProperties(
+            JsonNode valueJson,
+            CharacterFactType factType,
+            SettingValueType valueType
+    ) {
+        if (!hasEditableProperties(factType) || valueJson == null || !valueJson.isObject()) {
+            return;
+        }
+        Set<String> keys = new HashSet<>();
+        boolean hasPublicProperty = valueJson.size() > (valueJson.has("value") ? 1 : 0);
+        valueJson.properties().forEach(entry -> {
+            String rawKey = entry.getKey();
+            if (rawKey.equals("value")) {
+                return;
+            }
+            String key = rawKey.trim();
+            JsonNode propertyValue = entry.getValue();
+            boolean invalidTextValue = propertyValue.isTextual()
+                    && (propertyValue.asText().isEmpty()
+                            || !propertyValue.asText().equals(propertyValue.asText().trim()));
+            if (rawKey.isBlank()
+                    || rawKey.length() > MAX_PROPERTY_KEY_LENGTH
+                    || !rawKey.equals(key)
+                    || key.equals("value")
+                    || !keys.add(key)
+                    || invalidTextValue) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_VALUE_JSON_INVALID);
+            }
+        });
+        if (hasPublicProperty
+                && valueType != SettingValueType.JSON
+                && !hasCompatibleScalarEnvelope(valueJson, valueType)) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_VALUE_JSON_INVALID);
+        }
+    }
+
+    private boolean hasEditableProperties(CharacterFactType factType) {
+        return switch (factType) {
+            case PROFILE, STAT, SKILL, ITEM, STATUS -> true;
+            case AGE, LEVEL, TIME -> false;
+        };
+    }
+
+    private boolean hasCompatibleScalarEnvelope(JsonNode valueJson, SettingValueType valueType) {
+        JsonNode valueNode = valueJson.get("value");
+        if (valueNode == null) {
+            return false;
+        }
+        if (valueNode.isNull() || valueType == SettingValueType.UNKNOWN) {
+            return true;
+        }
+        return switch (valueType) {
+            case STRING -> valueNode.isTextual();
+            case NUMBER -> valueNode.isNumber();
+            case BOOLEAN -> valueNode.isBoolean();
+            case JSON, UNKNOWN -> true;
+        };
+    }
+
+    /**
      * 구조화 대표값이 있으면 우선 사용하고, 없을 때만 표시값을 숫자로 해석한다.
      */
     private BigDecimal resolveCoreSnapshotNumber(SettingCandidate candidate) {
@@ -187,8 +259,12 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         workRepository.findByIdForUpdate(workId)
                 .orElseThrow(() -> new AppException(WorkErrorCode.WORK_NOT_FOUND));
 
-        // 동일 이름의 활성 캐릭터는 재사용하고, 이름 자체가 없을 때만 새 캐릭터를 만든다.
-        WorkCharacter character = workCharacterRepository.findByWorkIdAndName(workId, characterName)
+        // 동일 이름의 활성 캐릭터는 재사용하고, 보관 캐릭터만 있거나 이름 자체가 없으면 새 캐릭터를 만든다.
+        WorkCharacter character = workCharacterRepository.findByWorkIdAndNameAndStatus(
+                        workId,
+                        characterName,
+                        CharacterStatus.ACTIVE
+                )
                 .map(existingCharacter -> lockActiveCharacter(existingCharacter, workId))
                 .orElseGet(() -> workCharacterRepository.save(
                         settingCandidatePromotionMapper.toWorkCharacter(candidate)

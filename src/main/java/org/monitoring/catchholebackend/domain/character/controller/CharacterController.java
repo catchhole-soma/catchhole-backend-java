@@ -209,7 +209,7 @@ public class CharacterController {
             ),
             @ApiResponse(
                     responseCode = "409",
-                    description = "같은 작품 안의 캐릭터 이름 중복",
+                    description = "같은 작품 안의 다른 활성 캐릭터와 이름 중복",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
             )
     })
@@ -285,7 +285,7 @@ public class CharacterController {
             ),
             @ApiResponse(
                     responseCode = "409",
-                    description = "같은 작품 안의 캐릭터 이름 중복",
+                    description = "같은 작품 안의 다른 활성 캐릭터와 이름 중복",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
             )
     })

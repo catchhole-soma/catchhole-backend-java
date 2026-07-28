@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.character.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
@@ -70,7 +71,8 @@ public class CharacterServiceImpl implements CharacterService {
     private final EpisodeRepository episodeRepository;
     private final CharacterSnapshotAssembler characterSnapshotAssembler;
     private final CharacterMapper characterMapper;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper()
+            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
     @Override
     public PageResponse<CharacterSummaryResponse> getCharacters(
@@ -137,7 +139,12 @@ public class CharacterServiceImpl implements CharacterService {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         WorkCharacter character = getActiveCharacterForUpdate(work.getId(), characterId);
         String name = request.name().trim();
-        if (workCharacterRepository.existsByWorkIdAndNameAndIdNot(work.getId(), name, characterId)) {
+        if (workCharacterRepository.existsByWorkIdAndNameAndStatusAndIdNot(
+                work.getId(),
+                name,
+                CharacterStatus.ACTIVE,
+                characterId
+        )) {
             throw new AppException(CharacterErrorCode.CHARACTER_NAME_DUPLICATED);
         }
 
@@ -183,9 +190,10 @@ public class CharacterServiceImpl implements CharacterService {
     public CharacterRestoreResponse restoreCharacter(Long memberId, UUID workId, UUID characterId) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         WorkCharacter character = getArchivedCharacterForUpdate(work.getId(), characterId);
-        if (workCharacterRepository.existsByWorkIdAndNameAndIdNot(
+        if (workCharacterRepository.existsByWorkIdAndNameAndStatusAndIdNot(
                 work.getId(),
                 character.getName(),
+                CharacterStatus.ACTIVE,
                 characterId
         )) {
             throw new AppException(CharacterErrorCode.CHARACTER_NAME_DUPLICATED);
@@ -544,12 +552,20 @@ public class CharacterServiceImpl implements CharacterService {
             return switch (valueType) {
                 case NUMBER -> JsonNodeFactory.instance.numberNode(new BigDecimal(normalizedValue));
                 case BOOLEAN -> toBooleanNode(normalizedValue);
-                case JSON -> objectMapper.readTree(normalizedValue);
+                case JSON -> toJsonNode(normalizedValue);
                 case STRING, UNKNOWN -> JsonNodeFactory.instance.textNode(normalizedValue);
             };
         } catch (NumberFormatException | JsonProcessingException exception) {
             throw new AppException(CharacterErrorCode.CHARACTER_SETTING_VALUE_INVALID);
         }
+    }
+
+    private JsonNode toJsonNode(String value) throws JsonProcessingException {
+        JsonNode valueNode = objectMapper.readTree(value);
+        if (valueNode == null || valueNode.isMissingNode()) {
+            throw new AppException(CharacterErrorCode.CHARACTER_SETTING_VALUE_INVALID);
+        }
+        return valueNode;
     }
 
     /**

@@ -29,6 +29,7 @@ import org.monitoring.catchholebackend.domain.character.exception.CharacterError
 import org.monitoring.catchholebackend.domain.character.mapper.SettingCandidateMapper;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
+import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateCharacterMatchResolutionType;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
@@ -287,7 +288,11 @@ class SettingCandidateServiceImplTest {
         );
         when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
-        when(workCharacterRepository.findByWorkIdAndName(workId, "아리아")).thenReturn(Optional.empty());
+        when(workCharacterRepository.findByWorkIdAndNameAndStatus(
+                workId,
+                "아리아",
+                CharacterStatus.ACTIVE
+        )).thenReturn(Optional.empty());
         when(settingCandidateMapper.toResponse(candidate)).thenReturn(response);
 
         SettingCandidateResponse result =
@@ -346,7 +351,11 @@ class SettingCandidateServiceImplTest {
                         assertThat(exception.getResultCode())
                                 .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_NEW_CHARACTER_NAME_REQUIRED));
 
-        verify(workCharacterRepository, never()).findByWorkIdAndName(any(UUID.class), any(String.class));
+        verify(workCharacterRepository, never()).findByWorkIdAndNameAndStatus(
+                any(UUID.class),
+                any(String.class),
+                any(CharacterStatus.class)
+        );
         verify(settingCandidateMapper, never()).toResponse(any(SettingCandidate.class));
     }
 
@@ -367,7 +376,11 @@ class SettingCandidateServiceImplTest {
         );
         when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
-        when(workCharacterRepository.findByWorkIdAndName(workId, "아리아")).thenReturn(Optional.of(character));
+        when(workCharacterRepository.findByWorkIdAndNameAndStatus(
+                workId,
+                "아리아",
+                CharacterStatus.ACTIVE
+        )).thenReturn(Optional.of(character));
 
         assertThatThrownBy(() -> service.updateSettingCandidateCharacterMatch(memberId, workId, candidateId, request))
                 .isInstanceOfSatisfying(AppException.class, exception ->

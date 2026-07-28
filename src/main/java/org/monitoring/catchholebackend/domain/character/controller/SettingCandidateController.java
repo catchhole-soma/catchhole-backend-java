@@ -162,12 +162,15 @@ public class SettingCandidateController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "설정 후보 확정 성공"),
-            @ApiResponse(responseCode = "400", description = "활성 schema 미매칭 또는 후보와 schema의 값 타입 불일치"),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "활성 schema 미매칭, 값 타입 불일치 또는 구조화 값의 공개 속성 계약 위반"
+            ),
             @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패"),
             @ApiResponse(responseCode = "404", description = "작품 또는 설정 후보를 찾을 수 없음"),
             @ApiResponse(
                     responseCode = "409",
-                    description = "검토/캐릭터 매칭 상태 충돌, 유효하지 않은 연결, 비활성 동일 이름 충돌, "
+                    description = "검토/캐릭터 매칭 상태 충돌, 유효하지 않은 연결, "
                             + "schema 복수 매칭 또는 미지원 merge policy"
             )
     })
