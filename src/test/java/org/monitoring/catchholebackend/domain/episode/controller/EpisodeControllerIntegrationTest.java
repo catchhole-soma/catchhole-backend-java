@@ -159,6 +159,38 @@ class EpisodeControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("단일 회차 업로드 파일에 회차 제목 행이 둘 이상이면 거절한다")
+    void uploadSingleEpisodeRejectsMultipleEpisodeHeadings() throws Exception {
+        MockMultipartFile metadata = metadataPart("""
+                {
+                  "uploadType": "SINGLE_EPISODE",
+                  "singleEpisodeNo": 1
+                }
+                """);
+        MockMultipartFile episodeFile = textFile(
+                "episodeFiles",
+                "episode-1.txt",
+                """
+                        제 1화 시작
+                        첫 번째 본문입니다.
+
+                        제 2화 다음
+                        두 번째 본문입니다.
+                        """
+        );
+
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(metadata)
+                        .file(episodeFile)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("UPLOAD_SINGLE_EPISODE_COUNT_INVALID"));
+
+        assertThat(episodeRepository.count()).isZero();
+        assertThat(uploadBatchRepository.count()).isZero();
+    }
+
+    @Test
     @DisplayName("명시적으로 첨부한 빈 설정집 파일을 누락된 part로 취급하지 않고 거절한다")
     void uploadEpisodesRejectsExplicitEmptySettingBook() throws Exception {
         MockMultipartFile emptySettingBook = new MockMultipartFile(

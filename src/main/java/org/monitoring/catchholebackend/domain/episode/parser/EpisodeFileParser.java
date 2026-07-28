@@ -64,6 +64,10 @@ public class EpisodeFileParser {
     ) {
         MultipartFile sourceFile = sourceEpisodeFiles.getFirst();
         String content = textDocumentReader.readText(sourceFile);
+        validateOneEpisodePerFileContent(
+                content,
+                UploadErrorCode.UPLOAD_SINGLE_EPISODE_COUNT_INVALID
+        );
         int episodeNo = singleEpisodeNo == null
                 ? resolveDetectedEpisodeNo(sourceFile, content)
                 : singleEpisodeNo;
@@ -79,7 +83,10 @@ public class EpisodeFileParser {
         List<DetectedEpisodeFile> detectedEpisodeFiles = new ArrayList<>();
         for (MultipartFile sourceFile : sourceEpisodeFiles) {
             String content = textDocumentReader.readText(sourceFile);
-            validateOneEpisodePerFileContent(content);
+            validateOneEpisodePerFileContent(
+                    content,
+                    UploadErrorCode.UPLOAD_MULTI_FILE_EPISODE_COUNT_INVALID
+            );
             int episodeNo = resolveDetectedEpisodeNo(sourceFile, content);
             DetectedEpisode detectedEpisode = new DetectedEpisode(
                     episodeNo,
@@ -188,9 +195,12 @@ public class EpisodeFileParser {
         }
     }
 
-    private void validateOneEpisodePerFileContent(String content) {
+    private void validateOneEpisodePerFileContent(
+            String content,
+            UploadErrorCode episodeCountErrorCode
+    ) {
         if (findEpisodeHeadings(content).size() > 1) {
-            throw new AppException(UploadErrorCode.UPLOAD_MULTI_FILE_EPISODE_COUNT_INVALID);
+            throw new AppException(episodeCountErrorCode);
         }
     }
 

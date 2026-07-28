@@ -125,6 +125,30 @@ class EpisodeFileParserTest {
     }
 
     @Test
+    @DisplayName("단일 회차 업로드 파일에 회차 heading이 둘 이상이면 거부한다")
+    void parseSingleEpisodeRejectsMultipleEpisodeHeadings() {
+        MockMultipartFile episodeFile = textFile(
+                "episode-1.txt",
+                """
+                        제 1화 시작
+                        첫 번째 본문입니다.
+
+                        제 2화 다음
+                        두 번째 본문입니다.
+                        """
+        );
+
+        assertThatThrownBy(() -> episodeFileParser.parseEpisodeFiles(
+                EpisodeUploadType.SINGLE_EPISODE,
+                1,
+                null,
+                List.of(episodeFile)
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(UploadErrorCode.UPLOAD_SINGLE_EPISODE_COUNT_INVALID));
+    }
+
+    @Test
     @DisplayName("여러 파일 업로드에서 파일명에 포함된 회차 번호를 감지한다")
     void parseMultiEpisodeMultiFileDetectsEpisodeNoFromFilenames() {
         List<DetectedEpisodeFile> detectedEpisodeFiles = parseEpisodeFiles(
