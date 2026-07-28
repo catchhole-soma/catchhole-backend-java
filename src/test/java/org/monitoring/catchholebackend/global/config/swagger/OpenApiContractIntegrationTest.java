@@ -129,12 +129,15 @@ class OpenApiContractIntegrationTest {
                         .exists())
                 .andExpect(jsonPath("$['components']['schemas']['DetectedEpisodeResponse']['properties']['sourceFileIndex']")
                         .exists())
+                .andExpect(jsonPath("$['components']['schemas']['DetectedEpisodeResponse']['properties']['sourceHeading']")
+                        .exists())
                 .andExpect(jsonPath("$['components']['schemas']['DetectedEpisodeResponse']['required']")
                         .value(containsInAnyOrder(
                                 "detectionOrder",
                                 "sourceFileIndex",
                                 "episodeNo",
                                 "title",
+                                "sourceHeading",
                                 "charCount",
                                 "content"
                         )))

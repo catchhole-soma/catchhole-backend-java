@@ -47,6 +47,7 @@ public class EpisodeDetectionMapper {
                 sourceFileIndex,
                 detectedEpisode.episodeNo(),
                 detectedEpisode.title(),
+                detectedEpisode.sourceHeading(),
                 countNonWhitespaceCharacters(detectedEpisode.content()),
                 detectedEpisode.content()
         );

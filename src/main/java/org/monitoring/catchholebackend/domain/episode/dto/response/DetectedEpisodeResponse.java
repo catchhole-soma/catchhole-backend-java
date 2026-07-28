@@ -29,6 +29,14 @@ public record DetectedEpisodeResponse(
         )
         String title,
 
+        @Schema(
+                description = "원본에서 감지한 회차 제목 행",
+                example = "제 159화 운명의 실타래",
+                nullable = true,
+                requiredMode = Schema.RequiredMode.REQUIRED
+        )
+        String sourceHeading,
+
         @Schema(description = "회차 본문 글자 수", example = "6782", requiredMode = Schema.RequiredMode.REQUIRED)
         int charCount,
 

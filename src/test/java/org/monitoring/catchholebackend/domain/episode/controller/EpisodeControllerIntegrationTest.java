@@ -251,6 +251,7 @@ class EpisodeControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.detectedEpisodes[0].sourceFileIndex").value(0))
                 .andExpect(jsonPath("$.data.detectedEpisodes[0].episodeNo").value(1))
                 .andExpect(jsonPath("$.data.detectedEpisodes[0].title").value("감지 제목"))
+                .andExpect(jsonPath("$.data.detectedEpisodes[0].sourceHeading").value("제 1화 감지 제목"))
                 .andExpect(jsonPath("$.data.detectedEpisodes[0].tempId").doesNotExist())
                 .andExpect(jsonPath("$.data.episodes").doesNotExist());
     }

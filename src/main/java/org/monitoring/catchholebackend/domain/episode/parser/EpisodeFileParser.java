@@ -125,6 +125,7 @@ public class EpisodeFileParser {
                 throw new AppException(UploadErrorCode.UPLOAD_FILE_PARSE_FAILED);
             }
             String title = normalizeTitle(heading.title());
+            String sourceHeading = episodeText.substring(heading.startOffset(), heading.endOffset());
             log.info(
                     "Parsed episode from upload file. filename={}, episodeNo={}, title={}, headingLine={}, contentCharCount={}",
                     resolveOriginalFilename(sourceFile),
@@ -133,7 +134,12 @@ public class EpisodeFileParser {
                     lineNumberOf(episodeText, heading.startOffset()),
                     episodeContent.length()
             );
-            detectedEpisodes.add(new DetectedEpisode(heading.episodeNo(), title, episodeContent));
+            detectedEpisodes.add(new DetectedEpisode(
+                    heading.episodeNo(),
+                    title,
+                    sourceHeading,
+                    episodeContent
+            ));
         }
 
         return List.of(new DetectedEpisodeFile(sourceFile, detectedEpisodes));

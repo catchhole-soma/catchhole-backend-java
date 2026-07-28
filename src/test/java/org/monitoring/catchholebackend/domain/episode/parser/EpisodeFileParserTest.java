@@ -58,6 +58,9 @@ class EpisodeFileParserTest {
                 .extracting(DetectedEpisode::title)
                 .containsExactly("재회", "각성", "마무리");
         assertThat(detectedEpisodeFiles.get(0).detectedEpisodes())
+                .extracting(DetectedEpisode::sourceHeading)
+                .containsExactly("제 12 장 - 재회", "EP_13: 각성", "Episode 14 마무리");
+        assertThat(detectedEpisodeFiles.get(0).detectedEpisodes())
                 .extracting(DetectedEpisode::content)
                 .containsExactly("열두 번째 본문입니다.", "열세 번째 본문입니다.", "열네 번째 본문입니다.");
     }
