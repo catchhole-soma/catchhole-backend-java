@@ -488,6 +488,41 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("보관된 회차는 캐릭터의 새 첫 등장 회차로 지정할 수 없다")
+    void updateCharacterRejectsArchivedFirstAppearanceEpisode() throws Exception {
+        WorkCharacter character = workCharacterRepository.save(character(work, "수아", null, null));
+        firstEpisode.archive();
+        episodeRepository.saveAndFlush(firstEpisode);
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "수아",
+                                  "roleLabel": null,
+                                  "currentAge": null,
+                                  "currentLevel": null,
+                                  "firstAppearanceEpisodeNo": 1,
+                                  "profile": [],
+                                  "stats": [],
+                                  "skills": [],
+                                  "items": [],
+                                  "statuses": []
+                                }
+                                """))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("EPISODE_NOT_FOUND"));
+
+        WorkCharacter savedCharacter = workCharacterRepository.findById(character.getId()).orElseThrow();
+        assertThat(savedCharacter.getFirstAppearanceEpisodeId()).isNull();
+    }
+
+    @Test
     @DisplayName("설정 속성에서 scalar envelope 예약 key인 value를 거절한다")
     void updateCharacterRejectsReservedValuePropertyKey() throws Exception {
         WorkCharacter character = workCharacterRepository.save(character(work, "수아", null, null));

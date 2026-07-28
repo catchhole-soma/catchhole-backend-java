@@ -536,7 +536,7 @@ flowchart TD
     B --> C["활성 캐릭터를 write lock으로 조회<br/>getActiveCharacterForUpdate"]
     C --> D["이름 trim 후 작품 내 중복 확인<br/>수정 대상 ID는 검사에서 제외"]
     D -->|"다른 활성·보관 캐릭터와 같은 이름"| X1["이름 중복 응답<br/>CHARACTER_NAME_DUPLICATED / 409"]
-    D -->|"중복 없음"| E["첫 등장 회차 번호 검증<br/>작품 내 회차 ID로 변환"]
+    D -->|"중복 없음"| E["첫 등장 회차 번호 검증<br/>작품 내 비보관 회차 ID로 변환"]
     E -->|"작품에 없는 회차 번호"| X2["회차 조회 실패 응답<br/>EPISODE_NOT_FOUND / 404"]
     E -->|"유효하거나 값 없음"| F["활성 schema와 기존 전체 current Fact 조회"]
     F --> G["요청을 factType + factKey 목표 상태로 변환<br/>등록 schema 타입 검증·동일 JSON raw 값 보존"]
@@ -570,7 +570,7 @@ flowchart TD
 - 이름은 앞뒤 공백을 제거한 뒤 `(workId, name, id != characterId)`로 중복 검사합니다. `id != characterId`는 이름을 바꾸지 않고 저장할 때 자기 자신을 중복으로 판단하지 않기 위한 조건입니다. `status` 조건을 두지 않으므로 복구 가능한 `ARCHIVED` 캐릭터의 이름도 작품 내에서 계속 예약됩니다.
 - 복구도 같은 이름 예약 정책을 다시 검증합니다. 정상 API 흐름에서는 보관된 이름이 계속 예약되지만, 과거 데이터나 직접 입력으로 중복 행이 존재해도 활성 캐릭터 두 개를 만들지 않기 위한 방어입니다.
 - DB의 `(work_id, name)` 인덱스는 unique 제약이 아니지만, 정상 API의 이름 수정·복구와 신규 캐릭터 생성은 모두 작품 row 잠금을 먼저 획득해 이름 조회와 변경을 직렬화합니다. DB에 직접 쓰는 운영 외 경로는 이 애플리케이션 잠금 규칙을 우회하므로 허용하지 않습니다.
-- 첫 등장 회차 번호가 `null`이면 연결을 제거하고, 값이 있으면 반드시 같은 작품의 회차여야 합니다. 이름·역할·첫 등장 회차는 Fact가 아니라 `WorkCharacter` 대표 필드에서 직접 관리합니다.
+- 첫 등장 회차 번호가 `null`이면 연결을 제거하고, 값이 있으면 반드시 같은 작품의 `ARCHIVED`가 아닌 회차여야 합니다. 기존에 저장된 첫 등장 회차 이력은 회차가 보관되어도 유지하지만, 수정 요청으로 보관 회차를 새로 지정할 수는 없습니다. 이름·역할·첫 등장 회차는 Fact가 아니라 `WorkCharacter` 대표 필드에서 직접 관리합니다.
 - `toDesiredFacts`는 `currentAge`, `currentLevel`, `profile`, `stats`, `skills`, `items`, `statuses`를 `(factType, factKey)` 기준의 목표 상태로 변환합니다. 나이와 레벨은 각각 `(AGE, age)`, `(LEVEL, level)`을 사용합니다. 나머지 설정은 같은 Fact 유형의 활성 schema와 정확히 일치하는 canonical key를 우선 허용하고, 등록되지 않은 custom key와 pattern key에는 유형별 prefix 규칙을 적용하며 요청 내 중복 key를 검증합니다.
 - 활성 schema의 `schemaKey`와 정확히 일치하거나 `attributePattern`에 일치하는 설정은 요청 `valueType`도 schema와 같아야 합니다. 다르면 `CHARACTER_SETTING_VALUE_TYPE_MISMATCH / 400`으로 거절하며, 어떤 활성 schema에도 등록되지 않은 수동 custom key는 기존 정책대로 유형별 prefix만 유효하면 허용합니다.
 - 설정에 세부 `properties`가 없고 같은 `(factType, factKey)`의 표시값도 바뀌지 않았다면, 상세 응답의 `properties`로 복원할 수 없는 기존 raw `valueJson`만 그대로 목표 상태에 사용합니다. 대상은 `null`, non-object primitive, 빈 object, 예약 `value` key만 있는 object이며 `STRING`, `NUMBER`, `BOOLEAN`, `JSON`에 같은 규칙을 적용합니다. schema가 없는 custom 설정은 저장 JSON에서 추론한 타입과 요청 `valueType`도 같아야 raw 값을 보존합니다. 기존 object에 예약 `value`와 공개 속성이 함께 있으면 등록 schema의 타입이 검증됐거나 저장 `value` 타입과 요청 타입이 같고, JSON 타입이거나 non-JSON 표시값이 바뀌지 않은 경우에만 숨겨진 `value` envelope를 유지합니다. 요청의 공개 `properties`는 목표 상태로 다시 구성합니다. `name`, `level`처럼 응답 가능한 속성이 있는 object에서 빈 `properties`를 보내면 속성 제거 요청으로 보고 기존 요청 변환을 적용합니다. 표시값 또는 타입이 바뀌거나 raw 값을 보존할 수 없으면 요청의 `valueType`에 맞춰 값을 재구성하며 유효하지 않으면 `CHARACTER_SETTING_VALUE_INVALID / 400`으로 거절합니다.

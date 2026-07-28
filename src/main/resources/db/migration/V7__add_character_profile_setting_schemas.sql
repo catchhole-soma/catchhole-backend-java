@@ -1,4 +1,4 @@
--- Add profile schemas after the work metadata normalization migration.
+-- Add profile schemas after the upload and episode history migrations.
 INSERT INTO character_setting_schemas (
     id,
     work_id,

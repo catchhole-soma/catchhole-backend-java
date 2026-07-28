@@ -40,6 +40,7 @@ import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.exception.EpisodeErrorCode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
+import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.global.common.response.PageResponse;
@@ -277,7 +278,11 @@ public class CharacterServiceImpl implements CharacterService {
         if (episodeNo == null) {
             return null;
         }
-        return episodeRepository.findByWorkIdAndEpisodeNo(workId, episodeNo)
+        return episodeRepository.findByWorkIdAndEpisodeNoAndStatusNot(
+                        workId,
+                        episodeNo,
+                        EpisodeStatus.ARCHIVED
+                )
                 .orElseThrow(() -> new AppException(EpisodeErrorCode.EPISODE_NOT_FOUND));
     }
 
