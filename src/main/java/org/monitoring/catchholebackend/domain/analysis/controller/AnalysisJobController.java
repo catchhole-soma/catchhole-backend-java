@@ -35,8 +35,8 @@ public class AnalysisJobController {
     @PostMapping
     @Operation(
             operationId = "createAnalysisJob",
-            summary = "분석 작업 생성",
-            description = "로그인한 사용자가 본인 작품의 업로드 배치를 대상으로 AI 분석 작업을 생성합니다."
+            summary = "회차별 분석 작업 생성",
+            description = "로그인한 사용자가 본인 작품의 업로드 배치에 포함된 각 회차마다 AI 분석 작업을 생성합니다."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "분석 작업 생성 성공"),
@@ -44,14 +44,14 @@ public class AnalysisJobController {
             @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패"),
             @ApiResponse(responseCode = "404", description = "작품 또는 분석 대상 리소스를 찾을 수 없음")
     })
-    public CommonResponse<AnalysisJobResponse> createAnalysisJob(
+    public CommonResponse<List<AnalysisJobResponse>> createAnalysisJob(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,
             @Valid @RequestBody AnalysisJobCreateRequest request
     ) {
         return CommonResponse.success(
                 "분석 작업이 생성되었습니다.",
-                analysisJobService.createAnalysisJob(member.memberId(), workId, request)
+                analysisJobService.createAnalysisJobs(member.memberId(), workId, request)
         );
     }
 

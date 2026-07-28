@@ -18,7 +18,7 @@ public class AnalysisJobWorkerMapper {
 
     public WorkerAnalysisJobPayload toPayload(
             AnalysisJob analysisJob,
-            List<Episode> episodes,
+            Episode episode,
             List<CharacterSettingSchema> characterSettingSchemas,
             List<WorkCharacter> knownCharacters
     ) {
@@ -36,9 +36,7 @@ public class AnalysisJobWorkerMapper {
                 knownCharacters.stream()
                         .map(this::toKnownCharacterPayload)
                         .toList(),
-                episodes.stream()
-                        .map(this::toEpisodePayload)
-                        .toList()
+                toEpisodePayload(episode)
         );
     }
 

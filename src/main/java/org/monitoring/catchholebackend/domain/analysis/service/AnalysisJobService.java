@@ -9,10 +9,10 @@ public interface AnalysisJobService {
 
     /**
      * 작품 소유권을 확인하고, 요청에 batchId가 있으면 해당 업로드 batch가 같은 작품에 속하는지 검증한다.
-     * 검증된 작품과 batch를 기준으로 PENDING 상태의 AI 분석 작업을 생성한다.
-     * 응답에는 분석 작업 정보와 연결된 업로드 파일 목록을 함께 담는다.
+     * 검증된 작품과 batch의 각 대상 회차마다 PENDING 상태의 AI 분석 작업을 하나씩 생성한다.
+     * 응답에는 생성된 분석 작업 목록과 연결된 업로드 파일 목록을 함께 담는다.
      */
-    AnalysisJobResponse createAnalysisJob(Long memberId, UUID workId, AnalysisJobCreateRequest request);
+    List<AnalysisJobResponse> createAnalysisJobs(Long memberId, UUID workId, AnalysisJobCreateRequest request);
 
     /**
      * 작품 소유권을 확인한 뒤 작품의 분석 작업 목록을 최신 생성순으로 조회한다.

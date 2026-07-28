@@ -76,8 +76,9 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             from AnalysisJob analysisJob
             join fetch analysisJob.work
             left join fetch analysisJob.batch
+            left join analysisJob.episode episode
             where analysisJob.status = :status
-            order by analysisJob.createdAt asc
+            order by analysisJob.createdAt asc, episode.episodeNo asc
             """)
     List<AnalysisJob> findClaimCandidates(
             @Param("status") AnalysisJobStatus status,

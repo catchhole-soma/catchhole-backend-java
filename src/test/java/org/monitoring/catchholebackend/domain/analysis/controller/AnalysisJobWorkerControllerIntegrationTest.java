@@ -173,7 +173,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
     @DisplayName("활성 registry schema가 없으면 빈 characterSettingSchemas를 응답한다")
     void claimReturnsEmptyCharacterSettingSchemasWhenRegistryHasNoRows() throws Exception {
         analysisJobRepository.save(
-                batchJob(AnalysisJobType.EPISODE_VALIDATION)
+                episodeJob(AnalysisJobType.EPISODE_VALIDATION, firstEpisode)
         );
 
         mockMvc.perform(post(CLAIM_URL)
@@ -182,18 +182,18 @@ class AnalysisJobWorkerControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.jobType").value("EPISODE_VALIDATION"))
                 .andExpect(jsonPath("$.data.characterSettingSchemas", hasSize(0)))
                 .andExpect(jsonPath("$.data.knownCharacters", hasSize(0)))
-                .andExpect(jsonPath("$.data.episodes", hasSize(2)));
+                .andExpect(jsonPath("$.data.episode.episodeId").value(firstEpisode.getId().toString()));
     }
 
     @Test
     @DisplayName("가장 오래된 대기 작업을 claim하고 회차·캐릭터·설정 schema를 응답한다")
     void claimOldestPendingJobAndReturnsEpisodeMetadata() throws Exception {
         AnalysisJob firstJob = analysisJobRepository.save(
-                batchJob(AnalysisJobType.SETTING_EXTRACTION)
+                episodeJob(AnalysisJobType.SETTING_EXTRACTION, firstEpisode)
         );
         Thread.sleep(10);
         AnalysisJob secondJob = analysisJobRepository.save(
-                batchJob(AnalysisJobType.EPISODE_VALIDATION)
+                episodeJob(AnalysisJobType.EPISODE_VALIDATION, secondEpisode)
         );
         WorkCharacter knownCharacter = workCharacterRepository.save(WorkCharacter.create(
                 work,
@@ -291,14 +291,14 @@ class AnalysisJobWorkerControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.knownCharacters", hasSize(1)))
                 .andExpect(jsonPath("$.data.knownCharacters[0].characterId").value(knownCharacter.getId().toString()))
                 .andExpect(jsonPath("$.data.knownCharacters[0].name").value("아리아"))
-                .andExpect(jsonPath("$.data.episodes", hasSize(2)))
-                .andExpect(jsonPath("$.data.episodes[0].episodeNo").value(1))
-                .andExpect(jsonPath("$.data.episodes[0].title").value("첫 번째 회차"))
-                .andExpect(jsonPath("$.data.episodes[0].contentS3Key").value("works/%s/episodes/1.txt".formatted(work.getId())))
-                .andExpect(jsonPath("$.data.episodes[0].contentS3Version").value("v1"))
-                .andExpect(jsonPath("$.data.episodes[0].contentHash").value("hash-1"))
-                .andExpect(jsonPath("$.data.episodes[0].charCount").value(1001))
-                .andExpect(jsonPath("$.data.episodes[1].episodeNo").value(2));
+                .andExpect(jsonPath("$.data.episode.episodeId").value(firstEpisode.getId().toString()))
+                .andExpect(jsonPath("$.data.episode.episodeNo").value(1))
+                .andExpect(jsonPath("$.data.episode.title").value("첫 번째 회차"))
+                .andExpect(jsonPath("$.data.episode.contentS3Key").value("works/%s/episodes/1.txt".formatted(work.getId())))
+                .andExpect(jsonPath("$.data.episode.contentS3Version").value("v1"))
+                .andExpect(jsonPath("$.data.episode.contentHash").value("hash-1"))
+                .andExpect(jsonPath("$.data.episode.charCount").value(1001))
+                .andExpect(jsonPath("$.data.episodes").doesNotExist());
 
         AnalysisJob claimedJob = analysisJobRepository.findById(firstJob.getId()).orElseThrow();
         AnalysisJob pendingJob = analysisJobRepository.findById(secondJob.getId()).orElseThrow();
@@ -331,6 +331,23 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("복수 회차를 가진 과거 작업은 claim하지 않고 실패 처리한다")
+    void claimMarksLegacyMultiEpisodeJobFailed() throws Exception {
+        AnalysisJob analysisJob = AnalysisJob.create(
+                work, uploadBatch, null, AnalysisJobType.EPISODE_VALIDATION);
+        analysisJob.addTargetEpisodes(List.of(firstEpisode, secondEpisode));
+        analysisJobRepository.save(analysisJob);
+
+        mockMvc.perform(post(CLAIM_URL)
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY))
+                .andExpect(status().isNoContent());
+
+        AnalysisJob failedJob = analysisJobRepository.findById(analysisJob.getId()).orElseThrow();
+        assertThat(failedJob.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
+        assertThat(failedJob.getErrorMessage()).contains("정확히 한 회차");
+    }
+
+    @Test
     @DisplayName("실행 중인 작업의 현재 진행 단계를 갱신한다")
     void updateProgressUpdatesRunningJobCurrentStep() throws Exception {
         AnalysisJob analysisJob = runningJob();
@@ -352,7 +369,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
         assertThat(episodeRepository.findById(firstEpisode.getId()).orElseThrow().getStatus())
                 .isEqualTo(org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.PREPROCESSING);
         assertThat(episodeRepository.findById(secondEpisode.getId()).orElseThrow().getStatus())
-                .isEqualTo(org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.PREPROCESSING);
+                .isEqualTo(org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.UPLOADED);
     }
 
     @Test
@@ -379,6 +396,10 @@ class AnalysisJobWorkerControllerIntegrationTest {
         assertThat(completedJob.getInputTokenCount()).isEqualTo(1200);
         assertThat(completedJob.getOutputTokenCount()).isEqualTo(300);
         assertThat(completedJob.getCompletedAt()).isNotNull();
+        assertThat(episodeRepository.findById(firstEpisode.getId()).orElseThrow().getStatus())
+                .isEqualTo(org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ANALYZED);
+        assertThat(episodeRepository.findById(secondEpisode.getId()).orElseThrow().getStatus())
+                .isEqualTo(org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.UPLOADED);
     }
 
     @Test
@@ -401,13 +422,17 @@ class AnalysisJobWorkerControllerIntegrationTest {
         assertThat(failedJob.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
         assertThat(failedJob.getErrorMessage()).isEqualTo("LLM 응답 스키마 오류");
         assertThat(failedJob.getCompletedAt()).isNotNull();
+        assertThat(episodeRepository.findById(firstEpisode.getId()).orElseThrow().getStatus())
+                .isEqualTo(org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.FAILED);
+        assertThat(episodeRepository.findById(secondEpisode.getId()).orElseThrow().getStatus())
+                .isEqualTo(org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.UPLOADED);
     }
 
     @Test
     @DisplayName("실행 중이 아닌 작업의 상태 변경을 거절한다")
     void statusUpdateRejectsNonRunningJob() throws Exception {
         AnalysisJob analysisJob = analysisJobRepository.save(
-                batchJob(AnalysisJobType.EPISODE_VALIDATION)
+                episodeJob(AnalysisJobType.EPISODE_VALIDATION, firstEpisode)
         );
 
         mockMvc.perform(post("/api/internal/v1/analysis-jobs/{analysisJobId}/complete", analysisJob.getId())
@@ -437,15 +462,13 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     private AnalysisJob runningJob() {
-        AnalysisJob analysisJob = batchJob(AnalysisJobType.EPISODE_VALIDATION);
+        AnalysisJob analysisJob = episodeJob(AnalysisJobType.EPISODE_VALIDATION, firstEpisode);
         analysisJob.start("gpt-4.1-mini", "원문 청킹");
         return analysisJobRepository.save(analysisJob);
     }
 
-    private AnalysisJob batchJob(AnalysisJobType jobType) {
-        AnalysisJob analysisJob = AnalysisJob.create(work, uploadBatch, null, jobType);
-        analysisJob.addTargetEpisodes(List.of(firstEpisode, secondEpisode));
-        return analysisJob;
+    private AnalysisJob episodeJob(AnalysisJobType jobType, Episode episode) {
+        return AnalysisJob.create(work, uploadBatch, episode, jobType);
     }
 
     private CharacterSettingSchema settingSchema(

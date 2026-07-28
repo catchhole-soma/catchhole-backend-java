@@ -16,7 +16,7 @@ public record AnalysisJobCreateRequest(
         UUID batchId,
 
         @Schema(
-                description = "분석 범위 회차 ID. 없으면 batch 전체, 있으면 해당 회차 하나를 분석합니다.",
+                description = "분석 범위 회차 ID. 없으면 batch의 각 회차별 작업을 생성하고, 있으면 해당 회차 작업만 생성합니다.",
                 nullable = true
         )
         UUID episodeId

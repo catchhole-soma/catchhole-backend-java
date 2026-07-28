@@ -241,15 +241,15 @@ domain/<domain>
 
 #### Analysis Domain Policy
 
-- AnalysisJob은 작품 단위 AI 분석 작업의 상태와 결과 메타데이터를 추적한다.
+- AnalysisJob은 작품에 속한 단일 회차 AI 분석 작업의 상태와 결과 메타데이터를 추적한다. `UploadBatch`는 업로드 출처 묶음이며 분석 실행 단위가 아니다.
 - 원문 텍스트는 `Episode`의 S3 저장 구조를 재사용하고, `analysis_jobs`에는 상태, 현재 단계, 모델명, 토큰 수, 요약 JSON, 마지막 실패 사유만 저장한다.
 - 분석 실패 처리 이력은 `analysis_jobs.error_message`에 누적하지 않고, 후속 모니터링 기능에서 별도 기록/조회한다.
-- 화면에서 분석 작업은 `AnalysisJob.status`를 상위 상태로 표시하고, 분석 작업 상세에 들어갔을 때 포함된 각 회차의 `Episode.status`를 단계별 상태로 보여준다.
-- 분석 작업 생성 시 실제 대상 회차를 `analysis_job_episode_targets`에 스냅샷으로 저장한다. 이후 회차 원본 교체나 `ARCHIVED` 전이로 과거 작업의 대상 목록이 바뀌지 않게 하며, 상세 응답과 Worker 처리는 이 연결을 사용한다.
-- 분석 작업 상세 응답에는 생성 시점의 대상 회차 목록을 포함하고, Worker의 claim·진행·완료·실패 처리에서 해당 `Episode.status`도 함께 전이한다.
-- 공개 분석 작업 생성 API는 업로드 흐름의 단위인 `batch_id`를 필수 입력으로 받고 `episode_id`를 선택 범위 지정자로 허용한다. `episode_id`가 없으면 batch 전체, 있으면 해당 회차 하나이며 지원하는 모든 `jobType`에 같은 규칙을 적용한다.
+- 화면은 업로드 묶음에 생성된 회차별 `AnalysisJob.status`를 집계하고, 각 Job의 단일 대상 `Episode.status`를 단계별 상태로 보여준다.
+- 신규 분석 작업은 정확히 한 회차를 `analysis_job_episode_targets`에 스냅샷으로 저장한다. 이후 회차 원본 교체나 `ARCHIVED` 전이로 과거 작업의 대상이 바뀌지 않게 하며, 과거 batch-wide 작업의 복수 target 연결은 조회 이력 호환용으로만 유지한다.
+- Worker의 claim·진행·완료·실패 처리는 신규 Job의 단일 대상 `Episode.status`만 전이한다. 한 회차 실패가 다른 회차 Job이나 상태를 변경하면 안 된다.
+- 공개 분석 작업 생성 API는 `batch_id`를 필수 입력으로 받고 `episode_id`를 선택 범위 지정자로 허용한다. `episode_id`가 없으면 batch의 현재 회차마다 Job을 하나씩 생성해 목록으로 반환하고, 있으면 해당 회차 Job 하나를 목록으로 반환한다.
 - 본인 작품의 분석 작업만 생성/조회할 수 있으며, 다른 회원의 작품이나 다른 작품에 속한 분석 대상은 404로 응답한다.
-- Python AI Worker는 작업 claim과 `AnalysisJob` 상태 변경에 `/api/internal/**` 내부 API를 `X-Internal-Api-Key`로 인증해 사용한다. Worker에는 원문 본문을 응답하지 않으며, 분석 입력으로 `Episode`의 S3 key/version/hash/charCount 메타데이터, 기존 캐릭터 목록, 활성 캐릭터 설정 schema를 전달한다.
+- Python AI Worker는 작업 claim과 `AnalysisJob` 상태 변경에 `/api/internal/**` 내부 API를 `X-Internal-Api-Key`로 인증해 사용한다. Worker에는 원문 본문을 응답하지 않으며, 단일 `episode`의 S3 key/version/hash/charCount 메타데이터, 기존 캐릭터 목록, 활성 캐릭터 설정 schema를 전달한다.
 - Worker는 분석 작업 생성과 상태 전이를 위해 백엔드 DB에 직접 접근하지 않는다. 다만 청킹, 설정 후보, 리포트 같은 분석 산출물 저장은 데이터 양과 모델 안정성에 따라 내부 API 또는 Worker의 DB 직접 저장 중 선택할 수 있으며, DB 직접 저장을 선택하면 관련 스키마/문서 변경을 함께 관리한다.
 
 #### Character Setting Domain Policy

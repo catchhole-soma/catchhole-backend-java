@@ -142,25 +142,29 @@ class AnalysisJobControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").value("분석 작업이 생성되었습니다."))
-                .andExpect(jsonPath("$.data.id", notNullValue()))
-                .andExpect(jsonPath("$.data.workId").value(work.getId().toString()))
-                .andExpect(jsonPath("$.data.workTitle").value("내 작품"))
-                .andExpect(jsonPath("$.data.batchId").value(uploadBatch.getId().toString()))
-                .andExpect(jsonPath("$.data.target.batchId").value(uploadBatch.getId().toString()))
-                .andExpect(jsonPath("$.data.target.uploadType").value("INITIAL_IMPORT"))
-                .andExpect(jsonPath("$.data.target.status").value("PENDING"))
-                .andExpect(jsonPath("$.data.target.fileCount").value(2))
-                .andExpect(jsonPath("$.data.target.episodeStartNo").value(1))
-                .andExpect(jsonPath("$.data.target.episodeEndNo").value(5))
-                .andExpect(jsonPath("$.data.target.episodeCount").value(5))
-                .andExpect(jsonPath("$.data.jobType").value("EPISODE_VALIDATION"))
-                .andExpect(jsonPath("$.data.status").value("PENDING"));
+                .andExpect(jsonPath("$.data", hasSize(2)))
+                .andExpect(jsonPath("$.data[0].id", notNullValue()))
+                .andExpect(jsonPath("$.data[0].workId").value(work.getId().toString()))
+                .andExpect(jsonPath("$.data[0].workTitle").value("내 작품"))
+                .andExpect(jsonPath("$.data[0].batchId").value(uploadBatch.getId().toString()))
+                .andExpect(jsonPath("$.data[0].target.batchId").value(uploadBatch.getId().toString()))
+                .andExpect(jsonPath("$.data[0].target.uploadType").value("INITIAL_IMPORT"))
+                .andExpect(jsonPath("$.data[0].target.status").value("PENDING"))
+                .andExpect(jsonPath("$.data[0].target.fileCount").value(2))
+                .andExpect(jsonPath("$.data[0].target.episodeStartNo").value(1))
+                .andExpect(jsonPath("$.data[0].target.episodeEndNo").value(5))
+                .andExpect(jsonPath("$.data[0].target.episodeCount").value(5))
+                .andExpect(jsonPath("$.data[0].episodeId").value(firstEpisode.getId().toString()))
+                .andExpect(jsonPath("$.data[0].episodes", hasSize(1)))
+                .andExpect(jsonPath("$.data[0].jobType").value("EPISODE_VALIDATION"))
+                .andExpect(jsonPath("$.data[0].status").value("PENDING"))
+                .andExpect(jsonPath("$.data[1].episodeId").value(secondEpisode.getId().toString()));
 
-        assertThat(analysisJobRepository.count()).isEqualTo(1);
+        assertThat(analysisJobRepository.count()).isEqualTo(2);
     }
 
     @Test
-    void createAnalysisJobCreatesBatchTargetJob() throws Exception {
+    void createAnalysisJobCreatesOneJobPerBatchEpisode() throws Exception {
         mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -172,14 +176,17 @@ class AnalysisJobControllerIntegrationTest {
                                 """.formatted(uploadBatch.getId())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.workId").value(work.getId().toString()))
-                .andExpect(jsonPath("$.data.workTitle").value("내 작품"))
-                .andExpect(jsonPath("$.data.batchId").value(uploadBatch.getId().toString()))
-                .andExpect(jsonPath("$.data.target.episodeStartNo").value(1))
-                .andExpect(jsonPath("$.data.target.episodeEndNo").value(5))
-                .andExpect(jsonPath("$.data.target.episodeCount").value(5))
-                .andExpect(jsonPath("$.data.jobType").value("SETTING_EXTRACTION"))
-                .andExpect(jsonPath("$.data.status").value("PENDING"));
+                .andExpect(jsonPath("$.data", hasSize(2)))
+                .andExpect(jsonPath("$.data[0].workId").value(work.getId().toString()))
+                .andExpect(jsonPath("$.data[0].workTitle").value("내 작품"))
+                .andExpect(jsonPath("$.data[0].batchId").value(uploadBatch.getId().toString()))
+                .andExpect(jsonPath("$.data[0].target.episodeStartNo").value(1))
+                .andExpect(jsonPath("$.data[0].target.episodeEndNo").value(5))
+                .andExpect(jsonPath("$.data[0].target.episodeCount").value(5))
+                .andExpect(jsonPath("$.data[0].episodeId").value(firstEpisode.getId().toString()))
+                .andExpect(jsonPath("$.data[0].jobType").value("SETTING_EXTRACTION"))
+                .andExpect(jsonPath("$.data[0].status").value("PENDING"))
+                .andExpect(jsonPath("$.data[1].episodeId").value(secondEpisode.getId().toString()));
     }
 
     @Test
@@ -232,10 +239,11 @@ class AnalysisJobControllerIntegrationTest {
                                 }
                                 """.formatted(jobType, uploadBatch.getId(), firstEpisode.getId())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.episodeId").value(firstEpisode.getId().toString()))
-                .andExpect(jsonPath("$.data.episodes", hasSize(1)))
-                .andExpect(jsonPath("$.data.episodes[0].id").value(firstEpisode.getId().toString()))
-                .andExpect(jsonPath("$.data.jobType").value(jobType.name()));
+                .andExpect(jsonPath("$.data", hasSize(1)))
+                .andExpect(jsonPath("$.data[0].episodeId").value(firstEpisode.getId().toString()))
+                .andExpect(jsonPath("$.data[0].episodes", hasSize(1)))
+                .andExpect(jsonPath("$.data[0].episodes[0].id").value(firstEpisode.getId().toString()))
+                .andExpect(jsonPath("$.data[0].jobType").value(jobType.name()));
 
         AnalysisJob savedJob = analysisJobRepository.findAll().getFirst();
         assertThat(savedJob.getEpisode().getId()).isEqualTo(firstEpisode.getId());
@@ -244,18 +252,9 @@ class AnalysisJobControllerIntegrationTest {
     @Test
     @DisplayName("완료된 배치 작업의 대상 회차는 원본 교체와 보관 후에도 유지된다")
     void completedBatchJobKeepsTargetSnapshotAfterEpisodeChanges() throws Exception {
-        mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
-                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "jobType": "EPISODE_VALIDATION",
-                                  "batchId": "%s"
-                                }
-                                """.formatted(uploadBatch.getId())))
-                .andExpect(status().isOk());
-
-        AnalysisJob analysisJob = analysisJobRepository.findAll().getFirst();
+        AnalysisJob analysisJob = AnalysisJob.create(
+                work, uploadBatch, null, AnalysisJobType.EPISODE_VALIDATION);
+        analysisJob.addTargetEpisodes(List.of(firstEpisode, secondEpisode));
         analysisJob.succeed("{}", 0, 0);
         analysisJobRepository.save(analysisJob);
 
@@ -306,7 +305,7 @@ class AnalysisJobControllerIntegrationTest {
                                 }
                                 """.formatted(uploadBatch.getId(), secondEpisode.getId())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.episodeId").value(secondEpisode.getId().toString()));
+                .andExpect(jsonPath("$.data[0].episodeId").value(secondEpisode.getId().toString()));
 
         assertThat(analysisJobRepository.count()).isEqualTo(2);
     }
@@ -328,6 +327,27 @@ class AnalysisJobControllerIntegrationTest {
                                 """.formatted(uploadBatch.getId(), firstEpisode.getId())))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("ANALYSIS_JOB_ALREADY_IN_PROGRESS"));
+    }
+
+    @Test
+    @DisplayName("배치 생성 대상 중 활성 회차가 하나라도 있으면 새 작업을 하나도 만들지 않는다")
+    void createAnalysisJobsRejectsBatchAtomicallyWhenAnyEpisodeIsActive() throws Exception {
+        analysisJobRepository.save(AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.EPISODE_VALIDATION));
+
+        mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "jobType": "EPISODE_VALIDATION",
+                                  "batchId": "%s"
+                                }
+                                """.formatted(uploadBatch.getId())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ANALYSIS_JOB_ALREADY_IN_PROGRESS"));
+
+        assertThat(analysisJobRepository.count()).isEqualTo(1);
     }
 
     @Test

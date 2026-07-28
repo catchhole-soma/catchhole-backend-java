@@ -40,13 +40,14 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
 
     @Override
     @Transactional
-    public AnalysisJobResponse createAnalysisJob(Long memberId, UUID workId, AnalysisJobCreateRequest request) {
+    public List<AnalysisJobResponse> createAnalysisJobs(
+            Long memberId,
+            UUID workId,
+            AnalysisJobCreateRequest request
+    ) {
         Work work = workRepository.getOwnedWork(workId, memberId);
         UploadBatch batch = getBatchInWork(request.batchId(), work);
         Episode episode = request.episodeId() == null ? null : getEpisodeInBatch(request.episodeId(), work, batch);
-        if (hasActiveAnalysisJob(batch, episode)) {
-            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_ALREADY_IN_PROGRESS);
-        }
 
         List<UploadFile> uploadFiles = getUploadFiles(batch);
         List<Episode> targetEpisodes = episode == null
@@ -55,11 +56,21 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         if (targetEpisodes.isEmpty()) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_TARGET_NOT_FOUND);
         }
-        AnalysisJob analysisJob = AnalysisJob.create(work, batch, episode, request.jobType());
-        analysisJob.addTargetEpisodes(targetEpisodes);
-        AnalysisJob savedAnalysisJob = analysisJobRepository.save(analysisJob);
 
-        return analysisJobMapper.toResponse(savedAnalysisJob, uploadFiles, targetEpisodes);
+        if (targetEpisodes.stream().anyMatch(targetEpisode -> hasActiveAnalysisJob(batch, targetEpisode))) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_ALREADY_IN_PROGRESS);
+        }
+
+        List<AnalysisJob> analysisJobs = targetEpisodes.stream()
+                .map(targetEpisode -> AnalysisJob.create(work, batch, targetEpisode, request.jobType()))
+                .toList();
+        return analysisJobRepository.saveAll(analysisJobs).stream()
+                .map(savedJob -> analysisJobMapper.toResponse(
+                        savedJob,
+                        uploadFiles,
+                        List.of(savedJob.getEpisode())
+                ))
+                .toList();
     }
 
     @Override
@@ -156,9 +167,6 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
 
     private boolean hasActiveAnalysisJob(UploadBatch batch, Episode episode) {
         Set<AnalysisJobStatus> activeStatuses = Set.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING);
-        if (episode == null) {
-            return analysisJobRepository.existsByBatchIdAndStatusIn(batch.getId(), activeStatuses);
-        }
         return analysisJobRepository.existsByBatchIdAndEpisodeIsNullAndStatusIn(batch.getId(), activeStatuses)
                 || analysisJobRepository.existsByEpisodeIdAndBatchIdAndStatusIn(
                 episode.getId(), batch.getId(), activeStatuses);

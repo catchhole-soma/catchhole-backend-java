@@ -37,7 +37,8 @@ import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
  * 사용자가 분석을 요청하면 AnalysisJob이 PENDING 상태로 생성되고,
  * Python AI Worker가 내부 API로 작업을 claim하면서 RUNNING 상태로 변경된다.
  *
- * 생성 시점의 실제 분석 대상은 targetEpisodes에 스냅샷으로 연결한다.
+ * 신규 작업은 회차별로 하나씩 생성하며, 생성 시점의 단일 분석 대상을
+ * targetEpisodes에 스냅샷으로 연결한다.
  * Worker는 이 연결을 기준으로 분석할 회차를 찾고,
  * Episode에 저장된 S3 원문 메타데이터를 사용해 분석을 수행한다.
  *
@@ -45,7 +46,8 @@ import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
  * 사용 모델명, 토큰 수, 요약 결과 JSON, 마지막 실패 사유, 시작/완료 시각 같은
  * 분석 작업의 상태와 결과 메타데이터만 저장한다.
  *
- * episode_id는 batch 전체가 아니라 특정 회차 단위 분석이 필요할 때 사용하는 선택 연결이다.
+ * episode_id는 신규 작업에서 항상 분석 대상 단일 회차를 가리킨다.
+ * null 또는 복수 targetEpisodes인 과거 작업 데이터는 조회 이력 호환을 위해 유지한다.
  */
 
 @Getter
@@ -76,7 +78,7 @@ public class AnalysisJob extends BaseEntity {
     )
     private UploadBatch batch;
 
-    //해당 컬럼은 특정 회차 단위 분석이 필요한 경우에 사용(상황 : 재분석)
+    // 신규 분석 작업의 단일 대상 회차. null인 과거 batch 작업은 이력 호환용으로만 남긴다.
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(
             name = "episode_id",

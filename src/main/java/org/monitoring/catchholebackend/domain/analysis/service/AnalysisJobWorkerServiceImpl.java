@@ -31,6 +31,8 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
 
     private static final int CLAIM_SIZE = 1;
     private static final String NO_TARGET_EPISODES_MESSAGE = "분석 대상 회차가 없습니다.";
+    private static final String INVALID_TARGET_EPISODE_COUNT_MESSAGE =
+            "분석 작업은 정확히 한 회차를 대상으로 해야 합니다.";
 
     private final AnalysisJobRepository analysisJobRepository;
     private final WorkCharacterRepository workCharacterRepository;
@@ -56,7 +58,13 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             analysisJob.fail(NO_TARGET_EPISODES_MESSAGE);
             return Optional.empty();
         }
-        targetEpisodes.forEach(Episode::markChunking);
+        if (targetEpisodes.size() != 1) {
+            targetEpisodes.forEach(Episode::markFailed);
+            analysisJob.fail(INVALID_TARGET_EPISODE_COUNT_MESSAGE);
+            return Optional.empty();
+        }
+        Episode targetEpisode = targetEpisodes.getFirst();
+        targetEpisode.markChunking();
 
         UUID workId = analysisJob.getWork().getId();
         List<CharacterSettingSchema> characterSettingSchemas =
@@ -64,7 +72,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         List<WorkCharacter> knownCharacters = workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(workId);
         return Optional.of(analysisJobWorkerMapper.toPayload(
                 analysisJob,
-                targetEpisodes,
+                targetEpisode,
                 characterSettingSchemas,
                 knownCharacters
         ));
