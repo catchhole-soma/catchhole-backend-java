@@ -331,8 +331,10 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("복수 회차를 가진 과거 작업은 claim하지 않고 실패 처리한다")
+    @DisplayName("복수 회차를 가진 과거 작업만 실패 처리하고 대상 회차 상태는 유지한다")
     void claimMarksLegacyMultiEpisodeJobFailed() throws Exception {
+        firstEpisode.markAnalyzed();
+        episodeRepository.save(firstEpisode);
         AnalysisJob analysisJob = AnalysisJob.create(
                 work, uploadBatch, null, AnalysisJobType.EPISODE_VALIDATION);
         analysisJob.addTargetEpisodes(List.of(firstEpisode, secondEpisode));
@@ -345,6 +347,10 @@ class AnalysisJobWorkerControllerIntegrationTest {
         AnalysisJob failedJob = analysisJobRepository.findById(analysisJob.getId()).orElseThrow();
         assertThat(failedJob.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
         assertThat(failedJob.getErrorMessage()).contains("정확히 한 회차");
+        assertThat(episodeRepository.findById(firstEpisode.getId()).orElseThrow().getStatus())
+                .isEqualTo(org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ANALYZED);
+        assertThat(episodeRepository.findById(secondEpisode.getId()).orElseThrow().getStatus())
+                .isEqualTo(org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.UPLOADED);
     }
 
     @Test

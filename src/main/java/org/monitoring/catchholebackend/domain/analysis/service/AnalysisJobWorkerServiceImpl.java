@@ -59,7 +59,6 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             return Optional.empty();
         }
         if (targetEpisodes.size() != 1) {
-            targetEpisodes.forEach(Episode::markFailed);
             analysisJob.fail(INVALID_TARGET_EPISODE_COUNT_MESSAGE);
             return Optional.empty();
         }
