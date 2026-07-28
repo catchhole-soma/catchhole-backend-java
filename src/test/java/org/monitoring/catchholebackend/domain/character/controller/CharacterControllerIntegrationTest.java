@@ -539,25 +539,75 @@ class CharacterControllerIntegrationTest {
                         )
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "name": "수아",
-                                  "roleLabel": null,
-                                  "currentAge": null,
-                                  "currentLevel": null,
-                                  "firstAppearanceEpisodeNo": 1,
-                                  "profile": [],
-                                  "stats": [],
-                                  "skills": [],
-                                  "items": [],
-                                  "statuses": []
-                                }
-                                """))
+                        .content(characterUpdateRequest("수아", 1)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("EPISODE_NOT_FOUND"));
 
         WorkCharacter savedCharacter = workCharacterRepository.findById(character.getId()).orElseThrow();
         assertThat(savedCharacter.getFirstAppearanceEpisodeId()).isNull();
+    }
+
+    @Test
+    @DisplayName("보관된 기존 첫 등장 회차는 변경 없는 전체 수정에서 유지한다")
+    void updateCharacterKeepsArchivedCurrentFirstAppearanceEpisode() throws Exception {
+        WorkCharacter character = workCharacterRepository.save(character(work, "수아", null, null));
+        character.updateFirstAppearanceEpisodeId(firstEpisode.getId());
+        workCharacterRepository.saveAndFlush(character);
+        firstEpisode.archive();
+        episodeRepository.saveAndFlush(firstEpisode);
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(characterUpdateRequest("수아", 1)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.firstAppearanceEpisode.id")
+                        .value(firstEpisode.getId().toString()))
+                .andExpect(jsonPath("$.data.firstAppearanceEpisode.episodeNo").value(1));
+
+        WorkCharacter savedCharacter = workCharacterRepository.findById(character.getId()).orElseThrow();
+        assertThat(savedCharacter.getFirstAppearanceEpisodeId()).isEqualTo(firstEpisode.getId());
+    }
+
+    @Test
+    @DisplayName("보관 회차 번호가 재사용되어도 변경 없는 전체 수정은 기존 참조를 유지한다")
+    void updateCharacterKeepsArchivedReferenceWhenEpisodeNumberIsReused() throws Exception {
+        WorkCharacter character = workCharacterRepository.save(character(work, "수아", null, null));
+        character.updateFirstAppearanceEpisodeId(firstEpisode.getId());
+        workCharacterRepository.saveAndFlush(character);
+        firstEpisode.archive();
+        episodeRepository.saveAndFlush(firstEpisode);
+        Episode replacementEpisode = episodeRepository.saveAndFlush(Episode.create(
+                work,
+                null,
+                1,
+                "새 1화",
+                "works/%s/episodes/1-replacement.txt".formatted(work.getId()),
+                "version-2",
+                "hash-2",
+                120
+        ));
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(characterUpdateRequest("수아", 1)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.firstAppearanceEpisode.id")
+                        .value(firstEpisode.getId().toString()));
+
+        WorkCharacter savedCharacter = workCharacterRepository.findById(character.getId()).orElseThrow();
+        assertThat(savedCharacter.getFirstAppearanceEpisodeId())
+                .isEqualTo(firstEpisode.getId())
+                .isNotEqualTo(replacementEpisode.getId());
     }
 
     @Test
@@ -2104,6 +2154,23 @@ class CharacterControllerIntegrationTest {
                   "statuses": []
                 }
                 """.formatted(name, skills);
+    }
+
+    private String characterUpdateRequest(String name, Integer firstAppearanceEpisodeNo) {
+        return """
+                {
+                  "name": "%s",
+                  "roleLabel": "주인공",
+                  "currentAge": null,
+                  "currentLevel": null,
+                  "firstAppearanceEpisodeNo": %d,
+                  "profile": [],
+                  "stats": [],
+                  "skills": [],
+                  "items": [],
+                  "statuses": []
+                }
+                """.formatted(name, firstAppearanceEpisodeNo);
     }
 
     private String bearer(String token) {

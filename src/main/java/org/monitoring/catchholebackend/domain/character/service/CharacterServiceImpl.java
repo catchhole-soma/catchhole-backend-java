@@ -148,8 +148,9 @@ public class CharacterServiceImpl implements CharacterService {
             throw new AppException(CharacterErrorCode.CHARACTER_NAME_DUPLICATED);
         }
 
-        Episode firstAppearanceEpisode = findFirstAppearanceEpisodeByNo(
+        Episode firstAppearanceEpisode = resolveFirstAppearanceEpisodeForUpdate(
                 work.getId(),
+                character.getFirstAppearanceEpisodeId(),
                 request.firstAppearanceEpisodeNo()
         );
         List<CharacterSettingSchema> schemas = characterSettingSchemaRepository
@@ -280,15 +281,26 @@ public class CharacterServiceImpl implements CharacterService {
     }
 
     /**
-     * 수정 요청의 첫 등장 회차 번호를 작품 내 회차로 해석하고, 유효하지 않으면 실패시킨다.
+     * 요청 번호가 현재 첫 등장 회차와 같으면 보관 여부와 관계없이 기존 참조를 유지한다.
+     * 번호를 변경할 때만 작품 내 비보관 회차를 새 참조로 허용한다.
      */
-    private Episode findFirstAppearanceEpisodeByNo(UUID workId, Integer episodeNo) {
-        if (episodeNo == null) {
+    private Episode resolveFirstAppearanceEpisodeForUpdate(
+            UUID workId,
+            UUID currentEpisodeId,
+            Integer requestedEpisodeNo
+    ) {
+        if (requestedEpisodeNo == null) {
             return null;
         }
+
+        Episode currentEpisode = findFirstAppearanceEpisodeById(workId, currentEpisodeId);
+        if (currentEpisode != null && currentEpisode.getEpisodeNo() == requestedEpisodeNo) {
+            return currentEpisode;
+        }
+
         return episodeRepository.findByWorkIdAndEpisodeNoAndStatusNot(
                         workId,
-                        episodeNo,
+                        requestedEpisodeNo,
                         EpisodeStatus.ARCHIVED
                 )
                 .orElseThrow(() -> new AppException(EpisodeErrorCode.EPISODE_NOT_FOUND));
