@@ -26,6 +26,7 @@ public enum CharacterErrorCode implements ResultCode {
     SETTING_CANDIDATE_SCHEMA_NOT_MATCHED(HttpStatus.BAD_REQUEST, "설정 후보 속성과 일치하는 활성 schema가 없습니다."),
     SETTING_CANDIDATE_SCHEMA_MATCH_AMBIGUOUS(HttpStatus.CONFLICT, "설정 후보 속성과 일치하는 schema가 여러 개입니다."),
     SETTING_CANDIDATE_VALUE_TYPE_MISMATCH(HttpStatus.BAD_REQUEST, "설정 후보 값 타입이 schema와 일치하지 않습니다."),
+    SETTING_CANDIDATE_VALUE_INVALID(HttpStatus.BAD_REQUEST, "나이와 레벨 설정 후보 값은 0 이상의 정수여야 합니다."),
     SETTING_CANDIDATE_MERGE_POLICY_UNSUPPORTED(HttpStatus.CONFLICT, "현재 지원하지 않는 설정 병합 정책입니다.");
 
     private final HttpStatus status;

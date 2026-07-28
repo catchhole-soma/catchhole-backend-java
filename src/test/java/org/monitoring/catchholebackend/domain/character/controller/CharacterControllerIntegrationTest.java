@@ -744,7 +744,7 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("schema가 없는 custom 설정의 타입 변경을 저장한다")
+    @DisplayName("schema가 없는 custom 설정의 raw와 property envelope 타입 변경을 저장한다")
     void updateCharacterChangesSchemaLessCustomValueType() throws Exception {
         WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
         CharacterFact score = currentFact(
@@ -754,7 +754,16 @@ class CharacterControllerIntegrationTest {
                 "42",
                 JsonNodeFactory.instance.numberNode(42)
         );
-        characterFactRepository.saveAndFlush(score);
+        CharacterFact rank = currentFact(
+                character,
+                CharacterFactType.STAT,
+                "stats.custom_rank",
+                "7",
+                JsonNodeFactory.instance.objectNode()
+                        .put("value", 7)
+                        .put("name", "순위")
+        );
+        characterFactRepository.saveAllAndFlush(List.of(score, rank));
 
         mockMvc.perform(patch(
                                 "/api/v1/works/{workId}/characters/{characterId}",
@@ -773,6 +782,14 @@ class CharacterControllerIntegrationTest {
                                   "profile": [],
                                   "stats": [
                                     {
+                                      "key": "stats.custom_rank",
+                                      "value": "7",
+                                      "valueType": "STRING",
+                                      "properties": [
+                                        {"key": "name", "value": "순위", "valueType": "STRING"}
+                                      ]
+                                    },
+                                    {
                                       "key": "stats.custom_score",
                                       "value": "42",
                                       "valueType": "STRING",
@@ -785,21 +802,35 @@ class CharacterControllerIntegrationTest {
                                 }
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.stats[0].valueType").value("STRING"));
+                .andExpect(jsonPath("$.data.stats.length()").value(2))
+                .andExpect(jsonPath("$.data.stats[0].valueType").value("STRING"))
+                .andExpect(jsonPath("$.data.stats[1].valueType").value("STRING"));
 
         CharacterFact historicalScore = characterFactRepository.findById(score.getId()).orElseThrow();
+        CharacterFact historicalRank = characterFactRepository.findById(rank.getId()).orElseThrow();
         assertThat(historicalScore.isCurrent()).isFalse();
+        assertThat(historicalRank.isCurrent()).isFalse();
 
         List<CharacterFact> savedFacts =
                 characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId());
-        assertThat(savedFacts).hasSize(2);
+        assertThat(savedFacts).hasSize(4);
         assertThat(savedFacts)
-                .filteredOn(CharacterFact::isCurrent)
+                .filteredOn(fact -> fact.isCurrent() && fact.getFactKey().equals("stats.custom_score"))
                 .singleElement()
                 .satisfies(currentScore -> {
                     assertThat(currentScore.getId()).isNotEqualTo(score.getId());
                     assertThat(currentScore.getValueJson())
                             .isEqualTo(JsonNodeFactory.instance.objectNode().put("value", "42"));
+                });
+        assertThat(savedFacts)
+                .filteredOn(fact -> fact.isCurrent() && fact.getFactKey().equals("stats.custom_rank"))
+                .singleElement()
+                .satisfies(currentRank -> {
+                    assertThat(currentRank.getId()).isNotEqualTo(rank.getId());
+                    assertThat(currentRank.getValueJson())
+                            .isEqualTo(JsonNodeFactory.instance.objectNode()
+                                    .put("value", "7")
+                                    .put("name", "순위"));
                 });
     }
 

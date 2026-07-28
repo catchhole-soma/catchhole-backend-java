@@ -566,6 +566,68 @@ class SettingCandidateControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("AGE와 LEVEL 후보가 0 이상 int 정수가 아니면 확정을 rollback한다")
+    void confirmSettingCandidateRollsBackInvalidCoreSnapshotValues() throws Exception {
+        characterSettingSchemaRepository.save(settingSchema(
+                null,
+                "level",
+                null,
+                CharacterFactType.LEVEL,
+                SettingValueType.NUMBER,
+                "레벨"
+        ));
+        List<SettingCandidate> candidates = settingCandidateRepository.saveAll(List.of(
+                candidate(
+                        work,
+                        episode,
+                        analysisJob,
+                        "아리아",
+                        "age",
+                        "-1",
+                        SettingValueType.NUMBER,
+                        objectMapper.createObjectNode().put("value", -1)
+                ),
+                candidate(
+                        work,
+                        episode,
+                        analysisJob,
+                        "아리아",
+                        "level",
+                        "23.5",
+                        SettingValueType.NUMBER,
+                        objectMapper.createObjectNode().put("value", new BigDecimal("23.5"))
+                ),
+                candidate(
+                        work,
+                        episode,
+                        analysisJob,
+                        "아리아",
+                        "age",
+                        "2147483648",
+                        SettingValueType.NUMBER,
+                        objectMapper.createObjectNode().put("value", 2147483648L)
+                )
+        ));
+
+        for (SettingCandidate candidate : candidates) {
+            mockMvc.perform(post(
+                                    "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
+                                    work.getId(),
+                                    candidate.getId()
+                            )
+                            .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.success").value(false))
+                    .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_VALUE_INVALID"));
+
+            SettingCandidate saved = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
+            assertThat(saved.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+        }
+        assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId())).isEmpty();
+        assertThat(characterFactRepository.findAll()).isEmpty();
+    }
+
+    @Test
     @DisplayName("미지원 merge policy 후보 확정은 409로 rollback하고 부수효과를 남기지 않는다")
     void confirmSettingCandidateRollsBackUnsupportedMergePolicy() throws Exception {
         characterSettingSchemaRepository.save(settingSchema(

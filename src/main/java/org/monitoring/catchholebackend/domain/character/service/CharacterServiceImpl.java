@@ -389,6 +389,10 @@ public class CharacterServiceImpl implements CharacterService {
                 && currentFact.getValueJson() != null
                 && currentFact.getValueJson().isObject()
                 && currentFact.getValueJson().has("value")
+                && (hasRegisteredSchema || matchesValueType(
+                        currentFact.getValueJson(),
+                        request.valueType()
+                ))
                 && (request.valueType() == SettingValueType.JSON
                     || Objects.equals(currentFact.getFactValue(), factValue));
         JsonNode valueJson = toValueJson(request, !preserveCurrentValue);

@@ -58,7 +58,8 @@ public class CharacterSnapshotAssembler {
         if (valueNode != null && valueNode.isNumber()) {
             if (valueNode.canConvertToInt()
                     && valueNode.decimalValue().stripTrailingZeros().scale() <= 0) {
-                return valueNode.asInt();
+                int value = valueNode.asInt();
+                return value >= 0 ? value : null;
             }
             return null;
         }
@@ -67,7 +68,8 @@ public class CharacterSnapshotAssembler {
             return null;
         }
         try {
-            return Integer.valueOf(value.trim());
+            int parsedValue = Integer.parseInt(value.trim());
+            return parsedValue >= 0 ? parsedValue : null;
         } catch (NumberFormatException exception) {
             return null;
         }

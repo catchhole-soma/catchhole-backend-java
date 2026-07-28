@@ -1,5 +1,7 @@
 package org.monitoring.catchholebackend.domain.character.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -59,6 +61,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         validateMergePolicy(schemaMatch.matchedSchema().getMergePolicy());
         String factKey = schemaMatch.factKey();
         CharacterFactType factType = schemaMatch.matchedSchema().getFactType();
+        validateCoreSnapshotValue(candidate, factType);
 
         // schema 매칭, 값 타입, merge policy 검증을 통과한 후보만 캐릭터 생성과 Fact 저장으로 진행한다.
         WorkCharacter character = resolveCharacterForPromotion(candidate);
@@ -101,6 +104,48 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             return;
         }
         throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MERGE_POLICY_UNSUPPORTED);
+    }
+
+    /**
+     * AGE와 LEVEL은 수정 API와 같은 0 이상 int 정수 계약을 통과한 뒤에만 확정한다.
+     */
+    private void validateCoreSnapshotValue(SettingCandidate candidate, CharacterFactType factType) {
+        if (factType != CharacterFactType.AGE && factType != CharacterFactType.LEVEL) {
+            return;
+        }
+        BigDecimal value = resolveCoreSnapshotNumber(candidate);
+        if (value == null) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_VALUE_INVALID);
+        }
+        try {
+            if (value.intValueExact() < 0) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_VALUE_INVALID);
+            }
+        } catch (ArithmeticException exception) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_VALUE_INVALID);
+        }
+    }
+
+    /**
+     * 구조화 대표값이 있으면 우선 사용하고, 없을 때만 표시값을 숫자로 해석한다.
+     */
+    private BigDecimal resolveCoreSnapshotNumber(SettingCandidate candidate) {
+        JsonNode valueNode = candidate.getValueJson();
+        if (valueNode != null && valueNode.isObject()) {
+            valueNode = valueNode.get("value");
+        }
+        if (valueNode != null && !valueNode.isNull()) {
+            return valueNode.isNumber() ? valueNode.decimalValue() : null;
+        }
+        String attributeValue = candidate.getAttributeValue();
+        if (attributeValue == null) {
+            return null;
+        }
+        try {
+            return new BigDecimal(attributeValue.trim());
+        } catch (NumberFormatException exception) {
+            return null;
+        }
     }
 
     private WorkCharacter resolveCharacterForPromotion(SettingCandidate candidate) {

@@ -161,6 +161,11 @@ public class CharacterController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "캐릭터 상세 조회 성공"),
             @ApiResponse(
+                    responseCode = "400",
+                    description = "경로 UUID 형식 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
                     responseCode = "401",
                     description = "액세스 토큰 없음, 만료 또는 검증 실패",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
@@ -229,6 +234,11 @@ public class CharacterController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "캐릭터 보관 전환 성공"),
             @ApiResponse(
+                    responseCode = "400",
+                    description = "경로 UUID 형식 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
                     responseCode = "401",
                     description = "액세스 토큰 없음, 만료 또는 검증 실패",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
@@ -258,6 +268,11 @@ public class CharacterController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "캐릭터 복구 성공"),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "경로 UUID 형식 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
             @ApiResponse(
                     responseCode = "401",
                     description = "액세스 토큰 없음, 만료 또는 검증 실패",

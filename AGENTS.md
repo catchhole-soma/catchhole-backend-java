@@ -267,6 +267,7 @@ domain/<domain>
 - `SettingCandidate` 생성은 Python AI Worker가 담당하고, Spring API는 사용자 검토를 위한 조회/수정부터 담당한다. 후보 생성 API를 Spring에 추가해야 할 때는 Worker 저장 책임을 함께 재검토한다.
 - `SettingCandidate` 수정은 `PENDING_REVIEW` 상태에서만 허용한다. 확정/무시 이후 수정은 `CharacterFact` 반영 정책과 동기화 문제가 생기므로 별도 정책이 정해질 때까지 막는다.
 - `SettingCandidate` 확정/무시는 POST action API로 처리한다. 처음 `CONFIRMED`로 전환되는 후보는 `CharacterFact`로 저장하고 `WorkCharacter` 현재 스냅샷을 갱신한다. 동일 상태 재호출은 성공으로 처리하되 `CharacterFact`를 중복 생성하지 않고, `CONFIRMED`와 `DISMISSED` 사이의 반대 전이는 상태 충돌로 거절한다.
+- `AGE`, `LEVEL` 후보는 확정 전에 구조화 대표값을 우선 확인하고, 값이 없을 때만 표시값을 사용해 0 이상이면서 Java `Integer` 범위의 정확한 정수인지 검증한다. 소수·음수·범위 초과 값은 캐릭터 결정과 Fact 저장 전에 거절해 상세 응답과 전체 수정 계약이 어긋나지 않게 한다.
 - `UNRESOLVED` 캐릭터 후보를 confirm할 때 같은 작품의 trim 후 exact-name 활성 캐릭터가 있으면 재사용하고, 없으면 새로 생성한다. 결정된 캐릭터는 확정 후보와 같은 작품·이름의 `PENDING_REVIEW + UNRESOLVED + CHARACTER` 형제 후보에 `MATCHED`로 연결한다. `AMBIGUOUS`와 이미 검토된 후보는 자동 변경하지 않으며, 조회-생성 구간은 작품 row의 pessimistic write lock으로 직렬화한다.
 - confirm으로 생성하는 `CharacterFact`는 `setting_candidate_id` FK로 원본 `SettingCandidate`를 연결하고, 구체적인 원문 인용은 후보의 `evidence_spans`에서 조회한다. 기존 Fact는 추정 backfill하지 않고 `NULL`로 유지하며, 근거 JSON을 Fact에 중복 저장하지 않는다.
 - `SettingCandidate` 확정 반영처럼 후보/요청 데이터를 저장용 Entity로 변환하는 코드는 service에서 `Entity.create()` 파라미터를 직접 조립하지 말고 mapper의 `toEntity` 계열 메서드로 분리한다. service는 권한 확인, 조회, 트랜잭션 흐름, 저장 호출, 도메인 메서드 조율에 집중한다.

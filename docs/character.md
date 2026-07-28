@@ -353,7 +353,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `attribute_pattern` | exact `schema_key`와 alias로 일치하지 않은 동적 `SettingCandidate.attributeName`을 이 schema로 분류하기 위한 nullable trailing `.*` 패턴입니다. 예: `item.*`. 병합 방식이나 저장 위치를 의미하지 않습니다. |
 | `display_name` | Worker prompt와 화면에서 사람이 schema를 식별할 때 사용할 표시명입니다. 저장·비교 식별자로 사용하지 않습니다. |
 | `fact_type` | 이 schema로 확정된 값을 저장할 상위 `CharacterFactType`입니다. 예: `PROFILE`, `ITEM`, `SKILL`, `STAT`. |
-| `value_type` | Worker가 추출하고 Spring Backend가 confirm 시 후보의 `valueType`과 enum equality로 검증하는 자료형입니다. `STRING`, `NUMBER`, `BOOLEAN`, `JSON`, `UNKNOWN` 중 하나이며 Java의 `SettingValueType`을 재사용합니다. `valueJson` 내부 node 구조까지 검증하는 값은 아닙니다. |
+| `value_type` | Worker가 추출하고 Spring Backend가 confirm 시 후보의 `valueType`과 enum equality로 검증하는 자료형입니다. `STRING`, `NUMBER`, `BOOLEAN`, `JSON`, `UNKNOWN` 중 하나이며 Java의 `SettingValueType`을 재사용합니다. 일반 설정은 `valueJson` 내부 node 구조까지 검증하지 않지만, 정수 대표 snapshot이 필요한 `AGE`, `LEVEL`은 확정 전에 실제 숫자 범위도 검증합니다. |
 | `value_semantics` | 값이 원문에서 확인한 기준값(`BASE_VALUE`), 기준값에 적용하는 보정값(`MODIFIER`), 다른 값으로 계산한 파생값(`DERIVED`) 중 무엇인지 나타냅니다. |
 | `merge_policy` | Resolver가 결정한 factKey entry의 새 값을 snapshot에 반영할 정책입니다. 현재 confirm은 `REPLACE`, `UPSERT_BY_NAME`만 entry 전체 교체로 지원하고 나머지는 409로 거절합니다. object 내부 deep merge는 하지 않습니다. |
 | `aliases_json` | `schema_key`와 동일한 schema로 해석할 분류 경로 없는 별칭 문자열 배열입니다. 후보 속성명은 별칭 자체 또는 `schemaKey`와 같은 분류 경로를 붙인 값만 정확히 비교하며, 다른 분류 경로·대소문자 변환·부분 일치·fuzzy 매칭은 하지 않습니다. JSONB 배열만 허용하며 별칭이 없으면 `[]`를 저장합니다. |
@@ -573,7 +573,7 @@ flowchart TD
 - 첫 등장 회차 번호가 `null`이면 연결을 제거하고, 값이 있으면 반드시 같은 작품의 회차여야 합니다. 이름·역할·첫 등장 회차는 Fact가 아니라 `WorkCharacter` 대표 필드에서 직접 관리합니다.
 - `toDesiredFacts`는 `currentAge`, `currentLevel`, `profile`, `stats`, `skills`, `items`, `statuses`를 `(factType, factKey)` 기준의 목표 상태로 변환합니다. 나이와 레벨은 각각 `(AGE, age)`, `(LEVEL, level)`을 사용합니다. 나머지 설정은 같은 Fact 유형의 활성 schema와 정확히 일치하는 canonical key를 우선 허용하고, 등록되지 않은 custom key와 pattern key에는 유형별 prefix 규칙을 적용하며 요청 내 중복 key를 검증합니다.
 - 활성 schema의 `schemaKey`와 정확히 일치하거나 `attributePattern`에 일치하는 설정은 요청 `valueType`도 schema와 같아야 합니다. 다르면 `CHARACTER_SETTING_VALUE_TYPE_MISMATCH / 400`으로 거절하며, 어떤 활성 schema에도 등록되지 않은 수동 custom key는 기존 정책대로 유형별 prefix만 유효하면 허용합니다.
-- 설정에 세부 `properties`가 없고 같은 `(factType, factKey)`의 표시값도 바뀌지 않았다면, 상세 응답의 `properties`로 복원할 수 없는 기존 raw `valueJson`만 그대로 목표 상태에 사용합니다. 대상은 `null`, non-object primitive, 빈 object, 예약 `value` key만 있는 object이며 `STRING`, `NUMBER`, `BOOLEAN`, `JSON`에 같은 규칙을 적용합니다. 기존 object에 예약 `value`와 공개 속성이 함께 있으면 JSON 타입이거나 non-JSON 표시값이 바뀌지 않은 경우 응답에서 숨긴 `value` envelope를 유지하고, 요청의 공개 `properties`만 목표 상태로 재구성합니다. `name`, `level`처럼 응답 가능한 속성이 있는 object에서 빈 `properties`를 보내면 속성 제거 요청으로 보고 기존 요청 변환을 적용합니다. 표시값이 바뀌거나 raw 값을 보존할 수 없으면 요청의 `valueType`에 맞춰 값을 재구성하며 유효하지 않으면 `CHARACTER_SETTING_VALUE_INVALID / 400`으로 거절합니다.
+- 설정에 세부 `properties`가 없고 같은 `(factType, factKey)`의 표시값도 바뀌지 않았다면, 상세 응답의 `properties`로 복원할 수 없는 기존 raw `valueJson`만 그대로 목표 상태에 사용합니다. 대상은 `null`, non-object primitive, 빈 object, 예약 `value` key만 있는 object이며 `STRING`, `NUMBER`, `BOOLEAN`, `JSON`에 같은 규칙을 적용합니다. schema가 없는 custom 설정은 저장 JSON에서 추론한 타입과 요청 `valueType`도 같아야 raw 값을 보존합니다. 기존 object에 예약 `value`와 공개 속성이 함께 있으면 등록 schema의 타입이 검증됐거나 저장 `value` 타입과 요청 타입이 같고, JSON 타입이거나 non-JSON 표시값이 바뀌지 않은 경우에만 숨겨진 `value` envelope를 유지합니다. 요청의 공개 `properties`는 목표 상태로 다시 구성합니다. `name`, `level`처럼 응답 가능한 속성이 있는 object에서 빈 `properties`를 보내면 속성 제거 요청으로 보고 기존 요청 변환을 적용합니다. 표시값 또는 타입이 바뀌거나 raw 값을 보존할 수 없으면 요청의 `valueType`에 맞춰 값을 재구성하며 유효하지 않으면 `CHARACTER_SETTING_VALUE_INVALID / 400`으로 거절합니다.
 - 프로필·스탯처럼 단일 값을 가지면서 사용자 정의 표시명이 필요한 수동 설정은 `valueJson.value`에 타입이 보존된 대표값을, `valueJson.name`에 화면 표시명을 저장합니다. 요청 `properties`의 `value` key는 대표값 envelope와 충돌하므로 `CHARACTER_SETTING_KEY_INVALID / 400`으로 거절합니다.
 - 직접 수정은 schema merge 정책의 적용 대상이 아닙니다. AI 후보 확정은 새 관찰값을 현재값에 반영하는 방법을 결정하기 위해 `REPLACE`, `UPSERT_BY_NAME`을 검증하지만, 직접 수정은 사용자가 최종 상태를 명시하므로 모든 편집 가능 설정을 `factType + factKey` entry 단위 `REPLACE`로 처리합니다. `valueJson` 내부 deep merge도 하지 않습니다.
 - `AGE`, `LEVEL`은 snapshot과 화면의 기준인 `valueJson.value` 숫자를 우선 비교하고, 구조화 숫자가 없을 때만 숫자로 해석 가능한 `factValue`를 사용합니다. 따라서 `23세` 또는 `23.0`처럼 표시 문자열이 달라도 구조화 숫자가 `23`이면 기존 Fact와 근거를 유지합니다. 나머지 설정은 사용자 표시값인 `factValue`와 구조화 값인 `valueJson`이 모두 같은지 확인합니다. JSON 객체는 key 순서와 무관하게 비교하고 숫자는 `42`와 `42.0`처럼 표현만 다른 경우 같은 값으로 봅니다. 배열은 원소 순서까지 같아야 합니다.
@@ -642,7 +642,7 @@ flowchart TD
 
 `confirm` API는 후보 상태 전이와 확정 데이터 반영을 같은 트랜잭션에서 처리합니다. 단, 이미 `CONFIRMED`인 후보 재호출은 성공 응답만 반환하고 `CharacterFact`를 다시 만들지 않습니다.
 
-아래 흐름은 현재 confirm 반영 순서를 보여줍니다. schema 매칭, 값 타입, merge policy 검증을 먼저 통과한 뒤 `matchStatus` 기준으로 캐릭터를 결정하고 전체 current Fact로 snapshot을 재구성합니다.
+아래 흐름은 현재 confirm 반영 순서를 보여줍니다. schema 매칭, 값 타입, merge policy와 `AGE`/`LEVEL` 대표값 검증을 먼저 통과한 뒤 `matchStatus` 기준으로 캐릭터를 결정하고 전체 current Fact로 snapshot을 재구성합니다.
 
 ```mermaid
 flowchart TD
@@ -662,7 +662,9 @@ flowchart TD
     V -->|"타입 불일치"| Y3["확정 반영 거절<br/>SETTING_CANDIDATE_VALUE_TYPE_MISMATCH / 400"]
     V -->|"타입 일치"| MP["merge policy 검증<br/>REPLACE 또는 UPSERT_BY_NAME"]
     MP -->|"UPSERT_BY_SLOT, APPEND, DERIVED"| Y4["확정 반영 거절<br/>SETTING_CANDIDATE_MERGE_POLICY_UNSUPPORTED / 409"]
-    MP -->|"지원 정책"| F["matchStatus 기반 대상 WorkCharacter 결정"]
+    MP -->|"지원 정책"| CV["AGE / LEVEL 대표값 검증<br/>0 이상 int 범위의 정확한 정수"]
+    CV -->|"소수 · 음수 · 범위 초과"| Y5["확정 반영 거절<br/>SETTING_CANDIDATE_VALUE_INVALID / 400"]
+    CV -->|"유효하거나 다른 Fact 유형"| F["matchStatus 기반 대상 WorkCharacter 결정"]
     F -->|"MATCHED"| F1["matchedCharacterId 캐릭터 검증 후<br/>pessimistic write lock 조회"]
     F -->|"UNRESOLVED"| F2["작품 row write lock 후<br/>trim한 entityName exact 조회"]
     F -->|"AMBIGUOUS"| F3["해소 전 confirm 거절"]
@@ -690,7 +692,8 @@ flowchart TD
 
 - `SettingCandidateSchemaResolver`는 앞뒤 공백을 제거한 `attributeName`을 schemaKey 정확 일치 → 별칭 → 마지막이 `.*`로 끝나는 속성 패턴 순으로 해석합니다. 정확 일치/별칭의 factKey는 기준 `schemaKey`, 속성 패턴의 factKey는 공백을 제거한 원본 속성명입니다.
 - matched schema의 `factType`을 `CharacterFact`에 사용하고, 후보와 schema의 `SettingValueType` enum이 다르거나 merge policy가 `REPLACE`, `UPSERT_BY_NAME`이 아니면 캐릭터를 결정하기 전에 거절합니다.
-- 매칭 없음·복수 매칭·타입 불일치·미지원 정책을 포함해 확정 반영 중 오류가 발생하면 후보 상태 전이, 신규 캐릭터 생성, `CharacterFact` 생성이 같은 트랜잭션에서 함께 롤백됩니다.
+- `AGE`, `LEVEL`은 `valueJson.value` 또는 primitive 구조화 숫자를 우선 사용하고, 구조화 대표값이 없을 때만 `attributeValue`를 사용합니다. 값은 0 이상이면서 Java `Integer` 범위의 정확한 정수여야 하며 소수, 음수, 범위 초과 값은 `SETTING_CANDIDATE_VALUE_INVALID / 400`으로 거절합니다.
+- 매칭 없음·복수 매칭·타입 불일치·미지원 정책·대표값 검증 실패를 포함해 확정 반영 중 오류가 발생하면 후보 상태 전이, 신규 캐릭터 생성, `CharacterFact` 생성이 같은 트랜잭션에서 함께 롤백됩니다.
 - 후보 캐릭터 결정은 `matchStatus`를 기준으로 수행합니다. `MATCHED`는 `matchedCharacterId`를 사용합니다. `UNRESOLVED`는 작품 row를 pessimistic write lock으로 잡은 뒤 trim한 `entityName` exact-name 활성 캐릭터를 재사용하거나 새 캐릭터를 생성하고, 확정 후보와 같은 작품·이름의 `PENDING_REVIEW + UNRESOLVED + CHARACTER` 후보를 `MATCHED`로 연결합니다. `AMBIGUOUS`와 이미 검토된 후보는 자동 변경하지 않습니다.
 - `mapper.toWorkCharacter(candidate)`와 `mapper.toCharacterFact(...)`가 Entity factory를 호출합니다. `toCharacterFact`는 원본 후보를 `settingCandidate`로 연결해 `evidenceSpans`를 역추적할 수 있게 하며, service는 `Entity.create()` 파라미터를 직접 조립하지 않습니다.
 - `saveAndFlush(newFact)` 후 같은 `character + factType + factKey`의 전체 이력을 다시 조회합니다. confirm 순서와 회차 순서가 다를 수 있기 때문입니다.

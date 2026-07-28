@@ -100,6 +100,18 @@ class CharacterSnapshotAssemblerTest {
         assertThat(snapshot.currentLevel()).isNull();
     }
 
+    @Test
+    @DisplayName("음수 AGE와 LEVEL Fact를 대표 snapshot으로 노출하지 않는다")
+    void assembleDoesNotExposeNegativeCoreNumbers() {
+        CharacterSnapshot snapshot = assembler.assemble(List.of(
+                fact(CharacterFactType.AGE, "age", "-1", objectMapper.getNodeFactory().numberNode(-1)),
+                fact(CharacterFactType.LEVEL, "level", "-2", null)
+        ));
+
+        assertThat(snapshot.currentAge()).isNull();
+        assertThat(snapshot.currentLevel()).isNull();
+    }
+
     private CharacterFact fact(CharacterFactType factType, String factKey, JsonNode valueJson) {
         return fact(factType, factKey, null, valueJson);
     }
