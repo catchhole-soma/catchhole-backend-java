@@ -115,8 +115,16 @@ public class EpisodeFileParser {
         );
 
         List<DetectedEpisode> detectedEpisodes = new ArrayList<>();
+        int headingLineNumber = 1;
+        int headingLineScanOffset = 0;
         for (int index = 0; index < headings.size(); index++) {
             EpisodeHeading heading = headings.get(index);
+            while (headingLineScanOffset < heading.startOffset()) {
+                if (episodeText.charAt(headingLineScanOffset) == '\n') {
+                    headingLineNumber++;
+                }
+                headingLineScanOffset++;
+            }
             int episodeContentEndOffset = index + 1 < headings.size()
                     ? headings.get(index + 1).startOffset()
                     : episodeText.length();
@@ -131,7 +139,7 @@ public class EpisodeFileParser {
                     resolveOriginalFilename(sourceFile),
                     heading.episodeNo(),
                     title,
-                    lineNumberOf(episodeText, heading.startOffset()),
+                    headingLineNumber,
                     episodeContent.length()
             );
             detectedEpisodes.add(new DetectedEpisode(
@@ -267,17 +275,6 @@ public class EpisodeFileParser {
             }
             previousEpisodeNo = heading.episodeNo();
         }
-    }
-
-    private int lineNumberOf(String episodeText, int offset) {
-        int lineNumber = 1;
-        int endOffset = Math.min(offset, episodeText.length());
-        for (int index = 0; index < endOffset; index++) {
-            if (episodeText.charAt(index) == '\n') {
-                lineNumber++;
-            }
-        }
-        return lineNumber;
     }
 
     private String resolveOriginalFilename(MultipartFile sourceFile) {
