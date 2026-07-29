@@ -656,13 +656,13 @@ flowchart TD
 
 ### 확정 데이터 반영 상세 워크플로우
 
-`confirm` API는 후보 상태 전이와 확정 데이터 반영을 같은 트랜잭션에서 처리합니다. 단, 이미 `CONFIRMED`인 후보 재호출은 성공 응답만 반환하고 `CharacterFact`를 다시 만들지 않습니다.
+`confirm` API는 작품 행 잠금을 먼저 획득하고 후보 상태 전이와 확정 데이터 반영을 같은 트랜잭션에서 처리합니다. 단, 이미 `CONFIRMED`인 후보 재호출은 성공 응답만 반환하고 `CharacterFact`를 다시 만들지 않습니다.
 
 아래 흐름은 현재 confirm 반영 순서를 보여줍니다. schema 매칭, 값 타입, merge policy와 `AGE`/`LEVEL` 대표값 검증을 먼저 통과한 뒤 `matchStatus` 기준으로 캐릭터를 결정하고 전체 current Fact로 snapshot을 재구성합니다.
 
 ```mermaid
 flowchart TD
-    A["확정 요청 수신<br/>POST /setting-candidates/{candidateId}/confirm"] --> B["작품 소유권 확인<br/>getOwnedWork(workId, memberId)"]
+    A["확정 요청 수신<br/>POST /setting-candidates/{candidateId}/confirm"] --> B["작품 소유권 확인 + 행 잠금<br/>getOwnedWorkForUpdate(workId, memberId)"]
     B --> C["후보가 해당 작품에 속하는지 조회<br/>findByIdAndWorkId(candidateId, workId)"]
     C --> D["후보 검토 상태 전이<br/>SettingCandidate.confirm()"]
 
@@ -707,6 +707,7 @@ flowchart TD
 
 상세 처리 기준:
 
+- 후보 수정·캐릭터 연결·확정·무시는 모두 `Work` 행의 pessimistic write lock을 먼저 획득합니다. 따라서 같은 작품의 후보 상태 변경을 직렬화하고, 동시 확정의 `CharacterFact` 중복 생성과 확정·무시 또는 형제 후보 자동 연결 사이의 stale update를 막습니다. 잠금 순서는 `Work` → `WorkCharacter`로 통일합니다.
 - `SettingCandidateSchemaResolver`는 앞뒤 공백을 제거한 `attributeName`을 schemaKey 정확 일치 → 별칭 → 마지막이 `.*`로 끝나는 속성 패턴 순으로 해석합니다. 정확 일치/별칭의 factKey는 기준 `schemaKey`, 속성 패턴의 factKey는 공백을 제거한 원본 속성명입니다.
 - matched schema의 `factType`을 `CharacterFact`에 사용하고, 후보와 schema의 `SettingValueType` enum이 다르거나 merge policy가 `REPLACE`, `UPSERT_BY_NAME`이 아니면 캐릭터를 결정하기 전에 거절합니다.
 - `AGE`, `LEVEL`은 `valueJson.value` 또는 primitive 구조화 숫자를 우선 사용하고, 구조화 대표값이 없을 때만 `attributeValue`를 사용합니다. 값은 0 이상이면서 Java `Integer` 범위의 정확한 정수여야 하며 소수, 음수, 범위 초과 값은 `SETTING_CANDIDATE_VALUE_INVALID / 400`으로 거절합니다.
@@ -726,11 +727,15 @@ flowchart TD
 flowchart TD
     A["Client 요청"] --> B["JWT 인증"]
     B --> C["MemberPrincipal 추출"]
-    C --> D["workRepository.getOwnedWork(workId, memberId)"]
-    D -->|성공| E["본인 작품 확인"]
-    D -->|실패| F["WORK_NOT_FOUND / 404"]
+    C --> D{"조회 또는 변경"}
+    D -->|"GET 조회"| E["workRepository.getOwnedWork(workId, memberId)"]
+    D -->|"PATCH / POST 변경"| F["workRepository.getOwnedWorkForUpdate(workId, memberId)"]
+    E -->|성공| G["본인 작품 확인"]
+    F -->|성공 + 작품 행 잠금| G
+    E -->|실패| H["WORK_NOT_FOUND / 404"]
+    F -->|실패| H
 
-    E --> G["SettingCandidate 처리"]
+    G --> I["SettingCandidate 처리"]
 ```
 
 목록 조회는 작품과 업로드 묶음 소속을 먼저 확인한 뒤, 묶음 전체 집계와 필터된 페이지를 각각 조회합니다.

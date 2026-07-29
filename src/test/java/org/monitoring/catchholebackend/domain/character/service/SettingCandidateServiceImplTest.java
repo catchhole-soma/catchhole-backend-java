@@ -220,7 +220,7 @@ class SettingCandidateServiceImplTest {
                 Map.of("value", 23, "source", "user_review"),
                 List.of(Map.of("paragraph_index", 2, "quote", "아리아는 스물셋의 경지에 올랐다."))
         );
-        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(settingCandidateMapper.toResponse(candidate)).thenReturn(response);
 
@@ -255,7 +255,7 @@ class SettingCandidateServiceImplTest {
                 Map.of("value", 23),
                 List.of()
         );
-        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
 
         assertThatThrownBy(() -> service.updateSettingCandidate(memberId, workId, candidateId, request))
@@ -282,7 +282,7 @@ class SettingCandidateServiceImplTest {
                 characterId,
                 null
         );
-        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(workCharacterRepository.findByIdAndWorkId(characterId, workId)).thenReturn(Optional.of(character));
         when(settingCandidateMapper.toResponse(candidate)).thenReturn(response);
@@ -311,7 +311,7 @@ class SettingCandidateServiceImplTest {
                 null,
                 "  아리아  "
         );
-        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(workCharacterRepository.findByWorkIdAndNameAndStatus(
                 workId,
@@ -343,7 +343,7 @@ class SettingCandidateServiceImplTest {
                 null,
                 null
         );
-        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
 
         assertThatThrownBy(() -> service.updateSettingCandidateCharacterMatch(memberId, workId, candidateId, request))
@@ -368,7 +368,7 @@ class SettingCandidateServiceImplTest {
                 null,
                 "  "
         );
-        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
 
         assertThatThrownBy(() -> service.updateSettingCandidateCharacterMatch(memberId, workId, candidateId, request))
@@ -399,7 +399,7 @@ class SettingCandidateServiceImplTest {
                 null,
                 "아리아"
         );
-        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(workCharacterRepository.findByWorkIdAndNameAndStatus(
                 workId,
@@ -431,7 +431,7 @@ class SettingCandidateServiceImplTest {
                 characterId,
                 null
         );
-        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(workCharacterRepository.findByIdAndWorkId(characterId, workId)).thenReturn(Optional.of(character));
 
@@ -458,7 +458,7 @@ class SettingCandidateServiceImplTest {
                 characterId,
                 null
         );
-        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
 
         assertThatThrownBy(() -> service.updateSettingCandidateCharacterMatch(memberId, workId, candidateId, request))
@@ -482,7 +482,7 @@ class SettingCandidateServiceImplTest {
                 candidateId,
                 SettingCandidateReviewStatus.CONFIRMED
         );
-        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(settingCandidateMapper.toReviewStatusResponse(candidate)).thenReturn(response);
 
@@ -506,7 +506,7 @@ class SettingCandidateServiceImplTest {
                 candidateId,
                 SettingCandidateReviewStatus.DISMISSED
         );
-        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(settingCandidateMapper.toReviewStatusResponse(candidate)).thenReturn(response);
 
@@ -531,7 +531,7 @@ class SettingCandidateServiceImplTest {
                 candidateId,
                 SettingCandidateReviewStatus.CONFIRMED
         );
-        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(settingCandidateMapper.toReviewStatusResponse(candidate)).thenReturn(response);
 
@@ -555,7 +555,7 @@ class SettingCandidateServiceImplTest {
         confirmed.confirm();
         SettingCandidate dismissed = candidate(work, "아리아", "level", "23");
         dismissed.dismiss();
-        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkId(confirmedId, workId)).thenReturn(Optional.of(confirmed));
         when(settingCandidateRepository.findByIdAndWorkId(dismissedId, workId)).thenReturn(Optional.of(dismissed));
 
@@ -579,7 +579,7 @@ class SettingCandidateServiceImplTest {
         UUID workId = UUID.randomUUID();
         UUID candidateId = UUID.randomUUID();
         Work work = work(workId);
-        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.confirmSettingCandidate(memberId, workId, candidateId))

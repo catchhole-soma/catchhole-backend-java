@@ -114,7 +114,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             UUID candidateId,
             SettingCandidateUpdateRequest request
     ) {
-        Work work = workRepository.getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
 
         candidate.updateReviewContent(
@@ -135,7 +135,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             UUID candidateId,
             SettingCandidateCharacterMatchRequest request
     ) {
-        Work work = workRepository.getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
         candidate.validateEditable();
 
@@ -155,7 +155,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             UUID workId,
             UUID candidateId
     ) {
-        Work work = workRepository.getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
 
         // 최초 PENDING_REVIEW -> CONFIRMED 전이만 true다. 동일 confirm 재시도는 false로 Fact 중복 생성을 막는다.
@@ -173,7 +173,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             UUID workId,
             UUID candidateId
     ) {
-        Work work = workRepository.getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
         candidate.dismiss();
         return settingCandidateMapper.toReviewStatusResponse(candidate);

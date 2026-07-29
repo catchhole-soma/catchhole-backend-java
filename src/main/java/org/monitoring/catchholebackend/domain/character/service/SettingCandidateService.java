@@ -9,6 +9,10 @@ import org.monitoring.catchholebackend.domain.character.dto.response.SettingCand
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 
+/**
+ * 설정 후보 조회와 검토 상태 변경을 처리한다.
+ * 후보 변경은 작품 행 잠금을 먼저 획득해 같은 작품의 수정·연결·확정·무시 요청을 직렬화한다.
+ */
 public interface SettingCandidateService {
 
     /**
