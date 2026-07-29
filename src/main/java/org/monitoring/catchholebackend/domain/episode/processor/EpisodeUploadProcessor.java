@@ -76,8 +76,9 @@ public class EpisodeUploadProcessor {
                 uploadRequest.episodeConfirmations()
         );
         validateEpisodeNumberAvailability(work, finalizedEpisodeFiles);
+        String attachedSettingBookContent = null;
         if (isAttached(attachedSettingBookFile)) {
-            textDocumentReader.readText(attachedSettingBookFile);
+            attachedSettingBookContent = textDocumentReader.readText(attachedSettingBookFile);
             validateSettingBookFilenameAvailable(work, attachedSettingBookFile);
         }
 
@@ -100,7 +101,8 @@ public class EpisodeUploadProcessor {
         updateLatestEpisodeNo(work, savedEpisodes);
 
         if (isAttached(attachedSettingBookFile)) {
-            saveAttachedSettingBookFile(uploadBatch, attachedSettingBookFile);
+            saveAttachedSettingBookFile(
+                    uploadBatch, attachedSettingBookFile, attachedSettingBookContent);
         }
 
         uploadBatch.complete();
@@ -319,7 +321,8 @@ public class EpisodeUploadProcessor {
      */
     private void saveAttachedSettingBookFile(
             UploadBatch uploadBatch,
-            MultipartFile attachedSettingBookFile
+            MultipartFile attachedSettingBookFile,
+            String content
     ) {
         StoredObject storedSettingBookFile = objectStorageService.putUploadFile(
                 uploadBatch.getId(),
@@ -333,6 +336,15 @@ public class EpisodeUploadProcessor {
                 attachedSettingBookFile,
                 storedSettingBookFile.key()
         ));
+        StoredObject storedContent =
+                objectStorageService.putSettingBookContent(
+                        uploadBatch.getWork().getId(),
+                        savedSettingBookFile.getId(),
+                        savedSettingBookFile.getOriginalFilename(),
+                        content
+                );
+        savedSettingBookFile.linkEditableContent(
+                objectStorageService.toStorageUrl(storedContent.key()));
         savedSettingBookFile.markParsed();
     }
 
