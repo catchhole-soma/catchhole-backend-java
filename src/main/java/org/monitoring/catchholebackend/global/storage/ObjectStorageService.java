@@ -3,6 +3,7 @@ package org.monitoring.catchholebackend.global.storage;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.text.Normalizer;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -47,6 +48,22 @@ public class ObjectStorageService {
         return objectStorage.putBytes(buildUploadFileKey(batchId, originalFilename), bytes, contentType);
     }
 
+    /**
+     * 설정집에서 추출한 편집용 텍스트를 작품/설정집/원본 파일명 기반의 고정 key에 저장한다.
+     * 같은 설정집을 다시 수정하면 동일 key를 PUT해 새 객체 key가 누적되지 않게 한다.
+     */
+    public StoredObject putSettingBookContent(
+            UUID workId,
+            UUID settingBookId,
+            String originalFilename,
+            String content
+    ) {
+        return objectStorage.putText(
+                buildSettingBookContentKey(workId, settingBookId, originalFilename),
+                content
+        );
+    }
+
     public String getText(String key) {
         return objectStorage.getText(key);
     }
@@ -71,6 +88,19 @@ public class ObjectStorageService {
      */
     private String buildUploadFileKey(UUID batchId, String originalFilename) {
         return "upload-batches/" + batchId + "/" + UUID.randomUUID() + "-" + originalFilename;
+    }
+
+    private String buildSettingBookContentKey(
+            UUID workId,
+            UUID settingBookId,
+            String originalFilename
+    ) {
+        String normalizedFilename =
+                Normalizer.normalize(originalFilename, Normalizer.Form.NFC).replace('\\', '/');
+        String filename = normalizedFilename.substring(normalizedFilename.lastIndexOf('/') + 1);
+        String baseFilename = filename.substring(0, filename.lastIndexOf('.'));
+        return "works/" + workId + "/setting-books/" + settingBookId + "/"
+                + baseFilename + ".txt";
     }
 
     private String buildEpisodeContentKey(UUID workId, int episodeNo) {

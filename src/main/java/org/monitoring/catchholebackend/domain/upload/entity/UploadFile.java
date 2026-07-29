@@ -63,8 +63,7 @@ public class UploadFile extends BaseEntity {
     @Column(name = "file_role", nullable = false, length = 30)
     private UploadFileRole fileRole;
 
-    //사용자가 업로드한 원본 파일명
-    //사용자에게 보여주는 화면에서의 데이터로는 사용되지 않음.
+    // 사용자가 업로드한 원본 파일명. 설정집 목록의 표시명으로 사용한다.
     @Column(name = "original_filename", nullable = false, length = 255)
     private String originalFilename;
 
@@ -74,6 +73,10 @@ public class UploadFile extends BaseEntity {
 
     @Column(name = "storage_url", length = 512)
     private String storageUrl;
+
+    // 설정집에서 추출한 현재 편집용 텍스트의 저장 위치. 업로드 원본 storageUrl과 분리한다.
+    @Column(name = "content_storage_url", length = 512)
+    private String contentStorageUrl;
 
     // 원본 업로드 파일의 크기(byte 단위)
     @Column(name = "file_size", nullable = false)
@@ -124,8 +127,8 @@ public class UploadFile extends BaseEntity {
         return new UploadFile(batch, fileRole, originalFilename, mimeType, storageUrl, fileSize);
     }
 
-    public void updateStorage(String storageUrl) {
-        this.storageUrl = storageUrl;
+    public void linkEditableContent(String contentStorageUrl) {
+        this.contentStorageUrl = contentStorageUrl;
     }
 
     public void markEpisodesParsed(
