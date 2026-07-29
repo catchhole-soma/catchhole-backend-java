@@ -216,9 +216,23 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 
 검토 상태는 후보 단계의 `SettingCandidate`에만 둡니다. `WorkCharacter`와 `CharacterFact`는 사용자가 후보를 승인한 뒤 생성되는 대표 설정과 설정 이력이므로 별도 review status를 갖지 않습니다.
 
+설정 후보 검토 목록은 필수 `batchId`로 한 번의 업로드 묶음을 선택합니다. 응답은 해당 묶음의
+대상 회차 범위, 필터와 무관한 전체 검토 집계, 현재 필터를 적용한 후보 페이지를 함께 제공합니다.
+대상 회차 범위는 후보가 아니라 `AnalysisJob.episode`를 기준으로 계산하므로 Worker가 후보를 하나도
+만들지 않은 묶음도 시작·종료 회차와 회차 수를 표시할 수 있습니다.
+
+- `totalCandidateCount`: 묶음 전체 후보 수
+- `reviewedCandidateCount`: `CONFIRMED` 또는 `DISMISSED` 후보 수
+- `pendingCandidateCount`: `PENDING_REVIEW` 후보 수
+- `matchRequiredCandidateCount`: `PENDING_REVIEW + AMBIGUOUS` 후보 수
+
+목록에는 `reviewStatus`, `matchStatus` 필터를 선택적으로 적용하며, 집계는 이 필터의 영향을 받지
+않습니다. 후보는 `episodeNo ASC, createdAt ASC, id ASC`로 고정 정렬해 페이지 사이 순서를
+안정적으로 유지합니다. 근거 `startOffset` 정렬은 목록/상세 근거 계약을 분리하는 후속 작업에서
+추가합니다.
+
 설정 후보 조회 응답 후속 TODO:
 
-- FE 검토 화면에서 목록과 상세에 각각 필요한 데이터 범위를 먼저 확정해야 합니다.
 - 현재 API는 목록/상세가 같은 응답 DTO를 사용합니다. 목록 화면에 `valueJson`, `evidenceSpans`, `rawAiResultJson` 같은 상세 필드가 필요하지 않다면 후속 PR에서 목록 요약 응답과 상세 응답을 분리합니다.
 - 응답 분리 시 목록은 테이블/카드 렌더링에 필요한 값 중심으로 줄이고, 상세는 후보 편집과 근거 검토에 필요한 전체 값을 내려주는 방향을 우선 검토합니다.
 
@@ -457,8 +471,8 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/v1/works/{workId}/setting-candidates` | 설정 후보 목록을 최신 생성순으로 조회합니다. `reviewStatus`, `entityName` query parameter로 필터링할 수 있습니다. |
-| `GET` | `/api/v1/works/{workId}/setting-candidates/{candidateId}` | 특정 설정 후보 상세를 조회합니다. |
+| `GET` | `/api/v1/works/{workId}/setting-candidates` | 필수 `batchId` 범위의 설정 후보를 `reviewStatus`, `matchStatus`, `page`, `size`로 페이지 조회합니다. 묶음 전체 회차 범위와 검토 집계를 함께 반환합니다. |
+| `GET` | `/api/v1/works/{workId}/setting-candidates/{candidateId}` | 필수 `batchId` 범위에 속한 특정 설정 후보 상세를 조회합니다. 다른 묶음 후보는 404로 숨깁니다. |
 | `PATCH` | `/api/v1/works/{workId}/setting-candidates/{candidateId}` | `PENDING_REVIEW` 후보의 `attributeName`, `attributeValue`, `valueType`, `valueJson`, `evidenceSpans`만 보정합니다. 캐릭터 대상 변경은 캐릭터 연결 해소 API에서 처리합니다. |
 | `POST` | `/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm` | 설정 후보를 `CONFIRMED` 상태로 전환하고, 처음 확정되는 후보는 schema, 값 타입, merge policy 검증 후 캐릭터 설정 이력과 현재 스냅샷에 반영합니다. |
 | `POST` | `/api/v1/works/{workId}/setting-candidates/{candidateId}/dismiss` | 설정 후보를 `DISMISSED` 상태로 전환합니다. |
@@ -719,33 +733,36 @@ flowchart TD
     E --> G["SettingCandidate 처리"]
 ```
 
-목록 조회는 query parameter 조합에 따라 Repository 조회 메서드를 선택합니다.
+목록 조회는 작품과 업로드 묶음 소속을 먼저 확인한 뒤, 묶음 전체 집계와 필터된 페이지를 각각 조회합니다.
 
 ```mermaid
 flowchart TD
-    A["GET 목록 요청"] --> B["작품 소유권 확인"]
-    B --> C{"query parameter 존재?"}
-
-    C -->|reviewStatus + entityName| D["workId + entityName + reviewStatus 조회"]
-    C -->|entityName only| E["workId + entityName 조회"]
-    C -->|reviewStatus only| F["workId + reviewStatus 조회"]
-    C -->|none| G["workId 전체 조회"]
-
-    D --> H["최신 생성순 정렬"]
-    E --> H
-    F --> H
-    G --> H
-
-    H --> I["SettingCandidateResponse 변환"]
+    A["GET 목록 요청<br/>필수 batchId + 선택 필터 + page/size"] --> B["작품 소유권 확인"]
+    B --> C["batchId가 해당 작품에 속하는지 확인"]
+    C -->|없거나 다른 작품 묶음| X["SETTING_CANDIDATE_BATCH_NOT_FOUND / 404"]
+    C -->|유효한 묶음| D["AnalysisJob에서 대상 회차 범위 집계"]
+    D --> E["필터와 무관한 전체 후보 검토 집계"]
+    E --> F["reviewStatus / matchStatus를 적용한 후보 페이지 조회"]
+    F --> G["episodeNo ASC → createdAt ASC → id ASC 정렬"]
+    G --> H["SettingCandidateResponse 목록 변환"]
+    H --> I["회차 범위 + 전체 집계 + PageResponse 조립"]
     I --> J["CommonResponse.success"]
 ```
+
+상세 처리 기준:
+
+- 다른 작품의 `batchId`도 존재 여부를 노출하지 않고 404로 응답합니다.
+- 회차 범위는 후보가 아니라 같은 작품·묶음의 `AnalysisJob.episode`를 집계합니다.
+- 전체·완료·대기·연결 필요 수는 `reviewStatus`, `matchStatus` 필터와 무관합니다.
+- 후보 페이지는 0부터 시작하고 기본 크기는 20, 허용 크기는 1~100입니다.
+- 현재 정렬은 회차 번호, 후보 생성 시각, 후보 ID 순입니다. 근거 offset tie-break는 후속 범위입니다.
 
 상세 조회는 후보가 요청 작품에 속하는지 함께 확인합니다.
 
 ```mermaid
 flowchart TD
-    A["GET 상세 요청"] --> B["작품 소유권 확인"]
-    B --> C["candidateId + workId로 후보 조회"]
+    A["GET 상세 요청<br/>필수 batchId"] --> B["작품 소유권 확인"]
+    B --> C["candidateId + workId + analysisJob.batchId로 후보 조회"]
 
     C -->|없음| D["SETTING_CANDIDATE_NOT_FOUND / 404"]
     C -->|있음| E["SettingCandidateResponse 변환"]

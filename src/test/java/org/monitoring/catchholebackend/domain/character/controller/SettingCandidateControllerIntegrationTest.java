@@ -43,8 +43,11 @@ import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
+import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
+import org.monitoring.catchholebackend.domain.upload.type.UploadSourceType;
+import org.monitoring.catchholebackend.domain.upload.type.UploadType;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
@@ -104,6 +107,7 @@ class SettingCandidateControllerIntegrationTest {
     private Member otherMember;
     private Work work;
     private Work otherWork;
+    private UploadBatch uploadBatch;
     private Episode episode;
     private AnalysisJob analysisJob;
     private String accessToken;
@@ -135,6 +139,12 @@ class SettingCandidateControllerIntegrationTest {
         ));
         work = workRepository.save(Work.create(member, "내 작품", WorkGenre.FANTASY, "내 설명"));
         otherWork = workRepository.save(Work.create(otherMember, "다른 작품", WorkGenre.MARTIAL_ARTS, "다른 설명"));
+        uploadBatch = uploadBatchRepository.save(UploadBatch.create(
+                work,
+                member,
+                UploadType.INITIAL_IMPORT,
+                UploadSourceType.FILE
+        ));
         episode = episodeRepository.save(Episode.create(
                 work,
                 null,
@@ -147,7 +157,7 @@ class SettingCandidateControllerIntegrationTest {
         ));
         analysisJob = analysisJobRepository.save(AnalysisJob.create(
                 work,
-                null,
+                uploadBatch,
                 episode,
                 AnalysisJobType.SETTING_EXTRACTION
         ));
@@ -175,17 +185,161 @@ class SettingCandidateControllerIntegrationTest {
         ));
 
         mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates", work.getId())
-                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data[0].id").value(candidate.getId().toString()))
-                .andExpect(jsonPath("$.data[0].workId").value(work.getId().toString()))
-                .andExpect(jsonPath("$.data[0].entityName").value("아리아"))
-                .andExpect(jsonPath("$.data[0].rawEntityMention").doesNotExist())
-                .andExpect(jsonPath("$.data[0].matchedCharacterId").doesNotExist())
-                .andExpect(jsonPath("$.data[0].matchStatus").value("UNRESOLVED"))
-                .andExpect(jsonPath("$.data[0].attributeName").value("age"))
-                .andExpect(jsonPath("$.data[0].reviewStatus").value("PENDING_REVIEW"));
+                .andExpect(jsonPath("$.data.batchId").value(uploadBatch.getId().toString()))
+                .andExpect(jsonPath("$.data.episodeStartNo").value(1))
+                .andExpect(jsonPath("$.data.episodeEndNo").value(1))
+                .andExpect(jsonPath("$.data.episodeCount").value(1))
+                .andExpect(jsonPath("$.data.totalCandidateCount").value(1))
+                .andExpect(jsonPath("$.data.reviewedCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.pendingCandidateCount").value(1))
+                .andExpect(jsonPath("$.data.matchRequiredCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.candidates.content[0].id").value(candidate.getId().toString()))
+                .andExpect(jsonPath("$.data.candidates.content[0].workId").value(work.getId().toString()))
+                .andExpect(jsonPath("$.data.candidates.content[0].episodeNo").value(1))
+                .andExpect(jsonPath("$.data.candidates.content[0].entityName").value("아리아"))
+                .andExpect(jsonPath("$.data.candidates.content[0].rawEntityMention").doesNotExist())
+                .andExpect(jsonPath("$.data.candidates.content[0].matchedCharacterId").doesNotExist())
+                .andExpect(jsonPath("$.data.candidates.content[0].matchStatus").value("UNRESOLVED"))
+                .andExpect(jsonPath("$.data.candidates.content[0].attributeName").value("age"))
+                .andExpect(jsonPath("$.data.candidates.content[0].reviewStatus").value("PENDING_REVIEW"))
+                .andExpect(jsonPath("$.data.candidates.page").value(0))
+                .andExpect(jsonPath("$.data.candidates.size").value(20))
+                .andExpect(jsonPath("$.data.candidates.totalElements").value(1))
+                .andExpect(jsonPath("$.data.candidates.totalPages").value(1))
+                .andExpect(jsonPath("$.data.candidates.hasNext").value(false));
+    }
+
+    @Test
+    @DisplayName("후보가 없어도 분석 작업의 대상 회차 범위를 응답한다")
+    void getSettingCandidatesReturnsEpisodeRangeWhenBatchHasNoCandidates() throws Exception {
+        Episode fifthEpisode = episodeRepository.save(Episode.create(
+                work,
+                null,
+                5,
+                "5화",
+                "works/%s/episodes/5.txt".formatted(work.getId()),
+                "version-5",
+                "hash-5",
+                500
+        ));
+        analysisJobRepository.save(AnalysisJob.create(
+                work,
+                uploadBatch,
+                fifthEpisode,
+                AnalysisJobType.SETTING_EXTRACTION
+        ));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.episodeStartNo").value(1))
+                .andExpect(jsonPath("$.data.episodeEndNo").value(5))
+                .andExpect(jsonPath("$.data.episodeCount").value(2))
+                .andExpect(jsonPath("$.data.totalCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.reviewedCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.pendingCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.matchRequiredCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.candidates.content").isEmpty())
+                .andExpect(jsonPath("$.data.candidates.totalElements").value(0))
+                .andExpect(jsonPath("$.data.candidates.totalPages").value(0));
+    }
+
+    @Test
+    @DisplayName("필터와 무관한 전체 집계와 필터된 후보 페이지를 구분한다")
+    void getSettingCandidatesSeparatesBatchCountsFromFilteredPage() throws Exception {
+        SettingCandidate ambiguous = settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "미상",
+                "age",
+                "17",
+                SettingValueType.NUMBER,
+                valueJson("17"),
+                SettingCandidateMatchStatus.AMBIGUOUS
+        ));
+        SettingCandidate confirmed = candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "level",
+                "23"
+        );
+        confirmed.confirm();
+        settingCandidateRepository.save(confirmed);
+        SettingCandidate dismissed = candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "stats.strength",
+                "40"
+        );
+        dismissed.dismiss();
+        settingCandidateRepository.save(dismissed);
+
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString())
+                        .queryParam("reviewStatus", "PENDING_REVIEW")
+                        .queryParam("matchStatus", "AMBIGUOUS")
+                        .queryParam("page", "0")
+                        .queryParam("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalCandidateCount").value(3))
+                .andExpect(jsonPath("$.data.reviewedCandidateCount").value(2))
+                .andExpect(jsonPath("$.data.pendingCandidateCount").value(1))
+                .andExpect(jsonPath("$.data.matchRequiredCandidateCount").value(1))
+                .andExpect(jsonPath("$.data.candidates.content.length()").value(1))
+                .andExpect(jsonPath("$.data.candidates.content[0].id").value(ambiguous.getId().toString()))
+                .andExpect(jsonPath("$.data.candidates.totalElements").value(1))
+                .andExpect(jsonPath("$.data.candidates.size").value(1));
+    }
+
+    @Test
+    @DisplayName("다른 작품의 업로드 묶음은 찾을 수 없음으로 숨긴다")
+    void getSettingCandidatesRejectsBatchFromAnotherWork() throws Exception {
+        UploadBatch otherBatch = uploadBatchRepository.save(UploadBatch.create(
+                otherWork,
+                otherMember,
+                UploadType.INITIAL_IMPORT,
+                UploadSourceType.FILE
+        ));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", otherBatch.getId().toString()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_BATCH_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("설정 후보 목록은 batchId와 유효한 페이지 범위를 요구한다")
+    void getSettingCandidatesValidatesRequiredBatchAndPageRange() throws Exception {
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_INVALID_ARGUMENT"));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString())
+                        .queryParam("page", "-1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString())
+                        .queryParam("size", "101"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"));
     }
 
     @Test
@@ -201,11 +355,13 @@ class SettingCandidateControllerIntegrationTest {
         ));
 
         mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates/{candidateId}", work.getId(), candidate.getId())
-                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.id").value(candidate.getId().toString()))
                 .andExpect(jsonPath("$.data.episodeId").value(episode.getId().toString()))
+                .andExpect(jsonPath("$.data.episodeNo").value(1))
                 .andExpect(jsonPath("$.data.analysisJobId").value(analysisJob.getId().toString()))
                 .andExpect(jsonPath("$.data.entityType").value("CHARACTER"))
                 .andExpect(jsonPath("$.data.rawEntityMention").doesNotExist())
@@ -215,6 +371,37 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.valueJson.value").value(17))
                 .andExpect(jsonPath("$.data.evidenceSpans[0].paragraph_index").value(1))
                 .andExpect(jsonPath("$.data.rawAiResultJson.raw_value").value("17"));
+    }
+
+    @Test
+    @DisplayName("상세 후보가 현재 검토 업로드 묶음과 다르면 찾을 수 없음으로 응답한다")
+    void getSettingCandidateRejectsCandidateFromAnotherBatch() throws Exception {
+        UploadBatch otherBatch = uploadBatchRepository.save(UploadBatch.create(
+                work,
+                member,
+                UploadType.INITIAL_IMPORT,
+                UploadSourceType.FILE
+        ));
+        AnalysisJob otherJob = analysisJobRepository.save(AnalysisJob.create(
+                work,
+                otherBatch,
+                episode,
+                AnalysisJobType.SETTING_EXTRACTION
+        ));
+        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                otherJob,
+                "아리아",
+                "age",
+                "17"
+        ));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates/{candidateId}", work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_NOT_FOUND"));
     }
 
     @Test
@@ -956,7 +1143,8 @@ class SettingCandidateControllerIntegrationTest {
     @DisplayName("다른 회원 작품의 설정 후보 목록 조회는 거절한다")
     void getSettingCandidatesRejectsOtherMemberWork() throws Exception {
         mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates", otherWork.getId())
-                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.error.code").value("WORK_NOT_FOUND"));
@@ -1014,7 +1202,8 @@ class SettingCandidateControllerIntegrationTest {
                 attributeName,
                 attributeValue,
                 SettingValueType.NUMBER,
-                valueJson(attributeValue)
+                valueJson(attributeValue),
+                SettingCandidateMatchStatus.UNRESOLVED
         );
     }
 
@@ -1028,6 +1217,30 @@ class SettingCandidateControllerIntegrationTest {
             SettingValueType valueType,
             JsonNode candidateValueJson
     ) {
+        return candidate(
+                targetWork,
+                targetEpisode,
+                targetAnalysisJob,
+                entityName,
+                attributeName,
+                attributeValue,
+                valueType,
+                candidateValueJson,
+                SettingCandidateMatchStatus.UNRESOLVED
+        );
+    }
+
+    private SettingCandidate candidate(
+            Work targetWork,
+            Episode targetEpisode,
+            AnalysisJob targetAnalysisJob,
+            String entityName,
+            String attributeName,
+            String attributeValue,
+            SettingValueType valueType,
+            JsonNode candidateValueJson,
+            SettingCandidateMatchStatus matchStatus
+    ) {
         return SettingCandidate.create(
                 targetWork,
                 targetEpisode,
@@ -1037,7 +1250,7 @@ class SettingCandidateControllerIntegrationTest {
                 entityName,
                 null,
                 null,
-                SettingCandidateMatchStatus.UNRESOLVED,
+                matchStatus,
                 attributeName,
                 attributeValue,
                 valueType,

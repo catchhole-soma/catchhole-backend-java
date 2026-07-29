@@ -33,6 +33,20 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
 
     Optional<AnalysisJob> findFirstByBatchIdOrderByCreatedAtDesc(UUID batchId);
 
+    @Query("""
+            select min(episode.episodeNo) as episodeStartNo,
+                   max(episode.episodeNo) as episodeEndNo,
+                   count(distinct episode.id) as episodeCount
+            from AnalysisJob analysisJob
+            join analysisJob.episode episode
+            where analysisJob.work.id = :workId
+              and analysisJob.batch.id = :batchId
+            """)
+    AnalysisJobEpisodeRange findEpisodeRangeByWorkIdAndBatchId(
+            @Param("workId") UUID workId,
+            @Param("batchId") UUID batchId
+    );
+
     Optional<AnalysisJob> findFirstByEpisodeIdAndBatchIdOrderByCreatedAtDesc(UUID episodeId, UUID batchId);
 
     @Query("""

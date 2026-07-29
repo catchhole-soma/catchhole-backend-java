@@ -23,6 +23,7 @@ public class SettingCandidateMapper {
                 candidate.getId(),
                 candidate.getWork().getId(),
                 episode == null ? null : episode.getId(),
+                episode == null ? null : episode.getEpisodeNo(),
                 candidate.getSourceChunkId(),
                 analysisJob == null ? null : analysisJob.getId(),
                 candidate.getEntityType(),

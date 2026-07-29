@@ -126,7 +126,42 @@ class OpenApiContractIntegrationTest {
                 .andExpect(jsonPath("$['components']['schemas']['CharacterDetailResponse']['properties']['currentLevelFact']['$ref']")
                         .value("#/components/schemas/CharacterFactReferenceResponse"))
                 .andExpect(jsonPath("$['components']['schemas']['CharacterFactReferenceResponse']['required']")
-                        .value(org.hamcrest.Matchers.hasItems("characterFactId", "hasEvidence")));
+                        .value(org.hamcrest.Matchers.hasItems("characterFactId", "hasEvidence")))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['operationId']")
+                        .value("getSettingCandidates"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['parameters'][*]['name']")
+                        .value(containsInAnyOrder(
+                                "workId",
+                                "batchId",
+                                "reviewStatus",
+                                "matchStatus",
+                                "page",
+                                "size"
+                        )))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['parameters'][1]['required']")
+                        .value(true))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['parameters'][5]['schema']['maximum']")
+                        .value(100))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['responses']['400']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['responses']['401']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['responses']['404']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateListResponse']['properties']['candidates']['$ref']")
+                        .value("#/components/schemas/PageResponseSettingCandidateResponse"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']['properties']['episodeNo']")
+                        .exists())
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}']['get']['operationId']")
+                        .value("getSettingCandidate"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}']['get']['parameters'][*]['name']")
+                        .value(containsInAnyOrder("workId", "batchId", "candidateId")))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}']['get']['responses']['400']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}']['get']['responses']['401']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}']['get']['responses']['404']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"));
     }
 
     @Test

@@ -66,6 +66,7 @@ class SettingCandidateMapperTest {
         assertThat(response.id()).isEqualTo(candidateId);
         assertThat(response.workId()).isEqualTo(workId);
         assertThat(response.episodeId()).isEqualTo(episodeId);
+        assertThat(response.episodeNo()).isEqualTo(1);
         assertThat(response.sourceChunkId()).isEqualTo(sourceChunkId);
         assertThat(response.analysisJobId()).isEqualTo(analysisJobId);
         assertThat(response.entityName()).isEqualTo("아리아");
@@ -137,6 +138,7 @@ class SettingCandidateMapperTest {
 
         assertThat(response.workId()).isEqualTo(work.getId());
         assertThat(response.episodeId()).isNull();
+        assertThat(response.episodeNo()).isNull();
         assertThat(response.sourceChunkId()).isNull();
         assertThat(response.analysisJobId()).isNull();
         assertThat(response.rawEntityMention()).isNull();

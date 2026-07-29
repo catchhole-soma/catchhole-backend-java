@@ -20,6 +20,9 @@ public record SettingCandidateResponse(
         @Schema(description = "후보가 추출된 회차 ID", example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d222")
         UUID episodeId,
 
+        @Schema(description = "후보가 추출된 회차 번호", example = "3", nullable = true)
+        Integer episodeNo,
+
         @Schema(description = "원문 근거 청크 ID", example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d111")
         UUID sourceChunkId,
 

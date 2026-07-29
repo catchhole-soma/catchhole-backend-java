@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,14 +20,18 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobEpisodeRange;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateCharacterMatchRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateUpdateRequest;
+import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateListResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.mapper.SettingCandidateMapper;
+import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateBatchCounts;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
@@ -36,10 +41,14 @@ import org.monitoring.catchholebackend.domain.character.type.SettingCandidateRev
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
+import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
+import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.global.exception.AppException;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
@@ -50,6 +59,12 @@ class SettingCandidateServiceImplTest {
 
     @Mock
     private WorkRepository workRepository;
+
+    @Mock
+    private UploadBatchRepository uploadBatchRepository;
+
+    @Mock
+    private AnalysisJobRepository analysisJobRepository;
 
     @Mock
     private SettingCandidateRepository settingCandidateRepository;
@@ -69,6 +84,8 @@ class SettingCandidateServiceImplTest {
     void setUp() {
         service = new SettingCandidateServiceImpl(
                 workRepository,
+                uploadBatchRepository,
+                analysisJobRepository,
                 settingCandidateRepository,
                 workCharacterRepository,
                 settingCandidateMapper,
@@ -77,90 +94,96 @@ class SettingCandidateServiceImplTest {
     }
 
     @Test
-    @DisplayName("검토 상태와 대상 이름이 있으면 조합 조건으로 후보 목록을 조회한다")
-    void getSettingCandidatesUsesEntityNameAndReviewStatusFilter() {
+    @DisplayName("업로드 묶음 전체 집계와 필터된 후보 페이지를 함께 조회한다")
+    void getSettingCandidatesReturnsBatchSummaryAndFilteredPage() {
         Long memberId = 1L;
         UUID workId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
         Work work = work(workId);
         SettingCandidate candidate = candidate(work, "아리아", "age", "17");
         List<SettingCandidate> candidates = List.of(candidate);
         List<SettingCandidateResponse> responses = List.of(response(workId));
+        PageRequest pageRequest = PageRequest.of(0, 20);
+        SettingCandidateBatchCounts counts = org.mockito.Mockito.mock(SettingCandidateBatchCounts.class);
+        AnalysisJobEpisodeRange episodeRange = org.mockito.Mockito.mock(AnalysisJobEpisodeRange.class);
         when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findAllByWorkIdAndEntityNameAndReviewStatusOrderByCreatedAtDesc(
+        when(uploadBatchRepository.findByIdAndWorkId(batchId, workId))
+                .thenReturn(Optional.of(org.mockito.Mockito.mock(UploadBatch.class)));
+        when(settingCandidateRepository.findReviewPage(
                 workId,
-                "아리아",
-                SettingCandidateReviewStatus.PENDING_REVIEW
-        )).thenReturn(candidates);
+                batchId,
+                SettingCandidateReviewStatus.PENDING_REVIEW,
+                SettingCandidateMatchStatus.AMBIGUOUS,
+                pageRequest
+        )).thenReturn(new PageImpl<>(candidates, pageRequest, 4));
+        when(settingCandidateRepository.countReviewSummary(
+                workId,
+                batchId,
+                SettingCandidateReviewStatus.PENDING_REVIEW,
+                SettingCandidateMatchStatus.AMBIGUOUS
+        )).thenReturn(counts);
+        when(counts.getTotalCandidateCount()).thenReturn(4L);
+        when(counts.getReviewedCandidateCount()).thenReturn(1L);
+        when(counts.getPendingCandidateCount()).thenReturn(3L);
+        when(counts.getMatchRequiredCandidateCount()).thenReturn(2L);
+        when(analysisJobRepository.findEpisodeRangeByWorkIdAndBatchId(workId, batchId))
+                .thenReturn(episodeRange);
+        when(episodeRange.getEpisodeStartNo()).thenReturn(1);
+        when(episodeRange.getEpisodeEndNo()).thenReturn(5);
+        when(episodeRange.getEpisodeCount()).thenReturn(5L);
         when(settingCandidateMapper.toResponseList(candidates)).thenReturn(responses);
 
-        List<SettingCandidateResponse> result = service.getSettingCandidates(
+        SettingCandidateListResponse result = service.getSettingCandidates(
                 memberId,
                 workId,
+                batchId,
                 SettingCandidateReviewStatus.PENDING_REVIEW,
-                "  아리아  "
+                SettingCandidateMatchStatus.AMBIGUOUS,
+                0,
+                20
         );
 
-        assertThat(result).isSameAs(responses);
-        verify(settingCandidateRepository).findAllByWorkIdAndEntityNameAndReviewStatusOrderByCreatedAtDesc(
+        assertThat(result.batchId()).isEqualTo(batchId);
+        assertThat(result.episodeStartNo()).isEqualTo(1);
+        assertThat(result.episodeEndNo()).isEqualTo(5);
+        assertThat(result.episodeCount()).isEqualTo(5);
+        assertThat(result.totalCandidateCount()).isEqualTo(4);
+        assertThat(result.reviewedCandidateCount()).isEqualTo(1);
+        assertThat(result.pendingCandidateCount()).isEqualTo(3);
+        assertThat(result.matchRequiredCandidateCount()).isEqualTo(2);
+        assertThat(result.candidates().content()).isSameAs(responses);
+        verify(settingCandidateRepository).findReviewPage(
                 workId,
-                "아리아",
-                SettingCandidateReviewStatus.PENDING_REVIEW
-        );
-    }
-
-    @Test
-    @DisplayName("대상 이름만 있으면 대상 이름 조건으로 후보 목록을 조회한다")
-    void getSettingCandidatesUsesEntityNameFilter() {
-        Long memberId = 1L;
-        UUID workId = UUID.randomUUID();
-        Work work = work(workId);
-        List<SettingCandidate> candidates = List.of();
-        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findAllByWorkIdAndEntityNameOrderByCreatedAtDesc(workId, "아리아"))
-                .thenReturn(candidates);
-        when(settingCandidateMapper.toResponseList(candidates)).thenReturn(List.of());
-
-        service.getSettingCandidates(memberId, workId, null, "아리아");
-
-        verify(settingCandidateRepository).findAllByWorkIdAndEntityNameOrderByCreatedAtDesc(workId, "아리아");
-    }
-
-    @Test
-    @DisplayName("검토 상태만 있으면 검토 상태 조건으로 후보 목록을 조회한다")
-    void getSettingCandidatesUsesReviewStatusFilter() {
-        Long memberId = 1L;
-        UUID workId = UUID.randomUUID();
-        Work work = work(workId);
-        List<SettingCandidate> candidates = List.of();
-        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findAllByWorkIdAndReviewStatusOrderByCreatedAtDesc(
-                workId,
-                SettingCandidateReviewStatus.PENDING_REVIEW
-        )).thenReturn(candidates);
-        when(settingCandidateMapper.toResponseList(candidates)).thenReturn(List.of());
-
-        service.getSettingCandidates(memberId, workId, SettingCandidateReviewStatus.PENDING_REVIEW, null);
-
-        verify(settingCandidateRepository).findAllByWorkIdAndReviewStatusOrderByCreatedAtDesc(
-                workId,
-                SettingCandidateReviewStatus.PENDING_REVIEW
+                batchId,
+                SettingCandidateReviewStatus.PENDING_REVIEW,
+                SettingCandidateMatchStatus.AMBIGUOUS,
+                pageRequest
         );
     }
 
     @Test
-    @DisplayName("필터가 없으면 작품 전체 후보 목록을 조회한다")
-    void getSettingCandidatesUsesWorkFilterOnly() {
+    @DisplayName("다른 작품이거나 존재하지 않는 업로드 묶음은 찾을 수 없음으로 숨긴다")
+    void getSettingCandidatesRejectsBatchOutsideWork() {
         Long memberId = 1L;
         UUID workId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
         Work work = work(workId);
-        List<SettingCandidate> candidates = List.of();
         when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findAllByWorkIdOrderByCreatedAtDesc(workId)).thenReturn(candidates);
-        when(settingCandidateMapper.toResponseList(candidates)).thenReturn(List.of());
+        when(uploadBatchRepository.findByIdAndWorkId(batchId, workId)).thenReturn(Optional.empty());
 
-        service.getSettingCandidates(memberId, workId, null, null);
+        assertThatThrownBy(() -> service.getSettingCandidates(
+                memberId,
+                workId,
+                batchId,
+                null,
+                null,
+                0,
+                20
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_BATCH_NOT_FOUND));
 
-        verify(settingCandidateRepository).findAllByWorkIdOrderByCreatedAtDesc(workId);
+        verifyNoInteractions(settingCandidateRepository, analysisJobRepository);
     }
 
     @Test
@@ -168,12 +191,14 @@ class SettingCandidateServiceImplTest {
     void getSettingCandidateRejectsMissingCandidateInWork() {
         Long memberId = 1L;
         UUID workId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
         UUID candidateId = UUID.randomUUID();
         Work work = work(workId);
         when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.empty());
+        when(settingCandidateRepository.findByIdAndWorkIdAndAnalysisJobBatchId(candidateId, workId, batchId))
+                .thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.getSettingCandidate(memberId, workId, candidateId))
+        assertThatThrownBy(() -> service.getSettingCandidate(memberId, workId, batchId, candidateId))
                 .isInstanceOfSatisfying(AppException.class, exception ->
                         assertThat(exception.getResultCode())
                                 .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_NOT_FOUND));
@@ -590,6 +615,7 @@ class SettingCandidateServiceImplTest {
         return new SettingCandidateResponse(
                 UUID.randomUUID(),
                 workId,
+                null,
                 null,
                 null,
                 null,

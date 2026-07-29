@@ -2,23 +2,32 @@ package org.monitoring.catchholebackend.domain.character.controller;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import java.util.List;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.auth.security.MemberPrincipal;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateCharacterMatchRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateUpdateRequest;
+import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateListResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
 import org.monitoring.catchholebackend.domain.character.service.SettingCandidateService;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
+import org.monitoring.catchholebackend.global.common.response.CommonErrorResponse;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,8 +38,12 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
+@Validated
 @RequiredArgsConstructor
-@RequestMapping("/api/v1/works/{workId}/setting-candidates")
+@RequestMapping(
+        value = "/api/v1/works/{workId}/setting-candidates",
+        produces = MediaType.APPLICATION_JSON_VALUE
+)
 @Tag(name = "SettingCandidate", description = "로그인한 사용자의 작품별 캐릭터 설정 후보 조회, 수정, 검토 상태 전이 API")
 @SecurityRequirement(name = "bearerAuth")
 public class SettingCandidateController {
@@ -39,42 +52,114 @@ public class SettingCandidateController {
 
     @GetMapping
     @Operation(
+            operationId = "getSettingCandidates",
             summary = "작품별 설정 후보 목록 조회",
-            description = "로그인한 사용자가 본인 작품의 AI 설정 후보 목록을 최신 생성순으로 조회합니다."
+            description = "로그인한 사용자가 본인 작품의 한 업로드 묶음에 속한 AI 설정 후보를 페이지 조회합니다. "
+                    + "회차 번호, 생성 시각, 후보 ID 오름차순으로 정렬하며 집계와 회차 범위는 필터와 무관한 묶음 전체 기준입니다."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "설정 후보 목록 조회 성공"),
-            @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패"),
-            @ApiResponse(responseCode = "404", description = "작품을 찾을 수 없음")
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "필수 query parameter 누락 또는 페이지 번호·크기 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "액세스 토큰 없음, 만료 또는 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "작품 또는 해당 작품의 업로드 묶음을 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            )
     })
-    public CommonResponse<List<SettingCandidateResponse>> getSettingCandidates(
+    public CommonResponse<SettingCandidateListResponse> getSettingCandidates(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @Parameter(description = "설정 후보를 조회할 작품 ID", example = "0198a3f0-0000-7000-8000-000000000001")
             @PathVariable UUID workId,
+            @Parameter(
+                    name = "batchId",
+                    in = ParameterIn.QUERY,
+                    description = "설정 후보 검토 범위인 업로드 묶음 ID",
+                    example = "0198a3f0-0000-7000-8000-000000000101",
+                    required = true
+            )
+            @RequestParam UUID batchId,
             @Parameter(description = "후보 검토 상태 필터", example = "PENDING_REVIEW")
             @RequestParam(required = false) SettingCandidateReviewStatus reviewStatus,
-            @Parameter(description = "후보 대상 캐릭터명 필터", example = "아리아")
-            @RequestParam(required = false) String entityName
+            @Parameter(description = "후보 캐릭터 연결 상태 필터", example = "AMBIGUOUS")
+            @RequestParam(required = false) SettingCandidateMatchStatus matchStatus,
+            @Parameter(
+                    name = "page",
+                    in = ParameterIn.QUERY,
+                    description = "0부터 시작하는 페이지 번호",
+                    example = "0"
+            )
+            @RequestParam(defaultValue = "0")
+            @Min(value = 0, message = "페이지 번호는 0 이상이어야 합니다.")
+            int page,
+            @Parameter(
+                    name = "size",
+                    in = ParameterIn.QUERY,
+                    description = "페이지 크기. 1~100 사이로 요청합니다.",
+                    example = "20"
+            )
+            @RequestParam(defaultValue = "20")
+            @Min(value = 1, message = "페이지 크기는 1 이상이어야 합니다.")
+            @Max(value = 100, message = "페이지 크기는 100 이하여야 합니다.")
+            int size
     ) {
         return CommonResponse.success(
-                settingCandidateService.getSettingCandidates(member.memberId(), workId, reviewStatus, entityName)
+                settingCandidateService.getSettingCandidates(
+                        member.memberId(),
+                        workId,
+                        batchId,
+                        reviewStatus,
+                        matchStatus,
+                        page,
+                        size
+                )
         );
     }
 
     @GetMapping("/{candidateId}")
     @Operation(
+            operationId = "getSettingCandidate",
             summary = "설정 후보 상세 조회",
-            description = "로그인한 사용자가 본인 작품의 특정 AI 설정 후보를 조회합니다."
+            description = "로그인한 사용자가 본인 작품의 현재 검토 업로드 묶음에 속한 특정 AI 설정 후보를 조회합니다."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "설정 후보 상세 조회 성공"),
-            @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패"),
-            @ApiResponse(responseCode = "404", description = "작품 또는 설정 후보를 찾을 수 없음")
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "필수 batchId query parameter 누락 또는 UUID 형식 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "액세스 토큰 없음, 만료 또는 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "작품 또는 현재 업로드 묶음의 설정 후보를 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            )
     })
     public CommonResponse<SettingCandidateResponse> getSettingCandidate(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @Parameter(description = "설정 후보가 속한 작품 ID", example = "0198a3f0-0000-7000-8000-000000000001")
             @PathVariable UUID workId,
+            @Parameter(
+                    name = "batchId",
+                    in = ParameterIn.QUERY,
+                    description = "현재 설정 후보 검토 범위인 업로드 묶음 ID",
+                    example = "0198a3f0-0000-7000-8000-000000000101",
+                    required = true
+            )
+            @RequestParam UUID batchId,
             @Parameter(
                     description = "조회할 설정 후보 ID. setting_candidates.id 값을 사용합니다.",
                     example = "0198a3f0-0000-7000-8000-000000000301"
@@ -82,7 +167,7 @@ public class SettingCandidateController {
             @PathVariable UUID candidateId
     ) {
         return CommonResponse.success(
-                settingCandidateService.getSettingCandidate(member.memberId(), workId, candidateId)
+                settingCandidateService.getSettingCandidate(member.memberId(), workId, batchId, candidateId)
         );
     }
 

@@ -2,24 +2,32 @@ package org.monitoring.catchholebackend.domain.character.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobEpisodeRange;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateCharacterMatchRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateUpdateRequest;
+import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateListResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.mapper.SettingCandidateMapper;
+import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateBatchCounts;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
+import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
+import org.monitoring.catchholebackend.global.common.response.PageResponse;
 import org.monitoring.catchholebackend.global.exception.AppException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -30,6 +38,8 @@ import org.springframework.util.StringUtils;
 public class SettingCandidateServiceImpl implements SettingCandidateService {
 
     private final WorkRepository workRepository;
+    private final UploadBatchRepository uploadBatchRepository;
+    private final AnalysisJobRepository analysisJobRepository;
     private final SettingCandidateRepository settingCandidateRepository;
     private final WorkCharacterRepository workCharacterRepository;
     private final SettingCandidateMapper settingCandidateMapper;
@@ -37,21 +47,63 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
-    public List<SettingCandidateResponse> getSettingCandidates(
+    public SettingCandidateListResponse getSettingCandidates(
             Long memberId,
             UUID workId,
+            UUID batchId,
             SettingCandidateReviewStatus reviewStatus,
-            String entityName
+            SettingCandidateMatchStatus matchStatus,
+            int page,
+            int size
     ) {
         Work work = workRepository.getOwnedWork(workId, memberId);
-        List<SettingCandidate> candidates = findCandidates(work.getId(), reviewStatus, entityName);
-        return settingCandidateMapper.toResponseList(candidates);
+        uploadBatchRepository.findByIdAndWorkId(batchId, work.getId())
+                .orElseThrow(() -> new AppException(CharacterErrorCode.SETTING_CANDIDATE_BATCH_NOT_FOUND));
+
+        Page<SettingCandidate> candidatePage = settingCandidateRepository.findReviewPage(
+                work.getId(),
+                batchId,
+                reviewStatus,
+                matchStatus,
+                PageRequest.of(page, size)
+        );
+        SettingCandidateBatchCounts counts = settingCandidateRepository.countReviewSummary(
+                work.getId(),
+                batchId,
+                SettingCandidateReviewStatus.PENDING_REVIEW,
+                SettingCandidateMatchStatus.AMBIGUOUS
+        );
+        AnalysisJobEpisodeRange episodeRange =
+                analysisJobRepository.findEpisodeRangeByWorkIdAndBatchId(work.getId(), batchId);
+
+        return new SettingCandidateListResponse(
+                batchId,
+                episodeRange.getEpisodeStartNo(),
+                episodeRange.getEpisodeEndNo(),
+                episodeRange.getEpisodeCount(),
+                counts.getTotalCandidateCount(),
+                counts.getReviewedCandidateCount(),
+                counts.getPendingCandidateCount(),
+                counts.getMatchRequiredCandidateCount(),
+                PageResponse.from(
+                        candidatePage,
+                        settingCandidateMapper.toResponseList(candidatePage.getContent())
+                )
+        );
     }
 
     @Override
-    public SettingCandidateResponse getSettingCandidate(Long memberId, UUID workId, UUID candidateId) {
+    public SettingCandidateResponse getSettingCandidate(
+            Long memberId,
+            UUID workId,
+            UUID batchId,
+            UUID candidateId
+    ) {
         Work work = workRepository.getOwnedWork(workId, memberId);
-        return settingCandidateMapper.toResponse(getCandidateInWork(candidateId, work));
+        SettingCandidate candidate = settingCandidateRepository
+                .findByIdAndWorkIdAndAnalysisJobBatchId(candidateId, work.getId(), batchId)
+                .orElseThrow(() -> new AppException(CharacterErrorCode.SETTING_CANDIDATE_NOT_FOUND));
+        return settingCandidateMapper.toResponse(candidate);
     }
 
     @Override
@@ -125,30 +177,6 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
         candidate.dismiss();
         return settingCandidateMapper.toReviewStatusResponse(candidate);
-    }
-
-    private List<SettingCandidate> findCandidates(
-            UUID workId,
-            SettingCandidateReviewStatus reviewStatus,
-            String entityName
-    ) {
-        if (StringUtils.hasText(entityName) && reviewStatus != null) {
-            return settingCandidateRepository.findAllByWorkIdAndEntityNameAndReviewStatusOrderByCreatedAtDesc(
-                    workId,
-                    entityName.trim(),
-                    reviewStatus
-            );
-        }
-        if (StringUtils.hasText(entityName)) {
-            return settingCandidateRepository.findAllByWorkIdAndEntityNameOrderByCreatedAtDesc(
-                    workId,
-                    entityName.trim()
-            );
-        }
-        if (reviewStatus != null) {
-            return settingCandidateRepository.findAllByWorkIdAndReviewStatusOrderByCreatedAtDesc(workId, reviewStatus);
-        }
-        return settingCandidateRepository.findAllByWorkIdOrderByCreatedAtDesc(workId);
     }
 
     private void connectExistingCharacter(SettingCandidate candidate, Work work, UUID matchedCharacterId) {
