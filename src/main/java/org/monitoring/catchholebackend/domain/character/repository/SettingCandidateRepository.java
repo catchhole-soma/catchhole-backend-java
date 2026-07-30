@@ -126,7 +126,10 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
     @Query("""
             delete from SettingCandidate candidate
             where candidate.work.id = :workId
-              and candidate.episode.id in :episodeIds
+              and (
+                  candidate.episode.id in :episodeIds
+                  or candidate.analysisJob.episode.id in :episodeIds
+              )
               and candidate.reviewStatus = :reviewStatus
               and candidate.analysisJob.id in (
                   select analysisJob.id

@@ -76,7 +76,7 @@ Worker는 분석 작업 생성과 `AnalysisJob` 상태 전이를 위해 백엔�
 - `episode_id == null`인 과거 batch-wide `FAILED` Job은 대상 스냅샷 중 현재 `Episode.status == FAILED`인 회차만 재시도합니다.
 - 과거 형식의 batch-wide 작업이 같은 배치에서 `PENDING` 또는 `RUNNING`이면 중복 분석을 막기 위해 `ANALYSIS_JOB_ALREADY_IN_PROGRESS`로 거절합니다.
 - 해당 회차에 같은 `jobType`의 `PENDING` 또는 `RUNNING` 작업이 있으면 새 작업을 중복 생성하지 않고 그 활성 작업을 멱등 반환합니다. 다른 `jobType`의 활성 작업이 있으면 409로 거절합니다.
-- 재분석 또는 재시도로 새 Job을 실제 생성하기 직전에 같은 `workId`, `batchId`, `episodeId`, `jobType`의 기존 `PENDING_REVIEW` 후보만 대체 제거합니다. 이미 검토한 `CONFIRMED`·`DISMISSED` 후보와 다른 유형·회차의 후보는 보존합니다.
+- 재분석 또는 재시도로 새 Job을 실제 생성하기 직전에 같은 `workId`, `batchId`, `episodeId`, `jobType`의 기존 `PENDING_REVIEW` 후보만 대체 제거합니다. 후보의 `episode_id`가 비어 있어도 연결된 단일 회차 `AnalysisJob.episode_id`가 대상과 같으면 같은 산출물로 판단합니다. 이미 검토한 `CONFIRMED`·`DISMISSED` 후보와 다른 유형·회차의 후보는 보존합니다.
 
 정책 미확정 TODO:
 

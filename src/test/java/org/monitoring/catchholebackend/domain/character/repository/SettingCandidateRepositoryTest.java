@@ -255,6 +255,11 @@ class SettingCandidateRepositoryTest {
         ));
 
         SettingCandidate pendingTarget = candidate(analysisJob, episode, "pending-target");
+        SettingCandidate pendingTargetWithoutEpisode = candidate(
+                analysisJob,
+                null,
+                "pending-target-without-episode"
+        );
         SettingCandidate confirmedTarget = candidate(analysisJob, episode, "confirmed-target");
         confirmedTarget.confirm();
         SettingCandidate dismissedTarget = candidate(analysisJob, episode, "dismissed-target");
@@ -264,6 +269,7 @@ class SettingCandidateRepositoryTest {
         SettingCandidate pendingOtherBatch = candidate(otherBatchJob, episode, "other-batch");
         settingCandidateRepository.saveAll(List.of(
                 pendingTarget,
+                pendingTargetWithoutEpisode,
                 confirmedTarget,
                 dismissedTarget,
                 pendingOtherEpisode,
@@ -280,8 +286,9 @@ class SettingCandidateRepositoryTest {
         );
         entityManager.clear();
 
-        assertThat(deletedCount).isOne();
+        assertThat(deletedCount).isEqualTo(2);
         assertThat(settingCandidateRepository.findById(pendingTarget.getId())).isEmpty();
+        assertThat(settingCandidateRepository.findById(pendingTargetWithoutEpisode.getId())).isEmpty();
         assertThat(settingCandidateRepository.findAllById(List.of(
                 confirmedTarget.getId(),
                 dismissedTarget.getId(),
