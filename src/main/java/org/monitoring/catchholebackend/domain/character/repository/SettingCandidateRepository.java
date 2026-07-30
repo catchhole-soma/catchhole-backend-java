@@ -93,6 +93,29 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
     );
 
     @Query("""
+            select analysisJob.batch.id as batchId,
+                   count(candidate) as totalCandidateCount,
+                   coalesce(sum(case
+                       when candidate.reviewStatus <> :pendingStatus then 1
+                       else 0
+                   end), 0) as reviewedCandidateCount,
+                   coalesce(sum(case
+                       when candidate.reviewStatus = :pendingStatus then 1
+                       else 0
+                   end), 0) as pendingCandidateCount
+            from SettingCandidate candidate
+            join candidate.analysisJob analysisJob
+            where candidate.work.id = :workId
+              and analysisJob.batch.id in :batchIds
+            group by analysisJob.batch.id
+            """)
+    List<SettingCandidateBatchReviewCounts> countReviewSummaryByBatchIds(
+            @Param("workId") UUID workId,
+            @Param("batchIds") List<UUID> batchIds,
+            @Param("pendingStatus") SettingCandidateReviewStatus pendingStatus
+    );
+
+    @Query("""
             select candidate
             from SettingCandidate candidate
             where candidate.work.id = :workId

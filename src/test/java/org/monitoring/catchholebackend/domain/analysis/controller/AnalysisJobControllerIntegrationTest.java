@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.analysis.controller;
 
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -8,7 +9,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,6 +21,10 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
+import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
+import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
+import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
@@ -64,6 +71,9 @@ class AnalysisJobControllerIntegrationTest {
     private AnalysisJobRepository analysisJobRepository;
 
     @Autowired
+    private SettingCandidateRepository settingCandidateRepository;
+
+    @Autowired
     private EpisodeRepository episodeRepository;
 
     @Autowired
@@ -81,6 +91,7 @@ class AnalysisJobControllerIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        settingCandidateRepository.deleteAll();
         analysisJobRepository.deleteAll();
         episodeRepository.deleteAll();
         uploadFileRepository.deleteAll();
@@ -396,6 +407,136 @@ class AnalysisJobControllerIntegrationTest {
                 .andExpect(jsonPath("$.data[0].target.episodeCount").value(5))
                 .andExpect(jsonPath("$.data[0].jobType").value("SETTING_EXTRACTION"))
                 .andExpect(jsonPath("$.data[1].jobType").value("EPISODE_VALIDATION"));
+    }
+
+    @Test
+    @DisplayName("분석 배치 목록은 최신 유효 작업과 설정 후보 검토 현황을 집계한다")
+    void getAnalysisBatchesAggregatesCurrentJobsAndCandidateCounts() throws Exception {
+        AnalysisJob succeededJob = AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        succeededJob.succeed("{}", 10, 5);
+        succeededJob = analysisJobRepository.save(succeededJob);
+        analysisJobRepository.save(AnalysisJob.create(
+                work, uploadBatch, secondEpisode, AnalysisJobType.SETTING_EXTRACTION));
+        settingCandidateRepository.save(SettingCandidate.create(
+                work,
+                firstEpisode,
+                UUID.randomUUID(),
+                succeededJob,
+                SettingEntityType.CHARACTER,
+                "아리아",
+                "profile.gender",
+                "여성",
+                SettingValueType.STRING,
+                null,
+                null,
+                new BigDecimal("0.9000"),
+                null
+        ));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("page", "0")
+                        .queryParam("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content", hasSize(1)))
+                .andExpect(jsonPath("$.data.page").value(0))
+                .andExpect(jsonPath("$.data.size").value(10))
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.content[0].batchId").value(uploadBatch.getId().toString()))
+                .andExpect(jsonPath("$.data.content[0].status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.data.content[0].episodeStartNo").value(1))
+                .andExpect(jsonPath("$.data.content[0].episodeEndNo").value(4))
+                .andExpect(jsonPath("$.data.content[0].episodeCount").value(2))
+                .andExpect(jsonPath("$.data.content[0].totalCandidateCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].reviewedCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.content[0].pendingCandidateCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].jobGroups", hasSize(1)))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].jobType")
+                        .value("SETTING_EXTRACTION"))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].totalJobCount").value(2))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].pendingJobCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].succeededJobCount").value(1));
+    }
+
+    @Test
+    @DisplayName("분석 배치 목록은 재시도 전 실패 작업 대신 같은 회차의 최신 작업을 사용한다")
+    void getAnalysisBatchesUsesLatestJobPerEpisode() throws Exception {
+        AnalysisJob failedJob = AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.EPISODE_VALIDATION);
+        failedJob.fail("이전 실패");
+        analysisJobRepository.save(failedJob);
+        Thread.sleep(10);
+        AnalysisJob retryJob = analysisJobRepository.save(AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.EPISODE_VALIDATION));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].totalJobCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].failedJobCount").value(0))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].currentAnalysisJobIds", hasSize(1)))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].currentAnalysisJobIds[0]")
+                        .value(retryJob.getId().toString()));
+    }
+
+    @Test
+    @DisplayName("분석 배치 목록은 과거 다회차 작업도 회차별 현재 상태로 집계한다")
+    void getAnalysisBatchesCountsLegacyBatchWideJobPerEpisode() throws Exception {
+        AnalysisJob legacyJob = AnalysisJob.create(
+                work, uploadBatch, null, AnalysisJobType.EPISODE_VALIDATION);
+        legacyJob.addTargetEpisodes(List.of(firstEpisode, secondEpisode));
+        legacyJob.succeed("{}", 10, 5);
+        legacyJob = analysisJobRepository.save(legacyJob);
+        Thread.sleep(10);
+        AnalysisJob retryJob = analysisJobRepository.save(AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.EPISODE_VALIDATION));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].totalJobCount").value(2))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].pendingJobCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].succeededJobCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].currentAnalysisJobIds", hasSize(2)))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].currentAnalysisJobIds",
+                        containsInAnyOrder(legacyJob.getId().toString(), retryJob.getId().toString())));
+    }
+
+    @Test
+    @DisplayName("분석 배치 목록은 업로드 배치를 서버에서 10개씩 페이지 조회한다")
+    void getAnalysisBatchesPaginatesUploadBatches() throws Exception {
+        for (int index = 0; index < 11; index++) {
+            UploadBatch batch = uploadBatchRepository.save(UploadBatch.create(
+                    work,
+                    member,
+                    UploadType.INITIAL_IMPORT,
+                    UploadSourceType.FILE
+            ));
+            analysisJobRepository.save(AnalysisJob.create(
+                    work, batch, null, AnalysisJobType.SETTING_EXTRACTION));
+        }
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("page", "0")
+                        .queryParam("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content", hasSize(10)))
+                .andExpect(jsonPath("$.data.totalElements").value(11))
+                .andExpect(jsonPath("$.data.totalPages").value(2))
+                .andExpect(jsonPath("$.data.hasNext").value(true));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("page", "1")
+                        .queryParam("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content", hasSize(1)))
+                .andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
     }
 
     @Test

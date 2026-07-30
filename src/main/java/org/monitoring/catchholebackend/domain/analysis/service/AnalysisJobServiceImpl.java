@@ -1,5 +1,10 @@
 package org.monitoring.catchholebackend.domain.analysis.service;
 
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -7,12 +12,21 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.dto.request.AnalysisJobCreateRequest;
+import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatchJobGroupResponse;
+import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatchSummaryResponse;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobResponse;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
+import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisBatchMapper;
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisJobMapper;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchPageRow;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisBatchStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateBatchReviewCounts;
+import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
@@ -22,7 +36,10 @@ import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepos
 import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
+import org.monitoring.catchholebackend.global.common.response.PageResponse;
 import org.monitoring.catchholebackend.global.exception.AppException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,7 +53,9 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     private final UploadBatchRepository uploadBatchRepository;
     private final UploadFileRepository uploadFileRepository;
     private final AnalysisJobMapper analysisJobMapper;
+    private final AnalysisBatchMapper analysisBatchMapper;
     private final EpisodeRepository episodeRepository;
+    private final SettingCandidateRepository settingCandidateRepository;
 
     @Override
     @Transactional
@@ -88,6 +107,53 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     }
 
     @Override
+    public PageResponse<AnalysisBatchSummaryResponse> getAnalysisBatches(
+            Long memberId,
+            UUID workId,
+            int page,
+            int size
+    ) {
+        Work work = workRepository.getOwnedWork(workId, memberId);
+        Page<AnalysisBatchPageRow> batchPage =
+                analysisJobRepository.findBatchPage(work.getId(), PageRequest.of(page, size));
+        List<UUID> batchIds = batchPage.getContent().stream()
+                .map(AnalysisBatchPageRow::getBatchId)
+                .toList();
+        if (batchIds.isEmpty()) {
+            return PageResponse.from(batchPage, List.of());
+        }
+
+        Map<UUID, List<AnalysisJob>> jobsByBatchId = analysisJobRepository
+                .findAllByWorkIdAndBatchIdInOrderByCreatedAtDescIdDesc(work.getId(), batchIds)
+                .stream()
+                .collect(Collectors.groupingBy(
+                        job -> job.getBatch().getId(),
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ));
+        Map<UUID, SettingCandidateBatchReviewCounts> candidateCountsByBatchId =
+                settingCandidateRepository.countReviewSummaryByBatchIds(
+                                work.getId(),
+                                batchIds,
+                                SettingCandidateReviewStatus.PENDING_REVIEW
+                        )
+                        .stream()
+                        .collect(Collectors.toMap(
+                                SettingCandidateBatchReviewCounts::getBatchId,
+                                counts -> counts
+                        ));
+
+        List<AnalysisBatchSummaryResponse> responses = batchPage.getContent().stream()
+                .map(row -> toBatchSummary(
+                        row,
+                        jobsByBatchId.getOrDefault(row.getBatchId(), List.of()),
+                        candidateCountsByBatchId.get(row.getBatchId())
+                ))
+                .toList();
+        return PageResponse.from(batchPage, responses);
+    }
+
+    @Override
     public AnalysisJobResponse getAnalysisJob(Long memberId, UUID workId, UUID analysisJobId) {
         Work work = workRepository.getOwnedWork(workId, memberId);
         AnalysisJob analysisJob = analysisJobRepository.findByIdAndWorkId(analysisJobId, work.getId())
@@ -131,7 +197,12 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     }
 
     private List<Episode> getTargetEpisodes(AnalysisJob analysisJob) {
-        return List.copyOf(analysisJob.getTargetEpisodes());
+        if (!analysisJob.getTargetEpisodes().isEmpty()) {
+            return List.copyOf(analysisJob.getTargetEpisodes());
+        }
+        return analysisJob.getEpisode() == null
+                ? List.of()
+                : List.of(analysisJob.getEpisode());
     }
 
     private List<Episode> findCurrentBatchEpisodes(List<UploadFile> uploadFiles) {
@@ -211,5 +282,133 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         return uploadFileRepository.findAllByBatchIdIn(batchIds)
                 .stream()
                 .collect(Collectors.groupingBy(uploadFile -> uploadFile.getBatch().getId()));
+    }
+
+    private AnalysisBatchSummaryResponse toBatchSummary(
+            AnalysisBatchPageRow pageRow,
+            List<AnalysisJob> jobs,
+            SettingCandidateBatchReviewCounts candidateCounts
+    ) {
+        Map<AnalysisJobType, List<AnalysisJob>> currentJobsByType = findCurrentJobsByType(jobs);
+        List<AnalysisBatchJobGroupResponse> jobGroups = currentJobsByType.entrySet().stream()
+                .map(entry -> analysisBatchMapper.toJobGroupResponse(
+                        entry.getKey(),
+                        resolveJobGroupStatus(entry.getValue()),
+                        entry.getValue()
+                ))
+                .toList();
+        Map<UUID, Episode> targetEpisodesById = currentJobsByType.values().stream()
+                .flatMap(List::stream)
+                .flatMap(job -> getTargetEpisodes(job).stream())
+                .collect(Collectors.toMap(
+                        Episode::getId,
+                        episode -> episode,
+                        (first, ignored) -> first
+                ));
+        Integer episodeStartNo = targetEpisodesById.values().stream()
+                .map(Episode::getEpisodeNo)
+                .min(Integer::compareTo)
+                .orElse(null);
+        Integer episodeEndNo = targetEpisodesById.values().stream()
+                .map(Episode::getEpisodeNo)
+                .max(Integer::compareTo)
+                .orElse(null);
+        long pendingCandidateCount = candidateCounts == null
+                ? 0
+                : candidateCounts.getPendingCandidateCount();
+        LocalDateTime lastActivityAt = currentJobsByType.values().stream()
+                .flatMap(List::stream)
+                .map(AnalysisJob::getUpdatedAt)
+                .max(Comparator.naturalOrder())
+                .orElse(pageRow.getLastRequestedAt());
+
+        return analysisBatchMapper.toResponse(
+                pageRow,
+                jobs.getFirst().getBatch(),
+                resolveBatchStatus(jobGroups, pendingCandidateCount),
+                episodeStartNo,
+                episodeEndNo,
+                targetEpisodesById.size(),
+                candidateCounts,
+                jobGroups,
+                lastActivityAt
+        );
+    }
+
+    /**
+     * 재시도 이력까지 포함된 작업에서 분석 목적·회차별 최신 작업만 현재 상태로 선택한다.
+     * episode_id가 없는 과거 작업은 보존된 targetEpisodes를 같은 기준으로 펼쳐서 처리한다.
+     */
+    private Map<AnalysisJobType, List<AnalysisJob>> findCurrentJobsByType(List<AnalysisJob> jobs) {
+        Map<AnalysisJobType, LinkedHashMap<UUID, AnalysisJob>> jobsByEpisode = new EnumMap<>(
+                AnalysisJobType.class
+        );
+        Map<AnalysisJobType, AnalysisJob> targetlessJobs = new EnumMap<>(AnalysisJobType.class);
+
+        for (AnalysisJob job : jobs) {
+            List<Episode> targetEpisodes = getTargetEpisodes(job);
+            if (targetEpisodes.isEmpty()) {
+                targetlessJobs.putIfAbsent(job.getJobType(), job);
+                continue;
+            }
+            LinkedHashMap<UUID, AnalysisJob> latestJobs = jobsByEpisode.computeIfAbsent(
+                    job.getJobType(),
+                    ignored -> new LinkedHashMap<>()
+            );
+            targetEpisodes.forEach(episode -> latestJobs.putIfAbsent(episode.getId(), job));
+        }
+
+        Map<AnalysisJobType, List<AnalysisJob>> result = new EnumMap<>(AnalysisJobType.class);
+        for (AnalysisJobType jobType : AnalysisJobType.values()) {
+            LinkedHashMap<UUID, AnalysisJob> latestJobs = jobsByEpisode.get(jobType);
+            if (latestJobs != null && !latestJobs.isEmpty()) {
+                result.put(jobType, new ArrayList<>(latestJobs.values()));
+                continue;
+            }
+            AnalysisJob targetlessJob = targetlessJobs.get(jobType);
+            if (targetlessJob != null) {
+                result.put(jobType, List.of(targetlessJob));
+            }
+        }
+        return result;
+    }
+
+    private AnalysisBatchStatus resolveJobGroupStatus(List<AnalysisJob> currentJobs) {
+        long failedCount = currentJobs.stream()
+                .filter(job -> job.getStatus() == AnalysisJobStatus.FAILED)
+                .count();
+        if (currentJobs.stream().anyMatch(job ->
+                job.getStatus() == AnalysisJobStatus.PENDING
+                        || job.getStatus() == AnalysisJobStatus.RUNNING)) {
+            return AnalysisBatchStatus.IN_PROGRESS;
+        }
+        if (failedCount == currentJobs.size()) {
+            return AnalysisBatchStatus.FAILED;
+        }
+        if (failedCount > 0) {
+            return AnalysisBatchStatus.PARTIALLY_FAILED;
+        }
+        return AnalysisBatchStatus.COMPLETED;
+    }
+
+    private AnalysisBatchStatus resolveBatchStatus(
+            List<AnalysisBatchJobGroupResponse> jobGroups,
+            long pendingCandidateCount
+    ) {
+        if (jobGroups.stream().anyMatch(group -> group.status() == AnalysisBatchStatus.IN_PROGRESS)) {
+            return AnalysisBatchStatus.IN_PROGRESS;
+        }
+        if (jobGroups.stream().allMatch(group -> group.status() == AnalysisBatchStatus.FAILED)) {
+            return AnalysisBatchStatus.FAILED;
+        }
+        if (jobGroups.stream().anyMatch(group ->
+                group.status() == AnalysisBatchStatus.FAILED
+                        || group.status() == AnalysisBatchStatus.PARTIALLY_FAILED)) {
+            return AnalysisBatchStatus.PARTIALLY_FAILED;
+        }
+        if (pendingCandidateCount > 0) {
+            return AnalysisBatchStatus.REVIEW_REQUIRED;
+        }
+        return AnalysisBatchStatus.COMPLETED;
     }
 }
