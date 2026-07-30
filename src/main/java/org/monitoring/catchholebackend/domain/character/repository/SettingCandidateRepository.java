@@ -1,8 +1,10 @@
 package org.monitoring.catchholebackend.domain.character.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
@@ -11,6 +13,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -113,6 +116,32 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             @Param("workId") UUID workId,
             @Param("batchIds") List<UUID> batchIds,
             @Param("pendingStatus") SettingCandidateReviewStatus pendingStatus
+    );
+
+    /**
+     * 새 분석 작업이 대체할 회차의 미검토 후보만 제거한다.
+     * 호출자는 새 Job 저장 전에 실행해 현재 Job의 후보가 함께 지워지지 않도록 해야 한다.
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            delete from SettingCandidate candidate
+            where candidate.work.id = :workId
+              and candidate.episode.id in :episodeIds
+              and candidate.reviewStatus = :reviewStatus
+              and candidate.analysisJob.id in (
+                  select analysisJob.id
+                  from AnalysisJob analysisJob
+                  where analysisJob.work.id = :workId
+                    and analysisJob.batch.id = :batchId
+                    and analysisJob.jobType = :jobType
+              )
+            """)
+    int deleteAllByAnalysisTargetAndReviewStatus(
+            @Param("workId") UUID workId,
+            @Param("batchId") UUID batchId,
+            @Param("episodeIds") Collection<UUID> episodeIds,
+            @Param("jobType") AnalysisJobType jobType,
+            @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus
     );
 
     @Query("""

@@ -303,6 +303,84 @@ class SettingCandidateServiceImplTest {
     }
 
     @Test
+    @DisplayName("나이의 숨은 scalar가 문자열이면 같은 표시값 저장도 숫자 envelope로 수리한다")
+    void updateSettingCandidateRepairsInvalidCoreScalarWhenVisibleValueIsUnchanged() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(
+                work,
+                "아리아",
+                "age",
+                "17",
+                SettingValueType.NUMBER,
+                objectMapper.createObjectNode()
+                        .put("value", "17")
+                        .put("unit", "years")
+        );
+        JsonNode originalEvidenceSpans = candidate.getEvidenceSpans();
+        JsonNode originalRawAiResult = candidate.getRawAiResultJson();
+        SettingCandidateResponse response = response(workId);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId))
+                .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
+        when(settingCandidateMapper.toResponse(candidate, false, null)).thenReturn(response);
+
+        service.updateSettingCandidate(
+                memberId,
+                workId,
+                candidateId,
+                new SettingCandidateUpdateRequest("age", "17")
+        );
+
+        assertThat(candidate.getValueJson()).hasToString("{\"value\":17}");
+        assertThat(candidate.getValueJson().get("value").isNumber()).isTrue();
+        assertThat(candidate.getEvidenceSpans()).isSameAs(originalEvidenceSpans);
+        assertThat(candidate.getRawAiResultJson()).isSameAs(originalRawAiResult);
+    }
+
+    @Test
+    @DisplayName("나이의 숨은 scalar가 숫자이면 같은 표시값 저장에서 rich JSON을 보존한다")
+    void updateSettingCandidatePreservesTypedCoreRichJsonWhenVisibleValueIsUnchanged() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        JsonNode valueJson = objectMapper.createObjectNode()
+                .put("value", 17)
+                .put("unit", "years");
+        SettingCandidate candidate = candidate(
+                work,
+                "아리아",
+                "age",
+                "17",
+                SettingValueType.NUMBER,
+                valueJson
+        );
+        JsonNode originalEvidenceSpans = candidate.getEvidenceSpans();
+        JsonNode originalRawAiResult = candidate.getRawAiResultJson();
+        SettingCandidateResponse response = response(workId);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId))
+                .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
+        when(settingCandidateMapper.toResponse(candidate, false, null)).thenReturn(response);
+
+        service.updateSettingCandidate(
+                memberId,
+                workId,
+                candidateId,
+                new SettingCandidateUpdateRequest("age", "17")
+        );
+
+        assertThat(candidate.getValueJson()).isSameAs(valueJson);
+        assertThat(candidate.getEvidenceSpans()).isSameAs(originalEvidenceSpans);
+        assertThat(candidate.getRawAiResultJson()).isSameAs(originalRawAiResult);
+    }
+
+    @Test
     @DisplayName("표시값이 null인 JSON 후보를 그대로 저장하면 rich valueJson을 유지한다")
     void updateSettingCandidatePreservesRichJsonWhenNullableValueIsUnchanged() {
         Long memberId = 1L;

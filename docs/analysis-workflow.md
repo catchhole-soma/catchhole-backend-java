@@ -118,11 +118,12 @@ sequenceDiagram
     participant BatchRepo as UploadBatchRepository
     participant EpisodeRepo as EpisodeRepository
     participant JobRepo as AnalysisJobRepository
+    participant CandidateRepo as SettingCandidateRepository
 
     Client->>Controller: POST /works/{workId}/analysis-jobs
     Note over Client,Controller: body: jobType, batchId, optional episodeId
     Controller->>Service: createAnalysisJobs(memberId, workId, request)
-    Service->>WorkRepo: getOwnedWork(workId, memberId)
+    Service->>WorkRepo: getOwnedWorkForUpdate(workId, memberId)
     alt 작품 없음 또는 타인 작품
         WorkRepo-->>Service: empty
         Service-->>Controller: WORK_NOT_FOUND
@@ -146,6 +147,7 @@ sequenceDiagram
                 Service-->>Controller: ANALYSIS_JOB_ALREADY_IN_PROGRESS
                 Controller-->>Client: 409
             else 활성 작업 없음
+                Service->>CandidateRepo: 같은 work/batch/episodes/jobType의 PENDING_REVIEW 후보 제거
                 loop 대상 회차별
                     Service->>JobRepo: save(AnalysisJob PENDING + single episode target)
                 end
@@ -226,6 +228,7 @@ sequenceDiagram
     participant Controller as AnalysisJobController
     participant Service as AnalysisJobService
     participant JobRepo as AnalysisJobRepository
+    participant CandidateRepo as SettingCandidateRepository
 
     Client->>Controller: POST /works/{workId}/analysis-jobs/{analysisJobId}/retry
     Controller->>Service: retryFailedAnalysisJob(memberId, workId, analysisJobId)
@@ -239,23 +242,34 @@ sequenceDiagram
             Service-->>Controller: ANALYSIS_JOB_ALREADY_IN_PROGRESS
             Controller-->>Client: 409
         else 활성 과거 batch-wide 작업 없음
-            Service->>Service: 원본 작업 대상 스냅샷에서 FAILED 회차 선택
-            alt 실패 회차 없음
+            Service->>Service: 회차별 Job은 ARCHIVED 제외, 과거 batch-wide Job은 FAILED 회차 선택
+            alt 재시도 대상 회차 없음
                 Service-->>Controller: ANALYSIS_JOB_TARGET_NOT_FOUND
                 Controller-->>Client: 404
-            else 실패 회차 있음
-                loop 실패 회차별
-                    Service->>JobRepo: 활성 단일 회차 작업 조회
-                    Service->>JobRepo: 없으면 같은 jobType의 새 PENDING 작업 저장
+            else 재시도 대상 회차 있음
+                Service->>JobRepo: 다른 jobType 활성 회차 작업 조회
+                alt 다른 jobType 활성 작업 있음
+                    Service-->>Controller: ANALYSIS_JOB_ALREADY_IN_PROGRESS
+                    Controller-->>Client: 409
+                else 다른 jobType 활성 작업 없음
+                    loop 대상 회차별
+                        Service->>JobRepo: 같은 jobType 활성 단일 회차 작업 조회
+                        alt 같은 jobType 활성 작업 있음
+                            JobRepo-->>Service: 기존 활성 작업
+                        else 같은 jobType 활성 작업 없음
+                            Service->>CandidateRepo: 같은 work/batch/episode/jobType의 PENDING_REVIEW 후보 제거
+                            Service->>JobRepo: 같은 jobType의 새 PENDING 작업 저장
+                        end
+                    end
+                    Service-->>Controller: List of AnalysisJobResponse
+                    Controller-->>Client: 200 OK
                 end
-                Service-->>Controller: List of AnalysisJobResponse
-                Controller-->>Client: 200 OK
             end
         end
     end
 ```
 
-기존 `FAILED` 작업은 변경하지 않습니다. 같은 batch의 과거 batch-wide 작업이 활성 상태면 재시도를 거절합니다. 해당 회차에 이미 `PENDING` 또는 `RUNNING` 작업이 있으면 중복 생성하지 않고 그 작업을 반환합니다.
+기존 `FAILED` 작업은 변경하지 않습니다. 회차별 실패 Job은 `Episode`의 현재 처리 상태와 분리해 재시도하지만 `ARCHIVED` 회차는 제외하고, 과거 batch-wide 실패 Job은 현재 `FAILED`인 대상 회차만 재시도합니다. 같은 `jobType`의 활성 작업은 멱등 반환하고 다른 `jobType`의 활성 작업은 409로 거절합니다. 새 Job을 실제 생성할 때만 같은 작품·batch·회차·`jobType`의 `PENDING_REVIEW` 후보를 대체하며, `CONFIRMED`·`DISMISSED` 및 다른 유형·회차 후보는 보존합니다.
 
 ## 분석 대상 회차 조회
 
@@ -511,7 +525,7 @@ LLM 전처리 출력은 다음 정보를 포함합니다.
 | 리포트 저장 | 일부 finding 저장 실패 | 트랜잭션으로 전체 롤백 후 재시도 |
 | 사용자 검토 | 이미 처리된 후보 수정, 권한 없음 | 동기 API에서 실패 응답 |
 
-현재 `AnalysisJob`에는 `retryCount`가 없습니다. 재시도 API는 기존 실패 작업을 되살리지 않고 실패한 회차마다 같은 `jobType`의 새 단일 회차 작업을 생성하며, 이미 활성 재시도 작업이 있으면 그 작업을 재사용합니다.
+현재 `AnalysisJob`에는 `retryCount`가 없습니다. 재시도 API는 기존 실패 작업을 되살리지 않고 대상 회차마다 같은 `jobType`의 새 단일 회차 작업을 생성합니다. 같은 유형의 활성 재시도 작업은 멱등 재사용하고 다른 유형의 활성 작업은 409로 거절합니다.
 Worker 결과 저장은 같은 작업이 중복 실행되어도 `Episode`, `SettingCandidate`, `ValidationReport`가 중복 생성되지 않도록 작업 ID와 대상 회차 ID를 기준으로 멱등성을 보장해야 합니다.
 
 ## 분석 배치 목록 페이지 조회

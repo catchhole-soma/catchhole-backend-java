@@ -7,6 +7,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -68,7 +69,7 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
                    max(episode.episodeNo) as episodeEndNo,
                    count(distinct episode.id) as episodeCount
             from AnalysisJob analysisJob
-            join analysisJob.episode episode
+            join analysisJob.targetEpisodes episode
             where analysisJob.work.id = :workId
               and analysisJob.batch.id = :batchId
             """)
@@ -106,9 +107,17 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             Collection<AnalysisJobStatus> statuses
     );
 
-    Optional<AnalysisJob> findFirstByEpisodeIdAndBatchIdAndStatusInOrderByCreatedAtDesc(
+    boolean existsByEpisodeIdAndBatchIdAndJobTypeNotAndStatusIn(
             UUID episodeId,
             UUID batchId,
+            AnalysisJobType jobType,
+            Collection<AnalysisJobStatus> statuses
+    );
+
+    Optional<AnalysisJob> findFirstByEpisodeIdAndBatchIdAndJobTypeAndStatusInOrderByCreatedAtDesc(
+            UUID episodeId,
+            UUID batchId,
+            AnalysisJobType jobType,
             Collection<AnalysisJobStatus> statuses
     );
 

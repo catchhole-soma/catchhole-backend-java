@@ -64,7 +64,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
             UUID workId,
             AnalysisJobCreateRequest request
     ) {
-        Work work = workRepository.getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         UploadBatch batch = getBatchInWork(request.batchId(), work);
         Episode episode = request.episodeId() == null ? null : getEpisodeInBatch(request.episodeId(), work, batch);
 
@@ -80,6 +80,12 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_ALREADY_IN_PROGRESS);
         }
 
+        deleteSupersededPendingCandidates(
+                work.getId(),
+                batch.getId(),
+                request.jobType(),
+                targetEpisodes
+        );
         List<AnalysisJob> analysisJobs = targetEpisodes.stream()
                 .map(targetEpisode -> AnalysisJob.create(work, batch, targetEpisode, request.jobType()))
                 .toList();
@@ -164,7 +170,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     @Override
     @Transactional
     public List<AnalysisJobResponse> retryFailedAnalysisJob(Long memberId, UUID workId, UUID analysisJobId) {
-        Work work = workRepository.getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         AnalysisJob failedJob = analysisJobRepository.findByIdAndWorkId(analysisJobId, work.getId())
                 .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND));
         if (failedJob.getStatus() != AnalysisJobStatus.FAILED) {
@@ -174,14 +180,13 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_ALREADY_IN_PROGRESS);
         }
 
-        List<Episode> failedEpisodes = getTargetEpisodes(failedJob).stream()
-                .filter(episode -> episode.getStatus() == EpisodeStatus.FAILED)
-                .toList();
-        if (failedEpisodes.isEmpty()) {
+        List<Episode> retryEpisodes = findRetryEpisodes(failedJob);
+        if (retryEpisodes.isEmpty()) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_TARGET_NOT_FOUND);
         }
+        assertNoActiveJobOfDifferentType(failedJob, retryEpisodes);
 
-        return failedEpisodes.stream()
+        return retryEpisodes.stream()
                 .map(episode -> getOrCreateRetryJob(work, failedJob, episode))
                 .map(this::toResponse)
                 .toList();
@@ -249,13 +254,79 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 batch.getId(), activeStatuses);
     }
 
+    private List<Episode> findRetryEpisodes(AnalysisJob failedJob) {
+        if (failedJob.getEpisode() != null) {
+            return failedJob.getEpisode().getStatus() == EpisodeStatus.ARCHIVED
+                    ? List.of()
+                    : List.of(failedJob.getEpisode());
+        }
+        return getTargetEpisodes(failedJob).stream()
+                .filter(episode -> episode.getStatus() == EpisodeStatus.FAILED)
+                .toList();
+    }
+
+    private void assertNoActiveJobOfDifferentType(AnalysisJob failedJob, List<Episode> retryEpisodes) {
+        Set<AnalysisJobStatus> activeStatuses = Set.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING);
+        boolean differentTypeJobIsActive = retryEpisodes.stream().anyMatch(episode ->
+                analysisJobRepository.existsByEpisodeIdAndBatchIdAndJobTypeNotAndStatusIn(
+                        episode.getId(),
+                        failedJob.getBatch().getId(),
+                        failedJob.getJobType(),
+                        activeStatuses
+                ));
+        if (differentTypeJobIsActive) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_ALREADY_IN_PROGRESS);
+        }
+    }
+
     private AnalysisJob getOrCreateRetryJob(Work work, AnalysisJob failedJob, Episode episode) {
         Set<AnalysisJobStatus> activeStatuses = Set.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING);
         return analysisJobRepository
-                .findFirstByEpisodeIdAndBatchIdAndStatusInOrderByCreatedAtDesc(
-                        episode.getId(), failedJob.getBatch().getId(), activeStatuses)
-                .orElseGet(() -> analysisJobRepository.save(AnalysisJob.create(
-                        work, failedJob.getBatch(), episode, failedJob.getJobType())));
+                .findFirstByEpisodeIdAndBatchIdAndJobTypeAndStatusInOrderByCreatedAtDesc(
+                        episode.getId(),
+                        failedJob.getBatch().getId(),
+                        failedJob.getJobType(),
+                        activeStatuses
+                )
+                .orElseGet(() -> {
+                    deleteSupersededPendingCandidates(
+                            work.getId(),
+                            failedJob.getBatch().getId(),
+                            failedJob.getJobType(),
+                            List.of(episode)
+                    );
+                    return analysisJobRepository.save(AnalysisJob.create(
+                            work,
+                            failedJob.getBatch(),
+                            episode,
+                            failedJob.getJobType()
+                    ));
+                });
+    }
+
+    /**
+     * 새 분석 시도가 같은 목적·회차의 이전 미검토 후보를 대체하도록 pending 데이터만 정리한다.
+     * 이미 확정·무시한 검토 이력과 다른 분석 목적의 후보는 보존한다.
+     */
+    private void deleteSupersededPendingCandidates(
+            UUID workId,
+            UUID batchId,
+            AnalysisJobType jobType,
+            List<Episode> episodes
+    ) {
+        List<UUID> episodeIds = episodes.stream()
+                .map(Episode::getId)
+                .toList();
+        if (episodeIds.isEmpty()) {
+            return;
+        }
+        settingCandidateRepository.deleteAllByAnalysisTargetAndReviewStatus(
+                workId,
+                batchId,
+                episodeIds,
+                jobType,
+                SettingCandidateReviewStatus.PENDING_REVIEW
+        );
     }
 
     private List<UploadFile> getUploadFiles(AnalysisJob analysisJob) {

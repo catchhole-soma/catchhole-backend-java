@@ -269,10 +269,14 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         boolean storedContentNeedsNormalization =
                 !candidate.getAttributeName().equals(nextAttributeName)
                         || !Objects.equals(candidate.getAttributeValue(), requestedAttributeValue);
+        boolean storedCoreScalarNeedsRepair = hasIncompatibleCoreScalarValueJson(
+                candidate,
+                currentMatch
+        );
         return new CandidateReviewContent(
                 nextAttributeName,
                 requestedAttributeValue,
-                semanticContentChanged
+                semanticContentChanged || storedCoreScalarNeedsRepair
                         ? rebuildValueJson(
                                 candidate,
                                 currentMatch,
@@ -281,8 +285,33 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                                 dynamic
                         )
                         : candidate.getValueJson(),
-                semanticContentChanged || storedContentNeedsNormalization
+                semanticContentChanged
+                        || storedContentNeedsNormalization
+                        || storedCoreScalarNeedsRepair
         );
+    }
+
+    /**
+     * AGE/LEVEL의 숨은 대표값이 존재하지만 숫자가 아니면 같은 표시값 저장도 typed envelope로 수리한다.
+     * 대표값 자체가 없거나 이미 숫자인 rich JSON은 기존 근거와 함께 no-op으로 보존한다.
+     */
+    private boolean hasIncompatibleCoreScalarValueJson(
+            SettingCandidate candidate,
+            SettingCandidateSchemaMatch schemaMatch
+    ) {
+        CharacterFactType factType = schemaMatch.matchedSchema().getFactType();
+        if (factType != CharacterFactType.AGE && factType != CharacterFactType.LEVEL) {
+            return false;
+        }
+
+        JsonNode valueNode = candidate.getValueJson();
+        if (valueNode == null || valueNode.isNull()) {
+            return false;
+        }
+        if (valueNode.isObject()) {
+            valueNode = valueNode.get("value");
+        }
+        return valueNode != null && !valueNode.isNull() && !valueNode.isNumber();
     }
 
     private SettingCandidateResponse toResponse(

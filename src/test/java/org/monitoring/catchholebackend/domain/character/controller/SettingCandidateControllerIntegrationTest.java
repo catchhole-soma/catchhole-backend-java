@@ -216,8 +216,8 @@ class SettingCandidateControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("후보가 없어도 분석 작업의 대상 회차 범위를 응답한다")
-    void getSettingCandidatesReturnsEpisodeRangeWhenBatchHasNoCandidates() throws Exception {
+    @DisplayName("후보가 없어도 과거 다회차 작업의 보존된 대상 회차 범위를 응답한다")
+    void getSettingCandidatesReturnsLegacyTargetEpisodeRangeWhenBatchHasNoCandidates() throws Exception {
         Episode fifthEpisode = episodeRepository.save(Episode.create(
                 work,
                 null,
@@ -228,12 +228,15 @@ class SettingCandidateControllerIntegrationTest {
                 "hash-5",
                 500
         ));
-        analysisJobRepository.save(AnalysisJob.create(
+        analysisJobRepository.deleteAll();
+        AnalysisJob legacyJob = AnalysisJob.create(
                 work,
                 uploadBatch,
-                fifthEpisode,
+                null,
                 AnalysisJobType.SETTING_EXTRACTION
-        ));
+        );
+        legacyJob.addTargetEpisodes(List.of(episode, fifthEpisode));
+        analysisJobRepository.save(legacyJob);
 
         mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates", work.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))

@@ -4,10 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
@@ -20,6 +22,10 @@ import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
+import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
+import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
+import org.monitoring.catchholebackend.domain.upload.type.UploadSourceType;
+import org.monitoring.catchholebackend.domain.upload.type.UploadType;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
@@ -45,13 +51,20 @@ class SettingCandidateRepositoryTest {
     private EpisodeRepository episodeRepository;
 
     @Autowired
+    private UploadBatchRepository uploadBatchRepository;
+
+    @Autowired
     private AnalysisJobRepository analysisJobRepository;
 
     @Autowired
     private SettingCandidateRepository settingCandidateRepository;
 
+    @Autowired
+    private EntityManager entityManager;
+
     private Work work;
     private Episode episode;
+    private UploadBatch uploadBatch;
     private AnalysisJob analysisJob;
 
     @BeforeEach
@@ -63,6 +76,12 @@ class SettingCandidateRepositoryTest {
                 "작가"
         ));
         work = workRepository.save(Work.create(member, "은빛 검사", WorkGenre.FANTASY, "검사 성장물"));
+        uploadBatch = uploadBatchRepository.save(UploadBatch.create(
+                work,
+                member,
+                UploadType.INITIAL_IMPORT,
+                UploadSourceType.FILE
+        ));
         episode = episodeRepository.save(Episode.create(
                 work,
                 null,
@@ -75,7 +94,7 @@ class SettingCandidateRepositoryTest {
         ));
         analysisJob = analysisJobRepository.save(AnalysisJob.create(
                 work,
-                null,
+                uploadBatch,
                 episode,
                 AnalysisJobType.SETTING_EXTRACTION
         ));
@@ -198,6 +217,81 @@ class SettingCandidateRepositoryTest {
     }
 
     @Test
+    @DisplayName("분석 대상과 상태가 일치하는 미검토 후보만 제거한다")
+    void deleteAllByAnalysisTargetAndReviewStatusDeletesOnlyMatchingPendingCandidates() {
+        Episode otherEpisode = episodeRepository.save(Episode.create(
+                work,
+                null,
+                2,
+                "2화",
+                "works/%s/episodes/2.txt".formatted(work.getId()),
+                "version-1",
+                "hash-2",
+                100
+        ));
+        AnalysisJob otherEpisodeJob = analysisJobRepository.save(AnalysisJob.create(
+                work,
+                uploadBatch,
+                otherEpisode,
+                AnalysisJobType.SETTING_EXTRACTION
+        ));
+        AnalysisJob otherTypeJob = analysisJobRepository.save(AnalysisJob.create(
+                work,
+                uploadBatch,
+                episode,
+                AnalysisJobType.EPISODE_VALIDATION
+        ));
+        UploadBatch otherBatch = uploadBatchRepository.save(UploadBatch.create(
+                work,
+                work.getMember(),
+                UploadType.SINGLE_EPISODE,
+                UploadSourceType.FILE
+        ));
+        AnalysisJob otherBatchJob = analysisJobRepository.save(AnalysisJob.create(
+                work,
+                otherBatch,
+                episode,
+                AnalysisJobType.SETTING_EXTRACTION
+        ));
+
+        SettingCandidate pendingTarget = candidate(analysisJob, episode, "pending-target");
+        SettingCandidate confirmedTarget = candidate(analysisJob, episode, "confirmed-target");
+        confirmedTarget.confirm();
+        SettingCandidate dismissedTarget = candidate(analysisJob, episode, "dismissed-target");
+        dismissedTarget.dismiss();
+        SettingCandidate pendingOtherEpisode = candidate(otherEpisodeJob, otherEpisode, "other-episode");
+        SettingCandidate pendingOtherType = candidate(otherTypeJob, episode, "other-type");
+        SettingCandidate pendingOtherBatch = candidate(otherBatchJob, episode, "other-batch");
+        settingCandidateRepository.saveAll(List.of(
+                pendingTarget,
+                confirmedTarget,
+                dismissedTarget,
+                pendingOtherEpisode,
+                pendingOtherType,
+                pendingOtherBatch
+        ));
+
+        int deletedCount = settingCandidateRepository.deleteAllByAnalysisTargetAndReviewStatus(
+                work.getId(),
+                uploadBatch.getId(),
+                List.of(episode.getId()),
+                AnalysisJobType.SETTING_EXTRACTION,
+                SettingCandidateReviewStatus.PENDING_REVIEW
+        );
+        entityManager.clear();
+
+        assertThat(deletedCount).isOne();
+        assertThat(settingCandidateRepository.findById(pendingTarget.getId())).isEmpty();
+        assertThat(settingCandidateRepository.findAllById(List.of(
+                confirmedTarget.getId(),
+                dismissedTarget.getId(),
+                pendingOtherEpisode.getId(),
+                pendingOtherType.getId(),
+                pendingOtherBatch.getId()
+        ))).hasSize(5);
+    }
+
+    @Test
     void saveCandidateWithoutEpisodeAnalysisJobAndSourceChunk() {
         SettingCandidate candidate = settingCandidateRepository.save(SettingCandidate.create(
                 work,
@@ -228,11 +322,28 @@ class SettingCandidateRepositoryTest {
     }
 
     private SettingCandidate candidate(String entityName, String attributeName) {
+        return candidate(analysisJob, episode, attributeName, entityName);
+    }
+
+    private SettingCandidate candidate(
+            AnalysisJob candidateAnalysisJob,
+            Episode candidateEpisode,
+            String attributeName
+    ) {
+        return candidate(candidateAnalysisJob, candidateEpisode, attributeName, "아리아");
+    }
+
+    private SettingCandidate candidate(
+            AnalysisJob candidateAnalysisJob,
+            Episode candidateEpisode,
+            String attributeName,
+            String entityName
+    ) {
         return SettingCandidate.create(
                 work,
-                episode,
+                candidateEpisode,
                 null,
-                analysisJob,
+                candidateAnalysisJob,
                 SettingEntityType.CHARACTER,
                 entityName,
                 attributeName,
