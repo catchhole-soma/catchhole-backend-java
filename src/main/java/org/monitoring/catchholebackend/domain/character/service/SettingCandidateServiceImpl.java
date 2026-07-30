@@ -5,8 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.NullNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.math.BigDecimal;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobEpisodeRange;
@@ -65,7 +67,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             UUID workId,
             UUID batchId,
             SettingCandidateReviewStatus reviewStatus,
-            SettingCandidateMatchStatus matchStatus,
+            Set<SettingCandidateMatchStatus> matchStatuses,
             int page,
             int size
     ) {
@@ -77,7 +79,9 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 work.getId(),
                 batchId,
                 reviewStatus,
-                matchStatus,
+                matchStatuses == null || matchStatuses.isEmpty()
+                        ? EnumSet.allOf(SettingCandidateMatchStatus.class)
+                        : EnumSet.copyOf(matchStatuses),
                 PageRequest.of(page, size)
         );
         SettingCandidateBatchCounts counts = settingCandidateRepository.countReviewSummary(

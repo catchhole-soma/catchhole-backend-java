@@ -272,10 +272,17 @@ public class SettingCandidate extends BaseEntity {
     }
 
     public void matchExistingCharacter(WorkCharacter character) {
-        // 사용자 연결 수정과 아직 검토 대기 중인 형제 후보 자동 연결에 사용한다.
+        // 사용자가 캐릭터 연결을 직접 선택한 경우 자동 연결 표시는 해제한다.
         validateEditable();
 
-        applyCharacterMatch(character);
+        applyCharacterMatch(character, SettingCandidateMatchStatus.MATCHED);
+    }
+
+    public void autoMatchSameNameCharacter(WorkCharacter character) {
+        // 같은 이름 형제 후보만 호출하며 사용자가 직접 선택한 연결과 구분해 검토 화면에 남긴다.
+        validateEditable();
+
+        applyCharacterMatch(character, SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
     }
 
     public void matchPromotedCharacter(WorkCharacter character) {
@@ -286,13 +293,16 @@ public class SettingCandidate extends BaseEntity {
                 || matchedCharacterId != null) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
         }
-        applyCharacterMatch(character);
+        applyCharacterMatch(character, SettingCandidateMatchStatus.MATCHED);
     }
 
-    private void applyCharacterMatch(WorkCharacter character) {
+    private void applyCharacterMatch(
+            WorkCharacter character,
+            SettingCandidateMatchStatus targetMatchStatus
+    ) {
         this.entityName = character.getName();
         this.matchedCharacterId = character.getId();
-        this.matchStatus = SettingCandidateMatchStatus.MATCHED;
+        this.matchStatus = targetMatchStatus;
     }
 
     public void markAsNewCharacter(String entityName) {

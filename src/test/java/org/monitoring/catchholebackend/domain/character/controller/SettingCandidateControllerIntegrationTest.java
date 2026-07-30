@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.character.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -293,7 +294,7 @@ class SettingCandidateControllerIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
                         .queryParam("batchId", uploadBatch.getId().toString())
                         .queryParam("reviewStatus", "PENDING_REVIEW")
-                        .queryParam("matchStatus", "AMBIGUOUS")
+                        .queryParam("matchStatuses", "AMBIGUOUS")
                         .queryParam("page", "0")
                         .queryParam("size", "1"))
                 .andExpect(status().isOk())
@@ -305,6 +306,58 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.candidates.content[0].id").value(ambiguous.getId().toString()))
                 .andExpect(jsonPath("$.data.candidates.totalElements").value(1))
                 .andExpect(jsonPath("$.data.candidates.size").value(1));
+    }
+
+    @Test
+    @DisplayName("연결 상태 목록으로 직접 연결과 같은 이름 자동 연결 후보를 함께 페이지 조회한다")
+    void getSettingCandidatesFiltersMultipleConnectedStatuses() throws Exception {
+        WorkCharacter character = workCharacterRepository.save(character(work, "아리아"));
+        SettingCandidate matched = candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "age",
+                "17"
+        );
+        matched.matchExistingCharacter(character);
+        settingCandidateRepository.save(matched);
+        SettingCandidate automaticallyMatched = candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "level",
+                "5"
+        );
+        automaticallyMatched.autoMatchSameNameCharacter(character);
+        settingCandidateRepository.save(automaticallyMatched);
+        settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "신규 인물",
+                "stats.strength",
+                "12"
+        ));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString())
+                        .queryParam(
+                                "matchStatuses",
+                                "MATCHED",
+                                "AUTO_MATCHED_BY_NAME"
+                        )
+                        .queryParam("page", "0")
+                        .queryParam("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalCandidateCount").value(3))
+                .andExpect(jsonPath("$.data.candidates.totalElements").value(2))
+                .andExpect(jsonPath("$.data.candidates.content.length()").value(2))
+                .andExpect(jsonPath("$.data.candidates.content[*].matchStatus").value(
+                        containsInAnyOrder("MATCHED", "AUTO_MATCHED_BY_NAME")
+                ));
     }
 
     @Test
@@ -870,7 +923,8 @@ class SettingCandidateControllerIntegrationTest {
         SettingCandidate linkedSibling = settingCandidateRepository.findById(levelCandidate.getId()).orElseThrow();
         assertThat(linkedSibling.getEntityName()).isEqualTo("아리아");
         assertThat(linkedSibling.getMatchedCharacterId()).isEqualTo(character.getId());
-        assertThat(linkedSibling.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(linkedSibling.getMatchStatus())
+                .isEqualTo(SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
         assertThat(linkedSibling.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
 
         mockMvc.perform(post(

@@ -160,12 +160,21 @@ class OpenApiContractIntegrationTest {
                                 "workId",
                                 "batchId",
                                 "reviewStatus",
-                                "matchStatus",
+                                "matchStatuses",
                                 "page",
                                 "size"
                         )))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['parameters'][1]['required']")
                         .value(true))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['parameters'][3]['schema']['type']")
+                        .value("array"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['parameters'][3]['schema']['items']['enum']")
+                        .value(containsInAnyOrder(
+                                "MATCHED",
+                                "AUTO_MATCHED_BY_NAME",
+                                "UNRESOLVED",
+                                "AMBIGUOUS"
+                        )))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['parameters'][5]['schema']['maximum']")
                         .value(100))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['responses']['400']['content']['application/json']['schema']['$ref']")

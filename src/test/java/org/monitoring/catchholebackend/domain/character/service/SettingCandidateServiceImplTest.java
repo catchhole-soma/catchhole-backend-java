@@ -16,6 +16,7 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -128,7 +129,7 @@ class SettingCandidateServiceImplTest {
                 workId,
                 batchId,
                 SettingCandidateReviewStatus.PENDING_REVIEW,
-                SettingCandidateMatchStatus.AMBIGUOUS,
+                Set.of(SettingCandidateMatchStatus.AMBIGUOUS),
                 pageRequest
         )).thenReturn(new PageImpl<>(candidates, pageRequest, 4));
         when(settingCandidateRepository.countReviewSummary(
@@ -155,7 +156,7 @@ class SettingCandidateServiceImplTest {
                 workId,
                 batchId,
                 SettingCandidateReviewStatus.PENDING_REVIEW,
-                SettingCandidateMatchStatus.AMBIGUOUS,
+                Set.of(SettingCandidateMatchStatus.AMBIGUOUS),
                 0,
                 20
         );
@@ -173,7 +174,7 @@ class SettingCandidateServiceImplTest {
                 workId,
                 batchId,
                 SettingCandidateReviewStatus.PENDING_REVIEW,
-                SettingCandidateMatchStatus.AMBIGUOUS,
+                Set.of(SettingCandidateMatchStatus.AMBIGUOUS),
                 pageRequest
         );
     }

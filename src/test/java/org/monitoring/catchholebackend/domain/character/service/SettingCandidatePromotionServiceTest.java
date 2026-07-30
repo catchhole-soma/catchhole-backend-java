@@ -691,7 +691,8 @@ class SettingCandidatePromotionServiceTest {
         assertThat(first.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
         assertThat(sibling.getEntityName()).isEqualTo("아리아");
         assertThat(sibling.getMatchedCharacterId()).isEqualTo(character.getId());
-        assertThat(sibling.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(sibling.getMatchStatus())
+                .isEqualTo(SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
         assertThat(sibling.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
         assertThat(ambiguous.getMatchedCharacterId()).isNull();
         assertThat(ambiguous.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.AMBIGUOUS);

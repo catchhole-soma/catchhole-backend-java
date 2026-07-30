@@ -221,9 +221,9 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
     }
 
     private WorkCharacter resolveCharacterForPromotion(SettingCandidate candidate) {
-        // MATCHED는 명시된 ID로 검증/조회하고, UNRESOLVED만 이름으로 재사용/생성하며, AMBIGUOUS는 사용자 해소가 필요하다.
+        // 직접·이름 자동 연결은 명시된 ID를 사용하고, UNRESOLVED만 이름으로 재사용/생성한다.
         return switch (candidate.getMatchStatus()) {
-            case MATCHED -> getMatchedCharacter(candidate);
+            case MATCHED, AUTO_MATCHED_BY_NAME -> getMatchedCharacter(candidate);
             case UNRESOLVED -> resolveUnresolvedCharacter(candidate);
             case AMBIGUOUS -> throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
         };
@@ -304,7 +304,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                         SettingCandidateReviewStatus.PENDING_REVIEW,
                         SettingCandidateMatchStatus.UNRESOLVED
                 )
-                .forEach(sibling -> sibling.matchExistingCharacter(character));
+                .forEach(sibling -> sibling.autoMatchSameNameCharacter(character));
     }
 
     private void updateFirstAppearance(WorkCharacter character, Episode sourceEpisode) {

@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.auth.security.MemberPrincipal;
@@ -89,8 +90,11 @@ public class SettingCandidateController {
             @RequestParam UUID batchId,
             @Parameter(description = "후보 검토 상태 필터", example = "PENDING_REVIEW")
             @RequestParam(required = false) SettingCandidateReviewStatus reviewStatus,
-            @Parameter(description = "후보 캐릭터 연결 상태 필터", example = "AMBIGUOUS")
-            @RequestParam(required = false) SettingCandidateMatchStatus matchStatus,
+            @Parameter(
+                    description = "후보 캐릭터 연결 상태 필터 목록. 생략하거나 비우면 전체 상태를 조회합니다.",
+                    example = "MATCHED,AUTO_MATCHED_BY_NAME"
+            )
+            @RequestParam(required = false) Set<SettingCandidateMatchStatus> matchStatuses,
             @Parameter(
                     name = "page",
                     in = ParameterIn.QUERY,
@@ -117,7 +121,7 @@ public class SettingCandidateController {
                         workId,
                         batchId,
                         reviewStatus,
-                        matchStatus,
+                        matchStatuses,
                         page,
                         size
                 )

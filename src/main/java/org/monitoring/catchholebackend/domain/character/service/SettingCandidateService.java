@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.character.service;
 
+import java.util.Set;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateCharacterMatchRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateUpdateRequest;
@@ -24,7 +25,7 @@ public interface SettingCandidateService {
             UUID workId,
             UUID batchId,
             SettingCandidateReviewStatus reviewStatus,
-            SettingCandidateMatchStatus matchStatus,
+            Set<SettingCandidateMatchStatus> matchStatuses,
             int page,
             int size
     );

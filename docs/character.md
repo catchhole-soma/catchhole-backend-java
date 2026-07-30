@@ -93,13 +93,13 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 `SettingCandidate.CONFIRMED` 후 확정 데이터는 `CharacterFact`로 저장하고, 현재 기준값은 `WorkCharacter` 스냅샷에 반영합니다.
 
 - confirm 반영은 활성 전역/현재 작품 schema를 조회해 속성 매칭, 값 타입, merge policy 검증을 먼저 통과한 뒤 `matchStatus` 기준으로 대상 `WorkCharacter`를 결정합니다.
-- `MATCHED` 후보는 `matchedCharacterId`의 기존 캐릭터를 사용합니다. `UNRESOLVED` 후보는 trim한 `entityName`과 exact-name인 활성 캐릭터가 있으면 재사용하고, 없으면 새 캐릭터를 생성합니다. 결정된 캐릭터는 확정 후보와 같은 이름의 검토 대기 미해소 형제 후보에도 자동 연결합니다.
+- `MATCHED`, `AUTO_MATCHED_BY_NAME` 후보는 `matchedCharacterId`의 기존 캐릭터를 사용합니다. `UNRESOLVED` 후보는 trim한 `entityName`과 exact-name인 활성 캐릭터가 있으면 재사용하고, 없으면 새 캐릭터를 생성합니다. 결정된 캐릭터는 확정 후보와 같은 이름의 검토 대기 미해소 형제 후보에 `AUTO_MATCHED_BY_NAME`으로 연결합니다.
 - `AMBIGUOUS` 후보는 사용자 해소 전까지 confirm을 거절합니다.
 - schema 매칭은 trim 후 대소문자를 유지한 exact → alias → pattern 순서입니다. alias는 bare 값 또는 `schemaKey`와 같은 namespace에서만 exact 비교하며 fuzzy/부분 일치를 허용하지 않습니다.
 - exact/alias 매칭의 `factKey`는 canonical `schemaKey`이고, pattern 매칭은 trim한 원본 `attributeName`을 `factKey`로 유지합니다. `factType`은 matched schema에서 가져옵니다.
 - 매칭 결과가 없으면 `SETTING_CANDIDATE_SCHEMA_NOT_MATCHED / 400`, 같은 단계에 여러 개면 `SETTING_CANDIDATE_SCHEMA_MATCH_AMBIGUOUS / 409`, 후보와 schema의 `SettingValueType`이 다르면 `SETTING_CANDIDATE_VALUE_TYPE_MISMATCH / 400`으로 거절합니다. `UPSERT_BY_SLOT`, `APPEND`, `DERIVED`는 `SETTING_CANDIDATE_MERGE_POLICY_UNSUPPORTED / 409`로 거절합니다.
 - schema 매칭, 타입 검증, merge policy 검증은 캐릭터 조회/생성 전에 수행합니다. 실패하면 confirm 상태 전이까지 같은 트랜잭션에서 롤백되어 캐릭터와 `CharacterFact` 부수효과가 남지 않습니다.
-- `MATCHED` 캐릭터는 pessimistic write lock으로 조회해 같은 캐릭터의 동시 confirm을 직렬화합니다.
+- `MATCHED`, `AUTO_MATCHED_BY_NAME` 캐릭터는 pessimistic write lock으로 조회해 같은 캐릭터의 동시 confirm을 직렬화합니다.
 - `CharacterFact.effectiveFromEpisodeNo`는 후보의 `episode.episodeNo`를 사용합니다. episode가 없으면 `null`로 저장하고 current 우선순위는 가장 낮게 봅니다.
 - 같은 캐릭터의 같은 `factType + factKey`에서는 가장 큰 `effectiveFromEpisodeNo`를 가진 fact만 current로 둡니다. 같은 회차라면 나중에 생성된 fact가 current가 됩니다.
 - `WorkCharacter.firstAppearanceEpisodeId`는 확정 순서가 아니라 가장 이른 업로드 회차 기준으로 유지합니다.
@@ -147,21 +147,22 @@ Python Worker는 후보 생성 시 `rawEntityMention`, `entityName`, 기존 캐�
 
 `CharacterFact`에는 `matchStatus`를 저장하지 않습니다. `CharacterFact`는 최종 확정된 `WorkCharacter`에 붙은 설정 이력만 표현합니다. AI가 처음 어떤 캐릭터로 판단했는지, 사용자가 어떻게 바꿨는지까지 추적해야 한다면 후속으로 `SettingCandidateReviewLog` 같은 별도 검토 이력 테이블을 설계합니다.
 
-Worker claim은 분석 시작 시점의 기존 캐릭터 목록을 사용하므로, 같은 분석에서 처음 발견된 캐릭터의 여러 속성이 모두 `UNRESOLVED`로 저장될 수 있습니다. 첫 후보가 confirm되면 Backend가 확정 후보와 같은 작품에서 trim 후 exact-name인 `PENDING_REVIEW + UNRESOLVED + CHARACTER` 후보를 새로 결정된 캐릭터에 연결합니다. 대소문자 변환, alias/fuzzy 매칭은 하지 않고 `AMBIGUOUS`, `CONFIRMED`, `DISMISSED` 후보도 자동 변경하지 않습니다. 이 연결과 캐릭터·Fact·snapshot 반영은 같은 confirm 트랜잭션에서 처리합니다.
+Worker claim은 분석 시작 시점의 기존 캐릭터 목록을 사용하므로, 같은 분석에서 처음 발견된 캐릭터의 여러 속성이 모두 `UNRESOLVED`로 저장될 수 있습니다. 첫 후보가 confirm되면 Backend가 확정 후보와 같은 작품에서 trim 후 exact-name인 `PENDING_REVIEW + UNRESOLVED + CHARACTER` 후보를 새로 결정된 캐릭터에 `AUTO_MATCHED_BY_NAME`으로 연결합니다. 대소문자 변환, alias/fuzzy 매칭은 하지 않고 `AMBIGUOUS`, `CONFIRMED`, `DISMISSED` 후보도 자동 변경하지 않습니다. 이 연결과 캐릭터·Fact·snapshot 반영은 같은 confirm 트랜잭션에서 처리합니다.
 
 후보 상태별 confirm 정책:
 
 | 상태 | confirm 처리 |
 | --- | --- |
 | `MATCHED` + `matchedCharacterId` 있음 | `matchedCharacterId`의 기존 `WorkCharacter`에 `CharacterFact`를 생성합니다. `entityName`이 다르더라도 명시적으로 매칭된 캐릭터를 우선합니다. |
-| `UNRESOLVED` | trim한 `entityName` 기준으로 같은 작품의 exact-name 활성 `WorkCharacter`를 재사용하고, 없으면 새로 생성합니다. 확정 후보 자체와 같은 작품·이름의 `PENDING_REVIEW + UNRESOLVED + CHARACTER` 후보를 해당 캐릭터에 `MATCHED`로 연결합니다. |
+| `AUTO_MATCHED_BY_NAME` + `matchedCharacterId` 있음 | 같은 이름 후보의 앞선 확정에서 결정한 `WorkCharacter`에 `CharacterFact`를 생성합니다. |
+| `UNRESOLVED` | trim한 `entityName` 기준으로 같은 작품의 exact-name 활성 `WorkCharacter`를 재사용하고, 없으면 새로 생성합니다. 확정 후보 자체와 같은 작품·이름의 `PENDING_REVIEW + UNRESOLVED + CHARACTER` 후보를 해당 캐릭터에 `AUTO_MATCHED_BY_NAME`으로 연결합니다. |
 | `AMBIGUOUS` | 그대로는 confirm을 허용하지 않습니다. 사용자가 기존 캐릭터에 연결하거나 새 캐릭터로 확정해 `MATCHED` 또는 `UNRESOLVED` 상태로 해소한 뒤 confirm합니다. |
 
 confirm 데이터 계약 위반으로 보고 거절할 조합:
 
 | 조합 | 처리 |
 | --- | --- |
-| `MATCHED`인데 `matchedCharacterId`가 없음 | `SETTING_CANDIDATE_MATCH_STATUS_CONFLICT / 409`로 confirm 거절 |
+| `MATCHED` 또는 `AUTO_MATCHED_BY_NAME`인데 `matchedCharacterId`가 없음 | `SETTING_CANDIDATE_MATCH_STATUS_CONFLICT / 409`로 confirm 거절 |
 | `UNRESOLVED`인데 `matchedCharacterId`가 있음 | `SETTING_CANDIDATE_MATCH_STATUS_CONFLICT / 409`로 confirm 거절 |
 | `UNRESOLVED` 후보의 `entityName`과 완전히 동일한 이름의 활성 캐릭터가 같은 작품에 이미 있음 | 기존 활성 캐릭터를 pessimistic write lock으로 조회해 재사용 |
 | `UNRESOLVED` 후보의 `entityName`과 완전히 동일한 이름의 보관 캐릭터만 있음 | 보관 캐릭터는 유지하고 같은 이름의 새 `ACTIVE` 캐릭터 생성 |
@@ -192,7 +193,7 @@ confirm 데이터 계약 위반으로 보고 거절할 조합:
 
 새 캐릭터로 확정할 때 같은 작품에 완전히 동일한 이름의 `ACTIVE` 캐릭터가 이미 있으면 거절합니다. 이 경우 사용자는 "기존 캐릭터에 연결" 액션을 사용해야 합니다. 동일 이름의 `ARCHIVED` 캐릭터는 새 캐릭터 확정과 이후 confirm을 막지 않습니다.
 
-`MATCHED`, `UNRESOLVED` 후보도 사용자가 AI 판단을 바꿀 수 있습니다. 예를 들어 AI가 기존 캐릭터와 매칭한 후보라도 사용자가 새 캐릭터로 판단할 수 있고, AI가 신규 후보로 본 값이라도 사용자가 기존 캐릭터와 같은 인물이라고 판단할 수 있습니다.
+`MATCHED`, `AUTO_MATCHED_BY_NAME`, `UNRESOLVED` 후보도 사용자가 연결 판단을 바꿀 수 있습니다. 자동 연결 후보를 기존 캐릭터에 직접 다시 연결하면 `MATCHED`, 새 캐릭터 등록 예정으로 바꾸면 `UNRESOLVED`가 됩니다.
 
 작중 시간 정렬 후속 TODO:
 
@@ -246,7 +247,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 - `pendingCandidateCount`: `PENDING_REVIEW` 후보 수
 - `matchRequiredCandidateCount`: `PENDING_REVIEW + AMBIGUOUS` 후보 수
 
-목록에는 `reviewStatus`, `matchStatus` 필터를 선택적으로 적용하며, 집계는 이 필터의 영향을 받지
+목록에는 `reviewStatus`, 복수 `matchStatuses` 필터를 선택적으로 적용하며, 집계는 이 필터의 영향을 받지
 않습니다. 후보는 `episodeNo ASC, createdAt ASC, id ASC`로 고정 정렬해 페이지 사이 순서를
 안정적으로 유지합니다. 근거 `startOffset` 정렬은 목록/상세 근거 계약을 분리하는 후속 작업에서
 추가합니다.
@@ -366,7 +367,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `entity_name` | 캐릭터명 또는 대상명 |
 | `raw_entity_mention` | 원문에 실제 등장한 대상 표현. 예: `나`, `프넬린의 두 번째 딸 아이나르` |
 | `matched_character_id` | 기존 `characters.id`와 확실히 매칭된 경우 저장하는 캐릭터 FK |
-| `match_status` | 기존 캐릭터 매칭 상태. `MATCHED`, `UNRESOLVED`, `AMBIGUOUS` |
+| `match_status` | 캐릭터 연결 상태. `MATCHED`, `AUTO_MATCHED_BY_NAME`, `UNRESOLVED`, `AMBIGUOUS` |
 | `attribute_name` | `age`, `level`, `stats.strength`, `skill.은월참`, `item.화염검`, `status.악령_깃들임` 등 속성명 |
 | `attribute_value` | 목록/검색 표시용 값 |
 | `value_type` | 값 타입 |
@@ -410,6 +411,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 캐릭터 매칭 상태 기준:
 
 - `MATCHED`: 기존 캐릭터 하나와 확실히 연결된 상태입니다. `matched_character_id`가 있어야 합니다.
+- `AUTO_MATCHED_BY_NAME`: 앞서 확정한 같은 이름 후보가 결정한 캐릭터에 자동 연결된 상태입니다. `matched_character_id`가 있어야 합니다.
 - `UNRESOLVED`: 아직 기존 캐릭터로 확정 연결되지 않은 상태입니다. 새 캐릭터일 가능성이 있습니다.
 - `AMBIGUOUS`: 후보가 여러 명이거나 `나`, `그`, `그녀`, `주인공`처럼 지칭 대상이 문맥 의존적이라 기존 캐릭터 하나로 확정하지 못한 상태입니다. 단, Worker가 `entityName`을 기존 캐릭터 1명과 유일하게 매칭하면 `MATCHED`로 저장될 수 있습니다.
 - `UNRESOLVED`, `AMBIGUOUS`에서는 `matched_character_id`를 비워두고 사용자 검토 또는 후속 resolver 대상으로 남깁니다.
@@ -497,7 +499,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/v1/works/{workId}/setting-candidates` | 필수 `batchId` 범위의 설정 후보를 `reviewStatus`, `matchStatus`, `page`, `size`로 페이지 조회합니다. 묶음 전체 회차 범위와 검토 집계를 함께 반환합니다. |
+| `GET` | `/api/v1/works/{workId}/setting-candidates` | 필수 `batchId` 범위의 설정 후보를 `reviewStatus`, 복수 `matchStatuses`, `page`, `size`로 페이지 조회합니다. 묶음 전체 회차 범위와 검토 집계를 함께 반환합니다. |
 | `GET` | `/api/v1/works/{workId}/setting-candidates/{candidateId}` | 필수 `batchId` 범위에 속한 특정 설정 후보 상세를 조회합니다. 다른 묶음 후보는 404로 숨깁니다. |
 | `PATCH` | `/api/v1/works/{workId}/setting-candidates/{candidateId}` | `PENDING_REVIEW` 후보의 사용자용 설정명과 표시값만 보정합니다. 값 타입과 최초 근거는 유지하고 JSON 복합 후보가 실제로 바뀌면 현재 구조화 값은 name-only로 축소합니다. |
 | `POST` | `/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm` | 설정 후보를 `CONFIRMED` 상태로 전환하고, 처음 확정되는 후보는 schema, 값 타입, merge policy 검증 후 캐릭터 설정 이력과 현재 스냅샷에 반영합니다. |
@@ -716,12 +718,12 @@ flowchart TD
     CV -->|"유효하거나 다른 Fact 유형"| JP["상세 편집에 노출되는 valueJson 공개 속성<br/>전체 수정 요청 왕복 가능 여부 검증"]
     JP -->|"공백·길이·예약 key 또는<br/>문자열 공백 계약 위반"| Y6["확정 반영 거절<br/>SETTING_CANDIDATE_VALUE_JSON_INVALID / 400"]
     JP -->|"유효"| F["matchStatus 기반 대상 WorkCharacter 결정"]
-    F -->|"MATCHED"| F1["matchedCharacterId 캐릭터 검증 후<br/>pessimistic write lock 조회"]
+    F -->|"MATCHED 또는 AUTO_MATCHED_BY_NAME"| F1["matchedCharacterId 캐릭터 검증 후<br/>pessimistic write lock 조회"]
     F -->|"UNRESOLVED"| F2["작품 row write lock 후<br/>trim한 entityName exact 조회"]
     F -->|"AMBIGUOUS"| F3["해소 전 confirm 거절"]
     F2 -->|"동일 이름 활성 캐릭터 있음"| F5["기존 WorkCharacter<br/>write lock 조회 후 재사용"]
     F2 -->|"동일 이름 활성 캐릭터 없음<br/>보관 캐릭터만 있는 경우 포함"| F4["entityName 기준 새 ACTIVE WorkCharacter 생성"]
-    F5 --> H["확정 후보와 같은 이름의<br/>PENDING_REVIEW + UNRESOLVED 형제 후보를 MATCHED로 연결"]
+    F5 --> H["확정 후보와 같은 이름의<br/>PENDING_REVIEW + UNRESOLVED 형제 후보를 AUTO_MATCHED_BY_NAME으로 연결"]
     F4 --> H
     F1 --> I["첫 등장 회차 보정<br/>더 이른 episode면 firstAppearanceEpisodeId 갱신"]
     H --> I
@@ -746,7 +748,7 @@ flowchart TD
 - `AGE`, `LEVEL`은 `valueJson.value` 또는 primitive 구조화 숫자를 우선 사용하고, 구조화 대표값이 없을 때만 `attributeValue`를 사용합니다. 값은 0 이상이면서 Java `Integer` 범위의 정확한 정수여야 하며 소수, 음수, 범위 초과 값은 `SETTING_CANDIDATE_VALUE_INVALID / 400`으로 거절합니다.
 - `PROFILE`, `STAT`, `SKILL`, `ITEM`, `STATUS` 후보에서 `valueJson` object의 정확한 `value` key는 화면에 공개하지 않는 대표값 envelope로 허용합니다. 나머지 최상위 공개 속성은 key가 공백 없이 100자 이하이고 앞뒤 공백·예약 key 충돌·정규화 후 중복이 없어야 하며, 직접 문자열 값은 비어 있지 않고 앞뒤 공백이 없어야 합니다. 공개 속성이 있는 `STRING`, `NUMBER`, `BOOLEAN`, `UNKNOWN` 후보에는 선언 타입과 호환되는 `value` envelope도 필요합니다. 위반하면 `SETTING_CANDIDATE_VALUE_JSON_INVALID / 400`으로 거절합니다. 중첩 object·array의 내부 구조는 이 검증에서 정규화하지 않습니다.
 - 매칭 없음·복수 매칭·타입 불일치·미지원 정책·대표값 또는 공개 속성 검증 실패를 포함해 확정 반영 중 오류가 발생하면 후보 상태 전이, 신규 캐릭터 생성, `CharacterFact` 생성이 같은 트랜잭션에서 함께 롤백됩니다.
-- 후보 캐릭터 결정은 `matchStatus`를 기준으로 수행합니다. `MATCHED`는 `matchedCharacterId`를 사용합니다. `UNRESOLVED`는 작품 row를 pessimistic write lock으로 잡은 뒤 trim한 `entityName` exact-name 활성 캐릭터를 재사용하거나 새 캐릭터를 생성하고, 확정 후보와 같은 작품·이름의 `PENDING_REVIEW + UNRESOLVED + CHARACTER` 후보를 `MATCHED`로 연결합니다. `AMBIGUOUS`와 이미 검토된 후보는 자동 변경하지 않습니다.
+- 후보 캐릭터 결정은 `matchStatus`를 기준으로 수행합니다. `MATCHED`, `AUTO_MATCHED_BY_NAME`은 `matchedCharacterId`를 사용합니다. `UNRESOLVED`는 작품 row를 pessimistic write lock으로 잡은 뒤 trim한 `entityName` exact-name 활성 캐릭터를 재사용하거나 새 캐릭터를 생성하고, 확정 후보와 같은 작품·이름의 `PENDING_REVIEW + UNRESOLVED + CHARACTER` 후보를 `AUTO_MATCHED_BY_NAME`으로 연결합니다. `AMBIGUOUS`와 이미 검토된 후보는 자동 변경하지 않습니다.
 - `mapper.toWorkCharacter(candidate)`와 `mapper.toCharacterFact(...)`가 Entity factory를 호출합니다. `toCharacterFact`는 원본 후보를 `settingCandidate`로 연결해 `evidenceSpans`를 역추적할 수 있게 하며, service는 `Entity.create()` 파라미터를 직접 조립하지 않습니다.
 - `saveAndFlush(newFact)` 후 같은 `character + factType + factKey`의 전체 이력을 다시 조회합니다. confirm 순서와 회차 순서가 다를 수 있기 때문입니다.
 - `selectCurrentFact`는 `effectiveFromEpisodeNo`가 가장 큰 fact를 current로 고릅니다. `effectiveFromEpisodeNo = null`인 fact는 가장 오래된 값으로 봅니다.
@@ -780,7 +782,7 @@ flowchart TD
     C -->|없거나 다른 작품 묶음| X["SETTING_CANDIDATE_BATCH_NOT_FOUND / 404"]
     C -->|유효한 묶음| D["AnalysisJob에서 대상 회차 범위 집계"]
     D --> E["필터와 무관한 전체 후보 검토 집계"]
-    E --> F["reviewStatus / matchStatus를 적용한 후보 페이지 조회"]
+    E --> F["reviewStatus / matchStatuses를 적용한 후보 페이지 조회"]
     F --> G["episodeNo ASC → createdAt ASC → id ASC 정렬"]
     G --> H["SettingCandidateResponse 목록 변환"]
     H --> I["회차 범위 + 전체 집계 + PageResponse 조립"]
@@ -791,7 +793,7 @@ flowchart TD
 
 - 다른 작품의 `batchId`도 존재 여부를 노출하지 않고 404로 응답합니다.
 - 회차 범위는 후보가 아니라 같은 작품·묶음의 `AnalysisJob.episode`를 집계합니다.
-- 전체·완료·대기·연결 필요 수는 `reviewStatus`, `matchStatus` 필터와 무관합니다.
+- 전체·완료·대기·연결 필요 수는 `reviewStatus`, `matchStatuses` 필터와 무관합니다.
 - 후보 페이지는 0부터 시작하고 기본 크기는 20, 허용 크기는 1~100입니다.
 - 현재 정렬은 회차 번호, 후보 생성 시각, 후보 ID 순입니다. 근거 offset tie-break는 후속 범위입니다.
 

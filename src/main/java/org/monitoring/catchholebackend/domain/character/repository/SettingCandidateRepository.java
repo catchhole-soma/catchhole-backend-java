@@ -47,7 +47,7 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
                     where candidate.work.id = :workId
                       and analysisJob.batch.id = :batchId
                       and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
-                      and (:matchStatus is null or candidate.matchStatus = :matchStatus)
+                      and candidate.matchStatus in :matchStatuses
                     order by episode.episodeNo asc, candidate.createdAt asc, candidate.id asc
                     """,
             countQuery = """
@@ -57,14 +57,14 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
                     where candidate.work.id = :workId
                       and analysisJob.batch.id = :batchId
                       and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
-                      and (:matchStatus is null or candidate.matchStatus = :matchStatus)
+                      and candidate.matchStatus in :matchStatuses
                     """
     )
     Page<SettingCandidate> findReviewPage(
             @Param("workId") UUID workId,
             @Param("batchId") UUID batchId,
             @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus,
-            @Param("matchStatus") SettingCandidateMatchStatus matchStatus,
+            @Param("matchStatuses") Collection<SettingCandidateMatchStatus> matchStatuses,
             Pageable pageable
     );
 

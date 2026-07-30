@@ -38,10 +38,10 @@ public record SettingCandidateResponse(
         @Schema(description = "원문에 실제 등장한 설정 대상 표현", example = "프넬린의 두 번째 딸 아이나르", nullable = true)
         String rawEntityMention,
 
-        @Schema(description = "기존 캐릭터와 확실히 매칭된 경우 characters.id", example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d666", nullable = true)
+        @Schema(description = "직접 또는 같은 이름으로 연결 완료한 characters.id", example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d666", nullable = true)
         UUID matchedCharacterId,
 
-        @Schema(description = "기존 캐릭터 매칭 상태", example = "UNRESOLVED")
+        @Schema(description = "캐릭터 연결 상태. 같은 이름 후보의 자동 연결 여부를 포함", example = "UNRESOLVED")
         SettingCandidateMatchStatus matchStatus,
 
         @Schema(description = "설정 속성명", example = "level")

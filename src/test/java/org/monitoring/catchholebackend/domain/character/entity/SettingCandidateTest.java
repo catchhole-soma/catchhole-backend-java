@@ -79,6 +79,28 @@ class SettingCandidateTest {
     }
 
     @Test
+    @DisplayName("같은 이름 자동 연결은 별도 상태로 남고 사용자가 다시 연결하면 일반 연결로 바뀐다")
+    void autoMatchSameNameCharacterTracksAutomaticMatchUntilUserChangesTarget() {
+        Work work = work();
+        SettingCandidate candidate = candidate(work, "age", "17");
+        WorkCharacter automaticallyMatched = character(work, "이안");
+        WorkCharacter manuallyMatched = character(work, "아리아");
+
+        candidate.autoMatchSameNameCharacter(automaticallyMatched);
+
+        assertThat(candidate.getEntityName()).isEqualTo("이안");
+        assertThat(candidate.getMatchedCharacterId()).isEqualTo(automaticallyMatched.getId());
+        assertThat(candidate.getMatchStatus())
+                .isEqualTo(SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
+
+        candidate.matchExistingCharacter(manuallyMatched);
+
+        assertThat(candidate.getEntityName()).isEqualTo("아리아");
+        assertThat(candidate.getMatchedCharacterId()).isEqualTo(manuallyMatched.getId());
+        assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+    }
+
+    @Test
     @DisplayName("확정 반영이 결정한 캐릭터는 후보를 다시 편집 가능하게 만들지 않고 연결한다")
     void matchPromotedCharacterConnectsConfirmedCandidate() {
         Work work = work();
