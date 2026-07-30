@@ -19,6 +19,27 @@ public record CharacterSettingResponse(
         @Schema(description = "화면 표시명", example = "근력")
         String displayName,
 
+        @Schema(
+                description = "canonical key의 동적 suffix 수정 가능 여부",
+                example = "false",
+                requiredMode = Schema.RequiredMode.REQUIRED
+        )
+        boolean attributeNameEditable,
+
+        @Schema(
+                description = "동적 key 수정 시 서버가 허용하는 고정 prefix",
+                example = "skill.",
+                nullable = true
+        )
+        String attributeNamePrefix,
+
+        @Schema(
+                description = "화면 표시명 수정 가능 여부",
+                example = "false",
+                requiredMode = Schema.RequiredMode.REQUIRED
+        )
+        boolean displayNameEditable,
+
         @Schema(description = "사용자용 설정 표시값", example = "42", nullable = true)
         String value,
 

@@ -130,7 +130,9 @@ confirm은 `rawAiResultJson`에서 수정 전 속성을 복원하거나 기존 F
 - 캐릭터 직접 수정은 AI 후보를 기존 값에 병합하는 과정이 아니라 사용자가 편집 가능한 현재 설정의 최종 상태를 확정하는 과정입니다. 따라서 schema의 `mergePolicy`를 다시 적용하지 않고 `factType + factKey` entry 단위의 `REPLACE`로 처리합니다.
 - 나이·레벨·프로필·스탯·스킬·아이템·상태는 기존 항목의 값 변경뿐 아니라 새 항목 추가와 기존 항목 제거도 지원합니다. 변경·추가된 `factType + factKey`마다 출처 후보와 회차가 없는 수동 정정 `CharacterFact`를 새로 만들고, 변경·제거된 이전 current Fact는 historical로 전환합니다.
 - 수정 요청은 편집 가능한 현재 설정 전체를 전달합니다. 값이 동일한 Fact는 ID와 원문 근거를 포함해 그대로 유지하고, 기존 current Fact가 요청에서 빠지면 historical로 전환한 뒤 대응 snapshot에서 제거합니다. 화면 편집 범위가 아닌 `TIME` Fact는 요청과 비교하지 않고 유지합니다.
-- 설정이나 세부 속성의 `valueType`이 `JSON`이면 값 문자열은 정확히 하나의 완전한 JSON 값이어야 합니다. 빈 문자열 또는 `"{} {}"`처럼 여러 JSON 값이 이어진 입력은 `CHARACTER_SETTING_VALUE_INVALID / 400`으로 거절하며 이름과 Fact를 포함한 수정 전체를 롤백합니다.
+- 상세 설정의 편집 메타데이터는 활성 schema를 기준으로 계산합니다. exact key는 key와 표시명을 잠그고, pattern key는 고정 prefix 뒤의 suffix와 표시명을 함께 바꿀 수 있으며, `manual_`·미등록 custom key는 key를 유지한 채 표시명만 바꿀 수 있습니다.
+- pattern suffix는 새로 추가하거나 이름을 바꿀 때 공백을 underscore로 정규화해 canonical key에 저장합니다. 화면 표시명과 새 `valueJson.name`은 suffix의 underscore를 공백으로 바꾼 값을 사용하므로 key와 이름이 서로 어긋나지 않습니다.
+- 설정의 `value`는 JSON 설정에서도 사용자용 표시 문자열입니다. raw JSON으로 파싱하지 않으며, 세부 property가 `JSON` 타입이면 그 property 값만 정확히 하나의 완전한 JSON 값인지 검증합니다.
 - 여러 설정 변경과 snapshot 재구성은 같은 트랜잭션에서 처리합니다.
 - 화면의 버튼과 API 동사는 `삭제`이지만 DB 행은 지우지 않습니다. `DELETE` 요청은 `WorkCharacter.status`만 `ACTIVE → ARCHIVED`로 바꾸며 `CharacterFact`, `SettingCandidate`, 원문 근거는 유지합니다.
 - 복구 요청은 보관 캐릭터 행을 잠금 조회하고 다른 `ACTIVE` 캐릭터와의 이름 중복을 확인한 뒤 `ARCHIVED → ACTIVE`로 바꿉니다. 보관과 복구 모두 기존 설정 이력과 원문 근거를 수정하지 않습니다.
@@ -460,6 +462,12 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 - 정확히 하나의 schema가 결정되고 후보와 schema의 `SettingValueType`이 같을 때 `matchedSchema + factKey` 결과를 반환합니다.
 - 매칭 없음, 같은 단계 복수 매칭, 값 타입 불일치는 `AppException`으로 fail-closed 처리하며 Repository 조회나 저장은 직접 수행하지 않습니다.
 
+`CharacterSettingEditPolicyResolver`
+
+- 캐릭터 상세의 current Fact key를 같은 `factType`의 활성 schema exact → pattern 순으로 해석해 직접 편집 정책을 반환합니다.
+- exact는 key·표시명 잠금, pattern은 같은 prefix의 suffix 편집, `manual_`·미등록 custom은 key 잠금과 표시명 편집으로 구분합니다.
+- 후보 확정용 resolver와 달리 이미 저장된 custom Fact도 상세 조회·수정해야 하므로 schema 미매칭을 오류로 만들지 않습니다.
+
 `CharacterSnapshotAssembler`
 
 - 호출자가 제공한 current Fact에서 `AGE`, `LEVEL` 숫자 스냅샷과 `PROFILE`, `STAT`, `SKILL`, `ITEM`, `STATUS/TIME`별 `factKey -> raw valueJson` object map을 조립합니다.
@@ -480,7 +488,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `DELETE` | `/api/v1/works/{workId}/characters/{characterId}` | 삭제 버튼 요청을 처리하되 데이터를 지우지 않고 상태를 `ARCHIVED`로 전환합니다. |
 | `PATCH` | `/api/v1/works/{workId}/characters/{characterId}/restore` | 보관된 캐릭터의 설정 이력을 유지한 채 상태를 `ACTIVE`로 복구합니다. |
 
-상세 설정 항목은 `characterFactId`, canonical `key`, `displayName`, 사용자용 `value`, `valueType`, 복합값의 `properties`, `hasEvidence`를 제공합니다. 기본 정보로 분리해 표시하는 현재 나이와 레벨도 각각 `currentAgeFact`, `currentLevelFact`에 `characterFactId`, `hasEvidence`를 제공합니다. raw JSON snapshot은 응답하지 않습니다.
+상세 설정 항목은 `characterFactId`, canonical `key`, `displayName`, `attributeNameEditable`, `attributeNamePrefix`, `displayNameEditable`, 사용자용 `value`, `valueType`, 복합값의 `properties`, `hasEvidence`를 제공합니다. exact schema는 `false/null/false`, 등록 pattern은 `true/<pattern prefix>/true`, `manual_`·미등록 custom은 `false/null/true`입니다. 기본 정보로 분리해 표시하는 현재 나이와 레벨도 각각 `currentAgeFact`, `currentLevelFact`에 `characterFactId`, `hasEvidence`를 제공합니다. raw JSON snapshot은 응답하지 않습니다.
 
 `characterFactId`와 `hasEvidence`는 MVP 전체 범위에 포함된 원문 근거 패널을 후속 PR에서 연결하기 위한 계약입니다. 현재 PR은 캐릭터 현재 설정 조회·전체 수정·보관·복구까지만 제공하며, `characterFactId`로 Fact 또는 `SettingCandidate.evidenceSpans`를 조회하는 API는 포함하지 않습니다. 후속 PR에서 CharacterFact 상세·근거 조회 경로를 추가하기 전까지 클라이언트는 이 ID를 즉시 조회 가능한 근거 링크로 해석하지 않습니다.
 
@@ -572,19 +580,21 @@ flowchart TD
     D -->|"중복 없음"| E["첫 등장 회차 번호 검증<br/>동일 번호는 기존 ID 유지<br/>변경 번호는 비보관 회차 ID로 변환"]
     E -->|"작품에 없거나 새로 지정할 수 없는 보관 회차"| X2["회차 조회 실패 응답<br/>EPISODE_NOT_FOUND / 404"]
     E -->|"유효하거나 값 없음"| F["활성 schema와 기존 전체 current Fact 조회"]
-    F --> G["요청을 factType + factKey 목표 상태로 변환<br/>등록 schema 타입 검증·동일 JSON raw 값 보존"]
+    F --> G["요청을 factType + factKey 목표 상태로 변환<br/>exact·pattern·custom 편집 정책과 타입 검증"]
     G -->|"설정 검증 실패"| X3["설정 검증 실패 응답<br/>400"]
     G -->|"검증 성공"| H["이름·역할·첫 등장 회차<br/>WorkCharacter 기본 필드 갱신"]
     H --> I["현재 Fact와 목표 상태 비교<br/>applyManualCorrections"]
 
     I -->|"같은 key와 같은 값"| I1["기존 Fact와 원문 근거 유지"]
     I -->|"같은 key지만 값 변경"| I2["기존 Fact historical 전환<br/>근거 없는 새 manual Fact 생성"]
+    I -->|"pattern suffix 변경"| I6["기존 key Fact historical 전환<br/>정규화한 새 key로 manual Fact 생성"]
     I -->|"기존 key가 요청에서 제거됨"| I3["기존 Fact historical 전환<br/>대체 Fact는 생성하지 않음"]
     I -->|"요청에 새 key가 추가됨"| I4["근거 없는 새 manual Fact 생성"]
     I -->|"TIME Fact"| I5["화면 편집 대상이 아니므로<br/>current 상태 그대로 유지"]
 
     I1 --> J["Fact 상태 변경과 신규 Fact flush"]
     I2 --> J
+    I6 --> J
     I3 --> J
     I4 --> J
     I5 --> J
@@ -604,13 +614,14 @@ flowchart TD
 - 복구도 다른 `ACTIVE` 캐릭터의 이름만 중복으로 판단합니다. 동명 활성 캐릭터가 생긴 뒤 과거 캐릭터를 복구하려면 먼저 활성 캐릭터의 이름을 변경하거나 해당 캐릭터를 보관해야 합니다.
 - DB의 `(work_id, name)` 인덱스는 unique 제약이 아니지만, 정상 API의 이름 수정·복구와 신규 캐릭터 생성은 모두 작품 row 잠금을 먼저 획득해 이름 조회와 변경을 직렬화합니다. 따라서 같은 작품·이름의 `ACTIVE` 캐릭터는 최대 하나만 유지됩니다. DB에 직접 쓰는 운영 외 경로는 이 애플리케이션 잠금 규칙을 우회하므로 허용하지 않습니다.
 - 첫 등장 회차 번호가 `null`이면 연결을 제거합니다. 요청 번호가 현재 참조 회차 번호와 같으면 회차가 보관되어도 기존 UUID를 유지하고, 번호를 변경할 때만 같은 작품의 `ARCHIVED`가 아닌 회차를 새 참조로 허용합니다. 따라서 보관 회차를 새로 지정하거나 같은 번호의 새 활성 회차로 변경 없이 갈아끼우는 것은 허용하지 않습니다. 이름·역할·첫 등장 회차는 Fact가 아니라 `WorkCharacter` 대표 필드에서 직접 관리합니다.
-- `toDesiredFacts`는 `currentAge`, `currentLevel`, `profile`, `stats`, `skills`, `items`, `statuses`를 `(factType, factKey)` 기준의 목표 상태로 변환합니다. 나이와 레벨은 각각 `(AGE, age)`, `(LEVEL, level)`을 사용합니다. 나머지 설정은 같은 Fact 유형의 활성 schema와 정확히 일치하는 canonical key를 우선 허용하고, 등록되지 않은 custom key와 pattern key에는 유형별 prefix 규칙을 적용하며 요청 내 중복 key를 검증합니다.
-- 활성 schema의 `schemaKey`와 정확히 일치하거나 `attributePattern`에 일치하는 설정은 요청 `valueType`도 schema와 같아야 합니다. 다르면 `CHARACTER_SETTING_VALUE_TYPE_MISMATCH / 400`으로 거절하며, 어떤 활성 schema에도 등록되지 않은 수동 custom key는 기존 정책대로 유형별 prefix만 유효하면 허용합니다.
-- 설정에 세부 `properties`가 없고 같은 `(factType, factKey)`의 표시값도 바뀌지 않았다면, 상세 응답의 `properties`로 복원할 수 없는 기존 raw `valueJson`만 그대로 목표 상태에 사용합니다. 대상은 `null`, non-object primitive, 빈 object, 예약 `value` key만 있는 object이며 `STRING`, `NUMBER`, `BOOLEAN`, `JSON`에 같은 규칙을 적용합니다. schema가 없는 custom 설정은 저장 JSON에서 추론한 타입과 요청 `valueType`도 같아야 raw 값을 보존합니다. 기존 object에 예약 `value`와 공개 속성이 함께 있으면 등록 schema의 타입이 검증됐거나 저장 `value` 타입과 요청 타입이 같고, JSON 타입이거나 non-JSON 표시값이 바뀌지 않은 경우에만 숨겨진 `value` envelope를 유지합니다. 요청의 공개 `properties`는 목표 상태로 다시 구성합니다. `name`, `level`처럼 응답 가능한 속성이 있는 object에서 빈 `properties`를 보내면 속성 제거 요청으로 보고 기존 요청 변환을 적용합니다. 표시값 또는 타입이 바뀌거나 raw 값을 보존할 수 없으면 요청의 `valueType`에 맞춰 값을 재구성하며 유효하지 않으면 `CHARACTER_SETTING_VALUE_INVALID / 400`으로 거절합니다.
-- 프로필·스탯처럼 단일 값을 가지면서 사용자 정의 표시명이 필요한 수동 설정은 `valueJson.value`에 타입이 보존된 대표값을, `valueJson.name`에 화면 표시명을 저장합니다. 요청 `properties`의 `value` key는 대표값 envelope와 충돌하므로 `CHARACTER_SETTING_KEY_INVALID / 400`으로 거절합니다.
+- `toDesiredFacts`는 `currentAge`, `currentLevel`, `profile`, `stats`, `skills`, `items`, `statuses`를 `(factType, factKey)` 기준의 목표 상태로 변환합니다. 나이와 레벨은 각각 `(AGE, age)`, `(LEVEL, level)`을 사용합니다. 나머지 설정은 `CharacterSettingEditPolicyResolver`로 exact, pattern, custom을 구분하고 유형별 prefix, schema 값 타입과 요청 내 중복 key를 검증합니다.
+- exact 설정은 `schemaKey`와 schema 표시명을 서버 권위 값으로 사용하므로 두 이름을 클라이언트 property로 바꿀 수 없습니다. pattern 설정은 같은 schema의 prefix를 고정하고 suffix만 수정할 수 있습니다. `manual_` key와 미등록 custom key는 실제 `factKey`를 잠그고 `properties.name`만 사용자 표시명으로 수정할 수 있습니다.
+- pattern key를 새로 추가하거나 이름을 바꾸면 suffix 앞뒤 공백을 제거하고 내부 공백을 underscore로 바꿉니다. 예를 들어 `skill.서리 검술`은 `skill.서리_검술`로 저장하고 표시명과 `valueJson.name`은 `서리 검술`로 통일합니다. 기존 key를 수정하지 않은 저장은 레거시 key 표현만 바꾸기 위해 Fact를 교체하지 않습니다.
+- exact·pattern 설정은 같은 key와 `factValue`이면 요청에서 숨은 property가 빠지거나 변조되어도 기존 `valueJson`과 근거를 그대로 유지합니다. custom 설정은 key, `factValue`, 표시명과 저장 타입까지 같아야 동일 값으로 봅니다. 이 no-op 판정은 클라이언트가 알 수 없는 `null`, primitive, `value` envelope, rich object의 표현 차이로 근거가 사라지는 것을 막습니다.
+- 실제 추가·이름 변경·값 변경은 요청의 숨은 property를 기존 JSON과 merge하지 않습니다. JSON pattern/custom은 `{"name":"화면 표시명"}`, scalar pattern/custom은 `{"value":<선언 타입 값>,"name":"화면 표시명"}`, scalar exact는 `{"value":<선언 타입 값>}`만 새 Manual Fact에 저장합니다. 기존 `description`, `level`, `quantity` 같은 rich JSON은 historical Fact에 그대로 남고 새 current Fact에는 추측해 복사하지 않습니다.
+- 요청 `properties`의 정확한 `value` key는 대표값 envelope와 충돌하므로 `CHARACTER_SETTING_KEY_INVALID / 400`으로 거절합니다. 그 밖의 property도 중복 key와 선언 타입의 파싱 가능 여부는 검증하지만, 실제 변경 시 `name` 외 숨은 property는 새 Fact 조립에 사용하지 않습니다.
 - 직접 수정은 schema merge 정책의 적용 대상이 아닙니다. AI 후보 확정은 새 관찰값을 현재값에 반영하는 방법을 결정하기 위해 `REPLACE`, `UPSERT_BY_NAME`을 검증하지만, 직접 수정은 사용자가 최종 상태를 명시하므로 모든 편집 가능 설정을 `factType + factKey` entry 단위 `REPLACE`로 처리합니다. `valueJson` 내부 deep merge도 하지 않습니다.
-- `AGE`, `LEVEL`은 snapshot과 화면의 기준인 `valueJson.value` 숫자를 우선 비교하고, 구조화 숫자가 없을 때만 숫자로 해석 가능한 `factValue`를 사용합니다. 따라서 `23세` 또는 `23.0`처럼 표시 문자열이 달라도 구조화 숫자가 `23`이면 기존 Fact와 근거를 유지합니다. 나머지 설정은 사용자 표시값인 `factValue`와 구조화 값인 `valueJson`이 모두 같은지 확인합니다. JSON 객체는 key 순서와 무관하게 비교하고 숫자는 `42`와 `42.0`처럼 표현만 다른 경우 같은 값으로 봅니다. 배열은 원소 순서까지 같아야 합니다.
-- 과거 scalar Fact의 `valueJson`이 `null`이지만 같은 표시값의 수정 요청이 `{"value": ...}`로 재조립되는 경우에는 저장 표현만 다른 동일 값으로 판단해 기존 Fact와 근거를 유지합니다. 이 예외는 JSON 타입이나 추가 속성이 있는 설정에는 적용하지 않으므로 구조화 값의 실제 변경은 계속 새 수동 Fact를 만듭니다.
+- `AGE`, `LEVEL`은 snapshot과 화면의 기준인 `valueJson.value` 숫자를 우선 비교하고, 구조화 숫자가 없을 때만 숫자로 해석 가능한 `factValue`를 사용합니다. 따라서 `23세` 또는 `23.0`처럼 표시 문자열이 달라도 구조화 숫자가 `23`이면 기존 Fact와 근거를 유지합니다. 그 밖의 설정은 위 exact·pattern·custom no-op 기준을 사용하며 클라이언트가 수정할 수 없는 숨은 JSON 차이만으로 Fact를 교체하지 않습니다.
 - 값이 같은 Fact는 새로 만들지 않으므로 기존 `characterFactId`, `settingCandidate`, 출처 회차와 근거 인용문을 유지합니다. 값이 바뀐 Fact는 기존 행의 값이나 근거를 수정하지 않고 `isCurrent=false`로 전환합니다.
 - 추가·변경된 값은 `CharacterMapper`가 `CharacterFact.createManual` 호출을 조립해 새 행으로 만듭니다. 새 수동 Fact는 `settingCandidate`, `sourceEpisode`, `sourceChunkId`, `extractedByJob`, `confidence`, `effectiveFromEpisodeNo`를 이전 Fact에서 복사하지 않고 `null`로 두므로 원문 근거가 표시되지 않습니다.
 - 수동 Fact는 이 수정 트랜잭션에서는 즉시 current가 됩니다. 다만 이후 같은 `factType + factKey`의 AI 후보를 confirm하면 confirm 로직이 전체 이력의 `effectiveFromEpisodeNo`를 다시 비교합니다. 현재 정책은 `null` 회차를 가장 오래된 값으로 보기 때문에 `effectiveFromEpisodeNo=null`인 수동 Fact가 historical로 바뀌고 회차가 있는 AI Fact가 current가 될 수 있습니다. 수동 정정을 이후 후보보다 항상 우선해야 한다면 수동 override 우선순위나 적용 회차를 별도로 설계해야 합니다.

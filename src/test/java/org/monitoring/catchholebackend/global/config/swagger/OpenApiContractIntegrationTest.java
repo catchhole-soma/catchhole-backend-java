@@ -142,6 +142,17 @@ class OpenApiContractIntegrationTest {
                         .value("#/components/schemas/CharacterFactReferenceResponse"))
                 .andExpect(jsonPath("$['components']['schemas']['CharacterFactReferenceResponse']['required']")
                         .value(org.hamcrest.Matchers.hasItems("characterFactId", "hasEvidence")))
+                .andExpect(jsonPath("$['components']['schemas']['CharacterSettingResponse']['properties']['attributeNameEditable']['type']")
+                        .value("boolean"))
+                .andExpect(jsonPath("$['components']['schemas']['CharacterSettingResponse']['properties']['attributeNamePrefix']")
+                        .exists())
+                .andExpect(jsonPath("$['components']['schemas']['CharacterSettingResponse']['properties']['displayNameEditable']['type']")
+                        .value("boolean"))
+                .andExpect(jsonPath("$['components']['schemas']['CharacterSettingResponse']['required']")
+                        .value(org.hamcrest.Matchers.hasItems(
+                                "attributeNameEditable",
+                                "displayNameEditable"
+                        )))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['operationId']")
                         .value("getSettingCandidates"))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['parameters'][*]['name']")

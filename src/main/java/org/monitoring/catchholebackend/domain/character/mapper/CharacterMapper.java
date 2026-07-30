@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterArchiveResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterDetailResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterEpisodeResponse;
@@ -17,13 +18,19 @@ import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingEditPolicyResolver;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingEditPolicyResolver.CharacterSettingEditPolicy;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingEditPolicyResolver.CharacterSettingEditType;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.springframework.stereotype.Component;
 
 @Component
+@RequiredArgsConstructor
 public class CharacterMapper {
+
+    private final CharacterSettingEditPolicyResolver characterSettingEditPolicyResolver;
 
     public CharacterSummaryResponse toSummaryResponse(WorkCharacter character, Integer firstAppearanceEpisodeNo) {
         Integer currentLevel = character.getCurrentLevel();
@@ -129,12 +136,20 @@ public class CharacterMapper {
             CharacterFact fact,
             List<CharacterSettingSchema> schemas
     ) {
-        CharacterSettingSchema schema = findSchema(fact.getFactKey(), schemas);
+        CharacterSettingEditPolicy editPolicy = characterSettingEditPolicyResolver.resolve(
+                fact.getFactType(),
+                fact.getFactKey(),
+                schemas
+        );
+        CharacterSettingSchema schema = editPolicy.schema();
         JsonNode valueJson = fact.getValueJson();
         return new CharacterSettingResponse(
                 fact.getId(),
                 fact.getFactKey(),
-                resolveDisplayName(fact.getFactKey(), valueJson, schema),
+                resolveDisplayName(fact.getFactKey(), valueJson, editPolicy),
+                editPolicy.attributeNameEditable(),
+                editPolicy.attributeNamePrefix(),
+                editPolicy.displayNameEditable(),
                 fact.getFactValue(),
                 resolveValueType(schema, valueJson),
                 toProperties(valueJson),
@@ -142,44 +157,37 @@ public class CharacterMapper {
         );
     }
 
-    private CharacterSettingSchema findSchema(String factKey, List<CharacterSettingSchema> schemas) {
-        for (CharacterSettingSchema schema : schemas) {
-            if (schema.getSchemaKey().equals(factKey)) {
-                return schema;
-            }
-        }
-        for (CharacterSettingSchema schema : schemas) {
-            if (matchesPattern(schema.getAttributePattern(), factKey)) {
-                return schema;
-            }
-        }
-        return null;
-    }
-
-    private boolean matchesPattern(String pattern, String factKey) {
-        if (pattern == null || !pattern.endsWith(".*")) {
-            return false;
-        }
-        String prefix = pattern.substring(0, pattern.length() - 1);
-        return factKey.startsWith(prefix) && factKey.length() > prefix.length();
-    }
-
     private String resolveDisplayName(
             String factKey,
             JsonNode valueJson,
-            CharacterSettingSchema schema
+            CharacterSettingEditPolicy editPolicy
     ) {
+        if (editPolicy.type() == CharacterSettingEditType.EXACT) {
+            return editPolicy.schema().getDisplayName();
+        }
+        if (editPolicy.type() == CharacterSettingEditType.PATTERN) {
+            return dynamicDisplayName(factKey, editPolicy.attributeNamePrefix());
+        }
         if (valueJson != null && valueJson.isObject()) {
             JsonNode nameNode = valueJson.get("name");
             if (nameNode != null && nameNode.isTextual() && !nameNode.asText().isBlank()) {
                 return nameNode.asText();
             }
         }
-        if (schema != null && schema.getSchemaKey().equals(factKey)) {
-            return schema.getDisplayName();
-        }
+        return keySuffixDisplayName(factKey);
+    }
+
+    private String dynamicDisplayName(String factKey, String prefix) {
+        return factKey.substring(prefix.length())
+                .replace('_', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private String keySuffixDisplayName(String factKey) {
         int separatorIndex = factKey.lastIndexOf('.');
-        return separatorIndex < 0 ? factKey : factKey.substring(separatorIndex + 1);
+        String suffix = separatorIndex < 0 ? factKey : factKey.substring(separatorIndex + 1);
+        return suffix.replace('_', ' ').replaceAll("\\s+", " ").trim();
     }
 
     private List<CharacterSettingPropertyResponse> toProperties(JsonNode valueJson) {
