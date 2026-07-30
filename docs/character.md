@@ -65,10 +65,16 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 
 - 편집 가능 상태는 `PENDING_REVIEW`로 제한합니다.
 - `CONFIRMED`, `DISMISSED` 후보 수정 요청은 `SETTING_CANDIDATE_NOT_EDITABLE / 409`로 거절합니다.
-- 일반 후보 수정 API는 설정 내용 보정용으로 유지하고, 수정 가능한 필드는 `attributeName`, `attributeValue`, `valueType`, `valueJson`, `evidenceSpans`로 좁힙니다.
-- `attributeName`, `attributeValue`는 저장 전에 앞뒤 공백을 제거합니다. `attributeValue`는 `null`이면 표시용 값을 비웁니다.
-- `valueJson`, `evidenceSpans`는 요청 payload를 JSON으로 변환해 저장합니다. `null`이면 해당 JSONB 값을 비웁니다.
-- 사용자가 일반 후보 수정 API의 요청 body로 직접 수정하지 않는 값은 `work`, `episode`, `sourceChunkId`, `analysisJob`, `entityType`, `entityName`, `rawEntityMention`, `matchedCharacterId`, `matchStatus`, `confidence`, `reviewStatus`, `rawAiResultJson`입니다.
+- MVP 일반 후보 수정 API는 사용자에게 노출한 `attributeName`, `attributeValue`만 받습니다. `valueType`, 중첩 JSON 속성, 원문 근거는 클라이언트가 보내거나 직접 편집하지 않습니다.
+- 고정 exact/alias schema에 매칭된 후보는 설정명을 바꿀 수 없습니다. 동적 `.*` pattern 후보만 기존 prefix를 유지한 채 suffix를 바꿀 수 있습니다.
+- 후보 응답의 `attributeNameEditable`, `attributeNamePrefix`는 현재 작품의 활성 schema를 같은 resolver로 해석한 서버 권위 편집 계약입니다. exact/alias는 `false/null`, pattern은 `true/<pattern prefix>`이며, 미매칭·타입 불일치·모호한 기존 후보는 조회를 막지 않고 `false/null`로 내려 안전하게 이름 편집만 잠급니다.
+- 동적 suffix는 앞뒤 공백을 제거하고 내부 공백을 `_`로 정규화합니다. `skill.월광 참`은 `attributeName = skill.월광_참`으로 저장하며 사용자용 JSON 이름은 `월광 참`으로 맞춥니다.
+- 새 동적 suffix가 공백 또는 `_`만으로 구성되면 거절합니다. 다만 Worker나 기존 데이터에 이미 이런 suffix가 저장된 pattern 후보는 편집 가능 상태로 응답하고, 사용자가 유효한 suffix로 교정하는 요청은 허용합니다.
+- 정규화한 설정명과 표시값이 모두 기존과 의미상 같으면 AI가 만든 기존 `valueJson`을 그대로 유지합니다. 다만 동적 key의 공백→`_`, 표시값 앞뒤 공백 제거처럼 저장 문자열의 정규화만 필요한 경우에는 JSON을 축소하지 않고 해당 문자열만 갱신합니다.
+- `SettingValueType.JSON`인 복합 후보의 설정명 또는 표시값이 실제로 바뀌면, 현재 후보의 `valueJson`을 `{"name":"<사용자 설정명>"}`으로 의도적으로 축소합니다. `level`, `effect`, `quantity`, `equipped`처럼 타입 계약이 없는 숨은 속성은 merge하거나 새 표시값에서 추측하지 않습니다.
+- scalar 후보가 실제로 바뀌면 기존의 고정 `valueType`으로 표시값을 검증하고 typed `value` envelope를 다시 만듭니다. 동적 scalar key는 표시명 동기화를 위해 `name`도 함께 저장합니다.
+- `valueType`, 출처 회차, 원문 표현, source chunk, `evidenceSpans`, `confidence`, `rawAiResultJson`, 검토 상태는 일반 내용 편집으로 변경하지 않습니다. `rawAiResultJson`은 최초 AI payload의 감사·디버깅 자료이며 confirm 시 현재 값 복원에 사용하지 않습니다.
+- 모든 후보의 `valueJson` 컬럼이 JSONB이지만 여기서 말하는 복합 후보는 `SettingValueType.JSON` 후보입니다. 현재 기본 동적 복합 schema는 `skill.*`, `item.*`, `status.*`이며, 중첩 속성별 타입과 입력 UI를 정의하는 구조화 편집은 후속 범위입니다.
 - 캐릭터 대상 변경에 해당하는 `entityName`, `matchedCharacterId`, `matchStatus` 갱신은 일반 후보 수정 API가 아니라 캐릭터 연결 해소 API에서만 처리합니다.
 
 확정/무시된 후보를 다시 편집하거나, 확정 후 `CharacterFact`에 이미 반영된 값을 수정하는 흐름은 이 정책에 포함하지 않습니다. 해당 요구가 생기면 후보 재오픈 또는 별도 정정 이력 정책을 먼저 정의합니다.
@@ -99,6 +105,16 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 - `WorkCharacter.firstAppearanceEpisodeId`는 확정 순서가 아니라 가장 이른 업로드 회차 기준으로 유지합니다.
 - 후보에 episode가 없으면 첫 등장 회차를 임의로 만들지 않고 `null`을 유지하며, 이후 유효한 회차가 있는 후보가 확정되면 해당 회차로 채웁니다.
 - current fact가 바뀌면 `currentAge`, `currentLevel`과 다섯 JSON snapshot을 모든 current Fact 기준으로 다시 조립해 일괄 교체합니다. 해당 타입의 current Fact가 없거나 숫자 파싱에 실패하면 대응 스냅샷을 `null`로 둡니다.
+
+후보 편집과 confirm 이후 JSON 보존 범위:
+
+| 경우 | 현재 `SettingCandidate.valueJson` | 새 `CharacterFact.valueJson` | current snapshot | 최초 AI JSON |
+| --- | --- | --- | --- | --- |
+| 내용 미수정 또는 캐릭터 연결만 변경 | rich JSON 유지 | rich JSON 그대로 복사 | 새 Fact가 current면 rich JSON 반영 | `rawAiResultJson`에 별도 보관 |
+| JSON 복합 후보의 이름/값 실제 수정 | `{"name":"..."}`로 축소 | name-only JSON 복사 | 새 Fact가 current면 name-only 반영 | `rawAiResultJson`에만 보관 |
+| 같은 key의 기존 Fact가 있음 | 새 후보 값과 별도 유지 | 기존 Fact 행을 삭제하지 않음 | 회차·생성 시각 우선순위로 고른 current Fact 반영 | 기존 Fact의 JSON은 historical 이력에 유지 |
+
+confirm은 `rawAiResultJson`에서 수정 전 속성을 복원하거나 기존 Fact와 deep merge하지 않습니다. Promotion Mapper는 confirm 시점의 후보 `valueJson`을 새 Fact로 복사하고 snapshot assembler는 선택된 current Fact의 `valueJson` entry 전체를 사용합니다. 따라서 복합 후보 편집으로 제거한 속성은 새 Fact와 현재 snapshot에 다시 나타나지 않습니다.
 
 ### 캐릭터 현재 설정 수정·보관·복구 정책
 
@@ -151,13 +167,14 @@ confirm 데이터 계약 위반으로 보고 거절할 조합:
 
 사용자 캐릭터 연결 해소 액션:
 
-| 액션 | 결과 |
-| --- | --- |
-| 기존 캐릭터에 연결 | `entityName = 선택한 캐릭터 이름`, `matchedCharacterId = 선택한 캐릭터 ID`, `matchStatus = MATCHED` |
-| 새 캐릭터로 확정 | `entityName = 사용자가 입력한 이름`, `matchedCharacterId = null`, `matchStatus = UNRESOLVED` |
-| 후보 무시 | 기존 `dismiss` API로 `reviewStatus = DISMISSED` 전환 |
+| 액션 | 후보 결과 | 실제 캐릭터 생성 | 설정 콘텐츠 |
+| --- | --- | --- | --- |
+| 기존 캐릭터에 연결·다른 기존 캐릭터로 변경 | 선택 캐릭터 이름·ID, `MATCHED` | 없음 | 변경하지 않음 |
+| 새 캐릭터 등록 예정 지정·이름 재변경 | 입력 이름, ID `null`, `UNRESOLVED` | 없음 | 변경하지 않음 |
+| 후보 확정 | 현재 연결 상태에 따라 기존 캐릭터 사용 또는 신규 생성 | `UNRESOLVED`이고 활성 동명이 없을 때만 이 시점에 생성 | 현재 후보 콘텐츠로 Fact 생성 |
+| 후보 무시 | `reviewStatus = DISMISSED` | 없음 | 변경하지 않음 |
 
-프론트에서는 `AMBIGUOUS` 후보에 "기존 캐릭터에 연결" 액션을 제공하고, 모달에서 기존 캐릭터를 선택하면 `character-match` API를 호출해 캐릭터명을 고정합니다. 이후 `attributeName`, `attributeValue`, `valueType`, `valueJson`, `evidenceSpans` 같은 설정값 보정은 일반 후보 수정 API로 처리합니다.
+`character-match` API는 모든 `PENDING_REVIEW` 후보에서 반복 호출할 수 있으며 검토 상태와 설정 콘텐츠를 변경하지 않습니다. `CREATE_NEW`는 캐릭터를 즉시 생성하는 명령이 아니라 신규 등록 예정 상태를 지정하는 명령입니다. 프론트에서는 `AMBIGUOUS` 후보의 연결을 먼저 해소하고, `MATCHED`와 `UNRESOLVED` 후보에도 연결 변경을 제공합니다. 이후 설정명과 표시값 보정은 일반 후보 수정 API로 처리합니다.
 
 현재 저장 구조에는 `AMBIGUOUS`가 어떤 기존 캐릭터 후보들과 겹쳐서 발생했는지에 대한 후보 목록이나 판단 사유를 보관하지 않습니다. 따라서 화면에서는 "연결할 캐릭터가 확실하지 않음" 정도로 안내하고, 사용자가 기존 캐릭터 연결 또는 새 캐릭터 확정 중 하나를 직접 선택하게 합니다.
 
@@ -473,7 +490,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | --- | --- | --- |
 | `GET` | `/api/v1/works/{workId}/setting-candidates` | 필수 `batchId` 범위의 설정 후보를 `reviewStatus`, `matchStatus`, `page`, `size`로 페이지 조회합니다. 묶음 전체 회차 범위와 검토 집계를 함께 반환합니다. |
 | `GET` | `/api/v1/works/{workId}/setting-candidates/{candidateId}` | 필수 `batchId` 범위에 속한 특정 설정 후보 상세를 조회합니다. 다른 묶음 후보는 404로 숨깁니다. |
-| `PATCH` | `/api/v1/works/{workId}/setting-candidates/{candidateId}` | `PENDING_REVIEW` 후보의 `attributeName`, `attributeValue`, `valueType`, `valueJson`, `evidenceSpans`만 보정합니다. 캐릭터 대상 변경은 캐릭터 연결 해소 API에서 처리합니다. |
+| `PATCH` | `/api/v1/works/{workId}/setting-candidates/{candidateId}` | `PENDING_REVIEW` 후보의 사용자용 설정명과 표시값만 보정합니다. 값 타입과 최초 근거는 유지하고 JSON 복합 후보가 실제로 바뀌면 현재 구조화 값은 name-only로 축소합니다. |
 | `POST` | `/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm` | 설정 후보를 `CONFIRMED` 상태로 전환하고, 처음 확정되는 후보는 schema, 값 타입, merge policy 검증 후 캐릭터 설정 이력과 현재 스냅샷에 반영합니다. |
 | `POST` | `/api/v1/works/{workId}/setting-candidates/{candidateId}/dismiss` | 설정 후보를 `DISMISSED` 상태로 전환합니다. |
 
@@ -635,14 +652,18 @@ flowchart TD
     C --> E["GET 상세 조회"]
     C --> M{"캐릭터 연결이 확실한가?"}
     M -->|"AMBIGUOUS 또는 사용자가 대상 변경"| N["PATCH 캐릭터 연결 해소<br/>기존 캐릭터 연결 또는 새 캐릭터 확정"]
-    M -->|"이미 대상 확정"| F["PATCH 후보 수정<br/>설정값 보정"]
+    M -->|"이미 대상 확정"| F["PATCH 후보 수정<br/>사용자용 설정명·표시값 보정"]
     N --> O["matchStatus / matchedCharacterId / entityName 갱신"]
     O --> F
     F --> G["POST 후보 확정/무시"]
 
     F --> H["PENDING_REVIEW 후보만 수정 가능"]
-    H --> P["attributeName / attributeValue / valueType<br/>valueJson / evidenceSpans 보정"]
-    P --> G
+    H --> P["attributeName / attributeValue만 요청<br/>valueType·최초 근거는 불변"]
+    P --> Q{"JSON 복합 후보의<br/>내용이 실제로 바뀌었나?"}
+    Q -->|"아니오"| Q1["기존 rich valueJson 유지"]
+    Q -->|"예"| Q2["suffix/name 동기화<br/>현재 valueJson을 name-only로 축소"]
+    Q1 --> G
+    Q2 --> G
     G --> I{"사용자 검토 결정"}
     I -->|"처음 confirm"| I1["CONFIRMED로 전환"]
     I -->|"dismiss"| I2["DISMISSED로 전환"]
@@ -774,7 +795,7 @@ flowchart TD
     E --> F["CommonResponse.success"]
 ```
 
-수정 API는 사용자가 검토 화면에서 설정 내용만 보정할 수 있는 필드만 변경합니다. 캐릭터 대상 변경은 캐릭터 연결 해소 API에서 처리하고, AI 추출 출처, 신뢰도, 검토 상태는 유지하며 `PENDING_REVIEW` 후보만 수정할 수 있습니다.
+수정 API는 사용자가 검토 화면에서 설정명과 표시값만 보정합니다. 캐릭터 대상 변경은 캐릭터 연결 해소 API에서 처리하고, 값 타입·AI 추출 출처·원문 근거·신뢰도·검토 상태는 유지하며 `PENDING_REVIEW` 후보만 수정할 수 있습니다.
 
 ```mermaid
 flowchart TD
@@ -785,24 +806,19 @@ flowchart TD
     C -->|있음| E{"reviewStatus == PENDING_REVIEW?"}
 
     E -->|아니오| F["SETTING_CANDIDATE_NOT_EDITABLE / 409"]
-    E -->|예| G["검토용 필드 수정"]
+    E -->|예| G["현재 schema와 고정/동적 key 판정"]
+    G --> H{"정규화한 이름·값이 같은가?"}
+    H -->|예| I["기존 rich valueJson 유지"]
+    H -->|아니오, JSON 복합 후보| J["prefix·suffix/name 동기화<br/>valueJson을 name-only로 교체"]
+    H -->|아니오, scalar 후보| K["고정 valueType 검증<br/>typed value envelope 재구성"]
 
-    G --> I["attributeName"]
-    G --> J["attributeValue"]
-    G --> K["valueType"]
-    G --> L["valueJson"]
-    G --> M["evidenceSpans"]
-
-    I --> N
+    I --> N["attributeName·attributeValue 반영"]
     J --> N
     K --> N
-    L --> N
-    M --> N
-
     N --> O["CommonResponse.success"]
 ```
 
-수정 API에서 변경하지 않는 값은 `work`, `episode`, `sourceChunkId`, `analysisJob`, `entityType`, `confidence`, `reviewStatus`, `rawAiResultJson`입니다.
+수정 API에서 변경하지 않는 값은 `work`, `episode`, `sourceChunkId`, `analysisJob`, `entityType`, `entityName`, `rawEntityMention`, `matchedCharacterId`, `matchStatus`, `valueType`, `evidenceSpans`, `confidence`, `reviewStatus`, `rawAiResultJson`입니다.
 
 무시 API는 후보의 검토 상태만 변경합니다. 처음 실행되는 확정 API는 같은 트랜잭션에서 schema 매칭·값 타입·merge policy 검증과 확정 데이터 반영까지 수행합니다.
 
