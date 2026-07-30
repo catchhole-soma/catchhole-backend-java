@@ -231,6 +231,7 @@ domain/<domain>
 - 회차 삭제는 `ARCHIVED` 전이로 처리하고 원문 S3 객체는 유지한다. 활성 목록, 최신 회차 번호 계산과 회차 번호 중복 검사는 `ARCHIVED` 회차를 제외한다.
 - 회차 제목은 사용자 확정값 또는 원문의 명시적 회차 제목 행에서만 가져온다. 감지하지 못하면 `null`로 두며 원본 파일명을 제목으로 대체하지 않는다.
 - 회차 원고와 설정집 원본은 TXT·DOCX만 허용하고, 명시적으로 첨부한 빈 파일과 파일당 10MB 초과를 서버에서도 거절한다. multipart 요청 전체 제한은 25MB로 둔다. DOCX는 실제 압축 해제량을 누적해 20MB를 초과하거나 본문 탐색 중 ZIP 엔트리가 256개를 초과하면 거절해 압축 폭탄이 서버 자원을 고갈시키지 않게 한다.
+- 설정집은 업로드 원본과 화면 조회·수정용 텍스트를 분리한다. `upload_files.storage_url`에는 최초 TXT/DOCX 원본을 불변으로 보존하고, `content_storage_url`에는 추출한 현재 텍스트의 `works/{workId}/setting-books/{settingBookId}/{normalizedOriginalBasename}.txt` 고정 key를 둔다. 편집본 파일명은 원본 경로·확장자를 제거하고 Unicode NFC로 정규화해 S3에서 작품과 파일을 식별할 수 있게 한다. TXT와 DOCX 모두 텍스트 편집을 허용하되 수정은 같은 key를 PUT하고 원본 MIME·크기를 바꾸지 않는다. S3 Versioning이 활성화된 환경의 과거 version 보관 기한은 Lifecycle 정책으로 제한한다.
 - 회차 파일 처리 단계는 `source`(요청 원본) → `detected`(`DetectedEpisode*`) → `confirmation`(사용자 확정 입력) → `finalized`(`FinalizedEpisode*`) → `created`/`saved`(영속화 결과) 용어와 타입으로 구분한다. 서로 다른 단계의 값을 `episodes`, `parsed`처럼 같은 이름이나 타입으로 뭉뚱그리지 않는다.
 - 회차 API의 업로드 방식은 공용 `UploadType`이 아니라 `EpisodeUploadType`의 세 값만 노출한다. 사전 감지는 `EpisodeDetectionRequest`, 최종 저장은 `EpisodeUploadRequest`로 DTO를 분리하고 multipart JSON part는 `metadata`로 통일한다.
 - 최종 업로드에서 `SINGLE_EPISODE`는 `singleEpisodeNo`가 필수이며 `episodeConfirmations`를 보내지 않는다. 두 다회차 방식은 단일 회차 전용 필드를 보내지 않고, 필수 `episodeConfirmations`의 각 `detectionOrder`를 감지 결과와 일치시킨다.

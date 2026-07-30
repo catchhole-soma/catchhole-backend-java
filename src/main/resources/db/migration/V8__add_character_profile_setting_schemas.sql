@@ -1,4 +1,4 @@
--- Add profile schemas after the upload and episode history migrations.
+-- Add profile schemas after the setting-book editable content migration.
 INSERT INTO character_setting_schemas (
     id,
     work_id,

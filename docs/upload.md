@@ -4,7 +4,7 @@
 
 Upload 도메인은 회차 업로드 요청의 batch와 개별 파일 메타데이터를 추적합니다.
 
-회차 업로드는 `EpisodeController`와 `EpisodeUploadProcessor`가 처리합니다. 설정집 원본은 회차 업로드의 선택 첨부로도 받을 수 있고, `SettingBookController`를 통해 독립적으로 업로드·조회·soft delete할 수도 있습니다.
+회차 업로드는 `EpisodeController`와 `EpisodeUploadProcessor`가 처리합니다. 설정집 원본은 회차 업로드의 선택 첨부로도 받을 수 있고, `SettingBookController`를 통해 독립적으로 업로드·조회·원문 수정·soft delete할 수도 있습니다.
 
 ## 핵심 결정
 
@@ -99,6 +99,7 @@ TXT·DOCX 원본은 파일당 10MB까지 허용하고 multipart 요청 전체는
 | `original_filename` | 원본 파일명 |
 | `mime_type` | MIME type |
 | `storage_url` | 원본 파일 S3 위치 |
+| `content_storage_url` | 설정집에서 추출한 현재 편집용 텍스트 S3 위치. 회차 원본은 null |
 | `file_size` | 파일 크기 |
 | `detected_episode_start_no` | 최종 생성한 시작 회차 번호. API/Java 이름은 `episodeStartNo` |
 | `detected_episode_end_no` | 최종 생성한 마지막 회차 번호. API/Java 이름은 `episodeEndNo` |
@@ -117,6 +118,14 @@ TXT·DOCX 원본은 파일당 10MB까지 허용하고 multipart 요청 전체는
 ```text
 upload-batches/{batchId}/{randomUUID}-{originalFilename}
 ```
+
+설정집의 조회·수정용 텍스트는 원본과 분리해 다음 고정 key로 저장합니다.
+
+```text
+works/{workId}/setting-books/{settingBookId}/{normalizedOriginalBasename}.txt
+```
+
+편집본 파일명은 원본 파일명의 경로와 확장자를 제거하고 Unicode NFC로 정규화한 뒤 `.txt`를 붙입니다. 설정집 수정은 같은 key를 PUT해 현재 텍스트만 교체하며, 업로드 원본 key와 원본 MIME·크기는 바꾸지 않습니다.
 
 응답에는 현재 `ObjectStorageService.toStorageUrl()`을 통해 `s3://{key}` 형태로 내려갑니다.
 
@@ -184,10 +193,13 @@ source
 | --- | --- |
 | `GET /api/v1/works/{workId}/setting-books` | `archived_at IS NULL`인 원본을 최근 업로드 순으로 조회 |
 | `POST /api/v1/works/{workId}/setting-books` | TXT 또는 DOCX 원본 한 개를 별도 `SETTING_BOOK` batch로 저장 |
-| `GET /api/v1/works/{workId}/setting-books/{settingBookId}` | 저장 원본을 읽어 읽기 전용 텍스트로 반환 |
+| `GET /api/v1/works/{workId}/setting-books/{settingBookId}` | 편집용 현재 텍스트와 원본 MIME·크기 메타데이터를 반환 |
+| `PATCH /api/v1/works/{workId}/setting-books/{settingBookId}` | 작품·설정집·원본 파일명 기반의 고정 key에 전체 원문을 PUT |
 | `DELETE /api/v1/works/{workId}/setting-books/{settingBookId}` | `archived_at`만 기록하는 soft delete |
 
-활성 설정집끼리는 같은 원본 파일명을 허용하지 않습니다. soft delete한 원본의 DB row와 저장 객체는 물리 삭제하지 않으며, 같은 이름의 새 원본은 다시 업로드할 수 있습니다. 설정집 업로드는 분석 작업을 생성하지 않습니다.
+같은 원본 파일명도 덮어쓰지 않고 매 업로드마다 새 설정집 항목과 고유 원본 객체로 누적합니다. 각 설정집은 업로드 원본과 추출된 편집용 UTF-8 텍스트를 분리하며, TXT와 DOCX 모두 화면에서는 편집용 텍스트를 수정합니다. DOCX 바이너리 원본은 변경하지 않습니다. 수정할 때는 동일한 `works/{workId}/setting-books/{settingBookId}/{normalizedOriginalBasename}.txt` key를 교체하므로 수정 횟수만큼 새 key가 생기지 않습니다. 원본 파일명, MIME 타입, 파일 크기와 최초 업로드 시각은 목록 표시값으로 유지합니다. soft delete한 DB row와 저장 객체는 물리 삭제하지 않습니다. 설정집 업로드와 수정은 분석 작업을 생성하지 않습니다.
+
+운영 S3 버킷에 Versioning이 활성화되어 있다면 동일 key PUT도 과거 version을 보관하므로, 보관 기한은 인프라 Lifecycle 정책으로 제한합니다.
 
 ## 이후 작업
 
