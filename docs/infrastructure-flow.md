@@ -29,6 +29,9 @@ flowchart LR
     DNS["API 도메인 DNS<br/>제공자 확인 필요"]
     OPENAI["OpenAI API<br/>LLM·Embedding"]
     S3["AWS S3<br/>원문·업로드 파일"]
+    REPOSITORIES["Backend·AI GitHub 저장소<br/>main push"]
+    ACTIONS["GitHub Actions<br/>이미지 발행·배포 제어"]
+    GHCR["GHCR<br/>Backend·AI 이미지"]
 
     subgraph AWS["AWS"]
         SSM["Systems Manager<br/>Run Command"]
@@ -61,7 +64,12 @@ flowchart LR
     ENV -.-> SPRING
     ENV -.-> WORKER
     ENV -.-> POSTGRES
-    SSM -->|"Compose pull·up·상태 확인"| EC2
+
+    REPOSITORIES -->|"Workflow 실행"| ACTIONS
+    ACTIONS -->|"Image push"| GHCR
+    ACTIONS -->|"SSM SendCommand"| SSM
+    GHCR -->|"Compose image pull"| EC2
+    SSM -->|"Compose 설정 갱신·up·상태 확인"| EC2
 ```
 
 ### 1.2 사용자 요청 흐름
