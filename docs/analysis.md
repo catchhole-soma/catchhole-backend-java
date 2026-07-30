@@ -87,6 +87,14 @@ Worker는 분석 작업 생성과 `AnalysisJob` 상태 전이를 위해 백엔�
 - 분석 작업 응답은 `AnalysisJob.status`, `currentStep`, token count, summary/error metadata와 대상 `episodes` 목록을 반환합니다.
 - Worker claim/progress/complete/fail 처리와 함께 대상 `Episode.status`도 갱신합니다.
 
+분석 목록의 배치 집계 기준:
+
+- 페이지 항목 하나는 `UploadBatch` 하나이며, 최근 `AnalysisJob.createdAt`이 바뀐 배치가 먼저 옵니다.
+- 같은 배치·분석 목적·회차의 재시도 이력은 가장 최근 Job 하나만 현재 상태와 작업 수에 포함합니다. 이전 실패 Job은 DB 이력으로 남습니다.
+- `episode_id == null`인 과거 작업은 보존된 `analysis_job_episode_targets`를 회차별로 펼쳐 같은 최신 작업 규칙을 적용합니다.
+- 배치 전체 상태는 진행 중, 전체 실패, 일부 실패, 설정 후보 검토 필요, 완료 순으로 판정합니다.
+- `UploadBatch`는 분석 실행 ID가 아니므로 같은 업로드 묶음에서 이루어진 독립 실행을 별도 카드로 분리하지 않습니다. 실행별 이력이 필요해지면 `AnalysisRun` 식별자를 별도 도입합니다.
+
 `AnalysisJobType`
 
 | 유형 | 의미 |
@@ -402,6 +410,28 @@ Client
 
 프론트엔드는 목록 응답의 `status`, `currentStep`, `createdAt`, `updatedAt`을 사용해 작업 현황을 표시합니다.
 `workTitle`과 `target.episodeStartNo`, `target.episodeEndNo`, `target.episodeCount`를 사용하면 추가 조회 없이 분석 대상 표시 문구를 만들 수 있습니다.
+
+### `GET /api/v1/works/{workId}/analysis-jobs/batches`
+
+분석 목록 화면을 위한 업로드 배치 페이지 조회입니다.
+
+```http
+GET /api/v1/works/{workId}/analysis-jobs/batches?page=0&size=10
+```
+
+- `content` 한 항목은 업로드 배치 하나입니다.
+- `jobGroups`는 같은 배치에서 수행한 `SETTING_EXTRACTION`, `EPISODE_VALIDATION`을 각각 집계합니다.
+- `currentAnalysisJobIds`는 진행·실패·완료 상세 화면에서 다시 조회할 최신 유효 Job ID입니다.
+- `totalCandidateCount`, `reviewedCandidateCount`, `pendingCandidateCount`는 배치에 연결된 설정 후보 검토 현황입니다.
+- 페이지 크기는 1~20이며 응답은 공통 `PageResponse` 형식입니다.
+
+상태 판정 우선순위는 다음과 같습니다.
+
+1. 현재 유효 Job 중 `PENDING` 또는 `RUNNING`이 있으면 `IN_PROGRESS`
+2. 모든 목적의 현재 Job이 실패했으면 `FAILED`
+3. 성공과 실패가 섞였으면 `PARTIALLY_FAILED`
+4. 실행이 끝났고 검토 대기 후보가 있으면 `REVIEW_REQUIRED`
+5. 그 외에는 `COMPLETED`
 
 ### `GET /api/v1/works/{workId}/analysis-jobs/{analysisJobId}`
 

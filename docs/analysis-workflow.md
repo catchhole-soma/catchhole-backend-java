@@ -513,3 +513,28 @@ LLM 전처리 출력은 다음 정보를 포함합니다.
 
 현재 `AnalysisJob`에는 `retryCount`가 없습니다. 재시도 API는 기존 실패 작업을 되살리지 않고 실패한 회차마다 같은 `jobType`의 새 단일 회차 작업을 생성하며, 이미 활성 재시도 작업이 있으면 그 작업을 재사용합니다.
 Worker 결과 저장은 같은 작업이 중복 실행되어도 `Episode`, `SettingCandidate`, `ValidationReport`가 중복 생성되지 않도록 작업 ID와 대상 회차 ID를 기준으로 멱등성을 보장해야 합니다.
+
+## 분석 배치 목록 페이지 조회
+
+```mermaid
+sequenceDiagram
+    participant Client as "분석 목록 화면"
+    participant Controller as "AnalysisJobController"
+    participant Service as "AnalysisJobService"
+    participant JobRepo as "AnalysisJobRepository"
+    participant CandidateRepo as "SettingCandidateRepository"
+
+    Client->>Controller: "GET /analysis-jobs/batches?page=0&size=10"
+    Controller->>Service: "getAnalysisBatches(memberId, workId, page, size)"
+    Service->>Service: "작품 소유권 확인"
+    Service->>JobRepo: "최근 분석 요청순 batch 페이지 조회"
+    JobRepo-->>Service: "Page<AnalysisBatchPageRow>"
+    Service->>JobRepo: "현재 페이지 batch의 Job·대상 회차 일괄 조회"
+    Service->>CandidateRepo: "batch별 후보 검토 수 일괄 집계"
+    Service->>Service: "목적·회차별 최신 Job 선택"
+    Service->>Service: "회차 범위·진행/실패/검토 상태 집계"
+    Service-->>Controller: "PageResponse<AnalysisBatchSummaryResponse>"
+    Controller-->>Client: "분석 배치 10개와 페이지 메타데이터"
+```
+
+재시도 전 `FAILED` Job과 재시도 후 `PENDING` Job이 같은 회차에 함께 있어도 최신 Job만 현재 상태에 포함합니다. 이 규칙은 과거 실패 이력을 삭제하지 않으면서 목록 카드가 현재 진행 상태를 표시하게 합니다.
