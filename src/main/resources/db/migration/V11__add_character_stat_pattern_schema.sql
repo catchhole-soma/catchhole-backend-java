@@ -1,0 +1,31 @@
+INSERT INTO character_setting_schemas (
+    id,
+    work_id,
+    schema_key,
+    attribute_pattern,
+    display_name,
+    fact_type,
+    value_type,
+    value_semantics,
+    merge_policy,
+    aliases_json,
+    source,
+    enabled,
+    created_at,
+    updated_at
+) VALUES (
+    gen_random_uuid(),
+    NULL,
+    'stats.attribute',
+    'stats.*',
+    '스탯',
+    'STAT',
+    'NUMBER',
+    'BASE_VALUE',
+    'REPLACE',
+    '[]'::jsonb,
+    'SYSTEM_SEED',
+    TRUE,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+);

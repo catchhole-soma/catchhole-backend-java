@@ -25,7 +25,9 @@ src/main/resources/db/migration/
 ├── V6__preserve_episode_content_and_analysis_targets.sql
 ├── V7__separate_setting_book_editable_content.sql
 ├── V8__add_character_profile_setting_schemas.sql
-└── V9__add_character_page_index.sql
+├── V9__add_character_page_index.sql
+├── V10__add_analysis_batch_page_indexes.sql
+└── V11__add_character_stat_pattern_schema.sql
 ```
 
 - 파일명은 `V{순번}__{snake_case_설명}.sql` 형식을 사용합니다.
@@ -133,6 +135,14 @@ V10은 분석 목록의 업로드 배치 페이지 조회와 배치별 설정 �
 - `setting_candidates(analysis_job_id, review_status)` 인덱스로 현재 페이지에 포함된 배치의 전체·검토 완료·검토 대기 후보 수를 집계합니다.
 - 새 컬럼이나 기존 데이터 변환은 없으며 기존 분석 작업과 설정 후보는 그대로 유지합니다.
 
+## V11 기준
+
+V11은 정확 key나 alias로 등록되지 않은 사용자 정의 스탯을 숫자 Fact로 저장할 수 있도록 전역 `stats.*` 패턴 schema 한 개를 추가합니다.
+
+- `stats.attribute`는 `valueType=NUMBER`, `valueSemantics=BASE_VALUE`, `mergePolicy=REPLACE`, `source=SYSTEM_SEED`, `enabled=true`입니다.
+- Resolver는 정확 key와 alias를 패턴보다 먼저 적용하므로 `힘` 같은 기존 alias는 계속 `stats.strength`로 정규화하고, `stats.지능` 같은 사용자 정의 스탯만 입력 key를 보존합니다.
+- 기존 schema와 Character Fact는 수정하거나 backfill하지 않습니다.
+
 ## 논리 참조와 FK 기준
 
 ID 컬럼이 다른 테이블을 논리적으로 가리키더라도 삭제·재처리 정책이 정해지지 않았다면 FK를 먼저 강제하지 않습니다. V1의 선택은 다음과 같습니다.
@@ -148,14 +158,15 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
 
 ## 로컬 검증
 
-V1~V9 적용 DB에 현재 Backend를 시작해 V10이 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V10이 순서대로 적용되는 경로를 각각 확인합니다.
+V1~V10 적용 DB에 현재 Backend를 시작해 V11이 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V11이 순서대로 적용되는 경로를 각각 확인합니다.
 
-- Flyway 로그에 V1부터 V10까지 적용 성공이 출력됩니다.
-- `flyway_schema_history`에 version 1, 2, 3, 4, 5, 6, 7, 8, 9, 10이 성공으로 기록됩니다.
+- Flyway 로그에 V1부터 V11까지 적용 성공이 출력됩니다.
+- `flyway_schema_history`에 version 1부터 11까지 성공으로 기록됩니다.
 - `vector` extension이 활성화됩니다.
 - `episode_chunks.embedding`이 `vector(1536)`으로 생성됩니다.
 - cosine HNSW 인덱스가 생성됩니다.
-- `character_setting_schemas`에 전역 seed 30개(`SYSTEM_SEED=15`, `DEV_SEED=15`)가 생성됩니다.
+- `character_setting_schemas`에 전역 seed 31개(`SYSTEM_SEED=16`, `DEV_SEED=15`)가 생성됩니다.
+- `stats.attribute`가 `stats.*`, `STAT`, `NUMBER`, `REPLACE` 정책으로 생성됩니다.
 - `character_facts.setting_candidate_id`와 FK·조회 인덱스가 생성됩니다.
 - `works.genre`가 enum 상수명으로 저장되고 `NOT NULL`·`chk_works_genre` 제약을 가집니다.
 - `works.description`이 기존 값의 앞 50자로 정규화되고 `VARCHAR(50)` 타입을 가집니다.
@@ -166,7 +177,7 @@ V1~V9 적용 DB에 현재 Backend를 시작해 V10이 추가 적용되는 경로
 - `idx_characters_work_status_created_id` 복합 인덱스가 생성됩니다.
 - `idx_analysis_jobs_work_batch_created`, `idx_setting_candidates_job_review` 인덱스가 생성됩니다.
 - Hibernate schema validation을 통과하고 Backend가 정상 시작됩니다.
-- Backend를 재시작해도 V1부터 V10까지 중복 적용되지 않습니다.
+- Backend를 재시작해도 V1부터 V11까지 중복 적용되지 않습니다.
 
 ## 최초 운영 전환
 
@@ -177,7 +188,7 @@ Flyway 도입 전에 JPA가 만든 운영 테스트 DB에는 `flyway_schema_hist
 1. 필요한 데이터가 없는지 확인하고 필요하면 `pg_dump`로 백업합니다.
 2. Backend와 AI Worker를 중지합니다.
 3. PostgreSQL 데이터 volume만 제거하고 빈 PostgreSQL 16 DB를 시작합니다.
-4. Backend를 시작해 Flyway V1~V10과 Hibernate validation 성공을 확인합니다.
+4. Backend를 시작해 Flyway V1~V11과 Hibernate validation 성공을 확인합니다.
 5. DB schema와 Swagger 기본 API를 확인한 뒤 AI Worker를 시작합니다.
 
 실제 사용자 데이터가 생긴 뒤에는 이 초기화 절차를 사용하지 않습니다. 기존 데이터를 보존하는 V2 이상의 `ALTER` migration과 사전 백업·롤백 계획을 별도로 작성합니다.
