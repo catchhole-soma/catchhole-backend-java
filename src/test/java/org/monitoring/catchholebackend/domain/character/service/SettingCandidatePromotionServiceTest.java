@@ -25,6 +25,7 @@ import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingMergePolicy;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingSchemaSource;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingValueSemantics;
+import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
@@ -435,6 +436,38 @@ class SettingCandidatePromotionServiceTest {
     }
 
     @Test
+    @DisplayName("호환되는 value envelope와 공개 속성을 가진 scalar 후보를 확정한다")
+    void promoteAcceptsRoundTrippableScalarProperties() {
+        characterSettingSchemaRepository.save(settingSchema(
+                work,
+                "profile.rank",
+                null,
+                CharacterFactType.PROFILE,
+                SettingValueType.STRING,
+                true,
+                CharacterSettingMergePolicy.REPLACE
+        ));
+        JsonNode valueJson = objectMapper.createObjectNode()
+                .put("value", "KNIGHT")
+                .put("name", "등급");
+        SettingCandidate candidate = candidate(
+                episode(3),
+                "profile.rank",
+                "기사",
+                SettingValueType.STRING,
+                valueJson
+        );
+
+        promote(candidate);
+
+        WorkCharacter character = character("아리아");
+        CharacterFact currentFact = currentFact(character, CharacterFactType.PROFILE, "profile.rank");
+        assertThat(currentFact.getFactValue()).isEqualTo("기사");
+        assertThat(currentFact.getValueJson()).isEqualTo(valueJson);
+        assertThat(character.getProfileJson().get("profile.rank")).isEqualTo(valueJson);
+    }
+
+    @Test
     @DisplayName("비활성 작품 schema는 확정 매칭에서 제외한다")
     void promoteExcludesDisabledWorkSchema() {
         characterSettingSchemaRepository.save(settingSchema(
@@ -515,7 +548,11 @@ class SettingCandidatePromotionServiceTest {
 
         CharacterFact currentFact = currentFact(matchedCharacter, CharacterFactType.LEVEL, "level");
         assertThat(currentFact.getFactValue()).isEqualTo("5");
-        assertThat(workCharacterRepository.findByWorkIdAndName(work.getId(), "아리아")).isEmpty();
+        assertThat(workCharacterRepository.findByWorkIdAndNameAndStatus(
+                work.getId(),
+                "아리아",
+                CharacterStatus.ACTIVE
+        )).isEmpty();
     }
 
     @Test
@@ -597,18 +634,24 @@ class SettingCandidatePromotionServiceTest {
     }
 
     @Test
-    @DisplayName("UNRESOLVED 후보 이름과 같은 보관 캐릭터가 있으면 확정 반영을 거절한다")
-    void promoteRejectsArchivedCharacterWithSameName() {
+    @DisplayName("UNRESOLVED 후보 이름과 같은 보관 캐릭터만 있으면 새 활성 캐릭터를 생성한다")
+    void promoteCreatesActiveCharacterWhenOnlyArchivedCharacterHasSameName() {
         WorkCharacter archivedCharacter = workCharacterRepository.save(workCharacter("아리아"));
         archivedCharacter.archive();
         SettingCandidate candidate = candidate(episode(3), "level", "5");
 
-        assertThatThrownBy(() -> promote(candidate))
-                .isInstanceOfSatisfying(AppException.class, exception ->
-                        assertThat(exception.getResultCode())
-                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED));
+        promote(candidate);
 
-        assertThat(characterFactRepository.findAll()).isEmpty();
+        WorkCharacter activeCharacter = workCharacterRepository.findByWorkIdAndNameAndStatus(
+                work.getId(),
+                "아리아",
+                CharacterStatus.ACTIVE
+        ).orElseThrow();
+        assertThat(activeCharacter.getId()).isNotEqualTo(archivedCharacter.getId());
+        assertThat(archivedCharacter.getStatus()).isEqualTo(CharacterStatus.ARCHIVED);
+        assertThat(candidate.getMatchedCharacterId()).isEqualTo(activeCharacter.getId());
+        assertThat(currentFact(activeCharacter, CharacterFactType.LEVEL, "level").getFactValue())
+                .isEqualTo("5");
     }
 
     @Test
@@ -686,7 +729,11 @@ class SettingCandidatePromotionServiceTest {
     }
 
     private WorkCharacter character(String name) {
-        return workCharacterRepository.findByWorkIdAndName(work.getId(), name).orElseThrow();
+        return workCharacterRepository.findByWorkIdAndNameAndStatus(
+                work.getId(),
+                name,
+                CharacterStatus.ACTIVE
+        ).orElseThrow();
     }
 
     private WorkCharacter workCharacter(String name) {

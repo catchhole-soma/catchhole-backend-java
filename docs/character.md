@@ -4,7 +4,7 @@
 
 Character 도메인은 작품별 캐릭터 설정과 AI가 추출한 설정 후보를 저장합니다.
 
-현재 범위에서는 Python AI Worker가 저장한 설정 후보를 사용자가 검토할 수 있도록 Spring 조회/수정/확정/무시 API를 제공하고, 확정된 후보를 캐릭터 설정 이력에 반영합니다.
+현재 범위에서는 Python AI Worker가 저장한 설정 후보를 사용자가 검토할 수 있도록 Spring 조회/수정/확정/무시 API를 제공하고, 확정된 후보를 캐릭터 설정 이력에 반영합니다. 설정DB 화면에서는 활성 캐릭터 목록·상세를 조회하고, 현재 설정 전체를 수정하거나 삭제 버튼으로 캐릭터를 보관할 수 있습니다.
 
 ## 핵심 결정
 
@@ -20,13 +20,13 @@ MVP에서 우선 관리할 캐릭터 설정은 숫자, 아이템, 스킬, 능력
 
 그래서 자주 조회하는 핵심 값은 일반 컬럼으로 두고, 작품마다 구조가 달라지는 상세값은 JSONB로 저장합니다.
 
-- `profile_json`: 성별, 종족, 소속, 설명 등 프로필성 값
+- `profile_json`: nullable한 `PROFILE` factKey → current `CharacterFact.valueJson` object map
 - `stats_json`: nullable한 `STAT` factKey → current `CharacterFact.valueJson` object map
 - `skills_json`: nullable한 `SKILL` factKey → current `CharacterFact.valueJson` object map
 - `items_json`: nullable한 `ITEM` factKey → current `CharacterFact.valueJson` object map
 - `statuses_json`: nullable한 `STATUS`, `TIME` factKey → current `CharacterFact.valueJson` object map
 
-네 snapshot 컬럼은 metadata envelope 없이 raw `valueJson`을 entry 값으로 저장하고, 해당 그룹의 current Fact가 없으면 `null`로 둡니다. Java 타입은 `JsonNode`로 통일하고 Hibernate JSON 매핑을 사용합니다. AI 출력 구조를 과하게 평탄화하지 않고 보존하기 위한 선택입니다.
+다섯 JSON snapshot 컬럼은 metadata envelope 없이 raw `valueJson`을 entry 값으로 저장하고, 해당 그룹의 current Fact가 없으면 `null`로 둡니다. Java 타입은 `JsonNode`로 통일하고 Hibernate JSON 매핑을 사용합니다. AI 출력 구조를 과하게 평탄화하지 않고 보존하기 위한 선택입니다.
 
 ### 캐릭터 설정 Schema Registry
 
@@ -42,7 +42,7 @@ MVP에서 우선 관리할 캐릭터 설정은 숫자, 아이템, 스킬, 능력
 
 | source | 개수 | schema key | 목적 |
 | --- | ---: | --- | --- |
-| `SYSTEM_SEED` | 7 | `age`, `level`, `stats.strength`, `stats.mana`, `statuses.condition`, `skills.skill`, `items.item` | 장르와 작품에 공통으로 사용할 최소 canonical schema |
+| `SYSTEM_SEED` | 15 | 기존 공통 7개와 `profile`, `profile.gender`, `profile.species`, `profile.affiliation`, `profile.occupation`, `profile.eye_color`, `profile.description`, `profile.attribute` | 장르와 작품에 공통으로 사용할 최소 canonical schema와 프로필 설정 |
 | `DEV_SEED` | 15 | `stats.physique`, `stats.mental`, `stats.supernatural`, `stats.item_level`, `stats.combat_power`, `stats.agility`, `stats.endurance`, `stats.soul_power`, `stats.magic_resistance`, `stats.physical_resistance`, `stats.natural_regeneration`, `stats.bone_strength`, `stats.energy`, `stats.perception`, `stats.mental_power` | 판타지 작품에서 수치형 스테이터스 추출을 검증하기 위한 POC schema |
 
 판타지 POC의 이름과 alias는 《게임 속 바바리안》 공개 팬 아카이브의 [비요른 스테이터스](https://www.deokhu.com/status), [정수 도감](https://www.deokhu.com/essences)을 schema 이름 선정 근거로만 참고했습니다. 현재 수치, 장비·정수 목록, 파티 정보, 작품 설명은 seed에 저장하지 않습니다. `정신`과 `정신력`처럼 별도 능력치가 될 수 있는 표현도 alias로 강제 병합하지 않습니다.
@@ -97,8 +97,28 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 - `CharacterFact.effectiveFromEpisodeNo`는 후보의 `episode.episodeNo`를 사용합니다. episode가 없으면 `null`로 저장하고 current 우선순위는 가장 낮게 봅니다.
 - 같은 캐릭터의 같은 `factType + factKey`에서는 가장 큰 `effectiveFromEpisodeNo`를 가진 fact만 current로 둡니다. 같은 회차라면 나중에 생성된 fact가 current가 됩니다.
 - `WorkCharacter.firstAppearanceEpisodeId`는 확정 순서가 아니라 가장 이른 업로드 회차 기준으로 유지합니다.
-- current fact가 바뀌면 `currentAge`, `currentLevel`은 선택된 숫자 Fact로 갱신하고, 네 JSON snapshot은 모든 current Fact를 `factKey -> valueJson` object map으로 다시 조립해 일괄 교체합니다. 해당 타입의 current Fact가 없으면 컬럼을 `null`로 둡니다.
-- `AGE`, `LEVEL`은 숫자 파싱에 성공한 경우에만 숫자 스냅샷을 갱신합니다. 파싱 실패 시 fact는 남기고 기존 숫자 스냅샷은 유지합니다.
+- 후보에 episode가 없으면 첫 등장 회차를 임의로 만들지 않고 `null`을 유지하며, 이후 유효한 회차가 있는 후보가 확정되면 해당 회차로 채웁니다.
+- current fact가 바뀌면 `currentAge`, `currentLevel`과 다섯 JSON snapshot을 모든 current Fact 기준으로 다시 조립해 일괄 교체합니다. 해당 타입의 current Fact가 없거나 숫자 파싱에 실패하면 대응 스냅샷을 `null`로 둡니다.
+
+### 캐릭터 현재 설정 수정·보관·복구 정책
+
+- 기본 캐릭터 목록과 상세는 `ACTIVE` 상태만 조회합니다. 다른 작품 캐릭터와 `ARCHIVED` 캐릭터의 상세는 `CHARACTER_NOT_FOUND / 404`로 응답합니다.
+- 보관함 목록은 `ARCHIVED` 상태만 조회하며 활성 목록과 동일한 페이지·정렬·첫 등장 회차 표시 계약을 사용합니다.
+- 목록은 `page`(0부터 시작)와 `size`(1~24)를 받아 서버에서 페이징합니다. 활성 목록의 기본값은 `page=0`, `size=24`이고 보관함은 한 화면에 9개를 표시하기 위해 `page=0`, `size=9`를 사용합니다.
+- 페이지 사이 순서가 흔들리지 않도록 `createdAt DESC, id DESC`로 정렬하며,
+  `(work_id, status, created_at DESC, id DESC)` 복합 인덱스를 사용합니다.
+- 응답은 `content`, `page`, `size`, `totalElements`, `totalPages`, `hasNext`를 제공합니다.
+- 목록의 `firstAppearanceEpisodeNo`는 첫 등장 회차가 없거나 현재 작품에서 유효한 회차를 찾지 못하면 `null`로 응답합니다. 해당 캐릭터만 값 없음으로 표시하며 목록 전체 조회는 실패시키지 않습니다.
+- 카드 대표 속성은 우선 현재 레벨을 `레벨`로 제공합니다. 레벨이 없으면 대표 속성 표시명과 값을 모두 `null`로 둡니다. 장르별 대표 속성은 후속 정책입니다.
+- 이름·역할·첫 등장 회차는 `WorkCharacter` 대표 필드에 반영합니다. 같은 작품의 다른 `ACTIVE` 캐릭터와 이름이 같으면 `CHARACTER_NAME_DUPLICATED / 409`로 거절하며, 보관 캐릭터와 같은 이름은 허용합니다.
+- 캐릭터 직접 수정은 AI 후보를 기존 값에 병합하는 과정이 아니라 사용자가 편집 가능한 현재 설정의 최종 상태를 확정하는 과정입니다. 따라서 schema의 `mergePolicy`를 다시 적용하지 않고 `factType + factKey` entry 단위의 `REPLACE`로 처리합니다.
+- 나이·레벨·프로필·스탯·스킬·아이템·상태는 기존 항목의 값 변경뿐 아니라 새 항목 추가와 기존 항목 제거도 지원합니다. 변경·추가된 `factType + factKey`마다 출처 후보와 회차가 없는 수동 정정 `CharacterFact`를 새로 만들고, 변경·제거된 이전 current Fact는 historical로 전환합니다.
+- 수정 요청은 편집 가능한 현재 설정 전체를 전달합니다. 값이 동일한 Fact는 ID와 원문 근거를 포함해 그대로 유지하고, 기존 current Fact가 요청에서 빠지면 historical로 전환한 뒤 대응 snapshot에서 제거합니다. 화면 편집 범위가 아닌 `TIME` Fact는 요청과 비교하지 않고 유지합니다.
+- 설정이나 세부 속성의 `valueType`이 `JSON`이면 값 문자열은 정확히 하나의 완전한 JSON 값이어야 합니다. 빈 문자열 또는 `"{} {}"`처럼 여러 JSON 값이 이어진 입력은 `CHARACTER_SETTING_VALUE_INVALID / 400`으로 거절하며 이름과 Fact를 포함한 수정 전체를 롤백합니다.
+- 여러 설정 변경과 snapshot 재구성은 같은 트랜잭션에서 처리합니다.
+- 화면의 버튼과 API 동사는 `삭제`이지만 DB 행은 지우지 않습니다. `DELETE` 요청은 `WorkCharacter.status`만 `ACTIVE → ARCHIVED`로 바꾸며 `CharacterFact`, `SettingCandidate`, 원문 근거는 유지합니다.
+- 복구 요청은 보관 캐릭터 행을 잠금 조회하고 다른 `ACTIVE` 캐릭터와의 이름 중복을 확인한 뒤 `ARCHIVED → ACTIVE`로 바꿉니다. 보관과 복구 모두 기존 설정 이력과 원문 근거를 수정하지 않습니다.
+- 복구 대상이 이미 활성 상태이거나 다른 작품에 속하면 `CHARACTER_NOT_FOUND / 404`, 작품 안에서 같은 이름의 다른 `ACTIVE` 캐릭터가 있으면 `CHARACTER_NAME_DUPLICATED / 409`로 응답합니다. 보관 캐릭터끼리 같은 이름을 사용해도 복구를 막지 않습니다.
 
 ### 캐릭터 매칭 상태 기반 confirm 정책
 
@@ -125,7 +145,7 @@ confirm 데이터 계약 위반으로 보고 거절할 조합:
 | `MATCHED`인데 `matchedCharacterId`가 없음 | `SETTING_CANDIDATE_MATCH_STATUS_CONFLICT / 409`로 confirm 거절 |
 | `UNRESOLVED`인데 `matchedCharacterId`가 있음 | `SETTING_CANDIDATE_MATCH_STATUS_CONFLICT / 409`로 confirm 거절 |
 | `UNRESOLVED` 후보의 `entityName`과 완전히 동일한 이름의 활성 캐릭터가 같은 작품에 이미 있음 | 기존 활성 캐릭터를 pessimistic write lock으로 조회해 재사용 |
-| `UNRESOLVED` 후보의 `entityName`과 완전히 동일한 이름의 보관 캐릭터만 있음 | `SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED / 409`로 confirm 거절 |
+| `UNRESOLVED` 후보의 `entityName`과 완전히 동일한 이름의 보관 캐릭터만 있음 | 보관 캐릭터는 유지하고 같은 이름의 새 `ACTIVE` 캐릭터 생성 |
 | `AMBIGUOUS` 후보를 그대로 confirm하려는 경우 | `SETTING_CANDIDATE_MATCH_STATUS_CONFLICT / 409`로 confirm 거절 |
 | `MATCHED` 후보의 `matchedCharacterId`가 존재하지 않거나, 다른 작품 소속이거나, 보관된 캐릭터를 가리킴 | `SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID / 409`로 confirm 거절 |
 
@@ -147,10 +167,10 @@ confirm 데이터 계약 위반으로 보고 거절할 조합:
 | --- | --- |
 | 기존 캐릭터에 연결하는데 `matchedCharacterId`가 없음 | `SETTING_CANDIDATE_MATCHED_CHARACTER_REQUIRED / 400` |
 | 새 캐릭터로 확정하는데 `entityName`이 비어 있음 | `SETTING_CANDIDATE_NEW_CHARACTER_NAME_REQUIRED / 400` |
-| 새 캐릭터로 확정하는데 같은 작품에 완전히 동일한 이름의 캐릭터가 이미 있음 | `SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED / 409` |
+| 새 캐릭터로 확정하는데 같은 작품에 완전히 동일한 이름의 `ACTIVE` 캐릭터가 이미 있음 | `SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED / 409` |
 | `matchedCharacterId`가 존재하지 않거나, 다른 작품 소속이거나, 보관된 캐릭터를 가리킴 | `SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID / 409` |
 
-새 캐릭터로 확정할 때 같은 작품에 완전히 동일한 이름의 캐릭터가 이미 있으면 거절합니다. 이 경우 사용자는 "기존 캐릭터에 연결" 액션을 사용해야 합니다.
+새 캐릭터로 확정할 때 같은 작품에 완전히 동일한 이름의 `ACTIVE` 캐릭터가 이미 있으면 거절합니다. 이 경우 사용자는 "기존 캐릭터에 연결" 액션을 사용해야 합니다. 동일 이름의 `ARCHIVED` 캐릭터는 새 캐릭터 확정과 이후 confirm을 막지 않습니다.
 
 `MATCHED`, `UNRESOLVED` 후보도 사용자가 AI 판단을 바꿀 수 있습니다. 예를 들어 AI가 기존 캐릭터와 매칭한 후보라도 사용자가 새 캐릭터로 판단할 수 있고, AI가 신규 후보로 본 값이라도 사용자가 기존 캐릭터와 같은 인물이라고 판단할 수 있습니다.
 
@@ -183,8 +203,8 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 
 | 상태 | 의미 | 전이 시점 |
 | --- | --- | --- |
-| `ACTIVE` | 활성 | `WorkCharacter.create()`로 캐릭터 대표 설정을 만들 때 기본값으로 설정됩니다. |
-| `ARCHIVED` | 보관됨 | `WorkCharacter.archive()`로 전환합니다. 복구 API는 아직 정의하지 않았습니다. |
+| `ACTIVE` | 활성 | `WorkCharacter.create()`의 기본값이며 보관함 복구 시 `WorkCharacter.restore()`로 전환합니다. |
+| `ARCHIVED` | 보관됨 | 화면의 삭제 요청에서 `WorkCharacter.archive()`로 전환합니다. |
 
 `SettingCandidateReviewStatus`
 
@@ -222,6 +242,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 
 | 유형 | 의미 |
 | --- | --- |
+| `PROFILE` | 프로필 |
 | `AGE` | 나이 |
 | `LEVEL` | 레벨 |
 | `STAT` | 스탯 |
@@ -267,7 +288,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `role_label` | 주인공, 조연, 적대자 등 역할 라벨 |
 | `current_age` | 현재 나이 확정값 |
 | `current_level` | 현재 레벨 확정값 |
-| `profile_json` | 프로필 상세 JSONB |
+| `profile_json` | nullable한 `PROFILE` factKey → current `CharacterFact.valueJson` object map |
 | `stats_json` | nullable한 `STAT` factKey → current `CharacterFact.valueJson` object map |
 | `skills_json` | nullable한 `SKILL` factKey → current `CharacterFact.valueJson` object map |
 | `items_json` | nullable한 `ITEM` factKey → current `CharacterFact.valueJson` object map |
@@ -284,11 +305,11 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `id` | 캐릭터 설정 이력 UUID |
 | `character_id` | 어떤 캐릭터의 설정인지 나타내는 FK |
 | `setting_candidate_id` | 이 Fact로 승격된 원본 `setting_candidates.id` FK. V3 이전 Fact는 `NULL` |
-| `fact_type` | 설정 유형. 예: AGE, LEVEL, STAT, SKILL, ITEM, STATUS, TIME |
+| `fact_type` | 설정 유형. 예: PROFILE, AGE, LEVEL, STAT, SKILL, ITEM, STATUS, TIME |
 | `fact_key` | snapshot entry 전체를 식별하는 설정 키. 예: age, level, stats.strength, skill.흑염, item.검은단검 |
 | `fact_value` | 확정된 표시값. 예: 17, 12, 35, OWNED |
 | `normalized_value` | 비교를 쉽게 하기 위한 정규화 값 |
-| `value_json` | 스킬/아이템/상태 이상처럼 복잡한 설정 값 JSONB |
+| `value_json` | 프로필·스킬·아이템·상태 등을 구조화한 설정 값 JSONB |
 | `source_episode_id` | 이 설정이 확인된 회차 ID |
 | `source_chunk_id` | 이 설정이 확인된 `episode_chunks.id`. 재청킹 시 근거 보존 정책이 정해지지 않아 현재 FK 없이 저장 |
 | `extracted_by_job_id` | 이 설정을 추출한 분석 작업 ID |
@@ -332,8 +353,8 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `schema_key` | 입력 속성이 어느 schema인지 판별된 뒤 저장·비교에 사용할 canonical 논리 키입니다. 실제 DB 컬럼명이나 JSON 경로가 아닙니다. exact/alias 매칭에서는 `CharacterFact.factKey`로 사용하고, pattern 매칭에서는 실제 동적 `attributeName`을 factKey로 유지합니다. 예: `items.item`. |
 | `attribute_pattern` | exact `schema_key`와 alias로 일치하지 않은 동적 `SettingCandidate.attributeName`을 이 schema로 분류하기 위한 nullable trailing `.*` 패턴입니다. 예: `item.*`. 병합 방식이나 저장 위치를 의미하지 않습니다. |
 | `display_name` | Worker prompt와 화면에서 사람이 schema를 식별할 때 사용할 표시명입니다. 저장·비교 식별자로 사용하지 않습니다. |
-| `fact_type` | 이 schema로 확정된 값을 저장할 상위 `CharacterFactType`입니다. 예: `ITEM`, `SKILL`, `STAT`. |
-| `value_type` | Worker가 추출하고 Spring Backend가 confirm 시 후보의 `valueType`과 enum equality로 검증하는 자료형입니다. `STRING`, `NUMBER`, `BOOLEAN`, `JSON`, `UNKNOWN` 중 하나이며 Java의 `SettingValueType`을 재사용합니다. `valueJson` 내부 node 구조까지 검증하는 값은 아닙니다. |
+| `fact_type` | 이 schema로 확정된 값을 저장할 상위 `CharacterFactType`입니다. 예: `PROFILE`, `ITEM`, `SKILL`, `STAT`. |
+| `value_type` | Worker가 추출하고 Spring Backend가 confirm 시 후보의 `valueType`과 enum equality로 검증하는 자료형입니다. `STRING`, `NUMBER`, `BOOLEAN`, `JSON`, `UNKNOWN` 중 하나이며 Java의 `SettingValueType`을 재사용합니다. schema별 중첩 JSON 구조는 검증하지 않지만, 상세 편집에 공개되는 설정 유형의 `valueJson` 최상위 property는 전체 수정 요청으로 표현이 바뀌지 않고 왕복 가능한 key와 직접 문자열 값인지 확인합니다. 정수 대표 snapshot이 필요한 `AGE`, `LEVEL`은 확정 전에 실제 숫자 범위도 검증합니다. |
 | `value_semantics` | 값이 원문에서 확인한 기준값(`BASE_VALUE`), 기준값에 적용하는 보정값(`MODIFIER`), 다른 값으로 계산한 파생값(`DERIVED`) 중 무엇인지 나타냅니다. |
 | `merge_policy` | Resolver가 결정한 factKey entry의 새 값을 snapshot에 반영할 정책입니다. 현재 confirm은 `REPLACE`, `UPSERT_BY_NAME`만 entry 전체 교체로 지원하고 나머지는 409로 거절합니다. object 내부 deep merge는 하지 않습니다. |
 | `aliases_json` | `schema_key`와 동일한 schema로 해석할 분류 경로 없는 별칭 문자열 배열입니다. 후보 속성명은 별칭 자체 또는 `schemaKey`와 같은 분류 경로를 붙인 값만 정확히 비교하며, 다른 분류 경로·대소문자 변환·부분 일치·fuzzy 매칭은 하지 않습니다. JSONB 배열만 허용하며 별칭이 없으면 `[]`를 저장합니다. |
@@ -364,12 +385,22 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 `WorkRepository`
 
 - `findByIdForUpdate(id)`: `UNRESOLVED` 후보의 exact-name 캐릭터 조회와 신규 생성을 작품 단위로 직렬화합니다.
+- `findByIdAndMemberIdForUpdate(id, memberId)`: 소유권을 확인하면서 작품 row를 잠가 캐릭터 이름 수정·복구의 중복 검사를 작품 단위로 직렬화합니다.
 
 `WorkCharacterRepository`
 
 - `findByIdAndWorkIdForUpdate(id, workId)`: 기존 캐릭터 confirm 시 pessimistic write lock으로 조회해 whole-map snapshot lost update를 방지합니다.
-- `findByWorkIdAndName(workId, name)`
-- `findAllByWorkIdOrderByCreatedAtDesc(workId)`
+- `findByIdAndWorkIdAndStatus(id, workId, ACTIVE)`: 활성 캐릭터 상세 조회에 사용합니다.
+- `findByIdAndWorkIdAndStatusForUpdate(id, workId, ACTIVE)`: 수정·삭제 대상 활성 캐릭터를 pessimistic write lock으로 조회합니다.
+- `findAllByWorkIdAndStatusOrderByCreatedAtDesc(workId, ACTIVE)`: Worker claim에 전달할 활성 캐릭터만 조회합니다.
+- `findAllByWorkIdAndStatusOrderByCreatedAtDescIdDesc(workId, status, pageable)`: 활성 목록과 보관함을 상태별로 안정적인 순서로 페이지 조회합니다.
+- `findByWorkIdAndNameAndStatus(workId, name, ACTIVE)`: 후보 확정과 새 캐릭터 지정에서 동명 활성 캐릭터만 조회합니다.
+- `existsByWorkIdAndNameAndStatusAndIdNot(workId, name, ACTIVE, id)`: 이름 수정·복구 대상 자신을 제외한 동명 활성 캐릭터 존재 여부를 확인합니다.
+- `findAllByWorkIdOrderByCreatedAtDesc(workId)`: 상태와 무관한 작품 캐릭터 전체가 필요한 검증과 테스트에서 조회합니다.
+
+`EpisodeRepository`
+
+- `findAllByWorkIdAndIdIn(workId, ids)`: 캐릭터 카드의 첫 등장 회차 UUID를 같은 작품 범위에서 일괄 조회합니다. `firstAppearanceEpisodeId`는 화면에 표시할 회차 번호를 보관하지 않으므로 목록 응답을 만들 때 이 조회가 필요합니다.
 
 `SettingCandidateRepository`
 
@@ -383,7 +414,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 `CharacterFactRepository`
 
 - `findAllByWorkCharacterIdOrderByCreatedAtDesc(characterId)`
-- `findAllByWorkCharacterIdAndIsCurrentTrueOrderByFactTypeAscFactKeyAsc(characterId)`
+- `findAllByWorkCharacterIdAndIsCurrentTrueOrderByFactTypeAscFactKeyAsc(characterId)`: 상세 응답의 `hasEvidence` 계산이 Fact마다 추가 조회를 만들지 않도록 `settingCandidate`를 entity graph로 함께 조회합니다.
 - `findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(characterId, factType, factKey)`
 
 `CharacterSettingSchemaRepository`
@@ -400,12 +431,29 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 
 `CharacterSnapshotAssembler`
 
-- 호출자가 제공한 current Fact를 `STAT`, `SKILL`, `ITEM`, `STATUS/TIME`별 `factKey -> raw valueJson` object map으로 조립하며 entry 내부를 deep merge하지 않습니다.
-- `AGE`, `LEVEL`은 일반 컬럼 대상이므로 제외하고, current Fact가 없는 JSON 그룹은 `null`을 반환합니다.
+- 호출자가 제공한 current Fact에서 `AGE`, `LEVEL` 숫자 스냅샷과 `PROFILE`, `STAT`, `SKILL`, `ITEM`, `STATUS/TIME`별 `factKey -> raw valueJson` object map을 조립합니다.
+- entry 내부를 deep merge하지 않으며 current Fact가 없는 그룹은 `null`을 반환합니다.
 
 ## HTTP API
 
-설정 후보 API는 모두 로그인한 사용자의 본인 작품에서만 동작합니다. 다른 회원의 작품 접근은 기존 Work 정책과 동일하게 `WORK_NOT_FOUND`로 응답합니다.
+캐릭터와 설정 후보 API는 모두 로그인한 사용자의 본인 작품에서만 동작합니다. 다른 회원의 작품 접근은 기존 Work 정책과 동일하게 `WORK_NOT_FOUND`로 응답합니다.
+
+캐릭터 현재 설정 API:
+
+| 메서드 | 경로 | 설명 |
+| --- | --- | --- |
+| `GET` | `/api/v1/works/{workId}/characters` | `ACTIVE` 캐릭터 카드 목록을 최신 생성순으로 조회합니다. |
+| `GET` | `/api/v1/works/{workId}/characters/archived` | `ARCHIVED` 캐릭터 카드 목록을 최신 생성순으로 조회합니다. |
+| `GET` | `/api/v1/works/{workId}/characters/{characterId}` | 기본 정보와 `PROFILE`, `STAT`, `SKILL`, `ITEM`, `STATUS` current Fact를 사용자용 목록으로 조회합니다. `TIME`과 과거 Fact는 제외합니다. |
+| `PATCH` | `/api/v1/works/{workId}/characters/{characterId}` | 기본 정보와 현재 설정 전체를 수정하고 변경된 설정을 수동 정정 Fact로 기록합니다. |
+| `DELETE` | `/api/v1/works/{workId}/characters/{characterId}` | 삭제 버튼 요청을 처리하되 데이터를 지우지 않고 상태를 `ARCHIVED`로 전환합니다. |
+| `PATCH` | `/api/v1/works/{workId}/characters/{characterId}/restore` | 보관된 캐릭터의 설정 이력을 유지한 채 상태를 `ACTIVE`로 복구합니다. |
+
+상세 설정 항목은 `characterFactId`, canonical `key`, `displayName`, 사용자용 `value`, `valueType`, 복합값의 `properties`, `hasEvidence`를 제공합니다. 기본 정보로 분리해 표시하는 현재 나이와 레벨도 각각 `currentAgeFact`, `currentLevelFact`에 `characterFactId`, `hasEvidence`를 제공합니다. raw JSON snapshot은 응답하지 않습니다.
+
+`characterFactId`와 `hasEvidence`는 MVP 전체 범위에 포함된 원문 근거 패널을 후속 PR에서 연결하기 위한 계약입니다. 현재 PR은 캐릭터 현재 설정 조회·전체 수정·보관·복구까지만 제공하며, `characterFactId`로 Fact 또는 `SettingCandidate.evidenceSpans`를 조회하는 API는 포함하지 않습니다. 후속 PR에서 CharacterFact 상세·근거 조회 경로를 추가하기 전까지 클라이언트는 이 ID를 즉시 조회 가능한 근거 링크로 해석하지 않습니다.
+
+설정 후보 API:
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
@@ -438,6 +486,129 @@ Spring API는 `SettingCandidate` 생성 API를 제공하지 않습니다. 후보
   "entityName": "비요른 라프손"
 }
 ```
+
+### 캐릭터 현재 설정 직접 수정 상세 워크플로우
+
+`PATCH /api/v1/works/{workId}/characters/{characterId}`는 화면에서 편집 가능한 기본 정보와 현재 설정 전체를 한 트랜잭션에서 반영합니다. 이 요청은 일부 필드만 합치는 일반적인 partial patch가 아니라, **사용자가 보낸 편집 가능 설정을 저장 후의 최종 목표 상태로 보는 전체 교체 요청**입니다. 다만 화면에서 수정하지 않는 `TIME` Fact는 교체 범위에서 제외합니다.
+
+요청 예시:
+
+```json
+{
+  "name": "수아",
+  "roleLabel": "주인공",
+  "currentAge": 23,
+  "currentLevel": 15,
+  "firstAppearanceEpisodeNo": 1,
+  "profile": [
+    {
+      "key": "profile.gender",
+      "value": "여성",
+      "valueType": "STRING",
+      "properties": []
+    },
+    {
+      "key": "profile.manual_motto",
+      "value": "끝까지 포기하지 않는다",
+      "valueType": "STRING",
+      "properties": [
+        {"key": "name", "value": "좌우명", "valueType": "STRING"}
+      ]
+    }
+  ],
+  "stats": [
+    {
+      "key": "stats.strength",
+      "value": "50",
+      "valueType": "NUMBER",
+      "properties": []
+    }
+  ],
+  "skills": [],
+  "items": [],
+  "statuses": []
+}
+```
+
+다섯 설정 목록은 모두 필수이며 빈 배열도 유효합니다. 예를 들어 `skills: []`는 기존 스킬을 유지하라는 뜻이 아니라 현재 스킬의 최종 상태가 비어 있다는 뜻이므로, 기존 current `SKILL` Fact를 historical로 전환합니다.
+
+```mermaid
+flowchart TD
+    A["캐릭터 수정 요청 수신<br/>PATCH /characters/{characterId}"] --> B["작품 소유권 확인과 write lock<br/>getOwnedWorkForUpdate(workId, memberId)"]
+    B --> C["활성 캐릭터를 write lock으로 조회<br/>getActiveCharacterForUpdate"]
+    C --> D["이름 trim 후 작품 내 중복 확인<br/>수정 대상 ID는 검사에서 제외"]
+    D -->|"다른 활성 캐릭터와 같은 이름"| X1["이름 중복 응답<br/>CHARACTER_NAME_DUPLICATED / 409"]
+    D -->|"중복 없음"| E["첫 등장 회차 번호 검증<br/>동일 번호는 기존 ID 유지<br/>변경 번호는 비보관 회차 ID로 변환"]
+    E -->|"작품에 없거나 새로 지정할 수 없는 보관 회차"| X2["회차 조회 실패 응답<br/>EPISODE_NOT_FOUND / 404"]
+    E -->|"유효하거나 값 없음"| F["활성 schema와 기존 전체 current Fact 조회"]
+    F --> G["요청을 factType + factKey 목표 상태로 변환<br/>등록 schema 타입 검증·동일 JSON raw 값 보존"]
+    G -->|"설정 검증 실패"| X3["설정 검증 실패 응답<br/>400"]
+    G -->|"검증 성공"| H["이름·역할·첫 등장 회차<br/>WorkCharacter 기본 필드 갱신"]
+    H --> I["현재 Fact와 목표 상태 비교<br/>applyManualCorrections"]
+
+    I -->|"같은 key와 같은 값"| I1["기존 Fact와 원문 근거 유지"]
+    I -->|"같은 key지만 값 변경"| I2["기존 Fact historical 전환<br/>근거 없는 새 manual Fact 생성"]
+    I -->|"기존 key가 요청에서 제거됨"| I3["기존 Fact historical 전환<br/>대체 Fact는 생성하지 않음"]
+    I -->|"요청에 새 key가 추가됨"| I4["근거 없는 새 manual Fact 생성"]
+    I -->|"TIME Fact"| I5["화면 편집 대상이 아니므로<br/>current 상태 그대로 유지"]
+
+    I1 --> J["Fact 상태 변경과 신규 Fact flush"]
+    I2 --> J
+    I3 --> J
+    I4 --> J
+    I5 --> J
+    J --> K["최종 전체 current Fact 재조회"]
+    K --> L["current Fact만으로 대표값과 JSON snapshot 재조립<br/>CharacterSnapshotAssembler"]
+    L --> M["WorkCharacter snapshot 전체 교체<br/>replaceCurrentSnapshots"]
+    M --> N["활성 schema 표시 정보를 적용해<br/>최신 상세 응답 생성"]
+    N --> O["트랜잭션 커밋 후 응답"]
+```
+
+상세 처리 기준:
+
+- `getOwnedWorkForUpdate`는 소유권을 확인하면서 `Work` 행에 pessimistic write lock을 획득합니다. 같은 작품의 이름 수정·복구 요청은 이 잠금을 먼저 획득하므로 서로 다른 캐릭터를 동시에 같은 이름으로 바꾸는 경쟁 요청도 중복 검사 전에 직렬화됩니다.
+- `getActiveCharacterForUpdate`는 작품 잠금 다음에 동일 캐릭터의 수정·보관·후보 확정이 동시에 current Fact와 snapshot을 바꾸지 않도록 `WorkCharacter` 행에 pessimistic write lock을 획득합니다. 잠금은 트랜잭션이 커밋되거나 롤백될 때까지 유지됩니다.
+- `getArchivedCharacterForUpdate`도 복구 대상 행을 같은 순서로 잠금 조회해 동시에 같은 캐릭터를 복구하는 요청을 직렬화합니다.
+- 이름은 앞뒤 공백을 제거한 뒤 `(workId, name, status = ACTIVE, id != characterId)`로 중복 검사합니다. `id != characterId`는 이름을 바꾸지 않고 저장할 때 자기 자신을 중복으로 판단하지 않기 위한 조건입니다. 보관 캐릭터끼리 또는 활성·보관 캐릭터 사이의 동명은 허용합니다.
+- 복구도 다른 `ACTIVE` 캐릭터의 이름만 중복으로 판단합니다. 동명 활성 캐릭터가 생긴 뒤 과거 캐릭터를 복구하려면 먼저 활성 캐릭터의 이름을 변경하거나 해당 캐릭터를 보관해야 합니다.
+- DB의 `(work_id, name)` 인덱스는 unique 제약이 아니지만, 정상 API의 이름 수정·복구와 신규 캐릭터 생성은 모두 작품 row 잠금을 먼저 획득해 이름 조회와 변경을 직렬화합니다. 따라서 같은 작품·이름의 `ACTIVE` 캐릭터는 최대 하나만 유지됩니다. DB에 직접 쓰는 운영 외 경로는 이 애플리케이션 잠금 규칙을 우회하므로 허용하지 않습니다.
+- 첫 등장 회차 번호가 `null`이면 연결을 제거합니다. 요청 번호가 현재 참조 회차 번호와 같으면 회차가 보관되어도 기존 UUID를 유지하고, 번호를 변경할 때만 같은 작품의 `ARCHIVED`가 아닌 회차를 새 참조로 허용합니다. 따라서 보관 회차를 새로 지정하거나 같은 번호의 새 활성 회차로 변경 없이 갈아끼우는 것은 허용하지 않습니다. 이름·역할·첫 등장 회차는 Fact가 아니라 `WorkCharacter` 대표 필드에서 직접 관리합니다.
+- `toDesiredFacts`는 `currentAge`, `currentLevel`, `profile`, `stats`, `skills`, `items`, `statuses`를 `(factType, factKey)` 기준의 목표 상태로 변환합니다. 나이와 레벨은 각각 `(AGE, age)`, `(LEVEL, level)`을 사용합니다. 나머지 설정은 같은 Fact 유형의 활성 schema와 정확히 일치하는 canonical key를 우선 허용하고, 등록되지 않은 custom key와 pattern key에는 유형별 prefix 규칙을 적용하며 요청 내 중복 key를 검증합니다.
+- 활성 schema의 `schemaKey`와 정확히 일치하거나 `attributePattern`에 일치하는 설정은 요청 `valueType`도 schema와 같아야 합니다. 다르면 `CHARACTER_SETTING_VALUE_TYPE_MISMATCH / 400`으로 거절하며, 어떤 활성 schema에도 등록되지 않은 수동 custom key는 기존 정책대로 유형별 prefix만 유효하면 허용합니다.
+- 설정에 세부 `properties`가 없고 같은 `(factType, factKey)`의 표시값도 바뀌지 않았다면, 상세 응답의 `properties`로 복원할 수 없는 기존 raw `valueJson`만 그대로 목표 상태에 사용합니다. 대상은 `null`, non-object primitive, 빈 object, 예약 `value` key만 있는 object이며 `STRING`, `NUMBER`, `BOOLEAN`, `JSON`에 같은 규칙을 적용합니다. schema가 없는 custom 설정은 저장 JSON에서 추론한 타입과 요청 `valueType`도 같아야 raw 값을 보존합니다. 기존 object에 예약 `value`와 공개 속성이 함께 있으면 등록 schema의 타입이 검증됐거나 저장 `value` 타입과 요청 타입이 같고, JSON 타입이거나 non-JSON 표시값이 바뀌지 않은 경우에만 숨겨진 `value` envelope를 유지합니다. 요청의 공개 `properties`는 목표 상태로 다시 구성합니다. `name`, `level`처럼 응답 가능한 속성이 있는 object에서 빈 `properties`를 보내면 속성 제거 요청으로 보고 기존 요청 변환을 적용합니다. 표시값 또는 타입이 바뀌거나 raw 값을 보존할 수 없으면 요청의 `valueType`에 맞춰 값을 재구성하며 유효하지 않으면 `CHARACTER_SETTING_VALUE_INVALID / 400`으로 거절합니다.
+- 프로필·스탯처럼 단일 값을 가지면서 사용자 정의 표시명이 필요한 수동 설정은 `valueJson.value`에 타입이 보존된 대표값을, `valueJson.name`에 화면 표시명을 저장합니다. 요청 `properties`의 `value` key는 대표값 envelope와 충돌하므로 `CHARACTER_SETTING_KEY_INVALID / 400`으로 거절합니다.
+- 직접 수정은 schema merge 정책의 적용 대상이 아닙니다. AI 후보 확정은 새 관찰값을 현재값에 반영하는 방법을 결정하기 위해 `REPLACE`, `UPSERT_BY_NAME`을 검증하지만, 직접 수정은 사용자가 최종 상태를 명시하므로 모든 편집 가능 설정을 `factType + factKey` entry 단위 `REPLACE`로 처리합니다. `valueJson` 내부 deep merge도 하지 않습니다.
+- `AGE`, `LEVEL`은 snapshot과 화면의 기준인 `valueJson.value` 숫자를 우선 비교하고, 구조화 숫자가 없을 때만 숫자로 해석 가능한 `factValue`를 사용합니다. 따라서 `23세` 또는 `23.0`처럼 표시 문자열이 달라도 구조화 숫자가 `23`이면 기존 Fact와 근거를 유지합니다. 나머지 설정은 사용자 표시값인 `factValue`와 구조화 값인 `valueJson`이 모두 같은지 확인합니다. JSON 객체는 key 순서와 무관하게 비교하고 숫자는 `42`와 `42.0`처럼 표현만 다른 경우 같은 값으로 봅니다. 배열은 원소 순서까지 같아야 합니다.
+- 과거 scalar Fact의 `valueJson`이 `null`이지만 같은 표시값의 수정 요청이 `{"value": ...}`로 재조립되는 경우에는 저장 표현만 다른 동일 값으로 판단해 기존 Fact와 근거를 유지합니다. 이 예외는 JSON 타입이나 추가 속성이 있는 설정에는 적용하지 않으므로 구조화 값의 실제 변경은 계속 새 수동 Fact를 만듭니다.
+- 값이 같은 Fact는 새로 만들지 않으므로 기존 `characterFactId`, `settingCandidate`, 출처 회차와 근거 인용문을 유지합니다. 값이 바뀐 Fact는 기존 행의 값이나 근거를 수정하지 않고 `isCurrent=false`로 전환합니다.
+- 추가·변경된 값은 `CharacterMapper`가 `CharacterFact.createManual` 호출을 조립해 새 행으로 만듭니다. 새 수동 Fact는 `settingCandidate`, `sourceEpisode`, `sourceChunkId`, `extractedByJob`, `confidence`, `effectiveFromEpisodeNo`를 이전 Fact에서 복사하지 않고 `null`로 두므로 원문 근거가 표시되지 않습니다.
+- 수동 Fact는 이 수정 트랜잭션에서는 즉시 current가 됩니다. 다만 이후 같은 `factType + factKey`의 AI 후보를 confirm하면 confirm 로직이 전체 이력의 `effectiveFromEpisodeNo`를 다시 비교합니다. 현재 정책은 `null` 회차를 가장 오래된 값으로 보기 때문에 `effectiveFromEpisodeNo=null`인 수동 Fact가 historical로 바뀌고 회차가 있는 AI Fact가 current가 될 수 있습니다. 수동 정정을 이후 후보보다 항상 우선해야 한다면 수동 override 우선순위나 적용 회차를 별도로 설계해야 합니다.
+- 요청에서 빠진 편집 가능 Fact는 삭제하지 않고 historical로 전환합니다. 반면 `TIME`은 현재 화면과 수정 DTO의 편집 범위가 아니므로 요청에 없어도 historical로 바꾸지 않습니다.
+- Fact 상태를 flush한 다음 current Fact 전체를 다시 조회합니다. 이 목록이 snapshot의 단일 기준이며 기존 `WorkCharacter`의 JSON snapshot을 읽어 부분 병합하지 않습니다.
+- `CharacterSnapshotAssembler`는 `AGE`, `LEVEL`의 object envelope `valueJson.value` 또는 primitive 숫자를 일반 대표값으로, `PROFILE`, `STAT`, `SKILL`, `ITEM`, `STATUS/TIME`을 `factKey -> valueJson` object map으로 조립합니다. 다른 key는 current Fact로 남아 있는 한 보존되고, current Fact가 없는 그룹은 `null`로 교체됩니다.
+- 기본 정보 수정, historical 전환, 수동 Fact 생성, snapshot 교체와 상세 응답 생성은 모두 한 트랜잭션 안에서 실행됩니다. 어느 단계에서든 실패하면 앞 단계의 변경도 함께 롤백됩니다.
+
+예를 들어 수정 전 current Fact가 아래와 같다고 가정합니다.
+
+| 설정 | 값 | 출처 | 상태 |
+| --- | --- | --- | --- |
+| `AGE / age` | `17` | 3화 AI 후보와 근거 문장 | current |
+| `STAT / stats.strength` | `40` | 5화 AI 후보와 근거 문장 | current |
+| `STAT / stats.agility` | `30` | 5화 AI 후보와 근거 문장 | current |
+| `TIME / time.첫전투` | `7화` | 7화 AI 후보와 근거 문장 | current |
+
+사용자가 나이를 `23`, 힘을 `50`으로 변경하고 민첩을 화면에서 제거한 전체 설정을 저장하면 다음과 같이 반영됩니다.
+
+| 설정 | 반영 결과 |
+| --- | --- |
+| 기존 `AGE / age = 17` | 근거를 유지한 채 historical 전환 |
+| 새 `AGE / age = 23` | 근거가 없는 manual current Fact 생성 |
+| 기존 `STAT / stats.strength = 40` | 근거를 유지한 채 historical 전환 |
+| 새 `STAT / stats.strength = 50` | 근거가 없는 manual current Fact 생성 |
+| 기존 `STAT / stats.agility = 30` | 요청에서 빠졌으므로 historical 전환, 대체 Fact 없음 |
+| 기존 `TIME / time.첫전투 = 7화` | 화면 편집 범위 밖이므로 current와 근거 유지 |
+
+최종 snapshot은 `currentAge=23`, `statsJson={"stats.strength":{"value":50}}`가 되며, 유지된 `TIME` entry는 `statusesJson`에 계속 포함됩니다. 과거 나이·힘·민첩 Fact와 각 원문 근거는 검색 가능한 이력으로 남습니다.
 
 ### 설정 후보 검토 워크플로우
 
@@ -473,7 +644,7 @@ flowchart TD
 
 `confirm` API는 후보 상태 전이와 확정 데이터 반영을 같은 트랜잭션에서 처리합니다. 단, 이미 `CONFIRMED`인 후보 재호출은 성공 응답만 반환하고 `CharacterFact`를 다시 만들지 않습니다.
 
-아래 흐름은 현재 confirm 반영 순서를 보여줍니다. schema 매칭, 값 타입, merge policy 검증을 먼저 통과한 뒤 `matchStatus` 기준으로 캐릭터를 결정하고 전체 current Fact로 snapshot을 재구성합니다.
+아래 흐름은 현재 confirm 반영 순서를 보여줍니다. schema 매칭, 값 타입, merge policy와 `AGE`/`LEVEL` 대표값 검증을 먼저 통과한 뒤 `matchStatus` 기준으로 캐릭터를 결정하고 전체 current Fact로 snapshot을 재구성합니다.
 
 ```mermaid
 flowchart TD
@@ -493,13 +664,16 @@ flowchart TD
     V -->|"타입 불일치"| Y3["확정 반영 거절<br/>SETTING_CANDIDATE_VALUE_TYPE_MISMATCH / 400"]
     V -->|"타입 일치"| MP["merge policy 검증<br/>REPLACE 또는 UPSERT_BY_NAME"]
     MP -->|"UPSERT_BY_SLOT, APPEND, DERIVED"| Y4["확정 반영 거절<br/>SETTING_CANDIDATE_MERGE_POLICY_UNSUPPORTED / 409"]
-    MP -->|"지원 정책"| F["matchStatus 기반 대상 WorkCharacter 결정"]
+    MP -->|"지원 정책"| CV["AGE / LEVEL 대표값 검증<br/>0 이상 int 범위의 정확한 정수"]
+    CV -->|"소수 · 음수 · 범위 초과"| Y5["확정 반영 거절<br/>SETTING_CANDIDATE_VALUE_INVALID / 400"]
+    CV -->|"유효하거나 다른 Fact 유형"| JP["상세 편집에 노출되는 valueJson 공개 속성<br/>전체 수정 요청 왕복 가능 여부 검증"]
+    JP -->|"공백·길이·예약 key 또는<br/>문자열 공백 계약 위반"| Y6["확정 반영 거절<br/>SETTING_CANDIDATE_VALUE_JSON_INVALID / 400"]
+    JP -->|"유효"| F["matchStatus 기반 대상 WorkCharacter 결정"]
     F -->|"MATCHED"| F1["matchedCharacterId 캐릭터 검증 후<br/>pessimistic write lock 조회"]
     F -->|"UNRESOLVED"| F2["작품 row write lock 후<br/>trim한 entityName exact 조회"]
     F -->|"AMBIGUOUS"| F3["해소 전 confirm 거절"]
     F2 -->|"동일 이름 활성 캐릭터 있음"| F5["기존 WorkCharacter<br/>write lock 조회 후 재사용"]
-    F2 -->|"동일 이름 캐릭터 없음"| F4["entityName 기준 새 WorkCharacter 생성"]
-    F2 -->|"동일 이름 보관 캐릭터만 있음"| W["이름 충돌 응답<br/>SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED / 409"]
+    F2 -->|"동일 이름 활성 캐릭터 없음<br/>보관 캐릭터만 있는 경우 포함"| F4["entityName 기준 새 ACTIVE WorkCharacter 생성"]
     F5 --> H["확정 후보와 같은 이름의<br/>PENDING_REVIEW + UNRESOLVED 형제 후보를 MATCHED로 연결"]
     F4 --> H
     F1 --> I["첫 등장 회차 보정<br/>더 이른 episode면 firstAppearanceEpisodeId 갱신"]
@@ -521,15 +695,16 @@ flowchart TD
 
 - `SettingCandidateSchemaResolver`는 앞뒤 공백을 제거한 `attributeName`을 schemaKey 정확 일치 → 별칭 → 마지막이 `.*`로 끝나는 속성 패턴 순으로 해석합니다. 정확 일치/별칭의 factKey는 기준 `schemaKey`, 속성 패턴의 factKey는 공백을 제거한 원본 속성명입니다.
 - matched schema의 `factType`을 `CharacterFact`에 사용하고, 후보와 schema의 `SettingValueType` enum이 다르거나 merge policy가 `REPLACE`, `UPSERT_BY_NAME`이 아니면 캐릭터를 결정하기 전에 거절합니다.
-- 매칭 없음·복수 매칭·타입 불일치·미지원 정책을 포함해 확정 반영 중 오류가 발생하면 후보 상태 전이, 신규 캐릭터 생성, `CharacterFact` 생성이 같은 트랜잭션에서 함께 롤백됩니다.
+- `AGE`, `LEVEL`은 `valueJson.value` 또는 primitive 구조화 숫자를 우선 사용하고, 구조화 대표값이 없을 때만 `attributeValue`를 사용합니다. 값은 0 이상이면서 Java `Integer` 범위의 정확한 정수여야 하며 소수, 음수, 범위 초과 값은 `SETTING_CANDIDATE_VALUE_INVALID / 400`으로 거절합니다.
+- `PROFILE`, `STAT`, `SKILL`, `ITEM`, `STATUS` 후보에서 `valueJson` object의 정확한 `value` key는 화면에 공개하지 않는 대표값 envelope로 허용합니다. 나머지 최상위 공개 속성은 key가 공백 없이 100자 이하이고 앞뒤 공백·예약 key 충돌·정규화 후 중복이 없어야 하며, 직접 문자열 값은 비어 있지 않고 앞뒤 공백이 없어야 합니다. 공개 속성이 있는 `STRING`, `NUMBER`, `BOOLEAN`, `UNKNOWN` 후보에는 선언 타입과 호환되는 `value` envelope도 필요합니다. 위반하면 `SETTING_CANDIDATE_VALUE_JSON_INVALID / 400`으로 거절합니다. 중첩 object·array의 내부 구조는 이 검증에서 정규화하지 않습니다.
+- 매칭 없음·복수 매칭·타입 불일치·미지원 정책·대표값 또는 공개 속성 검증 실패를 포함해 확정 반영 중 오류가 발생하면 후보 상태 전이, 신규 캐릭터 생성, `CharacterFact` 생성이 같은 트랜잭션에서 함께 롤백됩니다.
 - 후보 캐릭터 결정은 `matchStatus`를 기준으로 수행합니다. `MATCHED`는 `matchedCharacterId`를 사용합니다. `UNRESOLVED`는 작품 row를 pessimistic write lock으로 잡은 뒤 trim한 `entityName` exact-name 활성 캐릭터를 재사용하거나 새 캐릭터를 생성하고, 확정 후보와 같은 작품·이름의 `PENDING_REVIEW + UNRESOLVED + CHARACTER` 후보를 `MATCHED`로 연결합니다. `AMBIGUOUS`와 이미 검토된 후보는 자동 변경하지 않습니다.
 - `mapper.toWorkCharacter(candidate)`와 `mapper.toCharacterFact(...)`가 Entity factory를 호출합니다. `toCharacterFact`는 원본 후보를 `settingCandidate`로 연결해 `evidenceSpans`를 역추적할 수 있게 하며, service는 `Entity.create()` 파라미터를 직접 조립하지 않습니다.
 - `saveAndFlush(newFact)` 후 같은 `character + factType + factKey`의 전체 이력을 다시 조회합니다. confirm 순서와 회차 순서가 다를 수 있기 때문입니다.
 - `selectCurrentFact`는 `effectiveFromEpisodeNo`가 가장 큰 fact를 current로 고릅니다. `effectiveFromEpisodeNo = null`인 fact는 가장 오래된 값으로 봅니다.
 - 같은 회차의 같은 key는 `createdAt`이 늦은 fact를 current로 보고, 생성 시각까지 같으면 방금 저장한 `newFact`를 우선합니다.
 - `updateFirstAppearance`는 `firstAppearanceEpisodeId`가 비어 있으면 후보 episode로 채우고, 기존 첫 등장 회차보다 더 이른 episode 후보가 확정되면 더 이른 episode로 갱신합니다.
-- `WorkCharacter.applyCurrentFact(currentFact)`는 `AGE`, `LEVEL` 일반 컬럼을 갱신합니다.
-- current 상태를 명시적으로 flush한 뒤 전체 current Fact를 조회하고, `CharacterSnapshotAssembler`가 `STAT`, `SKILL`, `ITEM`, `STATUS/TIME`별 factKey object map을 조립합니다. 네 JSON 컬럼은 빈 그룹의 `null`까지 포함해 한 번에 교체합니다.
+- current 상태를 명시적으로 flush한 뒤 전체 current Fact를 조회하고, `CharacterSnapshotAssembler`가 `AGE`, `LEVEL` 대표값과 `PROFILE`, `STAT`, `SKILL`, `ITEM`, `STATUS/TIME`별 factKey object map을 조립합니다. 숫자 대표값과 다섯 JSON 컬럼은 빈 그룹의 `null`까지 포함해 한 번에 교체합니다.
 
 설정 후보 API는 다음 공통 접근 흐름을 먼저 통과합니다.
 
@@ -661,7 +836,8 @@ flowchart TD
 
 ## 이후 작업
 
-- 캐릭터 목록/상세 API 정의
+- 보관된 캐릭터 목록과 1주 이내 복구 정책 및 API 정의
+- 작품 장르·schema에 따른 카드 대표 속성 선정 정책
 - 재청킹 시 청크 ID 안정화 또는 근거 이력 보존 방식을 정한 뒤 `source_chunk_id` FK 여부 결정
 - 현재 `ARCHIVED` soft delete 이후 복구·표시 정책과, 향후 물리 삭제 시 최초 등장 회차를 재계산할지 `NULL`로 둘지 정한 뒤 `first_appearance_episode_id` FK와 삭제 동작 결정
 - AI Worker 시간 메타데이터가 정해진 뒤 `episodeNo` 기준 current/snapshot 계산을 작중 시간 기준으로 확장

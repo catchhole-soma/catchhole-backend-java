@@ -16,6 +16,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
@@ -32,6 +34,7 @@ import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingMergePolicy;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingSchemaSource;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingValueSemantics;
+import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
@@ -432,7 +435,11 @@ class SettingCandidateControllerIntegrationTest {
         SettingCandidate saved = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
         assertThat(saved.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
 
-        WorkCharacter character = workCharacterRepository.findByWorkIdAndName(work.getId(), "아리아").orElseThrow();
+        WorkCharacter character = workCharacterRepository.findByWorkIdAndNameAndStatus(
+                work.getId(),
+                "아리아",
+                CharacterStatus.ACTIVE
+        ).orElseThrow();
         List<CharacterFact> facts =
                 characterFactRepository.findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(
                         character.getId(),
@@ -483,7 +490,11 @@ class SettingCandidateControllerIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
                 .andExpect(status().isOk());
 
-        WorkCharacter character = workCharacterRepository.findByWorkIdAndName(work.getId(), "아리아").orElseThrow();
+        WorkCharacter character = workCharacterRepository.findByWorkIdAndNameAndStatus(
+                work.getId(),
+                "아리아",
+                CharacterStatus.ACTIVE
+        ).orElseThrow();
         SettingCandidate linkedSibling = settingCandidateRepository.findById(levelCandidate.getId()).orElseThrow();
         assertThat(linkedSibling.getEntityName()).isEqualTo("아리아");
         assertThat(linkedSibling.getMatchedCharacterId()).isEqualTo(character.getId());
@@ -561,6 +572,154 @@ class SettingCandidateControllerIntegrationTest {
 
         SettingCandidate saved = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
         assertThat(saved.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+        assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId())).isEmpty();
+        assertThat(characterFactRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("AGE와 LEVEL 후보가 0 이상 int 정수가 아니면 확정을 rollback한다")
+    void confirmSettingCandidateRollsBackInvalidCoreSnapshotValues() throws Exception {
+        characterSettingSchemaRepository.save(settingSchema(
+                null,
+                "level",
+                null,
+                CharacterFactType.LEVEL,
+                SettingValueType.NUMBER,
+                "레벨"
+        ));
+        List<SettingCandidate> candidates = settingCandidateRepository.saveAll(List.of(
+                candidate(
+                        work,
+                        episode,
+                        analysisJob,
+                        "아리아",
+                        "age",
+                        "-1",
+                        SettingValueType.NUMBER,
+                        objectMapper.createObjectNode().put("value", -1)
+                ),
+                candidate(
+                        work,
+                        episode,
+                        analysisJob,
+                        "아리아",
+                        "level",
+                        "23.5",
+                        SettingValueType.NUMBER,
+                        objectMapper.createObjectNode().put("value", new BigDecimal("23.5"))
+                ),
+                candidate(
+                        work,
+                        episode,
+                        analysisJob,
+                        "아리아",
+                        "age",
+                        "2147483648",
+                        SettingValueType.NUMBER,
+                        objectMapper.createObjectNode().put("value", 2147483648L)
+                )
+        ));
+
+        for (SettingCandidate candidate : candidates) {
+            mockMvc.perform(post(
+                                    "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
+                                    work.getId(),
+                                    candidate.getId()
+                            )
+                            .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.success").value(false))
+                    .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_VALUE_INVALID"));
+
+            SettingCandidate saved = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
+            assertThat(saved.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+        }
+        assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId())).isEmpty();
+        assertThat(characterFactRepository.findAll()).isEmpty();
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {
+            "padded-key",
+            "blank-key",
+            "long-key",
+            "reserved-key",
+            "padded-text",
+            "empty-text"
+    })
+    @DisplayName("왕복할 수 없는 구조화 공개 속성은 후보 확정을 rollback한다")
+    void confirmSettingCandidateRollsBackInvalidStructuredProperties(String invalidCase) throws Exception {
+        characterSettingSchemaRepository.save(settingSchema(
+                work,
+                "skills.skill",
+                "skill.*",
+                CharacterFactType.SKILL,
+                SettingValueType.JSON,
+                CharacterSettingMergePolicy.UPSERT_BY_NAME
+        ));
+        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "skill.검술",
+                "검술",
+                SettingValueType.JSON,
+                invalidStructuredValueJson(invalidCase)
+        ));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
+                                work.getId(),
+                                candidate.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_VALUE_JSON_INVALID"));
+
+        assertThat(settingCandidateRepository.findById(candidate.getId()).orElseThrow().getReviewStatus())
+                .isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+        assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId())).isEmpty();
+        assertThat(characterFactRepository.findAll()).isEmpty();
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"missing-value", "mismatched-value"})
+    @DisplayName("공개 속성이 있는 scalar 후보는 호환되는 value envelope가 필요하다")
+    void confirmSettingCandidateRequiresCompatibleScalarEnvelope(String invalidCase) throws Exception {
+        characterSettingSchemaRepository.save(settingSchema(
+                work,
+                "profile.rank",
+                null,
+                CharacterFactType.PROFILE,
+                SettingValueType.STRING
+        ));
+        var valueJson = objectMapper.createObjectNode().put("name", "등급");
+        if (invalidCase.equals("mismatched-value")) {
+            valueJson.put("value", 3);
+        }
+        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "profile.rank",
+                "기사",
+                SettingValueType.STRING,
+                valueJson
+        ));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
+                                work.getId(),
+                                candidate.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_VALUE_JSON_INVALID"));
+
+        assertThat(settingCandidateRepository.findById(candidate.getId()).orElseThrow().getReviewStatus())
+                .isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
         assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId())).isEmpty();
         assertThat(characterFactRepository.findAll()).isEmpty();
     }
@@ -722,7 +881,11 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.reviewStatus").value("CONFIRMED"));
 
-        WorkCharacter character = workCharacterRepository.findByWorkIdAndName(work.getId(), "아리아").orElseThrow();
+        WorkCharacter character = workCharacterRepository.findByWorkIdAndNameAndStatus(
+                work.getId(),
+                "아리아",
+                CharacterStatus.ACTIVE
+        ).orElseThrow();
         List<CharacterFact> facts =
                 characterFactRepository.findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(
                         character.getId(),
@@ -941,6 +1104,19 @@ class SettingCandidateControllerIntegrationTest {
     private JsonNode rawAiResultJson(String value) {
         return objectMapper.createObjectNode()
                 .put("raw_value", value);
+    }
+
+    private JsonNode invalidStructuredValueJson(String invalidCase) {
+        var valueJson = objectMapper.createObjectNode().put("value", "검술");
+        return switch (invalidCase) {
+            case "padded-key" -> valueJson.put(" level ", 3);
+            case "blank-key" -> valueJson.put("   ", 3);
+            case "long-key" -> valueJson.put("x".repeat(101), 3);
+            case "reserved-key" -> valueJson.put(" value ", "검술");
+            case "padded-text" -> valueJson.put("name", " 검술 ");
+            case "empty-text" -> valueJson.put("name", "");
+            default -> throw new IllegalArgumentException("지원하지 않는 테스트 케이스입니다.");
+        };
     }
 
     private CharacterSettingSchema settingSchema(

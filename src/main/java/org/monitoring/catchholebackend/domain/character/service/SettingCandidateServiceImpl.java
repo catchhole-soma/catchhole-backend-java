@@ -167,7 +167,11 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
 
     private void markCandidateAsNewCharacter(SettingCandidate candidate, Work work, String entityName) {
         String normalizedEntityName = normalizeRequiredCharacterName(entityName);
-        if (workCharacterRepository.findByWorkIdAndName(work.getId(), normalizedEntityName).isPresent()) {
+        if (workCharacterRepository.findByWorkIdAndNameAndStatus(
+                work.getId(),
+                normalizedEntityName,
+                CharacterStatus.ACTIVE
+        ).isPresent()) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
         }
         candidate.markAsNewCharacter(normalizedEntityName);

@@ -414,8 +414,8 @@ erDiagram
 - `upload_batches`는 이후 분석 작업의 대상 단위로 재사용할 수 있도록 `work_id`, `upload_type`, `file_count`, `status`를 유지합니다.
 - 캐릭터 설정은 `setting_candidates`, `character_facts`, `characters`로 나누어 저장합니다. AI 추출 후보는 `setting_candidates`, 회차별 확정/검토 이력은 `character_facts`, 화면 표시용 현재 스냅샷은 `characters`가 담당합니다.
 - `character_setting_schemas.work_id`가 `NULL`이면 전역 schema이고 값이 있으면 해당 작품의 추가 schema입니다. 전역과 작품 범위에서 각각 `schema_key` 중복을 막으며, 작품 schema override와 중복 병합은 현재 지원하지 않습니다.
-- 초기 registry는 공통 `SYSTEM_SEED` 7개와 판타지 POC `DEV_SEED` 15개를 모두 활성 전역 schema로 둡니다. source는 선정 근거를 구분할 뿐 Worker 적용 여부를 나누지 않습니다.
-- 화면 표시와 구조화 조회에 자주 쓰는 값은 일반 컬럼으로 두고, 스탯/스킬/아이템/상태 상세값과 AI 원본 응답은 JSONB로 보존합니다.
+- 현재 registry는 공통·프로필 `SYSTEM_SEED` 15개와 판타지 POC `DEV_SEED` 15개를 모두 활성 전역 schema로 둡니다. source는 선정 근거를 구분할 뿐 Worker 적용 여부를 나누지 않습니다.
+- 화면 표시와 구조화 조회에 자주 쓰는 값은 일반 컬럼으로 두고, 프로필/스탯/스킬/아이템/상태 상세값과 AI 원본 응답은 JSONB로 보존합니다.
 - 분석 흐름에서는 구조화 조회(`character_facts`, `setting_candidates`)와 벡터 검색(`episode_chunks.embedding`)을 함께 사용합니다. 구조화 조회는 수치/상태 비교 기준이고, 벡터 검색은 원문 맥락과 근거 문장을 찾는 보조 수단입니다.
 
 ## 현재 코드와 추가 검토가 필요한 부분

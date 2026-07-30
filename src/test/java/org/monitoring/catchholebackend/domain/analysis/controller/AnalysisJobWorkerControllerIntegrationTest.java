@@ -208,6 +208,21 @@ class AnalysisJobWorkerControllerIntegrationTest {
                 null,
                 null
         ));
+        WorkCharacter archivedCharacter = WorkCharacter.create(
+                work,
+                "보관된 인물",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+        archivedCharacter.archive();
+        workCharacterRepository.save(archivedCharacter);
         Work otherWork = workRepository.save(Work.create(member, "다른 작품", WorkGenre.ETC, "다른 schema 범위"));
         characterSettingSchemaRepository.save(settingSchema(
                 null,

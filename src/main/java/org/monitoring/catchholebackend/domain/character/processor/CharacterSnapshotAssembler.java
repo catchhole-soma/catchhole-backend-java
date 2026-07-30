@@ -15,6 +15,9 @@ import org.springframework.stereotype.Component;
 public class CharacterSnapshotAssembler {
 
     public CharacterSnapshot assemble(List<CharacterFact> currentFacts) {
+        Integer currentAge = null;
+        Integer currentLevel = null;
+        ObjectNode profileJson = JsonNodeFactory.instance.objectNode();
         ObjectNode statsJson = JsonNodeFactory.instance.objectNode();
         ObjectNode skillsJson = JsonNodeFactory.instance.objectNode();
         ObjectNode itemsJson = JsonNodeFactory.instance.objectNode();
@@ -22,17 +25,20 @@ public class CharacterSnapshotAssembler {
 
         for (CharacterFact fact : currentFacts) {
             switch (fact.getFactType()) {
+                case PROFILE -> put(profileJson, fact);
+                case AGE -> currentAge = resolveInteger(fact);
+                case LEVEL -> currentLevel = resolveInteger(fact);
                 case STAT -> put(statsJson, fact);
                 case SKILL -> put(skillsJson, fact);
                 case ITEM -> put(itemsJson, fact);
                 case STATUS, TIME -> put(statusesJson, fact);
-                case AGE, LEVEL -> {
-                    // 자주 조회하는 숫자 snapshot은 WorkCharacter 일반 컬럼으로 관리한다.
-                }
             }
         }
 
         return new CharacterSnapshot(
+                currentAge,
+                currentLevel,
+                nullIfEmpty(profileJson),
                 nullIfEmpty(statsJson),
                 nullIfEmpty(skillsJson),
                 nullIfEmpty(itemsJson),
@@ -42,6 +48,31 @@ public class CharacterSnapshotAssembler {
 
     private void put(ObjectNode snapshot, CharacterFact fact) {
         snapshot.set(fact.getFactKey(), fact.getValueJson());
+    }
+
+    private Integer resolveInteger(CharacterFact fact) {
+        JsonNode valueNode = fact.getValueJson();
+        if (valueNode != null && valueNode.isObject()) {
+            valueNode = valueNode.get("value");
+        }
+        if (valueNode != null && valueNode.isNumber()) {
+            if (valueNode.canConvertToInt()
+                    && valueNode.decimalValue().stripTrailingZeros().scale() <= 0) {
+                int value = valueNode.asInt();
+                return value >= 0 ? value : null;
+            }
+            return null;
+        }
+        String value = fact.getFactValue();
+        if (value == null) {
+            return null;
+        }
+        try {
+            int parsedValue = Integer.parseInt(value.trim());
+            return parsedValue >= 0 ? parsedValue : null;
+        } catch (NumberFormatException exception) {
+            return null;
+        }
     }
 
     private JsonNode nullIfEmpty(ObjectNode snapshot) {

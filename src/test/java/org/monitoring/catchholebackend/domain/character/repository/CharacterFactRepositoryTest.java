@@ -167,6 +167,16 @@ class CharacterFactRepositoryTest {
         assertThat(found.getConfidence()).isEqualByComparingTo("0.9100");
         assertThat(found.isCurrent()).isTrue();
         assertThat(found.getEffectiveFromEpisodeNo()).isEqualTo(3);
+
+        entityManager.clear();
+        CharacterFact currentFact =
+                characterFactRepository.findAllByWorkCharacterIdAndIsCurrentTrueOrderByFactTypeAscFactKeyAsc(
+                        character.getId()
+                ).getFirst();
+
+        assertThat(entityManager.getEntityManagerFactory()
+                .getPersistenceUnitUtil()
+                .isLoaded(currentFact, "settingCandidate")).isTrue();
     }
 
     @Test

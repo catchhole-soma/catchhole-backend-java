@@ -4,12 +4,14 @@ import java.util.List;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface CharacterFactRepository extends JpaRepository<CharacterFact, UUID> {
 
     List<CharacterFact> findAllByWorkCharacterIdOrderByCreatedAtDesc(UUID characterId);
 
+    @EntityGraph(attributePaths = "settingCandidate")
     List<CharacterFact> findAllByWorkCharacterIdAndIsCurrentTrueOrderByFactTypeAscFactKeyAsc(UUID characterId);
 
     List<CharacterFact> findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(

@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 @Getter
 public enum CharacterFactType {
+    PROFILE("프로필"),
     AGE("나이"),
     LEVEL("레벨"),
     STAT("스탯"),
