@@ -35,6 +35,8 @@ import org.monitoring.catchholebackend.domain.character.processor.CharacterSetti
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingEditPolicyResolver.CharacterSettingEditType;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshot;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAssembler;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaMatch;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
@@ -73,6 +75,7 @@ public class CharacterServiceImpl implements CharacterService {
     private final CharacterSettingSchemaRepository characterSettingSchemaRepository;
     private final EpisodeRepository episodeRepository;
     private final CharacterSettingEditPolicyResolver characterSettingEditPolicyResolver;
+    private final SettingCandidateSchemaResolver settingCandidateSchemaResolver;
     private final CharacterSnapshotAssembler characterSnapshotAssembler;
     private final CharacterMapper characterMapper;
     private final ObjectMapper objectMapper = new ObjectMapper()
@@ -363,7 +366,14 @@ public class CharacterServiceImpl implements CharacterService {
             List<CharacterFact> currentFacts
     ) {
         for (CharacterSettingUpdateRequest request : requests) {
-            String key = request.key().trim();
+            String requestedKey = request.key().trim();
+            CharacterFact currentFact = findCurrentFact(currentFacts, factType, requestedKey);
+            String key = currentFact == null
+                    ? resolveNewSettingKey(factType, requestedKey, request.valueType(), schemas)
+                    : requestedKey;
+            if (currentFact == null && !key.equals(requestedKey)) {
+                currentFact = findCurrentFact(currentFacts, factType, key);
+            }
             validateKey(factType, key, schemas);
             validatePropertyKeys(request.properties());
             validateRegisteredValueType(
@@ -377,20 +387,11 @@ public class CharacterServiceImpl implements CharacterService {
                     key,
                     schemas
             );
-            CharacterFact currentFact = currentFacts.stream()
-                    .filter(fact -> fact.getFactType() == factType
-                            && fact.getFactKey().equals(key))
-                    .findFirst()
-                    .orElse(null);
             String normalizedKey = currentFact == null
                     ? normalizeSettingKey(key, editPolicy)
                     : key;
             if (currentFact == null && !normalizedKey.equals(key)) {
-                currentFact = currentFacts.stream()
-                        .filter(fact -> fact.getFactType() == factType
-                                && fact.getFactKey().equals(normalizedKey))
-                        .findFirst()
-                        .orElse(null);
+                currentFact = findCurrentFact(currentFacts, factType, normalizedKey);
             }
             String factValue = normalizeNullableText(request.value());
             String displayName = resolveDesiredDisplayName(
@@ -414,6 +415,50 @@ public class CharacterServiceImpl implements CharacterService {
                     valueJson
             ));
         }
+    }
+
+    /**
+     * 새 설정은 후보 확정과 같은 exact → alias → pattern 규칙으로 canonical key를 결정한다.
+     * 기존 manual key는 구버전 클라이언트와 저장 데이터 호환을 위해 그대로 허용한다.
+     */
+    private String resolveNewSettingKey(
+            CharacterFactType factType,
+            String requestedKey,
+            SettingValueType valueType,
+            List<CharacterSettingSchema> schemas
+    ) {
+        if (isLegacyManualKey(requestedKey)) {
+            return requestedKey;
+        }
+        SettingCandidateSchemaMatch match;
+        try {
+            match = settingCandidateSchemaResolver.resolve(requestedKey, valueType, schemas);
+        } catch (AppException exception) {
+            if (exception.getResultCode() == CharacterErrorCode.SETTING_CANDIDATE_VALUE_TYPE_MISMATCH) {
+                throw new AppException(CharacterErrorCode.CHARACTER_SETTING_VALUE_TYPE_MISMATCH);
+            }
+            throw new AppException(CharacterErrorCode.CHARACTER_SETTING_KEY_INVALID);
+        }
+        if (match.matchedSchema().getFactType() != factType) {
+            throw new AppException(CharacterErrorCode.CHARACTER_SETTING_KEY_INVALID);
+        }
+        return match.factKey();
+    }
+
+    private CharacterFact findCurrentFact(
+            List<CharacterFact> currentFacts,
+            CharacterFactType factType,
+            String key
+    ) {
+        return currentFacts.stream()
+                .filter(fact -> fact.getFactType() == factType && fact.getFactKey().equals(key))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private boolean isLegacyManualKey(String key) {
+        int separatorIndex = key.lastIndexOf('.');
+        return separatorIndex >= 0 && key.substring(separatorIndex + 1).startsWith("manual_");
     }
 
     /**

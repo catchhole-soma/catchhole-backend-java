@@ -12,7 +12,9 @@ import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -129,7 +131,15 @@ class CharacterControllerIntegrationTest {
                 100
         ));
         characterSettingSchemaRepository.saveAll(List.of(
-                settingSchema("profile.gender", null, "성별", CharacterFactType.PROFILE, SettingValueType.STRING),
+                settingSchema(
+                        "profile.gender",
+                        null,
+                        "성별",
+                        CharacterFactType.PROFILE,
+                        SettingValueType.STRING,
+                        "성별",
+                        "gender"
+                ),
                 settingSchema("stats.strength", null, "근력", CharacterFactType.STAT, SettingValueType.NUMBER),
                 settingSchema("skills.skill", "skill.*", "스킬", CharacterFactType.SKILL, SettingValueType.JSON)
         ));
@@ -495,6 +505,164 @@ class CharacterControllerIntegrationTest {
                     assertThat(fact.getSourceEpisode()).isNull();
                     assertThat(fact.getSourceChunkId()).isNull();
                 });
+    }
+
+    @Test
+    @DisplayName("사용자 추가 설정은 alias를 canonical key로 바꾸고 pattern suffix를 의미 있는 key로 저장한다")
+    void updateCharacterCanonicalizesUserDefinedSettingKeys() throws Exception {
+        characterSettingSchemaRepository.saveAll(List.of(
+                settingSchema(
+                        "profile.attribute",
+                        "profile.*",
+                        "프로필",
+                        CharacterFactType.PROFILE,
+                        SettingValueType.STRING
+                ),
+                settingSchema(
+                        "stats.attribute",
+                        "stats.*",
+                        "스탯",
+                        CharacterFactType.STAT,
+                        SettingValueType.NUMBER
+                ),
+                settingSchema(
+                        "status.attribute",
+                        "status.*",
+                        "상태",
+                        CharacterFactType.STATUS,
+                        SettingValueType.JSON
+                )
+        ));
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "수아",
+                                  "roleLabel": null,
+                                  "currentAge": null,
+                                  "currentLevel": null,
+                                  "firstAppearanceEpisodeNo": null,
+                                  "profile": [
+                                    {
+                                      "key": "profile.성별",
+                                      "value": "여성",
+                                      "valueType": "STRING",
+                                      "properties": []
+                                    },
+                                    {
+                                      "key": "profile.좌우명",
+                                      "value": "끝까지 포기하지 않는다",
+                                      "valueType": "STRING",
+                                      "properties": [
+                                        {"key": "name", "value": "좌우명", "valueType": "STRING"}
+                                      ]
+                                    }
+                                  ],
+                                  "stats": [
+                                    {
+                                      "key": "stats.행운",
+                                      "value": "7",
+                                      "valueType": "NUMBER",
+                                      "properties": [
+                                        {"key": "name", "value": "행운", "valueType": "STRING"}
+                                      ]
+                                    }
+                                  ],
+                                  "skills": [],
+                                  "items": [],
+                                  "statuses": [
+                                    {
+                                      "key": "status.부상",
+                                      "value": "경상",
+                                      "valueType": "JSON",
+                                      "properties": [
+                                        {"key": "name", "value": "부상", "valueType": "STRING"}
+                                      ]
+                                    }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.profile.length()").value(2))
+                .andExpect(jsonPath("$.data.stats.length()").value(1))
+                .andExpect(jsonPath("$.data.statuses[0].key").value("status.부상"))
+                .andExpect(jsonPath("$.data.statuses[0].attributeNameEditable").value(true));
+
+        Map<String, CharacterFact> currentFacts = characterFactRepository
+                .findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId()).stream()
+                .filter(CharacterFact::isCurrent)
+                .collect(Collectors.toMap(CharacterFact::getFactKey, fact -> fact));
+        assertThat(currentFacts).containsOnlyKeys(
+                "profile.gender",
+                "profile.좌우명",
+                "stats.행운",
+                "status.부상"
+        );
+        assertThat(currentFacts.get("profile.gender").getValueJson())
+                .isEqualTo(JsonNodeFactory.instance.objectNode().put("value", "여성"));
+        assertThat(currentFacts.get("profile.좌우명").getValueJson())
+                .isEqualTo(JsonNodeFactory.instance.objectNode()
+                        .put("value", "끝까지 포기하지 않는다")
+                        .put("name", "좌우명"));
+        assertThat(currentFacts.get("stats.행운").getValueJson())
+                .isEqualTo(JsonNodeFactory.instance.objectNode()
+                        .put("value", 7)
+                        .put("name", "행운"));
+        assertThat(currentFacts.get("status.부상").getValueJson())
+                .isEqualTo(JsonNodeFactory.instance.objectNode().put("name", "부상"));
+    }
+
+    @Test
+    @DisplayName("canonical key와 같은 alias를 함께 추가하면 중복 설정으로 거절한다")
+    void updateCharacterRejectsDuplicatedCanonicalAndAliasKeys() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "수아",
+                                  "roleLabel": null,
+                                  "currentAge": null,
+                                  "currentLevel": null,
+                                  "firstAppearanceEpisodeNo": null,
+                                  "profile": [
+                                    {
+                                      "key": "profile.gender",
+                                      "value": "여성",
+                                      "valueType": "STRING",
+                                      "properties": []
+                                    },
+                                    {
+                                      "key": "profile.성별",
+                                      "value": "여성",
+                                      "valueType": "STRING",
+                                      "properties": []
+                                    }
+                                  ],
+                                  "stats": [],
+                                  "skills": [],
+                                  "items": [],
+                                  "statuses": []
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("CHARACTER_SETTING_KEY_DUPLICATED"));
+
+        assertThat(characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId()))
+                .isEmpty();
     }
 
     @Test
@@ -2358,8 +2526,13 @@ class CharacterControllerIntegrationTest {
             String attributePattern,
             String displayName,
             CharacterFactType factType,
-            SettingValueType valueType
+            SettingValueType valueType,
+            String... aliases
     ) {
+        var aliasesJson = JsonNodeFactory.instance.arrayNode();
+        for (String alias : aliases) {
+            aliasesJson.add(alias);
+        }
         return CharacterSettingSchema.create(
                 null,
                 schemaKey,
@@ -2369,7 +2542,7 @@ class CharacterControllerIntegrationTest {
                 valueType,
                 CharacterSettingValueSemantics.BASE_VALUE,
                 CharacterSettingMergePolicy.REPLACE,
-                JsonNodeFactory.instance.arrayNode(),
+                aliasesJson,
                 CharacterSettingSchemaSource.SYSTEM_SEED,
                 true
         );
