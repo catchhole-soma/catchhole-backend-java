@@ -3,11 +3,14 @@ package org.monitoring.catchholebackend.domain.character.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.util.List;
@@ -27,13 +30,20 @@ import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandi
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateListResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.mapper.SettingCandidateMapper;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateBatchCounts;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
+import org.monitoring.catchholebackend.domain.character.type.CharacterSettingMergePolicy;
+import org.monitoring.catchholebackend.domain.character.type.CharacterSettingSchemaSource;
+import org.monitoring.catchholebackend.domain.character.type.CharacterSettingValueSemantics;
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateCharacterMatchResolutionType;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
@@ -73,6 +83,9 @@ class SettingCandidateServiceImplTest {
     private WorkCharacterRepository workCharacterRepository;
 
     @Mock
+    private CharacterSettingSchemaRepository characterSettingSchemaRepository;
+
+    @Mock
     private SettingCandidateMapper settingCandidateMapper;
 
     @Mock
@@ -88,8 +101,10 @@ class SettingCandidateServiceImplTest {
                 analysisJobRepository,
                 settingCandidateRepository,
                 workCharacterRepository,
+                characterSettingSchemaRepository,
                 settingCandidateMapper,
-                settingCandidatePromotionService
+                settingCandidatePromotionService,
+                new SettingCandidateSchemaResolver()
         );
     }
 
@@ -131,7 +146,9 @@ class SettingCandidateServiceImplTest {
         when(episodeRange.getEpisodeStartNo()).thenReturn(1);
         when(episodeRange.getEpisodeEndNo()).thenReturn(5);
         when(episodeRange.getEpisodeCount()).thenReturn(5L);
-        when(settingCandidateMapper.toResponseList(candidates)).thenReturn(responses);
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId))
+                .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
+        when(settingCandidateMapper.toResponse(candidate, false, null)).thenReturn(responses.getFirst());
 
         SettingCandidateListResponse result = service.getSettingCandidates(
                 memberId,
@@ -151,7 +168,7 @@ class SettingCandidateServiceImplTest {
         assertThat(result.reviewedCandidateCount()).isEqualTo(1);
         assertThat(result.pendingCandidateCount()).isEqualTo(3);
         assertThat(result.matchRequiredCandidateCount()).isEqualTo(2);
-        assertThat(result.candidates().content()).isSameAs(responses);
+        assertThat(result.candidates().content()).containsExactlyElementsOf(responses);
         verify(settingCandidateRepository).findReviewPage(
                 workId,
                 batchId,
@@ -212,17 +229,18 @@ class SettingCandidateServiceImplTest {
         UUID candidateId = UUID.randomUUID();
         Work work = work(workId);
         SettingCandidate candidate = candidate(work, "아리아", "age", "17");
+        JsonNode originalEvidenceSpans = candidate.getEvidenceSpans();
         SettingCandidateResponse response = response(workId);
         SettingCandidateUpdateRequest request = new SettingCandidateUpdateRequest(
-                "  level  ",
-                "  23  ",
-                SettingValueType.NUMBER,
-                Map.of("value", 23, "source", "user_review"),
-                List.of(Map.of("paragraph_index", 2, "quote", "아리아는 스물셋의 경지에 올랐다."))
+                "  age  ",
+                "  23  "
         );
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
-        when(settingCandidateMapper.toResponse(candidate)).thenReturn(response);
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId))
+                .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
+        when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
+                .thenReturn(response);
 
         SettingCandidateResponse result = service.updateSettingCandidate(memberId, workId, candidateId, request);
 
@@ -230,13 +248,431 @@ class SettingCandidateServiceImplTest {
         assertThat(candidate.getEntityName()).isEqualTo("아리아");
         assertThat(candidate.getMatchedCharacterId()).isNull();
         assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.UNRESOLVED);
-        assertThat(candidate.getAttributeName()).isEqualTo("level");
+        assertThat(candidate.getAttributeName()).isEqualTo("age");
         assertThat(candidate.getAttributeValue()).isEqualTo("23");
         assertThat(candidate.getValueJson().get("value").asInt()).isEqualTo(23);
-        assertThat(candidate.getValueJson().get("source").asText()).isEqualTo("user_review");
-        assertThat(candidate.getEvidenceSpans().get(0).get("paragraph_index").asInt()).isEqualTo(2);
+        assertThat(candidate.getValueJson()).hasToString("{\"value\":23}");
+        assertThat(candidate.getValueType()).isEqualTo(SettingValueType.NUMBER);
+        assertThat(candidate.getEvidenceSpans()).isSameAs(originalEvidenceSpans);
         assertThat(candidate.getRawAiResultJson().get("raw_value").asText()).isEqualTo("17");
         assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+    }
+
+    @Test
+    @DisplayName("설정명과 값이 같으면 복합 valueJson과 근거를 그대로 보존한다")
+    void updateSettingCandidatePreservesRichJsonWhenContentIsUnchanged() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        JsonNode valueJson = objectMapper.createObjectNode()
+                .put("name", "화염 검술")
+                .put("level", 5)
+                .put("effect", "화염 공격");
+        SettingCandidate candidate = candidate(
+                work,
+                "아리아",
+                " skill.화염 검술 ",
+                " Lv.5 ",
+                SettingValueType.JSON,
+                valueJson
+        );
+        JsonNode originalEvidenceSpans = candidate.getEvidenceSpans();
+        JsonNode originalRawAiResult = candidate.getRawAiResultJson();
+        SettingCandidateResponse response = response(workId);
+        SettingCandidateUpdateRequest request = new SettingCandidateUpdateRequest(
+                " skill.화염 검술 ",
+                " Lv.5 "
+        );
+        CharacterSettingSchema schema =
+                schema("skills.skill", "skill.*", CharacterFactType.SKILL, SettingValueType.JSON);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(schema));
+        when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
+                .thenReturn(response);
+
+        service.updateSettingCandidate(memberId, workId, candidateId, request);
+
+        assertThat(candidate.getAttributeName()).isEqualTo("skill.화염_검술");
+        assertThat(candidate.getAttributeValue()).isEqualTo("Lv.5");
+        assertThat(candidate.getValueJson()).isSameAs(valueJson);
+        assertThat(candidate.getEvidenceSpans()).isSameAs(originalEvidenceSpans);
+        assertThat(candidate.getRawAiResultJson()).isSameAs(originalRawAiResult);
+        verify(settingCandidateMapper).toResponse(candidate, true, "skill.");
+    }
+
+    @Test
+    @DisplayName("표시값이 null인 JSON 후보를 그대로 저장하면 rich valueJson을 유지한다")
+    void updateSettingCandidatePreservesRichJsonWhenNullableValueIsUnchanged() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        JsonNode valueJson = objectMapper.createObjectNode()
+                .put("name", "화염 검술")
+                .put("level", 5)
+                .put("effect", "화염 공격");
+        SettingCandidate candidate = candidate(
+                work,
+                "아리아",
+                "skill.화염_검술",
+                null,
+                SettingValueType.JSON,
+                valueJson
+        );
+        CharacterSettingSchema schema =
+                schema("skills.skill", "skill.*", CharacterFactType.SKILL, SettingValueType.JSON);
+        SettingCandidateResponse response = response(workId);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(schema));
+        when(settingCandidateMapper.toResponse(candidate, true, "skill.")).thenReturn(response);
+
+        service.updateSettingCandidate(
+                memberId,
+                workId,
+                candidateId,
+                new SettingCandidateUpdateRequest("skill.화염_검술", null)
+        );
+
+        assertThat(candidate.getAttributeValue()).isNull();
+        assertThat(candidate.getValueJson()).isSameAs(valueJson);
+        verify(settingCandidateMapper).toResponse(candidate, true, "skill.");
+    }
+
+    @Test
+    @DisplayName("동적 JSON 후보를 수정하면 같은 prefix의 key와 name만 남긴 valueJson을 조립한다")
+    void updateSettingCandidateRebuildsEditedDynamicJsonWithNameOnly() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(
+                work,
+                "아리아",
+                "skill.파이어볼",
+                "Lv.3",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode()
+                        .put("name", "파이어볼")
+                        .put("level", 3)
+                        .put("effect", "화염 공격")
+        );
+        JsonNode originalEvidenceSpans = candidate.getEvidenceSpans();
+        JsonNode originalRawAiResult = candidate.getRawAiResultJson();
+        SettingCandidateResponse response = response(workId);
+        SettingCandidateUpdateRequest request = new SettingCandidateUpdateRequest(
+                " skill.화염 검술 ",
+                " 주력기 "
+        );
+        CharacterSettingSchema schema =
+                schema("skills.skill", "skill.*", CharacterFactType.SKILL, SettingValueType.JSON);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(schema));
+        when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
+                .thenReturn(response);
+
+        service.updateSettingCandidate(memberId, workId, candidateId, request);
+
+        assertThat(candidate.getAttributeName()).isEqualTo("skill.화염_검술");
+        assertThat(candidate.getAttributeValue()).isEqualTo("주력기");
+        assertThat(candidate.getValueType()).isEqualTo(SettingValueType.JSON);
+        assertThat(candidate.getValueJson()).hasToString("{\"name\":\"화염 검술\"}");
+        assertThat(candidate.getEvidenceSpans()).isSameAs(originalEvidenceSpans);
+        assertThat(candidate.getRawAiResultJson()).isSameAs(originalRawAiResult);
+    }
+
+    @Test
+    @DisplayName("동적 설정명의 suffix가 밑줄뿐이면 확정 불가능한 빈 name을 만들지 않고 거절한다")
+    void updateSettingCandidateRejectsBlankDynamicDisplayName() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(
+                work,
+                "아리아",
+                "skill.파이어볼",
+                "Lv.3",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode().put("name", "파이어볼").put("level", 3)
+        );
+        CharacterSettingSchema schema =
+                schema("skills.skill", "skill.*", CharacterFactType.SKILL, SettingValueType.JSON);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(schema));
+
+        assertThatThrownBy(() -> service.updateSettingCandidate(
+                memberId,
+                workId,
+                candidateId,
+                new SettingCandidateUpdateRequest("skill.___", "Lv.4")
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_ATTRIBUTE_NAME_INVALID));
+
+        assertThat(candidate.getAttributeName()).isEqualTo("skill.파이어볼");
+        assertThat(candidate.getValueJson()).hasToString("{\"name\":\"파이어볼\",\"level\":3}");
+    }
+
+    @Test
+    @DisplayName("기존의 잘못된 동적 suffix는 유효한 설정명으로 교정할 수 있다")
+    void updateSettingCandidateRepairsInvalidStoredDynamicSuffix() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(
+                work,
+                "아리아",
+                "skill.___",
+                "Lv.3",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode().put("name", "").put("level", 3)
+        );
+        CharacterSettingSchema schema =
+                schema("skills.skill", "skill.*", CharacterFactType.SKILL, SettingValueType.JSON);
+        SettingCandidateResponse response = response(workId);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(schema));
+        when(settingCandidateMapper.toResponse(candidate, true, "skill.")).thenReturn(response);
+
+        service.updateSettingCandidate(
+                memberId,
+                workId,
+                candidateId,
+                new SettingCandidateUpdateRequest("skill.화염 검술", "Lv.4")
+        );
+
+        assertThat(candidate.getAttributeName()).isEqualTo("skill.화염_검술");
+        assertThat(candidate.getAttributeValue()).isEqualTo("Lv.4");
+        assertThat(candidate.getValueJson()).hasToString("{\"name\":\"화염 검술\"}");
+        verify(settingCandidateMapper).toResponse(candidate, true, "skill.");
+    }
+
+    @Test
+    @DisplayName("수정한 동적 설정명이 여러 schema pattern과 겹치면 모호성 충돌을 유지한다")
+    void updateSettingCandidatePreservesRequestedSchemaAmbiguity() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(
+                work,
+                "아리아",
+                "skill.파이어볼",
+                "Lv.3",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode().put("name", "파이어볼")
+        );
+        CharacterSettingSchema genericSchema =
+                schema("skills.skill", "skill.*", CharacterFactType.SKILL, SettingValueType.JSON);
+        CharacterSettingSchema nestedSchema =
+                schema("skills.special", "skill.special.*", CharacterFactType.SKILL, SettingValueType.JSON);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId))
+                .thenReturn(List.of(genericSchema, nestedSchema));
+
+        assertThatThrownBy(() -> service.updateSettingCandidate(
+                memberId,
+                workId,
+                candidateId,
+                new SettingCandidateUpdateRequest("skill.special.파이어볼", "Lv.4")
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_SCHEMA_MATCH_AMBIGUOUS));
+
+        assertThat(candidate.getAttributeName()).isEqualTo("skill.파이어볼");
+        assertThat(candidate.getAttributeValue()).isEqualTo("Lv.3");
+    }
+
+    @Test
+    @DisplayName("고정 schema 후보의 설정명 변경은 거절한다")
+    void updateSettingCandidateRejectsFixedAttributeNameChange() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(work, "아리아", "age", "17");
+        SettingCandidateUpdateRequest request = new SettingCandidateUpdateRequest("level", "17");
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId))
+                .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
+
+        assertThatThrownBy(() -> service.updateSettingCandidate(memberId, workId, candidateId, request))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_ATTRIBUTE_NAME_NOT_EDITABLE));
+
+        assertThat(candidate.getAttributeName()).isEqualTo("age");
+        assertThat(candidate.getAttributeValue()).isEqualTo("17");
+    }
+
+    @Test
+    @DisplayName("alias로 매칭된 고정 schema 후보도 설정명 변경을 거절한다")
+    void updateSettingCandidateRejectsAliasAttributeNameChange() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(work, "아리아", "나이", "17");
+        SettingCandidateUpdateRequest request = new SettingCandidateUpdateRequest("age", "17");
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId))
+                .thenReturn(List.of(schema(
+                        "age",
+                        null,
+                        CharacterFactType.AGE,
+                        SettingValueType.NUMBER,
+                        "나이"
+                )));
+
+        assertThatThrownBy(() -> service.updateSettingCandidate(memberId, workId, candidateId, request))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_ATTRIBUTE_NAME_NOT_EDITABLE));
+
+        assertThat(candidate.getAttributeName()).isEqualTo("나이");
+        assertThat(candidate.getValueJson().get("value").asText()).isEqualTo("17");
+    }
+
+    @Test
+    @DisplayName("숫자 후보에 lv.5 같은 문자열 값은 저장하지 않는다")
+    void updateSettingCandidateRejectsNonNumericNumberValue() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(work, "아리아", "stats.strength", "10");
+        SettingCandidateUpdateRequest request =
+                new SettingCandidateUpdateRequest("stats.strength", "lv.5");
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId))
+                .thenReturn(List.of(schema(
+                        "stats.strength",
+                        null,
+                        CharacterFactType.STAT,
+                        SettingValueType.NUMBER
+                )));
+
+        assertThatThrownBy(() -> service.updateSettingCandidate(memberId, workId, candidateId, request))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_EDIT_VALUE_INVALID));
+
+        assertThat(candidate.getAttributeValue()).isEqualTo("10");
+    }
+
+    @Test
+    @DisplayName("나이와 레벨 후보 수정은 0 이상의 int 정수만 허용한다")
+    void updateSettingCandidateRejectsInvalidCoreNumberValue() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(work, "아리아", "age", "17");
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId))
+                .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
+
+        for (String invalidValue : new String[]{"-1", "1.5", "2147483648", null}) {
+            SettingCandidateUpdateRequest request =
+                    new SettingCandidateUpdateRequest("age", invalidValue);
+
+            assertThatThrownBy(() -> service.updateSettingCandidate(memberId, workId, candidateId, request))
+                    .isInstanceOfSatisfying(AppException.class, exception ->
+                            assertThat(exception.getResultCode())
+                                    .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_VALUE_INVALID));
+        }
+
+        assertThat(candidate.getAttributeValue()).isEqualTo("17");
+    }
+
+    @Test
+    @DisplayName("동적 scalar 후보 수정은 typed value와 사용자용 name을 함께 조립한다")
+    void updateSettingCandidateRebuildsEditedDynamicScalarValue() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(
+                work,
+                "아리아",
+                "profile.별명",
+                "불꽃",
+                SettingValueType.STRING,
+                objectMapper.createObjectNode().put("value", "불꽃").put("name", "별명")
+        );
+        SettingCandidateResponse response = response(workId);
+        SettingCandidateUpdateRequest request =
+                new SettingCandidateUpdateRequest(" profile.대표 별명 ", " 홍염 ");
+        CharacterSettingSchema schema =
+                schema("profile.attribute", "profile.*", CharacterFactType.PROFILE, SettingValueType.STRING);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(schema));
+        when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
+                .thenReturn(response);
+
+        service.updateSettingCandidate(memberId, workId, candidateId, request);
+
+        assertThat(candidate.getAttributeName()).isEqualTo("profile.대표_별명");
+        assertThat(candidate.getAttributeValue()).isEqualTo("홍염");
+        assertThat(candidate.getValueJson())
+                .hasToString("{\"value\":\"홍염\",\"name\":\"대표 별명\"}");
+    }
+
+    @Test
+    @DisplayName("고정 JSON 후보 수정은 숨은 기존 name 대신 schema 표시명을 사용한다")
+    void updateSettingCandidateUsesSchemaDisplayNameForEditedFixedJson() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(
+                work,
+                "아리아",
+                "profile",
+                "주인공",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode().put("name", "숨은 이름").put("role", "주인공")
+        );
+        SettingCandidateResponse response = response(workId);
+        SettingCandidateUpdateRequest request =
+                new SettingCandidateUpdateRequest("profile", "라이벌");
+        CharacterSettingSchema schema = CharacterSettingSchema.create(
+                null,
+                "profile",
+                null,
+                "프로필",
+                CharacterFactType.PROFILE,
+                SettingValueType.JSON,
+                CharacterSettingValueSemantics.BASE_VALUE,
+                CharacterSettingMergePolicy.REPLACE,
+                objectMapper.createArrayNode(),
+                CharacterSettingSchemaSource.SYSTEM_SEED,
+                true
+        );
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(schema));
+        when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
+                .thenReturn(response);
+
+        service.updateSettingCandidate(memberId, workId, candidateId, request);
+
+        assertThat(candidate.getAttributeName()).isEqualTo("profile");
+        assertThat(candidate.getAttributeValue()).isEqualTo("라이벌");
+        assertThat(candidate.getValueJson()).hasToString("{\"name\":\"프로필\"}");
     }
 
     @Test
@@ -250,10 +686,7 @@ class SettingCandidateServiceImplTest {
         candidate.confirm();
         SettingCandidateUpdateRequest request = new SettingCandidateUpdateRequest(
                 "level",
-                "23",
-                SettingValueType.NUMBER,
-                Map.of("value", 23),
-                List.of()
+                "23"
         );
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
@@ -263,7 +696,11 @@ class SettingCandidateServiceImplTest {
                         assertThat(exception.getResultCode())
                                 .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE));
 
-        verify(settingCandidateMapper, never()).toResponse(any(SettingCandidate.class));
+        verify(settingCandidateMapper, never()).toResponse(
+                any(SettingCandidate.class),
+                anyBoolean(),
+                nullable(String.class)
+        );
     }
 
     @Test
@@ -285,7 +722,10 @@ class SettingCandidateServiceImplTest {
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(workCharacterRepository.findByIdAndWorkId(characterId, workId)).thenReturn(Optional.of(character));
-        when(settingCandidateMapper.toResponse(candidate)).thenReturn(response);
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId))
+                .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
+        when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
+                .thenReturn(response);
 
         SettingCandidateResponse result =
                 service.updateSettingCandidateCharacterMatch(memberId, workId, candidateId, request);
@@ -298,7 +738,7 @@ class SettingCandidateServiceImplTest {
     }
 
     @Test
-    @DisplayName("새 캐릭터로 확정하면 후보 매칭 상태를 UNRESOLVED로 갱신한다")
+    @DisplayName("confirm 전 새 캐릭터 등록 예정으로 지정하면 후보 매칭 상태를 UNRESOLVED로 유지한다")
     void updateSettingCandidateCharacterMatchMarksAsNewCharacter() {
         Long memberId = 1L;
         UUID workId = UUID.randomUUID();
@@ -318,7 +758,10 @@ class SettingCandidateServiceImplTest {
                 "아리아",
                 CharacterStatus.ACTIVE
         )).thenReturn(Optional.empty());
-        when(settingCandidateMapper.toResponse(candidate)).thenReturn(response);
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId))
+                .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
+        when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
+                .thenReturn(response);
 
         SettingCandidateResponse result =
                 service.updateSettingCandidateCharacterMatch(memberId, workId, candidateId, request);
@@ -352,11 +795,15 @@ class SettingCandidateServiceImplTest {
                                 .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_REQUIRED));
 
         verify(workCharacterRepository, never()).findByIdAndWorkId(any(UUID.class), any(UUID.class));
-        verify(settingCandidateMapper, never()).toResponse(any(SettingCandidate.class));
+        verify(settingCandidateMapper, never()).toResponse(
+                any(SettingCandidate.class),
+                anyBoolean(),
+                nullable(String.class)
+        );
     }
 
     @Test
-    @DisplayName("새 캐릭터 확정 요청에 이름이 없으면 거절한다")
+    @DisplayName("새 캐릭터 등록 예정 지정 요청에 이름이 없으면 거절한다")
     void updateSettingCandidateCharacterMatchRejectsMissingNewCharacterName() {
         Long memberId = 1L;
         UUID workId = UUID.randomUUID();
@@ -381,7 +828,11 @@ class SettingCandidateServiceImplTest {
                 any(String.class),
                 any(CharacterStatus.class)
         );
-        verify(settingCandidateMapper, never()).toResponse(any(SettingCandidate.class));
+        verify(settingCandidateMapper, never()).toResponse(
+                any(SettingCandidate.class),
+                anyBoolean(),
+                nullable(String.class)
+        );
     }
 
     @Test
@@ -412,7 +863,11 @@ class SettingCandidateServiceImplTest {
                         assertThat(exception.getResultCode())
                                 .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED));
 
-        verify(settingCandidateMapper, never()).toResponse(any(SettingCandidate.class));
+        verify(settingCandidateMapper, never()).toResponse(
+                any(SettingCandidate.class),
+                anyBoolean(),
+                nullable(String.class)
+        );
     }
 
     @Test
@@ -440,7 +895,11 @@ class SettingCandidateServiceImplTest {
                         assertThat(exception.getResultCode())
                                 .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID));
 
-        verify(settingCandidateMapper, never()).toResponse(any(SettingCandidate.class));
+        verify(settingCandidateMapper, never()).toResponse(
+                any(SettingCandidate.class),
+                anyBoolean(),
+                nullable(String.class)
+        );
     }
 
     @Test
@@ -467,7 +926,11 @@ class SettingCandidateServiceImplTest {
                                 .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE));
 
         verify(workCharacterRepository, never()).findByIdAndWorkId(any(UUID.class), any(UUID.class));
-        verify(settingCandidateMapper, never()).toResponse(any(SettingCandidate.class));
+        verify(settingCandidateMapper, never()).toResponse(
+                any(SettingCandidate.class),
+                anyBoolean(),
+                nullable(String.class)
+        );
     }
 
     @Test
@@ -594,6 +1057,24 @@ class SettingCandidateServiceImplTest {
             String attributeName,
             String attributeValue
     ) {
+        return candidate(
+                work,
+                entityName,
+                attributeName,
+                attributeValue,
+                SettingValueType.NUMBER,
+                objectMapper.createObjectNode().put("value", attributeValue)
+        );
+    }
+
+    private SettingCandidate candidate(
+            Work work,
+            String entityName,
+            String attributeName,
+            String attributeValue,
+            SettingValueType valueType,
+            JsonNode valueJson
+    ) {
         return SettingCandidate.create(
                 work,
                 null,
@@ -603,11 +1084,37 @@ class SettingCandidateServiceImplTest {
                 entityName,
                 attributeName,
                 attributeValue,
-                SettingValueType.NUMBER,
-                objectMapper.createObjectNode().put("value", attributeValue),
+                valueType,
+                valueJson,
                 objectMapper.createArrayNode(),
                 new BigDecimal("0.8000"),
                 objectMapper.createObjectNode().put("raw_value", attributeValue)
+        );
+    }
+
+    private CharacterSettingSchema schema(
+            String schemaKey,
+            String attributePattern,
+            CharacterFactType factType,
+            SettingValueType valueType,
+            String... aliases
+    ) {
+        var aliasesJson = objectMapper.createArrayNode();
+        for (String alias : aliases) {
+            aliasesJson.add(alias);
+        }
+        return CharacterSettingSchema.create(
+                null,
+                schemaKey,
+                attributePattern,
+                schemaKey,
+                factType,
+                valueType,
+                CharacterSettingValueSemantics.BASE_VALUE,
+                CharacterSettingMergePolicy.REPLACE,
+                aliasesJson,
+                CharacterSettingSchemaSource.SYSTEM_SEED,
+                true
         );
     }
 
@@ -625,6 +1132,8 @@ class SettingCandidateServiceImplTest {
                 null,
                 SettingCandidateMatchStatus.UNRESOLVED,
                 "age",
+                false,
+                null,
                 "17",
                 SettingValueType.NUMBER,
                 Map.of("value", 17),

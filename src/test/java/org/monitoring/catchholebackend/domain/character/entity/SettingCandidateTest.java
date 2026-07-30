@@ -41,20 +41,15 @@ class SettingCandidateTest {
         SettingCandidate candidate = candidate(work, "age", "17");
         WorkCharacter character = character(work, "이안");
         candidate.matchExistingCharacter(character);
+        JsonNode originalEvidenceSpans = candidate.getEvidenceSpans();
         JsonNode valueJson = objectMapper.createObjectNode()
                 .put("value", 23)
                 .put("source", "user_review");
-        JsonNode evidenceSpans = objectMapper.createArrayNode()
-                .add(objectMapper.createObjectNode()
-                        .put("paragraph_index", 2)
-                        .put("quote", "아리아는 스물셋의 경지에 올랐다."));
 
         candidate.updateReviewContent(
                 "level",
                 "23",
-                SettingValueType.NUMBER,
-                valueJson,
-                evidenceSpans
+                valueJson
         );
 
         assertThat(candidate.getEntityName()).isEqualTo("이안");
@@ -64,7 +59,7 @@ class SettingCandidateTest {
         assertThat(candidate.getAttributeValue()).isEqualTo("23");
         assertThat(candidate.getValueType()).isEqualTo(SettingValueType.NUMBER);
         assertThat(candidate.getValueJson()).isEqualTo(valueJson);
-        assertThat(candidate.getEvidenceSpans()).isEqualTo(evidenceSpans);
+        assertThat(candidate.getEvidenceSpans()).isSameAs(originalEvidenceSpans);
         assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
     }
 
@@ -101,7 +96,7 @@ class SettingCandidateTest {
     }
 
     @Test
-    @DisplayName("새 캐릭터로 확정하면 기존 캐릭터 연결을 제거하고 미해소 상태로 둔다")
+    @DisplayName("confirm 전 새 캐릭터 등록 예정으로 지정하면 기존 연결을 제거하고 미해소 상태로 둔다")
     void markAsNewCharacterClearsMatchedCharacter() {
         Work work = work();
         SettingCandidate candidate = candidate(work, "age", "17");
@@ -181,9 +176,7 @@ class SettingCandidateTest {
         assertThatThrownBy(() -> candidate.updateReviewContent(
                 "level",
                 "23",
-                SettingValueType.NUMBER,
-                objectMapper.createObjectNode().put("value", 23),
-                objectMapper.createArrayNode()
+                objectMapper.createObjectNode().put("value", 23)
         ))
                 .isInstanceOfSatisfying(AppException.class, exception ->
                         assertThat(exception.getResultCode())

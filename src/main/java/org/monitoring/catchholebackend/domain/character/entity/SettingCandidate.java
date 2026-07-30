@@ -262,17 +262,13 @@ public class SettingCandidate extends BaseEntity {
     public void updateReviewContent(
             String attributeName,
             String attributeValue,
-            SettingValueType valueType,
-            JsonNode valueJson,
-            JsonNode evidenceSpans
+            JsonNode valueJson
     ) {
         validateEditable();
 
         this.attributeName = attributeName;
         this.attributeValue = attributeValue;
-        this.valueType = valueType;
         this.valueJson = valueJson;
-        this.evidenceSpans = evidenceSpans;
     }
 
     public void matchExistingCharacter(WorkCharacter character) {

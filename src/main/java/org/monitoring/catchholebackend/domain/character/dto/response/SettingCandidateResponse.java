@@ -47,7 +47,21 @@ public record SettingCandidateResponse(
         @Schema(description = "설정 속성명", example = "level")
         String attributeName,
 
-        @Schema(description = "목록/검색 표시용 설정 값", example = "23")
+        @Schema(
+                description = "현재 활성 schema 기준 설정 속성명 편집 가능 여부",
+                example = "false",
+                requiredMode = Schema.RequiredMode.REQUIRED
+        )
+        boolean attributeNameEditable,
+
+        @Schema(
+                description = "편집 가능한 동적 설정명의 서버 지정 prefix. 고정 또는 해석 불가 후보는 null입니다.",
+                example = "skill.",
+                nullable = true
+        )
+        String attributeNamePrefix,
+
+        @Schema(description = "목록/검색 표시용 설정 값", example = "23", nullable = true)
         String attributeValue,
 
         @Schema(description = "설정 값 타입", example = "NUMBER")

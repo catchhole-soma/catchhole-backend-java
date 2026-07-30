@@ -24,6 +24,18 @@ public enum CharacterErrorCode implements ResultCode {
     SETTING_CANDIDATE_NEW_CHARACTER_NAME_REQUIRED(HttpStatus.BAD_REQUEST, "새 캐릭터 이름은 필수입니다."),
     SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED(HttpStatus.CONFLICT, "이미 같은 이름의 캐릭터가 있습니다."),
     SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID(HttpStatus.CONFLICT, "설정 후보에 연결된 캐릭터가 유효하지 않습니다."),
+    SETTING_CANDIDATE_ATTRIBUTE_NAME_NOT_EDITABLE(
+            HttpStatus.BAD_REQUEST,
+            "고정 schema에 매칭된 설정 후보의 설정명은 수정할 수 없습니다."
+    ),
+    SETTING_CANDIDATE_ATTRIBUTE_NAME_INVALID(
+            HttpStatus.BAD_REQUEST,
+            "동적 설정 후보의 설정명은 기존 schema pattern 안에서만 수정할 수 있습니다."
+    ),
+    SETTING_CANDIDATE_EDIT_VALUE_INVALID(
+            HttpStatus.BAD_REQUEST,
+            "수정한 설정값이 설정 후보의 값 타입과 일치하지 않습니다."
+    ),
     SETTING_CANDIDATE_SCHEMA_NOT_MATCHED(HttpStatus.BAD_REQUEST, "설정 후보 속성과 일치하는 활성 schema가 없습니다."),
     SETTING_CANDIDATE_SCHEMA_MATCH_AMBIGUOUS(HttpStatus.CONFLICT, "설정 후보 속성과 일치하는 schema가 여러 개입니다."),
     SETTING_CANDIDATE_VALUE_TYPE_MISMATCH(HttpStatus.BAD_REQUEST, "설정 후보 값 타입이 schema와 일치하지 않습니다."),

@@ -205,6 +205,8 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.candidates.content[0].matchedCharacterId").doesNotExist())
                 .andExpect(jsonPath("$.data.candidates.content[0].matchStatus").value("UNRESOLVED"))
                 .andExpect(jsonPath("$.data.candidates.content[0].attributeName").value("age"))
+                .andExpect(jsonPath("$.data.candidates.content[0].attributeNameEditable").value(false))
+                .andExpect(jsonPath("$.data.candidates.content[0].attributeNamePrefix").doesNotExist())
                 .andExpect(jsonPath("$.data.candidates.content[0].reviewStatus").value("PENDING_REVIEW"))
                 .andExpect(jsonPath("$.data.candidates.page").value(0))
                 .andExpect(jsonPath("$.data.candidates.size").value(20))
@@ -367,10 +369,34 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.rawEntityMention").doesNotExist())
                 .andExpect(jsonPath("$.data.matchedCharacterId").doesNotExist())
                 .andExpect(jsonPath("$.data.matchStatus").value("UNRESOLVED"))
+                .andExpect(jsonPath("$.data.attributeNameEditable").value(false))
+                .andExpect(jsonPath("$.data.attributeNamePrefix").doesNotExist())
                 .andExpect(jsonPath("$.data.valueType").value("NUMBER"))
                 .andExpect(jsonPath("$.data.valueJson.value").value(17))
                 .andExpect(jsonPath("$.data.evidenceSpans[0].paragraph_index").value(1))
                 .andExpect(jsonPath("$.data.rawAiResultJson.raw_value").value("17"));
+    }
+
+    @Test
+    @DisplayName("활성 schema로 해석할 수 없는 후보 상세도 읽기 전용 설정명으로 응답한다")
+    void getSettingCandidateReturnsConservativeEditMetadataWhenSchemaDoesNotMatch() throws Exception {
+        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "unknown.attribute",
+                "알 수 없음"
+        ));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates/{candidateId}", work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(candidate.getId().toString()))
+                .andExpect(jsonPath("$.data.attributeName").value("unknown.attribute"))
+                .andExpect(jsonPath("$.data.attributeNameEditable").value(false))
+                .andExpect(jsonPath("$.data.attributeNamePrefix").doesNotExist());
     }
 
     @Test
@@ -421,19 +447,8 @@ class SettingCandidateControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "attributeName": "  level  ",
-                                  "attributeValue": "  23  ",
-                                  "valueType": "NUMBER",
-                                  "valueJson": {
-                                    "value": 23,
-                                    "source": "user_review"
-                                  },
-                                  "evidenceSpans": [
-                                    {
-                                      "paragraph_index": 2,
-                                      "quote": "아리아는 스물셋의 경지에 올랐다."
-                                    }
-                                  ]
+                                  "attributeName": "  age  ",
+                                  "attributeValue": "  23  "
                                 }
                                 """))
                 .andExpect(status().isOk())
@@ -444,13 +459,178 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.sourceChunkId").value(candidate.getSourceChunkId().toString()))
                 .andExpect(jsonPath("$.data.analysisJobId").value(analysisJob.getId().toString()))
                 .andExpect(jsonPath("$.data.entityName").value("아리아"))
-                .andExpect(jsonPath("$.data.attributeName").value("level"))
+                .andExpect(jsonPath("$.data.attributeName").value("age"))
+                .andExpect(jsonPath("$.data.attributeNameEditable").value(false))
+                .andExpect(jsonPath("$.data.attributeNamePrefix").doesNotExist())
                 .andExpect(jsonPath("$.data.attributeValue").value("23"))
                 .andExpect(jsonPath("$.data.valueType").value("NUMBER"))
                 .andExpect(jsonPath("$.data.valueJson.value").value(23))
-                .andExpect(jsonPath("$.data.evidenceSpans[0].paragraph_index").value(2))
+                .andExpect(jsonPath("$.data.valueJson.source").doesNotExist())
+                .andExpect(jsonPath("$.data.evidenceSpans[0].paragraph_index").value(1))
                 .andExpect(jsonPath("$.data.reviewStatus").value("PENDING_REVIEW"))
                 .andExpect(jsonPath("$.data.rawAiResultJson.raw_value").value("17"));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
+                                work.getId(),
+                                candidate.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.reviewStatus").value("CONFIRMED"));
+
+        WorkCharacter character = workCharacterRepository.findByWorkIdAndNameAndStatus(
+                work.getId(),
+                "아리아",
+                CharacterStatus.ACTIVE
+        ).orElseThrow();
+        assertThat(character.getCurrentAge()).isEqualTo(23);
+        List<CharacterFact> facts =
+                characterFactRepository.findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(
+                        character.getId(),
+                        CharacterFactType.AGE,
+                        "age"
+                );
+        assertThat(facts).hasSize(1);
+        assertThat(facts.getFirst().getValueJson()).hasToString("{\"value\":23}");
+    }
+
+    @Test
+    @DisplayName("설정명과 값이 같으면 복합 JSON과 최초 근거를 그대로 보존한다")
+    void updateSettingCandidatePreservesRichJsonWhenContentIsUnchanged() throws Exception {
+        characterSettingSchemaRepository.save(settingSchema(
+                work,
+                "skills.skill",
+                "skill.*",
+                CharacterFactType.SKILL,
+                SettingValueType.JSON,
+                CharacterSettingMergePolicy.UPSERT_BY_NAME
+        ));
+        JsonNode valueJson = objectMapper.createObjectNode()
+                .put("name", "화염 검술")
+                .put("level", 5)
+                .put("effect", "화염 공격");
+        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                " skill.화염 검술 ",
+                " Lv.5 ",
+                SettingValueType.JSON,
+                valueJson
+        ));
+
+        mockMvc.perform(patch("/api/v1/works/{workId}/setting-candidates/{candidateId}", work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "attributeName": " skill.화염 검술 ",
+                                  "attributeValue": " Lv.5 "
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.attributeName").value("skill.화염_검술"))
+                .andExpect(jsonPath("$.data.attributeNameEditable").value(true))
+                .andExpect(jsonPath("$.data.attributeNamePrefix").value("skill."))
+                .andExpect(jsonPath("$.data.attributeValue").value("Lv.5"))
+                .andExpect(jsonPath("$.data.valueType").value("JSON"))
+                .andExpect(jsonPath("$.data.valueJson.name").value("화염 검술"))
+                .andExpect(jsonPath("$.data.valueJson.level").value(5))
+                .andExpect(jsonPath("$.data.valueJson.effect").value("화염 공격"))
+                .andExpect(jsonPath("$.data.evidenceSpans[0].paragraph_index").value(1))
+                .andExpect(jsonPath("$.data.rawAiResultJson.raw_value").value(" Lv.5 "));
+
+        SettingCandidate saved = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(saved.getAttributeName()).isEqualTo("skill.화염_검술");
+        assertThat(saved.getAttributeValue()).isEqualTo("Lv.5");
+        assertThat(saved.getValueJson()).isEqualTo(valueJson);
+        assertThat(saved.getEvidenceSpans()).isEqualTo(evidenceSpans());
+        assertThat(saved.getRawAiResultJson()).isEqualTo(rawAiResultJson(" Lv.5 "));
+    }
+
+    @Test
+    @DisplayName("동적 JSON 후보 수정은 suffix를 정규화하고 name 외 구조화 속성을 제거한다")
+    void updateSettingCandidateNormalizesDynamicNameAndKeepsJsonNameOnly() throws Exception {
+        characterSettingSchemaRepository.save(settingSchema(
+                work,
+                "skills.skill",
+                "skill.*",
+                CharacterFactType.SKILL,
+                SettingValueType.JSON,
+                CharacterSettingMergePolicy.UPSERT_BY_NAME
+        ));
+        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "skill.파이어볼",
+                "Lv.3",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode()
+                        .put("name", "파이어볼")
+                        .put("level", 3)
+                        .put("effect", "화염 공격")
+        ));
+
+        mockMvc.perform(patch("/api/v1/works/{workId}/setting-candidates/{candidateId}", work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "attributeName": " skill.화염 검술 ",
+                                  "attributeValue": " 주력기 "
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.attributeName").value("skill.화염_검술"))
+                .andExpect(jsonPath("$.data.attributeNameEditable").value(true))
+                .andExpect(jsonPath("$.data.attributeNamePrefix").value("skill."))
+                .andExpect(jsonPath("$.data.attributeValue").value("주력기"))
+                .andExpect(jsonPath("$.data.valueType").value("JSON"))
+                .andExpect(jsonPath("$.data.valueJson.name").value("화염 검술"))
+                .andExpect(jsonPath("$.data.valueJson.level").doesNotExist())
+                .andExpect(jsonPath("$.data.valueJson.effect").doesNotExist())
+                .andExpect(jsonPath("$.data.evidenceSpans[0].paragraph_index").value(1))
+                .andExpect(jsonPath("$.data.rawAiResultJson.raw_value").value("Lv.3"));
+
+        SettingCandidate saved = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(saved.getValueJson()).hasToString("{\"name\":\"화염 검술\"}");
+        assertThat(saved.getEvidenceSpans()).isEqualTo(evidenceSpans());
+        assertThat(saved.getRawAiResultJson()).isEqualTo(rawAiResultJson("Lv.3"));
+    }
+
+    @Test
+    @DisplayName("고정 schema 후보의 설정명 변경은 거절한다")
+    void updateSettingCandidateRejectsFixedAttributeNameChange() throws Exception {
+        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "age",
+                "17"
+        ));
+
+        mockMvc.perform(patch("/api/v1/works/{workId}/setting-candidates/{candidateId}", work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "attributeName": "level",
+                                  "attributeValue": "17"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code")
+                        .value("SETTING_CANDIDATE_ATTRIBUTE_NAME_NOT_EDITABLE"));
+
+        SettingCandidate saved = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(saved.getAttributeName()).isEqualTo("age");
+        assertThat(saved.getAttributeValue()).isEqualTo("17");
+        assertThat(saved.getValueJson()).isEqualTo(valueJson("17"));
     }
 
     @Test
@@ -486,6 +666,8 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.entityName").value("이안"))
                 .andExpect(jsonPath("$.data.matchedCharacterId").value(character.getId().toString()))
                 .andExpect(jsonPath("$.data.matchStatus").value("MATCHED"))
+                .andExpect(jsonPath("$.data.attributeNameEditable").value(false))
+                .andExpect(jsonPath("$.data.attributeNamePrefix").doesNotExist())
                 .andExpect(jsonPath("$.data.reviewStatus").value("PENDING_REVIEW"));
 
         SettingCandidate saved = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
@@ -496,7 +678,7 @@ class SettingCandidateControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("설정 후보를 새 캐릭터로 확정한다")
+    @DisplayName("설정 후보를 confirm 전 새 캐릭터 등록 예정으로 지정한다")
     void updateSettingCandidateCharacterMatchMarksAsNewCharacter() throws Exception {
         SettingCandidate candidate = settingCandidateRepository.save(candidate(
                 work,
@@ -1284,12 +1466,7 @@ class SettingCandidateControllerIntegrationTest {
                         .content("""
                                 {
                                   "attributeName": "level",
-                                  "attributeValue": "23",
-                                  "valueType": "NUMBER",
-                                  "valueJson": {
-                                    "value": 23
-                                  },
-                                  "evidenceSpans": []
+                                  "attributeValue": "23"
                                 }
                                 """))
                 .andExpect(status().isConflict())

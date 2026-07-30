@@ -2,7 +2,6 @@ package org.monitoring.catchholebackend.domain.character.mapper;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.List;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
@@ -15,7 +14,11 @@ public class SettingCandidateMapper {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public SettingCandidateResponse toResponse(SettingCandidate candidate) {
+    public SettingCandidateResponse toResponse(
+            SettingCandidate candidate,
+            boolean attributeNameEditable,
+            String attributeNamePrefix
+    ) {
         Episode episode = candidate.getEpisode();
         AnalysisJob analysisJob = candidate.getAnalysisJob();
 
@@ -32,6 +35,8 @@ public class SettingCandidateMapper {
                 candidate.getMatchedCharacterId(),
                 candidate.getMatchStatus(),
                 candidate.getAttributeName(),
+                attributeNameEditable,
+                attributeNamePrefix,
                 candidate.getAttributeValue(),
                 candidate.getValueType(),
                 toJsonValue(candidate.getValueJson()),
@@ -42,12 +47,6 @@ public class SettingCandidateMapper {
                 candidate.getCreatedAt(),
                 candidate.getUpdatedAt()
         );
-    }
-
-    public List<SettingCandidateResponse> toResponseList(List<SettingCandidate> candidates) {
-        return candidates.stream()
-                .map(this::toResponse)
-                .toList();
     }
 
     public SettingCandidateReviewStatusResponse toReviewStatusResponse(SettingCandidate candidate) {

@@ -173,16 +173,34 @@ public class SettingCandidateController {
 
     @PatchMapping("/{candidateId}")
     @Operation(
+            operationId = "updateSettingCandidate",
             summary = "설정 후보 수정",
-            description = "로그인한 사용자가 본인 작품의 PENDING_REVIEW 설정 후보에서 검토용 필드만 보정합니다. "
-                    + "CONFIRMED 또는 DISMISSED 후보는 수정할 수 없습니다."
+            description = "로그인한 사용자가 본인 작품의 PENDING_REVIEW 설정 후보에서 설정명과 표시값만 보정합니다. "
+                    + "고정 schema key는 이름을 바꿀 수 없고 동적 key는 같은 pattern 안에서만 바꿀 수 있습니다. "
+                    + "값 타입과 AI 근거는 유지하며 CONFIRMED 또는 DISMISSED 후보는 수정할 수 없습니다."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "설정 후보 수정 성공"),
-            @ApiResponse(responseCode = "400", description = "요청 값 검증 실패"),
-            @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패"),
-            @ApiResponse(responseCode = "404", description = "작품 또는 설정 후보를 찾을 수 없음"),
-            @ApiResponse(responseCode = "409", description = "검토 대기 상태가 아닌 설정 후보")
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "요청 값, schema key 또는 값 타입 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "액세스 토큰 없음, 만료 또는 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "작품 또는 설정 후보를 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "409",
+                    description = "검토 대기 상태가 아니거나 schema 해석이 모호함",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            )
     })
     public CommonResponse<SettingCandidateResponse> updateSettingCandidate(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
@@ -203,16 +221,35 @@ public class SettingCandidateController {
 
     @PatchMapping("/{candidateId}/character-match")
     @Operation(
+            operationId = "updateSettingCandidateCharacterMatch",
             summary = "설정 후보 캐릭터 연결 해소",
-            description = "로그인한 사용자가 본인 작품의 PENDING_REVIEW 설정 후보를 기존 캐릭터에 연결하거나 새 캐릭터로 확정합니다. "
+            description = "로그인한 사용자가 본인 작품의 PENDING_REVIEW 설정 후보를 기존 캐릭터에 연결하거나, "
+                    + "confirm 전 새 캐릭터 등록 예정인 UNRESOLVED 상태로 지정합니다. "
+                    + "CREATE_NEW는 캐릭터를 즉시 생성하거나 후보를 확정하지 않으며, 실제 캐릭터 생성은 후보 confirm 때 수행합니다. "
                     + "검토 상태는 PENDING_REVIEW로 유지합니다."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "설정 후보 캐릭터 연결 해소 성공"),
-            @ApiResponse(responseCode = "400", description = "요청 값 검증 실패"),
-            @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패"),
-            @ApiResponse(responseCode = "404", description = "작품 또는 설정 후보를 찾을 수 없음"),
-            @ApiResponse(responseCode = "409", description = "검토 대기 상태가 아니거나 캐릭터 연결 요청이 올바르지 않음")
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "요청 값 또는 연결 방식별 필수 값 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "액세스 토큰 없음, 만료 또는 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "작품 또는 설정 후보를 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "409",
+                    description = "검토 대기 상태가 아니거나 캐릭터 연결 요청이 올바르지 않음",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            )
     })
     public CommonResponse<SettingCandidateResponse> updateSettingCandidateCharacterMatch(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
@@ -238,6 +275,7 @@ public class SettingCandidateController {
 
     @PostMapping("/{candidateId}/confirm")
     @Operation(
+            operationId = "confirmSettingCandidate",
             summary = "설정 후보 확정",
             description = "로그인한 사용자가 본인 작품의 설정 후보를 CONFIRMED 상태로 전환합니다. "
                     + "PENDING_REVIEW 후보가 처음 확정되는 경우 활성 schema를 schemaKey 정확 일치, 별칭, 마지막이 .*로 끝나는 속성 패턴 순으로 매칭하고 값 타입과 merge policy를 검증합니다. "
@@ -249,14 +287,24 @@ public class SettingCandidateController {
             @ApiResponse(responseCode = "200", description = "설정 후보 확정 성공"),
             @ApiResponse(
                     responseCode = "400",
-                    description = "활성 schema 미매칭, 값 타입 불일치 또는 구조화 값의 공개 속성 계약 위반"
+                    description = "활성 schema 미매칭, 값 타입 불일치 또는 구조화 값의 공개 속성 계약 위반",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
             ),
-            @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패"),
-            @ApiResponse(responseCode = "404", description = "작품 또는 설정 후보를 찾을 수 없음"),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "액세스 토큰 없음, 만료 또는 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "작품 또는 설정 후보를 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
             @ApiResponse(
                     responseCode = "409",
                     description = "검토/캐릭터 매칭 상태 충돌, 유효하지 않은 연결, "
-                            + "schema 복수 매칭 또는 미지원 merge policy"
+                            + "schema 복수 매칭 또는 미지원 merge policy",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
             )
     })
     public CommonResponse<SettingCandidateReviewStatusResponse> confirmSettingCandidate(
@@ -277,6 +325,7 @@ public class SettingCandidateController {
 
     @PostMapping("/{candidateId}/dismiss")
     @Operation(
+            operationId = "dismissSettingCandidate",
             summary = "설정 후보 무시",
             description = "로그인한 사용자가 본인 작품의 설정 후보를 DISMISSED 상태로 전환합니다. "
                     + "이미 무시된 후보는 성공으로 처리하며, 확정된 후보는 상태 충돌로 거절합니다. "
@@ -284,9 +333,26 @@ public class SettingCandidateController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "설정 후보 무시 성공"),
-            @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패"),
-            @ApiResponse(responseCode = "404", description = "작품 또는 설정 후보를 찾을 수 없음"),
-            @ApiResponse(responseCode = "409", description = "설정 후보 검토 상태 충돌")
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "작품 또는 설정 후보 ID 형식 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "액세스 토큰 없음, 만료 또는 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "작품 또는 설정 후보를 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "409",
+                    description = "설정 후보 검토 상태 충돌",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            )
     })
     public CommonResponse<SettingCandidateReviewStatusResponse> dismissSettingCandidate(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,

@@ -2,6 +2,11 @@ package org.monitoring.catchholebackend.domain.character.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.NullNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobEpisodeRange;
@@ -11,16 +16,22 @@ import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandi
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateListResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.mapper.SettingCandidateMapper;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaMatch;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateBatchCounts;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
+import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
@@ -42,8 +53,10 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
     private final AnalysisJobRepository analysisJobRepository;
     private final SettingCandidateRepository settingCandidateRepository;
     private final WorkCharacterRepository workCharacterRepository;
+    private final CharacterSettingSchemaRepository characterSettingSchemaRepository;
     private final SettingCandidateMapper settingCandidateMapper;
     private final SettingCandidatePromotionService settingCandidatePromotionService;
+    private final SettingCandidateSchemaResolver settingCandidateSchemaResolver;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
@@ -75,6 +88,8 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         );
         AnalysisJobEpisodeRange episodeRange =
                 analysisJobRepository.findEpisodeRangeByWorkIdAndBatchId(work.getId(), batchId);
+        List<CharacterSettingSchema> schemas =
+                characterSettingSchemaRepository.findAllActiveForWork(work.getId());
 
         return new SettingCandidateListResponse(
                 batchId,
@@ -87,7 +102,9 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 counts.getMatchRequiredCandidateCount(),
                 PageResponse.from(
                         candidatePage,
-                        settingCandidateMapper.toResponseList(candidatePage.getContent())
+                        candidatePage.getContent().stream()
+                                .map(candidate -> toResponse(candidate, schemas))
+                                .toList()
                 )
         );
     }
@@ -103,7 +120,9 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         SettingCandidate candidate = settingCandidateRepository
                 .findByIdAndWorkIdAndAnalysisJobBatchId(candidateId, work.getId(), batchId)
                 .orElseThrow(() -> new AppException(CharacterErrorCode.SETTING_CANDIDATE_NOT_FOUND));
-        return settingCandidateMapper.toResponse(candidate);
+        List<CharacterSettingSchema> schemas =
+                characterSettingSchemaRepository.findAllActiveForWork(work.getId());
+        return toResponse(candidate, schemas);
     }
 
     @Override
@@ -116,15 +135,24 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
+        candidate.validateEditable();
+        List<CharacterSettingSchema> schemas =
+                characterSettingSchemaRepository.findAllActiveForWork(candidate.getWork().getId());
 
-        candidate.updateReviewContent(
+        CandidateReviewContent reviewContent = resolveReviewContent(
+                candidate,
                 normalizeRequiredText(request.attributeName()),
                 normalizeOptionalText(request.attributeValue()),
-                request.valueType(),
-                toJsonNode(request.valueJson()),
-                toJsonNode(request.evidenceSpans())
+                schemas
         );
-        return settingCandidateMapper.toResponse(candidate);
+        if (reviewContent.updateRequired()) {
+            candidate.updateReviewContent(
+                    reviewContent.attributeName(),
+                    reviewContent.attributeValue(),
+                    reviewContent.valueJson()
+            );
+        }
+        return toResponse(candidate, schemas);
     }
 
     @Override
@@ -145,7 +173,9 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             case CREATE_NEW -> markCandidateAsNewCharacter(candidate, work, request.entityName());
         }
 
-        return settingCandidateMapper.toResponse(candidate);
+        List<CharacterSettingSchema> schemas =
+                characterSettingSchemaRepository.findAllActiveForWork(candidate.getWork().getId());
+        return toResponse(candidate, schemas);
     }
 
     @Override
@@ -210,6 +240,243 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 .orElseThrow(() -> new AppException(CharacterErrorCode.SETTING_CANDIDATE_NOT_FOUND));
     }
 
+    private CandidateReviewContent resolveReviewContent(
+            SettingCandidate candidate,
+            String requestedAttributeName,
+            String requestedAttributeValue,
+            List<CharacterSettingSchema> schemas
+    ) {
+        SettingCandidateSchemaMatch currentMatch = settingCandidateSchemaResolver.resolve(
+                candidate.getAttributeName(),
+                candidate.getValueType(),
+                schemas
+        );
+        boolean dynamic = isPatternMatch(currentMatch);
+        String currentComparableAttributeName = dynamic
+                ? normalizeStoredDynamicAttributeName(candidate.getAttributeName(), currentMatch.matchedSchema())
+                : candidate.getAttributeName().trim();
+        String nextAttributeName = dynamic
+                ? resolveDynamicAttributeName(
+                        requestedAttributeName,
+                        candidate,
+                        currentMatch,
+                        schemas
+                )
+                : resolveFixedAttributeName(candidate, requestedAttributeName);
+        String currentComparableAttributeValue = normalizeOptionalText(candidate.getAttributeValue());
+        boolean semanticContentChanged = !currentComparableAttributeName.equals(nextAttributeName)
+                || !Objects.equals(currentComparableAttributeValue, requestedAttributeValue);
+        boolean storedContentNeedsNormalization =
+                !candidate.getAttributeName().equals(nextAttributeName)
+                        || !Objects.equals(candidate.getAttributeValue(), requestedAttributeValue);
+        return new CandidateReviewContent(
+                nextAttributeName,
+                requestedAttributeValue,
+                semanticContentChanged
+                        ? rebuildValueJson(
+                                candidate,
+                                currentMatch,
+                                nextAttributeName,
+                                requestedAttributeValue,
+                                dynamic
+                        )
+                        : candidate.getValueJson(),
+                semanticContentChanged || storedContentNeedsNormalization
+        );
+    }
+
+    private SettingCandidateResponse toResponse(
+            SettingCandidate candidate,
+            List<CharacterSettingSchema> schemas
+    ) {
+        AttributeNameEditMetadata metadata = resolveAttributeNameEditMetadata(candidate, schemas);
+        return settingCandidateMapper.toResponse(
+                candidate,
+                metadata.attributeNameEditable(),
+                metadata.attributeNamePrefix()
+        );
+    }
+
+    private AttributeNameEditMetadata resolveAttributeNameEditMetadata(
+            SettingCandidate candidate,
+            List<CharacterSettingSchema> schemas
+    ) {
+        try {
+            SettingCandidateSchemaMatch match = settingCandidateSchemaResolver.resolve(
+                    candidate.getAttributeName(),
+                    candidate.getValueType(),
+                    schemas
+            );
+            if (!isPatternMatch(match)) {
+                return AttributeNameEditMetadata.NOT_EDITABLE;
+            }
+            return new AttributeNameEditMetadata(
+                    true,
+                    dynamicPatternPrefix(match.matchedSchema())
+            );
+        } catch (AppException exception) {
+            return AttributeNameEditMetadata.NOT_EDITABLE;
+        }
+    }
+
+    private String resolveFixedAttributeName(SettingCandidate candidate, String requestedAttributeName) {
+        String currentAttributeName = candidate.getAttributeName().trim();
+        if (!currentAttributeName.equals(requestedAttributeName)) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_ATTRIBUTE_NAME_NOT_EDITABLE);
+        }
+        return currentAttributeName;
+    }
+
+    private String resolveDynamicAttributeName(
+            String requestedAttributeName,
+            SettingCandidate candidate,
+            SettingCandidateSchemaMatch currentMatch,
+            List<CharacterSettingSchema> schemas
+    ) {
+        String normalizedAttributeName =
+                normalizeDynamicAttributeName(requestedAttributeName, currentMatch.matchedSchema());
+        SettingCandidateSchemaMatch requestedMatch;
+        try {
+            requestedMatch = settingCandidateSchemaResolver.resolve(
+                    normalizedAttributeName,
+                    candidate.getValueType(),
+                    schemas
+            );
+        } catch (AppException exception) {
+            if (exception.getResultCode()
+                    == CharacterErrorCode.SETTING_CANDIDATE_SCHEMA_MATCH_AMBIGUOUS) {
+                throw exception;
+            }
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_ATTRIBUTE_NAME_INVALID);
+        }
+        if (requestedMatch.matchedSchema() != currentMatch.matchedSchema()
+                || !isPatternMatch(requestedMatch)) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_ATTRIBUTE_NAME_INVALID);
+        }
+        return normalizedAttributeName;
+    }
+
+    private String normalizeDynamicAttributeName(String attributeName, CharacterSettingSchema schema) {
+        String prefix = dynamicPatternPrefix(schema);
+        String trimmedAttributeName = attributeName.trim();
+        if (!trimmedAttributeName.startsWith(prefix)) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_ATTRIBUTE_NAME_INVALID);
+        }
+        String suffix = trimmedAttributeName.substring(prefix.length()).trim();
+        if (!StringUtils.hasText(suffix)
+                || !StringUtils.hasText(suffix.replace('_', ' '))) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_ATTRIBUTE_NAME_INVALID);
+        }
+        return prefix + suffix.replaceAll("\\s+", "_");
+    }
+
+    private String normalizeStoredDynamicAttributeName(String attributeName, CharacterSettingSchema schema) {
+        String prefix = dynamicPatternPrefix(schema);
+        String trimmedAttributeName = attributeName.trim();
+        String suffix = trimmedAttributeName.substring(prefix.length()).trim();
+        return prefix + suffix.replaceAll("\\s+", "_");
+    }
+
+    private String dynamicPatternPrefix(CharacterSettingSchema schema) {
+        String pattern = schema.getAttributePattern();
+        if (pattern == null || !pattern.trim().endsWith(".*")) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_ATTRIBUTE_NAME_INVALID);
+        }
+        String trimmedPattern = pattern.trim();
+        return trimmedPattern.substring(0, trimmedPattern.length() - 1);
+    }
+
+    private boolean isPatternMatch(SettingCandidateSchemaMatch match) {
+        return !match.factKey().equals(match.matchedSchema().getSchemaKey().trim());
+    }
+
+    private JsonNode rebuildValueJson(
+            SettingCandidate candidate,
+            SettingCandidateSchemaMatch schemaMatch,
+            String attributeName,
+            String attributeValue,
+            boolean dynamic
+    ) {
+        ObjectNode valueJson = objectMapper.createObjectNode();
+        if (candidate.getValueType() == SettingValueType.JSON) {
+            valueJson.put("name", resolveStructuredName(schemaMatch, attributeName, dynamic));
+            return valueJson;
+        }
+
+        JsonNode scalarValue = toScalarValueNode(candidate, attributeValue);
+        validateCoreEditedValue(schemaMatch.matchedSchema().getFactType(), scalarValue);
+        valueJson.set("value", scalarValue);
+        if (dynamic) {
+            valueJson.put("name", dynamicDisplayName(schemaMatch.matchedSchema(), attributeName));
+        }
+        return valueJson;
+    }
+
+    private JsonNode toScalarValueNode(SettingCandidate candidate, String attributeValue) {
+        if (attributeValue == null) {
+            return NullNode.getInstance();
+        }
+        return switch (candidate.getValueType()) {
+            case STRING, UNKNOWN -> objectMapper.getNodeFactory().textNode(attributeValue);
+            case NUMBER -> toNumberNode(attributeValue);
+            case BOOLEAN -> toBooleanNode(attributeValue);
+            case JSON -> throw new IllegalStateException("JSON 후보는 scalar value로 변환할 수 없습니다.");
+        };
+    }
+
+    private JsonNode toNumberNode(String attributeValue) {
+        try {
+            return objectMapper.getNodeFactory().numberNode(new BigDecimal(attributeValue));
+        } catch (NumberFormatException exception) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_EDIT_VALUE_INVALID);
+        }
+    }
+
+    private JsonNode toBooleanNode(String attributeValue) {
+        if (attributeValue.equalsIgnoreCase("true")) {
+            return objectMapper.getNodeFactory().booleanNode(true);
+        }
+        if (attributeValue.equalsIgnoreCase("false")) {
+            return objectMapper.getNodeFactory().booleanNode(false);
+        }
+        throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_EDIT_VALUE_INVALID);
+    }
+
+    private void validateCoreEditedValue(CharacterFactType factType, JsonNode valueNode) {
+        if (factType != CharacterFactType.AGE && factType != CharacterFactType.LEVEL) {
+            return;
+        }
+        if (valueNode == null || !valueNode.isNumber()) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_VALUE_INVALID);
+        }
+        try {
+            if (valueNode.decimalValue().intValueExact() < 0) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_VALUE_INVALID);
+            }
+        } catch (ArithmeticException exception) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_VALUE_INVALID);
+        }
+    }
+
+    private String resolveStructuredName(
+            SettingCandidateSchemaMatch schemaMatch,
+            String attributeName,
+            boolean dynamic
+    ) {
+        if (dynamic) {
+            return dynamicDisplayName(schemaMatch.matchedSchema(), attributeName);
+        }
+        return schemaMatch.matchedSchema().getDisplayName().trim();
+    }
+
+    private String dynamicDisplayName(CharacterSettingSchema schema, String attributeName) {
+        String prefix = dynamicPatternPrefix(schema);
+        return attributeName.substring(prefix.length())
+                .replace('_', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
     private String normalizeRequiredText(String value) {
         return value.trim();
     }
@@ -225,10 +492,19 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         return value == null ? null : value.trim();
     }
 
-    private JsonNode toJsonNode(Object value) {
-        if (value == null) {
-            return null;
-        }
-        return objectMapper.valueToTree(value);
+    private record CandidateReviewContent(
+            String attributeName,
+            String attributeValue,
+            JsonNode valueJson,
+            boolean updateRequired
+    ) {
+    }
+
+    private record AttributeNameEditMetadata(
+            boolean attributeNameEditable,
+            String attributeNamePrefix
+    ) {
+        private static final AttributeNameEditMetadata NOT_EDITABLE =
+                new AttributeNameEditMetadata(false, null);
     }
 }
