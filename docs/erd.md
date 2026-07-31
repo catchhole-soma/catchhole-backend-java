@@ -144,6 +144,7 @@ erDiagram
     character_facts {
         uuid id PK
         uuid character_id FK
+        uuid setting_candidate_id FK
         varchar fact_type
         varchar fact_key
         text fact_value

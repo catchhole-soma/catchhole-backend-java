@@ -218,6 +218,10 @@ confirm으로 생성된 Fact는 `setting_candidate_id`로 원본 후보를 연�
 
 AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용자가 승인한 값은 `CharacterFact`로 남긴 뒤, 필요하면 `WorkCharacter`의 현재 스냅샷 필드에도 반영합니다.
 
+설정DB 검색은 `ACTIVE` 캐릭터의 `AGE`, `LEVEL`, `STAT`, `SKILL`, `ITEM`, `STATUS` Fact만 대상으로 합니다. 검색어는 앞뒤 공백을 제거한 뒤 `fact_key`, `fact_value`에 대소문자 구분 없이 부분 일치시키며, `%`, `_`, `\`는 와일드카드가 아닌 문자 그대로 처리합니다. `PROFILE`, `TIME`, 캐릭터명은 검색 대상이 아닙니다.
+
+검색 결과는 current 우선 → 적용 회차 내림차순(`NULL` 마지막) → 생성 시각 내림차순 → Fact ID 오름차순으로 정렬합니다. 상세 조회는 `source_episode_id`를 우선하고 없으면 연결된 후보의 `episode_id`를 출처로 사용하며, `evidence_spans[*].quote`만 저장 순서대로 응답합니다. `value_json`, `normalized_value`, AI 원본, 청크 원문과 offset은 사용자 응답에 포함하지 않습니다.
+
 ## 상태 모델
 
 `CharacterStatus`
@@ -452,6 +456,8 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 - `findAllByWorkCharacterIdOrderByCreatedAtDesc(characterId)`
 - `findAllByWorkCharacterIdAndIsCurrentTrueOrderByFactTypeAscFactKeyAsc(characterId)`: 상세 응답의 `hasEvidence` 계산이 Fact마다 추가 조회를 만들지 않도록 `settingCandidate`를 entity graph로 함께 조회합니다.
 - `findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(characterId, factType, factKey)`
+- `search(...)`: `ACTIVE` 캐릭터의 검색 허용 Fact를 키워드·유형·현재/과거 범위로 페이지 조회합니다. JPQL `LOWER ... LIKE ... ESCAPE`로 PostgreSQL과 H2에서 `%`, `_`, `\` literal 검색 의미를 맞추고 고정 정렬을 적용합니다.
+- `findActiveByIdAndWorkId(characterFactId, workId, ACTIVE)`: Fact, 캐릭터, 직접 출처 회차, 원본 후보와 후보 회차를 함께 조회하며 보관 캐릭터 Fact는 제외합니다.
 
 `CharacterSettingSchemaRepository`
 
@@ -493,7 +499,22 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 
 상세 설정 항목은 `characterFactId`, canonical `key`, `displayName`, `attributeNameEditable`, `attributeNamePrefix`, `displayNameEditable`, 사용자용 `value`, `valueType`, 복합값의 `properties`, `hasEvidence`를 제공합니다. exact schema는 `false/null/false`, 등록 pattern은 `true/<pattern prefix>/true`, 레거시 `manual_`·미등록 custom은 `false/null/true`입니다. 기본 정보로 분리해 표시하는 현재 나이와 레벨도 각각 `currentAgeFact`, `currentLevelFact`에 `characterFactId`, `hasEvidence`를 제공합니다. raw JSON snapshot은 응답하지 않습니다.
 
-`characterFactId`와 `hasEvidence`는 MVP 전체 범위에 포함된 원문 근거 패널을 후속 PR에서 연결하기 위한 계약입니다. 현재 PR은 캐릭터 현재 설정 조회·전체 수정·보관·복구까지만 제공하며, `characterFactId`로 Fact 또는 `SettingCandidate.evidenceSpans`를 조회하는 API는 포함하지 않습니다. 후속 PR에서 CharacterFact 상세·근거 조회 경로를 추가하기 전까지 클라이언트는 이 ID를 즉시 조회 가능한 근거 링크로 해석하지 않습니다.
+`characterFactId`는 아래 CharacterFact 상세 API의 식별자이며, `hasEvidence`는 연결된 후보에 저장된 인용문 존재 여부를 나타냅니다. 설정 검색 화면은 이 상세 API를 사용하며, 캐릭터 상세의 설정별 근거 진입점도 같은 API를 재사용할 수 있습니다.
+
+설정 검색·상세 API:
+
+| 메서드 | 경로 | 설명 |
+| --- | --- | --- |
+| `GET` | `/api/v1/works/{workId}/character-facts/search` | `q`, `factType`, `scope`, 0-based `page`, `size`로 `ACTIVE` 캐릭터의 확정 설정 이력을 페이지 검색합니다. |
+| `GET` | `/api/v1/works/{workId}/character-facts/{characterFactId}` | 사용자용 Fact 값, 소유 캐릭터, 적용·출처 회차와 저장된 후보 근거 인용문을 조회합니다. |
+
+- `factType`은 `ALL`, `AGE`, `LEVEL`, `STAT`, `SKILL`, `ITEM`, `STATUS`, `scope`는 `ALL`, `CURRENT`, `HISTORICAL`만 허용합니다.
+- 검색 목록은 `characterFactId`, `factType`, `factTypeLabel`, nullable `factValue`, `isCurrent`, 캐릭터 식별자·이름, nullable 출처·적용 회차만 제공합니다.
+- 상세는 목록 필드에 `factKey`, nullable `sourceCandidateId`, `evidenceQuotes`를 더합니다. 직접 출처 회차가 없을 때만 후보 회차를 fallback으로 사용합니다.
+- 다른 작품의 Fact, 존재하지 않는 Fact, `ARCHIVED` 캐릭터 Fact는 `CHARACTER_FACT_NOT_FOUND` 404로 처리합니다. 다른 회원의 작품 자체는 기존 정책대로 `WORK_NOT_FOUND` 404입니다.
+- API와 공통 `PageResponse.page`는 0부터 시작합니다. 화면 URL이 1부터 시작하면 Front에서 API 호출 시 1을 빼서 변환합니다.
+
+`/character-facts/search`는 설정DB 검색의 MVP 구현입니다. 작품당 Fact 1만 건 미만을 전제로 `factKey`와 `factValue`에 `LOWER(...) LIKE LOWER(...)` 부분 일치를 적용하며, `%`, `_`, `\`는 검색 와일드카드가 아니라 literal 문자로 처리합니다. 장소·세계관·타임라인·관계처럼 CharacterFact 밖의 설정 모델이 준비되면 결과 유형과 식별자를 구분하는 통합 설정 검색으로 확장합니다. 데이터 증가 또는 검색 p95가 200ms를 넘으면 `pg_trgm`이나 별도 검색 인덱스를 함께 검토합니다.
 
 설정 후보 API:
 

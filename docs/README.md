@@ -19,7 +19,7 @@
 | [Upload Episode Workflow](upload-episode-workflow.md) | 회차 업로드 시 batch/file/episode 생성 Mermaid workflow |
 | [Analysis](analysis.md) | 회차별 분석 작업 상태 모델, 생성 API, 단일 회차 Worker 처리 흐름 |
 | [Analysis Workflow](analysis-workflow.md) | 분석 API별 Mermaid workflow와 상태 전이 |
-| [Character](character.md) | 캐릭터 설정 저장 모델, Schema Registry, JSONB 기준, AI 설정 후보 저장 구조 |
+| [Character](character.md) | 캐릭터 설정 저장 모델, CharacterFact 검색·근거 상세 API, Schema Registry, JSONB 기준, AI 설정 후보 저장 구조 |
 
 ## 작성 기준
 
