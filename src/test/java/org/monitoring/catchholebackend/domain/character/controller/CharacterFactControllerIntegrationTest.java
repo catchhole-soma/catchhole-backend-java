@@ -141,6 +141,7 @@ class CharacterFactControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.content[0].characterFactId").value(currentItem.getId().toString()))
                 .andExpect(jsonPath("$.data.content[0].factType").value("ITEM"))
                 .andExpect(jsonPath("$.data.content[0].factTypeLabel").value("아이템"))
+                .andExpect(jsonPath("$.data.content[0].displayName").value("flame potion"))
                 .andExpect(jsonPath("$.data.content[0].factValue").value("Flame Potion"))
                 .andExpect(jsonPath("$.data.content[0].isCurrent").value(true))
                 .andExpect(jsonPath("$.data.content[0].characterId").value(character.getId().toString()))
@@ -286,6 +287,7 @@ class CharacterFactControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.factType").value("ITEM"))
                 .andExpect(jsonPath("$.data.factTypeLabel").value("아이템"))
                 .andExpect(jsonPath("$.data.factKey").value("item.체력_물약"))
+                .andExpect(jsonPath("$.data.displayName").value("체력 물약"))
                 .andExpect(jsonPath("$.data.factValue").value("체력 물약"))
                 .andExpect(jsonPath("$.data.isCurrent").value(true))
                 .andExpect(jsonPath("$.data.effectiveFromEpisodeNo").value(2))
@@ -450,6 +452,12 @@ class CharacterFactControllerIntegrationTest {
                 .andExpect(jsonPath(
                         "$.components.schemas.CharacterFactSearchResponse.properties.valueJson"
                 ).doesNotExist())
+                .andExpect(jsonPath(
+                        "$.components.schemas.CharacterFactSearchResponse.properties.displayName"
+                ).exists())
+                .andExpect(jsonPath(
+                        "$.components.schemas.CharacterFactDetailResponse.properties.displayName"
+                ).exists())
                 .andExpect(jsonPath(
                         "$.components.schemas.CharacterFactDetailResponse.properties.evidenceQuotes"
                 ).exists())

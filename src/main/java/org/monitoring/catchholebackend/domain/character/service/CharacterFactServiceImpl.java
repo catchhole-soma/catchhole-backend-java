@@ -8,11 +8,13 @@ import org.monitoring.catchholebackend.domain.character.dto.response.CharacterFa
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterFactEvidenceResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterFactSearchResponse;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper;
 import org.monitoring.catchholebackend.domain.character.mapper.CharacterFactMapper;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactSearchScope;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactSearchType;
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
@@ -33,6 +35,7 @@ public class CharacterFactServiceImpl implements CharacterFactService {
 
     private final WorkRepository workRepository;
     private final CharacterFactRepository characterFactRepository;
+    private final CharacterSettingSchemaRepository characterSettingSchemaRepository;
     private final CharacterFactMapper characterFactMapper;
     private final CharacterFactEvidenceMapper characterFactEvidenceMapper;
     private final ObjectStorageService objectStorageService;
@@ -58,8 +61,10 @@ public class CharacterFactServiceImpl implements CharacterFactService {
                 scope == CharacterFactSearchScope.CURRENT,
                 PageRequest.of(page, size)
         );
+        List<CharacterSettingSchema> schemas =
+                characterSettingSchemaRepository.findAllActiveForWork(workId);
         List<CharacterFactSearchResponse> content = factPage.getContent().stream()
-                .map(characterFactMapper::toSearchResponse)
+                .map(fact -> characterFactMapper.toSearchResponse(fact, schemas))
                 .toList();
 
         return PageResponse.from(factPage, content);
@@ -77,7 +82,9 @@ public class CharacterFactServiceImpl implements CharacterFactService {
                 .findActiveByIdAndWorkId(characterFactId, workId, CharacterStatus.ACTIVE)
                 .orElseThrow(() -> new AppException(CharacterErrorCode.CHARACTER_FACT_NOT_FOUND));
 
-        return characterFactMapper.toDetailResponse(fact);
+        List<CharacterSettingSchema> schemas =
+                characterSettingSchemaRepository.findAllActiveForWork(workId);
+        return characterFactMapper.toDetailResponse(fact, schemas);
     }
 
     @Override

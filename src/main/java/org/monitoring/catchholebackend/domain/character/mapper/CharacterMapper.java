@@ -20,7 +20,7 @@ import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingEditPolicyResolver;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingEditPolicyResolver.CharacterSettingEditPolicy;
-import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingEditPolicyResolver.CharacterSettingEditType;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingDisplayNameResolver;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
@@ -31,6 +31,7 @@ import org.springframework.stereotype.Component;
 public class CharacterMapper {
 
     private final CharacterSettingEditPolicyResolver characterSettingEditPolicyResolver;
+    private final CharacterSettingDisplayNameResolver characterSettingDisplayNameResolver;
 
     public CharacterSummaryResponse toSummaryResponse(WorkCharacter character, Integer firstAppearanceEpisodeNo) {
         Integer currentLevel = character.getCurrentLevel();
@@ -146,7 +147,7 @@ public class CharacterMapper {
         return new CharacterSettingResponse(
                 fact.getId(),
                 fact.getFactKey(),
-                resolveDisplayName(fact.getFactKey(), valueJson, editPolicy),
+                characterSettingDisplayNameResolver.resolve(fact.getFactKey(), valueJson, editPolicy),
                 editPolicy.attributeNameEditable(),
                 editPolicy.attributeNamePrefix(),
                 editPolicy.displayNameEditable(),
@@ -155,39 +156,6 @@ public class CharacterMapper {
                 toProperties(valueJson),
                 hasEvidence(fact.getSettingCandidate())
         );
-    }
-
-    private String resolveDisplayName(
-            String factKey,
-            JsonNode valueJson,
-            CharacterSettingEditPolicy editPolicy
-    ) {
-        if (editPolicy.type() == CharacterSettingEditType.EXACT) {
-            return editPolicy.schema().getDisplayName();
-        }
-        if (editPolicy.type() == CharacterSettingEditType.PATTERN) {
-            return dynamicDisplayName(factKey, editPolicy.attributeNamePrefix());
-        }
-        if (valueJson != null && valueJson.isObject()) {
-            JsonNode nameNode = valueJson.get("name");
-            if (nameNode != null && nameNode.isTextual() && !nameNode.asText().isBlank()) {
-                return nameNode.asText();
-            }
-        }
-        return keySuffixDisplayName(factKey);
-    }
-
-    private String dynamicDisplayName(String factKey, String prefix) {
-        return factKey.substring(prefix.length())
-                .replace('_', ' ')
-                .replaceAll("\\s+", " ")
-                .trim();
-    }
-
-    private String keySuffixDisplayName(String factKey) {
-        int separatorIndex = factKey.lastIndexOf('.');
-        String suffix = separatorIndex < 0 ? factKey : factKey.substring(separatorIndex + 1);
-        return suffix.replace('_', ' ').replaceAll("\\s+", " ").trim();
     }
 
     private List<CharacterSettingPropertyResponse> toProperties(JsonNode valueJson) {
