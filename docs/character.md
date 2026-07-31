@@ -518,12 +518,14 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `GET` | `/api/v1/works/{workId}/character-facts/{characterFactId}` | 사용자용 Fact 값, 소유 캐릭터, 적용·출처 회차와 저장된 후보 근거 인용문을 조회합니다. |
 
 - `factType`은 `ALL`, `AGE`, `LEVEL`, `STAT`, `SKILL`, `ITEM`, `STATUS`, `scope`는 `ALL`, `CURRENT`, `HISTORICAL`만 허용합니다.
-- 검색 목록은 `characterFactId`, `factType`, `factTypeLabel`, nullable `factValue`, `isCurrent`, 캐릭터 식별자·이름, nullable 출처·적용 회차만 제공합니다.
-- 상세는 목록 필드에 `factKey`, nullable `sourceCandidateId`, `evidenceQuotes`를 더합니다. 직접 출처 회차가 없을 때만 후보 회차를 fallback으로 사용합니다.
+- 검색 목록은 `characterFactId`, `factType`, `factTypeLabel`, 사용자용 `displayName`, nullable `factValue`, `isCurrent`, 캐릭터 식별자·이름, nullable 출처·적용 회차만 제공합니다.
+- 상세는 목록 필드에 내부 식별용 `factKey`, nullable `sourceCandidateId`, `evidenceQuotes`를 더합니다. 화면에는 `factKey`를 노출하지 않고 `factTypeLabel`, `displayName`, `factValue`를 설정 유형·설정명·설정값으로 표시합니다. 직접 출처 회차가 없을 때만 후보 회차를 fallback으로 사용합니다.
 - 다른 작품의 Fact, 존재하지 않는 Fact, `ARCHIVED` 캐릭터 Fact는 `CHARACTER_FACT_NOT_FOUND` 404로 처리합니다. 다른 회원의 작품 자체는 기존 정책대로 `WORK_NOT_FOUND` 404입니다.
 - API와 공통 `PageResponse.page`는 0부터 시작합니다. 화면 URL이 1부터 시작하면 Front에서 API 호출 시 1을 빼서 변환합니다.
 
-`/character-facts/search`는 설정DB 검색의 MVP 구현입니다. 작품당 Fact 1만 건 미만을 전제로 `factKey`와 `factValue`에 `LOWER(...) LIKE LOWER(...)` 부분 일치를 적용하며, `%`, `_`, `\`는 검색 와일드카드가 아니라 literal 문자로 처리합니다. 장소·세계관·타임라인·관계처럼 CharacterFact 밖의 설정 모델이 준비되면 결과 유형과 식별자를 구분하는 통합 설정 검색으로 확장합니다. 데이터 증가 또는 검색 p95가 200ms를 넘으면 `pg_trgm`이나 별도 검색 인덱스를 함께 검토합니다.
+사용자용 `displayName`은 캐릭터 상세와 Fact 검색·상세에서 같은 정책으로 계산합니다. exact schema key는 registry의 한글 `displayName`, pattern key는 고정 prefix를 제거하고 underscore를 공백으로 바꾼 suffix, 레거시 `manual_`·미등록 custom key는 `valueJson.name`을 우선 사용하고 없으면 정규화한 key suffix를 사용합니다. 활성 schema가 없더라도 suffix fallback으로 빈 설정명을 응답하지 않습니다. 한 요청에서는 작품의 활성 schema를 한 번만 조회해 검색 결과 수만큼 추가 조회하지 않습니다.
+
+`/character-facts/search`는 설정DB 검색의 MVP 구현입니다. 작품당 Fact 1만 건 미만을 전제로 사용자용 `displayName`, 내부 `factKey`, `factValue`를 검색합니다. exact schema의 `displayName`은 활성 registry에서 일치하는 `schemaKey`로 역매핑하고, 동적 설정명은 검색어 공백을 factKey의 underscore와 같은 구분자로 취급합니다. `factKey`와 `factValue`에는 `LOWER(...) LIKE LOWER(...)` 부분 일치를 적용하며, `%`, `_`, `\\`는 검색 와일드카드가 아니라 literal 문자로 처리합니다. 레거시 `manual_*` Fact의 `valueJson.name` 검색은 이번 범위에서 제외하며 해당 Fact도 `factKey`와 `factValue`로는 계속 검색합니다. 장소·세계관·타임라인·관계처럼 CharacterFact 밖의 설정 모델이 준비되면 결과 유형과 식별자를 구분하는 통합 설정 검색으로 확장합니다. 데이터 증가 또는 검색 p95가 200ms를 넘으면 `pg_trgm`이나 별도 검색 인덱스를 함께 검토합니다.
 
 캐릭터 상세의 `characterFactId`와 `hasEvidence`는
 `GET /api/v1/works/{workId}/character-facts/{characterFactId}/evidence`의 진입점입니다.

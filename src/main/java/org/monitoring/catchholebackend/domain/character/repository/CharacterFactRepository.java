@@ -40,6 +40,12 @@ public interface CharacterFactRepository extends JpaRepository<CharacterFact, UU
                       and (
                           :query = ''
                           or lower(fact.factKey) like lower(concat('%', :query, '%')) escape '\\'
+                          or (
+                              :factKeyQuery <> ''
+                              and replace(replace(lower(fact.factKey), ' ', ''), '_', '')
+                                  like lower(concat('%', :factKeyQuery, '%')) escape '\\'
+                          )
+                          or fact.factKey in :displayNameSchemaKeys
                           or lower(coalesce(fact.factValue, '')) like lower(concat('%', :query, '%')) escape '\\'
                       )
                       and (:allScopes = true or fact.isCurrent = :currentScope)
@@ -59,6 +65,12 @@ public interface CharacterFactRepository extends JpaRepository<CharacterFact, UU
                       and (
                           :query = ''
                           or lower(fact.factKey) like lower(concat('%', :query, '%')) escape '\\'
+                          or (
+                              :factKeyQuery <> ''
+                              and replace(replace(lower(fact.factKey), ' ', ''), '_', '')
+                                  like lower(concat('%', :factKeyQuery, '%')) escape '\\'
+                          )
+                          or fact.factKey in :displayNameSchemaKeys
                           or lower(coalesce(fact.factValue, '')) like lower(concat('%', :query, '%')) escape '\\'
                       )
                       and (:allScopes = true or fact.isCurrent = :currentScope)
@@ -69,6 +81,8 @@ public interface CharacterFactRepository extends JpaRepository<CharacterFact, UU
             @Param("characterStatus") CharacterStatus characterStatus,
             @Param("factTypes") List<CharacterFactType> factTypes,
             @Param("query") String query,
+            @Param("factKeyQuery") String factKeyQuery,
+            @Param("displayNameSchemaKeys") List<String> displayNameSchemaKeys,
             @Param("allScopes") boolean allScopes,
             @Param("currentScope") boolean currentScope,
             Pageable pageable

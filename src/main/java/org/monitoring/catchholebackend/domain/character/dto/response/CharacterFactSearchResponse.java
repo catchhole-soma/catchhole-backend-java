@@ -22,6 +22,9 @@ public record CharacterFactSearchResponse(
         @Schema(description = "설정 유형 한글 표시명", example = "아이템")
         String factTypeLabel,
 
+        @Schema(description = "사용자용 설정명", example = "체력 물약")
+        String displayName,
+
         @Schema(description = "사용자용 설정 표시값", example = "체력 물약", nullable = true)
         String factValue,
 

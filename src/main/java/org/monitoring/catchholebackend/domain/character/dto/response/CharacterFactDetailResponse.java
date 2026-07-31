@@ -26,6 +26,9 @@ public record CharacterFactDetailResponse(
         @Schema(description = "내부 설정 key", example = "item.체력_물약")
         String factKey,
 
+        @Schema(description = "사용자용 설정명", example = "체력 물약")
+        String displayName,
+
         @Schema(description = "사용자용 설정 표시값", example = "체력 물약", nullable = true)
         String factValue,
 

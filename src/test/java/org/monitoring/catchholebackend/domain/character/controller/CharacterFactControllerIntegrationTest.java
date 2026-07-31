@@ -14,12 +14,17 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
+import org.monitoring.catchholebackend.domain.character.type.CharacterSettingMergePolicy;
+import org.monitoring.catchholebackend.domain.character.type.CharacterSettingSchemaSource;
+import org.monitoring.catchholebackend.domain.character.type.CharacterSettingValueSemantics;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
@@ -59,6 +64,9 @@ class CharacterFactControllerIntegrationTest {
 
     @Autowired
     private CharacterFactRepository characterFactRepository;
+
+    @Autowired
+    private CharacterSettingSchemaRepository characterSettingSchemaRepository;
 
     @Autowired
     private SettingCandidateRepository settingCandidateRepository;
@@ -141,6 +149,7 @@ class CharacterFactControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.content[0].characterFactId").value(currentItem.getId().toString()))
                 .andExpect(jsonPath("$.data.content[0].factType").value("ITEM"))
                 .andExpect(jsonPath("$.data.content[0].factTypeLabel").value("아이템"))
+                .andExpect(jsonPath("$.data.content[0].displayName").value("flame potion"))
                 .andExpect(jsonPath("$.data.content[0].factValue").value("Flame Potion"))
                 .andExpect(jsonPath("$.data.content[0].isCurrent").value(true))
                 .andExpect(jsonPath("$.data.content[0].characterId").value(character.getId().toString()))
@@ -180,6 +189,34 @@ class CharacterFactControllerIntegrationTest {
         assertSingleSearchResult("%", percent);
         assertSingleSearchResult("_", underscore);
         assertSingleSearchResult("\\", backslash);
+    }
+
+    @Test
+    @DisplayName("스키마 표시명과 공백이 포함된 동적 설정명, 기존 설정값을 검색한다")
+    void searchMatchesDisplayNamesAndFactValues() throws Exception {
+        characterSettingSchemaRepository.save(schema(work, "stats.combat_power", "전투지수"));
+        characterSettingSchemaRepository.save(schema(work, " stats.supernatural ", "이능"));
+        characterSettingSchemaRepository.save(schema(otherWork, "stats.mental", "전투지수"));
+
+        WorkCharacter character = workCharacterRepository.save(character(work, "아리아"));
+        CharacterFact combatPower = saveFact(
+                character, null, CharacterFactType.STAT, "stats.combat_power", "68", firstEpisode, 1, true
+        );
+        CharacterFact supernatural = saveFact(
+                character, null, CharacterFactType.STAT, "stats.supernatural", "1", firstEpisode, 1, true
+        );
+        CharacterFact injury = saveFact(
+                character, null, CharacterFactType.STATUS, "status.오른발  부상", "오른발 파괴", firstEpisode, 1, true
+        );
+        CharacterFact mental = saveFact(
+                character, null, CharacterFactType.STAT, "stats.mental", "36", firstEpisode, 1, true
+        );
+
+        assertSingleSearchResult("전투 지수", combatPower);
+        assertSingleSearchResult("이능", supernatural);
+        assertSingleSearchResult("오른발 부상", injury);
+        assertSingleSearchResult("36", mental);
+        assertSearchResultCount("존재하지 않는 설정", 0);
     }
 
     @Test
@@ -286,6 +323,7 @@ class CharacterFactControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.factType").value("ITEM"))
                 .andExpect(jsonPath("$.data.factTypeLabel").value("아이템"))
                 .andExpect(jsonPath("$.data.factKey").value("item.체력_물약"))
+                .andExpect(jsonPath("$.data.displayName").value("체력 물약"))
                 .andExpect(jsonPath("$.data.factValue").value("체력 물약"))
                 .andExpect(jsonPath("$.data.isCurrent").value(true))
                 .andExpect(jsonPath("$.data.effectiveFromEpisodeNo").value(2))
@@ -451,6 +489,12 @@ class CharacterFactControllerIntegrationTest {
                         "$.components.schemas.CharacterFactSearchResponse.properties.valueJson"
                 ).doesNotExist())
                 .andExpect(jsonPath(
+                        "$.components.schemas.CharacterFactSearchResponse.properties.displayName"
+                ).exists())
+                .andExpect(jsonPath(
+                        "$.components.schemas.CharacterFactDetailResponse.properties.displayName"
+                ).exists())
+                .andExpect(jsonPath(
                         "$.components.schemas.CharacterFactDetailResponse.properties.evidenceQuotes"
                 ).exists())
                 .andExpect(jsonPath(
@@ -466,6 +510,14 @@ class CharacterFactControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalElements").value(1))
                 .andExpect(jsonPath("$.data.content[0].characterFactId").value(expected.getId().toString()));
+    }
+
+    private void assertSearchResultCount(String query, int expectedCount) throws Exception {
+        mockMvc.perform(get("/api/v1/works/{workId}/character-facts/search", work.getId())
+                        .queryParam("q", query)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(expectedCount));
     }
 
     private void assertFactNotFound(UUID characterFactId) throws Exception {
@@ -525,6 +577,22 @@ class CharacterFactControllerIntegrationTest {
         );
     }
 
+    private CharacterSettingSchema schema(Work ownerWork, String schemaKey, String displayName) {
+        return CharacterSettingSchema.create(
+                ownerWork,
+                schemaKey,
+                null,
+                displayName,
+                CharacterFactType.STAT,
+                SettingValueType.NUMBER,
+                CharacterSettingValueSemantics.BASE_VALUE,
+                CharacterSettingMergePolicy.REPLACE,
+                JsonNodeFactory.instance.arrayNode(),
+                CharacterSettingSchemaSource.SYSTEM_SEED,
+                true
+        );
+    }
+
     private Episode episode(Work ownerWork, int episodeNo) {
         return Episode.create(
                 ownerWork,
@@ -547,6 +615,7 @@ class CharacterFactControllerIntegrationTest {
         settingCandidateRepository.deleteAll();
         workCharacterRepository.deleteAll();
         episodeRepository.deleteAll();
+        characterSettingSchemaRepository.deleteAll();
         workRepository.deleteAll();
         memberRepository.deleteAll();
     }
