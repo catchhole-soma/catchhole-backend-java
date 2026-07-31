@@ -621,6 +621,14 @@ class SettingCandidatePromotionServiceTest {
         Episode episode3 = episode(3);
         WorkCharacter existingCharacter = workCharacterRepository.save(workCharacter("아리아"));
         SettingCandidate candidate = candidate(episode3, "level", "5");
+        SettingCandidate sibling = candidate(
+                episode3,
+                "  아리아  ",
+                null,
+                SettingCandidateMatchStatus.UNRESOLVED,
+                "stats.agility",
+                "8"
+        );
 
         promote(candidate);
 
@@ -628,6 +636,9 @@ class SettingCandidatePromotionServiceTest {
                 .containsExactly(existingCharacter);
         assertThat(candidate.getMatchedCharacterId()).isEqualTo(existingCharacter.getId());
         assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(sibling.getMatchedCharacterId()).isEqualTo(existingCharacter.getId());
+        assertThat(sibling.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(sibling.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
         CharacterFact fact = currentFact(existingCharacter, CharacterFactType.LEVEL, "level");
         assertThat(fact.getFactValue()).isEqualTo("5");
         assertThat(fact.getSettingCandidate().getId()).isEqualTo(candidate.getId());
@@ -650,6 +661,8 @@ class SettingCandidatePromotionServiceTest {
         assertThat(activeCharacter.getId()).isNotEqualTo(archivedCharacter.getId());
         assertThat(archivedCharacter.getStatus()).isEqualTo(CharacterStatus.ARCHIVED);
         assertThat(candidate.getMatchedCharacterId()).isEqualTo(activeCharacter.getId());
+        assertThat(candidate.getMatchStatus())
+                .isEqualTo(SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
         assertThat(currentFact(activeCharacter, CharacterFactType.LEVEL, "level").getFactValue())
                 .isEqualTo("5");
     }
@@ -687,7 +700,8 @@ class SettingCandidatePromotionServiceTest {
 
         WorkCharacter character = character("아리아");
         assertThat(first.getMatchedCharacterId()).isEqualTo(character.getId());
-        assertThat(first.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(first.getMatchStatus())
+                .isEqualTo(SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
         assertThat(first.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
         assertThat(sibling.getEntityName()).isEqualTo("아리아");
         assertThat(sibling.getMatchedCharacterId()).isEqualTo(character.getId());

@@ -259,21 +259,27 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         workRepository.findByIdForUpdate(workId)
                 .orElseThrow(() -> new AppException(WorkErrorCode.WORK_NOT_FOUND));
 
-        // 동일 이름의 활성 캐릭터는 재사용하고, 보관 캐릭터만 있거나 이름 자체가 없으면 새 캐릭터를 만든다.
-        WorkCharacter character = workCharacterRepository.findByWorkIdAndNameAndStatus(
+        // 동일 이름의 활성 캐릭터가 분석 전부터 있으면 기존 연결로 기록한다.
+        WorkCharacter existingCharacter = workCharacterRepository.findByWorkIdAndNameAndStatus(
                         workId,
                         characterName,
                         CharacterStatus.ACTIVE
                 )
-                .map(existingCharacter -> lockActiveCharacter(existingCharacter, workId))
-                .orElseGet(() -> workCharacterRepository.save(
-                        settingCandidatePromotionMapper.toWorkCharacter(candidate)
-                ));
+                .map(character -> lockActiveCharacter(character, workId))
+                .orElse(null);
+        if (existingCharacter != null) {
+            candidate.matchPromotedExistingCharacter(existingCharacter);
+            matchPendingUnresolvedSiblings(workId, characterName, existingCharacter, false);
+            return existingCharacter;
+        }
 
-        // 현재 후보는 이미 CONFIRMED이고, 나머지 동일 이름 형제 후보는 아직 PENDING_REVIEW인 상태에서 연결한다.
-        candidate.matchPromotedCharacter(character);
-        matchPendingUnresolvedSiblings(workId, characterName, character);
-        return character;
+        // 보관 캐릭터만 있거나 이름 자체가 없으면 새로 만들고 최초 후보와 형제 후보 모두 신규 연결로 기록한다.
+        WorkCharacter newCharacter = workCharacterRepository.save(
+                settingCandidatePromotionMapper.toWorkCharacter(candidate)
+        );
+        candidate.matchPromotedNewCharacter(newCharacter);
+        matchPendingUnresolvedSiblings(workId, characterName, newCharacter, true);
+        return newCharacter;
     }
 
     private WorkCharacter lockActiveCharacter(WorkCharacter character, UUID workId) {
@@ -294,7 +300,8 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
     private void matchPendingUnresolvedSiblings(
             UUID workId,
             String normalizedEntityName,
-            WorkCharacter character
+            WorkCharacter character,
+            boolean newlyCreated
     ) {
         // AMBIGUOUS와 이미 검토된 후보는 유지하고, exact-name 형제 후보만 다음 confirm에 재사용한다.
         settingCandidateRepository.findAllByNormalizedEntityNameAndMatchState(
@@ -304,7 +311,13 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                         SettingCandidateReviewStatus.PENDING_REVIEW,
                         SettingCandidateMatchStatus.UNRESOLVED
                 )
-                .forEach(sibling -> sibling.autoMatchSameNameCharacter(character));
+                .forEach(sibling -> {
+                    if (newlyCreated) {
+                        sibling.autoMatchSameNameCharacter(character);
+                        return;
+                    }
+                    sibling.matchExistingCharacter(character);
+                });
     }
 
     private void updateFirstAppearance(WorkCharacter character, Episode sourceEpisode) {

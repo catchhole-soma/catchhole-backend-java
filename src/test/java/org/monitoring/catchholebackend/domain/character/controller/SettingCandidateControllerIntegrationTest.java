@@ -920,7 +920,11 @@ class SettingCandidateControllerIntegrationTest {
                 "아리아",
                 CharacterStatus.ACTIVE
         ).orElseThrow();
+        SettingCandidate linkedFirst = settingCandidateRepository.findById(ageCandidate.getId()).orElseThrow();
         SettingCandidate linkedSibling = settingCandidateRepository.findById(levelCandidate.getId()).orElseThrow();
+        assertThat(linkedFirst.getMatchedCharacterId()).isEqualTo(character.getId());
+        assertThat(linkedFirst.getMatchStatus())
+                .isEqualTo(SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
         assertThat(linkedSibling.getEntityName()).isEqualTo("아리아");
         assertThat(linkedSibling.getMatchedCharacterId()).isEqualTo(character.getId());
         assertThat(linkedSibling.getMatchStatus())
@@ -942,6 +946,10 @@ class SettingCandidateControllerIntegrationTest {
         assertThat(updatedCharacter.getCurrentAge()).isEqualTo(17);
         assertThat(updatedCharacter.getCurrentLevel()).isEqualTo(5);
         assertThat(characterFactRepository.findAll()).hasSize(2);
+        assertThat(settingCandidateRepository.findById(ageCandidate.getId()).orElseThrow().getMatchStatus())
+                .isEqualTo(SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
+        assertThat(settingCandidateRepository.findById(levelCandidate.getId()).orElseThrow().getMatchStatus())
+                .isEqualTo(SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
     }
 
     @Test

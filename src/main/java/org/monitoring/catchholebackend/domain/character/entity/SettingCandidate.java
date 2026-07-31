@@ -272,28 +272,38 @@ public class SettingCandidate extends BaseEntity {
     }
 
     public void matchExistingCharacter(WorkCharacter character) {
-        // 사용자가 캐릭터 연결을 직접 선택한 경우 자동 연결 표시는 해제한다.
+        // 분석 또는 사용자가 기존 캐릭터를 선택한 연결은 신규 생성 연결과 구분한다.
         validateEditable();
 
         applyCharacterMatch(character, SettingCandidateMatchStatus.MATCHED);
     }
 
     public void autoMatchSameNameCharacter(WorkCharacter character) {
-        // 같은 이름 형제 후보만 호출하며 사용자가 직접 선택한 연결과 구분해 검토 화면에 남긴다.
+        // 이번 확정에서 새로 생성한 캐릭터의 같은 이름 형제 후보에 신규 연결 이력을 남긴다.
         validateEditable();
 
         applyCharacterMatch(character, SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
     }
 
-    public void matchPromotedCharacter(WorkCharacter character) {
-        // confirm()이 먼저 CONFIRMED로 바꾼 현재 후보에 promotion이 결정한 최종 캐릭터를 기록한다.
-        // 사용자 편집 경로가 확정 후보를 다시 연결하지 못하도록 UNRESOLVED + 미연결 상태까지 함께 검증한다.
+    public void matchPromotedExistingCharacter(WorkCharacter character) {
+        applyPromotedCharacterMatch(character, SettingCandidateMatchStatus.MATCHED);
+    }
+
+    public void matchPromotedNewCharacter(WorkCharacter character) {
+        applyPromotedCharacterMatch(character, SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
+    }
+
+    private void applyPromotedCharacterMatch(
+            WorkCharacter character,
+            SettingCandidateMatchStatus targetMatchStatus
+    ) {
+        // confirm()이 먼저 확정한 UNRESOLVED 후보만 promotion 결과로 연결할 수 있다.
         if (reviewStatus != SettingCandidateReviewStatus.CONFIRMED
                 || matchStatus != SettingCandidateMatchStatus.UNRESOLVED
                 || matchedCharacterId != null) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
         }
-        applyCharacterMatch(character, SettingCandidateMatchStatus.MATCHED);
+        applyCharacterMatch(character, targetMatchStatus);
     }
 
     private void applyCharacterMatch(

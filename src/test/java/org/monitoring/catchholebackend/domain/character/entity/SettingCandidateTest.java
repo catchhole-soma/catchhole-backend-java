@@ -79,7 +79,7 @@ class SettingCandidateTest {
     }
 
     @Test
-    @DisplayName("같은 이름 자동 연결은 별도 상태로 남고 사용자가 다시 연결하면 일반 연결로 바뀐다")
+    @DisplayName("신규 캐릭터 자동 연결은 별도 상태로 남고 사용자가 기존 캐릭터를 선택하면 일반 연결로 바뀐다")
     void autoMatchSameNameCharacterTracksAutomaticMatchUntilUserChangesTarget() {
         Work work = work();
         SettingCandidate candidate = candidate(work, "age", "17");
@@ -101,20 +101,36 @@ class SettingCandidateTest {
     }
 
     @Test
-    @DisplayName("확정 반영이 결정한 캐릭터는 후보를 다시 편집 가능하게 만들지 않고 연결한다")
-    void matchPromotedCharacterConnectsConfirmedCandidate() {
+    @DisplayName("확정 반영이 새로 생성한 캐릭터는 확정 후보에도 신규 연결 상태로 기록한다")
+    void matchPromotedNewCharacterConnectsConfirmedCandidate() {
         Work work = work();
         SettingCandidate candidate = candidate(work, "age", "17");
         WorkCharacter character = character(work, "아리아");
         candidate.confirm();
 
-        candidate.matchPromotedCharacter(character);
+        candidate.matchPromotedNewCharacter(character);
 
         assertThat(candidate.getEntityName()).isEqualTo("아리아");
         assertThat(candidate.getMatchedCharacterId()).isEqualTo(character.getId());
-        assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(candidate.getMatchStatus())
+                .isEqualTo(SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
         assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
         assertThat(candidate.isPendingReview()).isFalse();
+    }
+
+    @Test
+    @DisplayName("확정 반영이 기존 캐릭터를 재사용하면 확정 후보에 기존 연결 상태로 기록한다")
+    void matchPromotedExistingCharacterConnectsConfirmedCandidate() {
+        Work work = work();
+        SettingCandidate candidate = candidate(work, "age", "17");
+        WorkCharacter character = character(work, "아리아");
+        candidate.confirm();
+
+        candidate.matchPromotedExistingCharacter(character);
+
+        assertThat(candidate.getMatchedCharacterId()).isEqualTo(character.getId());
+        assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
     }
 
     @Test
