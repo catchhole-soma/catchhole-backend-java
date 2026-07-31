@@ -17,6 +17,23 @@ PostgreSQL은 로컬과 운영 모두 `pgvector/pgvector:0.8.2-pg16` 이미지�
 
 `.env`는 `deploy/.env.example`을 기준으로 서버에서 직접 작성하고 커밋하지 않는다.
 
+## 운영 시간대
+
+Backend, AI Worker, PostgreSQL은 `.env`의 `APP_TIMEZONE`을 함께 사용한다.
+한국 서비스 운영 기본값은 `Asia/Seoul`이며, JVM의 `user.timezone`, Python 컨테이너의 `TZ`,
+PostgreSQL 서버의 `timezone`을 같은 값으로 맞춰 timezone 없는 `TIMESTAMP` 컬럼과 로그가
+서로 다른 기준으로 기록되지 않게 한다.
+
+```dotenv
+APP_TIMEZONE=Asia/Seoul
+```
+
+EC2 호스트 자체의 표시 시간도 한국 시간으로 맞추려면 최초 한 번 실행한다.
+
+```bash
+sudo timedatectl set-timezone Asia/Seoul
+```
+
 ## 실행
 
 ```bash
@@ -24,6 +41,16 @@ cd /opt/catchhole
 docker compose --env-file .env -f compose.prod.yml pull
 docker compose --env-file .env -f compose.prod.yml up -d
 docker compose --env-file .env -f compose.prod.yml ps
+```
+
+시간대 반영은 컨테이너 재시작이 아니라 재생성이 필요하다.
+
+```bash
+docker compose --env-file .env -f compose.prod.yml up -d --force-recreate backend ai-worker postgres
+docker compose --env-file .env -f compose.prod.yml exec backend date
+docker compose --env-file .env -f compose.prod.yml exec ai-worker date
+docker compose --env-file .env -f compose.prod.yml exec postgres \
+  sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SHOW timezone; SELECT CURRENT_TIMESTAMP;"'
 ```
 
 Backend 컨테이너가 시작될 때 Flyway가 미적용 migration을 먼저 실행하고, 이후 Hibernate가 JPA Entity와 schema 일치 여부를 `validate`한다. AI Worker의 SQLAlchemy 모델은 schema를 생성하지 않고 Flyway가 만든 테이블을 사용한다.

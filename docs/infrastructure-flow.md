@@ -137,7 +137,7 @@ flowchart LR
 | 위치 | 저장 대상 |
 | --- | --- |
 | GitHub Secrets | AWS 배포 role/access key, EC2 instance ID, AI 저장소의 Backend dispatch token |
-| EC2 `/opt/catchhole/.env` | DB 비밀번호, JWT secret, 내부 API key, LLM API key, 운영 이미지와 도메인 설정 |
+| EC2 `/opt/catchhole/.env` | DB 비밀번호, JWT secret, 내부 API key, LLM API key, 운영 이미지·도메인·공통 `APP_TIMEZONE` 설정 |
 | EC2 IAM Role | SSM managed node 등록과 S3 접근 권한 |
 
 AWS Secrets Manager 또는 Systems Manager Parameter Store에서 애플리케이션 비밀값을 읽는 구성은 아직 없습니다.
