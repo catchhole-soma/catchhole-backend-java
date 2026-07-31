@@ -262,41 +262,57 @@ public class SettingCandidate extends BaseEntity {
     public void updateReviewContent(
             String attributeName,
             String attributeValue,
-            SettingValueType valueType,
-            JsonNode valueJson,
-            JsonNode evidenceSpans
+            JsonNode valueJson
     ) {
         validateEditable();
 
         this.attributeName = attributeName;
         this.attributeValue = attributeValue;
-        this.valueType = valueType;
         this.valueJson = valueJson;
-        this.evidenceSpans = evidenceSpans;
     }
 
     public void matchExistingCharacter(WorkCharacter character) {
-        // 사용자 연결 수정과 아직 검토 대기 중인 형제 후보 자동 연결에 사용한다.
+        // 분석 또는 사용자가 기존 캐릭터를 선택한 연결은 신규 생성 연결과 구분한다.
         validateEditable();
 
-        applyCharacterMatch(character);
+        applyCharacterMatch(character, SettingCandidateMatchStatus.MATCHED);
     }
 
-    public void matchPromotedCharacter(WorkCharacter character) {
-        // confirm()이 먼저 CONFIRMED로 바꾼 현재 후보에 promotion이 결정한 최종 캐릭터를 기록한다.
-        // 사용자 편집 경로가 확정 후보를 다시 연결하지 못하도록 UNRESOLVED + 미연결 상태까지 함께 검증한다.
+    public void autoMatchSameNameCharacter(WorkCharacter character) {
+        // 이번 확정에서 새로 생성한 캐릭터의 같은 이름 형제 후보에 신규 연결 이력을 남긴다.
+        validateEditable();
+
+        applyCharacterMatch(character, SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
+    }
+
+    public void matchPromotedExistingCharacter(WorkCharacter character) {
+        applyPromotedCharacterMatch(character, SettingCandidateMatchStatus.MATCHED);
+    }
+
+    public void matchPromotedNewCharacter(WorkCharacter character) {
+        applyPromotedCharacterMatch(character, SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
+    }
+
+    private void applyPromotedCharacterMatch(
+            WorkCharacter character,
+            SettingCandidateMatchStatus targetMatchStatus
+    ) {
+        // confirm()이 먼저 확정한 UNRESOLVED 후보만 promotion 결과로 연결할 수 있다.
         if (reviewStatus != SettingCandidateReviewStatus.CONFIRMED
                 || matchStatus != SettingCandidateMatchStatus.UNRESOLVED
                 || matchedCharacterId != null) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
         }
-        applyCharacterMatch(character);
+        applyCharacterMatch(character, targetMatchStatus);
     }
 
-    private void applyCharacterMatch(WorkCharacter character) {
+    private void applyCharacterMatch(
+            WorkCharacter character,
+            SettingCandidateMatchStatus targetMatchStatus
+    ) {
         this.entityName = character.getName();
         this.matchedCharacterId = character.getId();
-        this.matchStatus = SettingCandidateMatchStatus.MATCHED;
+        this.matchStatus = targetMatchStatus;
     }
 
     public void markAsNewCharacter(String entityName) {

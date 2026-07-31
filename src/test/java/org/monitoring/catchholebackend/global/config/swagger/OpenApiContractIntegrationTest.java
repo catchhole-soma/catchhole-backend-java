@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.global.config.swagger;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -75,6 +76,20 @@ class OpenApiContractIntegrationTest {
                         .value(org.hamcrest.Matchers.hasItems(
                                 "id", "title", "genre", "latestEpisodeNo", "createdAt", "updatedAt"
                         )))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/analysis-jobs/batches']['get']['operationId']")
+                        .value("getAnalysisBatches"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/analysis-jobs/batches']['get']['parameters'][*]['name']")
+                        .value(containsInAnyOrder("workId", "page", "size")))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/analysis-jobs/batches']['get']['parameters'][2]['schema']['maximum']")
+                        .value(20))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/analysis-jobs/batches']['get']['responses']['400']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/analysis-jobs/batches']['get']['responses']['401']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/analysis-jobs/batches']['get']['responses']['404']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['components']['schemas']['PageResponseAnalysisBatchSummaryResponse']['properties']['content']['items']['$ref']")
+                        .value("#/components/schemas/AnalysisBatchSummaryResponse"))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/characters']['get']['operationId']")
                         .value("getCharacters"))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/characters']['get']['parameters'][1]['name']")
@@ -126,7 +141,124 @@ class OpenApiContractIntegrationTest {
                 .andExpect(jsonPath("$['components']['schemas']['CharacterDetailResponse']['properties']['currentLevelFact']['$ref']")
                         .value("#/components/schemas/CharacterFactReferenceResponse"))
                 .andExpect(jsonPath("$['components']['schemas']['CharacterFactReferenceResponse']['required']")
-                        .value(org.hamcrest.Matchers.hasItems("characterFactId", "hasEvidence")));
+                        .value(org.hamcrest.Matchers.hasItems("characterFactId", "hasEvidence")))
+                .andExpect(jsonPath("$['components']['schemas']['CharacterSettingResponse']['properties']['attributeNameEditable']['type']")
+                        .value("boolean"))
+                .andExpect(jsonPath("$['components']['schemas']['CharacterSettingResponse']['properties']['attributeNamePrefix']")
+                        .exists())
+                .andExpect(jsonPath("$['components']['schemas']['CharacterSettingResponse']['properties']['displayNameEditable']['type']")
+                        .value("boolean"))
+                .andExpect(jsonPath("$['components']['schemas']['CharacterSettingResponse']['required']")
+                        .value(org.hamcrest.Matchers.hasItems(
+                                "attributeNameEditable",
+                                "displayNameEditable"
+                        )))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['operationId']")
+                        .value("getSettingCandidates"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['parameters'][*]['name']")
+                        .value(containsInAnyOrder(
+                                "workId",
+                                "batchId",
+                                "reviewStatus",
+                                "matchStatuses",
+                                "page",
+                                "size"
+                        )))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['parameters'][1]['required']")
+                        .value(true))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['parameters'][3]['schema']['type']")
+                        .value("array"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['parameters'][3]['schema']['items']['enum']")
+                        .value(containsInAnyOrder(
+                                "MATCHED",
+                                "AUTO_MATCHED_BY_NAME",
+                                "UNRESOLVED",
+                                "AMBIGUOUS"
+                        )))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['parameters'][5]['schema']['maximum']")
+                        .value(100))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['responses']['400']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['responses']['401']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['responses']['404']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateListResponse']['properties']['candidates']['$ref']")
+                        .value("#/components/schemas/PageResponseSettingCandidateResponse"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']['properties']['episodeNo']")
+                        .exists())
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']['properties']['attributeNameEditable']['type']")
+                        .value("boolean"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']['properties']['attributeNamePrefix']")
+                        .exists())
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']['required']")
+                        .value(org.hamcrest.Matchers.hasItem("attributeNameEditable")))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}']['get']['operationId']")
+                        .value("getSettingCandidate"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}']['get']['parameters'][*]['name']")
+                        .value(containsInAnyOrder("workId", "batchId", "candidateId")))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}']['get']['responses']['400']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}']['get']['responses']['401']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}']['get']['responses']['404']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}']['patch']['operationId']")
+                        .value("updateSettingCandidate"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}']['patch']['responses']['400']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}']['patch']['responses']['401']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}']['patch']['responses']['404']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}']['patch']['responses']['409']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateUpdateRequest']['required']")
+                        .value(containsInAnyOrder("attributeName")))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateUpdateRequest']['properties']['attributeName']")
+                        .exists())
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateUpdateRequest']['properties']['attributeValue']")
+                        .exists())
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateUpdateRequest']['properties']['valueType']")
+                        .doesNotExist())
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateUpdateRequest']['properties']['valueJson']")
+                        .doesNotExist())
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateUpdateRequest']['properties']['evidenceSpans']")
+                        .doesNotExist())
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}/character-match']['patch']['operationId']")
+                        .value("updateSettingCandidateCharacterMatch"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}/character-match']['patch']['description']")
+                        .value(containsString("CREATE_NEW는 캐릭터를 즉시 생성하거나 후보를 확정하지 않으며")))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateCharacterMatchRequest']['properties']['entityName']['description']")
+                        .value(containsString("confirm 전 새 캐릭터 등록 예정인 UNRESOLVED 상태")))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}/character-match']['patch']['responses']['400']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}/character-match']['patch']['responses']['401']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}/character-match']['patch']['responses']['404']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}/character-match']['patch']['responses']['409']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm']['post']['operationId']")
+                        .value("confirmSettingCandidate"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm']['post']['responses']['400']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm']['post']['responses']['401']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm']['post']['responses']['404']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm']['post']['responses']['409']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}/dismiss']['post']['operationId']")
+                        .value("dismissSettingCandidate"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}/dismiss']['post']['responses']['400']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}/dismiss']['post']['responses']['401']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}/dismiss']['post']['responses']['404']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}/dismiss']['post']['responses']['409']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"));
     }
 
     @Test

@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.analysis.controller;
 
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -8,7 +9,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,8 +21,14 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
+import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
+import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
+import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
+import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
+import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
@@ -64,6 +73,9 @@ class AnalysisJobControllerIntegrationTest {
     private AnalysisJobRepository analysisJobRepository;
 
     @Autowired
+    private SettingCandidateRepository settingCandidateRepository;
+
+    @Autowired
     private EpisodeRepository episodeRepository;
 
     @Autowired
@@ -81,6 +93,7 @@ class AnalysisJobControllerIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        settingCandidateRepository.deleteAll();
         analysisJobRepository.deleteAll();
         episodeRepository.deleteAll();
         uploadFileRepository.deleteAll();
@@ -350,6 +363,88 @@ class AnalysisJobControllerIntegrationTest {
         assertThat(analysisJobRepository.count()).isEqualTo(1);
     }
 
+    @ParameterizedTest
+    @EnumSource(AnalysisJobType.class)
+    @DisplayName("재분석은 같은 회차와 작업 유형의 이전 미검토 후보만 제거한다")
+    void createAnalysisJobDeletesOnlySupersededPendingCandidates(AnalysisJobType jobType) throws Exception {
+        AnalysisJobType otherJobType = jobType == AnalysisJobType.SETTING_EXTRACTION
+                ? AnalysisJobType.EPISODE_VALIDATION
+                : AnalysisJobType.SETTING_EXTRACTION;
+        AnalysisJob targetJob = succeededJob(
+                firstEpisode,
+                jobType
+        );
+        AnalysisJob otherEpisodeJob = succeededJob(
+                secondEpisode,
+                jobType
+        );
+        AnalysisJob otherTypeJob = succeededJob(
+                firstEpisode,
+                otherJobType
+        );
+
+        SettingCandidate pendingTarget = candidate(
+                targetJob,
+                firstEpisode,
+                "profile.pending-target"
+        );
+        SettingCandidate confirmedTarget = candidate(
+                targetJob,
+                firstEpisode,
+                "profile.confirmed-target"
+        );
+        confirmedTarget.confirm();
+        SettingCandidate dismissedTarget = candidate(
+                targetJob,
+                firstEpisode,
+                "profile.dismissed-target"
+        );
+        dismissedTarget.dismiss();
+        SettingCandidate pendingOtherEpisode = candidate(
+                otherEpisodeJob,
+                secondEpisode,
+                "profile.other-episode"
+        );
+        SettingCandidate pendingOtherType = candidate(
+                otherTypeJob,
+                firstEpisode,
+                "profile.other-type"
+        );
+        settingCandidateRepository.saveAll(List.of(
+                pendingTarget,
+                confirmedTarget,
+                dismissedTarget,
+                pendingOtherEpisode,
+                pendingOtherType
+        ));
+
+        mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "jobType": "%s",
+                                  "batchId": "%s",
+                                  "episodeId": "%s"
+                                }
+                                """.formatted(jobType, uploadBatch.getId(), firstEpisode.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", hasSize(1)))
+                .andExpect(jsonPath("$.data[0].jobType").value(jobType.name()));
+
+        assertThat(settingCandidateRepository.existsById(pendingTarget.getId())).isFalse();
+        assertThat(settingCandidateRepository.findById(confirmedTarget.getId()))
+                .get()
+                .extracting(SettingCandidate::getReviewStatus)
+                .isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+        assertThat(settingCandidateRepository.findById(dismissedTarget.getId()))
+                .get()
+                .extracting(SettingCandidate::getReviewStatus)
+                .isEqualTo(SettingCandidateReviewStatus.DISMISSED);
+        assertThat(settingCandidateRepository.existsById(pendingOtherEpisode.getId())).isTrue();
+        assertThat(settingCandidateRepository.existsById(pendingOtherType.getId())).isTrue();
+    }
+
     @Test
     @DisplayName("같은 배치의 전체 분석 작업이 활성 상태면 실패 작업 재시도를 거절한다")
     void retryFailedAnalysisJobRejectsActiveBatchJob() throws Exception {
@@ -377,6 +472,131 @@ class AnalysisJobControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("실패 분석 재시도는 새 작업을 만들기 전에 해당 회차의 이전 미검토 후보만 제거한다")
+    void retryFailedAnalysisJobDeletesSupersededPendingCandidates() throws Exception {
+        firstEpisode.markFailed();
+        episodeRepository.save(firstEpisode);
+        AnalysisJob failedJob = AnalysisJob.create(
+                work,
+                uploadBatch,
+                firstEpisode,
+                AnalysisJobType.SETTING_EXTRACTION
+        );
+        failedJob.fail("완료 보고 실패");
+        failedJob = analysisJobRepository.save(failedJob);
+
+        SettingCandidate pendingCandidate = candidate(
+                failedJob,
+                firstEpisode,
+                "profile.pending"
+        );
+        SettingCandidate confirmedCandidate = candidate(
+                failedJob,
+                firstEpisode,
+                "profile.confirmed"
+        );
+        confirmedCandidate.confirm();
+        settingCandidateRepository.saveAll(List.of(pendingCandidate, confirmedCandidate));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/analysis-jobs/{analysisJobId}/retry",
+                                work.getId(),
+                                failedJob.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", hasSize(1)))
+                .andExpect(jsonPath("$.data[0].jobType").value("SETTING_EXTRACTION"))
+                .andExpect(jsonPath("$.data[0].status").value("PENDING"));
+
+        assertThat(settingCandidateRepository.existsById(pendingCandidate.getId())).isFalse();
+        assertThat(settingCandidateRepository.findById(confirmedCandidate.getId()))
+                .get()
+                .extracting(SettingCandidate::getReviewStatus)
+                .isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+        assertThat(analysisJobRepository.count()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("실패 작업과 다른 유형의 회차별 작업이 활성 상태면 재시도를 거절한다")
+    void retryFailedAnalysisJobRejectsActiveJobOfDifferentType() throws Exception {
+        firstEpisode.markFailed();
+        episodeRepository.save(firstEpisode);
+
+        AnalysisJob failedJob = AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        failedJob.fail("설정 추출 실패");
+        analysisJobRepository.save(failedJob);
+        analysisJobRepository.save(AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.EPISODE_VALIDATION));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/analysis-jobs/{analysisJobId}/retry",
+                                work.getId(),
+                                failedJob.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ANALYSIS_JOB_ALREADY_IN_PROGRESS"));
+
+        assertThat(analysisJobRepository.count()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("실패 작업과 같은 유형의 회차별 작업이 활성 상태면 기존 작업을 멱등 반환한다")
+    void retryFailedAnalysisJobReturnsActiveJobOfSameType() throws Exception {
+        firstEpisode.markFailed();
+        episodeRepository.save(firstEpisode);
+
+        AnalysisJob failedJob = AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        failedJob.fail("설정 추출 실패");
+        analysisJobRepository.save(failedJob);
+        AnalysisJob activeJob = analysisJobRepository.save(AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.SETTING_EXTRACTION));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/analysis-jobs/{analysisJobId}/retry",
+                                work.getId(),
+                                failedJob.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", hasSize(1)))
+                .andExpect(jsonPath("$.data[0].id").value(activeJob.getId().toString()))
+                .andExpect(jsonPath("$.data[0].jobType").value("SETTING_EXTRACTION"))
+                .andExpect(jsonPath("$.data[0].status").value("PENDING"));
+
+        assertThat(analysisJobRepository.count()).isEqualTo(2);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = EpisodeStatus.class, names = {"UPLOADED", "ANALYZED"})
+    @DisplayName("회차의 현재 상태가 실패가 아니어도 회차별 실패 작업은 같은 유형으로 재시도한다")
+    void retryFailedPerEpisodeJobIgnoresMutableEpisodeStatus(EpisodeStatus episodeStatus) throws Exception {
+        firstEpisode.updateStatus(episodeStatus);
+        episodeRepository.save(firstEpisode);
+
+        AnalysisJob failedJob = AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        failedJob.fail("설정 추출 실패");
+        analysisJobRepository.save(failedJob);
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/analysis-jobs/{analysisJobId}/retry",
+                                work.getId(),
+                                failedJob.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", hasSize(1)))
+                .andExpect(jsonPath("$.data[0].jobType").value("SETTING_EXTRACTION"))
+                .andExpect(jsonPath("$.data[0].status").value("PENDING"));
+
+        assertThat(analysisJobRepository.count()).isEqualTo(2);
+    }
+
+    @Test
     void getAnalysisJobsReturnsAuthenticatedWorkJobs() throws Exception {
         analysisJobRepository.save(AnalysisJob.create(work, uploadBatch, null, AnalysisJobType.EPISODE_VALIDATION));
         Thread.sleep(10);
@@ -396,6 +616,136 @@ class AnalysisJobControllerIntegrationTest {
                 .andExpect(jsonPath("$.data[0].target.episodeCount").value(5))
                 .andExpect(jsonPath("$.data[0].jobType").value("SETTING_EXTRACTION"))
                 .andExpect(jsonPath("$.data[1].jobType").value("EPISODE_VALIDATION"));
+    }
+
+    @Test
+    @DisplayName("분석 배치 목록은 최신 유효 작업과 설정 후보 검토 현황을 집계한다")
+    void getAnalysisBatchesAggregatesCurrentJobsAndCandidateCounts() throws Exception {
+        AnalysisJob succeededJob = AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        succeededJob.succeed("{}", 10, 5);
+        succeededJob = analysisJobRepository.save(succeededJob);
+        analysisJobRepository.save(AnalysisJob.create(
+                work, uploadBatch, secondEpisode, AnalysisJobType.SETTING_EXTRACTION));
+        settingCandidateRepository.save(SettingCandidate.create(
+                work,
+                firstEpisode,
+                UUID.randomUUID(),
+                succeededJob,
+                SettingEntityType.CHARACTER,
+                "아리아",
+                "profile.gender",
+                "여성",
+                SettingValueType.STRING,
+                null,
+                null,
+                new BigDecimal("0.9000"),
+                null
+        ));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("page", "0")
+                        .queryParam("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content", hasSize(1)))
+                .andExpect(jsonPath("$.data.page").value(0))
+                .andExpect(jsonPath("$.data.size").value(10))
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.content[0].batchId").value(uploadBatch.getId().toString()))
+                .andExpect(jsonPath("$.data.content[0].status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.data.content[0].episodeStartNo").value(1))
+                .andExpect(jsonPath("$.data.content[0].episodeEndNo").value(4))
+                .andExpect(jsonPath("$.data.content[0].episodeCount").value(2))
+                .andExpect(jsonPath("$.data.content[0].totalCandidateCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].reviewedCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.content[0].pendingCandidateCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].jobGroups", hasSize(1)))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].jobType")
+                        .value("SETTING_EXTRACTION"))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].totalJobCount").value(2))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].pendingJobCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].succeededJobCount").value(1));
+    }
+
+    @Test
+    @DisplayName("분석 배치 목록은 재시도 전 실패 작업 대신 같은 회차의 최신 작업을 사용한다")
+    void getAnalysisBatchesUsesLatestJobPerEpisode() throws Exception {
+        AnalysisJob failedJob = AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.EPISODE_VALIDATION);
+        failedJob.fail("이전 실패");
+        analysisJobRepository.save(failedJob);
+        Thread.sleep(10);
+        AnalysisJob retryJob = analysisJobRepository.save(AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.EPISODE_VALIDATION));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].totalJobCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].failedJobCount").value(0))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].currentAnalysisJobIds", hasSize(1)))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].currentAnalysisJobIds[0]")
+                        .value(retryJob.getId().toString()));
+    }
+
+    @Test
+    @DisplayName("분석 배치 목록은 과거 다회차 작업도 회차별 현재 상태로 집계한다")
+    void getAnalysisBatchesCountsLegacyBatchWideJobPerEpisode() throws Exception {
+        AnalysisJob legacyJob = AnalysisJob.create(
+                work, uploadBatch, null, AnalysisJobType.EPISODE_VALIDATION);
+        legacyJob.addTargetEpisodes(List.of(firstEpisode, secondEpisode));
+        legacyJob.succeed("{}", 10, 5);
+        legacyJob = analysisJobRepository.save(legacyJob);
+        Thread.sleep(10);
+        AnalysisJob retryJob = analysisJobRepository.save(AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.EPISODE_VALIDATION));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].totalJobCount").value(2))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].pendingJobCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].succeededJobCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].currentAnalysisJobIds", hasSize(2)))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].currentAnalysisJobIds",
+                        containsInAnyOrder(legacyJob.getId().toString(), retryJob.getId().toString())));
+    }
+
+    @Test
+    @DisplayName("분석 배치 목록은 업로드 배치를 서버에서 10개씩 페이지 조회한다")
+    void getAnalysisBatchesPaginatesUploadBatches() throws Exception {
+        for (int index = 0; index < 11; index++) {
+            UploadBatch batch = uploadBatchRepository.save(UploadBatch.create(
+                    work,
+                    member,
+                    UploadType.INITIAL_IMPORT,
+                    UploadSourceType.FILE
+            ));
+            analysisJobRepository.save(AnalysisJob.create(
+                    work, batch, null, AnalysisJobType.SETTING_EXTRACTION));
+        }
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("page", "0")
+                        .queryParam("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content", hasSize(10)))
+                .andExpect(jsonPath("$.data.totalElements").value(11))
+                .andExpect(jsonPath("$.data.totalPages").value(2))
+                .andExpect(jsonPath("$.data.hasNext").value(true));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("page", "1")
+                        .queryParam("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content", hasSize(1)))
+                .andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
     }
 
     @Test
@@ -460,6 +810,34 @@ class AnalysisJobControllerIntegrationTest {
 
     private String bearer(String accessToken) {
         return "Bearer " + accessToken;
+    }
+
+    private AnalysisJob succeededJob(Episode episode, AnalysisJobType jobType) {
+        AnalysisJob analysisJob = AnalysisJob.create(work, uploadBatch, episode, jobType);
+        analysisJob.succeed("{}", 0, 0);
+        return analysisJobRepository.save(analysisJob);
+    }
+
+    private SettingCandidate candidate(
+            AnalysisJob analysisJob,
+            Episode episode,
+            String attributeName
+    ) {
+        return SettingCandidate.create(
+                work,
+                episode,
+                UUID.randomUUID(),
+                analysisJob,
+                SettingEntityType.CHARACTER,
+                "아리아",
+                attributeName,
+                "value",
+                SettingValueType.STRING,
+                null,
+                null,
+                new BigDecimal("0.9000"),
+                null
+        );
     }
 
     private UploadFile parsedEpisodeFile(

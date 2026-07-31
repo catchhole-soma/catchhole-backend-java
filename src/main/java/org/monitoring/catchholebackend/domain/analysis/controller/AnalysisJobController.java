@@ -2,30 +2,45 @@ package org.monitoring.catchholebackend.domain.analysis.controller;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.dto.request.AnalysisJobCreateRequest;
+import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatchSummaryResponse;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobResponse;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobService;
 import org.monitoring.catchholebackend.domain.auth.security.MemberPrincipal;
+import org.monitoring.catchholebackend.global.common.response.CommonErrorResponse;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
+import org.monitoring.catchholebackend.global.common.response.PageResponse;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
+@Validated
 @RequiredArgsConstructor
-@RequestMapping("/api/v1/works/{workId}/analysis-jobs")
+@RequestMapping(
+        value = "/api/v1/works/{workId}/analysis-jobs",
+        produces = MediaType.APPLICATION_JSON_VALUE
+)
 @Tag(name = "AnalysisJob", description = "로그인한 사용자의 작품별 AI 분석 작업 생성 및 조회 API")
 @SecurityRequirement(name = "bearerAuth")
 public class AnalysisJobController {
@@ -71,6 +86,59 @@ public class AnalysisJobController {
             @PathVariable UUID workId
     ) {
         return CommonResponse.success(analysisJobService.getAnalysisJobs(member.memberId(), workId));
+    }
+
+    @GetMapping("/batches")
+    @Operation(
+            operationId = "getAnalysisBatches",
+            summary = "분석 배치 목록 조회",
+            description = "업로드 배치별 최신 유효 분석 작업과 설정 후보 검토 현황을 "
+                    + "최근 분석 요청순으로 페이지 조회합니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "분석 배치 목록 조회 성공"),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "페이지 번호 또는 크기 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "액세스 토큰 없음, 만료 또는 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "작품을 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            )
+    })
+    public CommonResponse<PageResponse<AnalysisBatchSummaryResponse>> getAnalysisBatches(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId,
+            @Parameter(
+                    name = "page",
+                    in = ParameterIn.QUERY,
+                    description = "0부터 시작하는 페이지 번호",
+                    example = "0"
+            )
+            @RequestParam(defaultValue = "0")
+            @Min(value = 0, message = "페이지 번호는 0 이상이어야 합니다.")
+            int page,
+            @Parameter(
+                    name = "size",
+                    in = ParameterIn.QUERY,
+                    description = "페이지 크기. 분석 목록은 기본 10개이며 1~20 사이로 요청합니다.",
+                    example = "10"
+            )
+            @RequestParam(defaultValue = "10")
+            @Min(value = 1, message = "페이지 크기는 1 이상이어야 합니다.")
+            @Max(value = 20, message = "페이지 크기는 20 이하여야 합니다.")
+            int size
+    ) {
+        return CommonResponse.success(
+                analysisJobService.getAnalysisBatches(member.memberId(), workId, page, size)
+        );
     }
 
     @GetMapping("/{analysisJobId}")

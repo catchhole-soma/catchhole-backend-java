@@ -72,9 +72,11 @@ Worker는 분석 작업 생성과 `AnalysisJob` 상태 전이를 위해 백엔�
 현재 재시도 정책:
 
 - 기존 `FAILED` 작업은 이력으로 유지합니다.
-- 재시도 API는 해당 Job의 `Episode.status == FAILED`인 단일 회차에 같은 `jobType`의 새 작업을 만듭니다.
+- 회차별 `FAILED` Job은 연결된 `Episode`의 현재 상태가 이후 바뀌어도 같은 `jobType`으로 재시도합니다. 단, 현재 `ARCHIVED`인 회차는 재시도 대상에서 제외합니다.
+- `episode_id == null`인 과거 batch-wide `FAILED` Job은 대상 스냅샷 중 현재 `Episode.status == FAILED`인 회차만 재시도합니다.
 - 과거 형식의 batch-wide 작업이 같은 배치에서 `PENDING` 또는 `RUNNING`이면 중복 분석을 막기 위해 `ANALYSIS_JOB_ALREADY_IN_PROGRESS`로 거절합니다.
-- 해당 회차에 이미 `PENDING` 또는 `RUNNING` 재시도 작업이 있으면 새 작업을 중복 생성하지 않고 그 활성 작업을 반환합니다.
+- 해당 회차에 같은 `jobType`의 `PENDING` 또는 `RUNNING` 작업이 있으면 새 작업을 중복 생성하지 않고 그 활성 작업을 멱등 반환합니다. 다른 `jobType`의 활성 작업이 있으면 409로 거절합니다.
+- 재분석 또는 재시도로 새 Job을 실제 생성하기 직전에 같은 `workId`, `batchId`, `episodeId`, `jobType`의 기존 `PENDING_REVIEW` 후보만 대체 제거합니다. 후보의 `episode_id`가 비어 있어도 연결된 단일 회차 `AnalysisJob.episode_id`가 대상과 같으면 같은 산출물로 판단합니다. 이미 검토한 `CONFIRMED`·`DISMISSED` 후보와 다른 유형·회차의 후보는 보존합니다.
 
 정책 미확정 TODO:
 
@@ -86,6 +88,14 @@ Worker는 분석 작업 생성과 `AnalysisJob` 상태 전이를 위해 백엔�
 - 분석 작업 목록과 분석 작업 카드에서는 `AnalysisJob.status`를 상위 상태로 표시합니다.
 - 분석 작업 응답은 `AnalysisJob.status`, `currentStep`, token count, summary/error metadata와 대상 `episodes` 목록을 반환합니다.
 - Worker claim/progress/complete/fail 처리와 함께 대상 `Episode.status`도 갱신합니다.
+
+분석 목록의 배치 집계 기준:
+
+- 페이지 항목 하나는 `UploadBatch` 하나이며, 최근 `AnalysisJob.createdAt`이 바뀐 배치가 먼저 옵니다.
+- 같은 배치·분석 목적·회차의 재시도 이력은 가장 최근 Job 하나만 현재 상태와 작업 수에 포함합니다. 이전 실패 Job은 DB 이력으로 남습니다.
+- `episode_id == null`인 과거 작업은 보존된 `analysis_job_episode_targets`를 회차별로 펼쳐 같은 최신 작업 규칙을 적용합니다.
+- 배치 전체 상태는 진행 중, 전체 실패, 일부 실패, 설정 후보 검토 필요, 완료 순으로 판정합니다.
+- `UploadBatch`는 분석 실행 ID가 아니므로 같은 업로드 묶음에서 이루어진 독립 실행을 별도 카드로 분리하지 않습니다. 실행별 이력이 필요해지면 `AnalysisRun` 식별자를 별도 도입합니다.
 
 `AnalysisJobType`
 
@@ -218,7 +228,7 @@ GET /api/v1/works/{workId}/analysis-jobs/{analysisJobId}
 POST /api/v1/works/{workId}/analysis-jobs/{analysisJobId}/retry
 ```
 
-원본 작업이 `FAILED`인 경우에만 사용할 수 있습니다. 같은 batch의 과거 batch-wide 작업이 이미 `PENDING` 또는 `RUNNING`이면 409로 거절합니다. 그렇지 않으면 서버가 원본 작업의 대상 중 `Episode.status == FAILED`인 회차를 찾고, 같은 `jobType`과 `batchId`를 사용하는 단일 회차 작업을 생성해 목록으로 반환합니다. 기존 실패 작업 자체의 상태는 변경하지 않습니다.
+원본 작업이 `FAILED`인 경우에만 사용할 수 있습니다. 회차별 Job은 연결된 `Episode`의 현재 처리 상태와 분리해 재시도하되 `ARCHIVED` 회차는 제외하고, 과거 batch-wide Job은 대상 스냅샷 중 현재 `Episode.status == FAILED`인 회차만 선택합니다. 같은 batch의 과거 batch-wide 작업이나 다른 `jobType`의 회차별 작업이 이미 활성 상태면 409로 거절합니다. 같은 `jobType`의 활성 회차별 작업은 새로 만들지 않고 멱등 반환하며, 활성 작업이 없을 때만 이전 `PENDING_REVIEW` 후보를 대체하고 같은 `jobType`과 `batchId`의 새 단일 회차 작업을 생성합니다. 기존 실패 작업과 `CONFIRMED`·`DISMISSED` 후보는 변경하지 않습니다.
 
 ## Internal Worker API
 
@@ -363,17 +373,19 @@ POST /api/internal/v1/analysis-jobs/{analysisJobId}/fail
 7. `episodeId`가 있으면 회차가 같은 작품과 batch에 속하는지 검증합니다.
 8. 선정된 각 회차에 같은 batch의 활성 작업이 있는지 모두 검사합니다.
 9. 활성 대상이 하나라도 있으면 어떤 Job도 저장하지 않고 요청 전체를 거절합니다.
-10. 각 대상 회차를 `episode_id`와 `analysis_job_episode_targets`에 저장한 `PENDING` Job을 회차 번호순으로 생성합니다.
-11. 생성된 `List<AnalysisJobResponse>`를 반환합니다. 각 응답의 `episodes`에는 해당 단일 회차만 있습니다.
+10. 같은 작품·batch·회차·`jobType`의 이전 `PENDING_REVIEW` 후보만 제거합니다.
+11. 각 대상 회차를 `episode_id`와 `analysis_job_episode_targets`에 저장한 `PENDING` Job을 회차 번호순으로 생성합니다.
+12. 생성된 `List<AnalysisJobResponse>`를 반환합니다. 각 응답의 `episodes`에는 해당 단일 회차만 있습니다.
 
 ```text
 Client
   -> AnalysisJobController
   -> AnalysisJobService
-  -> WorkRepository.getOwnedWork(workId, memberId)
+  -> WorkRepository.getOwnedWorkForUpdate(workId, memberId)
   -> UploadBatchRepository.findByIdAndWorkId(batchId, workId)
   -> optional EpisodeRepository.findByIdAndWorkIdAndStatusNot(episodeId, workId, ARCHIVED)
   -> active job validation
+  -> SettingCandidateRepository.delete(PENDING_REVIEW candidates for same work/batch/episodes/jobType)
   -> AnalysisJobRepository.saveAll(PENDING jobs per episode)
   -> List<AnalysisJobResponse>
 ```
@@ -402,6 +414,28 @@ Client
 
 프론트엔드는 목록 응답의 `status`, `currentStep`, `createdAt`, `updatedAt`을 사용해 작업 현황을 표시합니다.
 `workTitle`과 `target.episodeStartNo`, `target.episodeEndNo`, `target.episodeCount`를 사용하면 추가 조회 없이 분석 대상 표시 문구를 만들 수 있습니다.
+
+### `GET /api/v1/works/{workId}/analysis-jobs/batches`
+
+분석 목록 화면을 위한 업로드 배치 페이지 조회입니다.
+
+```http
+GET /api/v1/works/{workId}/analysis-jobs/batches?page=0&size=10
+```
+
+- `content` 한 항목은 업로드 배치 하나입니다.
+- `jobGroups`는 같은 배치에서 수행한 `SETTING_EXTRACTION`, `EPISODE_VALIDATION`을 각각 집계합니다.
+- `currentAnalysisJobIds`는 진행·실패·완료 상세 화면에서 다시 조회할 최신 유효 Job ID입니다.
+- `totalCandidateCount`, `reviewedCandidateCount`, `pendingCandidateCount`는 배치에 연결된 설정 후보 검토 현황입니다.
+- 페이지 크기는 1~20이며 응답은 공통 `PageResponse` 형식입니다.
+
+상태 판정 우선순위는 다음과 같습니다.
+
+1. 현재 유효 Job 중 `PENDING` 또는 `RUNNING`이 있으면 `IN_PROGRESS`
+2. 모든 목적의 현재 Job이 실패했으면 `FAILED`
+3. 성공과 실패가 섞였으면 `PARTIALLY_FAILED`
+4. 실행이 끝났고 검토 대기 후보가 있으면 `REVIEW_REQUIRED`
+5. 그 외에는 `COMPLETED`
 
 ### `GET /api/v1/works/{workId}/analysis-jobs/{analysisJobId}`
 

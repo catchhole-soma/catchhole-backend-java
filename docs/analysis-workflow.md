@@ -118,11 +118,12 @@ sequenceDiagram
     participant BatchRepo as UploadBatchRepository
     participant EpisodeRepo as EpisodeRepository
     participant JobRepo as AnalysisJobRepository
+    participant CandidateRepo as SettingCandidateRepository
 
     Client->>Controller: POST /works/{workId}/analysis-jobs
     Note over Client,Controller: body: jobType, batchId, optional episodeId
     Controller->>Service: createAnalysisJobs(memberId, workId, request)
-    Service->>WorkRepo: getOwnedWork(workId, memberId)
+    Service->>WorkRepo: getOwnedWorkForUpdate(workId, memberId)
     alt 작품 없음 또는 타인 작품
         WorkRepo-->>Service: empty
         Service-->>Controller: WORK_NOT_FOUND
@@ -146,6 +147,7 @@ sequenceDiagram
                 Service-->>Controller: ANALYSIS_JOB_ALREADY_IN_PROGRESS
                 Controller-->>Client: 409
             else 활성 작업 없음
+                Service->>CandidateRepo: 같은 work/batch/episodes/jobType의 PENDING_REVIEW 후보 제거
                 loop 대상 회차별
                     Service->>JobRepo: save(AnalysisJob PENDING + single episode target)
                 end
@@ -226,6 +228,7 @@ sequenceDiagram
     participant Controller as AnalysisJobController
     participant Service as AnalysisJobService
     participant JobRepo as AnalysisJobRepository
+    participant CandidateRepo as SettingCandidateRepository
 
     Client->>Controller: POST /works/{workId}/analysis-jobs/{analysisJobId}/retry
     Controller->>Service: retryFailedAnalysisJob(memberId, workId, analysisJobId)
@@ -239,23 +242,34 @@ sequenceDiagram
             Service-->>Controller: ANALYSIS_JOB_ALREADY_IN_PROGRESS
             Controller-->>Client: 409
         else 활성 과거 batch-wide 작업 없음
-            Service->>Service: 원본 작업 대상 스냅샷에서 FAILED 회차 선택
-            alt 실패 회차 없음
+            Service->>Service: 회차별 Job은 ARCHIVED 제외, 과거 batch-wide Job은 FAILED 회차 선택
+            alt 재시도 대상 회차 없음
                 Service-->>Controller: ANALYSIS_JOB_TARGET_NOT_FOUND
                 Controller-->>Client: 404
-            else 실패 회차 있음
-                loop 실패 회차별
-                    Service->>JobRepo: 활성 단일 회차 작업 조회
-                    Service->>JobRepo: 없으면 같은 jobType의 새 PENDING 작업 저장
+            else 재시도 대상 회차 있음
+                Service->>JobRepo: 다른 jobType 활성 회차 작업 조회
+                alt 다른 jobType 활성 작업 있음
+                    Service-->>Controller: ANALYSIS_JOB_ALREADY_IN_PROGRESS
+                    Controller-->>Client: 409
+                else 다른 jobType 활성 작업 없음
+                    loop 대상 회차별
+                        Service->>JobRepo: 같은 jobType 활성 단일 회차 작업 조회
+                        alt 같은 jobType 활성 작업 있음
+                            JobRepo-->>Service: 기존 활성 작업
+                        else 같은 jobType 활성 작업 없음
+                            Service->>CandidateRepo: 같은 work/batch/episode/jobType의 PENDING_REVIEW 후보 제거
+                            Service->>JobRepo: 같은 jobType의 새 PENDING 작업 저장
+                        end
+                    end
+                    Service-->>Controller: List of AnalysisJobResponse
+                    Controller-->>Client: 200 OK
                 end
-                Service-->>Controller: List of AnalysisJobResponse
-                Controller-->>Client: 200 OK
             end
         end
     end
 ```
 
-기존 `FAILED` 작업은 변경하지 않습니다. 같은 batch의 과거 batch-wide 작업이 활성 상태면 재시도를 거절합니다. 해당 회차에 이미 `PENDING` 또는 `RUNNING` 작업이 있으면 중복 생성하지 않고 그 작업을 반환합니다.
+기존 `FAILED` 작업은 변경하지 않습니다. 회차별 실패 Job은 `Episode`의 현재 처리 상태와 분리해 재시도하지만 `ARCHIVED` 회차는 제외하고, 과거 batch-wide 실패 Job은 현재 `FAILED`인 대상 회차만 재시도합니다. 같은 `jobType`의 활성 작업은 멱등 반환하고 다른 `jobType`의 활성 작업은 409로 거절합니다. 새 Job을 실제 생성할 때만 같은 작품·batch·회차·`jobType`의 `PENDING_REVIEW` 후보를 대체하며, `CONFIRMED`·`DISMISSED` 및 다른 유형·회차 후보는 보존합니다.
 
 ## 분석 대상 회차 조회
 
@@ -396,7 +410,7 @@ Notion 기준 `AnalysisJob.status`
 
 - adjacent chunk fallback으로 `나`, `그`, `그녀` 같은 지칭어 후보를 해소한 뒤 `matchStatus` 품질을 높입니다.
 - `MATCHED`, `UNRESOLVED`, `AMBIGUOUS`별 Spring confirm 처리 정책은 `docs/character.md`의 캐릭터 매칭 상태 기반 confirm 정책을 따릅니다.
-- Spring은 `UNRESOLVED` 후보의 첫 confirm에서 trim 후 exact-name 활성 캐릭터를 재사용하거나 새 캐릭터를 생성하고, 같은 작품·이름의 `PENDING_REVIEW + UNRESOLVED + CHARACTER` 후보를 모두 해당 캐릭터에 `MATCHED`로 연결합니다. 같은 분석 claim에서 신규 캐릭터의 속성이 여러 후보로 생성되어도 이후 confirm이 한 캐릭터로 모이게 하기 위한 보정입니다.
+- Spring은 `UNRESOLVED` 후보의 첫 confirm에서 trim 후 exact-name 활성 캐릭터를 재사용하거나 새 캐릭터를 생성합니다. 기존 활성 캐릭터를 재사용하면 확정 후보와 같은 이름의 검토 대기 미해소 후보를 모두 `MATCHED`로, 이번 confirm에서 새 캐릭터를 만들면 모두 `AUTO_MATCHED_BY_NAME`으로 연결합니다. 같은 분석 claim의 신규 캐릭터 속성을 한 캐릭터로 모으면서 분석 시점부터 존재한 캐릭터 연결과 이번 확정에서 만든 캐릭터 연결을 화면에서 구분하기 위한 보정입니다.
 - `AMBIGUOUS` 후보는 사용자가 character-match API로 `MATCHED` 또는 `UNRESOLVED` 상태로 해소한 뒤 confirm합니다.
 
 ## 후속 LLM 전처리와 검수 확장
@@ -511,5 +525,30 @@ LLM 전처리 출력은 다음 정보를 포함합니다.
 | 리포트 저장 | 일부 finding 저장 실패 | 트랜잭션으로 전체 롤백 후 재시도 |
 | 사용자 검토 | 이미 처리된 후보 수정, 권한 없음 | 동기 API에서 실패 응답 |
 
-현재 `AnalysisJob`에는 `retryCount`가 없습니다. 재시도 API는 기존 실패 작업을 되살리지 않고 실패한 회차마다 같은 `jobType`의 새 단일 회차 작업을 생성하며, 이미 활성 재시도 작업이 있으면 그 작업을 재사용합니다.
+현재 `AnalysisJob`에는 `retryCount`가 없습니다. 재시도 API는 기존 실패 작업을 되살리지 않고 대상 회차마다 같은 `jobType`의 새 단일 회차 작업을 생성합니다. 같은 유형의 활성 재시도 작업은 멱등 재사용하고 다른 유형의 활성 작업은 409로 거절합니다.
 Worker 결과 저장은 같은 작업이 중복 실행되어도 `Episode`, `SettingCandidate`, `ValidationReport`가 중복 생성되지 않도록 작업 ID와 대상 회차 ID를 기준으로 멱등성을 보장해야 합니다.
+
+## 분석 배치 목록 페이지 조회
+
+```mermaid
+sequenceDiagram
+    participant Client as "분석 목록 화면"
+    participant Controller as "AnalysisJobController"
+    participant Service as "AnalysisJobService"
+    participant JobRepo as "AnalysisJobRepository"
+    participant CandidateRepo as "SettingCandidateRepository"
+
+    Client->>Controller: "GET /analysis-jobs/batches?page=0&size=10"
+    Controller->>Service: "getAnalysisBatches(memberId, workId, page, size)"
+    Service->>Service: "작품 소유권 확인"
+    Service->>JobRepo: "최근 분석 요청순 batch 페이지 조회"
+    JobRepo-->>Service: "Page<AnalysisBatchPageRow>"
+    Service->>JobRepo: "현재 페이지 batch의 Job·대상 회차 일괄 조회"
+    Service->>CandidateRepo: "batch별 후보 검토 수 일괄 집계"
+    Service->>Service: "목적·회차별 최신 Job 선택"
+    Service->>Service: "회차 범위·진행/실패/검토 상태 집계"
+    Service-->>Controller: "PageResponse<AnalysisBatchSummaryResponse>"
+    Controller-->>Client: "분석 배치 10개와 페이지 메타데이터"
+```
+
+재시도 전 `FAILED` Job과 재시도 후 `PENDING` Job이 같은 회차에 함께 있어도 최신 Job만 현재 상태에 포함합니다. 이 규칙은 과거 실패 이력을 삭제하지 않으면서 목록 카드가 현재 진행 상태를 표시하게 합니다.

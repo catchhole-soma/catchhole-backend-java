@@ -41,20 +41,15 @@ class SettingCandidateTest {
         SettingCandidate candidate = candidate(work, "age", "17");
         WorkCharacter character = character(work, "이안");
         candidate.matchExistingCharacter(character);
+        JsonNode originalEvidenceSpans = candidate.getEvidenceSpans();
         JsonNode valueJson = objectMapper.createObjectNode()
                 .put("value", 23)
                 .put("source", "user_review");
-        JsonNode evidenceSpans = objectMapper.createArrayNode()
-                .add(objectMapper.createObjectNode()
-                        .put("paragraph_index", 2)
-                        .put("quote", "아리아는 스물셋의 경지에 올랐다."));
 
         candidate.updateReviewContent(
                 "level",
                 "23",
-                SettingValueType.NUMBER,
-                valueJson,
-                evidenceSpans
+                valueJson
         );
 
         assertThat(candidate.getEntityName()).isEqualTo("이안");
@@ -64,7 +59,7 @@ class SettingCandidateTest {
         assertThat(candidate.getAttributeValue()).isEqualTo("23");
         assertThat(candidate.getValueType()).isEqualTo(SettingValueType.NUMBER);
         assertThat(candidate.getValueJson()).isEqualTo(valueJson);
-        assertThat(candidate.getEvidenceSpans()).isEqualTo(evidenceSpans);
+        assertThat(candidate.getEvidenceSpans()).isSameAs(originalEvidenceSpans);
         assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
     }
 
@@ -84,24 +79,62 @@ class SettingCandidateTest {
     }
 
     @Test
-    @DisplayName("확정 반영이 결정한 캐릭터는 후보를 다시 편집 가능하게 만들지 않고 연결한다")
-    void matchPromotedCharacterConnectsConfirmedCandidate() {
+    @DisplayName("신규 캐릭터 자동 연결은 별도 상태로 남고 사용자가 기존 캐릭터를 선택하면 일반 연결로 바뀐다")
+    void autoMatchSameNameCharacterTracksAutomaticMatchUntilUserChangesTarget() {
+        Work work = work();
+        SettingCandidate candidate = candidate(work, "age", "17");
+        WorkCharacter automaticallyMatched = character(work, "이안");
+        WorkCharacter manuallyMatched = character(work, "아리아");
+
+        candidate.autoMatchSameNameCharacter(automaticallyMatched);
+
+        assertThat(candidate.getEntityName()).isEqualTo("이안");
+        assertThat(candidate.getMatchedCharacterId()).isEqualTo(automaticallyMatched.getId());
+        assertThat(candidate.getMatchStatus())
+                .isEqualTo(SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
+
+        candidate.matchExistingCharacter(manuallyMatched);
+
+        assertThat(candidate.getEntityName()).isEqualTo("아리아");
+        assertThat(candidate.getMatchedCharacterId()).isEqualTo(manuallyMatched.getId());
+        assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+    }
+
+    @Test
+    @DisplayName("확정 반영이 새로 생성한 캐릭터는 확정 후보에도 신규 연결 상태로 기록한다")
+    void matchPromotedNewCharacterConnectsConfirmedCandidate() {
         Work work = work();
         SettingCandidate candidate = candidate(work, "age", "17");
         WorkCharacter character = character(work, "아리아");
         candidate.confirm();
 
-        candidate.matchPromotedCharacter(character);
+        candidate.matchPromotedNewCharacter(character);
 
         assertThat(candidate.getEntityName()).isEqualTo("아리아");
         assertThat(candidate.getMatchedCharacterId()).isEqualTo(character.getId());
-        assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(candidate.getMatchStatus())
+                .isEqualTo(SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
         assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
         assertThat(candidate.isPendingReview()).isFalse();
     }
 
     @Test
-    @DisplayName("새 캐릭터로 확정하면 기존 캐릭터 연결을 제거하고 미해소 상태로 둔다")
+    @DisplayName("확정 반영이 기존 캐릭터를 재사용하면 확정 후보에 기존 연결 상태로 기록한다")
+    void matchPromotedExistingCharacterConnectsConfirmedCandidate() {
+        Work work = work();
+        SettingCandidate candidate = candidate(work, "age", "17");
+        WorkCharacter character = character(work, "아리아");
+        candidate.confirm();
+
+        candidate.matchPromotedExistingCharacter(character);
+
+        assertThat(candidate.getMatchedCharacterId()).isEqualTo(character.getId());
+        assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+    }
+
+    @Test
+    @DisplayName("confirm 전 새 캐릭터 등록 예정으로 지정하면 기존 연결을 제거하고 미해소 상태로 둔다")
     void markAsNewCharacterClearsMatchedCharacter() {
         Work work = work();
         SettingCandidate candidate = candidate(work, "age", "17");
@@ -181,9 +214,7 @@ class SettingCandidateTest {
         assertThatThrownBy(() -> candidate.updateReviewContent(
                 "level",
                 "23",
-                SettingValueType.NUMBER,
-                objectMapper.createObjectNode().put("value", 23),
-                objectMapper.createArrayNode()
+                objectMapper.createObjectNode().put("value", 23)
         ))
                 .isInstanceOfSatisfying(AppException.class, exception ->
                         assertThat(exception.getResultCode())

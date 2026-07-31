@@ -20,6 +20,9 @@ public record SettingCandidateResponse(
         @Schema(description = "후보가 추출된 회차 ID", example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d222")
         UUID episodeId,
 
+        @Schema(description = "후보가 추출된 회차 번호", example = "3", nullable = true)
+        Integer episodeNo,
+
         @Schema(description = "원문 근거 청크 ID", example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d111")
         UUID sourceChunkId,
 
@@ -35,16 +38,30 @@ public record SettingCandidateResponse(
         @Schema(description = "원문에 실제 등장한 설정 대상 표현", example = "프넬린의 두 번째 딸 아이나르", nullable = true)
         String rawEntityMention,
 
-        @Schema(description = "기존 캐릭터와 확실히 매칭된 경우 characters.id", example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d666", nullable = true)
+        @Schema(description = "직접 또는 같은 이름으로 연결 완료한 characters.id", example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d666", nullable = true)
         UUID matchedCharacterId,
 
-        @Schema(description = "기존 캐릭터 매칭 상태", example = "UNRESOLVED")
+        @Schema(description = "캐릭터 연결 상태. 같은 이름 후보의 자동 연결 여부를 포함", example = "UNRESOLVED")
         SettingCandidateMatchStatus matchStatus,
 
         @Schema(description = "설정 속성명", example = "level")
         String attributeName,
 
-        @Schema(description = "목록/검색 표시용 설정 값", example = "23")
+        @Schema(
+                description = "현재 활성 schema 기준 설정 속성명 편집 가능 여부",
+                example = "false",
+                requiredMode = Schema.RequiredMode.REQUIRED
+        )
+        boolean attributeNameEditable,
+
+        @Schema(
+                description = "편집 가능한 동적 설정명의 서버 지정 prefix. 고정 또는 해석 불가 후보는 null입니다.",
+                example = "skill.",
+                nullable = true
+        )
+        String attributeNamePrefix,
+
+        @Schema(description = "목록/검색 표시용 설정 값", example = "23", nullable = true)
         String attributeValue,
 
         @Schema(description = "설정 값 타입", example = "NUMBER")

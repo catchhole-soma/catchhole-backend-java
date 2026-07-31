@@ -61,11 +61,12 @@ class SettingCandidateMapperTest {
         UUID candidateId = UUID.randomUUID();
         ReflectionTestUtils.setField(candidate, "id", candidateId);
 
-        SettingCandidateResponse response = mapper.toResponse(candidate);
+        SettingCandidateResponse response = mapper.toResponse(candidate, false, null);
 
         assertThat(response.id()).isEqualTo(candidateId);
         assertThat(response.workId()).isEqualTo(workId);
         assertThat(response.episodeId()).isEqualTo(episodeId);
+        assertThat(response.episodeNo()).isEqualTo(1);
         assertThat(response.sourceChunkId()).isEqualTo(sourceChunkId);
         assertThat(response.analysisJobId()).isEqualTo(analysisJobId);
         assertThat(response.entityName()).isEqualTo("아리아");
@@ -73,6 +74,8 @@ class SettingCandidateMapperTest {
         assertThat(response.matchedCharacterId()).isNull();
         assertThat(response.matchStatus()).isEqualTo(SettingCandidateMatchStatus.UNRESOLVED);
         assertThat(response.attributeName()).isEqualTo("age");
+        assertThat(response.attributeNameEditable()).isFalse();
+        assertThat(response.attributeNamePrefix()).isNull();
         assertThat(response.attributeValue()).isEqualTo("17");
         assertThat(response.valueJson()).isInstanceOf(Map.class);
         assertThat(response.evidenceSpans()).isInstanceOf(List.class);
@@ -105,12 +108,14 @@ class SettingCandidateMapperTest {
                 null
         );
 
-        SettingCandidateResponse response = mapper.toResponse(candidate);
+        SettingCandidateResponse response = mapper.toResponse(candidate, true, "status.");
 
         assertThat(response.entityName()).isEqualTo("아이나르");
         assertThat(response.rawEntityMention()).isEqualTo("프넬린의 두 번째 딸 아이나르");
         assertThat(response.matchedCharacterId()).isEqualTo(matchedCharacterId);
         assertThat(response.matchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(response.attributeNameEditable()).isTrue();
+        assertThat(response.attributeNamePrefix()).isEqualTo("status.");
     }
 
     @Test
@@ -133,10 +138,11 @@ class SettingCandidateMapperTest {
                 null
         );
 
-        SettingCandidateResponse response = mapper.toResponse(candidate);
+        SettingCandidateResponse response = mapper.toResponse(candidate, false, null);
 
         assertThat(response.workId()).isEqualTo(work.getId());
         assertThat(response.episodeId()).isNull();
+        assertThat(response.episodeNo()).isNull();
         assertThat(response.sourceChunkId()).isNull();
         assertThat(response.analysisJobId()).isNull();
         assertThat(response.rawEntityMention()).isNull();

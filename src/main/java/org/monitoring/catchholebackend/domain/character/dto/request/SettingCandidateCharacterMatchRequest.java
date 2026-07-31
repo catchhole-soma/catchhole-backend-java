@@ -15,7 +15,11 @@ public record SettingCandidateCharacterMatchRequest(
         @Schema(description = "기존 캐릭터에 연결할 때 사용할 characters.id", nullable = true)
         UUID matchedCharacterId,
 
-        @Schema(description = "새 캐릭터로 확정할 때 사용할 캐릭터 이름", example = "아리아", nullable = true)
+        @Schema(
+                description = "CREATE_NEW로 confirm 전 새 캐릭터 등록 예정인 UNRESOLVED 상태를 지정할 때 사용할 이름",
+                example = "아리아",
+                nullable = true
+        )
         @Size(max = 100, message = "설정 대상 이름은 100자 이하로 입력해주세요.")
         String entityName
 ) {

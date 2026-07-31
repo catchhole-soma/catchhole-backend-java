@@ -30,8 +30,13 @@ import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingS
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.mapper.CharacterMapper;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingEditPolicyResolver;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingEditPolicyResolver.CharacterSettingEditPolicy;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingEditPolicyResolver.CharacterSettingEditType;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshot;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAssembler;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaMatch;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
@@ -69,6 +74,8 @@ public class CharacterServiceImpl implements CharacterService {
     private final CharacterFactRepository characterFactRepository;
     private final CharacterSettingSchemaRepository characterSettingSchemaRepository;
     private final EpisodeRepository episodeRepository;
+    private final CharacterSettingEditPolicyResolver characterSettingEditPolicyResolver;
+    private final SettingCandidateSchemaResolver settingCandidateSchemaResolver;
     private final CharacterSnapshotAssembler characterSnapshotAssembler;
     private final CharacterMapper characterMapper;
     private final ObjectMapper objectMapper = new ObjectMapper()
@@ -359,28 +366,50 @@ public class CharacterServiceImpl implements CharacterService {
             List<CharacterFact> currentFacts
     ) {
         for (CharacterSettingUpdateRequest request : requests) {
-            String key = request.key().trim();
+            String requestedKey = request.key().trim();
+            CharacterFact currentFact = findCurrentFact(currentFacts, factType, requestedKey);
+            String key = currentFact == null
+                    ? resolveNewSettingKey(factType, requestedKey, request.valueType(), schemas)
+                    : requestedKey;
+            if (currentFact == null && !key.equals(requestedKey)) {
+                currentFact = findCurrentFact(currentFacts, factType, key);
+            }
             validateKey(factType, key, schemas);
-            boolean hasRegisteredSchema = validateRegisteredValueType(
+            validatePropertyKeys(request.properties());
+            validateRegisteredValueType(
                     factType,
                     key,
                     request.valueType(),
                     schemas
             );
+            CharacterSettingEditPolicy editPolicy = characterSettingEditPolicyResolver.resolve(
+                    factType,
+                    key,
+                    schemas
+            );
+            String normalizedKey = currentFact == null
+                    ? normalizeSettingKey(key, editPolicy)
+                    : key;
+            if (currentFact == null && !normalizedKey.equals(key)) {
+                currentFact = findCurrentFact(currentFacts, factType, normalizedKey);
+            }
             String factValue = normalizeNullableText(request.value());
-            CharacterFact currentFact = currentFacts.stream()
-                    .filter(fact -> fact.getFactType() == factType && fact.getFactKey().equals(key))
-                    .findFirst()
-                    .orElse(null);
+            String displayName = resolveDesiredDisplayName(
+                    request,
+                    currentFact,
+                    normalizedKey,
+                    editPolicy
+            );
             JsonNode valueJson = toDesiredValueJson(
                     request,
                     currentFact,
                     factValue,
-                    hasRegisteredSchema
+                    displayName,
+                    editPolicy
             );
             addDesiredFact(desiredFacts, new DesiredFact(
                     factType,
-                    key,
+                    normalizedKey,
                     factValue,
                     request.valueType(),
                     valueJson
@@ -389,52 +418,164 @@ public class CharacterServiceImpl implements CharacterService {
     }
 
     /**
-     * 화면에 노출되지 않는 propertyless raw 값과 JSON의 예약 value envelope는 보존하고,
-     * 사용자가 전달한 properties만 현재 목표 상태로 재구성한다.
+     * 새 설정은 후보 확정과 같은 exact → alias → pattern 규칙으로 canonical key를 결정한다.
+     * 기존 manual key는 구버전 클라이언트와 저장 데이터 호환을 위해 그대로 허용한다.
+     */
+    private String resolveNewSettingKey(
+            CharacterFactType factType,
+            String requestedKey,
+            SettingValueType valueType,
+            List<CharacterSettingSchema> schemas
+    ) {
+        if (isLegacyManualKey(requestedKey)) {
+            return requestedKey;
+        }
+        SettingCandidateSchemaMatch match;
+        try {
+            match = settingCandidateSchemaResolver.resolve(requestedKey, valueType, schemas);
+        } catch (AppException exception) {
+            if (exception.getResultCode() == CharacterErrorCode.SETTING_CANDIDATE_VALUE_TYPE_MISMATCH) {
+                throw new AppException(CharacterErrorCode.CHARACTER_SETTING_VALUE_TYPE_MISMATCH);
+            }
+            throw new AppException(CharacterErrorCode.CHARACTER_SETTING_KEY_INVALID);
+        }
+        if (match.matchedSchema().getFactType() != factType) {
+            throw new AppException(CharacterErrorCode.CHARACTER_SETTING_KEY_INVALID);
+        }
+        return match.factKey();
+    }
+
+    private CharacterFact findCurrentFact(
+            List<CharacterFact> currentFacts,
+            CharacterFactType factType,
+            String key
+    ) {
+        return currentFacts.stream()
+                .filter(fact -> fact.getFactType() == factType && fact.getFactKey().equals(key))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private boolean isLegacyManualKey(String key) {
+        int separatorIndex = key.lastIndexOf('.');
+        return separatorIndex >= 0 && key.substring(separatorIndex + 1).startsWith("manual_");
+    }
+
+    /**
+     * 의미상 변경이 없으면 기존 raw JSON과 근거를 보존한다.
+     * 실제 변경이면 화면에 노출되지 않은 구조를 복사하지 않고 서버 편집 정책으로 최소 JSON을 만든다.
      */
     private JsonNode toDesiredValueJson(
             CharacterSettingUpdateRequest request,
             CharacterFact currentFact,
             String factValue,
-            boolean hasRegisteredSchema
+            String displayName,
+            CharacterSettingEditPolicy editPolicy
     ) {
-        if (request.properties().isEmpty()
-                && currentFact != null
-                && Objects.equals(currentFact.getFactValue(), factValue)
-                && isPropertylessRawValue(currentFact.getValueJson())
-                && (hasRegisteredSchema || matchesValueType(
-                        currentFact.getValueJson(),
-                        request.valueType()
-                ))) {
+        if (isUnchangedSetting(
+                request,
+                currentFact,
+                factValue,
+                displayName,
+                editPolicy
+        )) {
             return currentFact.getValueJson();
         }
 
-        boolean preserveCurrentValue = !request.properties().isEmpty()
-                && currentFact != null
-                && currentFact.getValueJson() != null
-                && currentFact.getValueJson().isObject()
-                && currentFact.getValueJson().has("value")
-                && (hasRegisteredSchema || matchesValueType(
-                        currentFact.getValueJson(),
-                        request.valueType()
-                ))
-                && (request.valueType() == SettingValueType.JSON
-                    || Objects.equals(currentFact.getFactValue(), factValue));
-        JsonNode valueJson = toValueJson(request, !preserveCurrentValue);
-        if (preserveCurrentValue) {
-            ((ObjectNode) valueJson).set("value", currentFact.getValueJson().get("value"));
+        ObjectNode valueJson = JsonNodeFactory.instance.objectNode();
+        if (request.valueType() != SettingValueType.JSON) {
+            valueJson.set("value", toValueNode(request.value(), request.valueType()));
+        }
+        if (editPolicy.type() != CharacterSettingEditType.EXACT) {
+            valueJson.put("name", displayName);
         }
         return valueJson;
     }
 
     /**
-     * 상세 응답의 properties로 복원할 수 없는 raw 값 표현인지 확인한다.
+     * exact·pattern 설정은 key가 같고 표시값이 같으면 화면에 숨은 JSON까지 변경하지 않은 것으로 본다.
+     * 수동 custom 설정은 타입과 사용자 표시명도 같아야 기존 Fact를 유지한다.
      */
-    private boolean isPropertylessRawValue(JsonNode valueJson) {
-        if (valueJson == null || !valueJson.isObject()) {
+    private boolean isUnchangedSetting(
+            CharacterSettingUpdateRequest request,
+            CharacterFact currentFact,
+            String factValue,
+            String displayName,
+            CharacterSettingEditPolicy editPolicy
+    ) {
+        if (currentFact == null || !Objects.equals(currentFact.getFactValue(), factValue)) {
+            return false;
+        }
+        if (editPolicy.type() == CharacterSettingEditType.EXACT
+                || editPolicy.type() == CharacterSettingEditType.PATTERN) {
             return true;
         }
-        return valueJson.isEmpty() || (valueJson.size() == 1 && valueJson.has("value"));
+        return (editPolicy.schema() != null
+                || matchesValueType(currentFact.getValueJson(), request.valueType()))
+                && Objects.equals(resolveCurrentDisplayName(currentFact), displayName);
+    }
+
+    /**
+     * pattern key는 고정 prefix를 보존하고 사용자가 입력한 suffix의 공백만 underscore로 정규화한다.
+     */
+    private String normalizeSettingKey(
+            String key,
+            CharacterSettingEditPolicy editPolicy
+    ) {
+        if (editPolicy.type() != CharacterSettingEditType.PATTERN) {
+            return key;
+        }
+        String prefix = editPolicy.attributeNamePrefix();
+        String suffix = key.substring(prefix.length()).trim();
+        if (suffix.replace('_', ' ').isBlank()) {
+            throw new AppException(CharacterErrorCode.CHARACTER_SETTING_KEY_INVALID);
+        }
+        return prefix + suffix.replaceAll("\\s+", "_");
+    }
+
+    /**
+     * exact는 schema 표시명, pattern은 key suffix, custom은 사용자가 전달한 name을 표시명 기준으로 사용한다.
+     */
+    private String resolveDesiredDisplayName(
+            CharacterSettingUpdateRequest request,
+            CharacterFact currentFact,
+            String key,
+            CharacterSettingEditPolicy editPolicy
+    ) {
+        if (editPolicy.type() == CharacterSettingEditType.EXACT) {
+            return editPolicy.schema().getDisplayName().trim();
+        }
+        if (editPolicy.type() == CharacterSettingEditType.PATTERN) {
+            return keySuffixDisplayName(key);
+        }
+        String requestedName = request.properties().stream()
+                .filter(property -> property.key().trim().equals("name"))
+                .map(CharacterSettingPropertyRequest::value)
+                .map(this::normalizeNullableText)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+        if (requestedName != null) {
+            return requestedName;
+        }
+        return currentFact == null ? keySuffixDisplayName(key) : resolveCurrentDisplayName(currentFact);
+    }
+
+    private String resolveCurrentDisplayName(CharacterFact currentFact) {
+        JsonNode valueJson = currentFact.getValueJson();
+        if (valueJson != null && valueJson.isObject()) {
+            JsonNode nameNode = valueJson.get("name");
+            if (nameNode != null && nameNode.isTextual() && !nameNode.asText().isBlank()) {
+                return nameNode.asText().trim();
+            }
+        }
+        return keySuffixDisplayName(currentFact.getFactKey());
+    }
+
+    private String keySuffixDisplayName(String key) {
+        int separatorIndex = key.lastIndexOf('.');
+        String suffix = separatorIndex < 0 ? key : key.substring(separatorIndex + 1);
+        return suffix.replace('_', ' ').replaceAll("\\s+", " ").trim();
     }
 
     /**
@@ -478,9 +619,9 @@ public class CharacterServiceImpl implements CharacterService {
 
     /**
      * 등록된 exact 또는 pattern schema가 있는 key만 요청 값 타입과 일치하는지 검증한다.
-     * 등록되지 않은 수동 custom key는 기존 정책대로 허용하고 schema 존재 여부를 반환한다.
+     * 등록되지 않은 수동 custom key는 기존 정책대로 허용한다.
      */
-    private boolean validateRegisteredValueType(
+    private void validateRegisteredValueType(
             CharacterFactType factType,
             String key,
             SettingValueType valueType,
@@ -499,7 +640,6 @@ public class CharacterServiceImpl implements CharacterService {
         if (matchedSchemas.stream().anyMatch(schema -> schema.getValueType() != valueType)) {
             throw new AppException(CharacterErrorCode.CHARACTER_SETTING_VALUE_TYPE_MISMATCH);
         }
-        return !matchedSchemas.isEmpty();
     }
 
     private boolean matchesPattern(String pattern, String key) {
@@ -522,24 +662,11 @@ public class CharacterServiceImpl implements CharacterService {
     }
 
     /**
-     * 단일 값 또는 속성 목록을 요청에 선언된 값 유형에 맞는 JSON 객체로 변환한다.
+     * 속성 key 예약어와 중복을 검증한다. 편집 시 name 외 숨은 속성은 새 Fact에 복사하지 않는다.
      */
-    private JsonNode toValueJson(
-            CharacterSettingUpdateRequest request,
-            boolean includePrimaryValue
-    ) {
-        if (request.properties().isEmpty()) {
-            ObjectNode valueJson = JsonNodeFactory.instance.objectNode();
-            valueJson.set("value", toValueNode(request.value(), request.valueType()));
-            return valueJson;
-        }
-
-        ObjectNode valueJson = JsonNodeFactory.instance.objectNode();
-        if (includePrimaryValue && request.valueType() != SettingValueType.JSON) {
-            valueJson.set("value", toValueNode(request.value(), request.valueType()));
-        }
+    private void validatePropertyKeys(List<CharacterSettingPropertyRequest> properties) {
         Set<String> keys = new HashSet<>();
-        for (CharacterSettingPropertyRequest property : request.properties()) {
+        for (CharacterSettingPropertyRequest property : properties) {
             String key = property.key().trim();
             if (key.equals("value")) {
                 throw new AppException(CharacterErrorCode.CHARACTER_SETTING_KEY_INVALID);
@@ -547,9 +674,8 @@ public class CharacterServiceImpl implements CharacterService {
             if (!keys.add(key)) {
                 throw new AppException(CharacterErrorCode.CHARACTER_SETTING_KEY_DUPLICATED);
             }
-            valueJson.set(key, toValueNode(property.value(), property.valueType()));
+            toValueNode(property.value(), property.valueType());
         }
-        return valueJson;
     }
 
     /**

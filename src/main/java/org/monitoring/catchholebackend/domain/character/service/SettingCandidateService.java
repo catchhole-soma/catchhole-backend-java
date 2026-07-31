@@ -1,30 +1,39 @@
 package org.monitoring.catchholebackend.domain.character.service;
 
-import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateCharacterMatchRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateUpdateRequest;
+import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateListResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 
+/**
+ * 설정 후보 조회와 검토 상태 변경을 처리한다.
+ * 후보 변경은 작품 행 잠금을 먼저 획득해 같은 작품의 수정·연결·확정·무시 요청을 직렬화한다.
+ */
 public interface SettingCandidateService {
 
     /**
-     * 작품 소유권을 확인한 뒤 설정 후보 목록을 최신 생성순으로 조회한다.
-     * reviewStatus와 entityName이 전달되면 해당 조건으로 후보 목록을 필터링한다.
+     * 작품 소유권과 업로드 묶음 소속을 확인한 뒤 해당 묶음의 설정 후보를 페이지 조회한다.
+     * 집계와 회차 범위는 필터와 무관한 묶음 전체를 기준으로 하고, 후보 목록에만 검토·연결 상태 필터를 적용한다.
      */
-    List<SettingCandidateResponse> getSettingCandidates(
+    SettingCandidateListResponse getSettingCandidates(
             Long memberId,
             UUID workId,
+            UUID batchId,
             SettingCandidateReviewStatus reviewStatus,
-            String entityName
+            Set<SettingCandidateMatchStatus> matchStatuses,
+            int page,
+            int size
     );
 
     /**
-     * 작품 소유권과 설정 후보 소속을 확인한 뒤 단건 후보 정보를 조회한다.
+     * 작품 소유권과 업로드 묶음·설정 후보 소속을 확인한 뒤 단건 후보 정보를 조회한다.
      */
-    SettingCandidateResponse getSettingCandidate(Long memberId, UUID workId, UUID candidateId);
+    SettingCandidateResponse getSettingCandidate(Long memberId, UUID workId, UUID batchId, UUID candidateId);
 
     /**
      * 작품 소유권과 설정 후보 소속을 확인한 뒤 사용자가 검토할 후보 내용을 수정한다.

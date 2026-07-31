@@ -7,6 +7,8 @@ import java.util.Optional;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -31,7 +33,50 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             """)
     List<AnalysisJob> findAllWithTargetsByWorkIdOrderByCreatedAtDesc(@Param("workId") UUID workId);
 
+    @Query(
+            value = """
+                    select analysisJob.batch.id as batchId,
+                           min(analysisJob.createdAt) as firstRequestedAt,
+                           max(analysisJob.createdAt) as lastRequestedAt
+                    from AnalysisJob analysisJob
+                    where analysisJob.work.id = :workId
+                      and analysisJob.batch is not null
+                    group by analysisJob.batch.id
+                    order by max(analysisJob.createdAt) desc, analysisJob.batch.id desc
+                    """,
+            countQuery = """
+                    select count(distinct analysisJob.batch.id)
+                    from AnalysisJob analysisJob
+                    where analysisJob.work.id = :workId
+                      and analysisJob.batch is not null
+                    """
+    )
+    Page<AnalysisBatchPageRow> findBatchPage(
+            @Param("workId") UUID workId,
+            Pageable pageable
+    );
+
+    @EntityGraph(attributePaths = {"batch", "episode", "targetEpisodes"})
+    List<AnalysisJob> findAllByWorkIdAndBatchIdInOrderByCreatedAtDescIdDesc(
+            UUID workId,
+            Collection<UUID> batchIds
+    );
+
     Optional<AnalysisJob> findFirstByBatchIdOrderByCreatedAtDesc(UUID batchId);
+
+    @Query("""
+            select min(episode.episodeNo) as episodeStartNo,
+                   max(episode.episodeNo) as episodeEndNo,
+                   count(distinct episode.id) as episodeCount
+            from AnalysisJob analysisJob
+            join analysisJob.targetEpisodes episode
+            where analysisJob.work.id = :workId
+              and analysisJob.batch.id = :batchId
+            """)
+    AnalysisJobEpisodeRange findEpisodeRangeByWorkIdAndBatchId(
+            @Param("workId") UUID workId,
+            @Param("batchId") UUID batchId
+    );
 
     Optional<AnalysisJob> findFirstByEpisodeIdAndBatchIdOrderByCreatedAtDesc(UUID episodeId, UUID batchId);
 
@@ -62,9 +107,17 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             Collection<AnalysisJobStatus> statuses
     );
 
-    Optional<AnalysisJob> findFirstByEpisodeIdAndBatchIdAndStatusInOrderByCreatedAtDesc(
+    boolean existsByEpisodeIdAndBatchIdAndJobTypeNotAndStatusIn(
             UUID episodeId,
             UUID batchId,
+            AnalysisJobType jobType,
+            Collection<AnalysisJobStatus> statuses
+    );
+
+    Optional<AnalysisJob> findFirstByEpisodeIdAndBatchIdAndJobTypeAndStatusInOrderByCreatedAtDesc(
+            UUID episodeId,
+            UUID batchId,
+            AnalysisJobType jobType,
             Collection<AnalysisJobStatus> statuses
     );
 
