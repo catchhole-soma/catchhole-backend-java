@@ -1,11 +1,17 @@
 package org.monitoring.catchholebackend.domain.character.repository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
+import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface CharacterFactRepository extends JpaRepository<CharacterFact, UUID> {
 
@@ -18,5 +24,70 @@ public interface CharacterFactRepository extends JpaRepository<CharacterFact, UU
             UUID characterId,
             CharacterFactType factType,
             String factKey
+    );
+
+    @Query(
+            value = """
+                    select fact
+                    from CharacterFact fact
+                    join fetch fact.workCharacter character
+                    left join fetch fact.sourceEpisode sourceEpisode
+                    left join fetch fact.settingCandidate candidate
+                    left join fetch candidate.episode candidateEpisode
+                    where character.work.id = :workId
+                      and character.status = :characterStatus
+                      and fact.factType in :factTypes
+                      and (
+                          :query = ''
+                          or lower(fact.factKey) like lower(concat('%', :query, '%')) escape '\\'
+                          or lower(coalesce(fact.factValue, '')) like lower(concat('%', :query, '%')) escape '\\'
+                      )
+                      and (:allScopes = true or fact.isCurrent = :currentScope)
+                    order by fact.isCurrent desc,
+                             case when fact.effectiveFromEpisodeNo is null then 1 else 0 end asc,
+                             fact.effectiveFromEpisodeNo desc,
+                             fact.createdAt desc,
+                             fact.id asc
+                    """,
+            countQuery = """
+                    select count(fact)
+                    from CharacterFact fact
+                    join fact.workCharacter character
+                    where character.work.id = :workId
+                      and character.status = :characterStatus
+                      and fact.factType in :factTypes
+                      and (
+                          :query = ''
+                          or lower(fact.factKey) like lower(concat('%', :query, '%')) escape '\\'
+                          or lower(coalesce(fact.factValue, '')) like lower(concat('%', :query, '%')) escape '\\'
+                      )
+                      and (:allScopes = true or fact.isCurrent = :currentScope)
+                    """
+    )
+    Page<CharacterFact> search(
+            @Param("workId") UUID workId,
+            @Param("characterStatus") CharacterStatus characterStatus,
+            @Param("factTypes") List<CharacterFactType> factTypes,
+            @Param("query") String query,
+            @Param("allScopes") boolean allScopes,
+            @Param("currentScope") boolean currentScope,
+            Pageable pageable
+    );
+
+    @Query("""
+            select fact
+            from CharacterFact fact
+            join fetch fact.workCharacter character
+            left join fetch fact.sourceEpisode sourceEpisode
+            left join fetch fact.settingCandidate candidate
+            left join fetch candidate.episode candidateEpisode
+            where fact.id = :characterFactId
+              and character.work.id = :workId
+              and character.status = :characterStatus
+            """)
+    Optional<CharacterFact> findActiveByIdAndWorkId(
+            @Param("characterFactId") UUID characterFactId,
+            @Param("workId") UUID workId,
+            @Param("characterStatus") CharacterStatus characterStatus
     );
 }
