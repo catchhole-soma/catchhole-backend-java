@@ -70,6 +70,10 @@ public class SettingCandidate extends BaseEntity {
     @Column(name = "source_chunk_id")
     private UUID sourceChunkId;
 
+    // 원고 교체 뒤에도 분석 당시 evidence offset의 기준 원문을 읽기 위한 S3 key입니다.
+    @Column(name = "source_content_s3_key", length = 512)
+    private String sourceContentS3Key;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(
             name = "analysis_job_id",

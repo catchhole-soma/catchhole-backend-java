@@ -296,6 +296,11 @@ domain/<domain>
 - CharacterFact 설정 검색은 설정DB의 MVP 검색 구현이다. `ACTIVE` 캐릭터의 `AGE`, `LEVEL`, `STAT`, `SKILL`, `ITEM`, `STATUS`만 대상으로 하며, trim한 검색어의 `%`, `_`, `\`를 literal로 escape한 대소문자 무시 `LIKE` 부분 일치를 사용한다. 결과는 current 우선 → 적용 회차 내림차순(`NULL` 마지막) → 생성 시각 내림차순 → Fact ID 오름차순으로 고정 정렬한다.
 - 장소·세계관·타임라인·관계 등 다른 설정 모델이 준비되면 CharacterFact 전용 API에 유형을 억지로 추가하지 않고 결과 유형과 식별자를 구분하는 통합 설정 검색으로 확장한다. 작품당 Fact가 1만 건 이상으로 늘거나 검색 p95가 200ms를 넘으면 `pg_trgm` 또는 별도 검색 인덱스를 검토한다.
 - CharacterFact 상세 근거는 `setting_candidate_id`로 연결된 후보의 `evidence_spans[*].quote`만 저장 순서대로 제공한다. 출처 회차는 Fact를 우선하고 후보 회차를 fallback으로 사용하며, 보관 캐릭터 Fact와 다른 작품 Fact는 404로 숨긴다.
+- 캐릭터 상세가 제공하는 `characterFactId`와 `hasEvidence`는
+  `GET /api/v1/works/{workId}/character-facts/{characterFactId}/evidence`의 진입점이다.
+  근거 조회는 `CharacterFact.settingCandidate`의 `evidenceSpans`와 분석 당시
+  `sourceContentS3Key`를 사용하며 S3 key 자체는 응답하지 않는다. V12 이전 후보는 현재
+  `Episode.contentS3Key`로만 fallback한다.
 - 별도 migration이나 일괄 backfill 없이, 다음 성공 confirm에서 전체 current Fact를 기준으로 기존 JSON snapshot을 map 또는 `null` 계약에 맞게 정규화한다.
 - `WorkCharacter.firstAppearanceEpisodeId`는 확정 순서가 아니라 가장 이른 업로드 회차 기준으로 유지한다.
 - 화면 표시, 검색, 비교에 자주 쓰는 캐릭터 이름, 역할, 현재 나이, 현재 레벨은 일반 컬럼으로 둔다.

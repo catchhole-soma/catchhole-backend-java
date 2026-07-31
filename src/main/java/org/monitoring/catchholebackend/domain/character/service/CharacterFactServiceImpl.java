@@ -3,10 +3,14 @@ package org.monitoring.catchholebackend.domain.character.service;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterFactDetailResponse;
+import org.monitoring.catchholebackend.domain.character.dto.response.CharacterFactEvidenceResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterFactSearchResponse;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
+import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
+import org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper;
 import org.monitoring.catchholebackend.domain.character.mapper.CharacterFactMapper;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactSearchScope;
@@ -15,11 +19,13 @@ import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.global.common.response.PageResponse;
 import org.monitoring.catchholebackend.global.exception.AppException;
+import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -28,6 +34,8 @@ public class CharacterFactServiceImpl implements CharacterFactService {
     private final WorkRepository workRepository;
     private final CharacterFactRepository characterFactRepository;
     private final CharacterFactMapper characterFactMapper;
+    private final CharacterFactEvidenceMapper characterFactEvidenceMapper;
+    private final ObjectStorageService objectStorageService;
 
     @Override
     public PageResponse<CharacterFactSearchResponse> searchCharacterFacts(
@@ -70,6 +78,68 @@ public class CharacterFactServiceImpl implements CharacterFactService {
                 .orElseThrow(() -> new AppException(CharacterErrorCode.CHARACTER_FACT_NOT_FOUND));
 
         return characterFactMapper.toDetailResponse(fact);
+    }
+
+    @Override
+    public CharacterFactEvidenceResponse getEvidence(
+            Long memberId,
+            UUID workId,
+            UUID characterFactId
+    ) {
+        workRepository.getOwnedWork(workId, memberId);
+        CharacterFact fact = characterFactRepository
+                .findActiveByIdAndWorkId(characterFactId, workId, CharacterStatus.ACTIVE)
+                .orElseThrow(() -> new AppException(CharacterErrorCode.CHARACTER_FACT_NOT_FOUND));
+        validateEvidenceBelongsToWork(fact, workId);
+
+        String content = loadAnalysisSource(fact);
+        return characterFactEvidenceMapper.toResponse(fact, content);
+    }
+
+    /**
+     * 느슨한 이력 참조가 잘못 연결돼도 다른 작품의 후보·회차 원문을 노출하지 않는다.
+     */
+    private void validateEvidenceBelongsToWork(CharacterFact fact, UUID workId) {
+        SettingCandidate candidate = fact.getSettingCandidate();
+        if (candidate != null && (!candidate.getWork().getId().equals(workId)
+                || candidate.getEpisode() != null
+                && !candidate.getEpisode().getWork().getId().equals(workId))) {
+            throw new AppException(CharacterErrorCode.CHARACTER_FACT_NOT_FOUND);
+        }
+        if (fact.getSourceEpisode() != null
+                && !fact.getSourceEpisode().getWork().getId().equals(workId)) {
+            throw new AppException(CharacterErrorCode.CHARACTER_FACT_NOT_FOUND);
+        }
+    }
+
+    /**
+     * 신규 후보는 분석 당시 key를 사용하고, 컬럼 추가 전 후보만 현재 회차 key로 fallback한다.
+     * 저장소 장애는 인용문까지 숨기지 않도록 원문만 null로 응답한다.
+     */
+    private String loadAnalysisSource(CharacterFact fact) {
+        SettingCandidate candidate = fact.getSettingCandidate();
+        if (candidate == null) {
+            return null;
+        }
+
+        String sourceKey = candidate.getSourceContentS3Key();
+        if ((sourceKey == null || sourceKey.isBlank()) && candidate.getEpisode() != null) {
+            sourceKey = candidate.getEpisode().getContentS3Key();
+        }
+        if (sourceKey == null || sourceKey.isBlank()) {
+            return null;
+        }
+
+        try {
+            return objectStorageService.getText(sourceKey);
+        } catch (AppException exception) {
+            log.warn(
+                    "Character Fact evidence source read failed. factId={}, candidateId={}",
+                    fact.getId(),
+                    candidate.getId()
+            );
+            return null;
+        }
     }
 
     private String normalizeQuery(String query) {
