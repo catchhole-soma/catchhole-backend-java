@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.character.service;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +16,7 @@ import org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvid
 import org.monitoring.catchholebackend.domain.character.mapper.CharacterFactMapper;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactSearchScope;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactSearchType;
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
@@ -52,17 +54,21 @@ public class CharacterFactServiceImpl implements CharacterFactService {
     ) {
         workRepository.getOwnedWork(workId, memberId);
 
+        String normalizedQuery = normalizeQuery(query);
+        List<CharacterFactType> factTypes = factType.toFactTypes();
+        List<CharacterSettingSchema> schemas =
+                characterSettingSchemaRepository.findAllActiveForWork(workId);
         Page<CharacterFact> factPage = characterFactRepository.search(
                 workId,
                 CharacterStatus.ACTIVE,
-                factType.toFactTypes(),
-                escapeLikePattern(normalizeQuery(query)),
+                factTypes,
+                escapeLikePattern(normalizedQuery),
+                escapeLikePattern(normalizeFactKeyQuery(normalizedQuery)),
+                findDisplayNameSchemaKeys(normalizedQuery, factTypes, schemas),
                 scope == CharacterFactSearchScope.ALL,
                 scope == CharacterFactSearchScope.CURRENT,
                 PageRequest.of(page, size)
         );
-        List<CharacterSettingSchema> schemas =
-                characterSettingSchemaRepository.findAllActiveForWork(workId);
         List<CharacterFactSearchResponse> content = factPage.getContent().stream()
                 .map(fact -> characterFactMapper.toSearchResponse(fact, schemas))
                 .toList();
@@ -151,6 +157,39 @@ public class CharacterFactServiceImpl implements CharacterFactService {
 
     private String normalizeQuery(String query) {
         return query == null ? "" : query.trim();
+    }
+
+    /**
+     * 화면 표시명에 포함된 공백은 동적 factKey의 underscore와 같은 구분자로 검색한다.
+     */
+    private String normalizeFactKeyQuery(String query) {
+        return query.replaceAll("\\s+", "_");
+    }
+
+    /**
+     * exact schema의 한글 표시명을 내부 factKey로 역매핑해 페이지네이션 전에 검색한다.
+     */
+    private List<String> findDisplayNameSchemaKeys(
+            String query,
+            List<CharacterFactType> factTypes,
+            List<CharacterSettingSchema> schemas
+    ) {
+        String normalizedQuery = normalizeDisplayName(query);
+        if (normalizedQuery.isBlank()) {
+            return List.of();
+        }
+
+        return schemas.stream()
+                .filter(schema -> factTypes.contains(schema.getFactType()))
+                .filter(schema -> normalizeDisplayName(schema.getDisplayName()).contains(normalizedQuery))
+                .map(CharacterSettingSchema::getSchemaKey)
+                .distinct()
+                .toList();
+    }
+
+    private String normalizeDisplayName(String value) {
+        return value.replaceAll("[\\s_]+", "")
+                .toLowerCase(Locale.ROOT);
     }
 
     private String escapeLikePattern(String query) {
