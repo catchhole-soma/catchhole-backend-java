@@ -1,7 +1,9 @@
 services:
   postgres:
     image: 'pgvector/pgvector:0.8.2-pg16'
+    command: ['postgres', '-c', 'timezone=${APP_TIMEZONE:-Asia/Seoul}']
     environment:
+      - 'TZ=${APP_TIMEZONE:-Asia/Seoul}'
       - 'POSTGRES_DB=mydatabase'
       - 'POSTGRES_PASSWORD=secret'
       - 'POSTGRES_USER=myuser'

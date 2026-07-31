@@ -23,8 +23,9 @@ services:
       postgres:
         condition: service_healthy
     environment:
+      TZ: ${APP_TIMEZONE:-Asia/Seoul}
       SPRING_PROFILES_ACTIVE: prod
-      JAVA_OPTS: ${BACKEND_JAVA_OPTS}
+      JAVA_OPTS: "${BACKEND_JAVA_OPTS} -Duser.timezone=${APP_TIMEZONE:-Asia/Seoul}"
       DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
       DATABASE_USERNAME: ${POSTGRES_USER}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
@@ -42,6 +43,7 @@ services:
       - backend
       - postgres
     environment:
+      TZ: ${APP_TIMEZONE:-Asia/Seoul}
       APP_ENV: prod
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       AWS_REGION: ${AWS_REGION}
@@ -56,9 +58,11 @@ services:
   postgres:
     image: pgvector/pgvector:0.8.2-pg16
     restart: unless-stopped
+    command: ["postgres", "-c", "timezone=${APP_TIMEZONE:-Asia/Seoul}"]
     ports:
       - "127.0.0.1:5432:5432"
     environment:
+      TZ: ${APP_TIMEZONE:-Asia/Seoul}
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
