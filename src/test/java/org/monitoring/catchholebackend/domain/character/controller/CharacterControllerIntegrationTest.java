@@ -1,6 +1,10 @@
 package org.monitoring.catchholebackend.domain.character.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -45,13 +49,16 @@ import org.monitoring.catchholebackend.domain.upload.repository.UploadFileReposi
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
+import org.monitoring.catchholebackend.global.storage.ObjectStorage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -94,6 +101,9 @@ class CharacterControllerIntegrationTest {
 
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
+
+    @MockitoBean
+    private ObjectStorage objectStorage;
 
     private Member member;
     private Member otherMember;
@@ -2438,7 +2448,171 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("OpenAPI 문서에 캐릭터 조회와 수정, 보관, 복구 경로를 노출한다")
+    @DisplayName("캐릭터 Fact 근거는 분석 당시 회차 원문과 전체 원문 offset을 응답한다")
+    void getCharacterFactEvidenceReturnsAnalysisSourceAndSpans() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+        String analysisSourceKey = "works/%s/episodes/1/analysis-source.txt".formatted(work.getId());
+        String analysisSource = "첫 문장\r\n수아는 스물세 살이었다.\t마지막 문장";
+        int startOffset = analysisSource.indexOf("수아는");
+        int endOffset = startOffset + "수아는 스물세 살이었다.".length();
+        SettingCandidate candidate = SettingCandidate.create(
+                work,
+                firstEpisode,
+                UUID.randomUUID(),
+                null,
+                SettingEntityType.CHARACTER,
+                "수아",
+                "age",
+                "23",
+                SettingValueType.NUMBER,
+                JsonNodeFactory.instance.objectNode().put("value", 23),
+                JsonNodeFactory.instance.arrayNode().add(
+                        JsonNodeFactory.instance.objectNode()
+                                .put("quote", "수아는 스물세 살이었다.")
+                                .put("start_offset", startOffset)
+                                .put("end_offset", endOffset)
+                ),
+                new BigDecimal("0.9000"),
+                JsonNodeFactory.instance.objectNode()
+        );
+        ReflectionTestUtils.setField(candidate, "sourceContentS3Key", analysisSourceKey);
+        candidate = settingCandidateRepository.saveAndFlush(candidate);
+        CharacterFact fact = characterFactRepository.saveAndFlush(currentFact(
+                character,
+                candidate,
+                CharacterFactType.AGE,
+                "age",
+                "23",
+                JsonNodeFactory.instance.objectNode().put("value", 23)
+        ));
+        when(objectStorage.getText(eq(analysisSourceKey))).thenReturn(analysisSource);
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/character-facts/{characterFactId}/evidence",
+                                work.getId(),
+                                fact.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.characterFactId").value(fact.getId().toString()))
+                .andExpect(jsonPath("$.data.sourceCandidateId").value(candidate.getId().toString()))
+                .andExpect(jsonPath("$.data.episode.episodeId").value(firstEpisode.getId().toString()))
+                .andExpect(jsonPath("$.data.episode.episodeNo").value(1))
+                .andExpect(jsonPath("$.data.episode.title").value("입학식"))
+                .andExpect(jsonPath("$.data.content").value(analysisSource))
+                .andExpect(jsonPath("$.data.evidenceSpans[0].quote").value("수아는 스물세 살이었다."))
+                .andExpect(jsonPath("$.data.evidenceSpans[0].startOffset").value(startOffset))
+                .andExpect(jsonPath("$.data.evidenceSpans[0].endOffset").value(endOffset));
+
+        verify(objectStorage).getText(analysisSourceKey);
+        verify(objectStorage, never()).getText(firstEpisode.getContentS3Key());
+    }
+
+    @Test
+    @DisplayName("수동 Fact 근거 조회는 저장소를 읽지 않고 빈 근거로 응답한다")
+    void getCharacterFactEvidenceReturnsEmptyEvidenceForManualFact() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+        CharacterFact fact = characterFactRepository.saveAndFlush(currentFact(
+                character,
+                CharacterFactType.STATUS,
+                "status.부상",
+                "팔 부상",
+                JsonNodeFactory.instance.objectNode().put("name", "부상")
+        ));
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/character-facts/{characterFactId}/evidence",
+                                work.getId(),
+                                fact.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.characterFactId").value(fact.getId().toString()))
+                .andExpect(jsonPath("$.data.sourceCandidateId").doesNotExist())
+                .andExpect(jsonPath("$.data.episode").doesNotExist())
+                .andExpect(jsonPath("$.data.content").doesNotExist())
+                .andExpect(jsonPath("$.data.evidenceSpans.length()").value(0));
+
+        verify(objectStorage, never()).getText(org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    @DisplayName("캐릭터 Fact 원문 조회 실패 시 출처와 인용문은 유지한다")
+    void getCharacterFactEvidenceKeepsQuotesWhenSourceReadFails() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+        SettingCandidate candidate = settingCandidateRepository.saveAndFlush(SettingCandidate.create(
+                work,
+                firstEpisode,
+                UUID.randomUUID(),
+                null,
+                SettingEntityType.CHARACTER,
+                "수아",
+                "age",
+                "23",
+                SettingValueType.NUMBER,
+                null,
+                JsonNodeFactory.instance.arrayNode().add(
+                        JsonNodeFactory.instance.objectNode()
+                                .put("quote", "수아는 스물세 살이었다.")
+                                .putNull("startOffset")
+                                .putNull("endOffset")
+                ),
+                new BigDecimal("0.9000"),
+                JsonNodeFactory.instance.objectNode()
+        ));
+        CharacterFact fact = characterFactRepository.saveAndFlush(currentFact(
+                character,
+                candidate,
+                CharacterFactType.AGE,
+                "age",
+                "23",
+                null
+        ));
+        when(objectStorage.getText(eq(firstEpisode.getContentS3Key())))
+                .thenThrow(new org.monitoring.catchholebackend.global.exception.AppException(
+                        org.monitoring.catchholebackend.global.exception.CommonErrorCode.COMMON_INTERNAL_SERVER_ERROR
+                ));
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/character-facts/{characterFactId}/evidence",
+                                work.getId(),
+                                fact.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content").doesNotExist())
+                .andExpect(jsonPath("$.data.episode.episodeNo").value(1))
+                .andExpect(jsonPath("$.data.evidenceSpans[0].quote").value("수아는 스물세 살이었다."))
+                .andExpect(jsonPath("$.data.evidenceSpans[0].startOffset").doesNotExist())
+                .andExpect(jsonPath("$.data.evidenceSpans[0].endOffset").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("다른 작품의 캐릭터 Fact 근거 조회를 거절한다")
+    void getCharacterFactEvidenceRejectsFactFromAnotherWork() throws Exception {
+        WorkCharacter otherCharacter = workCharacterRepository.saveAndFlush(
+                character(otherWork, "다른 인물", null, null)
+        );
+        CharacterFact fact = characterFactRepository.saveAndFlush(currentFact(
+                otherCharacter,
+                CharacterFactType.STATUS,
+                "status.부상",
+                "부상",
+                null
+        ));
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/character-facts/{characterFactId}/evidence",
+                                work.getId(),
+                                fact.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("CHARACTER_FACT_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("OpenAPI 문서에 캐릭터 조회와 수정, 보관, 복구, 원문 근거 경로를 노출한다")
     void openApiContainsCharacterPaths() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
@@ -2464,7 +2638,10 @@ class CharacterControllerIntegrationTest {
                 .andExpect(jsonPath("$.paths['/api/v1/works/{workId}/characters/{characterId}'].patch").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/works/{workId}/characters/{characterId}'].delete").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/works/{workId}/characters/{characterId}/restore'].patch")
-                        .exists());
+                        .exists())
+                .andExpect(jsonPath(
+                        "$.paths['/api/v1/works/{workId}/character-facts/{characterFactId}/evidence'].get"
+                ).exists());
     }
 
     private WorkCharacter character(Work ownerWork, String name, Integer age, Integer level) {

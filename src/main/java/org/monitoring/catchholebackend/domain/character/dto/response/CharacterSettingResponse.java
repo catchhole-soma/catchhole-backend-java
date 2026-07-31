@@ -8,7 +8,7 @@ import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 @Schema(description = "캐릭터 현재 설정의 사용자용 응답")
 public record CharacterSettingResponse(
         @Schema(
-                description = "현재 설정 CharacterFact ID. 현재 상세 API와 후속 통합 설정 검색의 캐릭터 설정 식별자",
+                description = "현재 설정 CharacterFact ID. 설정 상세·검색과 원문 근거 조회 식별자로 사용합니다.",
                 example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d333"
         )
         UUID characterFactId,
@@ -49,7 +49,7 @@ public record CharacterSettingResponse(
         @Schema(description = "복합 설정의 사용자용 세부 속성")
         List<CharacterSettingPropertyResponse> properties,
 
-        @Schema(description = "현재 상세 API에서 조회 가능한 저장 원문 근거 존재 여부", example = "true")
+        @Schema(description = "설정 상세와 원문 근거 패널에서 조회 가능한 저장 근거 존재 여부", example = "true")
         boolean hasEvidence
 ) {
 }

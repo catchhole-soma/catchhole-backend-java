@@ -142,6 +142,20 @@ class OpenApiContractIntegrationTest {
                         .value("#/components/schemas/CharacterFactReferenceResponse"))
                 .andExpect(jsonPath("$['components']['schemas']['CharacterFactReferenceResponse']['required']")
                         .value(org.hamcrest.Matchers.hasItems("characterFactId", "hasEvidence")))
+                .andExpect(jsonPath(
+                        "$['paths']['/api/v1/works/{workId}/character-facts/{characterFactId}/evidence']['get']['operationId']"
+                ).value("getCharacterFactEvidence"))
+                .andExpect(jsonPath(
+                        "$['paths']['/api/v1/works/{workId}/character-facts/{characterFactId}/evidence']['get']['responses']['400']['content']['application/json']['schema']['$ref']"
+                ).value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath(
+                        "$['paths']['/api/v1/works/{workId}/character-facts/{characterFactId}/evidence']['get']['responses']['401']['content']['application/json']['schema']['$ref']"
+                ).value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath(
+                        "$['paths']['/api/v1/works/{workId}/character-facts/{characterFactId}/evidence']['get']['responses']['404']['content']['application/json']['schema']['$ref']"
+                ).value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['components']['schemas']['CharacterFactEvidenceResponse']['required']")
+                        .value(org.hamcrest.Matchers.hasItems("characterFactId", "evidenceSpans")))
                 .andExpect(jsonPath("$['components']['schemas']['CharacterSettingResponse']['properties']['attributeNameEditable']['type']")
                         .value("boolean"))
                 .andExpect(jsonPath("$['components']['schemas']['CharacterSettingResponse']['properties']['attributeNamePrefix']")

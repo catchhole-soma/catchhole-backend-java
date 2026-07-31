@@ -143,6 +143,19 @@ V11은 정확 key나 alias로 등록되지 않은 사용자 정의 스탯을 숫
 - Resolver는 정확 key와 alias를 패턴보다 먼저 적용하므로 `힘` 같은 기존 alias는 계속 `stats.strength`로 정규화하고, `stats.지능` 같은 사용자 정의 스탯만 입력 key를 보존합니다.
 - 기존 schema와 Character Fact는 수정하거나 backfill하지 않습니다.
 
+## V12 기준
+
+V12는 캐릭터 Fact의 원문 근거가 분석 뒤 원고 교체에도 같은 문자열과 offset을 사용하도록
+`setting_candidates.source_content_s3_key VARCHAR(512)`를 추가합니다.
+
+- Python Worker는 신규 후보를 저장할 때 claim payload의 분석 당시
+  `Episode.content_s3_key`를 함께 기록합니다.
+- CharacterFact 근거 API는 후보에 기록된 key를 우선 사용하며 key 자체는 외부에 노출하지
+  않습니다.
+- V12 이전 후보는 정확한 분석 당시 key를 추정 backfill하지 않고 `NULL`로 유지하며, 조회
+  시 현재 Episode key로만 fallback합니다.
+- 기존 회차·후보·Fact 행과 S3 객체를 수정하거나 삭제하지 않습니다.
+
 ## 논리 참조와 FK 기준
 
 ID 컬럼이 다른 테이블을 논리적으로 가리키더라도 삭제·재처리 정책이 정해지지 않았다면 FK를 먼저 강제하지 않습니다. V1의 선택은 다음과 같습니다.
@@ -158,15 +171,16 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
 
 ## 로컬 검증
 
-V1~V10 적용 DB에 현재 Backend를 시작해 V11이 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V11이 순서대로 적용되는 경로를 각각 확인합니다.
+V1~V11 적용 DB에 현재 Backend를 시작해 V12가 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V12가 순서대로 적용되는 경로를 각각 확인합니다.
 
-- Flyway 로그에 V1부터 V11까지 적용 성공이 출력됩니다.
-- `flyway_schema_history`에 version 1부터 11까지 성공으로 기록됩니다.
+- Flyway 로그에 V1부터 V12까지 적용 성공이 출력됩니다.
+- `flyway_schema_history`에 version 1부터 12까지 성공으로 기록됩니다.
 - `vector` extension이 활성화됩니다.
 - `episode_chunks.embedding`이 `vector(1536)`으로 생성됩니다.
 - cosine HNSW 인덱스가 생성됩니다.
 - `character_setting_schemas`에 전역 seed 31개(`SYSTEM_SEED=16`, `DEV_SEED=15`)가 생성됩니다.
 - `stats.attribute`가 `stats.*`, `STAT`, `NUMBER`, `REPLACE` 정책으로 생성됩니다.
+- `setting_candidates.source_content_s3_key`가 nullable `VARCHAR(512)`로 생성됩니다.
 - `character_facts.setting_candidate_id`와 FK·조회 인덱스가 생성됩니다.
 - `works.genre`가 enum 상수명으로 저장되고 `NOT NULL`·`chk_works_genre` 제약을 가집니다.
 - `works.description`이 기존 값의 앞 50자로 정규화되고 `VARCHAR(50)` 타입을 가집니다.
@@ -188,7 +202,7 @@ Flyway 도입 전에 JPA가 만든 운영 테스트 DB에는 `flyway_schema_hist
 1. 필요한 데이터가 없는지 확인하고 필요하면 `pg_dump`로 백업합니다.
 2. Backend와 AI Worker를 중지합니다.
 3. PostgreSQL 데이터 volume만 제거하고 빈 PostgreSQL 16 DB를 시작합니다.
-4. Backend를 시작해 Flyway V1~V11과 Hibernate validation 성공을 확인합니다.
+4. Backend를 시작해 Flyway V1~V12와 Hibernate validation 성공을 확인합니다.
 5. DB schema와 Swagger 기본 API를 확인한 뒤 AI Worker를 시작합니다.
 
 실제 사용자 데이터가 생긴 뒤에는 이 초기화 절차를 사용하지 않습니다. 기존 데이터를 보존하는 V2 이상의 `ALTER` migration과 사전 백업·롤백 계획을 별도로 작성합니다.

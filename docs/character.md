@@ -216,6 +216,15 @@ JSON snapshot 계약과 후속 TODO:
 
 confirm으로 생성된 Fact는 `setting_candidate_id`로 원본 후보를 연결합니다. 따라서 Fact의 구체적인 인용문과 offset은 연결된 `setting_candidates.evidence_spans`에서 정확히 조회합니다. V3 이전 Fact는 신뢰할 수 있는 후보를 추정해 backfill하지 않고 `NULL`로 유지하며, evidence JSON을 `character_facts`에 중복 저장하지 않습니다.
 
+V12 이후 Python Worker는 후보를 만들 때 `setting_candidates.source_content_s3_key`에 분석
+당시 `Episode.content_s3_key`도 함께 저장합니다. 회차 파일을 교체하면 Episode는 새 key를
+가리키지만 과거 S3 객체는 보존되므로, CharacterFact 근거 API는 후보에 고정된 key를 읽어
+offset 기준과 화면 원문이 어긋나지 않게 합니다. V12 이전 후보는 이 컬럼이 `NULL`이므로
+현재 Episode key로 fallback합니다. 저장소 조회가 실패하면 API 전체를 실패시키지 않고
+회차 정보와 `quote` 목록은 유지한 채 전체 원문만 `null`로 응답합니다.
+근거 offset은 Python 원문 slice와 같은 Unicode code point 기준이며, 브라우저는 이를
+UTF-16 인덱스로 변환한 뒤 `quote`와 실제 원문 범위가 같은 경우에만 하이라이트합니다.
+
 AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용자가 승인한 값은 `CharacterFact`로 남긴 뒤, 필요하면 `WorkCharacter`의 현재 스냅샷 필드에도 반영합니다.
 
 설정DB 검색은 `ACTIVE` 캐릭터의 `AGE`, `LEVEL`, `STAT`, `SKILL`, `ITEM`, `STATUS` Fact만 대상으로 합니다. 검색어는 앞뒤 공백을 제거한 뒤 `fact_key`, `fact_value`에 대소문자 구분 없이 부분 일치시키며, `%`, `_`, `\`는 와일드카드가 아닌 문자 그대로 처리합니다. `PROFILE`, `TIME`, 캐릭터명은 검색 대상이 아닙니다.
@@ -515,6 +524,12 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 - API와 공통 `PageResponse.page`는 0부터 시작합니다. 화면 URL이 1부터 시작하면 Front에서 API 호출 시 1을 빼서 변환합니다.
 
 `/character-facts/search`는 설정DB 검색의 MVP 구현입니다. 작품당 Fact 1만 건 미만을 전제로 `factKey`와 `factValue`에 `LOWER(...) LIKE LOWER(...)` 부분 일치를 적용하며, `%`, `_`, `\`는 검색 와일드카드가 아니라 literal 문자로 처리합니다. 장소·세계관·타임라인·관계처럼 CharacterFact 밖의 설정 모델이 준비되면 결과 유형과 식별자를 구분하는 통합 설정 검색으로 확장합니다. 데이터 증가 또는 검색 p95가 200ms를 넘으면 `pg_trgm`이나 별도 검색 인덱스를 함께 검토합니다.
+
+캐릭터 상세의 `characterFactId`와 `hasEvidence`는
+`GET /api/v1/works/{workId}/character-facts/{characterFactId}/evidence`의 진입점입니다.
+`hasEvidence=true`인 항목의 문서 버튼을 누르면 Fact에 연결된 후보의 인용문과 분석 당시
+회차 원문을 조회합니다. 수동 Fact처럼 후보 연결이 없으면 출처·원문은 `null`, 근거 목록은
+빈 배열로 응답합니다.
 
 설정 후보 API:
 

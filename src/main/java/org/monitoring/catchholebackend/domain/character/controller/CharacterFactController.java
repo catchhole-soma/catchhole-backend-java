@@ -15,6 +15,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.auth.security.MemberPrincipal;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterFactDetailResponse;
+import org.monitoring.catchholebackend.domain.character.dto.response.CharacterFactEvidenceResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterFactSearchResponse;
 import org.monitoring.catchholebackend.domain.character.service.CharacterFactService;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactSearchScope;
@@ -159,6 +160,40 @@ public class CharacterFactController {
     ) {
         return CommonResponse.success(
                 characterFactService.getCharacterFact(member.memberId(), workId, characterFactId)
+        );
+    }
+
+    @GetMapping("/{characterFactId}/evidence")
+    @Operation(
+            operationId = "getCharacterFactEvidence",
+            summary = "캐릭터 설정 원문 근거 조회",
+            description = "본인 작품의 CharacterFact가 생성된 분석 당시 회차 전체 원문과 근거 범위를 조회합니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "캐릭터 설정 원문 근거 조회 성공"),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "경로 UUID 형식 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "액세스 토큰 없음, 만료 또는 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "작품 또는 캐릭터 설정을 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            )
+    })
+    public CommonResponse<CharacterFactEvidenceResponse> getCharacterFactEvidence(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId,
+            @PathVariable UUID characterFactId
+    ) {
+        return CommonResponse.success(
+                characterFactService.getEvidence(member.memberId(), workId, characterFactId)
         );
     }
 }
