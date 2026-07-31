@@ -160,10 +160,10 @@ public class CharacterFactServiceImpl implements CharacterFactService {
     }
 
     /**
-     * 화면 표시명에 포함된 공백은 동적 factKey의 underscore와 같은 구분자로 검색한다.
+     * 화면 표시명과 동적 factKey의 공백·underscore를 제거해 반복 구분자도 같은 이름으로 검색한다.
      */
     private String normalizeFactKeyQuery(String query) {
-        return query.replaceAll("\\s+", "_");
+        return query.replaceAll("[\\s_]+", "");
     }
 
     /**
@@ -182,7 +182,7 @@ public class CharacterFactServiceImpl implements CharacterFactService {
         return schemas.stream()
                 .filter(schema -> factTypes.contains(schema.getFactType()))
                 .filter(schema -> normalizeDisplayName(schema.getDisplayName()).contains(normalizedQuery))
-                .map(CharacterSettingSchema::getSchemaKey)
+                .map(schema -> schema.getSchemaKey().trim())
                 .distinct()
                 .toList();
     }

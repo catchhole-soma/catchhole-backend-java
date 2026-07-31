@@ -40,7 +40,11 @@ public interface CharacterFactRepository extends JpaRepository<CharacterFact, UU
                       and (
                           :query = ''
                           or lower(fact.factKey) like lower(concat('%', :query, '%')) escape '\\'
-                          or lower(fact.factKey) like lower(concat('%', :factKeyQuery, '%')) escape '\\'
+                          or (
+                              :factKeyQuery <> ''
+                              and replace(replace(lower(fact.factKey), ' ', ''), '_', '')
+                                  like lower(concat('%', :factKeyQuery, '%')) escape '\\'
+                          )
                           or fact.factKey in :displayNameSchemaKeys
                           or lower(coalesce(fact.factValue, '')) like lower(concat('%', :query, '%')) escape '\\'
                       )
@@ -61,7 +65,11 @@ public interface CharacterFactRepository extends JpaRepository<CharacterFact, UU
                       and (
                           :query = ''
                           or lower(fact.factKey) like lower(concat('%', :query, '%')) escape '\\'
-                          or lower(fact.factKey) like lower(concat('%', :factKeyQuery, '%')) escape '\\'
+                          or (
+                              :factKeyQuery <> ''
+                              and replace(replace(lower(fact.factKey), ' ', ''), '_', '')
+                                  like lower(concat('%', :factKeyQuery, '%')) escape '\\'
+                          )
                           or fact.factKey in :displayNameSchemaKeys
                           or lower(coalesce(fact.factValue, '')) like lower(concat('%', :query, '%')) escape '\\'
                       )

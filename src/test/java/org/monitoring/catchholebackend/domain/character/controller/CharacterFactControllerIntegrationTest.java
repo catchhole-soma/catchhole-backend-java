@@ -195,7 +195,7 @@ class CharacterFactControllerIntegrationTest {
     @DisplayName("스키마 표시명과 공백이 포함된 동적 설정명, 기존 설정값을 검색한다")
     void searchMatchesDisplayNamesAndFactValues() throws Exception {
         characterSettingSchemaRepository.save(schema(work, "stats.combat_power", "전투지수"));
-        characterSettingSchemaRepository.save(schema(work, "stats.supernatural", "이능"));
+        characterSettingSchemaRepository.save(schema(work, " stats.supernatural ", "이능"));
         characterSettingSchemaRepository.save(schema(otherWork, "stats.mental", "전투지수"));
 
         WorkCharacter character = workCharacterRepository.save(character(work, "아리아"));
@@ -206,7 +206,7 @@ class CharacterFactControllerIntegrationTest {
                 character, null, CharacterFactType.STAT, "stats.supernatural", "1", firstEpisode, 1, true
         );
         CharacterFact injury = saveFact(
-                character, null, CharacterFactType.STATUS, "status.오른발_부상", "오른발 파괴", firstEpisode, 1, true
+                character, null, CharacterFactType.STATUS, "status.오른발  부상", "오른발 파괴", firstEpisode, 1, true
         );
         CharacterFact mental = saveFact(
                 character, null, CharacterFactType.STAT, "stats.mental", "36", firstEpisode, 1, true
