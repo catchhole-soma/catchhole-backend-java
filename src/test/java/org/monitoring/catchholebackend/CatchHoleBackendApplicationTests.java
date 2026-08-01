@@ -3,6 +3,9 @@ package org.monitoring.catchholebackend;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenAccountRepository;
+import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenGrantRepository;
+import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenUsageRepository;
 import org.monitoring.catchholebackend.domain.auth.service.AuthService;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
@@ -45,6 +48,15 @@ class CatchHoleBackendApplicationTests {
 
     @MockitoBean
     private AnalysisJobRepository analysisJobRepository;
+
+    @MockitoBean
+    private AiTokenAccountRepository aiTokenAccountRepository;
+
+    @MockitoBean
+    private AiTokenGrantRepository aiTokenGrantRepository;
+
+    @MockitoBean
+    private AiTokenUsageRepository aiTokenUsageRepository;
 
     @MockitoBean
     private SettingCandidateRepository settingCandidateRepository;

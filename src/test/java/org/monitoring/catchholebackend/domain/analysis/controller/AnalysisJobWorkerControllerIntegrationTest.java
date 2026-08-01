@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -11,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,6 +20,9 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenAccountRepository;
+import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenGrantRepository;
+import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenUsageRepository;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
@@ -84,6 +89,15 @@ class AnalysisJobWorkerControllerIntegrationTest {
     private AnalysisJobRepository analysisJobRepository;
 
     @Autowired
+    private AiTokenUsageRepository aiTokenUsageRepository;
+
+    @Autowired
+    private AiTokenGrantRepository aiTokenGrantRepository;
+
+    @Autowired
+    private AiTokenAccountRepository aiTokenAccountRepository;
+
+    @Autowired
     private WorkCharacterRepository workCharacterRepository;
 
     @Autowired
@@ -101,6 +115,9 @@ class AnalysisJobWorkerControllerIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        aiTokenUsageRepository.deleteAll();
+        aiTokenGrantRepository.deleteAll();
+        aiTokenAccountRepository.deleteAll();
         analysisJobRepository.deleteAll();
         episodeRepository.deleteAll();
         uploadFileRepository.deleteAll();
@@ -394,7 +411,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("실행 중인 작업을 완료하고 결과 메타데이터를 기록한다")
+    @DisplayName("실행 중인 작업을 완료하고 서버 원장의 토큰 합계를 기록한다")
     void completeRunningJobRecordsResultMetadata() throws Exception {
         AnalysisJob analysisJob = runningJob();
 
@@ -414,13 +431,131 @@ class AnalysisJobWorkerControllerIntegrationTest {
         AnalysisJob completedJob = analysisJobRepository.findById(analysisJob.getId()).orElseThrow();
         assertThat(completedJob.getStatus()).isEqualTo(AnalysisJobStatus.SUCCEEDED);
         assertThat(completedJob.getSummaryJson()).isEqualTo("{\"status\":\"ok\"}");
-        assertThat(completedJob.getInputTokenCount()).isEqualTo(1200);
-        assertThat(completedJob.getOutputTokenCount()).isEqualTo(300);
+        // Worker가 임의로 보낸 값은 신뢰하지 않고, 이 테스트에는 정산 원장이 없으므로 0을 기록한다.
+        assertThat(completedJob.getInputTokenCount()).isZero();
+        assertThat(completedJob.getOutputTokenCount()).isZero();
         assertThat(completedJob.getCompletedAt()).isNotNull();
         assertThat(episodeRepository.findById(firstEpisode.getId()).orElseThrow().getStatus())
                 .isEqualTo(org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ANALYZED);
         assertThat(episodeRepository.findById(secondEpisode.getId()).orElseThrow().getStatus())
                 .isEqualTo(org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.UPLOADED);
+    }
+
+    @Test
+    @DisplayName("AI 요청을 예약·정산하고 분석 작업에 실제 합계를 기록한다")
+    void reserveAndSettleAiTokensRecordsAuthoritativeJobTotals() throws Exception {
+        AnalysisJob analysisJob = runningJob();
+        UUID requestId = UUID.randomUUID();
+
+        mockMvc.perform(post("/api/internal/v1/ai-token-usages/reserve")
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "requestId": "%s",
+                                  "analysisJobId": "%s",
+                                  "purpose": "SETTING_EXTRACTION",
+                                  "attempt": 1,
+                                  "modelName": "gpt-4.1-mini",
+                                  "reservedTokens": 1000
+                                }
+                                """.formatted(requestId, analysisJob.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("RESERVED"));
+
+        mockMvc.perform(post("/api/internal/v1/ai-token-usages/{requestId}/settle", requestId)
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "inputTokens": 120,
+                                  "cachedInputTokens": 20,
+                                  "outputTokens": 30,
+                                  "outcome": "SUCCESS"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/internal/v1/analysis-jobs/{analysisJobId}/complete", analysisJob.getId())
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"summaryJson\":\"{}\"}"))
+                .andExpect(status().isOk());
+
+        AnalysisJob completedJob = analysisJobRepository.findById(analysisJob.getId()).orElseThrow();
+        assertThat(completedJob.getInputTokenCount()).isEqualTo(120);
+        assertThat(completedJob.getOutputTokenCount()).isEqualTo(30);
+
+        String accessToken = jwtTokenProvider.generateAccessToken(member);
+        mockMvc.perform(get("/api/v1/ai-token-usage/me")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.usedTokens").value(150))
+                .andExpect(jsonPath("$.data.reservedTokens").value(0))
+                .andExpect(jsonPath("$.data.exhausted").value(false));
+    }
+
+    @Test
+    @DisplayName("같은 요청 예약과 해제를 재호출해도 회원 예약량을 중복 변경하지 않는다")
+    void reserveAndReleaseAreIdempotent() throws Exception {
+        AnalysisJob analysisJob = runningJob();
+        UUID requestId = UUID.randomUUID();
+        String reserveBody = """
+                {
+                  "requestId": "%s",
+                  "analysisJobId": "%s",
+                  "purpose": "SUBJECT_RESOLUTION",
+                  "attempt": 1,
+                  "modelName": "gpt-4.1-mini",
+                  "reservedTokens": 1000
+                }
+                """.formatted(requestId, analysisJob.getId());
+
+        for (int retry = 0; retry < 2; retry++) {
+            mockMvc.perform(post("/api/internal/v1/ai-token-usages/reserve")
+                            .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(reserveBody))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.status").value("RESERVED"));
+        }
+
+        for (int retry = 0; retry < 2; retry++) {
+            mockMvc.perform(post("/api/internal/v1/ai-token-usages/{requestId}/release", requestId)
+                            .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"outcome\":\"USAGE_UNAVAILABLE\"}"))
+                    .andExpect(status().isOk());
+        }
+
+        String accessToken = jwtTokenProvider.generateAccessToken(member);
+        mockMvc.perform(get("/api/v1/ai-token-usage/me")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.usedTokens").value(0))
+                .andExpect(jsonPath("$.data.reservedTokens").value(0));
+    }
+
+    @Test
+    @DisplayName("남은 한도보다 큰 AI 요청은 provider 호출 전에 안정적인 오류 코드로 거절한다")
+    void reserveRejectsRequestOverRemainingQuota() throws Exception {
+        AnalysisJob analysisJob = runningJob();
+
+        mockMvc.perform(post("/api/internal/v1/ai-token-usages/reserve")
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "requestId": "%s",
+                                  "analysisJobId": "%s",
+                                  "purpose": "CHUNK_EMBEDDING",
+                                  "attempt": 1,
+                                  "modelName": "text-embedding-3-small",
+                                  "reservedTokens": 1000001
+                                }
+                                """.formatted(UUID.randomUUID(), analysisJob.getId())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("AI_TOKEN_QUOTA_EXHAUSTED"));
     }
 
     @Test

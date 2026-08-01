@@ -49,3 +49,7 @@ sms:
 
 internal:
   api-key: ${INTERNAL_API_KEY:local-development-internal-api-key}
+
+ai-token:
+  default-grant: ${AI_TOKEN_DEFAULT_GRANT:1000000}
+  contact-email: ${AI_TOKEN_CONTACT_EMAIL:support@catchhole.com}

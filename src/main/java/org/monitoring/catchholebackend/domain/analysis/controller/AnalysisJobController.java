@@ -57,7 +57,12 @@ public class AnalysisJobController {
             @ApiResponse(responseCode = "200", description = "분석 작업 생성 성공"),
             @ApiResponse(responseCode = "400", description = "요청 값 검증 실패"),
             @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패"),
-            @ApiResponse(responseCode = "404", description = "작품 또는 분석 대상 리소스를 찾을 수 없음")
+            @ApiResponse(responseCode = "404", description = "작품 또는 분석 대상 리소스를 찾을 수 없음"),
+            @ApiResponse(
+                    responseCode = "409",
+                    description = "AI 토큰 한도 소진 또는 같은 대상 분석 진행 중",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            )
     })
     public CommonResponse<List<AnalysisJobResponse>> createAnalysisJob(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
@@ -172,7 +177,11 @@ public class AnalysisJobController {
             @ApiResponse(responseCode = "200", description = "실패 회차 재시도 작업 생성 성공"),
             @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패"),
             @ApiResponse(responseCode = "404", description = "작품, 분석 작업 또는 실패 회차를 찾을 수 없음"),
-            @ApiResponse(responseCode = "409", description = "실패 상태가 아니거나 같은 batch의 전체 작업이 진행 중")
+            @ApiResponse(
+                    responseCode = "409",
+                    description = "AI 토큰 한도 소진, 실패 상태가 아니거나 같은 batch의 전체 작업이 진행 중",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            )
     })
     public CommonResponse<List<AnalysisJobResponse>> retryAnalysisJob(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,

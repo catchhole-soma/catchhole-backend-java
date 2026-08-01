@@ -18,6 +18,10 @@ import org.springframework.data.repository.query.Param;
 
 public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> {
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select analysisJob from AnalysisJob analysisJob join fetch analysisJob.work where analysisJob.id = :id")
+    Optional<AnalysisJob> findByIdForUpdate(@Param("id") UUID id);
+
     @EntityGraph(attributePaths = "targetEpisodes")
     Optional<AnalysisJob> findByIdAndWorkId(UUID id, UUID workId);
 

@@ -198,8 +198,14 @@ public class AnalysisJob extends BaseEntity {
     }
 
     public void fail(String errorMessage) {
+        fail(errorMessage, inputTokenCount, outputTokenCount);
+    }
+
+    public void fail(String errorMessage, Integer inputTokenCount, Integer outputTokenCount) {
         this.status = AnalysisJobStatus.FAILED;
         this.errorMessage = errorMessage;
+        this.inputTokenCount = inputTokenCount;
+        this.outputTokenCount = outputTokenCount;
         this.completedAt = LocalDateTime.now();
     }
 }
