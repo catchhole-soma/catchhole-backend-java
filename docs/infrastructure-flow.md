@@ -59,7 +59,7 @@ flowchart LR
     WORKER -->|"Job claim·진행·완료·실패 보고"| SPRING
     WORKER -->|"청크·분석 후보 저장"| POSTGRES
     WORKER -->|"회차 원문 조회"| S3
-    WORKER -->|"분석·임베딩 요청"| OPENAI
+    WORKER -->|"설정 추출 요청<br/>flag 활성 시 임베딩 요청"| OPENAI
 
     ENV -.-> SPRING
     ENV -.-> WORKER
@@ -90,7 +90,7 @@ Vercel은 Backend 요청을 중계하는 서버가 아닙니다. 브라우저가
 2. Python AI Worker가 Spring 내부 API를 polling해 가장 오래된 Job 하나를 claim합니다.
 3. Spring이 Job을 `RUNNING`으로 바꾸고 단일 회차의 S3 메타데이터, 기존 캐릭터, 활성 설정 schema를 Worker에 전달합니다.
 4. Worker가 S3에서 회차 원문을 읽습니다.
-5. Worker가 원문 청킹, embedding 생성, LLM 설정 후보 추출을 수행합니다.
+5. Worker가 원문 청킹과 LLM 설정 후보 추출을 수행하고, `EMBEDDING_GENERATION_ENABLED=true`일 때만 embedding을 생성합니다. MVP 기본값은 `false`입니다.
 6. Worker가 `episode_chunks`, `setting_candidates` 같은 분석 산출물을 PostgreSQL에 직접 저장합니다.
 7. Worker가 진행, 성공, 실패 상태를 Spring 내부 API로 보고합니다.
 8. Spring이 `AnalysisJob`과 대상 `Episode` 상태를 갱신합니다.
@@ -137,7 +137,7 @@ flowchart LR
 | 위치 | 저장 대상 |
 | --- | --- |
 | GitHub Secrets | AWS 배포 role/access key, EC2 instance ID, AI 저장소의 Backend dispatch token |
-| EC2 `/opt/catchhole/.env` | DB 비밀번호, JWT secret, 내부 API key, LLM API key, 운영 이미지·도메인·공통 `APP_TIMEZONE` 설정 |
+| EC2 `/opt/catchhole/.env` | DB 비밀번호, JWT secret, 내부 API key, LLM API key, 운영 이미지·도메인·공통 `APP_TIMEZONE`, AI 임베딩 생성 flag 설정 |
 | EC2 IAM Role | SSM managed node 등록과 S3 접근 권한 |
 
 AWS Secrets Manager 또는 Systems Manager Parameter Store에서 애플리케이션 비밀값을 읽는 구성은 아직 없습니다.

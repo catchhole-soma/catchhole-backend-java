@@ -34,6 +34,16 @@ EC2 호스트 자체의 표시 시간도 한국 시간으로 맞추려면 최초
 sudo timedatectl set-timezone Asia/Seoul
 ```
 
+## AI Worker 임베딩 생성
+
+MVP는 벡터 검색을 사용하지 않으므로 신규 청크 임베딩 생성을 기본적으로 비활성화한다.
+
+```dotenv
+EMBEDDING_GENERATION_ENABLED=false
+```
+
+오류 리포트나 RAG 검색에서 pgvector가 필요해지면 값을 `true`로 바꾸고 AI Worker를 재생성한다. 이 설정은 이후 생성되는 신규 분석·재분석 청크에만 적용되며 기존 `NULL` 임베딩을 자동 backfill하지 않는다. 과거 원문 벡터가 필요하면 대상 회차의 재분석 Job을 생성하거나 별도 범위 제한 backfill 작업을 먼저 준비한다.
+
 ## 실행
 
 ```bash
@@ -49,6 +59,7 @@ docker compose --env-file .env -f compose.prod.yml ps
 docker compose --env-file .env -f compose.prod.yml up -d --force-recreate backend ai-worker postgres
 docker compose --env-file .env -f compose.prod.yml exec backend date
 docker compose --env-file .env -f compose.prod.yml exec ai-worker date
+docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv EMBEDDING_GENERATION_ENABLED
 docker compose --env-file .env -f compose.prod.yml exec postgres \
   sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SHOW timezone; SELECT CURRENT_TIMESTAMP;"'
 ```
