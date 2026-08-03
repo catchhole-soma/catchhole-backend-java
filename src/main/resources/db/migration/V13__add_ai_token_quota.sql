@@ -6,7 +6,7 @@ CREATE TABLE ai_token_accounts (
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
     CONSTRAINT fk_ai_token_accounts_member
-        FOREIGN KEY (member_id) REFERENCES members (id),
+        FOREIGN KEY (member_id) REFERENCES members (id) ON DELETE CASCADE,
     CONSTRAINT chk_ai_token_accounts_non_negative
         CHECK (granted_tokens >= 0 AND used_tokens >= 0 AND reserved_tokens >= 0)
 );
@@ -20,7 +20,7 @@ CREATE TABLE ai_token_grants (
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
     CONSTRAINT fk_ai_token_grants_member
-        FOREIGN KEY (member_id) REFERENCES members (id),
+        FOREIGN KEY (member_id) REFERENCES members (id) ON DELETE CASCADE,
     CONSTRAINT chk_ai_token_grants_amount_positive CHECK (amount > 0)
 );
 
@@ -44,11 +44,11 @@ CREATE TABLE ai_token_usages (
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
     CONSTRAINT fk_ai_token_usages_member
-        FOREIGN KEY (member_id) REFERENCES members (id),
+        FOREIGN KEY (member_id) REFERENCES members (id) ON DELETE CASCADE,
     CONSTRAINT fk_ai_token_usages_work
-        FOREIGN KEY (work_id) REFERENCES works (id),
+        FOREIGN KEY (work_id) REFERENCES works (id) ON DELETE CASCADE,
     CONSTRAINT fk_ai_token_usages_analysis_job
-        FOREIGN KEY (analysis_job_id) REFERENCES analysis_jobs (id),
+        FOREIGN KEY (analysis_job_id) REFERENCES analysis_jobs (id) ON DELETE CASCADE,
     CONSTRAINT chk_ai_token_usages_attempt_positive CHECK (attempt > 0),
     CONSTRAINT chk_ai_token_usages_reserved_positive CHECK (reserved_tokens > 0)
 );
