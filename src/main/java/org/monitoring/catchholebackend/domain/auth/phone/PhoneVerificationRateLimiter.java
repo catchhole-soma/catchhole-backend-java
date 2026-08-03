@@ -18,6 +18,10 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
+/**
+ * 전화번호·IP·전체 발송량 제한을 Redis에서 관리한다.
+ * 모든 한도를 Lua 한 번으로 확인한 뒤 함께 증가시켜 일부 카운터만 반영되는 경쟁 상태를 막는다.
+ */
 @Component
 public class PhoneVerificationRateLimiter {
 
@@ -32,6 +36,7 @@ public class PhoneVerificationRateLimiter {
     private static final int GLOBAL_DAILY_LIMIT = 20;
     private static final int GLOBAL_MONTHLY_LIMIT = 200;
 
+    // 반환값은 {획득 여부(1/0), 제한 해제까지 남은 초}이며 제한 시 어떤 카운터도 증가시키지 않는다.
     private static final DefaultRedisScript<List> ACQUIRE_SCRIPT = new DefaultRedisScript<>("""
             local retryAfter = 0
             if redis.call('EXISTS', KEYS[1]) == 1 then

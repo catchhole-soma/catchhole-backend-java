@@ -10,6 +10,10 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
+/**
+ * 인증 흐름과 회원가입 토큰을 Redis에 TTL 기반으로 저장한다.
+ * 흐름 교체·오입력 횟수·토큰 단일 발급은 Lua로 묶어 동시 요청에서도 하나의 상태 전이만 허용한다.
+ */
 @Component
 public class PhoneVerificationStore {
 
@@ -17,6 +21,7 @@ public class PhoneVerificationStore {
     private static final String ACTIVE_PREFIX = "phone-verification:active:";
     private static final String TOKEN_PREFIX = "phone-verification:signup-token:";
 
+    // 같은 전화번호의 이전 흐름 삭제와 새 흐름 등록을 한 Redis 연산으로 처리한다.
     private static final DefaultRedisScript<Long> START_SCRIPT = new DefaultRedisScript<>("""
             local previousId = redis.call('GET', KEYS[1])
             if previousId then redis.call('DEL', ARGV[1] .. previousId) end
@@ -30,6 +35,7 @@ public class PhoneVerificationStore {
             return 1
             """, Long.class);
 
+    // 상태값: 0 만료, -1 불일치, -2 시도 초과, -3 토큰 충돌, 1 신규 발급, 2 기존 토큰 재사용.
     private static final DefaultRedisScript<List> CONFIRM_SCRIPT = new DefaultRedisScript<>("""
             if redis.call('EXISTS', KEYS[1]) == 0 then return {0, '', 0} end
 
@@ -122,6 +128,7 @@ public class PhoneVerificationStore {
 
     public boolean consume(String signupToken, String expectedPhoneNumber) {
         try {
+            // GETDEL로 조회와 삭제를 원자 처리해 동일 토큰의 동시 회원가입 성공을 하나로 제한한다.
             String phoneNumber = redisTemplate.opsForValue().getAndDelete(TOKEN_PREFIX + signupToken);
             return expectedPhoneNumber.equals(phoneNumber);
         } catch (DataAccessException exception) {
@@ -147,6 +154,9 @@ public class PhoneVerificationStore {
                 : new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_UNAVAILABLE, cause);
     }
 
+    /**
+     * Lua 확인 결과다. token과 expiresInSeconds는 신규 발급(1) 또는 기존 토큰 재사용(2)일 때만 유효하다.
+     */
     public record ConfirmationResult(int status, String token, long expiresInSeconds) {
     }
 }

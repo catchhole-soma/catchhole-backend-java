@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.auth.controller;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -10,9 +11,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.auth.dto.request.PhoneVerificationConfirmRequest;
-import org.monitoring.catchholebackend.domain.auth.dto.request.PhoneVerificationRequest;
+import org.monitoring.catchholebackend.domain.auth.dto.request.PhoneVerificationSendRequest;
 import org.monitoring.catchholebackend.domain.auth.dto.response.PhoneVerificationConfirmResponse;
-import org.monitoring.catchholebackend.domain.auth.dto.response.PhoneVerificationResponse;
+import org.monitoring.catchholebackend.domain.auth.dto.response.PhoneVerificationSendResponse;
 import org.monitoring.catchholebackend.domain.auth.service.PhoneVerificationService;
 import org.monitoring.catchholebackend.global.common.response.CommonErrorResponse;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
@@ -61,11 +62,11 @@ public class PhoneVerificationController {
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
             )
     })
-    public CommonResponse<PhoneVerificationResponse> requestVerification(
-            @Valid @RequestBody PhoneVerificationRequest request,
-            HttpServletRequest servletRequest
+    public CommonResponse<PhoneVerificationSendResponse> requestVerification(
+            @Valid @RequestBody PhoneVerificationSendRequest request,
+            @Parameter(hidden = true) HttpServletRequest servletRequest
     ) {
-        PhoneVerificationResponse response = phoneVerificationService.start(
+        PhoneVerificationSendResponse response = phoneVerificationService.start(
                 request.phoneNumber(),
                 servletRequest.getRemoteAddr()
         );

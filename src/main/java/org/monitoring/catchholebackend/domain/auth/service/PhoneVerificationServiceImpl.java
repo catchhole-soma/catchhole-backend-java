@@ -2,8 +2,9 @@ package org.monitoring.catchholebackend.domain.auth.service;
 
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.auth.dto.response.PhoneVerificationConfirmResponse;
-import org.monitoring.catchholebackend.domain.auth.dto.response.PhoneVerificationResponse;
+import org.monitoring.catchholebackend.domain.auth.dto.response.PhoneVerificationSendResponse;
 import org.monitoring.catchholebackend.domain.auth.exception.AuthErrorCode;
+import org.monitoring.catchholebackend.domain.auth.mapper.PhoneVerificationMapper;
 import org.monitoring.catchholebackend.domain.auth.phone.PhoneVerificationCodeGenerator;
 import org.monitoring.catchholebackend.domain.auth.phone.PhoneVerificationHasher;
 import org.monitoring.catchholebackend.domain.auth.phone.PhoneVerificationRateLimiter;
@@ -22,6 +23,7 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService {
 
     private static final Logger log = LoggerFactory.getLogger(PhoneVerificationServiceImpl.class);
 
+    // PhoneVerificationStore의 Lua 확인 결과 중 실패 상태를 API 오류로 변환하기 위한 계약값이다.
     private static final int CONFIRM_EXPIRED = 0;
     private static final int CONFIRM_INVALID = -1;
     private static final int CONFIRM_ATTEMPTS_EXCEEDED = -2;
@@ -34,9 +36,10 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService {
     private final PhoneVerificationCodeGenerator codeGenerator;
     private final PhoneVerificationTokenGenerator tokenGenerator;
     private final SmsSender smsSender;
+    private final PhoneVerificationMapper phoneVerificationMapper;
 
     @Override
-    public PhoneVerificationResponse start(String phoneNumber, String clientIp) {
+    public PhoneVerificationSendResponse start(String phoneNumber, String clientIp) {
         if (memberRepository.existsByPhoneNumber(phoneNumber)) {
             throw new AppException(AuthErrorCode.AUTH_PHONE_NUMBER_DUPLICATED);
         }
@@ -58,10 +61,10 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService {
             throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_UNAVAILABLE, exception);
         }
 
-        return new PhoneVerificationResponse(
+        return phoneVerificationMapper.toSendResponse(
                 verificationId,
-                store.codeExpiration().toSeconds(),
-                store.resendInterval().toSeconds()
+                store.codeExpiration(),
+                store.resendInterval()
         );
     }
 
@@ -89,7 +92,7 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService {
             throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_UNAVAILABLE);
         }
         log.info("Phone verification confirmed.");
-        return new PhoneVerificationConfirmResponse(result.token(), result.expiresInSeconds());
+        return phoneVerificationMapper.toConfirmResponse(result);
     }
 
     @Override

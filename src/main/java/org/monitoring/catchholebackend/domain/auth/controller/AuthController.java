@@ -62,6 +62,11 @@ public class AuthController {
                     responseCode = "409",
                     description = "이메일 또는 휴대폰 번호 중복",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "503",
+                    description = "Redis 휴대폰 인증 저장소 장애",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
             )
     })
     public ResponseEntity<CommonResponse<AuthTokenResponse>> signup(
