@@ -12,6 +12,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.monitoring.catchholebackend.domain.auth.exception.AuthErrorCode;
+import org.monitoring.catchholebackend.domain.auth.mapper.PhoneVerificationMapper;
 import org.monitoring.catchholebackend.domain.auth.phone.PhoneVerificationCodeGenerator;
 import org.monitoring.catchholebackend.domain.auth.phone.PhoneVerificationHasher;
 import org.monitoring.catchholebackend.domain.auth.phone.PhoneVerificationRateLimiter;
@@ -22,6 +23,7 @@ import org.monitoring.catchholebackend.domain.member.repository.MemberRepository
 import org.monitoring.catchholebackend.global.exception.AppException;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("휴대폰 인증 서비스 단위 테스트")
 class PhoneVerificationServiceImplTest {
 
     @Mock
@@ -44,6 +46,9 @@ class PhoneVerificationServiceImplTest {
 
     @Mock
     private SmsSender smsSender;
+
+    @Mock
+    private PhoneVerificationMapper phoneVerificationMapper;
 
     @InjectMocks
     private PhoneVerificationServiceImpl service;

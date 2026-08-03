@@ -21,6 +21,7 @@ import org.monitoring.catchholebackend.domain.auth.dto.request.AuthLoginRequest;
 import org.monitoring.catchholebackend.domain.auth.dto.request.AuthSignupRequest;
 import org.monitoring.catchholebackend.domain.auth.entity.RefreshToken;
 import org.monitoring.catchholebackend.domain.auth.exception.AuthErrorCode;
+import org.monitoring.catchholebackend.domain.auth.mapper.AuthMapper;
 import org.monitoring.catchholebackend.domain.auth.repository.RefreshTokenRepository;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.auth.token.RefreshTokenGenerator;
@@ -74,7 +75,8 @@ class AuthServiceImplTest {
                 refreshTokenGenerator,
                 tokenHashProvider,
                 authProperties,
-                phoneVerificationService
+                phoneVerificationService,
+                new AuthMapper()
         );
     }
 
