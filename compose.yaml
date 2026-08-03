@@ -11,3 +11,10 @@ services:
       - '15432:5432'
     labels:
       org.springframework.boot.service-connection: postgres
+  redis:
+    image: 'redis:7.4.10-alpine3.21'
+    command: ['redis-server', '--maxmemory', '64mb', '--maxmemory-policy', 'noeviction', '--save', '']
+    ports:
+      - '16379:6379'
+    labels:
+      org.springframework.boot.service-connection: redis

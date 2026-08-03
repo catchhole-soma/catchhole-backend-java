@@ -32,6 +32,20 @@ auth:
   cookie:
     secure: false
     same-site: Lax
+  phone-verification:
+    # local/test 기본값. prod에서는 PHONE_VERIFICATION_HASH_SECRET으로 override.
+    hash-secret: ${PHONE_VERIFICATION_HASH_SECRET:local-phone-verification-secret-at-least-32-bytes}
+    code-expiration: 5m
+    resend-interval: 60s
+    signup-token-expiration: 10m
+    max-attempts: 5
+
+sms:
+  provider: ${SMS_PROVIDER:fake}
+  solapi:
+    api-key: ${SOLAPI_API_KEY:}
+    api-secret: ${SOLAPI_API_SECRET:}
+    sender-number: ${SOLAPI_SENDER_NUMBER:}
 
 internal:
   api-key: ${INTERNAL_API_KEY:local-development-internal-api-key}

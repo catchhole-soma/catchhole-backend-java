@@ -10,3 +10,6 @@ spring:
 logging:
   level:
     org.hibernate.SQL: DEBUG
+
+sms:
+  provider: ${SMS_PROVIDER:fake}

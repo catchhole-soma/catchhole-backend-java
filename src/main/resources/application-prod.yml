@@ -4,6 +4,13 @@ spring:
     username: ${DATABASE_USERNAME}
     password: ${DATABASE_PASSWORD}
     driver-class-name: org.postgresql.Driver
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD}
+      connect-timeout: 2s
+      timeout: 2s
   jpa:
     hibernate:
       ddl-auto: validate
@@ -17,6 +24,11 @@ auth:
     secret: ${JWT_SECRET}
   cookie:
     secure: true
+  phone-verification:
+    hash-secret: ${PHONE_VERIFICATION_HASH_SECRET}
+
+sms:
+  provider: ${SMS_PROVIDER:solapi}
 
 internal:
   api-key: ${INTERNAL_API_KEY}
