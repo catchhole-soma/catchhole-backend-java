@@ -20,6 +20,12 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.aitoken.dto.request.AiTokenReserveRequest;
+import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenAccountRepository;
+import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenGrantRepository;
+import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenUsageRepository;
+import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenPurpose;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
@@ -73,6 +79,18 @@ class AnalysisJobControllerIntegrationTest {
     private AnalysisJobRepository analysisJobRepository;
 
     @Autowired
+    private AiTokenUsageRepository aiTokenUsageRepository;
+
+    @Autowired
+    private AiTokenGrantRepository aiTokenGrantRepository;
+
+    @Autowired
+    private AiTokenAccountRepository aiTokenAccountRepository;
+
+    @Autowired
+    private AiTokenService aiTokenService;
+
+    @Autowired
     private SettingCandidateRepository settingCandidateRepository;
 
     @Autowired
@@ -94,6 +112,9 @@ class AnalysisJobControllerIntegrationTest {
     @BeforeEach
     void setUp() {
         settingCandidateRepository.deleteAll();
+        aiTokenUsageRepository.deleteAll();
+        aiTokenGrantRepository.deleteAll();
+        aiTokenAccountRepository.deleteAll();
         analysisJobRepository.deleteAll();
         episodeRepository.deleteAll();
         uploadFileRepository.deleteAll();
@@ -566,6 +587,43 @@ class AnalysisJobControllerIntegrationTest {
                 .andExpect(jsonPath("$.data[0].id").value(activeJob.getId().toString()))
                 .andExpect(jsonPath("$.data[0].jobType").value("SETTING_EXTRACTION"))
                 .andExpect(jsonPath("$.data[0].status").value("PENDING"));
+
+        assertThat(analysisJobRepository.count()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("같은 유형의 활성 작업을 멱등 반환할 때 남은 사용량을 다시 검사하지 않는다")
+    void retryFailedAnalysisJobReturnsActiveJobWhenQuotaIsReserved() throws Exception {
+        firstEpisode.markFailed();
+        episodeRepository.save(firstEpisode);
+
+        AnalysisJob failedJob = AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        failedJob.fail("설정 추출 실패");
+        analysisJobRepository.save(failedJob);
+        AnalysisJob activeJob = AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        activeJob.start("gpt-5.6-terra", "설정 추출 중");
+        activeJob = analysisJobRepository.save(activeJob);
+        aiTokenService.reserve(new AiTokenReserveRequest(
+                UUID.randomUUID(),
+                activeJob.getId(),
+                AiTokenPurpose.SETTING_EXTRACTION,
+                1,
+                "gpt-5.6-terra",
+                2_000_000L
+        ));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/analysis-jobs/{analysisJobId}/retry",
+                                work.getId(),
+                                failedJob.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", hasSize(1)))
+                .andExpect(jsonPath("$.data[0].id").value(activeJob.getId().toString()))
+                .andExpect(jsonPath("$.data[0].status").value("RUNNING"));
 
         assertThat(analysisJobRepository.count()).isEqualTo(2);
     }

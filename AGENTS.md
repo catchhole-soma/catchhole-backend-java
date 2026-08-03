@@ -106,6 +106,16 @@ org.monitoring.catchholebackend
 │   │   ├── repository
 │   │   ├── service
 │   │   └── type
+│   ├── aitoken
+│   │   ├── controller
+│   │   ├── dto
+│   │   │   ├── request
+│   │   │   └── response
+│   │   ├── entity
+│   │   ├── exception
+│   │   ├── repository
+│   │   ├── service
+│   │   └── type
 │   ├── character
 │   │   ├── controller
 │   │   ├── dto
@@ -134,6 +144,7 @@ org.monitoring.catchholebackend
     │   ├── entity
     │   └── response
     ├── config
+    │   ├── ai
     │   ├── auth
     │   ├── cors
     │   ├── jpa

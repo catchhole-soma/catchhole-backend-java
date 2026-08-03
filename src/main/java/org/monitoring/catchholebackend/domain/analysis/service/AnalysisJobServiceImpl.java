@@ -174,7 +174,6 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     @Transactional
     public List<AnalysisJobResponse> retryFailedAnalysisJob(Long memberId, UUID workId, UUID analysisJobId) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        aiTokenService.ensureAnalysisCanStart(memberId);
         AnalysisJob failedJob = analysisJobRepository.findByIdAndWorkId(analysisJobId, work.getId())
                 .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND));
         if (failedJob.getStatus() != AnalysisJobStatus.FAILED) {
@@ -293,6 +292,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                         activeStatuses
                 )
                 .orElseGet(() -> {
+                    aiTokenService.ensureAnalysisCanStart(work.getMember().getId());
                     deleteSupersededPendingCandidates(
                             work.getId(),
                             failedJob.getBatch().getId(),
