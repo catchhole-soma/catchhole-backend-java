@@ -52,4 +52,4 @@ internal:
 
 ai-token:
   default-grant: ${AI_TOKEN_DEFAULT_GRANT:1000000}
-  contact-email: ${AI_TOKEN_CONTACT_EMAIL:support@catchhole.com}
+  contact-email: ${AI_TOKEN_CONTACT_EMAIL:aicatchhole@gmail.com}
