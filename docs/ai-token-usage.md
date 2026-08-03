@@ -72,7 +72,7 @@ sequenceDiagram
 GET /api/v1/ai-token-usage/me
 ```
 
-응답은 `grantedTokens`, `usedTokens`, `reservedTokens`, `remainingTokens`, `remainingPercent`, `exhausted`, `contactEmail`을 제공합니다. Frontend 사이드바와 한도 소진 안내가 같은 계약을 사용합니다.
+응답은 `grantedTokens`, `usedTokens`, `reservedTokens`, `remainingTokens`, `remainingPercent`, `exhausted`, `contactEmail`을 제공합니다. Frontend는 사이드바에 `remainingPercent`만 `남은 사용량`으로 표시하고, 정확한 token 수와 처리 중 예약량은 사용자에게 노출하지 않습니다. 한도 소진 안내는 `contactEmail`을 사용하되 내부 token 용어와 수치를 표시하지 않습니다.
 
 ### Worker 내부 API
 
@@ -91,7 +91,7 @@ POST /api/internal/v1/ai-token-usages/{requestId}/release
 | `AI_TOKEN_DEFAULT_GRANT` | `2000000` | 계정 최초 조회 또는 분석 시작 시 한 번 지급할 기본량 |
 | `AI_TOKEN_CONTACT_EMAIL` | `aicatchhole@gmail.com` | 한도 소진 안내에 표시할 피드백 연락처 |
 
-기본 지급량을 바꿔도 이미 생성된 계정은 소급 변경하지 않습니다. 기존 회원도 200만 token 정책을 적용하려면 운영 추가 지급 절차로 차액 100만 token을 한 번 지급하고 `MANUAL` 이력을 남깁니다.
+기본 지급량을 바꿔도 이미 생성된 계정은 소급 변경하지 않습니다. 기존 회원에게도 200만 token 정책을 적용하려면 현재 `granted_tokens`를 확인하고 목표치와의 양수 차액만 운영 추가 지급 절차로 지급해 `MANUAL` 이력을 남깁니다.
 
 ## 운영 추가 지급
 

@@ -72,17 +72,21 @@ EMBEDDING_GENERATION_ENABLED=false
 LLM_MODEL=gpt-5.6-terra
 LLM_REASONING_EFFORT=none
 AI_TOKEN_DEFAULT_GRANT=2000000
+AI_TOKEN_CONTACT_EMAIL=aicatchhole@gmail.com
 ```
 
 `LLM_REASONING_EFFORT=none`은 설정 추출의 구조화 응답 품질을 별도로 검증하면서 GPT-5.6의 기본 추론 비용이 자동으로 추가되지 않게 하는 MVP 기준값이다. 모델 품질 평가 후 필요하면 `low` 이상으로 올린다.
 
 `AI_TOKEN_DEFAULT_GRANT`는 설정 변경 후 처음 생성되는 토큰 계정에만 적용된다. 기존 회원에게도 정책 차액을 지급할 때는 `docs/ai-token-usage.md`의 운영 추가 지급 절차를 사용해 계정 합계와 지급 이력을 같은 transaction에서 갱신한다.
 
+`AI_TOKEN_CONTACT_EMAIL`은 기본 사용량을 모두 소진한 사용자에게 표시할 피드백 연락처다. 운영에서 바꿀 때는 Backend 컨테이너를 재생성해야 한다.
+
 값을 바꾼 뒤에는 관련 컨테이너를 재생성하고 실제 주입값을 확인한다.
 
 ```bash
 docker compose --env-file .env -f compose.prod.yml up -d --force-recreate backend ai-worker
 docker compose --env-file .env -f compose.prod.yml exec backend printenv AI_TOKEN_DEFAULT_GRANT
+docker compose --env-file .env -f compose.prod.yml exec backend printenv AI_TOKEN_CONTACT_EMAIL
 docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv LLM_MODEL
 docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv LLM_REASONING_EFFORT
 ```

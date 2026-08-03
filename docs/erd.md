@@ -11,10 +11,14 @@ erDiagram
     members ||--o{ refresh_tokens : issues
     members ||--o{ works : owns
     members ||--o{ upload_batches : uploads
+    members ||--o| ai_token_accounts : has_quota
+    members ||--o{ ai_token_grants : receives
+    members ||--o{ ai_token_usages : consumes
     works ||--o{ episodes : contains
     episodes ||--o{ episode_chunks : splits
     works ||--o{ upload_batches : groups
     works ||--o{ analysis_jobs : runs
+    works ||--o{ ai_token_usages : meters
     works ||--o{ characters : has
     works ||--o{ setting_candidates : extracts
     works o|--o{ character_setting_schemas : optionally_scopes
@@ -29,6 +33,7 @@ erDiagram
     episodes ||--o{ character_facts : optional_source
     analysis_jobs ||--o{ setting_candidates : creates
     analysis_jobs ||--o{ character_facts : extracts
+    analysis_jobs ||--o{ ai_token_usages : records
 
     members {
         bigint id PK
@@ -50,6 +55,43 @@ erDiagram
         varchar token_hash UK
         datetime expires_at
         datetime revoked_at
+        datetime created_at
+        datetime updated_at
+    }
+
+    ai_token_accounts {
+        bigint member_id PK,FK
+        bigint granted_tokens
+        bigint used_tokens
+        bigint reserved_tokens
+        datetime created_at
+        datetime updated_at
+    }
+
+    ai_token_grants {
+        uuid id PK
+        bigint member_id FK
+        bigint amount
+        varchar grant_type
+        varchar note
+        datetime created_at
+        datetime updated_at
+    }
+
+    ai_token_usages {
+        uuid request_id PK
+        bigint member_id FK
+        uuid work_id FK
+        uuid analysis_job_id FK
+        varchar purpose
+        int attempt
+        varchar model_name
+        varchar status
+        varchar outcome
+        bigint reserved_tokens
+        bigint input_tokens
+        bigint cached_input_tokens
+        bigint output_tokens
         datetime created_at
         datetime updated_at
     }
@@ -237,6 +279,9 @@ erDiagram
 | --- | --- |
 | `members` | 로그인 주체인 회원 계정. 이메일과 휴대폰 번호는 각각 unique입니다. |
 | `refresh_tokens` | refresh token 세션. token 원문은 저장하지 않고 `token_hash`만 저장합니다. |
+| `ai_token_accounts` | 회원별 누적 지급·사용·처리 중 예약량의 현재 합계를 한 행에 저장합니다. |
+| `ai_token_grants` | 최초 기본 지급과 운영 추가 지급 이력을 저장합니다. |
+| `ai_token_usages` | AI provider 요청 UUID별 예약·정산·해제 상태와 input/cached input/output 사용량을 기록합니다. |
 | `works` | 회원이 소유한 작품. 회차/업로드/분석 작업의 최상위 리소스입니다. |
 | `episodes` | 작품에 속한 회차 메타데이터. 원문은 S3에 저장하고 DB에는 key/version/hash/글자 수만 둡니다. |
 | `episode_chunks` | 회차 원문 청크와 위치 정보, `vector(1536)` 임베딩 및 재생성 판단 메타데이터를 저장합니다. `(episode_id, chunk_index)`는 unique입니다. |
