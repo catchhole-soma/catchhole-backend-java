@@ -54,6 +54,9 @@ class AuthServiceImplTest {
     @Mock
     private TokenHashProvider tokenHashProvider;
 
+    @Mock
+    private PhoneVerificationService phoneVerificationService;
+
     private AuthServiceImpl authService;
 
     @BeforeEach
@@ -70,7 +73,8 @@ class AuthServiceImplTest {
                 jwtTokenProvider,
                 refreshTokenGenerator,
                 tokenHashProvider,
-                authProperties
+                authProperties,
+                phoneVerificationService
         );
     }
 
@@ -80,12 +84,14 @@ class AuthServiceImplTest {
         AuthSignupRequest request = new AuthSignupRequest(
                 "writer@example.com",
                 "password123",
-                "01012345678",
-                "작가"
+                "작가",
+                "phone-verification-token"
         );
-        Member savedMember = member("writer@example.com", "encoded-password", "01012345678", "작가");
+        Member savedMember = verifiedMember("writer@example.com", "encoded-password", "01012345678", "작가");
+        when(phoneVerificationService.getVerifiedPhoneNumber(request.phoneVerificationToken()))
+                .thenReturn("01012345678");
         when(memberRepository.existsByEmail(request.email())).thenReturn(false);
-        when(memberRepository.existsByPhoneNumber(request.phoneNumber())).thenReturn(false);
+        when(memberRepository.existsByPhoneNumber("01012345678")).thenReturn(false);
         when(passwordEncoder.encode(request.password())).thenReturn("encoded-password");
         when(memberRepository.save(any(Member.class))).thenReturn(savedMember);
         when(jwtTokenProvider.generateAccessToken(savedMember)).thenReturn("access-token");
@@ -100,10 +106,12 @@ class AuthServiceImplTest {
         ArgumentCaptor<Member> memberCaptor = ArgumentCaptor.forClass(Member.class);
         verify(memberRepository).save(memberCaptor.capture());
         assertThat(memberCaptor.getValue().getPasswordHash()).isEqualTo("encoded-password");
+        assertThat(memberCaptor.getValue().isPhoneVerified()).isTrue();
         ArgumentCaptor<RefreshToken> tokenCaptor = ArgumentCaptor.forClass(RefreshToken.class);
         verify(refreshTokenRepository).save(tokenCaptor.capture());
         assertThat(tokenCaptor.getValue().getMember()).isEqualTo(savedMember);
         assertThat(tokenCaptor.getValue().getTokenHash()).isEqualTo("refresh-token-hash");
+        verify(phoneVerificationService).consumeSignupToken("phone-verification-token", "01012345678");
     }
 
     @Test
@@ -112,9 +120,11 @@ class AuthServiceImplTest {
         AuthSignupRequest request = new AuthSignupRequest(
                 "writer@example.com",
                 "password123",
-                "01012345678",
-                "작가"
+                "작가",
+                "phone-verification-token"
         );
+        when(phoneVerificationService.getVerifiedPhoneNumber(request.phoneVerificationToken()))
+                .thenReturn("01012345678");
         when(memberRepository.existsByEmail(request.email())).thenReturn(true);
 
         assertThatThrownBy(() -> authService.signup(request))
@@ -188,6 +198,12 @@ class AuthServiceImplTest {
 
     private Member member(String email, String passwordHash, String phoneNumber, String displayName) {
         Member member = Member.register(email, passwordHash, phoneNumber, displayName);
+        ReflectionTestUtils.setField(member, "id", 1L);
+        return member;
+    }
+
+    private Member verifiedMember(String email, String passwordHash, String phoneNumber, String displayName) {
+        Member member = Member.registerPhoneVerified(email, passwordHash, phoneNumber, displayName);
         ReflectionTestUtils.setField(member, "id", 1L);
         return member;
     }

@@ -13,3 +13,6 @@ spring:
     properties:
       hibernate:
         format_sql: false
+
+sms:
+  provider: fake

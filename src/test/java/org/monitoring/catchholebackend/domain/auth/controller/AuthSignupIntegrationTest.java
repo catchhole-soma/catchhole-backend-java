@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.auth.repository.RefreshTokenRepository;
+import org.monitoring.catchholebackend.domain.auth.service.PhoneVerificationService;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,6 +20,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,10 +43,15 @@ class AuthSignupIntegrationTest {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @MockitoBean
+    private PhoneVerificationService phoneVerificationService;
+
     @Test
     @DisplayName("회원가입 요청은 회원과 refresh token을 DB에 저장하고 인증 응답을 반환한다")
     void signupPersistsMemberAndRefreshTokenAndReturnsAuthentication() throws Exception {
         long refreshTokenCountBefore = refreshTokenRepository.count();
+        org.mockito.Mockito.when(phoneVerificationService.getVerifiedPhoneNumber("phone-verification-token"))
+                .thenReturn("01055556666");
 
         mockMvc.perform(post("/api/v1/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -52,8 +59,8 @@ class AuthSignupIntegrationTest {
                                 {
                                   "email": "new-writer@example.com",
                                   "password": "password123",
-                                  "phoneNumber": "01055556666",
-                                  "displayName": "신규 작가"
+                                  "displayName": "신규 작가",
+                                  "phoneVerificationToken": "phone-verification-token"
                                 }
                                 """))
                 .andExpect(status().isOk())
@@ -67,8 +74,10 @@ class AuthSignupIntegrationTest {
         Member savedMember = memberRepository.findByEmail("new-writer@example.com").orElseThrow();
         assertThat(savedMember.getPhoneNumber()).isEqualTo("01055556666");
         assertThat(savedMember.getDisplayName()).isEqualTo("신규 작가");
-        assertThat(savedMember.isPhoneVerified()).isFalse();
+        assertThat(savedMember.isPhoneVerified()).isTrue();
         assertThat(passwordEncoder.matches("password123", savedMember.getPasswordHash())).isTrue();
         assertThat(refreshTokenRepository.count()).isEqualTo(refreshTokenCountBefore + 1);
+        org.mockito.Mockito.verify(phoneVerificationService)
+                .consumeSignupToken("phone-verification-token", "01055556666");
     }
 }
