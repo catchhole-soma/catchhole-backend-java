@@ -2,7 +2,7 @@
 
 ## 목적
 
-Auth 도메인은 이메일/비밀번호 기반 회원가입, 로그인, access token 발급, refresh token 회전, 로그아웃, 현재 사용자 조회를 담당합니다.
+Auth 도메인은 휴대폰 번호 소유 확인, 이메일/비밀번호 기반 회원가입, 로그인, access token 발급, refresh token 회전, 로그아웃, 현재 사용자 조회를 담당합니다.
 
 회원 계정 자체는 `member` 도메인의 `Member` Entity를 사용하고, 인증 세션은 `auth` 도메인의 `RefreshToken` Entity로 관리합니다.
 
@@ -22,6 +22,15 @@ Auth 도메인은 이메일/비밀번호 기반 회원가입, 로그인, access 
 로그인과 refresh 시 `Member.validateActive()`를 호출합니다.
 
 `MemberStatus.ACTIVE`가 아니면 `MEMBER_INACTIVE`로 인증 흐름을 중단합니다.
+
+### 휴대폰 번호 소유 확인
+
+- 이 기능은 PASS처럼 실명·CI/DI를 확인하는 본인인증이 아니라 인증 시점에 해당 번호로 SMS를 수신할 수 있는지 확인합니다.
+- 운영 발송은 SOLAPI를 사용합니다. local은 `SMS_PROVIDER`가 없거나 `fake`이면 인증번호 `123456`을 쓰는 Fake provider를 사용하고, `solapi`이면 실제 SMS를 발송합니다. test/e2e는 항상 Fake provider를 사용하며 `prod`에서 Fake provider를 선택하면 애플리케이션 시작이 실패합니다.
+- 인증번호와 가입 토큰, 호출 제한은 Redis에 TTL로 저장합니다. Redis 재시작으로 진행 중 인증이 초기화되는 것은 MVP 운영 제약입니다.
+- 인증번호는 원문 대신 `PHONE_VERIFICATION_HASH_SECRET` 기반 HMAC-SHA256으로 저장합니다. 전화번호와 IP는 Redis key와 로그에 원문을 쓰지 않고 같은 비밀키 기반 HMAC 식별자를 사용합니다.
+- SOLAPI 요청은 timeout이나 5xx에서도 자동 재시도하지 않습니다. 실제 발송 성공 여부를 알 수 없는 상황에서 SMS와 비용이 중복되는 것을 막기 위함입니다.
+- Redis에서 rate limit과 인증 흐름을 먼저 기록한 뒤 SMS를 발송합니다. Redis 장애 시에는 SMS를 보내지 않는 fail-closed 정책입니다.
 
 ## 상태/역할 모델
 
@@ -50,7 +59,7 @@ Auth 도메인은 이메일/비밀번호 기반 회원가입, 로그인, access 
 | `email` | 로그인 이메일, unique |
 | `password_hash` | 암호화된 비밀번호 |
 | `phone_number` | 하이픈 없는 휴대폰 번호, unique |
-| `phone_verified` | 휴대폰 인증 여부. 현재 회원가입 시 `false` |
+| `phone_verified` | 휴대폰 인증 여부. 새 회원가입은 인증 토큰을 요구하므로 `true` |
 | `display_name` | 화면 표시 이름 |
 | `profile_image_url` | 프로필 이미지 URL |
 | `status` | 회원 상태 |
@@ -80,21 +89,22 @@ Request
 {
   "email": "user@example.com",
   "password": "password123!",
-  "phoneNumber": "01012345678",
-  "displayName": "장은호"
+  "displayName": "장은호",
+  "phoneVerificationToken": "<one-time-token>"
 }
 ```
 
 처리 흐름
 
-1. 이메일 형식, 영문·숫자를 포함한 8~64자 비밀번호, `010`으로 시작하는 11자리 휴대폰 번호, 20자 이하 표시 이름을 validation 합니다.
-2. 이메일 중복 시 `AUTH_EMAIL_DUPLICATED`를 반환합니다.
-3. 휴대폰 번호 중복 시 `AUTH_PHONE_NUMBER_DUPLICATED`를 반환합니다.
+1. 이메일 형식, 영문·숫자를 포함한 8~64자 비밀번호, 20자 이하 표시 이름과 인증 토큰 필수값을 validation 합니다.
+2. Redis에서 가입 토큰에 연결된 휴대폰 번호를 조회합니다. 클라이언트는 전화번호를 회원가입 body에 보내지 않습니다.
+3. 이메일 중복 시 `AUTH_EMAIL_DUPLICATED`, 토큰 번호가 이미 가입된 번호이면 `AUTH_PHONE_NUMBER_DUPLICATED`를 반환합니다.
 4. 비밀번호를 `PasswordEncoder`로 hash 합니다.
-5. `Member.register()`로 `ACTIVE`, `AUTHOR`, `phoneVerified=false` 회원을 생성합니다.
-6. 회원을 저장한 뒤 access token과 refresh token을 발급합니다.
-7. refresh token 원문은 저장하지 않고 SHA-256 hash와 만료 시각을 `refresh_tokens`에 저장합니다.
-8. access token은 응답 body로 반환하고, refresh token은 `HttpOnly` 쿠키로 전달합니다. 회원가입 후 별도 로그인 요청은 필요하지 않습니다.
+5. `Member.registerPhoneVerified()`로 `ACTIVE`, `AUTHOR`, `phoneVerified=true` 회원을 생성합니다.
+6. 회원과 refresh token을 DB에 flush한 뒤 Redis `GETDEL`로 가입 토큰을 한 번만 소비합니다.
+7. 동시 요청에서 `GETDEL` 소비에 실패하면 DB 트랜잭션을 rollback 합니다. 이메일·전화번호 DB unique 제약은 최종 동시성 방어선입니다.
+8. refresh token 원문은 저장하지 않고 SHA-256 hash와 만료 시각을 `refresh_tokens`에 저장합니다.
+9. access token은 응답 body로 반환하고, refresh token은 `HttpOnly` 쿠키로 전달합니다. 회원가입 후 별도 로그인 요청은 필요하지 않습니다.
 
 Response
 
@@ -117,6 +127,89 @@ Set-Cookie: refreshToken=<opaque-token>; Path=/api/v1/auth; Max-Age=1209600; Htt
 ```
 
 운영 환경의 refresh token 쿠키에는 `Secure` 속성을 추가합니다.
+
+### 인증번호 발송
+
+```http
+POST /api/v1/auth/phone-verifications
+```
+
+```json
+{
+  "phoneNumber": "01012345678"
+}
+```
+
+```json
+{
+  "success": true,
+  "message": "인증번호를 발송했습니다.",
+  "data": {
+    "verificationId": "<opaque-id>",
+    "expiresInSeconds": 300,
+    "resendAfterSeconds": 60
+  },
+  "error": null,
+  "timestamp": "2026-08-01T18:00:00"
+}
+```
+
+처리 순서:
+
+1. `010`으로 시작하는 11자리 형식과 DB 중복 번호를 확인합니다. 중복이면 SMS를 보내지 않습니다.
+2. 전화번호·IP·전체 rate limit을 Redis Lua로 한 번에 확인하고 증가시킵니다.
+3. 새 `verificationId`와 6자리 번호를 만들고 인증번호 HMAC만 5분 TTL로 저장합니다.
+4. 같은 번호의 이전 활성 인증 흐름을 삭제해 가장 최근 번호만 유효하게 합니다.
+5. SOLAPI 또는 Fake sender를 한 번 호출합니다.
+
+발송 제한:
+
+| 기준 | 1시간 | KST 하루 | KST 월 |
+| --- | ---: | ---: | ---: |
+| 전화번호 | 5 | 10 | - |
+| IP | 10 | 20 | - |
+| 전체 | - | 20 | 200 |
+
+동일 전화번호 재전송은 60초 뒤 가능하며 429 응답에는 `Retry-After` 초를 포함합니다.
+
+### 인증번호 확인
+
+```http
+POST /api/v1/auth/phone-verifications/{verificationId}/confirm
+```
+
+```json
+{
+  "code": "123456"
+}
+```
+
+정답이면 한 인증 흐름에서 하나의 가입 토큰만 원자적으로 생성합니다. 동시에 확인해도 같은 토큰을 반환하며, 가입 토큰은 10분 동안 유효하고 회원가입에서 `GETDEL`로 한 번만 소비됩니다. 오입력은 Redis hash에서 원자적으로 증가하며 5회째부터 흐름 만료 전까지 잠깁니다.
+
+```json
+{
+  "success": true,
+  "message": "휴대폰 인증이 완료되었습니다.",
+  "data": {
+    "phoneVerificationToken": "<one-time-token>",
+    "expiresInSeconds": 600
+  },
+  "error": null,
+  "timestamp": "2026-08-01T18:01:00"
+}
+```
+
+### 휴대폰 인증 오류 계약
+
+| 코드 | HTTP | 의미 |
+| --- | ---: | --- |
+| `AUTH_PHONE_NUMBER_DUPLICATED` | 409 | 이미 가입된 번호 |
+| `AUTH_PHONE_VERIFICATION_CODE_INVALID` | 400 | 5회 미만의 잘못된 인증번호 |
+| `AUTH_PHONE_VERIFICATION_TOKEN_INVALID` | 400 | 없거나 이미 소비된 가입 토큰 |
+| `AUTH_PHONE_VERIFICATION_EXPIRED` | 410 | 존재하지 않거나 만료된 인증 흐름 |
+| `AUTH_PHONE_VERIFICATION_RATE_LIMITED` | 429 | 재전송 또는 발송량 제한, `Retry-After` 포함 |
+| `AUTH_PHONE_VERIFICATION_ATTEMPTS_EXCEEDED` | 429 | 인증번호 5회 오입력 |
+| `AUTH_PHONE_VERIFICATION_UNAVAILABLE` | 503 | Redis 또는 SMS 발송 서비스 장애 |
 
 ### 로그인
 
@@ -178,11 +271,25 @@ Spring Security가 access token을 검증하고 `MemberPrincipal`을 주입하�
 
 ## 접근 제어
 
-- `/signup`, `/login`, `/refresh`, `/logout`은 인증 없이 호출할 수 있습니다.
+- `/phone-verifications`, `/phone-verifications/{verificationId}/confirm`, `/signup`, `/login`, `/refresh`, `/logout`은 인증 없이 호출할 수 있습니다.
 - `/me`는 Bearer access token이 필요합니다.
 - token, cookie, password 예시는 실제 값이 아닌 더미 값을 사용합니다.
 
+## 운영 설정
+
+- `SMS_PROVIDER=solapi`
+- `SOLAPI_API_KEY`, `SOLAPI_API_SECRET`, `SOLAPI_SENDER_NUMBER`
+- `PHONE_VERIFICATION_HASH_SECRET` (32바이트 이상 별도 랜덤 비밀값)
+- `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`
+
+운영 Redis는 외부 포트를 열지 않고 64MB `noeviction`, 비영속 구성으로 실행합니다. 애플리케이션에서 KST 일 20건·월 200건으로 전체 발송량을 제한하고, SOLAPI 자동충전은 사용하지 않으며 필요한 선불 잔액만 유지합니다. 개인 계정에 본인 명의 발신번호를 등록하면 사용자 SMS에 그 번호가 표시되고, 문자 본인인증으로 등록한 번호는 6개월마다 갱신합니다. 인증번호·전화번호·IP·API secret은 로그에 기록하지 않고 발송 성공/실패·제한·인증 성공 여부만 기록합니다.
+
+운영 배포 전에는 SOLAPI 개인 계정, `message:write` 권한의 API key, 등록·갱신된 발신번호와 충전 잔액을 확인합니다. Redis와 Backend를 먼저 배포하고 Frontend를 즉시 배포하며, 배포 사이에는 신규 가입만 일시 실패할 수 있고 기존 로그인은 유지됩니다. 배포 후 실제 휴대폰으로 수신과 회원가입을 한 번 검증합니다.
+
+SOLAPI 연동 기준은 [발신번호 가이드](https://solapi.com/guides/senderid), [API Key 인증](https://solapi.com/developers/api/authentication-api-key), [메시지 발송 API](https://solapi.com/developers/api/messages)를 따릅니다.
+
 ## 이후 작업
 
-- SMS 인증 도입 시 `phone_verified` 전이 정책 추가
+- CAPTCHA 또는 별도 WAF가 필요할지 전체 일일 한도 소진 공격을 관측한 뒤 결정
+- PASS·카카오 본인인증처럼 실명·CI/DI가 필요한지 제품 요구가 생기면 별도 도입
 - 회원 탈퇴/정지 API가 생기면 refresh token 폐기 범위 정의

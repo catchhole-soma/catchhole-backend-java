@@ -10,7 +10,7 @@
 | JDK | JDK 21 |
 | Spring Boot | 4.0.6 |
 | Build Tool | Gradle |
-| Database | PostgreSQL 16 + pgvector 0.8.2 |
+| Database | PostgreSQL 16 + pgvector 0.8.2, Redis 7.4.10 |
 | Package | `org.monitoring` |
 
 ## 주요 종속성
@@ -20,6 +20,7 @@
 | Spring WebMVC | REST API 개발 |
 | Spring Security | 인증/인가 기반 |
 | Spring Data JPA | DB 연동 |
+| Spring Data Redis | 휴대폰 인증 TTL·원자적 rate limit·1회 토큰 저장 |
 | PostgreSQL Driver | PostgreSQL 연결 |
 | Flyway | PostgreSQL schema migration 관리 |
 | Validation | 요청값 검증 |
@@ -27,7 +28,7 @@
 | Lombok | 반복 코드 감소 |
 | DevTools | 로컬 개발 편의 |
 | Configuration Processor | 설정 자동완성 지원 |
-| Docker Compose Support | 로컬 DB 실행 연동 |
+| Docker Compose Support | 로컬 PostgreSQL·Redis 실행 연동 |
 
 ## 버전 선택 이유
 
@@ -53,3 +54,5 @@
 Spring Security가 포함되어 있어 초기 실행 시 기본 로그인 화면이나 `401 Unauthorized` 응답이 나올 수 있습니다. 이후 개발용 보안 설정을 추가할 예정입니다.
 
 DB schema 작성 규칙과 최초 운영 전환 절차는 [Database Migration](docs/database-migration.md)을 참고합니다.
+
+휴대폰 인증 API, Fake/SOLAPI provider와 Redis 정책은 [Auth Domain](docs/auth.md)을 참고합니다. 로컬은 `SMS_PROVIDER`가 없거나 `fake`이면 인증번호 `123456`을 사용하고, `solapi`이면 실제 SMS를 발송합니다. test/e2e는 항상 Fake provider를 사용하며 운영에서는 SOLAPI 설정이 필수입니다.
