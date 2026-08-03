@@ -29,7 +29,8 @@ src/main/resources/db/migration/
 ├── V10__add_analysis_batch_page_indexes.sql
 ├── V11__add_character_stat_pattern_schema.sql
 ├── V12__preserve_setting_candidate_source_content.sql
-└── V13__add_ai_token_quota.sql
+├── V13__add_ai_token_quota.sql
+└── V14__cascade_ai_token_history_cleanup.sql
 ```
 
 - 파일명은 `V{순번}__{snake_case_설명}.sql` 형식을 사용합니다.
@@ -167,6 +168,11 @@ V13은 AI 요청별 실제 토큰 사용량과 회원의 일회성 기본 사용
 - `ai_token_usages`는 Worker가 생성한 `request_id`를 기준으로 요청 목적, 재시도 차수, 모델, 예약량, 실제 input/cached input/output과 처리 결과를 기록합니다.
 - 원고 prompt와 LLM 응답 본문은 사용량 테이블에 저장하지 않습니다.
 - `(analysis_job_id, status)`와 `(member_id, created_at DESC)` 인덱스로 작업 합계와 회원 이력을 조회합니다.
+
+## V14 기준
+
+V14는 이미 적용된 V13을 수정하지 않고 AI 토큰 테이블 외래 키의 삭제 전파 정책을 추가합니다.
+
 - 회원 삭제 시 해당 회원의 계정·지급·사용 이력을 함께 삭제합니다.
 - 작품 또는 분석 작업 삭제 시 연결된 요청별 사용 이력을 함께 삭제합니다.
 
@@ -185,17 +191,18 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
 
 ## 로컬 검증
 
-V1~V12 적용 DB에 현재 Backend를 시작해 V13이 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V13이 순서대로 적용되는 경로를 각각 확인합니다.
+V1~V13 적용 DB에 현재 Backend를 시작해 V14가 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V14가 순서대로 적용되는 경로를 각각 확인합니다.
 
-- Flyway 로그에 V1부터 V13까지 적용 성공이 출력됩니다.
-- `flyway_schema_history`에 version 1부터 13까지 성공으로 기록됩니다.
+- Flyway 로그에 V1부터 V14까지 적용 성공이 출력됩니다.
+- `flyway_schema_history`에 version 1부터 14까지 성공으로 기록됩니다.
 - `vector` extension이 활성화됩니다.
 - `episode_chunks.embedding`이 `vector(1536)`으로 생성됩니다.
 - cosine HNSW 인덱스가 생성됩니다.
 - `character_setting_schemas`에 전역 seed 31개(`SYSTEM_SEED=16`, `DEV_SEED=15`)가 생성됩니다.
 - `stats.attribute`가 `stats.*`, `STAT`, `NUMBER`, `REPLACE` 정책으로 생성됩니다.
 - `setting_candidates.source_content_s3_key`가 nullable `VARCHAR(512)`로 생성됩니다.
-- `ai_token_accounts`, `ai_token_grants`, `ai_token_usages`가 생성되고 요청·회원 조회 인덱스와 삭제 정책이 적용됩니다.
+- V13에서 `ai_token_accounts`, `ai_token_grants`, `ai_token_usages`와 요청·회원 조회 인덱스가 생성됩니다.
+- V14에서 토큰 계정·지급·사용 이력의 회원·작품·분석 작업 삭제 전파 정책이 적용됩니다.
 - `character_facts.setting_candidate_id`와 FK·조회 인덱스가 생성됩니다.
 - `works.genre`가 enum 상수명으로 저장되고 `NOT NULL`·`chk_works_genre` 제약을 가집니다.
 - `works.description`이 기존 값의 앞 50자로 정규화되고 `VARCHAR(50)` 타입을 가집니다.
@@ -206,7 +213,7 @@ V1~V12 적용 DB에 현재 Backend를 시작해 V13이 추가 적용되는 경�
 - `idx_characters_work_status_created_id` 복합 인덱스가 생성됩니다.
 - `idx_analysis_jobs_work_batch_created`, `idx_setting_candidates_job_review` 인덱스가 생성됩니다.
 - Hibernate schema validation을 통과하고 Backend가 정상 시작됩니다.
-- Backend를 재시작해도 V1부터 V13까지 중복 적용되지 않습니다.
+- Backend를 재시작해도 V1부터 V14까지 중복 적용되지 않습니다.
 
 ## 최초 운영 전환
 
@@ -217,7 +224,7 @@ Flyway 도입 전에 JPA가 만든 운영 테스트 DB에는 `flyway_schema_hist
 1. 필요한 데이터가 없는지 확인하고 필요하면 `pg_dump`로 백업합니다.
 2. Backend와 AI Worker를 중지합니다.
 3. PostgreSQL 데이터 volume만 제거하고 빈 PostgreSQL 16 DB를 시작합니다.
-4. Backend를 시작해 Flyway V1~V13과 Hibernate validation 성공을 확인합니다.
+4. Backend를 시작해 Flyway V1~V14와 Hibernate validation 성공을 확인합니다.
 5. DB schema와 Swagger 기본 API를 확인한 뒤 AI Worker를 시작합니다.
 
 실제 사용자 데이터가 생긴 뒤에는 이 초기화 절차를 사용하지 않습니다. 기존 데이터를 보존하는 V2 이상의 `ALTER` migration과 사전 백업·롤백 계획을 별도로 작성합니다.
