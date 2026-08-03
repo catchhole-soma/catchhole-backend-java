@@ -54,7 +54,7 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService {
 
         try {
             smsSender.sendVerificationCode(phoneNumber, code);
-            log.info("Phone verification SMS send accepted.");
+            log.info("휴대폰 인증 SMS 발송 요청이 접수되었습니다.");
         } catch (AppException exception) {
             throw exception;
         } catch (RuntimeException exception) {
@@ -77,21 +77,21 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService {
                 signupToken
         );
         if (result.status() == CONFIRM_EXPIRED) {
-            log.info("Phone verification confirmation expired.");
+            log.info("휴대폰 인증 확인 흐름이 만료되었습니다.");
             throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_EXPIRED);
         }
         if (result.status() == CONFIRM_INVALID) {
-            log.info("Phone verification code rejected.");
+            log.info("휴대폰 인증번호가 일치하지 않습니다.");
             throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_CODE_INVALID);
         }
         if (result.status() == CONFIRM_ATTEMPTS_EXCEEDED) {
-            log.warn("Phone verification attempts exceeded.");
+            log.warn("휴대폰 인증번호 입력 가능 횟수를 초과했습니다.");
             throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_ATTEMPTS_EXCEEDED);
         }
         if (result.status() == CONFIRM_UNAVAILABLE) {
             throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_UNAVAILABLE);
         }
-        log.info("Phone verification confirmed.");
+        log.info("휴대폰 인증이 완료되었습니다.");
         return phoneVerificationMapper.toConfirmResponse(result);
     }
 

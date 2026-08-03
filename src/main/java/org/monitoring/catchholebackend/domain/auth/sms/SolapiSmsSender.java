@@ -69,15 +69,15 @@ public class SolapiSmsSender implements SmsSender {
                     HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)
             );
             if (!isAccepted(response)) {
-                log.warn("SOLAPI SMS request rejected. status={}", response.statusCode());
+                log.warn("SOLAPI SMS 발송 요청이 거절되었습니다. status={}", response.statusCode());
                 throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_UNAVAILABLE);
             }
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            log.warn("SOLAPI SMS request interrupted.");
+            log.warn("SOLAPI SMS 발송 요청이 중단되었습니다.");
             throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_UNAVAILABLE, exception);
         } catch (IOException exception) {
-            log.warn("SOLAPI SMS request failed.");
+            log.warn("SOLAPI SMS 발송 요청에 실패했습니다.");
             throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_UNAVAILABLE, exception);
         }
     }

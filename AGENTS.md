@@ -454,6 +454,7 @@ public class UserMapper {
 - DTO 성격의 단순 응답/요청 객체는 record 사용을 우선 고려한다.
 - enum 생성자와 단순 getter는 Lombok 어노테이션을 사용한다.
   - 예: `@Getter`, `@RequiredArgsConstructor`
+- 운영 로그의 사람이 읽는 문장은 한국어로 작성한다. `SOLAPI`, HTTP status, enum code 같은 기술 식별자는 그대로 사용할 수 있다.
 - 불필요한 추상화나 미래 대비용 확장 포인트를 만들지 않는다.
 - 주석은 복잡한 의도를 설명할 때만 짧게 작성한다.
 - Entity에서 nullable 여부가 전역/작품 범위 같은 도메인 의미를 갖거나, JSON·정책 컬럼의 저장 목적이 이름만으로 명확하지 않으면 필드 위에 한국어 주석으로 의미와 필요한 예시를 남긴다.

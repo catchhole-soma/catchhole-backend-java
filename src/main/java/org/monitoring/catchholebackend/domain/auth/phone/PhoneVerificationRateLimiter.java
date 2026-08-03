@@ -120,7 +120,7 @@ public class PhoneVerificationRateLimiter {
                 throw unavailable(null);
             }
             if (asLong(result.get(0)) == 0) {
-                log.warn("Phone verification request rate limited.");
+                log.warn("휴대폰 인증번호 발송 요청이 제한되었습니다.");
                 throw new AppException(
                         AuthErrorCode.AUTH_PHONE_VERIFICATION_RATE_LIMITED,
                         Math.max(1, asLong(result.get(1)))
