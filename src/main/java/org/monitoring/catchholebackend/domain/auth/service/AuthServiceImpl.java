@@ -31,21 +31,26 @@ public class AuthServiceImpl implements AuthService {
     private final RefreshTokenGenerator refreshTokenGenerator;
     private final TokenHashProvider tokenHashProvider;
     private final AuthProperties authProperties;
+    private final PhoneVerificationService phoneVerificationService;
 
     @Override
     @Transactional
     public AuthTokenIssueResult signup(AuthSignupRequest request) {
-        validateSignupUniqueness(request);
+        String phoneNumber = phoneVerificationService.getVerifiedPhoneNumber(request.phoneVerificationToken());
+        validateSignupUniqueness(request.email(), phoneNumber);
 
-        Member member = Member.register(
+        Member member = Member.registerPhoneVerified(
                 request.email(),
                 passwordEncoder.encode(request.password()),
-                request.phoneNumber(),
+                phoneNumber,
                 request.displayName()
         );
 
         Member savedMember = memberRepository.save(member);
-        return issueTokens(savedMember);
+        AuthTokenIssueResult result = issueTokens(savedMember);
+        memberRepository.flush();
+        phoneVerificationService.consumeSignupToken(request.phoneVerificationToken(), phoneNumber);
+        return result;
     }
 
     @Override
@@ -112,11 +117,11 @@ public class AuthServiceImpl implements AuthService {
         return new AuthTokenIssueResult(tokenResponse, refreshToken);
     }
 
-    private void validateSignupUniqueness(AuthSignupRequest request) {
-        if (memberRepository.existsByEmail(request.email())) {
+    private void validateSignupUniqueness(String email, String phoneNumber) {
+        if (memberRepository.existsByEmail(email)) {
             throw new AppException(AuthErrorCode.AUTH_EMAIL_DUPLICATED);
         }
-        if (memberRepository.existsByPhoneNumber(request.phoneNumber())) {
+        if (memberRepository.existsByPhoneNumber(phoneNumber)) {
             throw new AppException(AuthErrorCode.AUTH_PHONE_NUMBER_DUPLICATED);
         }
     }

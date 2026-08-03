@@ -47,7 +47,7 @@ public class AuthController {
     @Operation(
             operationId = "signup",
             summary = "회원가입",
-            description = "이메일, 비밀번호, 휴대폰 번호, 표시 이름으로 신규 회원을 생성합니다. "
+            description = "이메일, 비밀번호, 표시 이름과 휴대폰 인증 완료 토큰으로 신규 회원을 생성합니다. "
                     + "이메일과 휴대폰 번호는 각각 중복 가입을 허용하지 않습니다. "
                     + "가입 완료 후 액세스 토큰은 응답 body로, 리프레시 토큰은 HttpOnly 쿠키로 발급합니다."
     )
@@ -55,7 +55,7 @@ public class AuthController {
             @ApiResponse(responseCode = "200", description = "회원가입 성공"),
             @ApiResponse(
                     responseCode = "400",
-                    description = "요청 값 검증 실패",
+                    description = "요청 값 검증 실패 또는 유효하지 않은 휴대폰 인증 토큰",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
             ),
             @ApiResponse(

@@ -1,0 +1,110 @@
+package org.monitoring.catchholebackend.domain.auth.service;
+
+import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.domain.auth.dto.response.PhoneVerificationConfirmResponse;
+import org.monitoring.catchholebackend.domain.auth.dto.response.PhoneVerificationResponse;
+import org.monitoring.catchholebackend.domain.auth.exception.AuthErrorCode;
+import org.monitoring.catchholebackend.domain.auth.phone.PhoneVerificationCodeGenerator;
+import org.monitoring.catchholebackend.domain.auth.phone.PhoneVerificationHasher;
+import org.monitoring.catchholebackend.domain.auth.phone.PhoneVerificationRateLimiter;
+import org.monitoring.catchholebackend.domain.auth.phone.PhoneVerificationStore;
+import org.monitoring.catchholebackend.domain.auth.phone.PhoneVerificationTokenGenerator;
+import org.monitoring.catchholebackend.domain.auth.sms.SmsSender;
+import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
+import org.monitoring.catchholebackend.global.exception.AppException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+@Service
+@RequiredArgsConstructor
+public class PhoneVerificationServiceImpl implements PhoneVerificationService {
+
+    private static final Logger log = LoggerFactory.getLogger(PhoneVerificationServiceImpl.class);
+
+    private static final int CONFIRM_EXPIRED = 0;
+    private static final int CONFIRM_INVALID = -1;
+    private static final int CONFIRM_ATTEMPTS_EXCEEDED = -2;
+    private static final int CONFIRM_UNAVAILABLE = -3;
+
+    private final MemberRepository memberRepository;
+    private final PhoneVerificationHasher hasher;
+    private final PhoneVerificationRateLimiter rateLimiter;
+    private final PhoneVerificationStore store;
+    private final PhoneVerificationCodeGenerator codeGenerator;
+    private final PhoneVerificationTokenGenerator tokenGenerator;
+    private final SmsSender smsSender;
+
+    @Override
+    public PhoneVerificationResponse start(String phoneNumber, String clientIp) {
+        if (memberRepository.existsByPhoneNumber(phoneNumber)) {
+            throw new AppException(AuthErrorCode.AUTH_PHONE_NUMBER_DUPLICATED);
+        }
+
+        String phoneHash = hasher.identifier(phoneNumber);
+        String ipHash = hasher.identifier(clientIp == null ? "unknown" : clientIp);
+        rateLimiter.acquire(phoneHash, ipHash);
+
+        String verificationId = tokenGenerator.generate();
+        String code = codeGenerator.generate();
+        store.start(phoneHash, verificationId, phoneNumber, hasher.code(verificationId, code));
+
+        try {
+            smsSender.sendVerificationCode(phoneNumber, code);
+            log.info("Phone verification SMS send accepted.");
+        } catch (AppException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_UNAVAILABLE, exception);
+        }
+
+        return new PhoneVerificationResponse(
+                verificationId,
+                store.codeExpiration().toSeconds(),
+                store.resendInterval().toSeconds()
+        );
+    }
+
+    @Override
+    public PhoneVerificationConfirmResponse confirm(String verificationId, String code) {
+        String signupToken = tokenGenerator.generate();
+        PhoneVerificationStore.ConfirmationResult result = store.confirm(
+                verificationId,
+                hasher.code(verificationId, code),
+                signupToken
+        );
+        if (result.status() == CONFIRM_EXPIRED) {
+            log.info("Phone verification confirmation expired.");
+            throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_EXPIRED);
+        }
+        if (result.status() == CONFIRM_INVALID) {
+            log.info("Phone verification code rejected.");
+            throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_CODE_INVALID);
+        }
+        if (result.status() == CONFIRM_ATTEMPTS_EXCEEDED) {
+            log.warn("Phone verification attempts exceeded.");
+            throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_ATTEMPTS_EXCEEDED);
+        }
+        if (result.status() == CONFIRM_UNAVAILABLE) {
+            throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_UNAVAILABLE);
+        }
+        log.info("Phone verification confirmed.");
+        return new PhoneVerificationConfirmResponse(result.token(), result.expiresInSeconds());
+    }
+
+    @Override
+    public String getVerifiedPhoneNumber(String signupToken) {
+        String phoneNumber = store.findPhoneNumber(signupToken);
+        if (phoneNumber == null) {
+            throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_TOKEN_INVALID);
+        }
+        return phoneNumber;
+    }
+
+    @Override
+    public void consumeSignupToken(String signupToken, String expectedPhoneNumber) {
+        if (!store.consume(signupToken, expectedPhoneNumber)) {
+            throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_TOKEN_INVALID);
+        }
+    }
+}

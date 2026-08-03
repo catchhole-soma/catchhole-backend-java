@@ -6,7 +6,7 @@ import org.monitoring.catchholebackend.domain.auth.dto.request.AuthSignupRequest
 public interface AuthService {
 
     /**
-     * 회원가입 요청의 이메일과 휴대폰 번호 중복을 검증하고 새 회원을 등록한다.
+     * 회원가입 요청의 휴대폰 인증 토큰에서 번호를 조회하고 이메일과 번호 중복을 검증해 새 회원을 등록한다.
      * 비밀번호는 해시로 저장하며, 가입 완료 후 access token과 refresh token을 발급한다.
      */
     AuthTokenIssueResult signup(AuthSignupRequest request);

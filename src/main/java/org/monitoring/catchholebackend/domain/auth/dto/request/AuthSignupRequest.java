@@ -19,14 +19,13 @@ public record AuthSignupRequest(
         @Pattern(regexp = "^(?=.*[A-Za-z])(?=.*\\d).*$", message = "비밀번호는 영문과 숫자를 각각 하나 이상 포함해야 합니다.")
         String password,
 
-        @Schema(description = "하이픈 없이 010으로 시작하는 11자리 휴대폰 번호", example = "01012345678")
-        @NotBlank(message = "휴대폰 번호는 필수입니다.")
-        @Pattern(regexp = "^010\\d{8}$", message = "휴대폰 번호는 하이픈 없이 010으로 시작하는 11자리 숫자여야 합니다.")
-        String phoneNumber,
-
         @Schema(description = "서비스 화면에 표시할 사용자 이름", example = "장은호")
         @NotBlank(message = "표시 이름은 필수입니다.")
         @Size(max = 20, message = "표시 이름은 20자 이하로 입력해주세요.")
-        String displayName
+        String displayName,
+
+        @Schema(description = "휴대폰 인증 완료 후 발급된 1회용 회원가입 토큰", example = "4Kd7...Q2")
+        @NotBlank(message = "휴대폰 인증 토큰은 필수입니다.")
+        String phoneVerificationToken
 ) {
 }
