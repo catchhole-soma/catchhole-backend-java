@@ -16,6 +16,7 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(controllers = GlobalExceptionHandlerTestController.class)
@@ -75,6 +76,13 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.error.code").value("CONFLICT"))
                 .andExpect(jsonPath("$.error.status").value(409))
                 .andExpect(jsonPath("$.timestamp", notNullValue()));
+    }
+
+    @Test
+    void rateLimitedBusinessExceptionAddsRetryAfterHeader() throws Exception {
+        mockMvc.perform(get("/test/rate-limited"))
+                .andExpect(status().isConflict())
+                .andExpect(header().string("Retry-After", "37"));
     }
 
     @Test

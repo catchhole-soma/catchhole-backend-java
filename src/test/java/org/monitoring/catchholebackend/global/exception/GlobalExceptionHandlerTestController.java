@@ -34,6 +34,11 @@ class GlobalExceptionHandlerTestController {
         throw new AppException(CommonErrorCode.CONFLICT, "이미 사용 중인 이메일입니다.");
     }
 
+    @GetMapping("/rate-limited")
+    CommonResponse<Void> rateLimited() {
+        throw new AppException(CommonErrorCode.CONFLICT, 37L);
+    }
+
     @GetMapping("/upload-too-large")
     CommonResponse<Void> uploadTooLarge() {
         throw new MaxUploadSizeExceededException(10L * 1024 * 1024);

@@ -40,7 +40,6 @@ public class Member extends BaseEntity {
     @Column(name = "phone_number", nullable = false, length = 20)
     private String phoneNumber;
 
-    //핸드폰 인증 여부 회원가입시에 전화번호 인증을 받아야 회원가입이 가능
     @Column(name = "phone_verified", nullable = false)
     private boolean phoneVerified;
 
@@ -63,6 +62,7 @@ public class Member extends BaseEntity {
             String email,
             String passwordHash,
             String phoneNumber,
+            boolean phoneVerified,
             String displayName,
             String profileImageUrl
     ) {
@@ -71,7 +71,7 @@ public class Member extends BaseEntity {
         this.phoneNumber = phoneNumber;
         this.displayName = displayName;
         this.profileImageUrl = profileImageUrl;
-        this.phoneVerified = false;
+        this.phoneVerified = phoneVerified;
         this.status = MemberStatus.ACTIVE;
         this.role = MemberRole.AUTHOR;
     }
@@ -82,7 +82,16 @@ public class Member extends BaseEntity {
             String phoneNumber,
             String displayName
     ) {
-        return new Member(email, passwordHash, phoneNumber, displayName, null);
+        return new Member(email, passwordHash, phoneNumber, false, displayName, null);
+    }
+
+    public static Member registerPhoneVerified(
+            String email,
+            String passwordHash,
+            String phoneNumber,
+            String displayName
+    ) {
+        return new Member(email, passwordHash, phoneNumber, true, displayName, null);
     }
 
     public void validateActive() {

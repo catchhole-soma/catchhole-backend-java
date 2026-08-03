@@ -1,6 +1,6 @@
 # CatchHole Production Compose
 
-EC2 단일 서버에서 Caddy, Spring Backend, Python AI Worker, PostgreSQL을 Docker Compose로 실행한다.
+EC2 단일 서버에서 Caddy, Spring Backend, Python AI Worker, PostgreSQL, Redis를 Docker Compose로 실행한다.
 
 PostgreSQL은 로컬과 운영 모두 `pgvector/pgvector:0.8.2-pg16` 이미지를 사용한다. 이 이미지는 pgvector extension 파일을 제공하며, 실제 `CREATE EXTENSION vector`와 vector 컬럼 생성은 Flyway migration에서 관리한다.
 
@@ -16,6 +16,26 @@ PostgreSQL은 로컬과 운영 모두 `pgvector/pgvector:0.8.2-pg16` 이미지�
 ```
 
 `.env`는 `deploy/.env.example`을 기준으로 서버에서 직접 작성하고 커밋하지 않는다.
+
+## 휴대폰 인증과 Redis
+
+운영 Backend는 SOLAPI와 내부 Redis를 사용한다. `.env`에 다음 값을 설정한다.
+
+```dotenv
+SMS_PROVIDER=solapi
+SOLAPI_API_KEY=replace-with-solapi-api-key
+SOLAPI_API_SECRET=replace-with-solapi-api-secret
+SOLAPI_SENDER_NUMBER=replace-with-registered-sender-number
+PHONE_VERIFICATION_HASH_SECRET=replace-with-at-least-32-byte-random-secret
+REDIS_PASSWORD=replace-with-strong-redis-password
+```
+
+- SOLAPI 개인 계정에서 본인 명의 발신번호를 사전 등록한다. 개인 번호가 사용자 SMS에 표시되며 문자 본인인증으로 등록한 번호는 6개월마다 갱신한다.
+- SOLAPI API key에는 `message:write` 권한을 부여하고 API secret은 로그·이미지·저장소에 남기지 않는다.
+- SOLAPI 자동충전은 사용하지 않고 필요한 선불 잔액만 유지한다. 전체 KST 일 20건·월 200건 상한은 Redis rate limit으로 적용한다.
+- Redis는 호스트 포트를 공개하지 않고 64MB `noeviction`, 비영속으로 실행한다. 재시작 시 진행 중 인증이 초기화된다.
+- `PHONE_VERIFICATION_HASH_SECRET`은 JWT·Redis 비밀번호와 분리한 32바이트 이상 랜덤 값으로 유지한다.
+- 운영에서 `SMS_PROVIDER=fake`를 설정하면 Backend가 시작되지 않는다.
 
 ## 운영 시간대
 
@@ -56,15 +76,17 @@ docker compose --env-file .env -f compose.prod.yml ps
 시간대 반영은 컨테이너 재시작이 아니라 재생성이 필요하다.
 
 ```bash
-docker compose --env-file .env -f compose.prod.yml up -d --force-recreate backend ai-worker postgres
+docker compose --env-file .env -f compose.prod.yml up -d --force-recreate redis backend ai-worker postgres
 docker compose --env-file .env -f compose.prod.yml exec backend date
 docker compose --env-file .env -f compose.prod.yml exec ai-worker date
 docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv EMBEDDING_GENERATION_ENABLED
 docker compose --env-file .env -f compose.prod.yml exec postgres \
   sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SHOW timezone; SELECT CURRENT_TIMESTAMP;"'
+docker compose --env-file .env -f compose.prod.yml exec redis \
+  sh -lc 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli ping'
 ```
 
-Backend 컨테이너가 시작될 때 Flyway가 미적용 migration을 먼저 실행하고, 이후 Hibernate가 JPA Entity와 schema 일치 여부를 `validate`한다. AI Worker의 SQLAlchemy 모델은 schema를 생성하지 않고 Flyway가 만든 테이블을 사용한다.
+Backend 컨테이너가 시작될 때 Flyway가 미적용 migration을 먼저 실행하고, 이후 Hibernate가 JPA Entity와 schema 일치 여부를 `validate`한다. AI Worker의 SQLAlchemy 모델은 schema를 생성하지 않고 Flyway가 만든 테이블을 사용한다. Redis와 Backend를 먼저 올린 다음 Frontend를 즉시 배포하고, 실제 휴대폰으로 SMS 수신과 회원가입을 1회 확인한다.
 
 ## 기존 테스트 DB의 최초 V1 전환
 

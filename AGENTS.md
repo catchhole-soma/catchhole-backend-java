@@ -46,6 +46,10 @@
 - 로컬과 운영 PostgreSQL schema의 단일 변경 주체는 Flyway다. JPA `ddl-auto`는 `validate`로 두어 Entity와 migration 결과의 일치 여부만 검사하며, 공유 환경에서 `update`나 `create-drop`으로 schema를 변경하지 않는다.
 - 운영 JWT 서명키는 `JWT_SECRET` 환경변수로 주입한다. 최소 32바이트 이상이어야 하며, 로그/응답/테스트 실패 메시지에 노출하지 않는다.
 - 운영 Worker 내부 API key는 `INTERNAL_API_KEY` 환경변수로 주입한다. 로컬 기본값은 개발 편의를 위한 값이며 운영에서는 반드시 별도 secret을 사용한다.
+- 운영 휴대폰 인증은 `SMS_PROVIDER=solapi`와 `SOLAPI_API_KEY`, `SOLAPI_API_SECRET`, `SOLAPI_SENDER_NUMBER`를 사용한다. local은 `SMS_PROVIDER`가 없거나 `fake`이면 인증번호 `123456`을 쓰고, `solapi`이면 실제 SMS를 발송한다. test/e2e는 항상 Fake provider를 사용하며, prod에서 Fake provider를 선택하면 기동을 실패시킨다.
+- `PHONE_VERIFICATION_HASH_SECRET`은 JWT secret과 분리한 최소 32바이트 값으로 주입하고 인증번호·전화번호·IP HMAC에만 사용한다. 원문 인증번호·전화번호·IP·SOLAPI API secret은 로그에 남기지 않는다.
+- SOLAPI 자동충전은 사용하지 않고 Redis의 전체 KST 일 20건·월 200건 제한과 선불 충전 잔액으로 SMS 비용 상한을 관리한다.
+- 운영 Redis는 `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`로 연결한다. Redis 장애 시 SMS를 보내지 않는 fail-closed 정책을 유지한다.
 - 로컬 실행 시 `application.yml`이 `apps/CatchHole-Backend/.env`를 optional import한다. AWS/S3 같은 로컬 비밀값은 `.env`에 둘 수 있지만, `.env`는 커밋하지 않는다.
 - E2E는 `SPRING_PROFILES_ACTIVE=e2e`로 활성화하고 운영에서는 사용하지 않는다. 이 프로파일에서만 `LocalFileObjectStorage`를 사용하며 `storage.local.root` 기본값은 `${java.io.tmpdir}/catchhole-e2e-storage`, 명시적 override는 `CATCHHOLE_E2E_STORAGE_ROOT`로 둔다.
 - 새로운 설정 키를 추가할 때는 base / local / prod 각 위치를 의식적으로 결정한다.
@@ -72,6 +76,7 @@
 - 로컬과 운영 PostgreSQL은 `pgvector/pgvector:0.8.2-pg16` 이미지로 통일한다. `latest`나 major version만 지정한 가변 태그를 사용하지 않고 PostgreSQL/pgvector 버전을 함께 고정해 로컬·운영의 vector extension 실행 환경을 일치시킨다.
 - 단일 EC2 운영 배포 파일은 `deploy/` 아래에 둔다. `compose.prod.yml`, `Caddyfile`, `.env.example`을 기준으로 서버의 `/opt/catchhole`에 배치하되, 실제 `.env`는 서버에만 두고 커밋하지 않는다.
 - 운영 PostgreSQL의 호스트 포트는 `127.0.0.1:5432`에만 바인딩한다. SSH 터널 기반 운영 점검은 허용하되 EC2 외부에 데이터베이스 포트를 직접 노출하지 않기 위함이다.
+- 로컬과 운영 Redis는 `redis:7.4.10-alpine3.21`로 고정한다. 운영 Redis는 호스트 포트를 열지 않고 비밀번호, 64MB `noeviction`, 비영속 정책을 유지한다. 휴대폰 인증 데이터는 모두 단기 상태이므로 재시작 시 초기화를 허용한다.
 - `main` 브랜치에 push되면 `.github/workflows/publish-image.yml`이 GHCR에 `ghcr.io/catchhole-soma/catchhole-backend-java:main`과 short SHA 태그를 발행한다.
 
 ### Package Structure
@@ -131,6 +136,7 @@ org.monitoring.catchholebackend
     │   ├── auth
     │   ├── cors
     │   ├── jpa
+    │   ├── phoneverification
     │   ├── security
     │   └── swagger
     ├── exception
@@ -197,7 +203,7 @@ domain/<domain>
   - 예: `UserErrorCode` (`USER_NOT_FOUND`, `USER_EMAIL_DUPLICATED`)
 - 여러 도메인에서 공통으로 쓰는 enum은 `global.common` 아래에 둔다.
 - 사용자 계정 도메인은 `member`로 명명한다. Java 도메인은 `Member`, DB 테이블은 `members`, FK는 `member_id`를 사용한다.
-- 인증 흐름은 `auth` 도메인에 둔다. JWT 발급/검증, refresh token 발급/폐기, 인증 쿠키 생성은 `domain/auth` 아래에서 관리한다.
+- 인증 흐름은 `auth` 도메인에 둔다. JWT 발급/검증, refresh token 발급/폐기, 인증 쿠키, 휴대폰 인증 Redis 흐름과 SMS port/adapter는 `domain/auth` 아래에서 관리한다.
 
 #### Auth and Token Policy
 
@@ -206,7 +212,11 @@ domain/<domain>
 - Refresh token 원문은 저장하지 않는다. `refresh_tokens.token_hash`에 SHA-256 해시만 저장하고, 재발급 시 기존 token은 `revoked_at`으로 폐기한 뒤 새 token을 저장한다.
 - Refresh token은 `HttpOnly` 쿠키로 전달한다. 쿠키 path는 `/api/v1/auth`, SameSite 기본값은 `Lax`, 운영 환경에서는 `Secure=true`를 사용한다.
 - 회원가입과 로그인은 access token을 응답 body로, refresh token을 HttpOnly 쿠키로 함께 발급한다. 회원가입 후 별도 로그인 요청을 요구하지 않는다.
-- 회원가입 시 휴대폰 번호는 하이픈 없는 `010` 시작 11자리 숫자로 받고, `members.phone_number`에 unique로 저장한다. SMS 인증은 별도 기능에서 구현하며, 현재는 `phone_verified=false` 기본값을 유지한다.
+- 인증번호 발송 API에서만 하이픈 없는 `010` 시작 11자리 전화번호를 받고, 회원가입 요청에서는 전화번호를 받지 않는다. 회원가입은 10분 TTL의 1회용 `phoneVerificationToken`에서 번호를 조회해 `members.phone_number`에 unique로 저장하고 `phone_verified=true`로 생성한다. 기존 `phone_verified=false` 회원의 로그인은 허용한다.
+- 인증번호는 HMAC으로 Redis에 5분, 재전송 대기는 60초, 오입력은 5회, 가입 토큰은 10분으로 고정한다. 재전송은 이전 인증 흐름을 폐기하고 가장 최근 번호만 유효하게 한다.
+- 발송 제한은 Redis Lua에서 확인과 증가를 원자 처리한다. 전화번호는 1시간 5건·KST 하루 10건, IP는 1시간 10건·KST 하루 20건, 전체는 KST 하루 20건·월 200건이다. 429 제한 응답에는 `Retry-After`를 포함한다.
+- 회원가입은 회원과 refresh token을 DB에 flush한 뒤 Redis `GETDEL`로 가입 토큰을 소비한다. 소비 실패 시 DB 트랜잭션을 rollback하고 이메일·전화번호 unique 제약을 최종 동시성 방어선으로 유지한다.
+- SOLAPI SMS 요청은 자동 재시도하지 않는다. timeout 뒤 실제 발송 여부를 알 수 없어 중복 SMS와 비용이 발생할 수 있기 때문이다.
 - 회원가입 표시 이름은 20자 이하, 비밀번호는 8~64자이면서 영문과 숫자를 각각 하나 이상 포함하도록 검증한다. 프론트 검증과 OpenAPI schema도 같은 제약을 사용한다.
 
 #### Work Domain Policy
@@ -318,6 +328,7 @@ domain/<domain>
   - 같은 `service/` 패키지에 함께 둔다 (flat 구조).
 - 구현체는 `@Service`를 붙이고, 의존성은 `@RequiredArgsConstructor`로 생성자 주입한다.
 - Controller는 interface에만 의존한다 (`UserService`를 주입받고 `UserServiceImpl`을 직접 참조하지 않는다).
+- Service와 Controller의 유스케이스 메서드는 `createWork`, `confirmSettingCandidate`, `sendPhoneVerificationCode`처럼 동작과 대상을 함께 드러낸다. 클래스 문맥만으로 의미를 추론해야 하는 `start`, `confirm`, `process` 같은 단독 이름은 피한다.
 - 트랜잭션 어노테이션(`@Transactional`)은 **구현체**에 붙인다.
 - 읽기 전용 메서드는 클래스 레벨 `@Transactional(readOnly = true)` 후 쓰기 메서드에 `@Transactional`을 덮어쓴다.
 - 구현체가 길어질 때는 전체 유스케이스의 소유권은 Service에 남기되, 파싱/업로드 처리/외부 저장소 조작 같은 세부 흐름은 `parser`, `mapper`, 도메인 전용 processor, `global` 컴포넌트로 분리한다.
@@ -444,6 +455,7 @@ public class UserMapper {
 - DTO 성격의 단순 응답/요청 객체는 record 사용을 우선 고려한다.
 - enum 생성자와 단순 getter는 Lombok 어노테이션을 사용한다.
   - 예: `@Getter`, `@RequiredArgsConstructor`
+- 운영 로그의 사람이 읽는 문장은 한국어로 작성한다. `SOLAPI`, HTTP status, enum code 같은 기술 식별자는 그대로 사용할 수 있다.
 - 불필요한 추상화나 미래 대비용 확장 포인트를 만들지 않는다.
 - 주석은 복잡한 의도를 설명할 때만 짧게 작성한다.
 - Entity에서 nullable 여부가 전역/작품 범위 같은 도메인 의미를 갖거나, JSON·정책 컬럼의 저장 목적이 이름만으로 명확하지 않으면 필드 위에 한국어 주석으로 의미와 필요한 예시를 남긴다.
@@ -551,3 +563,4 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - API 인증/인가, 요청/응답 JSON, Repository 쿼리, JPA 매핑처럼 프레임워크 경계가 중요한 흐름은 MockMvc 또는 JPA 통합 테스트로 검증한다.
 - API 응답 규약을 바꾸면 MockMvc 테스트도 함께 갱신한다.
 - DB 설정이 필요한 통합 테스트는 `test` profile의 H2 인메모리 DB를 기본으로 사용한다.
+- 휴대폰 인증의 TTL, Lua rate limit 경계, 이전 코드 폐기, 오입력 잠금과 동시 토큰 소비는 `redis:7.4.10-alpine3.21` Testcontainers 통합 테스트로 검증한다.

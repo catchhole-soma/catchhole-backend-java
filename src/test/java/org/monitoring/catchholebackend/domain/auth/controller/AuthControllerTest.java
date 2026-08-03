@@ -38,8 +38,8 @@ class AuthControllerTest {
         AuthSignupRequest request = new AuthSignupRequest(
                 "writer@example.com",
                 "password123",
-                "01012345678",
-                "작가"
+                "작가",
+                "phone-verification-token"
         );
         AuthTokenResponse tokenResponse = AuthTokenResponse.bearer("access-token", 1800L);
         when(authService.signup(request))

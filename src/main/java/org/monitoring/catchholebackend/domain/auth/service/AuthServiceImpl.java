@@ -7,6 +7,7 @@ import org.monitoring.catchholebackend.domain.auth.dto.request.AuthSignupRequest
 import org.monitoring.catchholebackend.domain.auth.dto.response.AuthTokenResponse;
 import org.monitoring.catchholebackend.domain.auth.entity.RefreshToken;
 import org.monitoring.catchholebackend.domain.auth.exception.AuthErrorCode;
+import org.monitoring.catchholebackend.domain.auth.mapper.AuthMapper;
 import org.monitoring.catchholebackend.domain.auth.repository.RefreshTokenRepository;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.auth.token.RefreshTokenGenerator;
@@ -31,21 +32,29 @@ public class AuthServiceImpl implements AuthService {
     private final RefreshTokenGenerator refreshTokenGenerator;
     private final TokenHashProvider tokenHashProvider;
     private final AuthProperties authProperties;
+    private final PhoneVerificationService phoneVerificationService;
+    private final AuthMapper authMapper;
 
     @Override
     @Transactional
     public AuthTokenIssueResult signup(AuthSignupRequest request) {
-        validateSignupUniqueness(request);
+        String phoneNumber = phoneVerificationService.getVerifiedPhoneNumberBySignupToken(
+                request.phoneVerificationToken()
+        );
+        validateSignupUniqueness(request.email(), phoneNumber);
 
-        Member member = Member.register(
-                request.email(),
+        Member member = authMapper.toEntity(
+                request,
                 passwordEncoder.encode(request.password()),
-                request.phoneNumber(),
-                request.displayName()
+                phoneNumber
         );
 
         Member savedMember = memberRepository.save(member);
-        return issueTokens(savedMember);
+        AuthTokenIssueResult result = issueTokens(savedMember);
+        // Redis 토큰 소비 실패가 회원·refresh token 저장까지 롤백되도록 같은 트랜잭션 안에서 먼저 flush한다.
+        memberRepository.flush();
+        phoneVerificationService.consumeSignupToken(request.phoneVerificationToken(), phoneNumber);
+        return result;
     }
 
     @Override
@@ -112,11 +121,11 @@ public class AuthServiceImpl implements AuthService {
         return new AuthTokenIssueResult(tokenResponse, refreshToken);
     }
 
-    private void validateSignupUniqueness(AuthSignupRequest request) {
-        if (memberRepository.existsByEmail(request.email())) {
+    private void validateSignupUniqueness(String email, String phoneNumber) {
+        if (memberRepository.existsByEmail(email)) {
             throw new AppException(AuthErrorCode.AUTH_EMAIL_DUPLICATED);
         }
-        if (memberRepository.existsByPhoneNumber(request.phoneNumber())) {
+        if (memberRepository.existsByPhoneNumber(phoneNumber)) {
             throw new AppException(AuthErrorCode.AUTH_PHONE_NUMBER_DUPLICATED);
         }
     }

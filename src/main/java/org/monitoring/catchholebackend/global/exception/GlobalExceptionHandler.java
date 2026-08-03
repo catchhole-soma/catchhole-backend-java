@@ -8,6 +8,7 @@ import org.monitoring.catchholebackend.global.common.response.CommonResponse;
 import org.monitoring.catchholebackend.global.common.response.ErrorResponse;
 import org.monitoring.catchholebackend.global.common.response.FieldErrorResponse;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -22,7 +23,14 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(AppException.class)
     public ResponseEntity<CommonResponse<Void>> handleAppException(AppException exception) {
-        return buildErrorResponse(exception.getResultCode(), exception.getMessage(), List.of());
+        ResponseEntity<CommonResponse<Void>> response =
+                buildErrorResponse(exception.getResultCode(), exception.getMessage(), List.of());
+        if (exception.getRetryAfterSeconds() == null) {
+            return response;
+        }
+        return ResponseEntity.status(response.getStatusCode())
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(exception.getRetryAfterSeconds()))
+                .body(response.getBody());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

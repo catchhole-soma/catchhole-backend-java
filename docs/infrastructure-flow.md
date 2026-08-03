@@ -19,8 +19,9 @@ AWS Console에서 수동으로 만든 리소스는 저장소만으로 확인할 
 - Spring Backend
 - Python AI Worker
 - PostgreSQL 16 + pgvector
+- Redis 7.4.10 (휴대폰 인증 단기 상태, 비영속)
 
-프론트엔드는 Vercel에 별도로 배포하고, 회차 원문과 업로드 파일은 AWS S3에 저장합니다. Backend와 AI 이미지는 GHCR에 발행하며, GitHub Actions는 AWS Systems Manager Run Command를 사용해 EC2의 Compose 배포를 실행합니다.
+프론트엔드는 Vercel에 별도로 배포하고, 회차 원문과 업로드 파일은 AWS S3에 저장합니다. 휴대폰 인증 SMS는 SOLAPI로 발송합니다. Backend와 AI 이미지는 GHCR에 발행하며, GitHub Actions는 AWS Systems Manager Run Command를 사용해 EC2의 Compose 배포를 실행합니다.
 
 ```mermaid
 flowchart LR
@@ -28,6 +29,7 @@ flowchart LR
     VERCEL["Vercel<br/>React 프론트"]
     DNS["API 도메인 DNS<br/>제공자 확인 필요"]
     OPENAI["OpenAI API<br/>LLM·Embedding"]
+    SOLAPI["SOLAPI<br/>휴대폰 인증 SMS"]
     S3["AWS S3<br/>원문·업로드 파일"]
     REPOSITORIES["Backend·AI GitHub 저장소<br/>main push"]
     ACTIONS["GitHub Actions<br/>이미지 발행·배포 제어"]
@@ -42,6 +44,7 @@ flowchart LR
                 SPRING["Spring Backend"]
                 WORKER["Python AI Worker"]
                 POSTGRES["PostgreSQL 16 + pgvector<br/>Docker Volume"]
+                REDIS["Redis 7.4.10<br/>64MB·noeviction·비영속"]
             end
 
             ENV["/opt/catchhole/.env<br/>운영 설정·비밀값"]
@@ -54,6 +57,8 @@ flowchart LR
     CADDY -->|"backend:8080"| SPRING
 
     SPRING -->|"도메인·AnalysisJob 저장"| POSTGRES
+    SPRING -->|"인증번호·가입 토큰·발송 제한"| REDIS
+    SPRING -->|"자동 재시도 없는 SMS 요청"| SOLAPI
     SPRING -->|"원문·업로드 파일 저장/조회"| S3
 
     WORKER -->|"Job claim·진행·완료·실패 보고"| SPRING
@@ -64,6 +69,7 @@ flowchart LR
     ENV -.-> SPRING
     ENV -.-> WORKER
     ENV -.-> POSTGRES
+    ENV -.-> REDIS
 
     REPOSITORIES -->|"Workflow 실행"| ACTIONS
     ACTIONS -->|"Image push"| GHCR
@@ -81,6 +87,8 @@ flowchart LR
 5. Spring Backend가 인증, 작품·회차·업로드·분석 작업 같은 사용자-facing API를 처리합니다.
 6. 구조화된 도메인 데이터와 `AnalysisJob` 상태는 EC2 내부 PostgreSQL 컨테이너에 저장합니다.
 7. 회차 원문과 업로드 파일은 S3에 저장하고 DB에는 S3 key, version, hash 같은 메타데이터만 저장합니다.
+
+신규 가입은 Spring이 Redis에서 전화번호·IP·전체 발송량을 원자적으로 제한하고 SOLAPI로 SMS를 한 번 요청한 뒤, 확인된 1회용 가입 토큰에서 전화번호를 조회해 처리합니다. Redis 장애 시 SMS를 보내지 않으며 Redis 재시작 시 진행 중 인증은 초기화됩니다. 기존 로그인·refresh token 흐름은 PostgreSQL을 사용하므로 유지됩니다.
 
 Vercel은 Backend 요청을 중계하는 서버가 아닙니다. 브라우저가 Vercel과 Backend API에 각각 요청합니다.
 
@@ -137,7 +145,7 @@ flowchart LR
 | 위치 | 저장 대상 |
 | --- | --- |
 | GitHub Secrets | AWS 배포 role/access key, EC2 instance ID, AI 저장소의 Backend dispatch token |
-| EC2 `/opt/catchhole/.env` | DB 비밀번호, JWT secret, 내부 API key, LLM API key, 운영 이미지·도메인·공통 `APP_TIMEZONE`, AI 임베딩 생성 flag 설정 |
+| EC2 `/opt/catchhole/.env` | DB·Redis 비밀번호, JWT·휴대폰 인증 HMAC secret, SOLAPI API 자격 증명·발신번호, 내부 API key, LLM API key, 운영 이미지·도메인·공통 `APP_TIMEZONE`, AI 임베딩 생성 flag 설정 |
 | EC2 IAM Role | SSM managed node 등록과 S3 접근 권한 |
 
 AWS Secrets Manager 또는 Systems Manager Parameter Store에서 애플리케이션 비밀값을 읽는 구성은 아직 없습니다.
@@ -151,6 +159,8 @@ AWS Secrets Manager 또는 Systems Manager Parameter Store에서 애플리케이
 | Docker Compose | 구현됨 | `deploy/compose.prod.yml` |
 | Caddy | 구현됨 | `deploy/Caddyfile` |
 | PostgreSQL + pgvector | 구현됨 | EC2의 Compose 컨테이너와 named volume |
+| Redis | 구현됨 | EC2 Compose 내부 전용, 64MB `noeviction`, 비영속 |
+| SOLAPI | 애플리케이션 연동 구현됨 | 개인 계정·API key·등록 발신번호·선불 잔액을 준비하고 애플리케이션의 일 20건·월 200건 제한을 배포 전 확인 |
 | AWS S3 | 애플리케이션 연동 구현됨 | Spring AWS SDK, Python boto3 |
 | GHCR | 구현됨 | Backend·AI 이미지 발행 Workflow |
 | GitHub Actions | 구현됨 | 테스트, 이미지 발행, EC2 배포 |
@@ -174,6 +184,8 @@ AWS Secrets Manager 또는 Systems Manager Parameter Store에서 애플리케이
 - DNS, 네트워크, IAM, S3 정책 같은 인프라 상태가 IaC로 재현되지 않습니다.
 - `main` 이미지 태그 배포는 현재 실행 버전 식별과 즉시 rollback을 어렵게 합니다.
 - Worker가 종료되면 `RUNNING` Job을 자동 회수하는 lease·heartbeat 정책이 아직 없습니다.
+- CAPTCHA가 없어 공격자가 휴대폰 인증 전체 일일 한도 20건을 소진할 수 있습니다.
+- Redis 재시작 시 진행 중 휴대폰 인증과 아직 소비하지 않은 가입 토큰이 초기화됩니다.
 
 ## 2. 발전 방향(To-Be, 선택지 검토 중)
 
