@@ -88,10 +88,10 @@ POST /api/internal/v1/ai-token-usages/{requestId}/release
 
 | 변수 | 기본값 | 의미 |
 | --- | --- | --- |
-| `AI_TOKEN_DEFAULT_GRANT` | `1000000` | 계정 최초 조회 또는 분석 시작 시 한 번 지급할 기본량 |
+| `AI_TOKEN_DEFAULT_GRANT` | `2000000` | 계정 최초 조회 또는 분석 시작 시 한 번 지급할 기본량 |
 | `AI_TOKEN_CONTACT_EMAIL` | `aicatchhole@gmail.com` | 한도 소진 안내에 표시할 피드백 연락처 |
 
-기본 지급량을 바꿔도 이미 생성된 계정은 소급 변경하지 않습니다.
+기본 지급량을 바꿔도 이미 생성된 계정은 소급 변경하지 않습니다. 기존 회원도 200만 token 정책을 적용하려면 운영 추가 지급 절차로 차액 100만 token을 한 번 지급하고 `MANUAL` 이력을 남깁니다.
 
 ## 운영 추가 지급
 

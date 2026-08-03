@@ -551,7 +551,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
                                   "purpose": "CHUNK_EMBEDDING",
                                   "attempt": 1,
                                   "modelName": "text-embedding-3-small",
-                                  "reservedTokens": 1000001
+                                  "reservedTokens": 2000001
                                 }
                                 """.formatted(UUID.randomUUID(), analysisJob.getId())))
                 .andExpect(status().isConflict())

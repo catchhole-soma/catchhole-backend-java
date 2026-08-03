@@ -64,6 +64,29 @@ EMBEDDING_GENERATION_ENABLED=false
 
 오류 리포트나 RAG 검색에서 pgvector가 필요해지면 값을 `true`로 바꾸고 AI Worker를 재생성한다. 이 설정은 이후 생성되는 신규 분석·재분석 청크에만 적용되며 기존 `NULL` 임베딩을 자동 backfill하지 않는다. 과거 원문 벡터가 필요하면 대상 회차의 재분석 Job을 생성하거나 별도 범위 제한 backfill 작업을 먼저 준비한다.
 
+## AI 모델과 기본 토큰 지급량
+
+운영 모델, 추론 강도, 신규 회원의 기본 토큰 지급량은 서버의 `/opt/catchhole/.env`에서 관리한다.
+
+```dotenv
+LLM_MODEL=gpt-5.6-terra
+LLM_REASONING_EFFORT=none
+AI_TOKEN_DEFAULT_GRANT=2000000
+```
+
+`LLM_REASONING_EFFORT=none`은 설정 추출의 구조화 응답 품질을 별도로 검증하면서 GPT-5.6의 기본 추론 비용이 자동으로 추가되지 않게 하는 MVP 기준값이다. 모델 품질 평가 후 필요하면 `low` 이상으로 올린다.
+
+`AI_TOKEN_DEFAULT_GRANT`는 설정 변경 후 처음 생성되는 토큰 계정에만 적용된다. 기존 회원에게도 정책 차액을 지급할 때는 `docs/ai-token-usage.md`의 운영 추가 지급 절차를 사용해 계정 합계와 지급 이력을 같은 transaction에서 갱신한다.
+
+값을 바꾼 뒤에는 관련 컨테이너를 재생성하고 실제 주입값을 확인한다.
+
+```bash
+docker compose --env-file .env -f compose.prod.yml up -d --force-recreate backend ai-worker
+docker compose --env-file .env -f compose.prod.yml exec backend printenv AI_TOKEN_DEFAULT_GRANT
+docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv LLM_MODEL
+docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv LLM_REASONING_EFFORT
+```
+
 ## 실행
 
 ```bash
