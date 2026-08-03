@@ -46,8 +46,8 @@ class PhoneVerificationRedisIntegrationTest {
     private static LettuceConnectionFactory connectionFactory;
     private static StringRedisTemplate redisTemplate;
 
-    private PhoneVerificationStore store;
-    private PhoneVerificationRateLimiter rateLimiter;
+    private PhoneVerificationStore phoneVerificationStore;
+    private PhoneVerificationRateLimiter phoneVerificationRateLimiter;
 
     @BeforeAll
     static void connect() {
@@ -78,61 +78,118 @@ class PhoneVerificationRedisIntegrationTest {
                 Duration.ofMinutes(10),
                 5
         );
-        store = new PhoneVerificationStore(redisTemplate, properties);
-        rateLimiter = new PhoneVerificationRateLimiter(redisTemplate, Clock.systemUTC(), properties);
+        phoneVerificationStore = new PhoneVerificationStore(redisTemplate, properties);
+        phoneVerificationRateLimiter = new PhoneVerificationRateLimiter(
+                redisTemplate,
+                Clock.systemUTC(),
+                properties
+        );
     }
 
     @Test
     @DisplayName("인증번호와 가입 토큰 TTL을 적용하고 가입 토큰을 한 번만 소비한다")
     void appliesTtlAndConsumesSignupTokenOnce() {
-        store.start("phone-hash", "verification-id", "01012345678", "code-hash");
+        phoneVerificationStore.replaceActiveVerificationFlow(
+                "phone-hash",
+                "verification-id",
+                "01012345678",
+                "code-hash"
+        );
         Long flowTtl = redisTemplate.getExpire("phone-verification:flow:verification-id");
 
         PhoneVerificationStore.ConfirmationResult confirmation =
-                store.confirm("verification-id", "code-hash", "signup-token");
+                phoneVerificationStore.confirmVerificationCodeAndIssueSignupToken(
+                        "verification-id",
+                        "code-hash",
+                        "signup-token"
+                );
         Long tokenTtl = redisTemplate.getExpire("phone-verification:signup-token:signup-token");
 
         assertThat(flowTtl).isBetween(298L, 300L);
         assertThat(confirmation.status()).isEqualTo(1);
         assertThat(confirmation.expiresInSeconds()).isEqualTo(600);
         assertThat(tokenTtl).isBetween(598L, 600L);
-        assertThat(store.consume("signup-token", "01012345678")).isTrue();
-        assertThat(store.consume("signup-token", "01012345678")).isFalse();
+        assertThat(phoneVerificationStore.consumeSignupToken("signup-token", "01012345678")).isTrue();
+        assertThat(phoneVerificationStore.consumeSignupToken("signup-token", "01012345678")).isFalse();
     }
 
     @Test
     @DisplayName("재전송은 이전 인증 흐름을 즉시 폐기한다")
     void resendInvalidatesPreviousCode() {
-        store.start("phone-hash", "old-id", "01012345678", "old-code-hash");
-        store.start("phone-hash", "new-id", "01012345678", "new-code-hash");
+        phoneVerificationStore.replaceActiveVerificationFlow(
+                "phone-hash",
+                "old-id",
+                "01012345678",
+                "old-code-hash"
+        );
+        phoneVerificationStore.replaceActiveVerificationFlow(
+                "phone-hash",
+                "new-id",
+                "01012345678",
+                "new-code-hash"
+        );
 
-        assertThat(store.confirm("old-id", "old-code-hash", "old-token").status()).isZero();
-        assertThat(store.confirm("new-id", "new-code-hash", "new-token").status()).isEqualTo(1);
+        assertThat(phoneVerificationStore.confirmVerificationCodeAndIssueSignupToken(
+                "old-id",
+                "old-code-hash",
+                "old-token"
+        ).status()).isZero();
+        assertThat(phoneVerificationStore.confirmVerificationCodeAndIssueSignupToken(
+                "new-id",
+                "new-code-hash",
+                "new-token"
+        ).status()).isEqualTo(1);
     }
 
     @Test
     @DisplayName("인증번호를 5회 틀리면 잠그고 이후 올바른 번호도 거부한다")
     void locksAfterFiveInvalidAttempts() {
-        store.start("phone-hash", "verification-id", "01012345678", "correct-hash");
+        phoneVerificationStore.replaceActiveVerificationFlow(
+                "phone-hash",
+                "verification-id",
+                "01012345678",
+                "correct-hash"
+        );
 
         for (int attempt = 1; attempt <= 4; attempt++) {
-            assertThat(store.confirm("verification-id", "wrong-hash", "token-" + attempt).status())
+            assertThat(phoneVerificationStore.confirmVerificationCodeAndIssueSignupToken(
+                    "verification-id",
+                    "wrong-hash",
+                    "token-" + attempt
+            ).status())
                     .isEqualTo(-1);
         }
-        assertThat(store.confirm("verification-id", "wrong-hash", "token-5").status()).isEqualTo(-2);
-        assertThat(store.confirm("verification-id", "correct-hash", "token-correct").status()).isEqualTo(-2);
+        assertThat(phoneVerificationStore.confirmVerificationCodeAndIssueSignupToken(
+                "verification-id",
+                "wrong-hash",
+                "token-5"
+        ).status()).isEqualTo(-2);
+        assertThat(phoneVerificationStore.confirmVerificationCodeAndIssueSignupToken(
+                "verification-id",
+                "correct-hash",
+                "token-correct"
+        ).status()).isEqualTo(-2);
     }
 
     @Test
     @DisplayName("동시에 같은 인증번호를 확인해도 하나의 가입 토큰만 발급한다")
     void concurrentConfirmationIssuesOneToken() throws Exception {
-        store.start("phone-hash", "verification-id", "01012345678", "correct-hash");
+        phoneVerificationStore.replaceActiveVerificationFlow(
+                "phone-hash",
+                "verification-id",
+                "01012345678",
+                "correct-hash"
+        );
         ExecutorService executor = Executors.newFixedThreadPool(8);
         try {
             List<Callable<PhoneVerificationStore.ConfirmationResult>> tasks = new ArrayList<>();
             for (int index = 0; index < 16; index++) {
                 String candidate = "signup-token-" + index;
-                tasks.add(() -> store.confirm("verification-id", "correct-hash", candidate));
+                tasks.add(() -> phoneVerificationStore.confirmVerificationCodeAndIssueSignupToken(
+                        "verification-id",
+                        "correct-hash",
+                        candidate
+                ));
             }
             List<Future<PhoneVerificationStore.ConfirmationResult>> futures = executor.invokeAll(tasks);
             Set<String> issuedTokens = new HashSet<>();
@@ -150,9 +207,9 @@ class PhoneVerificationRedisIntegrationTest {
     @Test
     @DisplayName("60초 재전송 대기 제한은 Retry-After를 반환한다")
     void resendCooldownReturnsRetryAfter() {
-        rateLimiter.acquire("phone-hash", "ip-hash");
+        phoneVerificationRateLimiter.acquireSendPermit("phone-hash", "ip-hash");
 
-        assertThatThrownBy(() -> rateLimiter.acquire("phone-hash", "ip-hash"))
+        assertThatThrownBy(() -> phoneVerificationRateLimiter.acquireSendPermit("phone-hash", "ip-hash"))
                 .isInstanceOf(AppException.class)
                 .satisfies(exception -> {
                     AppException appException = (AppException) exception;
@@ -166,36 +223,36 @@ class PhoneVerificationRedisIntegrationTest {
     @DisplayName("전화번호 시간당 5건과 하루 10건 경계에서 차단한다")
     void enforcesPhoneLimits() {
         for (int index = 0; index < 5; index++) {
-            rateLimiter.acquire("phone-hash", "ip-" + index);
+            phoneVerificationRateLimiter.acquireSendPermit("phone-hash", "ip-" + index);
             deleteCooldown("phone-hash");
         }
-        assertRateLimited(() -> rateLimiter.acquire("phone-hash", "ip-next"));
+        assertRateLimited(() -> phoneVerificationRateLimiter.acquireSendPermit("phone-hash", "ip-next"));
 
         clearKeys("phone-verification:rate:phone:hour:*");
         for (int index = 5; index < 10; index++) {
-            rateLimiter.acquire("phone-hash", "ip-" + index);
+            phoneVerificationRateLimiter.acquireSendPermit("phone-hash", "ip-" + index);
             deleteCooldown("phone-hash");
             clearKeys("phone-verification:rate:phone:hour:*");
         }
-        assertRateLimited(() -> rateLimiter.acquire("phone-hash", "ip-last"));
+        assertRateLimited(() -> phoneVerificationRateLimiter.acquireSendPermit("phone-hash", "ip-last"));
     }
 
     @Test
     @DisplayName("IP 시간당 10건과 하루 20건 경계에서 차단한다")
     void enforcesIpLimits() {
         for (int index = 0; index < 10; index++) {
-            rateLimiter.acquire("phone-" + index, "ip-hash");
+            phoneVerificationRateLimiter.acquireSendPermit("phone-" + index, "ip-hash");
             deleteCooldown("phone-" + index);
         }
-        assertRateLimited(() -> rateLimiter.acquire("phone-hour-last", "ip-hash"));
+        assertRateLimited(() -> phoneVerificationRateLimiter.acquireSendPermit("phone-hour-last", "ip-hash"));
 
         clearKeys("phone-verification:rate:ip:hour:*");
         for (int index = 10; index < 20; index++) {
-            rateLimiter.acquire("phone-" + index, "ip-hash");
+            phoneVerificationRateLimiter.acquireSendPermit("phone-" + index, "ip-hash");
             deleteCooldown("phone-" + index);
             clearKeys("phone-verification:rate:ip:hour:*");
         }
-        assertRateLimited(() -> rateLimiter.acquire("phone-day-last", "ip-hash"));
+        assertRateLimited(() -> phoneVerificationRateLimiter.acquireSendPermit("phone-day-last", "ip-hash"));
     }
 
     @Test
@@ -204,11 +261,11 @@ class PhoneVerificationRedisIntegrationTest {
         String date = LocalDate.now(KST).toString();
         String month = YearMonth.now(KST).toString();
         redisTemplate.opsForValue().set("phone-verification:rate:global:day:" + date, "20", Duration.ofHours(1));
-        assertRateLimited(() -> rateLimiter.acquire("phone-day", "ip-day"));
+        assertRateLimited(() -> phoneVerificationRateLimiter.acquireSendPermit("phone-day", "ip-day"));
 
         redisTemplate.delete("phone-verification:rate:global:day:" + date);
         redisTemplate.opsForValue().set("phone-verification:rate:global:month:" + month, "200", Duration.ofHours(1));
-        assertRateLimited(() -> rateLimiter.acquire("phone-month", "ip-month"));
+        assertRateLimited(() -> phoneVerificationRateLimiter.acquireSendPermit("phone-month", "ip-month"));
     }
 
     private void assertRateLimited(org.assertj.core.api.ThrowableAssert.ThrowingCallable callable) {

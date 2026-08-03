@@ -328,6 +328,7 @@ domain/<domain>
   - 같은 `service/` 패키지에 함께 둔다 (flat 구조).
 - 구현체는 `@Service`를 붙이고, 의존성은 `@RequiredArgsConstructor`로 생성자 주입한다.
 - Controller는 interface에만 의존한다 (`UserService`를 주입받고 `UserServiceImpl`을 직접 참조하지 않는다).
+- Service와 Controller의 유스케이스 메서드는 `createWork`, `confirmSettingCandidate`, `sendPhoneVerificationCode`처럼 동작과 대상을 함께 드러낸다. 클래스 문맥만으로 의미를 추론해야 하는 `start`, `confirm`, `process` 같은 단독 이름은 피한다.
 - 트랜잭션 어노테이션(`@Transactional`)은 **구현체**에 붙인다.
 - 읽기 전용 메서드는 클래스 레벨 `@Transactional(readOnly = true)` 후 쓰기 메서드에 `@Transactional`을 덮어쓴다.
 - 구현체가 길어질 때는 전체 유스케이스의 소유권은 Service에 남기되, 파싱/업로드 처리/외부 저장소 조작 같은 세부 흐름은 `parser`, `mapper`, 도메인 전용 processor, `global` 컴포넌트로 분리한다.

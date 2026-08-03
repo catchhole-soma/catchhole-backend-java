@@ -38,7 +38,9 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public AuthTokenIssueResult signup(AuthSignupRequest request) {
-        String phoneNumber = phoneVerificationService.getVerifiedPhoneNumber(request.phoneVerificationToken());
+        String phoneNumber = phoneVerificationService.getVerifiedPhoneNumberBySignupToken(
+                request.phoneVerificationToken()
+        );
         validateSignupUniqueness(request.email(), phoneNumber);
 
         Member member = authMapper.toEntity(

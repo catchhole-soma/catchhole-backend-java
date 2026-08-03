@@ -17,15 +17,15 @@ public class PhoneVerificationHasher {
         this.secret = properties.hashSecret().getBytes(StandardCharsets.UTF_8);
     }
 
-    public String identifier(String value) {
-        return hmac("identifier:" + value);
+    public String hashIdentifier(String value) {
+        return generateHmac("identifier:" + value);
     }
 
-    public String code(String verificationId, String code) {
-        return hmac("code:" + verificationId + ":" + code);
+    public String hashVerificationCode(String verificationId, String verificationCode) {
+        return generateHmac("code:" + verificationId + ":" + verificationCode);
     }
 
-    private String hmac(String value) {
+    private String generateHmac(String value) {
         try {
             Mac mac = Mac.getInstance(HMAC_SHA_256);
             mac.init(new SecretKeySpec(secret, HMAC_SHA_256));

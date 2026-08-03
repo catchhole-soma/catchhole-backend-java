@@ -30,19 +30,19 @@ class PhoneVerificationServiceImplTest {
     private MemberRepository memberRepository;
 
     @Mock
-    private PhoneVerificationHasher hasher;
+    private PhoneVerificationHasher phoneVerificationHasher;
 
     @Mock
-    private PhoneVerificationRateLimiter rateLimiter;
+    private PhoneVerificationRateLimiter phoneVerificationRateLimiter;
 
     @Mock
-    private PhoneVerificationStore store;
+    private PhoneVerificationStore phoneVerificationStore;
 
     @Mock
-    private PhoneVerificationCodeGenerator codeGenerator;
+    private PhoneVerificationCodeGenerator phoneVerificationCodeGenerator;
 
     @Mock
-    private PhoneVerificationTokenGenerator tokenGenerator;
+    private PhoneVerificationTokenGenerator phoneVerificationTokenGenerator;
 
     @Mock
     private SmsSender smsSender;
@@ -51,24 +51,24 @@ class PhoneVerificationServiceImplTest {
     private PhoneVerificationMapper phoneVerificationMapper;
 
     @InjectMocks
-    private PhoneVerificationServiceImpl service;
+    private PhoneVerificationServiceImpl phoneVerificationService;
 
     @Test
     @DisplayName("Redis 발송 제한 확인이 실패하면 인증 흐름을 만들거나 SMS를 보내지 않는다")
     void redisFailurePreventsSmsSend() {
         String phoneNumber = "01012345678";
         when(memberRepository.existsByPhoneNumber(phoneNumber)).thenReturn(false);
-        when(hasher.identifier(phoneNumber)).thenReturn("phone-hash");
-        when(hasher.identifier("127.0.0.1")).thenReturn("ip-hash");
+        when(phoneVerificationHasher.hashIdentifier(phoneNumber)).thenReturn("phone-hash");
+        when(phoneVerificationHasher.hashIdentifier("127.0.0.1")).thenReturn("ip-hash");
         doThrow(new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_UNAVAILABLE))
-                .when(rateLimiter)
-                .acquire("phone-hash", "ip-hash");
+                .when(phoneVerificationRateLimiter)
+                .acquireSendPermit("phone-hash", "ip-hash");
 
-        assertThatThrownBy(() -> service.start(phoneNumber, "127.0.0.1"))
+        assertThatThrownBy(() -> phoneVerificationService.sendPhoneVerificationCode(phoneNumber, "127.0.0.1"))
                 .isInstanceOf(AppException.class)
                 .extracting("resultCode")
                 .isEqualTo(AuthErrorCode.AUTH_PHONE_VERIFICATION_UNAVAILABLE);
 
-        verifyNoInteractions(store, smsSender);
+        verifyNoInteractions(phoneVerificationStore, smsSender);
     }
 }

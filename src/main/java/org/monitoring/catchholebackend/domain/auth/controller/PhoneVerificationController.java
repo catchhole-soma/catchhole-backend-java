@@ -62,11 +62,11 @@ public class PhoneVerificationController {
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
             )
     })
-    public CommonResponse<PhoneVerificationSendResponse> requestVerification(
+    public CommonResponse<PhoneVerificationSendResponse> requestPhoneVerification(
             @Valid @RequestBody PhoneVerificationSendRequest request,
             @Parameter(hidden = true) HttpServletRequest servletRequest
     ) {
-        PhoneVerificationSendResponse response = phoneVerificationService.start(
+        PhoneVerificationSendResponse response = phoneVerificationService.sendPhoneVerificationCode(
                 request.phoneNumber(),
                 servletRequest.getRemoteAddr()
         );
@@ -102,13 +102,13 @@ public class PhoneVerificationController {
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
             )
     })
-    public CommonResponse<PhoneVerificationConfirmResponse> confirmVerification(
+    public CommonResponse<PhoneVerificationConfirmResponse> confirmPhoneVerification(
             @PathVariable String verificationId,
             @Valid @RequestBody PhoneVerificationConfirmRequest request
     ) {
         return CommonResponse.success(
                 "휴대폰 인증이 완료되었습니다.",
-                phoneVerificationService.confirm(verificationId, request.code())
+                phoneVerificationService.confirmPhoneVerificationCode(verificationId, request.code())
         );
     }
 }

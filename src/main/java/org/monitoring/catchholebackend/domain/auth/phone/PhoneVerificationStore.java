@@ -22,7 +22,7 @@ public class PhoneVerificationStore {
     private static final String TOKEN_PREFIX = "phone-verification:signup-token:";
 
     // 같은 전화번호의 이전 흐름 삭제와 새 흐름 등록을 한 Redis 연산으로 처리한다.
-    private static final DefaultRedisScript<Long> START_SCRIPT = new DefaultRedisScript<>("""
+    private static final DefaultRedisScript<Long> REPLACE_ACTIVE_FLOW_SCRIPT = new DefaultRedisScript<>("""
             local previousId = redis.call('GET', KEYS[1])
             if previousId then redis.call('DEL', ARGV[1] .. previousId) end
             redis.call('HSET', KEYS[2],
@@ -36,7 +36,7 @@ public class PhoneVerificationStore {
             """, Long.class);
 
     // 상태값: 0 만료, -1 불일치, -2 시도 초과, -3 토큰 충돌, 1 신규 발급, 2 기존 토큰 재사용.
-    private static final DefaultRedisScript<List> CONFIRM_SCRIPT = new DefaultRedisScript<>("""
+    private static final DefaultRedisScript<List> CONFIRM_CODE_AND_ISSUE_TOKEN_SCRIPT = new DefaultRedisScript<>("""
             if redis.call('EXISTS', KEYS[1]) == 0 then return {0, '', 0} end
 
             local attempts = tonumber(redis.call('HGET', KEYS[1], 'attempts') or '0')
@@ -74,10 +74,15 @@ public class PhoneVerificationStore {
         this.properties = properties;
     }
 
-    public void start(String phoneHash, String verificationId, String phoneNumber, String codeHash) {
+    public void replaceActiveVerificationFlow(
+            String phoneHash,
+            String verificationId,
+            String phoneNumber,
+            String codeHash
+    ) {
         try {
             Long result = redisTemplate.execute(
-                    START_SCRIPT,
+                    REPLACE_ACTIVE_FLOW_SCRIPT,
                     List.of(ACTIVE_PREFIX + phoneHash, FLOW_PREFIX + verificationId),
                     FLOW_PREFIX,
                     phoneNumber,
@@ -95,10 +100,14 @@ public class PhoneVerificationStore {
         }
     }
 
-    public ConfirmationResult confirm(String verificationId, String codeHash, String signupToken) {
+    public ConfirmationResult confirmVerificationCodeAndIssueSignupToken(
+            String verificationId,
+            String codeHash,
+            String signupToken
+    ) {
         try {
             List<?> result = redisTemplate.execute(
-                    CONFIRM_SCRIPT,
+                    CONFIRM_CODE_AND_ISSUE_TOKEN_SCRIPT,
                     List.of(FLOW_PREFIX + verificationId, TOKEN_PREFIX + signupToken),
                     codeHash,
                     Integer.toString(properties.maxAttempts()),
@@ -118,7 +127,7 @@ public class PhoneVerificationStore {
         }
     }
 
-    public String findPhoneNumber(String signupToken) {
+    public String findPhoneNumberBySignupToken(String signupToken) {
         try {
             return redisTemplate.opsForValue().get(TOKEN_PREFIX + signupToken);
         } catch (DataAccessException exception) {
@@ -126,7 +135,7 @@ public class PhoneVerificationStore {
         }
     }
 
-    public boolean consume(String signupToken, String expectedPhoneNumber) {
+    public boolean consumeSignupToken(String signupToken, String expectedPhoneNumber) {
         try {
             // GETDEL로 조회와 삭제를 원자 처리해 동일 토큰의 동시 회원가입 성공을 하나로 제한한다.
             String phoneNumber = redisTemplate.opsForValue().getAndDelete(TOKEN_PREFIX + signupToken);

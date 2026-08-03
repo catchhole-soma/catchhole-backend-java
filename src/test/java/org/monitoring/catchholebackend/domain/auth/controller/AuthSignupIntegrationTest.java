@@ -50,7 +50,9 @@ class AuthSignupIntegrationTest {
     @DisplayName("회원가입 요청은 회원과 refresh token을 DB에 저장하고 인증 응답을 반환한다")
     void signupPersistsMemberAndRefreshTokenAndReturnsAuthentication() throws Exception {
         long refreshTokenCountBefore = refreshTokenRepository.count();
-        org.mockito.Mockito.when(phoneVerificationService.getVerifiedPhoneNumber("phone-verification-token"))
+        org.mockito.Mockito.when(
+                        phoneVerificationService.getVerifiedPhoneNumberBySignupToken("phone-verification-token")
+                )
                 .thenReturn("01055556666");
 
         mockMvc.perform(post("/api/v1/auth/signup")

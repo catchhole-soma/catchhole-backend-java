@@ -30,30 +30,35 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService {
     private static final int CONFIRM_UNAVAILABLE = -3;
 
     private final MemberRepository memberRepository;
-    private final PhoneVerificationHasher hasher;
-    private final PhoneVerificationRateLimiter rateLimiter;
-    private final PhoneVerificationStore store;
-    private final PhoneVerificationCodeGenerator codeGenerator;
-    private final PhoneVerificationTokenGenerator tokenGenerator;
+    private final PhoneVerificationHasher phoneVerificationHasher;
+    private final PhoneVerificationRateLimiter phoneVerificationRateLimiter;
+    private final PhoneVerificationStore phoneVerificationStore;
+    private final PhoneVerificationCodeGenerator phoneVerificationCodeGenerator;
+    private final PhoneVerificationTokenGenerator phoneVerificationTokenGenerator;
     private final SmsSender smsSender;
     private final PhoneVerificationMapper phoneVerificationMapper;
 
     @Override
-    public PhoneVerificationSendResponse start(String phoneNumber, String clientIp) {
+    public PhoneVerificationSendResponse sendPhoneVerificationCode(String phoneNumber, String clientIp) {
         if (memberRepository.existsByPhoneNumber(phoneNumber)) {
             throw new AppException(AuthErrorCode.AUTH_PHONE_NUMBER_DUPLICATED);
         }
 
-        String phoneHash = hasher.identifier(phoneNumber);
-        String ipHash = hasher.identifier(clientIp == null ? "unknown" : clientIp);
-        rateLimiter.acquire(phoneHash, ipHash);
+        String phoneHash = phoneVerificationHasher.hashIdentifier(phoneNumber);
+        String ipHash = phoneVerificationHasher.hashIdentifier(clientIp == null ? "unknown" : clientIp);
+        phoneVerificationRateLimiter.acquireSendPermit(phoneHash, ipHash);
 
-        String verificationId = tokenGenerator.generate();
-        String code = codeGenerator.generate();
-        store.start(phoneHash, verificationId, phoneNumber, hasher.code(verificationId, code));
+        String verificationId = phoneVerificationTokenGenerator.generate();
+        String verificationCode = phoneVerificationCodeGenerator.generate();
+        phoneVerificationStore.replaceActiveVerificationFlow(
+                phoneHash,
+                verificationId,
+                phoneNumber,
+                phoneVerificationHasher.hashVerificationCode(verificationId, verificationCode)
+        );
 
         try {
-            smsSender.sendVerificationCode(phoneNumber, code);
+            smsSender.sendVerificationCode(phoneNumber, verificationCode);
             log.info("휴대폰 인증 SMS 발송 요청이 접수되었습니다.");
         } catch (AppException exception) {
             throw exception;
@@ -63,41 +68,45 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService {
 
         return phoneVerificationMapper.toSendResponse(
                 verificationId,
-                store.codeExpiration(),
-                store.resendInterval()
+                phoneVerificationStore.codeExpiration(),
+                phoneVerificationStore.resendInterval()
         );
     }
 
     @Override
-    public PhoneVerificationConfirmResponse confirm(String verificationId, String code) {
-        String signupToken = tokenGenerator.generate();
-        PhoneVerificationStore.ConfirmationResult result = store.confirm(
-                verificationId,
-                hasher.code(verificationId, code),
-                signupToken
-        );
-        if (result.status() == CONFIRM_EXPIRED) {
+    public PhoneVerificationConfirmResponse confirmPhoneVerificationCode(
+            String verificationId,
+            String verificationCode
+    ) {
+        String signupToken = phoneVerificationTokenGenerator.generate();
+        PhoneVerificationStore.ConfirmationResult confirmationResult =
+                phoneVerificationStore.confirmVerificationCodeAndIssueSignupToken(
+                        verificationId,
+                        phoneVerificationHasher.hashVerificationCode(verificationId, verificationCode),
+                        signupToken
+                );
+        if (confirmationResult.status() == CONFIRM_EXPIRED) {
             log.info("휴대폰 인증 확인 흐름이 만료되었습니다.");
             throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_EXPIRED);
         }
-        if (result.status() == CONFIRM_INVALID) {
+        if (confirmationResult.status() == CONFIRM_INVALID) {
             log.info("휴대폰 인증번호가 일치하지 않습니다.");
             throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_CODE_INVALID);
         }
-        if (result.status() == CONFIRM_ATTEMPTS_EXCEEDED) {
+        if (confirmationResult.status() == CONFIRM_ATTEMPTS_EXCEEDED) {
             log.warn("휴대폰 인증번호 입력 가능 횟수를 초과했습니다.");
             throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_ATTEMPTS_EXCEEDED);
         }
-        if (result.status() == CONFIRM_UNAVAILABLE) {
+        if (confirmationResult.status() == CONFIRM_UNAVAILABLE) {
             throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_UNAVAILABLE);
         }
         log.info("휴대폰 인증이 완료되었습니다.");
-        return phoneVerificationMapper.toConfirmResponse(result);
+        return phoneVerificationMapper.toConfirmResponse(confirmationResult);
     }
 
     @Override
-    public String getVerifiedPhoneNumber(String signupToken) {
-        String phoneNumber = store.findPhoneNumber(signupToken);
+    public String getVerifiedPhoneNumberBySignupToken(String signupToken) {
+        String phoneNumber = phoneVerificationStore.findPhoneNumberBySignupToken(signupToken);
         if (phoneNumber == null) {
             throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_TOKEN_INVALID);
         }
@@ -106,7 +115,7 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService {
 
     @Override
     public void consumeSignupToken(String signupToken, String expectedPhoneNumber) {
-        if (!store.consume(signupToken, expectedPhoneNumber)) {
+        if (!phoneVerificationStore.consumeSignupToken(signupToken, expectedPhoneNumber)) {
             throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_TOKEN_INVALID);
         }
     }

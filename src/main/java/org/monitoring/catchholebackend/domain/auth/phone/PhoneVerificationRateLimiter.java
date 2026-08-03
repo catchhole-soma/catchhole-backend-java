@@ -37,7 +37,7 @@ public class PhoneVerificationRateLimiter {
     private static final int GLOBAL_MONTHLY_LIMIT = 200;
 
     // 반환값은 {획득 여부(1/0), 제한 해제까지 남은 초}이며 제한 시 어떤 카운터도 증가시키지 않는다.
-    private static final DefaultRedisScript<List> ACQUIRE_SCRIPT = new DefaultRedisScript<>("""
+    private static final DefaultRedisScript<List> ACQUIRE_SEND_PERMIT_SCRIPT = new DefaultRedisScript<>("""
             local retryAfter = 0
             if redis.call('EXISTS', KEYS[1]) == 1 then
                 local cooldownTtl = redis.call('PTTL', KEYS[1])
@@ -83,7 +83,7 @@ public class PhoneVerificationRateLimiter {
         this.properties = properties;
     }
 
-    public void acquire(String phoneHash, String ipHash) {
+    public void acquireSendPermit(String phoneHash, String ipHash) {
         Instant now = clock.instant();
         ZonedDateTime nowKst = now.atZone(KST);
         LocalDate date = nowKst.toLocalDate();
@@ -112,7 +112,7 @@ public class PhoneVerificationRateLimiter {
 
         try {
             List<?> result = redisTemplate.execute(
-                    ACQUIRE_SCRIPT,
+                    ACQUIRE_SEND_PERMIT_SCRIPT,
                     keys,
                     arguments.toArray()
             );

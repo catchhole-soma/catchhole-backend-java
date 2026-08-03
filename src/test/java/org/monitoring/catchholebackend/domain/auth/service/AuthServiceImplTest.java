@@ -90,7 +90,7 @@ class AuthServiceImplTest {
                 "phone-verification-token"
         );
         Member savedMember = verifiedMember("writer@example.com", "encoded-password", "01012345678", "작가");
-        when(phoneVerificationService.getVerifiedPhoneNumber(request.phoneVerificationToken()))
+        when(phoneVerificationService.getVerifiedPhoneNumberBySignupToken(request.phoneVerificationToken()))
                 .thenReturn("01012345678");
         when(memberRepository.existsByEmail(request.email())).thenReturn(false);
         when(memberRepository.existsByPhoneNumber("01012345678")).thenReturn(false);
@@ -125,7 +125,7 @@ class AuthServiceImplTest {
                 "작가",
                 "phone-verification-token"
         );
-        when(phoneVerificationService.getVerifiedPhoneNumber(request.phoneVerificationToken()))
+        when(phoneVerificationService.getVerifiedPhoneNumberBySignupToken(request.phoneVerificationToken()))
                 .thenReturn("01012345678");
         when(memberRepository.existsByEmail(request.email())).thenReturn(true);
 
