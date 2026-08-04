@@ -247,7 +247,7 @@ Request body는 선택입니다.
 
 ```json
 {
-  "modelName": "gpt-4.1-mini",
+  "modelName": "gpt-5.6-terra",
   "currentStep": "원문 청킹"
 }
 ```
@@ -266,7 +266,7 @@ claim할 작업이 있으면 가장 오래된 `PENDING` 작업 하나를 `RUNNIN
     "workId": "01970c2e-7e6d-7000-8e5d-2a9bc4b6d444",
     "workTitle": "내 작품",
     "batchId": "01970c2e-7e6d-7000-8e5d-2a9bc4b6d111",
-    "modelName": "gpt-4.1-mini",
+    "modelName": "gpt-5.6-terra",
     "currentStep": "원문 청킹",
     "characterSettingSchemas": [
       {

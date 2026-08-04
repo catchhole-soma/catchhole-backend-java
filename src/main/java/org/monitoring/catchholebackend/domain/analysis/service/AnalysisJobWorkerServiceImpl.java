@@ -14,6 +14,7 @@ import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErro
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisJobWorkerMapper;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
@@ -39,6 +40,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     private final WorkCharacterRepository workCharacterRepository;
     private final CharacterSettingSchemaRepository characterSettingSchemaRepository;
     private final AnalysisJobWorkerMapper analysisJobWorkerMapper;
+    private final AiTokenService aiTokenService;
 
     @Override
     @Transactional
@@ -93,7 +95,8 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     public void completeAnalysisJob(UUID analysisJobId, WorkerAnalysisJobCompleteRequest request) {
         AnalysisJob analysisJob = getRunningJob(analysisJobId);
         findTargetEpisodes(analysisJob).forEach(Episode::markAnalyzed);
-        analysisJob.succeed(request.summaryJson(), request.inputTokenCount(), request.outputTokenCount());
+        long[] totals = aiTokenService.getAnalysisJobTokenTotals(analysisJobId);
+        analysisJob.succeed(request.summaryJson(), Math.toIntExact(totals[0]), Math.toIntExact(totals[1]));
     }
 
     @Override
@@ -103,11 +106,12 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         findTargetEpisodes(analysisJob).stream()
                 .filter(episode -> episode.getStatus() != org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ANALYZED)
                 .forEach(Episode::markFailed);
-        analysisJob.fail(request.errorMessage());
+        long[] totals = aiTokenService.getAnalysisJobTokenTotals(analysisJobId);
+        analysisJob.fail(request.errorMessage(), Math.toIntExact(totals[0]), Math.toIntExact(totals[1]));
     }
 
     private AnalysisJob getRunningJob(UUID analysisJobId) {
-        AnalysisJob analysisJob = analysisJobRepository.findById(analysisJobId)
+        AnalysisJob analysisJob = analysisJobRepository.findByIdForUpdate(analysisJobId)
                 .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND));
         if (analysisJob.getStatus() != AnalysisJobStatus.RUNNING) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);

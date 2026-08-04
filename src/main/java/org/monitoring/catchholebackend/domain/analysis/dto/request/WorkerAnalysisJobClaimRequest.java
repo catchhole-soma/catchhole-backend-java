@@ -5,7 +5,7 @@ import jakarta.validation.constraints.Size;
 
 @Schema(description = "AI Worker 분석 작업 claim 요청")
 public record WorkerAnalysisJobClaimRequest(
-        @Schema(description = "Worker가 사용할 모델명", example = "gpt-4.1-mini", nullable = true)
+        @Schema(description = "Worker가 사용할 모델명", example = "gpt-5.6-terra", nullable = true)
         @Size(max = 100, message = "모델명은 100자 이하로 입력해주세요.")
         String modelName,
 

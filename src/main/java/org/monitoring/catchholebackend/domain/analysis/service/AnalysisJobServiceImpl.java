@@ -24,6 +24,7 @@ import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRep
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisBatchStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateBatchReviewCounts;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
@@ -56,6 +57,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     private final AnalysisBatchMapper analysisBatchMapper;
     private final EpisodeRepository episodeRepository;
     private final SettingCandidateRepository settingCandidateRepository;
+    private final AiTokenService aiTokenService;
 
     @Override
     @Transactional
@@ -65,6 +67,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
             AnalysisJobCreateRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        aiTokenService.ensureAnalysisCanStart(memberId);
         UploadBatch batch = getBatchInWork(request.batchId(), work);
         Episode episode = request.episodeId() == null ? null : getEpisodeInBatch(request.episodeId(), work, batch);
 
@@ -289,6 +292,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                         activeStatuses
                 )
                 .orElseGet(() -> {
+                    aiTokenService.ensureAnalysisCanStart(work.getMember().getId());
                     deleteSupersededPendingCandidates(
                             work.getId(),
                             failedJob.getBatch().getId(),

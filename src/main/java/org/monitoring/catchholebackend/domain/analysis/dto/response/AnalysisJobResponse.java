@@ -39,7 +39,7 @@ public record AnalysisJobResponse(
         @Schema(description = "현재 처리 단계", example = "원문 청킹")
         String currentStep,
 
-        @Schema(description = "사용 모델명", example = "gpt-4.1-mini")
+        @Schema(description = "사용 모델명", example = "gpt-5.6-terra")
         String modelName,
 
         @Schema(description = "입력 토큰 수", example = "1200")

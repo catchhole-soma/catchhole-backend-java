@@ -387,4 +387,35 @@ class OpenApiContractIntegrationTest {
                 .andExpect(jsonPath("$['components']['schemas']['UploadFileResponse']['properties']['detectedEpisodeStartNo']")
                         .doesNotExist());
     }
+
+    @Test
+    @DisplayName("AI 토큰 공개·내부 API의 경로와 요청·실패 계약을 노출한다")
+    void openApiContractExposesAiTokenUsageOperations() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$['paths']['/api/v1/ai-token-usages/me']['get']['operationId']")
+                        .value("getMyAiTokenUsage"))
+                .andExpect(jsonPath("$['paths']['/api/v1/ai-token-usages/me']['get']['description']")
+                        .value(containsString("남은 사용량")))
+                .andExpect(jsonPath("$['paths']['/api/internal/v1/ai-token-usages/reserve']['post']['operationId']")
+                        .value("reserveAiTokens"))
+                .andExpect(jsonPath("$['paths']['/api/internal/v1/ai-token-usages/{requestId}/settle']['post']['operationId']")
+                        .value("settleAiTokens"))
+                .andExpect(jsonPath("$['paths']['/api/internal/v1/ai-token-usages/{requestId}/release']['post']['operationId']")
+                        .value("releaseAiTokens"))
+                .andExpect(jsonPath("$['paths']['/api/internal/v1/ai-token-usages/reserve']['post']['responses']['400']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/internal/v1/ai-token-usages/reserve']['post']['responses']['401']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/internal/v1/ai-token-usages/reserve']['post']['responses']['404']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/internal/v1/ai-token-usages/reserve']['post']['responses']['409']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['components']['schemas']['AiTokenReserveRequest']['description']")
+                        .value("AI provider 요청 전 토큰 예약 요청"))
+                .andExpect(jsonPath("$['components']['schemas']['AiTokenReserveRequest']['properties']['reservedTokens']['description']")
+                        .value(containsString("예약할 토큰 수")))
+                .andExpect(jsonPath("$['components']['schemas']['AiTokenUsageResponse']['properties']['remainingPercent']['description']")
+                        .value(containsString("남은 사용량 비율")));
+    }
 }
