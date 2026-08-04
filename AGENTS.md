@@ -113,6 +113,7 @@ org.monitoring.catchholebackend
 │   │   │   └── response
 │   │   ├── entity
 │   │   ├── exception
+│   │   ├── mapper
 │   │   ├── repository
 │   │   ├── service
 │   │   └── type

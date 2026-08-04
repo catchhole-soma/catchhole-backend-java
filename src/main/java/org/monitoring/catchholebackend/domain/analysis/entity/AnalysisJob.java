@@ -180,6 +180,11 @@ public class AnalysisJob extends BaseEntity {
         this.startedAt = LocalDateTime.now();
     }
 
+    public void updateTokenCounts(int inputTokenCount, int outputTokenCount) {
+        this.inputTokenCount = inputTokenCount;
+        this.outputTokenCount = outputTokenCount;
+    }
+
     public void updateCurrentStep(String currentStep) {
         this.currentStep = currentStep;
     }

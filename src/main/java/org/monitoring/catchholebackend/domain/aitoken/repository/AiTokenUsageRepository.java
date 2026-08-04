@@ -12,6 +12,9 @@ import org.springframework.data.repository.query.Param;
 
 public interface AiTokenUsageRepository extends JpaRepository<AiTokenUsage, UUID> {
 
+    @Query("select usage.analysisJob.id from AiTokenUsage usage where usage.requestId = :requestId")
+    Optional<UUID> findAnalysisJobIdByRequestId(@Param("requestId") UUID requestId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<AiTokenUsage> findByRequestId(UUID requestId);
 

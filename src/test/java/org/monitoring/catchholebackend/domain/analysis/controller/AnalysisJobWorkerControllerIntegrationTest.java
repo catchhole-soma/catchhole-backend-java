@@ -487,12 +487,58 @@ class AnalysisJobWorkerControllerIntegrationTest {
         assertThat(completedJob.getOutputTokenCount()).isEqualTo(30);
 
         String accessToken = jwtTokenProvider.generateAccessToken(member);
-        mockMvc.perform(get("/api/v1/ai-token-usage/me")
+        mockMvc.perform(get("/api/v1/ai-token-usages/me")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.usedTokens").value(150))
                 .andExpect(jsonPath("$.data.reservedTokens").value(0))
                 .andExpect(jsonPath("$.data.exhausted").value(false));
+    }
+
+    @Test
+    @DisplayName("작업 종료와 정산 순서가 뒤바뀌어도 최종 토큰 합계를 동기화한다")
+    void lateSettlementSynchronizesCompletedJobTotals() throws Exception {
+        AnalysisJob analysisJob = runningJob();
+        UUID requestId = UUID.randomUUID();
+
+        mockMvc.perform(post("/api/internal/v1/ai-token-usages/reserve")
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "requestId": "%s",
+                                  "analysisJobId": "%s",
+                                  "purpose": "SETTING_EXTRACTION",
+                                  "attempt": 1,
+                                  "modelName": "gpt-5.6-terra",
+                                  "reservedTokens": 1000
+                                }
+                                """.formatted(requestId, analysisJob.getId())))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/internal/v1/analysis-jobs/{analysisJobId}/complete", analysisJob.getId())
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"summaryJson\":\"{}\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/internal/v1/ai-token-usages/{requestId}/settle", requestId)
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "inputTokens": 150,
+                                  "cachedInputTokens": 50,
+                                  "outputTokens": 40,
+                                  "outcome": "SUCCESS"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        AnalysisJob completedJob = analysisJobRepository.findById(analysisJob.getId()).orElseThrow();
+        assertThat(completedJob.getStatus()).isEqualTo(AnalysisJobStatus.SUCCEEDED);
+        assertThat(completedJob.getInputTokenCount()).isEqualTo(150);
+        assertThat(completedJob.getOutputTokenCount()).isEqualTo(40);
     }
 
     @Test
@@ -529,7 +575,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
         }
 
         String accessToken = jwtTokenProvider.generateAccessToken(member);
-        mockMvc.perform(get("/api/v1/ai-token-usage/me")
+        mockMvc.perform(get("/api/v1/ai-token-usages/me")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.usedTokens").value(0))

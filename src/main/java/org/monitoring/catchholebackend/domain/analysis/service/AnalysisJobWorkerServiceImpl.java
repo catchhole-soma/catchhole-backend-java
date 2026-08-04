@@ -111,7 +111,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     }
 
     private AnalysisJob getRunningJob(UUID analysisJobId) {
-        AnalysisJob analysisJob = analysisJobRepository.findById(analysisJobId)
+        AnalysisJob analysisJob = analysisJobRepository.findByIdForUpdate(analysisJobId)
                 .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND));
         if (analysisJob.getStatus() != AnalysisJobStatus.RUNNING) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);

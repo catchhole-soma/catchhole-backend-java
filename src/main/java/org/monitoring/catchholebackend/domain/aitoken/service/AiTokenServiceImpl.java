@@ -11,6 +11,7 @@ import org.monitoring.catchholebackend.domain.aitoken.entity.AiTokenAccount;
 import org.monitoring.catchholebackend.domain.aitoken.entity.AiTokenGrant;
 import org.monitoring.catchholebackend.domain.aitoken.entity.AiTokenUsage;
 import org.monitoring.catchholebackend.domain.aitoken.exception.AiTokenErrorCode;
+import org.monitoring.catchholebackend.domain.aitoken.mapper.AiTokenMapper;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenAccountRepository;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenGrantRepository;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenUsageRepository;
@@ -40,11 +41,12 @@ public class AiTokenServiceImpl implements AiTokenService {
     private final AnalysisJobRepository analysisJobRepository;
     private final MemberRepository memberRepository;
     private final AiTokenProperties properties;
+    private final AiTokenMapper aiTokenMapper;
 
     @Override
     @Transactional
     public AiTokenUsageResponse getUsage(Long memberId) {
-        return toResponse(getOrCreateAccount(memberId));
+        return aiTokenMapper.toResponse(getOrCreateAccount(memberId), properties.contactEmail());
     }
 
     @Override
@@ -62,7 +64,7 @@ public class AiTokenServiceImpl implements AiTokenService {
                 .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND));
         AiTokenUsage existing = usageRepository.findByRequestId(request.requestId()).orElse(null);
         if (existing != null) {
-            return toReservationResponse(existing);
+            return aiTokenMapper.toResponse(existing);
         }
         if (job.getStatus() != AnalysisJobStatus.RUNNING) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
@@ -77,12 +79,13 @@ public class AiTokenServiceImpl implements AiTokenService {
                 request.modelName(),
                 request.reservedTokens()
         ));
-        return toReservationResponse(usage);
+        return aiTokenMapper.toResponse(usage);
     }
 
     @Override
     @Transactional
     public void settle(UUID requestId, AiTokenSettleRequest request) {
+        AnalysisJob analysisJob = lockAnalysisJobForUsage(requestId);
         AiTokenUsage usage = getUsageForUpdate(requestId);
         if (usage.getStatus() == AiTokenUsageStatus.SETTLED) {
             return;
@@ -98,11 +101,13 @@ public class AiTokenServiceImpl implements AiTokenService {
                 request.outcome()
         );
         account.settle(usage.getReservedTokens(), actualTokens);
+        synchronizeTerminalJobTokenTotals(analysisJob);
     }
 
     @Override
     @Transactional
     public void release(UUID requestId, AiTokenReleaseRequest request) {
+        lockAnalysisJobForUsage(requestId);
         AiTokenUsage usage = getUsageForUpdate(requestId);
         if (usage.getStatus() == AiTokenUsageStatus.RELEASED) {
             return;
@@ -152,27 +157,18 @@ public class AiTokenServiceImpl implements AiTokenService {
                 .orElseThrow(() -> new AppException(AiTokenErrorCode.AI_TOKEN_RESERVATION_NOT_FOUND));
     }
 
-    private AiTokenUsageResponse toResponse(AiTokenAccount account) {
-        long remaining = account.remainingTokens();
-        double percent = account.getGrantedTokens() == 0
-                ? 0
-                : Math.round((remaining * 10000.0) / account.getGrantedTokens()) / 100.0;
-        return new AiTokenUsageResponse(
-                account.getGrantedTokens(),
-                account.getUsedTokens(),
-                account.getReservedTokens(),
-                remaining,
-                percent,
-                remaining == 0,
-                properties.contactEmail()
-        );
+    private AnalysisJob lockAnalysisJobForUsage(UUID requestId) {
+        UUID analysisJobId = usageRepository.findAnalysisJobIdByRequestId(requestId)
+                .orElseThrow(() -> new AppException(AiTokenErrorCode.AI_TOKEN_RESERVATION_NOT_FOUND));
+        return analysisJobRepository.findByIdForUpdate(analysisJobId)
+                .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND));
     }
 
-    private AiTokenReservationResponse toReservationResponse(AiTokenUsage usage) {
-        return new AiTokenReservationResponse(
-                usage.getRequestId(),
-                usage.getReservedTokens(),
-                usage.getStatus()
-        );
+    private void synchronizeTerminalJobTokenTotals(AnalysisJob analysisJob) {
+        if (analysisJob.getStatus() == AnalysisJobStatus.RUNNING) {
+            return;
+        }
+        long[] totals = getAnalysisJobTokenTotals(analysisJob.getId());
+        analysisJob.updateTokenCounts(Math.toIntExact(totals[0]), Math.toIntExact(totals[1]));
     }
 }

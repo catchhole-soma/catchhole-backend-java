@@ -69,7 +69,7 @@ sequenceDiagram
 ### 사용자 사용량
 
 ```text
-GET /api/v1/ai-token-usage/me
+GET /api/v1/ai-token-usages/me
 ```
 
 응답은 `grantedTokens`, `usedTokens`, `reservedTokens`, `remainingTokens`, `remainingPercent`, `exhausted`, `contactEmail`을 제공합니다. Frontend는 사이드바에 `remainingPercent`만 `남은 사용량`으로 표시하고, 정확한 token 수와 처리 중 예약량은 사용자에게 노출하지 않습니다. 한도 소진 안내는 `contactEmail`을 사용하되 내부 token 용어와 수치를 표시하지 않습니다.
