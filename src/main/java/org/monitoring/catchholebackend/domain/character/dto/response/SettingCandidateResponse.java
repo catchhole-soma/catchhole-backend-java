@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
@@ -29,6 +30,9 @@ public record SettingCandidateResponse(
         @Schema(description = "후보를 만든 분석 작업 ID", example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d555")
         UUID analysisJobId,
 
+        @Schema(description = "후보 종류", example = "SETTING")
+        SettingCandidateKind candidateKind,
+
         @Schema(description = "설정 대상 유형", example = "CHARACTER")
         SettingEntityType entityType,
 
@@ -44,7 +48,7 @@ public record SettingCandidateResponse(
         @Schema(description = "캐릭터 연결 상태. 같은 이름 후보의 자동 연결 여부를 포함", example = "UNRESOLVED")
         SettingCandidateMatchStatus matchStatus,
 
-        @Schema(description = "설정 속성명", example = "level")
+        @Schema(description = "설정 속성명. 캐릭터 발견 후보는 null입니다.", example = "level", nullable = true)
         String attributeName,
 
         @Schema(
@@ -64,10 +68,10 @@ public record SettingCandidateResponse(
         @Schema(description = "목록/검색 표시용 설정 값", example = "23", nullable = true)
         String attributeValue,
 
-        @Schema(description = "설정 값 타입", example = "NUMBER")
+        @Schema(description = "설정 값 타입. 캐릭터 발견 후보는 null입니다.", example = "NUMBER", nullable = true)
         SettingValueType valueType,
 
-        @Schema(description = "구조화된 설정 값 JSON")
+        @Schema(description = "구조화된 설정 값 JSON. 캐릭터 발견 후보는 null입니다.", nullable = true)
         Object valueJson,
 
         @Schema(description = "원문 근거 span JSON")

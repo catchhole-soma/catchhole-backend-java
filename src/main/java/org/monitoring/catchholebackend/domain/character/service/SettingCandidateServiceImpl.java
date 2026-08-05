@@ -139,7 +139,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
-        candidate.validateEditable();
+        candidate.validateReviewContentEditable();
         List<CharacterSettingSchema> schemas =
                 characterSettingSchemaRepository.findAllActiveForWork(candidate.getWork().getId());
 
@@ -334,6 +334,9 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             SettingCandidate candidate,
             List<CharacterSettingSchema> schemas
     ) {
+        if (candidate.isCharacterDiscovery()) {
+            return AttributeNameEditMetadata.NOT_EDITABLE;
+        }
         try {
             SettingCandidateSchemaMatch match = settingCandidateSchemaResolver.resolve(
                     candidate.getAttributeName(),

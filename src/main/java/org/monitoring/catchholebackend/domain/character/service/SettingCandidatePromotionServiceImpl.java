@@ -56,6 +56,12 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
     @Override
     @Transactional
     public void promote(SettingCandidate candidate) {
+        if (candidate.isCharacterDiscovery()) {
+            WorkCharacter character = resolveCharacterForPromotion(candidate);
+            updateFirstAppearance(character, candidate.getEpisode());
+            return;
+        }
+
         List<CharacterSettingSchema> schemas =
                 characterSettingSchemaRepository.findAllActiveForWork(candidate.getWork().getId());
         SettingCandidateSchemaMatch schemaMatch = settingCandidateSchemaResolver.resolve(
