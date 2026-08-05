@@ -53,7 +53,9 @@ MVP에서 우선 관리할 캐릭터 설정은 숫자, 아이템, 스킬, 능력
 
 `SettingCandidate`는 AI가 추출한 사용자 검토 전 후보를 저장합니다.
 
-후보에는 대상 캐릭터, 속성명, 표시용 값, 값 타입, 신뢰도, 검토 상태를 일반 컬럼으로 저장합니다. 실제 복합 값, 원문 근거 위치, AI 원본 응답은 JSONB로 보관합니다.
+후보에는 대상 캐릭터, 후보 종류, 신뢰도, 검토 상태를 일반 컬럼으로 저장합니다. `candidateKind=SETTING`은 속성명·표시용 값·값 타입·구조화 값을 함께 저장하고, `candidateKind=CHARACTER_DISCOVERY`는 원문에서 이름의 존재만 확인한 후보라서 설정 값 필드를 모두 `null`로 둡니다. 원문 근거 위치와 AI 원본 응답은 JSONB로 보관합니다.
+
+예를 들어 `케닉의 넷째 아들 세룸은 나와라!`는 `entityName=세룸`, `rawEntityMention=케닉의 넷째 아들 세룸`인 발견 후보가 될 수 있습니다. 같은 문장에서 가족 관계가 활성 `profile.*` schema에 대응하면 별도의 `SETTING` 후보도 함께 생성할 수 있습니다.
 
 AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토하기 전까지 `PENDING_REVIEW` 상태의 후보입니다.
 
@@ -65,6 +67,7 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 
 - 편집 가능 상태는 `PENDING_REVIEW`로 제한합니다.
 - `CONFIRMED`, `DISMISSED` 후보 수정 요청은 `SETTING_CANDIDATE_NOT_EDITABLE / 409`로 거절합니다.
+- `CHARACTER_DISCOVERY` 후보는 편집할 설정 콘텐츠가 없으므로 일반 내용 수정 요청을 `SETTING_CANDIDATE_CONTENT_NOT_EDITABLE / 400`으로 거절합니다. 캐릭터 연결 변경과 확정/무시는 그대로 지원합니다.
 - MVP 일반 후보 수정 API는 사용자에게 노출한 `attributeName`, `attributeValue`만 받습니다. `valueType`, 중첩 JSON 속성, 원문 근거는 클라이언트가 보내거나 직접 편집하지 않습니다.
 - 고정 exact/alias schema에 매칭된 후보는 설정명을 바꿀 수 없습니다. 동적 `.*` pattern 후보만 기존 prefix를 유지한 채 suffix를 바꿀 수 있습니다.
 - 후보 응답의 `attributeNameEditable`, `attributeNamePrefix`는 현재 작품의 활성 schema를 같은 resolver로 해석한 서버 권위 편집 계약입니다. exact/alias는 `false/null`, pattern은 `true/<pattern prefix>`이며, 미매칭·타입 불일치·모호한 기존 후보는 조회를 막지 않고 `false/null`로 내려 안전하게 이름 편집만 잠급니다.
@@ -81,7 +84,7 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 
 ### 설정 후보 검토 상태 전이 정책
 
-확정/무시 API는 사용자의 검토 결정을 기록하는 단계입니다. 확정 API는 후보가 처음 `CONFIRMED`가 되는 경우 확정 데이터를 `CharacterFact`와 `WorkCharacter`에 반영합니다.
+확정/무시 API는 사용자의 검토 결정을 기록하는 단계입니다. 확정 API는 후보가 처음 `CONFIRMED`가 되는 경우 후보 종류에 맞춰 `WorkCharacter` 또는 `CharacterFact`에 반영합니다.
 
 - `PENDING_REVIEW` 후보는 `CONFIRMED` 또는 `DISMISSED`로 전환할 수 있습니다.
 - 이미 `CONFIRMED`인 후보에 다시 확정을 요청하거나, 이미 `DISMISSED`인 후보에 다시 무시를 요청하면 성공으로 처리합니다. 이때 `CharacterFact`는 중복 생성하지 않습니다.
@@ -90,7 +93,7 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 
 ### 설정 후보 확정 데이터 반영 정책
 
-`SettingCandidate.CONFIRMED` 후 확정 데이터는 `CharacterFact`로 저장하고, 현재 기준값은 `WorkCharacter` 스냅샷에 반영합니다.
+`candidateKind=SETTING`인 `SettingCandidate.CONFIRMED` 데이터는 `CharacterFact`로 저장하고, 현재 기준값은 `WorkCharacter` 스냅샷에 반영합니다. `candidateKind=CHARACTER_DISCOVERY`는 schema나 값이 없으므로 대상 `WorkCharacter`의 재사용/생성과 `firstAppearanceEpisodeId` 갱신까지만 수행하고 `CharacterFact`와 설정 스냅샷을 만들지 않습니다.
 
 - confirm 반영은 활성 전역/현재 작품 schema를 조회해 속성 매칭, 값 타입, merge policy 검증을 먼저 통과한 뒤 `matchStatus` 기준으로 대상 `WorkCharacter`를 결정합니다.
 - `MATCHED`, `AUTO_MATCHED_BY_NAME` 후보는 `matchedCharacterId`의 연결 캐릭터를 사용합니다. `UNRESOLVED` 후보는 trim한 `entityName`과 exact-name인 활성 캐릭터가 있으면 재사용하고, 없으면 새 캐릭터를 생성합니다. 기존 캐릭터를 재사용하면 확정 후보와 같은 이름의 검토 대기 미해소 형제 후보를 모두 `MATCHED`로, 이번 confirm에서 새 캐릭터를 만들면 모두 `AUTO_MATCHED_BY_NAME`으로 연결합니다.
@@ -376,15 +379,16 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `episode_id` | 후보가 추출된 회차 ID. 없을 수 있음 |
 | `source_chunk_id` | 근거 `episode_chunks.id`. 재청킹 시 근거 보존 정책이 정해지지 않아 현재 FK 없이 저장 |
 | `analysis_job_id` | 후보를 만든 분석 작업 ID. 없을 수 있음 |
+| `candidate_kind` | 후보 종류. 값이 있는 설정 후보는 `SETTING`, 이름 존재 확인 후보는 `CHARACTER_DISCOVERY` |
 | `entity_type` | 설정 대상 유형 |
 | `entity_name` | 캐릭터명 또는 대상명 |
 | `raw_entity_mention` | 원문에 실제 등장한 대상 표현. 예: `나`, `프넬린의 두 번째 딸 아이나르` |
 | `matched_character_id` | 기존 `characters.id`와 확실히 매칭된 경우 저장하는 캐릭터 FK |
 | `match_status` | 캐릭터 연결 상태. `MATCHED`, `AUTO_MATCHED_BY_NAME`, `UNRESOLVED`, `AMBIGUOUS` |
-| `attribute_name` | `age`, `level`, `stats.strength`, `skill.은월참`, `item.화염검`, `status.악령_깃들임` 등 속성명 |
-| `attribute_value` | 목록/검색 표시용 값 |
-| `value_type` | 값 타입 |
-| `value_json` | 복합 값 JSONB |
+| `attribute_name` | `age`, `level`, `stats.strength`, `skill.은월참`, `item.화염검`, `status.악령_깃들임` 등 속성명. 발견 후보는 `NULL` |
+| `attribute_value` | 목록/검색 표시용 값. 발견 후보는 `NULL` |
+| `value_type` | 값 타입. 발견 후보는 `NULL` |
+| `value_json` | 복합 값 JSONB. 발견 후보는 `NULL` |
 | `evidence_spans` | 원문 근거 위치와 인용문 JSONB |
 | `confidence` | AI 신뢰도 |
 | `review_status` | 후보 검토 상태 |

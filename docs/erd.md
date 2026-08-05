@@ -208,6 +208,7 @@ erDiagram
         uuid episode_id FK
         uuid source_chunk_id
         uuid analysis_job_id FK
+        varchar candidate_kind
         varchar entity_type
         varchar entity_name
         varchar raw_entity_mention
@@ -291,7 +292,7 @@ erDiagram
 | `analysis_job_episode_targets` | 분석 작업 생성 시 확정한 대상 회차 스냅샷. 이후 원본 교체·회차 보관과 무관하게 과거 작업 대상을 유지합니다. |
 | `characters` | 작품별 캐릭터 대표/현재 설정. 핵심 조회 값은 일반 컬럼, 작품마다 달라지는 상세 설정은 JSONB로 저장합니다. |
 | `character_facts` | 캐릭터별 설정 값과 회차별 변경 이력. 현재 유효값과 충돌 검수 기준을 추적합니다. |
-| `setting_candidates` | AI가 추출한 검토 전 설정 후보. 설정 값, 근거 span, AI 원본 응답을 JSONB로 보존합니다. |
+| `setting_candidates` | AI가 추출한 검토 전 후보. `SETTING`은 설정 값을, `CHARACTER_DISCOVERY`는 이름과 근거만 보존합니다. |
 | `character_setting_schemas` | AI의 `attributeName`을 canonical key로 해석하기 위한 전역/작품별 alias·pattern·값 타입·정책 registry입니다. 실제 캐릭터 값은 저장하지 않습니다. |
 
 ## Notion 기반 후속 AI 분석 ERD

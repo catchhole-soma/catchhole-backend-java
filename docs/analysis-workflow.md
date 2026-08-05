@@ -37,7 +37,7 @@ flowchart TD
     D --> E["S3 원문 조회"]
     E --> F["Python에서 원문 정규화/청킹"]
     F --> G["episode_chunks 저장"]
-    G --> H["chunk별 LLM 설정 후보 추출"]
+    G --> H["chunk별 LLM 설정·캐릭터 발견 후보 추출"]
     H --> I["evidence quote offset 보정"]
     I --> J["raw/entity/knownCharacters 기반 캐릭터 매칭"]
     J --> K["setting_candidates 직접 저장"]
@@ -47,7 +47,7 @@ flowchart TD
     X --> B
 ```
 
-현재 구현에서 Spring은 `setting_candidates` 생성 API를 제공하지 않습니다. 후보 생성은 Worker의 DB 직접 저장 흐름이며, Spring은 생성된 후보의 조회/수정/확정/무시와 `AnalysisJob` 상태 전이를 담당합니다. Claim의 `characterSettingSchemas`는 Worker에 전달되는 schema hint이고, 동반 AI Worker 변경은 이 hint를 실제 추출 prompt의 canonical key, alias, pattern, value type 지침으로 사용합니다. Spring Backend는 사용자 confirm 시 schemaKey 정확 일치 → 별칭 → 마지막이 `.*`로 끝나는 속성 패턴 순으로 최종 매칭하고 후보/schema의 `SettingValueType`과 merge policy를 검증합니다. 미지원 정책은 부수효과 전에 거절하며, 검증된 Fact는 `setting_candidate_id`로 확정 후보를 연결해 `evidence_spans`를 역추적할 수 있게 합니다. 이후 episodeNo 기준 current를 재선정하고 `factKey -> current valueJson` object map snapshot으로 반영합니다.
+현재 구현에서 Spring은 `setting_candidates` 생성 API를 제공하지 않습니다. 후보 생성은 Worker의 DB 직접 저장 흐름이며, Spring은 생성된 후보의 조회/수정/확정/무시와 `AnalysisJob` 상태 전이를 담당합니다. Worker는 claim의 `knownCharacters` 이름을 추출 prompt에도 전달해 등록되지 않은 명시적 이름을 `CHARACTER_DISCOVERY`로 만들고, 기존 캐릭터와 같은 이름의 발견 후보는 저장하지 않습니다. `CHARACTER_DISCOVERY` 확정은 캐릭터와 최초 등장만 반영하고 Fact를 만들지 않습니다. `SETTING` 후보는 `characterSettingSchemas` hint를 canonical key, alias, pattern, value type 지침으로 사용하며, Spring Backend가 confirm 시 schemaKey 정확 일치 → 별칭 → 마지막이 `.*`로 끝나는 속성 패턴 순으로 최종 매칭하고 후보/schema의 `SettingValueType`과 merge policy를 검증합니다. 미지원 정책은 부수효과 전에 거절하며, 검증된 Fact는 `setting_candidate_id`로 확정 후보를 연결해 `evidence_spans`를 역추적할 수 있게 합니다. 이후 episodeNo 기준 current를 재선정하고 `factKey -> current valueJson` object map snapshot으로 반영합니다.
 
 ## Notion 기준 전체 분석 흐름
 
@@ -395,13 +395,13 @@ Notion 기준 `AnalysisJob.status`
 
 현재 구현은 별도 `PreprocessedManuscriptChunk` 없이 Python Worker가 청크 원문을 LLM에 직접 넣어 `setting_candidates`를 저장합니다.
 
-1. Spring claim payload는 `analysisJobId`, `workId`, `batchId`, episode S3 메타데이터, `knownCharacters`, `characterSettingSchemas`를 내려줍니다.
+1. Spring claim payload는 `analysisJobId`, `workId`, `batchId`, episode S3 메타데이터, ID와 이름을 가진 `knownCharacters`, `characterSettingSchemas`를 내려줍니다.
 2. Python Worker는 `contentS3Key`, `contentS3Version`으로 S3 원문을 읽습니다.
 3. Worker는 원문을 정규화/청킹하고 `episode_chunks`를 저장합니다.
 4. Worker는 chunk별 LLM 설정 후보를 추출합니다.
 5. Worker는 LLM이 반환한 `evidence_spans[].quote`를 chunk 원문에서 다시 찾아 `start_offset`, `end_offset`을 보정합니다.
 6. Worker는 `rawEntityMention`, `entityName`, `knownCharacters`를 비교해 `matchedCharacterId`, `matchStatus`를 계산합니다.
-7. Worker는 후보를 `PENDING_REVIEW` 상태의 `setting_candidates`로 저장합니다.
+7. Worker는 같은 분석 작업 안의 동일 설정 후보를 제거한 뒤 나머지를 `PENDING_REVIEW` 상태의 `setting_candidates`로 저장합니다. 값이 달라진 후보와 주체가 모호한 후보는 유지합니다.
 8. 저장이 끝나면 complete API를 호출해 `AnalysisJob.status=SUCCEEDED`로 변경합니다.
 
 현재 complete API는 `AnalysisJob` 상태와 summary/token 메타데이터를 반영하고, 대상 회차의 `Episode.status`를 `ANALYZED`로 전환합니다. fail API는 아직 분석 완료되지 않은 대상 회차를 `FAILED`로 전환합니다.
