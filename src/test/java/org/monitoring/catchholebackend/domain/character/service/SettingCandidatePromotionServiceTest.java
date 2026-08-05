@@ -354,6 +354,22 @@ class SettingCandidatePromotionServiceTest {
         assertThat(character.getCurrentLevel()).isEqualTo(5);
     }
 
+    @Test
+    @DisplayName("캐릭터 발견 후보 확정은 캐릭터와 최초 등장만 반영하고 Fact는 만들지 않는다")
+    void promoteCharacterDiscoveryCreatesCharacterWithoutFact() {
+        Episode episode3 = episode(3);
+        SettingCandidate candidate = discoveryCandidate(episode3, "세룸");
+
+        promote(candidate);
+
+        WorkCharacter character = character("세룸");
+        assertThat(character.getFirstAppearanceEpisodeId()).isEqualTo(episode3.getId());
+        assertThat(candidate.getMatchedCharacterId()).isEqualTo(character.getId());
+        assertThat(candidate.getMatchStatus())
+                .isEqualTo(SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
+        assertThat(characterFactRepository.findAll()).isEmpty();
+    }
+
     @ParameterizedTest
     @EnumSource(
             value = CharacterSettingMergePolicy.class,
@@ -782,6 +798,23 @@ class SettingCandidatePromotionServiceTest {
 
     private SettingCandidate candidate(Episode episode, String attributeName, String attributeValue) {
         return candidate(episode, attributeName, attributeValue, SettingValueType.NUMBER, valueJson(attributeValue));
+    }
+
+    private SettingCandidate discoveryCandidate(Episode episode, String entityName) {
+        return settingCandidateRepository.save(SettingCandidate.createCharacterDiscovery(
+                work,
+                episode,
+                UUID.randomUUID(),
+                null,
+                entityName,
+                "케닉의 넷째 아들 " + entityName,
+                null,
+                SettingCandidateMatchStatus.UNRESOLVED,
+                objectMapper.createArrayNode().add(objectMapper.createObjectNode()
+                        .put("quote", "케닉의 넷째 아들 세룸은 나와라!")),
+                new BigDecimal("0.9000"),
+                objectMapper.createObjectNode().put("candidate_kind", "CHARACTER_DISCOVERY")
+        ));
     }
 
     private SettingCandidate matchedCandidate(

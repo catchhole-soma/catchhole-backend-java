@@ -47,6 +47,7 @@ import org.monitoring.catchholebackend.domain.character.type.CharacterSettingSch
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingValueSemantics;
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateCharacterMatchResolutionType;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
@@ -1205,6 +1206,7 @@ class SettingCandidateServiceImplTest {
                 null,
                 null,
                 null,
+                SettingCandidateKind.SETTING,
                 SettingEntityType.CHARACTER,
                 "아리아",
                 null,

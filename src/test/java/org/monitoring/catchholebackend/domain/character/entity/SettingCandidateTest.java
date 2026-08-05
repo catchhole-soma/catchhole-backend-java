@@ -10,6 +10,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
@@ -30,8 +31,40 @@ class SettingCandidateTest {
     void createInitializesPendingReviewStatus() {
         SettingCandidate candidate = candidate("age", "17");
 
+        assertThat(candidate.getCandidateKind()).isEqualTo(SettingCandidateKind.SETTING);
         assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
         assertThat(candidate.isPendingReview()).isTrue();
+    }
+
+    @Test
+    @DisplayName("캐릭터 발견 후보는 설정 값 없이 이름과 근거만 보관한다")
+    void createCharacterDiscoveryKeepsOnlyCharacterEvidence() {
+        SettingCandidate candidate = characterDiscovery(work(), "세룸");
+
+        assertThat(candidate.getCandidateKind()).isEqualTo(SettingCandidateKind.CHARACTER_DISCOVERY);
+        assertThat(candidate.isCharacterDiscovery()).isTrue();
+        assertThat(candidate.getEntityType()).isEqualTo(SettingEntityType.CHARACTER);
+        assertThat(candidate.getEntityName()).isEqualTo("세룸");
+        assertThat(candidate.getRawEntityMention()).isEqualTo("케닉의 넷째 아들 세룸");
+        assertThat(candidate.getAttributeName()).isNull();
+        assertThat(candidate.getAttributeValue()).isNull();
+        assertThat(candidate.getValueType()).isNull();
+        assertThat(candidate.getValueJson()).isNull();
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+    }
+
+    @Test
+    @DisplayName("캐릭터 발견 후보는 설정 내용 수정 대상이 아니다")
+    void updateReviewContentRejectsCharacterDiscovery() {
+        SettingCandidate candidate = characterDiscovery(work(), "세룸");
+
+        assertThatThrownBy(() -> candidate.updateReviewContent(
+                "profile.family_relation",
+                "케닉의 넷째 아들",
+                objectMapper.createObjectNode().put("value", "케닉의 넷째 아들")
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_CONTENT_NOT_EDITABLE));
     }
 
     @Test
@@ -240,6 +273,23 @@ class SettingCandidateTest {
                 objectMapper.createArrayNode(),
                 new BigDecimal("0.8000"),
                 objectMapper.createObjectNode().put("raw_value", attributeValue)
+        );
+    }
+
+    private SettingCandidate characterDiscovery(Work work, String entityName) {
+        return SettingCandidate.createCharacterDiscovery(
+                work,
+                null,
+                UUID.randomUUID(),
+                null,
+                entityName,
+                "케닉의 넷째 아들 " + entityName,
+                null,
+                SettingCandidateMatchStatus.UNRESOLVED,
+                objectMapper.createArrayNode().add(objectMapper.createObjectNode()
+                        .put("quote", "케닉의 넷째 아들 세룸은 나와라!")),
+                new BigDecimal("0.9000"),
+                objectMapper.createObjectNode().put("candidate_kind", "CHARACTER_DISCOVERY")
         );
     }
 

@@ -19,6 +19,7 @@ public enum CharacterErrorCode implements ResultCode {
     SETTING_CANDIDATE_BATCH_NOT_FOUND(HttpStatus.NOT_FOUND, "설정 후보 검토 묶음을 찾을 수 없습니다."),
     SETTING_CANDIDATE_NOT_FOUND(HttpStatus.NOT_FOUND, "설정 후보를 찾을 수 없습니다."),
     SETTING_CANDIDATE_NOT_EDITABLE(HttpStatus.CONFLICT, "검토 대기 상태의 설정 후보만 수정할 수 있습니다."),
+    SETTING_CANDIDATE_CONTENT_NOT_EDITABLE(HttpStatus.BAD_REQUEST, "캐릭터 발견 후보는 설정 내용을 수정할 수 없습니다."),
     SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT(HttpStatus.CONFLICT, "설정 후보 검토 상태 전이가 올바르지 않습니다."),
     SETTING_CANDIDATE_MATCH_STATUS_CONFLICT(HttpStatus.CONFLICT, "설정 후보 캐릭터 매칭 상태가 올바르지 않습니다."),
     SETTING_CANDIDATE_MATCHED_CHARACTER_REQUIRED(HttpStatus.BAD_REQUEST, "기존 캐릭터 연결에는 matchedCharacterId가 필요합니다."),

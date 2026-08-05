@@ -277,12 +277,13 @@ domain/<domain>
 - Worker의 claim·진행·완료·실패 처리는 신규 Job의 단일 대상 `Episode.status`만 전이한다. 한 회차 실패가 다른 회차 Job이나 상태를 변경하면 안 된다.
 - 공개 분석 작업 생성 API는 `batch_id`를 필수 입력으로 받고 `episode_id`를 선택 범위 지정자로 허용한다. `episode_id`가 없으면 batch의 현재 회차마다 Job을 하나씩 생성해 목록으로 반환하고, 있으면 해당 회차 Job 하나를 목록으로 반환한다.
 - 본인 작품의 분석 작업만 생성/조회할 수 있으며, 다른 회원의 작품이나 다른 작품에 속한 분석 대상은 404로 응답한다.
-- Python AI Worker는 작업 claim과 `AnalysisJob` 상태 변경에 `/api/internal/**` 내부 API를 `X-Internal-Api-Key`로 인증해 사용한다. Worker에는 원문 본문을 응답하지 않으며, 단일 `episode`의 S3 key/version/hash/charCount 메타데이터, `ACTIVE` 캐릭터 목록, 활성 캐릭터 설정 schema를 전달한다. `ARCHIVED` 캐릭터는 이후 원고 매칭 대상에서 제외한다.
+- Python AI Worker는 작업 claim과 `AnalysisJob` 상태 변경에 `/api/internal/**` 내부 API를 `X-Internal-Api-Key`로 인증해 사용한다. Worker에는 원문 본문을 응답하지 않으며, 단일 `episode`의 S3 key/version/hash/charCount 메타데이터, `ACTIVE` 캐릭터 ID·대표 이름 목록, 활성 캐릭터 설정 schema를 전달한다. `ARCHIVED` 캐릭터는 이후 원고 매칭 대상에서 제외한다.
 - Worker는 분석 작업 생성과 상태 전이를 위해 백엔드 DB에 직접 접근하지 않는다. 다만 청킹, 설정 후보, 리포트 같은 분석 산출물 저장은 데이터 양과 모델 안정성에 따라 내부 API 또는 Worker의 DB 직접 저장 중 선택할 수 있으며, DB 직접 저장을 선택하면 관련 스키마/문서 변경을 함께 관리한다.
 
 #### Character Setting Domain Policy
 
 - 캐릭터 설정 저장 토대는 `domain/character`에 둔다. `WorkCharacter`는 작품별 캐릭터 대표/현재 설정을, `SettingCandidate`는 AI가 추출한 사용자 검토 전 후보를 저장한다.
+- `SettingCandidate.candidateKind`는 값이 있는 기존 설정 후보 `SETTING`과 이름의 존재만 확인한 `CHARACTER_DISCOVERY`를 구분한다. 발견 후보는 `attributeName`, `attributeValue`, `valueType`, `valueJson`을 모두 `NULL`로 저장하고 이름·원문 표현·근거·신뢰도만 보관한다.
 - `CharacterSettingSchema` registry는 실제 캐릭터 능력치 값이나 작품 내용을 저장하지 않고, AI의 `SettingCandidate.attributeName`을 해석하기 위한 canonical key, alias, pattern, 값 타입, 값 의미, merge 정책만 저장한다. 정책과 실제 값을 분리해 같은 해석 기준을 여러 작품과 Worker claim에서 재사용하기 위함이다.
 - Character Setting Registry의 정책 enum은 상수별 의미를 Javadoc으로 설명하고, 화면·문서에서 재사용할 한글 표시명을 `toKorean` 필드로 둔다.
 - `character_setting_schemas.work_id`가 `NULL`이면 전역 schema, 값이 있으면 해당 작품에 전역에 없는 key를 추가하는 schema로 사용한다. 작품별 override와 같은 key 중복 병합은 별도 우선순위 정책이 정해질 때까지 구현하지 않는다.
@@ -294,13 +295,14 @@ domain/<domain>
 - 적용된 registry seed의 승격이나 alias 수정이 필요하면 기존 Flyway migration을 수정하지 않고 다음 migration에서 변경한다. 환경별 checksum과 schema 해석 이력을 보존하기 위함이다.
 - `SettingCandidate` 생성은 Python AI Worker가 담당하고, Spring API는 사용자 검토를 위한 조회/수정부터 담당한다. 후보 생성 API를 Spring에 추가해야 할 때는 Worker 저장 책임을 함께 재검토한다.
 - `SettingCandidate` 수정은 `PENDING_REVIEW` 상태에서만 허용한다. 확정/무시 이후 수정은 `CharacterFact` 반영 정책과 동기화 문제가 생기므로 별도 정책이 정해질 때까지 막는다.
+- `CHARACTER_DISCOVERY` 후보는 설정 콘텐츠가 없으므로 일반 설정명·표시값 수정 API에서 거절하고, 캐릭터 연결 해소와 확정/무시만 허용한다.
 - 설정 후보 MVP 내용 수정은 사용자용 설정명과 표시값만 받으며, 캐릭터 연결 API와 내용 수정 API는 서로의 필드를 변경하지 않는다.
 - 후보 응답의 설정명 편집 가능 여부와 prefix는 현재 작품의 활성 schema를 동일 resolver로 해석한 `attributeNameEditable`, `attributeNamePrefix`로 제공한다. exact/alias는 잠그고 pattern만 열며, 해석 불가 후보 조회는 실패시키지 않고 이름 편집을 잠근다.
 - 이름과 값이 실질적으로 바뀌지 않은 후보와 캐릭터 연결만 바뀐 후보는 기존 AI `valueJson`을 그대로 유지한다. 동적 suffix 공백과 표시값 앞뒤 공백의 저장 문자열 정규화는 rich JSON을 축소하지 않고 적용한다.
 - `SettingValueType.JSON` 복합 후보의 이름 또는 값이 실제로 바뀌면 기존 prefix를 유지하고 suffix와 `valueJson.name`을 동기화한 뒤, 현재 후보 `valueJson`을 name-only object로 의도적으로 교체한다. 타입 계약이 없는 숨은 속성은 merge·추측·보존하지 않는다.
 - 후보 내용 수정은 `valueType`, `evidenceSpans`, `rawAiResultJson`을 변경하지 않는다. `rawAiResultJson`은 최초 AI payload 보관용이며 confirm 시 수정 전 구조화 값을 복원하는 source로 사용하지 않는다.
 - confirm은 현재 후보 `valueJson`을 새 Fact로 복사한다. 복합 후보 수정 전 rich JSON은 새 Fact와 snapshot에 복원하지 않으며 중첩 typed JSON 편집은 후속 범위다.
-- `SettingCandidate` 확정/무시는 POST action API로 처리한다. 처음 `CONFIRMED`로 전환되는 후보는 `CharacterFact`로 저장하고 `WorkCharacter` 현재 스냅샷을 갱신한다. 동일 상태 재호출은 성공으로 처리하되 `CharacterFact`를 중복 생성하지 않고, `CONFIRMED`와 `DISMISSED` 사이의 반대 전이는 상태 충돌로 거절한다.
+- `SettingCandidate` 확정/무시는 POST action API로 처리한다. 처음 `CONFIRMED`로 전환되는 `SETTING` 후보는 `CharacterFact`로 저장하고 `WorkCharacter` 현재 스냅샷을 갱신한다. `CHARACTER_DISCOVERY` 후보는 연결된 `WorkCharacter`를 재사용하거나 생성하고 최초 등장 회차만 갱신하며 `CharacterFact`를 만들지 않는다. 동일 상태 재호출은 성공으로 처리하되 부수효과를 중복 생성하지 않고, `CONFIRMED`와 `DISMISSED` 사이의 반대 전이는 상태 충돌로 거절한다.
 - `AGE`, `LEVEL` 후보는 확정 전에 구조화 대표값을 우선 확인하고, 값이 없을 때만 표시값을 사용해 0 이상이면서 Java `Integer` 범위의 정확한 정수인지 검증한다. 소수·음수·범위 초과 값은 캐릭터 결정과 Fact 저장 전에 거절해 상세 응답과 전체 수정 계약이 어긋나지 않게 한다.
 - 후보 `valueJson` object의 정확한 `value` key는 숨겨진 대표값 envelope로 유지한다. `PROFILE`, `STAT`, `SKILL`, `ITEM`, `STATUS`의 나머지 최상위 공개 property는 상세 응답을 전체 수정 요청으로 그대로 왕복할 수 있도록 key가 공백 없이 100자 이하이고 앞뒤 공백·예약 key 충돌·정규화 후 중복이 없어야 하며, 직접 문자열 값은 비어 있지 않고 앞뒤 공백이 없어야 한다. 공개 property가 있는 scalar schema는 선언 타입과 호환되는 `value` envelope도 가져야 한다. 위반 후보는 캐릭터 결정과 Fact 저장 전에 거절한다.
 - `UNRESOLVED` 캐릭터 후보를 confirm할 때 같은 작품의 trim 후 exact-name `ACTIVE` 캐릭터가 있으면 재사용하고, 보관 캐릭터만 있거나 동명 캐릭터가 없으면 새 `ACTIVE` 캐릭터를 생성한다. 기존 캐릭터를 재사용하면 확정 후보와 같은 작품·이름의 `PENDING_REVIEW + UNRESOLVED + CHARACTER` 형제 후보를 모두 `MATCHED`로 연결한다. 이번 confirm에서 캐릭터를 새로 생성하면 확정 후보와 형제 후보를 모두 `AUTO_MATCHED_BY_NAME`으로 연결해 분석 시점부터 존재한 캐릭터 연결과 구분한다. `AMBIGUOUS`와 이미 검토된 후보는 자동 변경하지 않으며, 조회-생성 구간은 작품 row의 pessimistic write lock으로 직렬화한다.

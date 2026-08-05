@@ -23,6 +23,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
@@ -83,6 +84,10 @@ public class SettingCandidate extends BaseEntity {
     private AnalysisJob analysisJob;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "candidate_kind", nullable = false, length = 30)
+    private SettingCandidateKind candidateKind;
+
+    @Enumerated(EnumType.STRING)
     @Column(name = "entity_type", nullable = false, length = 30)
     private SettingEntityType entityType;
 
@@ -112,7 +117,8 @@ public class SettingCandidate extends BaseEntity {
     private SettingCandidateMatchStatus matchStatus;
 
     // 예: "level", "stats.strength", "skill.은월참", "item.화염검", "status.악령_깃들임"
-    @Column(name = "attribute_name", nullable = false, length = 100)
+    // 캐릭터 발견 후보는 설정값을 만들지 않으므로 attributeName을 비워 둡니다.
+    @Column(name = "attribute_name", length = 100)
     private String attributeName;
 
     // 목록/검색 표시용 요약값입니다. 예: "12", "화염검", "근력 80 / 민첩 65"
@@ -120,7 +126,8 @@ public class SettingCandidate extends BaseEntity {
     private String attributeValue;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "value_type", nullable = false, length = 30)
+    // 캐릭터 발견 후보에는 값 자체가 없으므로 valueType을 비워 둡니다.
+    @Column(name = "value_type", length = 30)
     private SettingValueType valueType;
 
     // 실제 구조화 값입니다. 예: {"name": "화염검", "type": "weapon", "equipped": true}
@@ -150,6 +157,7 @@ public class SettingCandidate extends BaseEntity {
             Episode episode,
             UUID sourceChunkId,
             AnalysisJob analysisJob,
+            SettingCandidateKind candidateKind,
             SettingEntityType entityType,
             String entityName,
             String rawEntityMention,
@@ -167,6 +175,7 @@ public class SettingCandidate extends BaseEntity {
         this.episode = episode;
         this.sourceChunkId = sourceChunkId;
         this.analysisJob = analysisJob;
+        this.candidateKind = candidateKind;
         this.entityType = entityType;
         this.entityName = entityName;
         this.rawEntityMention = rawEntityMention;
@@ -202,6 +211,7 @@ public class SettingCandidate extends BaseEntity {
                 episode,
                 sourceChunkId,
                 analysisJob,
+                SettingCandidateKind.SETTING,
                 entityType,
                 entityName,
                 null,
@@ -240,6 +250,7 @@ public class SettingCandidate extends BaseEntity {
                 episode,
                 sourceChunkId,
                 analysisJob,
+                SettingCandidateKind.SETTING,
                 entityType,
                 entityName,
                 rawEntityMention,
@@ -249,6 +260,40 @@ public class SettingCandidate extends BaseEntity {
                 attributeValue,
                 valueType,
                 valueJson,
+                evidenceSpans,
+                confidence,
+                rawAiResultJson
+        );
+    }
+
+    public static SettingCandidate createCharacterDiscovery(
+            Work work,
+            Episode episode,
+            UUID sourceChunkId,
+            AnalysisJob analysisJob,
+            String entityName,
+            String rawEntityMention,
+            UUID matchedCharacterId,
+            SettingCandidateMatchStatus matchStatus,
+            JsonNode evidenceSpans,
+            BigDecimal confidence,
+            JsonNode rawAiResultJson
+    ) {
+        return new SettingCandidate(
+                work,
+                episode,
+                sourceChunkId,
+                analysisJob,
+                SettingCandidateKind.CHARACTER_DISCOVERY,
+                SettingEntityType.CHARACTER,
+                entityName,
+                rawEntityMention,
+                matchedCharacterId,
+                matchStatus,
+                null,
+                null,
+                null,
+                null,
                 evidenceSpans,
                 confidence,
                 rawAiResultJson
@@ -268,7 +313,7 @@ public class SettingCandidate extends BaseEntity {
             String attributeValue,
             JsonNode valueJson
     ) {
-        validateEditable();
+        validateReviewContentEditable();
 
         this.attributeName = attributeName;
         this.attributeValue = attributeValue;
@@ -330,6 +375,17 @@ public class SettingCandidate extends BaseEntity {
 
     public boolean isPendingReview() {
         return reviewStatus == SettingCandidateReviewStatus.PENDING_REVIEW;
+    }
+
+    public boolean isCharacterDiscovery() {
+        return candidateKind == SettingCandidateKind.CHARACTER_DISCOVERY;
+    }
+
+    public void validateReviewContentEditable() {
+        validateEditable();
+        if (isCharacterDiscovery()) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CONTENT_NOT_EDITABLE);
+        }
     }
 
     public void validateEditable() {

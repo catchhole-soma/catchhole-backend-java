@@ -29,6 +29,7 @@ public class SettingCandidateMapper {
                 episode == null ? null : episode.getEpisodeNo(),
                 candidate.getSourceChunkId(),
                 analysisJob == null ? null : analysisJob.getId(),
+                candidate.getCandidateKind(),
                 candidate.getEntityType(),
                 candidate.getEntityName(),
                 candidate.getRawEntityMention(),
