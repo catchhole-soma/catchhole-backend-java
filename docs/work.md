@@ -143,11 +143,15 @@ DELETE /api/v1/works/{workId}
 
 현재 구현은 soft delete가 아니라 repository delete입니다.
 
+`world_settings`와 `world_setting_candidates`의 작품 FK는 `ON DELETE CASCADE`이므로, 작품 삭제 시 해당 작품에 속한 세계관 데이터가 잔존해 삭제를 막지 않습니다. 세계관 대상 단독 삭제 기능과는 별개의 aggregate 정리 규칙입니다.
+
 ## 다른 도메인과의 연결
 
 - `Episode`는 `work_id`로 작품에 속합니다.
 - `UploadBatch`는 `work_id`와 `member_id`를 함께 저장합니다.
 - Analysis 작업은 batch 기반 설계를 사용할 때 `work_id`와 `batch_id`를 함께 검증합니다.
+- `WorldSetting`은 `work_id + category + normalized_subject_name`으로 작품 안의 확정 세계관 대상을 구분합니다.
+- `WorldSettingCandidate`는 `work_id`와 회차·분석 작업을 함께 연결하며, 조회·확정·제외 전에 항상 Work 소유권을 먼저 검증합니다.
 
 ## 이후 작업
 
