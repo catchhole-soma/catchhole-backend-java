@@ -129,6 +129,18 @@ org.monitoring.catchholebackend
 │   │   ├── repository
 │   │   ├── service
 │   │   └── type
+│   ├── worldsetting
+│   │   ├── controller
+│   │   ├── dto
+│   │   │   ├── request
+│   │   │   └── response
+│   │   ├── entity
+│   │   ├── exception
+│   │   ├── mapper
+│   │   ├── processor
+│   │   ├── repository
+│   │   ├── service
+│   │   └── type
 │   └── work
 │       ├── controller
 │       ├── dto
@@ -334,6 +346,20 @@ domain/<domain>
 - 검토 상태는 `SettingCandidate`에만 둔다. `WorkCharacter`와 `CharacterFact`는 사용자가 후보를 승인한 뒤 저장되는 대표 설정과 설정 이력이므로 별도 review status를 두지 않는다.
 - 작품마다 구조가 달라지는 프로필, 스탯, 스킬, 아이템, 상태 상세값과 AI 원본 응답, 근거 span은 `JsonNode` + Hibernate JSON 매핑으로 JSONB 컬럼에 저장한다. 이 구조는 장르별 설정 차이를 수용하면서도 자주 조회하는 핵심 값은 일반 컬럼으로 유지하기 위한 선택이다.
 - `setting_candidates.source_chunk_id`는 청킹 Entity가 생기기 전까지 FK 없는 UUID로 저장한다. `ManuscriptChunk` 구현 이후 실제 FK 제약 여부를 다시 결정한다.
+
+#### World Setting Domain Policy
+
+- 세계관 설정은 캐릭터 `SettingCandidate`와 섞지 않고 `domain/worldsetting`의 `WorldSetting`, `WorldSettingCandidate`로 관리한다. MVP 저장 테이블은 `world_settings`, `world_setting_candidates` 두 개이며 `world_setting_facts`나 삭제·보관·복원·전체 변경 로그는 만들지 않는다.
+- `WorldSetting` 한 행은 `workId + category + normalizedSubjectName` 대상 하나다. 세부 설정은 문자열 key·문자열 value JSON object에 저장하고, 생성 후 빈 object 상태는 허용하지 않는다.
+- 대상명·설정명·설정값은 앞뒤 공백만 제거하며 내부 공백은 보존한다. 대상 중복키는 Unicode NFC와 `Locale.ROOT` 소문자로 정규화하고, 설정명 중복도 같은 기준으로 Entity 전체 properties에서 검사한다.
+- 직접 생성·수정 API는 JSON 전체를 받지 않는다. 대상 정보 수정, 설정 한 개 추가, 설정 한 개 수정 요청을 분리하고 현재 `version`을 확인한 뒤 실제 변경마다 version을 증가시킨다.
+- 사용자 직접 입력의 동일 분류·대상과 동일 대상 내 설정명 중복은 Backend가 전체 DB와 unique 제약을 기준으로 최종 판정한다. Frontend의 현재 페이지나 필터 결과를 최종 중복 근거로 사용하지 않는다.
+- 세계관 후보 한 행은 회차에서 추출한 설정 속성 하나다. 1차 추출, 2차 비교 제안, 최종 사용자 결정을 같은 행에 보존하되 LLM은 확정본을 직접 변경하지 않고 Spring의 confirm 트랜잭션만 `WorldSetting`을 변경한다.
+- 후보 확정은 작품→후보→대상 순으로 write lock을 획득하고 대상 설정명 한 개의 현재값만 `beforeValue`와 비교한다. 같은 행의 다른 설정 변경으로 version만 달라진 경우는 허용하고, 같은 설정이 제3의 값으로 바뀌거나 신규 대상이 먼저 생성된 경우만 `RECOMPARISON_REQUIRED`로 전환한다.
+- 재비교 충돌은 후보 상태를 먼저 commit한 뒤 HTTP 409로 응답해야 한다. Service는 `WorldSettingCandidateConfirmResult.recomparisonRequired`를 정상 반환하고 Controller가 commit 이후 `AppException`으로 변환한다. 이를 위해 전용 예외 클래스를 추가하거나 `noRollbackFor=AppException.class`로 다른 확정 오류의 rollback 범위를 넓히지 않는다.
+- 같은 확정·제외 요청은 멱등 처리하고 `CONFIRMED ↔ DISMISSED` 반대 전이는 충돌로 거절한다. `UPDATE`와 `MERGE`는 DB에서 모두 최종 문자열로 한 property를 교체하되 제안 의미를 기록하기 위해 enum을 구분한다.
+- `recompare` API는 비교 제안을 비우고 `PENDING`으로 전환할 뿐 LLM을 호출하지 않는다. 1·2차 LLM의 모델, prompt, output schema, 검색, retry와 Worker 저장 구현은 별도 AI 작업에서 정하고 캐릭터 후보 계약은 변경하지 않는다.
+- 작품 hard delete 시 `world_settings`와 `world_setting_candidates`도 함께 정리되도록 두 테이블의 `work_id` FK와 JPA 매핑에 delete cascade를 유지한다. 이는 개별 세계관 대상 삭제·보관·복원 기능을 허용하는 규칙이 아니다.
 
 #### Service Layer
 
