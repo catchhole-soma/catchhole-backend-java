@@ -16,6 +16,8 @@ import org.monitoring.catchholebackend.domain.member.repository.MemberRepository
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingRepository;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.jpa.mapping.JpaMetamodelMappingContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -69,6 +71,12 @@ class CatchHoleBackendApplicationTests {
 
     @MockitoBean
     private CharacterSettingSchemaRepository characterSettingSchemaRepository;
+
+    @MockitoBean
+    private WorldSettingRepository worldSettingRepository;
+
+    @MockitoBean
+    private WorldSettingCandidateRepository worldSettingCandidateRepository;
 
     @MockitoBean
     private JpaMetamodelMappingContext jpaMetamodelMappingContext;
