@@ -18,8 +18,9 @@ public record WorldSettingIdentityUpdateRequest(
         @Schema(description = "수정할 대상명", example = "북부 바바리안")
         String subjectName,
 
+        @NotNull
         @PositiveOrZero
         @Schema(description = "화면에서 조회한 현재 버전", example = "3")
-        long version
+        Long version
 ) {
 }

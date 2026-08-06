@@ -109,6 +109,17 @@ public class WorldSettingCandidateController {
             summary = "세계관 설정 후보 비교 대상 수정",
             description = "분류·대상명·설정명을 보정하고 비교 제안을 비운 뒤 재비교 대기 상태로 전환합니다."
     )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "세계관 설정 후보 수정 성공"),
+            @ApiResponse(responseCode = "400", description = "입력값 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "인증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "작품 또는 후보를 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "409", description = "검토 상태 충돌",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
+    })
     public CommonResponse<WorldSettingCandidateResponse> updateWorldSettingCandidate(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,
@@ -127,6 +138,15 @@ public class WorldSettingCandidateController {
             summary = "세계관 설정 후보 비교 재시도",
             description = "실패 또는 재비교 필요 후보의 기존 비교 결과를 비우고 비교 대기 상태로 전환합니다."
     )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "세계관 설정 후보 재비교 대기 전환 성공"),
+            @ApiResponse(responseCode = "401", description = "인증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "작품 또는 후보를 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "409", description = "검토 상태 충돌",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
+    })
     public CommonResponse<WorldSettingCandidateResponse> retryWorldSettingCandidateComparison(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,

@@ -14,6 +14,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
@@ -306,6 +308,146 @@ class WorldSettingCandidateControllerIntegrationTest {
                 .isEqualTo("사막 지역");
     }
 
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(value = WorldSettingOperation.class, names = {"UPDATE", "MERGE"})
+    @DisplayName("UPDATE와 MERGE는 현재 존재하는 설정만 확정할 수 있다")
+    void confirmUpdateOrMergeRequiresExistingProperty(WorldSettingOperation operation) throws Exception {
+        WorldSetting target = worldSettingRepository.save(WorldSetting.create(
+                work,
+                WorldSettingCategory.RACE,
+                "바바리안",
+                "특징",
+                "전투 종족"
+        ));
+        WorldSettingCandidate candidate = candidate("바바리안", "서식지", "혹한 지역");
+        candidate.completeComparison(
+                target,
+                operation,
+                "서식지",
+                null,
+                "혹한 지역",
+                "기존 대상의 설정 수정",
+                objectMapper.createObjectNode().put("operation", operation.name()),
+                LocalDateTime.now()
+        );
+        candidateRepository.save(candidate);
+
+        mockMvc.perform(post("/api/v1/works/{workId}/world-setting-candidates/{candidateId}/confirm",
+                        work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(confirmRequest(
+                                operation,
+                                "바바리안",
+                                "서식지",
+                                "혹한 지역"
+                        ))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code")
+                        .value("WORLD_SETTING_CANDIDATE_RECOMPARISON_REQUIRED"));
+
+        assertThat(worldSettingRepository.findById(target.getId()).orElseThrow().hasProperty("서식지"))
+                .isFalse();
+        assertThat(candidateRepository.findById(candidate.getId()).orElseThrow().getComparisonStatus())
+                .isEqualTo(WorldSettingComparisonStatus.RECOMPARISON_REQUIRED);
+    }
+
+    @Test
+    @DisplayName("ADD는 현재 존재하지 않는 설정만 확정할 수 있다")
+    void confirmAddRequiresMissingProperty() throws Exception {
+        WorldSetting target = worldSettingRepository.save(WorldSetting.create(
+                work,
+                WorldSettingCategory.RACE,
+                "바바리안",
+                "서식지",
+                "온대 지역"
+        ));
+        WorldSettingCandidate candidate = candidate("바바리안", "서식지", "혹한 지역");
+        candidate.completeComparison(
+                target,
+                WorldSettingOperation.ADD,
+                "서식지",
+                "온대 지역",
+                "혹한 지역",
+                "기존 대상에 설정 추가",
+                objectMapper.createObjectNode().put("operation", "ADD"),
+                LocalDateTime.now()
+        );
+        candidateRepository.save(candidate);
+
+        mockMvc.perform(post("/api/v1/works/{workId}/world-setting-candidates/{candidateId}/confirm",
+                        work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(confirmRequest(
+                                WorldSettingOperation.ADD,
+                                "바바리안",
+                                "서식지",
+                                "혹한 지역"
+                        ))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code")
+                        .value("WORLD_SETTING_CANDIDATE_RECOMPARISON_REQUIRED"));
+
+        assertThat(worldSettingRepository.findById(target.getId()).orElseThrow().getPropertyValue("서식지"))
+                .isEqualTo("온대 지역");
+        assertThat(candidateRepository.findById(candidate.getId()).orElseThrow().getComparisonStatus())
+                .isEqualTo(WorldSettingComparisonStatus.RECOMPARISON_REQUIRED);
+    }
+
+    @Test
+    @DisplayName("수동으로 과거 값에 되돌리면 현재 근거는 직접 입력으로 표시하고 후보 이력은 유지한다")
+    void manualRollbackDoesNotReuseOlderCandidateAsLatestEvidence() throws Exception {
+        WorldSetting target = worldSettingRepository.save(WorldSetting.create(
+                work,
+                WorldSettingCategory.RACE,
+                "바바리안",
+                "서식지",
+                "초원"
+        ));
+        WorldSettingCandidate firstCandidate = candidate("바바리안", "서식지", "설원");
+        firstCandidate.completeComparison(
+                target,
+                WorldSettingOperation.UPDATE,
+                "서식지",
+                "초원",
+                "설원",
+                "첫 번째 후보",
+                objectMapper.createObjectNode().put("operation", "UPDATE"),
+                LocalDateTime.now()
+        );
+        candidateRepository.save(firstCandidate);
+        confirm(firstCandidate, WorldSettingOperation.UPDATE, "설원");
+
+        WorldSettingCandidate secondCandidate = candidate("바바리안", "서식지", "사막");
+        secondCandidate.completeComparison(
+                target,
+                WorldSettingOperation.UPDATE,
+                "서식지",
+                "설원",
+                "사막",
+                "두 번째 후보",
+                objectMapper.createObjectNode().put("operation", "UPDATE"),
+                LocalDateTime.now().plusSeconds(1)
+        );
+        candidateRepository.save(secondCandidate);
+        confirm(secondCandidate, WorldSettingOperation.UPDATE, "사막");
+
+        WorldSetting manuallyRolledBack = worldSettingRepository.findById(target.getId()).orElseThrow();
+        manuallyRolledBack.updateProperty("서식지", "서식지", "설원");
+        worldSettingRepository.saveAndFlush(manuallyRolledBack);
+
+        mockMvc.perform(get("/api/v1/works/{workId}/world-settings/{settingId}",
+                        work.getId(), target.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.properties.서식지").value("설원"))
+                .andExpect(jsonPath("$.data.propertyEvidence[0].latestEvidence").doesNotExist())
+                .andExpect(jsonPath("$.data.propertyEvidence[0].history.length()").value(2))
+                .andExpect(jsonPath("$.data.propertyEvidence[0].history[0].value").value("사막"))
+                .andExpect(jsonPath("$.data.propertyEvidence[0].history[1].value").value("설원"));
+    }
+
     @Test
     @DisplayName("후보 분류·대상·설정명 수정은 비교 제안을 비우고 대기 상태로 돌린다")
     void updateCandidateRequestsRecomparison() throws Exception {
@@ -410,6 +552,24 @@ class WorldSettingCandidateControllerIntegrationTest {
                 value,
                 null
         );
+    }
+
+    private void confirm(
+            WorldSettingCandidate candidate,
+            WorldSettingOperation operation,
+            String value
+    ) throws Exception {
+        mockMvc.perform(post("/api/v1/works/{workId}/world-setting-candidates/{candidateId}/confirm",
+                        work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(confirmRequest(
+                                operation,
+                                "바바리안",
+                                "서식지",
+                                value
+                        ))))
+                .andExpect(status().isOk());
     }
 
     private void clearData() {

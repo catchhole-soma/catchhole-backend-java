@@ -2,6 +2,7 @@ package org.monitoring.catchholebackend.domain.worldsetting.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
@@ -21,8 +22,9 @@ public record WorldSettingPropertyUpdateRequest(
         @Schema(description = "저장할 설정값", example = "북부 혹한 지역")
         String settingValue,
 
+        @NotNull
         @PositiveOrZero
         @Schema(description = "화면에서 조회한 현재 버전", example = "3")
-        long version
+        Long version
 ) {
 }

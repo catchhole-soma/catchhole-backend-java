@@ -424,4 +424,36 @@ class OpenApiContractIntegrationTest {
                 .andExpect(jsonPath("$['components']['schemas']['AiTokenUsageResponse']['properties']['remainingPercent']['description']")
                         .value(containsString("남은 사용량 비율")));
     }
+
+    @Test
+    @DisplayName("세계관 직접 수정 version과 후보 mutation 실패 응답 계약을 노출한다")
+    void openApiContractExposesWorldSettingMutationContracts() throws Exception {
+        String updateCandidate = "$['paths']['/api/v1/works/{workId}/world-setting-candidates/{candidateId}']['patch']";
+        String retryComparison = "$['paths']['/api/v1/works/{workId}/world-setting-candidates/{candidateId}/recompare']['post']";
+
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$['components']['schemas']['WorldSettingIdentityUpdateRequest']['required']")
+                        .value(org.hamcrest.Matchers.hasItem("version")))
+                .andExpect(jsonPath("$['components']['schemas']['WorldSettingPropertyCreateRequest']['required']")
+                        .value(org.hamcrest.Matchers.hasItem("version")))
+                .andExpect(jsonPath("$['components']['schemas']['WorldSettingPropertyUpdateRequest']['required']")
+                        .value(org.hamcrest.Matchers.hasItem("version")))
+                .andExpect(jsonPath("$['components']['schemas']['WorldSettingDetailResponse']['required']")
+                        .value(org.hamcrest.Matchers.hasItem("version")))
+                .andExpect(jsonPath(updateCandidate + "['responses']['400']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath(updateCandidate + "['responses']['401']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath(updateCandidate + "['responses']['404']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath(updateCandidate + "['responses']['409']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath(retryComparison + "['responses']['401']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath(retryComparison + "['responses']['404']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath(retryComparison + "['responses']['409']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"));
+    }
 }

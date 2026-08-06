@@ -174,7 +174,7 @@ class WorldSettingControllerIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new WorldSettingPropertyCreateRequest("특징", "전투 종족", 0)
+                                new WorldSettingPropertyCreateRequest("특징", "전투 종족", 0L)
                         )))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.version").value(1))
@@ -186,7 +186,7 @@ class WorldSettingControllerIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new WorldSettingPropertyUpdateRequest("서식지", "생활 지역", "극지방", 1)
+                                new WorldSettingPropertyUpdateRequest("서식지", "생활 지역", "극지방", 1L)
                         )))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.version").value(2))
@@ -213,13 +213,61 @@ class WorldSettingControllerIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new WorldSettingPropertyCreateRequest("사회 구조", "부족", 0)
+                                new WorldSettingPropertyCreateRequest("사회 구조", "부족", 0L)
                         )))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("WORLD_SETTING_VERSION_CONFLICT"));
 
         WorldSetting unchanged = worldSettingRepository.findById(setting.getId()).orElseThrow();
         assertThat(unchanged.getPropertyValue("사회 구조")).isNull();
+    }
+
+    @Test
+    @DisplayName("직접 수정 요청은 현재 version을 반드시 포함해야 한다")
+    void directMutationsRequireVersion() throws Exception {
+        WorldSetting setting = worldSettingRepository.save(WorldSetting.create(
+                work,
+                WorldSettingCategory.RACE,
+                "바바리안",
+                "서식지",
+                "혹한 지역"
+        ));
+
+        mockMvc.perform(patch("/api/v1/works/{workId}/world-settings/{settingId}/identity",
+                        work.getId(), setting.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"category":"LOCATION","subjectName":"북부 설원"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"));
+
+        mockMvc.perform(post("/api/v1/works/{workId}/world-settings/{settingId}/properties",
+                        work.getId(), setting.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"settingName":"특징","settingValue":"전투 종족"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"));
+
+        mockMvc.perform(patch("/api/v1/works/{workId}/world-settings/{settingId}/properties",
+                        work.getId(), setting.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"currentSettingName":"서식지","settingName":"생활 지역","settingValue":"극지방"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"));
+
+        WorldSetting unchanged = worldSettingRepository.findById(setting.getId()).orElseThrow();
+        assertThat(unchanged.getCategory()).isEqualTo(WorldSettingCategory.RACE);
+        assertThat(unchanged.getSubjectName()).isEqualTo("바바리안");
+        assertThat(unchanged.getPropertyValue("서식지")).isEqualTo("혹한 지역");
+        assertThat(unchanged.hasProperty("특징")).isFalse();
     }
 
     @Test

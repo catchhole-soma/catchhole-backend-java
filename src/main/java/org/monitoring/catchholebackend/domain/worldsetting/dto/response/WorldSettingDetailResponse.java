@@ -16,6 +16,7 @@ public record WorldSettingDetailResponse(
         String subjectName,
         Map<String, String> properties,
         int propertyCount,
+        @Schema(description = "낙관적 잠금 버전", requiredMode = Schema.RequiredMode.REQUIRED)
         long version,
         List<PropertyEvidence> propertyEvidence,
         LocalDateTime createdAt,

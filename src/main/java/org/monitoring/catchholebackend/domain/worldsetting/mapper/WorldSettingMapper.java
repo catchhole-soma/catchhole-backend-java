@@ -109,8 +109,8 @@ public class WorldSettingMapper {
                 .map(this::toEvidence)
                 .toList();
         WorldSettingDetailResponse.CandidateEvidence latestEvidence = history.stream()
-                .filter(evidence -> Objects.equals(evidence.value(), property.getValue()))
                 .findFirst()
+                .filter(evidence -> Objects.equals(evidence.value(), property.getValue()))
                 .orElse(null);
         return new WorldSettingDetailResponse.PropertyEvidence(property.getKey(), latestEvidence, history);
     }

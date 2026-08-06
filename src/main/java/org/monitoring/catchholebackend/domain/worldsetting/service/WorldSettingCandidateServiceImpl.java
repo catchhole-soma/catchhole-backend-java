@@ -260,11 +260,20 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             WorldSetting currentTarget,
             WorldSettingCandidateConfirmRequest request
     ) {
+        boolean propertyExists = currentTarget.hasProperty(request.settingName());
+        if (request.operation() == WorldSettingOperation.ADD && propertyExists) {
+            return false;
+        }
+        if ((request.operation() == WorldSettingOperation.UPDATE
+                || request.operation() == WorldSettingOperation.MERGE)
+                && !propertyExists) {
+            return false;
+        }
+
         String currentValue = currentTarget.getPropertyValue(request.settingName());
         boolean alreadyFinal = Objects.equals(currentValue, normalizeValue(request.value()));
         boolean comparisonStillCurrent = Objects.equals(currentValue, candidate.getBeforeValue());
-        boolean addToMissingProperty = request.operation() == WorldSettingOperation.ADD && currentValue == null;
-        return alreadyFinal || comparisonStillCurrent || addToMissingProperty;
+        return alreadyFinal || comparisonStillCurrent;
     }
 
     private String normalizeValue(String value) {
