@@ -21,6 +21,8 @@ erDiagram
     works ||--o{ ai_token_usages : meters
     works ||--o{ characters : has
     works ||--o{ setting_candidates : extracts
+    works ||--o{ world_settings : defines
+    works ||--o{ world_setting_candidates : extracts
     works o|--o{ character_setting_schemas : optionally_scopes
     characters ||--o{ character_facts : records
     upload_batches ||--o{ upload_files : contains
@@ -30,10 +32,14 @@ erDiagram
     analysis_jobs ||--o{ analysis_job_episode_targets : snapshots
     episodes ||--o{ analysis_job_episode_targets : included
     episodes ||--o{ setting_candidates : optional_source
+    episodes ||--o{ world_setting_candidates : source
     episodes ||--o{ character_facts : optional_source
     analysis_jobs ||--o{ setting_candidates : creates
+    analysis_jobs ||--o{ world_setting_candidates : creates
     analysis_jobs ||--o{ character_facts : extracts
     analysis_jobs ||--o{ ai_token_usages : records
+    world_settings o|--o{ world_setting_candidates : comparison_target
+    members o|--o{ world_setting_candidates : reviews
 
     members {
         bigint id PK
@@ -226,6 +232,55 @@ erDiagram
         datetime updated_at
     }
 
+    world_settings {
+        uuid id PK
+        uuid work_id FK
+        varchar category
+        varchar subject_name
+        varchar normalized_subject_name
+        jsonb properties_json
+        bigint version
+        datetime created_at
+        datetime updated_at
+    }
+
+    world_setting_candidates {
+        uuid id PK
+        uuid work_id FK
+        uuid source_episode_id FK
+        uuid analysis_job_id FK
+        varchar category
+        varchar subject_name
+        varchar setting_name
+        text extracted_value
+        jsonb evidence_spans
+        decimal extraction_confidence
+        jsonb raw_extraction_json
+        uuid target_world_setting_id FK
+        varchar suggested_operation
+        varchar proposed_setting_name
+        text before_value
+        text proposed_value
+        text comparison_reason
+        bigint base_world_setting_version
+        jsonb raw_comparison_json
+        datetime compared_at
+        varchar comparison_status
+        text comparison_error_message
+        varchar review_status
+        varchar final_operation
+        varchar final_category
+        varchar final_subject_name
+        varchar final_setting_name
+        text final_value
+        text review_note
+        bigint reviewed_by FK
+        datetime reviewed_at
+        bigint applied_world_setting_version
+        datetime created_at
+        datetime updated_at
+    }
+
     character_setting_schemas {
         uuid id PK
         uuid work_id FK
@@ -294,6 +349,8 @@ erDiagram
 | `character_facts` | 캐릭터별 설정 값과 회차별 변경 이력. 현재 유효값과 충돌 검수 기준을 추적합니다. |
 | `setting_candidates` | AI가 추출한 검토 전 후보. `SETTING`은 설정 값을, `CHARACTER_DISCOVERY`는 이름과 근거만 보존합니다. |
 | `character_setting_schemas` | AI의 `attributeName`을 canonical key로 해석하기 위한 전역/작품별 alias·pattern·값 타입·정책 registry입니다. 실제 캐릭터 값은 저장하지 않습니다. |
+| `world_settings` | 작품별 현재 세계관 확정본. 한 행은 분류·대상 하나이며 문자열 설정명·값 object와 충돌 검사용 version을 저장합니다. |
+| `world_setting_candidates` | 회차에서 추출한 세계관 속성 후보. 1차 추출, 2차 비교 제안, 사용자 최종 결정과 적용 버전을 한 행에 보존합니다. |
 
 ## Notion 기반 후속 AI 분석 ERD
 

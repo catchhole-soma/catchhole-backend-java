@@ -50,6 +50,10 @@ Python AI Worker는 주기적으로 내부 claim API를 호출해 `PENDING` 작�
 
 Worker는 분석 작업 생성과 `AnalysisJob` 상태 전이를 위해 백엔드 DB에 직접 접근하지 않습니다. 다만 현재 설정 후보 생성은 Python Worker가 `setting_candidates`에 직접 저장합니다. Spring은 후보 조회/수정/확정/무시 API와 `AnalysisJob` 상태 전이 API를 담당합니다.
 
+NVM-260은 회차 기반 세계관 후보를 저장할 `world_setting_candidates`와 Spring의 조회·수정·재비교 대기·확정·제외 API를 추가합니다. 1차 추출과 2차 비교 LLM의 모델·prompt·호출·retry 및 실제 Worker 저장 코드는 이번 범위에 포함하지 않습니다. 따라서 Spring의 `recompare` API는 비교 결과를 비우고 `PENDING`으로 전환할 뿐 LLM을 직접 호출하지 않으며, Worker가 후속으로 `PROCESSING`, `COMPLETED`, `FAILED`와 제안 필드를 기록해야 합니다.
+
+세계관 후보도 캐릭터 후보와 별도 테이블·검토 상태를 사용합니다. 분석 검토 화면은 같은 `batchId`의 두 후보 집계를 합산하지만, 캐릭터 `setting_candidates` 저장·확정 계약은 변경하지 않습니다.
+
 검수 리포트, 추가 전처리 산출물, 캐릭터 매칭 보정 결과를 모두 내부 API로 받을지 Worker DB 직접 저장으로 유지할지는 후속 설계에서 다시 결정합니다.
 
 ### 진행률
