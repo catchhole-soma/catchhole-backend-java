@@ -16,8 +16,8 @@ import org.monitoring.catchholebackend.domain.character.dto.response.CharacterSe
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterSummaryResponse;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
-import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingEditPolicyResolver;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingEditPolicyResolver.CharacterSettingEditPolicy;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingDisplayNameResolver;
@@ -32,6 +32,7 @@ public class CharacterMapper {
 
     private final CharacterSettingEditPolicyResolver characterSettingEditPolicyResolver;
     private final CharacterSettingDisplayNameResolver characterSettingDisplayNameResolver;
+    private final CharacterFactSourceResolver characterFactSourceResolver;
 
     public CharacterSummaryResponse toSummaryResponse(WorkCharacter character, Integer firstAppearanceEpisodeNo) {
         Integer currentLevel = character.getCurrentLevel();
@@ -117,7 +118,7 @@ public class CharacterMapper {
                 .findFirst()
                 .map(fact -> new CharacterFactReferenceResponse(
                         fact.getId(),
-                        hasEvidence(fact.getSettingCandidate())
+                        characterFactSourceResolver.hasEvidence(fact)
                 ))
                 .orElse(null);
     }
@@ -154,7 +155,7 @@ public class CharacterMapper {
                 fact.getFactValue(),
                 resolveValueType(schema, valueJson),
                 toProperties(valueJson),
-                hasEvidence(fact.getSettingCandidate())
+                characterFactSourceResolver.hasEvidence(fact)
         );
     }
 
@@ -195,14 +196,6 @@ public class CharacterMapper {
             return SettingValueType.JSON;
         }
         return inferValueType(primaryValue);
-    }
-
-    private boolean hasEvidence(SettingCandidate candidate) {
-        if (candidate == null) {
-            return false;
-        }
-        JsonNode evidenceSpans = candidate.getEvidenceSpans();
-        return evidenceSpans != null && evidenceSpans.isArray() && !evidenceSpans.isEmpty();
     }
 
     private SettingValueType inferValueType(JsonNode valueNode) {

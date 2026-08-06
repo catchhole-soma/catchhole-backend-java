@@ -4,6 +4,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.math.BigDecimal;
 import java.util.List;
@@ -73,6 +74,8 @@ class CharacterFactControllerIntegrationTest {
 
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     private Work work;
     private Work otherWork;
@@ -467,7 +470,143 @@ class CharacterFactControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("OpenAPI에 CharacterFact 검색·상세 경로와 0-based 페이지 계약을 노출한다")
+    @DisplayName("타임라인 요약은 PROFILE을 포함하고 TIME을 제외해 유형·회차·수동 Fact를 집계한다")
+    void timelineSummaryCountsSupportedFacts() throws Exception {
+        WorkCharacter character = workCharacterRepository.save(character(work, "아리아"));
+        saveFact(character, null, CharacterFactType.PROFILE, "profile.race", "인간", firstEpisode, 1, true);
+        saveFact(character, null, CharacterFactType.STATUS, "status.injury", "부상", secondEpisode, 2, false);
+        saveFact(character, null, CharacterFactType.ITEM, "item.potion", "회복 물약", null, null, true);
+        saveFact(character, null, CharacterFactType.TIME, "time.flashback", "과거", firstEpisode, 1, true);
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/characters/{characterId}/timeline/summary",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalFactCount").value(3))
+                .andExpect(jsonPath("$.data.totalEpisodeCount").value(2))
+                .andExpect(jsonPath("$.data.filteredFactCount").value(3))
+                .andExpect(jsonPath("$.data.manualFactCount").value(1))
+                .andExpect(jsonPath("$.data.factTypeCounts.length()").value(7))
+                .andExpect(jsonPath("$.data.factTypeCounts[0].factType").value("PROFILE"))
+                .andExpect(jsonPath("$.data.factTypeCounts[0].count").value(1))
+                .andExpect(jsonPath("$.data.episodes[0].episodeNo").value(1))
+                .andExpect(jsonPath("$.data.episodes[1].episodeNo").value(2));
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/characters/{characterId}/timeline/summary",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .queryParam("factType", "STATUS")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.appliedFactType").value("STATUS"))
+                .andExpect(jsonPath("$.data.filteredFactCount").value(1))
+                .andExpect(jsonPath("$.data.episodes.length()").value(1))
+                .andExpect(jsonPath("$.data.episodes[0].episodeNo").value(2));
+    }
+
+    @Test
+    @DisplayName("타임라인은 회차와 첫 근거 offset 순으로 조회하고 cursor 다음 묶음에 수동 Fact를 반환한다")
+    void timelineOrdersFactsAndContinuesWithCursor() throws Exception {
+        WorkCharacter character = workCharacterRepository.save(character(work, "아리아"));
+        SettingCandidate laterCandidate = saveCandidate(secondEpisode, "나중 문장", 50);
+        SettingCandidate earlierCandidate = saveCandidate(secondEpisode, "앞 문장", 10);
+        CharacterFact later = saveFact(
+                character, laterCandidate, CharacterFactType.STATUS, "status.later", "나중", secondEpisode, 2, true
+        );
+        CharacterFact earlier = saveFact(
+                character, earlierCandidate, CharacterFactType.STATUS, "status.earlier", "앞", secondEpisode, 2, false
+        );
+        CharacterFact manual = saveFact(
+                character, null, CharacterFactType.STATUS, "status.manual", "수동", null, null, true
+        );
+
+        String firstResponse = mockMvc.perform(get(
+                                "/api/v1/works/{workId}/characters/{characterId}/timeline",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .queryParam("factType", "STATUS")
+                        .queryParam("size", "2")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].characterFactId").value(earlier.getId().toString()))
+                .andExpect(jsonPath("$.data.content[1].characterFactId").value(later.getId().toString()))
+                .andExpect(jsonPath("$.data.content[0].sourceType").value("EPISODE"))
+                .andExpect(jsonPath("$.data.hasNext").value(true))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String cursor = objectMapper.readTree(firstResponse).path("data").path("nextCursor").asText();
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/characters/{characterId}/timeline",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .queryParam("factType", "STATUS")
+                        .queryParam("cursor", cursor)
+                        .queryParam("size", "2")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].characterFactId").value(manual.getId().toString()))
+                .andExpect(jsonPath("$.data.content[0].sourceType").value("MANUAL"))
+                .andExpect(jsonPath("$.data.hasNext").value(false))
+                .andExpect(jsonPath("$.data.nextCursor").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("타임라인은 다른 필터 cursor와 cursor·시작 회차 동시 전달을 거절한다")
+    void timelineRejectsInvalidCursorContext() throws Exception {
+        WorkCharacter character = workCharacterRepository.save(character(work, "아리아"));
+        saveFact(character, null, CharacterFactType.STATUS, "status.one", "하나", firstEpisode, 1, true);
+        saveFact(character, null, CharacterFactType.STATUS, "status.two", "둘", secondEpisode, 2, true);
+
+        String response = mockMvc.perform(get(
+                                "/api/v1/works/{workId}/characters/{characterId}/timeline",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .queryParam("factType", "STATUS")
+                        .queryParam("size", "1")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String cursor = objectMapper.readTree(response).path("data").path("nextCursor").asText();
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/characters/{characterId}/timeline",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .queryParam("factType", "ITEM")
+                        .queryParam("cursor", cursor)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("CHARACTER_TIMELINE_CURSOR_INVALID"));
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/characters/{characterId}/timeline",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .queryParam("factType", "STATUS")
+                        .queryParam("cursor", cursor)
+                        .queryParam("fromEpisodeNo", "2")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("CHARACTER_TIMELINE_CURSOR_INVALID"));
+    }
+
+    @Test
+    @DisplayName("OpenAPI에 CharacterFact 검색·상세와 캐릭터 타임라인 계약을 노출한다")
     void openApiContainsCharacterFactContract() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
@@ -500,7 +639,27 @@ class CharacterFactControllerIntegrationTest {
                 .andExpect(jsonPath(
                         "$.paths['/api/v1/works/{workId}/character-facts/{characterFactId}']"
                                 + ".get.responses['404'].content['application/json'].schema['$ref']"
-                ).value("#/components/schemas/CommonErrorResponse"));
+                ).value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath(
+                        "$.paths['/api/v1/works/{workId}/characters/{characterId}/timeline/summary']"
+                                + ".get.operationId"
+                ).value("getCharacterTimelineSummary"))
+                .andExpect(jsonPath(
+                        "$.paths['/api/v1/works/{workId}/characters/{characterId}/timeline']"
+                                + ".get.operationId"
+                ).value("getCharacterTimeline"))
+                .andExpect(jsonPath(
+                        "$.paths['/api/v1/works/{workId}/characters/{characterId}/timeline']"
+                                + ".get.parameters[*].name"
+                ).value(org.hamcrest.Matchers.containsInAnyOrder(
+                        "workId", "characterId", "factType", "cursor", "fromEpisodeNo", "size"
+                )))
+                .andExpect(jsonPath(
+                        "$.components.schemas.CharacterTimelineFactResponse.properties.hasEvidence.type"
+                ).value("boolean"))
+                .andExpect(jsonPath(
+                        "$.components.schemas.CharacterTimelineSummaryResponse.properties.episodes.items['$ref']"
+                ).value("#/components/schemas/CharacterTimelineEpisodeResponse"));
     }
 
     private void assertSingleSearchResult(String query, CharacterFact expected) throws Exception {
@@ -559,6 +718,29 @@ class CharacterFactControllerIntegrationTest {
             fact.markCurrent();
         }
         return characterFactRepository.saveAndFlush(fact);
+    }
+
+    private SettingCandidate saveCandidate(Episode episode, String quote, int startOffset) {
+        return settingCandidateRepository.saveAndFlush(SettingCandidate.create(
+                work,
+                episode,
+                null,
+                null,
+                SettingEntityType.CHARACTER,
+                "아리아",
+                "status.test",
+                quote,
+                SettingValueType.STRING,
+                JsonNodeFactory.instance.objectNode().put("value", quote),
+                JsonNodeFactory.instance.arrayNode().add(
+                        JsonNodeFactory.instance.objectNode()
+                                .put("quote", quote)
+                                .put("startOffset", startOffset)
+                                .put("endOffset", startOffset + quote.length())
+                ),
+                new BigDecimal("0.9000"),
+                JsonNodeFactory.instance.objectNode()
+        ));
     }
 
     private WorkCharacter character(Work ownerWork, String name) {

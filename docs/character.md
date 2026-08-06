@@ -234,6 +234,22 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 
 검색 결과는 current 우선 → 적용 회차 내림차순(`NULL` 마지막) → 생성 시각 내림차순 → Fact ID 오름차순으로 정렬합니다. 상세 조회는 `source_episode_id`를 우선하고 없으면 연결된 후보의 `episode_id`를 출처로 사용하며, `evidence_spans[*].quote`만 저장 순서대로 응답합니다. `value_json`, `normalized_value`, AI 원본, 청크 원문과 offset은 사용자 응답에 포함하지 않습니다.
 
+### 캐릭터 설정 이력 타임라인
+
+타임라인은 현재값을 다시 계산하는 기능이 아니라, 사용자에게 확정된 `CharacterFact`의 현재·과거 행을 캐릭터별 발생 순서로 보여주는 읽기 모델입니다. 따라서 새 entity나 중복 이력 테이블을 만들지 않고 기존 캐릭터 목록과 Fact·근거 조회 흐름을 재사용합니다.
+
+- 캐릭터 카드 목록은 기존 `GET /api/v1/works/{workId}/characters`를 사용합니다. 이름과 첫 등장 회차를 타임라인용으로 다시 조회하거나 저장하지 않습니다.
+- 모달 요약은 `GET /api/v1/works/{workId}/characters/{characterId}/timeline/summary`를 사용합니다. 전체·유형별 Fact 개수, Fact가 존재하는 회차, 회차 없는 수동 Fact 개수를 반환합니다.
+- 실제 이력은 같은 경로의 `GET` 요청으로 조회합니다. 기본 크기는 20개이며 응답의 불투명 `nextCursor`를 다음 요청에 그대로 전달합니다.
+- 회차 바로가기는 첫 요청에만 `fromEpisodeNo`를 보내고, 이후에는 응답 cursor만 사용합니다. cursor와 `fromEpisodeNo`를 함께 보내거나 다른 캐릭터·필터의 cursor를 재사용하면 `CHARACTER_TIMELINE_CURSOR_INVALID / 400`으로 거절합니다.
+- 필터는 `ALL`, `PROFILE`, `AGE`, `LEVEL`, `STAT`, `SKILL`, `ITEM`, `STATUS`를 지원합니다. `ALL`은 저장 enum이 아닌 조회 전용 값이며, 작중 시간 의미가 정해지지 않은 `TIME`은 MVP 타임라인에서 제외합니다.
+- 정렬은 출처 회차 오름차순 → 후보의 첫 원문 근거 offset 오름차순 → 생성 시각 오름차순 → Fact ID 오름차순입니다. 같은 청크 안에서 AI 배열 순서를 신뢰하지 않고 실제 원문 offset을 우선합니다.
+- 출처 회차는 `CharacterFact.sourceEpisode`를 우선하고, 레거시 Fact만 연결 후보의 episode로 보완합니다. 이 규칙은 Fact 상세·타임라인·원문 근거 API가 `CharacterFactSourceResolver`를 함께 사용합니다.
+- 회차가 없는 수동 Fact는 회차 Fact 뒤에 표시합니다. `fromEpisodeNo`로 이동해도 수동 Fact는 마지막에 포함됩니다.
+- `hasEvidence=true`인 항목의 원문은 기존 `GET /api/v1/works/{workId}/character-facts/{characterFactId}/evidence`로 지연 조회합니다. 타임라인 응답에 전체 원문과 evidence span을 중복 포함하지 않습니다.
+
+현재 cursor 내부 구현은 데이터 규모를 고려한 고정 정렬 + offset 방식입니다. API 사용자는 내부 값을 해석하지 않아야 합니다. 동시 삽입이 잦거나 캐릭터별 Fact가 충분히 커지면 정렬 키 기반 keyset cursor로 교체하되 응답 계약은 유지합니다.
+
 ## 상태 모델
 
 `CharacterStatus`
