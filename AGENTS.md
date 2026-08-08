@@ -73,6 +73,7 @@
 - 운영 컨테이너는 `SPRING_PROFILES_ACTIVE=prod`와 외부 환경변수로 설정을 주입한다. AWS/S3 자격 증명은 가능하면 EC2 IAM Role을 사용하고, access key를 이미지나 커밋 파일에 넣지 않는다.
 - 운영 Backend, Python AI Worker, PostgreSQL은 `APP_TIMEZONE`을 공통으로 사용하며 기본값은 `Asia/Seoul`이다. 세 writer가 timezone 없는 `TIMESTAMP` 컬럼에 서로 다른 로컬 시각을 저장하지 않도록 JVM `user.timezone`, 컨테이너 `TZ`, PostgreSQL `timezone`을 함께 변경한다.
 - 운영 AI Worker의 신규 청크 임베딩 생성은 `EMBEDDING_GENERATION_ENABLED`로 제어하고 Compose 기본값은 `false`로 둔다. MVP에서 사용하지 않는 API 비용을 차단하되 pgvector schema와 재활성화 경로는 유지하며, `true` 전환은 신규 분석·재분석에만 적용되고 기존 `NULL` 벡터를 자동 backfill하지 않는다.
+- 운영 세계관 재비교는 같은 AI 이미지를 `--worker-kind world-comparison` command로 실행하는 별도 `ai-world-comparison-worker` 서비스가 담당한다. 기본 `ai-worker`와 claim Job type을 분리하고 재비교 서비스에서는 임베딩 생성을 항상 끈다.
 - 운영 AI 모델과 추론 강도는 `LLM_MODEL`, `LLM_REASONING_EFFORT`로, 신규 회원 기본 지급량과 한도 소진 연락처는 `AI_TOKEN_DEFAULT_GRANT`, `AI_TOKEN_CONTACT_EMAIL`로 주입한다. 실제 값은 `/opt/catchhole/.env`에만 두고 Compose가 Backend와 AI Worker에 명시적으로 전달한다.
 - 로컬과 운영 PostgreSQL은 `pgvector/pgvector:0.8.2-pg16` 이미지로 통일한다. `latest`나 major version만 지정한 가변 태그를 사용하지 않고 PostgreSQL/pgvector 버전을 함께 고정해 로컬·운영의 vector extension 실행 환경을 일치시킨다.
 - 단일 EC2 운영 배포 파일은 `deploy/` 아래에 둔다. `compose.prod.yml`, `Caddyfile`, `.env.example`을 기준으로 서버의 `/opt/catchhole`에 배치하되, 실제 `.env`는 서버에만 두고 커밋하지 않는다.
