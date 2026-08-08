@@ -84,11 +84,12 @@ AI_TOKEN_CONTACT_EMAIL=aicatchhole@gmail.com
 값을 바꾼 뒤에는 관련 컨테이너를 재생성하고 실제 주입값을 확인한다.
 
 ```bash
-docker compose --env-file .env -f compose.prod.yml up -d --force-recreate backend ai-worker
+docker compose --env-file .env -f compose.prod.yml up -d --force-recreate backend ai-worker ai-world-comparison-worker
 docker compose --env-file .env -f compose.prod.yml exec backend printenv AI_TOKEN_DEFAULT_GRANT
 docker compose --env-file .env -f compose.prod.yml exec backend printenv AI_TOKEN_CONTACT_EMAIL
 docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv LLM_MODEL
 docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv LLM_REASONING_EFFORT
+docker compose --env-file .env -f compose.prod.yml exec ai-world-comparison-worker printenv LLM_MODEL
 ```
 
 ## 실행
@@ -103,9 +104,10 @@ docker compose --env-file .env -f compose.prod.yml ps
 시간대 반영은 컨테이너 재시작이 아니라 재생성이 필요하다.
 
 ```bash
-docker compose --env-file .env -f compose.prod.yml up -d --force-recreate redis backend ai-worker postgres
+docker compose --env-file .env -f compose.prod.yml up -d --force-recreate redis backend ai-worker ai-world-comparison-worker postgres
 docker compose --env-file .env -f compose.prod.yml exec backend date
 docker compose --env-file .env -f compose.prod.yml exec ai-worker date
+docker compose --env-file .env -f compose.prod.yml exec ai-world-comparison-worker date
 docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv EMBEDDING_GENERATION_ENABLED
 docker compose --env-file .env -f compose.prod.yml exec postgres \
   sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SHOW timezone; SELECT CURRENT_TIMESTAMP;"'
@@ -136,7 +138,10 @@ V1이 공유 환경에 적용된 뒤에는 파일을 수정하지 않는다. 이
 curl https://api.catchhole.com/actuator/health
 docker compose --env-file .env -f compose.prod.yml logs -f backend
 docker compose --env-file .env -f compose.prod.yml logs -f ai-worker
+docker compose --env-file .env -f compose.prod.yml logs -f ai-world-comparison-worker
 ```
+
+`ai-worker`는 `SETTING_EXTRACTION`, `ai-world-comparison-worker`는 사용자 재비교용 `WORLD_SETTING_COMPARISON`만 claim한다. 두 서비스가 모두 떠 있어야 최초 분석과 `/recompare` 요청이 각각 처리된다.
 
 ## GitHub Actions 자동 배포
 

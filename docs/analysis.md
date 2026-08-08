@@ -4,7 +4,7 @@
 
 Analysis 도메인은 작품의 각 회차를 대상으로 하는 AI 분석 작업의 상태와 결과 메타데이터를 추적합니다. `UploadBatch`는 한 번의 업로드 출처를 묶지만 분석 실행과 실패 격리의 단위는 단일 회차 `AnalysisJob`입니다.
 
-현재 범위에서는 백엔드가 분석 작업을 생성/조회하고 Worker가 내부 API로 작업을 claim/상태 갱신할 수 있는 계약을 제공합니다. 실제 원문 청킹, LLM 설정 후보 추출, quote 위치 보정은 Python AI Worker가 담당하며, Spring은 분석 작업 상태와 사용자 검토 도메인을 관리합니다.
+현재 범위에서는 백엔드가 분석 작업을 생성/조회하고 Worker가 내부 API로 작업을 claim/상태 갱신할 수 있는 계약을 제공합니다. 실제 원문 청킹, LLM 캐릭터·세계관 설정 후보 추출, 세계관 비교, quote 위치 보정은 Python AI Worker가 담당하며, Spring은 lease/checkpoint, 세계관 후보 저장 경계, 분석 작업 상태와 사용자 검토 도메인을 관리합니다.
 
 ## 핵심 결정
 
@@ -46,11 +46,13 @@ upload_batches.id
 
 Kafka/SQS 없이 내부 API polling 방식을 사용합니다.
 
-Python AI Worker는 주기적으로 내부 claim API를 호출해 `PENDING` 작업을 하나씩 가져갑니다. 백엔드는 claim된 작업을 `RUNNING`으로 변경하고, Worker가 S3에서 원문을 읽을 수 있도록 단일 `episode` 원문 메타데이터, 캐릭터 매칭에 사용할 `knownCharacters`, `attributeName` 해석에 사용할 `characterSettingSchemas`를 내려줍니다. 복수 target인 과거 작업은 단일 회차 계약으로 claim하지 않고 실패 처리합니다.
+Python AI Worker는 처리할 `allowedJobTypes`를 지정해 내부 claim API를 polling합니다. 백엔드는 가장 오래된 허용 `PENDING` 작업 하나를 `RUNNING`으로 바꾸고 5분짜리 소유권 lease를 발급합니다. Worker는 `X-Worker-Lease-Token` 헤더와 heartbeat로 lease를 유지하며, 만료된 작업은 checkpoint부터 재개할 수 있도록 다시 `PENDING`으로 전환됩니다. claim이 세 번 만료되면 작업을 `FAILED`로 종료합니다.
 
-Worker는 분석 작업 생성과 `AnalysisJob` 상태 전이를 위해 백엔드 DB에 직접 접근하지 않습니다. 다만 현재 설정 후보 생성은 Python Worker가 `setting_candidates`에 직접 저장합니다. Spring은 후보 조회/수정/확정/무시 API와 `AnalysisJob` 상태 전이 API를 담당합니다.
+`SETTING_EXTRACTION` claim에는 Worker가 S3에서 원문을 읽을 수 있도록 단일 `episode` 원문 메타데이터, 캐릭터 매칭에 사용할 `knownCharacters`, `attributeName` 해석에 사용할 `characterSettingSchemas`가 포함됩니다. 복수 target인 과거 작업은 단일 회차 계약으로 claim하지 않고 실패 처리합니다. 캐릭터 후보는 기존 Python 저장 방식을 유지하지만, 세계관 후보와 비교 상태는 반드시 Spring 내부 API를 통해 변경합니다.
 
-NVM-260은 회차 기반 세계관 후보를 저장할 `world_setting_candidates`와 Spring의 조회·수정·재비교 대기·확정·제외 API를 추가합니다. 1차 추출과 2차 비교 LLM의 모델·prompt·호출·retry 및 실제 Worker 저장 코드는 이번 범위에 포함하지 않습니다. 따라서 Spring의 `recompare` API는 비교 결과를 비우고 `PENDING`으로 전환할 뿐 LLM을 직접 호출하지 않으며, Worker가 후속으로 `PROCESSING`, `COMPLETED`, `FAILED`와 제안 필드를 기록해야 합니다.
+NVM-260의 `SETTING_EXTRACTION` Worker는 캐릭터 후보 저장 뒤 회차 원문에서 세계관 후보를 추출하고 Spring에 게시한 다음, 후보별 2차 LLM 비교를 수행합니다. `CHUNKS_READY` → `CHARACTER_CANDIDATES_SAVED` → `WORLD_CANDIDATES_PUBLISHED` → `WORLD_COMPARISONS_FINISHED` checkpoint를 기록하며, 마지막 checkpoint에 도달했고 모든 세계관 후보 비교가 terminal 상태일 때만 Job을 완료할 수 있습니다. 후보 하나의 비교 실패는 해당 후보만 `FAILED`로 남기고 나머지 후보 처리를 계속합니다.
+
+공개 `recompare` API는 후보를 `PENDING`으로 되돌리고 숨김 내부 Job인 `WORLD_SETTING_COMPARISON`을 멱등 생성합니다. 별도 comparison Worker는 이 유형만 claim해 연결된 후보 하나를 비교합니다. 이 Job은 공개 분석 목록·진행률·회차 활성 작업 충돌에서 제외되고, 성공·실패가 `Episode.status`를 변경하지 않습니다.
 
 세계관 후보도 캐릭터 후보와 별도 테이블·검토 상태를 사용합니다. 분석 검토 화면은 같은 `batchId`의 두 후보 집계를 합산하지만, 캐릭터 `setting_candidates` 저장·확정 계약은 변경하지 않습니다.
 
@@ -69,8 +71,8 @@ NVM-260은 회차 기반 세계관 후보를 저장할 `world_setting_candidates
 | 상태 | 의미 | 전이 시점 |
 | --- | --- | --- |
 | `PENDING` | 작업 생성 후 분석 대기 | 사용자가 분석 작업 생성 API를 호출하면 `AnalysisJob.create()`로 생성됩니다. Worker claim 후보가 됩니다. |
-| `RUNNING` | 분석 진행 중 | Python AI Worker가 내부 claim API로 작업을 가져가면 `AnalysisJob.start()`로 전환합니다. |
-| `SUCCEEDED` | 분석 성공 | Worker가 완료 API를 호출하면 `AnalysisJob.succeed()`로 전환하고 결과 요약과 token count를 기록합니다. |
+| `RUNNING` | 분석 진행 중 | Python AI Worker가 내부 claim API로 작업을 가져가면 `AnalysisJob.claim()`이 lease와 claim 횟수를 기록하며 전환합니다. |
+| `SUCCEEDED` | 분석 성공 | Worker가 완료 API를 호출하면 `AnalysisJob.succeed()`로 전환하고 결과 요약과 Backend token ledger 합계를 기록합니다. |
 | `FAILED` | 분석 실패 | Worker가 실패 API를 호출하거나, claim 후 분석 대상 회차가 없으면 `AnalysisJob.fail()`로 전환합니다. |
 
 현재 재시도 정책:
@@ -80,7 +82,8 @@ NVM-260은 회차 기반 세계관 후보를 저장할 `world_setting_candidates
 - `episode_id == null`인 과거 batch-wide `FAILED` Job은 대상 스냅샷 중 현재 `Episode.status == FAILED`인 회차만 재시도합니다.
 - 과거 형식의 batch-wide 작업이 같은 배치에서 `PENDING` 또는 `RUNNING`이면 중복 분석을 막기 위해 `ANALYSIS_JOB_ALREADY_IN_PROGRESS`로 거절합니다.
 - 해당 회차에 같은 `jobType`의 `PENDING` 또는 `RUNNING` 작업이 있으면 새 작업을 중복 생성하지 않고 그 활성 작업을 멱등 반환합니다. 다른 `jobType`의 활성 작업이 있으면 409로 거절합니다.
-- 재분석 또는 재시도로 새 Job을 실제 생성하기 직전에 같은 `workId`, `batchId`, `episodeId`, `jobType`의 기존 `PENDING_REVIEW` 후보만 대체 제거합니다. 후보의 `episode_id`가 비어 있어도 연결된 단일 회차 `AnalysisJob.episode_id`가 대상과 같으면 같은 산출물로 판단합니다. 이미 검토한 `CONFIRMED`·`DISMISSED` 후보와 다른 유형·회차의 후보는 보존합니다.
+- 숨김 `WORLD_SETTING_COMPARISON` 활성 작업은 공개 분석 생성·재시도 충돌 검사에서 제외합니다.
+- 재분석 또는 재시도로 새 Job을 실제 생성하기 직전에 같은 `workId`, `batchId`, `episodeId`, `jobType`의 기존 `PENDING_REVIEW` 캐릭터·세계관 후보만 대체 제거합니다. 연결된 재비교 Job은 예약 token을 해제하고 `FAILED`로 종료한 뒤 후보 연결을 끊습니다. 이미 검토한 `CONFIRMED`·`DISMISSED` 후보와 다른 유형·회차의 후보는 보존합니다.
 
 정책 미확정 TODO:
 
@@ -91,7 +94,7 @@ NVM-260은 회차 기반 세계관 후보를 저장할 `world_setting_candidates
 
 - 분석 작업 목록과 분석 작업 카드에서는 `AnalysisJob.status`를 상위 상태로 표시합니다.
 - 분석 작업 응답은 `AnalysisJob.status`, `currentStep`, token count, summary/error metadata와 대상 `episodes` 목록을 반환합니다.
-- Worker claim/progress/complete/fail 처리와 함께 대상 `Episode.status`도 갱신합니다.
+- 공개 회차 Job은 Worker claim/progress/complete/fail 처리와 함께 대상 `Episode.status`도 갱신합니다. 숨김 `WORLD_SETTING_COMPARISON` Job은 회차 상태를 변경하지 않습니다.
 
 분석 목록의 배치 집계 기준:
 
@@ -105,8 +108,9 @@ NVM-260은 회차 기반 세계관 후보를 저장할 `world_setting_candidates
 
 | 유형 | 의미 |
 | --- | --- |
-| `SETTING_EXTRACTION` | 설정집 추출 |
+| `SETTING_EXTRACTION` | 회차의 캐릭터·세계관 설정 추출과 최초 세계관 비교 |
 | `EPISODE_VALIDATION` | 회차 검수 |
+| `WORLD_SETTING_COMPARISON` | 세계관 후보 재비교 전용 숨김 내부 Job |
 
 ## DB 모델
 
@@ -238,7 +242,7 @@ POST /api/v1/works/{workId}/analysis-jobs/{analysisJobId}/retry
 
 내부 API는 Python AI Worker 전용입니다.
 
-모든 내부 API는 `X-Internal-Api-Key` 헤더가 필요합니다. 값은 서버 설정 `internal.api-key`와 일치해야 합니다.
+모든 내부 API는 `X-Internal-Api-Key` 헤더가 필요합니다. 값은 서버 설정 `internal.api-key`와 일치해야 합니다. claim을 제외한 분석 상태·token 예약·세계관 후보 API에는 claim 응답의 `X-Worker-Lease-Token`도 보내야 하며, 백엔드는 `RUNNING` 상태, token 일치, 만료 시각을 원자적으로 검증합니다. 이미 시작된 provider 요청의 정산·해제는 lease 만료 뒤에도 원장을 정리할 수 있도록 `requestId`의 예약 소유권을 기준으로 처리합니다.
 
 ### 분석 작업 claim
 
@@ -252,9 +256,12 @@ Request body는 선택입니다.
 ```json
 {
   "modelName": "gpt-5.6-terra",
-  "currentStep": "원문 청킹"
+  "currentStep": "원문 청킹",
+  "allowedJobTypes": ["SETTING_EXTRACTION"]
 }
 ```
+
+일반 분석 Worker는 공개 회차 유형을, 별도 세계관 비교 Worker는 `WORLD_SETTING_COMPARISON`만 지정합니다.
 
 claim할 `PENDING` 작업이 없으면 `204 No Content`를 반환합니다.
 
@@ -272,6 +279,11 @@ claim할 작업이 있으면 가장 오래된 `PENDING` 작업 하나를 `RUNNIN
     "batchId": "01970c2e-7e6d-7000-8e5d-2a9bc4b6d111",
     "modelName": "gpt-5.6-terra",
     "currentStep": "원문 청킹",
+    "leaseToken": "01970c2e-7e6d-7000-8e5d-2a9bc4b6d777",
+    "leaseExpiresAt": "2026-06-19T15:25:00",
+    "claimAttemptCount": 1,
+    "checkpointStage": null,
+    "worldSettingCandidateId": null,
     "characterSettingSchemas": [
       {
         "schemaKey": "stats.physique",
@@ -312,44 +324,56 @@ claim할 작업이 있으면 가장 오래된 `PENDING` 작업 하나를 `RUNNIN
 원문 본문은 응답에 포함하지 않습니다. Worker는 `contentS3Key`, `contentS3Version`을 사용해 S3에서 원문을 직접 읽습니다.
 `characterSettingSchemas`는 job type과 관계없이 활성 전역 schema와 현재 작품의 활성 추가 schema를 `schemaKey` 오름차순으로 내려줍니다. registry row가 없으면 빈 배열입니다. Worker에는 canonical key 해석에 필요한 5개 필드만 공개하며 source와 merge 정책은 포함하지 않습니다.
 `knownCharacters`는 Python Worker가 `setting_candidates`의 `matched_character_id`, `match_status`를 계산할 때 사용하는 기존 캐릭터 목록입니다. 현재는 `characters.id`, `characters.name`만 내려줍니다.
+`checkpointStage`는 재claim 시 이미 완료한 내부 stage를 건너뛰는 기준입니다. `WORLD_SETTING_COMPARISON` payload는 연결된 `worldSettingCandidateId`를 포함하고 캐릭터 schema와 목록은 빈 배열입니다.
+
+### lease heartbeat
+
+```http
+POST /api/internal/v1/analysis-jobs/{analysisJobId}/heartbeat
+X-Worker-Lease-Token: {leaseToken}
+```
+
+유효한 lease를 5분 연장하고 동일한 `leaseToken`, 새 `leaseExpiresAt`을 반환합니다. Worker는 장시간 LLM 호출 중에도 주기적으로 heartbeat를 전송합니다.
 
 ### 진행 단계 갱신
 
 ```http
 PATCH /api/internal/v1/analysis-jobs/{analysisJobId}/progress
+X-Worker-Lease-Token: {leaseToken}
 ```
 
 ```json
 {
   "currentStep": "LLM 전처리",
-  "episodeStatus": "PREPROCESSING"
+  "episodeStatus": "PREPROCESSING",
+  "checkpointStage": "CHUNKS_READY"
 }
 ```
 
-`RUNNING` 작업에만 사용할 수 있습니다.
+유효한 lease를 가진 `RUNNING` 작업에만 사용할 수 있습니다.
 
-`currentStep`은 표시용 문구로 저장하고, 대상 회차 상태는 명시적인 `episodeStatus` 값으로 갱신합니다.
+`currentStep`은 표시용 문구이고 `checkpointStage`는 멱등 재개 경계입니다. 공개 회차 Job은 명시적인 `episodeStatus`도 필수이며, `WORLD_SETTING_COMPARISON`은 회차 상태를 변경하지 않으므로 생략합니다.
 
 ### 작업 완료
 
 ```http
 POST /api/internal/v1/analysis-jobs/{analysisJobId}/complete
+X-Worker-Lease-Token: {leaseToken}
 ```
 
 ```json
 {
-  "summaryJson": "{\"status\":\"ok\"}",
-  "inputTokenCount": 1200,
-  "outputTokenCount": 300
+  "summaryJson": "{\"status\":\"ok\"}"
 }
 ```
 
-대상 회차를 `ANALYZED`로 변경하고 `RUNNING` 작업을 `SUCCEEDED`로 변경합니다.
+`SETTING_EXTRACTION`은 `WORLD_COMPARISONS_FINISHED` checkpoint와 모든 후보의 terminal 비교 상태를 검증한 뒤 대상 회차를 `ANALYZED`로 바꾸고 Job을 `SUCCEEDED`로 변경합니다. `WORLD_SETTING_COMPARISON`은 연결 후보가 `COMPLETED`여야 하며 회차 상태는 변경하지 않습니다. 요청 DTO의 `inputTokenCount`, `outputTokenCount`는 구버전 Worker 호환용으로만 남고, 실제 합계는 Backend token ledger에서 계산합니다.
 
 ### 작업 실패
 
 ```http
 POST /api/internal/v1/analysis-jobs/{analysisJobId}/fail
+X-Worker-Lease-Token: {leaseToken}
 ```
 
 ```json
@@ -358,7 +382,7 @@ POST /api/internal/v1/analysis-jobs/{analysisJobId}/fail
 }
 ```
 
-아직 `ANALYZED`가 아닌 대상 회차를 `FAILED`로 변경하고 `RUNNING` 작업을 `FAILED`로 변경합니다.
+공개 회차 Job은 아직 `ANALYZED`가 아닌 대상 회차를 `FAILED`로 바꾸고 Job을 `FAILED`로 변경합니다. `WORLD_SETTING_COMPARISON`은 처리 중 후보만 `FAILED`로 바꾸고 회차 상태는 유지합니다. 두 경우 모두 실제 token 합계는 Backend ledger에서 계산합니다.
 
 ## API Workflow
 
@@ -430,7 +454,8 @@ GET /api/v1/works/{workId}/analysis-jobs/batches?page=0&size=10
 - `content` 한 항목은 업로드 배치 하나입니다.
 - `jobGroups`는 같은 배치에서 수행한 `SETTING_EXTRACTION`, `EPISODE_VALIDATION`을 각각 집계합니다.
 - `currentAnalysisJobIds`는 진행·실패·완료 상세 화면에서 다시 조회할 최신 유효 Job ID입니다.
-- `totalCandidateCount`, `reviewedCandidateCount`, `pendingCandidateCount`는 배치에 연결된 설정 후보 검토 현황입니다.
+- `totalCandidateCount`, `reviewedCandidateCount`, `pendingCandidateCount`는 배치에 연결된 캐릭터 설정 후보 검토 현황입니다.
+- `worldSettingTotalCandidateCount`, `worldSettingReviewedCandidateCount`, `worldSettingPendingCandidateCount`는 같은 배치의 세계관 설정 후보 검토 현황입니다. 배치 상태는 두 종류의 대기 후보를 합산해 `REVIEW_REQUIRED` 여부를 판정합니다.
 - 페이지 크기는 1~20이며 응답은 공통 `PageResponse` 형식입니다.
 
 상태 판정 우선순위는 다음과 같습니다.
@@ -474,10 +499,10 @@ Client
 3. `episodes.source_file_id`로 각 업로드 파일에서 생성된 회차들을 찾습니다.
 4. `ARCHIVED`가 아닌 회차만 선택합니다.
 5. 선정된 각 회차마다 `AnalysisJob`을 생성하고 단일 대상을 `analysis_job_episode_targets`에 저장합니다.
-6. Worker claim API가 가장 오래된 Job 하나와 단일 `episode`, `knownCharacters`, 활성 `characterSettingSchemas`를 payload로 내려줍니다.
-7. Worker가 해당 회차의 S3 원문만 읽고 분석합니다.
-8. Worker가 내부 API로 해당 Job과 단일 대상 회차 상태를 함께 변경합니다. 실패해도 다음 회차 Job은 계속 claim할 수 있습니다.
-9. 필요하면 `currentStep`, `modelName`, token count, `summaryJson`, 마지막 실패 사유인 `errorMessage`를 기록합니다.
+6. Worker가 처리할 `allowedJobTypes`를 지정해 claim하면, Backend가 가장 오래된 허용 Job 하나와 lease, checkpoint, 단일 `episode`, `knownCharacters`, 활성 `characterSettingSchemas`를 payload로 내려줍니다.
+7. Worker가 heartbeat로 lease를 유지하며 해당 회차의 S3 원문만 읽고 checkpoint 이후 stage부터 분석합니다.
+8. Worker가 내부 API로 캐릭터 후보를 저장하고 세계관 후보를 게시·비교한 뒤 해당 Job과 단일 대상 회차 상태를 변경합니다. 후보 단위 비교 실패는 격리하고, Job 실패가 발생해도 다음 회차 Job은 계속 claim할 수 있습니다.
+9. 필요하면 `currentStep`, `checkpointStage`, `modelName`, Backend token ledger 합계, `summaryJson`, 마지막 실패 사유인 `errorMessage`를 기록합니다.
 
 예상 조회 흐름은 다음과 같습니다.
 

@@ -140,7 +140,7 @@ MVP의 후보 출처는 회차 원문만 지원하므로 `source_type`, `source_
 확정은 후보와 확정본을 함께 잠그는 단일 트랜잭션으로 처리합니다.
 
 1. 후보를 잠금 조회하고 현재 상태를 확인합니다.
-2. 사용자가 보정한 최종 분류·대상에 해당하는 확정본을 잠금 조회합니다. 신규 행 생성 경쟁은 작품 잠금과 유일 제약으로 직렬화합니다.
+2. 2차 비교가 기존 확정본을 연결했으면 `target_world_setting_id`로 해당 행을 잠금하고, API 응답의 `targetSubjectName`을 최종 대상명 기준으로 사용합니다. 신규 대상 제안은 사용자가 보정한 분류·대상 identity로 잠금 조회하며, 생성 경쟁은 작품 잠금과 유일 제약으로 직렬화합니다.
 3. `final_setting_name` 한 개의 현재 값만 `before_value`와 비교합니다.
 4. 충돌이 없으면 해당 JSON property 한 개만 추가하거나 교체합니다.
 5. 실제 변경 시 `world_settings.version`을 증가시킵니다.
@@ -167,13 +167,106 @@ MVP의 후보 출처는 회차 원문만 지원하므로 `source_type`, `source_
 - 신규 대상 `ADD` 비교 뒤 동일 분류·대상이 먼저 생성되었으면 자동 병합하지 않고 `RECOMPARISON_REQUIRED`로 전환합니다.
 - 같은 행의 다른 설정명만 변경된 경우에는 버전이 달라도 현재 후보를 정상 반영합니다.
 
+### 확정 및 재비교 통합 시퀀스
+
+아래 흐름은 사용자가 비교 완료 후보를 확정한 시점부터 정상 반영 또는 충돌 재비교를 거쳐 다시 검토할 때까지의 전체 경계를 보여줍니다.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as 사용자
+    participant Front as Front 세계관 후보 검토
+    participant Backend as Spring Backend
+    participant DB as PostgreSQL
+    participant Worker as AI 비교 Worker
+    participant LLM as 2차 비교 LLM
+
+    User->>Front: 확정 버튼 선택
+    Front->>Backend: 후보 confirm 요청
+    Backend->>DB: 작품·후보·현재 확정본 잠금 조회
+    DB-->>Backend: 후보 상태·비교 대상·현재 property 반환
+    Backend->>Backend: COMPLETED 상태·최종 identity·operation 검증
+    Backend->>Backend: 현재값과 beforeValue·finalValue 비교
+
+    alt 현재 비교가 유효함
+        Backend->>DB: 대상 property 한 개 반영<br/>필요할 때 version 증가·후보 CONFIRMED 기록
+        DB-->>Backend: 단일 트랜잭션 commit
+        Backend-->>Front: 200 확정 결과
+        Front-->>User: 세계관 DB 반영 완료 표시
+    else 동일 identity 또는 property가 비교 뒤 충돌함
+        Backend->>DB: 후보를 RECOMPARISON_REQUIRED로 저장
+        DB-->>Backend: 상태 변경 commit
+        Backend-->>Front: 409 RECOMPARISON_REQUIRED
+        Front->>Backend: 후보 상세 재조회
+        Backend-->>Front: 최신 RECOMPARISON_REQUIRED 상태
+        Front->>Backend: 후보 recompare 요청<br/>상태 전환당 한 번만 전송
+        Backend->>DB: 기존 비교 제안 초기화·후보 PENDING 전환<br/>활성 WORLD_SETTING_COMPARISON Job 멱등 생성
+        DB-->>Backend: 후보와 Job commit
+        Backend-->>Front: 200 PENDING 후보
+
+        par Front는 상태 polling
+            loop 후보가 PENDING 또는 PROCESSING인 동안 2초 간격
+                Front->>Backend: 후보 목록·상세 조회
+                Backend->>DB: 현재 비교 상태 조회
+                Backend-->>Front: PENDING·PROCESSING·COMPLETED·FAILED
+            end
+        and Worker는 재비교 비동기 처리
+            Worker->>Backend: WORLD_SETTING_COMPARISON Job claim
+            Backend->>DB: Job RUNNING·lease token 기록
+            DB-->>Backend: claim commit
+            Backend-->>Worker: 후보가 연결된 Job payload
+
+            Worker->>Backend: Job의 다음 PENDING 후보 claim
+            Backend->>DB: 후보 PROCESSING 전환
+            Backend-->>Worker: 비교 후보 payload
+            Worker->>Backend: 같은 category 대상명·비교 context 요청
+            Backend->>DB: 현재 대상·properties·version 잠금 없는 조회
+            Backend-->>Worker: exact 대상과 최대 3개 비교 대상 context
+            Worker->>LLM: 현재 확정본과 후보 비교
+            LLM-->>Worker: ADD·UPDATE·MERGE·EXCLUDE 제안
+
+            alt 2차 비교 성공
+                Worker->>Backend: comparison-complete 요청
+                Backend->>DB: 대상·context version·property 구조 검증<br/>비교 결과 저장·후보 COMPLETED 전환
+                Worker->>Backend: Job complete 보고
+                Backend->>DB: Job SUCCEEDED 기록
+            else 2차 비교 실패
+                Worker->>Backend: comparison-fail 요청
+                Backend->>DB: 실패 사유 저장·후보 FAILED 전환
+                Worker->>Backend: Job fail 보고
+                Backend->>DB: Job FAILED 기록
+            end
+        end
+
+        alt 후보가 COMPLETED로 회복됨
+            Front-->>User: 최신 전후값과 제안 다시 표시
+            User->>Front: 검토 후 다시 확정 가능
+        else 후보가 FAILED임
+            Front-->>User: 비교 실패 이유와 다시 비교 액션 표시
+        end
+    end
+```
+
+상세 처리 기준:
+
+- `world_settings.version`이 달라졌다는 이유만으로 재비교하지 않습니다. 확정 대상 property의 현재값이 `before_value` 또는 사용자가 확정하려는 `final_value`와 호환되는지 확인합니다.
+- 신규 대상 `ADD` 사이에 동일 identity의 대상이 생기거나, `ADD` 대상 property가 이미 존재하거나, `UPDATE`·`MERGE` 대상 property가 사라진 경우에는 자동 보정하지 않고 재비교합니다.
+- Backend는 `RECOMPARISON_REQUIRED` 상태를 먼저 commit한 뒤 Controller에서 409로 변환하므로, Front가 409를 받은 직후 상세를 재조회하면 저장된 충돌 상태를 확인할 수 있습니다.
+- `recompare` 요청은 LLM을 동기 호출하지 않습니다. 후보를 `PENDING`으로 되돌리고 활성 재비교 Job을 최대 하나만 만든 뒤 즉시 응답합니다.
+- Front는 한 번의 `RECOMPARISON_REQUIRED` 전환에서 재비교 요청을 한 번만 보내고, 후보가 해당 상태를 벗어나면 guard를 해제합니다.
+- 비교 Worker는 DB UUID를 LLM에 전달하지 않고 요청 안에서만 유효한 참조를 사용합니다. Backend가 대상 ID, context version, property 존재 여부와 `before_value`를 다시 검증한 뒤 결과를 저장합니다.
+
 ## AI와 Backend 책임 경계
 
 - 1차 LLM은 회차 원문에서 후보 속성과 근거를 추출합니다.
 - 2차 LLM은 현재 세계관 확정본과 비교해 `ADD`, `UPDATE`, `MERGE`, `EXCLUDE` 중 하나와 제안값·이유를 만듭니다.
 - LLM은 `world_settings`를 직접 변경하지 않습니다. Backend의 사용자 확정 트랜잭션만 확정본을 변경합니다.
 - 의미상 중복과 병합 필요성은 2차 LLM 제안 영역입니다. 유일키, 동일 설정명, 버전과 상태 전이 같은 구조적 무결성은 Backend가 담당합니다.
-- 사용할 모델, prompt, LLM output schema, 관련 설정 검색 방식, 호출 위치, retry와 실제 Worker 구현은 NVM-260 Backend/Frontend MVP 범위에서 결정하거나 구현하지 않습니다.
+- 초기 `SETTING_EXTRACTION` Job은 캐릭터 후보 저장 뒤 세계관 후보 게시와 비교를 내부 stage로 실행합니다. 후보별 비교 실패는 해당 후보를 `FAILED`로 남기고 나머지 후보와 Job 완료를 계속합니다.
+- Worker는 같은 category의 대상명 목록만 먼저 받고, exact 대상 또는 LLM이 선택한 최대 3개 대상의 상세 properties와 version만 조회합니다. LLM prompt에는 UUID 대신 요청 안에서만 유효한 짧은 참조를 사용합니다.
+- Backend는 lease, 작품·분류·후보 소유권, exact 대상, 비교 문맥의 ID·version, 설정명 존재 여부를 검증하고 `beforeValue`와 `baseWorldSettingVersion`을 산출합니다. AI가 보낸 과거값이나 version을 신뢰하지 않습니다.
+- 사용자의 재비교 요청은 후보를 `PENDING`으로 되돌리고 별도 `WORLD_SETTING_COMPARISON` Job을 멱등 생성합니다. 이 Job은 공개 분석 목록·진행률·회차 실행 잠금에서 제외되며 AI comparison runner가 비동기로 claim합니다.
+- 캐릭터 후보는 기존 SQLAlchemy 저장 흐름을 유지합니다. 세계관 후보 생성과 비교 상태 전이는 아래 Spring 내부 API로만 수행하며 AI Worker가 `world_settings` 또는 `world_setting_candidates`를 직접 수정하지 않습니다.
 
 ## Frontend 연결 계약
 
@@ -209,4 +302,17 @@ MVP의 후보 출처는 회차 원문만 지원하므로 `source_type`, `source_
 | `POST` | `/api/v1/works/{workId}/world-setting-candidates/{candidateId}/confirm` | 최종 작업·값을 속성 단위로 원자 반영 |
 | `POST` | `/api/v1/works/{workId}/world-setting-candidates/{candidateId}/dismiss` | 확정본 변경 없이 후보 제외 |
 
-`recompare`는 비교 요청 상태만 `PENDING`으로 되돌립니다. 실제 2차 LLM 실행과 `PROCESSING → COMPLETED/FAILED` 저장은 AI Worker 후속 구현 책임이며 이 Backend/Frontend MVP에 포함하지 않습니다.
+`recompare`는 HTTP 요청 안에서 LLM을 호출하지 않습니다. 후보를 `PENDING`으로 되돌리고 활성 재비교 Job을 하나만 생성하며, 별도 Worker가 이를 claim해 `PROCESSING → COMPLETED/FAILED`를 저장합니다.
+
+내부 AI Worker API:
+
+| Method | Path | 역할 |
+| --- | --- | --- |
+| `PUT` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates` | 1차 추출 후보 전체 게시 및 `WORLD_CANDIDATES_PUBLISHED` checkpoint 반영 |
+| `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-comparisons/claim-next` | Job 소유의 다음 `PENDING` 후보를 `PROCESSING`으로 claim |
+| `GET` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-subjects` | 같은 작품·category의 대상 ID와 이름 페이지 조회 |
+| `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates/{candidateId}/comparison-context` | 최대 3개 대상의 properties·version과 exact 대상 조회 |
+| `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates/{candidateId}/comparison-complete` | 문맥 version과 제안 구조 검증 후 비교 결과 저장 |
+| `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates/{candidateId}/comparison-fail` | 후보별 비교 실패 사유 저장 |
+
+모든 내부 endpoint는 `X-Internal-Api-Key`와 claim 응답의 `X-Worker-Lease-Token`을 함께 검증합니다. lease는 5분이며 Worker heartbeat가 갱신합니다. 만료 Job은 최대 3회까지 마지막 checkpoint부터 재개하고, 비교 중이던 후보와 예약 토큰을 복구합니다.

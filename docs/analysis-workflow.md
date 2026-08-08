@@ -27,27 +27,35 @@ flowchart TD
 
 ## 현재 구현된 Worker 연동 흐름
 
-현재 코드 기준으로 Spring은 분석 작업과 내부 API 계약을 관리하고, Python Worker는 S3 원문을 읽어 청킹/LLM 설정 후보 추출/후보 저장을 수행합니다.
+현재 코드 기준으로 Spring은 분석 작업의 lease/checkpoint와 내부 API 계약을 관리하고, Python Worker는 S3 원문을 읽어 청킹, 캐릭터 후보 추출, 세계관 후보 추출·비교를 수행합니다.
 
 ```mermaid
 flowchart TD
-    A["분석 작업 생성<br/>AnalysisJob PENDING"] --> B["Python Worker claim"]
+    A["분석 작업 생성<br/>AnalysisJob PENDING"] --> B["Python Worker claim<br/>5분 lease 발급"]
     B --> C["회차별 Job 하나 RUNNING<br/>대상 Episode CHUNKING"]
-    C --> D["단일 episode payload"]
+    C --> D["lease/checkpoint와 단일 episode payload"]
     D --> E["S3 원문 조회"]
     E --> F["Python에서 원문 정규화/청킹"]
     F --> G["episode_chunks 저장"]
-    G --> H["chunk별 LLM 설정·캐릭터 발견 후보 추출"]
+    G --> H["chunk별 LLM 캐릭터 설정·발견 후보 추출"]
     H --> I["evidence quote offset 보정"]
     I --> J["raw/entity/knownCharacters 기반 캐릭터 매칭"]
     J --> K["setting_candidates 직접 저장"]
-    K --> L["Worker complete"]
-    L --> M["해당 Episode ANALYZED<br/>AnalysisJob SUCCEEDED"]
-    H -. "실패" .-> X["해당 Job/Episode만 FAILED"]
+    K --> L["회차 원문에서 세계관 후보 추출"]
+    L --> M["Backend API로<br/>world_setting_candidates 게시"]
+    M --> N["후보별 기존 world_settings 탐색·LLM 비교"]
+    N --> O["ADD / UPDATE / MERGE / EXCLUDE 저장"]
+    O --> P["WORLD_COMPARISONS_FINISHED checkpoint"]
+    P --> Q["Worker complete"]
+    Q --> R["해당 Episode ANALYZED<br/>AnalysisJob SUCCEEDED"]
+    N -. "후보 비교 실패" .-> Y["해당 후보만 FAILED<br/>나머지 후보 계속 처리"]
+    H -. "Job 실패" .-> X["해당 Job/Episode만 FAILED"]
     X --> B
 ```
 
-현재 구현에서 Spring은 `setting_candidates` 생성 API를 제공하지 않습니다. 후보 생성은 Worker의 DB 직접 저장 흐름이며, Spring은 생성된 후보의 조회/수정/확정/무시와 `AnalysisJob` 상태 전이를 담당합니다. Worker는 claim의 `knownCharacters` 이름을 추출 prompt에도 전달해 등록되지 않은 명시적 이름을 `CHARACTER_DISCOVERY`로 만들고, 기존 캐릭터와 같은 이름의 발견 후보는 저장하지 않습니다. `CHARACTER_DISCOVERY` 확정은 캐릭터와 최초 등장만 반영하고 Fact를 만들지 않습니다. `SETTING` 후보는 `characterSettingSchemas` hint를 canonical key, alias, pattern, value type 지침으로 사용하며, Spring Backend가 confirm 시 schemaKey 정확 일치 → 별칭 → 마지막이 `.*`로 끝나는 속성 패턴 순으로 최종 매칭하고 후보/schema의 `SettingValueType`과 merge policy를 검증합니다. 미지원 정책은 부수효과 전에 거절하며, 검증된 Fact는 `setting_candidate_id`로 확정 후보를 연결해 `evidence_spans`를 역추적할 수 있게 합니다. 이후 episodeNo 기준 current를 재선정하고 `factKey -> current valueJson` object map snapshot으로 반영합니다.
+Spring은 캐릭터 `setting_candidates` 생성 API를 제공하지 않아 기존 Worker DB 직접 저장 흐름을 유지합니다. 반면 세계관 `world_setting_candidates` 생성과 비교 상태 변경은 Spring 내부 API만 허용합니다. Worker는 claim의 `knownCharacters` 이름을 추출 prompt에도 전달해 등록되지 않은 명시적 이름을 `CHARACTER_DISCOVERY`로 만들고, 기존 캐릭터와 같은 이름의 발견 후보는 저장하지 않습니다. `CHARACTER_DISCOVERY` 확정은 캐릭터와 최초 등장만 반영하고 Fact를 만들지 않습니다. `SETTING` 후보는 `characterSettingSchemas` hint를 canonical key, alias, pattern, value type 지침으로 사용하며, Spring Backend가 confirm 시 schemaKey 정확 일치 → 별칭 → 마지막이 `.*`로 끝나는 속성 패턴 순으로 최종 매칭하고 후보/schema의 `SettingValueType`과 merge policy를 검증합니다. 미지원 정책은 부수효과 전에 거절하며, 검증된 Fact는 `setting_candidate_id`로 확정 후보를 연결해 `evidence_spans`를 역추적할 수 있게 합니다. 이후 episodeNo 기준 current를 재선정하고 `factKey -> current valueJson` object map snapshot으로 반영합니다.
+
+Worker는 `X-Worker-Lease-Token`을 상태·token 예약·세계관 내부 API에 전달하고 heartbeat로 lease를 연장합니다. 이미 시작된 provider 요청의 token 정산·해제는 lease 만료 뒤에도 예약을 정리할 수 있도록 `requestId` 기준으로 처리합니다. 만료된 Job은 마지막 checkpoint부터 최대 세 번 claim하며, 공개 `recompare` 요청은 별도 `WORLD_SETTING_COMPARISON` Job을 생성해 전용 Worker가 후보 하나만 다시 비교합니다. 이 숨김 Job은 공개 분석 진행률과 `Episode.status`에 영향을 주지 않습니다.
 
 ## Notion 기준 전체 분석 흐름
 
@@ -305,7 +313,7 @@ sequenceDiagram
     participant SchemaRepo as CharacterSettingSchemaRepository
     participant CharacterRepo as WorkCharacterRepository
 
-    Worker->>Controller: POST /api/internal/v1/analysis-jobs/claim
+    Worker->>Controller: POST /api/internal/v1/analysis-jobs/claim<br/>{allowedJobTypes}
     Note over Worker,Controller: header: X-Internal-Api-Key
     Controller->>Service: claimAnalysisJob(request)
     Service->>JobRepo: find oldest PENDING with pessimistic lock
@@ -315,7 +323,7 @@ sequenceDiagram
         Controller-->>Worker: 204 No Content
     else 작업 있음
         JobRepo-->>Service: AnalysisJob
-        Service->>Service: AnalysisJob status = RUNNING
+        Service->>Service: AnalysisJob.claim()<br/>RUNNING + 5분 lease + claim 횟수
         Service->>Service: analysis_job_episode_targets에서 대상 회차 조회
         alt 대상 회차가 정확히 1개가 아님
             Service->>Service: status = FAILED
@@ -325,13 +333,13 @@ sequenceDiagram
             Service->>Service: 해당 Episode status = CHUNKING
             Service->>SchemaRepo: findAllActiveForWork(workId)
             Service->>CharacterRepo: findAllByWorkIdOrderByCreatedAtDesc(workId)
-            Service-->>Controller: WorkerAnalysisJobPayload with episode
+            Service-->>Controller: WorkerAnalysisJobPayload<br/>lease/checkpoint + episode
             Controller-->>Worker: 200 OK
         end
     end
 ```
 
-Claim payload의 `characterSettingSchemas`는 `enabled = true`인 전역 schema와 현재 작품의 추가 schema를 `schemaKey` 오름차순으로 조회한 결과입니다. Registry row가 없으면 빈 배열이며, Worker에는 `schemaKey`, `displayName`, `attributePattern`, `aliases`, `valueType`만 노출합니다.
+Claim payload의 `characterSettingSchemas`는 `enabled = true`인 전역 schema와 현재 작품의 추가 schema를 `schemaKey` 오름차순으로 조회한 결과입니다. Registry row가 없으면 빈 배열이며, Worker에는 `schemaKey`, `displayName`, `attributePattern`, `aliases`, `valueType`만 노출합니다. `WORLD_SETTING_COMPARISON` claim에서는 캐릭터 관련 배열을 비우고 연결된 `worldSettingCandidateId`를 전달합니다.
 
 ## 상태 전이
 
@@ -347,7 +355,7 @@ stateDiagram-v2
     RETRY_PENDING --> RUNNING: Worker claim
 ```
 
-Worker가 내부 claim API로 작업을 가져가면 `RUNNING`으로 전환합니다. 이후 Worker가 내부 상태 변경 API로 `SUCCEEDED` 또는 `FAILED`를 기록합니다.
+Worker가 내부 claim API로 작업을 가져가면 `AnalysisJob.claim()`이 `RUNNING`, lease token/만료 시각, claim 횟수를 기록합니다. 이후 Worker는 `X-Worker-Lease-Token`을 보내 상태를 `SUCCEEDED` 또는 `FAILED`로 변경합니다. 만료된 lease는 checkpoint를 보존한 채 다시 `PENDING`으로 전환하며 세 번째 만료에는 `FAILED`로 종료합니다.
 `FAILED` 이후 재시도는 기존 작업을 `PENDING`으로 되돌리는 전이가 아닙니다. `POST /analysis-jobs/{analysisJobId}/retry`가 실패 회차별로 새로운 `PENDING` 단일 회차 작업을 만듭니다.
 
 화면에서는 같은 upload batch에 생성된 회차별 `AnalysisJob.status`를 집계하고, 각 응답의 단일 `episodes` 항목으로 `Episode.status`를 표시합니다. Worker progress는 `currentStep` 표시 문구와 `episodeStatus` enum을 함께 보내며, 백엔드는 문자열을 해석하지 않고 해당 Job의 회차에만 명시적 상태를 적용합니다. 한 Job이 실패해도 다음 회차 Job은 계속 claim할 수 있습니다.
@@ -374,18 +382,19 @@ Notion 설계의 `AnalysisJob.type`은 현재 분석 초안의 `jobType`에 해�
 
 | 유형 | 의미 | 생성 시점 |
 | --- | --- | --- |
-| `SETTING_EXTRACTION` | 기존 회차 원고에서 캐릭터, 아이템, 능력, 시간 흐름 같은 설정 후보를 추출 | 기존 설정 구축용 회차 업로드 후 청킹 완료 시 |
+| `SETTING_EXTRACTION` | 기존 회차 원고에서 캐릭터·세계관 설정 후보를 추출하고 세계관 후보를 최초 비교 | 기존 설정 구축용 회차 업로드 후 청킹 완료 시 |
 | `BASELINE_CONSISTENCY_CHECK` | 기존 회차들에서 추출된 설정 후보끼리 충돌하는지 검수 | 기존 회차 설정 후보 저장 완료 후, 사용자 기준 설정 확정 전 |
 | `EPISODE_VALIDATION` | 신규 회차가 기존 확정 설정과 충돌하는지 검수 | 신규 회차 검수용 업로드 후 청킹 완료 시 |
+| `WORLD_SETTING_COMPARISON` | 세계관 후보 하나를 재비교하는 숨김 내부 작업 | 공개 `recompare` 요청 시 멱등 생성 |
 
-현재 코드 초안에는 `SETTING_EXTRACTION`, `EPISODE_VALIDATION`만 포함합니다. `BASELINE_CONSISTENCY_CHECK`는 기존 원고 내부 정합성 검수 기능을 구현할 때 추가합니다.
+현재 코드에는 `SETTING_EXTRACTION`, `EPISODE_VALIDATION`, 내부 전용 `WORLD_SETTING_COMPARISON`이 포함됩니다. `BASELINE_CONSISTENCY_CHECK`는 기존 원고 내부 정합성 검수 기능을 구현할 때 추가합니다.
 
 Notion 기준 `AnalysisJob.status`
 
 | 상태 | 의미 | 다음 상태 | 현재 코드 연결 |
 | --- | --- | --- | --- |
 | `PENDING` | 작업 생성 후 대기 | `RUNNING` | 분석 작업 생성 API에서 `AnalysisJob.create()`로 생성 |
-| `RUNNING` | Worker 처리 중 | `SUCCEEDED`, `FAILED` | Worker claim API에서 `AnalysisJob.start()`로 전환 |
+| `RUNNING` | Worker 처리 중 | `SUCCEEDED`, `FAILED` | Worker claim API에서 `AnalysisJob.claim()`으로 lease를 발급하며 전환 |
 | `SUCCEEDED` | 결과 저장 완료 | 없음 | Worker complete API에서 `AnalysisJob.succeed()`로 전환 |
 | `FAILED` | 처리 실패 | 실패 회차별 새 `PENDING` 작업 | Worker fail API 또는 대상 회차 없음에서 `AnalysisJob.fail()`로 전환 |
 
@@ -393,18 +402,21 @@ Notion 기준 `AnalysisJob.status`
 
 ## 현재 설정 후보 저장 흐름
 
-현재 구현은 별도 `PreprocessedManuscriptChunk` 없이 Python Worker가 청크 원문을 LLM에 직접 넣어 `setting_candidates`를 저장합니다.
+현재 구현은 별도 `PreprocessedManuscriptChunk` 없이 Python Worker가 청크 원문을 LLM에 직접 넣습니다. 캐릭터 후보는 기존 방식대로 `setting_candidates`에 직접 저장하고, 세계관 후보와 비교 결과는 Spring 내부 API로 저장합니다.
 
-1. Spring claim payload는 `analysisJobId`, `workId`, `batchId`, episode S3 메타데이터, ID와 이름을 가진 `knownCharacters`, `characterSettingSchemas`를 내려줍니다.
+1. Spring claim payload는 `analysisJobId`, `workId`, `batchId`, lease/checkpoint, episode S3 메타데이터, ID와 이름을 가진 `knownCharacters`, `characterSettingSchemas`를 내려줍니다.
 2. Python Worker는 `contentS3Key`, `contentS3Version`으로 S3 원문을 읽습니다.
 3. Worker는 원문을 정규화/청킹하고 `episode_chunks`를 저장합니다.
-4. Worker는 chunk별 LLM 설정 후보를 추출합니다.
+4. Worker는 chunk별 LLM 캐릭터 설정 후보를 추출합니다.
 5. Worker는 LLM이 반환한 `evidence_spans[].quote`를 chunk 원문에서 다시 찾아 `start_offset`, `end_offset`을 보정합니다.
 6. Worker는 `rawEntityMention`, `entityName`, `knownCharacters`를 비교해 `matchedCharacterId`, `matchStatus`를 계산합니다.
 7. Worker는 같은 분석 작업 안의 동일 설정 후보를 제거한 뒤 나머지를 `PENDING_REVIEW` 상태의 `setting_candidates`로 저장합니다. 값이 달라진 후보와 주체가 모호한 후보는 유지합니다.
-8. 저장이 끝나면 complete API를 호출해 `AnalysisJob.status=SUCCEEDED`로 변경합니다.
+8. Worker는 회차 원문에서 지속적인 세계관 속성을 추출하고 구조적으로 같은 후보를 제거한 뒤, lease가 보호하는 Spring 내부 API로 `world_setting_candidates`를 멱등 게시합니다.
+9. 후보마다 같은 category의 기존 대상명을 조회해 LLM이 최대 3개 대상 ID를 고르게 하고, Spring에서 현재 version과 `properties_json`을 포함한 비교 문맥을 다시 검증해 가져옵니다.
+10. Worker가 ADD/UPDATE/MERGE/EXCLUDE를 판단하면 Spring은 전달한 문맥 ID·version·exact 대상과 제안을 재검증하고 비교 결과를 저장합니다. 잘못된 UUID를 LLM이 생성하지 않도록 UUID는 비교 prompt에 넣지 않습니다.
+11. 모든 후보가 `COMPLETED` 또는 `FAILED`가 되면 `WORLD_COMPARISONS_FINISHED` checkpoint를 기록하고 complete API를 호출해 `AnalysisJob.status=SUCCEEDED`로 변경합니다.
 
-현재 complete API는 `AnalysisJob` 상태와 summary/token 메타데이터를 반영하고, 대상 회차의 `Episode.status`를 `ANALYZED`로 전환합니다. fail API는 아직 분석 완료되지 않은 대상 회차를 `FAILED`로 전환합니다.
+현재 complete API는 checkpoint와 후보 상태를 검증하고 Backend token ledger 합계를 반영한 뒤 대상 회차의 `Episode.status`를 `ANALYZED`로 전환합니다. fail API는 아직 분석 완료되지 않은 대상 회차를 `FAILED`로 전환합니다. 숨김 `WORLD_SETTING_COMPARISON` Job은 연결 후보만 처리하며 회차 상태를 바꾸지 않습니다.
 
 캐릭터 매칭 후속 TODO:
 
@@ -537,6 +549,7 @@ sequenceDiagram
     participant Service as "AnalysisJobService"
     participant JobRepo as "AnalysisJobRepository"
     participant CandidateRepo as "SettingCandidateRepository"
+    participant WorldCandidateRepo as "WorldSettingCandidateRepository"
 
     Client->>Controller: "GET /analysis-jobs/batches?page=0&size=10"
     Controller->>Service: "getAnalysisBatches(memberId, workId, page, size)"
@@ -544,9 +557,10 @@ sequenceDiagram
     Service->>JobRepo: "최근 분석 요청순 batch 페이지 조회"
     JobRepo-->>Service: "Page<AnalysisBatchPageRow>"
     Service->>JobRepo: "현재 페이지 batch의 Job·대상 회차 일괄 조회"
-    Service->>CandidateRepo: "batch별 후보 검토 수 일괄 집계"
+    Service->>CandidateRepo: "batch별 캐릭터 후보 검토 수 일괄 집계"
+    Service->>WorldCandidateRepo: "batch별 세계관 후보 검토 수 일괄 집계"
     Service->>Service: "목적·회차별 최신 Job 선택"
-    Service->>Service: "회차 범위·진행/실패/검토 상태 집계"
+    Service->>Service: "회차 범위·진행/실패·두 후보 검토 상태 집계"
     Service-->>Controller: "PageResponse<AnalysisBatchSummaryResponse>"
     Controller-->>Client: "분석 배치 10개와 페이지 메타데이터"
 ```
