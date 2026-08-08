@@ -23,6 +23,8 @@ public record WorldSettingCandidateResponse(
         Object evidenceSpans,
         @Schema(nullable = true) BigDecimal extractionConfidence,
         @Schema(nullable = true) UUID targetWorldSettingId,
+        @Schema(description = "2차 비교가 연결한 기존 확정 대상의 정식 대상명", nullable = true)
+        String targetSubjectName,
         @Schema(nullable = true) WorldSettingOperation suggestedOperation,
         @Schema(nullable = true) String proposedSettingName,
         @Schema(nullable = true) String beforeValue,

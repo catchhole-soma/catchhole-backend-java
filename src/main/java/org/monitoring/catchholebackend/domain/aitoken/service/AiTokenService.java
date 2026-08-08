@@ -6,6 +6,7 @@ import org.monitoring.catchholebackend.domain.aitoken.dto.request.AiTokenReserve
 import org.monitoring.catchholebackend.domain.aitoken.dto.request.AiTokenSettleRequest;
 import org.monitoring.catchholebackend.domain.aitoken.dto.response.AiTokenReservationResponse;
 import org.monitoring.catchholebackend.domain.aitoken.dto.response.AiTokenUsageResponse;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome;
 
 public interface AiTokenService {
 
@@ -25,7 +26,7 @@ public interface AiTokenService {
      * AI provider 호출 전에 예상 최대량을 요청 UUID 단위로 예약한다.
      * 회원 토큰 계정을 잠가 동시 요청이 같은 잔여량을 중복 예약하지 못하게 한다.
      */
-    AiTokenReservationResponse reserve(AiTokenReserveRequest request);
+    AiTokenReservationResponse reserve(AiTokenReserveRequest request, UUID leaseToken);
 
     /**
      * provider가 반환한 실제 input/output 사용량을 기록하고 남은 예약량을 반환한다.
@@ -36,6 +37,9 @@ public interface AiTokenService {
      * 사용량을 확인할 수 없는 요청의 예약량을 전부 반환한다.
      */
     void release(UUID requestId, AiTokenReleaseRequest request);
+
+    /** Worker가 더 이상 실행할 수 없는 작업에 남은 예약을 반환한다. */
+    void releaseReservedForAnalysisJob(UUID analysisJobId, AiTokenUsageOutcome outcome);
 
     /**
      * 분석 작업에 속한 정산 완료 요청만 합산해 input/output 토큰 수를 반환한다.

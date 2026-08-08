@@ -199,6 +199,10 @@ public class WorldSetting extends BaseEntity {
         return storedName == null ? null : propertiesJson.get(storedName).asText();
     }
 
+    public String getStoredPropertyName(String settingName) {
+        return findStoredPropertyName(requiredName(settingName));
+    }
+
     public int getPropertyCount() {
         return propertiesJson.size();
     }
@@ -229,9 +233,7 @@ public class WorldSetting extends BaseEntity {
         if (propertiesJson == null || !propertiesJson.isObject() || propertiesJson.isEmpty()) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTIES_INVALID);
         }
-        Iterator<Map.Entry<String, JsonNode>> fields = propertiesJson.fields();
-        while (fields.hasNext()) {
-            Map.Entry<String, JsonNode> field = fields.next();
+        for (Map.Entry<String, JsonNode> field : propertiesJson.properties()) {
             if (requiredNameOrNull(field.getKey()) == null || field.getValue() == null || !field.getValue().isTextual()) {
                 throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTIES_INVALID);
             }

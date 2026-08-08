@@ -23,17 +23,19 @@ import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 
 /*
  * analysis_jobs 테이블
  *
- * 작품 단위 AI 분석 작업을 추적하는 테이블이다.
+ * 회차 단위 AI 분석 작업과 세계관 후보 재비교 작업을 추적하는 테이블이다.
  * 사용자가 분석을 요청하면 AnalysisJob이 PENDING 상태로 생성되고,
  * Python AI Worker가 내부 API로 작업을 claim하면서 RUNNING 상태로 변경된다.
  *
@@ -87,6 +89,14 @@ public class AnalysisJob extends BaseEntity {
     )
     private Episode episode;
 
+    // WORLD_SETTING_COMPARISON Job이 다시 비교할 후보. 일반 회차 분석 Job에서는 null이다.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(
+            name = "world_setting_candidate_id",
+            foreignKey = @ForeignKey(name = "fk_analysis_jobs_world_setting_candidate")
+    )
+    private WorldSettingCandidate worldSettingCandidate;
+
     // 생성 시점의 실제 분석 대상 회차를 보존해 이후 원본 교체·보관과 무관하게 이력을 조회한다.
     @ManyToMany
     @JoinTable(
@@ -103,7 +113,7 @@ public class AnalysisJob extends BaseEntity {
     @OrderBy("episodeNo ASC")
     private Set<Episode> targetEpisodes = new LinkedHashSet<>();
 
-    //분석작업의 종류(설정집 , 회차 검수)
+    // Worker 처리 목적. 일반 회차 설정 추출과 세계관 후보 재비교를 구분한다.
     @Enumerated(EnumType.STRING)
     @Column(name = "job_type", nullable = false, length = 40)
     private AnalysisJobType jobType;
@@ -119,19 +129,35 @@ public class AnalysisJob extends BaseEntity {
     @Column(name = "current_step", length = 100)
     private String currentStep;
 
+    // Worker 재시작 시 완료된 내부 stage를 건너뛰기 위한 기계 판독용 checkpoint다.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "checkpoint_stage", length = 50)
+    private AnalysisJobCheckpointStage checkpointStage;
+
+    // 현재 claim 소유자만 상태·토큰·세계관 후보를 변경하도록 검증하는 실행별 식별자.
+    @Column(name = "lease_token")
+    private UUID leaseToken;
+
+    // heartbeat가 갱신하는 lease 만료 시각. 만료된 실행의 후속 쓰기는 거절한다.
+    @Column(name = "lease_expires_at")
+    private LocalDateTime leaseExpiresAt;
+
+    // lease 만료 뒤 재claim한 횟수를 포함하며 최대 시도 제한에 사용한다.
+    @Column(name = "claim_attempt_count", nullable = false)
+    private int claimAttemptCount;
+
     @Column(name = "model_name", length = 100)
     private String modelName;
 
-    // 사용자가 요청한 작업의 입력 토큰값
+    // 이 Job에 정산된 provider 입력 토큰 합계.
     @Column(name = "input_token_count")
     private Integer inputTokenCount;
 
-    //사용자의 분석의 필요한 결과 반환 토큰 값.
+    // 이 Job에 정산된 provider 출력 토큰 합계.
     @Column(name = "output_token_count")
     private Integer outputTokenCount;
 
-    //ai worker 에서 받은 분석 내용(json)
-    //TODO: 해당 컬럼이 필요한지 고민 할 필요가 있음
+    // Worker 완료 시 후보 수와 stage별 처리량을 남기는 관측용 JSON 문자열.
     @Column(name = "summary_json", columnDefinition = "text")
     private String summaryJson;
 
@@ -140,11 +166,11 @@ public class AnalysisJob extends BaseEntity {
     @Column(name = "error_message", columnDefinition = "text")
     private String errorMessage;
 
-    //ai worker 에서 api 호출하여 분석이 실행됐을때의 실제 시간
+    // Worker가 현재 실행 시도를 claim한 시각.
     @Column(name = "started_at")
     private LocalDateTime startedAt;
 
-    //분석 완료 시간
+    // 성공·실패로 종료된 시각.
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
 
@@ -168,7 +194,18 @@ public class AnalysisJob extends BaseEntity {
         return new AnalysisJob(work, batch, episode, jobType);
     }
 
-    public void start(String modelName, String currentStep) {
+    public static AnalysisJob createWorldSettingComparison(WorldSettingCandidate candidate) {
+        AnalysisJob analysisJob = new AnalysisJob(
+                candidate.getWork(),
+                candidate.getAnalysisJob().getBatch(),
+                candidate.getSourceEpisode(),
+                AnalysisJobType.WORLD_SETTING_COMPARISON
+        );
+        analysisJob.worldSettingCandidate = candidate;
+        return analysisJob;
+    }
+
+    public UUID claim(String modelName, String currentStep, LocalDateTime leaseExpiresAt) {
         this.status = AnalysisJobStatus.RUNNING;
         if (modelName != null) {
             this.modelName = modelName;
@@ -178,6 +215,10 @@ public class AnalysisJob extends BaseEntity {
         }
         this.errorMessage = null;
         this.startedAt = LocalDateTime.now();
+        this.leaseToken = UUID.randomUUID();
+        this.leaseExpiresAt = leaseExpiresAt;
+        this.claimAttemptCount++;
+        return leaseToken;
     }
 
     public void updateTokenCounts(int inputTokenCount, int outputTokenCount) {
@@ -187,6 +228,46 @@ public class AnalysisJob extends BaseEntity {
 
     public void updateCurrentStep(String currentStep) {
         this.currentStep = currentStep;
+    }
+
+    public void updateCheckpointStage(AnalysisJobCheckpointStage checkpointStage) {
+        if (checkpointStage == null) {
+            return;
+        }
+        if (this.checkpointStage == null || checkpointStage.ordinal() >= this.checkpointStage.ordinal()) {
+            this.checkpointStage = checkpointStage;
+        }
+    }
+
+    public boolean hasReachedCheckpoint(AnalysisJobCheckpointStage checkpointStage) {
+        return this.checkpointStage != null
+                && this.checkpointStage.ordinal() >= checkpointStage.ordinal();
+    }
+
+    public boolean hasLease(UUID leaseToken) {
+        return this.leaseToken != null && this.leaseToken.equals(leaseToken);
+    }
+
+    public boolean isLeaseExpired(LocalDateTime now) {
+        return status == AnalysisJobStatus.RUNNING
+                && leaseExpiresAt != null
+                && !leaseExpiresAt.isAfter(now);
+    }
+
+    public void renewLease(LocalDateTime leaseExpiresAt) {
+        this.leaseExpiresAt = leaseExpiresAt;
+    }
+
+    public void requeueExpiredLease() {
+        this.status = AnalysisJobStatus.PENDING;
+        this.leaseToken = null;
+        this.leaseExpiresAt = null;
+        this.errorMessage = null;
+        this.completedAt = null;
+    }
+
+    public void unlinkWorldSettingCandidate() {
+        this.worldSettingCandidate = null;
     }
 
     public void addTargetEpisodes(Collection<Episode> episodes) {
@@ -200,6 +281,7 @@ public class AnalysisJob extends BaseEntity {
         this.outputTokenCount = outputTokenCount;
         this.errorMessage = null;
         this.completedAt = LocalDateTime.now();
+        clearLease();
     }
 
     public void fail(String errorMessage) {
@@ -212,5 +294,11 @@ public class AnalysisJob extends BaseEntity {
         this.inputTokenCount = inputTokenCount;
         this.outputTokenCount = outputTokenCount;
         this.completedAt = LocalDateTime.now();
+        clearLease();
+    }
+
+    private void clearLease() {
+        this.leaseToken = null;
+        this.leaseExpiresAt = null;
     }
 }

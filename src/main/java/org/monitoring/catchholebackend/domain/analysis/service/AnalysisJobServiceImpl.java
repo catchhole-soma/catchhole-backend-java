@@ -25,6 +25,7 @@ import org.monitoring.catchholebackend.domain.analysis.type.AnalysisBatchStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateBatchReviewCounts;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
@@ -37,6 +38,10 @@ import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepos
 import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateBatchReviewCounts;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.monitoring.catchholebackend.global.common.response.PageResponse;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.data.domain.Page;
@@ -57,6 +62,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     private final AnalysisBatchMapper analysisBatchMapper;
     private final EpisodeRepository episodeRepository;
     private final SettingCandidateRepository settingCandidateRepository;
+    private final WorldSettingCandidateRepository worldSettingCandidateRepository;
     private final AiTokenService aiTokenService;
 
     @Override
@@ -66,6 +72,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
             UUID workId,
             AnalysisJobCreateRequest request
     ) {
+        assertPublicJobType(request.jobType());
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         aiTokenService.ensureAnalysisCanStart(memberId);
         UploadBatch batch = getBatchInWork(request.batchId(), work);
@@ -140,7 +147,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                         LinkedHashMap::new,
                         Collectors.toList()
                 ));
-        Map<UUID, SettingCandidateBatchReviewCounts> candidateCountsByBatchId =
+        Map<UUID, SettingCandidateBatchReviewCounts> characterCandidateCountsByBatchId =
                 settingCandidateRepository.countReviewSummaryByBatchIds(
                                 work.getId(),
                                 batchIds,
@@ -151,12 +158,24 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                                 SettingCandidateBatchReviewCounts::getBatchId,
                                 counts -> counts
                         ));
+        Map<UUID, WorldSettingCandidateBatchReviewCounts> worldSettingCandidateCountsByBatchId =
+                worldSettingCandidateRepository.countReviewSummaryByBatchIds(
+                                work.getId(),
+                                batchIds,
+                                WorldSettingReviewStatus.PENDING_REVIEW
+                        )
+                        .stream()
+                        .collect(Collectors.toMap(
+                                WorldSettingCandidateBatchReviewCounts::getBatchId,
+                                counts -> counts
+                        ));
 
         List<AnalysisBatchSummaryResponse> responses = batchPage.getContent().stream()
                 .map(row -> toBatchSummary(
                         row,
                         jobsByBatchId.getOrDefault(row.getBatchId(), List.of()),
-                        candidateCountsByBatchId.get(row.getBatchId())
+                        characterCandidateCountsByBatchId.get(row.getBatchId()),
+                        worldSettingCandidateCountsByBatchId.get(row.getBatchId())
                 ))
                 .toList();
         return PageResponse.from(batchPage, responses);
@@ -167,6 +186,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         Work work = workRepository.getOwnedWork(workId, memberId);
         AnalysisJob analysisJob = analysisJobRepository.findByIdAndWorkId(analysisJobId, work.getId())
                 .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND , "해당 아이디가 존재하지 않습니다."));
+        assertPublicJobType(analysisJob.getJobType());
         return toResponse(analysisJob);
     }
 
@@ -176,6 +196,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         AnalysisJob failedJob = analysisJobRepository.findByIdAndWorkId(analysisJobId, work.getId())
                 .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND));
+        assertPublicJobType(failedJob.getJobType());
         if (failedJob.getStatus() != AnalysisJobStatus.FAILED) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
         }
@@ -247,8 +268,12 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     private boolean hasActiveAnalysisJob(UploadBatch batch, Episode episode) {
         Set<AnalysisJobStatus> activeStatuses = Set.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING);
         return analysisJobRepository.existsByBatchIdAndEpisodeIsNullAndStatusIn(batch.getId(), activeStatuses)
-                || analysisJobRepository.existsByEpisodeIdAndBatchIdAndStatusIn(
-                episode.getId(), batch.getId(), activeStatuses);
+                || analysisJobRepository.existsByEpisodeIdAndBatchIdAndJobTypeNotAndStatusIn(
+                episode.getId(),
+                batch.getId(),
+                AnalysisJobType.WORLD_SETTING_COMPARISON,
+                activeStatuses
+        );
     }
 
     private boolean hasActiveBatchWideAnalysisJob(UploadBatch batch) {
@@ -271,10 +296,13 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     private void assertNoActiveJobOfDifferentType(AnalysisJob failedJob, List<Episode> retryEpisodes) {
         Set<AnalysisJobStatus> activeStatuses = Set.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING);
         boolean differentTypeJobIsActive = retryEpisodes.stream().anyMatch(episode ->
-                analysisJobRepository.existsByEpisodeIdAndBatchIdAndJobTypeNotAndStatusIn(
+                analysisJobRepository.existsByEpisodeIdAndBatchIdAndJobTypeNotInAndStatusIn(
                         episode.getId(),
                         failedJob.getBatch().getId(),
-                        failedJob.getJobType(),
+                        List.of(
+                                failedJob.getJobType(),
+                                AnalysisJobType.WORLD_SETTING_COMPARISON
+                        ),
                         activeStatuses
                 ));
         if (differentTypeJobIsActive) {
@@ -308,6 +336,12 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 });
     }
 
+    private void assertPublicJobType(AnalysisJobType jobType) {
+        if (jobType == AnalysisJobType.WORLD_SETTING_COMPARISON) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_TYPE_INVALID);
+        }
+    }
+
     /**
      * 새 분석 시도가 같은 목적·회차의 이전 미검토 후보를 대체하도록 pending 데이터만 정리한다.
      * 이미 확정·무시한 검토 이력과 다른 분석 목적의 후보는 보존한다.
@@ -331,6 +365,32 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 jobType,
                 SettingCandidateReviewStatus.PENDING_REVIEW
         );
+        List<WorldSettingCandidate> supersededWorldSettingCandidates = worldSettingCandidateRepository
+                .findAllSupersededPendingCandidates(
+                        workId,
+                        batchId,
+                        episodeIds,
+                        jobType,
+                        WorldSettingReviewStatus.PENDING_REVIEW
+                );
+        if (supersededWorldSettingCandidates.isEmpty()) {
+            return;
+        }
+        supersededWorldSettingCandidates.forEach(candidate -> analysisJobRepository
+                .findFirstByWorldSettingCandidateIdAndStatusInOrderByCreatedAtDesc(
+                        candidate.getId(),
+                        List.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING)
+                )
+                .ifPresent(comparisonJob -> {
+                    aiTokenService.releaseReservedForAnalysisJob(
+                            comparisonJob.getId(),
+                            AiTokenUsageOutcome.USAGE_UNAVAILABLE
+                    );
+                    comparisonJob.fail("새 회차 분석 작업으로 대체되었습니다.");
+                    comparisonJob.unlinkWorldSettingCandidate();
+                }));
+        analysisJobRepository.flush();
+        worldSettingCandidateRepository.deleteAll(supersededWorldSettingCandidates);
     }
 
     private List<UploadFile> getUploadFiles(AnalysisJob analysisJob) {
@@ -362,7 +422,8 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     private AnalysisBatchSummaryResponse toBatchSummary(
             AnalysisBatchPageRow pageRow,
             List<AnalysisJob> jobs,
-            SettingCandidateBatchReviewCounts candidateCounts
+            SettingCandidateBatchReviewCounts characterCandidateCounts,
+            WorldSettingCandidateBatchReviewCounts worldSettingCandidateCounts
     ) {
         Map<AnalysisJobType, List<AnalysisJob>> currentJobsByType = findCurrentJobsByType(jobs);
         List<AnalysisBatchJobGroupResponse> jobGroups = currentJobsByType.entrySet().stream()
@@ -388,9 +449,12 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 .map(Episode::getEpisodeNo)
                 .max(Integer::compareTo)
                 .orElse(null);
-        long pendingCandidateCount = candidateCounts == null
+        long pendingCharacterCandidateCount = characterCandidateCounts == null
                 ? 0
-                : candidateCounts.getPendingCandidateCount();
+                : characterCandidateCounts.getPendingCandidateCount();
+        long pendingWorldSettingCandidateCount = worldSettingCandidateCounts == null
+                ? 0
+                : worldSettingCandidateCounts.getPendingCandidateCount();
         LocalDateTime lastActivityAt = currentJobsByType.values().stream()
                 .flatMap(List::stream)
                 .map(AnalysisJob::getUpdatedAt)
@@ -400,11 +464,15 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         return analysisBatchMapper.toResponse(
                 pageRow,
                 jobs.getFirst().getBatch(),
-                resolveBatchStatus(jobGroups, pendingCandidateCount),
+                resolveBatchStatus(
+                        jobGroups,
+                        pendingCharacterCandidateCount + pendingWorldSettingCandidateCount
+                ),
                 episodeStartNo,
                 episodeEndNo,
                 targetEpisodesById.size(),
-                candidateCounts,
+                characterCandidateCounts,
+                worldSettingCandidateCounts,
                 jobGroups,
                 lastActivityAt
         );

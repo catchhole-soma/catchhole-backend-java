@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeDetectionRequest;
 import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeTitleUpdateRequest;
 import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeUpdateRequest;
@@ -321,7 +322,11 @@ public class EpisodeServiceImpl implements EpisodeService {
     private AnalysisJob resolveLatestAnalysisJob(Episode episode, UploadFile sourceFile) {
         UUID batchId = sourceFile.getBatch().getId();
         return analysisJobRepository
-                .findFirstByEpisodeIdAndBatchIdOrderByCreatedAtDesc(episode.getId(), batchId)
+                .findFirstByEpisodeIdAndBatchIdAndJobTypeNotOrderByCreatedAtDesc(
+                        episode.getId(),
+                        batchId,
+                        AnalysisJobType.WORLD_SETTING_COMPARISON
+                )
                 .orElse(null);
     }
 
@@ -342,8 +347,12 @@ public class EpisodeServiceImpl implements EpisodeService {
                 .map(UploadBatch::getId)
                 .filter(batchId -> analysisJobRepository.existsByBatchIdAndEpisodeIsNullAndStatusIn(
                         batchId, activeStatuses)
-                        || analysisJobRepository.existsByEpisodeIdAndBatchIdAndStatusIn(
-                        episode.getId(), batchId, activeStatuses))
+                        || analysisJobRepository.existsByEpisodeIdAndBatchIdAndJobTypeNotAndStatusIn(
+                        episode.getId(),
+                        batchId,
+                        AnalysisJobType.WORLD_SETTING_COMPARISON,
+                        activeStatuses
+                ))
                 .ifPresent(batchId -> {
                     throw new AppException(EpisodeErrorCode.EPISODE_ANALYSIS_IN_PROGRESS);
                 });

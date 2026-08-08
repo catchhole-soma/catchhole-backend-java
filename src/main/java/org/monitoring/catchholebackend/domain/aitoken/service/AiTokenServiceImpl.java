@@ -18,9 +18,11 @@ import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenUsageRep
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenTotals;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenGrantType;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageStatus;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobLeaseService;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.exception.MemberErrorCode;
@@ -39,6 +41,7 @@ public class AiTokenServiceImpl implements AiTokenService {
     private final AiTokenGrantRepository grantRepository;
     private final AiTokenUsageRepository usageRepository;
     private final AnalysisJobRepository analysisJobRepository;
+    private final AnalysisJobLeaseService analysisJobLeaseService;
     private final MemberRepository memberRepository;
     private final AiTokenProperties properties;
     private final AiTokenMapper aiTokenMapper;
@@ -59,21 +62,20 @@ public class AiTokenServiceImpl implements AiTokenService {
 
     @Override
     @Transactional
-    public AiTokenReservationResponse reserve(AiTokenReserveRequest request) {
-        AnalysisJob job = analysisJobRepository.findByIdForUpdate(request.analysisJobId())
-                .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND));
+    public AiTokenReservationResponse reserve(AiTokenReserveRequest request, UUID leaseToken) {
+        AnalysisJob analysisJob = analysisJobLeaseService.getRunningAnalysisJobForUpdate(
+                request.analysisJobId(),
+                leaseToken
+        );
         AiTokenUsage existing = usageRepository.findByRequestId(request.requestId()).orElse(null);
         if (existing != null) {
             return aiTokenMapper.toResponse(existing);
         }
-        if (job.getStatus() != AnalysisJobStatus.RUNNING) {
-            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
-        }
-        AiTokenAccount account = getOrCreateAccount(job.getWork().getMember().getId());
+        AiTokenAccount account = getOrCreateAccount(analysisJob.getWork().getMember().getId());
         account.reserve(request.reservedTokens());
         AiTokenUsage usage = usageRepository.save(AiTokenUsage.reserve(
                 request.requestId(),
-                job,
+                analysisJob,
                 request.purpose(),
                 request.attempt(),
                 request.modelName(),
@@ -118,6 +120,21 @@ public class AiTokenServiceImpl implements AiTokenService {
         AiTokenAccount account = getOrCreateAccount(usage.getMember().getId());
         account.release(usage.getReservedTokens());
         usage.release(request.outcome());
+    }
+
+    @Override
+    @Transactional
+    public void releaseReservedForAnalysisJob(UUID analysisJobId, AiTokenUsageOutcome outcome) {
+        if (outcome != AiTokenUsageOutcome.WORKER_LEASE_EXPIRED
+                && outcome != AiTokenUsageOutcome.USAGE_UNAVAILABLE) {
+            throw new AppException(AiTokenErrorCode.AI_TOKEN_USAGE_INVALID);
+        }
+        usageRepository.findAllByAnalysisJobIdAndStatus(analysisJobId, AiTokenUsageStatus.RESERVED)
+                .forEach(usage -> {
+                    AiTokenAccount account = getOrCreateAccount(usage.getMember().getId());
+                    account.release(usage.getReservedTokens());
+                    usage.release(outcome);
+                });
     }
 
     @Override

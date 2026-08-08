@@ -13,14 +13,17 @@ import org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysi
 import org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobCompleteRequest;
 import org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobFailRequest;
 import org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobProgressRequest;
+import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisJobHeartbeatResponse;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisJobPayload;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobWorkerService;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
+import org.monitoring.catchholebackend.global.config.security.SecurityConstant;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -41,12 +44,24 @@ public class AnalysisJobWorkerController {
             @ApiResponse(responseCode = "401", description = "내부 API Key 없음 또는 검증 실패")
     })
     public ResponseEntity<CommonResponse<WorkerAnalysisJobPayload>> claimAnalysisJob(
-            @Valid @RequestBody(required = false) WorkerAnalysisJobClaimRequest request
+            @Valid @RequestBody WorkerAnalysisJobClaimRequest request
     ) {
         Optional<WorkerAnalysisJobPayload> payload = analysisJobWorkerService.claimAnalysisJob(request);
         return payload
                 .map(value -> ResponseEntity.ok(CommonResponse.success("분석 작업을 claim했습니다.", value)))
                 .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    @PostMapping("/{analysisJobId}/heartbeat")
+    @Operation(summary = "AI Worker 분석 작업 lease 갱신")
+    public CommonResponse<WorkerAnalysisJobHeartbeatResponse> heartbeatAnalysisJob(
+            @PathVariable UUID analysisJobId,
+            @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken
+    ) {
+        return CommonResponse.success(
+                "분석 작업 lease가 갱신되었습니다.",
+                analysisJobWorkerService.heartbeatAnalysisJob(analysisJobId, leaseToken)
+        );
     }
 
     @PatchMapping("/{analysisJobId}/progress")
@@ -59,9 +74,10 @@ public class AnalysisJobWorkerController {
     })
     public CommonResponse<Void> updateProgress(
             @PathVariable UUID analysisJobId,
+            @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken,
             @Valid @RequestBody WorkerAnalysisJobProgressRequest request
     ) {
-        analysisJobWorkerService.updateProgress(analysisJobId, request);
+        analysisJobWorkerService.updateProgress(analysisJobId, leaseToken, request);
         return CommonResponse.success("분석 작업 진행 단계가 갱신되었습니다.", null);
     }
 
@@ -75,10 +91,12 @@ public class AnalysisJobWorkerController {
     })
     public CommonResponse<Void> completeAnalysisJob(
             @PathVariable UUID analysisJobId,
+            @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken,
             @Valid @RequestBody(required = false) WorkerAnalysisJobCompleteRequest request
     ) {
         analysisJobWorkerService.completeAnalysisJob(
                 analysisJobId,
+                leaseToken,
                 request == null ? new WorkerAnalysisJobCompleteRequest(null, null, null) : request
         );
         return CommonResponse.success("분석 작업이 완료 처리되었습니다.", null);
@@ -94,9 +112,10 @@ public class AnalysisJobWorkerController {
     })
     public CommonResponse<Void> failAnalysisJob(
             @PathVariable UUID analysisJobId,
+            @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken,
             @Valid @RequestBody WorkerAnalysisJobFailRequest request
     ) {
-        analysisJobWorkerService.failAnalysisJob(analysisJobId, request);
+        analysisJobWorkerService.failAnalysisJob(analysisJobId, leaseToken, request);
         return CommonResponse.success("분석 작업이 실패 처리되었습니다.", null);
     }
 }

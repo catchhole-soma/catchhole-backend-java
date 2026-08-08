@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.analysis.repository;
 
 import jakarta.persistence.LockModeType;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -33,6 +34,7 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             left join fetch analysisJob.episode
             left join fetch analysisJob.targetEpisodes
             where analysisJob.work.id = :workId
+              and analysisJob.jobType <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON
             order by analysisJob.createdAt desc
             """)
     List<AnalysisJob> findAllWithTargetsByWorkIdOrderByCreatedAtDesc(@Param("workId") UUID workId);
@@ -45,6 +47,7 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
                     from AnalysisJob analysisJob
                     where analysisJob.work.id = :workId
                       and analysisJob.batch is not null
+                      and analysisJob.jobType <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON
                     group by analysisJob.batch.id
                     order by max(analysisJob.createdAt) desc, analysisJob.batch.id desc
                     """,
@@ -53,6 +56,7 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
                     from AnalysisJob analysisJob
                     where analysisJob.work.id = :workId
                       and analysisJob.batch is not null
+                      and analysisJob.jobType <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON
                     """
     )
     Page<AnalysisBatchPageRow> findBatchPage(
@@ -61,9 +65,17 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
     );
 
     @EntityGraph(attributePaths = {"batch", "episode", "targetEpisodes"})
+    @Query("""
+            select analysisJob
+            from AnalysisJob analysisJob
+            where analysisJob.work.id = :workId
+              and analysisJob.batch.id in :batchIds
+              and analysisJob.jobType <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON
+            order by analysisJob.createdAt desc, analysisJob.id desc
+            """)
     List<AnalysisJob> findAllByWorkIdAndBatchIdInOrderByCreatedAtDescIdDesc(
-            UUID workId,
-            Collection<UUID> batchIds
+            @Param("workId") UUID workId,
+            @Param("batchIds") Collection<UUID> batchIds
     );
 
     Optional<AnalysisJob> findFirstByBatchIdOrderByCreatedAtDesc(UUID batchId);
@@ -82,7 +94,11 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             @Param("batchId") UUID batchId
     );
 
-    Optional<AnalysisJob> findFirstByEpisodeIdAndBatchIdOrderByCreatedAtDesc(UUID episodeId, UUID batchId);
+    Optional<AnalysisJob> findFirstByEpisodeIdAndBatchIdAndJobTypeNotOrderByCreatedAtDesc(
+            UUID episodeId,
+            UUID batchId,
+            AnalysisJobType excludedJobType
+    );
 
     @Query("""
             select analysisJob
@@ -91,6 +107,7 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             join fetch analysisJob.episode
             where analysisJob.batch.id in :batchIds
               and analysisJob.episode.id in :episodeIds
+              and analysisJob.jobType <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON
             order by analysisJob.createdAt desc
             """)
     List<AnalysisJob> findAllRelevantForEpisodeSummaries(
@@ -118,6 +135,13 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             Collection<AnalysisJobStatus> statuses
     );
 
+    boolean existsByEpisodeIdAndBatchIdAndJobTypeNotInAndStatusIn(
+            UUID episodeId,
+            UUID batchId,
+            Collection<AnalysisJobType> excludedJobTypes,
+            Collection<AnalysisJobStatus> statuses
+    );
+
     Optional<AnalysisJob> findFirstByEpisodeIdAndBatchIdAndJobTypeAndStatusInOrderByCreatedAtDesc(
             UUID episodeId,
             UUID batchId,
@@ -133,10 +157,36 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             left join fetch analysisJob.batch
             left join analysisJob.episode episode
             where analysisJob.status = :status
+              and analysisJob.jobType in :jobTypes
             order by analysisJob.createdAt asc, episode.episodeNo asc
             """)
     List<AnalysisJob> findClaimCandidates(
             @Param("status") AnalysisJobStatus status,
+            @Param("jobTypes") Collection<AnalysisJobType> jobTypes,
             Pageable pageable
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select analysisJob
+            from AnalysisJob analysisJob
+            join fetch analysisJob.work
+            left join fetch analysisJob.batch
+            left join fetch analysisJob.worldSettingCandidate
+            where analysisJob.status = :status
+              and analysisJob.jobType in :jobTypes
+              and analysisJob.leaseExpiresAt <= :now
+            order by analysisJob.leaseExpiresAt asc, analysisJob.createdAt asc
+            """)
+    List<AnalysisJob> findExpiredLeaseCandidates(
+            @Param("status") AnalysisJobStatus status,
+            @Param("jobTypes") Collection<AnalysisJobType> jobTypes,
+            @Param("now") LocalDateTime now,
+            Pageable pageable
+    );
+
+    Optional<AnalysisJob> findFirstByWorldSettingCandidateIdAndStatusInOrderByCreatedAtDesc(
+            UUID worldSettingCandidateId,
+            Collection<AnalysisJobStatus> statuses
     );
 }

@@ -6,6 +6,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import org.monitoring.catchholebackend.domain.work.entity.Work;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateConfirmRequest;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCreateRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingDetailResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingListItemResponse;
@@ -18,7 +21,27 @@ import org.springframework.stereotype.Component;
 @Component
 public class WorldSettingMapper {
 
-    public WorldSettingListItemResponse toListItem(WorldSetting worldSetting, String query) {
+    public WorldSetting toEntity(Work work, WorldSettingCreateRequest request) {
+        return WorldSetting.create(
+                work,
+                request.category(),
+                request.subjectName(),
+                request.settingName(),
+                request.settingValue()
+        );
+    }
+
+    public WorldSetting toEntity(Work work, WorldSettingCandidateConfirmRequest request) {
+        return WorldSetting.create(
+                work,
+                request.category(),
+                request.subjectName(),
+                request.settingName(),
+                request.value()
+        );
+    }
+
+    public WorldSettingListItemResponse toListItemResponse(WorldSetting worldSetting, String query) {
         Map.Entry<String, JsonNode> matchedProperty = findMatchedProperty(worldSetting, query);
         return new WorldSettingListItemResponse(
                 worldSetting.getId(),
@@ -32,13 +55,13 @@ public class WorldSettingMapper {
         );
     }
 
-    public WorldSettingDetailResponse toDetail(
+    public WorldSettingDetailResponse toDetailResponse(
             WorldSetting worldSetting,
             List<WorldSettingCandidate> confirmedCandidates
     ) {
-        Map<String, String> properties = properties(worldSetting.getPropertiesJson());
+        Map<String, String> properties = toPropertiesMap(worldSetting.getPropertiesJson());
         List<WorldSettingDetailResponse.PropertyEvidence> propertyEvidence = properties.entrySet().stream()
-                .map(property -> propertyEvidence(property, confirmedCandidates))
+                .map(property -> toPropertyEvidenceResponse(property, confirmedCandidates))
                 .toList();
         return new WorldSettingDetailResponse(
                 worldSetting.getId(),
@@ -54,11 +77,15 @@ public class WorldSettingMapper {
         );
     }
 
-    public WorldSettingCandidateResponse toCandidate(WorldSettingCandidate candidate) {
+    public WorldSettingCandidateResponse toCandidateResponse(WorldSettingCandidate candidate) {
+        WorldSetting targetWorldSetting = candidate.getTargetWorldSetting();
+        String suggestedSubjectName = targetWorldSetting == null
+                ? candidate.getSubjectName()
+                : targetWorldSetting.getSubjectName();
         boolean userModified = candidate.getReviewStatus() != WorldSettingReviewStatus.PENDING_REVIEW
                 && (candidate.getFinalOperation() != candidate.getSuggestedOperation()
                 || candidate.getFinalCategory() != candidate.getCategory()
-                || !sameName(candidate.getFinalSubjectName(), candidate.getSubjectName())
+                || !sameName(candidate.getFinalSubjectName(), suggestedSubjectName)
                 || !sameName(candidate.getFinalSettingName(), candidate.getProposedSettingName())
                 || !Objects.equals(candidate.getFinalValue(), candidate.getProposedValue()));
         return new WorldSettingCandidateResponse(
@@ -73,7 +100,8 @@ public class WorldSettingMapper {
                 candidate.getExtractedValue(),
                 candidate.getEvidenceSpans(),
                 candidate.getExtractionConfidence(),
-                candidate.getTargetWorldSetting() == null ? null : candidate.getTargetWorldSetting().getId(),
+                targetWorldSetting == null ? null : targetWorldSetting.getId(),
+                targetWorldSetting == null ? null : targetWorldSetting.getSubjectName(),
                 candidate.getSuggestedOperation(),
                 candidate.getProposedSettingName(),
                 candidate.getBeforeValue(),
@@ -100,13 +128,13 @@ public class WorldSettingMapper {
         );
     }
 
-    private WorldSettingDetailResponse.PropertyEvidence propertyEvidence(
+    private WorldSettingDetailResponse.PropertyEvidence toPropertyEvidenceResponse(
             Map.Entry<String, String> property,
             List<WorldSettingCandidate> candidates
     ) {
         List<WorldSettingDetailResponse.CandidateEvidence> history = candidates.stream()
                 .filter(candidate -> sameName(candidate.getFinalSettingName(), property.getKey()))
-                .map(this::toEvidence)
+                .map(this::toCandidateEvidenceResponse)
                 .toList();
         WorldSettingDetailResponse.CandidateEvidence latestEvidence = history.stream()
                 .findFirst()
@@ -115,7 +143,9 @@ public class WorldSettingMapper {
         return new WorldSettingDetailResponse.PropertyEvidence(property.getKey(), latestEvidence, history);
     }
 
-    private WorldSettingDetailResponse.CandidateEvidence toEvidence(WorldSettingCandidate candidate) {
+    private WorldSettingDetailResponse.CandidateEvidence toCandidateEvidenceResponse(
+            WorldSettingCandidate candidate
+    ) {
         return new WorldSettingDetailResponse.CandidateEvidence(
                 candidate.getId(),
                 candidate.getFinalOperation(),
@@ -133,7 +163,7 @@ public class WorldSettingMapper {
             return null;
         }
         List<Map.Entry<String, JsonNode>> properties = new ArrayList<>();
-        worldSetting.getPropertiesJson().fields().forEachRemaining(properties::add);
+        properties.addAll(worldSetting.getPropertiesJson().properties());
         return properties.stream()
                 .filter(property -> WorldSettingNameNormalizer.duplicateKey(property.getKey()).contains(normalizedQuery)
                         || WorldSettingNameNormalizer.duplicateKey(property.getValue().asText()).contains(normalizedQuery))
@@ -141,9 +171,9 @@ public class WorldSettingMapper {
                 .orElse(null);
     }
 
-    private Map<String, String> properties(JsonNode propertiesJson) {
+    private Map<String, String> toPropertiesMap(JsonNode propertiesJson) {
         Map<String, String> properties = new LinkedHashMap<>();
-        propertiesJson.fields().forEachRemaining(property ->
+        propertiesJson.properties().forEach(property ->
                 properties.put(property.getKey(), property.getValue().asText()));
         return properties;
     }

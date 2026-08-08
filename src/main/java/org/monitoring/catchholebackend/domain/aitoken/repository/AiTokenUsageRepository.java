@@ -2,6 +2,7 @@ package org.monitoring.catchholebackend.domain.aitoken.repository;
 
 import jakarta.persistence.LockModeType;
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.aitoken.entity.AiTokenUsage;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageStatus;
@@ -17,6 +18,12 @@ public interface AiTokenUsageRepository extends JpaRepository<AiTokenUsage, UUID
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<AiTokenUsage> findByRequestId(UUID requestId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    List<AiTokenUsage> findAllByAnalysisJobIdAndStatus(
+            UUID analysisJobId,
+            AiTokenUsageStatus status
+    );
 
     @Query("""
             select coalesce(sum(usage.inputTokens), 0) as inputTokens,

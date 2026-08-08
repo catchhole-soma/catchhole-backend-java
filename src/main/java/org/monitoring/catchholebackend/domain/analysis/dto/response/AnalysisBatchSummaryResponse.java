@@ -27,14 +27,23 @@ public record AnalysisBatchSummaryResponse(
         @Schema(description = "서로 다른 분석 대상 회차 수", example = "4")
         int episodeCount,
 
-        @Schema(description = "배치에서 생성된 설정 후보 수", example = "46")
+        @Schema(description = "배치에서 생성된 캐릭터 설정 후보 수", example = "46")
         long totalCandidateCount,
 
-        @Schema(description = "확정 또는 무시한 설정 후보 수", example = "3")
+        @Schema(description = "확정 또는 무시한 캐릭터 설정 후보 수", example = "3")
         long reviewedCandidateCount,
 
-        @Schema(description = "검토 대기 설정 후보 수", example = "43")
+        @Schema(description = "검토 대기 캐릭터 설정 후보 수", example = "43")
         long pendingCandidateCount,
+
+        @Schema(description = "배치에서 생성된 세계관 설정 후보 수", example = "12")
+        long worldSettingTotalCandidateCount,
+
+        @Schema(description = "확정 또는 무시한 세계관 설정 후보 수", example = "4")
+        long worldSettingReviewedCandidateCount,
+
+        @Schema(description = "검토 대기 세계관 설정 후보 수", example = "8")
+        long worldSettingPendingCandidateCount,
 
         @Schema(description = "분석 목적별 최신 작업 집계")
         List<AnalysisBatchJobGroupResponse> jobGroups,

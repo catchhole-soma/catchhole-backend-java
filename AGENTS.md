@@ -290,6 +290,9 @@ domain/<domain>
 - 공개 분석 작업 생성 API는 `batch_id`를 필수 입력으로 받고 `episode_id`를 선택 범위 지정자로 허용한다. `episode_id`가 없으면 batch의 현재 회차마다 Job을 하나씩 생성해 목록으로 반환하고, 있으면 해당 회차 Job 하나를 목록으로 반환한다.
 - 본인 작품의 분석 작업만 생성/조회할 수 있으며, 다른 회원의 작품이나 다른 작품에 속한 분석 대상은 404로 응답한다.
 - Python AI Worker는 작업 claim과 `AnalysisJob` 상태 변경에 `/api/internal/**` 내부 API를 `X-Internal-Api-Key`로 인증해 사용한다. Worker에는 원문 본문을 응답하지 않으며, 단일 `episode`의 S3 key/version/hash/charCount 메타데이터, `ACTIVE` 캐릭터 ID·대표 이름 목록, 활성 캐릭터 설정 schema를 전달한다. `ARCHIVED` 캐릭터는 이후 원고 매칭 대상에서 제외한다.
+- Worker claim은 `allowedJobTypes`가 필수이며, claim 성공 시 5분 lease token을 발급한다. progress·heartbeat·complete·fail, 토큰 예약과 세계관 내부 API는 같은 `X-Worker-Lease-Token`을 검증한다. 만료 Job은 다음 claim에서 최대 3회까지 checkpoint부터 재대기시키고, 예약 중 토큰을 해제한 뒤 한도를 넘으면 실패 처리한다.
+- 일반 `SETTING_EXTRACTION` Job은 `CHUNKS_READY → CHARACTER_CANDIDATES_SAVED → WORLD_CANDIDATES_PUBLISHED → WORLD_COMPARISONS_FINISHED` checkpoint를 단조 증가시킨다. 세계관 후보 비교가 `PENDING`/`PROCESSING`이거나 마지막 checkpoint 전이면 완료를 거절한다.
+- `WORLD_SETTING_COMPARISON`은 사용자 재비교 요청 한 건을 처리하는 내부 Job type이다. 공개 분석 목록·진행률·회차 실행 잠금에서 제외하고 동일 후보의 활성 Job은 하나만 허용한다.
 - Worker는 분석 작업 생성과 상태 전이를 위해 백엔드 DB에 직접 접근하지 않는다. 다만 청킹, 설정 후보, 리포트 같은 분석 산출물 저장은 데이터 양과 모델 안정성에 따라 내부 API 또는 Worker의 DB 직접 저장 중 선택할 수 있으며, DB 직접 저장을 선택하면 관련 스키마/문서 변경을 함께 관리한다.
 
 #### Character Setting Domain Policy
@@ -358,7 +361,9 @@ domain/<domain>
 - 후보 확정은 작품→후보→대상 순으로 write lock을 획득하고 대상 설정명 한 개의 현재값만 `beforeValue`와 비교한다. 같은 행의 다른 설정 변경으로 version만 달라진 경우는 허용하고, 같은 설정이 제3의 값으로 바뀌거나 신규 대상이 먼저 생성된 경우만 `RECOMPARISON_REQUIRED`로 전환한다.
 - 재비교 충돌은 후보 상태를 먼저 commit한 뒤 HTTP 409로 응답해야 한다. Service는 `WorldSettingCandidateConfirmResult.recomparisonRequired`를 정상 반환하고 Controller가 commit 이후 `AppException`으로 변환한다. 이를 위해 전용 예외 클래스를 추가하거나 `noRollbackFor=AppException.class`로 다른 확정 오류의 rollback 범위를 넓히지 않는다.
 - 같은 확정·제외 요청은 멱등 처리하고 `CONFIRMED ↔ DISMISSED` 반대 전이는 충돌로 거절한다. `UPDATE`와 `MERGE`는 DB에서 모두 최종 문자열로 한 property를 교체하되 제안 의미를 기록하기 위해 enum을 구분한다.
-- `recompare` API는 비교 제안을 비우고 `PENDING`으로 전환할 뿐 LLM을 호출하지 않는다. 1·2차 LLM의 모델, prompt, output schema, 검색, retry와 Worker 저장 구현은 별도 AI 작업에서 정하고 캐릭터 후보 계약은 변경하지 않는다.
+- `recompare` API는 비교 제안을 비우고 `PENDING`으로 전환한 뒤 멱등한 `WORLD_SETTING_COMPARISON` Job을 생성한다. 실제 LLM 호출은 별도 AI comparison runner가 claim해 수행하며 HTTP 요청 트랜잭션 안에서 호출하지 않는다.
+- 1차 세계관 후보 게시와 2차 비교 상태 전이는 `domain/worldsetting` 내부 Worker API만 수행한다. Backend는 lease·작품·분류·후보 소유권, 최대 3개 비교 문맥 ID·version, exact 대상과 property를 검증하고 `beforeValue`와 base version을 직접 산출한다. Worker는 `world_settings`를 직접 수정하지 않는다.
+- 같은 회차를 재분석할 때 이전 Job의 검토 전 세계관 후보만 정리하고 `CONFIRMED`/`DISMISSED` 후보는 보존한다. 같은 Job의 lease 재시도는 checkpoint를 기준으로 이미 게시한 후보를 재생성하지 않는다. 후보별 비교 실패는 후보를 `FAILED`로 남기되 초기 회차 Job의 나머지 후보 비교와 완료는 계속한다.
 - 작품 hard delete 시 `world_settings`와 `world_setting_candidates`도 함께 정리되도록 두 테이블의 `work_id` FK와 JPA 매핑에 delete cascade를 유지한다. 이는 개별 세계관 대상 삭제·보관·복원 기능을 허용하는 규칙이 아니다.
 
 #### Service Layer

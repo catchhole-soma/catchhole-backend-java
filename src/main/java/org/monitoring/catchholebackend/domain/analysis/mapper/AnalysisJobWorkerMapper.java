@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class AnalysisJobWorkerMapper {
 
-    public WorkerAnalysisJobPayload toPayload(
+    public WorkerAnalysisJobPayload toResponse(
             AnalysisJob analysisJob,
             Episode episode,
             List<CharacterSettingSchema> characterSettingSchemas,
@@ -30,17 +30,24 @@ public class AnalysisJobWorkerMapper {
                 analysisJob.getBatch().getId(),
                 analysisJob.getModelName(),
                 analysisJob.getCurrentStep(),
+                analysisJob.getLeaseToken(),
+                analysisJob.getLeaseExpiresAt(),
+                analysisJob.getClaimAttemptCount(),
+                analysisJob.getCheckpointStage(),
+                analysisJob.getWorldSettingCandidate() == null
+                        ? null
+                        : analysisJob.getWorldSettingCandidate().getId(),
                 characterSettingSchemas.stream()
-                        .map(this::toCharacterSettingSchemaPayload)
+                        .map(this::toCharacterSettingSchemaResponse)
                         .toList(),
                 knownCharacters.stream()
-                        .map(this::toKnownCharacterPayload)
+                        .map(this::toKnownCharacterResponse)
                         .toList(),
-                toEpisodePayload(episode)
+                toEpisodeResponse(episode)
         );
     }
 
-    private WorkerAnalysisCharacterSettingSchemaPayload toCharacterSettingSchemaPayload(
+    private WorkerAnalysisCharacterSettingSchemaPayload toCharacterSettingSchemaResponse(
             CharacterSettingSchema settingSchema
     ) {
         return new WorkerAnalysisCharacterSettingSchemaPayload(
@@ -62,14 +69,14 @@ public class AnalysisJobWorkerMapper {
                 .toList();
     }
 
-    private WorkerAnalysisKnownCharacterPayload toKnownCharacterPayload(WorkCharacter character) {
+    private WorkerAnalysisKnownCharacterPayload toKnownCharacterResponse(WorkCharacter character) {
         return new WorkerAnalysisKnownCharacterPayload(
                 character.getId(),
                 character.getName()
         );
     }
 
-    private WorkerAnalysisEpisodePayload toEpisodePayload(Episode episode) {
+    private WorkerAnalysisEpisodePayload toEpisodeResponse(Episode episode) {
         return new WorkerAnalysisEpisodePayload(
                 episode.getId(),
                 episode.getEpisodeNo(),

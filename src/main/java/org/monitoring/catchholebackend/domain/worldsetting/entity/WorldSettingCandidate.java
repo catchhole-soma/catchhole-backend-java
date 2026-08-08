@@ -247,6 +247,9 @@ public class WorldSettingCandidate extends BaseEntity {
 
     public void startComparison() {
         validatePendingReview();
+        if (comparisonStatus != WorldSettingComparisonStatus.PENDING) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
         comparisonStatus = WorldSettingComparisonStatus.PROCESSING;
         comparisonErrorMessage = null;
     }
@@ -262,6 +265,7 @@ public class WorldSettingCandidate extends BaseEntity {
             LocalDateTime comparedAt
     ) {
         validatePendingReview();
+        validateProcessingComparison();
         this.targetWorldSetting = targetWorldSetting;
         this.suggestedOperation = Objects.requireNonNull(suggestedOperation);
         this.proposedSettingName = requiredName(proposedSettingName);
@@ -277,14 +281,26 @@ public class WorldSettingCandidate extends BaseEntity {
 
     public void failComparison(String errorMessage) {
         validatePendingReview();
+        validateProcessingComparison();
         comparisonStatus = WorldSettingComparisonStatus.FAILED;
         comparisonErrorMessage = requiredValue(errorMessage);
     }
 
     public void requestRecomparison() {
         validatePendingReview();
+        if (comparisonStatus == WorldSettingComparisonStatus.PROCESSING) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
         clearComparisonProposal();
         comparisonStatus = WorldSettingComparisonStatus.PENDING;
+    }
+
+    public void recoverExpiredComparison() {
+        validatePendingReview();
+        if (comparisonStatus == WorldSettingComparisonStatus.PROCESSING) {
+            comparisonStatus = WorldSettingComparisonStatus.PENDING;
+            comparisonErrorMessage = null;
+        }
     }
 
     public void updateExtractionIdentity(
@@ -351,6 +367,9 @@ public class WorldSettingCandidate extends BaseEntity {
         if (reviewStatus == WorldSettingReviewStatus.CONFIRMED) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
         }
+        if (comparisonStatus == WorldSettingComparisonStatus.PROCESSING) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
 
         finalOperation = WorldSettingOperation.EXCLUDE;
         finalCategory = category;
@@ -386,6 +405,12 @@ public class WorldSettingCandidate extends BaseEntity {
     private void validatePendingReview() {
         if (!isPendingReview()) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_NOT_EDITABLE);
+        }
+    }
+
+    private void validateProcessingComparison() {
+        if (comparisonStatus != WorldSettingComparisonStatus.PROCESSING) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
     }
 

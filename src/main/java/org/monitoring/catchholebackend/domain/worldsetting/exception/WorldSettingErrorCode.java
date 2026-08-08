@@ -20,9 +20,13 @@ public enum WorldSettingErrorCode implements ResultCode {
     WORLD_SETTING_CANDIDATE_NOT_FOUND(HttpStatus.NOT_FOUND, "세계관 설정 후보를 찾을 수 없습니다."),
     WORLD_SETTING_CANDIDATE_NOT_EDITABLE(HttpStatus.CONFLICT, "검토 대기 상태의 세계관 설정 후보만 수정할 수 있습니다."),
     WORLD_SETTING_CANDIDATE_COMPARISON_NOT_READY(HttpStatus.CONFLICT, "비교 완료된 세계관 설정 후보만 확정할 수 있습니다."),
+    WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT(HttpStatus.CONFLICT, "세계관 설정 후보의 비교 상태 전이가 올바르지 않습니다."),
+    WORLD_SETTING_CANDIDATE_COMPARISON_CONTEXT_STALE(HttpStatus.CONFLICT, "세계관 설정 비교 대상이 변경되어 다시 비교해야 합니다."),
     WORLD_SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT(HttpStatus.CONFLICT, "세계관 설정 후보의 검토 상태 전이가 올바르지 않습니다."),
     WORLD_SETTING_CANDIDATE_RECOMPARISON_REQUIRED(HttpStatus.CONFLICT, "확정본이 변경되어 세계관 설정 후보를 다시 비교해야 합니다."),
-    WORLD_SETTING_CANDIDATE_OPERATION_INVALID(HttpStatus.BAD_REQUEST, "세계관 설정 후보의 최종 반영 방식이 올바르지 않습니다.");
+    WORLD_SETTING_CANDIDATE_OPERATION_INVALID(HttpStatus.BAD_REQUEST, "세계관 설정 후보의 최종 반영 방식이 올바르지 않습니다."),
+    WORLD_SETTING_WORKER_JOB_INVALID(HttpStatus.CONFLICT, "세계관 설정 Worker 작업 범위가 올바르지 않습니다."),
+    WORLD_SETTING_COMPARISON_TARGET_INVALID(HttpStatus.BAD_REQUEST, "세계관 설정 비교 대상 또는 속성이 올바르지 않습니다.");
 
     private final HttpStatus status;
     private final String message;

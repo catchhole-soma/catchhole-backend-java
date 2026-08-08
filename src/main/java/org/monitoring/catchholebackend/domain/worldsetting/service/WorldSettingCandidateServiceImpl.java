@@ -4,8 +4,11 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobEpisodeRange;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
@@ -42,8 +45,9 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
     private final UploadBatchRepository uploadBatchRepository;
     private final AnalysisJobRepository analysisJobRepository;
     private final WorldSettingRepository worldSettingRepository;
-    private final WorldSettingCandidateRepository candidateRepository;
+    private final WorldSettingCandidateRepository worldSettingCandidateRepository;
     private final WorldSettingMapper worldSettingMapper;
+    private final AiTokenService aiTokenService;
 
     @Override
     public WorldSettingCandidateListResponse getCandidates(
@@ -58,7 +62,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
     ) {
         Work work = workRepository.getOwnedWork(workId, memberId);
         validateBatch(work, batchId);
-        Page<WorldSettingCandidate> candidatePage = candidateRepository.findReviewPage(
+        Page<WorldSettingCandidate> candidatePage = worldSettingCandidateRepository.findReviewPage(
                 work.getId(),
                 batchId,
                 reviewStatus,
@@ -66,7 +70,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                 operation,
                 PageRequest.of(page, size)
         );
-        WorldSettingCandidateBatchCounts counts = candidateRepository.countReviewSummary(
+        WorldSettingCandidateBatchCounts counts = worldSettingCandidateRepository.countReviewSummary(
                 work.getId(),
                 batchId,
                 WorldSettingReviewStatus.PENDING_REVIEW,
@@ -78,7 +82,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         AnalysisJobEpisodeRange episodeRange =
                 analysisJobRepository.findEpisodeRangeByWorkIdAndBatchId(work.getId(), batchId);
         List<WorldSettingCandidateResponse> responses = candidatePage.getContent().stream()
-                .map(worldSettingMapper::toCandidate)
+                .map(worldSettingMapper::toCandidateResponse)
                 .toList();
         return new WorldSettingCandidateListResponse(
                 batchId,
@@ -105,10 +109,10 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
     ) {
         Work work = workRepository.getOwnedWork(workId, memberId);
         validateBatch(work, batchId);
-        WorldSettingCandidate candidate = candidateRepository
+        WorldSettingCandidate candidate = worldSettingCandidateRepository
                 .findByIdAndWorkIdAndAnalysisJobBatchId(candidateId, work.getId(), batchId)
                 .orElseThrow(() -> new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_NOT_FOUND));
-        return worldSettingMapper.toCandidate(candidate);
+        return worldSettingMapper.toCandidateResponse(candidate);
     }
 
     @Override
@@ -122,8 +126,8 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         WorldSettingCandidate candidate = getCandidateForUpdate(candidateId, work.getId());
         candidate.updateExtractionIdentity(request.category(), request.subjectName(), request.settingName());
-        candidateRepository.flush();
-        return worldSettingMapper.toCandidate(candidate);
+        worldSettingCandidateRepository.flush();
+        return worldSettingMapper.toCandidateResponse(candidate);
     }
 
     @Override
@@ -131,9 +135,23 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
     public WorldSettingCandidateResponse retryComparison(Long memberId, UUID workId, UUID candidateId) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         WorldSettingCandidate candidate = getCandidateForUpdate(candidateId, work.getId());
+        AnalysisJob activeJob = analysisJobRepository
+                .findFirstByWorldSettingCandidateIdAndStatusInOrderByCreatedAtDesc(
+                        candidateId,
+                        List.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING)
+                )
+                .orElse(null);
+        if (activeJob != null) {
+            if (activeJob.getStatus() == AnalysisJobStatus.RUNNING) {
+                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+            }
+            return worldSettingMapper.toCandidateResponse(candidate);
+        }
+        aiTokenService.ensureAnalysisCanStart(memberId);
         candidate.requestRecomparison();
-        candidateRepository.flush();
-        return worldSettingMapper.toCandidate(candidate);
+        analysisJobRepository.save(AnalysisJob.createWorldSettingComparison(candidate));
+        worldSettingCandidateRepository.flush();
+        return worldSettingMapper.toCandidateResponse(candidate);
     }
 
     @Override
@@ -158,30 +176,38 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                     work.getMember(),
                     candidate.getTargetWorldSetting()
             );
-            return WorldSettingCandidateConfirmResult.confirmed(worldSettingMapper.toCandidate(candidate));
+            return WorldSettingCandidateConfirmResult.confirmed(
+                    worldSettingMapper.toCandidateResponse(candidate)
+            );
         }
         if (candidate.getReviewStatus() == WorldSettingReviewStatus.DISMISSED) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
         }
 
         validateComparisonReadyAndOperation(candidate, request);
-        if (!matchesComparedIdentity(candidate, request)) {
-            return markRecomparisonRequired(candidate);
-        }
-        String normalizedSubjectName = WorldSettingNameNormalizer.duplicateKey(request.subjectName());
-        WorldSetting currentTarget = worldSettingRepository.findByIdentityForUpdate(
-                work.getId(),
-                request.category(),
-                normalizedSubjectName
-        ).orElse(null);
-
         WorldSetting comparedTarget = candidate.getTargetWorldSetting();
-        if (comparedTarget == null && currentTarget != null) {
-            return markRecomparisonRequired(candidate);
-        }
-        if (comparedTarget != null
-                && (currentTarget == null || !comparedTarget.getId().equals(currentTarget.getId()))) {
-            return markRecomparisonRequired(candidate);
+        WorldSetting currentTarget;
+        if (comparedTarget == null) {
+            if (!matchesComparedIdentity(candidate, null, request)) {
+                return markRecomparisonRequired(candidate);
+            }
+            String normalizedSubjectName = WorldSettingNameNormalizer.duplicateKey(request.subjectName());
+            currentTarget = worldSettingRepository.findByIdentityForUpdate(
+                    work.getId(),
+                    request.category(),
+                    normalizedSubjectName
+            ).orElse(null);
+            if (currentTarget != null) {
+                return markRecomparisonRequired(candidate);
+            }
+        } else {
+            currentTarget = worldSettingRepository.findByIdAndWorkIdForUpdate(
+                    comparedTarget.getId(),
+                    work.getId()
+            ).orElse(null);
+            if (currentTarget == null || !matchesComparedIdentity(candidate, currentTarget, request)) {
+                return markRecomparisonRequired(candidate);
+            }
         }
 
         WorldSetting appliedTarget;
@@ -189,13 +215,9 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             if (request.operation() != WorldSettingOperation.ADD) {
                 return markRecomparisonRequired(candidate);
             }
-            appliedTarget = worldSettingRepository.saveAndFlush(WorldSetting.create(
-                    work,
-                    request.category(),
-                    request.subjectName(),
-                    request.settingName(),
-                    request.value()
-            ));
+            appliedTarget = worldSettingRepository.saveAndFlush(
+                    worldSettingMapper.toEntity(work, request)
+            );
         } else {
             if (!isCurrentPropertyCompatible(candidate, currentTarget, request)) {
                 return markRecomparisonRequired(candidate);
@@ -215,8 +237,10 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                 work.getMember(),
                 appliedTarget
         );
-        candidateRepository.flush();
-        return WorldSettingCandidateConfirmResult.confirmed(worldSettingMapper.toCandidate(candidate));
+        worldSettingCandidateRepository.flush();
+        return WorldSettingCandidateConfirmResult.confirmed(
+                worldSettingMapper.toCandidateResponse(candidate)
+        );
     }
 
     @Override
@@ -230,8 +254,8 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         WorldSettingCandidate candidate = getCandidateForUpdate(candidateId, work.getId());
         candidate.dismiss(request.reviewNote(), work.getMember());
-        candidateRepository.flush();
-        return worldSettingMapper.toCandidate(candidate);
+        worldSettingCandidateRepository.flush();
+        return worldSettingMapper.toCandidateResponse(candidate);
     }
 
     private void validateComparisonReadyAndOperation(
@@ -248,10 +272,17 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
 
     private boolean matchesComparedIdentity(
             WorldSettingCandidate candidate,
+            WorldSetting comparedTarget,
             WorldSettingCandidateConfirmRequest request
     ) {
-        return candidate.getCategory() == request.category()
-                && sameName(candidate.getSubjectName(), request.subjectName())
+        WorldSettingCategory comparedCategory = comparedTarget == null
+                ? candidate.getCategory()
+                : comparedTarget.getCategory();
+        String comparedSubjectName = comparedTarget == null
+                ? candidate.getSubjectName()
+                : comparedTarget.getSubjectName();
+        return comparedCategory == request.category()
+                && sameName(comparedSubjectName, request.subjectName())
                 && sameName(candidate.getProposedSettingName(), request.settingName());
     }
 
@@ -289,9 +320,9 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
 
     private WorldSettingCandidateConfirmResult markRecomparisonRequired(WorldSettingCandidate candidate) {
         candidate.markRecomparisonRequired();
-        candidateRepository.flush();
+        worldSettingCandidateRepository.flush();
         return WorldSettingCandidateConfirmResult.recomparisonRequired(
-                worldSettingMapper.toCandidate(candidate)
+                worldSettingMapper.toCandidateResponse(candidate)
         );
     }
 
@@ -301,7 +332,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
     }
 
     private WorldSettingCandidate getCandidateForUpdate(UUID candidateId, UUID workId) {
-        return candidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)
+        return worldSettingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)
                 .orElseThrow(() -> new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_NOT_FOUND));
     }
 }

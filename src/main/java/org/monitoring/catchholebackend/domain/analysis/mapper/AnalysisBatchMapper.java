@@ -13,6 +13,7 @@ import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateBatchReviewCounts;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateBatchReviewCounts;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -46,7 +47,8 @@ public class AnalysisBatchMapper {
             Integer episodeStartNo,
             Integer episodeEndNo,
             int episodeCount,
-            SettingCandidateBatchReviewCounts candidateCounts,
+            SettingCandidateBatchReviewCounts characterCandidateCounts,
+            WorldSettingCandidateBatchReviewCounts worldSettingCandidateCounts,
             List<AnalysisBatchJobGroupResponse> jobGroups,
             LocalDateTime lastActivityAt
     ) {
@@ -57,9 +59,12 @@ public class AnalysisBatchMapper {
                 episodeStartNo,
                 episodeEndNo,
                 episodeCount,
-                candidateCounts == null ? 0 : candidateCounts.getTotalCandidateCount(),
-                candidateCounts == null ? 0 : candidateCounts.getReviewedCandidateCount(),
-                candidateCounts == null ? 0 : candidateCounts.getPendingCandidateCount(),
+                characterCandidateCounts == null ? 0 : characterCandidateCounts.getTotalCandidateCount(),
+                characterCandidateCounts == null ? 0 : characterCandidateCounts.getReviewedCandidateCount(),
+                characterCandidateCounts == null ? 0 : characterCandidateCounts.getPendingCandidateCount(),
+                worldSettingCandidateCounts == null ? 0 : worldSettingCandidateCounts.getTotalCandidateCount(),
+                worldSettingCandidateCounts == null ? 0 : worldSettingCandidateCounts.getReviewedCandidateCount(),
+                worldSettingCandidateCounts == null ? 0 : worldSettingCandidateCounts.getPendingCandidateCount(),
                 jobGroups,
                 pageRow.getFirstRequestedAt(),
                 pageRow.getLastRequestedAt(),

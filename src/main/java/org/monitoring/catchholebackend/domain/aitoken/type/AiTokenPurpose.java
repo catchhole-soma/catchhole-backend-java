@@ -3,5 +3,8 @@ package org.monitoring.catchholebackend.domain.aitoken.type;
 public enum AiTokenPurpose {
     SETTING_EXTRACTION,
     SUBJECT_RESOLUTION,
-    CHUNK_EMBEDDING
+    CHUNK_EMBEDDING,
+    WORLD_SETTING_EXTRACTION,
+    WORLD_SETTING_SUBJECT_RESOLUTION,
+    WORLD_SETTING_COMPARISON
 }

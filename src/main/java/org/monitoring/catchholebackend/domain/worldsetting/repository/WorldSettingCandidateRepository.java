@@ -1,9 +1,11 @@
 package org.monitoring.catchholebackend.domain.worldsetting.repository;
 
 import jakarta.persistence.LockModeType;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
@@ -14,6 +16,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -90,6 +93,25 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             @Param("recomparisonRequired") WorldSettingComparisonStatus recomparisonRequired
     );
 
+    @Query("""
+            select analysisJob.batch.id as batchId,
+                   count(candidate) as totalCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus <> :pendingReview then 1 else 0 end), 0)
+                       as reviewedCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus = :pendingReview then 1 else 0 end), 0)
+                       as pendingCandidateCount
+            from WorldSettingCandidate candidate
+            join candidate.analysisJob analysisJob
+            where candidate.work.id = :workId
+              and analysisJob.batch.id in :batchIds
+            group by analysisJob.batch.id
+            """)
+    List<WorldSettingCandidateBatchReviewCounts> countReviewSummaryByBatchIds(
+            @Param("workId") UUID workId,
+            @Param("batchIds") List<UUID> batchIds,
+            @Param("pendingReview") WorldSettingReviewStatus pendingReview
+    );
+
     @EntityGraph(attributePaths = {"sourceEpisode", "reviewedBy"})
     List<WorldSettingCandidate> findAllByTargetWorldSettingIdAndReviewStatusOrderByReviewedAtDescCreatedAtDescIdDesc(
             UUID targetWorldSettingId,
@@ -106,5 +128,58 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
     Optional<WorldSettingCandidate> findByIdAndWorkIdForUpdate(
             @Param("id") UUID id,
             @Param("workId") UUID workId
+    );
+
+    List<WorldSettingCandidate> findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(UUID analysisJobId);
+
+    boolean existsByAnalysisJobIdAndReviewStatusNot(
+            UUID analysisJobId,
+            WorldSettingReviewStatus reviewStatus
+    );
+
+    @Modifying(flushAutomatically = true)
+    void deleteAllByAnalysisJobId(UUID analysisJobId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select candidate
+            from WorldSettingCandidate candidate
+            where candidate.analysisJob.id = :analysisJobId
+              and candidate.reviewStatus = :reviewStatus
+              and candidate.comparisonStatus = :comparisonStatus
+            order by candidate.createdAt asc, candidate.id asc
+            """)
+    List<WorldSettingCandidate> findComparisonClaimCandidates(
+            @Param("analysisJobId") UUID analysisJobId,
+            @Param("reviewStatus") WorldSettingReviewStatus reviewStatus,
+            @Param("comparisonStatus") WorldSettingComparisonStatus comparisonStatus,
+            Pageable pageable
+    );
+
+    List<WorldSettingCandidate> findAllByAnalysisJobIdAndComparisonStatus(
+            UUID analysisJobId,
+            WorldSettingComparisonStatus comparisonStatus
+    );
+
+    boolean existsByAnalysisJobIdAndComparisonStatusIn(
+            UUID analysisJobId,
+            Collection<WorldSettingComparisonStatus> comparisonStatuses
+    );
+
+    @Query("""
+            select candidate
+            from WorldSettingCandidate candidate
+            where candidate.work.id = :workId
+              and candidate.sourceEpisode.id in :episodeIds
+              and candidate.reviewStatus = :reviewStatus
+              and candidate.analysisJob.batch.id = :batchId
+              and candidate.analysisJob.jobType = :jobType
+            """)
+    List<WorldSettingCandidate> findAllSupersededPendingCandidates(
+            @Param("workId") UUID workId,
+            @Param("batchId") UUID batchId,
+            @Param("episodeIds") Collection<UUID> episodeIds,
+            @Param("jobType") AnalysisJobType jobType,
+            @Param("reviewStatus") WorldSettingReviewStatus reviewStatus
     );
 }
