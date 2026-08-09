@@ -10,6 +10,7 @@ import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingDisplayNameResolver;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.springframework.stereotype.Component;
 
@@ -18,12 +19,13 @@ import org.springframework.stereotype.Component;
 public class CharacterFactMapper {
 
     private final CharacterSettingDisplayNameResolver characterSettingDisplayNameResolver;
+    private final CharacterFactSourceResolver characterFactSourceResolver;
 
     public CharacterFactSearchResponse toSearchResponse(
             CharacterFact fact,
             List<CharacterSettingSchema> schemas
     ) {
-        Episode sourceEpisode = resolveSourceEpisode(fact);
+        Episode sourceEpisode = characterFactSourceResolver.resolveEpisode(fact);
 
         return new CharacterFactSearchResponse(
                 fact.getId(),
@@ -45,7 +47,7 @@ public class CharacterFactMapper {
             List<CharacterSettingSchema> schemas
     ) {
         SettingCandidate candidate = fact.getSettingCandidate();
-        Episode sourceEpisode = resolveSourceEpisode(fact);
+        Episode sourceEpisode = characterFactSourceResolver.resolveEpisode(fact);
 
         return new CharacterFactDetailResponse(
                 fact.getId(),
@@ -75,16 +77,6 @@ public class CharacterFactMapper {
                 fact.getValueJson(),
                 schemas
         );
-    }
-
-    private Episode resolveSourceEpisode(CharacterFact fact) {
-        if (fact.getSourceEpisode() != null) {
-            return fact.getSourceEpisode();
-        }
-        if (fact.getSettingCandidate() != null) {
-            return fact.getSettingCandidate().getEpisode();
-        }
-        return null;
     }
 
     private List<String> extractEvidenceQuotes(SettingCandidate candidate) {

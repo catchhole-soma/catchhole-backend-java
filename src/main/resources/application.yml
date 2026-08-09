@@ -1,6 +1,13 @@
 spring:
   application:
     name: CatchHole-Backend
+  jpa:
+    properties:
+      hibernate:
+        query:
+          hql:
+            # 타임라인 정렬에서 JSON 근거의 첫 offset을 DB가 직접 읽도록 Hibernate JSON 함수를 활성화한다.
+            json_functions_enabled: true
   profiles:
     active: local
   config:
