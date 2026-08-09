@@ -217,6 +217,7 @@ class WorldSettingWorkerControllerIntegrationTest {
                                 {
                                   "targetWorldSettingId": "%s",
                                   "matchedPropertyName": "서식지",
+                                  "consolidationStatus": "SINGLE",
                                   "suggestedOperation": "UPDATE",
                                   "proposedSettingName": "서식지",
                                   "proposedValue": "극지방",
@@ -262,6 +263,84 @@ class WorldSettingWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("기존 설정과 중복되어 제외한 후보도 비교 당시 기존값을 보존한다")
+    void completesDuplicateExcludeWithBeforeValue() throws Exception {
+        WorldSetting target = worldSettingRepository.save(WorldSetting.create(
+                work,
+                WorldSettingCategory.IMPORTANT_ITEM,
+                "포션",
+                "회복 효과",
+                "사용하면 신체를 빠르게 재생시킨다."
+        ));
+
+        MvcResult publishResult = mockMvc.perform(put(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}/world-setting-candidates",
+                                analysisJob.getId()
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "candidates": [{
+                                    "category": "IMPORTANT_ITEM",
+                                    "subjectName": "포션",
+                                    "settingName": "상처 치료 효과",
+                                    "extractedValue": "상처 부위에 사용하면 빠르게 재생된다.",
+                                    "evidenceSpans": [{"quote": "피가 끓으며 빠르게 재생됐다."}],
+                                    "extractionConfidence": 0.95
+                                  }]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andReturn();
+        UUID candidateId = UUID.fromString(objectMapper
+                .readTree(publishResult.getResponse().getContentAsString())
+                .at("/data/0/candidateId")
+                .asText());
+
+        mockMvc.perform(post(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}/world-setting-comparisons/claim-next",
+                                analysisJob.getId()
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}/world-setting-candidates/{candidateId}/comparison-complete",
+                                analysisJob.getId(),
+                                candidateId
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "targetWorldSettingId": "%s",
+                                  "matchedPropertyName": "회복 효과",
+                                  "consolidationStatus": "SINGLE",
+                                  "suggestedOperation": "EXCLUDE",
+                                  "proposedSettingName": "상처 치료 효과",
+                                  "proposedValue": "상처 부위에 사용하면 빠르게 재생된다.",
+                                  "comparisonReason": "기존 회복 효과와 의미가 같아 별도로 반영하지 않는다.",
+                                  "exactTargetWorldSettingId": "%s",
+                                  "contextVersions": [{
+                                    "worldSettingId": "%s",
+                                    "version": 0
+                                  }],
+                                  "rawComparisonJson": {"operation": "EXCLUDE"}
+                                }
+                                """.formatted(target.getId(), target.getId(), target.getId())))
+                .andExpect(status().isOk());
+
+        WorldSettingCandidate completedCandidate = candidateRepository.findById(candidateId).orElseThrow();
+        assertThat(completedCandidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.COMPLETED);
+        assertThat(completedCandidate.getSuggestedOperation()).isEqualTo(WorldSettingOperation.EXCLUDE);
+        assertThat(completedCandidate.getBeforeValue()).isEqualTo("사용하면 신체를 빠르게 재생시킨다.");
+    }
+
+    @Test
     @DisplayName("stale lease로는 후보를 게시할 수 없다")
     void rejectsCandidatePublishWithStaleLease() throws Exception {
         mockMvc.perform(put(
@@ -274,6 +353,42 @@ class WorldSettingWorkerControllerIntegrationTest {
                         .content("{\"candidates\":[]}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("ANALYSIS_JOB_LEASE_CONFLICT"));
+    }
+
+    @Test
+    @DisplayName("같은 대상과 설정명의 후보가 중복되면 비교 후보 게시 전에 거절한다")
+    void rejectsDuplicateSettingNamesBeforePublishing() throws Exception {
+        mockMvc.perform(put(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}/world-setting-candidates",
+                                analysisJob.getId()
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "candidates": [{
+                                    "category": "IMPORTANT_ITEM",
+                                    "subjectName": "메시지 스톤",
+                                    "settingName": "기능",
+                                    "extractedValue": "서로 대화할 수 있다.",
+                                    "evidenceSpans": [{"quote": "메시지 스톤끼리 대화할 수 있다."}],
+                                    "extractionConfidence": 0.95
+                                  }, {
+                                    "category": "IMPORTANT_ITEM",
+                                    "subjectName": " 메시지 스톤 ",
+                                    "settingName": " 기능 ",
+                                    "extractedValue": "신호를 보낼 수 있다.",
+                                    "evidenceSpans": [{"quote": "짧게 읊조려 신호를 보냈다."}],
+                                    "extractionConfidence": 0.95
+                                  }]
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code")
+                        .value("WORLD_SETTING_CANDIDATE_SETTING_NAME_DUPLICATED"));
+
+        assertThat(candidateRepository.count()).isZero();
     }
 
     @Test

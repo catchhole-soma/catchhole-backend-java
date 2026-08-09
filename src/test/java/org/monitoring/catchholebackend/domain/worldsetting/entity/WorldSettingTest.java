@@ -3,6 +3,8 @@ package org.monitoring.catchholebackend.domain.worldsetting.entity;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
@@ -85,6 +87,24 @@ class WorldSettingTest {
 
         assertThat(changed).isFalse();
         assertThat(setting.getVersion()).isZero();
+    }
+
+    @Test
+    @DisplayName("여러 설정을 한 묶음으로 반영하면 실제 변경 수와 무관하게 버전을 한 번만 증가시킨다")
+    void applyPropertiesIncrementsVersionOnce() {
+        WorldSetting setting = worldSetting();
+        Map<String, String> properties = new LinkedHashMap<>();
+        properties.put("서식지", "극지방");
+        properties.put("특징", "강인한 신체");
+        properties.put("사회 구조", "부족 단위로 생활");
+
+        boolean changed = setting.applyProperties(properties);
+
+        assertThat(changed).isTrue();
+        assertThat(setting.getVersion()).isEqualTo(1);
+        assertThat(setting.getPropertyValue("서식지")).isEqualTo("극지방");
+        assertThat(setting.getPropertyValue("특징")).isEqualTo("강인한 신체");
+        assertThat(setting.getPropertyValue("사회 구조")).isEqualTo("부족 단위로 생활");
     }
 
     private WorldSetting worldSetting() {

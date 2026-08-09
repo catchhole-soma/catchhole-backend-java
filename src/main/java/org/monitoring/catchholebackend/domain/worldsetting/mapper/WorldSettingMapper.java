@@ -6,15 +6,25 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.StreamSupport;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateConfirmRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCreateRequest;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateGroupActionResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateGroupResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingDetailResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingEvidenceSpanResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingListItemResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
 import org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingNameNormalizer;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCandidateGroupStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingRecomparisonReason;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingRecomparisonScope;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.springframework.stereotype.Component;
 
@@ -98,10 +108,11 @@ public class WorldSettingMapper {
                 candidate.getSubjectName(),
                 candidate.getSettingName(),
                 candidate.getExtractedValue(),
-                candidate.getEvidenceSpans(),
+                toEvidenceSpans(candidate.getEvidenceSpans()),
                 candidate.getExtractionConfidence(),
                 targetWorldSetting == null ? null : targetWorldSetting.getId(),
                 targetWorldSetting == null ? null : targetWorldSetting.getSubjectName(),
+                candidate.getConsolidationStatus(),
                 candidate.getSuggestedOperation(),
                 candidate.getProposedSettingName(),
                 candidate.getBeforeValue(),
@@ -128,6 +139,102 @@ public class WorldSettingMapper {
         );
     }
 
+    public WorldSettingCandidateGroupResponse toCandidateGroupResponse(
+            String groupKey,
+            List<WorldSettingCandidate> candidates
+    ) {
+        WorldSettingCandidate representative = candidates.getFirst();
+        WorldSetting representativeTarget = representative.getTargetWorldSetting();
+        WorldSettingCategory category = representativeTarget == null
+                ? representative.getCategory()
+                : representativeTarget.getCategory();
+        String subjectName = representativeTarget == null
+                ? representative.getSubjectName()
+                : representativeTarget.getSubjectName();
+        return new WorldSettingCandidateGroupResponse(
+                groupKey,
+                category,
+                subjectName,
+                candidates.size(),
+                operationCount(candidates, WorldSettingOperation.ADD),
+                operationCount(candidates, WorldSettingOperation.UPDATE),
+                operationCount(candidates, WorldSettingOperation.MERGE),
+                operationCount(candidates, WorldSettingOperation.EXCLUDE),
+                candidates.stream()
+                        .map(candidate -> candidate.getSourceEpisode().getEpisodeNo())
+                        .filter(Objects::nonNull)
+                        .distinct()
+                        .sorted()
+                        .toList(),
+                groupStatus(candidates),
+                recomparisonScope(candidates),
+                candidates.stream().map(this::toCandidateResponse).toList()
+        );
+    }
+
+    public WorldSettingCandidateGroupActionResponse toCandidateGroupActionResponse(
+            String groupKey,
+            List<WorldSettingCandidate> candidates,
+            WorldSetting worldSetting
+    ) {
+        return new WorldSettingCandidateGroupActionResponse(
+                groupKey,
+                worldSetting == null ? null : worldSetting.getId(),
+                worldSetting == null ? null : worldSetting.getVersion(),
+                candidates.stream().map(this::toCandidateResponse).toList()
+        );
+    }
+
+    private int operationCount(
+            List<WorldSettingCandidate> candidates,
+            WorldSettingOperation operation
+    ) {
+        return (int) candidates.stream()
+                .filter(candidate -> candidate.getSuggestedOperation() == operation)
+                .count();
+    }
+
+    private WorldSettingCandidateGroupStatus groupStatus(List<WorldSettingCandidate> candidates) {
+        if (hasComparisonStatus(candidates, WorldSettingComparisonStatus.FAILED)) {
+            return WorldSettingCandidateGroupStatus.FAILED;
+        }
+        if (hasComparisonStatus(candidates, WorldSettingComparisonStatus.RECOMPARISON_REQUIRED)) {
+            return WorldSettingCandidateGroupStatus.RECOMPARISON_REQUIRED;
+        }
+        if (hasComparisonStatus(candidates, WorldSettingComparisonStatus.PROCESSING)) {
+            return WorldSettingCandidateGroupStatus.PROCESSING;
+        }
+        if (hasComparisonStatus(candidates, WorldSettingComparisonStatus.PENDING)) {
+            return WorldSettingCandidateGroupStatus.PENDING;
+        }
+        return WorldSettingCandidateGroupStatus.READY;
+    }
+
+    private boolean hasComparisonStatus(
+            List<WorldSettingCandidate> candidates,
+            WorldSettingComparisonStatus status
+    ) {
+        return candidates.stream().anyMatch(candidate -> candidate.getComparisonStatus() == status);
+    }
+
+    private WorldSettingRecomparisonScope recomparisonScope(List<WorldSettingCandidate> candidates) {
+        List<String> reasons = candidates.stream()
+                .filter(candidate -> candidate.getComparisonStatus()
+                        == WorldSettingComparisonStatus.RECOMPARISON_REQUIRED)
+                .map(WorldSettingCandidate::getComparisonErrorMessage)
+                .filter(Objects::nonNull)
+                .toList();
+        if (reasons.isEmpty()) {
+            return null;
+        }
+        boolean groupReason = reasons.stream().anyMatch(reason ->
+                reason.equals(WorldSettingRecomparisonReason.TARGET_CREATED.getMessage())
+                        || reason.equals(WorldSettingRecomparisonReason.TARGET_MISSING.getMessage())
+                        || reason.equals(WorldSettingRecomparisonReason.TARGET_IDENTITY_CHANGED.getMessage())
+        );
+        return groupReason ? WorldSettingRecomparisonScope.GROUP : WorldSettingRecomparisonScope.ROW;
+    }
+
     private WorldSettingDetailResponse.PropertyEvidence toPropertyEvidenceResponse(
             Map.Entry<String, String> property,
             List<WorldSettingCandidate> candidates
@@ -152,9 +259,34 @@ public class WorldSettingMapper {
                 candidate.getFinalValue(),
                 candidate.getSourceEpisode().getId(),
                 candidate.getSourceEpisode().getEpisodeNo(),
-                candidate.getEvidenceSpans(),
+                toEvidenceSpans(candidate.getEvidenceSpans()),
                 candidate.getReviewedAt()
         );
+    }
+
+    private List<WorldSettingEvidenceSpanResponse> toEvidenceSpans(JsonNode value) {
+        if (value == null || !value.isArray()) {
+            return List.of();
+        }
+        return StreamSupport.stream(value.spliterator(), false)
+                .filter(JsonNode::isObject)
+                .map(span -> new WorldSettingEvidenceSpanResponse(
+                        textValue(span, "quote"),
+                        integerValue(span, "startOffset"),
+                        integerValue(span, "endOffset")
+                ))
+                .filter(span -> span.quote() != null && !span.quote().isBlank())
+                .toList();
+    }
+
+    private String textValue(JsonNode node, String fieldName) {
+        JsonNode value = node.get(fieldName);
+        return value == null || value.isNull() ? null : value.asText();
+    }
+
+    private Integer integerValue(JsonNode node, String fieldName) {
+        JsonNode value = node.get(fieldName);
+        return value == null || !value.isIntegralNumber() ? null : value.asInt();
     }
 
     private Map.Entry<String, JsonNode> findMatchedProperty(WorldSetting worldSetting, String query) {

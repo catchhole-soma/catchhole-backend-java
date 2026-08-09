@@ -10,11 +10,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingConsolidationStatus;
 
 @Schema(description = "Worker 세계관 설정 비교 완료 요청")
 public record WorkerWorldSettingComparisonCompleteRequest(
         UUID targetWorldSettingId,
         String matchedPropertyName,
+
+        @NotNull(message = "1차 추출값 정리 상태는 필수입니다.")
+        WorldSettingConsolidationStatus consolidationStatus,
 
         @NotNull(message = "세계관 설정 제안 방식은 필수입니다.")
         WorldSettingOperation suggestedOperation,

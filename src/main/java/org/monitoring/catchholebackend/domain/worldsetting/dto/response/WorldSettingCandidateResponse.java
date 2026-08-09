@@ -3,9 +3,11 @@ package org.monitoring.catchholebackend.domain.worldsetting.dto.response;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingConsolidationStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 
@@ -20,11 +22,12 @@ public record WorldSettingCandidateResponse(
         String subjectName,
         String settingName,
         String extractedValue,
-        Object evidenceSpans,
+        List<WorldSettingEvidenceSpanResponse> evidenceSpans,
         @Schema(nullable = true) BigDecimal extractionConfidence,
         @Schema(nullable = true) UUID targetWorldSettingId,
         @Schema(description = "2차 비교가 연결한 기존 확정 대상의 정식 대상명", nullable = true)
         String targetSubjectName,
+        WorldSettingConsolidationStatus consolidationStatus,
         @Schema(nullable = true) WorldSettingOperation suggestedOperation,
         @Schema(nullable = true) String proposedSettingName,
         @Schema(nullable = true) String beforeValue,

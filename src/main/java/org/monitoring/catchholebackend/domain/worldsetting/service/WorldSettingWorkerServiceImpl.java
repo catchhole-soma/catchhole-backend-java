@@ -83,6 +83,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
         )) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_NOT_EDITABLE);
         }
+        validateDistinctCandidateSettingNames(request);
 
         worldSettingCandidateRepository.deleteAllByAnalysisJobId(analysisJobId);
         List<WorldSettingCandidate> candidates = request.candidates().stream()
@@ -93,6 +94,22 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
         worldSettingCandidateRepository.flush();
         analysisJob.updateCheckpointStage(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
         return worldSettingWorkerMapper.toResponseList(savedCandidates);
+    }
+
+    private void validateDistinctCandidateSettingNames(
+            WorkerWorldSettingCandidatePublishRequest request
+    ) {
+        Set<String> candidateKeys = new HashSet<>();
+        for (WorkerWorldSettingCandidatePublishRequest.Candidate candidate : request.candidates()) {
+            String candidateKey = candidate.category().name()
+                    + "|" + WorldSettingNameNormalizer.duplicateKey(candidate.subjectName())
+                    + "|" + WorldSettingNameNormalizer.duplicateKey(candidate.settingName());
+            if (!candidateKeys.add(candidateKey)) {
+                throw new AppException(
+                        WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_SETTING_NAME_DUPLICATED
+                );
+            }
+        }
     }
 
     @Override
@@ -222,6 +239,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 : target.getPropertyValue(request.matchedPropertyName());
         candidate.completeComparison(
                 target,
+                request.consolidationStatus(),
                 request.suggestedOperation(),
                 request.proposedSettingName(),
                 beforeValue,
@@ -306,11 +324,10 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
             }
             return;
         }
-        if (operation == WorldSettingOperation.EXCLUDE
-                && target != null
-                && !isBlank(request.matchedPropertyName())
-                && target.getStoredPropertyName(request.matchedPropertyName()) == null) {
-            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
+        if (operation == WorldSettingOperation.EXCLUDE && !isBlank(request.matchedPropertyName())) {
+            if (target == null || target.getStoredPropertyName(request.matchedPropertyName()) == null) {
+                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
+            }
         }
     }
 

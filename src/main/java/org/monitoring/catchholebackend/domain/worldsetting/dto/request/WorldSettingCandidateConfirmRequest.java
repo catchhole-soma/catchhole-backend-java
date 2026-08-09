@@ -31,6 +31,9 @@ public record WorldSettingCandidateConfirmRequest(
         @Schema(description = "최종 설정값", example = "혹한 지역")
         String value,
 
+        @Schema(description = "서로 다른 추출 내용을 사용자가 최종값으로 정리했는지 여부", nullable = true)
+        Boolean conflictResolved,
+
         @Size(max = 1000)
         @Schema(description = "선택 검토 메모", nullable = true)
         String reviewNote

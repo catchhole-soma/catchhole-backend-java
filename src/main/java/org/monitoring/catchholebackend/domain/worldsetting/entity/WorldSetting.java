@@ -19,9 +19,11 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -106,6 +108,20 @@ public class WorldSetting extends BaseEntity {
         this.version = 0;
     }
 
+    private WorldSetting(
+            Work work,
+            WorldSettingCategory category,
+            String subjectName,
+            Map<String, String> properties
+    ) {
+        this.work = Objects.requireNonNull(work);
+        this.category = Objects.requireNonNull(category);
+        this.subjectName = requiredName(subjectName);
+        this.normalizedSubjectName = WorldSettingNameNormalizer.duplicateKey(this.subjectName);
+        this.propertiesJson = toPropertiesObject(properties);
+        this.version = 0;
+    }
+
     public static WorldSetting create(
             Work work,
             WorldSettingCategory category,
@@ -114,6 +130,15 @@ public class WorldSetting extends BaseEntity {
             String settingValue
     ) {
         return new WorldSetting(work, category, subjectName, settingName, settingValue);
+    }
+
+    public static WorldSetting create(
+            Work work,
+            WorldSettingCategory category,
+            String subjectName,
+            Map<String, String> properties
+    ) {
+        return new WorldSetting(work, category, subjectName, properties);
     }
 
     public void validateVersion(long expectedVersion) {
@@ -171,20 +196,35 @@ public class WorldSetting extends BaseEntity {
     }
 
     public boolean applyProperty(String settingName, String settingValue) {
-        String normalizedName = requiredName(settingName);
-        String normalizedValue = requiredValue(settingValue);
-        String storedName = findStoredPropertyName(normalizedName);
-        if (storedName != null
-                && storedName.equals(normalizedName)
-                && propertiesJson.get(storedName).asText().equals(normalizedValue)) {
+        return applyProperties(Map.of(settingName, settingValue));
+    }
+
+    public boolean applyProperties(Map<String, String> properties) {
+        ObjectNode updated = propertiesObjectCopy();
+        Set<String> requestedNames = new HashSet<>();
+        boolean changed = false;
+        for (Map.Entry<String, String> property : properties.entrySet()) {
+            String normalizedName = requiredName(property.getKey());
+            String duplicateKey = WorldSettingNameNormalizer.duplicateKey(normalizedName);
+            if (!requestedNames.add(duplicateKey)) {
+                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTY_DUPLICATED);
+            }
+            String normalizedValue = requiredValue(property.getValue());
+            String storedName = findStoredPropertyName(updated, normalizedName);
+            if (storedName != null
+                    && storedName.equals(normalizedName)
+                    && updated.get(storedName).asText().equals(normalizedValue)) {
+                continue;
+            }
+            if (storedName != null) {
+                updated.remove(storedName);
+            }
+            updated.put(normalizedName, normalizedValue);
+            changed = true;
+        }
+        if (!changed) {
             return false;
         }
-
-        ObjectNode updated = propertiesObjectCopy();
-        if (storedName != null) {
-            updated.remove(storedName);
-        }
-        updated.put(normalizedName, normalizedValue);
         propertiesJson = updated;
         version++;
         return true;
@@ -208,11 +248,15 @@ public class WorldSetting extends BaseEntity {
     }
 
     private String findStoredPropertyName(String settingName) {
-        if (propertiesJson == null || !propertiesJson.isObject()) {
+        return findStoredPropertyName(propertiesJson, settingName);
+    }
+
+    private String findStoredPropertyName(JsonNode properties, String settingName) {
+        if (properties == null || !properties.isObject()) {
             return null;
         }
         String duplicateKey = WorldSettingNameNormalizer.duplicateKey(settingName);
-        Iterator<String> fieldNames = propertiesJson.fieldNames();
+        Iterator<String> fieldNames = properties.fieldNames();
         while (fieldNames.hasNext()) {
             String fieldName = fieldNames.next();
             if (WorldSettingNameNormalizer.duplicateKey(fieldName).equals(duplicateKey)) {
@@ -220,6 +264,22 @@ public class WorldSetting extends BaseEntity {
             }
         }
         return null;
+    }
+
+    private static ObjectNode toPropertiesObject(Map<String, String> properties) {
+        if (properties == null || properties.isEmpty()) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTIES_INVALID);
+        }
+        ObjectNode result = JsonNodeFactory.instance.objectNode();
+        Set<String> requestedNames = new HashSet<>();
+        for (Map.Entry<String, String> property : properties.entrySet()) {
+            String name = requiredName(property.getKey());
+            if (!requestedNames.add(WorldSettingNameNormalizer.duplicateKey(name))) {
+                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTY_DUPLICATED);
+            }
+            result.put(name, requiredValue(property.getValue()));
+        }
+        return result;
     }
 
     private ObjectNode propertiesObjectCopy() {

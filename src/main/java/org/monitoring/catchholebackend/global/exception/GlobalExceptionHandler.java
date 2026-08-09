@@ -3,12 +3,13 @@ package org.monitoring.catchholebackend.global.exception;
 import jakarta.validation.ConstraintViolationException;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import org.monitoring.catchholebackend.domain.upload.exception.UploadErrorCode;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
 import org.monitoring.catchholebackend.global.common.response.ErrorResponse;
 import org.monitoring.catchholebackend.global.common.response.FieldErrorResponse;
-import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -24,7 +25,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AppException.class)
     public ResponseEntity<CommonResponse<Void>> handleAppException(AppException exception) {
         ResponseEntity<CommonResponse<Void>> response =
-                buildErrorResponse(exception.getResultCode(), exception.getMessage(), List.of());
+                buildErrorResponse(
+                        exception.getResultCode(),
+                        exception.getMessage(),
+                        List.of(),
+                        exception.getErrorContext()
+                );
         if (exception.getRetryAfterSeconds() == null) {
             return response;
         }
@@ -105,10 +111,20 @@ public class GlobalExceptionHandler {
             String message,
             List<FieldErrorResponse> details
     ) {
+        return buildErrorResponse(resultCode, message, details, Map.of());
+    }
+
+    private ResponseEntity<CommonResponse<Void>> buildErrorResponse(
+            ResultCode resultCode,
+            String message,
+            List<FieldErrorResponse> details,
+            Map<String, Object> context
+    ) {
         ErrorResponse error = ErrorResponse.of(
                 resultCode.getCode(),
                 resultCode.getStatus().value(),
-                details
+                details,
+                context
         );
         CommonResponse<Void> response = CommonResponse.failure(message, error);
 
