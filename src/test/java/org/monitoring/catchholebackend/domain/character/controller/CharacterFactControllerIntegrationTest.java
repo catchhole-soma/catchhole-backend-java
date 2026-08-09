@@ -510,6 +510,54 @@ class CharacterFactControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("타임라인 종류별 필터는 상위 유형과 하위 factKey를 OR로 조회하고 전체 facet을 유지한다")
+    void timelineFiltersByMultipleTypesAndFactKeys() throws Exception {
+        WorkCharacter character = workCharacterRepository.save(character(work, "아리아"));
+        CharacterFact height = saveFact(
+                character, null, CharacterFactType.PROFILE, "profile.height", "170cm", firstEpisode, 1, true
+        );
+        CharacterFact strength = saveFact(
+                character, null, CharacterFactType.STAT, "stats.strength", "35", secondEpisode, 2, true
+        );
+        saveFact(character, null, CharacterFactType.STAT, "stats.agility", "20", secondEpisode, 2, true);
+        saveFact(character, null, CharacterFactType.STATUS, "status.injury", "부상", firstEpisode, 1, true);
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/characters/{characterId}/timeline/summary",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .queryParam("factTypes", "PROFILE")
+                        .queryParam("factKeys", "stats.strength")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.filteredFactCount").value(2))
+                .andExpect(jsonPath("$.data.appliedFactTypes[0]").value("PROFILE"))
+                .andExpect(jsonPath("$.data.appliedFactKeys[0]").value("stats.strength"))
+                .andExpect(jsonPath("$.data.episodes.length()").value(2))
+                .andExpect(jsonPath("$.data.factFacets.length()").value(7))
+                .andExpect(jsonPath("$.data.factFacets[0].factType").value("PROFILE"))
+                .andExpect(jsonPath("$.data.factFacets[0].factKeys[0].factKey").value("profile.height"))
+                .andExpect(jsonPath("$.data.factFacets[3].factType").value("STAT"))
+                .andExpect(jsonPath("$.data.factFacets[3].factKeys.length()").value(2));
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/characters/{characterId}/timeline",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .queryParam("factTypes", "PROFILE")
+                        .queryParam("factKeys", "stats.strength")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(2))
+                .andExpect(jsonPath("$.data.content[0].characterFactId").value(height.getId().toString()))
+                .andExpect(jsonPath("$.data.content[0].factKey").value("profile.height"))
+                .andExpect(jsonPath("$.data.content[1].characterFactId").value(strength.getId().toString()))
+                .andExpect(jsonPath("$.data.content[1].factKey").value("stats.strength"));
+    }
+
+    @Test
     @DisplayName("타임라인은 회차와 첫 근거 offset 순으로 조회하고 cursor 다음 묶음에 수동 Fact를 반환한다")
     void timelineOrdersFactsAndContinuesWithCursor() throws Exception {
         WorkCharacter character = workCharacterRepository.save(character(work, "아리아"));
@@ -606,6 +654,56 @@ class CharacterFactControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("타임라인 cursor는 정규화된 종류별 다중 선택과 결합된다")
+    void timelineCursorRejectsAnotherFactKeySelection() throws Exception {
+        WorkCharacter character = workCharacterRepository.save(character(work, "아리아"));
+        saveFact(character, null, CharacterFactType.STATUS, "status.one", "하나", firstEpisode, 1, true);
+        saveFact(character, null, CharacterFactType.STATUS, "status.two", "둘", secondEpisode, 2, true);
+
+        String response = mockMvc.perform(get(
+                                "/api/v1/works/{workId}/characters/{characterId}/timeline",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .queryParam("factTypes", "STATUS")
+                        .queryParam("size", "1")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String cursor = objectMapper.readTree(response).path("data").path("nextCursor").asText();
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/characters/{characterId}/timeline",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .queryParam("factKeys", "status.two")
+                        .queryParam("cursor", cursor)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("CHARACTER_TIMELINE_CURSOR_INVALID"));
+    }
+
+    @Test
+    @DisplayName("타임라인은 기존 단일 필터와 종류별 필터를 섞는 모호한 요청을 거절한다")
+    void timelineRejectsMixedLegacyAndMultiFilters() throws Exception {
+        WorkCharacter character = workCharacterRepository.save(character(work, "아리아"));
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/characters/{characterId}/timeline",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .queryParam("factType", "STATUS")
+                        .queryParam("factKeys", "status.injury")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("CHARACTER_TIMELINE_FILTER_INVALID"));
+    }
+
+    @Test
     @DisplayName("OpenAPI에 CharacterFact 검색·상세와 캐릭터 타임라인 계약을 노출한다")
     void openApiContainsCharacterFactContract() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))
@@ -652,11 +750,18 @@ class CharacterFactControllerIntegrationTest {
                         "$.paths['/api/v1/works/{workId}/characters/{characterId}/timeline']"
                                 + ".get.parameters[*].name"
                 ).value(org.hamcrest.Matchers.containsInAnyOrder(
-                        "workId", "characterId", "factType", "cursor", "fromEpisodeNo", "size"
+                        "workId", "characterId", "factType", "factTypes", "factKeys",
+                        "cursor", "fromEpisodeNo", "size"
                 )))
+                .andExpect(jsonPath(
+                        "$.components.schemas.CharacterTimelineFactResponse.properties.factKey.type"
+                ).value("string"))
                 .andExpect(jsonPath(
                         "$.components.schemas.CharacterTimelineFactResponse.properties.hasEvidence.type"
                 ).value("boolean"))
+                .andExpect(jsonPath(
+                        "$.components.schemas.CharacterTimelineSummaryResponse.properties.factFacets.items['$ref']"
+                ).value("#/components/schemas/CharacterTimelineFactFacetResponse"))
                 .andExpect(jsonPath(
                         "$.components.schemas.CharacterTimelineSummaryResponse.properties.episodes.items['$ref']"
                 ).value("#/components/schemas/CharacterTimelineEpisodeResponse"));
