@@ -1,6 +1,8 @@
 package org.monitoring.catchholebackend.domain.worldsetting.repository;
 
 import jakarta.persistence.LockModeType;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
@@ -55,6 +57,25 @@ public interface WorldSettingRepository extends JpaRepository<WorldSetting, UUID
             WorldSettingCategory category,
             String normalizedSubjectName,
             UUID id
+    );
+
+    Page<WorldSetting> findAllByWorkIdAndCategoryOrderBySubjectNameAscIdAsc(
+            UUID workId,
+            WorldSettingCategory category,
+            Pageable pageable
+    );
+
+    @Query("""
+            select worldSetting
+            from WorldSetting worldSetting
+            where worldSetting.work.id = :workId
+              and worldSetting.category = :category
+              and worldSetting.id in :ids
+            """)
+    List<WorldSetting> findAllComparisonTargets(
+            @Param("workId") UUID workId,
+            @Param("category") WorldSettingCategory category,
+            @Param("ids") Collection<UUID> ids
     );
 
     @Query(

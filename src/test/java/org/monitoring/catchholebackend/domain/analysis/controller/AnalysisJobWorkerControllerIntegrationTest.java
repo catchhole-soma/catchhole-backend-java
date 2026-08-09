@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,6 +48,8 @@ import org.monitoring.catchholebackend.domain.upload.type.UploadType;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingRepository;
 import org.monitoring.catchholebackend.global.config.security.SecurityConstant;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -64,6 +67,11 @@ class AnalysisJobWorkerControllerIntegrationTest {
 
     private static final String INTERNAL_API_KEY = "local-development-internal-api-key";
     private static final String CLAIM_URL = "/api/internal/v1/analysis-jobs/claim";
+    private static final String WORKER_LEASE_TOKEN_HEADER =
+            SecurityConstant.WORKER_LEASE_TOKEN_HEADER;
+    private static final String DEFAULT_CLAIM_BODY = """
+            {"allowedJobTypes":["SETTING_EXTRACTION","EPISODE_VALIDATION"]}
+            """;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -87,6 +95,12 @@ class AnalysisJobWorkerControllerIntegrationTest {
 
     @Autowired
     private AnalysisJobRepository analysisJobRepository;
+
+    @Autowired
+    private WorldSettingCandidateRepository worldSettingCandidateRepository;
+
+    @Autowired
+    private WorldSettingRepository worldSettingRepository;
 
     @Autowired
     private AiTokenUsageRepository aiTokenUsageRepository;
@@ -118,6 +132,10 @@ class AnalysisJobWorkerControllerIntegrationTest {
         aiTokenUsageRepository.deleteAll();
         aiTokenGrantRepository.deleteAll();
         aiTokenAccountRepository.deleteAll();
+        analysisJobRepository.findAll().forEach(AnalysisJob::unlinkWorldSettingCandidate);
+        analysisJobRepository.flush();
+        worldSettingCandidateRepository.deleteAll();
+        worldSettingRepository.deleteAll();
         analysisJobRepository.deleteAll();
         episodeRepository.deleteAll();
         uploadFileRepository.deleteAll();
@@ -182,7 +200,9 @@ class AnalysisJobWorkerControllerIntegrationTest {
     @DisplayName("대기 중인 분석 작업이 없으면 204를 응답한다")
     void claimReturnsNoContentWhenNoPendingJob() throws Exception {
         mockMvc.perform(post(CLAIM_URL)
-                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY))
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(DEFAULT_CLAIM_BODY))
                 .andExpect(status().isNoContent());
     }
 
@@ -194,7 +214,9 @@ class AnalysisJobWorkerControllerIntegrationTest {
         );
 
         mockMvc.perform(post(CLAIM_URL)
-                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY))
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(DEFAULT_CLAIM_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.jobType").value("EPISODE_VALIDATION"))
                 .andExpect(jsonPath("$.data.characterSettingSchemas", hasSize(0)))
@@ -292,7 +314,8 @@ class AnalysisJobWorkerControllerIntegrationTest {
                         .content("""
                                 {
                                   "modelName": "gpt-4.1-mini",
-                                  "currentStep": "원문 청킹"
+                                  "currentStep": "원문 청킹",
+                                  "allowedJobTypes": ["SETTING_EXTRACTION", "EPISODE_VALIDATION"]
                                 }
                                 """))
                 .andExpect(status().isOk())
@@ -354,7 +377,9 @@ class AnalysisJobWorkerControllerIntegrationTest {
         );
 
         mockMvc.perform(post(CLAIM_URL)
-                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY))
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(DEFAULT_CLAIM_BODY))
                 .andExpect(status().isNoContent());
 
         AnalysisJob failedJob = analysisJobRepository.findById(analysisJob.getId()).orElseThrow();
@@ -373,7 +398,9 @@ class AnalysisJobWorkerControllerIntegrationTest {
         analysisJobRepository.save(analysisJob);
 
         mockMvc.perform(post(CLAIM_URL)
-                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY))
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(DEFAULT_CLAIM_BODY))
                 .andExpect(status().isNoContent());
 
         AnalysisJob failedJob = analysisJobRepository.findById(analysisJob.getId()).orElseThrow();
@@ -392,6 +419,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
 
         mockMvc.perform(patch("/api/internal/v1/analysis-jobs/{analysisJobId}/progress", analysisJob.getId())
                         .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, analysisJob.getLeaseToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -417,6 +445,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
 
         mockMvc.perform(post("/api/internal/v1/analysis-jobs/{analysisJobId}/complete", analysisJob.getId())
                         .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, analysisJob.getLeaseToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -449,6 +478,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
 
         mockMvc.perform(post("/api/internal/v1/ai-token-usages/reserve")
                         .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, analysisJob.getLeaseToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -478,6 +508,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
 
         mockMvc.perform(post("/api/internal/v1/analysis-jobs/{analysisJobId}/complete", analysisJob.getId())
                         .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, analysisJob.getLeaseToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"summaryJson\":\"{}\"}"))
                 .andExpect(status().isOk());
@@ -503,6 +534,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
 
         mockMvc.perform(post("/api/internal/v1/ai-token-usages/reserve")
                         .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, analysisJob.getLeaseToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -518,6 +550,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
 
         mockMvc.perform(post("/api/internal/v1/analysis-jobs/{analysisJobId}/complete", analysisJob.getId())
                         .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, analysisJob.getLeaseToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"summaryJson\":\"{}\"}"))
                 .andExpect(status().isOk());
@@ -560,6 +593,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
         for (int retry = 0; retry < 2; retry++) {
             mockMvc.perform(post("/api/internal/v1/ai-token-usages/reserve")
                             .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                            .header(WORKER_LEASE_TOKEN_HEADER, analysisJob.getLeaseToken())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(reserveBody))
                     .andExpect(status().isOk())
@@ -589,6 +623,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
 
         mockMvc.perform(post("/api/internal/v1/ai-token-usages/reserve")
                         .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, analysisJob.getLeaseToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -611,6 +646,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
 
         mockMvc.perform(post("/api/internal/v1/analysis-jobs/{analysisJobId}/fail", analysisJob.getId())
                         .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, analysisJob.getLeaseToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -639,6 +675,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
 
         mockMvc.perform(post("/api/internal/v1/analysis-jobs/{analysisJobId}/complete", analysisJob.getId())
                         .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isConflict())
@@ -651,6 +688,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
     void statusUpdateReturnsNotFoundForUnknownJob() throws Exception {
         mockMvc.perform(patch("/api/internal/v1/analysis-jobs/{analysisJobId}/progress", java.util.UUID.randomUUID())
                         .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -665,7 +703,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
 
     private AnalysisJob runningJob() {
         AnalysisJob analysisJob = episodeJob(AnalysisJobType.EPISODE_VALIDATION, firstEpisode);
-        analysisJob.start("gpt-4.1-mini", "원문 청킹");
+        analysisJob.claim("gpt-4.1-mini", "원문 청킹", LocalDateTime.now().plusMinutes(5));
         return analysisJobRepository.save(analysisJob);
     }
 

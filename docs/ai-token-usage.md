@@ -28,6 +28,9 @@ cached input은 input token의 일부이므로 관측 컬럼으로 별도 기록
 - `SETTING_EXTRACTION`: 청크 설정 후보 추출과 그 재시도
 - `SUBJECT_RESOLUTION`: 지칭어 주체 fallback
 - `CHUNK_EMBEDDING`: 청크 batch 임베딩
+- `WORLD_SETTING_EXTRACTION`: 세계관 설정 1차 추출
+- `WORLD_SETTING_SUBJECT_RESOLUTION`: 기존 세계관 대상 후보 선택
+- `WORLD_SETTING_COMPARISON`: 세계관 후보 ADD/UPDATE/MERGE/EXCLUDE 비교
 
 ## 요청 흐름
 
@@ -43,7 +46,7 @@ sequenceDiagram
     BE-->>FE: analysisJob 생성
     Worker->>BE: job claim
     loop AI 호출마다
-        Worker->>BE: reserve(requestId, purpose, attempt, model, 예상량)
+        Worker->>BE: reserve(requestId, purpose, attempt, model, 예상량, leaseToken)
         BE->>BE: 회원 계정 잠금 후 원자적 예약
         BE-->>Worker: RESERVED
         Worker->>AI: LLM 또는 embedding 요청
@@ -82,7 +85,7 @@ POST /api/internal/v1/ai-token-usages/{requestId}/settle
 POST /api/internal/v1/ai-token-usages/{requestId}/release
 ```
 
-내부 API는 기존 `X-Internal-Api-Key` 인증을 재사용합니다.
+내부 API는 기존 `X-Internal-Api-Key` 인증을 재사용합니다. reserve는 현재 `RUNNING` Job의 유효한 `X-Worker-Lease-Token`도 검증합니다. settle/release는 provider 응답이 lease 만료 뒤 도착해도 기존 예약을 정리할 수 있도록 `requestId` 소유권을 기준으로 처리합니다.
 
 ## 환경 변수
 
@@ -121,7 +124,7 @@ COMMIT;
 ## 장애와 점검
 
 - Worker의 정상 예외 경로는 사용량을 정산하거나 예약을 해제합니다.
-- 프로세스 강제 종료나 Spring 연결 단절이 예약 직후 발생하면 `RESERVED`가 남을 수 있습니다. 자동 만료는 현재 MVP 범위에 넣지 않았으므로 오래된 예약과 해당 analysis job 상태를 함께 확인한 뒤 운영자가 해제해야 합니다.
+- 프로세스 강제 종료나 Spring 연결 단절로 `RESERVED`가 남으면, Backend가 다음 claim에서 만료 lease를 복구하면서 `WORKER_LEASE_EXPIRED`로 예약을 자동 해제합니다. 같은 회차 재분석이 미검토 세계관 후보와 연결된 재비교 Job을 대체할 때도 `USAGE_UNAVAILABLE`로 예약을 해제합니다.
 - 실제 provider 사용량이 예상 예약량보다 커지면 실제량을 보존해 정산하고 잔여량은 0으로 표시합니다. 다음 AI 호출은 거절됩니다.
 - `analysis_jobs.input_token_count`, `output_token_count`는 Worker가 보내는 임의 합계가 아니라 해당 job의 `SETTLED` 이력을 Spring이 집계한 값입니다.
 

@@ -17,11 +17,13 @@ import org.monitoring.catchholebackend.domain.aitoken.dto.response.AiTokenReserv
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.global.common.response.CommonErrorResponse;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
+import org.monitoring.catchholebackend.global.config.security.SecurityConstant;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -63,9 +65,10 @@ public class AiTokenWorkerController {
             )
     })
     public CommonResponse<AiTokenReservationResponse> reserve(
+            @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken,
             @Valid @RequestBody AiTokenReserveRequest request
     ) {
-        return CommonResponse.success("AI 토큰을 예약했습니다.", aiTokenService.reserve(request));
+        return CommonResponse.success("AI 토큰을 예약했습니다.", aiTokenService.reserve(request, leaseToken));
     }
 
     @PostMapping("/{requestId}/settle")

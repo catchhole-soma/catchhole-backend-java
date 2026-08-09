@@ -69,6 +69,28 @@ services:
       SPRING_INTERNAL_API_BASE_URL: http://backend:8080
       SPRING_INTERNAL_API_KEY: ${INTERNAL_API_KEY}
 
+  ai-world-comparison-worker:
+    image: ${AI_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - postgres
+    command: ["python", "scripts/run_analysis_worker.py", "--worker-kind", "world-comparison"]
+    environment:
+      TZ: ${APP_TIMEZONE:-Asia/Seoul}
+      APP_ENV: prod
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      AWS_REGION: ${AWS_REGION}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET}
+      AWS_SQS_QUEUE_URL: ${AWS_SQS_QUEUE_URL}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_MODEL: ${LLM_MODEL}
+      LLM_REASONING_EFFORT: ${LLM_REASONING_EFFORT:-none}
+      OPENAI_RESPONSES_API_URL: ${OPENAI_RESPONSES_API_URL}
+      EMBEDDING_GENERATION_ENABLED: "false"
+      SPRING_INTERNAL_API_BASE_URL: http://backend:8080
+      SPRING_INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+
   postgres:
     image: pgvector/pgvector:0.8.2-pg16
     restart: unless-stopped

@@ -10,6 +10,7 @@ public final class SecurityConstant {
 
     public static final String REFRESH_TOKEN_COOKIE_PATH = "/api/v1/auth";
     public static final String INTERNAL_API_KEY_HEADER = "X-Internal-Api-Key";
+    public static final String WORKER_LEASE_TOKEN_HEADER = "X-Worker-Lease-Token";
 
     public static final String[] INTERNAL_URLS = {
             "/api/internal/**"

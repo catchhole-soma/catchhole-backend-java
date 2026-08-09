@@ -35,6 +35,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.exception.WorldSettin
 import org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingNameNormalizer;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingConsolidationStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
@@ -122,6 +123,11 @@ public class WorldSettingCandidate extends BaseEntity {
             foreignKey = @ForeignKey(name = "fk_world_setting_candidates_target")
     )
     private WorldSetting targetWorldSetting;
+
+    // 여러 1차 추출값을 2차 LLM이 안전하게 하나로 정리했는지 나타낸다.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "consolidation_status", nullable = false, length = 20)
+    private WorldSettingConsolidationStatus consolidationStatus;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "suggested_operation", length = 30)
@@ -215,6 +221,7 @@ public class WorldSettingCandidate extends BaseEntity {
         this.evidenceSpans = requiredEvidenceSpans(evidenceSpans);
         this.extractionConfidence = validConfidence(extractionConfidence);
         this.rawExtractionJson = rawExtractionJson;
+        this.consolidationStatus = WorldSettingConsolidationStatus.SINGLE;
         this.comparisonStatus = WorldSettingComparisonStatus.PENDING;
         this.reviewStatus = WorldSettingReviewStatus.PENDING_REVIEW;
     }
@@ -247,6 +254,9 @@ public class WorldSettingCandidate extends BaseEntity {
 
     public void startComparison() {
         validatePendingReview();
+        if (comparisonStatus != WorldSettingComparisonStatus.PENDING) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
         comparisonStatus = WorldSettingComparisonStatus.PROCESSING;
         comparisonErrorMessage = null;
     }
@@ -261,8 +271,34 @@ public class WorldSettingCandidate extends BaseEntity {
             JsonNode rawComparisonJson,
             LocalDateTime comparedAt
     ) {
+        completeComparison(
+                targetWorldSetting,
+                WorldSettingConsolidationStatus.SINGLE,
+                suggestedOperation,
+                proposedSettingName,
+                beforeValue,
+                proposedValue,
+                comparisonReason,
+                rawComparisonJson,
+                comparedAt
+        );
+    }
+
+    public void completeComparison(
+            WorldSetting targetWorldSetting,
+            WorldSettingConsolidationStatus consolidationStatus,
+            WorldSettingOperation suggestedOperation,
+            String proposedSettingName,
+            String beforeValue,
+            String proposedValue,
+            String comparisonReason,
+            JsonNode rawComparisonJson,
+            LocalDateTime comparedAt
+    ) {
         validatePendingReview();
+        validateProcessingComparison();
         this.targetWorldSetting = targetWorldSetting;
+        this.consolidationStatus = Objects.requireNonNull(consolidationStatus);
         this.suggestedOperation = Objects.requireNonNull(suggestedOperation);
         this.proposedSettingName = requiredName(proposedSettingName);
         this.beforeValue = optionalValue(beforeValue);
@@ -277,14 +313,26 @@ public class WorldSettingCandidate extends BaseEntity {
 
     public void failComparison(String errorMessage) {
         validatePendingReview();
+        validateProcessingComparison();
         comparisonStatus = WorldSettingComparisonStatus.FAILED;
         comparisonErrorMessage = requiredValue(errorMessage);
     }
 
     public void requestRecomparison() {
         validatePendingReview();
+        if (comparisonStatus == WorldSettingComparisonStatus.PROCESSING) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
         clearComparisonProposal();
         comparisonStatus = WorldSettingComparisonStatus.PENDING;
+    }
+
+    public void recoverExpiredComparison() {
+        validatePendingReview();
+        if (comparisonStatus == WorldSettingComparisonStatus.PROCESSING) {
+            comparisonStatus = WorldSettingComparisonStatus.PENDING;
+            comparisonErrorMessage = null;
+        }
     }
 
     public void updateExtractionIdentity(
@@ -300,8 +348,13 @@ public class WorldSettingCandidate extends BaseEntity {
     }
 
     public void markRecomparisonRequired() {
+        markRecomparisonRequired("확정본이 변경되어 재비교가 필요합니다.");
+    }
+
+    public void markRecomparisonRequired(String reason) {
         validatePendingReview();
         comparisonStatus = WorldSettingComparisonStatus.RECOMPARISON_REQUIRED;
+        comparisonErrorMessage = requiredValue(reason);
     }
 
     public boolean confirm(
@@ -351,6 +404,9 @@ public class WorldSettingCandidate extends BaseEntity {
         if (reviewStatus == WorldSettingReviewStatus.CONFIRMED) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
         }
+        if (comparisonStatus == WorldSettingComparisonStatus.PROCESSING) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
 
         finalOperation = WorldSettingOperation.EXCLUDE;
         finalCategory = category;
@@ -386,6 +442,12 @@ public class WorldSettingCandidate extends BaseEntity {
     private void validatePendingReview() {
         if (!isPendingReview()) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_NOT_EDITABLE);
+        }
+    }
+
+    private void validateProcessingComparison() {
+        if (comparisonStatus != WorldSettingComparisonStatus.PROCESSING) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
     }
 

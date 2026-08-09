@@ -73,6 +73,7 @@
 - 운영 컨테이너는 `SPRING_PROFILES_ACTIVE=prod`와 외부 환경변수로 설정을 주입한다. AWS/S3 자격 증명은 가능하면 EC2 IAM Role을 사용하고, access key를 이미지나 커밋 파일에 넣지 않는다.
 - 운영 Backend, Python AI Worker, PostgreSQL은 `APP_TIMEZONE`을 공통으로 사용하며 기본값은 `Asia/Seoul`이다. 세 writer가 timezone 없는 `TIMESTAMP` 컬럼에 서로 다른 로컬 시각을 저장하지 않도록 JVM `user.timezone`, 컨테이너 `TZ`, PostgreSQL `timezone`을 함께 변경한다.
 - 운영 AI Worker의 신규 청크 임베딩 생성은 `EMBEDDING_GENERATION_ENABLED`로 제어하고 Compose 기본값은 `false`로 둔다. MVP에서 사용하지 않는 API 비용을 차단하되 pgvector schema와 재활성화 경로는 유지하며, `true` 전환은 신규 분석·재분석에만 적용되고 기존 `NULL` 벡터를 자동 backfill하지 않는다.
+- 운영 세계관 재비교는 같은 AI 이미지를 `--worker-kind world-comparison` command로 실행하는 별도 `ai-world-comparison-worker` 서비스가 담당한다. 기본 `ai-worker`와 claim Job type을 분리하고 재비교 서비스에서는 임베딩 생성을 항상 끈다.
 - 운영 AI 모델과 추론 강도는 `LLM_MODEL`, `LLM_REASONING_EFFORT`로, 신규 회원 기본 지급량과 한도 소진 연락처는 `AI_TOKEN_DEFAULT_GRANT`, `AI_TOKEN_CONTACT_EMAIL`로 주입한다. 실제 값은 `/opt/catchhole/.env`에만 두고 Compose가 Backend와 AI Worker에 명시적으로 전달한다.
 - 로컬과 운영 PostgreSQL은 `pgvector/pgvector:0.8.2-pg16` 이미지로 통일한다. `latest`나 major version만 지정한 가변 태그를 사용하지 않고 PostgreSQL/pgvector 버전을 함께 고정해 로컬·운영의 vector extension 실행 환경을 일치시킨다.
 - 단일 EC2 운영 배포 파일은 `deploy/` 아래에 둔다. `compose.prod.yml`, `Caddyfile`, `.env.example`을 기준으로 서버의 `/opt/catchhole`에 배치하되, 실제 `.env`는 서버에만 두고 커밋하지 않는다.
@@ -226,6 +227,7 @@ domain/<domain>
   - 예외 케이스마다 클래스를 만들지 않아 보일러플레이트를 줄이고, ErrorCode enum 한 곳에서 도메인 에러를 관리한다.
 - 도메인 전용 `ErrorCode`는 `exception` 패키지에 두고 `ResultCode`를 구현한다.
   - 예: `UserErrorCode` (`USER_NOT_FOUND`, `USER_EMAIL_DUPLICATED`)
+- 클라이언트가 분기해야 하는 구조화된 도메인 충돌 정보는 `AppException`의 context로 전달하고 공통 `ErrorResponse.context`에 노출한다. 일반 오류는 빈 context를 사용하며 클라이언트가 message 문자열을 파싱하게 만들지 않는다.
 - 여러 도메인에서 공통으로 쓰는 enum은 `global.common` 아래에 둔다.
 - 사용자 계정 도메인은 `member`로 명명한다. Java 도메인은 `Member`, DB 테이블은 `members`, FK는 `member_id`를 사용한다.
 - 인증 흐름은 `auth` 도메인에 둔다. JWT 발급/검증, refresh token 발급/폐기, 인증 쿠키, 휴대폰 인증 Redis 흐름과 SMS port/adapter는 `domain/auth` 아래에서 관리한다.
@@ -290,6 +292,9 @@ domain/<domain>
 - 공개 분석 작업 생성 API는 `batch_id`를 필수 입력으로 받고 `episode_id`를 선택 범위 지정자로 허용한다. `episode_id`가 없으면 batch의 현재 회차마다 Job을 하나씩 생성해 목록으로 반환하고, 있으면 해당 회차 Job 하나를 목록으로 반환한다.
 - 본인 작품의 분석 작업만 생성/조회할 수 있으며, 다른 회원의 작품이나 다른 작품에 속한 분석 대상은 404로 응답한다.
 - Python AI Worker는 작업 claim과 `AnalysisJob` 상태 변경에 `/api/internal/**` 내부 API를 `X-Internal-Api-Key`로 인증해 사용한다. Worker에는 원문 본문을 응답하지 않으며, 단일 `episode`의 S3 key/version/hash/charCount 메타데이터, `ACTIVE` 캐릭터 ID·대표 이름 목록, 활성 캐릭터 설정 schema를 전달한다. `ARCHIVED` 캐릭터는 이후 원고 매칭 대상에서 제외한다.
+- Worker claim은 `allowedJobTypes`가 필수이며, claim 성공 시 5분 lease token을 발급한다. progress·heartbeat·complete·fail, 토큰 예약과 세계관 내부 API는 같은 `X-Worker-Lease-Token`을 검증한다. 만료 Job은 다음 claim에서 최대 3회까지 checkpoint부터 재대기시키고, 예약 중 토큰을 해제한 뒤 한도를 넘으면 실패 처리한다.
+- 일반 `SETTING_EXTRACTION` Job은 `CHUNKS_READY → CHARACTER_CANDIDATES_SAVED → WORLD_CANDIDATES_PUBLISHED → WORLD_COMPARISONS_FINISHED` checkpoint를 단조 증가시킨다. 세계관 후보 비교가 `PENDING`/`PROCESSING`이거나 마지막 checkpoint 전이면 완료를 거절한다.
+- `WORLD_SETTING_COMPARISON`은 사용자 재비교 요청 한 건을 처리하는 내부 Job type이다. 공개 분석 목록·진행률·회차 실행 잠금에서 제외하고 동일 후보의 활성 Job은 하나만 허용한다.
 - Worker는 분석 작업 생성과 상태 전이를 위해 백엔드 DB에 직접 접근하지 않는다. 다만 청킹, 설정 후보, 리포트 같은 분석 산출물 저장은 데이터 양과 모델 안정성에 따라 내부 API 또는 Worker의 DB 직접 저장 중 선택할 수 있으며, DB 직접 저장을 선택하면 관련 스키마/문서 변경을 함께 관리한다.
 
 #### Character Setting Domain Policy
@@ -355,10 +360,16 @@ domain/<domain>
 - 직접 생성·수정 API는 JSON 전체를 받지 않는다. 대상 정보 수정, 설정 한 개 추가, 설정 한 개 수정 요청을 분리하고 현재 `version`을 확인한 뒤 실제 변경마다 version을 증가시킨다.
 - 사용자 직접 입력의 동일 분류·대상과 동일 대상 내 설정명 중복은 Backend가 전체 DB와 unique 제약을 기준으로 최종 판정한다. Frontend의 현재 페이지나 필터 결과를 최종 중복 근거로 사용하지 않는다.
 - 세계관 후보 한 행은 회차에서 추출한 설정 속성 하나다. 1차 추출, 2차 비교 제안, 최종 사용자 결정을 같은 행에 보존하되 LLM은 확정본을 직접 변경하지 않고 Spring의 confirm 트랜잭션만 `WorldSetting`을 변경한다.
-- 후보 확정은 작품→후보→대상 순으로 write lock을 획득하고 대상 설정명 한 개의 현재값만 `beforeValue`와 비교한다. 같은 행의 다른 설정 변경으로 version만 달라진 경우는 허용하고, 같은 설정이 제3의 값으로 바뀌거나 신규 대상이 먼저 생성된 경우만 `RECOMPARISON_REQUIRED`로 전환한다.
+- 하나의 분석 Job에는 정규화한 `category + subjectName + settingName`이 같은 세계관 후보를 한 건만 게시한다. AI는 여러 1차 추출값을 `SINGLE/MERGED/CONFLICT`로 판정하고 모든 원문 근거를 보존한다. `CONFLICT` 후보는 사용자가 최종값을 수정했다는 명시적 결정 없이는 반영하지 않지만 그룹 제외는 허용한다. Backend는 Worker 게시와 사용자 그룹 확정 양쪽에서 동일 설정명 중복을 방어한다.
+- 같은 `batchId + category + normalizedSubjectName`의 선택 후보는 대상 그룹 확정 요청 하나로 처리한다. 모든 후보와 최초 대상 snapshot을 먼저 잠금·검증한 뒤 대상 생성 또는 여러 property 변경을 한 트랜잭션과 한 version 증가로 반영하며, 그룹 내부의 앞선 `ADD`를 다음 선택 후보의 재비교 사유로 판단하지 않는다.
+- 외부 변경이 관련 key에만 영향을 주면 해당 row, 대상 생성·삭제·identity 변경이면 그룹 전체를 `RECOMPARISON_REQUIRED`로 전환하고 선택 후보를 하나도 부분 반영하지 않는다. 같은 행의 다른 설정 변경으로 version만 달라진 경우는 허용한다.
+- 1차 `evidence_spans`·회차는 후보 원본으로 보존하고 2차 비교·재비교가 변경하지 않는다. 원고가 바뀐 경우에만 새 1차 분석 후보와 근거를 생성한다.
+- 기존 속성과 의미가 같아 `EXCLUDE`하는 비교 결과는 대상 ID와 실제 속성명을 함께 받아 해당 속성값을 `beforeValue`로 보존한다. 특정 기존 속성과 비교하지 않은 일시적 사건 등의 제외만 `beforeValue`가 없을 수 있으며, 매칭 속성명만 있고 대상이 없는 요청은 거절한다.
 - 재비교 충돌은 후보 상태를 먼저 commit한 뒤 HTTP 409로 응답해야 한다. Service는 `WorldSettingCandidateConfirmResult.recomparisonRequired`를 정상 반환하고 Controller가 commit 이후 `AppException`으로 변환한다. 이를 위해 전용 예외 클래스를 추가하거나 `noRollbackFor=AppException.class`로 다른 확정 오류의 rollback 범위를 넓히지 않는다.
 - 같은 확정·제외 요청은 멱등 처리하고 `CONFIRMED ↔ DISMISSED` 반대 전이는 충돌로 거절한다. `UPDATE`와 `MERGE`는 DB에서 모두 최종 문자열로 한 property를 교체하되 제안 의미를 기록하기 위해 enum을 구분한다.
-- `recompare` API는 비교 제안을 비우고 `PENDING`으로 전환할 뿐 LLM을 호출하지 않는다. 1·2차 LLM의 모델, prompt, output schema, 검색, retry와 Worker 저장 구현은 별도 AI 작업에서 정하고 캐릭터 후보 계약은 변경하지 않는다.
+- `recompare` API는 비교 제안을 비우고 `PENDING`으로 전환한 뒤 멱등한 `WORLD_SETTING_COMPARISON` Job을 생성한다. 실제 LLM 호출은 별도 AI comparison runner가 claim해 수행하며 HTTP 요청 트랜잭션 안에서 호출하지 않는다.
+- 1차 세계관 후보 게시와 2차 비교 상태 전이는 `domain/worldsetting` 내부 Worker API만 수행한다. Backend는 lease·작품·분류·후보 소유권, 최대 3개 비교 문맥 ID·version, exact 대상과 property를 검증하고 `beforeValue`와 base version을 직접 산출한다. Worker는 `world_settings`를 직접 수정하지 않는다.
+- 같은 회차를 재분석할 때 이전 Job의 검토 전 세계관 후보만 정리하고 `CONFIRMED`/`DISMISSED` 후보는 보존한다. 같은 Job의 lease 재시도는 checkpoint를 기준으로 이미 게시한 후보를 재생성하지 않는다. 후보별 비교 실패는 후보를 `FAILED`로 남기되 초기 회차 Job의 나머지 후보 비교와 완료는 계속한다.
 - 작품 hard delete 시 `world_settings`와 `world_setting_candidates`도 함께 정리되도록 두 테이블의 `work_id` FK와 JPA 매핑에 delete cascade를 유지한다. 이는 개별 세계관 대상 삭제·보관·복원 기능을 허용하는 규칙이 아니다.
 
 #### Service Layer
@@ -417,6 +428,7 @@ public class UserServiceImpl implements UserService {
   - `toResponse(entity)` — Entity → Response DTO
   - `toResponseList(entities)` — Entity 목록 → Response DTO 목록
 - 매퍼는 값 복사와 단순 조립만 수행하고, 검증/저장/상태 전이 같은 비즈니스 흐름은 `service`, 도메인 전용 processor, Entity에 둔다.
+- Spring Boot 4의 MVC 응답 DTO에 Hibernate JSONB용 Jackson 2 `JsonNode`를 직접 노출하지 않는다. Jackson 3가 이를 JSON 값이 아닌 bean 메타데이터로 직렬화할 수 있으므로, Mapper에서 명시적인 record·`List`·`Map` 응답 타입으로 변환한다. Service가 JSON 직렬화 차이를 보정하지 않게 해 유스케이스 흐름과 계층 경계를 유지하기 위함이다.
 
 예시:
 

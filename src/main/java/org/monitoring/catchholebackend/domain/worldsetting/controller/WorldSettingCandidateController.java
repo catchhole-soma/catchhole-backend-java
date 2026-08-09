@@ -11,14 +11,19 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.auth.security.MemberPrincipal;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateGroupConfirmRequest;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateGroupDismissRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateConfirmRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDismissRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateUpdateRequest;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateGroupActionResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateListResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.service.WorldSettingCandidateGroupConfirmResult;
 import org.monitoring.catchholebackend.domain.worldsetting.service.WorldSettingCandidateService;
 import org.monitoring.catchholebackend.domain.worldsetting.service.WorldSettingCandidateConfirmResult;
 import org.monitoring.catchholebackend.domain.worldsetting.exception.WorldSettingErrorCode;
@@ -155,6 +160,74 @@ public class WorldSettingCandidateController {
         return CommonResponse.success(
                 "세계관 설정 후보가 재비교 대기 상태로 전환되었습니다.",
                 candidateService.retryComparison(member.memberId(), workId, candidateId)
+        );
+    }
+
+    @PostMapping(value = "/group-confirm", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(
+            operationId = "confirmWorldSettingCandidateGroup",
+            summary = "세계관 설정 후보 대상 그룹 확정",
+            description = "같은 분류·대상의 선택 key를 한 트랜잭션과 한 version 증가로 확정합니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "세계관 설정 후보 그룹 확정 성공"),
+            @ApiResponse(responseCode = "400", description = "그룹 또는 최종 결정 입력값 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "작품, 묶음 또는 후보를 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "409", description = "검토 상태 충돌 또는 ROW/GROUP 재비교 필요",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
+    })
+    public CommonResponse<WorldSettingCandidateGroupActionResponse> confirmWorldSettingCandidateGroup(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId,
+            @Valid @RequestBody WorldSettingCandidateGroupConfirmRequest request
+    ) {
+        WorldSettingCandidateGroupConfirmResult result = candidateService.confirmCandidateGroup(
+                member.memberId(),
+                workId,
+                request
+        );
+        if (result.recomparisonRequired()) {
+            throw new AppException(
+                    WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_RECOMPARISON_REQUIRED,
+                    Map.of(
+                            "scope", result.scope(),
+                            "reason", result.reason(),
+                            "reasonMessage", result.reason().getMessage(),
+                            "affectedCandidateIds", result.affectedCandidateIds()
+                    )
+            );
+        }
+        return CommonResponse.success(
+                "세계관 설정 후보 그룹이 확정되었습니다.",
+                result.response()
+        );
+    }
+
+    @PostMapping(value = "/group-dismiss", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(
+            operationId = "dismissWorldSettingCandidateGroup",
+            summary = "세계관 설정 후보 대상 그룹 제외",
+            description = "같은 분류·대상의 선택 key를 한 트랜잭션으로 제외합니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "세계관 설정 후보 그룹 제외 성공"),
+            @ApiResponse(responseCode = "400", description = "그룹 또는 후보 입력값 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "작품, 묶음 또는 후보를 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "409", description = "검토 또는 비교 상태 충돌",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
+    })
+    public CommonResponse<WorldSettingCandidateGroupActionResponse> dismissWorldSettingCandidateGroup(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId,
+            @Valid @RequestBody WorldSettingCandidateGroupDismissRequest request
+    ) {
+        return CommonResponse.success(
+                "세계관 설정 후보 그룹이 제외되었습니다.",
+                candidateService.dismissCandidateGroup(member.memberId(), workId, request)
         );
     }
 

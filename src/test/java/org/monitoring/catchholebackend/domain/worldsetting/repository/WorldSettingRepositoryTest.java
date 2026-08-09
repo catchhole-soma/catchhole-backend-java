@@ -134,6 +134,7 @@ class WorldSettingRepositoryTest {
                 new BigDecimal("0.9300"),
                 objectMapper.createObjectNode().put("category", "RACE")
         );
+        candidate.startComparison();
         candidate.completeComparison(
                 worldSetting,
                 WorldSettingOperation.ADD,

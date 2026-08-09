@@ -9,7 +9,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,6 +21,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.aitoken.dto.request.AiTokenReserveRequest;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenAccountRepository;
@@ -26,6 +29,8 @@ import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenGrantRep
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenUsageRepository;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenPurpose;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageStatus;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
@@ -47,6 +52,9 @@ import org.monitoring.catchholebackend.domain.upload.type.UploadType;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -94,6 +102,9 @@ class AnalysisJobControllerIntegrationTest {
     private SettingCandidateRepository settingCandidateRepository;
 
     @Autowired
+    private WorldSettingCandidateRepository worldSettingCandidateRepository;
+
+    @Autowired
     private EpisodeRepository episodeRepository;
 
     @Autowired
@@ -115,6 +126,9 @@ class AnalysisJobControllerIntegrationTest {
         aiTokenUsageRepository.deleteAll();
         aiTokenGrantRepository.deleteAll();
         aiTokenAccountRepository.deleteAll();
+        analysisJobRepository.findAll().forEach(AnalysisJob::unlinkWorldSettingCandidate);
+        analysisJobRepository.flush();
+        worldSettingCandidateRepository.deleteAll();
         analysisJobRepository.deleteAll();
         episodeRepository.deleteAll();
         uploadFileRepository.deleteAll();
@@ -259,7 +273,10 @@ class AnalysisJobControllerIntegrationTest {
     }
 
     @ParameterizedTest
-    @EnumSource(AnalysisJobType.class)
+    @EnumSource(
+            value = AnalysisJobType.class,
+            names = {"SETTING_EXTRACTION", "EPISODE_VALIDATION"}
+    )
     @DisplayName("공개 생성 API는 모든 분석 작업 유형에서 선택 회차 범위를 허용한다")
     void createAnalysisJobTargetsOnlyRequestedEpisode(AnalysisJobType jobType) throws Exception {
         mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
@@ -385,7 +402,10 @@ class AnalysisJobControllerIntegrationTest {
     }
 
     @ParameterizedTest
-    @EnumSource(AnalysisJobType.class)
+    @EnumSource(
+            value = AnalysisJobType.class,
+            names = {"SETTING_EXTRACTION", "EPISODE_VALIDATION"}
+    )
     @DisplayName("재분석은 같은 회차와 작업 유형의 이전 미검토 후보만 제거한다")
     void createAnalysisJobDeletesOnlySupersededPendingCandidates(AnalysisJobType jobType) throws Exception {
         AnalysisJobType otherJobType = jobType == AnalysisJobType.SETTING_EXTRACTION
@@ -519,6 +539,42 @@ class AnalysisJobControllerIntegrationTest {
         confirmedCandidate.confirm();
         settingCandidateRepository.saveAll(List.of(pendingCandidate, confirmedCandidate));
 
+        WorldSettingCandidate pendingWorldSettingCandidate = worldSettingCandidateRepository.save(
+                WorldSettingCandidate.create(
+                        work,
+                        firstEpisode,
+                        failedJob,
+                        WorldSettingCategory.RACE,
+                        "바바리안",
+                        "서식지",
+                        "혹한 지역",
+                        JsonNodeFactory.instance.arrayNode().add(
+                                JsonNodeFactory.instance.objectNode()
+                                        .put("quote", "바바리안은 혹한 지역에 산다.")
+                        ),
+                        new BigDecimal("0.95"),
+                        JsonNodeFactory.instance.objectNode()
+                )
+        );
+        AnalysisJob worldComparisonJob = AnalysisJob.createWorldSettingComparison(
+                pendingWorldSettingCandidate
+        );
+        UUID comparisonLeaseToken = worldComparisonJob.claim(
+                "gpt-5.6-terra",
+                "WORLD_SETTING_COMPARISON",
+                LocalDateTime.now().plusMinutes(5)
+        );
+        worldComparisonJob = analysisJobRepository.save(worldComparisonJob);
+        UUID comparisonUsageRequestId = UUID.randomUUID();
+        aiTokenService.reserve(new AiTokenReserveRequest(
+                comparisonUsageRequestId,
+                worldComparisonJob.getId(),
+                AiTokenPurpose.WORLD_SETTING_COMPARISON,
+                1,
+                "gpt-5.6-terra",
+                100L
+        ), comparisonLeaseToken);
+
         mockMvc.perform(post(
                                 "/api/v1/works/{workId}/analysis-jobs/{analysisJobId}/retry",
                                 work.getId(),
@@ -535,7 +591,20 @@ class AnalysisJobControllerIntegrationTest {
                 .get()
                 .extracting(SettingCandidate::getReviewStatus)
                 .isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
-        assertThat(analysisJobRepository.count()).isEqualTo(2);
+        assertThat(worldSettingCandidateRepository.existsById(pendingWorldSettingCandidate.getId()))
+                .isFalse();
+        AnalysisJob supersededComparisonJob = analysisJobRepository
+                .findById(worldComparisonJob.getId())
+                .orElseThrow();
+        assertThat(supersededComparisonJob.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
+        assertThat(supersededComparisonJob.getWorldSettingCandidate()).isNull();
+        assertThat(aiTokenUsageRepository.findById(comparisonUsageRequestId))
+                .get()
+                .satisfies(usage -> {
+                    assertThat(usage.getStatus()).isEqualTo(AiTokenUsageStatus.RELEASED);
+                    assertThat(usage.getOutcome()).isEqualTo(AiTokenUsageOutcome.USAGE_UNAVAILABLE);
+                });
+        assertThat(analysisJobRepository.count()).isEqualTo(3);
     }
 
     @Test
@@ -603,7 +672,11 @@ class AnalysisJobControllerIntegrationTest {
         analysisJobRepository.save(failedJob);
         AnalysisJob activeJob = AnalysisJob.create(
                 work, uploadBatch, firstEpisode, AnalysisJobType.SETTING_EXTRACTION);
-        activeJob.start("gpt-5.6-terra", "설정 추출 중");
+        UUID leaseToken = activeJob.claim(
+                "gpt-5.6-terra",
+                "설정 추출 중",
+                LocalDateTime.now().plusMinutes(5)
+        );
         activeJob = analysisJobRepository.save(activeJob);
         aiTokenService.reserve(new AiTokenReserveRequest(
                 UUID.randomUUID(),
@@ -612,7 +685,7 @@ class AnalysisJobControllerIntegrationTest {
                 1,
                 "gpt-5.6-terra",
                 2_000_000L
-        ));
+        ), leaseToken);
 
         mockMvc.perform(post(
                                 "/api/v1/works/{workId}/analysis-jobs/{analysisJobId}/retry",
@@ -700,6 +773,11 @@ class AnalysisJobControllerIntegrationTest {
                 new BigDecimal("0.9000"),
                 null
         ));
+        worldSettingCandidateRepository.save(worldSettingCandidate(
+                succeededJob,
+                firstEpisode,
+                "바바리안"
+        ));
 
         mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
@@ -718,12 +796,36 @@ class AnalysisJobControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.content[0].totalCandidateCount").value(1))
                 .andExpect(jsonPath("$.data.content[0].reviewedCandidateCount").value(0))
                 .andExpect(jsonPath("$.data.content[0].pendingCandidateCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].worldSettingTotalCandidateCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].worldSettingReviewedCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.content[0].worldSettingPendingCandidateCount").value(1))
                 .andExpect(jsonPath("$.data.content[0].jobGroups", hasSize(1)))
                 .andExpect(jsonPath("$.data.content[0].jobGroups[0].jobType")
                         .value("SETTING_EXTRACTION"))
                 .andExpect(jsonPath("$.data.content[0].jobGroups[0].totalJobCount").value(2))
                 .andExpect(jsonPath("$.data.content[0].jobGroups[0].pendingJobCount").value(1))
                 .andExpect(jsonPath("$.data.content[0].jobGroups[0].succeededJobCount").value(1));
+    }
+
+    @Test
+    @DisplayName("분석 배치 목록은 세계관 후보만 검토 대기여도 검토 필요로 표시한다")
+    void getAnalysisBatchesRequiresReviewForPendingWorldSettingCandidates() throws Exception {
+        AnalysisJob succeededJob = succeededJob(firstEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        worldSettingCandidateRepository.save(worldSettingCandidate(
+                succeededJob,
+                firstEpisode,
+                "미궁 1층"
+        ));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].status").value("REVIEW_REQUIRED"))
+                .andExpect(jsonPath("$.data.content[0].totalCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.content[0].pendingCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.content[0].worldSettingTotalCandidateCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].worldSettingReviewedCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.content[0].worldSettingPendingCandidateCount").value(1));
     }
 
     @Test
@@ -895,6 +997,28 @@ class AnalysisJobControllerIntegrationTest {
                 null,
                 new BigDecimal("0.9000"),
                 null
+        );
+    }
+
+    private WorldSettingCandidate worldSettingCandidate(
+            AnalysisJob analysisJob,
+            Episode episode,
+            String subjectName
+    ) {
+        return WorldSettingCandidate.create(
+                work,
+                episode,
+                analysisJob,
+                WorldSettingCategory.LOCATION,
+                subjectName,
+                "지형 구조",
+                "복잡한 통로 구조",
+                JsonNodeFactory.instance.arrayNode().add(
+                        JsonNodeFactory.instance.objectNode()
+                                .put("quote", "%s은 복잡한 통로 구조다.".formatted(subjectName))
+                ),
+                new BigDecimal("0.9000"),
+                JsonNodeFactory.instance.objectNode()
         );
     }
 

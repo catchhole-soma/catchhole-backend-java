@@ -24,6 +24,15 @@
 | [Character](character.md) | 캐릭터 설정 저장 모델, CharacterFact 검색·근거 상세 API, Schema Registry, JSONB 기준, AI 설정 후보 저장 구조 |
 | [World Setting](world-setting.md) | 세계관 확정본·후보 저장 모델, 2차 비교 경계, 속성 단위 확정·직접 수정과 충돌 정책 |
 
+## 추가 예정 설계 문서
+
+DFD와 유스케이스 다이어그램은 Front나 AI 저장소 한쪽에 종속되지 않는 프로젝트 전체 설계 산출물이므로 Backend `docs/`를 단일 출처로 관리합니다. 실제 문서를 작성하면 아래 상태를 갱신하고 문서 목록에 링크를 추가합니다.
+
+| 산출물 | 예정 위치 | 상태 | 포함 범위 |
+| --- | --- | --- | --- |
+| 데이터 흐름도(DFD) | `docs/data-flow.md` | 작성 필요 | Level 0 시스템 Context, Level 1 주요 프로세스, AI 분석·후보 확정·재비교 핵심 Level 2, 데이터 저장소와 흐름 목록 |
+| 유스케이스 다이어그램 | `docs/use-cases.md` | 작성 필요 | 비회원·회원·AI Worker 액터, CatchHole 시스템 경계, 주요 사용자 목표, `include`·`extend` 관계 |
+
 ## 작성 기준
 
 - 도메인별 문서는 현재 코드와 함께 갱신합니다.

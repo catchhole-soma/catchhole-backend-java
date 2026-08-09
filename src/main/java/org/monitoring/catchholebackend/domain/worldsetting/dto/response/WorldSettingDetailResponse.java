@@ -38,7 +38,7 @@ public record WorldSettingDetailResponse(
             String value,
             UUID sourceEpisodeId,
             Integer sourceEpisodeNo,
-            Object evidenceSpans,
+            List<WorldSettingEvidenceSpanResponse> evidenceSpans,
             LocalDateTime reviewedAt
     ) {
     }

@@ -37,7 +37,7 @@ public class WorldSettingServiceImpl implements WorldSettingService {
 
     private final WorkRepository workRepository;
     private final WorldSettingRepository worldSettingRepository;
-    private final WorldSettingCandidateRepository candidateRepository;
+    private final WorldSettingCandidateRepository worldSettingCandidateRepository;
     private final WorldSettingMapper worldSettingMapper;
 
     @Override
@@ -69,7 +69,7 @@ public class WorldSettingServiceImpl implements WorldSettingService {
                 );
         String mappingQuery = normalizedQuery;
         List<WorldSettingListItemResponse> items = worldSettingPage.getContent().stream()
-                .map(worldSetting -> worldSettingMapper.toListItem(worldSetting, mappingQuery))
+                .map(worldSetting -> worldSettingMapper.toListItemResponse(worldSetting, mappingQuery))
                 .toList();
         return new WorldSettingListResponse(
                 worldSettingRepository.countByWorkId(work.getId()),
@@ -100,13 +100,7 @@ public class WorldSettingServiceImpl implements WorldSettingService {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_SUBJECT_DUPLICATED);
         }
 
-        WorldSetting worldSetting = WorldSetting.create(
-                work,
-                request.category(),
-                request.subjectName(),
-                request.settingName(),
-                request.settingValue()
-        );
+        WorldSetting worldSetting = worldSettingMapper.toEntity(work, request);
         return toDetail(saveNewWorldSetting(worldSetting));
     }
 
@@ -198,11 +192,11 @@ public class WorldSettingServiceImpl implements WorldSettingService {
     }
 
     private WorldSettingDetailResponse toDetail(WorldSetting worldSetting) {
-        List<WorldSettingCandidate> histories = candidateRepository
+        List<WorldSettingCandidate> confirmedCandidates = worldSettingCandidateRepository
                 .findAllByTargetWorldSettingIdAndReviewStatusOrderByReviewedAtDescCreatedAtDescIdDesc(
                         worldSetting.getId(),
                         WorldSettingReviewStatus.CONFIRMED
                 );
-        return worldSettingMapper.toDetail(worldSetting, histories);
+        return worldSettingMapper.toDetailResponse(worldSetting, confirmedCandidates);
     }
 }

@@ -17,6 +17,7 @@ public record WorldSettingCandidateListResponse(
         long processingComparisonCount,
         long failedComparisonCount,
         long recomparisonRequiredCount,
-        PageResponse<WorldSettingCandidateResponse> candidates
+        long conflictCandidateCount,
+        PageResponse<WorldSettingCandidateGroupResponse> groups
 ) {
 }
