@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.character.service;
 
+import java.util.List;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterTimelineResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterTimelineSummaryResponse;
@@ -11,7 +12,9 @@ public interface CharacterTimelineService {
             Long memberId,
             UUID workId,
             UUID characterId,
-            CharacterTimelineFactFilter factType
+            CharacterTimelineFactFilter factType,
+            List<CharacterTimelineFactFilter> factTypes,
+            List<String> factKeys
     );
 
     CharacterTimelineResponse getTimeline(
@@ -19,6 +22,8 @@ public interface CharacterTimelineService {
             UUID workId,
             UUID characterId,
             CharacterTimelineFactFilter factType,
+            List<CharacterTimelineFactFilter> factTypes,
+            List<String> factKeys,
             String cursor,
             Integer fromEpisodeNo,
             int size

@@ -1,8 +1,12 @@
 package org.monitoring.catchholebackend.domain.character.mapper;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterTimelineEpisodeResponse;
+import org.monitoring.catchholebackend.domain.character.dto.response.CharacterTimelineFactFacetResponse;
+import org.monitoring.catchholebackend.domain.character.dto.response.CharacterTimelineFactKeyCountResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterTimelineFactResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterTimelineFactTypeCountResponse;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
@@ -10,6 +14,7 @@ import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingS
 import org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingDisplayNameResolver;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterTimelineEpisodeCount;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterTimelineFactKeyCount;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterTimelineFactTypeCount;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.CharacterTimelineSourceType;
@@ -31,6 +36,7 @@ public class CharacterTimelineMapper {
         return new CharacterTimelineFactResponse(
                 fact.getId(),
                 fact.getFactType(),
+                fact.getFactKey(),
                 fact.getFactType().getToKorean(),
                 characterSettingDisplayNameResolver.resolve(
                         fact.getFactType(),
@@ -46,6 +52,35 @@ public class CharacterTimelineMapper {
                 sourceEpisode == null ? null : sourceEpisode.getEpisodeNo(),
                 characterFactSourceResolver.hasEvidence(fact)
         );
+    }
+
+    public List<CharacterTimelineFactFacetResponse> toFactFacetResponses(
+            List<CharacterFactType> supportedFactTypes,
+            List<CharacterTimelineFactTypeCount> typeCounts,
+            List<CharacterTimelineFactKeyCount> factKeyCounts,
+            List<CharacterSettingSchema> schemas
+    ) {
+        Map<CharacterFactType, List<CharacterTimelineFactKeyCount>> keysByType = factKeyCounts.stream()
+                .collect(Collectors.groupingBy(CharacterTimelineFactKeyCount::factType));
+        return supportedFactTypes.stream()
+                .map(factType -> new CharacterTimelineFactFacetResponse(
+                        factType,
+                        factType.getToKorean(),
+                        findCount(typeCounts, factType),
+                        keysByType.getOrDefault(factType, List.of()).stream()
+                                .map(factKeyCount -> new CharacterTimelineFactKeyCountResponse(
+                                        factKeyCount.factKey(),
+                                        characterSettingDisplayNameResolver.resolve(
+                                                factType,
+                                                factKeyCount.factKey(),
+                                                null,
+                                                schemas
+                                        ),
+                                        factKeyCount.count()
+                                ))
+                                .toList()
+                ))
+                .toList();
     }
 
     public List<CharacterTimelineFactTypeCountResponse> toFactTypeCountResponses(

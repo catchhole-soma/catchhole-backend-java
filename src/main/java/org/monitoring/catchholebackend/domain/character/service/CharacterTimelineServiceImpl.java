@@ -15,6 +15,7 @@ import org.monitoring.catchholebackend.domain.character.exception.CharacterError
 import org.monitoring.catchholebackend.domain.character.mapper.CharacterTimelineMapper;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterTimelineCursor;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterTimelineCursorCodec;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterTimelineFilterSelection;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterTimelineEpisodeCount;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterTimelineFactTypeCount;
@@ -47,26 +48,51 @@ public class CharacterTimelineServiceImpl implements CharacterTimelineService {
             Long memberId,
             UUID workId,
             UUID characterId,
-            CharacterTimelineFactFilter factType
+            CharacterTimelineFactFilter factType,
+            List<CharacterTimelineFactFilter> factTypes,
+            List<String> factKeys
     ) {
         WorkCharacter character = getOwnedActiveCharacter(memberId, workId, characterId);
+        CharacterTimelineFilterSelection selection = CharacterTimelineFilterSelection.from(
+                factType,
+                factTypes,
+                factKeys
+        );
         List<CharacterFactType> supportedTypes = CharacterTimelineFactFilter.supportedFactTypes();
-        List<CharacterFactType> filteredTypes = factType.toFactTypes();
 
         List<CharacterTimelineFactTypeCount> typeCounts =
                 characterTimelineQueryRepository.countByFactType(workId, characterId, supportedTypes);
         Map<CharacterFactType, Long> countsByType = toCountMap(typeCounts);
         long totalFactCount = supportedTypes.stream().mapToLong(type -> countsByType.getOrDefault(type, 0L)).sum();
-        long filteredFactCount = filteredTypes.stream().mapToLong(type -> countsByType.getOrDefault(type, 0L)).sum();
+        // 상위 유형만 고른 경우에는 이미 조회한 유형별 집계를 재사용한다. 하위 key가
+        // 섞인 OR 조건만 별도 count query로 계산해 중복 집계와 불필요한 DB 왕복을 피한다.
+        long filteredFactCount = selection.all()
+                ? totalFactCount
+                : selection.factKeys().isEmpty()
+                        ? selection.factTypes().stream()
+                                .mapToLong(type -> countsByType.getOrDefault(type, 0L))
+                                .sum()
+                        : characterTimelineQueryRepository.countFacts(
+                                workId,
+                                characterId,
+                                supportedTypes,
+                                selection
+                        );
 
         List<CharacterTimelineEpisodeCount> filteredEpisodeCounts =
-                characterTimelineQueryRepository.countByEpisode(workId, characterId, filteredTypes);
-        List<CharacterTimelineEpisodeCount> allEpisodeCounts = factType == CharacterTimelineFactFilter.ALL
+                characterTimelineQueryRepository.countByEpisode(workId, characterId, supportedTypes, selection);
+        List<CharacterTimelineEpisodeCount> allEpisodeCounts = selection.all()
                 ? filteredEpisodeCounts
-                : characterTimelineQueryRepository.countByEpisode(workId, characterId, supportedTypes);
+                : characterTimelineQueryRepository.countByEpisode(
+                        workId,
+                        characterId,
+                        supportedTypes,
+                        CharacterTimelineFilterSelection.from(CharacterTimelineFactFilter.ALL, null, null)
+                );
         long episodeFactCount = filteredEpisodeCounts.stream()
                 .mapToLong(CharacterTimelineEpisodeCount::factCount)
                 .sum();
+        List<CharacterSettingSchema> schemas = characterSettingSchemaRepository.findAllActiveForWork(workId);
 
         return new CharacterTimelineSummaryResponse(
                 character.getId(),
@@ -74,9 +100,17 @@ public class CharacterTimelineServiceImpl implements CharacterTimelineService {
                 findFirstAppearanceEpisodeNo(character, workId),
                 totalFactCount,
                 allEpisodeCounts.size(),
-                factType,
+                selection.appliedFactType(),
+                selection.explicitFactTypes(),
+                selection.factKeys(),
                 filteredFactCount,
                 characterTimelineMapper.toFactTypeCountResponses(supportedTypes, typeCounts),
+                characterTimelineMapper.toFactFacetResponses(
+                        supportedTypes,
+                        typeCounts,
+                        characterTimelineQueryRepository.countByFactKey(workId, characterId, supportedTypes),
+                        schemas
+                ),
                 characterTimelineMapper.toEpisodeResponses(filteredEpisodeCounts),
                 filteredFactCount - episodeFactCount
         );
@@ -88,6 +122,8 @@ public class CharacterTimelineServiceImpl implements CharacterTimelineService {
             UUID workId,
             UUID characterId,
             CharacterTimelineFactFilter factType,
+            List<CharacterTimelineFactFilter> factTypes,
+            List<String> factKeys,
             String cursor,
             Integer fromEpisodeNo,
             int size
@@ -96,17 +132,24 @@ public class CharacterTimelineServiceImpl implements CharacterTimelineService {
         if (cursor != null && fromEpisodeNo != null) {
             throw new AppException(CharacterErrorCode.CHARACTER_TIMELINE_CURSOR_INVALID);
         }
+        CharacterTimelineFilterSelection selection = CharacterTimelineFilterSelection.from(
+                factType,
+                factTypes,
+                factKeys
+        );
+        String filterFingerprint = selection.cursorFingerprint();
 
         CharacterTimelineCursor decodedCursor = cursor == null
-                ? new CharacterTimelineCursor(characterId, factType, fromEpisodeNo, 0)
+                ? new CharacterTimelineCursor(characterId, filterFingerprint, fromEpisodeNo, 0)
                 : characterTimelineCursorCodec.decode(cursor);
-        validateCursor(decodedCursor, characterId, factType);
+        validateCursor(decodedCursor, characterId, filterFingerprint);
 
         List<CharacterFact> queriedFacts =
                 characterTimelineQueryRepository.findTimelineFacts(
                         workId,
                         characterId,
-                        factType.toFactTypes(),
+                        CharacterTimelineFactFilter.supportedFactTypes(),
+                        selection,
                         decodedCursor.fromEpisodeNo(),
                         decodedCursor.offset(),
                         size + 1
@@ -123,7 +166,7 @@ public class CharacterTimelineServiceImpl implements CharacterTimelineService {
         String nextCursor = hasNext
                 ? characterTimelineCursorCodec.encode(new CharacterTimelineCursor(
                         characterId,
-                        factType,
+                        filterFingerprint,
                         decodedCursor.fromEpisodeNo(),
                         Math.addExact(decodedCursor.offset(), content.size())
                 ))
@@ -160,9 +203,10 @@ public class CharacterTimelineServiceImpl implements CharacterTimelineService {
     private void validateCursor(
             CharacterTimelineCursor cursor,
             UUID characterId,
-            CharacterTimelineFactFilter factType
+            String filterFingerprint
     ) {
-        if (!cursor.characterId().equals(characterId) || cursor.factType() != factType) {
+        if (!cursor.characterId().equals(characterId)
+                || !cursor.filterFingerprint().equals(filterFingerprint)) {
             throw new AppException(CharacterErrorCode.CHARACTER_TIMELINE_CURSOR_INVALID);
         }
     }

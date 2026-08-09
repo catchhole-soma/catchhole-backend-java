@@ -13,6 +13,9 @@ public record CharacterTimelineFactResponse(
         @Schema(description = "Fact 유형", example = "STATUS")
         CharacterFactType factType,
 
+        @Schema(description = "종류별 하위 필터 식별에 사용하는 canonical Fact key", example = "status.injury")
+        String factKey,
+
         @Schema(description = "사용자용 Fact 유형 표시명", example = "상태")
         String factTypeLabel,
 
