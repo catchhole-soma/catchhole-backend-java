@@ -200,6 +200,15 @@ V16은 작품별 현재 세계관 확정본과 회차 분석 후보를 캐릭터
 - 원문 근거는 JSON array, 신뢰도는 `0..1`, 비교·적용 버전은 0 이상으로 제한합니다.
 - 설정집 출처 FK와 `world_setting_facts`, 삭제·보관·복원·전체 변경 이력 테이블은 만들지 않습니다.
 
+## V19 기준
+
+V19는 세계관 후보에 선택적 1단계 범위 경로를 추가합니다.
+
+- `world_setting_candidates`에 `scope_name`, `proposed_scope_name`, `final_scope_name` nullable 문자열 컬럼을 추가합니다. `NULL`은 루트 property입니다.
+- 기존 후보와 확정 JSONB를 임의 범위로 이전하지 않습니다. 기존 문자열 leaf는 루트 property로 계속 해석합니다.
+- `world_settings.properties_json`은 루트 문자열 leaf와 1단계 범위 object를 함께 허용하되 도메인 계층에서 2단계 중첩, 같은 전체 경로 중복, 루트 leaf/scope object 충돌을 검증합니다.
+- 이 마이그레이션은 세계관 테이블만 변경하며 캐릭터 설정 테이블의 key 정규화·중복 계약을 변경하지 않습니다.
+
 ## 논리 참조와 FK 기준
 
 ID 컬럼이 다른 테이블을 논리적으로 가리키더라도 삭제·재처리 정책이 정해지지 않았다면 FK를 먼저 강제하지 않습니다. V1의 선택은 다음과 같습니다.

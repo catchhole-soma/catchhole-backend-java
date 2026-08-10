@@ -251,6 +251,7 @@ erDiagram
         uuid analysis_job_id FK
         varchar category
         varchar subject_name
+        varchar scope_name
         varchar setting_name
         text extracted_value
         jsonb evidence_spans
@@ -258,6 +259,7 @@ erDiagram
         jsonb raw_extraction_json
         uuid target_world_setting_id FK
         varchar suggested_operation
+        varchar proposed_scope_name
         varchar proposed_setting_name
         text before_value
         text proposed_value
@@ -271,6 +273,7 @@ erDiagram
         varchar final_operation
         varchar final_category
         varchar final_subject_name
+        varchar final_scope_name
         varchar final_setting_name
         text final_value
         text review_note
@@ -349,8 +352,8 @@ erDiagram
 | `character_facts` | 캐릭터별 설정 값과 회차별 변경 이력. 현재 유효값과 충돌 검수 기준을 추적합니다. |
 | `setting_candidates` | AI가 추출한 검토 전 후보. `SETTING`은 설정 값을, `CHARACTER_DISCOVERY`는 이름과 근거만 보존합니다. |
 | `character_setting_schemas` | AI의 `attributeName`을 canonical key로 해석하기 위한 전역/작품별 alias·pattern·값 타입·정책 registry입니다. 실제 캐릭터 값은 저장하지 않습니다. |
-| `world_settings` | 작품별 현재 세계관 확정본. 한 행은 분류·대상 하나이며 문자열 설정명·값 object와 충돌 검사용 version을 저장합니다. |
-| `world_setting_candidates` | 회차에서 추출한 세계관 속성 후보. 1차 추출, 2차 비교 제안, 사용자 최종 결정과 적용 버전을 한 행에 보존합니다. |
+| `world_settings` | 작품별 현재 세계관 확정본. 한 행은 분류·대상 하나이며 루트 문자열 leaf와 선택적 1단계 범위 object를 담은 JSONB, 충돌 검사용 version을 저장합니다. |
+| `world_setting_candidates` | 회차에서 추출한 세계관 속성 후보. 선택적 `scope_name`과 설정명의 전체 경로, 1차 추출, 2차 비교 제안, 사용자 최종 결정과 적용 버전을 한 행에 보존합니다. |
 
 ## Notion 기반 후속 AI 분석 ERD
 

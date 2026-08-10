@@ -1,6 +1,6 @@
 # World Setting Domain
 
-이 문서는 NVM-260 세계관 설정 MVP의 Backend 구현 계약을 정의합니다. 세계관 설정은 작품에서 지속적으로 활용되는 불변에 가까운 설정을 대상으로 하며, 캐릭터 타임라인과 캐릭터 설정 후보는 기존 `domain/character` 계약을 그대로 사용합니다.
+이 문서는 NVM-260 세계관 설정 MVP와 NVM-268의 세계관 property 범위 경로 확장을 포함한 Backend 구현 계약을 정의합니다. 세계관 설정은 작품에서 지속적으로 활용되는 불변에 가까운 설정을 대상으로 하며, 캐릭터 타임라인과 캐릭터 설정 후보는 기존 `domain/character` 계약을 그대로 사용합니다. `scopeName`은 세계관에만 있는 경로 계약이며 캐릭터 테이블에는 추가하지 않습니다.
 
 ## 추출 범위
 
@@ -40,7 +40,7 @@ MVP에서는 `world_settings`와 `world_setting_candidates` 두 테이블만 사
 | `category` | 세계관 분류 |
 | `subject_name` | 사용자에게 표시하는 대상명 |
 | `normalized_subject_name` | 동일 대상 중복 판정용 정규화 이름 |
-| `properties_json` | `설정명: 설정값` 형태의 JSON object |
+| `properties_json` | 루트 leaf 또는 선택적 1단계 범위 object에 저장한 JSON object |
 | `version` | 동시 수정과 후보 확정 기준 버전 |
 | `created_at` | 생성 시각 |
 | `updated_at` | 마지막 수정 시각 |
@@ -48,13 +48,27 @@ MVP에서는 `world_settings`와 `world_setting_candidates` 두 테이블만 사
 저장 규칙은 다음과 같습니다.
 
 - 유일 조건은 `work_id + category + normalized_subject_name`입니다.
-- `properties_json`의 최상위는 JSON object이고 MVP의 key와 value는 모두 문자열입니다.
+- `properties_json`의 최상위는 JSON object입니다. 최상위 문자열 value는 루트 property이고, 최상위 object value는 선택적 1단계 범위입니다. 범위 안의 value는 문자열이며 2단계 이상 범위는 허용하지 않습니다.
+- property 식별자는 `scopeName + settingName` 전체 경로입니다. `1층/출몰 규칙`과 `2층/출몰 규칙`은 함께 저장할 수 있지만 같은 전체 경로는 중복할 수 없습니다. 같은 최상위 key를 문자열 leaf와 범위 object로 동시에 사용하는 충돌도 거절합니다.
+- 외부 API는 중첩 JSON을 그대로 노출하지 않고 `{scopeName, settingName, value}` 목록으로 평탄화해 반환합니다. `scopeName=null`은 루트 property입니다.
+
+```json
+{
+  "폐쇄 시점": "300년 전",
+  "1층": {
+    "출몰 규칙": "동쪽에서 고블린이 출몰한다."
+  },
+  "2층": {
+    "출몰 규칙": "중앙부에서 언데드가 출몰한다."
+  }
+}
+```
 - 단일 설정 변경은 설정명 한 개만, 대상 그룹 후보 확정은 선택된 여러 설정명만 변경하며 JSON 전체를 교체하지 않습니다.
-- 실제 내용이 변경될 때 `version`을 증가시킵니다. 같은 대상 그룹의 여러 key를 한 트랜잭션으로 확정하면 하나의 revision으로 보고 한 번 증가시킵니다.
+- 실제 내용이 변경될 때 `version`을 증가시킵니다. 같은 최종 대상의 여러 key를 한 트랜잭션으로 확정하면 하나의 revision으로 보고 그 대상의 version을 한 번 증가시킵니다.
 - `subject_name`과 설정명은 앞뒤 공백만 제거하고 내부 공백은 보존합니다. `북부 설원`, `사회 구조`를 `북부설원`, `사회구조`로 바꾸지 않습니다.
 - `normalized_subject_name`은 trim한 대상명을 Unicode NFC와 소문자로 정규화한 중복 판정 값입니다. 표시에는 원래의 `subject_name`을 사용합니다.
 - 사용자의 직접 추가·수정은 후보를 만들지 않고 이 테이블에 바로 반영합니다.
-- 직접 입력의 동일 분류·대상 또는 동일 대상 내 설정명 중복은 Backend가 전체 DB 기준으로 최종 검증하고, Frontend는 서버 오류를 표시합니다.
+- 직접 입력의 동일 분류·대상 또는 동일 대상 내 범위+설정명 전체 경로 중복은 Backend가 전체 DB 기준으로 최종 검증하고, Frontend는 서버 오류를 표시합니다.
 - 작품 자체를 hard delete하면 해당 작품의 `world_settings`와 `world_setting_candidates`는 FK cascade로 함께 정리합니다. 세계관 대상 하나의 삭제·보관·복원 API는 MVP에서 제공하지 않습니다.
 
 ### `world_setting_candidates`
@@ -71,6 +85,7 @@ MVP에서는 `world_settings`와 `world_setting_candidates` 두 테이블만 사
 | `analysis_job_id` | 후보를 생성한 분석 작업 FK |
 | `category` | 1차 추출 분류 |
 | `subject_name` | 1차 추출 대상명 |
+| `scope_name` | 1차 추출의 선택적 1단계 범위. 루트면 `NULL` |
 | `setting_name` | 1차 추출 설정명 |
 | `extracted_value` | 1차 추출 설정값 |
 | `evidence_spans` | 원문 인용문과 offset JSON 배열 |
@@ -88,6 +103,7 @@ MVP의 후보 출처는 회차 원문만 지원하므로 `source_type`, `source_
 | `target_world_setting_id` | 비교 대상으로 선택한 확정본 FK. 신규 대상이면 `NULL` |
 | `consolidation_status` | 여러 1차 추출값의 정리 결과. `SINGLE`, `MERGED`, `CONFLICT` |
 | `suggested_operation` | 2차 LLM이 제안한 반영 방식 |
+| `proposed_scope_name` | 비교 후 제안하는 최종 범위 |
 | `proposed_setting_name` | 비교 후 제안하는 최종 설정명 |
 | `before_value` | 비교 당시 같은 설정명의 기존 값. 신규 속성이면 `NULL` |
 | `proposed_value` | 비교 후 제안하는 최종 설정값 |
@@ -121,6 +137,7 @@ MVP의 후보 출처는 회차 원문만 지원하므로 `source_type`, `source_
 | `final_operation` | 사용자가 최종 선택한 반영 방식 |
 | `final_category` | 사용자가 확정한 분류 |
 | `final_subject_name` | 사용자가 확정한 대상명 |
+| `final_scope_name` | 사용자가 확정한 선택적 범위 |
 | `final_setting_name` | 사용자가 확정한 설정명 |
 | `final_value` | 사용자가 확정한 설정값 |
 | `review_note` | 사용자 검토 메모 |
@@ -146,10 +163,10 @@ MVP의 후보 출처는 회차 원문만 지원하므로 `source_type`, `source_
 
 저장 단위는 계속 `world_setting_candidates` 한 행이지만 조회·검토·확정에서는 같은 `batch_id + category + normalized subject_name`의 미검토 후보를 한 대상 그룹으로 묶습니다. 별도 그룹 테이블은 만들지 않고 후보 ID와 상태는 key row별로 유지합니다.
 
-- Worker는 게시 전에 같은 `category + normalized subject_name + normalized setting_name`의 추출값을 후보 하나로 통합합니다. 통합 후보는 여러 1차 원문 근거와 raw 추출 결과를 모두 보존하며, 2차 비교는 보완값만 최종 문자열 하나로 정리하고 서로 다른 값은 `CONFLICT`로 남깁니다.
-- Backend는 Worker 게시와 그룹 확정 모두에서 동일 설정명 중복을 다시 검증합니다. 중복이면 `WORLD_SETTING_CANDIDATE_SETTING_NAME_DUPLICATED`와 `같은 설정명이 여러 번 포함되어 있습니다. 내용을 하나로 합치거나 하나만 선택해 주세요.`를 반환하고 일부 설정을 반영하지 않습니다.
+- Worker는 게시 전에 같은 `category + normalized subject_name + normalized scope_name + normalized setting_name`의 추출값을 후보 하나로 통합합니다. 통합 후보는 여러 1차 원문 근거와 raw 추출 결과를 모두 보존하며, 2차 비교는 보완값만 최종 문자열 하나로 정리하고 서로 다른 값은 `CONFLICT`로 남깁니다. 같은 설정명이라도 범위가 다르면 별도 후보입니다.
+- Backend는 Worker 게시와 그룹 확정 모두에서 동일 최종 대상 안의 범위+설정명 전체 경로 중복을 다시 검증합니다. 서로 다른 최종 대상의 같은 경로는 허용하며, 같은 대상에서 중복이면 `WORLD_SETTING_CANDIDATE_SETTING_NAME_DUPLICATED`를 반환하고 일부 설정을 반영하지 않습니다.
 - 그룹 목록은 분류·정식 대상명·안정적인 `groupKey`, 변경 key 개수, 반영 방식별 개수, 근거 회차 합집합, 후보 row를 제공합니다.
-- 한 후보의 분류·대상명이 수정되면 정규화 identity에 따라 기존 그룹에서 제거하고 새 그룹에 포함합니다.
+- 작가의 개별 row 수정안은 분류·대상을 포함한 모든 최종 결정 필드를 해당 후보 하나에 즉시 저장하고, header 일괄 수정안은 같은 현재 그룹의 모든 미확정 후보의 최종 분류·대상을 한 트랜잭션으로 저장합니다. 둘 다 후보의 1차 추출 identity나 2차 LLM 제안을 덮어쓰지 않고 `final*` 초안만 갱신하며 비교 Job을 만들거나 후보를 `PENDING`으로 되돌리지 않습니다. 이후 조회·필터·그룹 key는 저장된 최종 분류·대상을 우선 사용합니다.
 - 그룹 상태는 후보 상태를 집계합니다. 하나라도 `FAILED`, `RECOMPARISON_REQUIRED`, `PENDING`, `PROCESSING`이면 그룹 확정을 잠급니다.
 - key 존재·값 변경은 해당 후보 row의 재비교 사유이고, 대상 생성·삭제·분류·대상명 변경은 그룹 전체 재비교 사유입니다.
 - 같은 그룹 확정 트랜잭션이 만든 대상 생성과 다른 key 변경은 외부 변경이 아니므로 선택된 나머지 후보를 재비교하지 않습니다.
@@ -161,12 +178,12 @@ MVP의 후보 출처는 회차 원문만 지원하므로 `source_type`, `source_
 1. 작품과 요청의 모든 후보를 일정한 순서로 잠금 조회합니다.
 2. 모든 후보가 같은 `batch_id + category + normalized subject_name` 그룹인지, `PENDING_REVIEW + COMPLETED`인지 검증합니다.
 3. `CONFLICT` 후보를 반영한다면 사용자가 최종값을 수정했다는 명시적 결정을 검증합니다.
-4. 어떤 property도 변경하기 전에 현재 확정 대상을 한 번 조회해 그룹 검증용 최초 snapshot을 만듭니다.
-5. 선택 후보별 최종 identity·operation·설정명·값과 최초 snapshot의 `before_value`·설정 존재 상태를 모두 검증합니다.
-6. 하나라도 외부 변경과 충돌하면 선택 후보를 하나도 반영하지 않고 영향 후보를 `RECOMPARISON_REQUIRED`로 전환합니다.
-7. 충돌이 없고 대상이 없으면 `ADD` 선택들을 위해 확정 대상을 한 번만 생성합니다.
-8. 선택된 서로 다른 property를 모두 추가하거나 교체하고, 실제 변경이 있으면 그룹 트랜잭션 전체에서 `world_settings.version`을 한 번 증가시킵니다.
-9. 함께 처리한 후보에 최종 결정을 기록하고, `ADD`·`UPDATE`·`MERGE`는 같은 대상 확정본과 최종 적용 버전을 연결해 `CONFIRMED`, `EXCLUDE`는 확정본을 바꾸지 않고 `DISMISSED`로 전환합니다.
+4. 요청 후보를 최종 분류·대상별로 나누고, 어떤 property도 변경하기 전에 모든 최종 대상을 일정한 순서로 잠금 조회합니다.
+5. 요청 후보별 최종 identity·operation·설정명·값과 각 최종 대상의 `before_value`·설정 존재 상태를 모두 검증합니다.
+6. 작가가 수정하지 않은 제안이 외부 변경과 충돌하면 요청 후보를 하나도 반영하지 않고 영향 후보를 `RECOMPARISON_REQUIRED`로 전환합니다. 작가가 직접 수정한 결정은 LLM 재비교 대신 현재 DB에서 병합 가능 여부만 검증합니다.
+7. 충돌이 없고 최종 대상이 없으면 해당 대상의 `ADD` 선택들을 위해 확정 대상을 한 번만 생성합니다.
+8. 최종 대상별 property를 모두 추가하거나 교체하고, 실제 변경이 있으면 각 변경 대상의 `world_settings.version`을 한 번 증가시킵니다.
+9. 함께 처리한 후보에 최종 결정을 기록하고, `ADD`·`UPDATE`·`MERGE`는 각자 실제 반영한 대상과 최종 적용 버전을 연결해 `CONFIRMED`, `EXCLUDE`는 확정본을 바꾸지 않고 `DISMISSED`로 전환합니다.
 10. 모든 변경을 함께 commit하거나 모두 rollback합니다.
 
 세부 동작은 다음과 같습니다.
@@ -176,10 +193,9 @@ MVP의 후보 출처는 회차 원문만 지원하므로 `source_type`, `source_
 - `EXCLUDE`: 확정본을 변경하지 않고 후보를 `DISMISSED`로 전환합니다.
 - 그룹 확정 요청은 반영 작업과 `EXCLUDE`를 함께 받을 수 있습니다. 반영할 property와 제외할 후보를 한 트랜잭션에서 검증하며, 모두 `EXCLUDE`여도 정상 처리합니다.
 - 그룹 제외 요청은 같은 그룹의 선택 후보들을 한 트랜잭션에서 `DISMISSED`로 전환하며 확정본을 변경하지 않습니다.
-- 선택 후보 안에서 최종 설정명이 중복되면 부분 적용하지 않고 요청 충돌로 거절합니다.
+- 선택 후보 안에서 같은 최종 대상·범위·설정명이 중복되면 부분 적용하지 않고 요청 충돌로 거절합니다.
 - 같은 최종 요청을 반복하면 이미 반영된 결과를 반환하는 멱등 동작으로 처리합니다.
 - 이미 확정한 후보를 제외하거나 이미 제외한 후보를 확정하는 반대 상태 전이는 충돌입니다.
-- 신규 대상을 일부 후보로만 생성한 경우 선택되지 않은 같은 그룹의 미검토 후보는 새 대상 기준 2차 비교가 필요하므로 `RECOMPARISON_REQUIRED`로 전환합니다.
 
 ### 충돌 판정
 
@@ -191,7 +207,8 @@ MVP의 후보 출처는 회차 원문만 지원하므로 `source_type`, `source_
 - 같은 설정명이 비교 뒤 제3의 값으로 바뀌었으면 후보를 `RECOMPARISON_REQUIRED`로 전환하고 반영하지 않습니다.
 - 신규 대상 비교 뒤 동일 분류·대상이 외부 요청으로 먼저 생성되었으면 그룹 전체를 `RECOMPARISON_REQUIRED`로 전환합니다.
 - 대상이 삭제되거나 분류·정규화 대상 identity가 바뀌었으면 그룹 전체를 `RECOMPARISON_REQUIRED`로 전환합니다.
-- `ADD` 대상 key가 외부에서 생기거나 `UPDATE`·`MERGE` 대상 key가 사라졌으면 해당 row를 `RECOMPARISON_REQUIRED`로 전환합니다.
+- 수정하지 않은 `ADD` 대상 key가 외부에서 생기거나 `UPDATE`·`MERGE` 대상 key가 사라졌으면 해당 row를 `RECOMPARISON_REQUIRED`로 전환합니다.
+- 작가가 수정한 `ADD`의 전체 경로가 이미 있으면 `WORLD_SETTING_CANDIDATE_ADD_PATH_DUPLICATED`, 수정한 `UPDATE`·`MERGE`의 전체 경로가 없으면 `WORLD_SETTING_CANDIDATE_UPDATE_PATH_NOT_FOUND`로 즉시 거절하고 LLM 재비교 상태로 바꾸지 않습니다. 루트 key와 범위명 역할이 충돌하면 `WORLD_SETTING_PROPERTY_PATH_CONFLICT`를 반환합니다.
 - 같은 그룹 요청의 첫 `ADD`가 대상을 만들거나 다른 key를 변경한 것은 선택된 나머지 row의 재비교 사유가 아닙니다.
 - 같은 행의 다른 설정명만 변경된 경우에는 버전이 달라도 현재 후보를 정상 반영합니다.
 
@@ -280,9 +297,9 @@ sequenceDiagram
 상세 처리 기준:
 
 - `world_settings.version`이 달라졌다는 이유만으로 재비교하지 않습니다. 확정 대상 property의 현재값이 `before_value` 또는 사용자가 확정하려는 `final_value`와 호환되는지 확인합니다.
-- 그룹 확정은 최초 snapshot으로 선택 후보 전체를 먼저 검증합니다. 같은 요청의 첫 `ADD`가 만든 대상이나 다른 key 변경은 나머지 선택 후보의 stale context로 판단하지 않습니다.
-- 신규 대상 비교 뒤 외부 요청으로 동일 identity의 대상이 생기거나, `ADD` 대상 property가 이미 존재하거나, `UPDATE`·`MERGE` 대상 property가 사라진 경우에는 자동 보정하지 않고 영향 범위에 맞춰 재비교합니다.
-- 신규 대상을 일부 후보만으로 생성하면 선택하지 않은 미검토 후보는 새 대상과 2차 비교해야 하므로 성공 응답 뒤 자동 재비교 대상으로 표시합니다.
+- 그룹 확정은 최종 대상별 현재 상태로 선택 후보 전체를 먼저 검증합니다. 같은 요청에서 같은 최종 대상의 첫 `ADD`가 만든 대상이나 다른 key 변경은 나머지 선택 후보의 stale context로 판단하지 않습니다.
+- 신규 대상 비교 뒤 외부 요청으로 동일 identity의 대상이 생기거나, 수정하지 않은 `ADD` 대상 property가 생기거나 `UPDATE`·`MERGE` 대상 property가 사라진 경우에는 자동 보정하지 않고 영향 범위에 맞춰 재비교합니다.
+- 작가가 직접 바꾼 최종 결정은 2차 LLM에 다시 보내지 않습니다. Backend가 최종 분류·대상으로 현재 대상을 조회한 뒤 `ADD=경로 없음`, `UPDATE/MERGE=경로 있음`, 루트·범위 경로 무충돌을 결정적으로 검증하고 성공할 때만 반영합니다.
 - Backend는 `RECOMPARISON_REQUIRED` 상태를 먼저 commit한 뒤 Controller에서 409로 변환하므로, Front가 409를 받은 직후 상세를 재조회하면 저장된 충돌 상태를 확인할 수 있습니다.
 - `recompare` 요청은 LLM을 동기 호출하지 않습니다. 후보를 `PENDING`으로 되돌리고 활성 재비교 Job을 최대 하나만 만든 뒤 즉시 응답합니다.
 - Front는 한 번의 `RECOMPARISON_REQUIRED` 전환에서 재비교 요청을 한 번만 보내고, 후보가 해당 상태를 벗어나면 guard를 해제합니다.
@@ -310,6 +327,9 @@ sequenceDiagram
 - 기존 `/setting-review` 안에서 캐릭터 후보와 세계관 후보를 탭으로 구분합니다.
 - 전체 진행률은 캐릭터 후보와 세계관 후보를 합산하며, 양쪽의 미검토 후보가 모두 없어야 검토 완료가 됩니다.
 - 세계관 탭의 왼쪽 목록은 `분류 + 대상` 그룹, 오른쪽 상세는 설정 항목별 기존값·제안값·1차 원문 근거와 AI 비교 판단을 제공합니다.
+- 각 설정 row는 체크박스 없이 자체 `제외` 버튼으로 즉시 제외하며, 하단에는 남은 검토 대기 row 전체를 처리하는 `모두 확정`만 둡니다.
+- `모두 확정`은 남은 row를 한 트랜잭션에서 적용하므로, 예전 체크박스 부분 확정 때문에 신규 대상의 나머지 row를 `RECOMPARISON_REQUIRED`로 바꾸던 후처리는 사용하지 않습니다. 대상·속성이 비교 이후 외부에서 변경된 실제 stale 문맥의 재비교는 유지합니다.
+- 일반 수정 모달은 해당 row 하나의 분류·대상·범위·설정명·반영 방식·값을 전용 후보 결정 API로 즉시 저장하고, header 일괄 수정은 모든 미확정 row의 분류·대상만 한 요청으로 저장합니다. 분류·대상이 바뀌면 row는 새 그룹으로 이동하고 Frontend가 그 그룹을 자동 선택합니다. 수정 저장은 후보 비교 상태를 유지하며 재비교 API를 호출하지 않습니다.
 - `EXCLUDE`는 사용자 화면에서 `반영하지 않음` 제안으로 표시하고 그룹 확정에 포함할 수 있습니다. 모두 제외인 경우와 반영·제외가 섞인 경우를 버튼 문구로 구분합니다.
 - 그룹 안 한 row라도 비교 대기·처리·실패·재비교 필요이면 그룹 확정을 잠그고, 이전 diff와 1차 원문 근거는 유지합니다.
 - `RECOMPARISON_REQUIRED`는 row 또는 그룹 범위로 표시하고 Frontend가 영향 후보마다 상태 전환당 한 번 자동 재비교합니다.
@@ -338,14 +358,14 @@ sequenceDiagram
 | --- | --- | --- |
 | `GET` | `/api/v1/works/{workId}/world-setting-candidates` | 필수 `batchId`와 검토 상태·분류·제안 작업 필터로 집계와 페이지 조회 |
 | `GET` | `/api/v1/works/{workId}/world-setting-candidates/{candidateId}` | 필수 `batchId` 범위의 후보 상세 조회 |
-| `PATCH` | `/api/v1/works/{workId}/world-setting-candidates/{candidateId}` | 분류·대상명·설정명을 보정하고 비교 결과를 비운 뒤 `PENDING` 전환 |
+| `PATCH` | `/api/v1/works/{workId}/world-setting-candidates/decisions` | 후보별 최종 결정 초안을 즉시 저장하고 변경된 그룹 key 반환 |
 | `POST` | `/api/v1/works/{workId}/world-setting-candidates/{candidateId}/recompare` | 실패·충돌 후보를 비교 대기로 되돌림 |
 | `POST` | `/api/v1/works/{workId}/world-setting-candidates/group-confirm` | 같은 대상 그룹의 선택 후보 결정을 한 트랜잭션으로 검증·확정 |
 | `POST` | `/api/v1/works/{workId}/world-setting-candidates/group-dismiss` | 같은 대상 그룹의 선택 후보를 한 트랜잭션으로 제외 |
 | `POST` | `/api/v1/works/{workId}/world-setting-candidates/{candidateId}/confirm` | 최종 작업·값을 속성 단위로 원자 반영 |
 | `POST` | `/api/v1/works/{workId}/world-setting-candidates/{candidateId}/dismiss` | 확정본 변경 없이 후보 제외 |
 
-대상 그룹 화면은 `group-confirm`과 `group-dismiss`를 사용합니다. 요청은 `batchId`와 후보별 최종 결정을 전달하며 모든 후보가 같은 그룹인지 Backend가 검증합니다. 기존 단일 후보 endpoint는 호환 경계로 유지할 수 있지만 Frontend가 여러 번 호출해 그룹 확정을 구현하지 않습니다. 그룹 충돌 응답은 영향 범위·사유·후보 ID를 포함하며 부분 성공을 반환하지 않습니다.
+대상 그룹 화면은 수정 저장에 `decisions`, 최종 반영과 제외에 `group-confirm`·`group-dismiss`를 사용합니다. `decisions` 요청은 일반 수정일 때 후보 하나, 일괄 수정일 때 같은 현재 그룹의 모든 미확정 후보를 전달하고, 저장된 최종 분류·대상을 기준으로 새 `groupKey`를 반환합니다. Frontend는 이 응답으로 행을 새 그룹에 즉시 표시합니다. `group-confirm`은 현재 그룹의 서버 저장 최종 결정을 한 트랜잭션으로 검증·반영합니다. 여러 최종 대상에 반영하는 하위 호환 요청에서는 그룹 응답의 단일 `worldSettingId`·`appliedWorldSettingVersion`이 `null`이며 각 후보 응답이 실제 연결 대상을 제공합니다. 그룹 충돌 응답은 영향 범위·사유·후보 ID를 포함하며 부분 성공을 반환하지 않습니다.
 
 구현 계층 책임은 다음과 같이 유지합니다.
 
