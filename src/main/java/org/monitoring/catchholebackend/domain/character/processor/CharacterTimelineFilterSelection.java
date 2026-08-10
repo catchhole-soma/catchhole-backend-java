@@ -6,6 +6,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
@@ -41,7 +42,11 @@ public record CharacterTimelineFilterSelection(
             throw invalidFilter();
         }
 
-        if (requestedFactKeys != null && requestedFactKeys.stream().anyMatch(String::isBlank)) {
+        if (requestedFactTypes != null && requestedFactTypes.stream().anyMatch(Objects::isNull)) {
+            throw invalidFilter();
+        }
+        if (requestedFactKeys != null
+                && requestedFactKeys.stream().anyMatch(key -> key == null || key.isBlank())) {
             throw invalidFilter();
         }
 
@@ -85,10 +90,10 @@ public record CharacterTimelineFilterSelection(
     }
 
     public String cursorFingerprint() {
-        String canonicalSelection = "types=" + factTypes.stream()
+        String canonicalSelection = "types=" + encodeValues(factTypes.stream()
                 .map(Enum::name)
-                .collect(Collectors.joining(","))
-                + "|keys=" + String.join(",", factKeys)
+                .toList())
+                + "|keys=" + encodeValues(factKeys)
                 + "|all=" + all;
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
@@ -97,6 +102,16 @@ public record CharacterTimelineFilterSelection(
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 must be available", exception);
         }
+    }
+
+    /**
+     * 길이 접두사를 붙여 comma 같은 구분자가 factKey 자체에 포함돼도
+     * 서로 다른 필터 조합이 같은 cursor fingerprint 원문이 되지 않게 한다.
+     */
+    private static String encodeValues(List<String> values) {
+        return values.size() + ":" + values.stream()
+                .map(value -> value.length() + ":" + value)
+                .collect(Collectors.joining());
     }
 
     /**

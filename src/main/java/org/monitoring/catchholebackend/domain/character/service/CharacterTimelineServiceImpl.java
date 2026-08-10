@@ -109,6 +109,11 @@ public class CharacterTimelineServiceImpl implements CharacterTimelineService {
                         supportedTypes,
                         typeCounts,
                         characterTimelineQueryRepository.countByFactKey(workId, characterId, supportedTypes),
+                        characterTimelineQueryRepository.findFactDisplaySources(
+                                workId,
+                                characterId,
+                                supportedTypes
+                        ),
                         schemas
                 ),
                 characterTimelineMapper.toEpisodeResponses(filteredEpisodeCounts),

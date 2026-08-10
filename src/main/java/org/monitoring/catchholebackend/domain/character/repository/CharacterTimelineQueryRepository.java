@@ -74,6 +74,39 @@ public class CharacterTimelineQueryRepository {
                 .getResultList();
     }
 
+    /**
+     * factKey별 현재 Fact를 우선하고, 현재 Fact가 없으면 가장 최근 이력을 앞에 둔다.
+     * Mapper는 첫 항목의 valueJson을 사용해 수동·레거시 설정의 저장된 표시명을 복원한다.
+     */
+    public List<CharacterTimelineFactDisplaySource> findFactDisplaySources(
+            UUID workId,
+            UUID characterId,
+            List<CharacterFactType> supportedFactTypes
+    ) {
+        return entityManager.createQuery("""
+                        select new org.monitoring.catchholebackend.domain.character.repository.CharacterTimelineFactDisplaySource(
+                            fact.factType,
+                            fact.factKey,
+                            fact.valueJson
+                        )
+                        from CharacterFact fact
+                        join fact.workCharacter character
+                        where %s
+                        order by fact.factType asc,
+                                 fact.factKey asc,
+                                 fact.isCurrent desc,
+                                 case when fact.effectiveFromEpisodeNo is null then 1 else 0 end asc,
+                                 fact.effectiveFromEpisodeNo desc,
+                                 fact.createdAt desc,
+                                 fact.id asc
+                        """.formatted(BASE_CONDITION), CharacterTimelineFactDisplaySource.class)
+                .setParameter("workId", workId)
+                .setParameter("characterId", characterId)
+                .setParameter("characterStatus", CharacterStatus.ACTIVE)
+                .setParameter("supportedFactTypes", supportedFactTypes)
+                .getResultList();
+    }
+
     public long countFacts(
             UUID workId,
             UUID characterId,

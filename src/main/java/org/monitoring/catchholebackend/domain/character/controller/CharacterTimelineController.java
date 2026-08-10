@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.UUID;
@@ -86,7 +87,7 @@ public class CharacterTimelineController {
                     example = "STAT,PROFILE"
             )
             @RequestParam(required = false)
-            List<CharacterTimelineFactFilter> factTypes,
+            List<@NotNull(message = "Fact 유형은 비어 있을 수 없습니다.") CharacterTimelineFactFilter> factTypes,
             @Parameter(
                     description = "종류별 보기에서 OR로 적용할 canonical Fact key 목록.",
                     example = "stats.strength,profile.height"
@@ -137,7 +138,7 @@ public class CharacterTimelineController {
             CharacterTimelineFactFilter factType,
             @Parameter(description = "종류별 보기에서 OR로 적용할 상위 Fact 유형 목록")
             @RequestParam(required = false)
-            List<CharacterTimelineFactFilter> factTypes,
+            List<@NotNull(message = "Fact 유형은 비어 있을 수 없습니다.") CharacterTimelineFactFilter> factTypes,
             @Parameter(description = "종류별 보기에서 OR로 적용할 canonical Fact key 목록")
             @RequestParam(required = false)
             List<@NotBlank @Size(max = 150) String> factKeys,
