@@ -11,7 +11,10 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.auth.security.MemberPrincipal;
@@ -78,13 +81,27 @@ public class CharacterTimelineController {
                     example = "STATUS"
             )
             @RequestParam(defaultValue = "ALL")
-            CharacterTimelineFactFilter factType
+            CharacterTimelineFactFilter factType,
+            @Parameter(
+                    description = "종류별 보기에서 OR로 적용할 상위 Fact 유형 목록. ALL은 다른 값·factKeys와 함께 쓸 수 없습니다.",
+                    example = "STAT,PROFILE"
+            )
+            @RequestParam(required = false)
+            List<@NotNull(message = "Fact 유형은 비어 있을 수 없습니다.") CharacterTimelineFactFilter> factTypes,
+            @Parameter(
+                    description = "종류별 보기에서 OR로 적용할 canonical Fact key 목록.",
+                    example = "stats.strength,profile.height"
+            )
+            @RequestParam(required = false)
+            List<@NotBlank @Size(max = 150) String> factKeys
     ) {
         return CommonResponse.success(characterTimelineService.getSummary(
                 member.memberId(),
                 workId,
                 characterId,
-                factType
+                factType,
+                factTypes,
+                factKeys
         ));
     }
 
@@ -119,6 +136,12 @@ public class CharacterTimelineController {
             @PathVariable UUID characterId,
             @RequestParam(defaultValue = "ALL")
             CharacterTimelineFactFilter factType,
+            @Parameter(description = "종류별 보기에서 OR로 적용할 상위 Fact 유형 목록")
+            @RequestParam(required = false)
+            List<@NotNull(message = "Fact 유형은 비어 있을 수 없습니다.") CharacterTimelineFactFilter> factTypes,
+            @Parameter(description = "종류별 보기에서 OR로 적용할 canonical Fact key 목록")
+            @RequestParam(required = false)
+            List<@NotBlank @Size(max = 150) String> factKeys,
             @RequestParam(required = false)
             @Size(max = 512, message = "cursor는 512자 이하여야 합니다.")
             String cursor,
@@ -135,6 +158,8 @@ public class CharacterTimelineController {
                 workId,
                 characterId,
                 factType,
+                factTypes,
+                factKeys,
                 cursor,
                 fromEpisodeNo,
                 size

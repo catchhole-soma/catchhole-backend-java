@@ -4,7 +4,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
-import org.monitoring.catchholebackend.domain.character.type.CharacterTimelineFactFilter;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.stereotype.Component;
 
@@ -15,9 +14,10 @@ import org.springframework.stereotype.Component;
 @Component
 public class CharacterTimelineCursorCodec {
 
-    private static final String VERSION = "1";
+    private static final String VERSION = "2";
     private static final int MAX_CURSOR_LENGTH = 512;
     private static final int MAX_OFFSET = 1_000_000;
+    private static final int FILTER_FINGERPRINT_LENGTH = 43;
 
     public String encode(CharacterTimelineCursor cursor) {
         String fromEpisodeNo = cursor.fromEpisodeNo() == null
@@ -27,7 +27,7 @@ public class CharacterTimelineCursorCodec {
                 ":",
                 VERSION,
                 cursor.characterId().toString(),
-                cursor.factType().name(),
+                cursor.filterFingerprint(),
                 fromEpisodeNo,
                 Integer.toString(cursor.offset())
         );
@@ -52,13 +52,16 @@ public class CharacterTimelineCursorCodec {
             }
 
             UUID characterId = UUID.fromString(fields[1]);
-            CharacterTimelineFactFilter factType = CharacterTimelineFactFilter.valueOf(fields[2]);
+            String filterFingerprint = fields[2];
             Integer fromEpisodeNo = fields[3].isBlank() ? null : Integer.valueOf(fields[3]);
             int offset = Integer.parseInt(fields[4]);
-            if ((fromEpisodeNo != null && fromEpisodeNo < 1) || offset < 0 || offset > MAX_OFFSET) {
+            if (filterFingerprint.length() != FILTER_FINGERPRINT_LENGTH
+                    || (fromEpisodeNo != null && fromEpisodeNo < 1)
+                    || offset < 0
+                    || offset > MAX_OFFSET) {
                 throw invalidCursor();
             }
-            return new CharacterTimelineCursor(characterId, factType, fromEpisodeNo, offset);
+            return new CharacterTimelineCursor(characterId, filterFingerprint, fromEpisodeNo, offset);
         } catch (IllegalArgumentException exception) {
             throw invalidCursor();
         }

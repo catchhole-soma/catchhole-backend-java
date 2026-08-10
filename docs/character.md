@@ -236,19 +236,22 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 
 ### 캐릭터 설정 이력 타임라인
 
-타임라인은 현재값을 다시 계산하는 기능이 아니라, 사용자에게 확정된 `CharacterFact`의 현재·과거 행을 캐릭터별 발생 순서로 보여주는 읽기 모델입니다. 따라서 새 entity나 중복 이력 테이블을 만들지 않고 기존 캐릭터 목록과 Fact·근거 조회 흐름을 재사용합니다.
+타임라인은 현재값을 다시 계산하는 기능이 아니라, 사용자에게 확정된 `CharacterFact`의 현재·과거 행을 캐릭터별 발생 순서로 보여주는 읽기 모델입니다. 따라서 새 entity나 중복 이력 테이블을 만들지 않고 기존 캐릭터 상세와 Fact·근거 조회 흐름을 재사용합니다. 화면 진입점도 별도 타임라인 탭이 아니라 캐릭터 DB 상세의 `변화 이력`이며, 별도 선택 화면 없이 같은 상세에서 현재 설정과 종류 전체를 고른 뒤 타임라인으로 전환합니다.
 
-- 캐릭터 카드 목록은 기존 `GET /api/v1/works/{workId}/characters`를 사용합니다. 이름과 첫 등장 회차를 타임라인용으로 다시 조회하거나 저장하지 않습니다.
-- 모달 요약은 `GET /api/v1/works/{workId}/characters/{characterId}/timeline/summary`를 사용합니다. 전체·유형별 Fact 개수, Fact가 존재하는 회차, 회차 없는 수동 Fact 개수를 반환합니다.
+- 현재 세부 선택지는 기존 `GET /api/v1/works/{workId}/characters/{characterId}`의 current 설정 key를 사용합니다. 별도 목록 DTO나 현재 key 전용 API를 추가하지 않습니다.
+- 모달 요약은 `GET /api/v1/works/{workId}/characters/{characterId}/timeline/summary`를 사용합니다. 전체·유형별 Fact 개수, 캐릭터가 이력에서 가진 `factKey` facet, 현재 필터에서 Fact가 존재하는 회차, 회차 없는 수동 Fact 개수를 반환합니다. 세부 선택은 기존 상세 응답에서 끝내고, facet은 적용된 canonical key의 사용자용 표시명과 전체 이력 집계에 사용합니다. 상위 유형 전체 조회는 과거에만 존재한 key도 계속 포함합니다.
 - 실제 이력은 같은 경로의 `GET` 요청으로 조회합니다. 기본 크기는 20개이며 응답의 불투명 `nextCursor`를 다음 요청에 그대로 전달합니다.
-- 회차 바로가기는 첫 요청에만 `fromEpisodeNo`를 보내고, 이후에는 응답 cursor만 사용합니다. cursor와 `fromEpisodeNo`를 함께 보내거나 다른 캐릭터·필터의 cursor를 재사용하면 `CHARACTER_TIMELINE_CURSOR_INVALID / 400`으로 거절합니다.
-- 필터는 `ALL`, `PROFILE`, `AGE`, `LEVEL`, `STAT`, `SKILL`, `ITEM`, `STATUS`를 지원합니다. `ALL`은 저장 enum이 아닌 조회 전용 값이며, 작중 시간 의미가 정해지지 않은 `TIME`은 MVP 타임라인에서 제외합니다.
+- 회차 바로가기는 첫 요청에만 `fromEpisodeNo`를 보내고, 이후에는 응답 cursor만 사용합니다. cursor와 `fromEpisodeNo`를 함께 보내거나 다른 캐릭터·정규화된 다중 선택의 cursor를 재사용하면 `CHARACTER_TIMELINE_CURSOR_INVALID / 400`으로 거절합니다.
+- 기존 전체 보기의 단일 필터는 `factType=ALL|PROFILE|AGE|LEVEL|STAT|SKILL|ITEM|STATUS`를 유지합니다. `ALL`은 저장 enum이 아닌 조회 전용 값이며, 작중 시간 의미가 정해지지 않은 `TIME`은 MVP 타임라인에서 제외합니다.
+- 종류별 보기는 상위 유형 목록 `factTypes`와 하위 canonical key 목록 `factKeys`를 사용합니다. 두 목록은 `factType IN (...) OR factKey IN (...)`로 결합하므로 `PROFILE` 전체와 `stats.strength` 같은 서로 다른 종류를 한 타임라인에서 함께 볼 수 있습니다.
+- 종류별 필터는 중복 제거와 고정 정렬 후 cursor fingerprint에 결합합니다. `ALL`과 다른 다중 조건을 함께 보내거나, 기존 단일 `factType`의 `ALL` 이외 값과 다중 조건을 섞은 모호한 요청은 `CHARACTER_TIMELINE_FILTER_INVALID / 400`으로 거절합니다.
+- `CharacterTimelineFactResponse.factKey`는 하위 선택의 안정적인 식별자입니다. 화면 표시명은 schema와 함께 바뀔 수 있으므로 요청 조건이나 URL 식별자로 사용하지 않습니다.
 - 정렬은 출처 회차 오름차순 → 후보의 첫 원문 근거 offset 오름차순 → 생성 시각 오름차순 → Fact ID 오름차순입니다. 같은 청크 안에서 AI 배열 순서를 신뢰하지 않고 실제 원문 offset을 우선합니다.
 - 출처 회차는 `CharacterFact.sourceEpisode`를 우선하고, 레거시 Fact만 연결 후보의 episode로 보완합니다. 이 규칙은 Fact 상세·타임라인·원문 근거 API가 `CharacterFactSourceResolver`를 함께 사용합니다.
 - 회차가 없는 수동 Fact는 회차 Fact 뒤에 표시합니다. `fromEpisodeNo`로 이동해도 수동 Fact는 마지막에 포함됩니다.
 - `hasEvidence=true`인 항목의 원문은 기존 `GET /api/v1/works/{workId}/character-facts/{characterFactId}/evidence`로 지연 조회합니다. 타임라인 응답에 전체 원문과 evidence span을 중복 포함하지 않습니다.
 
-현재 cursor 내부 구현은 데이터 규모를 고려한 고정 정렬 + offset 방식입니다. API 사용자는 내부 값을 해석하지 않아야 합니다. 동시 삽입이 잦거나 캐릭터별 Fact가 충분히 커지면 정렬 키 기반 keyset cursor로 교체하되 응답 계약은 유지합니다.
+현재 cursor 내부 구현은 데이터 규모를 고려한 고정 정렬 + offset 방식입니다. cursor에는 캐릭터, 필터 fingerprint, 시작 회차와 offset이 결합되며 API 사용자는 내부 값을 해석하지 않아야 합니다. 동시 삽입이 잦거나 캐릭터별 Fact가 충분히 커지면 정렬 키 기반 keyset cursor로 교체하되 응답 계약은 유지합니다.
 
 ## 상태 모델
 
