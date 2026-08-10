@@ -4,6 +4,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.math.BigDecimal;
@@ -558,6 +559,67 @@ class CharacterFactControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("타임라인 facet은 수동 설정의 현재 또는 최신 이력 JSON에서 표시명을 복원한다")
+    void timelineFacetUsesRepresentativeFactValueForCustomDisplayName() throws Exception {
+        WorkCharacter character = workCharacterRepository.save(character(work, "아리아"));
+        saveFact(
+                character,
+                null,
+                CharacterFactType.PROFILE,
+                "profile.manual_motto",
+                "포기하지 않는다",
+                JsonNodeFactory.instance.objectNode()
+                        .put("value", "포기하지 않는다")
+                        .put("name", "이전 좌우명"),
+                firstEpisode,
+                1,
+                false
+        );
+        saveFact(
+                character,
+                null,
+                CharacterFactType.PROFILE,
+                "profile.manual_motto",
+                "끝까지 간다",
+                JsonNodeFactory.instance.objectNode()
+                        .put("value", "끝까지 간다")
+                        .put("name", "좌우명"),
+                secondEpisode,
+                2,
+                true
+        );
+        saveFact(
+                character,
+                null,
+                CharacterFactType.PROFILE,
+                "profile.manual_title",
+                "북부의 수호자",
+                JsonNodeFactory.instance.objectNode()
+                        .put("value", "북부의 수호자")
+                        .put("name", "이전 칭호"),
+                firstEpisode,
+                1,
+                false
+        );
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/characters/{characterId}/timeline/summary",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .queryParam("factTypes", "PROFILE")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.factFacets[0].factKeys[0].factKey")
+                        .value("profile.manual_motto"))
+                .andExpect(jsonPath("$.data.factFacets[0].factKeys[0].displayName").value("좌우명"))
+                .andExpect(jsonPath("$.data.factFacets[0].factKeys[0].count").value(2))
+                .andExpect(jsonPath("$.data.factFacets[0].factKeys[1].factKey")
+                        .value("profile.manual_title"))
+                .andExpect(jsonPath("$.data.factFacets[0].factKeys[1].displayName").value("이전 칭호"));
+    }
+
+    @Test
     @DisplayName("타임라인은 회차와 첫 근거 offset 순으로 조회하고 cursor 다음 묶음에 수동 Fact를 반환한다")
     void timelineOrdersFactsAndContinuesWithCursor() throws Exception {
         WorkCharacter character = workCharacterRepository.save(character(work, "아리아"));
@@ -704,6 +766,21 @@ class CharacterFactControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("타임라인의 빈 상위 유형 query 값은 서버 오류 없이 400으로 응답한다")
+    void timelineRejectsEmptyFactTypeQueryValue() throws Exception {
+        WorkCharacter character = workCharacterRepository.save(character(work, "아리아"));
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/characters/{characterId}/timeline",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .queryParam("factTypes", "")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("OpenAPI에 CharacterFact 검색·상세와 캐릭터 타임라인 계약을 노출한다")
     void openApiContainsCharacterFactContract() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))
@@ -805,6 +882,30 @@ class CharacterFactControllerIntegrationTest {
             Integer effectiveFromEpisodeNo,
             boolean current
     ) {
+        return saveFact(
+                character,
+                candidate,
+                factType,
+                factKey,
+                factValue,
+                factValue == null ? null : JsonNodeFactory.instance.objectNode().put("value", factValue),
+                sourceEpisode,
+                effectiveFromEpisodeNo,
+                current
+        );
+    }
+
+    private CharacterFact saveFact(
+            WorkCharacter character,
+            SettingCandidate candidate,
+            CharacterFactType factType,
+            String factKey,
+            String factValue,
+            JsonNode valueJson,
+            Episode sourceEpisode,
+            Integer effectiveFromEpisodeNo,
+            boolean current
+    ) {
         CharacterFact fact = CharacterFact.create(
                 character,
                 candidate,
@@ -812,7 +913,7 @@ class CharacterFactControllerIntegrationTest {
                 factKey,
                 factValue,
                 factValue,
-                factValue == null ? null : JsonNodeFactory.instance.objectNode().put("value", factValue),
+                valueJson,
                 sourceEpisode,
                 candidate == null ? null : candidate.getSourceChunkId(),
                 null,

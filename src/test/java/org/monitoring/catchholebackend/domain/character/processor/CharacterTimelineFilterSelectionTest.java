@@ -3,6 +3,7 @@ package org.monitoring.catchholebackend.domain.character.processor;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -58,5 +59,38 @@ class CharacterTimelineFilterSelectionTest {
                 .isInstanceOf(AppException.class)
                 .extracting(exception -> ((AppException) exception).getResultCode())
                 .isEqualTo(CharacterErrorCode.CHARACTER_TIMELINE_FILTER_INVALID);
+    }
+
+    @Test
+    @DisplayName("빈 상위 유형 항목은 잘못된 필터로 거절한다")
+    void rejectsNullFactTypeEntry() {
+        List<CharacterTimelineFactFilter> factTypes = new ArrayList<>();
+        factTypes.add(null);
+
+        assertThatThrownBy(() -> CharacterTimelineFilterSelection.from(
+                CharacterTimelineFactFilter.ALL,
+                factTypes,
+                null
+        ))
+                .isInstanceOf(AppException.class)
+                .extracting(exception -> ((AppException) exception).getResultCode())
+                .isEqualTo(CharacterErrorCode.CHARACTER_TIMELINE_FILTER_INVALID);
+    }
+
+    @Test
+    @DisplayName("comma 위치만 다른 factKey 조합도 서로 다른 cursor fingerprint를 만든다")
+    void distinguishesFactKeySequencesContainingComma() {
+        CharacterTimelineFilterSelection first = CharacterTimelineFilterSelection.from(
+                CharacterTimelineFactFilter.ALL,
+                null,
+                List.of("status.a", "status.b,status.c")
+        );
+        CharacterTimelineFilterSelection second = CharacterTimelineFilterSelection.from(
+                CharacterTimelineFactFilter.ALL,
+                null,
+                List.of("status.a,status.b", "status.c")
+        );
+
+        assertThat(first.cursorFingerprint()).isNotEqualTo(second.cursorFingerprint());
     }
 }
