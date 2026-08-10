@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.worldsetting.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -40,7 +41,6 @@ import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSett
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateGroupDismissRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateConfirmRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDismissRequest;
-import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateUpdateRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
@@ -145,6 +145,71 @@ class WorldSettingCandidateControllerIntegrationTest {
     @AfterEach
     void tearDown() {
         clearData();
+    }
+
+    @Test
+    @DisplayName("작가가 수정안을 저장하면 재비교 없이 후보를 새 분류·대상 그룹으로 즉시 이동한다")
+    void updateDecisionMovesPendingCandidateToEditedGroupWithoutRecomparison() throws Exception {
+        WorldSettingCandidate movedCandidate = completedAddCandidate(
+                WorldSettingCategory.MONSTER,
+                "구울",
+                "이동 방식",
+                "사람과 비슷한 체형으로 4족 보행한다"
+        );
+        WorldSettingCandidate remainingCandidate = completedAddCandidate(
+                WorldSettingCategory.MONSTER,
+                "구울",
+                "약점",
+                "햇빛에 약하다"
+        );
+        candidateRepository.saveAllAndFlush(List.of(movedCandidate, remainingCandidate));
+
+        mockMvc.perform(patch("/api/v1/works/{workId}/world-setting-candidates/decisions", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of(
+                                "batchId", uploadBatch.getId(),
+                                "candidates", List.of(java.util.Map.of(
+                                        "candidateId", movedCandidate.getId(),
+                                        "operation", "ADD",
+                                        "category", "LOCATION",
+                                        "subjectName", "미궁",
+                                        "settingName", "이동 방식",
+                                        "value", "사람과 비슷한 체형으로 4족 보행한다"
+                                ))
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groupKey").value("LOCATION|미궁"))
+                .andExpect(jsonPath("$.data.candidates[0].reviewStatus").value("PENDING_REVIEW"))
+                .andExpect(jsonPath("$.data.candidates[0].comparisonStatus").value("COMPLETED"))
+                .andExpect(jsonPath("$.data.candidates[0].userModified").value(true))
+                .andExpect(jsonPath("$.data.candidates[0].finalCategory").value("LOCATION"))
+                .andExpect(jsonPath("$.data.candidates[0].finalSubjectName").value("미궁"))
+                .andExpect(jsonPath("$.data.candidates[0].reviewedAt").doesNotExist());
+
+        mockMvc.perform(get("/api/v1/works/{workId}/world-setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groups.content.length()").value(2))
+                .andExpect(jsonPath("$.data.groups.content[*].subjectName")
+                        .value(containsInAnyOrder("구울", "미궁")))
+                .andExpect(jsonPath("$.data.groups.content[?(@.subjectName == '미궁')].category")
+                        .value("LOCATION"))
+                .andExpect(jsonPath("$.data.groups.content[?(@.subjectName == '미궁')].changeCount")
+                        .value(1))
+                .andExpect(jsonPath("$.data.groups.content[?(@.subjectName == '구울')].changeCount")
+                        .value(1));
+
+        WorldSettingCandidate persisted = candidateRepository.findById(movedCandidate.getId()).orElseThrow();
+        assertThat(persisted.getFinalCategory()).isEqualTo(WorldSettingCategory.LOCATION);
+        assertThat(persisted.getFinalSubjectName()).isEqualTo("미궁");
+        assertThat(persisted.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.PENDING_REVIEW);
+        assertThat(persisted.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.COMPLETED);
+        assertThat(persisted.getReviewedAt()).isNull();
+        assertThat(analysisJobRepository.findAll())
+                .filteredOn(job -> job.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON)
+                .isEmpty();
     }
 
     @Test
@@ -299,10 +364,13 @@ class WorldSettingCandidateControllerIntegrationTest {
         assertThat(candidateRepository.findAll())
                 .extracting(WorldSettingCandidate::getAppliedWorldSettingVersion)
                 .containsOnly(0L);
+        assertThat(candidateRepository.findAll())
+                .extracting(WorldSettingCandidate::getComparisonStatus)
+                .containsOnly(WorldSettingComparisonStatus.COMPLETED);
     }
 
     @Test
-    @DisplayName("같은 대상에서 설정명이 중복되면 합치거나 하나만 선택하라는 안내를 반환한다")
+    @DisplayName("같은 대상에서 설정명이 중복되면 합치거나 중복 후보를 제외하라는 안내를 반환한다")
     void confirmGroupExplainsDuplicateSettingNames() throws Exception {
         WorldSettingCandidate first = completedAddCandidate("바바리안", "기능", "서로 대화할 수 있다");
         WorldSettingCandidate second = completedAddCandidate("바바리안", "기능", "신호를 보낼 수 있다");
@@ -319,7 +387,7 @@ class WorldSettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.error.code")
                         .value("WORLD_SETTING_CANDIDATE_SETTING_NAME_DUPLICATED"))
                 .andExpect(jsonPath("$.message")
-                        .value("같은 설정명이 여러 번 포함되어 있습니다. 내용을 하나로 합치거나 하나만 선택해 주세요."));
+                        .value("같은 범위와 설정명이 여러 번 포함되어 있습니다. 내용을 하나로 합치거나 중복 후보를 제외해 주세요."));
 
         assertThat(worldSettingRepository.countByWorkId(work.getId())).isZero();
         assertThat(candidateRepository.findAll())
@@ -328,34 +396,104 @@ class WorldSettingCandidateControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("신규 대상을 일부 key로만 확정하면 남은 같은 그룹 row만 재비교 대상으로 전환한다")
-    void partialNewTargetConfirmationMarksRemainingRowsForRecomparison() throws Exception {
-        WorldSettingCandidate selected = completedAddCandidate("바바리안", "서식지", "혹한 지역");
-        WorldSettingCandidate remaining = completedAddCandidate("바바리안", "사회 구조", "부족 단위로 생활");
-        candidateRepository.saveAllAndFlush(List.of(selected, remaining));
+    @DisplayName("서로 다른 범위의 동일 설정명 후보는 한 그룹에서 각각 확정한다")
+    void confirmGroupAllowsSameSettingNameInDifferentScopes() throws Exception {
+        WorldSettingCandidate firstFloor = completedAddCandidate(
+                "미궁",
+                "1층",
+                "방향별 몬스터 출몰 규칙",
+                "동쪽에서 고블린이 출몰한다."
+        );
+        WorldSettingCandidate secondFloor = completedAddCandidate(
+                "미궁",
+                "2층",
+                "방향별 몬스터 출몰 규칙",
+                "중앙부에서 언데드가 출몰한다."
+        );
+        candidateRepository.saveAllAndFlush(List.of(firstFloor, secondFloor));
 
         mockMvc.perform(post("/api/v1/works/{workId}/world-setting-candidates/group-confirm", work.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(groupConfirmRequest(
-                                decision(selected, WorldSettingOperation.ADD, "서식지", "혹한 지역")
+                                decision(
+                                        firstFloor,
+                                        WorldSettingOperation.ADD,
+                                        "1층",
+                                        "방향별 몬스터 출몰 규칙",
+                                        "동쪽에서 고블린이 출몰한다."
+                                ),
+                                decision(
+                                        secondFloor,
+                                        WorldSettingOperation.ADD,
+                                        "2층",
+                                        "방향별 몬스터 출몰 규칙",
+                                        "중앙부에서 언데드가 출몰한다."
+                                )
                         ))))
-                .andExpect(status().isOk());
-
-        assertThat(candidateRepository.findById(selected.getId()).orElseThrow().getReviewStatus())
-                .isEqualTo(WorldSettingReviewStatus.CONFIRMED);
-        WorldSettingCandidate stale = candidateRepository.findById(remaining.getId()).orElseThrow();
-        assertThat(stale.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.RECOMPARISON_REQUIRED);
-        assertThat(stale.getComparisonErrorMessage()).contains("일부 설정");
-
-        mockMvc.perform(get("/api/v1/works/{workId}/world-setting-candidates", work.getId())
-                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
-                        .queryParam("batchId", uploadBatch.getId().toString())
-                        .queryParam("reviewStatus", "PENDING_REVIEW"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.groups.content[0].status")
-                        .value("RECOMPARISON_REQUIRED"))
-                .andExpect(jsonPath("$.data.groups.content[0].recomparisonScope").value("ROW"));
+                .andExpect(jsonPath("$.data.candidates[*].finalScopeName")
+                        .value(containsInAnyOrder("1층", "2층")));
+
+        WorldSetting applied = worldSettingRepository
+                .findByWorkIdAndCategoryAndNormalizedSubjectName(
+                        work.getId(), WorldSettingCategory.RACE, "미궁"
+                ).orElseThrow();
+        assertThat(applied.getVersion()).isZero();
+        assertThat(applied.getPropertyValue("1층", "방향별 몬스터 출몰 규칙"))
+                .isEqualTo("동쪽에서 고블린이 출몰한다.");
+        assertThat(applied.getPropertyValue("2층", "방향별 몬스터 출몰 규칙"))
+                .isEqualTo("중앙부에서 언데드가 출몰한다.");
+    }
+
+    @Test
+    @DisplayName("같은 대상 그룹의 row별 분류·대상 수정안을 최종 대상별로 나누어 확정한다")
+    void confirmGroupSplitsAuthorEditedRowsByFinalTarget() throws Exception {
+        WorldSettingCandidate first = completedAddCandidate("구울", "출몰 규칙", "밤에 배회한다.");
+        WorldSettingCandidate second = completedAddCandidate("구울", "출몰 규칙", "습지에서 배회한다.");
+        candidateRepository.saveAllAndFlush(List.of(first, second));
+        WorldSettingCandidateGroupConfirmRequest.Decision firstDecision =
+                new WorldSettingCandidateGroupConfirmRequest.Decision(
+                        first.getId(),
+                        WorldSettingOperation.ADD,
+                        WorldSettingCategory.RACE,
+                        "구울",
+                        "출몰 규칙",
+                        "밤에 배회한다.",
+                        false,
+                        null
+                );
+        WorldSettingCandidateGroupConfirmRequest.Decision secondDecision =
+                new WorldSettingCandidateGroupConfirmRequest.Decision(
+                        second.getId(),
+                        WorldSettingOperation.ADD,
+                        WorldSettingCategory.MONSTER,
+                        "변종 구울",
+                        "출몰 규칙",
+                        "습지에서 배회한다.",
+                        false,
+                        null
+                );
+
+        mockMvc.perform(post("/api/v1/works/{workId}/world-setting-candidates/group-confirm", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(groupConfirmRequest(firstDecision, secondDecision))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.worldSettingId").doesNotExist())
+                .andExpect(jsonPath("$.data.appliedWorldSettingVersion").doesNotExist())
+                .andExpect(jsonPath("$.data.candidates[*].finalCategory")
+                        .value(containsInAnyOrder("RACE", "MONSTER")))
+                .andExpect(jsonPath("$.data.candidates[*].finalSubjectName")
+                        .value(containsInAnyOrder("구울", "변종 구울")));
+
+        assertThat(worldSettingRepository.countByWorkId(work.getId())).isEqualTo(2);
+        assertThat(worldSettingRepository.findByWorkIdAndCategoryAndNormalizedSubjectName(
+                work.getId(), WorldSettingCategory.RACE, "구울"
+        ).orElseThrow().getPropertyValue("출몰 규칙")).isEqualTo("밤에 배회한다.");
+        assertThat(worldSettingRepository.findByWorkIdAndCategoryAndNormalizedSubjectName(
+                work.getId(), WorldSettingCategory.MONSTER, "변종 구울"
+        ).orElseThrow().getPropertyValue("출몰 규칙")).isEqualTo("습지에서 배회한다.");
     }
 
     @Test
@@ -884,7 +1022,8 @@ class WorldSettingCandidateControllerIntegrationTest {
                         work.getId(), target.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.properties.서식지").value("설원"))
+                .andExpect(jsonPath("$.data.properties[0].settingName").value("서식지"))
+                .andExpect(jsonPath("$.data.properties[0].value").value("설원"))
                 .andExpect(jsonPath("$.data.propertyEvidence[0].latestEvidence").doesNotExist())
                 .andExpect(jsonPath("$.data.propertyEvidence[0].history.length()").value(2))
                 .andExpect(jsonPath("$.data.propertyEvidence[0].history[0].value").value("사막"))
@@ -969,48 +1108,96 @@ class WorldSettingCandidateControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("후보 분류·대상·설정명 수정은 비교 제안을 비우고 전용 Job을 멱등 생성한다")
-    void updateCandidateRequestsRecomparison() throws Exception {
-        WorldSettingCandidate candidate = candidate("바바리안", "서식지", "혹한 지역");
+    @DisplayName("작가가 수정한 ADD 경로가 이미 있으면 재비교 없이 명확한 충돌을 반환한다")
+    void authorEditedAddRejectsExistingPathWithoutRecomparison() throws Exception {
+        WorldSetting target = worldSettingRepository.save(WorldSetting.create(
+                work,
+                WorldSettingCategory.RACE,
+                "미궁",
+                "폐쇄 시점",
+                "100년 전"
+        ));
+        WorldSettingCandidate candidate = candidate("미궁", "출몰 규칙", "동쪽에서 고블린이 출몰한다.");
         candidate.startComparison();
         candidate.completeComparison(
-                null,
+                target,
                 WorldSettingOperation.ADD,
-                "서식지",
+                "출몰 규칙",
                 null,
-                "혹한 지역",
-                "새 대상",
+                "동쪽에서 고블린이 출몰한다.",
+                "새 설정 추가",
                 objectMapper.createObjectNode().put("operation", "ADD"),
                 LocalDateTime.now()
         );
-        candidateRepository.save(candidate);
+        candidateRepository.saveAndFlush(candidate);
 
-        for (int attempt = 0; attempt < 2; attempt++) {
-            mockMvc.perform(patch("/api/v1/works/{workId}/world-setting-candidates/{candidateId}",
-                            work.getId(), candidate.getId())
-                            .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(new WorldSettingCandidateUpdateRequest(
-                                    WorldSettingCategory.LOCATION,
-                                    "북부 설원",
-                                    "기후"
-                            ))))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.category").value("LOCATION"))
-                    .andExpect(jsonPath("$.data.subjectName").value("북부 설원"))
-                    .andExpect(jsonPath("$.data.settingName").value("기후"))
-                    .andExpect(jsonPath("$.data.comparisonStatus").value("PENDING"))
-                    .andExpect(jsonPath("$.data.suggestedOperation").doesNotExist())
-                    .andExpect(jsonPath("$.data.proposedValue").doesNotExist());
-        }
+        mockMvc.perform(post("/api/v1/works/{workId}/world-setting-candidates/group-confirm", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(groupConfirmRequest(
+                                decision(candidate, WorldSettingOperation.ADD, "폐쇄 시점", "90년 전")
+                        ))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code")
+                        .value("WORLD_SETTING_CANDIDATE_ADD_PATH_DUPLICATED"))
+                .andExpect(jsonPath("$.message")
+                        .value("추가하려는 범위와 설정명이 이미 존재합니다. 설정명을 바꾸거나 수정·병합 방식을 선택해 주세요."));
 
         assertThat(analysisJobRepository.findAll())
                 .filteredOn(job -> job.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON)
-                .singleElement()
-                .satisfies(job -> {
-                    assertThat(job.getWorldSettingCandidate().getId()).isEqualTo(candidate.getId());
-                    assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.PENDING);
-                });
+                .isEmpty();
+        assertThat(candidateRepository.findById(candidate.getId()).orElseThrow().getComparisonStatus())
+                .isEqualTo(WorldSettingComparisonStatus.COMPLETED);
+        assertThat(worldSettingRepository.findById(target.getId()).orElseThrow().getPropertyValue("폐쇄 시점"))
+                .isEqualTo("100년 전");
+    }
+
+    @Test
+    @DisplayName("작가가 수정한 범위 경로는 LLM 재비교 없이 직접 병합한다")
+    void authorEditedScopePathAppliesWithoutRecomparison() throws Exception {
+        WorldSetting target = worldSettingRepository.save(WorldSetting.create(
+                work,
+                WorldSettingCategory.RACE,
+                "미궁",
+                "폐쇄 시점",
+                "100년 전"
+        ));
+        WorldSettingCandidate candidate = candidate("미궁", "출몰 규칙", "동쪽에서 고블린이 출몰한다.");
+        candidate.startComparison();
+        candidate.completeComparison(
+                target,
+                WorldSettingOperation.ADD,
+                "출몰 규칙",
+                null,
+                "동쪽에서 고블린이 출몰한다.",
+                "새 설정 추가",
+                objectMapper.createObjectNode().put("operation", "ADD"),
+                LocalDateTime.now()
+        );
+        candidateRepository.saveAndFlush(candidate);
+
+        mockMvc.perform(post("/api/v1/works/{workId}/world-setting-candidates/group-confirm", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(groupConfirmRequest(
+                                decision(
+                                        candidate,
+                                        WorldSettingOperation.ADD,
+                                        "1층",
+                                        "출몰 규칙",
+                                        "동쪽에서 고블린이 출몰한다."
+                                )
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidates[0].comparisonStatus").value("COMPLETED"))
+                .andExpect(jsonPath("$.data.candidates[0].finalScopeName").value("1층"));
+
+        assertThat(analysisJobRepository.findAll())
+                .filteredOn(job -> job.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON)
+                .isEmpty();
+        assertThat(worldSettingRepository.findById(target.getId()).orElseThrow()
+                .getPropertyValue("1층", "출몰 규칙"))
+                .isEqualTo("동쪽에서 고블린이 출몰한다.");
     }
 
     @Test
@@ -1050,12 +1237,22 @@ class WorldSettingCandidateControllerIntegrationTest {
     }
 
     private WorldSettingCandidate candidate(String subjectName, String settingName, String value) {
+        return candidate(subjectName, null, settingName, value);
+    }
+
+    private WorldSettingCandidate candidate(
+            String subjectName,
+            String scopeName,
+            String settingName,
+            String value
+    ) {
         return WorldSettingCandidate.create(
                 work,
                 episode,
                 analysisJob,
                 WorldSettingCategory.RACE,
                 subjectName,
+                scopeName,
                 settingName,
                 value,
                 objectMapper.createArrayNode().add(
@@ -1074,11 +1271,58 @@ class WorldSettingCandidateControllerIntegrationTest {
             String settingName,
             String value
     ) {
-        WorldSettingCandidate candidate = candidate(subjectName, settingName, value);
+        return completedAddCandidate(subjectName, null, settingName, value);
+    }
+
+    private WorldSettingCandidate completedAddCandidate(
+            String subjectName,
+            String scopeName,
+            String settingName,
+            String value
+    ) {
+        WorldSettingCandidate candidate = candidate(subjectName, scopeName, settingName, value);
         candidate.startComparison();
         candidate.completeComparison(
                 null,
+                WorldSettingConsolidationStatus.SINGLE,
                 WorldSettingOperation.ADD,
+                scopeName,
+                settingName,
+                null,
+                value,
+                "새 대상 또는 설정 추가",
+                objectMapper.createObjectNode().put("operation", "ADD"),
+                LocalDateTime.now()
+        );
+        return candidate;
+    }
+
+    private WorldSettingCandidate completedAddCandidate(
+            WorldSettingCategory category,
+            String subjectName,
+            String settingName,
+            String value
+    ) {
+        WorldSettingCandidate candidate = WorldSettingCandidate.create(
+                work,
+                episode,
+                analysisJob,
+                category,
+                subjectName,
+                settingName,
+                value,
+                objectMapper.createArrayNode().add(
+                        objectMapper.createObjectNode().put("quote", "%s은 %s다.".formatted(subjectName, value))
+                ),
+                new BigDecimal("0.9500"),
+                objectMapper.createObjectNode().put("subjectName", subjectName)
+        );
+        candidate.startComparison();
+        candidate.completeComparison(
+                null,
+                WorldSettingConsolidationStatus.SINGLE,
+                WorldSettingOperation.ADD,
+                null,
                 settingName,
                 null,
                 value,
@@ -1095,11 +1339,22 @@ class WorldSettingCandidateControllerIntegrationTest {
             String settingName,
             String value
     ) {
+        return decision(candidate, operation, null, settingName, value);
+    }
+
+    private WorldSettingCandidateGroupConfirmRequest.Decision decision(
+            WorldSettingCandidate candidate,
+            WorldSettingOperation operation,
+            String scopeName,
+            String settingName,
+            String value
+    ) {
         return new WorldSettingCandidateGroupConfirmRequest.Decision(
                 candidate.getId(),
                 operation,
                 WorldSettingCategory.RACE,
-                "바바리안",
+                candidate.getSubjectName(),
+                scopeName,
                 settingName,
                 value,
                 false,

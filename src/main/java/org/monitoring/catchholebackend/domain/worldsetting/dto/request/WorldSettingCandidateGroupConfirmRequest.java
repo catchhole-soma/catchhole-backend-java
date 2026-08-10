@@ -23,11 +23,36 @@ public record WorldSettingCandidateGroupConfirmRequest(
             @NotNull WorldSettingOperation operation,
             @NotNull WorldSettingCategory category,
             @NotBlank @Size(max = 100) String subjectName,
+            @Size(max = 100) @Schema(description = "최종 선택적 한 단계 범위", nullable = true)
+            String scopeName,
             @NotBlank @Size(max = 100) String settingName,
             @NotBlank String value,
             @Schema(description = "서로 다른 추출 내용을 사용자가 최종값으로 정리했는지 여부", nullable = true)
             Boolean conflictResolved,
             String reviewNote
     ) {
+
+        public Decision(
+                UUID candidateId,
+                WorldSettingOperation operation,
+                WorldSettingCategory category,
+                String subjectName,
+                String settingName,
+                String value,
+                Boolean conflictResolved,
+                String reviewNote
+        ) {
+            this(
+                    candidateId,
+                    operation,
+                    category,
+                    subjectName,
+                    null,
+                    settingName,
+                    value,
+                    conflictResolved,
+                    reviewNote
+            );
+        }
     }
 }

@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -33,6 +34,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -103,7 +105,9 @@ class WorldSettingControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.category").value("RACE"))
                 .andExpect(jsonPath("$.data.subjectName").value("북부 바바리안"))
-                .andExpect(jsonPath("$.data.properties['사회 구조']").value("부족 단위로 생활"))
+                .andExpect(jsonPath("$.data.properties[0].scopeName").doesNotExist())
+                .andExpect(jsonPath("$.data.properties[0].settingName").value("사회 구조"))
+                .andExpect(jsonPath("$.data.properties[0].value").value("부족 단위로 생활"))
                 .andExpect(jsonPath("$.data.propertyCount").value(1))
                 .andExpect(jsonPath("$.data.version").value(0));
     }
@@ -178,8 +182,10 @@ class WorldSettingControllerIntegrationTest {
                         )))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.version").value(1))
-                .andExpect(jsonPath("$.data.properties.서식지").value("혹한 지역"))
-                .andExpect(jsonPath("$.data.properties.특징").value("전투 종족"));
+                .andExpect(jsonPath("$.data.properties[0].settingName").value("서식지"))
+                .andExpect(jsonPath("$.data.properties[0].value").value("혹한 지역"))
+                .andExpect(jsonPath("$.data.properties[1].settingName").value("특징"))
+                .andExpect(jsonPath("$.data.properties[1].value").value("전투 종족"));
 
         mockMvc.perform(patch("/api/v1/works/{workId}/world-settings/{settingId}/properties",
                         work.getId(), setting.getId())
@@ -190,9 +196,73 @@ class WorldSettingControllerIntegrationTest {
                         )))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.version").value(2))
-                .andExpect(jsonPath("$.data.properties.서식지").doesNotExist())
-                .andExpect(jsonPath("$.data.properties['생활 지역']").value("극지방"))
-                .andExpect(jsonPath("$.data.properties.특징").value("전투 종족"));
+                .andExpect(jsonPath("$.data.properties[0].settingName").value("특징"))
+                .andExpect(jsonPath("$.data.properties[0].value").value("전투 종족"))
+                .andExpect(jsonPath("$.data.properties[1].settingName").value("생활 지역"))
+                .andExpect(jsonPath("$.data.properties[1].value").value("극지방"));
+    }
+
+    @Test
+    @DisplayName("범위가 다른 동일 설정명을 저장하고 범위와 설정명을 함께 이동한다")
+    void createsAndMovesScopedProperties() throws Exception {
+        MvcResult createResult = mockMvc.perform(post("/api/v1/works/{workId}/world-settings", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new WorldSettingCreateRequest(
+                                WorldSettingCategory.LOCATION,
+                                "미궁",
+                                "1층",
+                                "방향별 몬스터 출몰 규칙",
+                                "동쪽에서 고블린이 출몰한다."
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.properties[0].scopeName").value("1층"))
+                .andExpect(jsonPath("$.data.properties[0].settingName")
+                        .value("방향별 몬스터 출몰 규칙"))
+                .andReturn();
+        UUID worldSettingId = UUID.fromString(objectMapper
+                .readTree(createResult.getResponse().getContentAsString())
+                .at("/data/id")
+                .asText());
+
+        mockMvc.perform(post("/api/v1/works/{workId}/world-settings/{settingId}/properties",
+                        work.getId(), worldSettingId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new WorldSettingPropertyCreateRequest(
+                                "2층",
+                                "방향별 몬스터 출몰 규칙",
+                                "중앙부에서 언데드가 출몰한다.",
+                                0L
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.propertyCount").value(2))
+                .andExpect(jsonPath("$.data.properties[1].scopeName").value("2층"));
+
+        mockMvc.perform(patch("/api/v1/works/{workId}/world-settings/{settingId}/properties",
+                        work.getId(), worldSettingId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new WorldSettingPropertyUpdateRequest(
+                                "1층",
+                                "방향별 몬스터 출몰 규칙",
+                                "3층",
+                                "구역별 몬스터 출몰 규칙",
+                                "서쪽에서 오크가 출몰한다.",
+                                1L
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.version").value(2))
+                .andExpect(jsonPath("$.data.properties[1].scopeName").value("3층"))
+                .andExpect(jsonPath("$.data.properties[1].settingName")
+                        .value("구역별 몬스터 출몰 규칙"));
+
+        WorldSetting stored = worldSettingRepository.findById(worldSettingId).orElseThrow();
+        assertThat(stored.getPropertyValue("1층", "방향별 몬스터 출몰 규칙")).isNull();
+        assertThat(stored.getPropertyValue("2층", "방향별 몬스터 출몰 규칙"))
+                .isEqualTo("중앙부에서 언데드가 출몰한다.");
+        assertThat(stored.getPropertyValue("3층", "구역별 몬스터 출몰 규칙"))
+                .isEqualTo("서쪽에서 오크가 출몰한다.");
     }
 
     @Test

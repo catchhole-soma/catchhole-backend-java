@@ -3,7 +3,6 @@ package org.monitoring.catchholebackend.domain.worldsetting.dto.response;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
@@ -14,7 +13,7 @@ public record WorldSettingDetailResponse(
         UUID workId,
         WorldSettingCategory category,
         String subjectName,
-        Map<String, String> properties,
+        List<WorldSettingPropertyResponse> properties,
         int propertyCount,
         @Schema(description = "낙관적 잠금 버전", requiredMode = Schema.RequiredMode.REQUIRED)
         long version,
@@ -25,6 +24,7 @@ public record WorldSettingDetailResponse(
 
     @Schema(description = "현재 설정명별 후보 근거와 확정 이력")
     public record PropertyEvidence(
+            @Schema(nullable = true) String scopeName,
             String settingName,
             @Schema(nullable = true) CandidateEvidence latestEvidence,
             List<CandidateEvidence> history

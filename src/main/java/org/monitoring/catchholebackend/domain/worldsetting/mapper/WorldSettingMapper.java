@@ -1,10 +1,7 @@
 package org.monitoring.catchholebackend.domain.worldsetting.mapper;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.stream.StreamSupport;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
@@ -16,6 +13,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSet
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingDetailResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingEvidenceSpanResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingListItemResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingPropertyResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
 import org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingNameNormalizer;
@@ -36,6 +34,7 @@ public class WorldSettingMapper {
                 work,
                 request.category(),
                 request.subjectName(),
+                request.scopeName(),
                 request.settingName(),
                 request.settingValue()
         );
@@ -46,13 +45,14 @@ public class WorldSettingMapper {
                 work,
                 request.category(),
                 request.subjectName(),
+                request.scopeName(),
                 request.settingName(),
                 request.value()
         );
     }
 
     public WorldSettingListItemResponse toListItemResponse(WorldSetting worldSetting, String query) {
-        Map.Entry<String, JsonNode> matchedProperty = findMatchedProperty(worldSetting, query);
+        WorldSetting.Property matchedProperty = findMatchedProperty(worldSetting, query);
         return new WorldSettingListItemResponse(
                 worldSetting.getId(),
                 worldSetting.getCategory(),
@@ -60,8 +60,9 @@ public class WorldSettingMapper {
                 worldSetting.getPropertyCount(),
                 worldSetting.getVersion(),
                 worldSetting.getUpdatedAt(),
-                matchedProperty == null ? null : matchedProperty.getKey(),
-                matchedProperty == null ? null : matchedProperty.getValue().asText()
+                matchedProperty == null ? null : matchedProperty.scopeName(),
+                matchedProperty == null ? null : matchedProperty.settingName(),
+                matchedProperty == null ? null : matchedProperty.value()
         );
     }
 
@@ -69,8 +70,8 @@ public class WorldSettingMapper {
             WorldSetting worldSetting,
             List<WorldSettingCandidate> confirmedCandidates
     ) {
-        Map<String, String> properties = toPropertiesMap(worldSetting.getPropertiesJson());
-        List<WorldSettingDetailResponse.PropertyEvidence> propertyEvidence = properties.entrySet().stream()
+        List<WorldSetting.Property> properties = worldSetting.getProperties();
+        List<WorldSettingDetailResponse.PropertyEvidence> propertyEvidence = properties.stream()
                 .map(property -> toPropertyEvidenceResponse(property, confirmedCandidates))
                 .toList();
         return new WorldSettingDetailResponse(
@@ -78,7 +79,7 @@ public class WorldSettingMapper {
                 worldSetting.getWork().getId(),
                 worldSetting.getCategory(),
                 worldSetting.getSubjectName(),
-                properties,
+                properties.stream().map(this::toPropertyResponse).toList(),
                 properties.size(),
                 worldSetting.getVersion(),
                 propertyEvidence,
@@ -92,10 +93,11 @@ public class WorldSettingMapper {
         String suggestedSubjectName = targetWorldSetting == null
                 ? candidate.getSubjectName()
                 : targetWorldSetting.getSubjectName();
-        boolean userModified = candidate.getReviewStatus() != WorldSettingReviewStatus.PENDING_REVIEW
+        boolean userModified = candidate.getFinalOperation() != null
                 && (candidate.getFinalOperation() != candidate.getSuggestedOperation()
                 || candidate.getFinalCategory() != candidate.getCategory()
                 || !sameName(candidate.getFinalSubjectName(), suggestedSubjectName)
+                || !sameName(candidate.getFinalScopeName(), candidate.getProposedScopeName())
                 || !sameName(candidate.getFinalSettingName(), candidate.getProposedSettingName())
                 || !Objects.equals(candidate.getFinalValue(), candidate.getProposedValue()));
         return new WorldSettingCandidateResponse(
@@ -106,6 +108,7 @@ public class WorldSettingMapper {
                 candidate.getAnalysisJob().getId(),
                 candidate.getCategory(),
                 candidate.getSubjectName(),
+                candidate.getScopeName(),
                 candidate.getSettingName(),
                 candidate.getExtractedValue(),
                 toEvidenceSpans(candidate.getEvidenceSpans()),
@@ -114,6 +117,7 @@ public class WorldSettingMapper {
                 targetWorldSetting == null ? null : targetWorldSetting.getSubjectName(),
                 candidate.getConsolidationStatus(),
                 candidate.getSuggestedOperation(),
+                candidate.getProposedScopeName(),
                 candidate.getProposedSettingName(),
                 candidate.getBeforeValue(),
                 candidate.getProposedValue(),
@@ -127,6 +131,7 @@ public class WorldSettingMapper {
                 candidate.getFinalOperation(),
                 candidate.getFinalCategory(),
                 candidate.getFinalSubjectName(),
+                candidate.getFinalScopeName(),
                 candidate.getFinalSettingName(),
                 candidate.getFinalValue(),
                 candidate.getReviewNote(),
@@ -144,13 +149,8 @@ public class WorldSettingMapper {
             List<WorldSettingCandidate> candidates
     ) {
         WorldSettingCandidate representative = candidates.getFirst();
-        WorldSetting representativeTarget = representative.getTargetWorldSetting();
-        WorldSettingCategory category = representativeTarget == null
-                ? representative.getCategory()
-                : representativeTarget.getCategory();
-        String subjectName = representativeTarget == null
-                ? representative.getSubjectName()
-                : representativeTarget.getSubjectName();
+        WorldSettingCategory category = representative.getEffectiveCategory();
+        String subjectName = representative.getEffectiveSubjectName();
         return new WorldSettingCandidateGroupResponse(
                 groupKey,
                 category,
@@ -190,7 +190,7 @@ public class WorldSettingMapper {
             WorldSettingOperation operation
     ) {
         return (int) candidates.stream()
-                .filter(candidate -> candidate.getSuggestedOperation() == operation)
+                .filter(candidate -> candidate.getEffectiveOperation() == operation)
                 .count();
     }
 
@@ -236,18 +236,24 @@ public class WorldSettingMapper {
     }
 
     private WorldSettingDetailResponse.PropertyEvidence toPropertyEvidenceResponse(
-            Map.Entry<String, String> property,
+            WorldSetting.Property property,
             List<WorldSettingCandidate> candidates
     ) {
         List<WorldSettingDetailResponse.CandidateEvidence> history = candidates.stream()
-                .filter(candidate -> sameName(candidate.getFinalSettingName(), property.getKey()))
+                .filter(candidate -> sameName(candidate.getFinalScopeName(), property.scopeName()))
+                .filter(candidate -> sameName(candidate.getFinalSettingName(), property.settingName()))
                 .map(this::toCandidateEvidenceResponse)
                 .toList();
         WorldSettingDetailResponse.CandidateEvidence latestEvidence = history.stream()
                 .findFirst()
-                .filter(evidence -> Objects.equals(evidence.value(), property.getValue()))
+                .filter(evidence -> Objects.equals(evidence.value(), property.value()))
                 .orElse(null);
-        return new WorldSettingDetailResponse.PropertyEvidence(property.getKey(), latestEvidence, history);
+        return new WorldSettingDetailResponse.PropertyEvidence(
+                property.scopeName(),
+                property.settingName(),
+                latestEvidence,
+                history
+        );
     }
 
     private WorldSettingDetailResponse.CandidateEvidence toCandidateEvidenceResponse(
@@ -289,25 +295,26 @@ public class WorldSettingMapper {
         return value == null || !value.isIntegralNumber() ? null : value.asInt();
     }
 
-    private Map.Entry<String, JsonNode> findMatchedProperty(WorldSetting worldSetting, String query) {
+    private WorldSetting.Property findMatchedProperty(WorldSetting worldSetting, String query) {
         String normalizedQuery = WorldSettingNameNormalizer.duplicateKey(query);
         if (normalizedQuery == null || normalizedQuery.isEmpty()) {
             return null;
         }
-        List<Map.Entry<String, JsonNode>> properties = new ArrayList<>();
-        properties.addAll(worldSetting.getPropertiesJson().properties());
-        return properties.stream()
-                .filter(property -> WorldSettingNameNormalizer.duplicateKey(property.getKey()).contains(normalizedQuery)
-                        || WorldSettingNameNormalizer.duplicateKey(property.getValue().asText()).contains(normalizedQuery))
+        return worldSetting.getProperties().stream()
+                .filter(property -> property.scopeName() != null
+                        && WorldSettingNameNormalizer.duplicateKey(property.scopeName()).contains(normalizedQuery)
+                        || WorldSettingNameNormalizer.duplicateKey(property.settingName()).contains(normalizedQuery)
+                        || WorldSettingNameNormalizer.duplicateKey(property.value()).contains(normalizedQuery))
                 .findFirst()
                 .orElse(null);
     }
 
-    private Map<String, String> toPropertiesMap(JsonNode propertiesJson) {
-        Map<String, String> properties = new LinkedHashMap<>();
-        propertiesJson.properties().forEach(property ->
-                properties.put(property.getKey(), property.getValue().asText()));
-        return properties;
+    private WorldSettingPropertyResponse toPropertyResponse(WorldSetting.Property property) {
+        return new WorldSettingPropertyResponse(
+                property.scopeName(),
+                property.settingName(),
+                property.value()
+        );
     }
 
     private boolean sameName(String left, String right) {

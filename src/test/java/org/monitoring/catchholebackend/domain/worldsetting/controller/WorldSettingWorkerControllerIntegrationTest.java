@@ -135,10 +135,11 @@ class WorldSettingWorkerControllerIntegrationTest {
     void publishesComparesAndCompletesWorldSettingCandidate() throws Exception {
         WorldSetting target = worldSettingRepository.save(WorldSetting.create(
                 work,
-                WorldSettingCategory.RACE,
-                "바바리안",
-                "서식지",
-                "혹한 지역"
+                WorldSettingCategory.LOCATION,
+                "미궁",
+                "1층",
+                "방향별 몬스터 출몰 규칙",
+                "동쪽에서 고블린이 출몰한다."
         ));
 
         MvcResult publishResult = mockMvc.perform(put(
@@ -151,12 +152,13 @@ class WorldSettingWorkerControllerIntegrationTest {
                         .content("""
                                 {
                                   "candidates": [{
-                                    "category": "RACE",
-                                    "subjectName": "바바리안",
-                                    "settingName": "서식지",
-                                    "extractedValue": "극지방",
+                                    "category": "LOCATION",
+                                    "subjectName": "미궁",
+                                    "scopeName": "1층",
+                                    "settingName": "방향별 몬스터 출몰 규칙",
+                                    "extractedValue": "방향마다 출몰 몬스터가 달라진다.",
                                     "evidenceSpans": [{
-                                      "quote": "바바리안은 극지방에 산다.",
+                                      "quote": "1층은 방향마다 출몰하는 몬스터가 바뀐다.",
                                       "startOffset": 10,
                                       "endOffset": 25
                                     }],
@@ -166,7 +168,8 @@ class WorldSettingWorkerControllerIntegrationTest {
                                 }
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].category").value("RACE"))
+                .andExpect(jsonPath("$.data[0].category").value("LOCATION"))
+                .andExpect(jsonPath("$.data[0].scopeName").value("1층"))
                 .andReturn();
         JsonNode publishBody = objectMapper.readTree(publishResult.getResponse().getContentAsString());
         UUID candidateId = UUID.fromString(publishBody.at("/data/0/candidateId").asText());
@@ -186,7 +189,7 @@ class WorldSettingWorkerControllerIntegrationTest {
                         )
                         .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
                         .header(WORKER_LEASE_TOKEN_HEADER, leaseToken)
-                        .param("category", "RACE"))
+                        .param("category", "LOCATION"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.subjects[0].worldSettingId").value(target.getId().toString()));
 
@@ -203,7 +206,11 @@ class WorldSettingWorkerControllerIntegrationTest {
                                 """.formatted(target.getId())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.exactTargetWorldSettingId").value(target.getId().toString()))
-                .andExpect(jsonPath("$.data.targets[0].propertiesJson['서식지']").value("혹한 지역"));
+                .andExpect(jsonPath("$.data.targets[0].properties[0].scopeName").value("1층"))
+                .andExpect(jsonPath("$.data.targets[0].properties[0].settingName")
+                        .value("방향별 몬스터 출몰 규칙"))
+                .andExpect(jsonPath("$.data.targets[0].properties[0].value")
+                        .value("동쪽에서 고블린이 출몰한다."));
 
         mockMvc.perform(post(
                                 "/api/internal/v1/analysis-jobs/{analysisJobId}/world-setting-candidates/{candidateId}/comparison-complete",
@@ -216,11 +223,13 @@ class WorldSettingWorkerControllerIntegrationTest {
                         .content("""
                                 {
                                   "targetWorldSettingId": "%s",
-                                  "matchedPropertyName": "서식지",
+                                  "matchedScopeName": "1층",
+                                  "matchedPropertyName": "방향별 몬스터 출몰 규칙",
                                   "consolidationStatus": "SINGLE",
                                   "suggestedOperation": "UPDATE",
-                                  "proposedSettingName": "서식지",
-                                  "proposedValue": "극지방",
+                                  "proposedScopeName": "1층",
+                                  "proposedSettingName": "방향별 몬스터 출몰 규칙",
+                                  "proposedValue": "방향마다 출몰 몬스터가 달라진다.",
                                   "comparisonReason": "새 근거가 기존 값을 대체한다.",
                                   "exactTargetWorldSettingId": "%s",
                                   "contextVersions": [{
@@ -235,8 +244,10 @@ class WorldSettingWorkerControllerIntegrationTest {
         WorldSettingCandidate completedCandidate = candidateRepository.findById(candidateId).orElseThrow();
         assertThat(completedCandidate.getComparisonStatus())
                 .isEqualTo(WorldSettingComparisonStatus.COMPLETED);
+        assertThat(completedCandidate.getScopeName()).isEqualTo("1층");
+        assertThat(completedCandidate.getProposedScopeName()).isEqualTo("1층");
         assertThat(completedCandidate.getSuggestedOperation()).isEqualTo(WorldSettingOperation.UPDATE);
-        assertThat(completedCandidate.getBeforeValue()).isEqualTo("혹한 지역");
+        assertThat(completedCandidate.getBeforeValue()).isEqualTo("동쪽에서 고블린이 출몰한다.");
         assertThat(completedCandidate.getBaseWorldSettingVersion()).isZero();
 
         mockMvc.perform(patch("/api/internal/v1/analysis-jobs/{analysisJobId}/progress", analysisJob.getId())

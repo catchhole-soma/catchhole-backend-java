@@ -17,6 +17,10 @@ public record WorldSettingCreateRequest(
         @Schema(description = "대상명. 앞뒤 공백만 제거하고 내부 공백은 보존합니다.", example = "바바리안")
         String subjectName,
 
+        @Size(max = 100)
+        @Schema(description = "첫 설정의 선택적 한 단계 범위", nullable = true, example = "1층")
+        String scopeName,
+
         @NotBlank
         @Size(max = 100)
         @Schema(description = "첫 설정명", example = "서식지")
@@ -26,4 +30,13 @@ public record WorldSettingCreateRequest(
         @Schema(description = "첫 설정값", example = "혹한 지역")
         String settingValue
 ) {
+
+    public WorldSettingCreateRequest(
+            WorldSettingCategory category,
+            String subjectName,
+            String settingName,
+            String settingValue
+    ) {
+        this(category, subjectName, null, settingName, settingValue);
+    }
 }

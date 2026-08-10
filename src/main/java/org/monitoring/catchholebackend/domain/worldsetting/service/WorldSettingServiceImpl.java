@@ -140,7 +140,7 @@ public class WorldSettingServiceImpl implements WorldSettingService {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         WorldSetting worldSetting = getWorldSettingForUpdate(worldSettingId, work.getId());
         worldSetting.validateVersion(request.version());
-        worldSetting.addProperty(request.settingName(), request.settingValue());
+        worldSetting.addProperty(request.scopeName(), request.settingName(), request.settingValue());
         worldSettingRepository.flush();
         return toDetail(worldSetting);
     }
@@ -157,7 +157,9 @@ public class WorldSettingServiceImpl implements WorldSettingService {
         WorldSetting worldSetting = getWorldSettingForUpdate(worldSettingId, work.getId());
         worldSetting.validateVersion(request.version());
         worldSetting.updateProperty(
+                request.currentScopeName(),
                 request.currentSettingName(),
+                request.scopeName(),
                 request.settingName(),
                 request.settingValue()
         );

@@ -355,13 +355,15 @@ domain/<domain>
 #### World Setting Domain Policy
 
 - 세계관 설정은 캐릭터 `SettingCandidate`와 섞지 않고 `domain/worldsetting`의 `WorldSetting`, `WorldSettingCandidate`로 관리한다. MVP 저장 테이블은 `world_settings`, `world_setting_candidates` 두 개이며 `world_setting_facts`나 삭제·보관·복원·전체 변경 로그는 만들지 않는다.
-- `WorldSetting` 한 행은 `workId + category + normalizedSubjectName` 대상 하나다. 세부 설정은 문자열 key·문자열 value JSON object에 저장하고, 생성 후 빈 object 상태는 허용하지 않는다.
-- 대상명·설정명·설정값은 앞뒤 공백만 제거하며 내부 공백은 보존한다. 대상 중복키는 Unicode NFC와 `Locale.ROOT` 소문자로 정규화하고, 설정명 중복도 같은 기준으로 Entity 전체 properties에서 검사한다.
+- `WorldSetting` 한 행은 `workId + category + normalizedSubjectName` 대상 하나다. 세부 설정은 루트의 문자열 leaf 또는 선택적 1단계 `scopeName` 아래 문자열 leaf로 JSON object에 저장하고, 생성 후 빈 object 상태는 허용하지 않는다. 이 범위 계층은 세계관 도메인에만 적용하며 캐릭터 `SettingCandidate`/`CharacterFact`의 key 계약을 변경하지 않는다.
+- 대상명·범위명·설정명·설정값은 앞뒤 공백만 제거하며 내부 공백은 보존한다. 대상 중복키는 Unicode NFC와 `Locale.ROOT` 소문자로 정규화하고, property 중복은 `scopeName + settingName` 전체 경로를 같은 기준으로 정규화해 검사한다. `1층/출몰 규칙`과 `2층/출몰 규칙`은 동시에 허용하지만 같은 전체 경로는 허용하지 않는다. 동일 루트 key를 문자열 leaf와 scope object로 동시에 쓰는 충돌도 거절한다.
 - 직접 생성·수정 API는 JSON 전체를 받지 않는다. 대상 정보 수정, 설정 한 개 추가, 설정 한 개 수정 요청을 분리하고 현재 `version`을 확인한 뒤 실제 변경마다 version을 증가시킨다.
-- 사용자 직접 입력의 동일 분류·대상과 동일 대상 내 설정명 중복은 Backend가 전체 DB와 unique 제약을 기준으로 최종 판정한다. Frontend의 현재 페이지나 필터 결과를 최종 중복 근거로 사용하지 않는다.
+- 사용자 직접 입력의 동일 분류·대상과 동일 대상 내 범위+설정명 전체 경로 중복은 Backend가 전체 DB와 unique 제약을 기준으로 최종 판정한다. Frontend의 현재 페이지나 필터 결과를 최종 중복 근거로 사용하지 않는다.
 - 세계관 후보 한 행은 회차에서 추출한 설정 속성 하나다. 1차 추출, 2차 비교 제안, 최종 사용자 결정을 같은 행에 보존하되 LLM은 확정본을 직접 변경하지 않고 Spring의 confirm 트랜잭션만 `WorldSetting`을 변경한다.
-- 하나의 분석 Job에는 정규화한 `category + subjectName + settingName`이 같은 세계관 후보를 한 건만 게시한다. AI는 여러 1차 추출값을 `SINGLE/MERGED/CONFLICT`로 판정하고 모든 원문 근거를 보존한다. `CONFLICT` 후보는 사용자가 최종값을 수정했다는 명시적 결정 없이는 반영하지 않지만 그룹 제외는 허용한다. Backend는 Worker 게시와 사용자 그룹 확정 양쪽에서 동일 설정명 중복을 방어한다.
-- 같은 `batchId + category + normalizedSubjectName`의 선택 후보는 대상 그룹 확정 요청 하나로 처리한다. 모든 후보와 최초 대상 snapshot을 먼저 잠금·검증한 뒤 대상 생성 또는 여러 property 변경을 한 트랜잭션과 한 version 증가로 반영하며, 그룹 내부의 앞선 `ADD`를 다음 선택 후보의 재비교 사유로 판단하지 않는다.
+- 하나의 분석 Job에는 정규화한 `category + subjectName + scopeName + settingName`이 같은 세계관 후보를 한 건만 게시한다. AI는 여러 1차 추출값을 `SINGLE/MERGED/CONFLICT`로 판정하고 모든 원문 근거를 보존한다. `CONFLICT` 후보는 사용자가 최종값을 수정했다는 명시적 결정 없이는 반영하지 않지만 그룹 제외는 허용한다. Backend는 Worker 게시와 사용자 그룹 확정 양쪽에서 동일 전체 property 경로 중복을 방어한다.
+- 작가가 후보의 최종 분류·대상·범위·설정명·반영 방식·값을 저장하면 전용 결정 수정 API가 `PENDING_REVIEW + COMPLETED` 상태를 유지한 채 해당 후보의 `final*` 초안을 즉시 갱신한다. 일반 수정은 한 후보만, 분류·대상 일괄 수정은 같은 현재 그룹의 모든 요청 후보를 한 트랜잭션으로 저장하며, 이후 후보 조회·필터·그룹 key는 `final*` 초안을 우선 사용한다. 이 저장은 2차 LLM 재비교로 보내거나 비교 제안을 초기화하지 않는다. confirm 트랜잭션에서 현재 `WorldSetting`을 기준으로 `ADD`는 전체 경로 부재, `UPDATE/MERGE`는 전체 경로 존재, 루트 key와 범위명 무충돌을 직접 검증하고 구조적 오류를 반환한다. 수정하지 않은 LLM 제안의 외부 stale 문맥만 기존 `RECOMPARISON_REQUIRED` 흐름을 사용한다.
+- 세계관 그룹 확정은 화면의 남은 검토 대기 row 전체를 한 번에 적용하는 흐름을 기준으로 한다. 예전 체크박스 부분 확정을 전제로 신규 대상 생성 뒤 선택하지 않은 row를 재비교 상태로 바꾸지 않으며, 재비교는 확정 전 외부에서 대상·속성이 달라진 stale 문맥에만 사용한다.
+- 같은 `batchId + category + normalizedSubjectName` 원본 비교 그룹의 선택 후보는 대상 그룹 확정 요청 하나로 처리하되, 작가가 row별 최종 분류·대상을 다르게 정할 수 있다. 최종 대상 key 순서로 각 대상을 잠그고 모든 대상·property를 먼저 검증한 뒤 최종 대상별 생성·변경을 한 트랜잭션으로 반영하며, 같은 최종 대상 안의 앞선 `ADD`를 다음 후보의 재비교 사유로 판단하지 않는다. 여러 최종 대상에 반영하면 그룹 응답의 단일 `worldSettingId`·version은 `null`이고 후보별 연결 대상으로 결과를 표현한다.
 - 외부 변경이 관련 key에만 영향을 주면 해당 row, 대상 생성·삭제·identity 변경이면 그룹 전체를 `RECOMPARISON_REQUIRED`로 전환하고 선택 후보를 하나도 부분 반영하지 않는다. 같은 행의 다른 설정 변경으로 version만 달라진 경우는 허용한다.
 - 1차 `evidence_spans`·회차는 후보 원본으로 보존하고 2차 비교·재비교가 변경하지 않는다. 원고가 바뀐 경우에만 새 1차 분석 후보와 근거를 생성한다.
 - 기존 속성과 의미가 같아 `EXCLUDE`하는 비교 결과는 대상 ID와 실제 속성명을 함께 받아 해당 속성값을 `beforeValue`로 보존한다. 특정 기존 속성과 비교하지 않은 일시적 사건 등의 제외만 `beforeValue`가 없을 수 있으며, 매칭 속성명만 있고 대상이 없는 요청은 거절한다.

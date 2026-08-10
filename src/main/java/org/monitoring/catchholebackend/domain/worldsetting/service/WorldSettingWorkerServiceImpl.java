@@ -103,6 +103,10 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
         for (WorkerWorldSettingCandidatePublishRequest.Candidate candidate : request.candidates()) {
             String candidateKey = candidate.category().name()
                     + "|" + WorldSettingNameNormalizer.duplicateKey(candidate.subjectName())
+                    + "|" + Objects.toString(
+                            WorldSettingNameNormalizer.duplicateKey(candidate.scopeName()),
+                            "<root>"
+                    )
                     + "|" + WorldSettingNameNormalizer.duplicateKey(candidate.settingName());
             if (!candidateKeys.add(candidateKey)) {
                 throw new AppException(
@@ -236,11 +240,12 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
         validateProposal(target, request);
         String beforeValue = target == null || isBlank(request.matchedPropertyName())
                 ? null
-                : target.getPropertyValue(request.matchedPropertyName());
+                : target.getPropertyValue(request.matchedScopeName(), request.matchedPropertyName());
         candidate.completeComparison(
                 target,
                 request.consolidationStatus(),
                 request.suggestedOperation(),
+                request.proposedScopeName(),
                 request.proposedSettingName(),
                 beforeValue,
                 request.proposedValue(),
@@ -311,23 +316,40 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
             if (target == null || isBlank(request.matchedPropertyName())) {
                 throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
             }
-            String storedName = target.getStoredPropertyName(request.matchedPropertyName());
-            if (storedName == null || !storedName.equals(request.proposedSettingName())) {
+            WorldSetting.StoredPropertyPath storedPath = target.getStoredPropertyPath(
+                    request.matchedScopeName(),
+                    request.matchedPropertyName()
+            );
+            if (storedPath == null
+                    || !sameName(storedPath.scopeName(), request.proposedScopeName())
+                    || !sameName(storedPath.settingName(), request.proposedSettingName())) {
                 throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
             }
             return;
         }
         if (operation == WorldSettingOperation.ADD) {
             if (!isBlank(request.matchedPropertyName())
-                    || target != null && target.hasProperty(request.proposedSettingName())) {
+                    || !isBlank(request.matchedScopeName())
+                    || target != null && (target.hasProperty(
+                            request.proposedScopeName(),
+                            request.proposedSettingName()
+                    ) || target.hasPathConflict(
+                            request.proposedScopeName(),
+                            request.proposedSettingName()
+                    ))) {
                 throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
             }
             return;
         }
         if (operation == WorldSettingOperation.EXCLUDE && !isBlank(request.matchedPropertyName())) {
-            if (target == null || target.getStoredPropertyName(request.matchedPropertyName()) == null) {
+            if (target == null || target.getStoredPropertyPath(
+                    request.matchedScopeName(),
+                    request.matchedPropertyName()
+            ) == null) {
                 throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
             }
+        } else if (operation == WorldSettingOperation.EXCLUDE && !isBlank(request.matchedScopeName())) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
         }
     }
 
@@ -377,5 +399,12 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private boolean sameName(String left, String right) {
+        return Objects.equals(
+                WorldSettingNameNormalizer.duplicateKey(left),
+                WorldSettingNameNormalizer.duplicateKey(right)
+        );
     }
 }

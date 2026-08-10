@@ -22,6 +22,10 @@ public record WorldSettingCandidateConfirmRequest(
         @Schema(description = "최종 대상명", example = "바바리안")
         String subjectName,
 
+        @Size(max = 100)
+        @Schema(description = "최종 선택적 한 단계 범위", nullable = true, example = "1층")
+        String scopeName,
+
         @NotBlank
         @Size(max = 100)
         @Schema(description = "최종 설정명", example = "서식지")
@@ -38,4 +42,16 @@ public record WorldSettingCandidateConfirmRequest(
         @Schema(description = "선택 검토 메모", nullable = true)
         String reviewNote
 ) {
+
+    public WorldSettingCandidateConfirmRequest(
+            WorldSettingOperation operation,
+            WorldSettingCategory category,
+            String subjectName,
+            String settingName,
+            String value,
+            Boolean conflictResolved,
+            String reviewNote
+    ) {
+        this(operation, category, subjectName, null, settingName, value, conflictResolved, reviewNote);
+    }
 }
