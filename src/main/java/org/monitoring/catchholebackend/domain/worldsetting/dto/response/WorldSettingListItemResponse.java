@@ -13,6 +13,7 @@ public record WorldSettingListItemResponse(
         int propertyCount,
         long version,
         LocalDateTime updatedAt,
+        @Schema(nullable = true) String matchedScopeName,
         @Schema(nullable = true) String matchedSettingName,
         @Schema(nullable = true) String matchedSettingValue
 ) {

@@ -2,15 +2,14 @@ package org.monitoring.catchholebackend.domain.worldsetting.mapper;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.StreamSupport;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorkerWorldSettingCandidatePublishRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingCandidatePayload;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingComparisonContextResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingSubjectPageResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingPropertyResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
 import org.springframework.stereotype.Component;
@@ -32,6 +31,7 @@ public class WorldSettingWorkerMapper {
                 analysisJob,
                 request.category(),
                 request.subjectName(),
+                request.scopeName(),
                 request.settingName(),
                 request.extractedValue(),
                 toJsonNode(request.evidenceSpans()),
@@ -47,6 +47,7 @@ public class WorldSettingWorkerMapper {
                 candidate.getSourceEpisode().getId(),
                 candidate.getCategory(),
                 candidate.getSubjectName(),
+                candidate.getScopeName(),
                 candidate.getSettingName(),
                 candidate.getExtractedValue(),
                 toEvidenceSpans(candidate.getEvidenceSpans()),
@@ -67,7 +68,13 @@ public class WorldSettingWorkerMapper {
         return new WorkerWorldSettingComparisonContextResponse.Target(
                 worldSetting.getId(),
                 worldSetting.getSubjectName(),
-                toPropertiesMap(worldSetting.getPropertiesJson()),
+                worldSetting.getProperties().stream()
+                        .map(property -> new WorldSettingPropertyResponse(
+                                property.scopeName(),
+                                property.settingName(),
+                                property.value()
+                        ))
+                        .toList(),
                 worldSetting.getVersion()
         );
     }
@@ -94,18 +101,6 @@ public class WorldSettingWorkerMapper {
                         integerValue(span, "endOffset")
                 ))
                 .toList();
-    }
-
-    private Map<String, String> toPropertiesMap(JsonNode value) {
-        if (value == null || !value.isObject()) {
-            return Map.of();
-        }
-        Map<String, String> properties = new LinkedHashMap<>();
-        value.properties().forEach(entry -> properties.put(
-                entry.getKey(),
-                entry.getValue().asText()
-        ));
-        return properties;
     }
 
     private String textValue(JsonNode node, String fieldName) {

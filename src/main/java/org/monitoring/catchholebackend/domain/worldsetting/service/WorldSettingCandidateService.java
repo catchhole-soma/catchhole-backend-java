@@ -1,12 +1,13 @@
 package org.monitoring.catchholebackend.domain.worldsetting.service;
 
 import java.util.UUID;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDecisionUpdateRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateGroupConfirmRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateGroupDismissRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateConfirmRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDismissRequest;
-import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateUpdateRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateListResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateDecisionUpdateResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateGroupActionResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
@@ -28,14 +29,13 @@ public interface WorldSettingCandidateService {
 
     WorldSettingCandidateResponse getCandidate(Long memberId, UUID workId, UUID batchId, UUID candidateId);
 
-    WorldSettingCandidateResponse updateCandidate(
+    WorldSettingCandidateResponse retryComparison(Long memberId, UUID workId, UUID candidateId);
+
+    WorldSettingCandidateDecisionUpdateResponse updateCandidateDecisions(
             Long memberId,
             UUID workId,
-            UUID candidateId,
-            WorldSettingCandidateUpdateRequest request
+            WorldSettingCandidateDecisionUpdateRequest request
     );
-
-    WorldSettingCandidateResponse retryComparison(Long memberId, UUID workId, UUID candidateId);
 
     WorldSettingCandidateConfirmResult confirmCandidate(
             Long memberId,

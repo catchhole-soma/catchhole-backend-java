@@ -19,8 +19,10 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -85,6 +87,7 @@ public class WorldSetting extends BaseEntity {
     @Column(name = "normalized_subject_name", nullable = false, length = NAME_MAX_LENGTH)
     private String normalizedSubjectName;
 
+    // 루트 문자열 설정 또는 범위 한 단계 아래의 문자열 설정만 저장한다.
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "properties_json", nullable = false, columnDefinition = "jsonb")
     private JsonNode propertiesJson;
@@ -96,23 +99,7 @@ public class WorldSetting extends BaseEntity {
             Work work,
             WorldSettingCategory category,
             String subjectName,
-            String settingName,
-            String settingValue
-    ) {
-        this.work = Objects.requireNonNull(work);
-        this.category = Objects.requireNonNull(category);
-        this.subjectName = requiredName(subjectName);
-        this.normalizedSubjectName = WorldSettingNameNormalizer.duplicateKey(this.subjectName);
-        this.propertiesJson = JsonNodeFactory.instance.objectNode()
-                .put(requiredName(settingName), requiredValue(settingValue));
-        this.version = 0;
-    }
-
-    private WorldSetting(
-            Work work,
-            WorldSettingCategory category,
-            String subjectName,
-            Map<String, String> properties
+            List<Property> properties
     ) {
         this.work = Objects.requireNonNull(work);
         this.category = Objects.requireNonNull(category);
@@ -129,7 +116,23 @@ public class WorldSetting extends BaseEntity {
             String settingName,
             String settingValue
     ) {
-        return new WorldSetting(work, category, subjectName, settingName, settingValue);
+        return create(work, category, subjectName, null, settingName, settingValue);
+    }
+
+    public static WorldSetting create(
+            Work work,
+            WorldSettingCategory category,
+            String subjectName,
+            String scopeName,
+            String settingName,
+            String settingValue
+    ) {
+        return new WorldSetting(
+                work,
+                category,
+                subjectName,
+                List.of(new Property(scopeName, settingName, settingValue))
+        );
     }
 
     public static WorldSetting create(
@@ -137,6 +140,25 @@ public class WorldSetting extends BaseEntity {
             WorldSettingCategory category,
             String subjectName,
             Map<String, String> properties
+    ) {
+        if (properties == null) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTIES_INVALID);
+        }
+        return new WorldSetting(
+                work,
+                category,
+                subjectName,
+                properties.entrySet().stream()
+                        .map(entry -> new Property(null, entry.getKey(), entry.getValue()))
+                        .toList()
+        );
+    }
+
+    public static WorldSetting create(
+            Work work,
+            WorldSettingCategory category,
+            String subjectName,
+            List<Property> properties
     ) {
         return new WorldSetting(work, category, subjectName, properties);
     }
@@ -161,66 +183,113 @@ public class WorldSetting extends BaseEntity {
     }
 
     public void addProperty(String settingName, String settingValue) {
-        String normalizedName = requiredName(settingName);
-        if (findStoredPropertyName(normalizedName) != null) {
+        addProperty(null, settingName, settingValue);
+    }
+
+    public void addProperty(String scopeName, String settingName, String settingValue) {
+        Property property = normalizedProperty(scopeName, settingName, settingValue);
+        ObjectNode updated = propertiesObjectCopy();
+        if (findStoredPropertyPath(updated, property.scopeName(), property.settingName()) != null) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTY_DUPLICATED);
         }
-        ObjectNode updated = propertiesObjectCopy();
-        updated.put(normalizedName, requiredValue(settingValue));
+        putNewProperty(updated, property);
         propertiesJson = updated;
         version++;
     }
 
     public void updateProperty(String currentSettingName, String settingName, String settingValue) {
-        String storedName = findStoredPropertyName(requiredName(currentSettingName));
-        if (storedName == null) {
+        updateProperty(null, currentSettingName, null, settingName, settingValue);
+    }
+
+    public void updateProperty(
+            String currentScopeName,
+            String currentSettingName,
+            String scopeName,
+            String settingName,
+            String settingValue
+    ) {
+        String normalizedCurrentScopeName = optionalName(currentScopeName);
+        String normalizedCurrentSettingName = requiredName(currentSettingName);
+        StoredPropertyPath storedPath = findStoredPropertyPath(
+                propertiesJson,
+                normalizedCurrentScopeName,
+                normalizedCurrentSettingName
+        );
+        if (storedPath == null) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTY_NOT_FOUND);
         }
 
-        String normalizedName = requiredName(settingName);
-        String duplicateName = findStoredPropertyName(normalizedName);
-        if (duplicateName != null && !duplicateName.equals(storedName)) {
-            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTY_DUPLICATED);
-        }
-
-        String normalizedValue = requiredValue(settingValue);
-        if (storedName.equals(normalizedName) && propertiesJson.get(storedName).asText().equals(normalizedValue)) {
+        Property target = normalizedProperty(scopeName, settingName, settingValue);
+        String currentValue = getPropertyValue(storedPath.scopeName(), storedPath.settingName());
+        if (samePath(storedPath.scopeName(), storedPath.settingName(), target.scopeName(), target.settingName())
+                && Objects.equals(storedPath.scopeName(), target.scopeName())
+                && Objects.equals(storedPath.settingName(), target.settingName())
+                && Objects.equals(currentValue, target.value())) {
             return;
         }
 
         ObjectNode updated = propertiesObjectCopy();
-        updated.remove(storedName);
-        updated.put(normalizedName, normalizedValue);
+        removeStoredProperty(updated, storedPath);
+        if (findStoredPropertyPath(updated, target.scopeName(), target.settingName()) != null) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTY_DUPLICATED);
+        }
+        putNewProperty(updated, target);
+        propertiesJson = updated;
+        version++;
+    }
+
+    public void removeProperty(String scopeName, String settingName) {
+        StoredPropertyPath storedPath = findStoredPropertyPath(
+                propertiesJson,
+                optionalName(scopeName),
+                requiredName(settingName)
+        );
+        if (storedPath == null) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTY_NOT_FOUND);
+        }
+        if (getPropertyCount() == 1) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTIES_INVALID);
+        }
+        ObjectNode updated = propertiesObjectCopy();
+        removeStoredProperty(updated, storedPath);
         propertiesJson = updated;
         version++;
     }
 
     public boolean applyProperty(String settingName, String settingValue) {
-        return applyProperties(Map.of(settingName, settingValue));
+        return applyProperty(null, settingName, settingValue);
+    }
+
+    public boolean applyProperty(String scopeName, String settingName, String settingValue) {
+        return applyProperties(List.of(new Property(scopeName, settingName, settingValue)));
     }
 
     public boolean applyProperties(Map<String, String> properties) {
+        if (properties == null) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTIES_INVALID);
+        }
+        return applyProperties(properties.entrySet().stream()
+                .map(entry -> new Property(null, entry.getKey(), entry.getValue()))
+                .toList());
+    }
+
+    public boolean applyProperties(List<Property> properties) {
+        if (properties == null || properties.isEmpty()) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTIES_INVALID);
+        }
+        List<Property> normalizedProperties = properties.stream()
+                .map(property -> normalizedProperty(
+                        property.scopeName(),
+                        property.settingName(),
+                        property.value()
+                ))
+                .toList();
+        validateDistinctPaths(normalizedProperties);
+
         ObjectNode updated = propertiesObjectCopy();
-        Set<String> requestedNames = new HashSet<>();
         boolean changed = false;
-        for (Map.Entry<String, String> property : properties.entrySet()) {
-            String normalizedName = requiredName(property.getKey());
-            String duplicateKey = WorldSettingNameNormalizer.duplicateKey(normalizedName);
-            if (!requestedNames.add(duplicateKey)) {
-                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTY_DUPLICATED);
-            }
-            String normalizedValue = requiredValue(property.getValue());
-            String storedName = findStoredPropertyName(updated, normalizedName);
-            if (storedName != null
-                    && storedName.equals(normalizedName)
-                    && updated.get(storedName).asText().equals(normalizedValue)) {
-                continue;
-            }
-            if (storedName != null) {
-                updated.remove(storedName);
-            }
-            updated.put(normalizedName, normalizedValue);
-            changed = true;
+        for (Property property : normalizedProperties) {
+            changed |= upsertProperty(updated, property);
         }
         if (!changed) {
             return false;
@@ -231,32 +300,196 @@ public class WorldSetting extends BaseEntity {
     }
 
     public boolean hasProperty(String settingName) {
-        return findStoredPropertyName(requiredName(settingName)) != null;
+        return hasProperty(null, settingName);
+    }
+
+    public boolean hasProperty(String scopeName, String settingName) {
+        return findStoredPropertyPath(propertiesJson, optionalName(scopeName), requiredName(settingName)) != null;
+    }
+
+    public boolean hasPathConflict(String scopeName, String settingName) {
+        String normalizedScopeName = optionalName(scopeName);
+        String normalizedSettingName = requiredName(settingName);
+        String topLevelName = findStoredFieldName(
+                propertiesJson,
+                normalizedScopeName == null ? normalizedSettingName : normalizedScopeName
+        );
+        if (topLevelName == null) {
+            return false;
+        }
+        return normalizedScopeName == null
+                ? propertiesJson.get(topLevelName).isObject()
+                : propertiesJson.get(topLevelName).isTextual();
     }
 
     public String getPropertyValue(String settingName) {
-        String storedName = findStoredPropertyName(requiredName(settingName));
-        return storedName == null ? null : propertiesJson.get(storedName).asText();
+        return getPropertyValue(null, settingName);
+    }
+
+    public String getPropertyValue(String scopeName, String settingName) {
+        StoredPropertyPath storedPath = findStoredPropertyPath(
+                propertiesJson,
+                optionalName(scopeName),
+                requiredName(settingName)
+        );
+        if (storedPath == null) {
+            return null;
+        }
+        JsonNode value = storedPath.scopeName() == null
+                ? propertiesJson.get(storedPath.settingName())
+                : propertiesJson.get(storedPath.scopeName()).get(storedPath.settingName());
+        return value.asText();
     }
 
     public String getStoredPropertyName(String settingName) {
-        return findStoredPropertyName(requiredName(settingName));
+        StoredPropertyPath path = getStoredPropertyPath(null, settingName);
+        return path == null ? null : path.settingName();
+    }
+
+    public StoredPropertyPath getStoredPropertyPath(String scopeName, String settingName) {
+        return findStoredPropertyPath(propertiesJson, optionalName(scopeName), requiredName(settingName));
+    }
+
+    public List<Property> getProperties() {
+        validateProperties();
+        List<Property> properties = new ArrayList<>();
+        propertiesJson.properties().forEach(entry -> {
+            if (entry.getValue().isTextual()) {
+                properties.add(new Property(null, entry.getKey(), entry.getValue().asText()));
+                return;
+            }
+            entry.getValue().properties().forEach(scopedEntry -> properties.add(
+                    new Property(entry.getKey(), scopedEntry.getKey(), scopedEntry.getValue().asText())
+            ));
+        });
+        return List.copyOf(properties);
     }
 
     public int getPropertyCount() {
-        return propertiesJson.size();
+        return getProperties().size();
     }
 
-    private String findStoredPropertyName(String settingName) {
-        return findStoredPropertyName(propertiesJson, settingName);
+    private static ObjectNode toPropertiesObject(List<Property> properties) {
+        if (properties == null || properties.isEmpty()) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTIES_INVALID);
+        }
+        List<Property> normalizedProperties = properties.stream()
+                .map(property -> normalizedProperty(
+                        property.scopeName(),
+                        property.settingName(),
+                        property.value()
+                ))
+                .toList();
+        validateDistinctPaths(normalizedProperties);
+        ObjectNode result = JsonNodeFactory.instance.objectNode();
+        normalizedProperties.forEach(property -> putNewProperty(result, property));
+        return result;
     }
 
-    private String findStoredPropertyName(JsonNode properties, String settingName) {
+    private static void validateDistinctPaths(List<Property> properties) {
+        Set<String> requestedPaths = new HashSet<>();
+        for (Property property : properties) {
+            if (!requestedPaths.add(pathKey(property.scopeName(), property.settingName()))) {
+                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTY_DUPLICATED);
+            }
+        }
+    }
+
+    private static boolean upsertProperty(ObjectNode properties, Property property) {
+        StoredPropertyPath storedPath = findStoredPropertyPath(
+                properties,
+                property.scopeName(),
+                property.settingName()
+        );
+        if (storedPath == null) {
+            putNewProperty(properties, property);
+            return true;
+        }
+        JsonNode storedValue = storedPath.scopeName() == null
+                ? properties.get(storedPath.settingName())
+                : properties.get(storedPath.scopeName()).get(storedPath.settingName());
+        if (Objects.equals(storedPath.scopeName(), property.scopeName())
+                && Objects.equals(storedPath.settingName(), property.settingName())
+                && storedValue.asText().equals(property.value())) {
+            return false;
+        }
+        removeStoredProperty(properties, storedPath);
+        putNewProperty(properties, property);
+        return true;
+    }
+
+    private static void putNewProperty(ObjectNode properties, Property property) {
+        if (property.scopeName() == null) {
+            String storedTopLevelName = findStoredFieldName(properties, property.settingName());
+            if (storedTopLevelName != null) {
+                JsonNode storedValue = properties.get(storedTopLevelName);
+                throw new AppException(storedValue.isObject()
+                        ? WorldSettingErrorCode.WORLD_SETTING_PROPERTY_PATH_CONFLICT
+                        : WorldSettingErrorCode.WORLD_SETTING_PROPERTY_DUPLICATED);
+            }
+            properties.put(property.settingName(), property.value());
+            return;
+        }
+
+        String storedScopeName = findStoredFieldName(properties, property.scopeName());
+        ObjectNode scope;
+        if (storedScopeName == null) {
+            scope = JsonNodeFactory.instance.objectNode();
+            properties.set(property.scopeName(), scope);
+        } else {
+            JsonNode storedScope = properties.get(storedScopeName);
+            if (!storedScope.isObject()) {
+                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTY_PATH_CONFLICT);
+            }
+            scope = (ObjectNode) storedScope;
+        }
+        if (findStoredFieldName(scope, property.settingName()) != null) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTY_DUPLICATED);
+        }
+        scope.put(property.settingName(), property.value());
+    }
+
+    private static void removeStoredProperty(ObjectNode properties, StoredPropertyPath path) {
+        if (path.scopeName() == null) {
+            properties.remove(path.settingName());
+            return;
+        }
+        ObjectNode scope = (ObjectNode) properties.get(path.scopeName());
+        scope.remove(path.settingName());
+        if (scope.isEmpty()) {
+            properties.remove(path.scopeName());
+        }
+    }
+
+    private static StoredPropertyPath findStoredPropertyPath(
+            JsonNode properties,
+            String scopeName,
+            String settingName
+    ) {
         if (properties == null || !properties.isObject()) {
             return null;
         }
-        String duplicateKey = WorldSettingNameNormalizer.duplicateKey(settingName);
-        Iterator<String> fieldNames = properties.fieldNames();
+        if (scopeName == null) {
+            String storedSettingName = findStoredFieldName(properties, settingName);
+            return storedSettingName != null && properties.get(storedSettingName).isTextual()
+                    ? new StoredPropertyPath(null, storedSettingName)
+                    : null;
+        }
+
+        String storedScopeName = findStoredFieldName(properties, scopeName);
+        if (storedScopeName == null || !properties.get(storedScopeName).isObject()) {
+            return null;
+        }
+        JsonNode scope = properties.get(storedScopeName);
+        String storedSettingName = findStoredFieldName(scope, settingName);
+        return storedSettingName != null && scope.get(storedSettingName).isTextual()
+                ? new StoredPropertyPath(storedScopeName, storedSettingName)
+                : null;
+    }
+
+    private static String findStoredFieldName(JsonNode object, String name) {
+        String duplicateKey = WorldSettingNameNormalizer.duplicateKey(name);
+        Iterator<String> fieldNames = object.fieldNames();
         while (fieldNames.hasNext()) {
             String fieldName = fieldNames.next();
             if (WorldSettingNameNormalizer.duplicateKey(fieldName).equals(duplicateKey)) {
@@ -264,22 +497,6 @@ public class WorldSetting extends BaseEntity {
             }
         }
         return null;
-    }
-
-    private static ObjectNode toPropertiesObject(Map<String, String> properties) {
-        if (properties == null || properties.isEmpty()) {
-            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTIES_INVALID);
-        }
-        ObjectNode result = JsonNodeFactory.instance.objectNode();
-        Set<String> requestedNames = new HashSet<>();
-        for (Map.Entry<String, String> property : properties.entrySet()) {
-            String name = requiredName(property.getKey());
-            if (!requestedNames.add(WorldSettingNameNormalizer.duplicateKey(name))) {
-                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTY_DUPLICATED);
-            }
-            result.put(name, requiredValue(property.getValue()));
-        }
-        return result;
     }
 
     private ObjectNode propertiesObjectCopy() {
@@ -293,11 +510,50 @@ public class WorldSetting extends BaseEntity {
         if (propertiesJson == null || !propertiesJson.isObject() || propertiesJson.isEmpty()) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTIES_INVALID);
         }
+        Set<String> topLevelNames = new HashSet<>();
         for (Map.Entry<String, JsonNode> field : propertiesJson.properties()) {
-            if (requiredNameOrNull(field.getKey()) == null || field.getValue() == null || !field.getValue().isTextual()) {
+            String topLevelName = requiredNameOrNull(field.getKey());
+            if (topLevelName == null
+                    || !topLevelNames.add(WorldSettingNameNormalizer.duplicateKey(topLevelName))
+                    || field.getValue() == null) {
                 throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTIES_INVALID);
             }
+            if (field.getValue().isTextual()) {
+                continue;
+            }
+            if (!field.getValue().isObject() || field.getValue().isEmpty()) {
+                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTIES_INVALID);
+            }
+            Set<String> scopedSettingNames = new HashSet<>();
+            for (Map.Entry<String, JsonNode> scopedField : field.getValue().properties()) {
+                String scopedSettingName = requiredNameOrNull(scopedField.getKey());
+                if (scopedSettingName == null
+                        || !scopedSettingNames.add(WorldSettingNameNormalizer.duplicateKey(scopedSettingName))
+                        || scopedField.getValue() == null
+                        || !scopedField.getValue().isTextual()) {
+                    throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTIES_INVALID);
+                }
+            }
         }
+    }
+
+    private static Property normalizedProperty(String scopeName, String settingName, String value) {
+        return new Property(optionalName(scopeName), requiredName(settingName), requiredValue(value));
+    }
+
+    private static String pathKey(String scopeName, String settingName) {
+        return Objects.toString(WorldSettingNameNormalizer.duplicateKey(scopeName), "<root>")
+                + "|"
+                + WorldSettingNameNormalizer.duplicateKey(settingName);
+    }
+
+    private static boolean samePath(
+            String leftScopeName,
+            String leftSettingName,
+            String rightScopeName,
+            String rightSettingName
+    ) {
+        return pathKey(leftScopeName, leftSettingName).equals(pathKey(rightScopeName, rightSettingName));
     }
 
     private static String requiredName(String value) {
@@ -306,6 +562,10 @@ public class WorldSetting extends BaseEntity {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
         }
         return normalized;
+    }
+
+    private static String optionalName(String value) {
+        return value == null ? null : requiredName(value);
     }
 
     private static String requiredNameOrNull(String value) {
@@ -322,5 +582,11 @@ public class WorldSetting extends BaseEntity {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
         }
         return normalized;
+    }
+
+    public record Property(String scopeName, String settingName, String value) {
+    }
+
+    public record StoredPropertyPath(String scopeName, String settingName) {
     }
 }

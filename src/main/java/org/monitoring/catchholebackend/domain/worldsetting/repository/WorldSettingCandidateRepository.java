@@ -32,11 +32,19 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             from WorldSettingCandidate candidate
             join candidate.analysisJob analysisJob
             join candidate.sourceEpisode sourceEpisode
+            left join candidate.targetWorldSetting targetWorldSetting
             where candidate.work.id = :workId
               and analysisJob.batch.id = :batchId
               and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
-              and (:category is null or candidate.category = :category)
-              and (:operation is null or candidate.suggestedOperation = :operation)
+              and (:category is null
+                  or (candidate.finalCategory is not null and candidate.finalCategory = :category)
+                  or (candidate.finalCategory is null and targetWorldSetting is not null
+                      and targetWorldSetting.category = :category)
+                  or (candidate.finalCategory is null and targetWorldSetting is null
+                      and candidate.category = :category))
+              and (:operation is null
+                  or (candidate.finalOperation is not null and candidate.finalOperation = :operation)
+                  or (candidate.finalOperation is null and candidate.suggestedOperation = :operation))
             order by sourceEpisode.episodeNo asc, candidate.createdAt asc, candidate.id asc
             """)
     List<WorldSettingCandidate> findReviewList(

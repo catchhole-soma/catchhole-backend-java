@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
@@ -20,11 +21,13 @@ import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateGroupConfirmRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateGroupDismissRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateConfirmRequest;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDecisionUpdateRequest;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDecisionUpdateItem;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDismissRequest;
-import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateUpdateRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateGroupActionResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateGroupResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateListResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateDecisionUpdateResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
@@ -145,18 +148,56 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
 
     @Override
     @Transactional
-    public WorldSettingCandidateResponse updateCandidate(
+    public WorldSettingCandidateDecisionUpdateResponse updateCandidateDecisions(
             Long memberId,
             UUID workId,
-            UUID candidateId,
-            WorldSettingCandidateUpdateRequest request
+            WorldSettingCandidateDecisionUpdateRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        WorldSettingCandidate candidate = getCandidateForUpdate(candidateId, work.getId());
-        candidate.updateExtractionIdentity(request.category(), request.subjectName(), request.settingName());
-        enqueueRecomparisonJobIfAbsent(memberId, candidate);
+        validateBatch(work, request.batchId());
+        Set<UUID> candidateIds = request.candidates().stream()
+                .map(WorldSettingCandidateDecisionUpdateItem::candidateId)
+                .collect(java.util.stream.Collectors.toSet());
+        if (candidateIds.size() != request.candidates().size()) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_SELECTION_INVALID);
+        }
+        List<WorldSettingCandidate> candidates = worldSettingCandidateRepository.findAllByIdsAndBatchForUpdate(
+                work.getId(),
+                request.batchId(),
+                candidateIds
+        );
+        if (candidates.size() != candidateIds.size()) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_SELECTION_INVALID);
+        }
+        validateSameCandidateGroup(candidates);
+        Map<UUID, WorldSettingCandidateDecisionUpdateItem> decisionsById = request.candidates().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        WorldSettingCandidateDecisionUpdateItem::candidateId,
+                        decision -> decision
+                ));
+        String updatedGroupKey = null;
+        for (WorldSettingCandidate candidate : candidates) {
+            WorldSettingCandidateDecisionUpdateItem decision = decisionsById.get(candidate.getId());
+            String decisionGroupKey = groupKey(decision.category(), decision.subjectName());
+            if (updatedGroupKey != null && !updatedGroupKey.equals(decisionGroupKey)) {
+                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_SELECTION_INVALID);
+            }
+            updatedGroupKey = decisionGroupKey;
+            candidate.updateDecisionDraft(
+                    decision.operation(),
+                    decision.category(),
+                    decision.subjectName(),
+                    decision.scopeName(),
+                    decision.settingName(),
+                    decision.value(),
+                    decision.reviewNote()
+            );
+        }
         worldSettingCandidateRepository.flush();
-        return worldSettingMapper.toCandidateResponse(candidate);
+        return new WorldSettingCandidateDecisionUpdateResponse(
+                updatedGroupKey,
+                candidates.stream().map(worldSettingMapper::toCandidateResponse).toList()
+        );
     }
 
     @Override
@@ -186,6 +227,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                     request.operation(),
                     request.category(),
                     request.subjectName(),
+                    request.scopeName(),
                     request.settingName(),
                     request.value(),
                     request.reviewNote(),
@@ -201,6 +243,42 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         }
 
         validateComparisonReadyAndOperation(candidate, request);
+        if (isAuthorEditedDecision(candidate, request)) {
+            WorldSetting currentTarget = worldSettingRepository.findByIdentityForUpdate(
+                    work.getId(),
+                    request.category(),
+                    WorldSettingNameNormalizer.duplicateKey(request.subjectName())
+            ).orElse(null);
+            validateAuthorDecisionCompatible(
+                    currentTarget,
+                    request.operation(),
+                    request.scopeName(),
+                    request.settingName()
+            );
+            WorldSetting appliedTarget;
+            if (currentTarget == null) {
+                appliedTarget = worldSettingRepository.saveAndFlush(worldSettingMapper.toEntity(work, request));
+            } else {
+                currentTarget.applyProperty(request.scopeName(), request.settingName(), request.value());
+                worldSettingRepository.flush();
+                appliedTarget = currentTarget;
+            }
+            candidate.confirm(
+                    request.operation(),
+                    request.category(),
+                    request.subjectName(),
+                    request.scopeName(),
+                    request.settingName(),
+                    request.value(),
+                    request.reviewNote(),
+                    work.getMember(),
+                    appliedTarget
+            );
+            worldSettingCandidateRepository.flush();
+            return WorldSettingCandidateConfirmResult.confirmed(
+                    worldSettingMapper.toCandidateResponse(candidate)
+            );
+        }
         WorldSetting comparedTarget = candidate.getTargetWorldSetting();
         WorldSetting currentTarget;
         if (comparedTarget == null) {
@@ -238,7 +316,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             if (!isCurrentPropertyCompatible(candidate, currentTarget, request)) {
                 return markRecomparisonRequired(candidate);
             }
-            currentTarget.applyProperty(request.settingName(), request.value());
+            currentTarget.applyProperty(request.scopeName(), request.settingName(), request.value());
             worldSettingRepository.flush();
             appliedTarget = currentTarget;
         }
@@ -247,6 +325,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                 request.operation(),
                 request.category(),
                 request.subjectName(),
+                request.scopeName(),
                 request.settingName(),
                 request.value(),
                 request.reviewNote(),
@@ -302,6 +381,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                             decision.operation(),
                             decision.category(),
                             decision.subjectName(),
+                            decision.scopeName(),
                             decision.settingName(),
                             decision.value(),
                             decision.reviewNote(),
@@ -310,11 +390,10 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                     );
                 }
             }
-            WorldSetting appliedTarget = candidates.stream()
+            WorldSetting appliedTarget = singleAppliedTarget(candidates.stream()
                     .map(WorldSettingCandidate::getTargetWorldSetting)
                     .filter(Objects::nonNull)
-                    .findFirst()
-                    .orElse(null);
+                    .toList());
             return WorldSettingCandidateGroupConfirmResult.confirmed(
                     worldSettingMapper.toCandidateGroupActionResponse(
                             selectedGroupKey,
@@ -333,7 +412,6 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         }
 
         validateResolvedConflicts(candidates, decisionsById);
-        validateDecisionsMatchGroup(candidates, decisionsById, selectedGroupKey);
         validateDistinctSettingNames(request.candidates());
         List<WorldSettingCandidate> appliedCandidates = candidates.stream()
                 .filter(candidate -> decisionsById.get(candidate.getId()).operation()
@@ -350,105 +428,95 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             );
         }
 
-        Set<UUID> comparedTargetIds = new HashSet<>();
-        boolean hasCandidateWithoutTarget = false;
+        Map<String, List<WorldSettingCandidate>> candidatesByFinalTarget = new TreeMap<>();
         for (WorldSettingCandidate candidate : appliedCandidates) {
-            if (candidate.getTargetWorldSetting() == null) {
-                hasCandidateWithoutTarget = true;
-            } else {
-                comparedTargetIds.add(candidate.getTargetWorldSetting().getId());
-            }
-        }
-        if (comparedTargetIds.size() > 1 || (hasCandidateWithoutTarget && !comparedTargetIds.isEmpty())) {
-            return markGroupRecomparisonRequired(
-                    work,
-                    request.batchId(),
-                    selectedGroupKey,
-                    WorldSettingRecomparisonReason.TARGET_IDENTITY_CHANGED
-            );
+            WorldSettingCandidateGroupConfirmRequest.Decision decision = decisionsById.get(candidate.getId());
+            candidatesByFinalTarget.computeIfAbsent(
+                    groupKey(decision.category(), decision.subjectName()),
+                    ignored -> new ArrayList<>()
+            ).add(candidate);
         }
 
-        WorldSettingCandidateGroupConfirmRequest.Decision representativeDecision =
-                decisionsById.get(appliedCandidates.getFirst().getId());
-        WorldSetting currentTarget;
-        boolean createsTarget = comparedTargetIds.isEmpty();
-        if (createsTarget) {
-            currentTarget = worldSettingRepository.findByIdentityForUpdate(
+        Map<String, WorldSetting> currentTargetsByKey = new LinkedHashMap<>();
+        for (Map.Entry<String, List<WorldSettingCandidate>> entry : candidatesByFinalTarget.entrySet()) {
+            List<WorldSettingCandidate> targetCandidates = entry.getValue();
+            WorldSettingCandidateGroupConfirmRequest.Decision representativeDecision =
+                    decisionsById.get(targetCandidates.getFirst().getId());
+            WorldSetting currentTarget = worldSettingRepository.findByIdentityForUpdate(
                     work.getId(),
                     representativeDecision.category(),
                     WorldSettingNameNormalizer.duplicateKey(representativeDecision.subjectName())
             ).orElse(null);
-            if (currentTarget != null) {
-                return markGroupRecomparisonRequired(
-                        work,
-                        request.batchId(),
-                        selectedGroupKey,
-                        WorldSettingRecomparisonReason.TARGET_CREATED
-                );
-            }
-        } else {
-            UUID comparedTargetId = comparedTargetIds.iterator().next();
-            currentTarget = worldSettingRepository.findByIdAndWorkIdForUpdate(
-                    comparedTargetId,
-                    work.getId()
-            ).orElse(null);
-            if (currentTarget == null) {
-                return markGroupRecomparisonRequired(
-                        work,
-                        request.batchId(),
-                        selectedGroupKey,
-                        WorldSettingRecomparisonReason.TARGET_MISSING
-                );
-            }
-            if (currentTarget.getCategory() != representativeDecision.category()
-                    || !sameName(currentTarget.getSubjectName(), representativeDecision.subjectName())) {
-                return markGroupRecomparisonRequired(
-                        work,
-                        request.batchId(),
-                        selectedGroupKey,
-                        WorldSettingRecomparisonReason.TARGET_IDENTITY_CHANGED
-                );
-            }
-        }
+            currentTargetsByKey.put(entry.getKey(), currentTarget);
 
-        Map<UUID, WorldSettingRecomparisonReason> conflicts = propertyConflicts(
-                appliedCandidates,
-                decisionsById,
-                currentTarget
-        );
-        if (!conflicts.isEmpty()) {
-            WorldSettingRecomparisonReason reason = conflicts.values().iterator().next();
-            for (WorldSettingCandidate candidate : appliedCandidates) {
-                WorldSettingRecomparisonReason candidateReason = conflicts.get(candidate.getId());
-                if (candidateReason != null) {
-                    candidate.markRecomparisonRequired(candidateReason.getMessage());
-                }
-            }
-            worldSettingCandidateRepository.flush();
-            return WorldSettingCandidateGroupConfirmResult.recomparisonRequired(
-                    WorldSettingRecomparisonScope.ROW,
-                    reason,
-                    List.copyOf(conflicts.keySet())
+            WorldSettingRecomparisonReason targetConflict = targetConflict(
+                    targetCandidates,
+                    decisionsById,
+                    currentTarget
             );
+            if (targetConflict != null) {
+                return markGroupRecomparisonRequired(
+                        work,
+                        request.batchId(),
+                        selectedGroupKey,
+                        targetConflict
+                );
+            }
+
+            Map<UUID, WorldSettingRecomparisonReason> conflicts = propertyConflicts(
+                    targetCandidates,
+                    decisionsById,
+                    currentTarget
+            );
+            if (!conflicts.isEmpty()) {
+                WorldSettingRecomparisonReason reason = conflicts.values().iterator().next();
+                for (WorldSettingCandidate candidate : targetCandidates) {
+                    WorldSettingRecomparisonReason candidateReason = conflicts.get(candidate.getId());
+                    if (candidateReason != null) {
+                        candidate.markRecomparisonRequired(candidateReason.getMessage());
+                    }
+                }
+                worldSettingCandidateRepository.flush();
+                return WorldSettingCandidateGroupConfirmResult.recomparisonRequired(
+                        WorldSettingRecomparisonScope.ROW,
+                        reason,
+                        List.copyOf(conflicts.keySet())
+                );
+            }
+            validateAuthorEditedDecisions(targetCandidates, decisionsById, currentTarget);
         }
 
-        Map<String, String> properties = new LinkedHashMap<>();
-        for (WorldSettingCandidate candidate : appliedCandidates) {
-            WorldSettingCandidateGroupConfirmRequest.Decision decision = decisionsById.get(candidate.getId());
-            properties.put(decision.settingName(), decision.value());
-        }
-        WorldSetting appliedTarget;
-        if (currentTarget == null) {
-            appliedTarget = worldSettingRepository.saveAndFlush(WorldSetting.create(
-                    work,
-                    representativeDecision.category(),
-                    representativeDecision.subjectName(),
-                    properties
-            ));
-        } else {
-            currentTarget.applyProperties(properties);
-            worldSettingRepository.flush();
-            appliedTarget = currentTarget;
+        Map<UUID, WorldSetting> appliedTargetsByCandidateId = new LinkedHashMap<>();
+        for (Map.Entry<String, List<WorldSettingCandidate>> entry : candidatesByFinalTarget.entrySet()) {
+            List<WorldSettingCandidate> targetCandidates = entry.getValue();
+            WorldSettingCandidateGroupConfirmRequest.Decision representativeDecision =
+                    decisionsById.get(targetCandidates.getFirst().getId());
+            List<WorldSetting.Property> properties = new ArrayList<>();
+            for (WorldSettingCandidate candidate : targetCandidates) {
+                WorldSettingCandidateGroupConfirmRequest.Decision decision = decisionsById.get(candidate.getId());
+                properties.add(new WorldSetting.Property(
+                        decision.scopeName(),
+                        decision.settingName(),
+                        decision.value()
+                ));
+            }
+            WorldSetting currentTarget = currentTargetsByKey.get(entry.getKey());
+            WorldSetting appliedTarget;
+            if (currentTarget == null) {
+                appliedTarget = worldSettingRepository.saveAndFlush(WorldSetting.create(
+                        work,
+                        representativeDecision.category(),
+                        representativeDecision.subjectName(),
+                        properties
+                ));
+            } else {
+                currentTarget.applyProperties(properties);
+                worldSettingRepository.flush();
+                appliedTarget = currentTarget;
+            }
+            for (WorldSettingCandidate candidate : targetCandidates) {
+                appliedTargetsByCandidateId.put(candidate.getId(), appliedTarget);
+            }
         }
 
         for (WorldSettingCandidate candidate : candidates) {
@@ -460,28 +528,22 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                         decision.operation(),
                         decision.category(),
                         decision.subjectName(),
+                        decision.scopeName(),
                         decision.settingName(),
                         decision.value(),
                         decision.reviewNote(),
                         work.getMember(),
-                        appliedTarget
+                        appliedTargetsByCandidateId.get(candidate.getId())
                 );
             }
         }
-        if (createsTarget) {
-            markUnselectedCandidatesForRecomparison(
-                    work,
-                    request.batchId(),
-                    selectedGroupKey,
-                    decisionsById.keySet()
-            );
-        }
         worldSettingCandidateRepository.flush();
+        WorldSetting responseTarget = singleAppliedTarget(appliedTargetsByCandidateId.values());
         return WorldSettingCandidateGroupConfirmResult.confirmed(
                 worldSettingMapper.toCandidateGroupActionResponse(
                         selectedGroupKey,
                         candidates,
-                        appliedTarget
+                        responseTarget
                 )
         );
     }
@@ -556,6 +618,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                 : comparedTarget.getSubjectName();
         return comparedCategory == request.category()
                 && sameName(comparedSubjectName, request.subjectName())
+                && sameName(candidate.getProposedScopeName(), request.scopeName())
                 && sameName(candidate.getProposedSettingName(), request.settingName());
     }
 
@@ -564,7 +627,10 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             WorldSetting currentTarget,
             WorldSettingCandidateConfirmRequest request
     ) {
-        boolean propertyExists = currentTarget.hasProperty(request.settingName());
+        if (currentTarget.hasPathConflict(request.scopeName(), request.settingName())) {
+            return false;
+        }
+        boolean propertyExists = currentTarget.hasProperty(request.scopeName(), request.settingName());
         if (request.operation() == WorldSettingOperation.ADD && propertyExists) {
             return false;
         }
@@ -574,7 +640,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             return false;
         }
 
-        String currentValue = currentTarget.getPropertyValue(request.settingName());
+        String currentValue = currentTarget.getPropertyValue(request.scopeName(), request.settingName());
         boolean alreadyFinal = Objects.equals(currentValue, normalizeValue(request.value()));
         boolean comparisonStillCurrent = Objects.equals(currentValue, candidate.getBeforeValue());
         return alreadyFinal || comparisonStillCurrent;
@@ -635,20 +701,6 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         return groupKeys.iterator().next();
     }
 
-    private void validateDecisionsMatchGroup(
-            List<WorldSettingCandidate> candidates,
-            Map<UUID, WorldSettingCandidateGroupConfirmRequest.Decision> decisionsById,
-            String selectedGroupKey
-    ) {
-        for (WorldSettingCandidate candidate : candidates) {
-            WorldSettingCandidateGroupConfirmRequest.Decision decision = decisionsById.get(candidate.getId());
-            String decisionGroupKey = groupKey(decision.category(), decision.subjectName());
-            if (!selectedGroupKey.equals(decisionGroupKey)) {
-                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_GROUP_INVALID);
-            }
-        }
-    }
-
     private void validateResolvedConflicts(
             List<WorldSettingCandidate> candidates,
             Map<UUID, WorldSettingCandidateGroupConfirmRequest.Decision> decisionsById
@@ -666,15 +718,29 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
     private void validateDistinctSettingNames(
             List<WorldSettingCandidateGroupConfirmRequest.Decision> decisions
     ) {
-        Set<String> settingNames = new HashSet<>();
+        Set<String> settingPaths = new HashSet<>();
         for (WorldSettingCandidateGroupConfirmRequest.Decision decision : decisions) {
             if (decision.operation() == WorldSettingOperation.EXCLUDE) {
                 continue;
             }
-            if (!settingNames.add(WorldSettingNameNormalizer.duplicateKey(decision.settingName()))) {
+            String finalTargetPath = groupKey(decision.category(), decision.subjectName())
+                    + "|"
+                    + propertyPathKey(decision.scopeName(), decision.settingName());
+            if (!settingPaths.add(finalTargetPath)) {
                 throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_SETTING_NAME_DUPLICATED);
             }
         }
+    }
+
+    private WorldSetting singleAppliedTarget(Iterable<WorldSetting> targets) {
+        WorldSetting singleTarget = null;
+        for (WorldSetting target : targets) {
+            if (singleTarget != null && !singleTarget.getId().equals(target.getId())) {
+                return null;
+            }
+            singleTarget = target;
+        }
+        return singleTarget;
     }
 
     private Map<UUID, WorldSettingRecomparisonReason> propertyConflicts(
@@ -685,8 +751,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         Map<UUID, WorldSettingRecomparisonReason> conflicts = new LinkedHashMap<>();
         for (WorldSettingCandidate candidate : candidates) {
             WorldSettingCandidateGroupConfirmRequest.Decision decision = decisionsById.get(candidate.getId());
-            if (!sameName(candidate.getProposedSettingName(), decision.settingName())) {
-                conflicts.put(candidate.getId(), WorldSettingRecomparisonReason.PROPERTY_CHANGED);
+            if (isAuthorEditedDecision(candidate, decision)) {
                 continue;
             }
             if (currentTarget == null) {
@@ -695,7 +760,14 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                 }
                 continue;
             }
-            String currentValue = currentTarget.getPropertyValue(decision.settingName());
+            if (currentTarget.hasPathConflict(decision.scopeName(), decision.settingName())) {
+                conflicts.put(candidate.getId(), WorldSettingRecomparisonReason.PROPERTY_PATH_CONFLICT);
+                continue;
+            }
+            String currentValue = currentTarget.getPropertyValue(
+                    decision.scopeName(),
+                    decision.settingName()
+            );
             if (Objects.equals(currentValue, normalizeValue(decision.value()))) {
                 continue;
             }
@@ -712,6 +784,136 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             }
         }
         return conflicts;
+    }
+
+    private WorldSettingRecomparisonReason targetConflict(
+            List<WorldSettingCandidate> candidates,
+            Map<UUID, WorldSettingCandidateGroupConfirmRequest.Decision> decisionsById,
+            WorldSetting currentTarget
+    ) {
+        for (WorldSettingCandidate candidate : candidates) {
+            WorldSettingCandidateGroupConfirmRequest.Decision decision = decisionsById.get(candidate.getId());
+            if (isAuthorEditedDecision(candidate, decision)) {
+                continue;
+            }
+            WorldSetting comparedTarget = candidate.getTargetWorldSetting();
+            if (comparedTarget == null && currentTarget != null) {
+                return WorldSettingRecomparisonReason.TARGET_CREATED;
+            }
+            if (comparedTarget != null && currentTarget == null) {
+                return WorldSettingRecomparisonReason.TARGET_MISSING;
+            }
+            if (comparedTarget != null && !comparedTarget.getId().equals(currentTarget.getId())) {
+                return WorldSettingRecomparisonReason.TARGET_IDENTITY_CHANGED;
+            }
+        }
+        return null;
+    }
+
+    private void validateAuthorEditedDecisions(
+            List<WorldSettingCandidate> candidates,
+            Map<UUID, WorldSettingCandidateGroupConfirmRequest.Decision> decisionsById,
+            WorldSetting currentTarget
+    ) {
+        for (WorldSettingCandidate candidate : candidates) {
+            WorldSettingCandidateGroupConfirmRequest.Decision decision = decisionsById.get(candidate.getId());
+            if (isAuthorEditedDecision(candidate, decision)) {
+                validateAuthorDecisionCompatible(
+                        currentTarget,
+                        decision.operation(),
+                        decision.scopeName(),
+                        decision.settingName()
+                );
+            }
+        }
+    }
+
+    private void validateAuthorDecisionCompatible(
+            WorldSetting currentTarget,
+            WorldSettingOperation operation,
+            String scopeName,
+            String settingName
+    ) {
+        if (currentTarget == null) {
+            if (operation != WorldSettingOperation.ADD) {
+                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_UPDATE_PATH_NOT_FOUND);
+            }
+            return;
+        }
+        if (currentTarget.hasPathConflict(scopeName, settingName)) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTY_PATH_CONFLICT);
+        }
+        boolean propertyExists = currentTarget.hasProperty(scopeName, settingName);
+        if (operation == WorldSettingOperation.ADD && propertyExists) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_ADD_PATH_DUPLICATED);
+        }
+        if ((operation == WorldSettingOperation.UPDATE || operation == WorldSettingOperation.MERGE)
+                && !propertyExists) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_UPDATE_PATH_NOT_FOUND);
+        }
+    }
+
+    private boolean isAuthorEditedDecision(
+            WorldSettingCandidate candidate,
+            WorldSettingCandidateGroupConfirmRequest.Decision decision
+    ) {
+        return isAuthorEditedDecision(
+                candidate,
+                decision.operation(),
+                decision.category(),
+                decision.subjectName(),
+                decision.scopeName(),
+                decision.settingName(),
+                decision.value()
+        );
+    }
+
+    private boolean isAuthorEditedDecision(
+            WorldSettingCandidate candidate,
+            WorldSettingCandidateConfirmRequest request
+    ) {
+        return isAuthorEditedDecision(
+                candidate,
+                request.operation(),
+                request.category(),
+                request.subjectName(),
+                request.scopeName(),
+                request.settingName(),
+                request.value()
+        );
+    }
+
+    private boolean isAuthorEditedDecision(
+            WorldSettingCandidate candidate,
+            WorldSettingOperation operation,
+            WorldSettingCategory category,
+            String subjectName,
+            String scopeName,
+            String settingName,
+            String value
+    ) {
+        WorldSetting comparedTarget = candidate.getTargetWorldSetting();
+        WorldSettingCategory comparedCategory = comparedTarget == null
+                ? candidate.getCategory()
+                : comparedTarget.getCategory();
+        String comparedSubjectName = comparedTarget == null
+                ? candidate.getSubjectName()
+                : comparedTarget.getSubjectName();
+        String comparedScopeName = candidate.getProposedSettingName() == null
+                ? candidate.getScopeName()
+                : candidate.getProposedScopeName();
+        String comparedSettingName = candidate.getProposedSettingName() == null
+                ? candidate.getSettingName()
+                : candidate.getProposedSettingName();
+        String comparedValue = candidate.getProposedValue() == null
+                ? candidate.getExtractedValue()
+                : candidate.getProposedValue();
+        return operation != candidate.getSuggestedOperation()
+                || category != comparedCategory
+                || !sameName(subjectName, comparedSubjectName)
+                || !sameName(scopeName, comparedScopeName)
+                || !sameName(settingName, comparedSettingName)
+                || !Objects.equals(normalizeValue(value), normalizeValue(comparedValue));
     }
 
     private WorldSettingCandidateGroupConfirmResult markGroupRecomparisonRequired(
@@ -737,33 +939,17 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         );
     }
 
-    private void markUnselectedCandidatesForRecomparison(
-            Work work,
-            UUID batchId,
-            String selectedGroupKey,
-            Set<UUID> selectedCandidateIds
-    ) {
-        worldSettingCandidateRepository.findAllByBatchAndReviewStatusForUpdate(
-                        work.getId(),
-                        batchId,
-                        WorldSettingReviewStatus.PENDING_REVIEW
-                ).stream()
-                .filter(candidate -> !selectedCandidateIds.contains(candidate.getId()))
-                .filter(candidate -> groupKey(candidate).equals(selectedGroupKey))
-                .forEach(candidate -> candidate.markRecomparisonRequired(
-                        WorldSettingRecomparisonReason.NEW_TARGET_PARTIALLY_CONFIRMED.getMessage()
-                ));
-    }
-
     private String groupKey(WorldSettingCandidate candidate) {
-        WorldSetting target = candidate.getTargetWorldSetting();
-        return groupKey(
-                target == null ? candidate.getCategory() : target.getCategory(),
-                target == null ? candidate.getSubjectName() : target.getSubjectName()
-        );
+        return groupKey(candidate.getEffectiveCategory(), candidate.getEffectiveSubjectName());
     }
 
     private String groupKey(WorldSettingCategory category, String subjectName) {
         return category.name() + "|" + WorldSettingNameNormalizer.duplicateKey(subjectName);
+    }
+
+    private String propertyPathKey(String scopeName, String settingName) {
+        return Objects.toString(WorldSettingNameNormalizer.duplicateKey(scopeName), "<root>")
+                + "|"
+                + WorldSettingNameNormalizer.duplicateKey(settingName);
     }
 }

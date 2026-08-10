@@ -100,6 +100,10 @@ public class WorldSettingCandidate extends BaseEntity {
     @Column(name = "subject_name", nullable = false, length = NAME_MAX_LENGTH)
     private String subjectName;
 
+    // 대상 아래의 선택적 한 단계 범위다. null이면 루트 설정을 뜻한다.
+    @Column(name = "scope_name", length = NAME_MAX_LENGTH)
+    private String scopeName;
+
     @Column(name = "setting_name", nullable = false, length = NAME_MAX_LENGTH)
     private String settingName;
 
@@ -135,6 +139,9 @@ public class WorldSettingCandidate extends BaseEntity {
 
     @Column(name = "proposed_setting_name", length = NAME_MAX_LENGTH)
     private String proposedSettingName;
+
+    @Column(name = "proposed_scope_name", length = NAME_MAX_LENGTH)
+    private String proposedScopeName;
 
     @Column(name = "before_value", columnDefinition = "text")
     private String beforeValue;
@@ -177,6 +184,9 @@ public class WorldSettingCandidate extends BaseEntity {
     @Column(name = "final_subject_name", length = NAME_MAX_LENGTH)
     private String finalSubjectName;
 
+    @Column(name = "final_scope_name", length = NAME_MAX_LENGTH)
+    private String finalScopeName;
+
     @Column(name = "final_setting_name", length = NAME_MAX_LENGTH)
     private String finalSettingName;
 
@@ -205,6 +215,7 @@ public class WorldSettingCandidate extends BaseEntity {
             AnalysisJob analysisJob,
             WorldSettingCategory category,
             String subjectName,
+            String scopeName,
             String settingName,
             String extractedValue,
             JsonNode evidenceSpans,
@@ -216,6 +227,7 @@ public class WorldSettingCandidate extends BaseEntity {
         this.analysisJob = Objects.requireNonNull(analysisJob);
         this.category = Objects.requireNonNull(category);
         this.subjectName = requiredName(subjectName);
+        this.scopeName = optionalName(scopeName);
         this.settingName = requiredName(settingName);
         this.extractedValue = requiredValue(extractedValue);
         this.evidenceSpans = requiredEvidenceSpans(evidenceSpans);
@@ -238,12 +250,41 @@ public class WorldSettingCandidate extends BaseEntity {
             BigDecimal extractionConfidence,
             JsonNode rawExtractionJson
     ) {
+        return create(
+                work,
+                sourceEpisode,
+                analysisJob,
+                category,
+                subjectName,
+                null,
+                settingName,
+                extractedValue,
+                evidenceSpans,
+                extractionConfidence,
+                rawExtractionJson
+        );
+    }
+
+    public static WorldSettingCandidate create(
+            Work work,
+            Episode sourceEpisode,
+            AnalysisJob analysisJob,
+            WorldSettingCategory category,
+            String subjectName,
+            String scopeName,
+            String settingName,
+            String extractedValue,
+            JsonNode evidenceSpans,
+            BigDecimal extractionConfidence,
+            JsonNode rawExtractionJson
+    ) {
         return new WorldSettingCandidate(
                 work,
                 sourceEpisode,
                 analysisJob,
                 category,
                 subjectName,
+                scopeName,
                 settingName,
                 extractedValue,
                 evidenceSpans,
@@ -275,6 +316,7 @@ public class WorldSettingCandidate extends BaseEntity {
                 targetWorldSetting,
                 WorldSettingConsolidationStatus.SINGLE,
                 suggestedOperation,
+                null,
                 proposedSettingName,
                 beforeValue,
                 proposedValue,
@@ -295,11 +337,38 @@ public class WorldSettingCandidate extends BaseEntity {
             JsonNode rawComparisonJson,
             LocalDateTime comparedAt
     ) {
+        completeComparison(
+                targetWorldSetting,
+                consolidationStatus,
+                suggestedOperation,
+                null,
+                proposedSettingName,
+                beforeValue,
+                proposedValue,
+                comparisonReason,
+                rawComparisonJson,
+                comparedAt
+        );
+    }
+
+    public void completeComparison(
+            WorldSetting targetWorldSetting,
+            WorldSettingConsolidationStatus consolidationStatus,
+            WorldSettingOperation suggestedOperation,
+            String proposedScopeName,
+            String proposedSettingName,
+            String beforeValue,
+            String proposedValue,
+            String comparisonReason,
+            JsonNode rawComparisonJson,
+            LocalDateTime comparedAt
+    ) {
         validatePendingReview();
         validateProcessingComparison();
         this.targetWorldSetting = targetWorldSetting;
         this.consolidationStatus = Objects.requireNonNull(consolidationStatus);
         this.suggestedOperation = Objects.requireNonNull(suggestedOperation);
+        this.proposedScopeName = optionalName(proposedScopeName);
         this.proposedSettingName = requiredName(proposedSettingName);
         this.beforeValue = optionalValue(beforeValue);
         this.proposedValue = requiredValue(proposedValue);
@@ -335,18 +404,6 @@ public class WorldSettingCandidate extends BaseEntity {
         }
     }
 
-    public void updateExtractionIdentity(
-            WorldSettingCategory category,
-            String subjectName,
-            String settingName
-    ) {
-        validatePendingReview();
-        this.category = Objects.requireNonNull(category);
-        this.subjectName = requiredName(subjectName);
-        this.settingName = requiredName(settingName);
-        requestRecomparison();
-    }
-
     public void markRecomparisonRequired() {
         markRecomparisonRequired("확정본이 변경되어 재비교가 필요합니다.");
     }
@@ -355,6 +412,49 @@ public class WorldSettingCandidate extends BaseEntity {
         validatePendingReview();
         comparisonStatus = WorldSettingComparisonStatus.RECOMPARISON_REQUIRED;
         comparisonErrorMessage = requiredValue(reason);
+    }
+
+    public void updateDecisionDraft(
+            WorldSettingOperation operation,
+            WorldSettingCategory category,
+            String subjectName,
+            String scopeName,
+            String settingName,
+            String value,
+            String reviewNote
+    ) {
+        validatePendingReview();
+        if (comparisonStatus != WorldSettingComparisonStatus.COMPLETED) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_NOT_READY);
+        }
+        finalOperation = Objects.requireNonNull(operation);
+        finalCategory = Objects.requireNonNull(category);
+        finalSubjectName = requiredName(subjectName);
+        finalScopeName = optionalName(scopeName);
+        finalSettingName = requiredName(settingName);
+        finalValue = requiredValue(value);
+        this.reviewNote = optionalValue(reviewNote);
+        reviewedBy = null;
+        reviewedAt = null;
+        appliedWorldSettingVersion = null;
+    }
+
+    public WorldSettingOperation getEffectiveOperation() {
+        return finalOperation == null ? suggestedOperation : finalOperation;
+    }
+
+    public WorldSettingCategory getEffectiveCategory() {
+        if (finalCategory != null) {
+            return finalCategory;
+        }
+        return targetWorldSetting == null ? category : targetWorldSetting.getCategory();
+    }
+
+    public String getEffectiveSubjectName() {
+        if (finalSubjectName != null) {
+            return finalSubjectName;
+        }
+        return targetWorldSetting == null ? subjectName : targetWorldSetting.getSubjectName();
     }
 
     public boolean confirm(
@@ -367,8 +467,32 @@ public class WorldSettingCandidate extends BaseEntity {
             Member reviewer,
             WorldSetting appliedWorldSetting
     ) {
+        return confirm(
+                operation,
+                category,
+                subjectName,
+                null,
+                settingName,
+                value,
+                reviewNote,
+                reviewer,
+                appliedWorldSetting
+        );
+    }
+
+    public boolean confirm(
+            WorldSettingOperation operation,
+            WorldSettingCategory category,
+            String subjectName,
+            String scopeName,
+            String settingName,
+            String value,
+            String reviewNote,
+            Member reviewer,
+            WorldSetting appliedWorldSetting
+    ) {
         if (reviewStatus == WorldSettingReviewStatus.CONFIRMED) {
-            if (matchesFinalDecision(operation, category, subjectName, settingName, value)) {
+            if (matchesFinalDecision(operation, category, subjectName, scopeName, settingName, value)) {
                 return false;
             }
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
@@ -386,6 +510,7 @@ public class WorldSettingCandidate extends BaseEntity {
         finalOperation = operation;
         finalCategory = Objects.requireNonNull(category);
         finalSubjectName = requiredName(subjectName);
+        finalScopeName = optionalName(scopeName);
         finalSettingName = requiredName(settingName);
         finalValue = requiredValue(value);
         this.reviewNote = optionalValue(reviewNote);
@@ -411,6 +536,7 @@ public class WorldSettingCandidate extends BaseEntity {
         finalOperation = WorldSettingOperation.EXCLUDE;
         finalCategory = category;
         finalSubjectName = subjectName;
+        finalScopeName = proposedSettingName == null ? scopeName : proposedScopeName;
         finalSettingName = proposedSettingName == null ? settingName : proposedSettingName;
         finalValue = proposedValue == null ? extractedValue : proposedValue;
         this.reviewNote = optionalValue(reviewNote);
@@ -429,12 +555,14 @@ public class WorldSettingCandidate extends BaseEntity {
             WorldSettingOperation operation,
             WorldSettingCategory category,
             String subjectName,
+            String scopeName,
             String settingName,
             String value
     ) {
         return finalOperation == operation
                 && finalCategory == category
                 && Objects.equals(finalSubjectName, requiredName(subjectName))
+                && Objects.equals(finalScopeName, optionalName(scopeName))
                 && Objects.equals(finalSettingName, requiredName(settingName))
                 && Objects.equals(finalValue, requiredValue(value));
     }
@@ -454,6 +582,7 @@ public class WorldSettingCandidate extends BaseEntity {
     private void clearComparisonProposal() {
         targetWorldSetting = null;
         suggestedOperation = null;
+        proposedScopeName = null;
         proposedSettingName = null;
         beforeValue = null;
         proposedValue = null;
@@ -477,6 +606,10 @@ public class WorldSettingCandidate extends BaseEntity {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
         }
         return normalized;
+    }
+
+    private static String optionalName(String value) {
+        return value == null ? null : requiredName(value);
     }
 
     private static String requiredValue(String value) {

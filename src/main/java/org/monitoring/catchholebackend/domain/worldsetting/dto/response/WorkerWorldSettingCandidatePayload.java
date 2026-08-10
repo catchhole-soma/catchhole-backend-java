@@ -13,6 +13,7 @@ public record WorkerWorldSettingCandidatePayload(
         UUID sourceEpisodeId,
         WorldSettingCategory category,
         String subjectName,
+        @Schema(nullable = true) String scopeName,
         String settingName,
         String extractedValue,
         List<EvidenceSpan> evidenceSpans,

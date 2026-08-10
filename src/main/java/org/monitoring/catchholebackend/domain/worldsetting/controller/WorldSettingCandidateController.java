@@ -18,10 +18,11 @@ import org.monitoring.catchholebackend.domain.auth.security.MemberPrincipal;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateGroupConfirmRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateGroupDismissRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateConfirmRequest;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDecisionUpdateRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDismissRequest;
-import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateUpdateRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateGroupActionResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateListResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateDecisionUpdateResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.service.WorldSettingCandidateGroupConfirmResult;
 import org.monitoring.catchholebackend.domain.worldsetting.service.WorldSettingCandidateService;
@@ -37,8 +38,8 @@ import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -108,32 +109,29 @@ public class WorldSettingCandidateController {
         ));
     }
 
-    @PatchMapping(value = "/{candidateId}", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PatchMapping(value = "/decisions", consumes = MediaType.APPLICATION_JSON_VALUE)
     @Operation(
-            operationId = "updateWorldSettingCandidate",
-            summary = "세계관 설정 후보 비교 대상 수정",
-            description = "분류·대상명·설정명을 보정하고 비교 제안을 비운 뒤 재비교 대기 상태로 전환합니다."
+            operationId = "updateWorldSettingCandidateDecisions",
+            summary = "세계관 설정 후보 작가 수정안 저장",
+            description = "검토 대기 후보의 최종 결정을 저장하고 비교 상태를 유지합니다."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "세계관 설정 후보 수정 성공"),
-            @ApiResponse(responseCode = "400", description = "입력값 검증 실패",
+            @ApiResponse(responseCode = "200", description = "세계관 설정 후보 수정안 저장 성공"),
+            @ApiResponse(responseCode = "400", description = "후보 선택 또는 입력값 검증 실패",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
-            @ApiResponse(responseCode = "401", description = "인증 실패",
+            @ApiResponse(responseCode = "404", description = "작품, 묶음 또는 후보를 찾을 수 없음",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
-            @ApiResponse(responseCode = "404", description = "작품 또는 후보를 찾을 수 없음",
-                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
-            @ApiResponse(responseCode = "409", description = "검토 상태 충돌",
+            @ApiResponse(responseCode = "409", description = "검토 또는 비교 상태 충돌",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
     })
-    public CommonResponse<WorldSettingCandidateResponse> updateWorldSettingCandidate(
+    public CommonResponse<WorldSettingCandidateDecisionUpdateResponse> updateWorldSettingCandidateDecisions(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,
-            @PathVariable UUID candidateId,
-            @Valid @RequestBody WorldSettingCandidateUpdateRequest request
+            @Valid @RequestBody WorldSettingCandidateDecisionUpdateRequest request
     ) {
         return CommonResponse.success(
-                "세계관 설정 후보가 수정되어 재비교를 기다립니다.",
-                candidateService.updateCandidate(member.memberId(), workId, candidateId, request)
+                "세계관 설정 후보 수정안이 저장되었습니다.",
+                candidateService.updateCandidateDecisions(member.memberId(), workId, request)
         );
     }
 

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -105,6 +106,99 @@ class WorldSettingTest {
         assertThat(setting.getPropertyValue("서식지")).isEqualTo("극지방");
         assertThat(setting.getPropertyValue("특징")).isEqualTo("강인한 신체");
         assertThat(setting.getPropertyValue("사회 구조")).isEqualTo("부족 단위로 생활");
+    }
+
+    @Test
+    @DisplayName("루트 설정과 한 단계 범위 설정을 함께 저장하고 전체 경로로 조회한다")
+    void storesRootAndScopedProperties() {
+        WorldSetting setting = WorldSetting.create(
+                work(),
+                WorldSettingCategory.LOCATION,
+                "미궁",
+                List.of(
+                        new WorldSetting.Property(null, "폐쇄 시점", "마왕력 103년"),
+                        new WorldSetting.Property("1층", "출몰 규칙", "방향마다 몬스터가 다르다"),
+                        new WorldSetting.Property("2층", "출몰 규칙", "중앙부에 언데드가 출몰한다")
+                )
+        );
+
+        assertThat(setting.getPropertyValue("폐쇄 시점")).isEqualTo("마왕력 103년");
+        assertThat(setting.getPropertyValue("1층", "출몰 규칙"))
+                .isEqualTo("방향마다 몬스터가 다르다");
+        assertThat(setting.getPropertyValue("2층", "출몰 규칙"))
+                .isEqualTo("중앙부에 언데드가 출몰한다");
+        assertThat(setting.getPropertyCount()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("같은 설정명은 서로 다른 범위에 추가할 수 있다")
+    void allowsSameSettingNameInDifferentScopes() {
+        WorldSetting setting = WorldSetting.create(
+                work(),
+                WorldSettingCategory.LOCATION,
+                "미궁",
+                "1층",
+                "출몰 규칙",
+                "고블린이 출몰한다"
+        );
+
+        setting.addProperty("2층", "출몰 규칙", "언데드가 출몰한다");
+
+        assertThat(setting.getPropertyValue("1층", "출몰 규칙")).isEqualTo("고블린이 출몰한다");
+        assertThat(setting.getPropertyValue("2층", "출몰 규칙")).isEqualTo("언데드가 출몰한다");
+    }
+
+    @Test
+    @DisplayName("범위와 설정명을 동시에 이동하면 이전 경로를 정리한다")
+    void movesPropertyPath() {
+        WorldSetting setting = WorldSetting.create(
+                work(),
+                WorldSettingCategory.LOCATION,
+                "미궁",
+                "1층",
+                "출몰 규칙",
+                "고블린이 출몰한다"
+        );
+
+        setting.updateProperty("1층", "출몰 규칙", "2층", "등장 규칙", "언데드가 출몰한다");
+
+        assertThat(setting.getPropertyValue("1층", "출몰 규칙")).isNull();
+        assertThat(setting.getPropertyValue("2층", "등장 규칙")).isEqualTo("언데드가 출몰한다");
+        assertThat(setting.getPropertiesJson().has("1층")).isFalse();
+        assertThat(setting.getVersion()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("루트 설정과 같은 이름의 범위는 경로 충돌로 거절한다")
+    void rejectsRootAndScopePathCollision() {
+        WorldSetting setting = WorldSetting.create(
+                work(),
+                WorldSettingCategory.LOCATION,
+                "미궁",
+                "1층",
+                "1층 설명"
+        );
+
+        assertThatThrownBy(() -> setting.addProperty("1층", "출몰 규칙", "고블린이 출몰한다"))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(WorldSettingErrorCode.WORLD_SETTING_PROPERTY_PATH_CONFLICT));
+    }
+
+    @Test
+    @DisplayName("범위가 다른 여러 설정을 한 번에 반영하면 버전을 한 번만 증가시킨다")
+    void appliesScopedPropertiesWithSingleVersionIncrement() {
+        WorldSetting setting = worldSetting();
+
+        boolean changed = setting.applyProperties(List.of(
+                new WorldSetting.Property("1층", "출몰 규칙", "고블린이 출몰한다"),
+                new WorldSetting.Property("2층", "출몰 규칙", "언데드가 출몰한다")
+        ));
+
+        assertThat(changed).isTrue();
+        assertThat(setting.getVersion()).isEqualTo(1);
+        assertThat(setting.getPropertyValue("1층", "출몰 규칙")).isEqualTo("고블린이 출몰한다");
+        assertThat(setting.getPropertyValue("2층", "출몰 규칙")).isEqualTo("언데드가 출몰한다");
     }
 
     private WorldSetting worldSetting() {

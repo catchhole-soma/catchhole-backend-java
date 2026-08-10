@@ -34,6 +34,10 @@ public record WorkerWorldSettingCandidatePublishRequest(
             @Size(max = 100, message = "세계관 대상명은 100자 이하여야 합니다.")
             String subjectName,
 
+            @Size(max = 100, message = "세계관 범위명은 100자 이하여야 합니다.")
+            @Schema(description = "대상 아래의 선택적 한 단계 범위", nullable = true, example = "1층")
+            String scopeName,
+
             @NotBlank(message = "세계관 설정명은 필수입니다.")
             @Size(max = 100, message = "세계관 설정명은 100자 이하여야 합니다.")
             String settingName,
@@ -50,6 +54,27 @@ public record WorkerWorldSettingCandidatePublishRequest(
 
             Map<String, Object> rawExtractionJson
     ) {
+
+        public Candidate(
+                WorldSettingCategory category,
+                String subjectName,
+                String settingName,
+                String extractedValue,
+                List<EvidenceSpan> evidenceSpans,
+                BigDecimal extractionConfidence,
+                Map<String, Object> rawExtractionJson
+        ) {
+            this(
+                    category,
+                    subjectName,
+                    null,
+                    settingName,
+                    extractedValue,
+                    evidenceSpans,
+                    extractionConfidence,
+                    rawExtractionJson
+            );
+        }
 
         @AssertTrue(message = "추출 신뢰도는 0.65, 0.80, 0.95 중 하나여야 합니다.")
         public boolean hasSupportedExtractionConfidence() {
