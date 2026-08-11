@@ -175,7 +175,11 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             left join fetch analysisJob.worldSettingCandidate
             where analysisJob.status = :status
               and analysisJob.jobType in :jobTypes
-              and analysisJob.leaseExpiresAt <= :now
+              and (
+                    analysisJob.leaseToken is null
+                    or analysisJob.leaseExpiresAt is null
+                    or analysisJob.leaseExpiresAt <= :now
+              )
             order by analysisJob.leaseExpiresAt asc, analysisJob.createdAt asc
             """)
     List<AnalysisJob> findExpiredLeaseCandidates(
@@ -185,6 +189,7 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             Pageable pageable
     );
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<AnalysisJob> findFirstByWorldSettingCandidateIdAndStatusInOrderByCreatedAtDesc(
             UUID worldSettingCandidateId,
             Collection<AnalysisJobStatus> statuses
