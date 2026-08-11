@@ -57,6 +57,28 @@ Spring은 캐릭터 `setting_candidates` 생성 API를 제공하지 않아 기�
 
 Worker는 `X-Worker-Lease-Token`을 상태·token 예약·세계관 내부 API에 전달하고 heartbeat로 lease를 연장합니다. 이미 시작된 provider 요청의 token 정산·해제는 lease 만료 뒤에도 예약을 정리할 수 있도록 `requestId` 기준으로 처리합니다. 만료된 Job은 마지막 checkpoint부터 최대 세 번 claim하며, 공개 `recompare` 요청은 별도 `WORLD_SETTING_COMPARISON` Job을 생성해 전용 Worker가 후보 하나만 다시 비교합니다. 이 숨김 Job은 공개 분석 진행률과 `Episode.status`에 영향을 주지 않습니다.
 
+### Worker 실행 슬롯과 운영 동시성
+
+PostgreSQL의 `analysis_jobs`가 Job 대기열이고 Python 프로세스의 실행 슬롯은 즉시 처리 가능한 자리입니다. Worker scheduler는 슬롯을 먼저 확보한 뒤 claim 한 건을 요청하고, 성공한 Job을 곧바로 Job별 Task와 heartbeat Task로 실행합니다. 슬롯을 기다리는 Job을 미리 claim하지 않습니다.
+
+```mermaid
+flowchart LR
+    Q["analysis_jobs<br/>PENDING queue"] --> S{"빈 실행 슬롯?"}
+    S -- "없음" --> W["실행 중 Job 완료 대기"]
+    S -- "있음" --> C["Job 한 건 atomic claim"]
+    C --> T["Job Task 즉시 실행<br/>전용 lease·heartbeat"]
+    T --> F["complete 또는 fail"]
+    F --> R["슬롯 반환"]
+    W --> S
+    R --> S
+```
+
+현재 운영 검증 rollout은 `SETTING_EXTRACTION` Worker 2개 × 프로세스당 동시 Job 5개 = 최대 10개입니다. 한 Job 안의 청크는 순차 처리하며, 50개 Job 부하 테스트가 기준에 미달하면 프로세스당 3개로 되돌립니다. `ai-world-comparison-worker`는 Job·LLM 동시성을 1로 고정합니다. 따라서 10은 설정 추출 Job 용량이고 provider 계정 전체에 걸친 분산 동시 요청 상한은 아닙니다.
+
+LLM은 역할별로 분리합니다. 캐릭터 Fact·세계관 후보의 1차 추출은 `LLM_EXTRACTION_MODEL=gpt-5.6-terra`, 캐릭터·세계관 주체 해소는 `LLM_SUBJECT_RESOLUTION_MODEL=gpt-5.6-luna`, 세계관 비교와 재비교는 `LLM_COMPARISON_MODEL=gpt-5.6-luna`를 사용합니다. 세 값이 비어 있을 때만 `LLM_MODEL`로 fallback하며 프롬프트·Responses API·구조화 응답 계약은 동일하게 유지합니다.
+
+종료 신호를 받은 Worker는 신규 claim을 중단하고 내부 180초 동안 실행 중 Job과 heartbeat를 유지합니다. Compose는 210초의 `stop_grace_period`를 제공하며, 끝내지 못한 Job은 heartbeat 중단 뒤 5분 lease가 만료되면 checkpoint부터 회수됩니다. 한 Job의 실패나 취소는 다른 Job Task로 전파하지 않습니다.
+
 ## Notion 기준 전체 분석 흐름
 
 아래 흐름은 Notion의 “흐름 정리 - 임준우”에 있는 전체 작업 흐름을 백엔드 기준 용어로 옮긴 것입니다.

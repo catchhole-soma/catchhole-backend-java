@@ -17,7 +17,7 @@ AWS Console에서 수동으로 만든 리소스는 저장소만으로 확인할 
 
 - Caddy
 - Spring Backend
-- Python AI Worker
+- Python AI 분석 Worker 2개와 세계관 재비교 Worker 1개
 - PostgreSQL 16 + pgvector
 - Redis 7.4.10 (휴대폰 인증 단기 상태, 비영속)
 
@@ -42,7 +42,8 @@ flowchart LR
             subgraph COMPOSE["Docker Compose"]
                 CADDY["Caddy<br/>HTTPS·Reverse Proxy"]
                 SPRING["Spring Backend"]
-                WORKER["Python AI Worker"]
+                WORKER["Python AI 분석 Worker × 2<br/>프로세스당 Job 5개"]
+                COMPARISON_WORKER["세계관 재비교 Worker<br/>Job·LLM 동시성 1"]
                 POSTGRES["PostgreSQL 16 + pgvector<br/>Docker Volume"]
                 REDIS["Redis 7.4.10<br/>64MB·noeviction·비영속"]
             end
@@ -62,12 +63,15 @@ flowchart LR
     SPRING -->|"원문·업로드 파일 저장/조회"| S3
 
     WORKER -->|"Job claim·진행·완료·실패 보고"| SPRING
+    COMPARISON_WORKER -->|"재비교 Job claim·상태 보고"| SPRING
     WORKER -->|"청크·분석 후보 저장"| POSTGRES
     WORKER -->|"회차 원문 조회"| S3
-    WORKER -->|"설정 추출 요청<br/>flag 활성 시 임베딩 요청"| OPENAI
+    WORKER -->|"Terra 후보 추출<br/>Luna 주체 해소·세계관 비교"| OPENAI
+    COMPARISON_WORKER -->|"Luna 세계관 재비교"| OPENAI
 
     ENV -.-> SPRING
     ENV -.-> WORKER
+    ENV -.-> COMPARISON_WORKER
     ENV -.-> POSTGRES
     ENV -.-> REDIS
 
@@ -95,15 +99,17 @@ Vercel은 Backend 요청을 중계하는 서버가 아닙니다. 브라우저가
 ### 1.3 AI 분석 흐름
 
 1. Spring Backend가 회차별 `AnalysisJob`을 `PENDING` 상태로 생성합니다.
-2. Python AI Worker가 Spring 내부 API를 polling해 가장 오래된 Job 하나를 claim합니다.
+2. Python AI 분석 Worker 2개가 Spring 내부 API를 polling합니다. 각 프로세스는 빈 실행 슬롯을 먼저 확보한 뒤 가장 오래된 `SETTING_EXTRACTION` Job 하나만 claim하고 즉시 Task로 실행합니다.
 3. Spring이 Job을 `RUNNING`으로 바꾸고 단일 회차의 S3 메타데이터, 기존 캐릭터, 활성 설정 schema를 Worker에 전달합니다.
 4. Worker가 S3에서 회차 원문을 읽습니다.
 5. Worker가 원문 청킹과 LLM 설정 후보 추출을 수행하고, `EMBEDDING_GENERATION_ENABLED=true`일 때만 embedding을 생성합니다. MVP 기본값은 `false`입니다.
 6. Worker가 `episode_chunks`, `setting_candidates` 같은 분석 산출물을 PostgreSQL에 직접 저장합니다.
-7. Worker가 진행, 성공, 실패 상태를 Spring 내부 API로 보고합니다.
+7. Worker가 진행, 성공, 실패 상태를 Spring 내부 API로 보고하고 Job별 heartbeat로 5분 lease를 갱신합니다.
 8. Spring이 `AnalysisJob`과 대상 `Episode` 상태를 갱신합니다.
 
 `AnalysisJob`은 별도 서버나 AWS 서비스가 아니라 PostgreSQL에 저장되는 Backend 도메인 데이터입니다.
+
+AI Worker의 모델 라우팅은 1차 캐릭터 Fact·세계관 후보 추출에 Terra, 캐릭터·세계관 주체 해소와 세계관 비교·재비교에 Luna를 사용합니다. Compose가 `LLM_EXTRACTION_MODEL`, `LLM_SUBJECT_RESOLUTION_MODEL`, `LLM_COMPARISON_MODEL`을 각 Worker에 전달하고, 개별 값이 없을 때만 `LLM_MODEL`을 fallback으로 사용합니다.
 
 ### 1.4 배포 흐름
 
@@ -145,7 +151,7 @@ flowchart LR
 | 위치 | 저장 대상 |
 | --- | --- |
 | GitHub Secrets | AWS 배포 role/access key, EC2 instance ID, AI 저장소의 Backend dispatch token |
-| EC2 `/opt/catchhole/.env` | DB·Redis 비밀번호, JWT·휴대폰 인증 HMAC secret, SOLAPI API 자격 증명·발신번호, 내부 API key, LLM API key, 운영 이미지·도메인·공통 `APP_TIMEZONE`, AI 임베딩 생성 flag 설정 |
+| EC2 `/opt/catchhole/.env` | DB·Redis 비밀번호, JWT·휴대폰 인증 HMAC secret, SOLAPI API 자격 증명·발신번호, 내부 API key, LLM API key, 운영 이미지·도메인·공통 `APP_TIMEZONE`, AI Worker replica·동시성·종료 grace와 임베딩 생성 flag 설정 |
 | EC2 IAM Role | SSM managed node 등록과 S3 접근 권한 |
 
 AWS Secrets Manager 또는 Systems Manager Parameter Store에서 애플리케이션 비밀값을 읽는 구성은 아직 없습니다.
@@ -183,7 +189,8 @@ AWS Secrets Manager 또는 Systems Manager Parameter Store에서 애플리케이
 - 운영 비밀값 갱신과 rotation이 EC2 `.env` 수동 관리에 의존합니다.
 - DNS, 네트워크, IAM, S3 정책 같은 인프라 상태가 IaC로 재현되지 않습니다.
 - `main` 이미지 태그 배포는 현재 실행 버전 식별과 즉시 rollback을 어렵게 합니다.
-- Worker가 종료되면 `RUNNING` Job을 자동 회수하는 lease·heartbeat 정책이 아직 없습니다.
+- Worker graceful shutdown은 신규 claim을 멈추고 내부 180초, Compose 210초 동안 실행 중 Job을 기다립니다. 강제 종료된 Job은 5분 lease가 만료되어야 회수되므로 배포 직후 일시적인 `RUNNING` 지연이 남을 수 있습니다.
+- `LLM_MAX_CONCURRENT_REQUESTS`는 프로세스별 상한이라 별도 재비교 Worker까지 합친 provider 계정 전체 동시성을 엄격히 제한하지 않습니다.
 - CAPTCHA가 없어 공격자가 휴대폰 인증 전체 일일 한도 20건을 소진할 수 있습니다.
 - Redis 재시작 시 진행 중 휴대폰 인증과 아직 소비하지 않은 가입 토큰이 초기화됩니다.
 
@@ -317,16 +324,19 @@ Spring 수평 확장의 전제는 다음과 같습니다.
 
 Worker는 CPU 사용률보다 **Job 대기량과 가장 오래된 대기 시간**을 기준으로 확장합니다.
 
-여러 Worker를 실행하기 전에 다음 기능이 필요합니다.
+현재 운영 검증 rollout은 `SETTING_EXTRACTION` 분석 Worker 2개와 별도 세계관 재비교 Worker 1개입니다. 분석 Worker는 프로세스당 Job 슬롯과 LLM 상한을 5개로 사용하므로 설정 추출 Job 최대 동시성은 10입니다. 50개 Job 부하 테스트에서 Backend·PostgreSQL·LLM 지표가 기준에 미달하면 프로세스 수는 2개로 유지하고 두 상한을 3으로 되돌립니다.
 
-- 같은 Job을 두 Worker가 동시에 처리하지 않는 atomic claim
-- Worker 종료 후 `RUNNING` Job을 회수할 lease와 heartbeat
-- claim 소유자가 아닌 Worker의 늦은 완료 보고를 막는 fencing 또는 claim token
-- 재시도 횟수, backoff, 최대 시도 횟수와 최종 실패 기준
-- 청크와 분석 후보 저장의 idempotency
-- 동일 회차의 활성 Job 중복 생성 방지
+여러 Worker가 안전하게 실행되는 현재 계약은 다음과 같습니다.
 
-현재 pessimistic lock 기반 claim은 단일 Worker에서 단순하고 안전하지만, Worker 수가 늘면 claim 경합과 대기 시간을 측정해야 합니다. 실제 병목이 확인되면 non-blocking claim 방식 또는 외부 queue를 검토합니다.
+- Spring의 pessimistic write lock이 같은 Job의 중복 claim을 막습니다.
+- claim은 Worker가 빈 실행 슬롯을 확보한 뒤 한 건씩 요청합니다. 슬롯 없이 미리 claim한 내부 대기열을 만들지 않습니다.
+- claim마다 5분 lease token을 발급하고 Job별 heartbeat가 60초마다 갱신합니다.
+- lease token이 다른 Worker의 늦은 progress·complete·fail과 토큰·세계관 변경을 막습니다.
+- 만료 Job은 최대 3회까지 마지막 checkpoint부터 다시 대기시키고 진행 중 token 예약을 해제합니다.
+- 동일 회차의 활성 Job 생성과 후보 교체·세계관 게시에는 기존 중복 방지 및 checkpoint 계약을 유지합니다.
+- 종료 신호 뒤에는 신규 claim을 중단하고 내부 180초 동안 실행 중 Job과 heartbeat를 유지합니다. Compose는 210초 뒤 강제 종료합니다.
+
+현재 pessimistic lock 기반 claim은 정확성을 우선해 claim 요청을 짧게 직렬화합니다. 분석 Job 최대 동시성 10의 부하 테스트에서 claim latency와 lock wait를 측정하고, 병목이 확인될 때만 `SKIP LOCKED` 같은 non-blocking claim 또는 외부 queue를 검토합니다.
 
 Worker 확장 신호 예시는 다음과 같습니다.
 
@@ -335,7 +345,7 @@ Worker 확장 신호 예시는 다음과 같습니다.
 - Worker 한 개의 처리 시간이 안정적이지만 대기열만 증가
 - LLM 429가 증가하지 않는 범위에서 동시 실행 여유가 있음
 
-LLM provider rate limit이 병목이면 Worker 수만 늘려도 처리량이 증가하지 않으므로 전역 동시성 제한과 backoff를 먼저 적용합니다.
+`LLM_MAX_CONCURRENT_REQUESTS`는 프로세스별 상한입니다. 위의 10은 별도 `ai-world-comparison-worker`를 제외한 `SETTING_EXTRACTION` Job 용량이며 provider 계정 전체의 분산 상한이 아닙니다. LLM provider rate limit이 병목이면 Worker 수만 늘리지 않고 429·`Retry-After`와 처리량을 확인합니다. 모든 프로세스를 합친 엄격한 상한이 필요할 때만 Redis 같은 분산 limiter를 별도 설계합니다.
 
 ### 3.4 PostgreSQL과 pgvector 확장
 
@@ -408,7 +418,7 @@ CloudWatch를 애플리케이션 모니터링 구현체로 사용하지 않습�
 - API 장애, 장시간 PENDING/RUNNING Job 알람과 runbook 구성
 - PostgreSQL 자동 `pg_dump`와 복구 훈련
 - GHCR `main` 대신 short SHA/digest 배포와 직전 버전 rollback
-- Worker lease, heartbeat, stale Job 회수 구현
+- Worker 동시 실행에서 lease 만료·checkpoint 재개·graceful shutdown을 부하 및 강제 종료 테스트로 검증
 
 ### 5.2 2단계: 데이터와 비밀값 분리
 

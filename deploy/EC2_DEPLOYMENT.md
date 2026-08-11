@@ -64,18 +64,65 @@ EMBEDDING_GENERATION_ENABLED=false
 
 오류 리포트나 RAG 검색에서 pgvector가 필요해지면 값을 `true`로 바꾸고 AI Worker를 재생성한다. 이 설정은 이후 생성되는 신규 분석·재분석 청크에만 적용되며 기존 `NULL` 임베딩을 자동 backfill하지 않는다. 과거 원문 벡터가 필요하면 대상 회차의 재분석 Job을 생성하거나 별도 범위 제한 backfill 작업을 먼저 준비한다.
 
+## AI Worker 동시 실행과 종료
+
+운영 `SETTING_EXTRACTION` Worker는 Compose의 `deploy.replicas`와 프로세스 내부 실행 슬롯을 함께 사용한다. 현재 검증 rollout 값은 다음과 같다.
+
+```dotenv
+AI_WORKER_PROCESS_COUNT=2
+AI_WORKER_CONCURRENCY=5
+LLM_MAX_CONCURRENT_REQUESTS=5
+LLM_HTTP_MAX_RETRIES=3
+LLM_HTTP_RETRY_BASE_SECONDS=2
+AI_WORKER_BLOCKING_MAX_WORKERS=3
+AI_WORKER_IDLE_SLEEP_SECONDS=5
+AI_WORKER_SHUTDOWN_GRACE_SECONDS=180
+```
+
+`AI_WORKER_PROCESS_COUNT`는 Compose가 만드는 분석 Worker 컨테이너 수이고, `AI_WORKER_CONCURRENCY`는 각 컨테이너의 동시 Job 슬롯 수다. 따라서 현재 검증 rollout의 `SETTING_EXTRACTION` 용량은 `2 × 5 = 10`이다. 50개 Job 부하 테스트에서 중복 claim·lease 만료, LLM 429, Backend 지연, PostgreSQL connection, EC2 메모리를 확인하고 기준에 미달하면 두 프로세스는 유지한 채 `AI_WORKER_CONCURRENCY`와 `LLM_MAX_CONCURRENT_REQUESTS`를 3으로 되돌린다.
+
+실행 슬롯은 queue가 아니다. queue는 PostgreSQL의 `analysis_jobs`이고 슬롯은 Worker가 지금 즉시 처리할 수 있는 자리다. Worker는 `슬롯 확보 → Job 하나 claim → 즉시 Task 실행` 순서를 지키며, 슬롯 없이 Job을 미리 claim해 내부 대기열에 쌓지 않는다. 한 Job 안의 청크는 순차 처리한다.
+
+`ai-world-comparison-worker`는 같은 LLM 계정을 사용하지만 별도 Job type을 처리하며 Compose에서 Job·LLM 동시성을 1로 고정한다. 따라서 위의 10은 `SETTING_EXTRACTION` Job 처리 용량이지 모든 프로세스를 합친 provider 계정 전체 동시 요청 상한이 아니다. 계정 전체의 엄격한 상한이 필요하면 Redis 같은 프로세스 외부 분산 limiter가 필요하며 이번 MVP 범위에는 포함하지 않는다.
+
+동시성 10 검증 rollout에서 50개 Job 부하 테스트가 다음 기준을 모두 만족해야 운영값으로 유지한다.
+
+- 중복 claim과 정상 처리 중 lease 만료가 각각 0건이다.
+- LLM 429가 없거나 `Retry-After`/backoff 재시도로 최종 복구된다.
+- 회차당 평균 1분인 입력에서 전체 완료가 약 6~9분 이내다.
+- EC2 메모리 지속 사용률이 75% 이하이고 Backend 응답 시간이 눈에 띄게 악화되지 않는다.
+- PostgreSQL connection 고갈이 없고 claim lock wait가 처리량 병목이 아니다.
+- 한 Job 실패가 다른 Job을 취소하지 않으며, 컨테이너 종료 시 신규 claim 중단과 실행 중 Job drain이 확인된다.
+
+종료 신호를 받은 Worker는 신규 claim을 즉시 중단하고 실행 중 Job과 heartbeat를 내부 grace 180초 동안 유지한다. Compose `stop_grace_period`는 210초로 두어 내부 timeout 뒤 Task 취소와 client/executor 정리에 30초를 더 준다. 210초 뒤에도 종료하지 않으면 Docker가 강제 종료하며, heartbeat가 멈춘 Job은 Spring의 5분 lease 만료와 checkpoint 정책으로 회수된다. 내부 grace를 210초 이상으로 올리지 않는다.
+
+이미 시작된 동기 DB/S3 thread는 Python에서 강제로 중단되지 않으므로 내부 180초 grace는 blocking I/O의 절대 timeout이 아니다. 취소 뒤 critical section 완료를 기다리는 동안 heartbeat가 더 갱신될 수 있고, 강제 종료 직전 heartbeat가 성공했다면 재claim은 마지막 5분 lease 만료까지 추가 지연될 수 있다. staging에서는 DB/S3 지연을 주입한 종료 테스트로 신규 claim 중단, 210초 강제 종료, checkpoint 기반 재회수를 함께 확인한다.
+
+설정을 바꾼 뒤 Compose 렌더링과 실제 replica 수를 확인한다.
+
+```bash
+docker compose --env-file .env -f compose.prod.yml config --quiet
+docker compose --env-file .env -f compose.prod.yml up -d --force-recreate ai-worker ai-world-comparison-worker
+docker compose --env-file .env -f compose.prod.yml ps ai-worker ai-world-comparison-worker
+```
+
+`ai-worker`가 2개, `ai-world-comparison-worker`가 1개 실행 중이어야 한다. 배포 Workflow의 SSM 상태 확인은 210초 stop grace와 이후 최대 150초 Backend health 확인보다 긴 15분을 허용한다.
+
 ## AI 모델과 기본 토큰 지급량
 
 운영 모델, 추론 강도, 신규 회원의 기본 토큰 지급량은 서버의 `/opt/catchhole/.env`에서 관리한다.
 
 ```dotenv
 LLM_MODEL=gpt-5.6-terra
+LLM_EXTRACTION_MODEL=gpt-5.6-terra
+LLM_SUBJECT_RESOLUTION_MODEL=gpt-5.6-luna
+LLM_COMPARISON_MODEL=gpt-5.6-luna
 LLM_REASONING_EFFORT=none
 AI_TOKEN_DEFAULT_GRANT=2000000
 AI_TOKEN_CONTACT_EMAIL=aicatchhole@gmail.com
 ```
 
-`LLM_REASONING_EFFORT=none`은 설정 추출의 구조화 응답 품질을 별도로 검증하면서 GPT-5.6의 기본 추론 비용이 자동으로 추가되지 않게 하는 MVP 기준값이다. 모델 품질 평가 후 필요하면 `low` 이상으로 올린다.
+캐릭터 Fact·세계관 후보의 1차 추출은 Terra를 사용하고, 캐릭터·세계관 주체 해소와 세계관 비교·재비교는 Luna를 사용한다. `LLM_MODEL`은 단계별 값이 없을 때만 사용하는 하위 호환 fallback이다. `LLM_REASONING_EFFORT=none`은 구조화 응답 품질을 별도로 검증하면서 GPT-5.6의 기본 추론 비용이 자동으로 추가되지 않게 하는 MVP 기준값이다.
 
 `AI_TOKEN_DEFAULT_GRANT`는 설정 변경 후 처음 생성되는 토큰 계정에만 적용된다. 기존 회원에게도 정책 차액을 지급할 때는 `docs/ai-token-usage.md`의 운영 추가 지급 절차를 사용해 계정 합계와 지급 이력을 같은 transaction에서 갱신한다.
 
@@ -87,9 +134,12 @@ AI_TOKEN_CONTACT_EMAIL=aicatchhole@gmail.com
 docker compose --env-file .env -f compose.prod.yml up -d --force-recreate backend ai-worker ai-world-comparison-worker
 docker compose --env-file .env -f compose.prod.yml exec backend printenv AI_TOKEN_DEFAULT_GRANT
 docker compose --env-file .env -f compose.prod.yml exec backend printenv AI_TOKEN_CONTACT_EMAIL
-docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv LLM_MODEL
+docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv LLM_EXTRACTION_MODEL
+docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv LLM_SUBJECT_RESOLUTION_MODEL
+docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv LLM_COMPARISON_MODEL
 docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv LLM_REASONING_EFFORT
-docker compose --env-file .env -f compose.prod.yml exec ai-world-comparison-worker printenv LLM_MODEL
+docker compose --env-file .env -f compose.prod.yml exec ai-world-comparison-worker printenv LLM_SUBJECT_RESOLUTION_MODEL
+docker compose --env-file .env -f compose.prod.yml exec ai-world-comparison-worker printenv LLM_COMPARISON_MODEL
 ```
 
 ## 실행

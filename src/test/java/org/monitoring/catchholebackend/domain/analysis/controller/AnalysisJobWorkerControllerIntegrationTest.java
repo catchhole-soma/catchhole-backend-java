@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -56,6 +57,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -95,6 +97,9 @@ class AnalysisJobWorkerControllerIntegrationTest {
 
     @Autowired
     private AnalysisJobRepository analysisJobRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private WorldSettingCandidateRepository worldSettingCandidateRepository;
@@ -361,6 +366,81 @@ class AnalysisJobWorkerControllerIntegrationTest {
         assertThat(claimedJob.getModelName()).isEqualTo("gpt-4.1-mini");
         assertThat(claimedJob.getCurrentStep()).isEqualTo("원문 청킹");
         assertThat(pendingJob.getStatus()).isEqualTo(AnalysisJobStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("null lease를 가진 기존 RUNNING 작업을 재claim하고 이전 token을 거절한다")
+    void claimRecoversLegacyRunningJobsWithIncompleteLeases() throws Exception {
+        AnalysisJob missingTokenJob = analysisJobRepository.save(
+                episodeJob(AnalysisJobType.EPISODE_VALIDATION, firstEpisode)
+        );
+        AnalysisJob missingExpiryJob = analysisJobRepository.save(
+                episodeJob(AnalysisJobType.EPISODE_VALIDATION, secondEpisode)
+        );
+        UUID staleLeaseToken = UUID.randomUUID();
+        jdbcTemplate.update("""
+                update analysis_jobs
+                   set status = 'RUNNING',
+                       lease_token = null,
+                       lease_expires_at = ?,
+                       claim_attempt_count = 1
+                 where id = ?
+                """, LocalDateTime.now().plusMinutes(5), missingTokenJob.getId());
+        jdbcTemplate.update("""
+                update analysis_jobs
+                   set status = 'RUNNING',
+                       lease_token = ?,
+                       lease_expires_at = null,
+                       claim_attempt_count = 1
+                 where id = ?
+                """, staleLeaseToken, missingExpiryJob.getId());
+
+        mockMvc.perform(post(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}/heartbeat",
+                                missingExpiryJob.getId()
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, staleLeaseToken))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ANALYSIS_JOB_LEASE_CONFLICT"));
+
+        String firstClaim = mockMvc.perform(post(CLAIM_URL)
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(DEFAULT_CLAIM_BODY))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String secondClaim = mockMvc.perform(post(CLAIM_URL)
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(DEFAULT_CLAIM_BODY))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        Set<UUID> reclaimedJobIds = Set.of(
+                UUID.fromString(objectMapper.readTree(firstClaim).at("/data/analysisJobId").asText()),
+                UUID.fromString(objectMapper.readTree(secondClaim).at("/data/analysisJobId").asText())
+        );
+        assertThat(reclaimedJobIds).containsExactlyInAnyOrder(
+                missingTokenJob.getId(),
+                missingExpiryJob.getId()
+        );
+        assertThat(analysisJobRepository.findAllById(reclaimedJobIds))
+                .allSatisfy(job -> {
+                    assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.RUNNING);
+                    assertThat(job.getClaimAttemptCount()).isEqualTo(2);
+                    assertThat(job.getLeaseToken()).isNotNull();
+                    assertThat(job.getLeaseExpiresAt()).isNotNull();
+                });
+
+        mockMvc.perform(post(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}/heartbeat",
+                                missingExpiryJob.getId()
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, staleLeaseToken))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ANALYSIS_JOB_LEASE_CONFLICT"));
     }
 
     @Test

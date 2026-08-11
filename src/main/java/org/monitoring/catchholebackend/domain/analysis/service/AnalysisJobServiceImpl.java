@@ -74,7 +74,6 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     ) {
         assertPublicJobType(request.jobType());
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        aiTokenService.ensureAnalysisCanStart(memberId);
         UploadBatch batch = getBatchInWork(request.batchId(), work);
         Episode episode = request.episodeId() == null ? null : getEpisodeInBatch(request.episodeId(), work, batch);
 
@@ -96,6 +95,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 request.jobType(),
                 targetEpisodes
         );
+        aiTokenService.ensureAnalysisCanStart(memberId);
         List<AnalysisJob> analysisJobs = targetEpisodes.stream()
                 .map(targetEpisode -> AnalysisJob.create(work, batch, targetEpisode, request.jobType()))
                 .toList();
@@ -320,13 +320,13 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                         activeStatuses
                 )
                 .orElseGet(() -> {
-                    aiTokenService.ensureAnalysisCanStart(work.getMember().getId());
                     deleteSupersededPendingCandidates(
                             work.getId(),
                             failedJob.getBatch().getId(),
                             failedJob.getJobType(),
                             List.of(episode)
                     );
+                    aiTokenService.ensureAnalysisCanStart(work.getMember().getId());
                     return analysisJobRepository.save(AnalysisJob.create(
                             work,
                             failedJob.getBatch(),

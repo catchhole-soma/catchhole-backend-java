@@ -250,8 +250,7 @@ public class AnalysisJob extends BaseEntity {
 
     public boolean isLeaseExpired(LocalDateTime now) {
         return status == AnalysisJobStatus.RUNNING
-                && leaseExpiresAt != null
-                && !leaseExpiresAt.isAfter(now);
+                && (leaseExpiresAt == null || !leaseExpiresAt.isAfter(now));
     }
 
     public void renewLease(LocalDateTime leaseExpiresAt) {

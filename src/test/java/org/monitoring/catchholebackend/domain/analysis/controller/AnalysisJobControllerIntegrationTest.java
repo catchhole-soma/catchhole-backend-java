@@ -513,7 +513,7 @@ class AnalysisJobControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("실패 분석 재시도는 새 작업을 만들기 전에 해당 회차의 이전 미검토 후보만 제거한다")
+    @DisplayName("실패 분석 재시도는 대체 Job의 전체 예약을 해제한 뒤 새 작업을 만든다")
     void retryFailedAnalysisJobDeletesSupersededPendingCandidates() throws Exception {
         firstEpisode.markFailed();
         episodeRepository.save(firstEpisode);
@@ -572,7 +572,7 @@ class AnalysisJobControllerIntegrationTest {
                 AiTokenPurpose.WORLD_SETTING_COMPARISON,
                 1,
                 "gpt-5.6-terra",
-                100L
+                2_000_000L
         ), comparisonLeaseToken);
 
         mockMvc.perform(post(
