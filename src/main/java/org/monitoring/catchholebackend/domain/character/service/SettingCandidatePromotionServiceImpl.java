@@ -6,6 +6,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -101,14 +102,10 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         if (invalidGroup) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
         }
-        if (workCharacterRepository.findByWorkIdAndNameAndStatus(
-                workId,
-                characterName,
-                CharacterStatus.ACTIVE
-        ).isPresent()) {
+        if (findActiveCharacterByGroupName(workId, characterName).isPresent()) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_NOT_READY);
         }
-        if (workCharacterRepository.existsByWorkIdAndName(workId, characterName)) {
+        if (existsCharacterByGroupName(workId, characterName)) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
         }
 
@@ -349,11 +346,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         workRepository.findByIdForUpdate(workId)
                 .orElseThrow(() -> new AppException(WorkErrorCode.WORK_NOT_FOUND));
 
-        WorkCharacter existingCharacter = workCharacterRepository.findByWorkIdAndNameAndStatus(
-                        workId,
-                        characterName,
-                        CharacterStatus.ACTIVE
-                )
+        WorkCharacter existingCharacter = findActiveCharacterByGroupName(workId, characterName)
                 .map(character -> lockActiveCharacter(character, workId))
                 .orElse(null);
         if (existingCharacter != null) {
@@ -361,7 +354,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             matchPendingUnresolvedSiblings(workId, characterName, existingCharacter, false);
             return new ResolvedCharacter(existingCharacter, false, true);
         }
-        if (workCharacterRepository.existsByWorkIdAndName(workId, characterName)) {
+        if (existsCharacterByGroupName(workId, characterName)) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
         }
 
@@ -381,6 +374,38 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
         }
         return lockedCharacter;
+    }
+
+    private Optional<WorkCharacter> findActiveCharacterByGroupName(UUID workId, String entityName) {
+        Optional<WorkCharacter> exactMatch = workCharacterRepository.findByWorkIdAndNameAndStatus(
+                workId,
+                SettingCandidateGroupNameNormalizer.toDisplayName(entityName),
+                CharacterStatus.ACTIVE
+        );
+        if (exactMatch.isPresent()) {
+            return exactMatch;
+        }
+        return workCharacterRepository.findAllByWorkIdAndStatusOrderByCreatedAtDesc(
+                        workId,
+                        CharacterStatus.ACTIVE
+                ).stream()
+                .filter(character -> SettingCandidateGroupNameNormalizer.belongsToSameGroup(
+                        character.getName(),
+                        entityName
+                ))
+                .findFirst();
+    }
+
+    private boolean existsCharacterByGroupName(UUID workId, String entityName) {
+        String displayName = SettingCandidateGroupNameNormalizer.toDisplayName(entityName);
+        if (workCharacterRepository.existsByWorkIdAndName(workId, displayName)) {
+            return true;
+        }
+        return workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(workId).stream()
+                .anyMatch(character -> SettingCandidateGroupNameNormalizer.belongsToSameGroup(
+                        character.getName(),
+                        entityName
+                ));
     }
 
     private void matchPendingUnresolvedSiblings(

@@ -348,8 +348,13 @@ public class EpisodeServiceImpl implements EpisodeService {
         uploadFileRepository.findById(episode.getSourceFileId())
                 .map(UploadFile::getBatch)
                 .map(UploadBatch::getId)
-                .filter(batchId -> analysisJobRepository.existsByBatchIdAndEpisodeIsNullAndStatusIn(
-                        batchId, activeStatuses)
+                .filter(batchId -> analysisJobRepository.existsByBatchIdAndEpisodeIsNullAndJobTypeNotInAndStatusIn(
+                        batchId,
+                        Set.of(
+                                AnalysisJobType.WORLD_SETTING_COMPARISON,
+                                AnalysisJobType.CHARACTER_FACT_COMPARISON
+                        ),
+                        activeStatuses)
                         || analysisJobRepository.existsByEpisodeIdAndBatchIdAndJobTypeNotInAndStatusIn(
                         episode.getId(),
                         batchId,

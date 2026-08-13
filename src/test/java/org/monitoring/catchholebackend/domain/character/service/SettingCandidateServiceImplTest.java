@@ -1130,6 +1130,54 @@ class SettingCandidateServiceImplTest {
     }
 
     @Test
+    @DisplayName("대소문자와 연속 공백만 다른 기존 캐릭터는 신규 생성하지 않고 재비교한다")
+    void confirmSettingCandidateMatchesExistingCharacterByNormalizedGroupName() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        UUID characterId = UUID.randomUUID();
+        Work work = work(workId);
+        WorkCharacter character = character(work, characterId, "Alice Smith");
+        SettingCandidate candidate = candidate(work, "alice  smith", "age", "17");
+        ReflectionTestUtils.setField(candidate, "id", candidateId);
+        SettingCandidateReviewStatusResponse response = reviewStatusResponse(
+                candidateId,
+                SettingCandidateReviewStatus.PENDING_REVIEW
+        );
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId))
+                .thenReturn(Optional.of(candidate));
+        when(workCharacterRepository.findByWorkIdAndNameAndStatus(
+                workId,
+                "alice smith",
+                CharacterStatus.ACTIVE
+        )).thenReturn(Optional.empty());
+        when(workCharacterRepository.findAllByWorkIdAndStatusOrderByCreatedAtDesc(
+                workId,
+                CharacterStatus.ACTIVE
+        )).thenReturn(List.of(character));
+        when(workCharacterRepository.findByIdAndWorkIdForUpdate(characterId, workId))
+                .thenReturn(Optional.of(character));
+        when(settingCandidateMapper.toReviewStatusResponse(candidate)).thenReturn(response);
+
+        SettingCandidateConfirmResult result = service.confirmSettingCandidate(
+                memberId,
+                workId,
+                candidateId,
+                null
+        );
+
+        assertThat(result.recomparisonRequired()).isTrue();
+        assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(candidate.getMatchedCharacterId()).isEqualTo(characterId);
+        verify(analysisJobRepository).save(any(AnalysisJob.class));
+        verify(settingCandidatePromotionService, never()).promote(
+                any(SettingCandidate.class),
+                any(CharacterFactConfirmApplicationMode.class)
+        );
+    }
+
+    @Test
     @DisplayName("이력으로만 확정할 때는 현재 snapshot 문맥이 바뀌어도 재비교하지 않는다")
     void confirmHistoryOnlyDoesNotValidateCurrentSnapshotContext() {
         Long memberId = 1L;

@@ -15,4 +15,8 @@ public final class SettingCandidateGroupNameNormalizer {
     public static String toGroupKey(String entityName) {
         return toDisplayName(entityName).toLowerCase(Locale.ROOT);
     }
+
+    public static boolean belongsToSameGroup(String leftName, String rightName) {
+        return toGroupKey(leftName).equals(toGroupKey(rightName));
+    }
 }

@@ -595,7 +595,7 @@ class EpisodeControllerIntegrationTest {
         analysisJobRepository.save(AnalysisJob.create(
                 work,
                 batch,
-                episode,
+                null,
                 AnalysisJobType.CHARACTER_FACT_COMPARISON
         ));
 

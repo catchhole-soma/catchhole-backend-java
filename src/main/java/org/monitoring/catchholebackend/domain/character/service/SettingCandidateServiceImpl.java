@@ -13,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -380,12 +381,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             String entityName = SettingCandidateGroupNameNormalizer.toDisplayName(
                     unresolved.getFirst().getEntityName()
             );
-            WorkCharacter existing = workCharacterRepository.findByWorkIdAndNameAndStatus(
-                            work.getId(),
-                            entityName,
-                            CharacterStatus.ACTIVE
-                    )
-                    .orElse(null);
+            WorkCharacter existing = findActiveCharacterByGroupName(work.getId(), entityName).orElse(null);
             if (existing != null) {
                 WorkCharacter locked = workCharacterRepository.findByIdAndWorkIdForUpdate(
                                 existing.getId(), work.getId()
@@ -405,7 +401,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                         unresolved.stream().map(SettingCandidate::getId).toList()
                 );
             }
-            if (workCharacterRepository.existsByWorkIdAndName(work.getId(), entityName)) {
+            if (existsCharacterByGroupName(work.getId(), entityName)) {
                 throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
             }
             if (unresolved.size() != candidates.size()) {
@@ -523,16 +519,10 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 || candidate.getMatchedCharacterId() != null) {
             return false;
         }
-        WorkCharacter existing = workCharacterRepository.findByWorkIdAndNameAndStatus(
-                work.getId(),
-                candidate.getEntityName().trim(),
-                CharacterStatus.ACTIVE
-        ).orElse(null);
+        String entityName = SettingCandidateGroupNameNormalizer.toDisplayName(candidate.getEntityName());
+        WorkCharacter existing = findActiveCharacterByGroupName(work.getId(), entityName).orElse(null);
         if (existing == null) {
-            if (workCharacterRepository.existsByWorkIdAndName(
-                    work.getId(),
-                    candidate.getEntityName().trim()
-            )) {
+            if (existsCharacterByGroupName(work.getId(), entityName)) {
                 throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
             }
             return false;
@@ -679,7 +669,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             }
             case CREATE_NEW -> {
                 String entityName = normalizeRequiredCharacterName(requestedEntityName);
-                if (workCharacterRepository.existsByWorkIdAndName(work.getId(), entityName)) {
+                if (existsCharacterByGroupName(work.getId(), entityName)) {
                     throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
                 }
                 candidates.forEach(candidate -> candidate.markAsNewCharacter(entityName));
@@ -861,6 +851,39 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
 
     private String groupKey(String entityName) {
         return SettingCandidateGroupNameNormalizer.toGroupKey(entityName);
+    }
+
+    /** 후보 그룹과 동일한 대소문자·공백 정규화 규칙으로 기존 캐릭터를 찾는다. */
+    private Optional<WorkCharacter> findActiveCharacterByGroupName(UUID workId, String entityName) {
+        Optional<WorkCharacter> exactMatch = workCharacterRepository.findByWorkIdAndNameAndStatus(
+                workId,
+                SettingCandidateGroupNameNormalizer.toDisplayName(entityName),
+                CharacterStatus.ACTIVE
+        );
+        if (exactMatch.isPresent()) {
+            return exactMatch;
+        }
+        return workCharacterRepository.findAllByWorkIdAndStatusOrderByCreatedAtDesc(
+                        workId,
+                        CharacterStatus.ACTIVE
+                ).stream()
+                .filter(character -> SettingCandidateGroupNameNormalizer.belongsToSameGroup(
+                        character.getName(),
+                        entityName
+                ))
+                .findFirst();
+    }
+
+    private boolean existsCharacterByGroupName(UUID workId, String entityName) {
+        String displayName = SettingCandidateGroupNameNormalizer.toDisplayName(entityName);
+        if (workCharacterRepository.existsByWorkIdAndName(workId, displayName)) {
+            return true;
+        }
+        return workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(workId).stream()
+                .anyMatch(character -> SettingCandidateGroupNameNormalizer.belongsToSameGroup(
+                        character.getName(),
+                        entityName
+                ));
     }
 
     private boolean isUnknownCharacterName(String entityName) {
