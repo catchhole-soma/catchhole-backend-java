@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -243,6 +244,53 @@ class CharacterFactComparisonWorkerServiceImplTest {
         assertThat(context.snapshotEntries())
                 .extracting(WorkerCharacterFactComparisonContextResponse.SnapshotEntry::factKey)
                 .startsWith("status.target", "status.new", "status.middle", "status.old");
+    }
+
+    @Test
+    @DisplayName("STATUS 문맥 30건에서 제외된 slot을 제거 대상으로 보내면 거절한다")
+    void rejectsRemovalOfStatusThatWasNotProvidedInContext() {
+        var statuses = objectMapper.createObjectNode();
+        statuses.set("status.target", value("대상"));
+        for (int index = 0; index < 35; index++) {
+            statuses.set("status.%02d".formatted(index), value(index));
+        }
+        character.replaceCurrentSnapshots(null, null, null, null, null, null, statuses);
+        SettingCandidate candidate = prepareCandidate(
+                "status.target",
+                "치료됨",
+                SettingValueType.JSON,
+                value("치료됨"),
+                schema("statuses.status", "status.*", CharacterFactType.STATUS, SettingValueType.JSON)
+        );
+        WorkerCharacterFactComparisonContextResponse context = claimAndGetContext(candidate);
+        Set<String> providedKeys = context.snapshotEntries().stream()
+                .map(WorkerCharacterFactComparisonContextResponse.SnapshotEntry::factKey)
+                .collect(java.util.stream.Collectors.toSet());
+        String omittedKey = java.util.stream.IntStream.range(0, 35)
+                .mapToObj(index -> "status.%02d".formatted(index))
+                .filter(key -> !providedKeys.contains(key))
+                .findFirst()
+                .orElseThrow();
+
+        assertThatThrownBy(() -> service.completeCharacterFactComparison(
+                analysisJobId,
+                candidate.getId(),
+                leaseToken,
+                completeRequest(
+                        CharacterFactOperation.UPDATE,
+                        CharacterFactType.STATUS,
+                        "status.target",
+                        Map.of("value", "치료됨"),
+                        List.of(new WorkerCharacterFactComparisonCompleteRequest.SnapshotEntry(
+                                CharacterFactType.STATUS,
+                                omittedKey
+                        )),
+                        CharacterFactTemporalScope.PRESENT,
+                        context.contextToken()
+                )
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_TARGET_INVALID));
     }
 
     @Test

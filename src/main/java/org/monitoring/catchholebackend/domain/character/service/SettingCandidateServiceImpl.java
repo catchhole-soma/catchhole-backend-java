@@ -8,9 +8,9 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -39,6 +39,8 @@ import org.monitoring.catchholebackend.domain.character.exception.CharacterError
 import org.monitoring.catchholebackend.domain.character.mapper.SettingCandidateMapper;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaMatch;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSlot;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateGroupNameNormalizer;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateBatchCounts;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
@@ -375,7 +377,9 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 .filter(candidate -> candidate.getMatchStatus() == SettingCandidateMatchStatus.UNRESOLVED)
                 .toList();
         if (!unresolved.isEmpty()) {
-            String entityName = unresolved.getFirst().getEntityName().trim();
+            String entityName = SettingCandidateGroupNameNormalizer.toDisplayName(
+                    unresolved.getFirst().getEntityName()
+            );
             WorkCharacter existing = workCharacterRepository.findByWorkIdAndNameAndStatus(
                             work.getId(),
                             entityName,
@@ -457,6 +461,9 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             return SettingCandidateGroupConfirmResult.recomparisonRequired(bootstrapped);
         }
 
+        List<CharacterSettingSchema> schemas = characterSettingSchemaRepository.findAllActiveForWork(work.getId());
+        validateGroupDecisionDependencies(candidates, decisions, schemas);
+
         for (SettingCandidate candidate : candidates) {
             if (candidate.getSuggestedOperation() == CharacterFactOperation.EXCLUDE) {
                 candidate.dismiss();
@@ -469,7 +476,6 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 );
             }
         }
-        List<CharacterSettingSchema> schemas = characterSettingSchemaRepository.findAllActiveForWork(work.getId());
         return SettingCandidateGroupConfirmResult.confirmed(
                 toGroupActionResponse(groupKey(candidates.getFirst().getEntityName()), candidates, schemas)
         );
@@ -573,6 +579,49 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 && operation == CharacterFactOperation.REVIEW_REQUIRED) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
         }
+    }
+
+    /**
+     * 뒤 후보의 비교 결과가 앞선 동일 slot 후보의 제안값을 문맥으로 사용했는데 사용자가 그 앞 후보를
+     * HISTORY_ONLY로 바꾸면, 뒤 제안만 적용할 때 검증하지 않은 현재값이 만들어진다. 그룹 확정은 원자적으로
+     * 중단해 사용자가 두 후보의 반영 방식을 일관되게 다시 선택하도록 한다.
+     */
+    private void validateGroupDecisionDependencies(
+            List<SettingCandidate> candidates,
+            Map<UUID, SettingCandidateGroupConfirmDecision> decisions,
+            List<CharacterSettingSchema> schemas
+    ) {
+        Set<CharacterSnapshotSlot> suppressedPriorProposalSlots = new HashSet<>();
+        for (SettingCandidate candidate : candidates) {
+            CharacterFactOperation operation = candidate.getSuggestedOperation();
+            if (candidate.isCharacterDiscovery() || !changesCurrentSnapshot(operation)) {
+                continue;
+            }
+            SettingCandidateSchemaMatch schemaMatch = settingCandidateSchemaResolver.resolve(
+                    candidate.getAttributeName(),
+                    candidate.getValueType(),
+                    schemas
+            );
+            CharacterSnapshotSlot slot = new CharacterSnapshotSlot(
+                    schemaMatch.matchedSchema().getFactType(),
+                    schemaMatch.factKey()
+            );
+            CharacterFactConfirmApplicationMode applicationMode =
+                    decisions.get(candidate.getId()).applicationMode();
+            if (applicationMode == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+                    && suppressedPriorProposalSlots.contains(slot)) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_GROUP_DECISION_DEPENDENCY_CONFLICT);
+            }
+            if (applicationMode == CharacterFactConfirmApplicationMode.HISTORY_ONLY) {
+                suppressedPriorProposalSlots.add(slot);
+            }
+        }
+    }
+
+    private boolean changesCurrentSnapshot(CharacterFactOperation operation) {
+        return operation == CharacterFactOperation.ADD
+                || operation == CharacterFactOperation.UPDATE
+                || operation == CharacterFactOperation.MERGE;
     }
 
     private void validateComparisonNotProcessing(SettingCandidate candidate) {
@@ -791,7 +840,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 .toList();
         return new SettingCandidateGroupResponse(
                 groupKey,
-                candidates.getFirst().getEntityName().trim(),
+                SettingCandidateGroupNameNormalizer.toDisplayName(candidates.getFirst().getEntityName()),
                 candidates.size(),
                 evidenceEpisodeNos,
                 responses
@@ -805,13 +854,13 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
     ) {
         return new SettingCandidateGroupActionResponse(
                 groupKey,
-                candidates.getFirst().getEntityName().trim(),
+                SettingCandidateGroupNameNormalizer.toDisplayName(candidates.getFirst().getEntityName()),
                 candidates.stream().map(candidate -> toResponse(candidate, schemas)).toList()
         );
     }
 
     private String groupKey(String entityName) {
-        return entityName.trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+        return SettingCandidateGroupNameNormalizer.toGroupKey(entityName);
     }
 
     private boolean isUnknownCharacterName(String entityName) {
@@ -1010,7 +1059,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         if (!StringUtils.hasText(value)) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_NEW_CHARACTER_NAME_REQUIRED);
         }
-        return value.trim();
+        return SettingCandidateGroupNameNormalizer.toDisplayName(value);
     }
 
     private String normalizeOptionalText(String value) {

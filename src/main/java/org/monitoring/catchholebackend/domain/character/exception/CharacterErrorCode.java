@@ -54,6 +54,11 @@ public enum CharacterErrorCode implements ResultCode {
     SETTING_CANDIDATE_COMPARISON_STALE(HttpStatus.CONFLICT, "캐릭터 현재 설정이 변경되어 비교 문맥을 다시 조회해야 합니다."),
     SETTING_CANDIDATE_COMPARISON_TARGET_INVALID(HttpStatus.BAD_REQUEST, "캐릭터 설정 비교 대상 또는 변경 제안이 올바르지 않습니다."),
     SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID(HttpStatus.CONFLICT, "현재 확정할 수 없는 캐릭터 설정 비교 결과입니다."),
+    SETTING_CANDIDATE_GROUP_DECISION_DEPENDENCY_CONFLICT(
+            HttpStatus.CONFLICT,
+            "앞선 동일 설정을 현재값에 반영하지 않으면 뒤 후보의 AI 제안을 그대로 적용할 수 없습니다. "
+                    + "뒤 후보도 이력에만 저장하거나 앞 후보를 현재 설정에 반영해 주세요."
+    ),
     SETTING_CANDIDATE_WORKER_JOB_INVALID(HttpStatus.CONFLICT, "캐릭터 설정 비교 Worker 작업 범위가 올바르지 않습니다."),
     SETTING_CANDIDATE_MERGE_POLICY_UNSUPPORTED(HttpStatus.CONFLICT, "현재 지원하지 않는 설정 병합 정책입니다.");
 

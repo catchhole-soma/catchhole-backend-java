@@ -170,8 +170,12 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
 
         Map<CharacterSnapshotSlot, CharacterSnapshotEntry> currentSnapshot = snapshotAccessor.read(character);
         CharacterSnapshotSlot targetSlot = validateTarget(canonicalTarget, request);
+        Set<CharacterSnapshotSlot> contextSlots = currentContext.entries().stream()
+                .map(entry -> new CharacterSnapshotSlot(entry.factType(), entry.factKey()))
+                .collect(java.util.stream.Collectors.toSet());
         List<CharacterSnapshotSlot> removedSlots = validateRemovedEntries(
                 currentSnapshot,
+                contextSlots,
                 targetSlot,
                 request
         );
@@ -436,9 +440,14 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
 
     private List<CharacterSnapshotSlot> validateRemovedEntries(
             Map<CharacterSnapshotSlot, CharacterSnapshotEntry> currentSnapshot,
+            Set<CharacterSnapshotSlot> contextSlots,
             CharacterSnapshotSlot targetSlot,
             WorkerCharacterFactComparisonCompleteRequest request
     ) {
+        if (!request.removedSnapshotEntries().isEmpty()
+                && (targetSlot == null || targetSlot.factType() != CharacterFactType.STATUS)) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
+        }
         Set<CharacterSnapshotSlot> distinct = new HashSet<>();
         for (WorkerCharacterFactComparisonCompleteRequest.SnapshotEntry removed
                 : request.removedSnapshotEntries()) {
@@ -448,6 +457,7 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
             );
             if (!distinct.add(slot)
                     || !currentSnapshot.containsKey(slot)
+                    || !contextSlots.contains(slot)
                     || slot.equals(targetSlot)
                     || slot.factType() != CharacterFactType.STATUS) {
                 throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_TARGET_INVALID);

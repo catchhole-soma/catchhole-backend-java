@@ -26,6 +26,7 @@ import org.monitoring.catchholebackend.domain.character.processor.CharacterSnaps
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSourceManager;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaMatch;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateGroupNameNormalizer;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
@@ -95,7 +96,8 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                 .anyMatch(candidate -> !candidate.getWork().getId().equals(workId)
                         || candidate.getMatchStatus() != SettingCandidateMatchStatus.UNRESOLVED
                         || candidate.getMatchedCharacterId() != null
-                        || !promotionMapper.toCharacterName(candidate).equals(characterName));
+                        || !SettingCandidateGroupNameNormalizer.toGroupKey(candidate.getEntityName())
+                        .equals(SettingCandidateGroupNameNormalizer.toGroupKey(characterName)));
         if (invalidGroup) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
         }

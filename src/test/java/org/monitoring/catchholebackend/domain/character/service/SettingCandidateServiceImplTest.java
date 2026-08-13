@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -33,6 +34,8 @@ import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateCharacterMatchRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateConfirmRequest;
+import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateGroupConfirmDecision;
+import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateGroupConfirmRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateUpdateRequest;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateListResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
@@ -1400,6 +1403,75 @@ class SettingCandidateServiceImplTest {
                                 .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_NOT_FOUND));
     }
 
+    @Test
+    @DisplayName("앞선 동일 slot 제안을 이력으로만 저장하면 그 값에 의존한 뒤 제안 적용을 거절한다")
+    void confirmSettingCandidateGroupRejectsSuppressedPriorProposalDependency() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        Work work = work(workId);
+        WorkCharacter character = character(work, UUID.randomUUID(), "아리아");
+        SettingCandidate first = completedCandidate(
+                work,
+                character,
+                "stats.strength",
+                "10",
+                CharacterFactOperation.ADD
+        );
+        SettingCandidate second = completedCandidate(
+                work,
+                character,
+                "stats.strength",
+                "12",
+                CharacterFactOperation.ADD
+        );
+        List<SettingCandidate> candidates = List.of(first, second);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(uploadBatchRepository.findByIdAndWorkId(batchId, workId))
+                .thenReturn(Optional.of(org.mockito.Mockito.mock(UploadBatch.class)));
+        when(settingCandidateRepository.findAllByIdsAndBatchForUpdate(
+                eq(workId),
+                eq(batchId),
+                eq(Set.of(first.getId(), second.getId()))
+        )).thenReturn(candidates);
+        when(settingCandidateRepository.findReviewCandidates(
+                workId,
+                batchId,
+                SettingCandidateReviewStatus.PENDING_REVIEW,
+                java.util.EnumSet.allOf(SettingCandidateMatchStatus.class)
+        )).thenReturn(candidates);
+        when(characterFactComparisonWorkerService.hasCurrentContext(any(SettingCandidate.class)))
+                .thenReturn(true);
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(
+                schema("stats.strength", null, CharacterFactType.STAT, SettingValueType.NUMBER)
+        ));
+        SettingCandidateGroupConfirmRequest request = new SettingCandidateGroupConfirmRequest(
+                batchId,
+                List.of(
+                        new SettingCandidateGroupConfirmDecision(
+                                first.getId(),
+                                CharacterFactConfirmApplicationMode.HISTORY_ONLY,
+                                0L
+                        ),
+                        new SettingCandidateGroupConfirmDecision(
+                                second.getId(),
+                                CharacterFactConfirmApplicationMode.APPLY_PROPOSAL,
+                                0L
+                        )
+                )
+        );
+
+        assertThatThrownBy(() -> service.confirmSettingCandidateGroup(memberId, workId, request))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode()).isEqualTo(
+                                CharacterErrorCode.SETTING_CANDIDATE_GROUP_DECISION_DEPENDENCY_CONFLICT
+                        ));
+        verify(settingCandidatePromotionService, never()).promote(
+                any(SettingCandidate.class),
+                any(CharacterFactConfirmApplicationMode.class)
+        );
+    }
+
     private SettingCandidate candidate(
             Work work,
             String entityName,
@@ -1414,6 +1486,33 @@ class SettingCandidateServiceImplTest {
                 SettingValueType.NUMBER,
                 objectMapper.createObjectNode().put("value", attributeValue)
         );
+    }
+
+    private SettingCandidate completedCandidate(
+            Work work,
+            WorkCharacter character,
+            String attributeName,
+            String attributeValue,
+            CharacterFactOperation operation
+    ) {
+        SettingCandidate candidate = candidate(work, character.getName(), attributeName, attributeValue);
+        ReflectionTestUtils.setField(candidate, "id", UUID.randomUUID());
+        candidate.matchExistingCharacter(character);
+        candidate.startComparison();
+        candidate.recordComparisonContext(0L, "context-hash-" + candidate.getId());
+        candidate.completeComparison(
+                operation,
+                null,
+                null,
+                attributeValue,
+                objectMapper.createObjectNode().put("value", Integer.parseInt(attributeValue)),
+                objectMapper.createArrayNode(),
+                CharacterFactTemporalScope.PRESENT,
+                "현재 설정 제안",
+                objectMapper.createObjectNode().put("operation", operation.name()),
+                LocalDateTime.of(2026, 8, 13, 12, 0)
+        );
+        return candidate;
     }
 
     private SettingCandidate candidate(

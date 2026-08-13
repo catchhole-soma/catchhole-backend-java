@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateGroupNameNormalizer;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.springframework.stereotype.Component;
 
@@ -59,7 +60,7 @@ public class SettingCandidatePromotionMapper {
     }
 
     public String toCharacterName(SettingCandidate candidate) {
-        return candidate.getEntityName().trim();
+        return SettingCandidateGroupNameNormalizer.toDisplayName(candidate.getEntityName());
     }
 
     private String normalizeFactValue(String value) {

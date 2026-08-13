@@ -342,10 +342,10 @@ class SettingCandidateControllerIntegrationTest {
                 SettingValueType.NUMBER, "레벨"
         ));
         SettingCandidate age = settingCandidateRepository.save(
-                candidate(work, episode, analysisJob, "아리아", "age", "17")
+                candidate(work, episode, analysisJob, "Aria Smith", "age", "17")
         );
         SettingCandidate level = settingCandidateRepository.save(
-                candidate(work, episode, analysisJob, "아리아", "level", "3")
+                candidate(work, episode, analysisJob, "aria  smith", "level", "3")
         );
 
         mockMvc.perform(post("/api/v1/works/{workId}/setting-candidates/group-confirm", work.getId())
@@ -370,6 +370,7 @@ class SettingCandidateControllerIntegrationTest {
                         .value(containsInAnyOrder("CONFIRMED", "CONFIRMED")));
 
         assertThat(workCharacterRepository.findAll()).hasSize(1);
+        assertThat(workCharacterRepository.findAll().getFirst().getName()).isEqualTo("Aria Smith");
         assertThat(characterFactRepository.findAll()).hasSize(2);
         assertThat(settingCandidateRepository.findAll())
                 .extracting(SettingCandidate::getReviewStatus)
