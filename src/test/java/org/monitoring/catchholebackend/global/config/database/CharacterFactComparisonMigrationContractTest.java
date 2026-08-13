@@ -70,6 +70,16 @@ class CharacterFactComparisonMigrationContractTest {
                 .contains("status IN ('PENDING', 'RUNNING')");
     }
 
+    @Test
+    @DisplayName("캐릭터 상태 종료 제안을 suggested operation으로 저장할 수 있다")
+    void suggestedOperationConstraintAllowsRemove() throws IOException {
+        String sql = readMigration("db/migration/V24__allow_character_fact_remove_operation.sql");
+
+        assertThat(sql)
+                .contains("DROP CONSTRAINT ck_setting_candidates_suggested_operation")
+                .contains("'ADD', 'UPDATE', 'MERGE', 'REMOVE', 'HISTORY_ONLY', 'EXCLUDE', 'REVIEW_REQUIRED'");
+    }
+
     private String readMigration(String path) throws IOException {
         return new ClassPathResource(path).getContentAsString(StandardCharsets.UTF_8);
     }

@@ -157,8 +157,11 @@ public class CharacterSettingValueValidator {
         if (valueNode == null) {
             return false;
         }
-        if (valueNode.isNull() || valueType == SettingValueType.UNKNOWN) {
+        if (valueType == SettingValueType.UNKNOWN) {
             return true;
+        }
+        if (valueNode.isNull()) {
+            return false;
         }
         return switch (valueType) {
             case STRING -> valueNode.isTextual();
