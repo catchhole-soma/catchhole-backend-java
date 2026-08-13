@@ -17,10 +17,12 @@ import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshotSource;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterSnapshotSourceRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
@@ -66,6 +68,9 @@ class CharacterFactControllerIntegrationTest {
 
     @Autowired
     private CharacterFactRepository characterFactRepository;
+
+    @Autowired
+    private CharacterSnapshotSourceRepository characterSnapshotSourceRepository;
 
     @Autowired
     private CharacterSettingSchemaRepository characterSettingSchemaRepository;
@@ -156,6 +161,7 @@ class CharacterFactControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.content[0].displayName").value("flame potion"))
                 .andExpect(jsonPath("$.data.content[0].factValue").value("Flame Potion"))
                 .andExpect(jsonPath("$.data.content[0].isCurrent").value(true))
+                .andExpect(jsonPath("$.data.content[0].contributesToCurrentSnapshot").value(true))
                 .andExpect(jsonPath("$.data.content[0].characterId").value(character.getId().toString()))
                 .andExpect(jsonPath("$.data.content[0].characterName").value("아리아"))
                 .andExpect(jsonPath("$.data.content[0].sourceEpisodeId").value(secondEpisode.getId().toString()))
@@ -163,6 +169,7 @@ class CharacterFactControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.content[0].effectiveFromEpisodeNo").value(2))
                 .andExpect(jsonPath("$.data.content[1].characterFactId").value(historicalSkill.getId().toString()))
                 .andExpect(jsonPath("$.data.content[1].isCurrent").value(false))
+                .andExpect(jsonPath("$.data.content[1].contributesToCurrentSnapshot").value(false))
                 .andExpect(jsonPath("$.data.page").value(0))
                 .andExpect(jsonPath("$.data.size").value(20))
                 .andExpect(jsonPath("$.data.totalElements").value(2))
@@ -279,6 +286,70 @@ class CharacterFactControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("복수 provenance Fact도 CURRENT와 HISTORICAL 페이지 수를 중복 없이 계산한다")
+    void searchCountsMultipleSnapshotSourcesWithoutPaginationDuplicates() throws Exception {
+        WorkCharacter character = workCharacterRepository.save(character(work, "아리아"));
+        CharacterFact firstSource = saveFact(
+                character, null, CharacterFactType.STATUS, "status.injury", "부상", firstEpisode, 1, false
+        );
+        CharacterFact secondSource = saveFact(
+                character, null, CharacterFactType.STATUS, "status.injury", "치료 중", secondEpisode, 2, false
+        );
+        CharacterFact historical = saveFact(
+                character, null, CharacterFactType.STATUS, "status.injury", "과거 부상", firstEpisode, 1, false
+        );
+        characterSnapshotSourceRepository.saveAllAndFlush(List.of(
+                CharacterSnapshotSource.create(
+                        character,
+                        CharacterFactType.STATUS,
+                        "status.injury",
+                        firstSource,
+                        0
+                ),
+                CharacterSnapshotSource.create(
+                        character,
+                        CharacterFactType.STATUS,
+                        "status.injury",
+                        secondSource,
+                        1
+                )
+        ));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/character-facts/search", work.getId())
+                        .queryParam("factType", "STATUS")
+                        .queryParam("scope", "CURRENT")
+                        .queryParam("page", "0")
+                        .queryParam("size", "1")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].characterFactId").value(secondSource.getId().toString()))
+                .andExpect(jsonPath("$.data.totalElements").value(2))
+                .andExpect(jsonPath("$.data.totalPages").value(2))
+                .andExpect(jsonPath("$.data.hasNext").value(true));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/character-facts/search", work.getId())
+                        .queryParam("factType", "STATUS")
+                        .queryParam("scope", "CURRENT")
+                        .queryParam("page", "1")
+                        .queryParam("size", "1")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].characterFactId").value(firstSource.getId().toString()))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/character-facts/search", work.getId())
+                        .queryParam("factType", "STATUS")
+                        .queryParam("scope", "HISTORICAL")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].characterFactId").value(historical.getId().toString()))
+                .andExpect(jsonPath("$.data.totalElements").value(1));
+    }
+
+    @Test
     @DisplayName("상세는 후보 근거 인용문 순서를 유지하고 Fact 출처가 없으면 후보 회차를 사용한다")
     void detailReturnsEvidenceAndCandidateEpisodeFallback() throws Exception {
         WorkCharacter character = workCharacterRepository.save(character(work, "아리아"));
@@ -330,6 +401,7 @@ class CharacterFactControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.displayName").value("체력 물약"))
                 .andExpect(jsonPath("$.data.factValue").value("체력 물약"))
                 .andExpect(jsonPath("$.data.isCurrent").value(true))
+                .andExpect(jsonPath("$.data.contributesToCurrentSnapshot").value(true))
                 .andExpect(jsonPath("$.data.effectiveFromEpisodeNo").value(2))
                 .andExpect(jsonPath("$.data.characterId").value(character.getId().toString()))
                 .andExpect(jsonPath("$.data.characterName").value("아리아"))
@@ -920,10 +992,17 @@ class CharacterFactControllerIntegrationTest {
                 candidate == null ? null : candidate.getConfidence(),
                 effectiveFromEpisodeNo
         );
+        CharacterFact saved = characterFactRepository.saveAndFlush(fact);
         if (current) {
-            fact.markCurrent();
+            characterSnapshotSourceRepository.saveAndFlush(CharacterSnapshotSource.create(
+                    character,
+                    factType,
+                    factKey,
+                    saved,
+                    0
+            ));
         }
-        return characterFactRepository.saveAndFlush(fact);
+        return saved;
     }
 
     private SettingCandidate saveCandidate(Episode episode, String quote, int startOffset) {
@@ -999,6 +1078,7 @@ class CharacterFactControllerIntegrationTest {
     }
 
     private void cleanDatabase() {
+        characterSnapshotSourceRepository.deleteAll();
         characterFactRepository.deleteAll();
         settingCandidateRepository.deleteAll();
         workCharacterRepository.deleteAll();

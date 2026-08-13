@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.character.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
@@ -14,6 +15,8 @@ import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessor;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSourceManager;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
@@ -29,7 +32,10 @@ import org.springframework.test.util.ReflectionTestUtils;
 class SettingCandidateMapperTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final SettingCandidateMapper mapper = new SettingCandidateMapper();
+    private final SettingCandidateMapper mapper = new SettingCandidateMapper(
+            new CharacterSnapshotAccessor(),
+            mock(CharacterSnapshotSourceManager.class)
+    );
 
     @Test
     @DisplayName("설정 후보 Entity를 응답 DTO로 변환한다")
@@ -79,11 +85,36 @@ class SettingCandidateMapperTest {
         assertThat(response.attributeNameEditable()).isFalse();
         assertThat(response.attributeNamePrefix()).isNull();
         assertThat(response.attributeValue()).isEqualTo("17");
-        assertThat(response.valueJson()).isInstanceOf(Map.class);
+        assertThat(response.valueJson()).isEqualTo(Map.of("value", 17));
         assertThat(response.evidenceSpans()).isInstanceOf(List.class);
         assertThat(response.rawAiResultJson()).isInstanceOf(Map.class);
-        assertThat(response.valueJson()).asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
-                .containsEntry("value", 17);
+    }
+
+    @Test
+    @DisplayName("검토 목록 응답에서는 화면에 사용하지 않는 AI 원본 payload를 제외한다")
+    void toReviewListResponseOmitsRawAiPayload() {
+        Work work = work(UUID.randomUUID());
+        SettingCandidate candidate = SettingCandidate.create(
+                work,
+                null,
+                null,
+                null,
+                SettingEntityType.CHARACTER,
+                "아리아",
+                "age",
+                "17",
+                SettingValueType.NUMBER,
+                objectMapper.createObjectNode().put("value", 17),
+                objectMapper.createArrayNode().add(objectMapper.createObjectNode().put("quote", "열일곱 살의 아리아")),
+                new BigDecimal("0.8000"),
+                objectMapper.createObjectNode().put("large_raw_value", "목록에서는 제외")
+        );
+
+        SettingCandidateResponse response = mapper.toReviewListResponse(candidate, false, null);
+
+        assertThat(response.valueJson()).isEqualTo(Map.of("value", 17));
+        assertThat(response.evidenceSpans()).isInstanceOf(List.class);
+        assertThat(response.rawAiResultJson()).isNull();
     }
 
     @Test

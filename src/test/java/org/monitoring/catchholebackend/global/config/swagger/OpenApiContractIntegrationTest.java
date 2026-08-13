@@ -164,8 +164,20 @@ class OpenApiContractIntegrationTest {
                         .value("#/components/schemas/CharacterFactReferenceResponse"))
                 .andExpect(jsonPath("$['components']['schemas']['CharacterDetailResponse']['properties']['currentLevelFact']['$ref']")
                         .value("#/components/schemas/CharacterFactReferenceResponse"))
+                .andExpect(jsonPath("$['components']['schemas']['CharacterDetailResponse']['properties']['currentAgeFact']['deprecated']")
+                        .value(true))
+                .andExpect(jsonPath("$['components']['schemas']['CharacterDetailResponse']['properties']['currentLevelFact']['deprecated']")
+                        .value(true))
+                .andExpect(jsonPath("$['components']['schemas']['CharacterDetailResponse']['properties']['currentAgeSourceFacts']['items']['$ref']")
+                        .value("#/components/schemas/CharacterFactReferenceResponse"))
+                .andExpect(jsonPath("$['components']['schemas']['CharacterDetailResponse']['properties']['currentLevelSourceFacts']['items']['$ref']")
+                        .value("#/components/schemas/CharacterFactReferenceResponse"))
                 .andExpect(jsonPath("$['components']['schemas']['CharacterFactReferenceResponse']['required']")
                         .value(org.hamcrest.Matchers.hasItems("characterFactId", "hasEvidence")))
+                .andExpect(jsonPath("$['components']['schemas']['CharacterFactReferenceResponse']['properties']['sourceEpisodeId']")
+                        .exists())
+                .andExpect(jsonPath("$['components']['schemas']['CharacterFactReferenceResponse']['properties']['sourceEpisodeNo']")
+                        .exists())
                 .andExpect(jsonPath(
                         "$['paths']['/api/v1/works/{workId}/character-facts/{characterFactId}/evidence']['get']['operationId']"
                 ).value("getCharacterFactEvidence"))
@@ -191,6 +203,12 @@ class OpenApiContractIntegrationTest {
                                 "attributeNameEditable",
                                 "displayNameEditable"
                         )))
+                .andExpect(jsonPath("$['components']['schemas']['CharacterSettingResponse']['properties']['characterFactId']['deprecated']")
+                        .value(true))
+                .andExpect(jsonPath("$['components']['schemas']['CharacterSettingResponse']['properties']['hasEvidence']['deprecated']")
+                        .value(true))
+                .andExpect(jsonPath("$['components']['schemas']['CharacterSettingResponse']['properties']['sourceFacts']['items']['$ref']")
+                        .value("#/components/schemas/CharacterFactReferenceResponse"))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['operationId']")
                         .value("getSettingCandidates"))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['parameters'][*]['name']")
@@ -200,7 +218,8 @@ class OpenApiContractIntegrationTest {
                                 "reviewStatus",
                                 "matchStatuses",
                                 "page",
-                                "size"
+                                "size",
+                                "includeLegacyCandidates"
                         )))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['parameters'][1]['required']")
                         .value(true))
@@ -215,6 +234,8 @@ class OpenApiContractIntegrationTest {
                         )))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['parameters'][5]['schema']['maximum']")
                         .value(100))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['parameters'][6]['schema']['default']")
+                        .value(true))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['responses']['400']['content']['application/json']['schema']['$ref']")
                         .value("#/components/schemas/CommonErrorResponse"))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['responses']['401']['content']['application/json']['schema']['$ref']")
@@ -229,8 +250,18 @@ class OpenApiContractIntegrationTest {
                         .value(containsInAnyOrder("SETTING", "CHARACTER_DISCOVERY")))
                 .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']['properties']['attributeName']['type']")
                         .value(containsInAnyOrder("string", "null")))
-                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']['properties']['valueType']['type']")
-                        .value(containsInAnyOrder("string", "null")))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']['properties']['valueType']['anyOf'][0]['enum']")
+                        .value(containsInAnyOrder("STRING", "NUMBER", "BOOLEAN", "JSON", "UNKNOWN")))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']['properties']['valueType']['anyOf'][1]['type']")
+                        .value("null"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']['properties']['valueJson']['anyOf'][0]['$ref']")
+                        .value("#/components/schemas/JsonNode"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']['properties']['valueJson']['anyOf'][1]['type']")
+                        .value("null"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']['properties']['valueJson']['$ref']")
+                        .doesNotExist())
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']['properties']['valueJson']['type']")
+                        .doesNotExist())
                 .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']['properties']['attributeNameEditable']['type']")
                         .value("boolean"))
                 .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']['properties']['attributeNamePrefix']")
@@ -263,6 +294,8 @@ class OpenApiContractIntegrationTest {
                         .exists())
                 .andExpect(jsonPath("$['components']['schemas']['SettingCandidateUpdateRequest']['properties']['attributeValue']")
                         .exists())
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateUpdateRequest']['properties']['entityName']")
+                        .doesNotExist())
                 .andExpect(jsonPath("$['components']['schemas']['SettingCandidateUpdateRequest']['properties']['valueType']")
                         .doesNotExist())
                 .andExpect(jsonPath("$['components']['schemas']['SettingCandidateUpdateRequest']['properties']['valueJson']")
@@ -283,6 +316,10 @@ class OpenApiContractIntegrationTest {
                         .value("#/components/schemas/CommonErrorResponse"))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}/character-match']['patch']['responses']['409']['content']['application/json']['schema']['$ref']")
                         .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/group-character-match']['patch']['operationId']")
+                        .value("updateSettingCandidateGroupCharacterMatch"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateGroupCharacterMatchRequest']['required']")
+                        .value(containsInAnyOrder("batchId", "candidateIds", "resolutionType")))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm']['post']['operationId']")
                         .value("confirmSettingCandidate"))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm']['post']['responses']['400']['content']['application/json']['schema']['$ref']")
@@ -460,5 +497,74 @@ class OpenApiContractIntegrationTest {
                         .value("#/components/schemas/CommonErrorResponse"))
                 .andExpect(jsonPath(retryComparison + "['responses']['409']['content']['application/json']['schema']['$ref']")
                         .value("#/components/schemas/CommonErrorResponse"));
+    }
+
+    @Test
+    @DisplayName("캐릭터 Fact 비교의 현재 snapshot과 제거 대상 schema를 서로 다른 계약으로 노출한다")
+    void openApiContractSeparatesCharacterFactComparisonSnapshotEntries() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$['components']['schemas']['WorkerCharacterCurrentSnapshotEntry']"
+                        + "['properties']['factValue']").exists())
+                .andExpect(jsonPath("$['components']['schemas']['WorkerCharacterCurrentSnapshotEntry']"
+                        + "['properties']['valueJson']").exists())
+                .andExpect(jsonPath("$['components']['schemas']['WorkerCharacterCurrentSnapshotEntry']"
+                        + "['properties']['valueJson']['anyOf'][0]['$ref']")
+                        .value("#/components/schemas/JsonNode"))
+                .andExpect(jsonPath("$['components']['schemas']['WorkerCharacterCurrentSnapshotEntry']"
+                        + "['properties']['valueJson']['anyOf'][1]['type']")
+                        .value("null"))
+                .andExpect(jsonPath("$['components']['schemas']['WorkerCharacterRemovedSnapshotEntry']"
+                        + "['properties']['factType']").exists())
+                .andExpect(jsonPath("$['components']['schemas']['WorkerCharacterRemovedSnapshotEntry']"
+                        + "['properties']['factKey']").exists())
+                .andExpect(jsonPath("$['components']['schemas']['WorkerCharacterRemovedSnapshotEntry']"
+                        + "['properties']['factValue']").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("nullable 캐릭터 JSON 필드는 JsonNode와 null의 합집합으로 노출한다")
+    void openApiContractExposesNullableCharacterJsonAsUnion() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']"
+                        + "['properties']['proposedValueJson']['anyOf'][0]['$ref']")
+                        .value("#/components/schemas/JsonNode"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']"
+                        + "['properties']['proposedValueJson']['anyOf'][1]['type']")
+                        .value("null"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']"
+                        + "['properties']['evidenceSpans']['anyOf'][0]['$ref']")
+                        .value("#/components/schemas/JsonNode"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']"
+                        + "['properties']['evidenceSpans']['anyOf'][1]['type']")
+                        .value("null"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']"
+                        + "['properties']['rawAiResultJson']['anyOf'][0]['$ref']")
+                        .value("#/components/schemas/JsonNode"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']"
+                        + "['properties']['rawAiResultJson']['anyOf'][1]['type']")
+                        .value("null"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']"
+                        + "['properties']['suggestedOperation']['anyOf'][1]['type']")
+                        .value("null"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']"
+                        + "['properties']['temporalScope']['anyOf'][1]['type']")
+                        .value("null"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']"
+                        + "['properties']['comparisonTargetFactType']['anyOf'][1]['type']")
+                        .value("null"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateSnapshotChangeResponse']"
+                        + "['properties']['beforeValueJson']['anyOf'][1]['type']")
+                        .value("null"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateSnapshotChangeResponse']"
+                        + "['properties']['proposedValueJson']['anyOf'][1]['type']")
+                        .value("null"))
+                .andExpect(jsonPath("$['components']['schemas']['WorkerCharacterFactComparisonCompleteRequest']"
+                        + "['properties']['proposedValueJson']['anyOf'][1]['type']")
+                        .value("null"))
+                .andExpect(jsonPath("$['components']['schemas']['WorkerCharacterFactComparisonCandidatePayload']"
+                        + "['properties']['valueJson']['anyOf'][1]['type']")
+                        .value("null"));
     }
 }

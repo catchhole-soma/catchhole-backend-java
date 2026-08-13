@@ -15,6 +15,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.math.BigDecimal;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -27,10 +30,12 @@ import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshotSource;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterSnapshotSourceRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
@@ -40,6 +45,10 @@ import org.monitoring.catchholebackend.domain.character.type.CharacterSettingVal
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessor;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotEntry;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSlot;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSourceManager;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
@@ -55,6 +64,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -82,7 +92,19 @@ class CharacterControllerIntegrationTest {
     private WorkCharacterRepository workCharacterRepository;
 
     @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
     private CharacterFactRepository characterFactRepository;
+
+    @Autowired
+    private CharacterSnapshotSourceRepository characterSnapshotSourceRepository;
+
+    @Autowired
+    private CharacterSnapshotAccessor characterSnapshotAccessor;
+
+    @Autowired
+    private CharacterSnapshotSourceManager characterSnapshotSourceManager;
 
     @Autowired
     private SettingCandidateRepository settingCandidateRepository;
@@ -162,6 +184,7 @@ class CharacterControllerIntegrationTest {
     }
 
     private void cleanDatabase() {
+        characterSnapshotSourceRepository.deleteAll();
         characterFactRepository.deleteAll();
         settingCandidateRepository.deleteAll();
         workCharacterRepository.deleteAll();
@@ -175,7 +198,7 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("활성 캐릭터 카드만 최신 생성순으로 조회한다")
+    @DisplayName("활성 캐릭터 카드만 조회한다")
     void getCharactersReturnsOnlyActiveCharacters() throws Exception {
         WorkCharacter activeCharacter = workCharacterRepository.save(character(work, "수아", 23, 15));
         activeCharacter.updateFirstAppearanceEpisodeId(firstEpisode.getId());
@@ -273,6 +296,37 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("캐릭터 목록은 최근 수정순이며 같은 수정 시각에는 ID 역순으로 조회한다")
+    void getCharactersReturnsRecentlyUpdatedCharactersFirst() throws Exception {
+        WorkCharacter recentlyUpdated = workCharacterRepository.saveAndFlush(
+                character(work, "최근 수정", 20, 1)
+        );
+        WorkCharacter sameTimeFirst = workCharacterRepository.saveAndFlush(
+                character(work, "동시 수정 1", 21, 2)
+        );
+        WorkCharacter sameTimeSecond = workCharacterRepository.saveAndFlush(
+                character(work, "동시 수정 2", 22, 3)
+        );
+
+        LocalDateTime latestUpdatedAt = LocalDateTime.of(2026, 8, 12, 12, 0);
+        LocalDateTime sameUpdatedAt = latestUpdatedAt.minusHours(1);
+        updateCharacterUpdatedAt(recentlyUpdated.getId(), latestUpdatedAt);
+        updateCharacterUpdatedAt(sameTimeFirst.getId(), sameUpdatedAt);
+        updateCharacterUpdatedAt(sameTimeSecond.getId(), sameUpdatedAt);
+
+        List<UUID> idsAtSameTime = List.of(sameTimeFirst.getId(), sameTimeSecond.getId()).stream()
+                .sorted(Comparator.comparing(UUID::toString).reversed())
+                .toList();
+
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].id").value(recentlyUpdated.getId().toString()))
+                .andExpect(jsonPath("$.data.content[1].id").value(idsAtSameTime.get(0).toString()))
+                .andExpect(jsonPath("$.data.content[2].id").value(idsAtSameTime.get(1).toString()));
+    }
+
+    @Test
     @DisplayName("캐릭터 목록의 페이지 번호와 크기 범위를 검증한다")
     void getCharactersRejectsInvalidPageRequest() throws Exception {
         mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
@@ -363,9 +417,16 @@ class CharacterControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.firstAppearanceEpisode.title").doesNotExist())
                 .andExpect(jsonPath("$.data.currentAgeFact.characterFactId").value(age.getId().toString()))
                 .andExpect(jsonPath("$.data.currentAgeFact.hasEvidence").value(true))
+                .andExpect(jsonPath("$.data.currentAgeSourceFacts[0].characterFactId")
+                        .value(age.getId().toString()))
+                .andExpect(jsonPath("$.data.currentAgeSourceFacts[0].sourceEpisodeNo").value(1))
                 .andExpect(jsonPath("$.data.currentLevelFact.characterFactId").value(level.getId().toString()))
                 .andExpect(jsonPath("$.data.currentLevelFact.hasEvidence").value(false))
+                .andExpect(jsonPath("$.data.currentLevelSourceFacts[0].characterFactId")
+                        .value(level.getId().toString()))
                 .andExpect(jsonPath("$.data.profile[0].characterFactId").value(gender.getId().toString()))
+                .andExpect(jsonPath("$.data.profile[0].sourceFacts[0].characterFactId")
+                        .value(gender.getId().toString()))
                 .andExpect(jsonPath("$.data.profile[0].key").value("profile.gender"))
                 .andExpect(jsonPath("$.data.profile[0].displayName").value("성별"))
                 .andExpect(jsonPath("$.data.profile[0].attributeNameEditable").value(false))
@@ -379,7 +440,77 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("현재 설정 전체 수정은 변경 Fact를 새로 만들고 기존 current Fact를 이력으로 전환한다")
+    @DisplayName("합성된 snapshot 설정은 모든 원본 Fact를 순서대로 노출하고 마지막 Fact를 호환 대표값으로 쓴다")
+    void getCharacterReturnsMultipleSnapshotSources() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+        SettingCandidate candidate = settingCandidateRepository.save(SettingCandidate.create(
+                work,
+                firstEpisode,
+                UUID.randomUUID(),
+                null,
+                SettingEntityType.CHARACTER,
+                "수아",
+                "status.injury",
+                "오른발 부상",
+                SettingValueType.STRING,
+                JsonNodeFactory.instance.objectNode().put("value", "오른발 부상"),
+                JsonNodeFactory.instance.arrayNode().add(
+                        JsonNodeFactory.instance.objectNode()
+                                .put("quote", "수아는 오른발을 다쳤다.")
+                                .put("startOffset", 0)
+                                .put("endOffset", 14)
+                ),
+                new BigDecimal("0.9000"),
+                JsonNodeFactory.instance.objectNode()
+        ));
+        CharacterFact episodeFact = currentFact(
+                character,
+                candidate,
+                CharacterFactType.STATUS,
+                "status.injury",
+                "오른발 부상",
+                JsonNodeFactory.instance.objectNode().put("value", "오른발 부상")
+        );
+        CharacterFact manualFact = characterFactRepository.saveAndFlush(CharacterFact.createManual(
+                character,
+                CharacterFactType.STATUS,
+                "status.injury",
+                "치료 중인 오른발 부상",
+                JsonNodeFactory.instance.objectNode().put("value", "치료 중인 오른발 부상")
+        ));
+        CharacterSnapshotSlot slot = new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.injury");
+        Map<CharacterSnapshotSlot, CharacterSnapshotEntry> entries = characterSnapshotAccessor.read(character);
+        entries.put(slot, characterSnapshotAccessor.entry(
+                CharacterFactType.STATUS,
+                "status.injury",
+                "치료 중인 오른발 부상",
+                manualFact.getValueJson()
+        ));
+        characterSnapshotSourceManager.replaceSources(character, slot, List.of(episodeFact, manualFact));
+        characterSnapshotAccessor.replace(character, entries, true);
+        workCharacterRepository.saveAndFlush(character);
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.statuses[0].value").value("치료 중인 오른발 부상"))
+                .andExpect(jsonPath("$.data.statuses[0].characterFactId").value(manualFact.getId().toString()))
+                .andExpect(jsonPath("$.data.statuses[0].hasEvidence").value(true))
+                .andExpect(jsonPath("$.data.statuses[0].sourceFacts.length()").value(2))
+                .andExpect(jsonPath("$.data.statuses[0].sourceFacts[0].characterFactId")
+                        .value(episodeFact.getId().toString()))
+                .andExpect(jsonPath("$.data.statuses[0].sourceFacts[0].sourceEpisodeNo").value(1))
+                .andExpect(jsonPath("$.data.statuses[0].sourceFacts[1].characterFactId")
+                        .value(manualFact.getId().toString()))
+                .andExpect(jsonPath("$.data.statuses[0].sourceFacts[1].sourceEpisodeNo").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("현재 설정 전체 수정은 변경 Fact를 append하고 snapshot provenance만 새 Fact로 교체한다")
     void updateCharacterCreatesManualCorrectionFacts() throws Exception {
         WorkCharacter character = workCharacterRepository.save(character(work, "수아", 17, null));
         CharacterFact oldAge = currentFact(
@@ -474,8 +605,13 @@ class CharacterControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.name").value("수아 리안"))
                 .andExpect(jsonPath("$.data.roleLabel").value("주인공"))
                 .andExpect(jsonPath("$.data.currentAge").value(23))
+                .andExpect(jsonPath("$.data.currentAgeSourceFacts.length()").value(1))
+                .andExpect(jsonPath("$.data.currentAgeSourceFacts[0].sourceEpisodeNo").doesNotExist())
+                .andExpect(jsonPath("$.data.currentAgeSourceFacts[0].hasEvidence").value(false))
                 .andExpect(jsonPath("$.data.currentLevel").value(15))
                 .andExpect(jsonPath("$.data.profile[0].hasEvidence").value(false))
+                .andExpect(jsonPath("$.data.profile[0].sourceFacts.length()").value(1))
+                .andExpect(jsonPath("$.data.profile[0].sourceFacts[0].sourceEpisodeNo").doesNotExist())
                 .andExpect(jsonPath("$.data.profile[1].displayName").value("좌우명"))
                 .andExpect(jsonPath("$.data.profile[1].attributeNameEditable").value(false))
                 .andExpect(jsonPath("$.data.profile[1].displayNameEditable").value(true))
@@ -490,26 +626,31 @@ class CharacterControllerIntegrationTest {
 
         CharacterFact savedOldAge = characterFactRepository.findById(oldAge.getId()).orElseThrow();
         CharacterFact savedOldStrength = characterFactRepository.findById(oldStrength.getId()).orElseThrow();
-        assertThat(savedOldAge.isCurrent()).isFalse();
-        assertThat(savedOldStrength.isCurrent()).isFalse();
+        assertThat(contributesToCurrentSnapshot(savedOldAge)).isFalse();
+        assertThat(contributesToCurrentSnapshot(savedOldStrength)).isFalse();
 
         WorkCharacter savedCharacter = workCharacterRepository.findById(character.getId()).orElseThrow();
         assertThat(savedCharacter.getName()).isEqualTo("수아 리안");
         assertThat(savedCharacter.getCurrentAge()).isEqualTo(23);
         assertThat(savedCharacter.getCurrentLevel()).isEqualTo(15);
         assertThat(savedCharacter.getFirstAppearanceEpisodeId()).isEqualTo(firstEpisode.getId());
-        assertThat(savedCharacter.getProfileJson().get("profile.gender").get("value").asText()).isEqualTo("여성");
-        assertThat(savedCharacter.getProfileJson().get("profile.manual_motto").get("value").asText())
+        assertThat(snapshotValue(savedCharacter, CharacterFactType.PROFILE, "profile.gender")
+                .get("value").asText()).isEqualTo("여성");
+        assertThat(snapshotValue(savedCharacter, CharacterFactType.PROFILE, "profile.manual_motto")
+                .get("value").asText())
                 .isEqualTo("끝까지 포기하지 않는다");
-        assertThat(savedCharacter.getStatsJson().get("stats.strength").get("value").asInt()).isEqualTo(42);
-        assertThat(savedCharacter.getStatsJson().get("stats.manual_luck").get("value").asInt()).isEqualTo(7);
-        assertThat(savedCharacter.getSkillsJson().get("skill.기본_검술"))
+        assertThat(snapshotValue(savedCharacter, CharacterFactType.STAT, "stats.strength")
+                .get("value").asInt()).isEqualTo(42);
+        assertThat(snapshotValue(savedCharacter, CharacterFactType.STAT, "stats.manual_luck")
+                .get("value").asInt()).isEqualTo(7);
+        assertThat(snapshotValue(savedCharacter, CharacterFactType.SKILL, "skill.기본_검술"))
                 .isEqualTo(JsonNodeFactory.instance.objectNode().put("name", "기본 검술"));
-        assertThat(savedCharacter.getStatusesJson().get("status.manual_injury"))
+        assertThat(snapshotValue(savedCharacter, CharacterFactType.STATUS, "status.manual_injury"))
                 .isEqualTo(JsonNodeFactory.instance.objectNode().put("name", "부상"));
 
         assertThat(characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId()))
-                .filteredOn(fact -> fact.isCurrent() && fact.getFactKey().startsWith("profile.manual"))
+                .filteredOn(fact -> contributesToCurrentSnapshot(fact)
+                        && fact.getFactKey().startsWith("profile.manual"))
                 .allSatisfy(fact -> {
                     assertThat(fact.getSettingCandidate()).isNull();
                     assertThat(fact.getSourceEpisode()).isNull();
@@ -605,9 +746,7 @@ class CharacterControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.statuses[0].key").value("status.부상"))
                 .andExpect(jsonPath("$.data.statuses[0].attributeNameEditable").value(true));
 
-        Map<String, CharacterFact> currentFacts = characterFactRepository
-                .findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId()).stream()
-                .filter(CharacterFact::isCurrent)
+        Map<String, CharacterFact> currentFacts = currentSnapshotSourceFacts(character.getId()).stream()
                 .collect(Collectors.toMap(CharacterFact::getFactKey, fact -> fact));
         assertThat(currentFacts).containsOnlyKeys(
                 "profile.gender",
@@ -749,12 +888,12 @@ class CharacterControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.skills[0].hasEvidence").value(false));
 
         CharacterFact savedOldSkill = characterFactRepository.findById(oldSkill.getId()).orElseThrow();
-        assertThat(savedOldSkill.isCurrent()).isFalse();
+        assertThat(contributesToCurrentSnapshot(savedOldSkill)).isFalse();
         assertThat(savedOldSkill.getValueJson()).isEqualTo(richValueJson);
 
         CharacterFact currentSkill = characterFactRepository
                 .findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId()).stream()
-                .filter(CharacterFact::isCurrent)
+                .filter(this::contributesToCurrentSnapshot)
                 .findFirst()
                 .orElseThrow();
         assertThat(currentSkill.getFactKey()).isEqualTo("skill.서리_검술");
@@ -763,8 +902,9 @@ class CharacterControllerIntegrationTest {
         assertThat(currentSkill.getSettingCandidate()).isNull();
 
         WorkCharacter savedCharacter = workCharacterRepository.findById(character.getId()).orElseThrow();
-        assertThat(savedCharacter.getSkillsJson().has("skill.화염_검술")).isFalse();
-        assertThat(savedCharacter.getSkillsJson().get("skill.서리_검술"))
+        assertThat(characterSnapshotAccessor.read(savedCharacter))
+                .doesNotContainKey(new CharacterSnapshotSlot(CharacterFactType.SKILL, "skill.화염_검술"));
+        assertThat(snapshotValue(savedCharacter, CharacterFactType.SKILL, "skill.서리_검술"))
                 .isEqualTo(JsonNodeFactory.instance.objectNode().put("name", "서리 검술"));
     }
 
@@ -831,9 +971,9 @@ class CharacterControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.profile[0].properties.length()").value(1))
                 .andExpect(jsonPath("$.data.profile[0].properties[0].value").value("홍채 색상"));
 
-        assertThat(characterFactRepository.findById(eyeColor.getId()).orElseThrow().isCurrent()).isFalse();
+        assertThat(contributesToCurrentSnapshot(eyeColor)).isFalse();
         assertThat(characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId()))
-                .filteredOn(CharacterFact::isCurrent)
+                .filteredOn(this::contributesToCurrentSnapshot)
                 .singleElement()
                 .satisfies(currentProfile -> {
                     assertThat(currentProfile.getFactKey()).isEqualTo("profile.홍채_색상");
@@ -898,9 +1038,9 @@ class CharacterControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.profile[0].properties.length()").value(0))
                 .andExpect(jsonPath("$.data.profile[0].value").value("남성"));
 
-        assertThat(characterFactRepository.findById(gender.getId()).orElseThrow().isCurrent()).isFalse();
+        assertThat(contributesToCurrentSnapshot(gender)).isFalse();
         assertThat(characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId()))
-                .filteredOn(CharacterFact::isCurrent)
+                .filteredOn(this::contributesToCurrentSnapshot)
                 .singleElement()
                 .satisfies(currentGender -> {
                     assertThat(currentGender.getValueJson())
@@ -1209,7 +1349,7 @@ class CharacterControllerIntegrationTest {
                 characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId());
         assertThat(savedFacts).hasSize(1);
         assertThat(savedFacts.getFirst().getId()).isEqualTo(strength.getId());
-        assertThat(savedFacts.getFirst().isCurrent()).isTrue();
+        assertThat(contributesToCurrentSnapshot(savedFacts.getFirst())).isTrue();
         assertThat(savedFacts.getFirst().getSettingCandidate().getId()).isEqualTo(strengthCandidate.getId());
     }
 
@@ -1355,14 +1495,15 @@ class CharacterControllerIntegrationTest {
 
         CharacterFact historicalScore = characterFactRepository.findById(score.getId()).orElseThrow();
         CharacterFact historicalRank = characterFactRepository.findById(rank.getId()).orElseThrow();
-        assertThat(historicalScore.isCurrent()).isFalse();
-        assertThat(historicalRank.isCurrent()).isFalse();
+        assertThat(contributesToCurrentSnapshot(historicalScore)).isFalse();
+        assertThat(contributesToCurrentSnapshot(historicalRank)).isFalse();
 
         List<CharacterFact> savedFacts =
                 characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId());
         assertThat(savedFacts).hasSize(4);
         assertThat(savedFacts)
-                .filteredOn(fact -> fact.isCurrent() && fact.getFactKey().equals("stats.custom_score"))
+                .filteredOn(fact -> contributesToCurrentSnapshot(fact)
+                        && fact.getFactKey().equals("stats.custom_score"))
                 .singleElement()
                 .satisfies(currentScore -> {
                     assertThat(currentScore.getId()).isNotEqualTo(score.getId());
@@ -1372,7 +1513,8 @@ class CharacterControllerIntegrationTest {
                                     .put("name", "custom score"));
                 });
         assertThat(savedFacts)
-                .filteredOn(fact -> fact.isCurrent() && fact.getFactKey().equals("stats.custom_rank"))
+                .filteredOn(fact -> contributesToCurrentSnapshot(fact)
+                        && fact.getFactKey().equals("stats.custom_rank"))
                 .singleElement()
                 .satisfies(currentRank -> {
                     assertThat(currentRank.getId()).isNotEqualTo(rank.getId());
@@ -1628,7 +1770,7 @@ class CharacterControllerIntegrationTest {
 
         assertThat(characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId()))
                 .hasSize(3)
-                .allMatch(CharacterFact::isCurrent);
+                .allMatch(this::contributesToCurrentSnapshot);
     }
 
     @Test
@@ -1793,7 +1935,7 @@ class CharacterControllerIntegrationTest {
 
         assertThat(characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId()))
                 .hasSize(2)
-                .allMatch(CharacterFact::isCurrent);
+                .allMatch(this::contributesToCurrentSnapshot);
     }
 
     @Test
@@ -2050,7 +2192,7 @@ class CharacterControllerIntegrationTest {
                 .singleElement()
                 .satisfies(savedFact -> {
                     assertThat(savedFact.getId()).isEqualTo(skill.getId());
-                    assertThat(savedFact.isCurrent()).isTrue();
+                    assertThat(contributesToCurrentSnapshot(savedFact)).isTrue();
                     assertThat(savedFact.getValueJson()).isEqualTo(visibleObject);
                 });
     }
@@ -2130,9 +2272,9 @@ class CharacterControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.skills[0].value").value("Lv.4"))
                 .andExpect(jsonPath("$.data.skills[0].properties[0].value").value("생존 감각"));
 
-        assertThat(characterFactRepository.findById(skill.getId()).orElseThrow().isCurrent()).isFalse();
+        assertThat(contributesToCurrentSnapshot(skill)).isFalse();
         assertThat(characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId()))
-                .filteredOn(CharacterFact::isCurrent)
+                .filteredOn(this::contributesToCurrentSnapshot)
                 .singleElement()
                 .satisfies(savedFact -> {
                     assertThat(savedFact.getId()).isNotEqualTo(skill.getId());
@@ -2197,7 +2339,7 @@ class CharacterControllerIntegrationTest {
                 characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId());
         assertThat(savedFacts).singleElement().satisfies(fact -> {
             assertThat(fact.getId()).isEqualTo(oldSkill.getId());
-            assertThat(fact.isCurrent()).isTrue();
+            assertThat(contributesToCurrentSnapshot(fact)).isTrue();
             assertThat(fact.getValueJson().get("level").asInt()).isEqualTo(3);
         });
     }
@@ -2228,6 +2370,7 @@ class CharacterControllerIntegrationTest {
                 JsonNodeFactory.instance.objectNode().put("episode", 7)
         );
         characterFactRepository.saveAllAndFlush(List.of(age, strength, time));
+        long snapshotVersion = workCharacterRepository.findById(character.getId()).orElseThrow().getSnapshotVersion();
 
         mockMvc.perform(patch(
                                 "/api/v1/works/{workId}/characters/{characterId}",
@@ -2263,9 +2406,53 @@ class CharacterControllerIntegrationTest {
 
         assertThat(characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId()))
                 .hasSize(3);
-        assertThat(characterFactRepository.findById(time.getId()).orElseThrow().isCurrent()).isTrue();
+        assertThat(contributesToCurrentSnapshot(time)).isTrue();
         WorkCharacter savedCharacter = workCharacterRepository.findById(character.getId()).orElseThrow();
-        assertThat(savedCharacter.getStatusesJson().get("time.first_battle").get("episode").asInt()).isEqualTo(7);
+        assertThat(savedCharacter.getSnapshotVersion()).isEqualTo(snapshotVersion);
+        assertThat(snapshotValue(savedCharacter, CharacterFactType.TIME, "time.first_battle")
+                .get("episode").asInt()).isEqualTo(7);
+    }
+
+    @Test
+    @DisplayName("현재 설정 삭제는 snapshot과 provenance만 제거하고 기존 Fact 이력을 보존한다")
+    void updateCharacterRemovesSnapshotAndSourceButKeepsFactHistory() throws Exception {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
+        CharacterFact injury = currentFact(
+                character,
+                CharacterFactType.STATUS,
+                "status.injury",
+                "오른발 부상",
+                JsonNodeFactory.instance.objectNode().put("value", "오른발 부상")
+        );
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/characters/{characterId}",
+                                work.getId(),
+                                character.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "수아",
+                                  "roleLabel": "주인공",
+                                  "currentAge": null,
+                                  "currentLevel": null,
+                                  "firstAppearanceEpisodeNo": null,
+                                  "profile": [],
+                                  "stats": [],
+                                  "skills": [],
+                                  "items": [],
+                                  "statuses": []
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.statuses.length()").value(0));
+
+        WorkCharacter savedCharacter = workCharacterRepository.findById(character.getId()).orElseThrow();
+        assertThat(savedCharacter.getStatusesJson()).isNull();
+        assertThat(characterSnapshotSourceRepository.existsBySourceFactId(injury.getId())).isFalse();
+        assertThat(characterFactRepository.findById(injury.getId())).isPresent();
     }
 
     @Test
@@ -2668,8 +2855,7 @@ class CharacterControllerIntegrationTest {
             JsonNode valueJson
     ) {
         CharacterFact fact = CharacterFact.createManual(character, factType, factKey, factValue, valueJson);
-        fact.markCurrent();
-        return fact;
+        return saveSnapshotSource(character, fact);
     }
 
     private CharacterFact currentFact(
@@ -2694,8 +2880,45 @@ class CharacterControllerIntegrationTest {
                 settingCandidate.getConfidence(),
                 firstEpisode.getEpisodeNo()
         );
-        fact.markCurrent();
-        return fact;
+        return saveSnapshotSource(character, fact);
+    }
+
+    private CharacterFact saveSnapshotSource(WorkCharacter character, CharacterFact fact) {
+        CharacterFact saved = characterFactRepository.saveAndFlush(fact);
+        CharacterSnapshotSlot slot = new CharacterSnapshotSlot(saved.getFactType(), saved.getFactKey());
+        Map<CharacterSnapshotSlot, CharacterSnapshotEntry> entries = characterSnapshotAccessor.read(character);
+        entries.put(slot, characterSnapshotAccessor.entry(
+                saved.getFactType(),
+                saved.getFactKey(),
+                saved.getFactValue(),
+                saved.getValueJson()
+        ));
+        characterSnapshotSourceManager.replaceSources(character, slot, List.of(saved));
+        characterSnapshotAccessor.replace(character, entries, true);
+        workCharacterRepository.saveAndFlush(character);
+        return saved;
+    }
+
+    private boolean contributesToCurrentSnapshot(CharacterFact fact) {
+        return characterSnapshotSourceRepository.existsBySourceFactId(fact.getId());
+    }
+
+    private JsonNode snapshotValue(
+            WorkCharacter character,
+            CharacterFactType factType,
+            String factKey
+    ) {
+        return characterSnapshotAccessor.read(character)
+                .get(new CharacterSnapshotSlot(factType, factKey))
+                .valueJson();
+    }
+
+    private List<CharacterFact> currentSnapshotSourceFacts(UUID characterId) {
+        return characterSnapshotSourceRepository
+                .findAllByWorkCharacterIdOrderByFactTypeAscFactKeyAscSourceOrderAsc(characterId)
+                .stream()
+                .map(CharacterSnapshotSource::getSourceFact)
+                .toList();
     }
 
     private CharacterSettingSchema settingSchema(
@@ -2757,6 +2980,14 @@ class CharacterControllerIntegrationTest {
                   "statuses": []
                 }
                 """.formatted(name, firstAppearanceEpisodeNo);
+    }
+
+    private void updateCharacterUpdatedAt(UUID characterId, LocalDateTime updatedAt) {
+        jdbcTemplate.update(
+                "UPDATE characters SET updated_at = ? WHERE id = ?",
+                Timestamp.valueOf(updatedAt),
+                characterId
+        );
     }
 
     private String bearer(String token) {

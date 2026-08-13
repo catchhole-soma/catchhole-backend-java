@@ -14,6 +14,7 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshotSource;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
@@ -55,6 +56,9 @@ class CharacterFactRepositoryTest {
 
     @Autowired
     private CharacterFactRepository characterFactRepository;
+
+    @Autowired
+    private CharacterSnapshotSourceRepository characterSnapshotSourceRepository;
 
     @Autowired
     private SettingCandidateRepository settingCandidateRepository;
@@ -146,8 +150,14 @@ class CharacterFactRepositoryTest {
                 new BigDecimal("0.9100"),
                 3
         );
-        fact.markCurrent();
         CharacterFact saved = characterFactRepository.saveAndFlush(fact);
+        characterSnapshotSourceRepository.saveAndFlush(CharacterSnapshotSource.create(
+                character,
+                saved.getFactType(),
+                saved.getFactKey(),
+                saved,
+                0
+        ));
         UUID savedFactId = saved.getId();
         entityManager.clear();
 
@@ -165,14 +175,13 @@ class CharacterFactRepositoryTest {
         assertThat(found.getSourceChunkId()).isEqualTo(sourceChunkId);
         assertThat(found.getExtractedByJob().getId()).isEqualTo(analysisJob.getId());
         assertThat(found.getConfidence()).isEqualByComparingTo("0.9100");
-        assertThat(found.isCurrent()).isTrue();
         assertThat(found.getEffectiveFromEpisodeNo()).isEqualTo(3);
 
         entityManager.clear();
-        CharacterFact currentFact =
-                characterFactRepository.findAllByWorkCharacterIdAndIsCurrentTrueOrderByFactTypeAscFactKeyAsc(
-                        character.getId()
-                ).getFirst();
+        CharacterFact currentFact = characterSnapshotSourceRepository
+                .findAllByWorkCharacterIdOrderByFactTypeAscFactKeyAscSourceOrderAsc(character.getId())
+                .getFirst()
+                .getSourceFact();
 
         assertThat(entityManager.getEntityManagerFactory()
                 .getPersistenceUnitUtil()
@@ -180,43 +189,56 @@ class CharacterFactRepositoryTest {
     }
 
     @Test
-    void findCurrentFactsReturnsOnlyCurrentFactsForCharacter() {
+    void snapshotSourcesReturnOnlyFactsThatContributeToCurrentSnapshot() {
         CharacterFact currentLevel = fact(CharacterFactType.LEVEL, "level", "23", "23", 3);
-        currentLevel.markCurrent();
         CharacterFact currentStrength = fact(CharacterFactType.STAT, "strength", "42", "42", 3);
-        currentStrength.markCurrent();
         CharacterFact historicalLevel = fact(CharacterFactType.LEVEL, "level", "20", "20", 1);
 
-        characterFactRepository.save(currentLevel);
-        characterFactRepository.save(currentStrength);
-        characterFactRepository.save(historicalLevel);
+        characterFactRepository.saveAll(List.of(currentLevel, currentStrength, historicalLevel));
+        characterSnapshotSourceRepository.save(CharacterSnapshotSource.create(
+                character,
+                currentLevel.getFactType(),
+                currentLevel.getFactKey(),
+                currentLevel,
+                0
+        ));
+        characterSnapshotSourceRepository.save(CharacterSnapshotSource.create(
+                character,
+                currentStrength.getFactType(),
+                currentStrength.getFactKey(),
+                currentStrength,
+                0
+        ));
 
-        List<CharacterFact> currentFacts =
-                characterFactRepository.findAllByWorkCharacterIdAndIsCurrentTrueOrderByFactTypeAscFactKeyAsc(
-                        character.getId()
-                );
+        List<CharacterFact> currentFacts = characterSnapshotSourceRepository
+                .findAllByWorkCharacterIdOrderByFactTypeAscFactKeyAscSourceOrderAsc(character.getId())
+                .stream()
+                .map(CharacterSnapshotSource::getSourceFact)
+                .toList();
 
         assertThat(currentFacts)
                 .extracting(CharacterFact::getFactKey)
                 .containsExactly("level", "strength");
-        assertThat(currentFacts).allMatch(CharacterFact::isCurrent);
+        assertThat(currentFacts).doesNotContain(historicalLevel);
     }
 
     @Test
-    void markHistoricalRemovesFactFromCurrentFacts() {
+    void removingSnapshotSourceKeepsAppendOnlyFactHistory() {
         CharacterFact currentLevel = fact(CharacterFactType.LEVEL, "level", "23", "23", 3);
-        currentLevel.markCurrent();
         characterFactRepository.save(currentLevel);
+        CharacterSnapshotSource source = characterSnapshotSourceRepository.save(CharacterSnapshotSource.create(
+                character,
+                currentLevel.getFactType(),
+                currentLevel.getFactKey(),
+                currentLevel,
+                0
+        ));
 
-        currentLevel.markHistorical();
+        characterSnapshotSourceRepository.delete(source);
+        characterSnapshotSourceRepository.flush();
 
-        List<CharacterFact> currentFacts =
-                characterFactRepository.findAllByWorkCharacterIdAndIsCurrentTrueOrderByFactTypeAscFactKeyAsc(
-                        character.getId()
-                );
-
-        assertThat(currentLevel.isCurrent()).isFalse();
-        assertThat(currentFacts).isEmpty();
+        assertThat(characterSnapshotSourceRepository.existsBySourceFactId(currentLevel.getId())).isFalse();
+        assertThat(characterFactRepository.findById(currentLevel.getId())).isPresent();
     }
 
     @Test

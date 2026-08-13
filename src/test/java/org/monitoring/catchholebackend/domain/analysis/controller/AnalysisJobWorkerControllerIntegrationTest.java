@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
@@ -27,13 +28,19 @@ import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenGrantRep
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenUsageRepository;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
+import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
+import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingMergePolicy;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingSchemaSource;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingValueSemantics;
+import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
@@ -57,9 +64,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -79,6 +89,9 @@ class AnalysisJobWorkerControllerIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @Autowired
     private MemberRepository memberRepository;
@@ -120,6 +133,9 @@ class AnalysisJobWorkerControllerIntegrationTest {
     private WorkCharacterRepository workCharacterRepository;
 
     @Autowired
+    private SettingCandidateRepository settingCandidateRepository;
+
+    @Autowired
     private CharacterSettingSchemaRepository characterSettingSchemaRepository;
 
     @Autowired
@@ -137,8 +153,13 @@ class AnalysisJobWorkerControllerIntegrationTest {
         aiTokenUsageRepository.deleteAll();
         aiTokenGrantRepository.deleteAll();
         aiTokenAccountRepository.deleteAll();
-        analysisJobRepository.findAll().forEach(AnalysisJob::unlinkWorldSettingCandidate);
-        analysisJobRepository.flush();
+        List<AnalysisJob> existingJobs = analysisJobRepository.findAll();
+        existingJobs.forEach(job -> {
+            job.unlinkWorldSettingCandidate();
+            job.unlinkSettingCandidate();
+        });
+        analysisJobRepository.saveAllAndFlush(existingJobs);
+        settingCandidateRepository.deleteAll();
         worldSettingCandidateRepository.deleteAll();
         worldSettingRepository.deleteAll();
         analysisJobRepository.deleteAll();
@@ -366,6 +387,129 @@ class AnalysisJobWorkerControllerIntegrationTest {
         assertThat(claimedJob.getModelName()).isEqualTo("gpt-4.1-mini");
         assertThat(claimedJob.getCurrentStep()).isEqualTo("원문 청킹");
         assertThat(pendingJob.getStatus()).isEqualTo(AnalysisJobStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("출처 Job과 회차가 없는 레거시 캐릭터 후보 재비교도 nullable payload로 claim한다")
+    void claimLegacyCharacterComparisonWithoutBatchAndEpisode() throws Exception {
+        SettingCandidate candidate = settingCandidateRepository.save(SettingCandidate.create(
+                work,
+                null,
+                null,
+                null,
+                SettingEntityType.CHARACTER,
+                "아리아",
+                "stats.strength",
+                "10",
+                SettingValueType.NUMBER,
+                objectMapper.createObjectNode().put("value", 10),
+                objectMapper.createArrayNode(),
+                new BigDecimal("0.90"),
+                objectMapper.createObjectNode()
+        ));
+        AnalysisJob comparisonJob = analysisJobRepository.save(
+                AnalysisJob.createCharacterFactComparison(candidate)
+        );
+
+        mockMvc.perform(post(CLAIM_URL)
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "modelName": "gpt-5.6-terra",
+                                  "currentStep": "CHARACTER_FACT_COMPARISON",
+                                  "allowedJobTypes": ["CHARACTER_FACT_COMPARISON"]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.analysisJobId").value(comparisonJob.getId().toString()))
+                .andExpect(jsonPath("$.data.settingCandidateId").value(candidate.getId().toString()))
+                .andExpect(jsonPath("$.data.batchId").value(nullValue()))
+                .andExpect(jsonPath("$.data.episode").value(nullValue()))
+                .andExpect(jsonPath("$.data.characterSettingSchemas", hasSize(0)))
+                .andExpect(jsonPath("$.data.knownCharacters", hasSize(0)));
+    }
+
+    @Test
+    @DisplayName("active hidden Job에 위임된 후보는 원 분석 Job이 claim하거나 실패 처리하지 않는다")
+    void activeHiddenComparisonOwnsCandidateAcrossSourceJobFailure() throws Exception {
+        AnalysisJob sourceJob = episodeJob(AnalysisJobType.SETTING_EXTRACTION, firstEpisode);
+        sourceJob.claim("gpt-5.6-terra", "캐릭터 비교", LocalDateTime.now().plusMinutes(5));
+        sourceJob = analysisJobRepository.save(sourceJob);
+        UUID sourceJobId = sourceJob.getId();
+        WorkCharacter character = workCharacterRepository.save(WorkCharacter.create(
+                work,
+                "아리아",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        ));
+        SettingCandidate candidate = settingCandidateRepository.save(SettingCandidate.create(
+                work,
+                firstEpisode,
+                UUID.randomUUID(),
+                sourceJob,
+                SettingEntityType.CHARACTER,
+                character.getName(),
+                character.getName(),
+                character.getId(),
+                SettingCandidateMatchStatus.MATCHED,
+                "age",
+                "17",
+                SettingValueType.NUMBER,
+                objectMapper.createObjectNode().put("value", 17),
+                objectMapper.createArrayNode(),
+                new BigDecimal("0.90"),
+                objectMapper.createObjectNode()
+        ));
+        AnalysisJob hiddenJob = analysisJobRepository.save(
+                AnalysisJob.createCharacterFactComparison(candidate)
+        );
+
+        List<SettingCandidate> sourceClaimCandidates = new TransactionTemplate(transactionManager)
+                .execute(status -> settingCandidateRepository.findComparisonClaimCandidates(
+                        sourceJobId,
+                        SettingCandidateReviewStatus.PENDING_REVIEW,
+                        CharacterFactComparisonStatus.PENDING,
+                        PageRequest.of(0, 1)
+                ));
+        assertThat(sourceClaimCandidates).isEmpty();
+        assertThat(settingCandidateRepository.existsByAnalysisJobIdAndComparisonStatusIn(
+                sourceJob.getId(),
+                List.of(CharacterFactComparisonStatus.PENDING, CharacterFactComparisonStatus.PROCESSING)
+        )).isFalse();
+        assertThat(settingCandidateRepository.findAllByAnalysisJobIdAndComparisonStatusIn(
+                sourceJob.getId(),
+                List.of(CharacterFactComparisonStatus.PENDING, CharacterFactComparisonStatus.PROCESSING)
+        )).isEmpty();
+
+        mockMvc.perform(post("/api/internal/v1/analysis-jobs/{analysisJobId}/fail", sourceJob.getId())
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, sourceJob.getLeaseToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"errorMessage\":\"원 분석 실패\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(settingCandidateRepository.findById(candidate.getId()).orElseThrow().getComparisonStatus())
+                .isEqualTo(CharacterFactComparisonStatus.PENDING);
+
+        hiddenJob.claim("gpt-5.6-terra", "캐릭터 재비교", LocalDateTime.now().plusMinutes(5));
+        analysisJobRepository.save(hiddenJob);
+        mockMvc.perform(post("/api/internal/v1/analysis-jobs/{analysisJobId}/fail", hiddenJob.getId())
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, hiddenJob.getLeaseToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"errorMessage\":\"provider 호출 전 실패\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(settingCandidateRepository.findById(candidate.getId()).orElseThrow().getComparisonStatus())
+                .isEqualTo(CharacterFactComparisonStatus.FAILED);
     }
 
     @Test

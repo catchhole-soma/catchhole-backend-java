@@ -122,12 +122,16 @@ class AnalysisJobControllerIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        settingCandidateRepository.deleteAll();
         aiTokenUsageRepository.deleteAll();
         aiTokenGrantRepository.deleteAll();
         aiTokenAccountRepository.deleteAll();
-        analysisJobRepository.findAll().forEach(AnalysisJob::unlinkWorldSettingCandidate);
-        analysisJobRepository.flush();
+        List<AnalysisJob> existingJobs = analysisJobRepository.findAll();
+        existingJobs.forEach(job -> {
+            job.unlinkWorldSettingCandidate();
+            job.unlinkSettingCandidate();
+        });
+        analysisJobRepository.saveAllAndFlush(existingJobs);
+        settingCandidateRepository.deleteAll();
         worldSettingCandidateRepository.deleteAll();
         analysisJobRepository.deleteAll();
         episodeRepository.deleteAll();
@@ -539,6 +543,23 @@ class AnalysisJobControllerIntegrationTest {
         confirmedCandidate.confirm();
         settingCandidateRepository.saveAll(List.of(pendingCandidate, confirmedCandidate));
 
+        AnalysisJob characterComparisonJob = AnalysisJob.createCharacterFactComparison(pendingCandidate);
+        UUID characterComparisonLeaseToken = characterComparisonJob.claim(
+                "gpt-5.6-terra",
+                "CHARACTER_FACT_COMPARISON",
+                LocalDateTime.now().plusMinutes(5)
+        );
+        characterComparisonJob = analysisJobRepository.save(characterComparisonJob);
+        UUID characterComparisonUsageRequestId = UUID.randomUUID();
+        aiTokenService.reserve(new AiTokenReserveRequest(
+                characterComparisonUsageRequestId,
+                characterComparisonJob.getId(),
+                AiTokenPurpose.CHARACTER_FACT_COMPARISON,
+                1,
+                "gpt-5.6-terra",
+                1_000_000L
+        ), characterComparisonLeaseToken);
+
         WorldSettingCandidate pendingWorldSettingCandidate = worldSettingCandidateRepository.save(
                 WorldSettingCandidate.create(
                         work,
@@ -572,7 +593,7 @@ class AnalysisJobControllerIntegrationTest {
                 AiTokenPurpose.WORLD_SETTING_COMPARISON,
                 1,
                 "gpt-5.6-terra",
-                2_000_000L
+                1_000_000L
         ), comparisonLeaseToken);
 
         mockMvc.perform(post(
@@ -591,6 +612,17 @@ class AnalysisJobControllerIntegrationTest {
                 .get()
                 .extracting(SettingCandidate::getReviewStatus)
                 .isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+        AnalysisJob supersededCharacterComparisonJob = analysisJobRepository
+                .findById(characterComparisonJob.getId())
+                .orElseThrow();
+        assertThat(supersededCharacterComparisonJob.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
+        assertThat(supersededCharacterComparisonJob.getSettingCandidate()).isNull();
+        assertThat(aiTokenUsageRepository.findById(characterComparisonUsageRequestId))
+                .get()
+                .satisfies(usage -> {
+                    assertThat(usage.getStatus()).isEqualTo(AiTokenUsageStatus.RELEASED);
+                    assertThat(usage.getOutcome()).isEqualTo(AiTokenUsageOutcome.USAGE_UNAVAILABLE);
+                });
         assertThat(worldSettingCandidateRepository.existsById(pendingWorldSettingCandidate.getId()))
                 .isFalse();
         AnalysisJob supersededComparisonJob = analysisJobRepository
@@ -604,7 +636,7 @@ class AnalysisJobControllerIntegrationTest {
                     assertThat(usage.getStatus()).isEqualTo(AiTokenUsageStatus.RELEASED);
                     assertThat(usage.getOutcome()).isEqualTo(AiTokenUsageOutcome.USAGE_UNAVAILABLE);
                 });
-        assertThat(analysisJobRepository.count()).isEqualTo(3);
+        assertThat(analysisJobRepository.count()).isEqualTo(4);
     }
 
     @Test
