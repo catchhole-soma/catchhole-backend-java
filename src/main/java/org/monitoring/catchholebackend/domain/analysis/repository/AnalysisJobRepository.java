@@ -34,7 +34,10 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             left join fetch analysisJob.episode
             left join fetch analysisJob.targetEpisodes
             where analysisJob.work.id = :workId
-              and analysisJob.jobType <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON
+              and analysisJob.jobType not in (
+                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON,
+                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.CHARACTER_FACT_COMPARISON
+              )
             order by analysisJob.createdAt desc
             """)
     List<AnalysisJob> findAllWithTargetsByWorkIdOrderByCreatedAtDesc(@Param("workId") UUID workId);
@@ -47,7 +50,10 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
                     from AnalysisJob analysisJob
                     where analysisJob.work.id = :workId
                       and analysisJob.batch is not null
-                      and analysisJob.jobType <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON
+                      and analysisJob.jobType not in (
+                          org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON,
+                          org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.CHARACTER_FACT_COMPARISON
+                      )
                     group by analysisJob.batch.id
                     order by max(analysisJob.createdAt) desc, analysisJob.batch.id desc
                     """,
@@ -56,7 +62,10 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
                     from AnalysisJob analysisJob
                     where analysisJob.work.id = :workId
                       and analysisJob.batch is not null
-                      and analysisJob.jobType <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON
+                      and analysisJob.jobType not in (
+                          org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON,
+                          org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.CHARACTER_FACT_COMPARISON
+                      )
                     """
     )
     Page<AnalysisBatchPageRow> findBatchPage(
@@ -70,7 +79,10 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             from AnalysisJob analysisJob
             where analysisJob.work.id = :workId
               and analysisJob.batch.id in :batchIds
-              and analysisJob.jobType <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON
+              and analysisJob.jobType not in (
+                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON,
+                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.CHARACTER_FACT_COMPARISON
+              )
             order by analysisJob.createdAt desc, analysisJob.id desc
             """)
     List<AnalysisJob> findAllByWorkIdAndBatchIdInOrderByCreatedAtDescIdDesc(
@@ -94,10 +106,10 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             @Param("batchId") UUID batchId
     );
 
-    Optional<AnalysisJob> findFirstByEpisodeIdAndBatchIdAndJobTypeNotOrderByCreatedAtDesc(
+    Optional<AnalysisJob> findFirstByEpisodeIdAndBatchIdAndJobTypeNotInOrderByCreatedAtDesc(
             UUID episodeId,
             UUID batchId,
-            AnalysisJobType excludedJobType
+            Collection<AnalysisJobType> excludedJobTypes
     );
 
     @Query("""
@@ -107,7 +119,10 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             join fetch analysisJob.episode
             where analysisJob.batch.id in :batchIds
               and analysisJob.episode.id in :episodeIds
-              and analysisJob.jobType <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON
+              and analysisJob.jobType not in (
+                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON,
+                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.CHARACTER_FACT_COMPARISON
+              )
             order by analysisJob.createdAt desc
             """)
     List<AnalysisJob> findAllRelevantForEpisodeSummaries(
@@ -125,13 +140,6 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
     boolean existsByEpisodeIdAndBatchIdAndStatusIn(
             UUID episodeId,
             UUID batchId,
-            Collection<AnalysisJobStatus> statuses
-    );
-
-    boolean existsByEpisodeIdAndBatchIdAndJobTypeNotAndStatusIn(
-            UUID episodeId,
-            UUID batchId,
-            AnalysisJobType jobType,
             Collection<AnalysisJobStatus> statuses
     );
 
@@ -173,6 +181,7 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             join fetch analysisJob.work
             left join fetch analysisJob.batch
             left join fetch analysisJob.worldSettingCandidate
+            left join fetch analysisJob.settingCandidate
             where analysisJob.status = :status
               and analysisJob.jobType in :jobTypes
               and (
@@ -192,6 +201,17 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<AnalysisJob> findFirstByWorldSettingCandidateIdAndStatusInOrderByCreatedAtDesc(
             UUID worldSettingCandidateId,
+            Collection<AnalysisJobStatus> statuses
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<AnalysisJob> findFirstBySettingCandidateIdAndStatusInOrderByCreatedAtDesc(
+            UUID settingCandidateId,
+            Collection<AnalysisJobStatus> statuses
+    );
+
+    boolean existsBySettingCandidateIdAndStatusIn(
+            UUID settingCandidateId,
             Collection<AnalysisJobStatus> statuses
     );
 }

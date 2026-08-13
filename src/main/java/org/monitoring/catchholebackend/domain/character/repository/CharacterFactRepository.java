@@ -8,7 +8,6 @@ import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -16,9 +15,6 @@ import org.springframework.data.repository.query.Param;
 public interface CharacterFactRepository extends JpaRepository<CharacterFact, UUID> {
 
     List<CharacterFact> findAllByWorkCharacterIdOrderByCreatedAtDesc(UUID characterId);
-
-    @EntityGraph(attributePaths = "settingCandidate")
-    List<CharacterFact> findAllByWorkCharacterIdAndIsCurrentTrueOrderByFactTypeAscFactKeyAsc(UUID characterId);
 
     List<CharacterFact> findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(
             UUID characterId,
@@ -48,8 +44,24 @@ public interface CharacterFactRepository extends JpaRepository<CharacterFact, UU
                           or fact.factKey in :displayNameSchemaKeys
                           or lower(coalesce(fact.factValue, '')) like lower(concat('%', :query, '%')) escape '\\'
                       )
-                      and (:allScopes = true or fact.isCurrent = :currentScope)
-                    order by fact.isCurrent desc,
+                      and (
+                          :allScopes = true
+                          or (:currentScope = true and exists (
+                              select snapshotSource.id
+                              from CharacterSnapshotSource snapshotSource
+                              where snapshotSource.sourceFact = fact
+                          ))
+                          or (:currentScope = false and not exists (
+                              select snapshotSource.id
+                              from CharacterSnapshotSource snapshotSource
+                              where snapshotSource.sourceFact = fact
+                          ))
+                      )
+                    order by case when exists (
+                                 select snapshotSource.id
+                                 from CharacterSnapshotSource snapshotSource
+                                 where snapshotSource.sourceFact = fact
+                             ) then 0 else 1 end asc,
                              case when fact.effectiveFromEpisodeNo is null then 1 else 0 end asc,
                              fact.effectiveFromEpisodeNo desc,
                              fact.createdAt desc,
@@ -73,7 +85,19 @@ public interface CharacterFactRepository extends JpaRepository<CharacterFact, UU
                           or fact.factKey in :displayNameSchemaKeys
                           or lower(coalesce(fact.factValue, '')) like lower(concat('%', :query, '%')) escape '\\'
                       )
-                      and (:allScopes = true or fact.isCurrent = :currentScope)
+                      and (
+                          :allScopes = true
+                          or (:currentScope = true and exists (
+                              select snapshotSource.id
+                              from CharacterSnapshotSource snapshotSource
+                              where snapshotSource.sourceFact = fact
+                          ))
+                          or (:currentScope = false and not exists (
+                              select snapshotSource.id
+                              from CharacterSnapshotSource snapshotSource
+                              where snapshotSource.sourceFact = fact
+                          ))
+                      )
                     """
     )
     Page<CharacterFact> search(

@@ -15,6 +15,8 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.Objects;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -23,6 +25,10 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
@@ -152,6 +158,55 @@ public class SettingCandidate extends BaseEntity {
     @Column(name = "raw_ai_result_json", columnDefinition = "jsonb")
     private JsonNode rawAiResultJson;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "comparison_status", nullable = false, length = 40)
+    private CharacterFactComparisonStatus comparisonStatus;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "suggested_operation", length = 30)
+    private CharacterFactOperation suggestedOperation;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "temporal_scope", length = 30)
+    private CharacterFactTemporalScope temporalScope;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "comparison_target_fact_type", length = 30)
+    private CharacterFactType comparisonTargetFactType;
+
+    @Column(name = "comparison_target_fact_key", length = 150)
+    private String comparisonTargetFactKey;
+
+    @Column(name = "proposed_fact_value", columnDefinition = "text")
+    private String proposedFactValue;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "proposed_value_json", columnDefinition = "jsonb")
+    private JsonNode proposedValueJson;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "removed_snapshot_entries_json", columnDefinition = "jsonb")
+    private JsonNode removedSnapshotEntriesJson;
+
+    @Column(name = "comparison_reason", columnDefinition = "text")
+    private String comparisonReason;
+
+    @Column(name = "comparison_base_snapshot_version")
+    private Long comparisonBaseSnapshotVersion;
+
+    @Column(name = "comparison_context_hash", length = 64)
+    private String comparisonContextHash;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "raw_comparison_json", columnDefinition = "jsonb")
+    private JsonNode rawComparisonJson;
+
+    @Column(name = "compared_at")
+    private LocalDateTime comparedAt;
+
+    @Column(name = "comparison_error_message", columnDefinition = "text")
+    private String comparisonErrorMessage;
+
     private SettingCandidate(
             Work work,
             Episode episode,
@@ -189,6 +244,7 @@ public class SettingCandidate extends BaseEntity {
         this.confidence = confidence;
         this.reviewStatus = SettingCandidateReviewStatus.PENDING_REVIEW;
         this.rawAiResultJson = rawAiResultJson;
+        this.comparisonStatus = initialComparisonStatus(candidateKind, this.matchStatus, matchedCharacterId);
     }
 
     public static SettingCandidate create(
@@ -305,7 +361,16 @@ public class SettingCandidate extends BaseEntity {
     }
 
     public boolean dismiss() {
-        return transitionReviewStatus(SettingCandidateReviewStatus.DISMISSED);
+        // Worker가 비교 결과를 쓰는 도중 사용자 무시가 끼어들면 마지막 flush가 제안을 되살릴 수 있다.
+        if (comparisonStatus == CharacterFactComparisonStatus.PROCESSING) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        boolean dismissed = transitionReviewStatus(SettingCandidateReviewStatus.DISMISSED);
+        if (dismissed) {
+            clearComparisonProposal();
+            comparisonStatus = CharacterFactComparisonStatus.NOT_REQUIRED;
+        }
+        return dismissed;
     }
 
     public void updateReviewContent(
@@ -318,13 +383,21 @@ public class SettingCandidate extends BaseEntity {
         this.attributeName = attributeName;
         this.attributeValue = attributeValue;
         this.valueJson = valueJson;
+        requestComparisonAfterCandidateChange();
     }
 
     public void matchExistingCharacter(WorkCharacter character) {
         // 분석 또는 사용자가 기존 캐릭터를 선택한 연결은 신규 생성 연결과 구분한다.
         validateEditable();
 
+        // 같은 캐릭터를 다시 선택한 경우 비교 문맥은 달라지지 않는다. 자동 연결 표시는
+        // 사용자 확인 연결로 정리하되, 완료된 비교 제안을 지우거나 새 LLM Job을 만들지 않는다.
+        if (Objects.equals(matchedCharacterId, character.getId())) {
+            applyCharacterMatch(character, SettingCandidateMatchStatus.MATCHED);
+            return;
+        }
         applyCharacterMatch(character, SettingCandidateMatchStatus.MATCHED);
+        requestComparisonAfterCandidateChange();
     }
 
     public void autoMatchSameNameCharacter(WorkCharacter character) {
@@ -332,6 +405,7 @@ public class SettingCandidate extends BaseEntity {
         validateEditable();
 
         applyCharacterMatch(character, SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
+        requestComparisonAfterCandidateChange();
     }
 
     public void matchPromotedExistingCharacter(WorkCharacter character) {
@@ -353,6 +427,7 @@ public class SettingCandidate extends BaseEntity {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
         }
         applyCharacterMatch(character, targetMatchStatus);
+        requestComparisonAfterCandidateChange();
     }
 
     private void applyCharacterMatch(
@@ -371,6 +446,92 @@ public class SettingCandidate extends BaseEntity {
         this.entityName = entityName;
         this.matchedCharacterId = null;
         this.matchStatus = SettingCandidateMatchStatus.UNRESOLVED;
+        markWaitingForCharacterMatch();
+    }
+
+    public void startComparison() {
+        validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
+        if (isCharacterDiscovery()
+                || comparisonStatus != CharacterFactComparisonStatus.PENDING
+                || matchedCharacterId == null) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        comparisonStatus = CharacterFactComparisonStatus.PROCESSING;
+        comparisonErrorMessage = null;
+    }
+
+    public void recordComparisonContext(long snapshotVersion, String contextHash) {
+        if (comparisonStatus != CharacterFactComparisonStatus.PROCESSING) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        comparisonBaseSnapshotVersion = snapshotVersion;
+        comparisonContextHash = Objects.requireNonNull(contextHash);
+    }
+
+    public void completeComparison(
+            CharacterFactOperation operation,
+            CharacterFactType targetFactType,
+            String targetFactKey,
+            String proposedFactValue,
+            JsonNode proposedValueJson,
+            JsonNode removedSnapshotEntriesJson,
+            CharacterFactTemporalScope temporalScope,
+            String comparisonReason,
+            JsonNode rawComparisonJson,
+            LocalDateTime comparedAt
+    ) {
+        validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
+        if (comparisonStatus != CharacterFactComparisonStatus.PROCESSING) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        this.suggestedOperation = Objects.requireNonNull(operation);
+        this.comparisonTargetFactType = targetFactType;
+        this.comparisonTargetFactKey = normalizeNullable(targetFactKey);
+        this.proposedFactValue = normalizeNullable(proposedFactValue);
+        this.proposedValueJson = proposedValueJson;
+        this.removedSnapshotEntriesJson = removedSnapshotEntriesJson;
+        this.temporalScope = Objects.requireNonNull(temporalScope);
+        this.comparisonReason = normalizeNullable(comparisonReason);
+        this.rawComparisonJson = rawComparisonJson;
+        this.comparedAt = Objects.requireNonNull(comparedAt);
+        this.comparisonStatus = CharacterFactComparisonStatus.COMPLETED;
+        this.comparisonErrorMessage = null;
+    }
+
+    public void failComparison(String errorMessage) {
+        validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
+        if (comparisonStatus != CharacterFactComparisonStatus.PENDING
+                && comparisonStatus != CharacterFactComparisonStatus.PROCESSING) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        comparisonStatus = CharacterFactComparisonStatus.FAILED;
+        comparisonErrorMessage = Objects.requireNonNull(errorMessage).trim();
+    }
+
+    public void recoverExpiredComparison() {
+        if (isPendingReview() && comparisonStatus == CharacterFactComparisonStatus.PROCESSING) {
+            comparisonStatus = CharacterFactComparisonStatus.PENDING;
+            comparisonErrorMessage = null;
+        }
+    }
+
+    public void markRecomparisonRequired(String reason) {
+        validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
+        clearComparisonProposal();
+        comparisonStatus = CharacterFactComparisonStatus.RECOMPARISON_REQUIRED;
+        comparisonErrorMessage = normalizeNullable(reason);
+    }
+
+    public void requestComparison() {
+        validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
+        clearComparisonProposal();
+        comparisonStatus = matchedCharacterId == null
+                ? CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH
+                : CharacterFactComparisonStatus.PENDING;
+    }
+
+    public boolean isComparisonCompleted() {
+        return comparisonStatus == CharacterFactComparisonStatus.COMPLETED;
     }
 
     public boolean isPendingReview() {
@@ -421,5 +582,62 @@ public class SettingCandidate extends BaseEntity {
         if (!isPendingReview()) {
             throw new AppException(errorCode);
         }
+    }
+
+    private void requestComparisonAfterCandidateChange() {
+        if (isCharacterDiscovery() || !isPendingReview()) {
+            comparisonStatus = CharacterFactComparisonStatus.NOT_REQUIRED;
+            return;
+        }
+        clearComparisonProposal();
+        comparisonStatus = matchedCharacterId == null
+                ? CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH
+                : CharacterFactComparisonStatus.PENDING;
+    }
+
+    private void markWaitingForCharacterMatch() {
+        if (!isCharacterDiscovery() && isPendingReview()) {
+            clearComparisonProposal();
+            comparisonStatus = CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH;
+        }
+    }
+
+    private void clearComparisonProposal() {
+        suggestedOperation = null;
+        temporalScope = null;
+        comparisonTargetFactType = null;
+        comparisonTargetFactKey = null;
+        proposedFactValue = null;
+        proposedValueJson = null;
+        removedSnapshotEntriesJson = null;
+        comparisonReason = null;
+        comparisonBaseSnapshotVersion = null;
+        comparisonContextHash = null;
+        rawComparisonJson = null;
+        comparedAt = null;
+        comparisonErrorMessage = null;
+    }
+
+    private static CharacterFactComparisonStatus initialComparisonStatus(
+            SettingCandidateKind candidateKind,
+            SettingCandidateMatchStatus matchStatus,
+            UUID matchedCharacterId
+    ) {
+        if (candidateKind != SettingCandidateKind.SETTING) {
+            return CharacterFactComparisonStatus.NOT_REQUIRED;
+        }
+        return matchedCharacterId != null
+                && (matchStatus == SettingCandidateMatchStatus.MATCHED
+                || matchStatus == SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME)
+                ? CharacterFactComparisonStatus.PENDING
+                : CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH;
+    }
+
+    private static String normalizeNullable(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
     }
 }

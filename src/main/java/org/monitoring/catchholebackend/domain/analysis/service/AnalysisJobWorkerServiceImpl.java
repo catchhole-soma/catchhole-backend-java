@@ -23,10 +23,14 @@ import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
+import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
+import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
@@ -58,6 +62,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     private final AnalysisJobWorkerMapper analysisJobWorkerMapper;
     private final AiTokenService aiTokenService;
     private final WorldSettingCandidateRepository worldSettingCandidateRepository;
+    private final SettingCandidateRepository settingCandidateRepository;
 
     @Override
     @Transactional
@@ -76,27 +81,26 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         AnalysisJob analysisJob = claimCandidates.getFirst();
         analysisJob.claim(request.modelName(), request.currentStep(), now.plus(LEASE_DURATION));
 
+        boolean hiddenComparison = isHiddenComparisonJob(analysisJob);
         List<Episode> targetEpisodes = findTargetEpisodes(analysisJob);
-        if (targetEpisodes.isEmpty()) {
+        if (!hiddenComparison && targetEpisodes.isEmpty()) {
             analysisJob.fail(NO_TARGET_EPISODES_MESSAGE);
             return Optional.empty();
         }
-        if (targetEpisodes.size() != 1) {
+        if (targetEpisodes.size() > 1) {
             analysisJob.fail(INVALID_TARGET_EPISODE_COUNT_MESSAGE);
             return Optional.empty();
         }
-        Episode targetEpisode = targetEpisodes.getFirst();
-        if (analysisJob.getJobType() != AnalysisJobType.WORLD_SETTING_COMPARISON) {
+        Episode targetEpisode = targetEpisodes.isEmpty() ? null : targetEpisodes.getFirst();
+        if (!hiddenComparison) {
             targetEpisode.markChunking();
         }
 
         UUID workId = analysisJob.getWork().getId();
-        boolean worldSettingComparison = analysisJob.getJobType()
-                == AnalysisJobType.WORLD_SETTING_COMPARISON;
-        List<CharacterSettingSchema> characterSettingSchemas = worldSettingComparison
+        List<CharacterSettingSchema> characterSettingSchemas = hiddenComparison
                 ? List.of()
                 : characterSettingSchemaRepository.findAllActiveForWork(workId);
-        List<WorkCharacter> knownCharacters = worldSettingComparison
+        List<WorkCharacter> knownCharacters = hiddenComparison
                 ? List.of()
                 : workCharacterRepository.findAllByWorkIdAndStatusOrderByCreatedAtDesc(
                         workId,
@@ -131,7 +135,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         );
         analysisJob.updateCurrentStep(request.currentStep());
         analysisJob.updateCheckpointStage(request.checkpointStage());
-        if (analysisJob.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON) {
+        if (isHiddenComparisonJob(analysisJob)) {
             return;
         }
         if (request.episodeStatus() == null) {
@@ -152,7 +156,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 leaseToken
         );
         validateCompletion(analysisJob);
-        if (analysisJob.getJobType() != AnalysisJobType.WORLD_SETTING_COMPARISON) {
+        if (!isHiddenComparisonJob(analysisJob)) {
             findTargetEpisodes(analysisJob).forEach(Episode::markAnalyzed);
         }
         long[] totals = aiTokenService.getAnalysisJobTokenTotals(analysisJobId);
@@ -166,10 +170,10 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 analysisJobId,
                 leaseToken
         );
-        if (analysisJob.getJobType() != AnalysisJobType.WORLD_SETTING_COMPARISON) {
+        failProcessingWorldCandidates(analysisJob);
+        failProcessingCharacterCandidates(analysisJob);
+        if (!isHiddenComparisonJob(analysisJob)) {
             markTargetEpisodesFailed(analysisJob);
-        } else {
-            failProcessingWorldCandidates(analysisJob);
         }
         long[] totals = aiTokenService.getAnalysisJobTokenTotals(analysisJobId);
         analysisJob.fail(request.errorMessage(), Math.toIntExact(totals[0]), Math.toIntExact(totals[1]));
@@ -177,6 +181,14 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
 
     private void validateCompletion(AnalysisJob analysisJob) {
         if (analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION) {
+            boolean characterComparisonIsRunning = settingCandidateRepository
+                    .existsByAnalysisJobIdAndComparisonStatusIn(
+                            analysisJob.getId(),
+                            List.of(
+                                    CharacterFactComparisonStatus.PENDING,
+                                    CharacterFactComparisonStatus.PROCESSING
+                            )
+                    );
             boolean comparisonIsRunning = worldSettingCandidateRepository
                     .existsByAnalysisJobIdAndComparisonStatusIn(
                             analysisJob.getId(),
@@ -185,7 +197,10 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                                     WorldSettingComparisonStatus.PROCESSING
                             )
                     );
-            if (!analysisJob.hasReachedCheckpoint(AnalysisJobCheckpointStage.WORLD_COMPARISONS_FINISHED)
+            // Java가 AI보다 먼저 배포되는 짧은 구간의 구버전 AI는 character 비교 checkpoint를
+            // 보고하지 않는다. 실제 대기/처리 후보가 없다면 legacy 작업으로 보고 완료를 허용한다.
+            if (characterComparisonIsRunning
+                    || !analysisJob.hasReachedCheckpoint(AnalysisJobCheckpointStage.WORLD_COMPARISONS_FINISHED)
                     || comparisonIsRunning) {
                 throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_CHECKPOINT_INCOMPLETE);
             }
@@ -196,6 +211,25 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 || analysisJob.getWorldSettingCandidate().getComparisonStatus()
                 != WorldSettingComparisonStatus.COMPLETED)) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_CHECKPOINT_INCOMPLETE);
+        }
+        if (analysisJob.getJobType() == AnalysisJobType.CHARACTER_FACT_COMPARISON) {
+            SettingCandidate candidate = analysisJob.getSettingCandidate();
+            if (candidate == null) {
+                throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_CHECKPOINT_INCOMPLETE);
+            }
+            // claim 전에 사용자가 후보를 확정/무시했다면 hidden job은 할 일이 없는 정상 종료다.
+            if (candidate.getReviewStatus() != SettingCandidateReviewStatus.PENDING_REVIEW) {
+                return;
+            }
+            // 후보 매칭 변경이나 dismiss가 hidden Job보다 먼저 반영되면 이 Job은 obsolete다.
+            // 처리할 비교가 없는 정상 no-op으로 끝내고 분석 실패 이력을 만들지 않는다.
+            if (candidate.getComparisonStatus() == CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH
+                    || candidate.getComparisonStatus() == CharacterFactComparisonStatus.NOT_REQUIRED) {
+                return;
+            }
+            if (candidate.getComparisonStatus() != CharacterFactComparisonStatus.COMPLETED) {
+                throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_CHECKPOINT_INCOMPLETE);
+            }
         }
     }
 
@@ -216,8 +250,8 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             );
             if (expiredJob.getClaimAttemptCount() >= MAX_CLAIM_ATTEMPTS) {
                 failProcessingWorldCandidates(expiredJob);
-                if (expiredJob.getJobType()
-                        != AnalysisJobType.WORLD_SETTING_COMPARISON) {
+                failProcessingCharacterCandidates(expiredJob);
+                if (!isHiddenComparisonJob(expiredJob)) {
                     markTargetEpisodesFailed(expiredJob);
                 }
                 long[] totals = aiTokenService.getAnalysisJobTokenTotals(expiredJob.getId());
@@ -229,6 +263,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 continue;
             }
             recoverProcessingWorldCandidates(expiredJob);
+            recoverProcessingCharacterCandidates(expiredJob);
             expiredJob.requeueExpiredLease();
         }
     }
@@ -261,6 +296,46 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 == WorldSettingComparisonStatus.PROCESSING) {
             analysisJob.getWorldSettingCandidate().failComparison(LEASE_EXPIRED_MESSAGE);
         }
+    }
+
+    private void recoverProcessingCharacterCandidates(AnalysisJob analysisJob) {
+        if (analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION) {
+            settingCandidateRepository.findAllByAnalysisJobIdAndComparisonStatus(
+                    analysisJob.getId(),
+                    CharacterFactComparisonStatus.PROCESSING
+            ).forEach(SettingCandidate::recoverExpiredComparison);
+            return;
+        }
+        if (analysisJob.getJobType() == AnalysisJobType.CHARACTER_FACT_COMPARISON
+                && analysisJob.getSettingCandidate() != null) {
+            analysisJob.getSettingCandidate().recoverExpiredComparison();
+        }
+    }
+
+    private void failProcessingCharacterCandidates(AnalysisJob analysisJob) {
+        if (analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION) {
+            settingCandidateRepository.findAllByAnalysisJobIdAndComparisonStatusIn(
+                    analysisJob.getId(),
+                    List.of(
+                            CharacterFactComparisonStatus.PENDING,
+                            CharacterFactComparisonStatus.PROCESSING
+                    )
+            ).forEach(candidate -> candidate.failComparison(LEASE_EXPIRED_MESSAGE));
+            return;
+        }
+        if (analysisJob.getJobType() == AnalysisJobType.CHARACTER_FACT_COMPARISON
+                && analysisJob.getSettingCandidate() != null
+                && (analysisJob.getSettingCandidate().getComparisonStatus()
+                == CharacterFactComparisonStatus.PENDING
+                || analysisJob.getSettingCandidate().getComparisonStatus()
+                == CharacterFactComparisonStatus.PROCESSING)) {
+            analysisJob.getSettingCandidate().failComparison(LEASE_EXPIRED_MESSAGE);
+        }
+    }
+
+    private boolean isHiddenComparisonJob(AnalysisJob analysisJob) {
+        return analysisJob.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON
+                || analysisJob.getJobType() == AnalysisJobType.CHARACTER_FACT_COMPARISON;
     }
 
     private void markTargetEpisodesFailed(AnalysisJob analysisJob) {

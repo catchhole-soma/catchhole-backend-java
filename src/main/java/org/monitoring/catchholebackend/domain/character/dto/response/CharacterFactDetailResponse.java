@@ -32,8 +32,16 @@ public record CharacterFactDetailResponse(
         @Schema(description = "사용자용 설정 표시값", example = "체력 물약", nullable = true)
         String factValue,
 
-        @Schema(description = "현재 설정 여부", example = "true")
+        @Schema(
+                description = "호환용 현재 설정 여부. contributesToCurrentSnapshot과 같은 값입니다.",
+                example = "true",
+                deprecated = true
+        )
+        @Deprecated
         boolean isCurrent,
+
+        @Schema(description = "현재 캐릭터 snapshot 구성에 사용되는 Fact인지 여부", example = "true")
+        boolean contributesToCurrentSnapshot,
 
         @Schema(description = "설정 적용 시작 회차 번호", example = "12", nullable = true)
         Integer effectiveFromEpisodeNo,

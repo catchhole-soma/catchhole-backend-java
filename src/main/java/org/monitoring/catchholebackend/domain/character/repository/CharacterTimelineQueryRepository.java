@@ -75,8 +75,8 @@ public class CharacterTimelineQueryRepository {
     }
 
     /**
-     * factKey별 현재 Fact를 우선하고, 현재 Fact가 없으면 가장 최근 이력을 앞에 둔다.
-     * Mapper는 첫 항목의 valueJson을 사용해 수동·레거시 설정의 저장된 표시명을 복원한다.
+     * append-only Fact에서 factKey별 최신 이력을 앞에 둔다. 현재 snapshot 여부는 표시명
+     * 선택과 무관하며 Mapper는 key별 첫 valueJson으로 수동·레거시 표시명을 복원한다.
      */
     public List<CharacterTimelineFactDisplaySource> findFactDisplaySources(
             UUID workId,
@@ -94,7 +94,6 @@ public class CharacterTimelineQueryRepository {
                         where %s
                         order by fact.factType asc,
                                  fact.factKey asc,
-                                 fact.isCurrent desc,
                                  case when fact.effectiveFromEpisodeNo is null then 1 else 0 end asc,
                                  fact.effectiveFromEpisodeNo desc,
                                  fact.createdAt desc,

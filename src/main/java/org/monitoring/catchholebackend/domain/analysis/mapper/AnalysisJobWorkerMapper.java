@@ -27,7 +27,7 @@ public class AnalysisJobWorkerMapper {
                 analysisJob.getJobType(),
                 analysisJob.getWork().getId(),
                 analysisJob.getWork().getTitle(),
-                analysisJob.getBatch().getId(),
+                analysisJob.getBatch() == null ? null : analysisJob.getBatch().getId(),
                 analysisJob.getModelName(),
                 analysisJob.getCurrentStep(),
                 analysisJob.getLeaseToken(),
@@ -37,6 +37,9 @@ public class AnalysisJobWorkerMapper {
                 analysisJob.getWorldSettingCandidate() == null
                         ? null
                         : analysisJob.getWorldSettingCandidate().getId(),
+                analysisJob.getSettingCandidate() == null
+                        ? null
+                        : analysisJob.getSettingCandidate().getId(),
                 characterSettingSchemas.stream()
                         .map(this::toCharacterSettingSchemaResponse)
                         .toList(),
@@ -77,6 +80,9 @@ public class AnalysisJobWorkerMapper {
     }
 
     private WorkerAnalysisEpisodePayload toEpisodeResponse(Episode episode) {
+        if (episode == null) {
+            return null;
+        }
         return new WorkerAnalysisEpisodePayload(
                 episode.getId(),
                 episode.getEpisodeNo(),

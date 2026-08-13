@@ -322,10 +322,13 @@ public class EpisodeServiceImpl implements EpisodeService {
     private AnalysisJob resolveLatestAnalysisJob(Episode episode, UploadFile sourceFile) {
         UUID batchId = sourceFile.getBatch().getId();
         return analysisJobRepository
-                .findFirstByEpisodeIdAndBatchIdAndJobTypeNotOrderByCreatedAtDesc(
+                .findFirstByEpisodeIdAndBatchIdAndJobTypeNotInOrderByCreatedAtDesc(
                         episode.getId(),
                         batchId,
-                        AnalysisJobType.WORLD_SETTING_COMPARISON
+                        Set.of(
+                                AnalysisJobType.WORLD_SETTING_COMPARISON,
+                                AnalysisJobType.CHARACTER_FACT_COMPARISON
+                        )
                 )
                 .orElse(null);
     }
@@ -347,10 +350,13 @@ public class EpisodeServiceImpl implements EpisodeService {
                 .map(UploadBatch::getId)
                 .filter(batchId -> analysisJobRepository.existsByBatchIdAndEpisodeIsNullAndStatusIn(
                         batchId, activeStatuses)
-                        || analysisJobRepository.existsByEpisodeIdAndBatchIdAndJobTypeNotAndStatusIn(
+                        || analysisJobRepository.existsByEpisodeIdAndBatchIdAndJobTypeNotInAndStatusIn(
                         episode.getId(),
                         batchId,
-                        AnalysisJobType.WORLD_SETTING_COMPARISON,
+                        Set.of(
+                                AnalysisJobType.WORLD_SETTING_COMPARISON,
+                                AnalysisJobType.CHARACTER_FACT_COMPARISON
+                        ),
                         activeStatuses
                 ))
                 .ifPresent(batchId -> {

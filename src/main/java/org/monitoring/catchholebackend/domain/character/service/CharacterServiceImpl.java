@@ -7,8 +7,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -33,8 +31,10 @@ import org.monitoring.catchholebackend.domain.character.mapper.CharacterMapper;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingEditPolicyResolver;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingEditPolicyResolver.CharacterSettingEditPolicy;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingEditPolicyResolver.CharacterSettingEditType;
-import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshot;
-import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAssembler;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessor;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotEntry;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSlot;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSourceManager;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaMatch;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
@@ -76,7 +76,8 @@ public class CharacterServiceImpl implements CharacterService {
     private final EpisodeRepository episodeRepository;
     private final CharacterSettingEditPolicyResolver characterSettingEditPolicyResolver;
     private final SettingCandidateSchemaResolver settingCandidateSchemaResolver;
-    private final CharacterSnapshotAssembler characterSnapshotAssembler;
+    private final CharacterSnapshotAccessor characterSnapshotAccessor;
+    private final CharacterSnapshotSourceManager characterSnapshotSourceManager;
     private final CharacterMapper characterMapper;
     private final ObjectMapper objectMapper = new ObjectMapper()
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
@@ -113,7 +114,7 @@ public class CharacterServiceImpl implements CharacterService {
             int size
     ) {
         Page<WorkCharacter> characters = workCharacterRepository
-                .findAllByWorkIdAndStatusOrderByCreatedAtDescIdDesc(
+                .findAllByWorkIdAndStatusOrderByUpdatedAtDescIdDesc(
                         workId,
                         status,
                         PageRequest.of(page, size)
@@ -162,26 +163,18 @@ public class CharacterServiceImpl implements CharacterService {
         );
         List<CharacterSettingSchema> schemas = characterSettingSchemaRepository
                 .findAllActiveForWork(work.getId());
-        List<CharacterFact> currentFacts = characterFactRepository
-                .findAllByWorkCharacterIdAndIsCurrentTrueOrderByFactTypeAscFactKeyAsc(characterId);
-        Map<FactIdentity, DesiredFact> desiredFacts = toDesiredFacts(request, schemas, currentFacts);
+        Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshotEntries = characterSnapshotAccessor.read(
+                character,
+                characterSnapshotSourceManager.findSourceFactsBySlot(character)
+        );
+        Map<CharacterSnapshotSlot, DesiredFact> desiredFacts = toDesiredFacts(request, schemas, snapshotEntries);
         character.updateBasicInfo(name, normalizeNullableText(request.roleLabel()));
         character.updateFirstAppearanceEpisodeId(
                 firstAppearanceEpisode == null ? null : firstAppearanceEpisode.getId()
         );
 
-        applyManualCorrections(character, currentFacts, desiredFacts);
-        characterFactRepository.flush();
-
-        List<CharacterFact> updatedCurrentFacts = characterFactRepository
-                .findAllByWorkCharacterIdAndIsCurrentTrueOrderByFactTypeAscFactKeyAsc(characterId);
-        replaceSnapshots(character, updatedCurrentFacts);
-        return characterMapper.toDetailResponse(
-                character,
-                firstAppearanceEpisode,
-                updatedCurrentFacts,
-                schemas
-        );
+        applyManualCorrections(character, snapshotEntries, desiredFacts);
+        return toDetailResponse(character, firstAppearanceEpisode, schemas);
     }
 
     @Override
@@ -261,30 +254,41 @@ public class CharacterServiceImpl implements CharacterService {
                 .orElseThrow(() -> new AppException(CharacterErrorCode.CHARACTER_NOT_FOUND));
     }
 
-    /**
-     * 캐릭터의 첫 등장 회차와 현재 Fact를 조회해 상세 응답 생성에 필요한 데이터를 구성한다.
-     */
+    /** 캐릭터의 첫 등장 회차와 authoritative snapshot·provenance를 상세 응답으로 구성한다. */
     private CharacterDetailResponse toDetailResponse(WorkCharacter character) {
         Episode firstAppearanceEpisode = findFirstAppearanceEpisodeById(
                 character.getWork().getId(),
                 character.getFirstAppearanceEpisodeId()
         );
-        List<CharacterFact> currentFacts = characterFactRepository
-                .findAllByWorkCharacterIdAndIsCurrentTrueOrderByFactTypeAscFactKeyAsc(character.getId());
-        return toDetailResponse(character, firstAppearanceEpisode, currentFacts);
+        return toDetailResponse(character, firstAppearanceEpisode);
     }
 
     /**
-     * 현재 설정 스키마를 함께 조회해 캐릭터와 Fact를 화면용 상세 응답으로 변환한다.
+     * 현재 설정 스키마와 snapshot provenance를 함께 조회해 상세 응답으로 변환한다.
      */
     private CharacterDetailResponse toDetailResponse(
             WorkCharacter character,
-            Episode firstAppearanceEpisode,
-            List<CharacterFact> currentFacts
+            Episode firstAppearanceEpisode
     ) {
         List<CharacterSettingSchema> schemas = characterSettingSchemaRepository
                 .findAllActiveForWork(character.getWork().getId());
-        return characterMapper.toDetailResponse(character, firstAppearanceEpisode, currentFacts, schemas);
+        return toDetailResponse(character, firstAppearanceEpisode, schemas);
+    }
+
+    private CharacterDetailResponse toDetailResponse(
+            WorkCharacter character,
+            Episode firstAppearanceEpisode,
+            List<CharacterSettingSchema> schemas
+    ) {
+        Map<CharacterSnapshotSlot, List<CharacterFact>> sourceFactsBySlot =
+                characterSnapshotSourceManager.findSourceFactsBySlot(character);
+        return characterMapper.toDetailResponse(
+                character,
+                firstAppearanceEpisode,
+                characterSnapshotAccessor.read(character, sourceFactsBySlot),
+                sourceFactsBySlot,
+                schemas
+        );
     }
 
     /**
@@ -326,23 +330,23 @@ public class CharacterServiceImpl implements CharacterService {
     /**
      * 화면에서 전달한 현재 설정 전체를 Fact 유형과 key로 식별되는 목표 상태로 변환한다.
      */
-    private Map<FactIdentity, DesiredFact> toDesiredFacts(
+    private Map<CharacterSnapshotSlot, DesiredFact> toDesiredFacts(
             CharacterUpdateRequest request,
             List<CharacterSettingSchema> schemas,
-            List<CharacterFact> currentFacts
+            Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshotEntries
     ) {
-        Map<FactIdentity, DesiredFact> desiredFacts = new LinkedHashMap<>();
+        Map<CharacterSnapshotSlot, DesiredFact> desiredFacts = new LinkedHashMap<>();
         if (request.currentAge() != null) {
             addDesiredFact(desiredFacts, integerFact(CharacterFactType.AGE, "age", request.currentAge()));
         }
         if (request.currentLevel() != null) {
             addDesiredFact(desiredFacts, integerFact(CharacterFactType.LEVEL, "level", request.currentLevel()));
         }
-        addDesiredFacts(desiredFacts, CharacterFactType.PROFILE, request.profile(), schemas, currentFacts);
-        addDesiredFacts(desiredFacts, CharacterFactType.STAT, request.stats(), schemas, currentFacts);
-        addDesiredFacts(desiredFacts, CharacterFactType.SKILL, request.skills(), schemas, currentFacts);
-        addDesiredFacts(desiredFacts, CharacterFactType.ITEM, request.items(), schemas, currentFacts);
-        addDesiredFacts(desiredFacts, CharacterFactType.STATUS, request.statuses(), schemas, currentFacts);
+        addDesiredFacts(desiredFacts, CharacterFactType.PROFILE, request.profile(), schemas, snapshotEntries);
+        addDesiredFacts(desiredFacts, CharacterFactType.STAT, request.stats(), schemas, snapshotEntries);
+        addDesiredFacts(desiredFacts, CharacterFactType.SKILL, request.skills(), schemas, snapshotEntries);
+        addDesiredFacts(desiredFacts, CharacterFactType.ITEM, request.items(), schemas, snapshotEntries);
+        addDesiredFacts(desiredFacts, CharacterFactType.STATUS, request.statuses(), schemas, snapshotEntries);
         return desiredFacts;
     }
 
@@ -359,20 +363,20 @@ public class CharacterServiceImpl implements CharacterService {
      * 같은 유형의 설정 요청 목록을 검증·변환해 중복 없는 목표 Fact에 추가한다.
      */
     private void addDesiredFacts(
-            Map<FactIdentity, DesiredFact> desiredFacts,
+            Map<CharacterSnapshotSlot, DesiredFact> desiredFacts,
             CharacterFactType factType,
             List<CharacterSettingUpdateRequest> requests,
             List<CharacterSettingSchema> schemas,
-            List<CharacterFact> currentFacts
+            Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshotEntries
     ) {
         for (CharacterSettingUpdateRequest request : requests) {
             String requestedKey = request.key().trim();
-            CharacterFact currentFact = findCurrentFact(currentFacts, factType, requestedKey);
-            String key = currentFact == null
+            CharacterSnapshotEntry currentEntry = findCurrentEntry(snapshotEntries, factType, requestedKey);
+            String key = currentEntry == null
                     ? resolveNewSettingKey(factType, requestedKey, request.valueType(), schemas)
                     : requestedKey;
-            if (currentFact == null && !key.equals(requestedKey)) {
-                currentFact = findCurrentFact(currentFacts, factType, key);
+            if (currentEntry == null && !key.equals(requestedKey)) {
+                currentEntry = findCurrentEntry(snapshotEntries, factType, key);
             }
             validateKey(factType, key, schemas);
             validatePropertyKeys(request.properties());
@@ -387,22 +391,22 @@ public class CharacterServiceImpl implements CharacterService {
                     key,
                     schemas
             );
-            String normalizedKey = currentFact == null
+            String normalizedKey = currentEntry == null
                     ? normalizeSettingKey(key, editPolicy)
                     : key;
-            if (currentFact == null && !normalizedKey.equals(key)) {
-                currentFact = findCurrentFact(currentFacts, factType, normalizedKey);
+            if (currentEntry == null && !normalizedKey.equals(key)) {
+                currentEntry = findCurrentEntry(snapshotEntries, factType, normalizedKey);
             }
             String factValue = normalizeNullableText(request.value());
             String displayName = resolveDesiredDisplayName(
                     request,
-                    currentFact,
+                    currentEntry,
                     normalizedKey,
                     editPolicy
             );
             JsonNode valueJson = toDesiredValueJson(
                     request,
-                    currentFact,
+                    currentEntry,
                     factValue,
                     displayName,
                     editPolicy
@@ -445,15 +449,12 @@ public class CharacterServiceImpl implements CharacterService {
         return match.factKey();
     }
 
-    private CharacterFact findCurrentFact(
-            List<CharacterFact> currentFacts,
+    private CharacterSnapshotEntry findCurrentEntry(
+            Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshotEntries,
             CharacterFactType factType,
             String key
     ) {
-        return currentFacts.stream()
-                .filter(fact -> fact.getFactType() == factType && fact.getFactKey().equals(key))
-                .findFirst()
-                .orElse(null);
+        return snapshotEntries.get(new CharacterSnapshotSlot(factType, key));
     }
 
     private boolean isLegacyManualKey(String key) {
@@ -467,19 +468,19 @@ public class CharacterServiceImpl implements CharacterService {
      */
     private JsonNode toDesiredValueJson(
             CharacterSettingUpdateRequest request,
-            CharacterFact currentFact,
+            CharacterSnapshotEntry currentEntry,
             String factValue,
             String displayName,
             CharacterSettingEditPolicy editPolicy
     ) {
         if (isUnchangedSetting(
                 request,
-                currentFact,
+                currentEntry,
                 factValue,
                 displayName,
                 editPolicy
         )) {
-            return currentFact.getValueJson();
+            return currentEntry.valueJson();
         }
 
         ObjectNode valueJson = JsonNodeFactory.instance.objectNode();
@@ -498,12 +499,12 @@ public class CharacterServiceImpl implements CharacterService {
      */
     private boolean isUnchangedSetting(
             CharacterSettingUpdateRequest request,
-            CharacterFact currentFact,
+            CharacterSnapshotEntry currentEntry,
             String factValue,
             String displayName,
             CharacterSettingEditPolicy editPolicy
     ) {
-        if (currentFact == null || !Objects.equals(currentFact.getFactValue(), factValue)) {
+        if (currentEntry == null || !Objects.equals(currentEntry.factValue(), factValue)) {
             return false;
         }
         if (editPolicy.type() == CharacterSettingEditType.EXACT
@@ -511,8 +512,8 @@ public class CharacterServiceImpl implements CharacterService {
             return true;
         }
         return (editPolicy.schema() != null
-                || matchesValueType(currentFact.getValueJson(), request.valueType()))
-                && Objects.equals(resolveCurrentDisplayName(currentFact), displayName);
+                || matchesValueType(currentEntry.valueJson(), request.valueType()))
+                && Objects.equals(resolveCurrentDisplayName(currentEntry), displayName);
     }
 
     /**
@@ -538,7 +539,7 @@ public class CharacterServiceImpl implements CharacterService {
      */
     private String resolveDesiredDisplayName(
             CharacterSettingUpdateRequest request,
-            CharacterFact currentFact,
+            CharacterSnapshotEntry currentEntry,
             String key,
             CharacterSettingEditPolicy editPolicy
     ) {
@@ -558,18 +559,18 @@ public class CharacterServiceImpl implements CharacterService {
         if (requestedName != null) {
             return requestedName;
         }
-        return currentFact == null ? keySuffixDisplayName(key) : resolveCurrentDisplayName(currentFact);
+        return currentEntry == null ? keySuffixDisplayName(key) : resolveCurrentDisplayName(currentEntry);
     }
 
-    private String resolveCurrentDisplayName(CharacterFact currentFact) {
-        JsonNode valueJson = currentFact.getValueJson();
+    private String resolveCurrentDisplayName(CharacterSnapshotEntry currentEntry) {
+        JsonNode valueJson = currentEntry.valueJson();
         if (valueJson != null && valueJson.isObject()) {
             JsonNode nameNode = valueJson.get("name");
             if (nameNode != null && nameNode.isTextual() && !nameNode.asText().isBlank()) {
                 return nameNode.asText().trim();
             }
         }
-        return keySuffixDisplayName(currentFact.getFactKey());
+        return keySuffixDisplayName(currentEntry.slot().factKey());
     }
 
     private String keySuffixDisplayName(String key) {
@@ -654,9 +655,12 @@ public class CharacterServiceImpl implements CharacterService {
     /**
      * 동일한 Fact 유형과 key가 요청에 중복되면 모호한 수정을 막기 위해 실패시킨다.
      */
-    private void addDesiredFact(Map<FactIdentity, DesiredFact> desiredFacts, DesiredFact desiredFact) {
-        FactIdentity identity = new FactIdentity(desiredFact.factType(), desiredFact.factKey());
-        if (desiredFacts.putIfAbsent(identity, desiredFact) != null) {
+    private void addDesiredFact(
+            Map<CharacterSnapshotSlot, DesiredFact> desiredFacts,
+            DesiredFact desiredFact
+    ) {
+        CharacterSnapshotSlot slot = new CharacterSnapshotSlot(desiredFact.factType(), desiredFact.factKey());
+        if (desiredFacts.putIfAbsent(slot, desiredFact) != null) {
             throw new AppException(CharacterErrorCode.CHARACTER_SETTING_KEY_DUPLICATED);
         }
     }
@@ -720,37 +724,30 @@ public class CharacterServiceImpl implements CharacterService {
     }
 
     /**
-     * 현재 Fact와 요청의 전체 목표 상태를 비교해 변경·삭제된 Fact는 historical로 전환하고,
-     * 추가·변경된 값은 원문 근거가 없는 새로운 수동 정정 Fact로 저장한다.
-     * 화면 편집 범위에 포함되지 않는 TIME Fact는 비교에서 제외해 그대로 유지한다.
+     * authoritative snapshot과 요청의 전체 목표 상태를 비교한다. 변경·추가값은 새 수동 Fact를
+     * append하고 해당 slot의 provenance를 교체한다. 삭제는 snapshot과 provenance만 제거하며,
+     * 과거 Fact는 수정하지 않는다. 화면 편집 범위 밖인 TIME slot은 그대로 보존한다.
      */
     private void applyManualCorrections(
             WorkCharacter character,
-            List<CharacterFact> currentFacts,
-            Map<FactIdentity, DesiredFact> desiredFacts
+            Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshotEntries,
+            Map<CharacterSnapshotSlot, DesiredFact> desiredFacts
     ) {
-        Map<FactIdentity, CharacterFact> currentByIdentity = new HashMap<>();
-        for (CharacterFact currentFact : currentFacts) {
-            if (currentFact.getFactType() == CharacterFactType.TIME) {
-                continue;
-            }
-            currentByIdentity.put(
-                    new FactIdentity(currentFact.getFactType(), currentFact.getFactKey()),
-                    currentFact
-            );
+        boolean provenanceChanged = false;
+        List<CharacterSnapshotSlot> removedSlots = snapshotEntries.keySet().stream()
+                .filter(slot -> slot.factType() != CharacterFactType.TIME)
+                .filter(slot -> !desiredFacts.containsKey(slot))
+                .toList();
+        for (CharacterSnapshotSlot removedSlot : removedSlots) {
+            snapshotEntries.remove(removedSlot);
+            characterSnapshotSourceManager.removeSources(character, removedSlot);
+            provenanceChanged = true;
         }
 
-        List<CharacterFact> manualFacts = new ArrayList<>();
-        for (Map.Entry<FactIdentity, CharacterFact> entry : currentByIdentity.entrySet()) {
-            DesiredFact desiredFact = desiredFacts.get(entry.getKey());
-            if (desiredFact == null || !isSameValue(entry.getValue(), desiredFact)) {
-                entry.getValue().markHistorical();
-            }
-        }
-        for (Map.Entry<FactIdentity, DesiredFact> entry : desiredFacts.entrySet()) {
-            CharacterFact currentFact = currentByIdentity.get(entry.getKey());
+        for (Map.Entry<CharacterSnapshotSlot, DesiredFact> entry : desiredFacts.entrySet()) {
+            CharacterSnapshotEntry currentEntry = snapshotEntries.get(entry.getKey());
             DesiredFact desiredFact = entry.getValue();
-            if (currentFact == null || !isSameValue(currentFact, desiredFact)) {
+            if (currentEntry == null || !isSameValue(currentEntry, desiredFact)) {
                 CharacterFact manualFact = characterMapper.toManualFact(
                         character,
                         desiredFact.factType(),
@@ -758,22 +755,36 @@ public class CharacterServiceImpl implements CharacterService {
                         desiredFact.factValue(),
                         desiredFact.valueJson()
                 );
-                manualFact.markCurrent();
-                manualFacts.add(manualFact);
+                characterFactRepository.save(manualFact);
+                snapshotEntries.put(
+                        entry.getKey(),
+                        characterSnapshotAccessor.entry(
+                                desiredFact.factType(),
+                                desiredFact.factKey(),
+                                desiredFact.factValue(),
+                                desiredFact.valueJson()
+                        )
+                );
+                characterSnapshotSourceManager.replaceSources(
+                        character,
+                        entry.getKey(),
+                        List.of(manualFact)
+                );
+                provenanceChanged = true;
             }
         }
-        characterFactRepository.saveAll(manualFacts);
+        characterSnapshotAccessor.replace(character, snapshotEntries, provenanceChanged);
     }
 
     /**
      * AGE/LEVEL은 구조화된 숫자를 우선 비교하고, 나머지는 표시값과 JSON 전체가 같거나
      * 레거시 scalar의 null JSON 표현만 다르면 동일한 설정값으로 판단한다.
      */
-    private boolean isSameValue(CharacterFact currentFact, DesiredFact desiredFact) {
-        if (isCoreNumericFact(currentFact.getFactType())) {
+    private boolean isSameValue(CharacterSnapshotEntry currentEntry, DesiredFact desiredFact) {
+        if (isCoreNumericFact(currentEntry.slot().factType())) {
             BigDecimal currentNumber = resolveFactNumber(
-                    currentFact.getValueJson(),
-                    currentFact.getFactValue()
+                    currentEntry.valueJson(),
+                    currentEntry.factValue()
             );
             BigDecimal desiredNumber = resolveFactNumber(
                     desiredFact.valueJson(),
@@ -783,11 +794,11 @@ public class CharacterServiceImpl implements CharacterService {
                 return currentNumber.compareTo(desiredNumber) == 0;
             }
         }
-        if (!Objects.equals(currentFact.getFactValue(), desiredFact.factValue())) {
+        if (!Objects.equals(currentEntry.factValue(), desiredFact.factValue())) {
             return false;
         }
-        return isSameJson(currentFact.getValueJson(), desiredFact.valueJson())
-                || isEquivalentLegacyScalar(currentFact, desiredFact);
+        return isSameJson(currentEntry.valueJson(), desiredFact.valueJson())
+                || isEquivalentLegacyScalar(currentEntry, desiredFact);
     }
 
     private boolean isCoreNumericFact(CharacterFactType factType) {
@@ -819,8 +830,8 @@ public class CharacterServiceImpl implements CharacterService {
      * valueJson이 없던 scalar Fact와 요청에서 재조립한 {"value": ...}만 의미상 같게 본다.
      * JSON 설정이나 추가 속성이 있는 값은 기존의 전체 JSON 비교를 유지한다.
      */
-    private boolean isEquivalentLegacyScalar(CharacterFact currentFact, DesiredFact desiredFact) {
-        JsonNode currentValueJson = currentFact.getValueJson();
+    private boolean isEquivalentLegacyScalar(CharacterSnapshotEntry currentEntry, DesiredFact desiredFact) {
+        JsonNode currentValueJson = currentEntry.valueJson();
         JsonNode desiredValueJson = desiredFact.valueJson();
         if ((currentValueJson != null && !currentValueJson.isNull())
                 || desiredFact.valueType() == SettingValueType.JSON
@@ -872,22 +883,6 @@ public class CharacterServiceImpl implements CharacterService {
     }
 
     /**
-     * 최종 current Fact를 조립해 캐릭터의 화면 조회용 대표값과 JSON snapshot을 교체한다.
-     */
-    private void replaceSnapshots(WorkCharacter character, List<CharacterFact> currentFacts) {
-        CharacterSnapshot snapshot = characterSnapshotAssembler.assemble(currentFacts);
-        character.replaceCurrentSnapshots(
-                snapshot.currentAge(),
-                snapshot.currentLevel(),
-                snapshot.profileJson(),
-                snapshot.statsJson(),
-                snapshot.skillsJson(),
-                snapshot.itemsJson(),
-                snapshot.statusesJson()
-        );
-    }
-
-    /**
      * 선택 입력 문자열의 앞뒤 공백을 제거하고 빈 문자열은 값 없음으로 정규화한다.
      */
     private String normalizeNullableText(String value) {
@@ -896,10 +891,6 @@ public class CharacterServiceImpl implements CharacterService {
         }
         String normalized = value.trim();
         return normalized.isEmpty() ? null : normalized;
-    }
-
-    /** Fact 유형과 key로 현재 설정을 식별한다. */
-    private record FactIdentity(CharacterFactType factType, String factKey) {
     }
 
     /** 수정 요청으로 만들 목표 Fact의 사용자 표시값과 구조화된 값을 보관한다. */

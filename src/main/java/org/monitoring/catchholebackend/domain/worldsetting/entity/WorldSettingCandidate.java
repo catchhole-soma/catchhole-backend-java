@@ -389,7 +389,8 @@ public class WorldSettingCandidate extends BaseEntity {
 
     public void requestRecomparison() {
         validatePendingReview();
-        if (comparisonStatus == WorldSettingComparisonStatus.PROCESSING) {
+        if (comparisonStatus == WorldSettingComparisonStatus.PROCESSING
+                || comparisonStatus == WorldSettingComparisonStatus.COMPLETED) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
         clearComparisonProposal();

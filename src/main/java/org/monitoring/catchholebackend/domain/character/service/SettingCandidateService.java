@@ -3,8 +3,12 @@ package org.monitoring.catchholebackend.domain.character.service;
 import java.util.Set;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateCharacterMatchRequest;
+import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateConfirmRequest;
+import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateGroupConfirmRequest;
+import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateGroupCharacterMatchRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateUpdateRequest;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateListResponse;
+import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateGroupActionResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
@@ -27,7 +31,8 @@ public interface SettingCandidateService {
             SettingCandidateReviewStatus reviewStatus,
             Set<SettingCandidateMatchStatus> matchStatuses,
             int page,
-            int size
+            int size,
+            boolean includeLegacyCandidates
     );
 
     /**
@@ -46,6 +51,13 @@ public interface SettingCandidateService {
             SettingCandidateUpdateRequest request
     );
 
+    /** 같은 이름의 대기 후보 전체를 하나의 기존 또는 신규 캐릭터로 연결한다. */
+    SettingCandidateGroupActionResponse updateSettingCandidateGroupCharacterMatch(
+            Long memberId,
+            UUID workId,
+            SettingCandidateGroupCharacterMatchRequest request
+    );
+
     /**
      * 작품 소유권과 설정 후보 소속을 확인한 뒤 후보의 캐릭터 연결 상태를 해소한다.
      * 후보는 PENDING_REVIEW 상태여야 하며, 검토 상태는 변경하지 않는다.
@@ -62,7 +74,22 @@ public interface SettingCandidateService {
      * 처음 확정되는 후보는 CharacterFact와 WorkCharacter 현재 스냅샷에 반영한다.
      * 이미 확정된 후보는 성공으로 처리하되 중복 반영하지 않고, 무시된 후보는 상태 충돌로 거절한다.
      */
-    SettingCandidateReviewStatusResponse confirmSettingCandidate(Long memberId, UUID workId, UUID candidateId);
+    SettingCandidateConfirmResult confirmSettingCandidate(
+            Long memberId,
+            UUID workId,
+            UUID candidateId,
+            SettingCandidateConfirmRequest request
+    );
+
+    /** 같은 이름의 후보를 한 트랜잭션으로 검증하고 모두 확정한다. */
+    SettingCandidateGroupConfirmResult confirmSettingCandidateGroup(
+            Long memberId,
+            UUID workId,
+            SettingCandidateGroupConfirmRequest request
+    );
+
+    /** 실패·무효화된 비교를 같은 후보 기준의 숨김 Job으로 멱등 재요청한다. */
+    SettingCandidateResponse retryComparison(Long memberId, UUID workId, UUID candidateId);
 
     /**
      * 작품 소유권과 설정 후보 소속을 확인한 뒤 후보를 무시 상태로 전환한다.

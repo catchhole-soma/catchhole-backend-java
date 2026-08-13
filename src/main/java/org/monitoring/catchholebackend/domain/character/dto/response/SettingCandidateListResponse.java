@@ -30,7 +30,11 @@ public record SettingCandidateListResponse(
         @Schema(description = "검토 대기이면서 캐릭터 연결이 필요한 후보 수", example = "3")
         long matchRequiredCandidateCount,
 
-        @Schema(description = "현재 필터를 적용한 후보 페이지")
+        @Schema(description = "현재 필터를 적용한 캐릭터 이름별 후보 그룹 페이지")
+        PageResponse<SettingCandidateGroupResponse> groups,
+
+        @Deprecated
+        @Schema(description = "단건 화면 호환용 후보 페이지. 신규 화면은 groups를 사용합니다.", deprecated = true)
         PageResponse<SettingCandidateResponse> candidates
 ) {
 }

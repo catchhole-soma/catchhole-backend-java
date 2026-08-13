@@ -53,7 +53,7 @@ public class CharacterController {
     @Operation(
             operationId = "getCharacters",
             summary = "캐릭터 목록 조회",
-            description = "본인 작품의 ACTIVE 캐릭터 카드를 createdAt DESC, id DESC 순서로 페이지 조회합니다. "
+            description = "본인 작품의 ACTIVE 캐릭터 카드를 updatedAt DESC, id DESC 순서로 페이지 조회합니다. "
                     + "보관된 캐릭터는 제외합니다."
     )
     @ApiResponses({
@@ -104,7 +104,7 @@ public class CharacterController {
     @Operation(
             operationId = "getArchivedCharacters",
             summary = "보관 캐릭터 목록 조회",
-            description = "본인 작품의 ARCHIVED 캐릭터 카드를 createdAt DESC, id DESC 순서로 페이지 조회합니다."
+            description = "본인 작품의 ARCHIVED 캐릭터 카드를 updatedAt DESC, id DESC 순서로 페이지 조회합니다."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "보관 캐릭터 목록 조회 성공"),

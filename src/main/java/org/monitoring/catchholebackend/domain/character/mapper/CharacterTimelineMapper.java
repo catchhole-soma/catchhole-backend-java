@@ -73,7 +73,7 @@ public class CharacterTimelineMapper {
                     displaySource.factType(),
                     ignored -> new HashMap<>()
             );
-            // Repository가 current 우선·최신순으로 정렬했으므로 key별 첫 값만 대표값으로 유지한다.
+            // Repository가 append-only 이력을 최신순으로 정렬했으므로 key별 첫 값만 대표값으로 유지한다.
             if (!displayValues.containsKey(displaySource.factKey())) {
                 displayValues.put(displaySource.factKey(), displaySource.valueJson());
             }
