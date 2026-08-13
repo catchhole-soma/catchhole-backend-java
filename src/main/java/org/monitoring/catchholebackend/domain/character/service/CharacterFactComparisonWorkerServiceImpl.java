@@ -389,7 +389,9 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
             }
             return new CharacterSnapshotSlot(canonicalTarget.factType(), canonicalTarget.factKey());
         }
-        if (operation == CharacterFactOperation.UPDATE || operation == CharacterFactOperation.MERGE) {
+        if (operation == CharacterFactOperation.UPDATE
+                || operation == CharacterFactOperation.MERGE
+                || operation == CharacterFactOperation.REMOVE) {
             if (request.targetFactType() != canonicalTarget.factType()
                     || !Objects.equals(normalize(request.targetFactKey()), canonicalTarget.factKey())) {
                 throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_TARGET_INVALID);
@@ -462,6 +464,17 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
             if (!currentSnapshot.containsKey(targetSlot)
                     || !hasProposedValue
                     || !hasProposedFactValue) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
+            }
+            return;
+        }
+        if (operation == CharacterFactOperation.REMOVE) {
+            if (canonicalTarget.factType() != CharacterFactType.STATUS
+                    || request.temporalScope() != CharacterFactTemporalScope.PRESENT
+                    || !currentSnapshot.containsKey(targetSlot)
+                    || !removedSlots.isEmpty()
+                    || hasProposedValue
+                    || proposedFactValueProvided) {
                 throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
             }
             return;

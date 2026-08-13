@@ -656,8 +656,8 @@ class CharacterFactControllerIntegrationTest {
                 JsonNodeFactory.instance.objectNode()
                         .put("value", "끝까지 간다")
                         .put("name", "좌우명"),
-                secondEpisode,
-                2,
+                null,
+                null,
                 true
         );
         saveFact(

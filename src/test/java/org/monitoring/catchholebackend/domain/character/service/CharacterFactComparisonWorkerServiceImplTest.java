@@ -356,7 +356,42 @@ class CharacterFactComparisonWorkerServiceImplTest {
                 request
         )).isInstanceOfSatisfying(AppException.class, exception ->
                 assertThat(exception.getResultCode())
-                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID));
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID));
+    }
+
+    @Test
+    @DisplayName("동일한 현재 STATUS의 종료 제안은 값 없이 정확한 slot을 대상으로 완료할 수 있다")
+    void completesSameStatusSlotRemoval() {
+        var statuses = objectMapper.createObjectNode().set("status.부상", value("부상"));
+        character.replaceCurrentSnapshots(null, null, null, null, null, null, statuses);
+        SettingCandidate candidate = prepareCandidate(
+                "status.부상",
+                "부상이 완전히 회복됨",
+                SettingValueType.JSON,
+                value("회복됨"),
+                schema("statuses.status", "status.*", CharacterFactType.STATUS, SettingValueType.JSON)
+        );
+        WorkerCharacterFactComparisonContextResponse context = claimAndGetContext(candidate);
+
+        service.completeCharacterFactComparison(
+                analysisJobId,
+                candidate.getId(),
+                leaseToken,
+                completeRequest(
+                        CharacterFactOperation.REMOVE,
+                        CharacterFactType.STATUS,
+                        "status.부상",
+                        null,
+                        List.of(),
+                        CharacterFactTemporalScope.PRESENT,
+                        context.contextToken()
+                )
+        );
+
+        assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.COMPLETED);
+        assertThat(candidate.getSuggestedOperation()).isEqualTo(CharacterFactOperation.REMOVE);
+        assertThat(candidate.getProposedFactValue()).isNull();
+        assertThat(candidate.getProposedValueJson()).isNull();
     }
 
     @Test

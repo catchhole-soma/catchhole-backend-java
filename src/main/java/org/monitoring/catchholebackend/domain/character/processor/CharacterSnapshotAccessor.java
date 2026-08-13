@@ -76,6 +76,16 @@ public class CharacterSnapshotAccessor {
             Map<CharacterSnapshotSlot, CharacterSnapshotEntry> entries,
             boolean provenanceChanged
     ) {
+        replace(character, entries, provenanceChanged, true);
+    }
+
+    /** 같은 트랜잭션의 후속 slot 변경은 값을 쓰되 이미 증가한 version을 다시 올리지 않는다. */
+    public void replace(
+            WorkCharacter character,
+            Map<CharacterSnapshotSlot, CharacterSnapshotEntry> entries,
+            boolean provenanceChanged,
+            boolean incrementSnapshotVersion
+    ) {
         Integer currentAge = null;
         Integer currentLevel = null;
         ObjectNode profile = JsonNodeFactory.instance.objectNode();
@@ -104,7 +114,8 @@ public class CharacterSnapshotAccessor {
                 nullIfEmpty(skills),
                 nullIfEmpty(items),
                 nullIfEmpty(statuses),
-                provenanceChanged
+                provenanceChanged,
+                incrementSnapshotVersion
         );
     }
 

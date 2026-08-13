@@ -94,20 +94,20 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 
 ### 설정 후보 확정 데이터 반영 정책
 
-`candidateKind=SETTING` 후보는 캐릭터 연결 뒤 2차 비교를 거쳐야 합니다. 비교 Worker는 새 후보 자체를 신뢰하지 않고 Backend가 정한 canonical slot과 현재 snapshot 문맥을 받아 `ADD`, `UPDATE`, `MERGE`, `HISTORY_ONLY`, `EXCLUDE`, `REVIEW_REQUIRED` 중 하나를 제안합니다. AI는 제안만 하며 실제 상태 변경은 사용자 confirm 트랜잭션에서만 발생합니다.
+`candidateKind=SETTING` 후보는 캐릭터 연결 뒤 2차 비교를 거쳐야 합니다. 비교 Worker는 새 후보 자체를 신뢰하지 않고 Backend가 정한 canonical slot과 현재 snapshot 문맥을 받아 `ADD`, `UPDATE`, `MERGE`, `REMOVE`, `HISTORY_ONLY`, `EXCLUDE`, `REVIEW_REQUIRED` 중 하나를 제안합니다. AI는 제안만 하며 실제 상태 변경은 사용자 confirm 트랜잭션에서만 발생합니다.
 
 - `PROFILE`, `STAT`, `SKILL`, `ITEM`, `AGE`, `LEVEL` 문맥은 canonical exact slot만 제공합니다. 다른 key 변경 때문에 불필요한 stale 재비교가 발생하지 않게 하기 위함입니다.
 - `STATUS`는 exact slot을 먼저 넣고, 회복·해제에 따라 종료할 다른 현재 상태를 판단하도록 같은 캐릭터의 `STATUS`를 source Fact 생성 시각 최신순으로 최대 30개 제공합니다. 생성 시각이 같거나 없는 legacy slot은 `factKey`로 순서를 고정합니다.
 - 문맥에는 snapshot의 `factValue`, `valueJson`을 함께 제공하고 hash에는 후보 의미값, canonical target, 선택한 현재값과 provenance Fact ID를 포함합니다. `snapshotVersion`은 감사·화면 동시성 정보이며 관련 없는 slot 변경을 stale로 만들지 않습니다.
-- Worker complete에서 `ADD`는 target을 보내지 않고 Backend canonical slot을 사용합니다. `UPDATE`/`MERGE`만 canonical target을 정확히 다시 보내며, 나머지 operation은 target·제안값을 보내지 않습니다.
-- 현재값 반영 operation은 비어 있지 않은 `proposedFactValue`와 schema에 맞는 `proposedValueJson`이 필수입니다. `PAST`/`HYPOTHETICAL`은 `HISTORY_ONLY` 또는 `REVIEW_REQUIRED`, `UNKNOWN`은 `REVIEW_REQUIRED`만 허용합니다. 기존 slot 제거는 `PRESENT + STATUS + ADD/UPDATE/MERGE` 조합에서만 허용합니다.
+- Worker complete에서 `ADD`는 target을 보내지 않고 Backend canonical slot을 사용합니다. `UPDATE`/`MERGE`/`REMOVE`는 canonical target을 정확히 다시 보내며, 나머지 operation은 target·제안값을 보내지 않습니다.
+- 현재값을 추가·교체하는 `ADD`/`UPDATE`/`MERGE`에는 비어 있지 않은 `proposedFactValue`와 schema에 맞는 `proposedValueJson`이 필수입니다. `REMOVE`는 `PRESENT + STATUS`인 동일 canonical slot의 종료에만 사용하며 제안값과 추가 제거 목록을 보내지 않습니다. `PAST`/`HYPOTHETICAL`은 `HISTORY_ONLY` 또는 `REVIEW_REQUIRED`, `UNKNOWN`은 `REVIEW_REQUIRED`만 허용합니다. 다른 기존 slot 제거는 `PRESENT + STATUS + ADD/UPDATE/MERGE` 조합에서만 허용합니다.
 - candidate 내용이나 캐릭터 매칭이 바뀌면 기존 proposal을 폐기하고 `PENDING` 또는 `WAITING_FOR_CHARACTER_MATCH`로 전환합니다. 재비교가 필요하면 원 분석 Job의 진행 상태와 관계없이 동일 후보의 활성 hidden `CHARACTER_FACT_COMPARISON` Job을 하나만 생성합니다.
 - 활성 hidden Job이 있는 후보는 원 분석 Job의 claim·완료 대기·실패 정리 대상에서 제외합니다. 따라서 원 분석의 마지막 claim과 checkpoint 사이에 사용자가 후보를 바꾸더라도 원 분석과 hidden Worker가 같은 후보를 이중 처리하지 않으며, hidden Job이 claim 전후에 최종 실패하면 연결 후보도 `FAILED`로 전환해 영구 `PENDING`을 남기지 않습니다.
 - `APPLY_PROPOSAL` confirm은 완료된 proposal과 관련 문맥 hash를 재검증합니다. 관련 slot이나 provenance가 달라졌다면 proposal을 `PENDING`으로 되돌리고 hidden Job을 만든 뒤 409를 반환합니다. 화면이 보낸 base version만 오래된 경우에는 proposal을 폐기하지 않고 재조회만 요구합니다.
 - `HISTORY_ONLY` confirm은 Fact만 append하고 snapshot·provenance·version을 전혀 바꾸지 않으므로 current 문맥 hash와 base version stale 검사를 하지 않습니다.
 - `EXCLUDE`는 confirm하지 않고 후보 무시 action을 사용합니다. `REVIEW_REQUIRED`는 `APPLY_PROPOSAL`을 막지만 사용자가 `HISTORY_ONLY`로 원문 이력을 보존할 수 있습니다.
 - 실제로 새 `WorkCharacter`를 만드는 빈 snapshot에는 deterministic `ADD`를 허용합니다. `UNRESOLVED` 이름이 기존 `ACTIVE` 캐릭터와 같으면 먼저 `MATCHED + PENDING`으로 연결하고 비교가 끝난 뒤 다시 확정합니다. 동명 `ARCHIVED` 캐릭터는 명시적 충돌로 거절합니다.
-- 확정 시 새 `CharacterFact`를 append합니다. `ADD`/`UPDATE`는 snapshot source를 새 Fact 하나로 교체하고 `MERGE`는 기존 source 목록 뒤에 새 Fact를 추가합니다. 제거된 snapshot slot의 source link만 삭제하며 과거 Fact와 원문 근거는 삭제하지 않습니다.
+- 확정 시 새 `CharacterFact`를 append합니다. `ADD`/`UPDATE`는 snapshot source를 새 Fact 하나로 교체하고 `MERGE`는 기존 source 목록 뒤에 새 Fact를 추가합니다. `REMOVE`는 후보 Fact를 이력으로 append한 뒤 동일한 현재 STATUS slot과 source link만 제거합니다. 제거된 snapshot slot의 과거 Fact와 원문 근거는 삭제하지 않습니다.
 - snapshot 값 또는 provenance가 바뀌면 `snapshotVersion`을 같은 트랜잭션에서 정확히 한 번 증가시킵니다. `WorkCharacter.firstAppearanceEpisodeId`는 확정 순서가 아니라 가장 이른 업로드 회차 기준으로 유지합니다.
 
 후보 편집과 confirm 이후 JSON 보존 범위:
@@ -429,7 +429,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `review_status` | 후보 검토 상태 |
 | `raw_ai_result_json` | AI 원본 응답 JSONB |
 | `comparison_status` | `NOT_REQUIRED`, `WAITING_FOR_CHARACTER_MATCH`, `PENDING`, `PROCESSING`, `COMPLETED`, `FAILED`, `RECOMPARISON_REQUIRED` |
-| `suggested_operation` | `ADD`, `UPDATE`, `MERGE`, `HISTORY_ONLY`, `EXCLUDE`, `REVIEW_REQUIRED` 제안 |
+| `suggested_operation` | `ADD`, `UPDATE`, `MERGE`, `REMOVE`, `HISTORY_ONLY`, `EXCLUDE`, `REVIEW_REQUIRED` 제안 |
 | `temporal_scope` | `PRESENT`, `PAST`, `HYPOTHETICAL`, `UNKNOWN` 판단 |
 | `comparison_target_fact_type`, `comparison_target_fact_key` | 비교가 적용될 canonical snapshot slot |
 | `proposed_fact_value`, `proposed_value_json` | 사용자에게 제안할 최종 표시값과 구조화 값 |
@@ -812,9 +812,9 @@ flowchart TD
 - 후보 수정·연결·확정·재비교·무시는 `Work` 다음 `SettingCandidate` row lock을 획득하고, snapshot mutation은 `WorkCharacter`까지 잠급니다. Worker claim/complete도 같은 후보 lock을 사용하므로 사용자 변경과 AI 결과가 last-write-wins로 덮이지 않습니다.
 - `SettingCandidateSchemaResolver`가 canonical `factType + factKey`와 값 타입을 결정합니다. 일반 slot은 exact key만 비교하고, 기존 상태의 종료 제안이 필요한 `STATUS`만 같은 캐릭터의 STATUS snapshot을 source Fact 생성 시각 최신순으로 최대 30개까지 제공합니다. 생성 시각이 같거나 없는 legacy slot은 `factKey`로 순서를 고정하며 exact slot은 항상 제한보다 우선합니다.
 - context token은 후보 의미, canonical target, 선택된 snapshot의 `factValue/valueJson`과 source Fact ID로 계산합니다. 작품의 무관한 다른 slot 변경은 proposal을 stale로 만들지 않지만, 같은 slot 또는 관련 STATUS 값·provenance 변경은 `RECOMPARISON_REQUIRED`가 됩니다. `comparisonBaseSnapshotVersion`은 사용자 refetch용 감사 값이지 stale 판정 기준이 아닙니다.
-- `PRESENT`만 snapshot에 반영할 수 있습니다. `PAST/HYPOTHETICAL`은 `HISTORY_ONLY` 또는 `REVIEW_REQUIRED`, `UNKNOWN`은 `REVIEW_REQUIRED`만 허용합니다. 제거 제안은 `PRESENT + STATUS + ADD/UPDATE/MERGE` 조합에서만 가능합니다.
-- `ADD/UPDATE/MERGE`는 nonblank `proposedFactValue`와 schema에 맞는 `proposedValueJson`이 필요합니다. `HISTORY_ONLY/EXCLUDE/REVIEW_REQUIRED`는 target·최종값·제거 목록을 가질 수 없습니다. Spring은 Worker completion과 사용자 confirm 양쪽에서 이를 검증합니다.
-- `APPLY_PROPOSAL`은 `COMPLETED`의 `ADD/UPDATE/MERGE/HISTORY_ONLY`만 허용합니다. `EXCLUDE`는 기존 무시 API로 처리하고 `REVIEW_REQUIRED`는 일반 반영을 막습니다. 사용자는 둘 모두 `HISTORY_ONLY` 모드로 Fact 이력만 보존할 수 있습니다.
+- `PRESENT`만 snapshot에 반영할 수 있습니다. `PAST/HYPOTHETICAL`은 `HISTORY_ONLY` 또는 `REVIEW_REQUIRED`, `UNKNOWN`은 `REVIEW_REQUIRED`만 허용합니다. 동일 STATUS slot 종료는 `REMOVE`, 다른 slot 제거 제안은 `PRESENT + STATUS + ADD/UPDATE/MERGE` 조합에서만 가능합니다.
+- `ADD/UPDATE/MERGE`는 nonblank `proposedFactValue`와 schema에 맞는 `proposedValueJson`이 필요합니다. `REMOVE`는 canonical target만 필요하며 최종값·추가 제거 목록을 가질 수 없습니다. `HISTORY_ONLY/EXCLUDE/REVIEW_REQUIRED`는 target·최종값·제거 목록을 가질 수 없습니다. Spring은 Worker completion과 사용자 confirm 양쪽에서 이를 검증합니다.
+- `APPLY_PROPOSAL`은 `COMPLETED`의 `ADD/UPDATE/MERGE/REMOVE/HISTORY_ONLY`만 허용합니다. `EXCLUDE`는 기존 무시 API로 처리하고 `REVIEW_REQUIRED`는 일반 반영을 막습니다. 사용자는 둘 모두 `HISTORY_ONLY` 모드로 Fact 이력만 보존할 수 있습니다.
 - `HISTORY_ONLY`는 현재 snapshot을 읽거나 stale/base version을 검사하지 않고 Fact만 append합니다. `WorkCharacter` 값, provenance, `snapshotVersion`은 모두 불변입니다.
 - `MERGE`는 기존 source link 순서 뒤에 새 Fact를 붙여 여러 원문 근거를 보존합니다. 상세 응답의 `sourceFacts[]`와 기존 단건 evidence API로 모든 근거를 확인할 수 있습니다.
 - `UNRESOLVED` 이름이 진짜 신규이고 빈 캐릭터를 만드는 경우에만 deterministic ADD를 같은 confirm 트랜잭션에서 허용합니다. 동일 이름의 기존 ACTIVE 캐릭터를 재사용하면 먼저 MATCHED로 연결하고 hidden 비교 Job을 만든 뒤 재시도를 요구합니다. 동명 ARCHIVED 캐릭터는 자동 복구하거나 중복 생성하지 않고 명시적 충돌로 거절합니다.

@@ -17,7 +17,7 @@ AWS Console에서 수동으로 만든 리소스는 저장소만으로 확인할 
 
 - Caddy
 - Spring Backend
-- Python AI 분석 Worker 2개와 세계관 재비교 Worker 1개
+- Python AI 분석 Worker 2개, 세계관 재비교 Worker 1개, 캐릭터 설정 재비교 Worker 1개
 - PostgreSQL 16 + pgvector
 - Redis 7.4.10 (휴대폰 인증 단기 상태, 비영속)
 
@@ -44,6 +44,7 @@ flowchart LR
                 SPRING["Spring Backend"]
                 WORKER["Python AI 분석 Worker × 2<br/>프로세스당 Job 5개"]
                 COMPARISON_WORKER["세계관 재비교 Worker<br/>Job·LLM 동시성 1"]
+                CHARACTER_COMPARISON_WORKER["캐릭터 설정 재비교 Worker<br/>Job·LLM 동시성 1"]
                 POSTGRES["PostgreSQL 16 + pgvector<br/>Docker Volume"]
                 REDIS["Redis 7.4.10<br/>64MB·noeviction·비영속"]
             end
@@ -64,14 +65,17 @@ flowchart LR
 
     WORKER -->|"Job claim·진행·완료·실패 보고"| SPRING
     COMPARISON_WORKER -->|"재비교 Job claim·상태 보고"| SPRING
+    CHARACTER_COMPARISON_WORKER -->|"캐릭터 설정 재비교 Job claim·상태 보고"| SPRING
     WORKER -->|"청크·분석 후보 저장"| POSTGRES
     WORKER -->|"회차 원문 조회"| S3
     WORKER -->|"Terra 후보 추출<br/>Luna 주체 해소·세계관 비교"| OPENAI
     COMPARISON_WORKER -->|"Luna 세계관 재비교"| OPENAI
+    CHARACTER_COMPARISON_WORKER -->|"Luna 캐릭터 현재 설정 재비교"| OPENAI
 
     ENV -.-> SPRING
     ENV -.-> WORKER
     ENV -.-> COMPARISON_WORKER
+    ENV -.-> CHARACTER_COMPARISON_WORKER
     ENV -.-> POSTGRES
     ENV -.-> REDIS
 
@@ -109,7 +113,7 @@ Vercel은 Backend 요청을 중계하는 서버가 아닙니다. 브라우저가
 
 `AnalysisJob`은 별도 서버나 AWS 서비스가 아니라 PostgreSQL에 저장되는 Backend 도메인 데이터입니다.
 
-AI Worker의 모델 라우팅은 1차 캐릭터 Fact·세계관 후보 추출에 Terra, 캐릭터·세계관 주체 해소와 세계관 비교·재비교에 Luna를 사용합니다. Compose가 `LLM_EXTRACTION_MODEL`, `LLM_SUBJECT_RESOLUTION_MODEL`, `LLM_COMPARISON_MODEL`을 각 Worker에 전달하고, 개별 값이 없을 때만 `LLM_MODEL`을 fallback으로 사용합니다.
+AI Worker의 모델 라우팅은 1차 캐릭터 Fact·세계관 후보 추출에 Terra, 캐릭터·세계관 주체 해소와 세계관 비교·재비교 및 캐릭터 현재 설정 비교·재비교에 Luna를 사용합니다. Compose가 `LLM_EXTRACTION_MODEL`, `LLM_SUBJECT_RESOLUTION_MODEL`, `LLM_COMPARISON_MODEL`을 각 Worker에 전달하고, 개별 값이 없을 때만 `LLM_MODEL`을 fallback으로 사용합니다.
 
 ### 1.4 배포 흐름
 

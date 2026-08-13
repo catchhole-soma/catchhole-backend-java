@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -375,6 +376,94 @@ class SettingCandidatePromotionServiceTest {
                         CharacterFactType.SKILL,
                         "skill.은월참"
                 )).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("같은 캐릭터 후보 묶음은 여러 snapshot을 반영해도 version을 한 번만 증가시킨다")
+    void promoteGroupIncrementsSnapshotVersionOncePerCharacter() {
+        Episode episode3 = episode(3);
+        promote(candidate(episode3, "level", "3"));
+        WorkCharacter character = character("아리아");
+
+        SettingCandidate strength = matchedCandidate(episode3, character, "stats.strength", "12");
+        SettingCandidate agility = matchedCandidate(episode3, character, "stats.agility", "8");
+        prepareComparisonIfRequired(strength);
+        prepareComparisonIfRequired(agility);
+        strength.confirm();
+        agility.confirm();
+        long versionBeforePromotion = character.getSnapshotVersion();
+
+        promotionService.promoteGroup(List.of(
+                new SettingCandidateGroupPromotion(strength, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL),
+                new SettingCandidateGroupPromotion(agility, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL)
+        ));
+
+        assertThat(character.getSnapshotVersion()).isEqualTo(versionBeforePromotion + 1);
+        assertThat(snapshotValue(character, CharacterFactType.STAT, "stats.strength"))
+                .isEqualTo(valueJson("12"));
+        assertThat(snapshotValue(character, CharacterFactType.STAT, "stats.agility"))
+                .isEqualTo(valueJson("8"));
+    }
+
+    @Test
+    @DisplayName("동일 STATUS slot 종료 제안은 새 Fact를 이력에 남기고 현재 snapshot에서만 제거한다")
+    void promoteRemovePreservesHistoryAndRemovesCurrentStatus() {
+        Episode episode3 = episode(3);
+        JsonNode injured = objectMapper.createObjectNode().put("name", "오른발 부상");
+        promote(candidate(
+                episode3,
+                "status.오른발_부상",
+                "오른발이 다침",
+                SettingValueType.JSON,
+                injured
+        ));
+        WorkCharacter character = character("아리아");
+        long versionBeforeRemoval = character.getSnapshotVersion();
+
+        SettingCandidate recovered = matchedCandidate(
+                episode3,
+                character,
+                "status.오른발_부상",
+                "오른발이 완전히 회복됨",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode().put("name", "오른발 회복")
+        );
+        recovered.startComparison();
+        recovered.recordComparisonContext(character.getSnapshotVersion(), "remove-context");
+        recovered.completeComparison(
+                CharacterFactOperation.REMOVE,
+                CharacterFactType.STATUS,
+                "status.오른발_부상",
+                null,
+                null,
+                objectMapper.createArrayNode(),
+                CharacterFactTemporalScope.PRESENT,
+                "오른발이 완전히 회복되어 현재 부상 상태를 종료",
+                objectMapper.createObjectNode(),
+                java.time.LocalDateTime.now()
+        );
+        recovered.confirm();
+
+        promotionService.promote(recovered, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+
+        assertThat(snapshotAccessor.read(character))
+                .doesNotContainKey(new CharacterSnapshotSlot(
+                        CharacterFactType.STATUS,
+                        "status.오른발_부상"
+                ));
+        assertThat(characterFactRepository
+                .findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(
+                        character.getId(),
+                        CharacterFactType.STATUS,
+                        "status.오른발_부상"
+                )).hasSize(2);
+        assertThat(characterSnapshotSourceRepository
+                .findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderBySourceOrderAsc(
+                        character.getId(),
+                        CharacterFactType.STATUS,
+                        "status.오른발_부상"
+                )).isEmpty();
+        assertThat(character.getSnapshotVersion()).isEqualTo(versionBeforeRemoval + 1);
     }
 
     @Test
@@ -804,6 +893,36 @@ class SettingCandidatePromotionServiceTest {
                 .isEqualTo(valueJson("12"));
         assertThat(snapshotValue(character, CharacterFactType.STAT, "stats.agility"))
                 .isEqualTo(valueJson("8"));
+    }
+
+    @Test
+    @DisplayName("신규 캐릭터 확정은 대소문자와 연속 공백이 다른 미해소 형제 후보도 연결한다")
+    void promoteMatchesNormalizedPendingUnresolvedSiblings() {
+        Episode episode3 = episode(3);
+        SettingCandidate first = candidate(
+                episode3,
+                "Alice Smith",
+                null,
+                SettingCandidateMatchStatus.UNRESOLVED,
+                "level",
+                "5"
+        );
+        SettingCandidate sibling = candidate(
+                episode3,
+                "alice  smith",
+                null,
+                SettingCandidateMatchStatus.UNRESOLVED,
+                "stats.agility",
+                "8"
+        );
+
+        promote(first);
+
+        assertThat(sibling.getMatchedCharacterId()).isEqualTo(first.getMatchedCharacterId());
+        assertThat(sibling.getEntityName()).isEqualTo("Alice Smith");
+        assertThat(sibling.getMatchStatus())
+                .isEqualTo(SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
+        assertThat(sibling.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
     }
 
     @Test

@@ -1178,6 +1178,41 @@ class SettingCandidateServiceImplTest {
     }
 
     @Test
+    @DisplayName("정규화 이름이 같은 활성 캐릭터가 여러 명이면 임의로 연결하지 않는다")
+    void confirmSettingCandidateRejectsAmbiguousNormalizedCharacterMatches() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        WorkCharacter first = character(work, UUID.randomUUID(), "Alice Smith");
+        WorkCharacter second = character(work, UUID.randomUUID(), "ALICE  SMITH");
+        SettingCandidate candidate = candidate(work, "alice smith", "age", "17");
+        ReflectionTestUtils.setField(candidate, "id", candidateId);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId))
+                .thenReturn(Optional.of(candidate));
+        when(workCharacterRepository.findByWorkIdAndNameAndStatus(
+                workId,
+                "alice smith",
+                CharacterStatus.ACTIVE
+        )).thenReturn(Optional.empty());
+        when(workCharacterRepository.findAllByWorkIdAndStatusOrderByCreatedAtDesc(
+                workId,
+                CharacterStatus.ACTIVE
+        )).thenReturn(List.of(first, second));
+
+        assertThatThrownBy(() -> service.confirmSettingCandidate(memberId, workId, candidateId, null))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED));
+
+        verify(settingCandidatePromotionService, never()).promote(
+                any(SettingCandidate.class),
+                any(CharacterFactConfirmApplicationMode.class)
+        );
+    }
+
+    @Test
     @DisplayName("이력으로만 확정할 때는 현재 snapshot 문맥이 바뀌어도 재비교하지 않는다")
     void confirmHistoryOnlyDoesNotValidateCurrentSnapshotContext() {
         Long memberId = 1L;

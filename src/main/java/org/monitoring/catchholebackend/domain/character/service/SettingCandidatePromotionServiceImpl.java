@@ -72,6 +72,25 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             SettingCandidate candidate,
             CharacterFactConfirmApplicationMode applicationMode
     ) {
+        promote(candidate, applicationMode, new HashSet<>());
+    }
+
+    @Override
+    @Transactional
+    public void promoteGroup(List<SettingCandidateGroupPromotion> promotions) {
+        Set<UUID> versionedCharacterIds = new HashSet<>();
+        promotions.forEach(promotion -> promote(
+                promotion.candidate(),
+                promotion.applicationMode(),
+                versionedCharacterIds
+        ));
+    }
+
+    private void promote(
+            SettingCandidate candidate,
+            CharacterFactConfirmApplicationMode applicationMode,
+            Set<UUID> versionedCharacterIds
+    ) {
         if (candidate.isCharacterDiscovery()) {
             ResolvedCharacter resolved = resolveCharacterForPromotion(candidate);
             updateFirstAppearance(resolved.character(), candidate.getEpisode());
@@ -80,7 +99,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
 
         SettingCandidateSchemaMatch schemaMatch = resolveSchema(candidate);
         ResolvedCharacter resolved = resolveCharacterForPromotion(candidate);
-        promoteSetting(candidate, applicationMode, schemaMatch, resolved);
+        promoteSetting(candidate, applicationMode, schemaMatch, resolved, versionedCharacterIds);
     }
 
     @Override
@@ -111,6 +130,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
 
         WorkCharacter character = workCharacterRepository.save(promotionMapper.toWorkCharacter(representative));
         ResolvedCharacter resolved = new ResolvedCharacter(character, true, false);
+        Set<UUID> versionedCharacterIds = new HashSet<>();
         for (SettingCandidateGroupPromotion promotion : promotions) {
             SettingCandidate candidate = promotion.candidate();
             if (!candidate.confirm()) {
@@ -120,7 +140,13 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             if (candidate.isCharacterDiscovery()) {
                 updateFirstAppearance(character, candidate.getEpisode());
             } else {
-                promoteSetting(candidate, promotion.applicationMode(), resolveSchema(candidate), resolved);
+                promoteSetting(
+                        candidate,
+                        promotion.applicationMode(),
+                        resolveSchema(candidate),
+                        resolved,
+                        versionedCharacterIds
+                );
             }
         }
         // 현재 묶음 밖에도 같은 이름의 미검토 후보가 있다면 새 캐릭터에 연결하고 재비교를 예약한다.
@@ -131,7 +157,8 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             SettingCandidate candidate,
             CharacterFactConfirmApplicationMode applicationMode,
             SettingCandidateSchemaMatch schemaMatch,
-            ResolvedCharacter resolved
+            ResolvedCharacter resolved,
+            Set<UUID> versionedCharacterIds
     ) {
         CharacterFactType factType = schemaMatch.matchedSchema().getFactType();
         String factKey = schemaMatch.factKey();
@@ -166,6 +193,19 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
 
         CharacterSnapshotSlot targetSlot = new CharacterSnapshotSlot(factType, factKey);
         validateComparedTarget(candidate, resolved, targetSlot);
+        Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshot = snapshotAccessor.read(
+                character,
+                snapshotSourceManager.findSourceFactsBySlot(character)
+        );
+        if (operation == CharacterFactOperation.REMOVE) {
+            if (factType != CharacterFactType.STATUS || snapshot.remove(targetSlot) == null) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
+            }
+            snapshotSourceManager.removeSources(character, targetSlot);
+            replaceSnapshotOncePerCharacter(character, snapshot, versionedCharacterIds);
+            return;
+        }
+
         JsonNode proposedValue = resolved.newlyCreated()
                 ? normalizedCandidateValue
                 : candidate.getProposedValueJson();
@@ -182,10 +222,6 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                 schemaMatch.matchedSchema().getValueType()
         );
 
-        Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshot = snapshotAccessor.read(
-                character,
-                snapshotSourceManager.findSourceFactsBySlot(character)
-        );
         List<CharacterSnapshotSlot> removedSlots = resolved.newlyCreated()
                 ? List.of()
                 : parseRemovedSlots(candidate.getRemovedSnapshotEntriesJson(), snapshot, targetSlot);
@@ -209,8 +245,17 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             snapshotSourceManager.replaceSources(character, targetSlot, List.of(newFact));
         }
 
-        // snapshot 값이 같아도 provenance가 교체·추가되었으므로 version은 이 트랜잭션에서 정확히 한 번 증가한다.
-        snapshotAccessor.replace(character, snapshot, true);
+        replaceSnapshotOncePerCharacter(character, snapshot, versionedCharacterIds);
+    }
+
+    private void replaceSnapshotOncePerCharacter(
+            WorkCharacter character,
+            Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshot,
+            Set<UUID> versionedCharacterIds
+    ) {
+        // 묶음 안에서 여러 slot을 갱신해도 외부에 보이는 snapshot version은 캐릭터별 한 번만 증가한다.
+        boolean incrementSnapshotVersion = versionedCharacterIds.add(character.getId());
+        snapshotAccessor.replace(character, snapshot, true, incrementSnapshotVersion);
     }
 
     private SettingCandidateSchemaMatch resolveSchema(SettingCandidate candidate) {
@@ -385,7 +430,8 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         if (exactMatch.isPresent()) {
             return exactMatch;
         }
-        return workCharacterRepository.findAllByWorkIdAndStatusOrderByCreatedAtDesc(
+        List<WorkCharacter> normalizedMatches = workCharacterRepository
+                .findAllByWorkIdAndStatusOrderByCreatedAtDesc(
                         workId,
                         CharacterStatus.ACTIVE
                 ).stream()
@@ -393,7 +439,11 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                         character.getName(),
                         entityName
                 ))
-                .findFirst();
+                .toList();
+        if (normalizedMatches.size() > 1) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
+        }
+        return normalizedMatches.stream().findFirst();
     }
 
     private boolean existsCharacterByGroupName(UUID workId, String entityName) {
@@ -416,7 +466,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
     ) {
         settingCandidateRepository.findAllByNormalizedEntityNameAndMatchState(
                         workId,
-                        normalizedEntityName,
+                        SettingCandidateGroupNameNormalizer.toGroupKey(normalizedEntityName),
                         SettingEntityType.CHARACTER,
                         SettingCandidateReviewStatus.PENDING_REVIEW,
                         SettingCandidateMatchStatus.UNRESOLVED

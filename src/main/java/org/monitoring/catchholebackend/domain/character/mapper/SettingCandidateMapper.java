@@ -107,7 +107,9 @@ public class SettingCandidateMapper {
         boolean hasUpsert = operation == CharacterFactOperation.ADD
                 || operation == CharacterFactOperation.UPDATE
                 || operation == CharacterFactOperation.MERGE;
-        if (!hasUpsert && (removals == null || !removals.isArray() || removals.isEmpty())) {
+        boolean removesTarget = operation == CharacterFactOperation.REMOVE;
+        if (!hasUpsert && !removesTarget
+                && (removals == null || !removals.isArray() || removals.isEmpty())) {
             return List.of();
         }
         Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshot = currentSnapshot(candidate);
@@ -128,6 +130,24 @@ public class SettingCandidateMapper {
                     before == null ? null : toJsonValue(before.valueJson()),
                     candidate.getProposedFactValue(),
                     toJsonValue(candidate.getProposedValueJson())
+            ));
+        }
+        if (removesTarget
+                && candidate.getComparisonTargetFactType() != null
+                && candidate.getComparisonTargetFactKey() != null) {
+            CharacterSnapshotSlot slot = new CharacterSnapshotSlot(
+                    candidate.getComparisonTargetFactType(),
+                    candidate.getComparisonTargetFactKey()
+            );
+            CharacterSnapshotEntry before = snapshot.get(slot);
+            changes.add(new SettingCandidateSnapshotChangeResponse(
+                    CharacterSnapshotAction.REMOVE,
+                    slot.factType(),
+                    slot.factKey(),
+                    before == null ? null : before.factValue(),
+                    before == null ? null : toJsonValue(before.valueJson()),
+                    null,
+                    null
             ));
         }
         if (removals != null && removals.isArray()) {

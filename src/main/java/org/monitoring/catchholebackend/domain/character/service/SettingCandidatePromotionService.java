@@ -13,6 +13,11 @@ public interface SettingCandidatePromotionService {
     void promote(SettingCandidate candidate, CharacterFactConfirmApplicationMode applicationMode);
 
     /**
+     * 기존 캐릭터의 같은 이름 후보 묶음을 순서대로 반영하되 캐릭터별 snapshot version은 한 번만 증가시킨다.
+     */
+    void promoteGroup(List<SettingCandidateGroupPromotion> promotions);
+
+    /**
      * 아직 존재하지 않는 같은 이름의 캐릭터를 한 번만 만들고 그룹의 모든 후보를 순서대로 반영한다.
      */
     void promoteNewCharacterGroup(List<SettingCandidateGroupPromotion> promotions);

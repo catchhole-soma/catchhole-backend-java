@@ -206,6 +206,30 @@ public class WorkCharacter extends BaseEntity {
             JsonNode statusesJson,
             boolean provenanceChanged
     ) {
+        replaceCurrentSnapshots(
+                currentAge,
+                currentLevel,
+                profileJson,
+                statsJson,
+                skillsJson,
+                itemsJson,
+                statusesJson,
+                provenanceChanged,
+                true
+        );
+    }
+
+    public void replaceCurrentSnapshots(
+            Integer currentAge,
+            Integer currentLevel,
+            JsonNode profileJson,
+            JsonNode statsJson,
+            JsonNode skillsJson,
+            JsonNode itemsJson,
+            JsonNode statusesJson,
+            boolean provenanceChanged,
+            boolean incrementSnapshotVersion
+    ) {
         boolean valueChanged = !Objects.equals(this.currentAge, currentAge)
                 || !Objects.equals(this.currentLevel, currentLevel)
                 || !Objects.equals(this.profileJson, profileJson)
@@ -223,7 +247,9 @@ public class WorkCharacter extends BaseEntity {
         this.skillsJson = skillsJson;
         this.itemsJson = itemsJson;
         this.statusesJson = statusesJson;
-        this.snapshotVersion++;
+        if (incrementSnapshotVersion) {
+            this.snapshotVersion++;
+        }
     }
 
     public void updateFirstAppearanceEpisodeId(UUID firstAppearanceEpisodeId) {

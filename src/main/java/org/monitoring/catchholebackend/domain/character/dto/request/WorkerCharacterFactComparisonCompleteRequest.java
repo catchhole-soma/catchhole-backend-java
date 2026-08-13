@@ -33,7 +33,7 @@ public record WorkerCharacterFactComparisonCompleteRequest(
         @Valid
         @NotNull(message = "제거할 snapshot 항목 목록은 필수입니다.")
         @Size(max = 30, message = "제거할 snapshot 항목은 최대 30개입니다.")
-        List<SnapshotEntry> removedSnapshotEntries,
+        List<@NotNull @Valid SnapshotEntry> removedSnapshotEntries,
 
         @NotNull(message = "시간 범위 판단은 필수입니다.")
         CharacterFactTemporalScope temporalScope,

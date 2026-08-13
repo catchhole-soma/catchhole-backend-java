@@ -434,7 +434,7 @@ Notion 기준 `AnalysisJob.status`
 6. Worker는 `rawEntityMention`, `entityName`, `knownCharacters`를 비교해 `matchedCharacterId`, `matchStatus`를 계산합니다.
 7. Worker는 같은 분석 작업 안의 동일 캐릭터 후보를 제거한 뒤 `PENDING_REVIEW`로 저장합니다. 매칭된 `SETTING`은 비교 `PENDING`, 미매칭 후보는 `WAITING_FOR_CHARACTER_MATCH`, 발견 후보는 `NOT_REQUIRED`로 명시합니다.
 8. 캐릭터 비교 Worker는 후보를 한 건씩 claim하고 Spring context API에서 canonical slot과 관련 현재 snapshot을 받습니다. 일반 유형은 exact slot만, `STATUS`는 종료 관계 판단을 위해 exact slot을 먼저 두고 최근 생성된 source Fact 순으로 동종 slot 최대 30개를 함께 받습니다.
-9. Worker가 `ADD/UPDATE/MERGE/HISTORY_ONLY/EXCLUDE/REVIEW_REQUIRED`와 시간 범위·최종값·제거 slot을 제안하면 Spring은 context token, operation 조합, schema 값, same-character slot을 불신 검증해 저장합니다. 모든 캐릭터 후보 비교가 종료되면 `CHARACTER_COMPARISONS_FINISHED` checkpoint를 기록합니다.
+9. Worker가 `ADD/UPDATE/MERGE/REMOVE/HISTORY_ONLY/EXCLUDE/REVIEW_REQUIRED`와 시간 범위·최종값·제거 slot을 제안하면 Spring은 context token, operation 조합, schema 값, same-character slot을 불신 검증해 저장합니다. `REMOVE`는 동일한 현재 `STATUS` slot의 종료만 표현하며 원본 Fact 이력은 보존합니다. 모든 캐릭터 후보 비교가 종료되면 `CHARACTER_COMPARISONS_FINISHED` checkpoint를 기록합니다.
 10. Worker는 회차 원문에서 지속적인 세계관 속성을 추출하고 구조적으로 같은 후보를 제거한 뒤, lease가 보호하는 Spring 내부 API로 `world_setting_candidates`를 멱등 게시합니다.
 11. 세계관 후보마다 같은 category의 기존 대상명을 조회해 LLM이 최대 3개 대상 ID를 고르게 하고, Spring에서 현재 version과 `properties_json`을 포함한 비교 문맥을 검증해 가져옵니다.
 12. Worker가 세계관 `ADD/UPDATE/MERGE/EXCLUDE`를 판단하면 Spring은 문맥 ID·version·exact 대상과 제안을 재검증해 저장합니다. 잘못된 UUID를 LLM이 생성하지 않도록 UUID는 비교 prompt에 넣지 않습니다.

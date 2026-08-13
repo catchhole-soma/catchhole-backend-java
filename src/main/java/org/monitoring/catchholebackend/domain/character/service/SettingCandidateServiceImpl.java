@@ -463,18 +463,20 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         List<CharacterSettingSchema> schemas = characterSettingSchemaRepository.findAllActiveForWork(work.getId());
         validateGroupDecisionDependencies(candidates, decisions, schemas);
 
+        List<SettingCandidateGroupPromotion> promotions = new ArrayList<>();
         for (SettingCandidate candidate : candidates) {
             if (candidate.getSuggestedOperation() == CharacterFactOperation.EXCLUDE) {
                 candidate.dismiss();
                 continue;
             }
             if (candidate.confirm()) {
-                settingCandidatePromotionService.promote(
+                promotions.add(new SettingCandidateGroupPromotion(
                         candidate,
                         decisions.get(candidate.getId()).applicationMode()
-                );
+                ));
             }
         }
+        settingCandidatePromotionService.promoteGroup(promotions);
         return SettingCandidateGroupConfirmResult.confirmed(
                 toGroupActionResponse(groupKey(candidates.getFirst().getEntityName()), candidates, schemas)
         );
@@ -614,7 +616,8 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
     private boolean changesCurrentSnapshot(CharacterFactOperation operation) {
         return operation == CharacterFactOperation.ADD
                 || operation == CharacterFactOperation.UPDATE
-                || operation == CharacterFactOperation.MERGE;
+                || operation == CharacterFactOperation.MERGE
+                || operation == CharacterFactOperation.REMOVE;
     }
 
     private void validateComparisonNotProcessing(SettingCandidate candidate) {
@@ -866,7 +869,8 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         if (exactMatch.isPresent()) {
             return exactMatch;
         }
-        return workCharacterRepository.findAllByWorkIdAndStatusOrderByCreatedAtDesc(
+        List<WorkCharacter> normalizedMatches = workCharacterRepository
+                .findAllByWorkIdAndStatusOrderByCreatedAtDesc(
                         workId,
                         CharacterStatus.ACTIVE
                 ).stream()
@@ -874,7 +878,11 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                         character.getName(),
                         entityName
                 ))
-                .findFirst();
+                .toList();
+        if (normalizedMatches.size() > 1) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
+        }
+        return normalizedMatches.stream().findFirst();
     }
 
     private boolean existsCharacterByGroupName(UUID workId, String entityName) {

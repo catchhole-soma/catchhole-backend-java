@@ -214,12 +214,12 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
               and candidate.entityType = :entityType
               and candidate.reviewStatus = :reviewStatus
               and candidate.matchStatus = :matchStatus
-              and trim(candidate.entityName) = :entityName
+              and lower(function('regexp_replace', trim(candidate.entityName), '\\s+', ' ', 'g')) = :groupKey
             order by candidate.createdAt desc
             """)
     List<SettingCandidate> findAllByNormalizedEntityNameAndMatchState(
             @Param("workId") UUID workId,
-            @Param("entityName") String entityName,
+            @Param("groupKey") String groupKey,
             @Param("entityType") SettingEntityType entityType,
             @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus,
             @Param("matchStatus") SettingCandidateMatchStatus matchStatus
