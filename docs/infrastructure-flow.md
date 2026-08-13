@@ -324,7 +324,7 @@ Spring 수평 확장의 전제는 다음과 같습니다.
 
 Worker는 CPU 사용률보다 **Job 대기량과 가장 오래된 대기 시간**을 기준으로 확장합니다.
 
-현재 운영 검증 rollout은 `SETTING_EXTRACTION` 분석 Worker 2개와 별도 세계관 재비교 Worker 1개입니다. 분석 Worker는 프로세스당 Job 슬롯과 LLM 상한을 5개로 사용하므로 설정 추출 Job 최대 동시성은 10입니다. 50개 Job 부하 테스트에서 Backend·PostgreSQL·LLM 지표가 기준에 미달하면 프로세스 수는 2개로 유지하고 두 상한을 3으로 되돌립니다.
+현재 운영 검증 rollout은 `SETTING_EXTRACTION` 분석 Worker 2개와 캐릭터 Fact·세계관 재비교 Worker 각 1개입니다. 분석 Worker는 프로세스당 Job 슬롯과 LLM 상한을 5개로 사용하므로 설정 추출 Job 최대 동시성은 10입니다. 두 재비교 Worker는 각각 동시성 1로 격리합니다. 50개 Job 부하 테스트에서 Backend·PostgreSQL·LLM 지표가 기준에 미달하면 프로세스 수는 2개로 유지하고 두 상한을 3으로 되돌립니다.
 
 여러 Worker가 안전하게 실행되는 현재 계약은 다음과 같습니다.
 
@@ -345,7 +345,7 @@ Worker 확장 신호 예시는 다음과 같습니다.
 - Worker 한 개의 처리 시간이 안정적이지만 대기열만 증가
 - LLM 429가 증가하지 않는 범위에서 동시 실행 여유가 있음
 
-`LLM_MAX_CONCURRENT_REQUESTS`는 프로세스별 상한입니다. 위의 10은 별도 `ai-world-comparison-worker`를 제외한 `SETTING_EXTRACTION` Job 용량이며 provider 계정 전체의 분산 상한이 아닙니다. LLM provider rate limit이 병목이면 Worker 수만 늘리지 않고 429·`Retry-After`와 처리량을 확인합니다. 모든 프로세스를 합친 엄격한 상한이 필요할 때만 Redis 같은 분산 limiter를 별도 설계합니다.
+`LLM_MAX_CONCURRENT_REQUESTS`는 프로세스별 상한입니다. 위의 10은 별도 캐릭터·세계관 비교 Worker를 제외한 `SETTING_EXTRACTION` Job 용량이며 provider 계정 전체의 분산 상한이 아닙니다. LLM provider rate limit이 병목이면 Worker 수만 늘리지 않고 429·`Retry-After`와 처리량을 확인합니다. 모든 프로세스를 합친 엄격한 상한이 필요할 때만 Redis 같은 분산 limiter를 별도 설계합니다.
 
 ### 3.4 PostgreSQL과 pgvector 확장
 

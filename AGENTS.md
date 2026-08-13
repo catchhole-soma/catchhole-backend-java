@@ -73,8 +73,8 @@
 - 운영 컨테이너는 `SPRING_PROFILES_ACTIVE=prod`와 외부 환경변수로 설정을 주입한다. AWS/S3 자격 증명은 가능하면 EC2 IAM Role을 사용하고, access key를 이미지나 커밋 파일에 넣지 않는다.
 - 운영 Backend, Python AI Worker, PostgreSQL은 `APP_TIMEZONE`을 공통으로 사용하며 기본값은 `Asia/Seoul`이다. 세 writer가 timezone 없는 `TIMESTAMP` 컬럼에 서로 다른 로컬 시각을 저장하지 않도록 JVM `user.timezone`, 컨테이너 `TZ`, PostgreSQL `timezone`을 함께 변경한다.
 - 운영 AI Worker의 신규 청크 임베딩 생성은 `EMBEDDING_GENERATION_ENABLED`로 제어하고 Compose 기본값은 `false`로 둔다. MVP에서 사용하지 않는 API 비용을 차단하되 pgvector schema와 재활성화 경로는 유지하며, `true` 전환은 신규 분석·재분석에만 적용되고 기존 `NULL` 벡터를 자동 backfill하지 않는다.
-- 운영 세계관 재비교는 같은 AI 이미지를 `--worker-kind world-comparison` command로 실행하는 별도 `ai-world-comparison-worker` 서비스가 담당한다. 기본 `ai-worker`와 claim Job type을 분리하고 재비교 서비스에서는 임베딩 생성을 항상 끈다.
-- 운영 `SETTING_EXTRACTION` 처리량은 `AI_WORKER_PROCESS_COUNT × AI_WORKER_CONCURRENCY`로 계산한다. 현재 검증 rollout은 분석 Worker 2개 × 프로세스당 Job 5개 = 최대 10개다. 50개 Job 부하 테스트에서 Backend·PostgreSQL·LLM 지표를 확인하고 기준 미달이면 프로세스당 3개로 되돌린다. 이 10은 별도 `ai-world-comparison-worker`를 제외한 분석 Job 용량이며 provider 계정 전체의 분산 동시성 상한을 뜻하지 않는다.
+- 운영 캐릭터 Fact·세계관 재비교는 같은 AI 이미지를 각각 `--worker-kind character-comparison`, `--worker-kind world-comparison` command로 실행하는 별도 서비스가 담당한다. 기본 `ai-worker`와 claim Job type을 분리하고 재비교 서비스에서는 임베딩 생성을 항상 끈다.
+- 운영 `SETTING_EXTRACTION` 처리량은 `AI_WORKER_PROCESS_COUNT × AI_WORKER_CONCURRENCY`로 계산한다. 현재 검증 rollout은 분석 Worker 2개 × 프로세스당 Job 5개 = 최대 10개다. 50개 Job 부하 테스트에서 Backend·PostgreSQL·LLM 지표를 확인하고 기준 미달이면 프로세스당 3개로 되돌린다. 이 10은 별도 캐릭터·세계관 비교 Worker를 제외한 분석 Job 용량이며 provider 계정 전체의 분산 동시성 상한을 뜻하지 않는다.
 - 분석 Worker는 빈 실행 슬롯을 확보한 뒤 Job 하나만 claim하고 즉시 실행한다. 미리 여러 Job을 claim해 프로세스 내부 대기열에 쌓지 않으며, `LLM_MAX_CONCURRENT_REQUESTS`와 `AI_WORKER_BLOCKING_MAX_WORKERS`로 프로세스 안의 provider 호출과 동기 DB/S3 offload를 각각 제한한다. 재비교 Worker는 Job·LLM 동시성을 1로 고정한다.
 - Worker는 종료 신호를 받으면 신규 claim을 중단하고 `AI_WORKER_SHUTDOWN_GRACE_SECONDS` 동안 실행 중 Job과 heartbeat를 유지한다. Compose `stop_grace_period`는 내부 grace보다 길게 두어 정리 시간을 보장하며, 현재 운영값은 내부 180초·컨테이너 210초다. grace를 넘긴 Job은 heartbeat가 멈춘 뒤 Spring lease 회수 경로로 재처리한다.
 - 운영 AI 모델은 추출 `LLM_EXTRACTION_MODEL=gpt-5.6-terra`, 캐릭터·세계관 주체 해소 `LLM_SUBJECT_RESOLUTION_MODEL=gpt-5.6-luna`, 세계관 비교·재비교 `LLM_COMPARISON_MODEL=gpt-5.6-luna`로 분리하고 `LLM_MODEL`은 개별 설정이 없을 때의 fallback으로 둔다. 공통 추론 강도는 `LLM_REASONING_EFFORT=none`을 사용한다. 실제 비밀값과 override는 `/opt/catchhole/.env`에 두고 Compose가 AI Worker에 명시적으로 전달한다.
@@ -296,8 +296,9 @@ domain/<domain>
 - 본인 작품의 분석 작업만 생성/조회할 수 있으며, 다른 회원의 작품이나 다른 작품에 속한 분석 대상은 404로 응답한다.
 - Python AI Worker는 작업 claim과 `AnalysisJob` 상태 변경에 `/api/internal/**` 내부 API를 `X-Internal-Api-Key`로 인증해 사용한다. Worker에는 원문 본문을 응답하지 않으며, 단일 `episode`의 S3 key/version/hash/charCount 메타데이터, `ACTIVE` 캐릭터 ID·대표 이름 목록, 활성 캐릭터 설정 schema를 전달한다. `ARCHIVED` 캐릭터는 이후 원고 매칭 대상에서 제외한다.
 - Worker claim은 `allowedJobTypes`가 필수이며, claim 성공 시 5분 lease token을 발급한다. progress·heartbeat·complete·fail, 토큰 예약과 세계관 내부 API는 같은 `X-Worker-Lease-Token`을 검증한다. 만료 Job은 다음 claim에서 최대 3회까지 checkpoint부터 재대기시키고, 예약 중 토큰을 해제한 뒤 한도를 넘으면 실패 처리한다.
-- 일반 `SETTING_EXTRACTION` Job은 `CHUNKS_READY → CHARACTER_CANDIDATES_SAVED → WORLD_CANDIDATES_PUBLISHED → WORLD_COMPARISONS_FINISHED` checkpoint를 단조 증가시킨다. 세계관 후보 비교가 `PENDING`/`PROCESSING`이거나 마지막 checkpoint 전이면 완료를 거절한다.
+- 일반 `SETTING_EXTRACTION` Job은 `CHUNKS_READY → CHARACTER_CANDIDATES_SAVED → CHARACTER_COMPARISONS_FINISHED → WORLD_CANDIDATES_PUBLISHED → WORLD_COMPARISONS_FINISHED` checkpoint를 단조 증가시킨다. 캐릭터 또는 세계관 후보 비교가 `PENDING`/`PROCESSING`이면 완료를 거절한다. Java가 신규 checkpoint를 먼저 배포한 호환 구간에는 실제 캐릭터 비교 대기 후보가 없을 때만 구버전 Worker의 checkpoint 누락을 허용한다.
 - `WORLD_SETTING_COMPARISON`은 사용자 재비교 요청 한 건을 처리하는 내부 Job type이다. 공개 분석 목록·진행률·회차 실행 잠금에서 제외하고 동일 후보의 활성 Job은 하나만 허용한다.
+- `CHARACTER_FACT_COMPARISON`도 사용자 수정·매칭 변경 또는 stale proposal 한 건을 재비교하는 내부 Job type이다. `analysis_jobs.setting_candidate_id`로 후보 하나만 연결하고 공개 분석 목록·회차 상태 전이에서 제외한다. 후보가 무시되거나 다시 미매칭 상태가 되어 Job이 obsolete가 되면 실패 이력을 만들지 않고 no-op 성공시킨다.
 - Worker는 분석 작업 생성과 상태 전이를 위해 백엔드 DB에 직접 접근하지 않는다. 다만 청킹, 설정 후보, 리포트 같은 분석 산출물 저장은 데이터 양과 모델 안정성에 따라 내부 API 또는 Worker의 DB 직접 저장 중 선택할 수 있으며, DB 직접 저장을 선택하면 관련 스키마/문서 변경을 함께 관리한다.
 
 #### Character Setting Domain Policy
@@ -321,17 +322,19 @@ domain/<domain>
 - 이름과 값이 실질적으로 바뀌지 않은 후보와 캐릭터 연결만 바뀐 후보는 기존 AI `valueJson`을 그대로 유지한다. 동적 suffix 공백과 표시값 앞뒤 공백의 저장 문자열 정규화는 rich JSON을 축소하지 않고 적용한다.
 - `SettingValueType.JSON` 복합 후보의 이름 또는 값이 실제로 바뀌면 기존 prefix를 유지하고 suffix와 `valueJson.name`을 동기화한 뒤, 현재 후보 `valueJson`을 name-only object로 의도적으로 교체한다. 타입 계약이 없는 숨은 속성은 merge·추측·보존하지 않는다.
 - 후보 내용 수정은 `valueType`, `evidenceSpans`, `rawAiResultJson`을 변경하지 않는다. `rawAiResultJson`은 최초 AI payload 보관용이며 confirm 시 수정 전 구조화 값을 복원하는 source로 사용하지 않는다.
-- confirm은 현재 후보 `valueJson`을 새 Fact로 복사한다. 복합 후보 수정 전 rich JSON은 새 Fact와 snapshot에 복원하지 않으며 중첩 typed JSON 편집은 후속 범위다.
-- `SettingCandidate` 확정/무시는 POST action API로 처리한다. 처음 `CONFIRMED`로 전환되는 `SETTING` 후보는 `CharacterFact`로 저장하고 `WorkCharacter` 현재 스냅샷을 갱신한다. `CHARACTER_DISCOVERY` 후보는 연결된 `WorkCharacter`를 재사용하거나 생성하고 최초 등장 회차만 갱신하며 `CharacterFact`를 만들지 않는다. 동일 상태 재호출은 성공으로 처리하되 부수효과를 중복 생성하지 않고, `CONFIRMED`와 `DISMISSED` 사이의 반대 전이는 상태 충돌로 거절한다.
+- confirm은 현재 후보 `valueJson`을 append-only `CharacterFact`에 보존한다. AI 비교가 `ADD`/`UPDATE`/`MERGE`를 제안한 경우 snapshot에는 Worker가 반환한 `proposedFactValue`와 `proposedValueJson`을 반영한다. 복합 후보 수정 전 rich JSON을 최초 AI payload에서 다시 복원하지 않으며 중첩 typed JSON 편집은 후속 범위다.
+- `SettingCandidate` 확정/무시는 POST action API로 처리한다. 처음 `CONFIRMED`로 전환되는 `SETTING` 후보는 `CharacterFact`를 항상 새 이력으로 저장하고, 기본 `APPLY_PROPOSAL`은 완료된 비교 제안을 `WorkCharacter` snapshot과 provenance에 반영한다. 사용자가 `HISTORY_ONLY`를 선택하면 Fact만 저장하고 snapshot·provenance·snapshotVersion은 바꾸지 않는다. `EXCLUDE`는 무시 action을 사용하며 `REVIEW_REQUIRED`는 제안 적용 확정을 막되 이력 저장은 허용한다. `CHARACTER_DISCOVERY` 후보는 캐릭터와 최초 등장만 반영하고 Fact를 만들지 않는다.
+- 신규 검토 화면은 같은 `batchId + 정규화한 entityName`의 모든 대기 후보를 그룹 전용 confirm API 한 번으로 처리한다. 요청 ID가 서버의 전체 대기 그룹과 정확히 일치하는지 잠금 뒤 검증하고 부분 성공을 허용하지 않는다. row 내용 수정·무시와 단건 캐릭터 연결은 유지하되, 캐릭터 이름은 내용 수정 API에서 받지 않는다. 그룹 전체의 캐릭터 연결·변경은 전용 일괄 연결 API로 처리한다. 동일 신규 이름의 `UNRESOLVED` 그룹은 `WorkCharacter` 하나를 만든 뒤 회차·생성 순으로 Fact와 snapshot을 반영한다.
 - `AGE`, `LEVEL` 후보는 확정 전에 구조화 대표값을 우선 확인하고, 값이 없을 때만 표시값을 사용해 0 이상이면서 Java `Integer` 범위의 정확한 정수인지 검증한다. 소수·음수·범위 초과 값은 캐릭터 결정과 Fact 저장 전에 거절해 상세 응답과 전체 수정 계약이 어긋나지 않게 한다.
 - 후보 `valueJson` object의 정확한 `value` key는 숨겨진 대표값 envelope로 유지한다. `PROFILE`, `STAT`, `SKILL`, `ITEM`, `STATUS`의 나머지 최상위 공개 property는 상세 응답을 전체 수정 요청으로 그대로 왕복할 수 있도록 key가 공백 없이 100자 이하이고 앞뒤 공백·예약 key 충돌·정규화 후 중복이 없어야 하며, 직접 문자열 값은 비어 있지 않고 앞뒤 공백이 없어야 한다. 공개 property가 있는 scalar schema는 선언 타입과 호환되는 `value` envelope도 가져야 한다. 위반 후보는 캐릭터 결정과 Fact 저장 전에 거절한다.
-- `UNRESOLVED` 캐릭터 후보를 confirm할 때 같은 작품의 trim 후 exact-name `ACTIVE` 캐릭터가 있으면 재사용하고, 보관 캐릭터만 있거나 동명 캐릭터가 없으면 새 `ACTIVE` 캐릭터를 생성한다. 기존 캐릭터를 재사용하면 확정 후보와 같은 작품·이름의 `PENDING_REVIEW + UNRESOLVED + CHARACTER` 형제 후보를 모두 `MATCHED`로 연결한다. 이번 confirm에서 캐릭터를 새로 생성하면 확정 후보와 형제 후보를 모두 `AUTO_MATCHED_BY_NAME`으로 연결해 분석 시점부터 존재한 캐릭터 연결과 구분한다. `AMBIGUOUS`와 이미 검토된 후보는 자동 변경하지 않으며, 조회-생성 구간은 작품 row의 pessimistic write lock으로 직렬화한다.
+- `UNRESOLVED` 캐릭터 후보 confirm에서 동명 `ACTIVE` 캐릭터가 이미 있으면 즉시 적용하지 않고 후보를 `MATCHED + PENDING`으로 바꿔 숨김 비교 Job을 생성한 뒤 409로 재조회시킨다. 동명 `ARCHIVED` 캐릭터는 명시적 이름 충돌로 거절한다. 실제로 새 `WorkCharacter`를 만든 빈 snapshot만 deterministic `ADD`를 허용하며, 같은 이름 형제 후보는 `AUTO_MATCHED_BY_NAME + PENDING`으로 연결해 각각 비교한다.
 - confirm으로 생성하는 `CharacterFact`는 `setting_candidate_id` FK로 원본 `SettingCandidate`를 연결하고, 구체적인 원문 인용은 후보의 `evidence_spans`에서 조회한다. 기존 Fact는 추정 backfill하지 않고 `NULL`로 유지하며, 근거 JSON을 Fact에 중복 저장하지 않는다.
 - `SettingCandidate` 확정 반영처럼 후보/요청 데이터를 저장용 Entity로 변환하는 코드는 service에서 `Entity.create()` 파라미터를 직접 조립하지 말고 mapper의 `toEntity` 계열 메서드로 분리한다. service는 권한 확인, 조회, 트랜잭션 흐름, 저장 호출, 도메인 메서드 조율에 집중한다.
-- `CharacterFact` current 여부와 `WorkCharacter` 스냅샷은 우선 `Episode.episodeNo` 기준으로 계산한다. episode가 없는 fact는 current 우선순위를 가장 낮게 보고, 같은 회차의 같은 key는 나중에 생성된 fact를 current로 둔다. 작중 시간 정렬은 AI Worker의 시간 메타데이터 정책이 정해진 뒤 확장한다.
-- `MATCHED` 또는 `AUTO_MATCHED_BY_NAME` 캐릭터에 후보를 반영할 때는 해당 `WorkCharacter`를 pessimistic write lock으로 조회한 뒤 Fact current 재선정과 snapshot 재구성을 같은 트랜잭션에서 수행한다. 서로 다른 factKey의 동시 confirm이 snapshot을 덮어쓰지 않게 하기 위함이다.
-- `WorkCharacter.profileJson`, `statsJson`, `skillsJson`, `itemsJson`, `statusesJson`은 nullable한 `factKey -> current CharacterFact.valueJson` object map이다. confirm마다 전체 current Fact로 다섯 컬럼을 일괄 재구성하며, 빈 그룹은 `null`로 둔다. `REPLACE`와 `UPSERT_BY_NAME` 모두 factKey entry 전체를 교체하고 `valueJson.name`은 식별자로 사용하지 않는다. object deep merge, 삭제/비활성 표현과 나머지 merge policy는 NVM-229 후속 정책으로 둔다. 프로필 후보와 수동 수정도 다른 설정 유형과 같은 이력·snapshot 규칙을 사용한다.
-- 캐릭터 현재 설정 전체 수정은 변경된 `factType + factKey`마다 출처 없는 수동 정정 `CharacterFact`를 새로 만들고 기존 current Fact를 historical로 전환한다. 원본 후보·원문·과거 Fact는 수정하지 않으며 전체 변경과 snapshot 재구성을 한 트랜잭션에서 처리한다.
+- `CharacterFact`는 append-only 타임라인이다. 값·근거·current 상태를 수정하지 않으며 `is_current` 컬럼도 사용하지 않는다. 현재값의 유일한 authority는 `WorkCharacter.currentAge/currentLevel`과 JSON snapshot이다.
+- `MATCHED` 또는 `AUTO_MATCHED_BY_NAME` 후보 반영은 `SettingCandidate`와 `WorkCharacter`를 pessimistic write lock으로 조회하고, 새 Fact append, snapshot 변경, `character_snapshot_sources` provenance 변경, `snapshotVersion` 증가를 한 트랜잭션에서 처리한다. 관련 slot의 값 또는 source가 달라질 때만 트랜잭션당 version을 정확히 한 번 증가시킨다.
+- JSON snapshot entry는 사용자 `valueJson`을 그대로 유지하면서 표시용 `factValue`를 잃지 않도록 내부 `__catchhole_snapshot` envelope에 둘을 함께 저장한다. API는 envelope를 노출하지 않는다. 기존 raw entry는 그대로 읽고 source Fact의 표시값으로 보완하며, 다음 실제 수정 시 새 envelope로 점진 전환한다.
+- `character_snapshot_sources`는 현재 snapshot slot을 만든 Fact를 순서대로 연결한다. `ADD`/`UPDATE`는 source를 새 Fact 하나로 교체하고 `MERGE`는 기존 source 뒤에 새 Fact를 추가하며, 제거 제안은 slot과 source link만 제거한다. Fact 자체와 원문 근거는 항상 타임라인에 남는다.
+- 캐릭터 현재 설정 전체 수정은 요청과 `WorkCharacter` snapshot을 비교한다. 변경·추가는 수동 `CharacterFact`를 append하고 source link를 교체하며, 삭제는 snapshot과 source link만 제거한다. `TIME` 레거시 slot은 화면 수정 범위 밖이므로 보존한다.
 - 캐릭터 상세에서 새로 추가하는 설정도 후보 확정과 같은 exact → alias → pattern 순서로 해석한다. exact·alias는 canonical `schemaKey`, pattern은 의미 있는 suffix key를 사용하며 canonicalize 후 같은 key는 중복으로 거절한다. `manual_`·미등록 custom key는 기존 저장 데이터와 구버전 요청 호환용으로만 key를 유지한다.
 - 캐릭터 상세 설정의 편집 계약은 활성 schema로 해석한다. exact key는 key와 표시명을 모두 잠그고, pattern key는 응답의 `attributeNamePrefix`를 보존한 suffix만 수정하며, 레거시 `manual_`·미등록 custom key는 key를 유지한 채 표시명만 수정한다. pattern suffix의 공백은 저장 key에서 underscore로 정규화하고 화면 표시명과 새 `valueJson.name`은 underscore를 공백으로 바꾼 값을 사용한다.
 - 캐릭터 상세 설정 응답은 `attributeNameEditable`, `attributeNamePrefix`, `displayNameEditable`을 제공한다. exact는 `false/null/false`, pattern은 `true/<prefix>/true`, 수동 custom은 `false/null/true`다.
@@ -340,7 +343,7 @@ domain/<domain>
 - 캐릭터 화면의 삭제 액션은 hard delete가 아니다. `DELETE /api/v1/works/{workId}/characters/{characterId}`는 `WorkCharacter.status`를 `ACTIVE`에서 `ARCHIVED`로 바꾸고 Fact와 근거 데이터를 유지한다. 기본 목록·상세·수정은 `ACTIVE` 캐릭터만 대상으로 한다.
 - 보관함은 `ARCHIVED` 캐릭터만 페이지 조회하며 기본 페이지 크기는 9다. 복구는 작품 row와 보관 캐릭터를 순서대로 pessimistic write lock으로 조회한 뒤 `ACTIVE` 이름 중복을 검증하고 `ACTIVE`로 전환한다. 보관·복구는 `CharacterFact`, `SettingCandidate`, 원문 근거를 수정하지 않는다.
 - 작품 내 캐릭터 이름 중복은 `ACTIVE` 상태끼리만 금지한다. 이름 수정과 복구는 다른 `ACTIVE` 동명이 있을 때만 거절하고, `ARCHIVED` 캐릭터끼리 또는 `ACTIVE`와 `ARCHIVED` 사이의 동명은 허용한다. 후보 확정·이름 수정·복구는 작품 row의 pessimistic write lock 아래에서 검사와 생성을 직렬화해 `(workId, name)`별 `ACTIVE` 캐릭터가 최대 하나만 존재하도록 한다.
-- CharacterFact 설정 검색은 설정DB의 MVP 검색 구현이다. `ACTIVE` 캐릭터의 `AGE`, `LEVEL`, `STAT`, `SKILL`, `ITEM`, `STATUS`만 대상으로 하며, trim한 검색어의 `%`, `_`, `\`를 literal로 escape한 대소문자 무시 `LIKE` 부분 일치를 사용한다. 결과는 current 우선 → 적용 회차 내림차순(`NULL` 마지막) → 생성 시각 내림차순 → Fact ID 오름차순으로 고정 정렬한다.
+- CharacterFact 설정 검색은 설정DB의 MVP 검색 구현이다. `ACTIVE` 캐릭터의 `AGE`, `LEVEL`, `STAT`, `SKILL`, `ITEM`, `STATUS`만 대상으로 하며, trim한 검색어의 `%`, `_`, `\`를 literal로 escape한 대소문자 무시 `LIKE` 부분 일치를 사용한다. `character_snapshot_sources` 존재 여부를 현재 snapshot 기여 여부로 계산하고, 기여 Fact 우선 → 적용 회차 내림차순(`NULL` 마지막) → 생성 시각 내림차순 → Fact ID 오름차순으로 고정 정렬한다.
 - 장소·세계관·타임라인·관계 등 다른 설정 모델이 준비되면 CharacterFact 전용 API에 유형을 억지로 추가하지 않고 결과 유형과 식별자를 구분하는 통합 설정 검색으로 확장한다. 작품당 Fact가 1만 건 이상으로 늘거나 검색 p95가 200ms를 넘으면 `pg_trgm` 또는 별도 검색 인덱스를 검토한다.
 - CharacterFact 상세 근거는 `setting_candidate_id`로 연결된 후보의 `evidence_spans[*].quote`만 저장 순서대로 제공한다. 출처 회차는 Fact를 우선하고 후보 회차를 fallback으로 사용하며, 보관 캐릭터 Fact와 다른 작품 Fact는 404로 숨긴다.
 - 캐릭터 상세가 제공하는 `characterFactId`와 `hasEvidence`는
@@ -348,7 +351,7 @@ domain/<domain>
   근거 조회는 `CharacterFact.settingCandidate`의 `evidenceSpans`와 분석 당시
   `sourceContentS3Key`를 사용하며 S3 key 자체는 응답하지 않는다. V12 이전 후보는 현재
   `Episode.contentS3Key`로만 fallback한다.
-- 별도 migration이나 일괄 backfill 없이, 다음 성공 confirm에서 전체 current Fact를 기준으로 기존 JSON snapshot을 map 또는 `null` 계약에 맞게 정규화한다.
+- V20은 기존 `is_current=true` 중 slot별 회차·생성·ID 기준 최신 한 건만 provenance로 backfill하고 `character_facts.is_current`를 제거한다. 중복 current 이상 데이터를 임의 MERGE로 해석하지 않는다. 컬럼 drop 때문에 V20 이후 구버전 애플리케이션 이미지로의 단순 rollback은 지원하지 않으며 forward repair migration이 필요하다.
 - `WorkCharacter.firstAppearanceEpisodeId`는 확정 순서가 아니라 가장 이른 업로드 회차 기준으로 유지한다.
 - 화면 표시, 검색, 비교에 자주 쓰는 캐릭터 이름, 역할, 현재 나이, 현재 레벨은 일반 컬럼으로 둔다.
 - 검토 상태는 `SettingCandidate`에만 둔다. `WorkCharacter`와 `CharacterFact`는 사용자가 후보를 승인한 뒤 저장되는 대표 설정과 설정 이력이므로 별도 review status를 두지 않는다.

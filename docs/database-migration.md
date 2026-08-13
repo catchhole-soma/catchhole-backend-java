@@ -132,6 +132,14 @@ V9는 활성 캐릭터 목록의 고정 정렬 페이지 조회를 지원하는 
 - 작품과 `ACTIVE` 상태를 먼저 제한한 뒤 `createdAt DESC, id DESC` 정렬을 그대로 사용할 수 있게 합니다.
 - 기존 `idx_characters_work_status`는 다른 조회 경로와 적용 환경의 변경 위험을 줄이기 위해 제거하지 않습니다.
 
+## V23 기준
+
+V23은 캐릭터 DB에서 최근에 설정이나 기본 정보가 바뀐 캐릭터를 먼저 조회하도록 목록 정렬 인덱스를 교체합니다.
+
+- V9의 `idx_characters_work_status_created_id`를 제거합니다.
+- `characters(work_id, status, updated_at DESC, id DESC)` 순서의 `idx_characters_work_status_updated_id`를 생성합니다.
+- 작품과 상태를 제한한 뒤 `updatedAt DESC, id DESC` 정렬을 지원하며, 같은 수정 시각에도 페이지 순서가 흔들리지 않습니다.
+
 ## V10 기준
 
 V10은 분석 목록의 업로드 배치 페이지 조회와 배치별 설정 후보 검토 현황 집계를 지원합니다.
@@ -209,6 +217,30 @@ V19는 세계관 후보에 선택적 1단계 범위 경로를 추가합니다.
 - `world_settings.properties_json`은 루트 문자열 leaf와 1단계 범위 object를 함께 허용하되 도메인 계층에서 2단계 중첩, 같은 전체 경로 중복, 루트 leaf/scope object 충돌을 검증합니다.
 - 이 마이그레이션은 세계관 테이블만 변경하며 캐릭터 설정 테이블의 key 정규화·중복 계약을 변경하지 않습니다.
 
+## V20 기준
+
+V20은 캐릭터 현재값 판단을 `CharacterFact.is_current`에서 `WorkCharacter` snapshot과 정규화 provenance로 전환합니다.
+
+- `characters.snapshot_version`을 추가합니다. snapshot 값 또는 source link가 바뀐 트랜잭션에서 정확히 한 번 증가합니다.
+- `character_snapshot_sources`를 만들고 기존 `is_current=true` 중 `(character, factType, factKey)`별 적용 회차·생성 시각·ID 기준 최신 한 건만 source로 backfill합니다. 중복 current 이상 데이터를 MERGE로 추정하지 않습니다.
+- provenance backfill 뒤 기존 current 조회 인덱스와 `character_facts.is_current`를 제거합니다. 따라서 V20 이후 구버전 애플리케이션 이미지로 단순 rollback할 수 없고 forward repair migration이 필요합니다.
+- `analysis_jobs.setting_candidate_id`와 active hidden Job unique index를 추가해 `CHARACTER_FACT_COMPARISON` Job 한 건이 후보 한 건만 재비교하도록 합니다.
+- `setting_candidates`에 비교 상태·operation·시간 범위·target slot·제안 JSON·제거 slot·문맥 hash·감사/오류 컬럼을 추가합니다.
+- 기존 `PENDING_REVIEW + MATCHED` 행은 이미 끝난 원본 Job에 새 Worker stage가 없으므로 `PENDING`으로 backfill하지 않고 `NOT_REQUIRED`로 둡니다. 사용자가 비교를 시작하거나 confirm을 시도하면 hidden Job으로 전환합니다. 미매칭 설정 후보만 `WAITING_FOR_CHARACTER_MATCH`, 그 밖의 기존 행은 `NOT_REQUIRED`입니다. 신규 AI Worker가 저장하는 매칭 설정 후보부터 `PENDING`을 명시합니다.
+
+V20은 아직 공유 환경에 적용되지 않은 이 브랜치 migration을 배포 안전성 검토로 정정한 것입니다. 이전 SQL checksum으로 V20 또는 V22를 이미 적용한 개인 테스트 DB는 재생성하는 것을 권장합니다. 데이터를 보존해야 하는 DB는 최종 schema·후보 상태·인덱스를 현재 migration과 대조하고, 누락된 변경을 보정 SQL 또는 새 forward migration으로 실제 적용한 뒤에만 checksum을 repair합니다. `flyway repair`는 이미 실행된 DDL·데이터를 되돌려 적용하지 않으므로 공유 DB에서 검증 없이 실행하면 안 됩니다. 공유 환경에 적용된 뒤에는 기존 migration을 다시 수정하지 않습니다.
+
+## V21 기준
+
+V21은 캐릭터 비교 proposal의 최종 사용자 표시 문자열 `setting_candidates.proposed_fact_value`를 추가합니다. 구조화 `proposed_value_json`만으로는 MERGE한 자연어 표시값을 복원할 수 없으므로 둘을 함께 저장합니다.
+
+## V22 기준
+
+V22는 provenance source가 같은 캐릭터뿐 아니라 같은 canonical slot의 Fact임을 DB에서도 보장합니다.
+
+- `character_facts(character_id, fact_type, fact_key, id)` unique key를 추가합니다.
+- `character_snapshot_sources(character_id, fact_type, fact_key, source_fact_id)` 복합 FK로 교체합니다.
+
 ## 논리 참조와 FK 기준
 
 ID 컬럼이 다른 테이블을 논리적으로 가리키더라도 삭제·재처리 정책이 정해지지 않았다면 FK를 먼저 강제하지 않습니다. V1의 선택은 다음과 같습니다.
@@ -224,10 +256,10 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
 
 ## 로컬 검증
 
-V1~V15 적용 DB에 현재 Backend를 시작해 V16이 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V16이 순서대로 적용되는 경로를 각각 확인합니다.
+기존 적용 DB에 현재 Backend를 시작해 V20→V22가 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V22가 순서대로 적용되는 경로를 각각 확인합니다.
 
-- Flyway 로그에 V1부터 V16까지 적용 성공이 출력됩니다.
-- `flyway_schema_history`에 version 1부터 16까지 성공으로 기록됩니다.
+- Flyway 로그에 V1부터 V23까지 적용 성공이 출력됩니다.
+- `flyway_schema_history`에 version 1부터 22까지 성공으로 기록됩니다.
 - `vector` extension이 활성화됩니다.
 - `episode_chunks.embedding`이 `vector(1536)`으로 생성됩니다.
 - cosine HNSW 인덱스가 생성됩니다.
@@ -238,6 +270,9 @@ V1~V15 적용 DB에 현재 Backend를 시작해 V16이 추가 적용되는 경�
 - V14에서 토큰 계정·지급·사용 이력의 회원·작품·분석 작업 삭제 전파 정책이 적용됩니다.
 - V15에서 `setting_candidates.candidate_kind`와 후보 종류별 nullable payload 제약이 적용됩니다.
 - V16에서 `world_settings`, `world_setting_candidates`와 unique·enum·JSON·범위 제약 및 조회 인덱스가 생성됩니다.
+- V20에서 `character_snapshot_sources`, `snapshot_version`, 캐릭터 비교 proposal·hidden Job 컬럼과 제약이 생성되고 `character_facts.is_current`가 제거됩니다.
+- 기존 slot별 source backfill은 deterministic 최신 한 건이고, 기존 매칭 후보는 `NOT_REQUIRED`, 기존 미매칭 설정 후보는 `WAITING_FOR_CHARACTER_MATCH`로 이관됩니다.
+- V21에서 `setting_candidates.proposed_fact_value`, V22에서 same-character/same-slot provenance 복합 FK가 생성됩니다.
 - `character_facts.setting_candidate_id`와 FK·조회 인덱스가 생성됩니다.
 - `works.genre`가 enum 상수명으로 저장되고 `NOT NULL`·`chk_works_genre` 제약을 가집니다.
 - `works.description`이 기존 값의 앞 50자로 정규화되고 `VARCHAR(50)` 타입을 가집니다.
@@ -245,10 +280,11 @@ V1~V15 적용 DB에 현재 Backend를 시작해 V16이 추가 적용되는 경�
 - `episodes.content_updated_at`이 기존 데이터까지 채워지고 `NOT NULL` 제약을 가집니다.
 - `analysis_job_episode_targets`와 회차 역방향 조회 인덱스가 생성되고 기존 작업 대상이 backfill됩니다.
 - `upload_files.content_storage_url`이 nullable `VARCHAR(512)`로 생성됩니다.
-- `idx_characters_work_status_created_id` 복합 인덱스가 생성됩니다.
+- V9에서 `idx_characters_work_status_created_id`가 생성되고 V23에서 최근 수정순 조회용
+  `idx_characters_work_status_updated_id`로 교체됩니다.
 - `idx_analysis_jobs_work_batch_created`, `idx_setting_candidates_job_review` 인덱스가 생성됩니다.
 - Hibernate schema validation을 통과하고 Backend가 정상 시작됩니다.
-- Backend를 재시작해도 V1부터 V16까지 중복 적용되지 않습니다.
+- Backend를 재시작해도 V1부터 V23까지 중복 적용되지 않습니다.
 
 ## 최초 운영 전환
 
@@ -259,7 +295,7 @@ Flyway 도입 전에 JPA가 만든 운영 테스트 DB에는 `flyway_schema_hist
 1. 필요한 데이터가 없는지 확인하고 필요하면 `pg_dump`로 백업합니다.
 2. Backend와 AI Worker를 중지합니다.
 3. PostgreSQL 데이터 volume만 제거하고 빈 PostgreSQL 16 DB를 시작합니다.
-4. Backend를 시작해 Flyway V1~V16과 Hibernate validation 성공을 확인합니다.
+4. Backend를 시작해 Flyway V1~V23과 Hibernate validation 성공을 확인합니다.
 5. DB schema와 Swagger 기본 API를 확인한 뒤 AI Worker를 시작합니다.
 
 실제 사용자 데이터가 생긴 뒤에는 이 초기화 절차를 사용하지 않습니다. 기존 데이터를 보존하는 V2 이상의 `ALTER` migration과 사전 백업·롤백 계획을 별도로 작성합니다.
