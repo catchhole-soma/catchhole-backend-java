@@ -97,9 +97,10 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         }
 
         UUID workId = analysisJob.getWork().getId();
-        List<CharacterSettingSchema> characterSettingSchemas = hiddenComparison
-                ? List.of()
-                : characterSettingSchemaRepository.findAllActiveForWork(workId);
+        // canonical key·alias·value type 계약은 Job 종류와 무관하게 동일해야 한다.
+        // 비교 전용 Worker도 claim payload만으로 같은 스키마를 해석할 수 있도록 항상 제공한다.
+        List<CharacterSettingSchema> characterSettingSchemas =
+                characterSettingSchemaRepository.findAllActiveForWork(workId);
         List<WorkCharacter> knownCharacters = hiddenComparison
                 ? List.of()
                 : workCharacterRepository.findAllByWorkIdAndStatusOrderByCreatedAtDesc(

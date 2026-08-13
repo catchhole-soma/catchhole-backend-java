@@ -10,25 +10,25 @@ import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 
 public interface CharacterFactComparisonWorkerService {
 
-    Optional<WorkerCharacterFactComparisonCandidatePayload> claimNext(
+    Optional<WorkerCharacterFactComparisonCandidatePayload> claimNextCharacterFactComparison(
             UUID analysisJobId,
             UUID leaseToken
     );
 
-    WorkerCharacterFactComparisonContextResponse getContext(
+    WorkerCharacterFactComparisonContextResponse getCharacterFactComparisonContext(
             UUID analysisJobId,
             UUID candidateId,
             UUID leaseToken
     );
 
-    void complete(
+    void completeCharacterFactComparison(
             UUID analysisJobId,
             UUID candidateId,
             UUID leaseToken,
             WorkerCharacterFactComparisonCompleteRequest request
     );
 
-    void fail(
+    void failCharacterFactComparison(
             UUID analysisJobId,
             UUID candidateId,
             UUID leaseToken,

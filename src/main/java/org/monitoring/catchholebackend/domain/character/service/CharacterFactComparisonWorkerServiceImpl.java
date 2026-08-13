@@ -80,7 +80,7 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
 
     @Override
     @Transactional
-    public Optional<WorkerCharacterFactComparisonCandidatePayload> claimNext(
+    public Optional<WorkerCharacterFactComparisonCandidatePayload> claimNextCharacterFactComparison(
             UUID analysisJobId,
             UUID leaseToken
     ) {
@@ -123,7 +123,7 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
 
     @Override
     @Transactional
-    public WorkerCharacterFactComparisonContextResponse getContext(
+    public WorkerCharacterFactComparisonContextResponse getCharacterFactComparisonContext(
             UUID analysisJobId,
             UUID candidateId,
             UUID leaseToken
@@ -152,7 +152,7 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
 
     @Override
     @Transactional
-    public void complete(
+    public void completeCharacterFactComparison(
             UUID analysisJobId,
             UUID candidateId,
             UUID leaseToken,
@@ -204,7 +204,7 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
 
     @Override
     @Transactional
-    public void fail(
+    public void failCharacterFactComparison(
             UUID analysisJobId,
             UUID candidateId,
             UUID leaseToken,

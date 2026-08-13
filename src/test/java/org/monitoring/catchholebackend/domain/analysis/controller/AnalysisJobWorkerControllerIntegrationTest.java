@@ -392,6 +392,17 @@ class AnalysisJobWorkerControllerIntegrationTest {
     @Test
     @DisplayName("출처 Job과 회차가 없는 레거시 캐릭터 후보 재비교도 nullable payload로 claim한다")
     void claimLegacyCharacterComparisonWithoutBatchAndEpisode() throws Exception {
+        characterSettingSchemaRepository.save(settingSchema(
+                work,
+                "stats.strength",
+                null,
+                "근력",
+                CharacterFactType.STAT,
+                SettingValueType.NUMBER,
+                aliases("근력"),
+                CharacterSettingSchemaSource.DEV_SEED,
+                true
+        ));
         SettingCandidate candidate = settingCandidateRepository.save(SettingCandidate.create(
                 work,
                 null,
@@ -426,7 +437,8 @@ class AnalysisJobWorkerControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.settingCandidateId").value(candidate.getId().toString()))
                 .andExpect(jsonPath("$.data.batchId").value(nullValue()))
                 .andExpect(jsonPath("$.data.episode").value(nullValue()))
-                .andExpect(jsonPath("$.data.characterSettingSchemas", hasSize(0)))
+                .andExpect(jsonPath("$.data.characterSettingSchemas", hasSize(1)))
+                .andExpect(jsonPath("$.data.characterSettingSchemas[0].schemaKey").value("stats.strength"))
                 .andExpect(jsonPath("$.data.knownCharacters", hasSize(0)));
     }
 

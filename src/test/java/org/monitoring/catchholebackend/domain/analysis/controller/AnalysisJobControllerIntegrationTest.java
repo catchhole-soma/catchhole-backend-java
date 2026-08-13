@@ -366,6 +366,45 @@ class AnalysisJobControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("회차 없는 캐릭터 비교 hidden Job은 같은 배치의 공개 분석 생성을 막지 않는다")
+    void createAnalysisJobIgnoresEpisodeLessCharacterComparisonJob() throws Exception {
+        AnalysisJob sourceJob = AnalysisJob.create(
+                work,
+                uploadBatch,
+                null,
+                AnalysisJobType.SETTING_EXTRACTION
+        );
+        sourceJob.succeed("{}", 0, 0);
+        sourceJob = analysisJobRepository.save(sourceJob);
+        SettingCandidate legacyCandidate = settingCandidateRepository.save(candidate(
+                sourceJob,
+                null,
+                "stats.strength"
+        ));
+        AnalysisJob hiddenJob = analysisJobRepository.save(
+                AnalysisJob.createCharacterFactComparison(legacyCandidate)
+        );
+
+        mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "jobType": "EPISODE_VALIDATION",
+                                  "batchId": "%s",
+                                  "episodeId": "%s"
+                                }
+                                """.formatted(uploadBatch.getId(), firstEpisode.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].episodeId").value(firstEpisode.getId().toString()));
+
+        assertThat(analysisJobRepository.findById(hiddenJob.getId()))
+                .get()
+                .extracting(AnalysisJob::getStatus)
+                .isEqualTo(AnalysisJobStatus.PENDING);
+    }
+
+    @Test
     void createAnalysisJobRejectsDuplicateActiveEpisodeTarget() throws Exception {
         analysisJobRepository.save(AnalysisJob.create(
                 work, uploadBatch, firstEpisode, AnalysisJobType.EPISODE_VALIDATION));

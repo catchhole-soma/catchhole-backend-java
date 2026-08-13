@@ -258,7 +258,7 @@ class CharacterFactComparisonWorkerServiceImplTest {
         );
         WorkerCharacterFactComparisonContextResponse context = claimAndGetContext(candidate);
 
-        assertThatThrownBy(() -> service.complete(
+        assertThatThrownBy(() -> service.completeCharacterFactComparison(
                 analysisJobId,
                 candidate.getId(),
                 leaseToken,
@@ -301,7 +301,7 @@ class CharacterFactComparisonWorkerServiceImplTest {
                         Map.of("operation", "ADD")
                 );
 
-        assertThatThrownBy(() -> service.complete(
+        assertThatThrownBy(() -> service.completeCharacterFactComparison(
                 analysisJobId,
                 candidate.getId(),
                 leaseToken,
@@ -325,7 +325,7 @@ class CharacterFactComparisonWorkerServiceImplTest {
         );
         WorkerCharacterFactComparisonContextResponse context = claimAndGetContext(candidate);
 
-        assertThatThrownBy(() -> service.complete(
+        assertThatThrownBy(() -> service.completeCharacterFactComparison(
                 analysisJobId,
                 candidate.getId(),
                 leaseToken,
@@ -368,7 +368,7 @@ class CharacterFactComparisonWorkerServiceImplTest {
                 null
         );
 
-        service.complete(
+        service.completeCharacterFactComparison(
                 analysisJobId,
                 candidate.getId(),
                 leaseToken,
@@ -420,7 +420,7 @@ class CharacterFactComparisonWorkerServiceImplTest {
                 statuses
         );
 
-        assertThatThrownBy(() -> service.complete(
+        assertThatThrownBy(() -> service.completeCharacterFactComparison(
                 analysisJobId,
                 candidate.getId(),
                 leaseToken,
@@ -499,8 +499,8 @@ class CharacterFactComparisonWorkerServiceImplTest {
     }
 
     private WorkerCharacterFactComparisonContextResponse claimAndGetContext(SettingCandidate candidate) {
-        assertThat(service.claimNext(analysisJobId, leaseToken)).isPresent();
-        return service.getContext(analysisJobId, candidate.getId(), leaseToken);
+        assertThat(service.claimNextCharacterFactComparison(analysisJobId, leaseToken)).isPresent();
+        return service.getCharacterFactComparisonContext(analysisJobId, candidate.getId(), leaseToken);
     }
 
     private WorkerCharacterFactComparisonCompleteRequest completeRequest(

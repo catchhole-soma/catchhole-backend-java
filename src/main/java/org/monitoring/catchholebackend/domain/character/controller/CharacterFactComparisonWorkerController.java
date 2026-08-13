@@ -37,7 +37,8 @@ public class CharacterFactComparisonWorkerController {
             @PathVariable UUID analysisJobId,
             @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken
     ) {
-        Optional<WorkerCharacterFactComparisonCandidatePayload> candidate = service.claimNext(
+        Optional<WorkerCharacterFactComparisonCandidatePayload> candidate =
+                service.claimNextCharacterFactComparison(
                 analysisJobId,
                 leaseToken
         );
@@ -55,7 +56,7 @@ public class CharacterFactComparisonWorkerController {
     ) {
         return CommonResponse.success(
                 "캐릭터 Fact 비교 문맥을 조회했습니다.",
-                service.getContext(analysisJobId, candidateId, leaseToken)
+                service.getCharacterFactComparisonContext(analysisJobId, candidateId, leaseToken)
         );
     }
 
@@ -67,7 +68,7 @@ public class CharacterFactComparisonWorkerController {
             @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken,
             @Valid @RequestBody WorkerCharacterFactComparisonCompleteRequest request
     ) {
-        service.complete(analysisJobId, candidateId, leaseToken, request);
+        service.completeCharacterFactComparison(analysisJobId, candidateId, leaseToken, request);
         return CommonResponse.success("캐릭터 Fact 비교가 완료되었습니다.", null);
     }
 
@@ -79,7 +80,7 @@ public class CharacterFactComparisonWorkerController {
             @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken,
             @Valid @RequestBody WorkerCharacterFactComparisonFailRequest request
     ) {
-        service.fail(analysisJobId, candidateId, leaseToken, request);
+        service.failCharacterFactComparison(analysisJobId, candidateId, leaseToken, request);
         return CommonResponse.success("캐릭터 Fact 비교가 실패 처리되었습니다.", null);
     }
 }

@@ -14,7 +14,7 @@ public record SettingCandidateGroupCharacterMatchRequest(
         @NotNull UUID batchId,
 
         @Schema(description = "현재 그룹에 속한 모든 검토 대기 후보 ID")
-        @NotEmpty @Size(max = 100) List<@NotNull UUID> candidateIds,
+        @NotEmpty List<@NotNull UUID> candidateIds,
 
         @Schema(description = "그룹에 공통 적용할 캐릭터 연결 방식", example = "MATCH_EXISTING")
         @NotNull(message = "캐릭터 연결 해소 방식은 필수입니다.")

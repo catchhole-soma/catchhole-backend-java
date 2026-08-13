@@ -99,8 +99,15 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         if (invalidGroup) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
         }
-        if (workCharacterRepository.findByWorkIdAndName(workId, characterName).isPresent()) {
+        if (workCharacterRepository.findByWorkIdAndNameAndStatus(
+                workId,
+                characterName,
+                CharacterStatus.ACTIVE
+        ).isPresent()) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_NOT_READY);
+        }
+        if (workCharacterRepository.existsByWorkIdAndName(workId, characterName)) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
         }
 
         WorkCharacter character = workCharacterRepository.save(promotionMapper.toWorkCharacter(representative));
@@ -340,9 +347,10 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         workRepository.findByIdForUpdate(workId)
                 .orElseThrow(() -> new AppException(WorkErrorCode.WORK_NOT_FOUND));
 
-        WorkCharacter existingCharacter = workCharacterRepository.findByWorkIdAndName(
+        WorkCharacter existingCharacter = workCharacterRepository.findByWorkIdAndNameAndStatus(
                         workId,
-                        characterName
+                        characterName,
+                        CharacterStatus.ACTIVE
                 )
                 .map(character -> lockActiveCharacter(character, workId))
                 .orElse(null);
@@ -350,6 +358,9 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             candidate.matchPromotedExistingCharacter(existingCharacter);
             matchPendingUnresolvedSiblings(workId, characterName, existingCharacter, false);
             return new ResolvedCharacter(existingCharacter, false, true);
+        }
+        if (workCharacterRepository.existsByWorkIdAndName(workId, characterName)) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
         }
 
         WorkCharacter newCharacter = workCharacterRepository.save(promotionMapper.toWorkCharacter(candidate));

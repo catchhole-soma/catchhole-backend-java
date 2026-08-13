@@ -129,20 +129,26 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         candidates.forEach(candidate -> candidatesByGroup
                 .computeIfAbsent(groupKey(candidate.getEntityName()), ignored -> new ArrayList<>())
                 .add(candidate));
-        List<SettingCandidateGroupResponse> allGroups = candidatesByGroup.entrySet().stream()
-                .map(entry -> toGroupResponse(entry.getKey(), entry.getValue(), schemas))
+        List<Map.Entry<String, List<SettingCandidate>>> orderedGroups = candidatesByGroup.entrySet().stream()
                 // 이름을 파악하지 못한 후보는 먼저 볼 수 있는 실제 캐릭터 그룹을 가리지 않도록 마지막에 둔다.
                 // Stream.sorted는 stable sort이므로 나머지 그룹의 기존 회차·생성순은 그대로 유지된다.
-                .sorted(Comparator.comparing(group -> isUnknownCharacterName(group.entityName())))
+                .sorted(Comparator.comparing(entry -> isUnknownCharacterName(
+                        entry.getValue().getFirst().getEntityName()
+                )))
                 .toList();
-        int fromIndex = (int) Math.min((long) page * size, allGroups.size());
-        int toIndex = Math.min(fromIndex + size, allGroups.size());
-        int totalPages = allGroups.isEmpty() ? 0 : (allGroups.size() + size - 1) / size;
+        int fromIndex = (int) Math.min((long) page * size, orderedGroups.size());
+        int toIndex = Math.min(fromIndex + size, orderedGroups.size());
+        int totalPages = orderedGroups.isEmpty() ? 0 : (orderedGroups.size() + size - 1) / size;
+        // 그룹 key를 먼저 페이지로 자른 뒤 선택된 그룹만 DTO로 변환한다.
+        // 현재 snapshot 미리보기에서 발생하는 provenance 조회도 요청한 페이지 수에 비례하게 유지된다.
+        List<SettingCandidateGroupResponse> pagedGroups = orderedGroups.subList(fromIndex, toIndex).stream()
+                .map(entry -> toGroupResponse(entry.getKey(), entry.getValue(), schemas))
+                .toList();
         PageResponse<SettingCandidateGroupResponse> groupPage = new PageResponse<>(
-                allGroups.subList(fromIndex, toIndex),
+                pagedGroups,
                 page,
                 size,
-                allGroups.size(),
+                orderedGroups.size(),
                 totalPages,
                 page + 1 < totalPages
         );
@@ -370,7 +376,11 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 .toList();
         if (!unresolved.isEmpty()) {
             String entityName = unresolved.getFirst().getEntityName().trim();
-            WorkCharacter existing = workCharacterRepository.findByWorkIdAndName(work.getId(), entityName)
+            WorkCharacter existing = workCharacterRepository.findByWorkIdAndNameAndStatus(
+                            work.getId(),
+                            entityName,
+                            CharacterStatus.ACTIVE
+                    )
                     .orElse(null);
             if (existing != null) {
                 WorkCharacter locked = workCharacterRepository.findByIdAndWorkIdForUpdate(
@@ -390,6 +400,9 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 return SettingCandidateGroupConfirmResult.recomparisonRequired(
                         unresolved.stream().map(SettingCandidate::getId).toList()
                 );
+            }
+            if (workCharacterRepository.existsByWorkIdAndName(work.getId(), entityName)) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
             }
             if (unresolved.size() != candidates.size()) {
                 throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
@@ -504,15 +517,19 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 || candidate.getMatchedCharacterId() != null) {
             return false;
         }
-        WorkCharacter existing = workCharacterRepository.findByWorkIdAndName(
+        WorkCharacter existing = workCharacterRepository.findByWorkIdAndNameAndStatus(
                 work.getId(),
-                candidate.getEntityName().trim()
+                candidate.getEntityName().trim(),
+                CharacterStatus.ACTIVE
         ).orElse(null);
         if (existing == null) {
+            if (workCharacterRepository.existsByWorkIdAndName(
+                    work.getId(),
+                    candidate.getEntityName().trim()
+            )) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
+            }
             return false;
-        }
-        if (existing.getStatus() != CharacterStatus.ACTIVE) {
-            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
         }
         WorkCharacter locked = workCharacterRepository.findByIdAndWorkIdForUpdate(
                         existing.getId(),
@@ -521,6 +538,9 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 .orElseThrow(() -> new AppException(
                         CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID
                 ));
+        if (locked.getStatus() != CharacterStatus.ACTIVE) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
+        }
         candidate.matchExistingCharacter(locked);
         enqueueComparisonJobIfNeeded(memberId, candidate);
         settingCandidateRepository.flush();
@@ -610,7 +630,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             }
             case CREATE_NEW -> {
                 String entityName = normalizeRequiredCharacterName(requestedEntityName);
-                if (workCharacterRepository.findByWorkIdAndName(work.getId(), entityName).isPresent()) {
+                if (workCharacterRepository.existsByWorkIdAndName(work.getId(), entityName)) {
                     throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
                 }
                 candidates.forEach(candidate -> candidate.markAsNewCharacter(entityName));

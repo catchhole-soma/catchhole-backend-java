@@ -216,6 +216,59 @@ class SettingCandidateServiceImplTest {
     }
 
     @Test
+    @DisplayName("후보 그룹은 페이지를 자른 뒤 현재 snapshot 응답으로 변환한다")
+    void getSettingCandidatesMapsOnlyRequestedGroupPage() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate firstGroupCandidate = candidate(work, "아리아", "age", "17");
+        SettingCandidate secondGroupCandidate = candidate(work, "비요른", "level", "3");
+        SettingCandidateBatchCounts counts = org.mockito.Mockito.mock(SettingCandidateBatchCounts.class);
+        AnalysisJobEpisodeRange episodeRange = org.mockito.Mockito.mock(AnalysisJobEpisodeRange.class);
+
+        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(uploadBatchRepository.findByIdAndWorkId(batchId, workId))
+                .thenReturn(Optional.of(org.mockito.Mockito.mock(UploadBatch.class)));
+        when(settingCandidateRepository.findReviewCandidates(
+                workId,
+                batchId,
+                SettingCandidateReviewStatus.PENDING_REVIEW,
+                Set.of(SettingCandidateMatchStatus.AMBIGUOUS)
+        )).thenReturn(List.of(firstGroupCandidate, secondGroupCandidate));
+        when(settingCandidateRepository.countReviewSummary(
+                workId,
+                batchId,
+                SettingCandidateReviewStatus.PENDING_REVIEW,
+                SettingCandidateMatchStatus.AMBIGUOUS
+        )).thenReturn(counts);
+        when(analysisJobRepository.findEpisodeRangeByWorkIdAndBatchId(workId, batchId))
+                .thenReturn(episodeRange);
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of());
+        SettingCandidateResponse firstResponse = response(workId);
+        when(settingCandidateMapper.toReviewListResponse(firstGroupCandidate, false, null))
+                .thenReturn(firstResponse);
+
+        SettingCandidateListResponse result = service.getSettingCandidates(
+                memberId,
+                workId,
+                batchId,
+                SettingCandidateReviewStatus.PENDING_REVIEW,
+                Set.of(SettingCandidateMatchStatus.AMBIGUOUS),
+                0,
+                1,
+                false
+        );
+
+        assertThat(result.groups().content())
+                .singleElement()
+                .extracting(group -> group.entityName())
+                .isEqualTo("아리아");
+        verify(settingCandidateMapper).toReviewListResponse(firstGroupCandidate, false, null);
+        verify(settingCandidateMapper, never()).toReviewListResponse(secondGroupCandidate, false, null);
+    }
+
+    @Test
     @DisplayName("다른 작품이거나 존재하지 않는 업로드 묶음은 찾을 수 없음으로 숨긴다")
     void getSettingCandidatesRejectsBatchOutsideWork() {
         Long memberId = 1L;
@@ -870,8 +923,8 @@ class SettingCandidateServiceImplTest {
         );
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
-        when(workCharacterRepository.findByWorkIdAndName(workId, "아리아"))
-                .thenReturn(Optional.empty());
+        when(workCharacterRepository.existsByWorkIdAndName(workId, "아리아"))
+                .thenReturn(false);
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
         when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
@@ -966,8 +1019,8 @@ class SettingCandidateServiceImplTest {
         );
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
-        when(workCharacterRepository.findByWorkIdAndName(workId, "아리아"))
-                .thenReturn(Optional.of(character));
+        when(workCharacterRepository.existsByWorkIdAndName(workId, "아리아"))
+                .thenReturn(true);
 
         assertThatThrownBy(() -> service.updateSettingCandidateCharacterMatch(memberId, workId, candidateId, request))
                 .isInstanceOfSatisfying(AppException.class, exception ->

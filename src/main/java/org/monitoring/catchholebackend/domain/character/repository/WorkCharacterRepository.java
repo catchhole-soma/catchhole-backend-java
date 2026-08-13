@@ -51,7 +51,7 @@ public interface WorkCharacterRepository extends JpaRepository<WorkCharacter, UU
             CharacterStatus status
     );
 
-    Optional<WorkCharacter> findByWorkIdAndName(UUID workId, String name);
+    boolean existsByWorkIdAndName(UUID workId, String name);
 
     List<WorkCharacter> findAllByWorkIdAndStatusOrderByCreatedAtDesc(
             UUID workId,

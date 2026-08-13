@@ -137,6 +137,12 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             Collection<AnalysisJobStatus> statuses
     );
 
+    boolean existsByBatchIdAndEpisodeIsNullAndJobTypeNotInAndStatusIn(
+            UUID batchId,
+            Collection<AnalysisJobType> excludedJobTypes,
+            Collection<AnalysisJobStatus> statuses
+    );
+
     boolean existsByEpisodeIdAndBatchIdAndStatusIn(
             UUID episodeId,
             UUID batchId,

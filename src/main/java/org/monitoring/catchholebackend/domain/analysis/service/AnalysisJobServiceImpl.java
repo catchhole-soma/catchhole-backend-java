@@ -268,7 +268,11 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
 
     private boolean hasActiveAnalysisJob(UploadBatch batch, Episode episode) {
         Set<AnalysisJobStatus> activeStatuses = Set.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING);
-        return analysisJobRepository.existsByBatchIdAndEpisodeIsNullAndStatusIn(batch.getId(), activeStatuses)
+        return analysisJobRepository.existsByBatchIdAndEpisodeIsNullAndJobTypeNotInAndStatusIn(
+                batch.getId(),
+                hiddenComparisonJobTypes(),
+                activeStatuses
+        )
                 || analysisJobRepository.existsByEpisodeIdAndBatchIdAndJobTypeNotInAndStatusIn(
                 episode.getId(),
                 batch.getId(),
@@ -279,8 +283,12 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
 
     private boolean hasActiveBatchWideAnalysisJob(UploadBatch batch) {
         Set<AnalysisJobStatus> activeStatuses = Set.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING);
-        return batch != null && analysisJobRepository.existsByBatchIdAndEpisodeIsNullAndStatusIn(
-                batch.getId(), activeStatuses);
+        return batch != null
+                && analysisJobRepository.existsByBatchIdAndEpisodeIsNullAndJobTypeNotInAndStatusIn(
+                batch.getId(),
+                hiddenComparisonJobTypes(),
+                activeStatuses
+        );
     }
 
     private List<Episode> findRetryEpisodes(AnalysisJob failedJob) {
