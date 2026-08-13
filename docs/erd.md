@@ -25,6 +25,8 @@ erDiagram
     works ||--o{ world_setting_candidates : extracts
     works o|--o{ character_setting_schemas : optionally_scopes
     characters ||--o{ character_facts : records
+    characters ||--o{ character_snapshot_sources : owns_current_provenance
+    character_facts ||--o{ character_snapshot_sources : contributes_to_snapshot
     upload_batches ||--o{ upload_files : contains
     upload_files ||--o{ episodes : source
     upload_batches ||--o{ analysis_jobs : targets
@@ -37,6 +39,7 @@ erDiagram
     analysis_jobs ||--o{ setting_candidates : creates
     analysis_jobs ||--o{ world_setting_candidates : creates
     analysis_jobs ||--o{ character_facts : extracts
+    setting_candidates o|--o{ analysis_jobs : hidden_comparison_job
     analysis_jobs ||--o{ ai_token_usages : records
     world_settings o|--o{ world_setting_candidates : comparison_target
     members o|--o{ world_setting_candidates : reviews
@@ -152,6 +155,7 @@ erDiagram
         uuid work_id FK
         uuid batch_id FK
         uuid episode_id FK
+        uuid setting_candidate_id FK
         varchar job_type
         varchar status
         varchar current_step
@@ -183,6 +187,7 @@ erDiagram
         jsonb skills_json
         jsonb items_json
         jsonb statuses_json
+        bigint snapshot_version
         uuid first_appearance_episode_id
         varchar status
         datetime created_at
@@ -202,8 +207,18 @@ erDiagram
         uuid source_chunk_id
         uuid extracted_by_job_id FK
         decimal confidence
-        boolean is_current
         int effective_from_episode_no
+        datetime created_at
+        datetime updated_at
+    }
+
+    character_snapshot_sources {
+        uuid id PK
+        uuid character_id FK
+        varchar fact_type
+        varchar fact_key
+        uuid source_fact_id FK
+        int source_order
         datetime created_at
         datetime updated_at
     }
@@ -228,6 +243,20 @@ erDiagram
         decimal confidence
         varchar review_status
         jsonb raw_ai_result_json
+        varchar comparison_status
+        varchar suggested_operation
+        varchar temporal_scope
+        varchar comparison_target_fact_type
+        varchar comparison_target_fact_key
+        text proposed_fact_value
+        jsonb proposed_value_json
+        jsonb removed_snapshot_entries_json
+        text comparison_reason
+        bigint comparison_base_snapshot_version
+        varchar comparison_context_hash
+        jsonb raw_comparison_json
+        datetime compared_at
+        text comparison_error_message
         datetime created_at
         datetime updated_at
     }
@@ -348,9 +377,10 @@ erDiagram
 | `upload_files` | batch에 포함된 개별 파일. 원본 S3 위치, 설정집 편집용 텍스트 위치와 파싱 결과를 기록합니다. |
 | `analysis_jobs` | 작품 단위 AI 분석 작업. 작업 유형, 상태, 대상 batch/episode, 결과 메타데이터를 기록합니다. |
 | `analysis_job_episode_targets` | 분석 작업 생성 시 확정한 대상 회차 스냅샷. 이후 원본 교체·회차 보관과 무관하게 과거 작업 대상을 유지합니다. |
-| `characters` | 작품별 캐릭터 대표/현재 설정. 핵심 조회 값은 일반 컬럼, 작품마다 달라지는 상세 설정은 JSONB로 저장합니다. |
-| `character_facts` | 캐릭터별 설정 값과 회차별 변경 이력. 현재 유효값과 충돌 검수 기준을 추적합니다. |
-| `setting_candidates` | AI가 추출한 검토 전 후보. `SETTING`은 설정 값을, `CHARACTER_DISCOVERY`는 이름과 근거만 보존합니다. |
+| `characters` | 작품별 캐릭터 대표/현재 설정의 유일한 authority. 핵심 조회 값은 일반 컬럼, 상세 설정은 내부 표시값 envelope를 포함한 JSONB, 변경 동시성은 `snapshot_version`으로 관리합니다. |
+| `character_facts` | 캐릭터별 설정 관찰과 원문 근거를 append-only로 저장하는 타임라인. 현재값 여부를 행에 기록하지 않습니다. |
+| `character_snapshot_sources` | 현재 snapshot의 `(character, factType, factKey)` slot을 구성하는 한 개 이상의 source Fact를 순서와 함께 연결합니다. |
+| `setting_candidates` | AI가 추출한 검토 전 후보와 2차 비교 proposal·관련 문맥 hash를 보존합니다. `SETTING`은 설정 값을, `CHARACTER_DISCOVERY`는 이름과 근거만 보존합니다. |
 | `character_setting_schemas` | AI의 `attributeName`을 canonical key로 해석하기 위한 전역/작품별 alias·pattern·값 타입·정책 registry입니다. 실제 캐릭터 값은 저장하지 않습니다. |
 | `world_settings` | 작품별 현재 세계관 확정본. 한 행은 분류·대상 하나이며 루트 문자열 leaf와 선택적 1단계 범위 object를 담은 JSONB, 충돌 검사용 version을 저장합니다. |
 | `world_setting_candidates` | 회차에서 추출한 세계관 속성 후보. 선택적 `scope_name`과 설정명의 전체 경로, 1차 추출, 2차 비교 제안, 사용자 최종 결정과 적용 버전을 한 행에 보존합니다. |

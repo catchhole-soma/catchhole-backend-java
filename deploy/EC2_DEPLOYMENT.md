@@ -83,7 +83,7 @@ AI_WORKER_SHUTDOWN_GRACE_SECONDS=180
 
 실행 슬롯은 queue가 아니다. queue는 PostgreSQL의 `analysis_jobs`이고 슬롯은 Worker가 지금 즉시 처리할 수 있는 자리다. Worker는 `슬롯 확보 → Job 하나 claim → 즉시 Task 실행` 순서를 지키며, 슬롯 없이 Job을 미리 claim해 내부 대기열에 쌓지 않는다. 한 Job 안의 청크는 순차 처리한다.
 
-`ai-world-comparison-worker`는 같은 LLM 계정을 사용하지만 별도 Job type을 처리하며 Compose에서 Job·LLM 동시성을 1로 고정한다. 따라서 위의 10은 `SETTING_EXTRACTION` Job 처리 용량이지 모든 프로세스를 합친 provider 계정 전체 동시 요청 상한이 아니다. 계정 전체의 엄격한 상한이 필요하면 Redis 같은 프로세스 외부 분산 limiter가 필요하며 이번 MVP 범위에는 포함하지 않는다.
+`ai-world-comparison-worker`와 `ai-character-comparison-worker`는 같은 LLM 계정을 사용하지만 각각 숨김 재비교 Job type을 처리하며 Compose에서 Job·LLM 동시성을 1로 고정한다. 따라서 위의 10은 `SETTING_EXTRACTION` Job 처리 용량이지 모든 프로세스를 합친 provider 계정 전체 동시 요청 상한이 아니다. 계정 전체의 엄격한 상한이 필요하면 Redis 같은 프로세스 외부 분산 limiter가 필요하며 이번 MVP 범위에는 포함하지 않는다.
 
 동시성 10 검증 rollout에서 50개 Job 부하 테스트가 다음 기준을 모두 만족해야 운영값으로 유지한다.
 
@@ -102,11 +102,11 @@ AI_WORKER_SHUTDOWN_GRACE_SECONDS=180
 
 ```bash
 docker compose --env-file .env -f compose.prod.yml config --quiet
-docker compose --env-file .env -f compose.prod.yml up -d --force-recreate ai-worker ai-world-comparison-worker
-docker compose --env-file .env -f compose.prod.yml ps ai-worker ai-world-comparison-worker
+docker compose --env-file .env -f compose.prod.yml up -d --force-recreate ai-worker ai-world-comparison-worker ai-character-comparison-worker
+docker compose --env-file .env -f compose.prod.yml ps ai-worker ai-world-comparison-worker ai-character-comparison-worker
 ```
 
-`ai-worker`가 2개, `ai-world-comparison-worker`가 1개 실행 중이어야 한다. 배포 Workflow의 SSM 상태 확인은 210초 stop grace와 이후 최대 150초 Backend health 확인보다 긴 15분을 허용한다.
+`ai-worker`가 2개, 두 비교 Worker가 각각 1개 실행 중이어야 한다. 배포 Workflow의 SSM 상태 확인은 210초 stop grace와 이후 최대 150초 Backend health 확인보다 긴 15분을 허용한다.
 
 ## AI 모델과 기본 토큰 지급량
 
@@ -122,7 +122,7 @@ AI_TOKEN_DEFAULT_GRANT=2000000
 AI_TOKEN_CONTACT_EMAIL=aicatchhole@gmail.com
 ```
 
-캐릭터 Fact·세계관 후보의 1차 추출은 Terra를 사용하고, 캐릭터·세계관 주체 해소와 세계관 비교·재비교는 Luna를 사용한다. `LLM_MODEL`은 단계별 값이 없을 때만 사용하는 하위 호환 fallback이다. `LLM_REASONING_EFFORT=none`은 구조화 응답 품질을 별도로 검증하면서 GPT-5.6의 기본 추론 비용이 자동으로 추가되지 않게 하는 MVP 기준값이다.
+캐릭터 Fact·세계관 후보의 1차 추출은 Terra를 사용하고, 캐릭터·세계관 주체 해소와 캐릭터 Fact/세계관 비교·재비교는 Luna를 사용한다. `LLM_MODEL`은 단계별 값이 없을 때만 사용하는 하위 호환 fallback이다. `LLM_REASONING_EFFORT=none`은 구조화 응답 품질을 별도로 검증하면서 GPT-5.6의 기본 추론 비용이 자동으로 추가되지 않게 하는 MVP 기준값이다.
 
 `AI_TOKEN_DEFAULT_GRANT`는 설정 변경 후 처음 생성되는 토큰 계정에만 적용된다. 기존 회원에게도 정책 차액을 지급할 때는 `docs/ai-token-usage.md`의 운영 추가 지급 절차를 사용해 계정 합계와 지급 이력을 같은 transaction에서 갱신한다.
 
@@ -131,7 +131,7 @@ AI_TOKEN_CONTACT_EMAIL=aicatchhole@gmail.com
 값을 바꾼 뒤에는 관련 컨테이너를 재생성하고 실제 주입값을 확인한다.
 
 ```bash
-docker compose --env-file .env -f compose.prod.yml up -d --force-recreate backend ai-worker ai-world-comparison-worker
+docker compose --env-file .env -f compose.prod.yml up -d --force-recreate backend ai-worker ai-world-comparison-worker ai-character-comparison-worker
 docker compose --env-file .env -f compose.prod.yml exec backend printenv AI_TOKEN_DEFAULT_GRANT
 docker compose --env-file .env -f compose.prod.yml exec backend printenv AI_TOKEN_CONTACT_EMAIL
 docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv LLM_EXTRACTION_MODEL
@@ -140,6 +140,7 @@ docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv LLM_C
 docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv LLM_REASONING_EFFORT
 docker compose --env-file .env -f compose.prod.yml exec ai-world-comparison-worker printenv LLM_SUBJECT_RESOLUTION_MODEL
 docker compose --env-file .env -f compose.prod.yml exec ai-world-comparison-worker printenv LLM_COMPARISON_MODEL
+docker compose --env-file .env -f compose.prod.yml exec ai-character-comparison-worker printenv LLM_COMPARISON_MODEL
 ```
 
 ## 실행
@@ -154,10 +155,11 @@ docker compose --env-file .env -f compose.prod.yml ps
 시간대 반영은 컨테이너 재시작이 아니라 재생성이 필요하다.
 
 ```bash
-docker compose --env-file .env -f compose.prod.yml up -d --force-recreate redis backend ai-worker ai-world-comparison-worker postgres
+docker compose --env-file .env -f compose.prod.yml up -d --force-recreate redis backend ai-worker ai-world-comparison-worker ai-character-comparison-worker postgres
 docker compose --env-file .env -f compose.prod.yml exec backend date
 docker compose --env-file .env -f compose.prod.yml exec ai-worker date
 docker compose --env-file .env -f compose.prod.yml exec ai-world-comparison-worker date
+docker compose --env-file .env -f compose.prod.yml exec ai-character-comparison-worker date
 docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv EMBEDDING_GENERATION_ENABLED
 docker compose --env-file .env -f compose.prod.yml exec postgres \
   sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SHOW timezone; SELECT CURRENT_TIMESTAMP;"'
@@ -189,9 +191,21 @@ curl https://api.catchhole.com/actuator/health
 docker compose --env-file .env -f compose.prod.yml logs -f backend
 docker compose --env-file .env -f compose.prod.yml logs -f ai-worker
 docker compose --env-file .env -f compose.prod.yml logs -f ai-world-comparison-worker
+docker compose --env-file .env -f compose.prod.yml logs -f ai-character-comparison-worker
 ```
 
-`ai-worker`는 `SETTING_EXTRACTION`, `ai-world-comparison-worker`는 사용자 재비교용 `WORLD_SETTING_COMPARISON`만 claim한다. 두 서비스가 모두 떠 있어야 최초 분석과 `/recompare` 요청이 각각 처리된다.
+`ai-worker`는 `SETTING_EXTRACTION`, `ai-character-comparison-worker`는 `CHARACTER_FACT_COMPARISON`, `ai-world-comparison-worker`는 `WORLD_SETTING_COMPARISON`만 claim한다. 세 Worker가 모두 떠 있어야 최초 분석과 두 종류의 재비교 요청이 처리된다.
+
+## 캐릭터 비교 순차 배포
+
+Java와 AI 이미지는 서로 다른 저장소에서 자동 배포되므로 다음 순서로 전환합니다.
+
+1. Java를 먼저 배포해 V20~V22와 내부 API를 준비합니다. 이때 구버전 AI가 `CHARACTER_COMPARISONS_FINISHED` checkpoint를 보내지 않아도 실제 `PENDING/PROCESSING` 캐릭터 후보가 없을 때만 legacy 완료를 허용합니다.
+2. 기존 DB의 매칭 후보는 V20에서 `NOT_REQUIRED`로 이관하므로 끝난 분석 Job에 영구 `PENDING`이 생기지 않습니다. 사용자가 비교 시작 또는 confirm을 요청하면 Backend가 hidden 비교 Job으로 전환합니다.
+3. AI 이미지를 배포해 신규 분석 후보가 `PENDING`을 명시하고 캐릭터 비교 checkpoint를 보고하도록 합니다. 잠시 구버전 AI 이미지로 뜬 `ai-character-comparison-worker`가 종료되더라도 기본 분석 Job을 claim하지 않으며, AI 배포 후 정상화됩니다.
+4. Front를 배포해 비교 상태·proposal·`HISTORY_ONLY` UI를 활성화합니다.
+
+V20은 `character_facts.is_current`를 제거하므로 Java 배포 후 구버전 Java 이미지로 단순 rollback할 수 없습니다. 장애 시 DB를 되돌리지 말고 새 forward repair migration과 호환 코드를 배포합니다. V20의 이전 checksum을 개인 로컬 DB에 이미 적용했다면 테스트 데이터는 재생성하고, 보존 데이터가 있으면 Flyway repair 전에 SQL diff와 현재 schema를 확인합니다.
 
 ## GitHub Actions 자동 배포
 

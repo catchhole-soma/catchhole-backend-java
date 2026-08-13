@@ -26,6 +26,7 @@ import lombok.NoArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
@@ -35,7 +36,7 @@ import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 /*
  * analysis_jobs 테이블
  *
- * 회차 단위 AI 분석 작업과 세계관 후보 재비교 작업을 추적하는 테이블이다.
+ * 회차 단위 AI 분석 작업과 세계관·캐릭터 설정 후보 재비교 작업을 추적하는 테이블이다.
  * 사용자가 분석을 요청하면 AnalysisJob이 PENDING 상태로 생성되고,
  * Python AI Worker가 내부 API로 작업을 claim하면서 RUNNING 상태로 변경된다.
  *
@@ -97,6 +98,14 @@ public class AnalysisJob extends BaseEntity {
     )
     private WorldSettingCandidate worldSettingCandidate;
 
+    // CHARACTER_FACT_COMPARISON Job이 다시 비교할 후보. 일반 회차 분석 Job에서는 null이다.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(
+            name = "setting_candidate_id",
+            foreignKey = @ForeignKey(name = "fk_analysis_jobs_setting_candidate")
+    )
+    private SettingCandidate settingCandidate;
+
     // 생성 시점의 실제 분석 대상 회차를 보존해 이후 원본 교체·보관과 무관하게 이력을 조회한다.
     @ManyToMany
     @JoinTable(
@@ -134,7 +143,7 @@ public class AnalysisJob extends BaseEntity {
     @Column(name = "checkpoint_stage", length = 50)
     private AnalysisJobCheckpointStage checkpointStage;
 
-    // 현재 claim 소유자만 상태·토큰·세계관 후보를 변경하도록 검증하는 실행별 식별자.
+    // 현재 claim 소유자만 상태·토큰·비교 후보를 변경하도록 검증하는 실행별 식별자.
     @Column(name = "lease_token")
     private UUID leaseToken;
 
@@ -205,6 +214,18 @@ public class AnalysisJob extends BaseEntity {
         return analysisJob;
     }
 
+    public static AnalysisJob createCharacterFactComparison(SettingCandidate candidate) {
+        AnalysisJob sourceJob = candidate.getAnalysisJob();
+        AnalysisJob analysisJob = new AnalysisJob(
+                candidate.getWork(),
+                sourceJob == null ? null : sourceJob.getBatch(),
+                candidate.getEpisode(),
+                AnalysisJobType.CHARACTER_FACT_COMPARISON
+        );
+        analysisJob.settingCandidate = candidate;
+        return analysisJob;
+    }
+
     public UUID claim(String modelName, String currentStep, LocalDateTime leaseExpiresAt) {
         this.status = AnalysisJobStatus.RUNNING;
         if (modelName != null) {
@@ -267,6 +288,10 @@ public class AnalysisJob extends BaseEntity {
 
     public void unlinkWorldSettingCandidate() {
         this.worldSettingCandidate = null;
+    }
+
+    public void unlinkSettingCandidate() {
+        this.settingCandidate = null;
     }
 
     public void addTargetEpisodes(Collection<Episode> episodes) {

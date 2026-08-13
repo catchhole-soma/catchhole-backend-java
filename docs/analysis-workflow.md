@@ -53,7 +53,7 @@ flowchart TD
     X --> B
 ```
 
-Spring은 캐릭터 `setting_candidates` 생성 API를 제공하지 않아 기존 Worker DB 직접 저장 흐름을 유지합니다. 반면 세계관 `world_setting_candidates` 생성과 비교 상태 변경은 Spring 내부 API만 허용합니다. Worker는 claim의 `knownCharacters` 이름을 추출 prompt에도 전달해 등록되지 않은 명시적 이름을 `CHARACTER_DISCOVERY`로 만들고, 기존 캐릭터와 같은 이름의 발견 후보는 저장하지 않습니다. `CHARACTER_DISCOVERY` 확정은 캐릭터와 최초 등장만 반영하고 Fact를 만들지 않습니다. `SETTING` 후보는 `characterSettingSchemas` hint를 canonical key, alias, pattern, value type 지침으로 사용하며, Spring Backend가 confirm 시 schemaKey 정확 일치 → 별칭 → 마지막이 `.*`로 끝나는 속성 패턴 순으로 최종 매칭하고 후보/schema의 `SettingValueType`과 merge policy를 검증합니다. 미지원 정책은 부수효과 전에 거절하며, 검증된 Fact는 `setting_candidate_id`로 확정 후보를 연결해 `evidence_spans`를 역추적할 수 있게 합니다. 이후 episodeNo 기준 current를 재선정하고 `factKey -> current valueJson` object map snapshot으로 반영합니다.
+Spring은 캐릭터 `setting_candidates` 생성 API를 제공하지 않아 1차 Worker의 DB 직접 저장 흐름을 유지합니다. 반면 캐릭터 2차 비교 상태와 세계관 후보·비교 상태는 Spring 내부 API로만 변경합니다. Worker는 claim의 `knownCharacters`를 prompt에 전달해 등록되지 않은 명시적 이름을 `CHARACTER_DISCOVERY`로 만들고, 기존 캐릭터와 같은 이름의 발견 후보는 저장하지 않습니다. `CHARACTER_DISCOVERY` 확정은 캐릭터와 최초 등장만 반영하고 Fact를 만들지 않습니다. `SETTING`은 schema hint로 canonical slot을 결정한 뒤 현재 `WorkCharacter` snapshot과 2차 비교해 operation·시간 범위·최종 표시값/JSON·제거 slot을 제안합니다. 사용자 확정 시 새 `CharacterFact`는 append-only로 저장하고, `APPLY_PROPOSAL`만 snapshot과 `character_snapshot_sources`를 갱신합니다. `HISTORY_ONLY`는 Fact와 원문 근거만 이력에 남깁니다.
 
 Worker는 `X-Worker-Lease-Token`을 상태·token 예약·세계관 내부 API에 전달하고 heartbeat로 lease를 연장합니다. 이미 시작된 provider 요청의 token 정산·해제는 lease 만료 뒤에도 예약을 정리할 수 있도록 `requestId` 기준으로 처리합니다. 만료된 Job은 마지막 checkpoint부터 최대 세 번 claim하며, 공개 `recompare` 요청은 별도 `WORLD_SETTING_COMPARISON` Job을 생성해 전용 Worker가 후보 하나만 다시 비교합니다. 이 숨김 Job은 공개 분석 진행률과 `Episode.status`에 영향을 주지 않습니다.
 
@@ -432,13 +432,17 @@ Notion 기준 `AnalysisJob.status`
 4. Worker는 chunk별 LLM 캐릭터 설정 후보를 추출합니다.
 5. Worker는 LLM이 반환한 `evidence_spans[].quote`를 chunk 원문에서 다시 찾아 `start_offset`, `end_offset`을 보정합니다.
 6. Worker는 `rawEntityMention`, `entityName`, `knownCharacters`를 비교해 `matchedCharacterId`, `matchStatus`를 계산합니다.
-7. Worker는 같은 분석 작업 안의 동일 설정 후보를 제거한 뒤 나머지를 `PENDING_REVIEW` 상태의 `setting_candidates`로 저장합니다. 값이 달라진 후보와 주체가 모호한 후보는 유지합니다.
-8. Worker는 회차 원문에서 지속적인 세계관 속성을 추출하고 구조적으로 같은 후보를 제거한 뒤, lease가 보호하는 Spring 내부 API로 `world_setting_candidates`를 멱등 게시합니다.
-9. 후보마다 같은 category의 기존 대상명을 조회해 LLM이 최대 3개 대상 ID를 고르게 하고, Spring에서 현재 version과 `properties_json`을 포함한 비교 문맥을 다시 검증해 가져옵니다.
-10. Worker가 ADD/UPDATE/MERGE/EXCLUDE를 판단하면 Spring은 전달한 문맥 ID·version·exact 대상과 제안을 재검증하고 비교 결과를 저장합니다. 잘못된 UUID를 LLM이 생성하지 않도록 UUID는 비교 prompt에 넣지 않습니다.
-11. 모든 후보가 `COMPLETED` 또는 `FAILED`가 되면 `WORLD_COMPARISONS_FINISHED` checkpoint를 기록하고 complete API를 호출해 `AnalysisJob.status=SUCCEEDED`로 변경합니다.
+7. Worker는 같은 분석 작업 안의 동일 캐릭터 후보를 제거한 뒤 `PENDING_REVIEW`로 저장합니다. 매칭된 `SETTING`은 비교 `PENDING`, 미매칭 후보는 `WAITING_FOR_CHARACTER_MATCH`, 발견 후보는 `NOT_REQUIRED`로 명시합니다.
+8. 캐릭터 비교 Worker는 후보를 한 건씩 claim하고 Spring context API에서 canonical slot과 관련 현재 snapshot을 받습니다. 일반 유형은 exact slot만, `STATUS`는 종료 관계 판단을 위해 exact slot을 먼저 두고 최근 생성된 source Fact 순으로 동종 slot 최대 30개를 함께 받습니다.
+9. Worker가 `ADD/UPDATE/MERGE/REMOVE/HISTORY_ONLY/EXCLUDE/REVIEW_REQUIRED`와 시간 범위·최종값·제거 slot을 제안하면 Spring은 context token, operation 조합, schema 값, same-character slot을 불신 검증해 저장합니다. `REMOVE`는 동일한 현재 `STATUS` slot의 종료만 표현하며 원본 Fact 이력은 보존합니다. 모든 캐릭터 후보 비교가 종료되면 `CHARACTER_COMPARISONS_FINISHED` checkpoint를 기록합니다.
+10. Worker는 회차 원문에서 지속적인 세계관 속성을 추출하고 구조적으로 같은 후보를 제거한 뒤, lease가 보호하는 Spring 내부 API로 `world_setting_candidates`를 멱등 게시합니다.
+11. 세계관 후보마다 같은 category의 기존 대상명을 조회해 LLM이 최대 3개 대상 ID를 고르게 하고, Spring에서 현재 version과 `properties_json`을 포함한 비교 문맥을 검증해 가져옵니다.
+12. Worker가 세계관 `ADD/UPDATE/MERGE/EXCLUDE`를 판단하면 Spring은 문맥 ID·version·exact 대상과 제안을 재검증해 저장합니다. 잘못된 UUID를 LLM이 생성하지 않도록 UUID는 비교 prompt에 넣지 않습니다.
+13. 모든 세계관 후보가 `COMPLETED` 또는 `FAILED`가 되면 `WORLD_COMPARISONS_FINISHED` checkpoint를 기록하고 complete API를 호출해 `AnalysisJob.status=SUCCEEDED`로 변경합니다.
 
-현재 complete API는 checkpoint와 후보 상태를 검증하고 Backend token ledger 합계를 반영한 뒤 대상 회차의 `Episode.status`를 `ANALYZED`로 전환합니다. fail API는 아직 분석 완료되지 않은 대상 회차를 `FAILED`로 전환합니다. 숨김 `WORLD_SETTING_COMPARISON` Job은 연결 후보만 처리하며 회차 상태를 바꾸지 않습니다.
+현재 complete API는 checkpoint와 후보 상태를 검증하고 Backend token ledger 합계를 반영한 뒤 대상 회차의 `Episode.status`를 `ANALYZED`로 전환합니다. fail API는 아직 분석 완료되지 않은 대상 회차를 `FAILED`로 전환합니다. 숨김 `CHARACTER_FACT_COMPARISON`, `WORLD_SETTING_COMPARISON` Job은 연결 후보 한 건만 처리하며 회차 상태를 바꾸지 않습니다.
+
+사용자 편집·캐릭터 재연결·stale confirm으로 재비교가 필요해지면 원 분석 Job이 아직 실행 중이어도 후보별 hidden `CHARACTER_FACT_COMPARISON` Job을 멱등 생성합니다. 활성 hidden Job이 소유한 후보는 원 분석 Job의 claim·완료 대기·실패 정리에서 제외해 이중 claim과 drain-checkpoint 사이 경쟁을 막습니다. hidden Job이 최대 시도까지 실패하면 아직 `PENDING`이거나 `PROCESSING`인 연결 후보를 `FAILED`로 귀결해 화면이 무한 대기하지 않게 합니다.
 
 캐릭터 매칭 후속 TODO:
 

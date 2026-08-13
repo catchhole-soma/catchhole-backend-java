@@ -1,8 +1,10 @@
 package org.monitoring.catchholebackend.domain.character.mapper;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateGroupNameNormalizer;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.springframework.stereotype.Component;
 
@@ -31,6 +33,16 @@ public class SettingCandidatePromotionMapper {
             CharacterFactType factType,
             String factKey
     ) {
+        return toCharacterFact(candidate, character, factType, factKey, candidate.getValueJson());
+    }
+
+    public CharacterFact toCharacterFact(
+            SettingCandidate candidate,
+            WorkCharacter character,
+            CharacterFactType factType,
+            String factKey,
+            JsonNode normalizedCandidateValueJson
+    ) {
         return CharacterFact.create(
                 character,
                 candidate,
@@ -38,7 +50,7 @@ public class SettingCandidatePromotionMapper {
                 factKey,
                 normalizeFactValue(candidate.getAttributeValue()),
                 normalizeFactValue(candidate.getAttributeValue()),
-                candidate.getValueJson(),
+                normalizedCandidateValueJson,
                 candidate.getEpisode(),
                 candidate.getSourceChunkId(),
                 candidate.getAnalysisJob(),
@@ -48,7 +60,7 @@ public class SettingCandidatePromotionMapper {
     }
 
     public String toCharacterName(SettingCandidate candidate) {
-        return candidate.getEntityName().trim();
+        return SettingCandidateGroupNameNormalizer.toDisplayName(candidate.getEntityName());
     }
 
     private String normalizeFactValue(String value) {

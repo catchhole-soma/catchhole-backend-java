@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -13,6 +15,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -24,9 +27,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobEpisodeRange;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateCharacterMatchRequest;
+import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateConfirmRequest;
+import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateGroupConfirmDecision;
+import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateGroupConfirmRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateUpdateRequest;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateListResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
@@ -42,6 +51,10 @@ import org.monitoring.catchholebackend.domain.character.repository.SettingCandid
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingMergePolicy;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingSchemaSource;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingValueSemantics;
@@ -59,9 +72,9 @@ import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.global.exception.AppException;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("설정 후보 Service 단위 테스트")
@@ -93,6 +106,12 @@ class SettingCandidateServiceImplTest {
     @Mock
     private SettingCandidatePromotionService settingCandidatePromotionService;
 
+    @Mock
+    private CharacterFactComparisonWorkerService characterFactComparisonWorkerService;
+
+    @Mock
+    private AiTokenService aiTokenService;
+
     private SettingCandidateServiceImpl service;
 
     @BeforeEach
@@ -106,7 +125,9 @@ class SettingCandidateServiceImplTest {
                 characterSettingSchemaRepository,
                 settingCandidateMapper,
                 settingCandidatePromotionService,
-                new SettingCandidateSchemaResolver()
+                characterFactComparisonWorkerService,
+                new SettingCandidateSchemaResolver(),
+                aiTokenService
         );
     }
 
@@ -126,6 +147,12 @@ class SettingCandidateServiceImplTest {
         when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
         when(uploadBatchRepository.findByIdAndWorkId(batchId, workId))
                 .thenReturn(Optional.of(org.mockito.Mockito.mock(UploadBatch.class)));
+        when(settingCandidateRepository.findReviewCandidates(
+                workId,
+                batchId,
+                SettingCandidateReviewStatus.PENDING_REVIEW,
+                Set.of(SettingCandidateMatchStatus.AMBIGUOUS)
+        )).thenReturn(candidates);
         when(settingCandidateRepository.findReviewPage(
                 workId,
                 batchId,
@@ -150,7 +177,8 @@ class SettingCandidateServiceImplTest {
         when(episodeRange.getEpisodeCount()).thenReturn(5L);
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
-        when(settingCandidateMapper.toResponse(candidate, false, null)).thenReturn(responses.getFirst());
+        when(settingCandidateMapper.toReviewListResponse(candidate, false, null))
+                .thenReturn(responses.getFirst());
 
         SettingCandidateListResponse result = service.getSettingCandidates(
                 memberId,
@@ -159,7 +187,8 @@ class SettingCandidateServiceImplTest {
                 SettingCandidateReviewStatus.PENDING_REVIEW,
                 Set.of(SettingCandidateMatchStatus.AMBIGUOUS),
                 0,
-                20
+                20,
+                true
         );
 
         assertThat(result.batchId()).isEqualTo(batchId);
@@ -170,7 +199,16 @@ class SettingCandidateServiceImplTest {
         assertThat(result.reviewedCandidateCount()).isEqualTo(1);
         assertThat(result.pendingCandidateCount()).isEqualTo(3);
         assertThat(result.matchRequiredCandidateCount()).isEqualTo(2);
+        assertThat(result.groups().content()).hasSize(1);
+        assertThat(result.groups().content().getFirst().groupKey()).isEqualTo("아리아");
+        assertThat(result.groups().content().getFirst().candidates()).containsExactlyElementsOf(responses);
         assertThat(result.candidates().content()).containsExactlyElementsOf(responses);
+        verify(settingCandidateRepository).findReviewCandidates(
+                workId,
+                batchId,
+                SettingCandidateReviewStatus.PENDING_REVIEW,
+                Set.of(SettingCandidateMatchStatus.AMBIGUOUS)
+        );
         verify(settingCandidateRepository).findReviewPage(
                 workId,
                 batchId,
@@ -178,6 +216,59 @@ class SettingCandidateServiceImplTest {
                 Set.of(SettingCandidateMatchStatus.AMBIGUOUS),
                 pageRequest
         );
+    }
+
+    @Test
+    @DisplayName("후보 그룹은 페이지를 자른 뒤 현재 snapshot 응답으로 변환한다")
+    void getSettingCandidatesMapsOnlyRequestedGroupPage() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate firstGroupCandidate = candidate(work, "아리아", "age", "17");
+        SettingCandidate secondGroupCandidate = candidate(work, "비요른", "level", "3");
+        SettingCandidateBatchCounts counts = org.mockito.Mockito.mock(SettingCandidateBatchCounts.class);
+        AnalysisJobEpisodeRange episodeRange = org.mockito.Mockito.mock(AnalysisJobEpisodeRange.class);
+
+        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(uploadBatchRepository.findByIdAndWorkId(batchId, workId))
+                .thenReturn(Optional.of(org.mockito.Mockito.mock(UploadBatch.class)));
+        when(settingCandidateRepository.findReviewCandidates(
+                workId,
+                batchId,
+                SettingCandidateReviewStatus.PENDING_REVIEW,
+                Set.of(SettingCandidateMatchStatus.AMBIGUOUS)
+        )).thenReturn(List.of(firstGroupCandidate, secondGroupCandidate));
+        when(settingCandidateRepository.countReviewSummary(
+                workId,
+                batchId,
+                SettingCandidateReviewStatus.PENDING_REVIEW,
+                SettingCandidateMatchStatus.AMBIGUOUS
+        )).thenReturn(counts);
+        when(analysisJobRepository.findEpisodeRangeByWorkIdAndBatchId(workId, batchId))
+                .thenReturn(episodeRange);
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of());
+        SettingCandidateResponse firstResponse = response(workId);
+        when(settingCandidateMapper.toReviewListResponse(firstGroupCandidate, false, null))
+                .thenReturn(firstResponse);
+
+        SettingCandidateListResponse result = service.getSettingCandidates(
+                memberId,
+                workId,
+                batchId,
+                SettingCandidateReviewStatus.PENDING_REVIEW,
+                Set.of(SettingCandidateMatchStatus.AMBIGUOUS),
+                0,
+                1,
+                false
+        );
+
+        assertThat(result.groups().content())
+                .singleElement()
+                .extracting(group -> group.entityName())
+                .isEqualTo("아리아");
+        verify(settingCandidateMapper).toReviewListResponse(firstGroupCandidate, false, null);
+        verify(settingCandidateMapper, never()).toReviewListResponse(secondGroupCandidate, false, null);
     }
 
     @Test
@@ -197,7 +288,8 @@ class SettingCandidateServiceImplTest {
                 null,
                 null,
                 0,
-                20
+                20,
+                true
         )).isInstanceOfSatisfying(AppException.class, exception ->
                 assertThat(exception.getResultCode())
                         .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_BATCH_NOT_FOUND));
@@ -238,7 +330,7 @@ class SettingCandidateServiceImplTest {
                 "  23  "
         );
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
         when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
@@ -289,7 +381,7 @@ class SettingCandidateServiceImplTest {
         CharacterSettingSchema schema =
                 schema("skills.skill", "skill.*", CharacterFactType.SKILL, SettingValueType.JSON);
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(schema));
         when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
                 .thenReturn(response);
@@ -325,7 +417,7 @@ class SettingCandidateServiceImplTest {
         JsonNode originalRawAiResult = candidate.getRawAiResultJson();
         SettingCandidateResponse response = response(workId);
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
         when(settingCandidateMapper.toResponse(candidate, false, null)).thenReturn(response);
@@ -365,7 +457,7 @@ class SettingCandidateServiceImplTest {
         JsonNode originalRawAiResult = candidate.getRawAiResultJson();
         SettingCandidateResponse response = response(workId);
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
         when(settingCandidateMapper.toResponse(candidate, false, null)).thenReturn(response);
@@ -405,7 +497,7 @@ class SettingCandidateServiceImplTest {
                 schema("skills.skill", "skill.*", CharacterFactType.SKILL, SettingValueType.JSON);
         SettingCandidateResponse response = response(workId);
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(schema));
         when(settingCandidateMapper.toResponse(candidate, true, "skill.")).thenReturn(response);
 
@@ -449,7 +541,7 @@ class SettingCandidateServiceImplTest {
         CharacterSettingSchema schema =
                 schema("skills.skill", "skill.*", CharacterFactType.SKILL, SettingValueType.JSON);
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(schema));
         when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
                 .thenReturn(response);
@@ -482,7 +574,7 @@ class SettingCandidateServiceImplTest {
         CharacterSettingSchema schema =
                 schema("skills.skill", "skill.*", CharacterFactType.SKILL, SettingValueType.JSON);
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(schema));
 
         assertThatThrownBy(() -> service.updateSettingCandidate(
@@ -517,7 +609,7 @@ class SettingCandidateServiceImplTest {
                 schema("skills.skill", "skill.*", CharacterFactType.SKILL, SettingValueType.JSON);
         SettingCandidateResponse response = response(workId);
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(schema));
         when(settingCandidateMapper.toResponse(candidate, true, "skill.")).thenReturn(response);
 
@@ -554,7 +646,7 @@ class SettingCandidateServiceImplTest {
         CharacterSettingSchema nestedSchema =
                 schema("skills.special", "skill.special.*", CharacterFactType.SKILL, SettingValueType.JSON);
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(genericSchema, nestedSchema));
 
@@ -581,7 +673,7 @@ class SettingCandidateServiceImplTest {
         SettingCandidate candidate = candidate(work, "아리아", "age", "17");
         SettingCandidateUpdateRequest request = new SettingCandidateUpdateRequest("level", "17");
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
 
@@ -604,7 +696,7 @@ class SettingCandidateServiceImplTest {
         SettingCandidate candidate = candidate(work, "아리아", "나이", "17");
         SettingCandidateUpdateRequest request = new SettingCandidateUpdateRequest("age", "17");
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(schema(
                         "age",
@@ -634,7 +726,7 @@ class SettingCandidateServiceImplTest {
         SettingCandidateUpdateRequest request =
                 new SettingCandidateUpdateRequest("stats.strength", "lv.5");
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(schema(
                         "stats.strength",
@@ -660,7 +752,7 @@ class SettingCandidateServiceImplTest {
         Work work = work(workId);
         SettingCandidate candidate = candidate(work, "아리아", "age", "17");
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
 
@@ -698,7 +790,7 @@ class SettingCandidateServiceImplTest {
         CharacterSettingSchema schema =
                 schema("profile.attribute", "profile.*", CharacterFactType.PROFILE, SettingValueType.STRING);
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(schema));
         when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
                 .thenReturn(response);
@@ -743,7 +835,7 @@ class SettingCandidateServiceImplTest {
                 true
         );
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(schema));
         when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
                 .thenReturn(response);
@@ -769,7 +861,7 @@ class SettingCandidateServiceImplTest {
                 "23"
         );
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
 
         assertThatThrownBy(() -> service.updateSettingCandidate(memberId, workId, candidateId, request))
                 .isInstanceOfSatisfying(AppException.class, exception ->
@@ -800,8 +892,9 @@ class SettingCandidateServiceImplTest {
                 null
         );
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
-        when(workCharacterRepository.findByIdAndWorkId(characterId, workId)).thenReturn(Optional.of(character));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(workCharacterRepository.findByIdAndWorkIdForUpdate(characterId, workId))
+                .thenReturn(Optional.of(character));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
         when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
@@ -832,12 +925,9 @@ class SettingCandidateServiceImplTest {
                 "  아리아  "
         );
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
-        when(workCharacterRepository.findByWorkIdAndNameAndStatus(
-                workId,
-                "아리아",
-                CharacterStatus.ACTIVE
-        )).thenReturn(Optional.empty());
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(workCharacterRepository.existsByWorkIdAndName(workId, "아리아"))
+                .thenReturn(false);
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
         when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
@@ -867,14 +957,14 @@ class SettingCandidateServiceImplTest {
                 null
         );
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
 
         assertThatThrownBy(() -> service.updateSettingCandidateCharacterMatch(memberId, workId, candidateId, request))
                 .isInstanceOfSatisfying(AppException.class, exception ->
                         assertThat(exception.getResultCode())
                                 .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_REQUIRED));
 
-        verify(workCharacterRepository, never()).findByIdAndWorkId(any(UUID.class), any(UUID.class));
+        verify(workCharacterRepository, never()).findByIdAndWorkIdForUpdate(any(UUID.class), any(UUID.class));
         verify(settingCandidateMapper, never()).toResponse(
                 any(SettingCandidate.class),
                 anyBoolean(),
@@ -896,7 +986,7 @@ class SettingCandidateServiceImplTest {
                 "  "
         );
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
 
         assertThatThrownBy(() -> service.updateSettingCandidateCharacterMatch(memberId, workId, candidateId, request))
                 .isInstanceOfSatisfying(AppException.class, exception ->
@@ -931,12 +1021,9 @@ class SettingCandidateServiceImplTest {
                 "아리아"
         );
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
-        when(workCharacterRepository.findByWorkIdAndNameAndStatus(
-                workId,
-                "아리아",
-                CharacterStatus.ACTIVE
-        )).thenReturn(Optional.of(character));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(workCharacterRepository.existsByWorkIdAndName(workId, "아리아"))
+                .thenReturn(true);
 
         assertThatThrownBy(() -> service.updateSettingCandidateCharacterMatch(memberId, workId, candidateId, request))
                 .isInstanceOfSatisfying(AppException.class, exception ->
@@ -967,8 +1054,9 @@ class SettingCandidateServiceImplTest {
                 null
         );
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
-        when(workCharacterRepository.findByIdAndWorkId(characterId, workId)).thenReturn(Optional.of(character));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(workCharacterRepository.findByIdAndWorkIdForUpdate(characterId, workId))
+                .thenReturn(Optional.of(character));
 
         assertThatThrownBy(() -> service.updateSettingCandidateCharacterMatch(memberId, workId, candidateId, request))
                 .isInstanceOfSatisfying(AppException.class, exception ->
@@ -998,14 +1086,14 @@ class SettingCandidateServiceImplTest {
                 null
         );
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
 
         assertThatThrownBy(() -> service.updateSettingCandidateCharacterMatch(memberId, workId, candidateId, request))
                 .isInstanceOfSatisfying(AppException.class, exception ->
                         assertThat(exception.getResultCode())
                                 .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE));
 
-        verify(workCharacterRepository, never()).findByIdAndWorkId(any(UUID.class), any(UUID.class));
+        verify(workCharacterRepository, never()).findByIdAndWorkIdForUpdate(any(UUID.class), any(UUID.class));
         verify(settingCandidateMapper, never()).toResponse(
                 any(SettingCandidate.class),
                 anyBoolean(),
@@ -1026,15 +1114,272 @@ class SettingCandidateServiceImplTest {
                 SettingCandidateReviewStatus.CONFIRMED
         );
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(settingCandidateMapper.toReviewStatusResponse(candidate)).thenReturn(response);
 
-        SettingCandidateReviewStatusResponse result =
-                service.confirmSettingCandidate(memberId, workId, candidateId);
+        SettingCandidateConfirmResult result =
+                service.confirmSettingCandidate(memberId, workId, candidateId, null);
+
+        assertThat(result.response()).isSameAs(response);
+        assertThat(result.recomparisonRequired()).isFalse();
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+        verify(settingCandidatePromotionService).promote(
+                candidate,
+                CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+        );
+    }
+
+    @Test
+    @DisplayName("대소문자와 연속 공백만 다른 기존 캐릭터는 신규 생성하지 않고 재비교한다")
+    void confirmSettingCandidateMatchesExistingCharacterByNormalizedGroupName() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        UUID characterId = UUID.randomUUID();
+        Work work = work(workId);
+        WorkCharacter character = character(work, characterId, "Alice Smith");
+        SettingCandidate candidate = candidate(work, "alice  smith", "age", "17");
+        ReflectionTestUtils.setField(candidate, "id", candidateId);
+        SettingCandidateReviewStatusResponse response = reviewStatusResponse(
+                candidateId,
+                SettingCandidateReviewStatus.PENDING_REVIEW
+        );
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId))
+                .thenReturn(Optional.of(candidate));
+        when(workCharacterRepository.findByWorkIdAndNameAndStatus(
+                workId,
+                "alice smith",
+                CharacterStatus.ACTIVE
+        )).thenReturn(Optional.empty());
+        when(workCharacterRepository.findAllByWorkIdAndStatusOrderByCreatedAtDesc(
+                workId,
+                CharacterStatus.ACTIVE
+        )).thenReturn(List.of(character));
+        when(workCharacterRepository.findByIdAndWorkIdForUpdate(characterId, workId))
+                .thenReturn(Optional.of(character));
+        when(settingCandidateMapper.toReviewStatusResponse(candidate)).thenReturn(response);
+
+        SettingCandidateConfirmResult result = service.confirmSettingCandidate(
+                memberId,
+                workId,
+                candidateId,
+                null
+        );
+
+        assertThat(result.recomparisonRequired()).isTrue();
+        assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(candidate.getMatchedCharacterId()).isEqualTo(characterId);
+        verify(analysisJobRepository).save(any(AnalysisJob.class));
+        verify(settingCandidatePromotionService, never()).promote(
+                any(SettingCandidate.class),
+                any(CharacterFactConfirmApplicationMode.class)
+        );
+    }
+
+    @Test
+    @DisplayName("정규화 이름이 같은 활성 캐릭터가 여러 명이면 임의로 연결하지 않는다")
+    void confirmSettingCandidateRejectsAmbiguousNormalizedCharacterMatches() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        WorkCharacter first = character(work, UUID.randomUUID(), "Alice Smith");
+        WorkCharacter second = character(work, UUID.randomUUID(), "ALICE  SMITH");
+        SettingCandidate candidate = candidate(work, "alice smith", "age", "17");
+        ReflectionTestUtils.setField(candidate, "id", candidateId);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId))
+                .thenReturn(Optional.of(candidate));
+        when(workCharacterRepository.findByWorkIdAndNameAndStatus(
+                workId,
+                "alice smith",
+                CharacterStatus.ACTIVE
+        )).thenReturn(Optional.empty());
+        when(workCharacterRepository.findAllByWorkIdAndStatusOrderByCreatedAtDesc(
+                workId,
+                CharacterStatus.ACTIVE
+        )).thenReturn(List.of(first, second));
+
+        assertThatThrownBy(() -> service.confirmSettingCandidate(memberId, workId, candidateId, null))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED));
+
+        verify(settingCandidatePromotionService, never()).promote(
+                any(SettingCandidate.class),
+                any(CharacterFactConfirmApplicationMode.class)
+        );
+    }
+
+    @Test
+    @DisplayName("이력으로만 확정할 때는 현재 snapshot 문맥이 바뀌어도 재비교하지 않는다")
+    void confirmHistoryOnlyDoesNotValidateCurrentSnapshotContext() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        UUID characterId = UUID.randomUUID();
+        Work work = work(workId);
+        WorkCharacter character = character(work, characterId, "아리아");
+        SettingCandidate candidate = candidate(work, "아리아", "age", "17");
+        candidate.matchExistingCharacter(character);
+        candidate.startComparison();
+        candidate.recordComparisonContext(1L, "stale-context");
+        candidate.completeComparison(
+                CharacterFactOperation.HISTORY_ONLY,
+                null,
+                null,
+                null,
+                null,
+                objectMapper.createArrayNode(),
+                CharacterFactTemporalScope.PAST,
+                "과거 회상",
+                objectMapper.createObjectNode(),
+                LocalDateTime.now()
+        );
+        SettingCandidateReviewStatusResponse response = reviewStatusResponse(
+                candidateId,
+                SettingCandidateReviewStatus.CONFIRMED
+        );
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId))
+                .thenReturn(Optional.of(candidate));
+        when(settingCandidateMapper.toReviewStatusResponse(candidate)).thenReturn(response);
+
+        SettingCandidateConfirmResult result = service.confirmSettingCandidate(
+                memberId,
+                workId,
+                candidateId,
+                new SettingCandidateConfirmRequest(
+                        CharacterFactConfirmApplicationMode.HISTORY_ONLY,
+                        999L
+                )
+        );
+
+        assertThat(result.recomparisonRequired()).isFalse();
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+        verify(characterFactComparisonWorkerService, never()).hasCurrentContext(candidate);
+        verify(settingCandidatePromotionService).promote(
+                candidate,
+                CharacterFactConfirmApplicationMode.HISTORY_ONLY
+        );
+    }
+
+    @Test
+    @DisplayName("순차 배포 중 남은 MATCHED NOT_REQUIRED 후보는 숨김 재비교 Job으로 복구한다")
+    void confirmLegacyMatchedCandidateRequestsComparison() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        UUID characterId = UUID.randomUUID();
+        Work work = work(workId);
+        WorkCharacter character = character(work, characterId, "아리아");
+        SettingCandidate candidate = candidate(work, "아리아", "age", "17");
+        candidate.matchExistingCharacter(character);
+        ReflectionTestUtils.setField(
+                candidate,
+                "comparisonStatus",
+                CharacterFactComparisonStatus.NOT_REQUIRED
+        );
+        SettingCandidateReviewStatusResponse response = reviewStatusResponse(
+                candidateId,
+                SettingCandidateReviewStatus.PENDING_REVIEW
+        );
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId))
+                .thenReturn(Optional.of(candidate));
+        when(settingCandidateMapper.toReviewStatusResponse(candidate)).thenReturn(response);
+
+        SettingCandidateConfirmResult result = service.confirmSettingCandidate(
+                memberId,
+                workId,
+                candidateId,
+                null
+        );
+
+        assertThat(result.recomparisonRequired()).isTrue();
+        assertThat(result.response()).isSameAs(response);
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+        assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PENDING);
+        verify(analysisJobRepository).save(any(org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.class));
+        verify(settingCandidatePromotionService, never()).promote(
+                any(SettingCandidate.class),
+                any(CharacterFactConfirmApplicationMode.class)
+        );
+    }
+
+    @Test
+    @DisplayName("원 분석 Job이 실행 중이어도 사용자 재비교는 후보 전용 hidden Job에 위임한다")
+    void retryComparisonCreatesHiddenJobWhileSourceJobIsRunning() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        UUID characterId = UUID.randomUUID();
+        Work work = work(workId);
+        WorkCharacter character = character(work, characterId, "아리아");
+        AnalysisJob sourceJob = AnalysisJob.create(
+                work,
+                null,
+                null,
+                AnalysisJobType.SETTING_EXTRACTION
+        );
+        sourceJob.claim("gpt-5.6-terra", "캐릭터 비교", LocalDateTime.now().plusMinutes(5));
+        SettingCandidate candidate = candidate(work, "아리아", "age", "17");
+        ReflectionTestUtils.setField(candidate, "id", candidateId);
+        ReflectionTestUtils.setField(candidate, "analysisJob", sourceJob);
+        candidate.matchExistingCharacter(character);
+        SettingCandidateResponse response = response(workId);
+
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId))
+                .thenReturn(Optional.of(candidate));
+        when(analysisJobRepository.existsBySettingCandidateIdAndStatusIn(
+                candidateId,
+                List.of(
+                        org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING,
+                        org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING
+                )
+        )).thenReturn(false);
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of());
+        when(settingCandidateMapper.toResponse(candidate, false, null)).thenReturn(response);
+
+        SettingCandidateResponse result = service.retryComparison(memberId, workId, candidateId);
 
         assertThat(result).isSameAs(response);
-        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
-        verify(settingCandidatePromotionService).promote(candidate);
+        assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PENDING);
+        verify(analysisJobRepository).save(any(AnalysisJob.class));
+        verify(analysisJobRepository, never())
+                .findFirstBySettingCandidateIdAndStatusInOrderByCreatedAtDesc(any(), any());
+        verify(aiTokenService).ensureAnalysisCanStart(memberId);
+    }
+
+    @Test
+    @DisplayName("완료된 캐릭터 비교는 retry API로 다시 요청할 수 없다")
+    void retryComparisonRejectsCompletedCandidate() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        WorkCharacter character = character(work, UUID.randomUUID(), "아리아");
+        SettingCandidate candidate = candidate(work, "아리아", "age", "17");
+        candidate.matchExistingCharacter(character);
+        ReflectionTestUtils.setField(
+                candidate,
+                "comparisonStatus",
+                CharacterFactComparisonStatus.COMPLETED
+        );
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId))
+                .thenReturn(Optional.of(candidate));
+
+        assertThatThrownBy(() -> service.retryComparison(memberId, workId, candidateId))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode()).isEqualTo(
+                                CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT
+                        ));
+
+        verify(analysisJobRepository, never()).save(any(AnalysisJob.class));
+        verify(aiTokenService, never()).ensureAnalysisCanStart(anyLong());
     }
 
     @Test
@@ -1050,7 +1395,7 @@ class SettingCandidateServiceImplTest {
                 SettingCandidateReviewStatus.DISMISSED
         );
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(settingCandidateMapper.toReviewStatusResponse(candidate)).thenReturn(response);
 
         SettingCandidateReviewStatusResponse result =
@@ -1058,7 +1403,10 @@ class SettingCandidateServiceImplTest {
 
         assertThat(result).isSameAs(response);
         assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.DISMISSED);
-        verify(settingCandidatePromotionService, never()).promote(any(SettingCandidate.class));
+        verify(settingCandidatePromotionService, never()).promote(
+                any(SettingCandidate.class),
+                any(CharacterFactConfirmApplicationMode.class)
+        );
     }
 
     @Test
@@ -1075,15 +1423,19 @@ class SettingCandidateServiceImplTest {
                 SettingCandidateReviewStatus.CONFIRMED
         );
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(settingCandidateMapper.toReviewStatusResponse(candidate)).thenReturn(response);
 
-        SettingCandidateReviewStatusResponse result =
-                service.confirmSettingCandidate(memberId, workId, candidateId);
+        SettingCandidateConfirmResult result =
+                service.confirmSettingCandidate(memberId, workId, candidateId, null);
 
-        assertThat(result).isSameAs(response);
+        assertThat(result.response()).isSameAs(response);
+        assertThat(result.recomparisonRequired()).isFalse();
         assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
-        verify(settingCandidatePromotionService, never()).promote(any(SettingCandidate.class));
+        verify(settingCandidatePromotionService, never()).promote(
+                any(SettingCandidate.class),
+                any(CharacterFactConfirmApplicationMode.class)
+        );
     }
 
     @Test
@@ -1099,20 +1451,23 @@ class SettingCandidateServiceImplTest {
         SettingCandidate dismissed = candidate(work, "아리아", "level", "23");
         dismissed.dismiss();
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(confirmedId, workId)).thenReturn(Optional.of(confirmed));
-        when(settingCandidateRepository.findByIdAndWorkId(dismissedId, workId)).thenReturn(Optional.of(dismissed));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(confirmedId, workId)).thenReturn(Optional.of(confirmed));
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(dismissedId, workId)).thenReturn(Optional.of(dismissed));
 
         assertThatThrownBy(() -> service.dismissSettingCandidate(memberId, workId, confirmedId))
                 .isInstanceOfSatisfying(AppException.class, exception ->
                         assertThat(exception.getResultCode())
                                 .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT));
-        assertThatThrownBy(() -> service.confirmSettingCandidate(memberId, workId, dismissedId))
+        assertThatThrownBy(() -> service.confirmSettingCandidate(memberId, workId, dismissedId, null))
                 .isInstanceOfSatisfying(AppException.class, exception ->
                         assertThat(exception.getResultCode())
                                 .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT));
 
         verify(settingCandidateMapper, never()).toReviewStatusResponse(any(SettingCandidate.class));
-        verify(settingCandidatePromotionService, never()).promote(any(SettingCandidate.class));
+        verify(settingCandidatePromotionService, never()).promote(
+                any(SettingCandidate.class),
+                any(CharacterFactConfirmApplicationMode.class)
+        );
     }
 
     @Test
@@ -1123,12 +1478,81 @@ class SettingCandidateServiceImplTest {
         UUID candidateId = UUID.randomUUID();
         Work work = work(workId);
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkId(candidateId, workId)).thenReturn(Optional.empty());
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.confirmSettingCandidate(memberId, workId, candidateId))
+        assertThatThrownBy(() -> service.confirmSettingCandidate(memberId, workId, candidateId, null))
                 .isInstanceOfSatisfying(AppException.class, exception ->
                         assertThat(exception.getResultCode())
                                 .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_NOT_FOUND));
+    }
+
+    @Test
+    @DisplayName("앞선 동일 slot 제안을 이력으로만 저장하면 그 값에 의존한 뒤 제안 적용을 거절한다")
+    void confirmSettingCandidateGroupRejectsSuppressedPriorProposalDependency() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        Work work = work(workId);
+        WorkCharacter character = character(work, UUID.randomUUID(), "아리아");
+        SettingCandidate first = completedCandidate(
+                work,
+                character,
+                "stats.strength",
+                "10",
+                CharacterFactOperation.ADD
+        );
+        SettingCandidate second = completedCandidate(
+                work,
+                character,
+                "stats.strength",
+                "12",
+                CharacterFactOperation.ADD
+        );
+        List<SettingCandidate> candidates = List.of(first, second);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(uploadBatchRepository.findByIdAndWorkId(batchId, workId))
+                .thenReturn(Optional.of(org.mockito.Mockito.mock(UploadBatch.class)));
+        when(settingCandidateRepository.findAllByIdsAndBatchForUpdate(
+                eq(workId),
+                eq(batchId),
+                eq(Set.of(first.getId(), second.getId()))
+        )).thenReturn(candidates);
+        when(settingCandidateRepository.findReviewCandidates(
+                workId,
+                batchId,
+                SettingCandidateReviewStatus.PENDING_REVIEW,
+                java.util.EnumSet.allOf(SettingCandidateMatchStatus.class)
+        )).thenReturn(candidates);
+        when(characterFactComparisonWorkerService.hasCurrentContext(any(SettingCandidate.class)))
+                .thenReturn(true);
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(
+                schema("stats.strength", null, CharacterFactType.STAT, SettingValueType.NUMBER)
+        ));
+        SettingCandidateGroupConfirmRequest request = new SettingCandidateGroupConfirmRequest(
+                batchId,
+                List.of(
+                        new SettingCandidateGroupConfirmDecision(
+                                first.getId(),
+                                CharacterFactConfirmApplicationMode.HISTORY_ONLY,
+                                0L
+                        ),
+                        new SettingCandidateGroupConfirmDecision(
+                                second.getId(),
+                                CharacterFactConfirmApplicationMode.APPLY_PROPOSAL,
+                                0L
+                        )
+                )
+        );
+
+        assertThatThrownBy(() -> service.confirmSettingCandidateGroup(memberId, workId, request))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode()).isEqualTo(
+                                CharacterErrorCode.SETTING_CANDIDATE_GROUP_DECISION_DEPENDENCY_CONFLICT
+                        ));
+        verify(settingCandidatePromotionService, never()).promote(
+                any(SettingCandidate.class),
+                any(CharacterFactConfirmApplicationMode.class)
+        );
     }
 
     private SettingCandidate candidate(
@@ -1145,6 +1569,33 @@ class SettingCandidateServiceImplTest {
                 SettingValueType.NUMBER,
                 objectMapper.createObjectNode().put("value", attributeValue)
         );
+    }
+
+    private SettingCandidate completedCandidate(
+            Work work,
+            WorkCharacter character,
+            String attributeName,
+            String attributeValue,
+            CharacterFactOperation operation
+    ) {
+        SettingCandidate candidate = candidate(work, character.getName(), attributeName, attributeValue);
+        ReflectionTestUtils.setField(candidate, "id", UUID.randomUUID());
+        candidate.matchExistingCharacter(character);
+        candidate.startComparison();
+        candidate.recordComparisonContext(0L, "context-hash-" + candidate.getId());
+        candidate.completeComparison(
+                operation,
+                null,
+                null,
+                attributeValue,
+                objectMapper.createObjectNode().put("value", Integer.parseInt(attributeValue)),
+                objectMapper.createArrayNode(),
+                CharacterFactTemporalScope.PRESENT,
+                "현재 설정 제안",
+                objectMapper.createObjectNode().put("operation", operation.name()),
+                LocalDateTime.of(2026, 8, 13, 12, 0)
+        );
+        return candidate;
     }
 
     private SettingCandidate candidate(
@@ -1217,11 +1668,22 @@ class SettingCandidateServiceImplTest {
                 null,
                 "17",
                 SettingValueType.NUMBER,
-                Map.of("value", 17),
+                objectMapper.createObjectNode().put("value", 17),
                 List.of(),
                 new BigDecimal("0.8000"),
                 SettingCandidateReviewStatus.PENDING_REVIEW,
                 Map.of("raw_value", "17"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
                 null,
                 null
         );

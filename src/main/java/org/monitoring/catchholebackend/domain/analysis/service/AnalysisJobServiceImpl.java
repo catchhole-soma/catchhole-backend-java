@@ -26,6 +26,7 @@ import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome;
+import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateBatchReviewCounts;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
@@ -267,19 +268,27 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
 
     private boolean hasActiveAnalysisJob(UploadBatch batch, Episode episode) {
         Set<AnalysisJobStatus> activeStatuses = Set.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING);
-        return analysisJobRepository.existsByBatchIdAndEpisodeIsNullAndStatusIn(batch.getId(), activeStatuses)
-                || analysisJobRepository.existsByEpisodeIdAndBatchIdAndJobTypeNotAndStatusIn(
+        return analysisJobRepository.existsByBatchIdAndEpisodeIsNullAndJobTypeNotInAndStatusIn(
+                batch.getId(),
+                hiddenComparisonJobTypes(),
+                activeStatuses
+        )
+                || analysisJobRepository.existsByEpisodeIdAndBatchIdAndJobTypeNotInAndStatusIn(
                 episode.getId(),
                 batch.getId(),
-                AnalysisJobType.WORLD_SETTING_COMPARISON,
+                hiddenComparisonJobTypes(),
                 activeStatuses
         );
     }
 
     private boolean hasActiveBatchWideAnalysisJob(UploadBatch batch) {
         Set<AnalysisJobStatus> activeStatuses = Set.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING);
-        return batch != null && analysisJobRepository.existsByBatchIdAndEpisodeIsNullAndStatusIn(
-                batch.getId(), activeStatuses);
+        return batch != null
+                && analysisJobRepository.existsByBatchIdAndEpisodeIsNullAndJobTypeNotInAndStatusIn(
+                batch.getId(),
+                hiddenComparisonJobTypes(),
+                activeStatuses
+        );
     }
 
     private List<Episode> findRetryEpisodes(AnalysisJob failedJob) {
@@ -301,7 +310,8 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                         failedJob.getBatch().getId(),
                         List.of(
                                 failedJob.getJobType(),
-                                AnalysisJobType.WORLD_SETTING_COMPARISON
+                                AnalysisJobType.WORLD_SETTING_COMPARISON,
+                                AnalysisJobType.CHARACTER_FACT_COMPARISON
                         ),
                         activeStatuses
                 ));
@@ -337,9 +347,16 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     }
 
     private void assertPublicJobType(AnalysisJobType jobType) {
-        if (jobType == AnalysisJobType.WORLD_SETTING_COMPARISON) {
+        if (hiddenComparisonJobTypes().contains(jobType)) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_TYPE_INVALID);
         }
+    }
+
+    private List<AnalysisJobType> hiddenComparisonJobTypes() {
+        return List.of(
+                AnalysisJobType.WORLD_SETTING_COMPARISON,
+                AnalysisJobType.CHARACTER_FACT_COMPARISON
+        );
     }
 
     /**
@@ -358,13 +375,30 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         if (episodeIds.isEmpty()) {
             return;
         }
-        settingCandidateRepository.deleteAllByAnalysisTargetAndReviewStatus(
-                workId,
-                batchId,
-                episodeIds,
-                jobType,
-                SettingCandidateReviewStatus.PENDING_REVIEW
-        );
+        List<SettingCandidate> supersededCharacterCandidates = settingCandidateRepository
+                .findAllSupersededPendingCandidates(
+                        workId,
+                        batchId,
+                        episodeIds,
+                        jobType,
+                        SettingCandidateReviewStatus.PENDING_REVIEW
+                );
+        supersededCharacterCandidates.forEach(candidate -> analysisJobRepository
+                .findFirstBySettingCandidateIdAndStatusInOrderByCreatedAtDesc(
+                        candidate.getId(),
+                        List.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING)
+                )
+                .ifPresent(comparisonJob -> {
+                    aiTokenService.releaseReservedForAnalysisJob(
+                            comparisonJob.getId(),
+                            AiTokenUsageOutcome.USAGE_UNAVAILABLE
+                    );
+                    comparisonJob.fail("새 회차 분석 작업으로 대체되었습니다.");
+                    comparisonJob.unlinkSettingCandidate();
+                }));
+        analysisJobRepository.flush();
+        settingCandidateRepository.deleteAll(supersededCharacterCandidates);
+
         List<WorldSettingCandidate> supersededWorldSettingCandidates = worldSettingCandidateRepository
                 .findAllSupersededPendingCandidates(
                         workId,
@@ -373,9 +407,6 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                         jobType,
                         WorldSettingReviewStatus.PENDING_REVIEW
                 );
-        if (supersededWorldSettingCandidates.isEmpty()) {
-            return;
-        }
         supersededWorldSettingCandidates.forEach(candidate -> analysisJobRepository
                 .findFirstByWorldSettingCandidateIdAndStatusInOrderByCreatedAtDesc(
                         candidate.getId(),

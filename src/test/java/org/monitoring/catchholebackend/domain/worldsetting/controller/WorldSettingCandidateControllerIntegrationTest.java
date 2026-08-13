@@ -213,6 +213,69 @@ class WorldSettingCandidateControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("동명 과거 그룹이 모두 확정되어도 개별 수정한 후보는 새 대기 그룹으로 다시 나타난다")
+    void updateDecisionCreatesPendingGroupWhenSameNameHistoricalGroupWasConfirmed() throws Exception {
+        WorldSettingCandidate historical = completedAddCandidate(
+                WorldSettingCategory.LOCATION,
+                "미궁",
+                "위치",
+                "북부"
+        );
+        candidateRepository.saveAndFlush(historical);
+        mockMvc.perform(post("/api/v1/works/{workId}/world-setting-candidates/group-confirm", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new WorldSettingCandidateGroupConfirmRequest(
+                                uploadBatch.getId(),
+                                List.of(new WorldSettingCandidateGroupConfirmRequest.Decision(
+                                        historical.getId(),
+                                        WorldSettingOperation.ADD,
+                                        WorldSettingCategory.LOCATION,
+                                        "미궁",
+                                        null,
+                                        "위치",
+                                        "북부",
+                                        false,
+                                        null
+                                ))
+                        ))))
+                .andExpect(status().isOk());
+
+        WorldSettingCandidate pending = completedAddCandidate(
+                WorldSettingCategory.MONSTER,
+                "구울",
+                "약점",
+                "햇빛"
+        );
+        candidateRepository.saveAndFlush(pending);
+        mockMvc.perform(patch("/api/v1/works/{workId}/world-setting-candidates/decisions", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of(
+                                "batchId", uploadBatch.getId(),
+                                "candidates", List.of(java.util.Map.of(
+                                        "candidateId", pending.getId(),
+                                        "operation", "ADD",
+                                        "category", "LOCATION",
+                                        "subjectName", "미궁",
+                                        "settingName", "약점",
+                                        "value", "햇빛"
+                                ))
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groupKey").value("LOCATION|미궁"));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/world-setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString())
+                        .queryParam("reviewStatus", "PENDING_REVIEW"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groups.totalElements").value(1))
+                .andExpect(jsonPath("$.data.groups.content[0].subjectName").value("미궁"))
+                .andExpect(jsonPath("$.data.groups.content[0].changeCount").value(1));
+    }
+
+    @Test
     @DisplayName("재비교 요청은 전용 내부 Job을 멱등 생성하고 공개 분석 이력에서는 숨긴다")
     void recompareCreatesHiddenComparisonJobIdempotently() throws Exception {
         WorldSettingCandidate candidate = candidate("바바리안", "서식지", "혹한 지역");
@@ -1405,7 +1468,8 @@ class WorldSettingCandidateControllerIntegrationTest {
 
     private void clearData() {
         analysisJobRepository.deleteAll(analysisJobRepository.findAll().stream()
-                .filter(job -> job.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON)
+                .filter(job -> job.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON
+                        || job.getJobType() == AnalysisJobType.CHARACTER_FACT_COMPARISON)
                 .toList());
         analysisJobRepository.flush();
         candidateRepository.deleteAll();

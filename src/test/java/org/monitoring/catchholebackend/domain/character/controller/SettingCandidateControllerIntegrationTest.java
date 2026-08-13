@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,8 +30,11 @@ import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterSnapshotSourceRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingMergePolicy;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingSchemaSource;
@@ -99,6 +103,9 @@ class SettingCandidateControllerIntegrationTest {
     private CharacterFactRepository characterFactRepository;
 
     @Autowired
+    private CharacterSnapshotSourceRepository characterSnapshotSourceRepository;
+
+    @Autowired
     private CharacterSettingSchemaRepository characterSettingSchemaRepository;
 
     @Autowired
@@ -115,7 +122,13 @@ class SettingCandidateControllerIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        characterSnapshotSourceRepository.deleteAll();
         characterFactRepository.deleteAll();
+        // 후보를 FK로 참조하는 hidden 비교 Job을 먼저 지워 양방향 FK 정리 순서를 지킨다.
+        analysisJobRepository.deleteAll(analysisJobRepository.findAll().stream()
+                .filter(job -> job.getJobType() == AnalysisJobType.CHARACTER_FACT_COMPARISON)
+                .toList());
+        analysisJobRepository.flush();
         settingCandidateRepository.deleteAll();
         workCharacterRepository.deleteAll();
         analysisJobRepository.deleteAll();
@@ -209,11 +222,221 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.candidates.content[0].attributeNameEditable").value(false))
                 .andExpect(jsonPath("$.data.candidates.content[0].attributeNamePrefix").doesNotExist())
                 .andExpect(jsonPath("$.data.candidates.content[0].reviewStatus").value("PENDING_REVIEW"))
+                .andExpect(jsonPath("$.data.candidates.content[0].rawAiResultJson").doesNotExist())
                 .andExpect(jsonPath("$.data.candidates.page").value(0))
                 .andExpect(jsonPath("$.data.candidates.size").value(20))
                 .andExpect(jsonPath("$.data.candidates.totalElements").value(1))
                 .andExpect(jsonPath("$.data.candidates.totalPages").value(1))
                 .andExpect(jsonPath("$.data.candidates.hasNext").value(false));
+    }
+
+    @Test
+    @DisplayName("같은 캐릭터 이름의 대기 후보를 하나의 그룹으로 묶는다")
+    void getSettingCandidatesGroupsPendingCandidatesByCharacterName() throws Exception {
+        settingCandidateRepository.saveAll(List.of(
+                candidate(work, episode, analysisJob, "아리아", "age", "17"),
+                candidate(work, episode, analysisJob, "  아리아  ", "level", "3")
+        ));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString())
+                        .queryParam("reviewStatus", "PENDING_REVIEW"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groups.totalElements").value(1))
+                .andExpect(jsonPath("$.data.groups.content[0].groupKey").value("아리아"))
+                .andExpect(jsonPath("$.data.groups.content[0].entityName").value("아리아"))
+                .andExpect(jsonPath("$.data.groups.content[0].candidateCount").value(2))
+                .andExpect(jsonPath("$.data.groups.content[0].candidates.length()").value(2))
+                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].rawAiResultJson").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("그룹 검토 화면은 구형 단건 페이지를 제외해 중복 응답을 만들지 않는다")
+    void getSettingCandidatesCanExcludeLegacyCandidatePage() throws Exception {
+        settingCandidateRepository.save(candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "age",
+                "17"
+        ));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString())
+                        .queryParam("includeLegacyCandidates", "false"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groups.content.length()").value(1))
+                .andExpect(jsonPath("$.data.groups.content[0].candidates.length()").value(1))
+                .andExpect(jsonPath("$.data.candidates").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("미상 캐릭터 그룹은 이름을 파악한 그룹보다 마지막에 반환한다")
+    void getSettingCandidatesPlacesUnknownCharacterGroupLast() throws Exception {
+        settingCandidateRepository.saveAll(List.of(
+                candidate(work, episode, analysisJob, "미상", "age", "18"),
+                candidate(work, episode, analysisJob, "아리아", "level", "2")
+        ));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString())
+                        .queryParam("reviewStatus", "PENDING_REVIEW"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groups.content[0].entityName").value("아리아"))
+                .andExpect(jsonPath("$.data.groups.content[1].entityName").value("미상"));
+    }
+
+    @Test
+    @DisplayName("같은 이름의 모든 대기 후보를 선택한 기존 캐릭터에 일괄 연결한다")
+    void updateSettingCandidateGroupCharacterMatchConnectsEveryPendingCandidate() throws Exception {
+        WorkCharacter character = workCharacterRepository.save(character(work, "나은"));
+        SettingCandidate age = settingCandidateRepository.save(
+                candidate(work, episode, analysisJob, "수아", "age", "18")
+        );
+        SettingCandidate level = settingCandidateRepository.save(
+                candidate(work, episode, analysisJob, "수아", "level", "2")
+        );
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/setting-candidates/group-character-match",
+                                work.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of(
+                                "batchId", uploadBatch.getId(),
+                                "candidateIds", List.of(age.getId(), level.getId()),
+                                "resolutionType", "MATCH_EXISTING",
+                                "matchedCharacterId", character.getId()
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groupKey").value("나은"))
+                .andExpect(jsonPath("$.data.candidates.length()").value(2))
+                .andExpect(jsonPath("$.data.candidates[*].entityName")
+                        .value(containsInAnyOrder("나은", "나은")))
+                .andExpect(jsonPath("$.data.candidates[*].matchedCharacterId")
+                        .value(containsInAnyOrder(
+                                character.getId().toString(),
+                                character.getId().toString()
+                        )))
+                .andExpect(jsonPath("$.data.candidates[*].matchStatus")
+                        .value(containsInAnyOrder("MATCHED", "MATCHED")));
+
+        assertThat(settingCandidateRepository.findAllById(List.of(age.getId(), level.getId())))
+                .allSatisfy(candidate -> {
+                    assertThat(candidate.getEntityName()).isEqualTo("나은");
+                    assertThat(candidate.getMatchedCharacterId()).isEqualTo(character.getId());
+                    assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+                });
+    }
+
+    @Test
+    @DisplayName("신규 캐릭터의 같은 이름 후보를 한 번에 확정해 캐릭터 하나와 이력을 만든다")
+    void confirmSettingCandidateGroupCreatesOneCharacterAndConfirmsAllRows() throws Exception {
+        characterSettingSchemaRepository.save(settingSchema(
+                null, "level", null, CharacterFactType.LEVEL,
+                SettingValueType.NUMBER, "레벨"
+        ));
+        SettingCandidate age = settingCandidateRepository.save(
+                candidate(work, episode, analysisJob, "Aria Smith", "age", "17")
+        );
+        SettingCandidate level = settingCandidateRepository.save(
+                candidate(work, episode, analysisJob, "aria  smith", "level", "3")
+        );
+
+        mockMvc.perform(post("/api/v1/works/{workId}/setting-candidates/group-confirm", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of(
+                                "batchId", uploadBatch.getId(),
+                                "candidates", List.of(
+                                        java.util.Map.of(
+                                                "candidateId", age.getId(),
+                                                "applicationMode", "APPLY_PROPOSAL"
+                                        ),
+                                        java.util.Map.of(
+                                                "candidateId", level.getId(),
+                                                "applicationMode", "APPLY_PROPOSAL"
+                                        )
+                                )
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidates.length()").value(2))
+                .andExpect(jsonPath("$.data.candidates[*].reviewStatus")
+                        .value(containsInAnyOrder("CONFIRMED", "CONFIRMED")));
+
+        assertThat(workCharacterRepository.findAll()).hasSize(1);
+        assertThat(workCharacterRepository.findAll().getFirst().getName()).isEqualTo("Aria Smith");
+        assertThat(characterFactRepository.findAll()).hasSize(2);
+        assertThat(settingCandidateRepository.findAll())
+                .extracting(SettingCandidate::getReviewStatus)
+                .containsOnly(SettingCandidateReviewStatus.CONFIRMED);
+    }
+
+    @Test
+    @DisplayName("그룹 전체 확정은 EXCLUDE 제안을 설정이나 이력 없이 자동 무시한다")
+    void confirmSettingCandidateGroupAutomaticallyDismissesExcludeProposal() throws Exception {
+        WorkCharacter character = workCharacterRepository.save(character(work, "아리아"));
+        SettingCandidate duplicate = candidate(
+                work,
+                episode,
+                analysisJob,
+                "아리아",
+                "profile.species",
+                "바바리안"
+        );
+        duplicate.matchExistingCharacter(character);
+        duplicate.startComparison();
+        duplicate.recordComparisonContext(0L, "context-hash");
+        duplicate.completeComparison(
+                CharacterFactOperation.EXCLUDE,
+                CharacterFactType.PROFILE,
+                "profile.species",
+                null,
+                null,
+                objectMapper.createArrayNode(),
+                CharacterFactTemporalScope.PRESENT,
+                "현재 캐릭터의 종족과 같은 내용입니다.",
+                objectMapper.createObjectNode().put("operation", "EXCLUDE"),
+                LocalDateTime.of(2026, 8, 12, 12, 0)
+        );
+        settingCandidateRepository.save(duplicate);
+
+        mockMvc.perform(post("/api/v1/works/{workId}/setting-candidates/group-confirm", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of(
+                                "batchId", uploadBatch.getId(),
+                                "candidates", List.of(java.util.Map.of(
+                                        "candidateId", duplicate.getId(),
+                                        "applicationMode", "HISTORY_ONLY"
+                                ))
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidates[0].reviewStatus").value("DISMISSED"));
+
+        SettingCandidate saved = settingCandidateRepository.findById(duplicate.getId()).orElseThrow();
+        assertThat(saved.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.DISMISSED);
+        assertThat(characterFactRepository.findAll()).isEmpty();
+        assertThat(characterSnapshotSourceRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("그룹 확정 후보 배열의 null 원소를 validation 오류로 거절한다")
+    void confirmSettingCandidateGroupRejectsNullCandidateDecision() throws Exception {
+        mockMvc.perform(post("/api/v1/works/{workId}/setting-candidates/group-confirm", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of(
+                                "batchId", uploadBatch.getId(),
+                                "candidates", java.util.Arrays.asList((Object) null)
+                        ))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"));
     }
 
     @Test
@@ -874,13 +1097,13 @@ class SettingCandidateControllerIntegrationTest {
         assertThat(character.getCurrentAge()).isEqualTo(17);
         assertThat(character.getFirstAppearanceEpisodeId()).isEqualTo(episode.getId());
         assertThat(facts).hasSize(1);
-        assertThat(facts.getFirst().isCurrent()).isTrue();
+        assertThat(characterSnapshotSourceRepository.existsBySourceFactId(facts.getFirst().getId())).isTrue();
         assertThat(facts.getFirst().getFactValue()).isEqualTo("17");
         assertThat(facts.getFirst().getEffectiveFromEpisodeNo()).isEqualTo(1);
     }
 
     @Test
-    @DisplayName("같은 이름의 신규 캐릭터 후보를 차례로 확정하면 한 캐릭터에 함께 반영한다")
+    @DisplayName("첫 신규 캐릭터 확정으로 연결된 형제 후보는 2차 비교 전 확정을 거절한다")
     void confirmSettingCandidatesWithSameNewCharacterUsesSingleCharacter() throws Exception {
         characterSettingSchemaRepository.save(settingSchema(
                 null,
@@ -937,19 +1160,22 @@ class SettingCandidateControllerIntegrationTest {
                                 levelCandidate.getId()
                         )
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
-                .andExpect(status().isOk());
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_COMPARISON_NOT_READY"));
 
         WorkCharacter updatedCharacter = workCharacterRepository.findById(character.getId()).orElseThrow();
         List<WorkCharacter> characters = workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId());
         assertThat(characters).hasSize(1);
         assertThat(characters.getFirst().getId()).isEqualTo(updatedCharacter.getId());
         assertThat(updatedCharacter.getCurrentAge()).isEqualTo(17);
-        assertThat(updatedCharacter.getCurrentLevel()).isEqualTo(5);
-        assertThat(characterFactRepository.findAll()).hasSize(2);
+        assertThat(updatedCharacter.getCurrentLevel()).isNull();
+        assertThat(characterFactRepository.findAll()).hasSize(1);
         assertThat(settingCandidateRepository.findById(ageCandidate.getId()).orElseThrow().getMatchStatus())
                 .isEqualTo(SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
         assertThat(settingCandidateRepository.findById(levelCandidate.getId()).orElseThrow().getMatchStatus())
                 .isEqualTo(SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
+        assertThat(settingCandidateRepository.findById(levelCandidate.getId()).orElseThrow().getReviewStatus())
+                .isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
     }
 
     @Test
@@ -1327,7 +1553,7 @@ class SettingCandidateControllerIntegrationTest {
                         "age"
                 );
         assertThat(facts).hasSize(1);
-        assertThat(facts.getFirst().isCurrent()).isTrue();
+        assertThat(characterSnapshotSourceRepository.existsBySourceFactId(facts.getFirst().getId())).isTrue();
     }
 
     @Test

@@ -2,7 +2,9 @@ package org.monitoring.catchholebackend.domain.character.service;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.monitoring.catchholebackend.domain.character.dto.response.CharacterFactDetailResponse;
@@ -16,6 +18,7 @@ import org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvid
 import org.monitoring.catchholebackend.domain.character.mapper.CharacterFactMapper;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterSnapshotSourceRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactSearchScope;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactSearchType;
@@ -37,6 +40,7 @@ public class CharacterFactServiceImpl implements CharacterFactService {
 
     private final WorkRepository workRepository;
     private final CharacterFactRepository characterFactRepository;
+    private final CharacterSnapshotSourceRepository characterSnapshotSourceRepository;
     private final CharacterSettingSchemaRepository characterSettingSchemaRepository;
     private final CharacterFactMapper characterFactMapper;
     private final CharacterFactEvidenceMapper characterFactEvidenceMapper;
@@ -69,8 +73,18 @@ public class CharacterFactServiceImpl implements CharacterFactService {
                 scope == CharacterFactSearchScope.CURRENT,
                 PageRequest.of(page, size)
         );
+        List<UUID> factIds = factPage.getContent().stream().map(CharacterFact::getId).toList();
+        Set<UUID> snapshotSourceFactIds = factIds.isEmpty()
+                ? Set.of()
+                : characterSnapshotSourceRepository.findAllBySourceFactIdIn(factIds).stream()
+                        .map(source -> source.getSourceFact().getId())
+                        .collect(Collectors.toSet());
         List<CharacterFactSearchResponse> content = factPage.getContent().stream()
-                .map(fact -> characterFactMapper.toSearchResponse(fact, schemas))
+                .map(fact -> characterFactMapper.toSearchResponse(
+                        fact,
+                        schemas,
+                        snapshotSourceFactIds.contains(fact.getId())
+                ))
                 .toList();
 
         return PageResponse.from(factPage, content);
@@ -90,7 +104,11 @@ public class CharacterFactServiceImpl implements CharacterFactService {
 
         List<CharacterSettingSchema> schemas =
                 characterSettingSchemaRepository.findAllActiveForWork(workId);
-        return characterFactMapper.toDetailResponse(fact, schemas);
+        return characterFactMapper.toDetailResponse(
+                fact,
+                schemas,
+                characterSnapshotSourceRepository.existsBySourceFactId(fact.getId())
+        );
     }
 
     @Override

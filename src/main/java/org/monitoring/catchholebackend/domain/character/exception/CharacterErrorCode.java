@@ -16,6 +16,7 @@ public enum CharacterErrorCode implements ResultCode {
     CHARACTER_SETTING_KEY_DUPLICATED(HttpStatus.BAD_REQUEST, "캐릭터 설정 key가 중복되었습니다."),
     CHARACTER_SETTING_VALUE_INVALID(HttpStatus.BAD_REQUEST, "캐릭터 설정 값이 지정한 값 타입과 일치하지 않습니다."),
     CHARACTER_SETTING_VALUE_TYPE_MISMATCH(HttpStatus.BAD_REQUEST, "캐릭터 설정 값 타입이 schema와 일치하지 않습니다."),
+    CHARACTER_SNAPSHOT_SOURCE_INVALID(HttpStatus.CONFLICT, "현재 캐릭터 설정의 원문 근거 연결이 올바르지 않습니다."),
     CHARACTER_TIMELINE_FILTER_INVALID(HttpStatus.BAD_REQUEST, "캐릭터 타임라인 필터가 올바르지 않습니다."),
     CHARACTER_TIMELINE_CURSOR_INVALID(HttpStatus.BAD_REQUEST, "캐릭터 타임라인 cursor가 올바르지 않습니다."),
     SETTING_CANDIDATE_BATCH_NOT_FOUND(HttpStatus.NOT_FOUND, "설정 후보 검토 묶음을 찾을 수 없습니다."),
@@ -48,6 +49,17 @@ public enum CharacterErrorCode implements ResultCode {
             HttpStatus.BAD_REQUEST,
             "설정 후보의 구조화 값에 유효하지 않은 속성 key 또는 값 형식이 있습니다."
     ),
+    SETTING_CANDIDATE_COMPARISON_NOT_READY(HttpStatus.CONFLICT, "비교가 완료된 캐릭터 설정 후보만 확정할 수 있습니다."),
+    SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT(HttpStatus.CONFLICT, "캐릭터 설정 후보의 비교 상태 전이가 올바르지 않습니다."),
+    SETTING_CANDIDATE_COMPARISON_STALE(HttpStatus.CONFLICT, "캐릭터 현재 설정이 변경되어 비교 문맥을 다시 조회해야 합니다."),
+    SETTING_CANDIDATE_COMPARISON_TARGET_INVALID(HttpStatus.BAD_REQUEST, "캐릭터 설정 비교 대상 또는 변경 제안이 올바르지 않습니다."),
+    SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID(HttpStatus.CONFLICT, "현재 확정할 수 없는 캐릭터 설정 비교 결과입니다."),
+    SETTING_CANDIDATE_GROUP_DECISION_DEPENDENCY_CONFLICT(
+            HttpStatus.CONFLICT,
+            "앞선 동일 설정을 현재값에 반영하지 않으면 뒤 후보의 AI 제안을 그대로 적용할 수 없습니다. "
+                    + "뒤 후보도 이력에만 저장하거나 앞 후보를 현재 설정에 반영해 주세요."
+    ),
+    SETTING_CANDIDATE_WORKER_JOB_INVALID(HttpStatus.CONFLICT, "캐릭터 설정 비교 Worker 작업 범위가 올바르지 않습니다."),
     SETTING_CANDIDATE_MERGE_POLICY_UNSUPPORTED(HttpStatus.CONFLICT, "현재 지원하지 않는 설정 병합 정책입니다.");
 
     private final HttpStatus status;

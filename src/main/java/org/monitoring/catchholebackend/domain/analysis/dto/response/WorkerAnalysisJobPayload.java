@@ -21,7 +21,7 @@ public record WorkerAnalysisJobPayload(
         @Schema(description = "작품 제목")
         String workTitle,
 
-        @Schema(description = "업로드 배치 ID")
+        @Schema(description = "업로드 배치 ID. 후보 단독 재비교 Job은 null일 수 있습니다.", nullable = true)
         UUID batchId,
 
         @Schema(description = "Worker가 사용할 모델명", nullable = true)
@@ -45,13 +45,16 @@ public record WorkerAnalysisJobPayload(
         @Schema(description = "재비교 Job의 세계관 후보 ID", nullable = true)
         UUID worldSettingCandidateId,
 
+        @Schema(description = "재비교 Job의 캐릭터 설정 후보 ID", nullable = true)
+        UUID settingCandidateId,
+
         @Schema(description = "캐릭터 설정 attribute 해석 schema 목록")
         List<WorkerAnalysisCharacterSettingSchemaPayload> characterSettingSchemas,
 
         @Schema(description = "캐릭터명 매칭에 사용할 기존 캐릭터 목록")
         List<WorkerAnalysisKnownCharacterPayload> knownCharacters,
 
-        @Schema(description = "분석 대상 단일 회차")
+        @Schema(description = "분석 대상 단일 회차. 출처 회차가 없는 후보 단독 재비교 Job은 null일 수 있습니다.", nullable = true)
         WorkerAnalysisEpisodePayload episode
 ) {
 }

@@ -25,14 +25,15 @@ public interface CharacterService {
     PageResponse<CharacterSummaryResponse> getArchivedCharacters(Long memberId, UUID workId, int page, int size);
 
     /**
-     * 작품 소유권과 캐릭터 소속을 확인한 뒤 활성 캐릭터의 기본 정보와 현재 설정 전체를 조회한다.
-     * 과거 Fact와 TIME Fact는 화면용 설정 목록에서 제외한다.
+     * 작품 소유권과 캐릭터 소속을 확인한 뒤 활성 캐릭터의 기본 정보와 authoritative snapshot을 조회한다.
+     * 각 현재 설정은 snapshot을 구성한 provenance Fact 목록을 함께 노출하며 TIME slot은 화면에서 제외한다.
      */
     CharacterDetailResponse getCharacter(Long memberId, UUID workId, UUID characterId);
 
     /**
-     * 활성 캐릭터를 잠금 조회한 뒤 기본 정보와 현재 설정 전체를 한 트랜잭션에서 수정한다.
-     * 변경된 설정은 수동 정정 Fact로 추가하고 기존 current Fact는 historical로 전환한다.
+     * 활성 캐릭터를 잠금 조회한 뒤 기본 정보·snapshot·provenance를 한 트랜잭션에서 수정한다.
+     * 변경값은 수동 정정 Fact로 append하고 provenance를 교체한다. 삭제값은 snapshot에서만 제거하며
+     * 기존 Fact 이력은 수정하거나 삭제하지 않는다.
      */
     CharacterDetailResponse updateCharacter(
             Long memberId,

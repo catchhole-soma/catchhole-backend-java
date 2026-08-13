@@ -1,9 +1,15 @@
 package org.monitoring.catchholebackend.domain.character.dto.response;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
@@ -18,16 +24,16 @@ public record SettingCandidateResponse(
         @Schema(description = "작품 ID", example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d444")
         UUID workId,
 
-        @Schema(description = "후보가 추출된 회차 ID", example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d222")
+        @Schema(description = "후보가 추출된 회차 ID", example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d222", nullable = true)
         UUID episodeId,
 
         @Schema(description = "후보가 추출된 회차 번호", example = "3", nullable = true)
         Integer episodeNo,
 
-        @Schema(description = "원문 근거 청크 ID", example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d111")
+        @Schema(description = "원문 근거 청크 ID", example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d111", nullable = true)
         UUID sourceChunkId,
 
-        @Schema(description = "후보를 만든 분석 작업 ID", example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d555")
+        @Schema(description = "후보를 만든 분석 작업 ID", example = "01970c2e-7e6d-7000-8e5d-2a9bc4b6d555", nullable = true)
         UUID analysisJobId,
 
         @Schema(description = "후보 종류", example = "SETTING")
@@ -71,20 +77,61 @@ public record SettingCandidateResponse(
         @Schema(description = "설정 값 타입. 캐릭터 발견 후보는 null입니다.", example = "NUMBER", nullable = true)
         SettingValueType valueType,
 
-        @Schema(description = "구조화된 설정 값 JSON. 캐릭터 발견 후보는 null입니다.", nullable = true)
+        @Schema(
+                description = "구조화된 설정 값 JSON. 캐릭터 발견 후보는 null입니다.",
+                nullable = true,
+                implementation = JsonNode.class
+        )
         Object valueJson,
 
-        @Schema(description = "원문 근거 span JSON")
+        @Schema(description = "원문 근거 span JSON", nullable = true, implementation = JsonNode.class)
         Object evidenceSpans,
 
-        @Schema(description = "AI 추출 신뢰도", example = "0.9500")
+        @Schema(description = "AI 추출 신뢰도", example = "0.9500", nullable = true)
         BigDecimal confidence,
 
         @Schema(description = "후보 검토 상태", example = "PENDING_REVIEW")
         SettingCandidateReviewStatus reviewStatus,
 
-        @Schema(description = "AI Worker 원본 응답 JSON")
+        @Schema(description = "AI Worker 원본 응답 JSON", nullable = true, implementation = JsonNode.class)
         Object rawAiResultJson,
+
+        @Schema(description = "캐릭터 현재 설정과의 2차 비교 상태")
+        CharacterFactComparisonStatus comparisonStatus,
+
+        @Schema(description = "AI가 제안한 현재 설정 반영 방식", nullable = true)
+        CharacterFactOperation suggestedOperation,
+
+        @Schema(description = "후보가 서술하는 시간 범위", nullable = true)
+        CharacterFactTemporalScope temporalScope,
+
+        @Schema(description = "현재 snapshot에서 비교한 canonical Fact 유형", nullable = true)
+        CharacterFactType comparisonTargetFactType,
+
+        @Schema(description = "현재 snapshot에서 비교한 canonical Fact key", nullable = true)
+        String comparisonTargetFactKey,
+
+        @Schema(
+                description = "현재 snapshot에 적용하도록 제안된 최종 구조화 값",
+                nullable = true,
+                implementation = JsonNode.class
+        )
+        Object proposedValueJson,
+
+        @Schema(description = "현재 snapshot에 적용하도록 제안된 최종 표시값", nullable = true)
+        String proposedFactValue,
+
+        @Schema(description = "확정 시 적용될 snapshot 변경 목록")
+        List<SettingCandidateSnapshotChangeResponse> snapshotChanges,
+
+        @Schema(description = "AI 비교 판단 이유", nullable = true)
+        String comparisonReason,
+
+        @Schema(description = "마지막 비교 실패 또는 재비교 사유", nullable = true)
+        String comparisonErrorMessage,
+
+        @Schema(description = "비교 문맥을 만든 당시 캐릭터 snapshot version", nullable = true)
+        Long comparisonBaseSnapshotVersion,
 
         @Schema(description = "생성 시각", example = "2026-06-14T10:29:00")
         LocalDateTime createdAt,

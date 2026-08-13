@@ -582,6 +582,52 @@ class EpisodeControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("캐릭터 후보 hidden 비교 Job은 회차 최신 분석이나 원문 수정 잠금으로 취급하지 않는다")
+    void characterComparisonJobDoesNotOverrideEpisodeSummaryOrBlockContentEdit() throws Exception {
+        UploadBatch batch = uploadBatchRepository.save(UploadBatch.create(
+                work, member, UploadType.SINGLE_EPISODE, UploadSourceType.FILE));
+        UploadFile sourceFile = uploadFileRepository.save(UploadFile.create(
+                batch, UploadFileRole.EPISODE, "episode.txt", MediaType.TEXT_PLAIN_VALUE,
+                "s3://episode.txt", 100));
+        sourceFile.markEpisodesParsed(1, 1, 1);
+        Episode episode = episodeRepository.save(Episode.create(
+                work, sourceFile.getId(), 1, "기존 제목", "works/original.txt", "v1", "hash", 10));
+        analysisJobRepository.save(AnalysisJob.create(
+                work,
+                batch,
+                null,
+                AnalysisJobType.CHARACTER_FACT_COMPARISON
+        ));
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/episodes/{episodeId}/title",
+                                work.getId(),
+                                episode.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"수정한 제목\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.latestAnalysisJobId").value(nullValue()));
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/episodes/{episodeId}",
+                                work.getId(),
+                                episode.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "episodeNo": 1,
+                                  "title": "수정한 제목",
+                                  "content": "hidden 비교와 무관하게 수정하는 원문"
+                                }
+                                """))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     @DisplayName("격리된 과거 batch-wide 작업은 현재 회차별 분석 요약에 반영하지 않는다")
     void quarantinedLegacyBatchJobDoesNotOverrideEpisodeAnalysisSummaries() throws Exception {
         UploadBatch batch = uploadBatchRepository.save(UploadBatch.create(

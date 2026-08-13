@@ -15,6 +15,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.util.UUID;
+import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -32,8 +33,8 @@ import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
                 @Index(name = "idx_characters_work_name", columnList = "work_id,name"),
                 @Index(name = "idx_characters_work_status", columnList = "work_id,status"),
                 @Index(
-                        name = "idx_characters_work_status_created_id",
-                        columnList = "work_id,status,created_at DESC,id DESC"
+                        name = "idx_characters_work_status_updated_id",
+                        columnList = "work_id,status,updated_at DESC,id DESC"
                 )
         }
 )
@@ -94,6 +95,10 @@ public class WorkCharacter extends BaseEntity {
     @Column(name = "statuses_json", columnDefinition = "jsonb")
     private JsonNode statusesJson;
 
+    // 현재 snapshot이 실제로 바뀔 때만 증가하며 비교 문맥의 관측용 버전으로 사용한다.
+    @Column(name = "snapshot_version", nullable = false)
+    private long snapshotVersion;
+
     @Column(name = "first_appearance_episode_id")
     private UUID firstAppearanceEpisodeId;
 
@@ -124,6 +129,7 @@ public class WorkCharacter extends BaseEntity {
         this.skillsJson = skillsJson;
         this.itemsJson = itemsJson;
         this.statusesJson = statusesJson;
+        this.snapshotVersion = 0L;
         this.firstAppearanceEpisodeId = firstAppearanceEpisodeId;
         this.status = CharacterStatus.ACTIVE;
     }
@@ -178,6 +184,62 @@ public class WorkCharacter extends BaseEntity {
             JsonNode itemsJson,
             JsonNode statusesJson
     ) {
+        replaceCurrentSnapshots(
+                currentAge,
+                currentLevel,
+                profileJson,
+                statsJson,
+                skillsJson,
+                itemsJson,
+                statusesJson,
+                false
+        );
+    }
+
+    public void replaceCurrentSnapshots(
+            Integer currentAge,
+            Integer currentLevel,
+            JsonNode profileJson,
+            JsonNode statsJson,
+            JsonNode skillsJson,
+            JsonNode itemsJson,
+            JsonNode statusesJson,
+            boolean provenanceChanged
+    ) {
+        replaceCurrentSnapshots(
+                currentAge,
+                currentLevel,
+                profileJson,
+                statsJson,
+                skillsJson,
+                itemsJson,
+                statusesJson,
+                provenanceChanged,
+                true
+        );
+    }
+
+    public void replaceCurrentSnapshots(
+            Integer currentAge,
+            Integer currentLevel,
+            JsonNode profileJson,
+            JsonNode statsJson,
+            JsonNode skillsJson,
+            JsonNode itemsJson,
+            JsonNode statusesJson,
+            boolean provenanceChanged,
+            boolean incrementSnapshotVersion
+    ) {
+        boolean valueChanged = !Objects.equals(this.currentAge, currentAge)
+                || !Objects.equals(this.currentLevel, currentLevel)
+                || !Objects.equals(this.profileJson, profileJson)
+                || !Objects.equals(this.statsJson, statsJson)
+                || !Objects.equals(this.skillsJson, skillsJson)
+                || !Objects.equals(this.itemsJson, itemsJson)
+                || !Objects.equals(this.statusesJson, statusesJson);
+        if (!valueChanged && !provenanceChanged) {
+            return;
+        }
         this.currentAge = currentAge;
         this.currentLevel = currentLevel;
         this.profileJson = profileJson;
@@ -185,6 +247,9 @@ public class WorkCharacter extends BaseEntity {
         this.skillsJson = skillsJson;
         this.itemsJson = itemsJson;
         this.statusesJson = statusesJson;
+        if (incrementSnapshotVersion) {
+            this.snapshotVersion++;
+        }
     }
 
     public void updateFirstAppearanceEpisodeId(UUID firstAppearanceEpisodeId) {

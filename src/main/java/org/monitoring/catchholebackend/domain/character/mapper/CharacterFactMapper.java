@@ -23,7 +23,8 @@ public class CharacterFactMapper {
 
     public CharacterFactSearchResponse toSearchResponse(
             CharacterFact fact,
-            List<CharacterSettingSchema> schemas
+            List<CharacterSettingSchema> schemas,
+            boolean contributesToCurrentSnapshot
     ) {
         Episode sourceEpisode = characterFactSourceResolver.resolveEpisode(fact);
 
@@ -33,7 +34,8 @@ public class CharacterFactMapper {
                 fact.getFactType().getToKorean(),
                 resolveDisplayName(fact, schemas),
                 fact.getFactValue(),
-                fact.isCurrent(),
+                contributesToCurrentSnapshot,
+                contributesToCurrentSnapshot,
                 fact.getWorkCharacter().getId(),
                 fact.getWorkCharacter().getName(),
                 sourceEpisode == null ? null : sourceEpisode.getId(),
@@ -44,7 +46,8 @@ public class CharacterFactMapper {
 
     public CharacterFactDetailResponse toDetailResponse(
             CharacterFact fact,
-            List<CharacterSettingSchema> schemas
+            List<CharacterSettingSchema> schemas,
+            boolean contributesToCurrentSnapshot
     ) {
         SettingCandidate candidate = fact.getSettingCandidate();
         Episode sourceEpisode = characterFactSourceResolver.resolveEpisode(fact);
@@ -56,7 +59,8 @@ public class CharacterFactMapper {
                 fact.getFactKey(),
                 resolveDisplayName(fact, schemas),
                 fact.getFactValue(),
-                fact.isCurrent(),
+                contributesToCurrentSnapshot,
+                contributesToCurrentSnapshot,
                 fact.getEffectiveFromEpisodeNo(),
                 fact.getWorkCharacter().getId(),
                 fact.getWorkCharacter().getName(),

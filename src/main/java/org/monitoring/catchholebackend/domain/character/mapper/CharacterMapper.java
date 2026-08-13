@@ -21,6 +21,8 @@ import org.monitoring.catchholebackend.domain.character.processor.CharacterFactS
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingEditPolicyResolver;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingEditPolicyResolver.CharacterSettingEditPolicy;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingDisplayNameResolver;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotEntry;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSlot;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
@@ -64,23 +66,38 @@ public class CharacterMapper {
     public CharacterDetailResponse toDetailResponse(
             WorkCharacter character,
             Episode firstAppearanceEpisode,
-            List<CharacterFact> currentFacts,
+            Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshotEntries,
+            Map<CharacterSnapshotSlot, List<CharacterFact>> sourceFactsBySlot,
             List<CharacterSettingSchema> schemas
     ) {
+        CharacterSnapshotSlot ageSlot = new CharacterSnapshotSlot(CharacterFactType.AGE, "age");
+        CharacterSnapshotSlot levelSlot = new CharacterSnapshotSlot(CharacterFactType.LEVEL, "level");
+        List<CharacterFactReferenceResponse> currentAgeSourceFacts = toFactReferenceResponses(
+                snapshotEntries.containsKey(ageSlot)
+                        ? sourceFactsBySlot.getOrDefault(ageSlot, List.of())
+                        : List.of()
+        );
+        List<CharacterFactReferenceResponse> currentLevelSourceFacts = toFactReferenceResponses(
+                snapshotEntries.containsKey(levelSlot)
+                        ? sourceFactsBySlot.getOrDefault(levelSlot, List.of())
+                        : List.of()
+        );
         return new CharacterDetailResponse(
                 character.getId(),
                 character.getName(),
                 character.getRoleLabel(),
                 character.getCurrentAge(),
-                toFactReferenceResponse(currentFacts, CharacterFactType.AGE),
+                lastReference(currentAgeSourceFacts),
+                currentAgeSourceFacts,
                 character.getCurrentLevel(),
-                toFactReferenceResponse(currentFacts, CharacterFactType.LEVEL),
+                lastReference(currentLevelSourceFacts),
+                currentLevelSourceFacts,
                 toEpisodeResponse(firstAppearanceEpisode),
-                toSettingResponses(currentFacts, schemas, CharacterFactType.PROFILE),
-                toSettingResponses(currentFacts, schemas, CharacterFactType.STAT),
-                toSettingResponses(currentFacts, schemas, CharacterFactType.SKILL),
-                toSettingResponses(currentFacts, schemas, CharacterFactType.ITEM),
-                toSettingResponses(currentFacts, schemas, CharacterFactType.STATUS)
+                toSettingResponses(snapshotEntries, sourceFactsBySlot, schemas, CharacterFactType.PROFILE),
+                toSettingResponses(snapshotEntries, sourceFactsBySlot, schemas, CharacterFactType.STAT),
+                toSettingResponses(snapshotEntries, sourceFactsBySlot, schemas, CharacterFactType.SKILL),
+                toSettingResponses(snapshotEntries, sourceFactsBySlot, schemas, CharacterFactType.ITEM),
+                toSettingResponses(snapshotEntries, sourceFactsBySlot, schemas, CharacterFactType.STATUS)
         );
     }
 
@@ -109,53 +126,69 @@ public class CharacterMapper {
         return new CharacterEpisodeResponse(episode.getId(), episode.getEpisodeNo());
     }
 
-    private CharacterFactReferenceResponse toFactReferenceResponse(
-            List<CharacterFact> currentFacts,
-            CharacterFactType factType
-    ) {
-        return currentFacts.stream()
-                .filter(fact -> fact.getFactType() == factType)
-                .findFirst()
-                .map(fact -> new CharacterFactReferenceResponse(
-                        fact.getId(),
-                        characterFactSourceResolver.hasEvidence(fact)
-                ))
-                .orElse(null);
+    private List<CharacterFactReferenceResponse> toFactReferenceResponses(List<CharacterFact> sourceFacts) {
+        return sourceFacts.stream()
+                .map(this::toFactReferenceResponse)
+                .toList();
+    }
+
+    private CharacterFactReferenceResponse toFactReferenceResponse(CharacterFact fact) {
+        Episode sourceEpisode = characterFactSourceResolver.resolveEpisode(fact);
+        return new CharacterFactReferenceResponse(
+                fact.getId(),
+                sourceEpisode == null ? null : sourceEpisode.getId(),
+                sourceEpisode == null ? null : sourceEpisode.getEpisodeNo(),
+                characterFactSourceResolver.hasEvidence(fact)
+        );
+    }
+
+    private CharacterFactReferenceResponse lastReference(List<CharacterFactReferenceResponse> references) {
+        return references.isEmpty() ? null : references.getLast();
     }
 
     private List<CharacterSettingResponse> toSettingResponses(
-            List<CharacterFact> currentFacts,
+            Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshotEntries,
+            Map<CharacterSnapshotSlot, List<CharacterFact>> sourceFactsBySlot,
             List<CharacterSettingSchema> schemas,
             CharacterFactType factType
     ) {
-        return currentFacts.stream()
-                .filter(fact -> fact.getFactType() == factType)
-                .map(fact -> toSettingResponse(fact, schemas))
+        return snapshotEntries.values().stream()
+                .filter(entry -> entry.slot().factType() == factType)
+                .map(entry -> toSettingResponse(
+                        entry,
+                        sourceFactsBySlot.getOrDefault(entry.slot(), List.of()),
+                        schemas
+                ))
                 .toList();
     }
 
     private CharacterSettingResponse toSettingResponse(
-            CharacterFact fact,
+            CharacterSnapshotEntry entry,
+            List<CharacterFact> sourceFacts,
             List<CharacterSettingSchema> schemas
     ) {
+        CharacterSnapshotSlot slot = entry.slot();
         CharacterSettingEditPolicy editPolicy = characterSettingEditPolicyResolver.resolve(
-                fact.getFactType(),
-                fact.getFactKey(),
+                slot.factType(),
+                slot.factKey(),
                 schemas
         );
         CharacterSettingSchema schema = editPolicy.schema();
-        JsonNode valueJson = fact.getValueJson();
+        JsonNode valueJson = entry.valueJson();
+        List<CharacterFactReferenceResponse> sourceReferences = toFactReferenceResponses(sourceFacts);
+        CharacterFactReferenceResponse primarySource = lastReference(sourceReferences);
         return new CharacterSettingResponse(
-                fact.getId(),
-                fact.getFactKey(),
-                characterSettingDisplayNameResolver.resolve(fact.getFactKey(), valueJson, editPolicy),
+                primarySource == null ? null : primarySource.characterFactId(),
+                slot.factKey(),
+                characterSettingDisplayNameResolver.resolve(slot.factKey(), valueJson, editPolicy),
                 editPolicy.attributeNameEditable(),
                 editPolicy.attributeNamePrefix(),
                 editPolicy.displayNameEditable(),
-                fact.getFactValue(),
+                entry.factValue(),
                 resolveValueType(schema, valueJson),
                 toProperties(valueJson),
-                characterFactSourceResolver.hasEvidence(fact)
+                sourceReferences.stream().anyMatch(CharacterFactReferenceResponse::hasEvidence),
+                sourceReferences
         );
     }
 

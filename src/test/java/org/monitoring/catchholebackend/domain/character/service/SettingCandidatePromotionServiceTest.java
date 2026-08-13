@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -19,9 +20,16 @@ import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterSnapshotSourceRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessor;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSlot;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingMergePolicy;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingSchemaSource;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingValueSemantics;
@@ -74,6 +82,12 @@ class SettingCandidatePromotionServiceTest {
 
     @Autowired
     private CharacterSettingSchemaRepository characterSettingSchemaRepository;
+
+    @Autowired
+    private CharacterSnapshotSourceRepository characterSnapshotSourceRepository;
+
+    private final CharacterSnapshotAccessor snapshotAccessor = new CharacterSnapshotAccessor();
+    private final SettingCandidateSchemaResolver schemaResolver = new SettingCandidateSchemaResolver();
 
     private Work work;
 
@@ -172,7 +186,7 @@ class SettingCandidatePromotionServiceTest {
     }
 
     @Test
-    @DisplayName("늦은 회차 후 이른 회차를 확정해도 늦은 회차 fact가 current로 유지된다")
+    @DisplayName("AI UPDATE 제안을 확정하면 회차와 무관하게 제안값이 현재 snapshot이 된다")
     void promoteKeepsLaterEpisodeCurrentWhenOlderEpisodeIsConfirmedLater() {
         Episode episode3 = episode(3);
         Episode episode10 = episode(10);
@@ -182,9 +196,9 @@ class SettingCandidatePromotionServiceTest {
         promote(matchedCandidate(episode3, character, "level", "3"));
 
         CharacterFact currentFact = currentFact(character, CharacterFactType.LEVEL, "level");
-        assertThat(currentFact.getFactValue()).isEqualTo("10");
-        assertThat(currentFact.getEffectiveFromEpisodeNo()).isEqualTo(10);
-        assertThat(character.getCurrentLevel()).isEqualTo(10);
+        assertThat(currentFact.getFactValue()).isEqualTo("3");
+        assertThat(currentFact.getEffectiveFromEpisodeNo()).isEqualTo(3);
+        assertThat(character.getCurrentLevel()).isEqualTo(3);
         assertThat(character.getFirstAppearanceEpisodeId()).isEqualTo(episode3.getId());
     }
 
@@ -203,7 +217,7 @@ class SettingCandidatePromotionServiceTest {
     }
 
     @Test
-    @DisplayName("episode 없는 후보는 episode 있는 후보보다 current 우선순위가 낮다")
+    @DisplayName("episode 없는 후보도 UPDATE 제안을 확정하면 현재 snapshot에 반영된다")
     void promoteTreatsMissingEpisodeAsOlderThanEpisodeFact() {
         Episode episode3 = episode(3);
 
@@ -212,13 +226,13 @@ class SettingCandidatePromotionServiceTest {
         promote(matchedCandidate(null, character, "level", "99"));
 
         CharacterFact currentFact = currentFact(character, CharacterFactType.LEVEL, "level");
-        assertThat(currentFact.getFactValue()).isEqualTo("3");
-        assertThat(currentFact.getEffectiveFromEpisodeNo()).isEqualTo(3);
-        assertThat(character.getCurrentLevel()).isEqualTo(3);
+        assertThat(currentFact.getFactValue()).isEqualTo("99");
+        assertThat(currentFact.getEffectiveFromEpisodeNo()).isNull();
+        assertThat(character.getCurrentLevel()).isEqualTo(99);
     }
 
     @Test
-    @DisplayName("current fact 기준으로 WorkCharacter JSON snapshot을 갱신한다")
+    @DisplayName("확정 proposal과 provenance 기준으로 WorkCharacter JSON snapshot을 갱신한다")
     void promoteAppliesCurrentJsonSnapshot() {
         Episode episode3 = episode(3);
         JsonNode skillJson = objectMapper.createArrayNode()
@@ -231,7 +245,8 @@ class SettingCandidatePromotionServiceTest {
         WorkCharacter character = character("아리아");
         CharacterFact currentFact = currentFact(character, CharacterFactType.SKILL, "skill.은월참");
         assertThat(currentFact.getValueJson()).isEqualTo(skillJson);
-        assertThat(character.getSkillsJson().get("skill.은월참")).isEqualTo(skillJson);
+        assertThat(snapshotValue(character, CharacterFactType.SKILL, "skill.은월참"))
+                .isEqualTo(skillJson);
     }
 
     @Test
@@ -270,15 +285,20 @@ class SettingCandidatePromotionServiceTest {
                 statusJson
         ));
 
-        assertThat(character.getStatsJson().get("stats.strength")).isEqualTo(valueJson("12"));
-        assertThat(character.getStatsJson().get("stats.agility")).isEqualTo(valueJson("8"));
-        assertThat(character.getSkillsJson().get("skill.은월참")).isEqualTo(skillJson);
-        assertThat(character.getItemsJson().get("item.회복포션")).isEqualTo(itemJson);
-        assertThat(character.getStatusesJson().get("status.부상")).isEqualTo(statusJson);
+        assertThat(snapshotValue(character, CharacterFactType.STAT, "stats.strength"))
+                .isEqualTo(valueJson("12"));
+        assertThat(snapshotValue(character, CharacterFactType.STAT, "stats.agility"))
+                .isEqualTo(valueJson("8"));
+        assertThat(snapshotValue(character, CharacterFactType.SKILL, "skill.은월참"))
+                .isEqualTo(skillJson);
+        assertThat(snapshotValue(character, CharacterFactType.ITEM, "item.회복포션"))
+                .isEqualTo(itemJson);
+        assertThat(snapshotValue(character, CharacterFactType.STATUS, "status.부상"))
+                .isEqualTo(statusJson);
     }
 
     @Test
-    @DisplayName("과거 회차의 같은 JSON factKey를 나중에 확정해도 최신 current 값만 snapshot에 둔다")
+    @DisplayName("과거 회차 후보도 UPDATE 제안을 확정하면 해당 JSON slot을 교체한다")
     void promoteKeepsLatestCurrentValueForSameJsonFactKey() {
         Episode episode3 = episode(3);
         Episode episode10 = episode(10);
@@ -296,11 +316,158 @@ class SettingCandidatePromotionServiceTest {
                 olderSkill
         ));
 
-        assertThat(character.getSkillsJson().get("skill.은월참")).isEqualTo(latestSkill);
+        assertThat(snapshotValue(character, CharacterFactType.SKILL, "skill.은월참"))
+                .isEqualTo(olderSkill);
     }
 
     @Test
-    @DisplayName("다음 confirm에서 legacy JSON snapshot을 전체 current Fact map으로 정규화한다")
+    @DisplayName("MERGE 제안은 후보 원문 값과 다른 최종 표시값과 복수 provenance를 보존한다")
+    void promoteMergePreservesProposedFactValueAndMultipleSources() {
+        Episode episode3 = episode(3);
+        JsonNode initialValue = objectMapper.createObjectNode()
+                .put("name", "은월참")
+                .put("description", "초승달 검기");
+        promote(candidate(episode3, "skill.은월참", "초승달 검기", SettingValueType.JSON, initialValue));
+        WorkCharacter character = character("아리아");
+
+        JsonNode candidateValue = objectMapper.createObjectNode()
+                .put("name", "은월참")
+                .put("level", 3);
+        JsonNode mergedValue = objectMapper.createObjectNode()
+                .put("name", "은월참")
+                .put("description", "초승달 검기")
+                .put("level", 3);
+        SettingCandidate mergeCandidate = matchedCandidate(
+                episode3,
+                character,
+                "skill.은월참",
+                "3레벨로 성장",
+                SettingValueType.JSON,
+                candidateValue
+        );
+        mergeCandidate.startComparison();
+        mergeCandidate.recordComparisonContext(character.getSnapshotVersion(), "merge-context");
+        mergeCandidate.completeComparison(
+                CharacterFactOperation.MERGE,
+                CharacterFactType.SKILL,
+                "skill.은월참",
+                "초승달 검기 · 3레벨",
+                mergedValue,
+                objectMapper.createArrayNode(),
+                CharacterFactTemporalScope.PRESENT,
+                "기존 설명과 새 레벨을 종합",
+                objectMapper.createObjectNode(),
+                java.time.LocalDateTime.now()
+        );
+        mergeCandidate.confirm();
+
+        promotionService.promote(
+                mergeCandidate,
+                CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+        );
+
+        var mergedEntry = snapshotAccessor.read(character)
+                .get(new CharacterSnapshotSlot(CharacterFactType.SKILL, "skill.은월참"));
+        assertThat(mergedEntry.factValue()).isEqualTo("초승달 검기 · 3레벨");
+        assertThat(mergedEntry.valueJson()).isEqualTo(mergedValue);
+        assertThat(characterSnapshotSourceRepository
+                .findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderBySourceOrderAsc(
+                        character.getId(),
+                        CharacterFactType.SKILL,
+                        "skill.은월참"
+                )).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("같은 캐릭터 후보 묶음은 여러 snapshot을 반영해도 version을 한 번만 증가시킨다")
+    void promoteGroupIncrementsSnapshotVersionOncePerCharacter() {
+        Episode episode3 = episode(3);
+        promote(candidate(episode3, "level", "3"));
+        WorkCharacter character = character("아리아");
+
+        SettingCandidate strength = matchedCandidate(episode3, character, "stats.strength", "12");
+        SettingCandidate agility = matchedCandidate(episode3, character, "stats.agility", "8");
+        prepareComparisonIfRequired(strength);
+        prepareComparisonIfRequired(agility);
+        strength.confirm();
+        agility.confirm();
+        long versionBeforePromotion = character.getSnapshotVersion();
+
+        promotionService.promoteGroup(List.of(
+                new SettingCandidateGroupPromotion(strength, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL),
+                new SettingCandidateGroupPromotion(agility, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL)
+        ));
+
+        assertThat(character.getSnapshotVersion()).isEqualTo(versionBeforePromotion + 1);
+        assertThat(snapshotValue(character, CharacterFactType.STAT, "stats.strength"))
+                .isEqualTo(valueJson("12"));
+        assertThat(snapshotValue(character, CharacterFactType.STAT, "stats.agility"))
+                .isEqualTo(valueJson("8"));
+    }
+
+    @Test
+    @DisplayName("동일 STATUS slot 종료 제안은 새 Fact를 이력에 남기고 현재 snapshot에서만 제거한다")
+    void promoteRemovePreservesHistoryAndRemovesCurrentStatus() {
+        Episode episode3 = episode(3);
+        JsonNode injured = objectMapper.createObjectNode().put("name", "오른발 부상");
+        promote(candidate(
+                episode3,
+                "status.오른발_부상",
+                "오른발이 다침",
+                SettingValueType.JSON,
+                injured
+        ));
+        WorkCharacter character = character("아리아");
+        long versionBeforeRemoval = character.getSnapshotVersion();
+
+        SettingCandidate recovered = matchedCandidate(
+                episode3,
+                character,
+                "status.오른발_부상",
+                "오른발이 완전히 회복됨",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode().put("name", "오른발 회복")
+        );
+        recovered.startComparison();
+        recovered.recordComparisonContext(character.getSnapshotVersion(), "remove-context");
+        recovered.completeComparison(
+                CharacterFactOperation.REMOVE,
+                CharacterFactType.STATUS,
+                "status.오른발_부상",
+                null,
+                null,
+                objectMapper.createArrayNode(),
+                CharacterFactTemporalScope.PRESENT,
+                "오른발이 완전히 회복되어 현재 부상 상태를 종료",
+                objectMapper.createObjectNode(),
+                java.time.LocalDateTime.now()
+        );
+        recovered.confirm();
+
+        promotionService.promote(recovered, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+
+        assertThat(snapshotAccessor.read(character))
+                .doesNotContainKey(new CharacterSnapshotSlot(
+                        CharacterFactType.STATUS,
+                        "status.오른발_부상"
+                ));
+        assertThat(characterFactRepository
+                .findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(
+                        character.getId(),
+                        CharacterFactType.STATUS,
+                        "status.오른발_부상"
+                )).hasSize(2);
+        assertThat(characterSnapshotSourceRepository
+                .findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderBySourceOrderAsc(
+                        character.getId(),
+                        CharacterFactType.STATUS,
+                        "status.오른발_부상"
+                )).isEmpty();
+        assertThat(character.getSnapshotVersion()).isEqualTo(versionBeforeRemoval + 1);
+    }
+
+    @Test
+    @DisplayName("snapshot provenance가 아닌 과거 Fact로 현재 snapshot을 다시 만들지 않는다")
     void promoteNormalizesLegacySnapshotsFromCurrentFacts() {
         WorkCharacter character = workCharacterRepository.save(WorkCharacter.create(
                 work,
@@ -330,19 +497,18 @@ class SettingCandidatePromotionServiceTest {
                 new BigDecimal("0.8000"),
                 null
         );
-        itemFact.markCurrent();
         characterFactRepository.saveAndFlush(itemFact);
 
         promote(matchedCandidate(episode(3), character, "level", "5"));
 
         assertThat(character.getStatsJson()).isNull();
         assertThat(character.getSkillsJson()).isNull();
-        assertThat(character.getItemsJson().get("item.회복포션")).isEqualTo(itemJson);
+        assertThat(character.getItemsJson()).isNull();
         assertThat(character.getStatusesJson()).isNull();
     }
 
     @Test
-    @DisplayName("AGE와 LEVEL current Fact는 기존 일반 컬럼 snapshot을 계속 갱신한다")
+    @DisplayName("AGE와 LEVEL proposal은 기존 일반 컬럼 snapshot을 계속 갱신한다")
     void promoteKeepsAgeAndLevelSnapshots() {
         Episode episode3 = episode(3);
 
@@ -480,7 +646,8 @@ class SettingCandidatePromotionServiceTest {
         CharacterFact currentFact = currentFact(character, CharacterFactType.PROFILE, "profile.rank");
         assertThat(currentFact.getFactValue()).isEqualTo("기사");
         assertThat(currentFact.getValueJson()).isEqualTo(valueJson);
-        assertThat(character.getProfileJson().get("profile.rank")).isEqualTo(valueJson);
+        assertThat(snapshotValue(character, CharacterFactType.PROFILE, "profile.rank"))
+                .isEqualTo(valueJson);
     }
 
     @Test
@@ -632,7 +799,7 @@ class SettingCandidatePromotionServiceTest {
     }
 
     @Test
-    @DisplayName("UNRESOLVED 후보 이름과 같은 활성 캐릭터가 있으면 해당 캐릭터를 재사용한다")
+    @DisplayName("UNRESOLVED 후보 이름과 같은 활성 캐릭터가 있으면 비교 없이 직접 반영하지 않는다")
     void promoteReusesActiveCharacterWithSameName() {
         Episode episode3 = episode(3);
         WorkCharacter existingCharacter = workCharacterRepository.save(workCharacter("아리아"));
@@ -646,41 +813,32 @@ class SettingCandidatePromotionServiceTest {
                 "8"
         );
 
-        promote(candidate);
+        assertThatThrownBy(() -> promote(candidate))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_NOT_READY));
 
         assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId()))
                 .containsExactly(existingCharacter);
-        assertThat(candidate.getMatchedCharacterId()).isEqualTo(existingCharacter.getId());
-        assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
-        assertThat(sibling.getMatchedCharacterId()).isEqualTo(existingCharacter.getId());
-        assertThat(sibling.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(characterFactRepository.findAll()).isEmpty();
         assertThat(sibling.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
-        CharacterFact fact = currentFact(existingCharacter, CharacterFactType.LEVEL, "level");
-        assertThat(fact.getFactValue()).isEqualTo("5");
-        assertThat(fact.getSettingCandidate().getId()).isEqualTo(candidate.getId());
     }
 
     @Test
-    @DisplayName("UNRESOLVED 후보 이름과 같은 보관 캐릭터만 있으면 새 활성 캐릭터를 생성한다")
+    @DisplayName("UNRESOLVED 후보 이름과 같은 보관 캐릭터가 있으면 명시적 이름 충돌로 거절한다")
     void promoteCreatesActiveCharacterWhenOnlyArchivedCharacterHasSameName() {
         WorkCharacter archivedCharacter = workCharacterRepository.save(workCharacter("아리아"));
         archivedCharacter.archive();
         SettingCandidate candidate = candidate(episode(3), "level", "5");
 
-        promote(candidate);
+        assertThatThrownBy(() -> promote(candidate))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED));
 
-        WorkCharacter activeCharacter = workCharacterRepository.findByWorkIdAndNameAndStatus(
-                work.getId(),
-                "아리아",
-                CharacterStatus.ACTIVE
-        ).orElseThrow();
-        assertThat(activeCharacter.getId()).isNotEqualTo(archivedCharacter.getId());
-        assertThat(archivedCharacter.getStatus()).isEqualTo(CharacterStatus.ARCHIVED);
-        assertThat(candidate.getMatchedCharacterId()).isEqualTo(activeCharacter.getId());
-        assertThat(candidate.getMatchStatus())
-                .isEqualTo(SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
-        assertThat(currentFact(activeCharacter, CharacterFactType.LEVEL, "level").getFactValue())
-                .isEqualTo("5");
+        assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId()))
+                .containsExactly(archivedCharacter);
+        assertThat(characterFactRepository.findAll()).isEmpty();
     }
 
     @Test
@@ -731,8 +889,71 @@ class SettingCandidatePromotionServiceTest {
 
         assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId()))
                 .containsExactly(character);
-        assertThat(character.getStatsJson().get("stats.strength")).isEqualTo(valueJson("12"));
-        assertThat(character.getStatsJson().get("stats.agility")).isEqualTo(valueJson("8"));
+        assertThat(snapshotValue(character, CharacterFactType.STAT, "stats.strength"))
+                .isEqualTo(valueJson("12"));
+        assertThat(snapshotValue(character, CharacterFactType.STAT, "stats.agility"))
+                .isEqualTo(valueJson("8"));
+    }
+
+    @Test
+    @DisplayName("신규 캐릭터 확정은 대소문자와 연속 공백이 다른 미해소 형제 후보도 연결한다")
+    void promoteMatchesNormalizedPendingUnresolvedSiblings() {
+        Episode episode3 = episode(3);
+        SettingCandidate first = candidate(
+                episode3,
+                "Alice Smith",
+                null,
+                SettingCandidateMatchStatus.UNRESOLVED,
+                "level",
+                "5"
+        );
+        SettingCandidate sibling = candidate(
+                episode3,
+                "alice  smith",
+                null,
+                SettingCandidateMatchStatus.UNRESOLVED,
+                "stats.agility",
+                "8"
+        );
+
+        promote(first);
+
+        assertThat(sibling.getMatchedCharacterId()).isEqualTo(first.getMatchedCharacterId());
+        assertThat(sibling.getEntityName()).isEqualTo("Alice Smith");
+        assertThat(sibling.getMatchStatus())
+                .isEqualTo(SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
+        assertThat(sibling.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+    }
+
+    @Test
+    @DisplayName("신규 캐릭터의 구조화 설정은 표시 문자열이 없어도 원본 JSON과 provenance를 보존한다")
+    void promoteNewCharacterAllowsStructuredValueWithoutFactValue() {
+        JsonNode structuredValue = objectMapper.createObjectNode()
+                .put("name", "화염검술")
+                .put("level", 3);
+        SettingCandidate candidate = candidate(
+                episode(3),
+                "아리아",
+                null,
+                SettingCandidateMatchStatus.UNRESOLVED,
+                "skill.화염검술",
+                null,
+                SettingValueType.JSON,
+                structuredValue
+        );
+
+        promote(candidate);
+
+        WorkCharacter character = character("아리아");
+        CharacterSnapshotSlot slot = new CharacterSnapshotSlot(
+                CharacterFactType.SKILL,
+                "skill.화염검술"
+        );
+        var snapshotEntry = snapshotAccessor.read(character).get(slot);
+        assertThat(snapshotEntry.factValue()).isNull();
+        assertThat(snapshotEntry.valueJson()).isEqualTo(structuredValue);
+        assertThat(currentFact(character, CharacterFactType.SKILL, "skill.화염검술").getFactValue())
+                .isNull();
     }
 
     @Test
@@ -755,8 +976,45 @@ class SettingCandidatePromotionServiceTest {
     }
 
     private void promote(SettingCandidate candidate) {
+        prepareComparisonIfRequired(candidate);
         candidate.confirm();
-        promotionService.promote(candidate);
+        promotionService.promote(candidate, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+    }
+
+    private void prepareComparisonIfRequired(SettingCandidate candidate) {
+        if (candidate.isCharacterDiscovery()
+                || candidate.getMatchedCharacterId() == null
+                || candidate.getComparisonStatus()
+                != org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus.PENDING) {
+            return;
+        }
+        var schemaMatch = schemaResolver.resolve(
+                candidate.getAttributeName(),
+                candidate.getValueType(),
+                characterSettingSchemaRepository.findAllActiveForWork(work.getId())
+        );
+        WorkCharacter character = workCharacterRepository.findById(candidate.getMatchedCharacterId()).orElseThrow();
+        CharacterSnapshotSlot slot = new CharacterSnapshotSlot(
+                schemaMatch.matchedSchema().getFactType(),
+                schemaMatch.factKey()
+        );
+        CharacterFactOperation operation = snapshotAccessor.read(character).containsKey(slot)
+                ? CharacterFactOperation.UPDATE
+                : CharacterFactOperation.ADD;
+        candidate.startComparison();
+        candidate.recordComparisonContext(character.getSnapshotVersion(), "test-context");
+        candidate.completeComparison(
+                operation,
+                slot.factType(),
+                slot.factKey(),
+                candidate.getAttributeValue(),
+                candidate.getValueJson(),
+                objectMapper.createArrayNode(),
+                CharacterFactTemporalScope.PRESENT,
+                "테스트 비교 제안",
+                objectMapper.createObjectNode(),
+                java.time.LocalDateTime.now()
+        );
     }
 
     private WorkCharacter character(String name) {
@@ -784,16 +1042,14 @@ class SettingCandidatePromotionServiceTest {
     }
 
     private CharacterFact currentFact(WorkCharacter character, CharacterFactType factType, String factKey) {
-        return characterFactRepository
-                .findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(
+        return characterSnapshotSourceRepository
+                .findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderBySourceOrderAsc(
                         character.getId(),
                         factType,
                         factKey
                 )
-                .stream()
-                .filter(CharacterFact::isCurrent)
-                .findFirst()
-                .orElseThrow();
+                .getFirst()
+                .getSourceFact();
     }
 
     private SettingCandidate candidate(Episode episode, String attributeName, String attributeValue) {
@@ -925,6 +1181,16 @@ class SettingCandidatePromotionServiceTest {
                 new BigDecimal("0.8000"),
                 objectMapper.createObjectNode().put("raw_value", attributeValue)
         ));
+    }
+
+    private JsonNode snapshotValue(
+            WorkCharacter character,
+            CharacterFactType factType,
+            String factKey
+    ) {
+        return snapshotAccessor.read(character)
+                .get(new CharacterSnapshotSlot(factType, factKey))
+                .valueJson();
     }
 
     private JsonNode valueJson(String value) {

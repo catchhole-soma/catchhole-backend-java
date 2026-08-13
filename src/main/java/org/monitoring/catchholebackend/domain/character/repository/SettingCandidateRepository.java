@@ -1,11 +1,13 @@
 package org.monitoring.catchholebackend.domain.character.repository;
 
+import jakarta.persistence.LockModeType;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
@@ -13,6 +15,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -37,7 +40,7 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             SettingCandidateReviewStatus reviewStatus
     );
 
-    @EntityGraph(attributePaths = {"work", "episode", "analysisJob"})
+    @EntityGraph(attributePaths = {"work", "episode", "analysisJob", "matchedCharacter"})
     @Query(
             value = """
                     select candidate
@@ -66,6 +69,43 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus,
             @Param("matchStatuses") Collection<SettingCandidateMatchStatus> matchStatuses,
             Pageable pageable
+    );
+
+    @EntityGraph(attributePaths = {"work", "episode", "analysisJob", "matchedCharacter"})
+    @Query("""
+            select candidate
+            from SettingCandidate candidate
+            join candidate.analysisJob analysisJob
+            left join candidate.episode episode
+            where candidate.work.id = :workId
+              and analysisJob.batch.id = :batchId
+              and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
+              and candidate.matchStatus in :matchStatuses
+            order by episode.episodeNo asc, candidate.createdAt asc, candidate.id asc
+            """)
+    List<SettingCandidate> findReviewCandidates(
+            @Param("workId") UUID workId,
+            @Param("batchId") UUID batchId,
+            @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus,
+            @Param("matchStatuses") Collection<SettingCandidateMatchStatus> matchStatuses
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"work", "episode", "analysisJob", "matchedCharacter"})
+    @Query("""
+            select candidate
+            from SettingCandidate candidate
+            join candidate.analysisJob analysisJob
+            left join candidate.episode episode
+            where candidate.work.id = :workId
+              and analysisJob.batch.id = :batchId
+              and candidate.id in :candidateIds
+            order by episode.episodeNo asc, candidate.createdAt asc, candidate.id asc
+            """)
+    List<SettingCandidate> findAllByIdsAndBatchForUpdate(
+            @Param("workId") UUID workId,
+            @Param("batchId") UUID batchId,
+            @Param("candidateIds") Collection<UUID> candidateIds
     );
 
     @Query("""
@@ -151,21 +191,159 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             select candidate
             from SettingCandidate candidate
             where candidate.work.id = :workId
+              and (
+                  candidate.episode.id in :episodeIds
+                  or candidate.analysisJob.episode.id in :episodeIds
+              )
+              and candidate.reviewStatus = :reviewStatus
+              and candidate.analysisJob.batch.id = :batchId
+              and candidate.analysisJob.jobType = :jobType
+            """)
+    List<SettingCandidate> findAllSupersededPendingCandidates(
+            @Param("workId") UUID workId,
+            @Param("batchId") UUID batchId,
+            @Param("episodeIds") Collection<UUID> episodeIds,
+            @Param("jobType") AnalysisJobType jobType,
+            @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus
+    );
+
+    @Query("""
+            select candidate
+            from SettingCandidate candidate
+            where candidate.work.id = :workId
               and candidate.entityType = :entityType
               and candidate.reviewStatus = :reviewStatus
               and candidate.matchStatus = :matchStatus
-              and trim(candidate.entityName) = :entityName
+              and lower(function('regexp_replace', trim(candidate.entityName), '\\s+', ' ', 'g')) = :groupKey
             order by candidate.createdAt desc
             """)
     List<SettingCandidate> findAllByNormalizedEntityNameAndMatchState(
             @Param("workId") UUID workId,
-            @Param("entityName") String entityName,
+            @Param("groupKey") String groupKey,
             @Param("entityType") SettingEntityType entityType,
             @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus,
             @Param("matchStatus") SettingCandidateMatchStatus matchStatus
     );
 
     Optional<SettingCandidate> findByIdAndWorkId(UUID id, UUID workId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select candidate from SettingCandidate candidate where candidate.id = :id and candidate.work.id = :workId")
+    Optional<SettingCandidate> findByIdAndWorkIdForUpdate(
+            @Param("id") UUID id,
+            @Param("workId") UUID workId
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select candidate
+            from SettingCandidate candidate
+            join fetch candidate.work
+            left join fetch candidate.matchedCharacter
+            where candidate.analysisJob.id = :analysisJobId
+              and candidate.reviewStatus = :reviewStatus
+              and candidate.comparisonStatus = :comparisonStatus
+              and not exists (
+                  select hiddenJob.id
+                  from AnalysisJob hiddenJob
+                  where hiddenJob.settingCandidate = candidate
+                    and hiddenJob.jobType = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.CHARACTER_FACT_COMPARISON
+                    and hiddenJob.status in (
+                        org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING,
+                        org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING
+                    )
+              )
+            order by candidate.createdAt asc, candidate.id asc
+            """)
+    List<SettingCandidate> findComparisonClaimCandidates(
+            @Param("analysisJobId") UUID analysisJobId,
+            @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus,
+            @Param("comparisonStatus") CharacterFactComparisonStatus comparisonStatus,
+            Pageable pageable
+    );
+
+    @EntityGraph(attributePaths = {"episode", "analysisJob", "analysisJob.batch"})
+    @Query("""
+            select candidate
+            from SettingCandidate candidate
+            join candidate.analysisJob analysisJob
+            left join candidate.episode episode
+            where candidate.work.id = :workId
+              and analysisJob.batch.id = :batchId
+              and candidate.matchedCharacterId = :characterId
+              and candidate.reviewStatus = :reviewStatus
+              and candidate.attributeName is not null
+            order by episode.episodeNo asc, candidate.createdAt asc, candidate.id asc
+            """)
+    List<SettingCandidate> findPendingComparisonChronology(
+            @Param("workId") UUID workId,
+            @Param("batchId") UUID batchId,
+            @Param("characterId") UUID characterId,
+            @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus
+    );
+
+    @Query("""
+            select candidate
+            from SettingCandidate candidate
+            where candidate.analysisJob.id = :analysisJobId
+              and candidate.comparisonStatus = :comparisonStatus
+              and not exists (
+                  select hiddenJob.id
+                  from AnalysisJob hiddenJob
+                  where hiddenJob.settingCandidate = candidate
+                    and hiddenJob.jobType = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.CHARACTER_FACT_COMPARISON
+                    and hiddenJob.status in (
+                        org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING,
+                        org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING
+                    )
+              )
+            """)
+    List<SettingCandidate> findAllByAnalysisJobIdAndComparisonStatus(
+            @Param("analysisJobId") UUID analysisJobId,
+            @Param("comparisonStatus") CharacterFactComparisonStatus comparisonStatus
+    );
+
+    @Query("""
+            select candidate
+            from SettingCandidate candidate
+            where candidate.analysisJob.id = :analysisJobId
+              and candidate.comparisonStatus in :comparisonStatuses
+              and not exists (
+                  select hiddenJob.id
+                  from AnalysisJob hiddenJob
+                  where hiddenJob.settingCandidate = candidate
+                    and hiddenJob.jobType = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.CHARACTER_FACT_COMPARISON
+                    and hiddenJob.status in (
+                        org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING,
+                        org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING
+                    )
+              )
+            """)
+    List<SettingCandidate> findAllByAnalysisJobIdAndComparisonStatusIn(
+            @Param("analysisJobId") UUID analysisJobId,
+            @Param("comparisonStatuses") Collection<CharacterFactComparisonStatus> comparisonStatuses
+    );
+
+    @Query("""
+            select case when count(candidate) > 0 then true else false end
+            from SettingCandidate candidate
+            where candidate.analysisJob.id = :analysisJobId
+              and candidate.comparisonStatus in :comparisonStatuses
+              and not exists (
+                  select hiddenJob.id
+                  from AnalysisJob hiddenJob
+                  where hiddenJob.settingCandidate = candidate
+                    and hiddenJob.jobType = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.CHARACTER_FACT_COMPARISON
+                    and hiddenJob.status in (
+                        org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING,
+                        org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING
+                    )
+              )
+            """)
+    boolean existsByAnalysisJobIdAndComparisonStatusIn(
+            @Param("analysisJobId") UUID analysisJobId,
+            @Param("comparisonStatuses") Collection<CharacterFactComparisonStatus> comparisonStatuses
+    );
 
     Optional<SettingCandidate> findByIdAndWorkIdAndAnalysisJobBatchId(UUID id, UUID workId, UUID batchId);
 }

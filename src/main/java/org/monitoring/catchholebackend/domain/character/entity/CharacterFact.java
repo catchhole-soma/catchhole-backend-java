@@ -31,7 +31,6 @@ import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 @Table(
         name = "character_facts",
         indexes = {
-                @Index(name = "idx_character_facts_character_current", columnList = "character_id,is_current"),
                 @Index(name = "idx_character_facts_character_key", columnList = "character_id,fact_type,fact_key"),
                 @Index(name = "idx_character_facts_setting_candidate", columnList = "setting_candidate_id"),
                 @Index(name = "idx_character_facts_source_episode", columnList = "source_episode_id"),
@@ -108,9 +107,6 @@ public class CharacterFact extends BaseEntity {
     @Column(name = "confidence", precision = 5, scale = 4)
     private BigDecimal confidence;
 
-    @Column(name = "is_current", nullable = false)
-    private boolean isCurrent;
-
     @Column(name = "effective_from_episode_no")
     private Integer effectiveFromEpisodeNo;
 
@@ -139,7 +135,6 @@ public class CharacterFact extends BaseEntity {
         this.sourceChunkId = sourceChunkId;
         this.extractedByJob = extractedByJob;
         this.confidence = confidence;
-        this.isCurrent = false;
         this.effectiveFromEpisodeNo = effectiveFromEpisodeNo;
     }
 
@@ -196,11 +191,4 @@ public class CharacterFact extends BaseEntity {
         );
     }
 
-    public void markCurrent() {
-        this.isCurrent = true;
-    }
-
-    public void markHistorical() {
-        this.isCurrent = false;
-    }
 }

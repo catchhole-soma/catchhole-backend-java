@@ -10,6 +10,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
@@ -109,6 +110,26 @@ class SettingCandidateTest {
         assertThat(candidate.getMatchedCharacterId()).isEqualTo(character.getId());
         assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
         assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+    }
+
+    @Test
+    @DisplayName("같은 캐릭터를 다시 선택하면 완료된 비교 결과를 유지한다")
+    void matchingSameCharacterKeepsCompletedComparison() {
+        Work work = work();
+        SettingCandidate candidate = candidate(work, "age", "17");
+        WorkCharacter character = character(work, "이안");
+        candidate.autoMatchSameNameCharacter(character);
+        ReflectionTestUtils.setField(
+                candidate,
+                "comparisonStatus",
+                CharacterFactComparisonStatus.COMPLETED
+        );
+
+        candidate.matchExistingCharacter(character);
+
+        assertThat(candidate.getMatchedCharacterId()).isEqualTo(character.getId());
+        assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+        assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.COMPLETED);
     }
 
     @Test
