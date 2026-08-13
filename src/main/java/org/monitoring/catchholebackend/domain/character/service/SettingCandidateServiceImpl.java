@@ -40,6 +40,7 @@ import org.monitoring.catchholebackend.domain.character.exception.CharacterError
 import org.monitoring.catchholebackend.domain.character.mapper.SettingCandidateMapper;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaMatch;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateChronology;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSlot;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateGroupNameNormalizer;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
@@ -363,8 +364,10 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
             }
         });
-        List<SettingCandidate> candidates = settingCandidateRepository.findAllByIdsAndBatchForUpdate(
-                work.getId(), request.batchId(), decisions.keySet()
+        List<SettingCandidate> candidates = SettingCandidateChronology.sorted(
+                settingCandidateRepository.findAllByIdsAndBatchForUpdate(
+                        work.getId(), request.batchId(), decisions.keySet()
+                )
         );
         validateCompletePendingGroup(work, request.batchId(), candidates, decisions.keySet());
         if (candidates.stream().anyMatch(candidate -> candidate.getMatchStatus()

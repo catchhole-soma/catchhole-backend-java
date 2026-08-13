@@ -41,6 +41,7 @@ import org.monitoring.catchholebackend.domain.character.processor.CharacterSnaps
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingValueValidator;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaMatch;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateChronology;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSnapshotSourceRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
@@ -318,7 +319,7 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
                         SettingCandidateReviewStatus.PENDING_REVIEW
                 )
         );
-        chronology.sort(candidateChronologyComparator());
+        chronology = SettingCandidateChronology.sorted(chronology);
 
         List<WorkerCharacterFactComparisonContextResponse.PriorCandidate> matching = new ArrayList<>();
         for (SettingCandidate prior : chronology) {
@@ -334,43 +335,6 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
         }
         int fromIndex = Math.max(0, matching.size() - MAX_PRIOR_CANDIDATES);
         return List.copyOf(matching.subList(fromIndex, matching.size()));
-    }
-
-    private Comparator<SettingCandidate> candidateChronologyComparator() {
-        return Comparator
-                .comparing(
-                        (SettingCandidate value) -> value.getEpisode() == null
-                                ? null
-                                : value.getEpisode().getEpisodeNo(),
-                        Comparator.nullsLast(Comparator.naturalOrder())
-                )
-                // 같은 회차에서는 원문 offset을 우선해 LLM 응답 배열/UUID 생성 순서에 덜 의존한다.
-                .thenComparing(
-                        this::earliestEvidenceOffset,
-                        Comparator.nullsLast(Comparator.naturalOrder())
-                )
-                .thenComparing(
-                        SettingCandidate::getCreatedAt,
-                        Comparator.nullsLast(Comparator.naturalOrder())
-                )
-                .thenComparing(SettingCandidate::getId);
-    }
-
-    private Integer earliestEvidenceOffset(SettingCandidate candidate) {
-        JsonNode evidenceSpans = candidate.getEvidenceSpans();
-        if (evidenceSpans == null || !evidenceSpans.isArray()) {
-            return null;
-        }
-        Integer earliest = null;
-        for (JsonNode evidenceSpan : evidenceSpans) {
-            JsonNode startOffset = evidenceSpan.get("startOffset");
-            if (startOffset == null || !startOffset.isIntegralNumber()) {
-                continue;
-            }
-            int value = startOffset.asInt();
-            earliest = earliest == null ? value : Math.min(earliest, value);
-        }
-        return earliest;
     }
 
     private WorkerCharacterFactComparisonContextResponse.PriorCandidate toPriorCandidate(

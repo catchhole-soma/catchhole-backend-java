@@ -60,10 +60,13 @@ public class SwaggerConfig {
             replaceWithNullableJsonUnion(openApi, "WorkerCharacterFactComparisonCompleteRequest", "proposedValueJson");
             replaceWithNullableJsonUnion(openApi, "WorkerCharacterFactComparisonCandidatePayload", "valueJson");
             replaceWithNullableJsonUnion(openApi, "WorkerCharacterCurrentSnapshotEntry", "valueJson");
+            replaceWithNullableJsonUnion(openApi, "WorkerCharacterPriorFactCandidate", "valueJson");
+            replaceWithNullableJsonUnion(openApi, "WorkerCharacterPriorFactCandidate", "proposedValueJson");
             replaceWithNullableEnumUnion(openApi, "SettingCandidateResponse", "valueType");
             replaceWithNullableEnumUnion(openApi, "SettingCandidateResponse", "suggestedOperation");
             replaceWithNullableEnumUnion(openApi, "SettingCandidateResponse", "temporalScope");
             replaceWithNullableEnumUnion(openApi, "SettingCandidateResponse", "comparisonTargetFactType");
+            replaceWithNullableEnumUnion(openApi, "WorkerCharacterPriorFactCandidate", "suggestedOperation");
         };
     }
 

@@ -569,6 +569,15 @@ class OpenApiContractIntegrationTest {
                         .value("null"))
                 .andExpect(jsonPath("$['components']['schemas']['WorkerCharacterFactComparisonCandidatePayload']"
                         + "['properties']['valueJson']['anyOf'][1]['type']")
+                        .value("null"))
+                .andExpect(jsonPath("$['components']['schemas']['WorkerCharacterPriorFactCandidate']"
+                        + "['properties']['valueJson']['anyOf'][1]['type']")
+                        .value("null"))
+                .andExpect(jsonPath("$['components']['schemas']['WorkerCharacterPriorFactCandidate']"
+                        + "['properties']['proposedValueJson']['anyOf'][1]['type']")
+                        .value("null"))
+                .andExpect(jsonPath("$['components']['schemas']['WorkerCharacterPriorFactCandidate']"
+                        + "['properties']['suggestedOperation']['anyOf'][1]['type']")
                         .value("null"));
     }
 }

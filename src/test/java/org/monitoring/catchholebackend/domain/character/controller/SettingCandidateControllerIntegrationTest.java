@@ -426,6 +426,20 @@ class SettingCandidateControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("그룹 확정 후보 배열의 null 원소를 validation 오류로 거절한다")
+    void confirmSettingCandidateGroupRejectsNullCandidateDecision() throws Exception {
+        mockMvc.perform(post("/api/v1/works/{workId}/setting-candidates/group-confirm", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of(
+                                "batchId", uploadBatch.getId(),
+                                "candidates", java.util.Arrays.asList((Object) null)
+                        ))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"));
+    }
+
+    @Test
     @DisplayName("후보가 없어도 과거 다회차 작업의 보존된 대상 회차 범위를 응답한다")
     void getSettingCandidatesReturnsLegacyTargetEpisodeRangeWhenBatchHasNoCandidates() throws Exception {
         Episode fifthEpisode = episodeRepository.save(Episode.create(
