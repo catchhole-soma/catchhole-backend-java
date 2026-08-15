@@ -183,7 +183,7 @@ class CharacterFactComparisonWorkerServiceImplTest {
         ReflectionTestUtils.setField(prior, "createdAt", LocalDateTime.of(2026, 8, 1, 0, 0));
         SettingCandidate candidate = prepareCandidate(
                 "stats.mental",
-                "영구적으로 +1 상승",
+                "1",
                 SettingValueType.NUMBER,
                 value(1),
                 mentalSchema
@@ -360,6 +360,41 @@ class CharacterFactComparisonWorkerServiceImplTest {
     }
 
     @Test
+    @DisplayName("NUMBER 비교 제안의 표시값과 구조화 값이 다르면 완료를 거절한다")
+    void rejectsMismatchedNumberProposal() {
+        SettingCandidate candidate = prepareCandidate(
+                "stats.strength",
+                "18",
+                SettingValueType.NUMBER,
+                value(18),
+                schema("stats.strength", null, CharacterFactType.STAT, SettingValueType.NUMBER)
+        );
+        WorkerCharacterFactComparisonContextResponse context = claimAndGetContext(candidate);
+        WorkerCharacterFactComparisonCompleteRequest request =
+                new WorkerCharacterFactComparisonCompleteRequest(
+                        CharacterFactOperation.ADD,
+                        null,
+                        null,
+                        "19",
+                        Map.of("value", 18),
+                        List.of(),
+                        CharacterFactTemporalScope.PRESENT,
+                        "새 현재값",
+                        context.contextToken(),
+                        Map.of("operation", "ADD")
+                );
+
+        assertThatThrownBy(() -> service.completeCharacterFactComparison(
+                analysisJobId,
+                candidate.getId(),
+                leaseToken,
+                request
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_VALUE_MISMATCH));
+    }
+
+    @Test
     @DisplayName("동일한 현재 STATUS의 종료 제안은 값 없이 정확한 slot을 대상으로 완료할 수 있다")
     void completesSameStatusSlotRemoval() {
         var statuses = objectMapper.createObjectNode().set("status.부상", value("부상"));
@@ -467,7 +502,7 @@ class CharacterFactComparisonWorkerServiceImplTest {
         );
 
         assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.COMPLETED);
-        assertThat(candidate.getProposedFactValue()).isEqualTo("제안 표시값");
+        assertThat(candidate.getProposedFactValue()).isEqualTo("18");
     }
 
     @Test
@@ -599,7 +634,7 @@ class CharacterFactComparisonWorkerServiceImplTest {
                 operation,
                 targetFactType,
                 targetFactKey,
-                proposedValue == null ? null : "제안 표시값",
+                proposalDisplayValue(proposedValue),
                 proposedValue,
                 removals,
                 temporalScope,
@@ -607,6 +642,14 @@ class CharacterFactComparisonWorkerServiceImplTest {
                 token,
                 Map.of("operation", operation.name())
         );
+    }
+
+    private String proposalDisplayValue(Object proposedValue) {
+        if (!(proposedValue instanceof Map<?, ?> proposedMap)) {
+            return proposedValue == null ? null : proposedValue.toString();
+        }
+        Object value = proposedMap.get("value");
+        return value == null ? null : value.toString();
     }
 
     private CharacterSettingSchema schema(

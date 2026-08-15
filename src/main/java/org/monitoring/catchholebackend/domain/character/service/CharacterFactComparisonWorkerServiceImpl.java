@@ -188,6 +188,7 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
                 || request.operation() == CharacterFactOperation.MERGE) {
             valueValidator.validateProposal(
                     proposedValueJson,
+                    request.proposedFactValue(),
                     canonicalTarget.factType(),
                     canonicalTarget.valueType()
             );

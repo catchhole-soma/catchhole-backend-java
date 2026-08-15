@@ -40,8 +40,10 @@ import org.monitoring.catchholebackend.domain.character.exception.CharacterError
 import org.monitoring.catchholebackend.domain.character.mapper.SettingCandidateMapper;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaMatch;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateValueValidation;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateChronology;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSlot;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingValueValidator;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateGroupNameNormalizer;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateBatchCounts;
@@ -81,6 +83,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
     private final SettingCandidatePromotionService settingCandidatePromotionService;
     private final CharacterFactComparisonWorkerService characterFactComparisonWorkerService;
     private final SettingCandidateSchemaResolver settingCandidateSchemaResolver;
+    private final CharacterSettingValueValidator characterSettingValueValidator;
     private final AiTokenService aiTokenService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -221,6 +224,18 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                     reviewContent.attributeValue(),
                     reviewContent.valueJson()
             );
+        }
+        SettingCandidateSchemaMatch schemaMatch = settingCandidateSchemaResolver.resolve(
+                candidate.getAttributeName(),
+                candidate.getValueType(),
+                schemas
+        );
+        characterSettingValueValidator.validateCandidate(
+                candidate,
+                schemaMatch.matchedSchema().getFactType(),
+                schemaMatch.matchedSchema().getValueType()
+        );
+        if (reviewContent.updateRequired()) {
             enqueueComparisonJobIfNeeded(memberId, candidate);
         }
         return toResponse(candidate, schemas);
@@ -750,14 +765,15 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         boolean storedContentNeedsNormalization =
                 !candidate.getAttributeName().equals(nextAttributeName)
                         || !Objects.equals(candidate.getAttributeValue(), requestedAttributeValue);
-        boolean storedCoreScalarNeedsRepair = hasIncompatibleCoreScalarValueJson(
+        boolean storedValueNeedsRepair = characterSettingValueValidator.evaluateCandidate(
                 candidate,
-                currentMatch
-        );
+                currentMatch.matchedSchema().getFactType(),
+                currentMatch.matchedSchema().getValueType()
+        ).isInvalid();
         return new CandidateReviewContent(
                 nextAttributeName,
                 requestedAttributeValue,
-                semanticContentChanged || storedCoreScalarNeedsRepair
+                semanticContentChanged || storedValueNeedsRepair
                         ? rebuildValueJson(
                                 candidate,
                                 currentMatch,
@@ -768,42 +784,20 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                         : candidate.getValueJson(),
                 semanticContentChanged
                         || storedContentNeedsNormalization
-                        || storedCoreScalarNeedsRepair
+                        || storedValueNeedsRepair
         );
-    }
-
-    /**
-     * AGE/LEVEL의 숨은 대표값이 존재하지만 숫자가 아니면 같은 표시값 저장도 typed envelope로 수리한다.
-     * 대표값 자체가 없거나 이미 숫자인 rich JSON은 기존 근거와 함께 no-op으로 보존한다.
-     */
-    private boolean hasIncompatibleCoreScalarValueJson(
-            SettingCandidate candidate,
-            SettingCandidateSchemaMatch schemaMatch
-    ) {
-        CharacterFactType factType = schemaMatch.matchedSchema().getFactType();
-        if (factType != CharacterFactType.AGE && factType != CharacterFactType.LEVEL) {
-            return false;
-        }
-
-        JsonNode valueNode = candidate.getValueJson();
-        if (valueNode == null || valueNode.isNull()) {
-            return false;
-        }
-        if (valueNode.isObject()) {
-            valueNode = valueNode.get("value");
-        }
-        return valueNode != null && !valueNode.isNull() && !valueNode.isNumber();
     }
 
     private SettingCandidateResponse toResponse(
             SettingCandidate candidate,
             List<CharacterSettingSchema> schemas
     ) {
-        AttributeNameEditMetadata metadata = resolveAttributeNameEditMetadata(candidate, schemas);
+        CandidateResponseMetadata metadata = resolveResponseMetadata(candidate, schemas);
         return settingCandidateMapper.toResponse(
                 candidate,
                 metadata.attributeNameEditable(),
-                metadata.attributeNamePrefix()
+                metadata.attributeNamePrefix(),
+                metadata.valueValidation()
         );
     }
 
@@ -811,11 +805,12 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             SettingCandidate candidate,
             List<CharacterSettingSchema> schemas
     ) {
-        AttributeNameEditMetadata metadata = resolveAttributeNameEditMetadata(candidate, schemas);
+        CandidateResponseMetadata metadata = resolveResponseMetadata(candidate, schemas);
         return settingCandidateMapper.toReviewListResponse(
                 candidate,
                 metadata.attributeNameEditable(),
-                metadata.attributeNamePrefix()
+                metadata.attributeNamePrefix(),
+                metadata.valueValidation()
         );
     }
 
@@ -902,12 +897,12 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         return normalized.isBlank() || normalized.equals("미상");
     }
 
-    private AttributeNameEditMetadata resolveAttributeNameEditMetadata(
+    private CandidateResponseMetadata resolveResponseMetadata(
             SettingCandidate candidate,
             List<CharacterSettingSchema> schemas
     ) {
         if (candidate.isCharacterDiscovery()) {
-            return AttributeNameEditMetadata.NOT_EDITABLE;
+            return CandidateResponseMetadata.NOT_APPLICABLE;
         }
         try {
             SettingCandidateSchemaMatch match = settingCandidateSchemaResolver.resolve(
@@ -915,15 +910,29 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                     candidate.getValueType(),
                     schemas
             );
+            SettingCandidateValueValidation valueValidation =
+                    characterSettingValueValidator.evaluateCandidate(
+                            candidate,
+                            match.matchedSchema().getFactType(),
+                            match.matchedSchema().getValueType()
+                    );
             if (!isPatternMatch(match)) {
-                return AttributeNameEditMetadata.NOT_EDITABLE;
+                return new CandidateResponseMetadata(false, null, valueValidation);
             }
-            return new AttributeNameEditMetadata(
+            return new CandidateResponseMetadata(
                     true,
-                    dynamicPatternPrefix(match.matchedSchema())
+                    dynamicPatternPrefix(match.matchedSchema()),
+                    valueValidation
             );
         } catch (AppException exception) {
-            return AttributeNameEditMetadata.NOT_EDITABLE;
+            if (exception.getResultCode() instanceof CharacterErrorCode errorCode) {
+                return new CandidateResponseMetadata(
+                        false,
+                        null,
+                        SettingCandidateValueValidation.invalid(errorCode)
+                );
+            }
+            throw exception;
         }
     }
 
@@ -1036,18 +1045,18 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         try {
             return objectMapper.getNodeFactory().numberNode(new BigDecimal(attributeValue));
         } catch (NumberFormatException exception) {
-            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_EDIT_VALUE_INVALID);
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_VALUE_FORMAT_INVALID);
         }
     }
 
     private JsonNode toBooleanNode(String attributeValue) {
-        if (attributeValue.equalsIgnoreCase("true")) {
+        if (attributeValue.equals("true")) {
             return objectMapper.getNodeFactory().booleanNode(true);
         }
-        if (attributeValue.equalsIgnoreCase("false")) {
+        if (attributeValue.equals("false")) {
             return objectMapper.getNodeFactory().booleanNode(false);
         }
-        throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_EDIT_VALUE_INVALID);
+        throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_VALUE_FORMAT_INVALID);
     }
 
     private void validateCoreEditedValue(CharacterFactType factType, JsonNode valueNode) {
@@ -1108,11 +1117,16 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
     ) {
     }
 
-    private record AttributeNameEditMetadata(
+    private record CandidateResponseMetadata(
             boolean attributeNameEditable,
-            String attributeNamePrefix
+            String attributeNamePrefix,
+            SettingCandidateValueValidation valueValidation
     ) {
-        private static final AttributeNameEditMetadata NOT_EDITABLE =
-                new AttributeNameEditMetadata(false, null);
+        private static final CandidateResponseMetadata NOT_APPLICABLE =
+                new CandidateResponseMetadata(
+                        false,
+                        null,
+                        SettingCandidateValueValidation.notApplicable()
+                );
     }
 }

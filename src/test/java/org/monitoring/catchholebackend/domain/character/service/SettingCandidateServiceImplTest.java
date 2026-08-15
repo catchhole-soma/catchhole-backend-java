@@ -40,12 +40,15 @@ import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandi
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateListResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
+import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateValueValidationResponse;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.mapper.SettingCandidateMapper;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingValueValidator;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateValueValidation;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateBatchCounts;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
@@ -64,6 +67,7 @@ import org.monitoring.catchholebackend.domain.character.type.SettingCandidateKin
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateValueValidationStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
@@ -127,6 +131,7 @@ class SettingCandidateServiceImplTest {
                 settingCandidatePromotionService,
                 characterFactComparisonWorkerService,
                 new SettingCandidateSchemaResolver(),
+                new CharacterSettingValueValidator(),
                 aiTokenService
         );
     }
@@ -177,7 +182,12 @@ class SettingCandidateServiceImplTest {
         when(episodeRange.getEpisodeCount()).thenReturn(5L);
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
-        when(settingCandidateMapper.toReviewListResponse(candidate, false, null))
+        when(settingCandidateMapper.toReviewListResponse(
+                candidate,
+                false,
+                null,
+                SettingCandidateValueValidation.valid()
+        ))
                 .thenReturn(responses.getFirst());
 
         SettingCandidateListResponse result = service.getSettingCandidates(
@@ -249,7 +259,14 @@ class SettingCandidateServiceImplTest {
                 .thenReturn(episodeRange);
         when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of());
         SettingCandidateResponse firstResponse = response(workId);
-        when(settingCandidateMapper.toReviewListResponse(firstGroupCandidate, false, null))
+        when(settingCandidateMapper.toReviewListResponse(
+                firstGroupCandidate,
+                false,
+                null,
+                SettingCandidateValueValidation.invalid(
+                        CharacterErrorCode.SETTING_CANDIDATE_SCHEMA_NOT_MATCHED
+                )
+        ))
                 .thenReturn(firstResponse);
 
         SettingCandidateListResponse result = service.getSettingCandidates(
@@ -267,8 +284,20 @@ class SettingCandidateServiceImplTest {
                 .singleElement()
                 .extracting(group -> group.entityName())
                 .isEqualTo("아리아");
-        verify(settingCandidateMapper).toReviewListResponse(firstGroupCandidate, false, null);
-        verify(settingCandidateMapper, never()).toReviewListResponse(secondGroupCandidate, false, null);
+        verify(settingCandidateMapper).toReviewListResponse(
+                firstGroupCandidate,
+                false,
+                null,
+                SettingCandidateValueValidation.invalid(
+                        CharacterErrorCode.SETTING_CANDIDATE_SCHEMA_NOT_MATCHED
+                )
+        );
+        verify(settingCandidateMapper, never()).toReviewListResponse(
+                secondGroupCandidate,
+                false,
+                null,
+                SettingCandidateValueValidation.valid()
+        );
     }
 
     @Test
@@ -316,6 +345,51 @@ class SettingCandidateServiceImplTest {
     }
 
     @Test
+    @DisplayName("조회 시 숫자가 아닌 NUMBER 표시값을 INVALID로 파생한다")
+    void getSettingCandidateDerivesInvalidNumberDisplayValue() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(
+                work,
+                "아리아",
+                "stats.strength",
+                "매우 강함",
+                SettingValueType.NUMBER,
+                objectMapper.createObjectNode().put("value", 17)
+        );
+        SettingCandidateResponse response = response(workId);
+        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdAndAnalysisJobBatchId(
+                candidateId,
+                workId,
+                batchId
+        )).thenReturn(Optional.of(candidate));
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(
+                schema("stats.strength", null, CharacterFactType.STAT, SettingValueType.NUMBER)
+        ));
+        when(settingCandidateMapper.toResponse(
+                candidate,
+                false,
+                null,
+                SettingCandidateValueValidation.invalid(
+                        CharacterErrorCode.SETTING_CANDIDATE_VALUE_FORMAT_INVALID
+                )
+        )).thenReturn(response);
+
+        SettingCandidateResponse result = service.getSettingCandidate(
+                memberId,
+                workId,
+                batchId,
+                candidateId
+        );
+
+        assertThat(result).isSameAs(response);
+    }
+
+    @Test
     @DisplayName("검토 대기 후보의 보정 가능 필드를 수정한다")
     void updateSettingCandidateUpdatesPendingCandidate() {
         Long memberId = 1L;
@@ -333,7 +407,12 @@ class SettingCandidateServiceImplTest {
         when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
-        when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
+        when(settingCandidateMapper.toResponse(
+                any(SettingCandidate.class),
+                anyBoolean(),
+                nullable(String.class),
+                any(SettingCandidateValueValidation.class)
+        ))
                 .thenReturn(response);
 
         SettingCandidateResponse result = service.updateSettingCandidate(memberId, workId, candidateId, request);
@@ -383,7 +462,12 @@ class SettingCandidateServiceImplTest {
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(schema));
-        when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
+        when(settingCandidateMapper.toResponse(
+                any(SettingCandidate.class),
+                anyBoolean(),
+                nullable(String.class),
+                any(SettingCandidateValueValidation.class)
+        ))
                 .thenReturn(response);
 
         service.updateSettingCandidate(memberId, workId, candidateId, request);
@@ -393,7 +477,12 @@ class SettingCandidateServiceImplTest {
         assertThat(candidate.getValueJson()).isSameAs(valueJson);
         assertThat(candidate.getEvidenceSpans()).isSameAs(originalEvidenceSpans);
         assertThat(candidate.getRawAiResultJson()).isSameAs(originalRawAiResult);
-        verify(settingCandidateMapper).toResponse(candidate, true, "skill.");
+        verify(settingCandidateMapper).toResponse(
+                candidate,
+                true,
+                "skill.",
+                SettingCandidateValueValidation.valid()
+        );
     }
 
     @Test
@@ -420,7 +509,12 @@ class SettingCandidateServiceImplTest {
         when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
-        when(settingCandidateMapper.toResponse(candidate, false, null)).thenReturn(response);
+        when(settingCandidateMapper.toResponse(
+                candidate,
+                false,
+                null,
+                SettingCandidateValueValidation.valid()
+        )).thenReturn(response);
 
         service.updateSettingCandidate(
                 memberId,
@@ -433,6 +527,49 @@ class SettingCandidateServiceImplTest {
         assertThat(candidate.getValueJson().get("value").isNumber()).isTrue();
         assertThat(candidate.getEvidenceSpans()).isSameAs(originalEvidenceSpans);
         assertThat(candidate.getRawAiResultJson()).isSameAs(originalRawAiResult);
+    }
+
+    @Test
+    @DisplayName("잘못된 일반 NUMBER 후보는 숫자 표시값으로 수정해 typed envelope를 복구한다")
+    void updateSettingCandidateRepairsInvalidStatDisplayValue() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(
+                work,
+                "아리아",
+                "stats.strength",
+                "매우 강함",
+                SettingValueType.NUMBER,
+                objectMapper.createObjectNode().put("value", 17)
+        );
+        SettingCandidateResponse response = response(workId);
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId))
+                .thenReturn(Optional.of(candidate));
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(
+                schema("stats.strength", null, CharacterFactType.STAT, SettingValueType.NUMBER)
+        ));
+        when(settingCandidateMapper.toResponse(
+                candidate,
+                false,
+                null,
+                SettingCandidateValueValidation.valid()
+        )).thenReturn(response);
+
+        SettingCandidateResponse result = service.updateSettingCandidate(
+                memberId,
+                workId,
+                candidateId,
+                new SettingCandidateUpdateRequest("stats.strength", "17")
+        );
+
+        assertThat(result).isSameAs(response);
+        assertThat(candidate.getAttributeValue()).isEqualTo("17");
+        assertThat(candidate.getValueJson().get("value").isNumber()).isTrue();
+        assertThat(candidate.getValueJson().get("value").decimalValue())
+                .isEqualByComparingTo("17");
     }
 
     @Test
@@ -460,7 +597,12 @@ class SettingCandidateServiceImplTest {
         when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
-        when(settingCandidateMapper.toResponse(candidate, false, null)).thenReturn(response);
+        when(settingCandidateMapper.toResponse(
+                candidate,
+                false,
+                null,
+                SettingCandidateValueValidation.valid()
+        )).thenReturn(response);
 
         service.updateSettingCandidate(
                 memberId,
@@ -499,7 +641,12 @@ class SettingCandidateServiceImplTest {
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(schema));
-        when(settingCandidateMapper.toResponse(candidate, true, "skill.")).thenReturn(response);
+        when(settingCandidateMapper.toResponse(
+                candidate,
+                true,
+                "skill.",
+                SettingCandidateValueValidation.valid()
+        )).thenReturn(response);
 
         service.updateSettingCandidate(
                 memberId,
@@ -510,7 +657,12 @@ class SettingCandidateServiceImplTest {
 
         assertThat(candidate.getAttributeValue()).isNull();
         assertThat(candidate.getValueJson()).isSameAs(valueJson);
-        verify(settingCandidateMapper).toResponse(candidate, true, "skill.");
+        verify(settingCandidateMapper).toResponse(
+                candidate,
+                true,
+                "skill.",
+                SettingCandidateValueValidation.valid()
+        );
     }
 
     @Test
@@ -543,7 +695,12 @@ class SettingCandidateServiceImplTest {
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(schema));
-        when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
+        when(settingCandidateMapper.toResponse(
+                any(SettingCandidate.class),
+                anyBoolean(),
+                nullable(String.class),
+                any(SettingCandidateValueValidation.class)
+        ))
                 .thenReturn(response);
 
         service.updateSettingCandidate(memberId, workId, candidateId, request);
@@ -611,7 +768,12 @@ class SettingCandidateServiceImplTest {
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(schema));
-        when(settingCandidateMapper.toResponse(candidate, true, "skill.")).thenReturn(response);
+        when(settingCandidateMapper.toResponse(
+                candidate,
+                true,
+                "skill.",
+                SettingCandidateValueValidation.valid()
+        )).thenReturn(response);
 
         service.updateSettingCandidate(
                 memberId,
@@ -623,7 +785,12 @@ class SettingCandidateServiceImplTest {
         assertThat(candidate.getAttributeName()).isEqualTo("skill.화염_검술");
         assertThat(candidate.getAttributeValue()).isEqualTo("Lv.4");
         assertThat(candidate.getValueJson()).hasToString("{\"name\":\"화염 검술\"}");
-        verify(settingCandidateMapper).toResponse(candidate, true, "skill.");
+        verify(settingCandidateMapper).toResponse(
+                candidate,
+                true,
+                "skill.",
+                SettingCandidateValueValidation.valid()
+        );
     }
 
     @Test
@@ -738,7 +905,7 @@ class SettingCandidateServiceImplTest {
         assertThatThrownBy(() -> service.updateSettingCandidate(memberId, workId, candidateId, request))
                 .isInstanceOfSatisfying(AppException.class, exception ->
                         assertThat(exception.getResultCode())
-                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_EDIT_VALUE_INVALID));
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_VALUE_FORMAT_INVALID));
 
         assertThat(candidate.getAttributeValue()).isEqualTo("10");
     }
@@ -792,7 +959,12 @@ class SettingCandidateServiceImplTest {
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(schema));
-        when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
+        when(settingCandidateMapper.toResponse(
+                any(SettingCandidate.class),
+                anyBoolean(),
+                nullable(String.class),
+                any(SettingCandidateValueValidation.class)
+        ))
                 .thenReturn(response);
 
         service.updateSettingCandidate(memberId, workId, candidateId, request);
@@ -837,7 +1009,12 @@ class SettingCandidateServiceImplTest {
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(schema));
-        when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
+        when(settingCandidateMapper.toResponse(
+                any(SettingCandidate.class),
+                anyBoolean(),
+                nullable(String.class),
+                any(SettingCandidateValueValidation.class)
+        ))
                 .thenReturn(response);
 
         service.updateSettingCandidate(memberId, workId, candidateId, request);
@@ -871,7 +1048,8 @@ class SettingCandidateServiceImplTest {
         verify(settingCandidateMapper, never()).toResponse(
                 any(SettingCandidate.class),
                 anyBoolean(),
-                nullable(String.class)
+                nullable(String.class),
+                any(SettingCandidateValueValidation.class)
         );
     }
 
@@ -897,7 +1075,12 @@ class SettingCandidateServiceImplTest {
                 .thenReturn(Optional.of(character));
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
-        when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
+        when(settingCandidateMapper.toResponse(
+                any(SettingCandidate.class),
+                anyBoolean(),
+                nullable(String.class),
+                any(SettingCandidateValueValidation.class)
+        ))
                 .thenReturn(response);
 
         SettingCandidateResponse result =
@@ -930,7 +1113,12 @@ class SettingCandidateServiceImplTest {
                 .thenReturn(false);
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
-        when(settingCandidateMapper.toResponse(any(SettingCandidate.class), anyBoolean(), nullable(String.class)))
+        when(settingCandidateMapper.toResponse(
+                any(SettingCandidate.class),
+                anyBoolean(),
+                nullable(String.class),
+                any(SettingCandidateValueValidation.class)
+        ))
                 .thenReturn(response);
 
         SettingCandidateResponse result =
@@ -968,7 +1156,8 @@ class SettingCandidateServiceImplTest {
         verify(settingCandidateMapper, never()).toResponse(
                 any(SettingCandidate.class),
                 anyBoolean(),
-                nullable(String.class)
+                nullable(String.class),
+                any(SettingCandidateValueValidation.class)
         );
     }
 
@@ -1001,7 +1190,8 @@ class SettingCandidateServiceImplTest {
         verify(settingCandidateMapper, never()).toResponse(
                 any(SettingCandidate.class),
                 anyBoolean(),
-                nullable(String.class)
+                nullable(String.class),
+                any(SettingCandidateValueValidation.class)
         );
     }
 
@@ -1033,7 +1223,8 @@ class SettingCandidateServiceImplTest {
         verify(settingCandidateMapper, never()).toResponse(
                 any(SettingCandidate.class),
                 anyBoolean(),
-                nullable(String.class)
+                nullable(String.class),
+                any(SettingCandidateValueValidation.class)
         );
     }
 
@@ -1066,7 +1257,8 @@ class SettingCandidateServiceImplTest {
         verify(settingCandidateMapper, never()).toResponse(
                 any(SettingCandidate.class),
                 anyBoolean(),
-                nullable(String.class)
+                nullable(String.class),
+                any(SettingCandidateValueValidation.class)
         );
     }
 
@@ -1097,7 +1289,8 @@ class SettingCandidateServiceImplTest {
         verify(settingCandidateMapper, never()).toResponse(
                 any(SettingCandidate.class),
                 anyBoolean(),
-                nullable(String.class)
+                nullable(String.class),
+                any(SettingCandidateValueValidation.class)
         );
     }
 
@@ -1341,7 +1534,14 @@ class SettingCandidateServiceImplTest {
                 )
         )).thenReturn(false);
         when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of());
-        when(settingCandidateMapper.toResponse(candidate, false, null)).thenReturn(response);
+        when(settingCandidateMapper.toResponse(
+                candidate,
+                false,
+                null,
+                SettingCandidateValueValidation.invalid(
+                        CharacterErrorCode.SETTING_CANDIDATE_SCHEMA_NOT_MATCHED
+                )
+        )).thenReturn(response);
 
         SettingCandidateResponse result = service.retryComparison(memberId, workId, candidateId);
 
@@ -1508,6 +1708,16 @@ class SettingCandidateServiceImplTest {
                 "12",
                 CharacterFactOperation.ADD
         );
+        ReflectionTestUtils.setField(
+                first,
+                "evidenceSpans",
+                objectMapper.createArrayNode().add(objectMapper.createObjectNode().put("startOffset", 1))
+        );
+        ReflectionTestUtils.setField(
+                second,
+                "evidenceSpans",
+                objectMapper.createArrayNode().add(objectMapper.createObjectNode().put("startOffset", 2))
+        );
         List<SettingCandidate> candidates = List.of(first, second);
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(uploadBatchRepository.findByIdAndWorkId(batchId, workId))
@@ -1567,7 +1777,7 @@ class SettingCandidateServiceImplTest {
                 attributeName,
                 attributeValue,
                 SettingValueType.NUMBER,
-                objectMapper.createObjectNode().put("value", attributeValue)
+                objectMapper.createObjectNode().put("value", new BigDecimal(attributeValue))
         );
     }
 
@@ -1669,6 +1879,11 @@ class SettingCandidateServiceImplTest {
                 "17",
                 SettingValueType.NUMBER,
                 objectMapper.createObjectNode().put("value", 17),
+                new SettingCandidateValueValidationResponse(
+                        SettingCandidateValueValidationStatus.VALID,
+                        null,
+                        null
+                ),
                 List.of(),
                 new BigDecimal("0.8000"),
                 SettingCandidateReviewStatus.PENDING_REVIEW,

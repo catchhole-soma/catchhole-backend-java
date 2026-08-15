@@ -45,6 +45,14 @@ public enum CharacterErrorCode implements ResultCode {
     SETTING_CANDIDATE_SCHEMA_MATCH_AMBIGUOUS(HttpStatus.CONFLICT, "설정 후보 속성과 일치하는 schema가 여러 개입니다."),
     SETTING_CANDIDATE_VALUE_TYPE_MISMATCH(HttpStatus.BAD_REQUEST, "설정 후보 값 타입이 schema와 일치하지 않습니다."),
     SETTING_CANDIDATE_VALUE_INVALID(HttpStatus.BAD_REQUEST, "나이와 레벨 설정 후보 값은 0 이상의 정수여야 합니다."),
+    SETTING_CANDIDATE_VALUE_FORMAT_INVALID(
+            HttpStatus.BAD_REQUEST,
+            "설정 후보의 표시값이 값 타입과 일치하지 않습니다."
+    ),
+    SETTING_CANDIDATE_VALUE_MISMATCH(
+            HttpStatus.BAD_REQUEST,
+            "설정 후보의 표시값과 구조화 값이 서로 일치하지 않습니다."
+    ),
     SETTING_CANDIDATE_VALUE_JSON_INVALID(
             HttpStatus.BAD_REQUEST,
             "설정 후보의 구조화 값에 유효하지 않은 속성 key 또는 값 형식이 있습니다."

@@ -98,6 +98,11 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         }
 
         SettingCandidateSchemaMatch schemaMatch = resolveSchema(candidate);
+        valueValidator.validateCandidate(
+                candidate,
+                schemaMatch.matchedSchema().getFactType(),
+                schemaMatch.matchedSchema().getValueType()
+        );
         ResolvedCharacter resolved = resolveCharacterForPromotion(candidate);
         promoteSetting(candidate, applicationMode, schemaMatch, resolved, versionedCharacterIds);
     }
@@ -127,6 +132,18 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         if (existsCharacterByGroupName(workId, characterName)) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
         }
+
+        promotions.stream()
+                .map(SettingCandidateGroupPromotion::candidate)
+                .filter(candidate -> !candidate.isCharacterDiscovery())
+                .forEach(candidate -> {
+                    SettingCandidateSchemaMatch schemaMatch = resolveSchema(candidate);
+                    valueValidator.validateCandidate(
+                            candidate,
+                            schemaMatch.matchedSchema().getFactType(),
+                            schemaMatch.matchedSchema().getValueType()
+                    );
+                });
 
         WorkCharacter character = workCharacterRepository.save(promotionMapper.toWorkCharacter(representative));
         ResolvedCharacter resolved = new ResolvedCharacter(character, true, false);
@@ -218,6 +235,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         }
         valueValidator.validateProposal(
                 proposedValue,
+                proposedFactValue,
                 factType,
                 schemaMatch.matchedSchema().getValueType()
         );
