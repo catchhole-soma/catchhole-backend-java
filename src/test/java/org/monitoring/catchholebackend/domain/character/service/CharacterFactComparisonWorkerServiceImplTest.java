@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -161,6 +162,53 @@ class CharacterFactComparisonWorkerServiceImplTest {
     }
 
     @Test
+    @DisplayName("잘못된 후보를 격리하고 다음 정상 후보를 claim한다")
+    void claimSkipsInvalidCandidateAndContinuesQueue() {
+        SettingCandidate invalid = newCandidate(
+                "stats.mental",
+                "정신: 37",
+                SettingValueType.NUMBER,
+                value(37)
+        );
+        SettingCandidate valid = newCandidate(
+                "stats.strength",
+                "10",
+                SettingValueType.NUMBER,
+                value(10)
+        );
+        when(schemaRepository.findAllActiveForWork(work.getId())).thenReturn(List.of(
+                schema("stats.mental", null, CharacterFactType.STAT, SettingValueType.NUMBER),
+                schema("stats.strength", null, CharacterFactType.STAT, SettingValueType.NUMBER)
+        ));
+        when(candidateRepository.findComparisonClaimCandidates(
+                eq(analysisJobId),
+                eq(SettingCandidateReviewStatus.PENDING_REVIEW),
+                eq(CharacterFactComparisonStatus.PENDING),
+                any(Pageable.class)
+        )).thenReturn(List.of(invalid), List.of(valid));
+        when(candidateRepository.findByIdAndWorkIdForUpdate(valid.getId(), work.getId()))
+                .thenReturn(Optional.of(valid));
+        when(characterRepository.findByIdAndWorkId(character.getId(), work.getId()))
+                .thenReturn(Optional.of(character));
+        when(characterRepository.findByIdAndWorkIdForUpdate(character.getId(), work.getId()))
+                .thenReturn(Optional.of(character));
+
+        var claimed = service.claimNextCharacterFactComparison(analysisJobId, leaseToken);
+        var context = service.getCharacterFactComparisonContext(
+                analysisJobId,
+                valid.getId(),
+                leaseToken
+        );
+
+        assertThat(claimed).isPresent();
+        assertThat(claimed.orElseThrow().candidateId()).isEqualTo(valid.getId());
+        assertThat(context.candidate().candidateId()).isEqualTo(valid.getId());
+        assertThat(invalid.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.NOT_REQUIRED);
+        assertThat(valid.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PROCESSING);
+        verify(candidateRepository).flush();
+    }
+
+    @Test
     @DisplayName("같은 batch의 앞선 동일 STAT 후보를 미확정 시간순 문맥으로 제공한다")
     void sameSlotPriorCandidateIsIncludedAsChronology() {
         UploadBatch batch = mock(UploadBatch.class);
@@ -209,6 +257,57 @@ class CharacterFactComparisonWorkerServiceImplTest {
         assertThat(context.priorCandidates().getFirst().attributeValue()).isEqualTo("35");
         assertThat(context.priorCandidates().getFirst().comparisonStatus())
                 .isEqualTo(CharacterFactComparisonStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("잘못된 앞선 다른 slot 후보는 현재 후보 문맥을 막지 않는다")
+    void invalidPriorCandidateDoesNotPoisonContext() {
+        UploadBatch batch = mock(UploadBatch.class);
+        UUID batchId = UUID.randomUUID();
+        when(batch.getId()).thenReturn(batchId);
+        ReflectionTestUtils.setField(analysisJob, "batch", batch);
+
+        CharacterSettingSchema mentalSchema = schema(
+                "stats.mental",
+                null,
+                CharacterFactType.STAT,
+                SettingValueType.NUMBER
+        );
+        CharacterSettingSchema strengthSchema = schema(
+                "stats.strength",
+                null,
+                CharacterFactType.STAT,
+                SettingValueType.NUMBER
+        );
+        SettingCandidate prior = newCandidate(
+                "stats.strength",
+                "힘: 10",
+                SettingValueType.NUMBER,
+                value(10)
+        );
+        ReflectionTestUtils.setField(prior, "createdAt", LocalDateTime.of(2026, 8, 1, 0, 0));
+        SettingCandidate candidate = prepareCandidate(
+                "stats.mental",
+                "37",
+                SettingValueType.NUMBER,
+                value(37),
+                mentalSchema
+        );
+        ReflectionTestUtils.setField(candidate, "createdAt", LocalDateTime.of(2026, 8, 2, 0, 0));
+        when(schemaRepository.findAllActiveForWork(work.getId()))
+                .thenReturn(List.of(mentalSchema, strengthSchema));
+        when(candidateRepository.findPendingComparisonChronology(
+                work.getId(),
+                batchId,
+                character.getId(),
+                SettingCandidateReviewStatus.PENDING_REVIEW
+        )).thenReturn(List.of(candidate, prior));
+
+        WorkerCharacterFactComparisonContextResponse context = claimAndGetContext(candidate);
+
+        assertThat(context.priorCandidates()).isEmpty();
+        assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PROCESSING);
+        assertThat(prior.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PENDING);
     }
 
     @Test

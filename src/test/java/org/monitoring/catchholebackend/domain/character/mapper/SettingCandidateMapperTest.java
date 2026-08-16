@@ -15,6 +15,7 @@ import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
+import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessor;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSourceManager;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateValueValidation;
@@ -97,8 +98,50 @@ class SettingCandidateMapperTest {
                 .isEqualTo(SettingCandidateValueValidationStatus.VALID);
         assertThat(response.valueValidation().errorCode()).isNull();
         assertThat(response.valueValidation().message()).isNull();
+        assertThat(response.valueValidation().repairable()).isFalse();
         assertThat(response.evidenceSpans()).isInstanceOf(List.class);
         assertThat(response.rawAiResultJson()).isInstanceOf(Map.class);
+    }
+
+    @Test
+    @DisplayName("값 오류와 schema 오류의 수정 가능 여부를 구분한다")
+    void toResponseMapsValidationRepairability() {
+        Work work = work(UUID.randomUUID());
+        SettingCandidate candidate = SettingCandidate.create(
+                work,
+                null,
+                null,
+                null,
+                SettingEntityType.CHARACTER,
+                "아리아",
+                "stats.mental",
+                "정신: 37",
+                SettingValueType.NUMBER,
+                objectMapper.createObjectNode().put("value", 37),
+                objectMapper.createArrayNode(),
+                new BigDecimal("0.8000"),
+                objectMapper.createObjectNode()
+        );
+
+        SettingCandidateResponse repairable = mapper.toResponse(
+                candidate,
+                false,
+                null,
+                SettingCandidateValueValidation.invalid(
+                        CharacterErrorCode.SETTING_CANDIDATE_VALUE_FORMAT_INVALID
+                )
+        );
+        SettingCandidateResponse unrepairable = mapper.toResponse(
+                candidate,
+                false,
+                null,
+                SettingCandidateValueValidation.unrepairableInvalid(
+                        CharacterErrorCode.SETTING_CANDIDATE_SCHEMA_NOT_MATCHED
+                )
+        );
+
+        assertThat(repairable.valueValidation().repairable()).isTrue();
+        assertThat(unrepairable.valueValidation().repairable()).isFalse();
     }
 
     @Test

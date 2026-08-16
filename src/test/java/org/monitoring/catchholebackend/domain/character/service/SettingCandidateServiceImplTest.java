@@ -263,7 +263,7 @@ class SettingCandidateServiceImplTest {
                 firstGroupCandidate,
                 false,
                 null,
-                SettingCandidateValueValidation.invalid(
+                SettingCandidateValueValidation.unrepairableInvalid(
                         CharacterErrorCode.SETTING_CANDIDATE_SCHEMA_NOT_MATCHED
                 )
         ))
@@ -288,7 +288,7 @@ class SettingCandidateServiceImplTest {
                 firstGroupCandidate,
                 false,
                 null,
-                SettingCandidateValueValidation.invalid(
+                SettingCandidateValueValidation.unrepairableInvalid(
                         CharacterErrorCode.SETTING_CANDIDATE_SCHEMA_NOT_MATCHED
                 )
         );
@@ -1533,14 +1533,13 @@ class SettingCandidateServiceImplTest {
                         org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING
                 )
         )).thenReturn(false);
-        when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of());
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId))
+                .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
         when(settingCandidateMapper.toResponse(
                 candidate,
                 false,
                 null,
-                SettingCandidateValueValidation.invalid(
-                        CharacterErrorCode.SETTING_CANDIDATE_SCHEMA_NOT_MATCHED
-                )
+                SettingCandidateValueValidation.valid()
         )).thenReturn(response);
 
         SettingCandidateResponse result = service.retryComparison(memberId, workId, candidateId);
@@ -1551,6 +1550,47 @@ class SettingCandidateServiceImplTest {
         verify(analysisJobRepository, never())
                 .findFirstBySettingCandidateIdAndStatusInOrderByCreatedAtDesc(any(), any());
         verify(aiTokenService).ensureAnalysisCanStart(memberId);
+    }
+
+    @Test
+    @DisplayName("유효하지 않은 후보는 재비교 Job을 만들지 않는다")
+    void retryComparisonRejectsInvalidCandidateBeforeEnqueue() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        WorkCharacter character = character(work, UUID.randomUUID(), "아리아");
+        SettingCandidate candidate = candidate(
+                work,
+                "아리아",
+                "stats.mental",
+                "정신: 37",
+                SettingValueType.NUMBER,
+                objectMapper.createObjectNode().put("value", 37)
+        );
+        ReflectionTestUtils.setField(candidate, "id", candidateId);
+        candidate.matchExistingCharacter(character);
+        ReflectionTestUtils.setField(
+                candidate,
+                "comparisonStatus",
+                CharacterFactComparisonStatus.FAILED
+        );
+
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId))
+                .thenReturn(Optional.of(candidate));
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(
+                schema("stats.mental", null, CharacterFactType.STAT, SettingValueType.NUMBER)
+        ));
+
+        assertThatThrownBy(() -> service.retryComparison(memberId, workId, candidateId))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_VALUE_FORMAT_INVALID));
+
+        assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.FAILED);
+        verify(analysisJobRepository, never()).save(any(AnalysisJob.class));
+        verifyNoInteractions(aiTokenService);
     }
 
     @Test
@@ -1882,7 +1922,8 @@ class SettingCandidateServiceImplTest {
                 new SettingCandidateValueValidationResponse(
                         SettingCandidateValueValidationStatus.VALID,
                         null,
-                        null
+                        null,
+                        false
                 ),
                 List.of(),
                 new BigDecimal("0.8000"),

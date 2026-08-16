@@ -90,29 +90,44 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
                 leaseToken
         );
         SettingCandidate candidate;
+        CanonicalTarget target;
         if (analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION) {
             if (!analysisJob.hasReachedCheckpoint(AnalysisJobCheckpointStage.CHARACTER_CANDIDATES_SAVED)) {
                 throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_CHECKPOINT_INCOMPLETE);
             }
-            candidate = settingCandidateRepository.findComparisonClaimCandidates(
-                    analysisJobId,
-                    SettingCandidateReviewStatus.PENDING_REVIEW,
-                    CharacterFactComparisonStatus.PENDING,
-                    PageRequest.of(0, CLAIM_SIZE)
-            ).stream().findFirst().orElse(null);
+            while (true) {
+                candidate = settingCandidateRepository.findComparisonClaimCandidates(
+                        analysisJobId,
+                        SettingCandidateReviewStatus.PENDING_REVIEW,
+                        CharacterFactComparisonStatus.PENDING,
+                        PageRequest.of(0, CLAIM_SIZE)
+                ).stream().findFirst().orElse(null);
+                if (candidate == null) {
+                    return Optional.empty();
+                }
+                Optional<CanonicalTarget> claimTarget = findValidCanonicalTarget(candidate);
+                if (claimTarget.isPresent()) {
+                    target = claimTarget.get();
+                    break;
+                }
+                candidate.quarantineInvalidComparison();
+                settingCandidateRepository.flush();
+            }
         } else if (analysisJob.getJobType() == AnalysisJobType.CHARACTER_FACT_COMPARISON) {
             candidate = lockLinkedCandidate(analysisJob);
             if (candidate.getComparisonStatus() != CharacterFactComparisonStatus.PENDING) {
                 return Optional.empty();
             }
+            Optional<CanonicalTarget> claimTarget = findValidCanonicalTarget(candidate);
+            if (claimTarget.isEmpty()) {
+                candidate.quarantineInvalidComparison();
+                return Optional.empty();
+            }
+            target = claimTarget.get();
         } else {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_WORKER_JOB_INVALID);
         }
-        if (candidate == null) {
-            return Optional.empty();
-        }
         candidate.startComparison();
-        CanonicalTarget target = resolveCanonicalTarget(candidate);
         WorkCharacter character = getMatchedCharacter(candidate, false);
         return Optional.of(workerMapper.toCandidatePayload(
                 candidate,
@@ -327,7 +342,11 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
             if (prior.getId().equals(candidate.getId())) {
                 break;
             }
-            CanonicalTarget priorTarget = resolveCanonicalTarget(prior);
+            Optional<CanonicalTarget> resolvedPriorTarget = findValidCanonicalTarget(prior);
+            if (resolvedPriorTarget.isEmpty()) {
+                continue;
+            }
+            CanonicalTarget priorTarget = resolvedPriorTarget.get();
             if (priorTarget.factType() != target.factType()
                     || !priorTarget.factKey().equals(target.factKey())) {
                 continue;
@@ -562,6 +581,17 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
                 match.factKey(),
                 match.matchedSchema().getValueType()
         );
+    }
+
+    private Optional<CanonicalTarget> findValidCanonicalTarget(SettingCandidate candidate) {
+        try {
+            return Optional.of(resolveCanonicalTarget(candidate));
+        } catch (AppException exception) {
+            if (exception.getResultCode() instanceof CharacterErrorCode) {
+                return Optional.empty();
+            }
+            throw exception;
+        }
     }
 
     private WorkCharacter getMatchedCharacter(SettingCandidate candidate, boolean forUpdate) {

@@ -460,6 +460,15 @@ public class SettingCandidate extends BaseEntity {
         comparisonErrorMessage = null;
     }
 
+    public void quarantineInvalidComparison() {
+        validateReviewContentEditable();
+        if (comparisonStatus != CharacterFactComparisonStatus.PENDING) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        clearComparisonProposal();
+        comparisonStatus = CharacterFactComparisonStatus.NOT_REQUIRED;
+    }
+
     public void recordComparisonContext(long snapshotVersion, String contextHash) {
         if (comparisonStatus != CharacterFactComparisonStatus.PROCESSING) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);

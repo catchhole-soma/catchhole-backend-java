@@ -24,6 +24,13 @@ public record SettingCandidateValueValidationResponse(
                 example = "설정 후보의 표시값이 값 타입과 일치하지 않습니다.",
                 nullable = true
         )
-        String message
+        String message,
+
+        @Schema(
+                description = "현재 후보 수정 API로 오류를 복구할 수 있는지 여부",
+                example = "true",
+                requiredMode = Schema.RequiredMode.REQUIRED
+        )
+        boolean repairable
 ) {
 }

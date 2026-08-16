@@ -510,9 +510,19 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         if (candidate.getComparisonStatus() == CharacterFactComparisonStatus.COMPLETED) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
+        List<CharacterSettingSchema> schemas = characterSettingSchemaRepository.findAllActiveForWork(work.getId());
+        SettingCandidateSchemaMatch schemaMatch = settingCandidateSchemaResolver.resolve(
+                candidate.getAttributeName(),
+                candidate.getValueType(),
+                schemas
+        );
+        characterSettingValueValidator.validateCandidate(
+                candidate,
+                schemaMatch.matchedSchema().getFactType(),
+                schemaMatch.matchedSchema().getValueType()
+        );
         candidate.requestComparison();
         enqueueComparisonJobIfNeeded(memberId, candidate);
-        List<CharacterSettingSchema> schemas = characterSettingSchemaRepository.findAllActiveForWork(work.getId());
         return toResponse(candidate, schemas);
     }
 
@@ -929,7 +939,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 return new CandidateResponseMetadata(
                         false,
                         null,
-                        SettingCandidateValueValidation.invalid(errorCode)
+                        SettingCandidateValueValidation.unrepairableInvalid(errorCode)
                 );
             }
             throw exception;

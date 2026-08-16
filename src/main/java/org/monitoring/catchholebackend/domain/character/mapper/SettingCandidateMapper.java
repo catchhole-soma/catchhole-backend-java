@@ -113,7 +113,8 @@ public class SettingCandidateMapper {
         return new SettingCandidateValueValidationResponse(
                 validation.status(),
                 validation.errorCode() == null ? null : validation.errorCode().getCode(),
-                validation.errorCode() == null ? null : validation.errorCode().getMessage()
+                validation.errorCode() == null ? null : validation.errorCode().getMessage(),
+                validation.repairable()
         );
     }
 
