@@ -37,6 +37,7 @@ import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -181,7 +182,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             markTargetEpisodesAnalyzed(analysisJob);
         } else {
             failProcessingWorldCandidates(analysisJob, failureCode, request.errorMessage());
-            failProcessingCharacterCandidates(analysisJob, request.errorMessage());
+            failProcessingCharacterCandidates(analysisJob, failureCode, request.errorMessage());
         }
         if (!isHiddenComparisonJob(analysisJob) && !resumableTokenInterruption) {
             markTargetEpisodesFailed(analysisJob);
@@ -270,7 +271,11 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                         AnalysisFailureCode.WORKER_LEASE_EXPIRED,
                         LEASE_EXPIRED_MESSAGE
                 );
-                failProcessingCharacterCandidates(expiredJob, LEASE_EXPIRED_MESSAGE);
+                failProcessingCharacterCandidates(
+                        expiredJob,
+                        AnalysisFailureCode.WORKER_LEASE_EXPIRED,
+                        LEASE_EXPIRED_MESSAGE
+                );
                 if (!isHiddenComparisonJob(expiredJob)) {
                     markTargetEpisodesFailed(expiredJob);
                 }
@@ -327,11 +332,12 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             AnalysisJob analysisJob,
             String errorMessage
     ) {
-        List.of(WorldSettingComparisonStatus.PENDING, WorldSettingComparisonStatus.PROCESSING)
-                .stream()
-                .flatMap(status -> worldSettingCandidateRepository
-                        .findAllByAnalysisJobIdAndComparisonStatus(analysisJob.getId(), status)
-                        .stream())
+        worldSettingCandidateRepository
+                .findAllByAnalysisJobIdAndReviewStatusAndComparisonStatusIn(
+                        analysisJob.getId(),
+                        WorldSettingReviewStatus.PENDING_REVIEW,
+                        List.of(WorldSettingComparisonStatus.PENDING, WorldSettingComparisonStatus.PROCESSING)
+                )
                 .forEach(candidate -> candidate.interruptComparisonForTokenQuota(errorMessage));
     }
 
@@ -349,7 +355,11 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         }
     }
 
-    private void failProcessingCharacterCandidates(AnalysisJob analysisJob, String errorMessage) {
+    private void failProcessingCharacterCandidates(
+            AnalysisJob analysisJob,
+            AnalysisFailureCode failureCode,
+            String errorMessage
+    ) {
         if (analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION) {
             settingCandidateRepository.findAllByAnalysisJobIdAndComparisonStatusIn(
                     analysisJob.getId(),
@@ -357,7 +367,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                             CharacterFactComparisonStatus.PENDING,
                             CharacterFactComparisonStatus.PROCESSING
                     )
-            ).forEach(candidate -> candidate.failComparison(errorMessage));
+            ).forEach(candidate -> candidate.failComparison(failureCode, errorMessage));
             return;
         }
         if (analysisJob.getJobType() == AnalysisJobType.CHARACTER_FACT_COMPARISON
@@ -366,7 +376,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 == CharacterFactComparisonStatus.PENDING
                 || analysisJob.getSettingCandidate().getComparisonStatus()
                 == CharacterFactComparisonStatus.PROCESSING)) {
-            analysisJob.getSettingCandidate().failComparison(errorMessage);
+            analysisJob.getSettingCandidate().failComparison(failureCode, errorMessage);
         }
     }
 

@@ -235,6 +235,13 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             WorldSettingComparisonStatus comparisonStatus
     );
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    List<WorldSettingCandidate> findAllByAnalysisJobIdAndReviewStatusAndComparisonStatusIn(
+            UUID analysisJobId,
+            WorldSettingReviewStatus reviewStatus,
+            Collection<WorldSettingComparisonStatus> comparisonStatuses
+    );
+
     boolean existsByAnalysisJobIdAndComparisonStatusIn(
             UUID analysisJobId,
             Collection<WorldSettingComparisonStatus> comparisonStatuses

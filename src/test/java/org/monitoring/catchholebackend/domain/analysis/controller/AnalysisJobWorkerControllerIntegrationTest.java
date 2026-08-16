@@ -64,6 +64,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCa
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.monitoring.catchholebackend.global.config.security.SecurityConstant;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -931,7 +932,9 @@ class AnalysisJobWorkerControllerIntegrationTest {
         WorldSettingCandidate pending = worldCandidate(analysisJob, "마탑", "위치", "황도 중앙");
         WorldSettingCandidate processing = worldCandidate(analysisJob, "왕국", "수도", "아르덴");
         processing.startComparison();
-        worldSettingCandidateRepository.saveAllAndFlush(List.of(completed, pending, processing));
+        WorldSettingCandidate dismissed = worldCandidate(analysisJob, "폐허", "상태", "봉인됨");
+        dismissed.dismiss("사용자가 제외함", member);
+        worldSettingCandidateRepository.saveAllAndFlush(List.of(completed, pending, processing, dismissed));
 
         mockMvc.perform(post("/api/internal/v1/analysis-jobs/{analysisJobId}/fail", analysisJob.getId())
                         .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
@@ -958,6 +961,13 @@ class AnalysisJobWorkerControllerIntegrationTest {
                     assertThat(candidate.getComparisonFailureCode())
                             .isEqualTo(AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED);
                 });
+        assertThat(worldSettingCandidateRepository.findById(dismissed.getId()))
+                .get()
+                .satisfies(candidate -> {
+                    assertThat(candidate.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.DISMISSED);
+                    assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.PENDING);
+                    assertThat(candidate.getComparisonFailureCode()).isNull();
+                });
 
         String accessToken = jwtTokenProvider.generateAccessToken(member);
         mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/{analysisJobId}",
@@ -967,6 +977,39 @@ class AnalysisJobWorkerControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.failureCode").value("AI_TOKEN_QUOTA_EXHAUSTED"))
                 .andExpect(jsonPath("$.data.tokenInterruptedAfterExtraction").value(true))
                 .andExpect(jsonPath("$.data.errorMessage").value("AI 토큰이 부족해 분석이 중단되었습니다."));
+    }
+
+    @Test
+    @DisplayName("추출 작업이 아닌 실패는 게시 체크포인트가 있어도 재개 가능한 토큰 중단으로 분류하지 않는다")
+    void tokenQuotaAfterWorldCandidatesIsNotResumableForEpisodeValidation() throws Exception {
+        AnalysisJob analysisJob = episodeJob(AnalysisJobType.EPISODE_VALIDATION, firstEpisode);
+        analysisJob.claim("gpt-5.6-terra", "회차 검증", LocalDateTime.now().plusMinutes(5));
+        analysisJob.updateCheckpointStage(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+        analysisJobRepository.saveAndFlush(analysisJob);
+
+        mockMvc.perform(post("/api/internal/v1/analysis-jobs/{analysisJobId}/fail", analysisJob.getId())
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, analysisJob.getLeaseToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "failureCode": "AI_TOKEN_QUOTA_EXHAUSTED",
+                                  "errorMessage": "provider raw error"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        AnalysisJob failedJob = analysisJobRepository.findById(analysisJob.getId()).orElseThrow();
+        assertThat(failedJob.isResumableTokenInterruption()).isFalse();
+        assertThat(episodeRepository.findById(firstEpisode.getId()).orElseThrow().getStatus())
+                .isEqualTo(org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.FAILED);
+
+        String accessToken = jwtTokenProvider.generateAccessToken(member);
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/{analysisJobId}",
+                                work.getId(), analysisJob.getId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.tokenInterruptedAfterExtraction").value(false));
     }
 
     @Test

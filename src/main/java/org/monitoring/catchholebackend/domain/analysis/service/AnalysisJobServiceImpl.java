@@ -92,6 +92,10 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         if (targetEpisodes.stream().anyMatch(targetEpisode -> hasActiveAnalysisJob(batch, targetEpisode))) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_ALREADY_IN_PROGRESS);
         }
+        if (targetEpisodes.stream().anyMatch(targetEpisode ->
+                hasResumableTokenInterruption(batch, targetEpisode, request.jobType()))) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
+        }
 
         deleteSupersededPendingCandidates(
                 work.getId(),
@@ -367,6 +371,24 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                             failedJob.getJobType()
                     ));
                 });
+    }
+
+    private boolean hasResumableTokenInterruption(
+            UploadBatch batch,
+            Episode episode,
+            AnalysisJobType jobType
+    ) {
+        if (jobType != AnalysisJobType.SETTING_EXTRACTION) {
+            return false;
+        }
+        return analysisJobRepository
+                .findFirstByEpisodeIdAndBatchIdAndJobTypeOrderByCreatedAtDesc(
+                        episode.getId(),
+                        batch.getId(),
+                        jobType
+                )
+                .filter(AnalysisJob::isResumableTokenInterruption)
+                .isPresent();
     }
 
     private void assertPublicJobType(AnalysisJobType jobType) {

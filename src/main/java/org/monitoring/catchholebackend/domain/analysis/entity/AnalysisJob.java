@@ -346,7 +346,8 @@ public class AnalysisJob extends BaseEntity {
 
     /** 1차 추출 결과를 보존한 채 세계관 비교만 다시 시작할 수 있는 토큰 중단인지 판별한다. */
     public boolean isResumableTokenInterruption() {
-        return status == AnalysisJobStatus.FAILED
+        return jobType == AnalysisJobType.SETTING_EXTRACTION
+                && status == AnalysisJobStatus.FAILED
                 && failureCode == AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED
                 && hasReachedCheckpoint(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
     }

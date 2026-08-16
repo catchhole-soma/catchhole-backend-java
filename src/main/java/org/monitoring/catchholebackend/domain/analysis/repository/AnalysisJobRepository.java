@@ -180,6 +180,12 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             Collection<AnalysisJobStatus> statuses
     );
 
+    Optional<AnalysisJob> findFirstByEpisodeIdAndBatchIdAndJobTypeOrderByCreatedAtDesc(
+            UUID episodeId,
+            UUID batchId,
+            AnalysisJobType jobType
+    );
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select analysisJob
