@@ -46,7 +46,9 @@ public class CharacterSettingValueValidator {
             return SettingCandidateValueValidation.valid();
         } catch (AppException exception) {
             if (exception.getResultCode() instanceof CharacterErrorCode errorCode) {
-                return SettingCandidateValueValidation.invalid(errorCode);
+                return candidate.isPendingReview()
+                        ? SettingCandidateValueValidation.invalid(errorCode)
+                        : SettingCandidateValueValidation.unrepairableInvalid(errorCode);
             }
             throw exception;
         }

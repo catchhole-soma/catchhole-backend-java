@@ -90,6 +90,27 @@ class CharacterSettingValueValidatorTest {
 
         assertThat(result.status()).isEqualTo(SettingCandidateValueValidationStatus.INVALID);
         assertThat(result.errorCode()).isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_VALUE_FORMAT_INVALID);
+        assertThat(result.repairable()).isTrue();
+    }
+
+    @Test
+    @DisplayName("검토 대기가 아닌 값 오류 후보는 수정 불가능하다")
+    void nonPendingInvalidCandidateIsNotRepairable() {
+        SettingCandidate candidate = candidate(
+                "열일곱 살",
+                JsonNodeFactory.instance.objectNode().put("value", 17),
+                false
+        );
+
+        SettingCandidateValueValidation result = validator.evaluateCandidate(
+                candidate,
+                CharacterFactType.STAT,
+                SettingValueType.NUMBER
+        );
+
+        assertThat(result.status()).isEqualTo(SettingCandidateValueValidationStatus.INVALID);
+        assertThat(result.errorCode()).isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_VALUE_FORMAT_INVALID);
+        assertThat(result.repairable()).isFalse();
     }
 
     @Test
@@ -163,8 +184,13 @@ class CharacterSettingValueValidatorTest {
     }
 
     private SettingCandidate candidate(String attributeValue, ObjectNode valueJson) {
+        return candidate(attributeValue, valueJson, true);
+    }
+
+    private SettingCandidate candidate(String attributeValue, ObjectNode valueJson, boolean pendingReview) {
         SettingCandidate candidate = mock(SettingCandidate.class);
         when(candidate.isCharacterDiscovery()).thenReturn(false);
+        when(candidate.isPendingReview()).thenReturn(pendingReview);
         when(candidate.getAttributeValue()).thenReturn(attributeValue);
         when(candidate.getValueJson()).thenReturn(valueJson);
         return candidate;
