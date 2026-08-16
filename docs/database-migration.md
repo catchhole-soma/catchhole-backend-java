@@ -144,6 +144,15 @@ V23은 캐릭터 DB에서 최근에 설정이나 기본 정보가 바뀐 캐릭�
 
 V24는 캐릭터 2차 비교가 현재 `STATUS` slot의 종료를 제안할 때 `setting_candidates.suggested_operation`에 `REMOVE`를 저장할 수 있도록 check constraint를 확장합니다.
 
+## V25 기준
+
+V25는 분석·세계관 비교 실패를 예외 문자열 파싱 없이 분류하고 토큰 중단 후보를 선택적으로 재개할 수 있게 합니다.
+
+- `analysis_jobs.failure_code VARCHAR(60) NULL`을 추가합니다.
+- `world_setting_candidates.comparison_failure_code VARCHAR(60) NULL`을 추가합니다.
+- `PENDING_REVIEW + FAILED + AI_TOKEN_QUOTA_EXHAUSTED` 후보의 배치 복구 조회를 위한 PostgreSQL partial index를 추가합니다.
+- 기존 행은 원인을 안전하게 추정할 수 없으므로 두 코드 모두 `NULL`로 유지하고 backfill하지 않습니다.
+
 ## V10 기준
 
 V10은 분석 목록의 업로드 배치 페이지 조회와 배치별 설정 후보 검토 현황 집계를 지원합니다.

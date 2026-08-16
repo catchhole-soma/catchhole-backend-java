@@ -556,6 +556,7 @@ LLM 전처리 출력은 다음 정보를 포함합니다.
 | Worker claim | 내부 API 인증 실패, Worker가 작업 수신 실패 | 인증 실패는 401로 응답하고, 수신 실패 시 `AnalysisJob`은 `PENDING` 유지 |
 | LLM 데이터 전처리 | LLM API 오류, 전처리 응답 스키마 오류, 장면/문단 매핑 실패 | Worker fail API가 작업과 대상 회차를 `FAILED`로 변경합니다. |
 | AI 설정 추출 | LLM API 오류, 응답 스키마 오류, timeout | `AnalysisJob` 실패 처리, 재시도 가능 |
+| 세계관 비교 중 사용자 사용량 부족 | Worker 예약 409 `AI_TOKEN_QUOTA_EXHAUSTED` | 첫 부족에서 같은 Job의 후속 비교를 중단합니다. 완료된 추출·비교는 보존하고 남은 후보만 재개 가능한 부분 중단으로 표시합니다. |
 | 후보 저장 | DB 오류, 근거 청크 매핑 실패 | 작업 실패 처리, 중복 저장 방지를 위해 작업 단위 idempotency 필요 |
 | 기존 원고 내부 검수 | 비교 대상 후보 부족, 회차 순서 누락, LLM 응답 스키마 오류 | `ValidationReport` 실패 처리 또는 근거 부족 리포트로 저장 |
 | 근거 검색 | 임베딩 누락, 검색 결과 부족 | 구조화 설정만으로 검수하거나 리포트에 근거 부족 표시 |
@@ -565,6 +566,8 @@ LLM 전처리 출력은 다음 정보를 포함합니다.
 
 현재 `AnalysisJob`에는 `retryCount`가 없습니다. 재시도 API는 기존 실패 작업을 되살리지 않고 대상 회차마다 같은 `jobType`의 새 단일 회차 작업을 생성합니다. 같은 유형의 활성 재시도 작업은 멱등 재사용하고 다른 유형의 활성 작업은 409로 거절합니다.
 Worker 결과 저장은 같은 작업이 중복 실행되어도 `Episode`, `SettingCandidate`, `ValidationReport`가 중복 생성되지 않도록 작업 ID와 대상 회차 ID를 기준으로 멱등성을 보장해야 합니다.
+
+토큰 부분 중단은 일반 전체 실패 재시도와 분리합니다. 배치 응답의 `worldSettingTokenInterruptedCandidateCount`와 `canResumeTokenInterruptedWorldSettingComparisons`로 중단 건수와 재개 가능 여부를 확인하고, 추가 사용량 지급 뒤 세계관 후보 일괄 재개 API를 호출합니다. API는 `PENDING_REVIEW + FAILED + AI_TOKEN_QUOTA_EXHAUSTED` 후보만 잠가 `PENDING`으로 되돌리고 후보별 숨김 비교 Job을 하나씩 생성합니다. 이미 완료·확정·제외되었거나 다른 실패 코드인 후보는 변경하지 않으며 반복 호출은 기존 활성 Job을 재사용합니다.
 
 ## 분석 배치 목록 페이지 조회
 

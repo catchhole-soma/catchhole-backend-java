@@ -360,6 +360,7 @@ sequenceDiagram
 | `GET` | `/api/v1/works/{workId}/world-setting-candidates/{candidateId}` | 필수 `batchId` 범위의 후보 상세 조회 |
 | `PATCH` | `/api/v1/works/{workId}/world-setting-candidates/decisions` | 후보별 최종 결정 초안을 즉시 저장하고 변경된 그룹 key 반환 |
 | `POST` | `/api/v1/works/{workId}/world-setting-candidates/{candidateId}/recompare` | 실패·충돌 후보를 비교 대기로 되돌림 |
+| `POST` | `/api/v1/works/{workId}/world-setting-candidates/batches/{batchId}/resume-token-interrupted` | 토큰 부족으로 중단된 미검토 후보만 배치 단위로 재개 |
 | `POST` | `/api/v1/works/{workId}/world-setting-candidates/group-confirm` | 같은 대상 그룹의 선택 후보 결정을 한 트랜잭션으로 검증·확정 |
 | `POST` | `/api/v1/works/{workId}/world-setting-candidates/group-dismiss` | 같은 대상 그룹의 선택 후보를 한 트랜잭션으로 제외 |
 | `POST` | `/api/v1/works/{workId}/world-setting-candidates/{candidateId}/confirm` | 최종 작업·값을 속성 단위로 원자 반영 |
@@ -377,6 +378,10 @@ sequenceDiagram
 `ErrorResponse.context`는 구조화된 도메인 충돌 문맥이 있을 때만 사용합니다. 그룹 재비교 409는 `scope`, `reason`, `reasonMessage`, `affectedCandidateIds`를 제공하며 일반 오류는 빈 객체를 반환합니다. Frontend는 오류 메시지 문자열을 파싱하지 않고 이 필드로 영향 범위를 판정합니다.
 
 `recompare`는 HTTP 요청 안에서 LLM을 호출하지 않습니다. 후보를 `PENDING`으로 되돌리고 활성 재비교 Job을 하나만 생성하며, 별도 Worker가 이를 claim해 `PROCESSING → COMPLETED/FAILED`를 저장합니다.
+
+토큰 부족은 `comparisonFailureCode=AI_TOKEN_QUOTA_EXHAUSTED`로 일반 네트워크·provider·비교 검증 실패와 구분합니다. 목록·상세의 `comparisonErrorMessage`는 내부 예외 원문이 아니라 코드별 사용자 메시지이며, 배치 목록은 `tokenInterruptedComparisonCount`와 `canResumeTokenInterruptedComparisons`를 제공합니다. 분석 배치 요약도 같은 중단 수와 재개 가능 여부를 노출해 전체 성공과 부분 중단을 구분합니다.
+
+배치 재개는 작품과 후보를 잠근 뒤 `PENDING_REVIEW + FAILED + AI_TOKEN_QUOTA_EXHAUSTED`인 후보만 기존 ID와 1차 근거 그대로 `PENDING`으로 전환합니다. `COMPLETED`, `CONFIRMED`, `DISMISSED`, 다른 실패 코드의 후보는 건드리지 않습니다. 같은 후보의 활성 숨김 비교 Job이 있으면 새 Job을 만들지 않으므로 반복 호출해도 멱등입니다.
 
 내부 AI Worker API:
 

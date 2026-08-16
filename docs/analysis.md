@@ -75,6 +75,8 @@ NVM-260의 `SETTING_EXTRACTION` Worker는 캐릭터 후보 저장 뒤 회차 원
 | `SUCCEEDED` | 분석 성공 | Worker가 완료 API를 호출하면 `AnalysisJob.succeed()`로 전환하고 결과 요약과 Backend token ledger 합계를 기록합니다. |
 | `FAILED` | 분석 실패 | Worker가 실패 API를 호출하거나, claim 후 분석 대상 회차가 없으면 `AnalysisJob.fail()`로 전환합니다. |
 
+`FAILED`의 원인은 `failureCode`로 구분합니다. 공개 응답은 코드에 대응하는 안전한 사용자 메시지를 제공하고, `errorMessage`의 내부 URL·예외 문자열은 반환하지 않습니다. 현재 코드는 `AI_TOKEN_QUOTA_EXHAUSTED`, `LLM_OUTPUT_TRUNCATED`, `LLM_NETWORK_ERROR`, `LLM_PROVIDER_ERROR`, `LLM_RESPONSE_PARSE_ERROR`, `COMPARISON_VALIDATION_FAILED`, `WORKER_LEASE_EXPIRED`, `UNEXPECTED_ERROR`입니다.
+
 현재 재시도 정책:
 
 - 기존 `FAILED` 작업은 이력으로 유지합니다.
@@ -83,6 +85,7 @@ NVM-260의 `SETTING_EXTRACTION` Worker는 캐릭터 후보 저장 뒤 회차 원
 - 과거 형식의 batch-wide 작업이 같은 배치에서 `PENDING` 또는 `RUNNING`이면 중복 분석을 막기 위해 `ANALYSIS_JOB_ALREADY_IN_PROGRESS`로 거절합니다.
 - 해당 회차에 같은 `jobType`의 `PENDING` 또는 `RUNNING` 작업이 있으면 새 작업을 중복 생성하지 않고 그 활성 작업을 멱등 반환합니다. 다른 `jobType`의 활성 작업이 있으면 409로 거절합니다.
 - 숨김 `WORLD_SETTING_COMPARISON` 활성 작업은 공개 분석 생성·재시도 충돌 검사에서 제외합니다.
+- `WORLD_CANDIDATES_PUBLISHED` 이후 토큰 부족으로 중단된 `SETTING_EXTRACTION`은 1차 추출 결과와 완료 비교를 보존하는 부분 중단입니다. 전체 Job 재시도 대신 배치의 중단 세계관 후보 재개 API를 사용합니다.
 - 재분석 또는 재시도로 새 Job을 실제 생성하기 직전에 같은 `workId`, `batchId`, `episodeId`, `jobType`의 기존 `PENDING_REVIEW` 캐릭터·세계관 후보만 대체 제거합니다. 연결된 재비교 Job은 예약 token을 해제하고 `FAILED`로 종료한 뒤 후보 연결을 끊습니다. 이미 검토한 `CONFIRMED`·`DISMISSED` 후보와 다른 유형·회차의 후보는 보존합니다.
 
 정책 미확정 TODO:
@@ -129,6 +132,7 @@ NVM-260의 `SETTING_EXTRACTION` Worker는 캐릭터 후보 저장 뒤 회차 원
 | `input_token_count` | 입력 토큰 수 |
 | `output_token_count` | 출력 토큰 수 |
 | `summary_json` | 분석 결과 요약 JSON |
+| `failure_code` | 기계 판독용 마지막 실패 코드. 공개 응답 문구와 복구 가능 여부의 기준 |
 | `error_message` | 마지막 실패 사유. 실패 처리 이력은 모니터링 기능에서 별도 관리 |
 | `started_at` | 분석 시작 시각 |
 | `completed_at` | 분석 완료 시각 |
@@ -236,7 +240,7 @@ GET /api/v1/works/{workId}/analysis-jobs/{analysisJobId}
 POST /api/v1/works/{workId}/analysis-jobs/{analysisJobId}/retry
 ```
 
-원본 작업이 `FAILED`인 경우에만 사용할 수 있습니다. 회차별 Job은 연결된 `Episode`의 현재 처리 상태와 분리해 재시도하되 `ARCHIVED` 회차는 제외하고, 과거 batch-wide Job은 대상 스냅샷 중 현재 `Episode.status == FAILED`인 회차만 선택합니다. 같은 batch의 과거 batch-wide 작업이나 다른 `jobType`의 회차별 작업이 이미 활성 상태면 409로 거절합니다. 같은 `jobType`의 활성 회차별 작업은 새로 만들지 않고 멱등 반환하며, 활성 작업이 없을 때만 이전 `PENDING_REVIEW` 후보를 대체하고 같은 `jobType`과 `batchId`의 새 단일 회차 작업을 생성합니다. 기존 실패 작업과 `CONFIRMED`·`DISMISSED` 후보는 변경하지 않습니다.
+원본 작업이 `FAILED`인 경우에만 사용할 수 있습니다. 다만 `tokenInterruptedAfterExtraction=true`인 토큰 부분 중단은 완료 산출물을 덮어쓰지 않도록 거절하고 세계관 후보 일괄 재개로 안내합니다. 회차별 Job은 연결된 `Episode`의 현재 처리 상태와 분리해 재시도하되 `ARCHIVED` 회차는 제외하고, 과거 batch-wide Job은 대상 스냅샷 중 현재 `Episode.status == FAILED`인 회차만 선택합니다. 같은 batch의 과거 batch-wide 작업이나 다른 `jobType`의 회차별 작업이 이미 활성 상태면 409로 거절합니다. 같은 `jobType`의 활성 회차별 작업은 새로 만들지 않고 멱등 반환하며, 활성 작업이 없을 때만 이전 `PENDING_REVIEW` 후보를 대체하고 같은 `jobType`과 `batchId`의 새 단일 회차 작업을 생성합니다. 기존 실패 작업과 `CONFIRMED`·`DISMISSED` 후보는 변경하지 않습니다.
 
 ## Internal Worker API
 
@@ -378,11 +382,12 @@ X-Worker-Lease-Token: {leaseToken}
 
 ```json
 {
+  "failureCode": "LLM_RESPONSE_PARSE_ERROR",
   "errorMessage": "LLM 응답 스키마 오류"
 }
 ```
 
-공개 회차 Job은 아직 `ANALYZED`가 아닌 대상 회차를 `FAILED`로 바꾸고 Job을 `FAILED`로 변경합니다. `WORLD_SETTING_COMPARISON`은 처리 중 후보만 `FAILED`로 바꾸고 회차 상태는 유지합니다. 두 경우 모두 실제 token 합계는 Backend ledger에서 계산합니다.
+`failureCode`가 누락된 구버전 요청은 `UNEXPECTED_ERROR`로 정규화합니다. 공개 회차 Job은 아직 `ANALYZED`가 아닌 대상 회차를 `FAILED`로 바꾸고 Job을 `FAILED`로 변경합니다. 단, `WORLD_CANDIDATES_PUBLISHED` 이후 `AI_TOKEN_QUOTA_EXHAUSTED`이면 완료된 후보는 유지하고 아직 시작하지 않았거나 처리 중인 세계관 후보를 같은 코드의 재개 가능한 중단으로 표시하며 대상 회차는 `ANALYZED`로 유지합니다. `WORLD_SETTING_COMPARISON`은 처리 중 후보만 `FAILED`로 바꾸고 회차 상태는 유지합니다. 모든 경우 실제 token 합계는 Backend ledger에서 계산합니다.
 
 ## API Workflow
 
