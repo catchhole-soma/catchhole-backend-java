@@ -9,12 +9,14 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateSnapshotChangeResponse;
+import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateValueValidationResponse;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessor;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotEntry;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSlot;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSourceManager;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateValueValidation;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSnapshotAction;
@@ -39,24 +41,27 @@ public class SettingCandidateMapper {
     public SettingCandidateResponse toResponse(
             SettingCandidate candidate,
             boolean attributeNameEditable,
-            String attributeNamePrefix
+            String attributeNamePrefix,
+            SettingCandidateValueValidation valueValidation
     ) {
-        return toResponse(candidate, attributeNameEditable, attributeNamePrefix, true);
+        return toResponse(candidate, attributeNameEditable, attributeNamePrefix, valueValidation, true);
     }
 
     /** 목록에서는 화면에 사용하지 않는 원본 AI payload를 제외해 응답 직렬화와 브라우저 파싱 비용을 줄인다. */
     public SettingCandidateResponse toReviewListResponse(
             SettingCandidate candidate,
             boolean attributeNameEditable,
-            String attributeNamePrefix
+            String attributeNamePrefix,
+            SettingCandidateValueValidation valueValidation
     ) {
-        return toResponse(candidate, attributeNameEditable, attributeNamePrefix, false);
+        return toResponse(candidate, attributeNameEditable, attributeNamePrefix, valueValidation, false);
     }
 
     private SettingCandidateResponse toResponse(
             SettingCandidate candidate,
             boolean attributeNameEditable,
             String attributeNamePrefix,
+            SettingCandidateValueValidation valueValidation,
             boolean includeRawAiResult
     ) {
         Episode episode = candidate.getEpisode();
@@ -81,6 +86,7 @@ public class SettingCandidateMapper {
                 candidate.getAttributeValue(),
                 candidate.getValueType(),
                 toJsonValue(candidate.getValueJson()),
+                toValueValidationResponse(valueValidation),
                 toJsonValue(candidate.getEvidenceSpans()),
                 candidate.getConfidence(),
                 candidate.getReviewStatus(),
@@ -98,6 +104,17 @@ public class SettingCandidateMapper {
                 candidate.getComparisonBaseSnapshotVersion(),
                 candidate.getCreatedAt(),
                 candidate.getUpdatedAt()
+        );
+    }
+
+    private SettingCandidateValueValidationResponse toValueValidationResponse(
+            SettingCandidateValueValidation validation
+    ) {
+        return new SettingCandidateValueValidationResponse(
+                validation.status(),
+                validation.errorCode() == null ? null : validation.errorCode().getCode(),
+                validation.errorCode() == null ? null : validation.errorCode().getMessage(),
+                validation.repairable()
         );
     }
 

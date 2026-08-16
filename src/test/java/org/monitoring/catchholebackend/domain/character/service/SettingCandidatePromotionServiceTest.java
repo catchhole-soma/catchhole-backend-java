@@ -618,6 +618,46 @@ class SettingCandidatePromotionServiceTest {
     }
 
     @Test
+    @DisplayName("NUMBER 후보의 표시값이 숫자가 아니면 확정 데이터 반영을 거절한다")
+    void promoteRejectsInvalidNumberDisplayValueWithoutSideEffects() {
+        SettingCandidate candidate = candidate(
+                episode(3),
+                "stats.strength",
+                "매우 강함",
+                SettingValueType.NUMBER,
+                objectMapper.createObjectNode().put("value", 12)
+        );
+
+        assertThatThrownBy(() -> promote(candidate))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_VALUE_FORMAT_INVALID));
+
+        assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId())).isEmpty();
+        assertThat(characterFactRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("NUMBER 후보의 표시값과 구조화 값이 다르면 확정 데이터 반영을 거절한다")
+    void promoteRejectsMismatchedNumberValueWithoutSideEffects() {
+        SettingCandidate candidate = candidate(
+                episode(3),
+                "stats.strength",
+                "13",
+                SettingValueType.NUMBER,
+                objectMapper.createObjectNode().put("value", 12)
+        );
+
+        assertThatThrownBy(() -> promote(candidate))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_VALUE_MISMATCH));
+
+        assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId())).isEmpty();
+        assertThat(characterFactRepository.findAll()).isEmpty();
+    }
+
+    @Test
     @DisplayName("호환되는 value envelope와 공개 속성을 가진 scalar 후보를 확정한다")
     void promoteAcceptsRoundTrippableScalarProperties() {
         characterSettingSchemaRepository.save(settingSchema(

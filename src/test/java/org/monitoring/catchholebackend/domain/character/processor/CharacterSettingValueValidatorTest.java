@@ -2,13 +2,18 @@ package org.monitoring.catchholebackend.domain.character.processor;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
+import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateValueValidationStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.global.exception.AppException;
 
@@ -29,6 +34,7 @@ class CharacterSettingValueValidatorTest {
         }) {
             assertThatThrownBy(() -> validator.validateProposal(
                     valueJson,
+                    valueType == SettingValueType.BOOLEAN ? "true" : "17",
                     CharacterFactType.PROFILE,
                     valueType
             )).isInstanceOfSatisfying(AppException.class, exception ->
@@ -44,8 +50,149 @@ class CharacterSettingValueValidatorTest {
 
         assertThatCode(() -> validator.validateProposal(
                 valueJson,
+                null,
                 CharacterFactType.PROFILE,
                 SettingValueType.UNKNOWN
         )).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("NUMBER 표시값과 구조화 값은 숫자 표현이 달라도 같은 값이면 유효하다")
+    void numberCandidateAcceptsNumericallyEquivalentValues() {
+        SettingCandidate candidate = candidate(
+                "17.00",
+                JsonNodeFactory.instance.objectNode().put("value", 17)
+        );
+
+        SettingCandidateValueValidation result = validator.evaluateCandidate(
+                candidate,
+                CharacterFactType.STAT,
+                SettingValueType.NUMBER
+        );
+
+        assertThat(result.status()).isEqualTo(SettingCandidateValueValidationStatus.VALID);
+        assertThat(result.errorCode()).isNull();
+    }
+
+    @Test
+    @DisplayName("NUMBER 표시값이 숫자로 해석되지 않으면 형식 오류다")
+    void numberCandidateRejectsDescriptiveDisplayValue() {
+        SettingCandidate candidate = candidate(
+                "열일곱 살",
+                JsonNodeFactory.instance.objectNode().put("value", 17)
+        );
+
+        SettingCandidateValueValidation result = validator.evaluateCandidate(
+                candidate,
+                CharacterFactType.STAT,
+                SettingValueType.NUMBER
+        );
+
+        assertThat(result.status()).isEqualTo(SettingCandidateValueValidationStatus.INVALID);
+        assertThat(result.errorCode()).isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_VALUE_FORMAT_INVALID);
+        assertThat(result.repairable()).isTrue();
+    }
+
+    @Test
+    @DisplayName("검토 대기가 아닌 값 오류 후보는 수정 불가능하다")
+    void nonPendingInvalidCandidateIsNotRepairable() {
+        SettingCandidate candidate = candidate(
+                "열일곱 살",
+                JsonNodeFactory.instance.objectNode().put("value", 17),
+                false
+        );
+
+        SettingCandidateValueValidation result = validator.evaluateCandidate(
+                candidate,
+                CharacterFactType.STAT,
+                SettingValueType.NUMBER
+        );
+
+        assertThat(result.status()).isEqualTo(SettingCandidateValueValidationStatus.INVALID);
+        assertThat(result.errorCode()).isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_VALUE_FORMAT_INVALID);
+        assertThat(result.repairable()).isFalse();
+    }
+
+    @Test
+    @DisplayName("NUMBER 표시값과 구조화 값이 다르면 불일치 오류다")
+    void numberCandidateRejectsMismatchedValueJson() {
+        SettingCandidate candidate = candidate(
+                "17",
+                JsonNodeFactory.instance.objectNode().put("value", 18)
+        );
+
+        SettingCandidateValueValidation result = validator.evaluateCandidate(
+                candidate,
+                CharacterFactType.STAT,
+                SettingValueType.NUMBER
+        );
+
+        assertThat(result.status()).isEqualTo(SettingCandidateValueValidationStatus.INVALID);
+        assertThat(result.errorCode()).isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_VALUE_MISMATCH);
+    }
+
+    @Test
+    @DisplayName("BOOLEAN 표시값은 소문자 true 또는 false만 허용한다")
+    void booleanCandidateRequiresCanonicalLowercaseDisplayValue() {
+        SettingCandidate candidate = candidate(
+                "TRUE",
+                JsonNodeFactory.instance.objectNode().put("value", true)
+        );
+
+        SettingCandidateValueValidation result = validator.evaluateCandidate(
+                candidate,
+                CharacterFactType.STATUS,
+                SettingValueType.BOOLEAN
+        );
+
+        assertThat(result.status()).isEqualTo(SettingCandidateValueValidationStatus.INVALID);
+        assertThat(result.errorCode()).isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_VALUE_FORMAT_INVALID);
+    }
+
+    @Test
+    @DisplayName("NUMBER 구조화 값은 숫자 노드여야 한다")
+    void numberCandidateRejectsTextualValueJson() {
+        SettingCandidate candidate = candidate(
+                "17",
+                JsonNodeFactory.instance.objectNode().put("value", "17")
+        );
+
+        SettingCandidateValueValidation result = validator.evaluateCandidate(
+                candidate,
+                CharacterFactType.STAT,
+                SettingValueType.NUMBER
+        );
+
+        assertThat(result.status()).isEqualTo(SettingCandidateValueValidationStatus.INVALID);
+        assertThat(result.errorCode()).isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_VALUE_JSON_INVALID);
+    }
+
+    @Test
+    @DisplayName("캐릭터 발견 후보는 값 검증 대상이 아니다")
+    void discoveryCandidateIsNotApplicable() {
+        SettingCandidate candidate = mock(SettingCandidate.class);
+        when(candidate.isCharacterDiscovery()).thenReturn(true);
+
+        SettingCandidateValueValidation result = validator.evaluateCandidate(
+                candidate,
+                CharacterFactType.PROFILE,
+                SettingValueType.STRING
+        );
+
+        assertThat(result.status()).isEqualTo(SettingCandidateValueValidationStatus.NOT_APPLICABLE);
+        assertThat(result.errorCode()).isNull();
+    }
+
+    private SettingCandidate candidate(String attributeValue, ObjectNode valueJson) {
+        return candidate(attributeValue, valueJson, true);
+    }
+
+    private SettingCandidate candidate(String attributeValue, ObjectNode valueJson, boolean pendingReview) {
+        SettingCandidate candidate = mock(SettingCandidate.class);
+        when(candidate.isCharacterDiscovery()).thenReturn(false);
+        when(candidate.isPendingReview()).thenReturn(pendingReview);
+        when(candidate.getAttributeValue()).thenReturn(attributeValue);
+        when(candidate.getValueJson()).thenReturn(valueJson);
+        return candidate;
     }
 }

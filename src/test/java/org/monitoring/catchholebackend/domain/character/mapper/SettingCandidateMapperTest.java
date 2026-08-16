@@ -15,11 +15,14 @@ import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
+import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessor;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSourceManager;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateValueValidation;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateValueValidationStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
@@ -68,7 +71,12 @@ class SettingCandidateMapperTest {
         UUID candidateId = UUID.randomUUID();
         ReflectionTestUtils.setField(candidate, "id", candidateId);
 
-        SettingCandidateResponse response = mapper.toResponse(candidate, false, null);
+        SettingCandidateResponse response = mapper.toResponse(
+                candidate,
+                false,
+                null,
+                SettingCandidateValueValidation.valid()
+        );
 
         assertThat(response.id()).isEqualTo(candidateId);
         assertThat(response.workId()).isEqualTo(workId);
@@ -86,8 +94,54 @@ class SettingCandidateMapperTest {
         assertThat(response.attributeNamePrefix()).isNull();
         assertThat(response.attributeValue()).isEqualTo("17");
         assertThat(response.valueJson()).isEqualTo(Map.of("value", 17));
+        assertThat(response.valueValidation().status())
+                .isEqualTo(SettingCandidateValueValidationStatus.VALID);
+        assertThat(response.valueValidation().errorCode()).isNull();
+        assertThat(response.valueValidation().message()).isNull();
+        assertThat(response.valueValidation().repairable()).isFalse();
         assertThat(response.evidenceSpans()).isInstanceOf(List.class);
         assertThat(response.rawAiResultJson()).isInstanceOf(Map.class);
+    }
+
+    @Test
+    @DisplayName("값 오류와 schema 오류의 수정 가능 여부를 구분한다")
+    void toResponseMapsValidationRepairability() {
+        Work work = work(UUID.randomUUID());
+        SettingCandidate candidate = SettingCandidate.create(
+                work,
+                null,
+                null,
+                null,
+                SettingEntityType.CHARACTER,
+                "아리아",
+                "stats.mental",
+                "정신: 37",
+                SettingValueType.NUMBER,
+                objectMapper.createObjectNode().put("value", 37),
+                objectMapper.createArrayNode(),
+                new BigDecimal("0.8000"),
+                objectMapper.createObjectNode()
+        );
+
+        SettingCandidateResponse repairable = mapper.toResponse(
+                candidate,
+                false,
+                null,
+                SettingCandidateValueValidation.invalid(
+                        CharacterErrorCode.SETTING_CANDIDATE_VALUE_FORMAT_INVALID
+                )
+        );
+        SettingCandidateResponse unrepairable = mapper.toResponse(
+                candidate,
+                false,
+                null,
+                SettingCandidateValueValidation.unrepairableInvalid(
+                        CharacterErrorCode.SETTING_CANDIDATE_SCHEMA_NOT_MATCHED
+                )
+        );
+
+        assertThat(repairable.valueValidation().repairable()).isTrue();
+        assertThat(unrepairable.valueValidation().repairable()).isFalse();
     }
 
     @Test
@@ -110,7 +164,12 @@ class SettingCandidateMapperTest {
                 objectMapper.createObjectNode().put("large_raw_value", "목록에서는 제외")
         );
 
-        SettingCandidateResponse response = mapper.toReviewListResponse(candidate, false, null);
+        SettingCandidateResponse response = mapper.toReviewListResponse(
+                candidate,
+                false,
+                null,
+                SettingCandidateValueValidation.valid()
+        );
 
         assertThat(response.valueJson()).isEqualTo(Map.of("value", 17));
         assertThat(response.evidenceSpans()).isInstanceOf(List.class);
@@ -136,7 +195,12 @@ class SettingCandidateMapperTest {
                 null
         );
 
-        SettingCandidateResponse response = mapper.toResponse(candidate, false, null);
+        SettingCandidateResponse response = mapper.toResponse(
+                candidate,
+                false,
+                null,
+                SettingCandidateValueValidation.notApplicable()
+        );
 
         assertThat(response.candidateKind()).isEqualTo(SettingCandidateKind.CHARACTER_DISCOVERY);
         assertThat(response.entityName()).isEqualTo("세룸");
@@ -146,6 +210,8 @@ class SettingCandidateMapperTest {
         assertThat(response.attributeValue()).isNull();
         assertThat(response.valueType()).isNull();
         assertThat(response.valueJson()).isNull();
+        assertThat(response.valueValidation().status())
+                .isEqualTo(SettingCandidateValueValidationStatus.NOT_APPLICABLE);
     }
 
     @Test
@@ -172,7 +238,12 @@ class SettingCandidateMapperTest {
                 null
         );
 
-        SettingCandidateResponse response = mapper.toResponse(candidate, true, "status.");
+        SettingCandidateResponse response = mapper.toResponse(
+                candidate,
+                true,
+                "status.",
+                SettingCandidateValueValidation.valid()
+        );
 
         assertThat(response.entityName()).isEqualTo("아이나르");
         assertThat(response.rawEntityMention()).isEqualTo("프넬린의 두 번째 딸 아이나르");
@@ -202,7 +273,12 @@ class SettingCandidateMapperTest {
                 null
         );
 
-        SettingCandidateResponse response = mapper.toResponse(candidate, false, null);
+        SettingCandidateResponse response = mapper.toResponse(
+                candidate,
+                false,
+                null,
+                SettingCandidateValueValidation.valid()
+        );
 
         assertThat(response.workId()).isEqualTo(work.getId());
         assertThat(response.episodeId()).isNull();

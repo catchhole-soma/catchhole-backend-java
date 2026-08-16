@@ -24,18 +24,46 @@ public class CharacterSettingValueValidator {
             CharacterFactType factType,
             SettingValueType schemaValueType
     ) {
-        validateCoreValue(candidate.getValueJson(), candidate.getAttributeValue(), factType, true);
-        validateStructuredProperties(candidate.getValueJson(), factType, schemaValueType);
+        evaluateCandidate(candidate, factType, schemaValueType).throwIfInvalid();
+    }
+
+    public SettingCandidateValueValidation evaluateCandidate(
+            SettingCandidate candidate,
+            CharacterFactType factType,
+            SettingValueType schemaValueType
+    ) {
+        if (candidate.isCharacterDiscovery()) {
+            return SettingCandidateValueValidation.notApplicable();
+        }
+        try {
+            validateValueAgreement(
+                    candidate.getValueJson(),
+                    candidate.getAttributeValue(),
+                    schemaValueType
+            );
+            validateCoreValue(candidate.getValueJson(), candidate.getAttributeValue(), factType, true);
+            validateStructuredProperties(candidate.getValueJson(), factType, schemaValueType);
+            return SettingCandidateValueValidation.valid();
+        } catch (AppException exception) {
+            if (exception.getResultCode() instanceof CharacterErrorCode errorCode) {
+                return candidate.isPendingReview()
+                        ? SettingCandidateValueValidation.invalid(errorCode)
+                        : SettingCandidateValueValidation.unrepairableInvalid(errorCode);
+            }
+            throw exception;
+        }
     }
 
     public void validateProposal(
             JsonNode proposedValueJson,
+            String proposedFactValue,
             CharacterFactType factType,
             SettingValueType schemaValueType
     ) {
         if (proposedValueJson == null || proposedValueJson.isNull()) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_VALUE_JSON_INVALID);
         }
+        validateValueAgreement(proposedValueJson, proposedFactValue, schemaValueType);
         validateCoreValue(proposedValueJson, null, factType, false);
         validateStructuredProperties(proposedValueJson, factType, schemaValueType);
         if (schemaValueType != SettingValueType.JSON
@@ -80,8 +108,53 @@ public class CharacterSettingValueValidator {
             }
             case STRING, JSON, UNKNOWN -> envelope.put("value", normalized);
         }
-        validateProposal(envelope, factType, schemaValueType);
+        validateProposal(envelope, normalized, factType, schemaValueType);
         return envelope;
+    }
+
+    private void validateValueAgreement(
+            JsonNode valueJson,
+            String displayValue,
+            SettingValueType valueType
+    ) {
+        if (valueType != SettingValueType.NUMBER && valueType != SettingValueType.BOOLEAN) {
+            return;
+        }
+        String normalizedDisplayValue = displayValue == null ? null : displayValue.trim();
+        if (normalizedDisplayValue == null || normalizedDisplayValue.isEmpty()) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_VALUE_FORMAT_INVALID);
+        }
+        JsonNode valueNode = scalarValueNode(valueJson);
+        if (valueType == SettingValueType.NUMBER) {
+            BigDecimal displayNumber = parseNumber(normalizedDisplayValue);
+            if (displayNumber == null) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_VALUE_FORMAT_INVALID);
+            }
+            if (valueNode == null || !valueNode.isNumber()) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_VALUE_JSON_INVALID);
+            }
+            if (displayNumber.compareTo(valueNode.decimalValue()) != 0) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_VALUE_MISMATCH);
+            }
+            return;
+        }
+
+        if (!normalizedDisplayValue.equals("true") && !normalizedDisplayValue.equals("false")) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_VALUE_FORMAT_INVALID);
+        }
+        if (valueNode == null || !valueNode.isBoolean()) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_VALUE_JSON_INVALID);
+        }
+        if (Boolean.parseBoolean(normalizedDisplayValue) != valueNode.booleanValue()) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_VALUE_MISMATCH);
+        }
+    }
+
+    private JsonNode scalarValueNode(JsonNode valueJson) {
+        if (valueJson == null || !valueJson.isObject()) {
+            return null;
+        }
+        return valueJson.get("value");
     }
 
     private void validateCoreValue(

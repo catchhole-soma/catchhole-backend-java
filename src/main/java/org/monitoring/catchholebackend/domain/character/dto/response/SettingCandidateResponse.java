@@ -84,6 +84,12 @@ public record SettingCandidateResponse(
         )
         Object valueJson,
 
+        @Schema(
+                description = "현재 활성 schema와 구조화 값을 기준으로 파생한 값 검증 결과",
+                requiredMode = Schema.RequiredMode.REQUIRED
+        )
+        SettingCandidateValueValidationResponse valueValidation,
+
         @Schema(description = "원문 근거 span JSON", nullable = true, implementation = JsonNode.class)
         Object evidenceSpans,
 
