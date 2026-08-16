@@ -72,7 +72,7 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 
 조회 응답은 현재 활성 schema와 저장된 후보를 평가한 `valueValidation`을 항상 포함합니다. `SETTING`은 `VALID` 또는 `INVALID`, 값이 없는 `CHARACTER_DISCOVERY`는 `NOT_APPLICABLE`입니다. `INVALID`에는 구조화된 `errorCode`, 사용자 문구 `message`, 현재 후보 수정 API로 복구할 수 있는지를 나타내는 `repairable`을 함께 내려줍니다. 이 상태는 DB 컬럼으로 저장하지 않고 응답 조립 시 파생하므로 migration이나 기존 후보 backfill을 하지 않습니다.
 
-`INVALID` 후보는 목록에서 숨기지 않고 무시를 허용합니다. 표시값·구조화 값 계약 오류는 `repairable=true`이며, 사용자가 유효한 표시값으로 저장하면 Backend가 typed `valueJson` envelope를 재구성하고 필요한 비교를 다시 대기시킵니다. 활성 schema 없음·모호성·타입 불일치는 현재 요청의 `attributeName`·`attributeValue`만으로 복구할 수 없으므로 `repairable=false`로 내려 수정 가능하다고 안내하지 않습니다. 두 경우 모두 2차 비교, Worker proposal 완료, 단건·그룹 확정은 fail-closed로 거절합니다.
+`INVALID` 후보는 목록에서 숨기지 않고 무시를 허용합니다. 표시값·구조화 값 계약 오류는 후보가 `PENDING_REVIEW`일 때만 `repairable=true`이며, 사용자가 유효한 표시값으로 저장하면 Backend가 typed `valueJson` envelope를 재구성하고 필요한 비교를 다시 대기시킵니다. 이미 확정·무시된 후보와 활성 schema 없음·모호성·타입 불일치는 현재 수정 API로 복구할 수 없으므로 `repairable=false`로 내려 수정 가능하다고 안내하지 않습니다. 두 경우 모두 2차 비교, Worker proposal 완료, 단건·그룹 확정은 fail-closed로 거절합니다.
 
 ### 설정 후보 편집 정책
 
