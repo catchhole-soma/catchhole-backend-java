@@ -542,9 +542,15 @@ class OpenApiContractIntegrationTest {
                 .andExpect(jsonPath("$['components']['schemas']['WorldSettingCandidateResponse']"
                         + "['properties']['comparisonFailureCode']['enum']")
                         .value(org.hamcrest.Matchers.hasItem("AI_TOKEN_QUOTA_EXHAUSTED")))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateResponse']"
+                        + "['properties']['comparisonFailureCode']['enum']")
+                        .value(org.hamcrest.Matchers.hasItem("LLM_PROVIDER_ERROR")))
                 .andExpect(jsonPath("$['components']['schemas']['WorkerAnalysisJobFailRequest']"
                         + "['properties']['failureCode']['enum']")
-                        .value(org.hamcrest.Matchers.hasItem("LLM_OUTPUT_TRUNCATED")));
+                        .value(org.hamcrest.Matchers.hasItem("LLM_OUTPUT_TRUNCATED")))
+                .andExpect(jsonPath("$['components']['schemas']['WorkerCharacterFactComparisonFailRequest']"
+                        + "['properties']['failureCode']['enum']")
+                        .value(org.hamcrest.Matchers.hasItem("LLM_PROVIDER_ERROR")));
     }
 
     @Test

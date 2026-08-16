@@ -24,6 +24,7 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation;
@@ -206,6 +207,10 @@ public class SettingCandidate extends BaseEntity {
 
     @Column(name = "comparison_error_message", columnDefinition = "text")
     private String comparisonErrorMessage;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "comparison_failure_code", length = 60)
+    private AnalysisFailureCode comparisonFailureCode;
 
     private SettingCandidate(
             Work work,
@@ -458,6 +463,7 @@ public class SettingCandidate extends BaseEntity {
         }
         comparisonStatus = CharacterFactComparisonStatus.PROCESSING;
         comparisonErrorMessage = null;
+        comparisonFailureCode = null;
     }
 
     public void quarantineInvalidComparison() {
@@ -505,15 +511,21 @@ public class SettingCandidate extends BaseEntity {
         this.comparedAt = Objects.requireNonNull(comparedAt);
         this.comparisonStatus = CharacterFactComparisonStatus.COMPLETED;
         this.comparisonErrorMessage = null;
+        this.comparisonFailureCode = null;
     }
 
     public void failComparison(String errorMessage) {
+        failComparison(AnalysisFailureCode.UNEXPECTED_ERROR, errorMessage);
+    }
+
+    public void failComparison(AnalysisFailureCode failureCode, String errorMessage) {
         validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
         if (comparisonStatus != CharacterFactComparisonStatus.PENDING
                 && comparisonStatus != CharacterFactComparisonStatus.PROCESSING) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
         comparisonStatus = CharacterFactComparisonStatus.FAILED;
+        comparisonFailureCode = AnalysisFailureCode.orUnexpected(failureCode);
         comparisonErrorMessage = Objects.requireNonNull(errorMessage).trim();
     }
 
@@ -521,6 +533,7 @@ public class SettingCandidate extends BaseEntity {
         if (isPendingReview() && comparisonStatus == CharacterFactComparisonStatus.PROCESSING) {
             comparisonStatus = CharacterFactComparisonStatus.PENDING;
             comparisonErrorMessage = null;
+            comparisonFailureCode = null;
         }
     }
 
@@ -625,6 +638,7 @@ public class SettingCandidate extends BaseEntity {
         rawComparisonJson = null;
         comparedAt = null;
         comparisonErrorMessage = null;
+        comparisonFailureCode = null;
     }
 
     private static CharacterFactComparisonStatus initialComparisonStatus(

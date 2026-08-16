@@ -1941,6 +1941,7 @@ class SettingCandidateServiceImplTest {
                 null,
                 null,
                 null,
+                null,
                 null
         );
     }

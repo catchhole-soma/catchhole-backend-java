@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateSnapshotChangeResponse;
@@ -17,6 +18,7 @@ import org.monitoring.catchholebackend.domain.character.processor.CharacterSnaps
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSlot;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSourceManager;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateValueValidation;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSnapshotAction;
@@ -100,11 +102,29 @@ public class SettingCandidateMapper {
                 candidate.getProposedFactValue(),
                 toSnapshotChanges(candidate),
                 candidate.getComparisonReason(),
-                candidate.getComparisonErrorMessage(),
+                publicComparisonErrorMessage(candidate),
+                publicComparisonFailureCode(candidate),
                 candidate.getComparisonBaseSnapshotVersion(),
                 candidate.getCreatedAt(),
                 candidate.getUpdatedAt()
         );
+    }
+
+    private String publicComparisonErrorMessage(SettingCandidate candidate) {
+        if (candidate.getComparisonStatus() == CharacterFactComparisonStatus.FAILED) {
+            return publicComparisonFailureCode(candidate).getPublicMessage();
+        }
+        if (candidate.getComparisonStatus() == CharacterFactComparisonStatus.RECOMPARISON_REQUIRED) {
+            return candidate.getComparisonErrorMessage();
+        }
+        return null;
+    }
+
+    private AnalysisFailureCode publicComparisonFailureCode(SettingCandidate candidate) {
+        if (candidate.getComparisonStatus() != CharacterFactComparisonStatus.FAILED) {
+            return null;
+        }
+        return AnalysisFailureCode.orUnexpected(candidate.getComparisonFailureCode());
     }
 
     private SettingCandidateValueValidationResponse toValueValidationResponse(

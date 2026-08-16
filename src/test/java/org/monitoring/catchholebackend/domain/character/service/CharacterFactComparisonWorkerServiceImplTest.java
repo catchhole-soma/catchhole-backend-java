@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -25,9 +26,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobLeaseService;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.dto.request.WorkerCharacterFactComparisonCompleteRequest;
+import org.monitoring.catchholebackend.domain.character.dto.request.WorkerCharacterFactComparisonFailRequest;
 import org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterFactComparisonContextResponse;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
@@ -123,7 +126,7 @@ class CharacterFactComparisonWorkerServiceImplTest {
         leaseToken = UUID.randomUUID();
         when(analysisJobLeaseService.getRunningAnalysisJobForUpdate(analysisJobId, leaseToken))
                 .thenReturn(analysisJob);
-        when(snapshotSourceRepository.findAllByWorkCharacterIdOrderByFactTypeAscFactKeyAscSourceOrderAsc(
+        lenient().when(snapshotSourceRepository.findAllByWorkCharacterIdOrderByFactTypeAscFactKeyAscSourceOrderAsc(
                 character.getId()
         )).thenReturn(List.of());
     }
@@ -159,6 +162,35 @@ class CharacterFactComparisonWorkerServiceImplTest {
                 .containsExactly("stats.strength");
         assertThat(context.snapshotEntries().getFirst().factValue()).isEqualTo("10");
         assertThat(context.candidate().canonicalFactType()).isEqualTo(CharacterFactType.STAT);
+    }
+
+    @Test
+    @DisplayName("비교 실패 코드를 원문 오류와 함께 후보에 기록한다")
+    void failCharacterFactComparisonPersistsTypedFailure() {
+        SettingCandidate candidate = newCandidate(
+                "stats.strength",
+                "10",
+                SettingValueType.NUMBER,
+                value(10)
+        );
+        candidate.startComparison();
+        when(candidateRepository.findByIdAndWorkIdForUpdate(candidate.getId(), work.getId()))
+                .thenReturn(Optional.of(candidate));
+
+        service.failCharacterFactComparison(
+                analysisJobId,
+                candidate.getId(),
+                leaseToken,
+                new WorkerCharacterFactComparisonFailRequest(
+                        AnalysisFailureCode.LLM_PROVIDER_ERROR,
+                        "https://provider.internal/v1 stack trace"
+                )
+        );
+
+        assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.FAILED);
+        assertThat(candidate.getComparisonFailureCode()).isEqualTo(AnalysisFailureCode.LLM_PROVIDER_ERROR);
+        assertThat(candidate.getComparisonErrorMessage())
+                .isEqualTo("https://provider.internal/v1 stack trace");
     }
 
     @Test

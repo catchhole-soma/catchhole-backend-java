@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope;
@@ -135,6 +136,9 @@ public record SettingCandidateResponse(
 
         @Schema(description = "마지막 비교 실패 또는 재비교 사유", nullable = true)
         String comparisonErrorMessage,
+
+        @Schema(description = "기계 판독용 비교 실패 코드", nullable = true)
+        AnalysisFailureCode comparisonFailureCode,
 
         @Schema(description = "비교 문맥을 만든 당시 캐릭터 snapshot version", nullable = true)
         Long comparisonBaseSnapshotVersion,
