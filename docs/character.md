@@ -451,7 +451,8 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `comparison_reason` | 비교 판단 근거 |
 | `comparison_base_snapshot_version` | 비교 시점 snapshot 버전. 감사·UI 충돌 안내용이며 stale 판정 자체는 관련 문맥 hash가 담당 |
 | `comparison_context_hash` | 후보 의미와 관련 snapshot 값·provenance로 만든 64자 SHA-256 문맥 token |
-| `raw_comparison_json`, `compared_at`, `comparison_error_message` | 원본 비교 응답·완료 시각·실패 원인 |
+| `raw_comparison_json`, `compared_at` | 운영 진단용 원본 비교 응답과 완료 시각 |
+| `comparison_error_message`, `comparison_failure_code` | 운영 진단용 원문 오류와 기계 판독용 실패 코드. 공개 응답은 원문 대신 실패 코드의 안전한 메시지를 사용 |
 | `created_at` | 생성 시각 |
 | `updated_at` | 수정 시각 |
 

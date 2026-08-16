@@ -146,12 +146,13 @@ V24는 캐릭터 2차 비교가 현재 `STATUS` slot의 종료를 제안할 때 
 
 ## V25 기준
 
-V25는 분석·세계관 비교 실패를 예외 문자열 파싱 없이 분류하고 토큰 중단 후보를 선택적으로 재개할 수 있게 합니다.
+V25는 분석·후보 비교 실패를 예외 문자열 파싱 없이 분류하고 토큰 중단 세계관 후보를 선택적으로 재개할 수 있게 합니다.
 
 - `analysis_jobs.failure_code VARCHAR(60) NULL`을 추가합니다.
 - `world_setting_candidates.comparison_failure_code VARCHAR(60) NULL`을 추가합니다.
+- `setting_candidates.comparison_failure_code VARCHAR(60) NULL`을 추가합니다.
 - `PENDING_REVIEW + FAILED + AI_TOKEN_QUOTA_EXHAUSTED` 후보의 배치 복구 조회를 위한 PostgreSQL partial index를 추가합니다.
-- 기존 행은 원인을 안전하게 추정할 수 없으므로 두 코드 모두 `NULL`로 유지하고 backfill하지 않습니다.
+- 기존 행은 원인을 안전하게 추정할 수 없으므로 세 코드 모두 `NULL`로 유지하고 backfill하지 않습니다.
 
 ## V10 기준
 
@@ -287,6 +288,7 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
 - 기존 slot별 source backfill은 deterministic 최신 한 건이고, 기존 매칭 후보는 `NOT_REQUIRED`, 기존 미매칭 설정 후보는 `WAITING_FOR_CHARACTER_MATCH`로 이관됩니다.
 - V21에서 `setting_candidates.proposed_fact_value`, V22에서 same-character/same-slot provenance 복합 FK가 생성됩니다.
 - V24에서 `setting_candidates.suggested_operation` check constraint가 `REMOVE`를 허용합니다.
+- V25에서 분석 작업과 캐릭터·세계관 후보 비교의 typed 실패 코드가 생성됩니다.
 - `character_facts.setting_candidate_id`와 FK·조회 인덱스가 생성됩니다.
 - `works.genre`가 enum 상수명으로 저장되고 `NOT NULL`·`chk_works_genre` 제약을 가집니다.
 - `works.description`이 기존 값의 앞 50자로 정규화되고 `VARCHAR(50)` 타입을 가집니다.
@@ -298,7 +300,7 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
   `idx_characters_work_status_updated_id`로 교체됩니다.
 - `idx_analysis_jobs_work_batch_created`, `idx_setting_candidates_job_review` 인덱스가 생성됩니다.
 - Hibernate schema validation을 통과하고 Backend가 정상 시작됩니다.
-- Backend를 재시작해도 V1부터 V24까지 중복 적용되지 않습니다.
+- Backend를 재시작해도 V1부터 V25까지 중복 적용되지 않습니다.
 
 ## 최초 운영 전환
 

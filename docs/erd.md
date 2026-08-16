@@ -257,6 +257,7 @@ erDiagram
         jsonb raw_comparison_json
         datetime compared_at
         text comparison_error_message
+        varchar comparison_failure_code
         datetime created_at
         datetime updated_at
     }
@@ -298,6 +299,7 @@ erDiagram
         datetime compared_at
         varchar comparison_status
         text comparison_error_message
+        varchar comparison_failure_code
         varchar review_status
         varchar final_operation
         varchar final_category
