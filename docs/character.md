@@ -70,9 +70,9 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 - `STRING`, `JSON`, `UNKNOWN`: 기존 표시 summary 정책과 구조화 property 검증을 유지합니다.
 - Worker의 `ADD`/`UPDATE`/`MERGE` proposal도 `proposedFactValue`/`proposedValueJson.value`에 같은 scalar 정합성 검증을 적용합니다.
 
-조회 응답은 현재 활성 schema와 저장된 후보를 평가한 `valueValidation`을 항상 포함합니다. `SETTING`은 `VALID` 또는 `INVALID`, 값이 없는 `CHARACTER_DISCOVERY`는 `NOT_APPLICABLE`입니다. `INVALID`에는 구조화된 `errorCode`와 사용자 문구 `message`를 함께 내려줍니다. 이 상태는 DB 컬럼으로 저장하지 않고 응답 조립 시 파생하므로 migration이나 기존 후보 backfill을 하지 않습니다.
+조회 응답은 현재 활성 schema와 저장된 후보를 평가한 `valueValidation`을 항상 포함합니다. `SETTING`은 `VALID` 또는 `INVALID`, 값이 없는 `CHARACTER_DISCOVERY`는 `NOT_APPLICABLE`입니다. `INVALID`에는 구조화된 `errorCode`, 사용자 문구 `message`, 현재 후보 수정 API로 복구할 수 있는지를 나타내는 `repairable`을 함께 내려줍니다. 이 상태는 DB 컬럼으로 저장하지 않고 응답 조립 시 파생하므로 migration이나 기존 후보 backfill을 하지 않습니다.
 
-`INVALID` 후보는 목록에서 숨기지 않고 수정·무시를 허용합니다. 다만 2차 비교, Worker proposal 완료, 단건·그룹 확정은 같은 validator로 다시 검사해 fail-closed로 거절합니다. 사용자가 유효한 표시값으로 저장하면 Backend가 typed `valueJson` envelope를 재구성하고 필요한 비교를 다시 대기시킵니다.
+`INVALID` 후보는 목록에서 숨기지 않고 무시를 허용합니다. 표시값·구조화 값 계약 오류는 `repairable=true`이며, 사용자가 유효한 표시값으로 저장하면 Backend가 typed `valueJson` envelope를 재구성하고 필요한 비교를 다시 대기시킵니다. 활성 schema 없음·모호성·타입 불일치는 현재 요청의 `attributeName`·`attributeValue`만으로 복구할 수 없으므로 `repairable=false`로 내려 수정 가능하다고 안내하지 않습니다. 두 경우 모두 2차 비교, Worker proposal 완료, 단건·그룹 확정은 fail-closed로 거절합니다.
 
 ### 설정 후보 편집 정책
 
@@ -114,7 +114,7 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 - 문맥에는 snapshot의 `factValue`, `valueJson`을 함께 제공하고 hash에는 후보 의미값, canonical target, 선택한 현재값과 provenance Fact ID를 포함합니다. `snapshotVersion`은 감사·화면 동시성 정보이며 관련 없는 slot 변경을 stale로 만들지 않습니다.
 - Worker complete에서 `ADD`는 target을 보내지 않고 Backend canonical slot을 사용합니다. `UPDATE`/`MERGE`/`REMOVE`는 canonical target을 정확히 다시 보내며, 나머지 operation은 target·제안값을 보내지 않습니다.
 - 현재값을 추가·교체하는 `ADD`/`UPDATE`/`MERGE`에는 비어 있지 않은 `proposedFactValue`와 schema에 맞는 `proposedValueJson`이 필수입니다. `REMOVE`는 `PRESENT + STATUS`인 동일 canonical slot의 종료에만 사용하며 제안값과 추가 제거 목록을 보내지 않습니다. `PAST`/`HYPOTHETICAL`은 `HISTORY_ONLY` 또는 `REVIEW_REQUIRED`, `UNKNOWN`은 `REVIEW_REQUIRED`만 허용합니다. 다른 기존 slot 제거는 `PRESENT + STATUS + ADD/UPDATE/MERGE` 조합에서만 허용합니다.
-- 후보 자체와 `ADD`/`UPDATE`/`MERGE` proposal은 schema 검증 직후 공통 값 validator를 통과해야 합니다. 후보가 `INVALID`이면 캐릭터 조회·생성, Fact append, snapshot 갱신 전에 중단합니다.
+- 후보 자체와 `ADD`/`UPDATE`/`MERGE` proposal은 schema 검증 직후 공통 값 validator를 통과해야 합니다. 후보가 `INVALID`이면 원 분석·hidden 비교 claim에서 제안을 비우고 `NOT_REQUIRED`로 격리해 다음 후보의 처리를 계속하며, 캐릭터 조회·생성, Fact append, snapshot 갱신 전에도 중단합니다.
 - candidate 내용이나 캐릭터 매칭이 바뀌면 기존 proposal을 폐기하고 `PENDING` 또는 `WAITING_FOR_CHARACTER_MATCH`로 전환합니다. 재비교가 필요하면 원 분석 Job의 진행 상태와 관계없이 동일 후보의 활성 hidden `CHARACTER_FACT_COMPARISON` Job을 하나만 생성합니다.
 - 활성 hidden Job이 있는 후보는 원 분석 Job의 claim·완료 대기·실패 정리 대상에서 제외합니다. 따라서 원 분석의 마지막 claim과 checkpoint 사이에 사용자가 후보를 바꾸더라도 원 분석과 hidden Worker가 같은 후보를 이중 처리하지 않으며, hidden Job이 claim 전후에 최종 실패하면 연결 후보도 `FAILED`로 전환해 영구 `PENDING`을 남기지 않습니다.
 - `APPLY_PROPOSAL` confirm은 완료된 proposal과 관련 문맥 hash를 재검증합니다. 관련 slot이나 provenance가 달라졌다면 proposal을 `PENDING`으로 되돌리고 hidden Job을 만든 뒤 409를 반환합니다. 화면이 보낸 base version만 오래된 경우에는 proposal을 폐기하지 않고 재조회만 요구합니다.
@@ -523,7 +523,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 - `findAllByNormalizedEntityNameAndMatchState(...)`: 같은 작품의 trim 후 exact-name 후보를 entity/review/match 상태와 함께 조회해 형제 후보 자동 연결 범위를 제한합니다.
 - `findByIdAndWorkId(candidateId, workId)`
 - `findByIdAndWorkIdForUpdate(candidateId, workId)`: 사용자 mutation과 Worker claim/complete가 같은 후보 row lock을 사용해 비교 상태를 서로 덮어쓰지 않게 합니다.
-- `findComparisonClaimCandidates(...)`: 원본 분석 Job에 속한 `PENDING_REVIEW + PENDING` 후보를 순서대로 claim합니다. hidden 비교 Job은 `AnalysisJob.settingCandidate` 한 건만 처리합니다.
+- `findComparisonClaimCandidates(...)`: 원본 분석 Job에 속한 `PENDING_REVIEW + PENDING` 후보를 순서대로 claim합니다. 값 또는 schema가 `INVALID`인 후보는 `NOT_REQUIRED`로 격리하고 같은 claim에서 다음 정상 후보를 계속 찾습니다. hidden 비교 Job은 `AnalysisJob.settingCandidate` 한 건만 처리하며, 연결 후보가 `INVALID`이면 no-op 완료 가능한 `NOT_REQUIRED`로 전환합니다.
 
 `CharacterFactRepository`
 
