@@ -504,6 +504,50 @@ class OpenApiContractIntegrationTest {
     }
 
     @Test
+    @DisplayName("분석 실패 코드와 세계관 토큰 중단 일괄 재개 계약을 노출한다")
+    void openApiContractExposesTokenInterruptedResumeContracts() throws Exception {
+        String resumePath = "$['paths']['/api/v1/works/{workId}/world-setting-candidates"
+                + "/batches/{batchId}/resume-token-interrupted']['post']";
+
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(resumePath + "['operationId']")
+                        .value("resumeTokenInterruptedWorldSettingComparisons"))
+                .andExpect(jsonPath(resumePath
+                        + "['responses']['200']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonResponseWorldSettingTokenInterruptedResumeResponse"))
+                .andExpect(jsonPath(resumePath
+                        + "['responses']['409']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonErrorResponse"))
+                .andExpect(jsonPath("$['components']['schemas']['AnalysisJobResponse']"
+                        + "['properties']['failureCode']['enum']")
+                        .value(org.hamcrest.Matchers.hasItems(
+                                "AI_TOKEN_QUOTA_EXHAUSTED",
+                                "LLM_OUTPUT_TRUNCATED",
+                                "LLM_NETWORK_ERROR",
+                                "LLM_PROVIDER_ERROR",
+                                "LLM_RESPONSE_PARSE_ERROR",
+                                "COMPARISON_VALIDATION_FAILED"
+                        )))
+                .andExpect(jsonPath("$['components']['schemas']['AnalysisJobResponse']"
+                        + "['properties']['tokenInterruptedAfterExtraction']").exists())
+                .andExpect(jsonPath("$['components']['schemas']['AnalysisBatchSummaryResponse']"
+                        + "['properties']['worldSettingTokenInterruptedCandidateCount']").exists())
+                .andExpect(jsonPath("$['components']['schemas']['AnalysisBatchSummaryResponse']"
+                        + "['properties']['canResumeTokenInterruptedWorldSettingComparisons']").exists())
+                .andExpect(jsonPath("$['components']['schemas']['WorldSettingCandidateListResponse']"
+                        + "['properties']['tokenInterruptedComparisonCount']").exists())
+                .andExpect(jsonPath("$['components']['schemas']['WorldSettingCandidateListResponse']"
+                        + "['properties']['canResumeTokenInterruptedComparisons']").exists())
+                .andExpect(jsonPath("$['components']['schemas']['WorldSettingCandidateResponse']"
+                        + "['properties']['comparisonFailureCode']['enum']")
+                        .value(org.hamcrest.Matchers.hasItem("AI_TOKEN_QUOTA_EXHAUSTED")))
+                .andExpect(jsonPath("$['components']['schemas']['WorkerAnalysisJobFailRequest']"
+                        + "['properties']['failureCode']['enum']")
+                        .value(org.hamcrest.Matchers.hasItem("LLM_OUTPUT_TRUNCATED")));
+    }
+
+    @Test
     @DisplayName("캐릭터 Fact 비교의 현재 snapshot과 제거 대상 schema를 서로 다른 계약으로 노출한다")
     void openApiContractSeparatesCharacterFactComparisonSnapshotEntries() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))

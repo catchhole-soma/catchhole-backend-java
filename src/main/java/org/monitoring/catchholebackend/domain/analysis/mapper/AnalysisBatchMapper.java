@@ -65,6 +65,11 @@ public class AnalysisBatchMapper {
                 worldSettingCandidateCounts == null ? 0 : worldSettingCandidateCounts.getTotalCandidateCount(),
                 worldSettingCandidateCounts == null ? 0 : worldSettingCandidateCounts.getReviewedCandidateCount(),
                 worldSettingCandidateCounts == null ? 0 : worldSettingCandidateCounts.getPendingCandidateCount(),
+                worldSettingCandidateCounts == null
+                        ? 0
+                        : worldSettingCandidateCounts.getTokenInterruptedComparisonCount(),
+                worldSettingCandidateCounts != null
+                        && worldSettingCandidateCounts.getTokenInterruptedComparisonCount() > 0,
                 jobGroups,
                 pageRow.getFirstRequestedAt(),
                 pageRow.getLastRequestedAt(),

@@ -24,6 +24,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSet
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateListResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateDecisionUpdateResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingTokenInterruptedResumeResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.service.WorldSettingCandidateGroupConfirmResult;
 import org.monitoring.catchholebackend.domain.worldsetting.service.WorldSettingCandidateService;
 import org.monitoring.catchholebackend.domain.worldsetting.service.WorldSettingCandidateConfirmResult;
@@ -158,6 +159,33 @@ public class WorldSettingCandidateController {
         return CommonResponse.success(
                 "세계관 설정 후보가 재비교 대기 상태로 전환되었습니다.",
                 candidateService.retryComparison(member.memberId(), workId, candidateId)
+        );
+    }
+
+    @PostMapping("/batches/{batchId}/resume-token-interrupted")
+    @Operation(
+            operationId = "resumeTokenInterruptedWorldSettingComparisons",
+            summary = "토큰 부족으로 중단된 세계관 비교 일괄 재개",
+            description = "해당 배치에서 토큰 부족 코드로 중단된 미검토 후보만 기존 후보 그대로 재개합니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "일괄 재개 요청 성공"),
+            @ApiResponse(responseCode = "401", description = "인증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "작품 또는 업로드 묶음을 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "409", description = "최소 비교 예약 토큰 부족",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
+    })
+    public CommonResponse<WorldSettingTokenInterruptedResumeResponse>
+            resumeTokenInterruptedWorldSettingComparisons(
+                    @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+                    @PathVariable UUID workId,
+                    @PathVariable UUID batchId
+            ) {
+        return CommonResponse.success(
+                "토큰 부족으로 중단된 세계관 비교를 재개했습니다.",
+                candidateService.resumeTokenInterruptedComparisons(member.memberId(), workId, batchId)
         );
     }
 

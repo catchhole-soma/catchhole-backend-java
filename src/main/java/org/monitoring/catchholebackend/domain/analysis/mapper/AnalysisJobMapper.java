@@ -7,6 +7,8 @@ import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobR
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobTargetResponse;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobEpisodeResponse;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
@@ -35,12 +37,23 @@ public class AnalysisJobMapper {
                 analysisJob.getInputTokenCount(),
                 analysisJob.getOutputTokenCount(),
                 analysisJob.getSummaryJson(),
-                analysisJob.getErrorMessage(),
+                publicFailureCode(analysisJob) == null
+                        ? null
+                        : publicFailureCode(analysisJob).getPublicMessage(),
+                publicFailureCode(analysisJob),
+                analysisJob.isResumableTokenInterruption(),
                 analysisJob.getStartedAt(),
                 analysisJob.getCompletedAt(),
                 analysisJob.getCreatedAt(),
                 analysisJob.getUpdatedAt()
         );
+    }
+
+    private AnalysisFailureCode publicFailureCode(AnalysisJob analysisJob) {
+        if (analysisJob.getStatus() != AnalysisJobStatus.FAILED) {
+            return null;
+        }
+        return AnalysisFailureCode.orUnexpected(analysisJob.getFailureCode());
     }
 
     public List<AnalysisJobResponse> toResponseList(

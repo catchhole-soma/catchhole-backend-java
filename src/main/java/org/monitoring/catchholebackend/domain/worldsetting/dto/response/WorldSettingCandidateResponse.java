@@ -5,6 +5,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingConsolidationStatus;
@@ -39,6 +40,8 @@ public record WorldSettingCandidateResponse(
         @Schema(nullable = true) LocalDateTime comparedAt,
         WorldSettingComparisonStatus comparisonStatus,
         @Schema(nullable = true) String comparisonErrorMessage,
+        @Schema(description = "기계 판독용 비교 실패 코드", nullable = true)
+        AnalysisFailureCode comparisonFailureCode,
         WorldSettingReviewStatus reviewStatus,
         boolean userModified,
         @Schema(nullable = true) WorldSettingOperation finalOperation,

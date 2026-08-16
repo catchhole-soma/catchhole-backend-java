@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.StreamSupport;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateConfirmRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCreateRequest;
@@ -125,7 +126,8 @@ public class WorldSettingMapper {
                 candidate.getBaseWorldSettingVersion(),
                 candidate.getComparedAt(),
                 candidate.getComparisonStatus(),
-                candidate.getComparisonErrorMessage(),
+                publicComparisonErrorMessage(candidate),
+                publicComparisonFailureCode(candidate),
                 candidate.getReviewStatus(),
                 userModified,
                 candidate.getFinalOperation(),
@@ -142,6 +144,23 @@ public class WorldSettingMapper {
                 candidate.getCreatedAt(),
                 candidate.getUpdatedAt()
         );
+    }
+
+    private String publicComparisonErrorMessage(WorldSettingCandidate candidate) {
+        if (candidate.getComparisonStatus() == WorldSettingComparisonStatus.FAILED) {
+            return publicComparisonFailureCode(candidate).getPublicMessage();
+        }
+        if (candidate.getComparisonStatus() == WorldSettingComparisonStatus.RECOMPARISON_REQUIRED) {
+            return candidate.getComparisonErrorMessage();
+        }
+        return null;
+    }
+
+    private AnalysisFailureCode publicComparisonFailureCode(WorldSettingCandidate candidate) {
+        if (candidate.getComparisonStatus() != WorldSettingComparisonStatus.FAILED) {
+            return null;
+        }
+        return AnalysisFailureCode.orUnexpected(candidate.getComparisonFailureCode());
     }
 
     public WorldSettingCandidateGroupResponse toCandidateGroupResponse(

@@ -19,9 +19,11 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisBatchMapper;
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisJobMapper;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchActiveComparisonCounts;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchPageRow;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisBatchStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
@@ -42,6 +44,7 @@ import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateBatchReviewCounts;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.monitoring.catchholebackend.global.common.response.PageResponse;
 import org.monitoring.catchholebackend.global.exception.AppException;
@@ -163,20 +166,37 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 worldSettingCandidateRepository.countReviewSummaryByBatchIds(
                                 work.getId(),
                                 batchIds,
-                                WorldSettingReviewStatus.PENDING_REVIEW
+                                WorldSettingReviewStatus.PENDING_REVIEW,
+                                WorldSettingComparisonStatus.PENDING,
+                                WorldSettingComparisonStatus.PROCESSING,
+                                WorldSettingComparisonStatus.FAILED,
+                                AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED
                         )
                         .stream()
                         .collect(Collectors.toMap(
                                 WorldSettingCandidateBatchReviewCounts::getBatchId,
                                 counts -> counts
                         ));
+        Map<UUID, Long> activeWorldComparisonCountsByBatchId = analysisJobRepository
+                .countActiveComparisonsByBatchIds(
+                        work.getId(),
+                        batchIds,
+                        AnalysisJobType.WORLD_SETTING_COMPARISON,
+                        List.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING)
+                )
+                .stream()
+                .collect(Collectors.toMap(
+                        AnalysisBatchActiveComparisonCounts::getBatchId,
+                        AnalysisBatchActiveComparisonCounts::getActiveComparisonCount
+                ));
 
         List<AnalysisBatchSummaryResponse> responses = batchPage.getContent().stream()
                 .map(row -> toBatchSummary(
                         row,
                         jobsByBatchId.getOrDefault(row.getBatchId(), List.of()),
                         characterCandidateCountsByBatchId.get(row.getBatchId()),
-                        worldSettingCandidateCountsByBatchId.get(row.getBatchId())
+                        worldSettingCandidateCountsByBatchId.get(row.getBatchId()),
+                        activeWorldComparisonCountsByBatchId.getOrDefault(row.getBatchId(), 0L)
                 ))
                 .toList();
         return PageResponse.from(batchPage, responses);
@@ -199,6 +219,9 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND));
         assertPublicJobType(failedJob.getJobType());
         if (failedJob.getStatus() != AnalysisJobStatus.FAILED) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
+        }
+        if (failedJob.isResumableTokenInterruption()) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
         }
         if (hasActiveBatchWideAnalysisJob(failedJob.getBatch())) {
@@ -454,7 +477,8 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
             AnalysisBatchPageRow pageRow,
             List<AnalysisJob> jobs,
             SettingCandidateBatchReviewCounts characterCandidateCounts,
-            WorldSettingCandidateBatchReviewCounts worldSettingCandidateCounts
+            WorldSettingCandidateBatchReviewCounts worldSettingCandidateCounts,
+            long activeWorldSettingComparisonCount
     ) {
         Map<AnalysisJobType, List<AnalysisJob>> currentJobsByType = findCurrentJobsByType(jobs);
         List<AnalysisBatchJobGroupResponse> jobGroups = currentJobsByType.entrySet().stream()
@@ -486,6 +510,9 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         long pendingWorldSettingCandidateCount = worldSettingCandidateCounts == null
                 ? 0
                 : worldSettingCandidateCounts.getPendingCandidateCount();
+        long tokenInterruptedWorldSettingComparisonCount = worldSettingCandidateCounts == null
+                ? 0
+                : worldSettingCandidateCounts.getTokenInterruptedComparisonCount();
         LocalDateTime lastActivityAt = currentJobsByType.values().stream()
                 .flatMap(List::stream)
                 .map(AnalysisJob::getUpdatedAt)
@@ -497,7 +524,9 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 jobs.getFirst().getBatch(),
                 resolveBatchStatus(
                         jobGroups,
-                        pendingCharacterCandidateCount + pendingWorldSettingCandidateCount
+                        pendingCharacterCandidateCount + pendingWorldSettingCandidateCount,
+                        activeWorldSettingComparisonCount,
+                        tokenInterruptedWorldSettingComparisonCount
                 ),
                 episodeStartNo,
                 episodeEndNo,
@@ -550,6 +579,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     private AnalysisBatchStatus resolveJobGroupStatus(List<AnalysisJob> currentJobs) {
         long failedCount = currentJobs.stream()
                 .filter(job -> job.getStatus() == AnalysisJobStatus.FAILED)
+                .filter(job -> !job.isResumableTokenInterruption())
                 .count();
         if (currentJobs.stream().anyMatch(job ->
                 job.getStatus() == AnalysisJobStatus.PENDING
@@ -567,9 +597,12 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
 
     private AnalysisBatchStatus resolveBatchStatus(
             List<AnalysisBatchJobGroupResponse> jobGroups,
-            long pendingCandidateCount
+            long pendingCandidateCount,
+            long activeWorldSettingComparisonCount,
+            long tokenInterruptedWorldSettingComparisonCount
     ) {
-        if (jobGroups.stream().anyMatch(group -> group.status() == AnalysisBatchStatus.IN_PROGRESS)) {
+        if (activeWorldSettingComparisonCount > 0
+                || jobGroups.stream().anyMatch(group -> group.status() == AnalysisBatchStatus.IN_PROGRESS)) {
             return AnalysisBatchStatus.IN_PROGRESS;
         }
         if (jobGroups.stream().allMatch(group -> group.status() == AnalysisBatchStatus.FAILED)) {
@@ -578,6 +611,9 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         if (jobGroups.stream().anyMatch(group ->
                 group.status() == AnalysisBatchStatus.FAILED
                         || group.status() == AnalysisBatchStatus.PARTIALLY_FAILED)) {
+            return AnalysisBatchStatus.PARTIALLY_FAILED;
+        }
+        if (tokenInterruptedWorldSettingComparisonCount > 0) {
             return AnalysisBatchStatus.PARTIALLY_FAILED;
         }
         if (pendingCandidateCount > 0) {

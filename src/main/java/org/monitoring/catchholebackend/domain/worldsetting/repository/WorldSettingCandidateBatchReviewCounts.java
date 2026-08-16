@@ -11,4 +11,10 @@ public interface WorldSettingCandidateBatchReviewCounts {
     long getReviewedCandidateCount();
 
     long getPendingCandidateCount();
+
+    long getPendingComparisonCount();
+
+    long getProcessingComparisonCount();
+
+    long getTokenInterruptedComparisonCount();
 }

@@ -16,6 +16,8 @@ public record WorldSettingCandidateListResponse(
         long pendingComparisonCount,
         long processingComparisonCount,
         long failedComparisonCount,
+        long tokenInterruptedComparisonCount,
+        boolean canResumeTokenInterruptedComparisons,
         long recomparisonRequiredCount,
         long conflictCandidateCount,
         PageResponse<WorldSettingCandidateGroupResponse> groups

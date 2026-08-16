@@ -513,7 +513,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         )) {
             return;
         }
-        aiTokenService.ensureAnalysisCanStart(candidate.getWork().getMember().getId());
+        aiTokenService.ensureComparisonCanStart(candidate.getWork().getMember().getId());
         analysisJobRepository.save(AnalysisJob.createCharacterFactComparison(candidate));
     }
 

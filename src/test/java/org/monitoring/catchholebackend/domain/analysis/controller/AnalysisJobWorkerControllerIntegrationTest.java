@@ -21,6 +21,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenAccountRepository;
@@ -58,6 +60,10 @@ import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.global.config.security.SecurityConstant;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -903,6 +909,67 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("세계관 후보 게시 뒤 토큰 부족은 완료 후보를 보존하고 남은 비교만 재개 가능하게 중단한다")
+    void tokenQuotaAfterWorldCandidatesPreservesExtractionAndInterruptsRemainingComparisons() throws Exception {
+        AnalysisJob analysisJob = episodeJob(AnalysisJobType.SETTING_EXTRACTION, firstEpisode);
+        analysisJob.claim("gpt-5.6-terra", "세계관 비교", LocalDateTime.now().plusMinutes(5));
+        analysisJob.updateCheckpointStage(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+        analysisJobRepository.saveAndFlush(analysisJob);
+
+        WorldSettingCandidate completed = worldCandidate(analysisJob, "바바리안", "서식지", "혹한 지역");
+        completed.startComparison();
+        completed.completeComparison(
+                null,
+                WorldSettingOperation.ADD,
+                "서식지",
+                null,
+                "혹한 지역",
+                "새 설정",
+                objectMapper.createObjectNode().put("operation", "ADD"),
+                LocalDateTime.now()
+        );
+        WorldSettingCandidate pending = worldCandidate(analysisJob, "마탑", "위치", "황도 중앙");
+        WorldSettingCandidate processing = worldCandidate(analysisJob, "왕국", "수도", "아르덴");
+        processing.startComparison();
+        worldSettingCandidateRepository.saveAllAndFlush(List.of(completed, pending, processing));
+
+        mockMvc.perform(post("/api/internal/v1/analysis-jobs/{analysisJobId}/fail", analysisJob.getId())
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, analysisJob.getLeaseToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "failureCode": "AI_TOKEN_QUOTA_EXHAUSTED",
+                                  "errorMessage": "Client error 409 for url https://internal.example/token/reserve"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        AnalysisJob failedJob = analysisJobRepository.findById(analysisJob.getId()).orElseThrow();
+        assertThat(failedJob.getFailureCode()).isEqualTo(AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED);
+        assertThat(failedJob.isResumableTokenInterruption()).isTrue();
+        assertThat(episodeRepository.findById(firstEpisode.getId()).orElseThrow().getStatus())
+                .isEqualTo(org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ANALYZED);
+        assertThat(worldSettingCandidateRepository.findById(completed.getId()).orElseThrow().getComparisonStatus())
+                .isEqualTo(WorldSettingComparisonStatus.COMPLETED);
+        assertThat(worldSettingCandidateRepository.findAllById(List.of(pending.getId(), processing.getId())))
+                .allSatisfy(candidate -> {
+                    assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.FAILED);
+                    assertThat(candidate.getComparisonFailureCode())
+                            .isEqualTo(AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED);
+                });
+
+        String accessToken = jwtTokenProvider.generateAccessToken(member);
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/{analysisJobId}",
+                                work.getId(), analysisJob.getId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.failureCode").value("AI_TOKEN_QUOTA_EXHAUSTED"))
+                .andExpect(jsonPath("$.data.tokenInterruptedAfterExtraction").value(true))
+                .andExpect(jsonPath("$.data.errorMessage").value("AI 토큰이 부족해 분석이 중단되었습니다."));
+    }
+
+    @Test
     @DisplayName("실행 중이 아닌 작업의 상태 변경을 거절한다")
     void statusUpdateRejectsNonRunningJob() throws Exception {
         AnalysisJob analysisJob = analysisJobRepository.save(
@@ -945,6 +1012,29 @@ class AnalysisJobWorkerControllerIntegrationTest {
 
     private AnalysisJob episodeJob(AnalysisJobType jobType, Episode episode) {
         return AnalysisJob.create(work, uploadBatch, episode, jobType);
+    }
+
+    private WorldSettingCandidate worldCandidate(
+            AnalysisJob analysisJob,
+            String subjectName,
+            String settingName,
+            String value
+    ) {
+        return WorldSettingCandidate.create(
+                work,
+                firstEpisode,
+                analysisJob,
+                WorldSettingCategory.RACE,
+                subjectName,
+                settingName,
+                value,
+                objectMapper.createArrayNode().add(objectMapper.createObjectNode()
+                        .put("quote", subjectName + " 설정 근거")
+                        .put("startOffset", 0)
+                        .put("endOffset", 8)),
+                new BigDecimal("0.9000"),
+                objectMapper.createObjectNode().put("subjectName", subjectName)
+        );
     }
 
     private CharacterSettingSchema settingSchema(

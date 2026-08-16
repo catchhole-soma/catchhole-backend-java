@@ -267,7 +267,10 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 analysisJobId,
                 leaseToken
         );
-        getOwnedProcessingCandidate(analysisJob, candidateId).failComparison(request.errorMessage());
+        getOwnedProcessingCandidate(analysisJob, candidateId).failComparison(
+                request.failureCode(),
+                request.errorMessage()
+        );
     }
 
     private Map<UUID, WorldSetting> validateContext(

@@ -19,11 +19,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.aitoken.dto.request.AiTokenReserveRequest;
+import org.monitoring.catchholebackend.domain.aitoken.entity.AiTokenAccount;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenAccountRepository;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenGrantRepository;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenUsageRepository;
@@ -213,6 +215,51 @@ class AnalysisJobControllerIntegrationTest {
                 .andExpect(jsonPath("$.data[1].episodeId").value(secondEpisode.getId().toString()));
 
         assertThat(analysisJobRepository.count()).isEqualTo(2);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {0L, 4255L})
+    @DisplayName("잔여 토큰이 없거나 첫 분석 최소 예약량보다 작으면 작업 생성을 409로 거절한다")
+    void createAnalysisJobRejectsWhenFirstReservationCannotBeCovered(long remainingTokens) throws Exception {
+        aiTokenAccountRepository.saveAndFlush(AiTokenAccount.create(member, remainingTokens));
+
+        mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "jobType": "SETTING_EXTRACTION",
+                                  "batchId": "%s",
+                                  "episodeId": "%s"
+                                }
+                                """.formatted(uploadBatch.getId(), firstEpisode.getId())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("AI_TOKEN_QUOTA_EXHAUSTED"));
+
+        assertThat(analysisJobRepository.count()).isZero();
+    }
+
+    @Test
+    @DisplayName("첫 분석 최소 예약량보다 부족하면 실패 작업 재시도도 새 Job 없이 409로 거절한다")
+    void retryAnalysisJobRejectsWhenFirstReservationCannotBeCovered() throws Exception {
+        firstEpisode.markFailed();
+        episodeRepository.save(firstEpisode);
+        AnalysisJob failedJob = AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        failedJob.fail("설정 추출 실패");
+        analysisJobRepository.saveAndFlush(failedJob);
+        aiTokenAccountRepository.saveAndFlush(AiTokenAccount.create(member, 4255L));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/analysis-jobs/{analysisJobId}/retry",
+                                work.getId(),
+                                failedJob.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("AI_TOKEN_QUOTA_EXHAUSTED"));
+
+        assertThat(analysisJobRepository.count()).isEqualTo(1);
     }
 
     @Test

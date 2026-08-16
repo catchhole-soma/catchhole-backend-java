@@ -22,8 +22,12 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.aitoken.entity.AiTokenAccount;
+import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenAccountRepository;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
@@ -90,6 +94,9 @@ class WorldSettingCandidateControllerIntegrationTest {
 
     @Autowired
     private AnalysisJobRepository analysisJobRepository;
+
+    @Autowired
+    private AiTokenAccountRepository aiTokenAccountRepository;
 
     @Autowired
     private WorldSettingRepository worldSettingRepository;
@@ -324,6 +331,117 @@ class WorldSettingCandidateControllerIntegrationTest {
                         .header(SecurityConstant.WORKER_LEASE_TOKEN_HEADER, leaseToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.candidateId").value(candidate.getId().toString()));
+    }
+
+    @Test
+    @DisplayName("토큰 중단 후보 일괄 재개는 해당 후보만 재사용하고 반복 호출에도 Job을 중복 생성하지 않는다")
+    void resumeTokenInterruptedComparisonsIsSelectiveAndIdempotent() throws Exception {
+        analysisJob.claim("gpt-5.6-terra", "세계관 비교", LocalDateTime.now().plusMinutes(5));
+        analysisJob.updateCheckpointStage(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+        analysisJob.fail(
+                AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED,
+                "Client error 409 for url https://internal.example/token/reserve"
+        );
+        analysisJobRepository.saveAndFlush(analysisJob);
+
+        WorldSettingCandidate pendingInterrupted = candidate("바바리안", "서식지", "혹한 지역");
+        pendingInterrupted.interruptComparisonForTokenQuota("내부 quota URL");
+        WorldSettingCandidate processingInterrupted = candidate("마탑", "위치", "황도 중앙");
+        processingInterrupted.startComparison();
+        processingInterrupted.interruptComparisonForTokenQuota("내부 stack trace");
+        WorldSettingCandidate completed = completedAddCandidate("왕국", "수도", "아르덴");
+        WorldSettingCandidate ordinaryFailure = candidate("성검", "소유자", "용사");
+        ordinaryFailure.startComparison();
+        ordinaryFailure.failComparison(AnalysisFailureCode.LLM_PROVIDER_ERROR, "provider raw URL");
+        candidateRepository.saveAllAndFlush(List.of(
+                pendingInterrupted,
+                processingInterrupted,
+                completed,
+                ordinaryFailure
+        ));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/world-setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.tokenInterruptedComparisonCount").value(2))
+                .andExpect(jsonPath("$.data.canResumeTokenInterruptedComparisons").value(true));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/world-setting-candidates/{candidateId}",
+                                work.getId(), pendingInterrupted.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.comparisonFailureCode").value("AI_TOKEN_QUOTA_EXHAUSTED"))
+                .andExpect(jsonPath("$.data.comparisonErrorMessage")
+                        .value("AI 토큰이 부족해 분석이 중단되었습니다."));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].status").value("PARTIALLY_FAILED"))
+                .andExpect(jsonPath("$.data.content[0].worldSettingTokenInterruptedCandidateCount").value(2))
+                .andExpect(jsonPath("$.data.content[0].canResumeTokenInterruptedWorldSettingComparisons")
+                        .value(true));
+
+        String resumeUrl = "/api/v1/works/{workId}/world-setting-candidates/batches/{batchId}"
+                + "/resume-token-interrupted";
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mockMvc.perform(post(resumeUrl, work.getId(), uploadBatch.getId())
+                            .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.resumedCandidateCount").value(attempt == 0 ? 2 : 0))
+                    .andExpect(jsonPath("$.data.activeCandidateCount").value(2))
+                    .andExpect(jsonPath("$.data.remainingInterruptedCandidateCount").value(0));
+        }
+
+        assertThat(candidateRepository.findAllById(List.of(
+                        pendingInterrupted.getId(),
+                        processingInterrupted.getId()
+                )))
+                .allSatisfy(candidate -> {
+                    assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.PENDING);
+                    assertThat(candidate.getComparisonFailureCode()).isNull();
+                });
+        assertThat(candidateRepository.findById(completed.getId()).orElseThrow().getComparisonStatus())
+                .isEqualTo(WorldSettingComparisonStatus.COMPLETED);
+        assertThat(candidateRepository.findById(ordinaryFailure.getId()).orElseThrow().getComparisonFailureCode())
+                .isEqualTo(AnalysisFailureCode.LLM_PROVIDER_ERROR);
+        assertThat(analysisJobRepository.findAll())
+                .filteredOn(job -> job.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON)
+                .hasSize(2);
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.data.content[0].worldSettingTokenInterruptedCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.content[0].canResumeTokenInterruptedWorldSettingComparisons")
+                        .value(false));
+    }
+
+    @Test
+    @DisplayName("첫 비교 최소 예약량보다 부족하면 토큰 중단 일괄 재개를 상태 변경 없이 409로 거절한다")
+    void resumeTokenInterruptedComparisonsRejectsInsufficientMinimumReservation() throws Exception {
+        WorldSettingCandidate interrupted = candidate("바바리안", "서식지", "혹한 지역");
+        interrupted.interruptComparisonForTokenQuota("quota");
+        candidateRepository.saveAndFlush(interrupted);
+        aiTokenAccountRepository.saveAndFlush(AiTokenAccount.create(member, 2255L));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/world-setting-candidates/batches/{batchId}"
+                                        + "/resume-token-interrupted",
+                                work.getId(),
+                                uploadBatch.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("AI_TOKEN_QUOTA_EXHAUSTED"));
+
+        WorldSettingCandidate unchanged = candidateRepository.findById(interrupted.getId()).orElseThrow();
+        assertThat(unchanged.isTokenInterruptedComparison()).isTrue();
+        assertThat(analysisJobRepository.findAll())
+                .noneMatch(job -> job.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON);
     }
 
     @Test
@@ -1475,6 +1593,7 @@ class WorldSettingCandidateControllerIntegrationTest {
         candidateRepository.deleteAll();
         worldSettingRepository.deleteAll();
         analysisJobRepository.deleteAll();
+        aiTokenAccountRepository.deleteAll();
         episodeRepository.deleteAll();
         uploadFileRepository.deleteAll();
         uploadBatchRepository.deleteAll();

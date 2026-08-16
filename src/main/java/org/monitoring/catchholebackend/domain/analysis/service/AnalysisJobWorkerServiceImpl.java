@@ -17,6 +17,7 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisJobWorkerMapper;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
@@ -171,13 +172,27 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 analysisJobId,
                 leaseToken
         );
-        failProcessingWorldCandidates(analysisJob);
-        failProcessingCharacterCandidates(analysisJob);
-        if (!isHiddenComparisonJob(analysisJob)) {
+        AnalysisFailureCode failureCode = AnalysisFailureCode.orUnexpected(request.failureCode());
+        boolean resumableTokenInterruption = failureCode == AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED
+                && analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION
+                && analysisJob.hasReachedCheckpoint(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+        if (resumableTokenInterruption) {
+            interruptRemainingWorldCandidatesForTokenQuota(analysisJob, request.errorMessage());
+            markTargetEpisodesAnalyzed(analysisJob);
+        } else {
+            failProcessingWorldCandidates(analysisJob, failureCode, request.errorMessage());
+            failProcessingCharacterCandidates(analysisJob, request.errorMessage());
+        }
+        if (!isHiddenComparisonJob(analysisJob) && !resumableTokenInterruption) {
             markTargetEpisodesFailed(analysisJob);
         }
         long[] totals = aiTokenService.getAnalysisJobTokenTotals(analysisJobId);
-        analysisJob.fail(request.errorMessage(), Math.toIntExact(totals[0]), Math.toIntExact(totals[1]));
+        analysisJob.fail(
+                failureCode,
+                request.errorMessage(),
+                Math.toIntExact(totals[0]),
+                Math.toIntExact(totals[1])
+        );
     }
 
     private void validateCompletion(AnalysisJob analysisJob) {
@@ -250,13 +265,18 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                     AiTokenUsageOutcome.WORKER_LEASE_EXPIRED
             );
             if (expiredJob.getClaimAttemptCount() >= MAX_CLAIM_ATTEMPTS) {
-                failProcessingWorldCandidates(expiredJob);
-                failProcessingCharacterCandidates(expiredJob);
+                failProcessingWorldCandidates(
+                        expiredJob,
+                        AnalysisFailureCode.WORKER_LEASE_EXPIRED,
+                        LEASE_EXPIRED_MESSAGE
+                );
+                failProcessingCharacterCandidates(expiredJob, LEASE_EXPIRED_MESSAGE);
                 if (!isHiddenComparisonJob(expiredJob)) {
                     markTargetEpisodesFailed(expiredJob);
                 }
                 long[] totals = aiTokenService.getAnalysisJobTokenTotals(expiredJob.getId());
                 expiredJob.fail(
+                        AnalysisFailureCode.WORKER_LEASE_EXPIRED,
                         LEASE_EXPIRED_MESSAGE,
                         Math.toIntExact(totals[0]),
                         Math.toIntExact(totals[1])
@@ -283,20 +303,36 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         }
     }
 
-    private void failProcessingWorldCandidates(AnalysisJob analysisJob) {
+    private void failProcessingWorldCandidates(
+            AnalysisJob analysisJob,
+            AnalysisFailureCode failureCode,
+            String errorMessage
+    ) {
         if (analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION) {
             worldSettingCandidateRepository.findAllByAnalysisJobIdAndComparisonStatus(
                     analysisJob.getId(),
                     WorldSettingComparisonStatus.PROCESSING
-            ).forEach(candidate -> candidate.failComparison(LEASE_EXPIRED_MESSAGE));
+            ).forEach(candidate -> candidate.failComparison(failureCode, errorMessage));
             return;
         }
         if (analysisJob.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON
                 && analysisJob.getWorldSettingCandidate() != null
                 && analysisJob.getWorldSettingCandidate().getComparisonStatus()
                 == WorldSettingComparisonStatus.PROCESSING) {
-            analysisJob.getWorldSettingCandidate().failComparison(LEASE_EXPIRED_MESSAGE);
+            analysisJob.getWorldSettingCandidate().failComparison(failureCode, errorMessage);
         }
+    }
+
+    private void interruptRemainingWorldCandidatesForTokenQuota(
+            AnalysisJob analysisJob,
+            String errorMessage
+    ) {
+        List.of(WorldSettingComparisonStatus.PENDING, WorldSettingComparisonStatus.PROCESSING)
+                .stream()
+                .flatMap(status -> worldSettingCandidateRepository
+                        .findAllByAnalysisJobIdAndComparisonStatus(analysisJob.getId(), status)
+                        .stream())
+                .forEach(candidate -> candidate.interruptComparisonForTokenQuota(errorMessage));
     }
 
     private void recoverProcessingCharacterCandidates(AnalysisJob analysisJob) {
@@ -313,7 +349,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         }
     }
 
-    private void failProcessingCharacterCandidates(AnalysisJob analysisJob) {
+    private void failProcessingCharacterCandidates(AnalysisJob analysisJob, String errorMessage) {
         if (analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION) {
             settingCandidateRepository.findAllByAnalysisJobIdAndComparisonStatusIn(
                     analysisJob.getId(),
@@ -321,7 +357,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                             CharacterFactComparisonStatus.PENDING,
                             CharacterFactComparisonStatus.PROCESSING
                     )
-            ).forEach(candidate -> candidate.failComparison(LEASE_EXPIRED_MESSAGE));
+            ).forEach(candidate -> candidate.failComparison(errorMessage));
             return;
         }
         if (analysisJob.getJobType() == AnalysisJobType.CHARACTER_FACT_COMPARISON
@@ -330,7 +366,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 == CharacterFactComparisonStatus.PENDING
                 || analysisJob.getSettingCandidate().getComparisonStatus()
                 == CharacterFactComparisonStatus.PROCESSING)) {
-            analysisJob.getSettingCandidate().failComparison(LEASE_EXPIRED_MESSAGE);
+            analysisJob.getSettingCandidate().failComparison(errorMessage);
         }
     }
 
@@ -344,6 +380,10 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 .filter(episode -> episode.getStatus()
                         != EpisodeStatus.ANALYZED)
                 .forEach(Episode::markFailed);
+    }
+
+    private void markTargetEpisodesAnalyzed(AnalysisJob analysisJob) {
+        findTargetEpisodes(analysisJob).forEach(Episode::markAnalyzed);
     }
 
     private List<Episode> findTargetEpisodes(AnalysisJob analysisJob) {
