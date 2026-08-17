@@ -334,6 +334,62 @@ class WorldSettingCandidateControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("토큰 중단 후보는 단건 재비교를 거절하고 배치 API로만 재개한다")
+    void recompareRejectsTokenInterruptedCandidateUntilBatchResume() throws Exception {
+        analysisJob.updateCheckpointStage(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+        analysisJob.fail(AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED, "내부 quota 오류");
+        analysisJobRepository.saveAndFlush(analysisJob);
+
+        WorldSettingCandidate candidate = candidate("바바리안", "서식지", "혹한 지역");
+        candidate.interruptComparisonForTokenQuota("내부 quota 오류");
+        candidateRepository.saveAndFlush(candidate);
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/world-setting-candidates/{candidateId}/recompare",
+                                work.getId(),
+                                candidate.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code")
+                        .value("WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT"));
+
+        assertThat(candidateRepository.findById(candidate.getId()))
+                .get()
+                .satisfies(savedCandidate -> {
+                    assertThat(savedCandidate.getComparisonStatus())
+                            .isEqualTo(WorldSettingComparisonStatus.FAILED);
+                    assertThat(savedCandidate.getComparisonFailureCode())
+                            .isEqualTo(AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED);
+                });
+        assertThat(analysisJobRepository.findAll())
+                .filteredOn(job -> job.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON)
+                .isEmpty();
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/world-setting-candidates/batches/{batchId}"
+                                        + "/resume-token-interrupted",
+                                work.getId(),
+                                uploadBatch.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.resumedCandidateCount").value(1))
+                .andExpect(jsonPath("$.data.remainingInterruptedCandidateCount").value(0));
+
+        assertThat(candidateRepository.findById(candidate.getId()))
+                .get()
+                .satisfies(savedCandidate -> {
+                    assertThat(savedCandidate.getComparisonStatus())
+                            .isEqualTo(WorldSettingComparisonStatus.PENDING);
+                    assertThat(savedCandidate.getComparisonFailureCode()).isNull();
+                });
+        assertThat(analysisJobRepository.findAll())
+                .filteredOn(job -> job.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON)
+                .hasSize(1);
+    }
+
+    @Test
     @DisplayName("토큰 중단 후보 일괄 재개는 해당 후보만 재사용하고 반복 호출에도 Job을 중복 생성하지 않는다")
     void resumeTokenInterruptedComparisonsIsSelectiveAndIdempotent() throws Exception {
         analysisJob.claim("gpt-5.6-terra", "세계관 비교", LocalDateTime.now().plusMinutes(5));
