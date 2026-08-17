@@ -236,6 +236,10 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         if (retryEpisodes.isEmpty()) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_TARGET_NOT_FOUND);
         }
+        if (retryEpisodes.stream().anyMatch(episode ->
+                hasResumableTokenInterruption(failedJob.getBatch(), episode, failedJob.getJobType()))) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
+        }
         assertNoActiveJobOfDifferentType(failedJob, retryEpisodes);
 
         return retryEpisodes.stream()

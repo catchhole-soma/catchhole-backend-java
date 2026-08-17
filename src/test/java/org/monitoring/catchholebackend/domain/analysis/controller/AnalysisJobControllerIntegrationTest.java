@@ -636,6 +636,62 @@ class AnalysisJobControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("오래된 일반 실패 작업 재시도도 최신 토큰 중단 결과를 보존하고 거절한다")
+    void retryOlderFailureRejectsLatestResumableTokenInterruption() throws Exception {
+        AnalysisJob olderFailedJob = AnalysisJob.create(
+                work,
+                uploadBatch,
+                firstEpisode,
+                AnalysisJobType.SETTING_EXTRACTION
+        );
+        olderFailedJob.fail("이전 일반 실패");
+        olderFailedJob = analysisJobRepository.saveAndFlush(olderFailedJob);
+
+        AnalysisJob latestInterruptedJob = AnalysisJob.create(
+                work,
+                uploadBatch,
+                firstEpisode,
+                AnalysisJobType.SETTING_EXTRACTION
+        );
+        latestInterruptedJob.updateCheckpointStage(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+        latestInterruptedJob.fail(AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED, "토큰 부족");
+        latestInterruptedJob = analysisJobRepository.saveAndFlush(latestInterruptedJob);
+
+        WorldSettingCandidate completedWorldCandidate = worldSettingCandidate(
+                latestInterruptedJob,
+                firstEpisode,
+                "마탑"
+        );
+        completedWorldCandidate.startComparison();
+        completedWorldCandidate.completeComparison(
+                null,
+                WorldSettingOperation.ADD,
+                "지형 구조",
+                null,
+                "복잡한 통로 구조",
+                "새 설정",
+                JsonNodeFactory.instance.objectNode().put("operation", "ADD"),
+                LocalDateTime.now()
+        );
+        completedWorldCandidate = worldSettingCandidateRepository.saveAndFlush(completedWorldCandidate);
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/analysis-jobs/{analysisJobId}/retry",
+                                work.getId(),
+                                olderFailedJob.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ANALYSIS_JOB_STATUS_CONFLICT"));
+
+        assertThat(analysisJobRepository.count()).isEqualTo(2);
+        assertThat(worldSettingCandidateRepository.findById(completedWorldCandidate.getId()))
+                .get()
+                .extracting(WorldSettingCandidate::getComparisonStatus)
+                .isEqualTo(WorldSettingComparisonStatus.COMPLETED);
+    }
+
+    @Test
     @DisplayName("같은 배치의 전체 분석 작업이 활성 상태면 실패 작업 재시도를 거절한다")
     void retryFailedAnalysisJobRejectsActiveBatchJob() throws Exception {
         firstEpisode.markFailed();
