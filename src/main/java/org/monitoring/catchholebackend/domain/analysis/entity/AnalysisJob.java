@@ -23,6 +23,7 @@ import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
@@ -175,6 +176,11 @@ public class AnalysisJob extends BaseEntity {
     @Column(name = "error_message", columnDefinition = "text")
     private String errorMessage;
 
+    // Worker 실패를 재시도 정책과 사용자 메시지에 사용할 수 있도록 정규화한 코드.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "failure_code", length = 60)
+    private AnalysisFailureCode failureCode;
+
     // Worker가 현재 실행 시도를 claim한 시각.
     @Column(name = "started_at")
     private LocalDateTime startedAt;
@@ -235,6 +241,7 @@ public class AnalysisJob extends BaseEntity {
             this.currentStep = currentStep;
         }
         this.errorMessage = null;
+        this.failureCode = null;
         this.startedAt = LocalDateTime.now();
         this.leaseToken = UUID.randomUUID();
         this.leaseExpiresAt = leaseExpiresAt;
@@ -283,6 +290,7 @@ public class AnalysisJob extends BaseEntity {
         this.leaseToken = null;
         this.leaseExpiresAt = null;
         this.errorMessage = null;
+        this.failureCode = null;
         this.completedAt = null;
     }
 
@@ -304,21 +312,44 @@ public class AnalysisJob extends BaseEntity {
         this.inputTokenCount = inputTokenCount;
         this.outputTokenCount = outputTokenCount;
         this.errorMessage = null;
+        this.failureCode = null;
         this.completedAt = LocalDateTime.now();
         clearLease();
     }
 
     public void fail(String errorMessage) {
-        fail(errorMessage, inputTokenCount, outputTokenCount);
+        fail(AnalysisFailureCode.UNEXPECTED_ERROR, errorMessage, inputTokenCount, outputTokenCount);
     }
 
     public void fail(String errorMessage, Integer inputTokenCount, Integer outputTokenCount) {
+        fail(AnalysisFailureCode.UNEXPECTED_ERROR, errorMessage, inputTokenCount, outputTokenCount);
+    }
+
+    public void fail(AnalysisFailureCode failureCode, String errorMessage) {
+        fail(failureCode, errorMessage, inputTokenCount, outputTokenCount);
+    }
+
+    public void fail(
+            AnalysisFailureCode failureCode,
+            String errorMessage,
+            Integer inputTokenCount,
+            Integer outputTokenCount
+    ) {
         this.status = AnalysisJobStatus.FAILED;
+        this.failureCode = AnalysisFailureCode.orUnexpected(failureCode);
         this.errorMessage = errorMessage;
         this.inputTokenCount = inputTokenCount;
         this.outputTokenCount = outputTokenCount;
         this.completedAt = LocalDateTime.now();
         clearLease();
+    }
+
+    /** 1차 추출 결과를 보존한 채 세계관 비교만 다시 시작할 수 있는 토큰 중단인지 판별한다. */
+    public boolean isResumableTokenInterruption() {
+        return jobType == AnalysisJobType.SETTING_EXTRACTION
+                && status == AnalysisJobStatus.FAILED
+                && failureCode == AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED
+                && hasReachedCheckpoint(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
     }
 
     private void clearLease() {

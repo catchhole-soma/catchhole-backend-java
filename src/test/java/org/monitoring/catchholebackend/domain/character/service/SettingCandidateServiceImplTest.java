@@ -1549,7 +1549,7 @@ class SettingCandidateServiceImplTest {
         verify(analysisJobRepository).save(any(AnalysisJob.class));
         verify(analysisJobRepository, never())
                 .findFirstBySettingCandidateIdAndStatusInOrderByCreatedAtDesc(any(), any());
-        verify(aiTokenService).ensureAnalysisCanStart(memberId);
+        verify(aiTokenService).ensureComparisonCanStart(memberId);
     }
 
     @Test
@@ -1619,7 +1619,7 @@ class SettingCandidateServiceImplTest {
                         ));
 
         verify(analysisJobRepository, never()).save(any(AnalysisJob.class));
-        verify(aiTokenService, never()).ensureAnalysisCanStart(anyLong());
+        verify(aiTokenService, never()).ensureComparisonCanStart(anyLong());
     }
 
     @Test
@@ -1937,6 +1937,7 @@ class SettingCandidateServiceImplTest {
                 null,
                 null,
                 List.of(),
+                null,
                 null,
                 null,
                 null,

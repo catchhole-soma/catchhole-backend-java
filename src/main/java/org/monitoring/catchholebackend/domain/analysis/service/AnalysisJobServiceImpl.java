@@ -7,6 +7,7 @@ import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -19,9 +20,11 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisBatchMapper;
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisJobMapper;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchActiveComparisonCounts;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchPageRow;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisBatchStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
@@ -42,6 +45,7 @@ import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateBatchReviewCounts;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.monitoring.catchholebackend.global.common.response.PageResponse;
 import org.monitoring.catchholebackend.global.exception.AppException;
@@ -88,6 +92,10 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
 
         if (targetEpisodes.stream().anyMatch(targetEpisode -> hasActiveAnalysisJob(batch, targetEpisode))) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_ALREADY_IN_PROGRESS);
+        }
+        if (targetEpisodes.stream().anyMatch(targetEpisode ->
+                hasOutstandingTokenInterruptionRecovery(batch, targetEpisode, request.jobType()))) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
         }
 
         deleteSupersededPendingCandidates(
@@ -163,20 +171,37 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 worldSettingCandidateRepository.countReviewSummaryByBatchIds(
                                 work.getId(),
                                 batchIds,
-                                WorldSettingReviewStatus.PENDING_REVIEW
+                                WorldSettingReviewStatus.PENDING_REVIEW,
+                                WorldSettingComparisonStatus.PENDING,
+                                WorldSettingComparisonStatus.PROCESSING,
+                                WorldSettingComparisonStatus.FAILED,
+                                AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED
                         )
                         .stream()
                         .collect(Collectors.toMap(
                                 WorldSettingCandidateBatchReviewCounts::getBatchId,
                                 counts -> counts
                         ));
+        Map<UUID, Long> activeWorldComparisonCountsByBatchId = analysisJobRepository
+                .countActiveComparisonsByBatchIds(
+                        work.getId(),
+                        batchIds,
+                        AnalysisJobType.WORLD_SETTING_COMPARISON,
+                        List.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING)
+                )
+                .stream()
+                .collect(Collectors.toMap(
+                        AnalysisBatchActiveComparisonCounts::getBatchId,
+                        AnalysisBatchActiveComparisonCounts::getActiveComparisonCount
+                ));
 
         List<AnalysisBatchSummaryResponse> responses = batchPage.getContent().stream()
                 .map(row -> toBatchSummary(
                         row,
                         jobsByBatchId.getOrDefault(row.getBatchId(), List.of()),
                         characterCandidateCountsByBatchId.get(row.getBatchId()),
-                        worldSettingCandidateCountsByBatchId.get(row.getBatchId())
+                        worldSettingCandidateCountsByBatchId.get(row.getBatchId()),
+                        activeWorldComparisonCountsByBatchId.getOrDefault(row.getBatchId(), 0L)
                 ))
                 .toList();
         return PageResponse.from(batchPage, responses);
@@ -201,6 +226,9 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         if (failedJob.getStatus() != AnalysisJobStatus.FAILED) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
         }
+        if (failedJob.isResumableTokenInterruption()) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
+        }
         if (hasActiveBatchWideAnalysisJob(failedJob.getBatch())) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_ALREADY_IN_PROGRESS);
         }
@@ -208,6 +236,10 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         List<Episode> retryEpisodes = findRetryEpisodes(failedJob);
         if (retryEpisodes.isEmpty()) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_TARGET_NOT_FOUND);
+        }
+        if (retryEpisodes.stream().anyMatch(episode ->
+                hasResumableTokenInterruption(failedJob.getBatch(), episode, failedJob.getJobType()))) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
         }
         assertNoActiveJobOfDifferentType(failedJob, retryEpisodes);
 
@@ -346,6 +378,58 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 });
     }
 
+    private boolean hasResumableTokenInterruption(
+            UploadBatch batch,
+            Episode episode,
+            AnalysisJobType jobType
+    ) {
+        return findLatestResumableTokenInterruption(batch, episode, jobType).isPresent();
+    }
+
+    private boolean hasOutstandingTokenInterruptionRecovery(
+            UploadBatch batch,
+            Episode episode,
+            AnalysisJobType jobType
+    ) {
+        return findLatestResumableTokenInterruption(batch, episode, jobType)
+                .map(this::hasUnresolvedOrActiveWorldSettingRecovery)
+                .orElse(false);
+    }
+
+    private boolean hasUnresolvedOrActiveWorldSettingRecovery(AnalysisJob interruptedJob) {
+        boolean unresolvedCandidateExists = worldSettingCandidateRepository
+                .existsByAnalysisJobIdAndReviewStatusAndComparisonStatusAndComparisonFailureCode(
+                        interruptedJob.getId(),
+                        WorldSettingReviewStatus.PENDING_REVIEW,
+                        WorldSettingComparisonStatus.FAILED,
+                        AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED
+                );
+        if (unresolvedCandidateExists) {
+            return true;
+        }
+        return analysisJobRepository.countActiveWorldSettingComparisonsBySourceAnalysisJobId(
+                interruptedJob.getId(),
+                Set.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING)
+        ) > 0;
+    }
+
+    private Optional<AnalysisJob> findLatestResumableTokenInterruption(
+            UploadBatch batch,
+            Episode episode,
+            AnalysisJobType jobType
+    ) {
+        if (jobType != AnalysisJobType.SETTING_EXTRACTION) {
+            return Optional.empty();
+        }
+        return analysisJobRepository
+                .findFirstByEpisodeIdAndBatchIdAndJobTypeOrderByCreatedAtDesc(
+                        episode.getId(),
+                        batch.getId(),
+                        jobType
+                )
+                .filter(AnalysisJob::isResumableTokenInterruption);
+    }
+
     private void assertPublicJobType(AnalysisJobType jobType) {
         if (hiddenComparisonJobTypes().contains(jobType)) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_TYPE_INVALID);
@@ -454,7 +538,8 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
             AnalysisBatchPageRow pageRow,
             List<AnalysisJob> jobs,
             SettingCandidateBatchReviewCounts characterCandidateCounts,
-            WorldSettingCandidateBatchReviewCounts worldSettingCandidateCounts
+            WorldSettingCandidateBatchReviewCounts worldSettingCandidateCounts,
+            long activeWorldSettingComparisonCount
     ) {
         Map<AnalysisJobType, List<AnalysisJob>> currentJobsByType = findCurrentJobsByType(jobs);
         List<AnalysisBatchJobGroupResponse> jobGroups = currentJobsByType.entrySet().stream()
@@ -486,6 +571,9 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         long pendingWorldSettingCandidateCount = worldSettingCandidateCounts == null
                 ? 0
                 : worldSettingCandidateCounts.getPendingCandidateCount();
+        long tokenInterruptedWorldSettingComparisonCount = worldSettingCandidateCounts == null
+                ? 0
+                : worldSettingCandidateCounts.getTokenInterruptedComparisonCount();
         LocalDateTime lastActivityAt = currentJobsByType.values().stream()
                 .flatMap(List::stream)
                 .map(AnalysisJob::getUpdatedAt)
@@ -497,7 +585,9 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 jobs.getFirst().getBatch(),
                 resolveBatchStatus(
                         jobGroups,
-                        pendingCharacterCandidateCount + pendingWorldSettingCandidateCount
+                        pendingCharacterCandidateCount + pendingWorldSettingCandidateCount,
+                        activeWorldSettingComparisonCount,
+                        tokenInterruptedWorldSettingComparisonCount
                 ),
                 episodeStartNo,
                 episodeEndNo,
@@ -550,6 +640,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     private AnalysisBatchStatus resolveJobGroupStatus(List<AnalysisJob> currentJobs) {
         long failedCount = currentJobs.stream()
                 .filter(job -> job.getStatus() == AnalysisJobStatus.FAILED)
+                .filter(job -> !job.isResumableTokenInterruption())
                 .count();
         if (currentJobs.stream().anyMatch(job ->
                 job.getStatus() == AnalysisJobStatus.PENDING
@@ -567,9 +658,12 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
 
     private AnalysisBatchStatus resolveBatchStatus(
             List<AnalysisBatchJobGroupResponse> jobGroups,
-            long pendingCandidateCount
+            long pendingCandidateCount,
+            long activeWorldSettingComparisonCount,
+            long tokenInterruptedWorldSettingComparisonCount
     ) {
-        if (jobGroups.stream().anyMatch(group -> group.status() == AnalysisBatchStatus.IN_PROGRESS)) {
+        if (activeWorldSettingComparisonCount > 0
+                || jobGroups.stream().anyMatch(group -> group.status() == AnalysisBatchStatus.IN_PROGRESS)) {
             return AnalysisBatchStatus.IN_PROGRESS;
         }
         if (jobGroups.stream().allMatch(group -> group.status() == AnalysisBatchStatus.FAILED)) {
@@ -578,6 +672,9 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         if (jobGroups.stream().anyMatch(group ->
                 group.status() == AnalysisBatchStatus.FAILED
                         || group.status() == AnalysisBatchStatus.PARTIALLY_FAILED)) {
+            return AnalysisBatchStatus.PARTIALLY_FAILED;
+        }
+        if (tokenInterruptedWorldSettingComparisonCount > 0) {
             return AnalysisBatchStatus.PARTIALLY_FAILED;
         }
         if (pendingCandidateCount > 0) {

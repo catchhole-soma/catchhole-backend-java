@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 
@@ -53,6 +54,12 @@ public record AnalysisJobResponse(
 
         @Schema(description = "마지막 실패 사유")
         String errorMessage,
+
+        @Schema(description = "기계 판독용 실패 코드", nullable = true)
+        AnalysisFailureCode failureCode,
+
+        @Schema(description = "1차 추출 결과를 보존한 세계관 비교 단계 토큰 중단 여부")
+        boolean tokenInterruptedAfterExtraction,
 
         @Schema(description = "분석 시작 시각", example = "2026-06-14T10:30:00")
         LocalDateTime startedAt,

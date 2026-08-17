@@ -7,7 +7,7 @@ AI 요청별 실제 토큰 사용량을 관측하면서, 결제 기능이 없는
 - 회원은 `AI_TOKEN_DEFAULT_GRANT`만큼 최초 한 번 지급받습니다.
 - 지급량과 사용량은 누적되며 월 단위로 자동 초기화하지 않습니다.
 - 잔여량은 `granted - used - reserved`입니다.
-- 분석 요청 생성·재시도 시 잔여량이 0이면 `AI_TOKEN_QUOTA_EXHAUSTED`로 거절합니다.
+- 분석 생성·재시도는 잔여량이 최소 첫 추출 예약량(`AI_TOKEN_MINIMUM_ANALYSIS_RESERVATION`, 기본 `4256`)보다 적으면, 세계관 비교 시작·일괄 재개는 최소 첫 비교 예약량(`AI_TOKEN_MINIMUM_COMPARISON_RESERVATION`, 기본 `2256`)보다 적으면 `AI_TOKEN_QUOTA_EXHAUSTED` 409로 거절합니다.
 - 실제로 실행되는 각 LLM·임베딩 호출 직전에는 예상 최대량을 예약하므로 동시 분석이 한도를 중복 소비하지 못합니다. 임베딩 feature flag가 꺼진 경우에는 임베딩 예약도 만들지 않습니다.
 - provider가 사용량을 반환하면 실제 input/output을 정산하고 사용하지 않은 예약량은 즉시 반환합니다.
 - provider를 호출하기 전에 실패했거나 사용량을 알 수 없는 실패는 예약을 해제합니다.
@@ -42,7 +42,7 @@ sequenceDiagram
     participant AI as AI Provider
 
     FE->>BE: 분석 생성 또는 재시도
-    BE->>BE: 잔여 토큰 존재 확인
+    BE->>BE: 최소 첫 LLM 예약 가능량 확인
     BE-->>FE: analysisJob 생성
     Worker->>BE: job claim
     loop AI 호출마다
@@ -66,6 +66,20 @@ sequenceDiagram
 `attempt`는 같은 분석 작업·목적 안의 호출 순번이며 schema 검증 재시도도 각각 별도 순번으로 남습니다.
 
 같은 `requestId`의 reserve·settle·release 재호출은 중복 차감을 만들지 않습니다. 이미 반대 상태로 종료된 요청을 다른 상태로 바꾸려 하면 conflict로 거절합니다.
+
+## 분석 중 토큰 부족과 복구
+
+최소 예약 검사는 실행 불가능한 작업을 일찍 막기 위한 빠른 검사입니다. 여러 Job이 동시에 실행될 때의 최종 권한은 각 provider 호출 직전 계정 행을 잠그는 `reserve`가 가집니다.
+
+`SETTING_EXTRACTION`이 `WORLD_CANDIDATES_PUBLISHED` checkpoint 이후 예약 409를 만나면 Worker는 같은 Job의 다음 후보를 claim하지 않고 `AI_TOKEN_QUOTA_EXHAUSTED`로 실패 보고합니다. Backend는 이미 완료된 1차 캐릭터·세계관 추출과 완료 비교를 보존하고, 남은 `PENDING`·`PROCESSING` 세계관 후보만 typed 부분 중단으로 표시합니다. Job은 원인을 추적하기 위해 `FAILED`지만 대상 회차와 보존 산출물은 분석 완료 상태를 유지합니다.
+
+추가 사용량 지급 뒤 Frontend는 다음 배치 API로 중단 후보만 재개합니다.
+
+```text
+POST /api/v1/works/{workId}/world-setting-candidates/batches/{batchId}/resume-token-interrupted
+```
+
+재개 요청도 최소 비교 예약량을 먼저 확인합니다. 후보별 활성 `WORLD_SETTING_COMPARISON` Job은 하나만 만들며 반복 호출은 중복 Job이나 중복 원장 차감을 만들지 않습니다.
 
 ## API
 
@@ -93,6 +107,8 @@ POST /api/internal/v1/ai-token-usages/{requestId}/release
 | --- | --- | --- |
 | `AI_TOKEN_DEFAULT_GRANT` | `2000000` | 계정 최초 조회 또는 분석 시작 시 한 번 지급할 기본량 |
 | `AI_TOKEN_CONTACT_EMAIL` | `aicatchhole@gmail.com` | 한도 소진 안내에 표시할 피드백 연락처 |
+| `AI_TOKEN_MINIMUM_ANALYSIS_RESERVATION` | `4256` | 분석 생성·재시도 전 요구하는 최소 첫 추출 예약량 |
+| `AI_TOKEN_MINIMUM_COMPARISON_RESERVATION` | `2256` | 비교 시작·중단 후보 재개 전 요구하는 최소 첫 비교 예약량 |
 
 기본 지급량을 바꿔도 이미 생성된 계정은 소급 변경하지 않습니다. 기존 회원에게도 200만 token 정책을 적용하려면 현재 `granted_tokens`를 확인하고 목표치와의 양수 차액만 운영 추가 지급 절차로 지급해 `MANUAL` 이력을 남깁니다.
 

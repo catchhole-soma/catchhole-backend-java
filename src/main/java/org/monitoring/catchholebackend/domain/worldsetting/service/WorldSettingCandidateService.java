@@ -10,6 +10,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSet
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateDecisionUpdateResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateGroupActionResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingTokenInterruptedResumeResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
@@ -30,6 +31,12 @@ public interface WorldSettingCandidateService {
     WorldSettingCandidateResponse getCandidate(Long memberId, UUID workId, UUID batchId, UUID candidateId);
 
     WorldSettingCandidateResponse retryComparison(Long memberId, UUID workId, UUID candidateId);
+
+    WorldSettingTokenInterruptedResumeResponse resumeTokenInterruptedComparisons(
+            Long memberId,
+            UUID workId,
+            UUID batchId
+    );
 
     WorldSettingCandidateDecisionUpdateResponse updateCandidateDecisions(
             Long memberId,

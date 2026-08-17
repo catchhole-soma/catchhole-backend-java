@@ -21,6 +21,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenAccountRepository;
@@ -58,6 +60,11 @@ import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.monitoring.catchholebackend.global.config.security.SecurityConstant;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -525,6 +532,97 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("기각된 세계관 후보의 만료 hidden Job을 no-op 완료하고 다음 Job을 처리한다")
+    void dismissedWorldCandidateDoesNotBlockHiddenComparisonQueue() throws Exception {
+        AnalysisJob sourceJob = analysisJobRepository.save(
+                episodeJob(AnalysisJobType.SETTING_EXTRACTION, firstEpisode)
+        );
+        WorldSettingCandidate dismissedCandidate = worldSettingCandidateRepository.saveAndFlush(
+                worldCandidate(sourceJob, "폐허", "상태", "봉인됨")
+        );
+        AnalysisJob expiredHiddenJob = AnalysisJob.createWorldSettingComparison(dismissedCandidate);
+        expiredHiddenJob.claim(
+                "gpt-5.6-terra",
+                "세계관 비교 재개",
+                LocalDateTime.now().minusMinutes(1)
+        );
+        analysisJobRepository.saveAndFlush(expiredHiddenJob);
+        dismissedCandidate.dismiss("사용자가 제외함", member);
+        worldSettingCandidateRepository.saveAndFlush(dismissedCandidate);
+
+        String reclaimedJobResponse = mockMvc.perform(post(CLAIM_URL)
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "modelName": "gpt-5.6-terra",
+                                  "currentStep": "WORLD_SETTING_COMPARISON",
+                                  "allowedJobTypes": ["WORLD_SETTING_COMPARISON"]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.analysisJobId").value(expiredHiddenJob.getId().toString()))
+                .andExpect(jsonPath("$.data.claimAttemptCount").value(2))
+                .andReturn().getResponse().getContentAsString();
+        UUID reclaimedLeaseToken = UUID.fromString(
+                objectMapper.readTree(reclaimedJobResponse).at("/data/leaseToken").asText()
+        );
+
+        mockMvc.perform(post(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}/world-setting-comparisons/claim-next",
+                                expiredHiddenJob.getId()
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, reclaimedLeaseToken))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}/complete",
+                                expiredHiddenJob.getId()
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, reclaimedLeaseToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk());
+
+        assertThat(analysisJobRepository.findById(expiredHiddenJob.getId()).orElseThrow().getStatus())
+                .isEqualTo(AnalysisJobStatus.SUCCEEDED);
+        assertThat(worldSettingCandidateRepository.findById(dismissedCandidate.getId()))
+                .get()
+                .satisfies(candidate -> {
+                    assertThat(candidate.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.DISMISSED);
+                    assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.PENDING);
+                });
+
+        WorldSettingCandidate nextCandidate = worldSettingCandidateRepository.saveAndFlush(
+                worldCandidate(sourceJob, "마탑", "위치", "황도 중앙")
+        );
+        AnalysisJob nextHiddenJob = analysisJobRepository.saveAndFlush(
+                AnalysisJob.createWorldSettingComparison(nextCandidate)
+        );
+
+        mockMvc.perform(post(CLAIM_URL)
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "modelName": "gpt-5.6-terra",
+                                  "currentStep": "WORLD_SETTING_COMPARISON",
+                                  "allowedJobTypes": ["WORLD_SETTING_COMPARISON"]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.analysisJobId").value(nextHiddenJob.getId().toString()));
+
+        List<AnalysisJob> hiddenJobs = analysisJobRepository.findAllById(
+                List.of(expiredHiddenJob.getId(), nextHiddenJob.getId())
+        );
+        hiddenJobs.forEach(AnalysisJob::unlinkWorldSettingCandidate);
+        analysisJobRepository.saveAllAndFlush(hiddenJobs);
+    }
+
+    @Test
     @DisplayName("null lease를 가진 기존 RUNNING 작업을 재claim하고 이전 token을 거절한다")
     void claimRecoversLegacyRunningJobsWithIncompleteLeases() throws Exception {
         AnalysisJob missingTokenJob = analysisJobRepository.save(
@@ -903,6 +1001,109 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("세계관 후보 게시 뒤 토큰 부족은 완료 후보를 보존하고 남은 비교만 재개 가능하게 중단한다")
+    void tokenQuotaAfterWorldCandidatesPreservesExtractionAndInterruptsRemainingComparisons() throws Exception {
+        AnalysisJob analysisJob = episodeJob(AnalysisJobType.SETTING_EXTRACTION, firstEpisode);
+        analysisJob.claim("gpt-5.6-terra", "세계관 비교", LocalDateTime.now().plusMinutes(5));
+        analysisJob.updateCheckpointStage(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+        analysisJobRepository.saveAndFlush(analysisJob);
+
+        WorldSettingCandidate completed = worldCandidate(analysisJob, "바바리안", "서식지", "혹한 지역");
+        completed.startComparison();
+        completed.completeComparison(
+                null,
+                WorldSettingOperation.ADD,
+                "서식지",
+                null,
+                "혹한 지역",
+                "새 설정",
+                objectMapper.createObjectNode().put("operation", "ADD"),
+                LocalDateTime.now()
+        );
+        WorldSettingCandidate pending = worldCandidate(analysisJob, "마탑", "위치", "황도 중앙");
+        WorldSettingCandidate processing = worldCandidate(analysisJob, "왕국", "수도", "아르덴");
+        processing.startComparison();
+        WorldSettingCandidate dismissed = worldCandidate(analysisJob, "폐허", "상태", "봉인됨");
+        dismissed.dismiss("사용자가 제외함", member);
+        worldSettingCandidateRepository.saveAllAndFlush(List.of(completed, pending, processing, dismissed));
+
+        mockMvc.perform(post("/api/internal/v1/analysis-jobs/{analysisJobId}/fail", analysisJob.getId())
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, analysisJob.getLeaseToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "failureCode": "AI_TOKEN_QUOTA_EXHAUSTED",
+                                  "errorMessage": "Client error 409 for url https://internal.example/token/reserve"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        AnalysisJob failedJob = analysisJobRepository.findById(analysisJob.getId()).orElseThrow();
+        assertThat(failedJob.getFailureCode()).isEqualTo(AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED);
+        assertThat(failedJob.isResumableTokenInterruption()).isTrue();
+        assertThat(episodeRepository.findById(firstEpisode.getId()).orElseThrow().getStatus())
+                .isEqualTo(org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ANALYZED);
+        assertThat(worldSettingCandidateRepository.findById(completed.getId()).orElseThrow().getComparisonStatus())
+                .isEqualTo(WorldSettingComparisonStatus.COMPLETED);
+        assertThat(worldSettingCandidateRepository.findAllById(List.of(pending.getId(), processing.getId())))
+                .allSatisfy(candidate -> {
+                    assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.FAILED);
+                    assertThat(candidate.getComparisonFailureCode())
+                            .isEqualTo(AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED);
+                });
+        assertThat(worldSettingCandidateRepository.findById(dismissed.getId()))
+                .get()
+                .satisfies(candidate -> {
+                    assertThat(candidate.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.DISMISSED);
+                    assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.PENDING);
+                    assertThat(candidate.getComparisonFailureCode()).isNull();
+                });
+
+        String accessToken = jwtTokenProvider.generateAccessToken(member);
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/{analysisJobId}",
+                                work.getId(), analysisJob.getId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.failureCode").value("AI_TOKEN_QUOTA_EXHAUSTED"))
+                .andExpect(jsonPath("$.data.tokenInterruptedAfterExtraction").value(true))
+                .andExpect(jsonPath("$.data.errorMessage").value("AI 토큰이 부족해 분석이 중단되었습니다."));
+    }
+
+    @Test
+    @DisplayName("추출 작업이 아닌 실패는 게시 체크포인트가 있어도 재개 가능한 토큰 중단으로 분류하지 않는다")
+    void tokenQuotaAfterWorldCandidatesIsNotResumableForEpisodeValidation() throws Exception {
+        AnalysisJob analysisJob = episodeJob(AnalysisJobType.EPISODE_VALIDATION, firstEpisode);
+        analysisJob.claim("gpt-5.6-terra", "회차 검증", LocalDateTime.now().plusMinutes(5));
+        analysisJob.updateCheckpointStage(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+        analysisJobRepository.saveAndFlush(analysisJob);
+
+        mockMvc.perform(post("/api/internal/v1/analysis-jobs/{analysisJobId}/fail", analysisJob.getId())
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, analysisJob.getLeaseToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "failureCode": "AI_TOKEN_QUOTA_EXHAUSTED",
+                                  "errorMessage": "provider raw error"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        AnalysisJob failedJob = analysisJobRepository.findById(analysisJob.getId()).orElseThrow();
+        assertThat(failedJob.isResumableTokenInterruption()).isFalse();
+        assertThat(episodeRepository.findById(firstEpisode.getId()).orElseThrow().getStatus())
+                .isEqualTo(org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.FAILED);
+
+        String accessToken = jwtTokenProvider.generateAccessToken(member);
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/{analysisJobId}",
+                                work.getId(), analysisJob.getId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.tokenInterruptedAfterExtraction").value(false));
+    }
+
+    @Test
     @DisplayName("실행 중이 아닌 작업의 상태 변경을 거절한다")
     void statusUpdateRejectsNonRunningJob() throws Exception {
         AnalysisJob analysisJob = analysisJobRepository.save(
@@ -945,6 +1146,29 @@ class AnalysisJobWorkerControllerIntegrationTest {
 
     private AnalysisJob episodeJob(AnalysisJobType jobType, Episode episode) {
         return AnalysisJob.create(work, uploadBatch, episode, jobType);
+    }
+
+    private WorldSettingCandidate worldCandidate(
+            AnalysisJob analysisJob,
+            String subjectName,
+            String settingName,
+            String value
+    ) {
+        return WorldSettingCandidate.create(
+                work,
+                firstEpisode,
+                analysisJob,
+                WorldSettingCategory.RACE,
+                subjectName,
+                settingName,
+                value,
+                objectMapper.createArrayNode().add(objectMapper.createObjectNode()
+                        .put("quote", subjectName + " 설정 근거")
+                        .put("startOffset", 0)
+                        .put("endOffset", 8)),
+                new BigDecimal("0.9000"),
+                objectMapper.createObjectNode().put("subjectName", subjectName)
+        );
     }
 
     private CharacterSettingSchema settingSchema(

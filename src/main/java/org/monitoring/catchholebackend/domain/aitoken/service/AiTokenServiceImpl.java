@@ -55,7 +55,17 @@ public class AiTokenServiceImpl implements AiTokenService {
     @Override
     @Transactional
     public void ensureAnalysisCanStart(Long memberId) {
-        if (getOrCreateAccount(memberId).remainingTokens() <= 0) {
+        ensureMinimumReservation(memberId, properties.minimumAnalysisReservation());
+    }
+
+    @Override
+    @Transactional
+    public void ensureComparisonCanStart(Long memberId) {
+        ensureMinimumReservation(memberId, properties.minimumComparisonReservation());
+    }
+
+    private void ensureMinimumReservation(Long memberId, long minimumReservation) {
+        if (getOrCreateAccount(memberId).remainingTokens() < minimumReservation) {
             throw new AppException(AiTokenErrorCode.AI_TOKEN_QUOTA_EXHAUSTED);
         }
     }

@@ -60,3 +60,7 @@ internal:
 ai-token:
   default-grant: ${AI_TOKEN_DEFAULT_GRANT:2000000}
   contact-email: ${AI_TOKEN_CONTACT_EMAIL:aicatchhole@gmail.com}
+  # 입력 토큰의 최소 여유분(256)과 purpose별 기본 output cap을 합친 빠른 시작 검증값.
+  # 실제 동시성·prompt 길이 검증은 Worker 호출 직전 원자적 예약이 최종 권한을 가진다.
+  minimum-analysis-reservation: ${AI_TOKEN_MINIMUM_ANALYSIS_RESERVATION:4256}
+  minimum-comparison-reservation: ${AI_TOKEN_MINIMUM_COMPARISON_RESERVATION:2256}

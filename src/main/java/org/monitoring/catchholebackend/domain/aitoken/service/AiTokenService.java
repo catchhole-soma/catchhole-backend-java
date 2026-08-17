@@ -22,6 +22,9 @@ public interface AiTokenService {
      */
     void ensureAnalysisCanStart(Long memberId);
 
+    /** 비교 전용 작업 생성 전에 최소 한 번의 비교 요청을 예약할 수 있는지 확인한다. */
+    void ensureComparisonCanStart(Long memberId);
+
     /**
      * AI provider 호출 전에 예상 최대량을 요청 UUID 단위로 예약한다.
      * 회원 토큰 계정을 잠가 동시 요청이 같은 잔여량을 중복 예약하지 못하게 한다.

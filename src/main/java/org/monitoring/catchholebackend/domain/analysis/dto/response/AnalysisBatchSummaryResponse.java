@@ -45,6 +45,12 @@ public record AnalysisBatchSummaryResponse(
         @Schema(description = "검토 대기 세계관 설정 후보 수", example = "8")
         long worldSettingPendingCandidateCount,
 
+        @Schema(description = "토큰 부족으로 비교가 중단되어 재개 가능한 세계관 후보 수", example = "5")
+        long worldSettingTokenInterruptedCandidateCount,
+
+        @Schema(description = "토큰 부족으로 중단된 세계관 비교의 일괄 재개 가능 여부")
+        boolean canResumeTokenInterruptedWorldSettingComparisons,
+
         @Schema(description = "분석 목적별 최신 작업 집계")
         List<AnalysisBatchJobGroupResponse> jobGroups,
 

@@ -14,6 +14,8 @@ public interface WorldSettingCandidateBatchCounts {
 
     long getFailedComparisonCount();
 
+    long getTokenInterruptedComparisonCount();
+
     long getRecomparisonRequiredCount();
 
     long getConflictCandidateCount();

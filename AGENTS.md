@@ -186,6 +186,7 @@ Service는 Entity 조회, 트랜잭션, 저장, DTO 변환 등 유스케이스 �
 ### Documentation
 
 - 백엔드 도메인 설계, ERD, API 흐름, 작업 워크플로우는 `docs/` 아래 Markdown으로 관리한다.
+- 분석 실행·중단·복구처럼 여러 저장소가 공유하는 도메인 용어의 canonical 이름은 루트 `CONTEXT.md`에 짧게 정의하고, 구현 상세와 운영 절차는 `docs/`에 둔다.
 - 전역 개발 규칙과 컨벤션은 `AGENTS.md`에 유지하고, 도메인별 설계 의도와 구현 흐름은 `docs/`에 둔다.
 - 운영 인프라의 현재 구조, 스케일링 전략, 미결정 선택지와 단계별 전환 계획은 `docs/infrastructure-flow.md`에서 관리한다. 아직 구현되지 않았거나 팀이 결정하지 않은 제품·리소스를 목표 구조로 확정해 표현하지 않아 실제 운영 상태와 제안을 구분하기 위함이다.
 - 코드 변경으로 도메인 흐름, DB 모델, 상태 전이, 접근 제어가 바뀌면 관련 문서도 같은 PR에서 갱신한다.
@@ -297,7 +298,11 @@ domain/<domain>
 - Python AI Worker는 작업 claim과 `AnalysisJob` 상태 변경에 `/api/internal/**` 내부 API를 `X-Internal-Api-Key`로 인증해 사용한다. Worker에는 원문 본문을 응답하지 않으며, 단일 `episode`의 S3 key/version/hash/charCount 메타데이터, `ACTIVE` 캐릭터 ID·대표 이름 목록, 활성 캐릭터 설정 schema를 전달한다. `ARCHIVED` 캐릭터는 이후 원고 매칭 대상에서 제외한다.
 - Worker claim은 `allowedJobTypes`가 필수이며, claim 성공 시 5분 lease token을 발급한다. progress·heartbeat·complete·fail, 토큰 예약과 세계관 내부 API는 같은 `X-Worker-Lease-Token`을 검증한다. 만료 Job은 다음 claim에서 최대 3회까지 checkpoint부터 재대기시키고, 예약 중 토큰을 해제한 뒤 한도를 넘으면 실패 처리한다.
 - 일반 `SETTING_EXTRACTION` Job은 `CHUNKS_READY → CHARACTER_CANDIDATES_SAVED → CHARACTER_COMPARISONS_FINISHED → WORLD_CANDIDATES_PUBLISHED → WORLD_COMPARISONS_FINISHED` checkpoint를 단조 증가시킨다. 캐릭터 또는 세계관 후보 비교가 `PENDING`/`PROCESSING`이면 완료를 거절한다. Java가 신규 checkpoint를 먼저 배포한 호환 구간에는 실제 캐릭터 비교 대기 후보가 없을 때만 구버전 Worker의 checkpoint 누락을 허용한다.
-- `WORLD_SETTING_COMPARISON`은 사용자 재비교 요청 한 건을 처리하는 내부 Job type이다. 공개 분석 목록·진행률·회차 실행 잠금에서 제외하고 동일 후보의 활성 Job은 하나만 허용한다.
+- Worker 실패는 `AnalysisFailureCode`로 분류해 `analysis_jobs.failure_code`와 후보별 비교 실패 코드에 저장한다. `error_message`는 운영 진단용 원문이며 공개 DTO의 실패 문구는 코드별 안전한 사용자 메시지만 사용한다. URL, 내부 API 경로, stack trace가 공개 응답에 섞이지 않게 한다.
+- `WORLD_CANDIDATES_PUBLISHED` 이후 `SETTING_EXTRACTION`이 `AI_TOKEN_QUOTA_EXHAUSTED`로 중단되면 완료된 1차 추출·비교와 `Episode.ANALYZED`를 보존하고, 남은 세계관 후보만 같은 코드의 재개 가능한 중단 상태로 표시한다. 미해결 토큰 중단 후보나 해당 후보의 활성 `WORLD_SETTING_COMPARISON` Job이 남아 있는 동안 새 전체 분석 생성과 다른 실패 Job을 통한 우회 재시도를 차단하고 배치 단위 세계관 비교 재개 API로만 복구한다. 후보가 모두 완료·기각되고 활성 복구 Job이 사라지면 새 분석 생성은 다시 허용한다.
+- 공개 분석 생성·재시도는 최소 첫 추출 예약량, 세계관 비교 시작·일괄 재개는 최소 첫 비교 예약량을 사전 확인한다. 이 검사는 빠른 사용자 피드백용이며, 동시 실행에서 실제 사용 권한은 Worker 호출 직전의 계정 잠금 기반 원자적 예약이 최종 결정한다.
+- `WORLD_SETTING_COMPARISON`은 사용자 재비교 요청 한 건을 처리하는 내부 Job type이다. 공개 분석 목록·진행률·회차 실행 잠금에서 제외하고 동일 후보의 활성 Job은 하나만 허용한다. 후보가 `PENDING_REVIEW`를 벗어나 Job이 obsolete가 되면 후보 상태를 되돌리거나 실패 이력을 만들지 않고 no-op 성공시킨다.
+- 세계관 후보 목록의 `activeComparisonJobCount`는 해당 배치의 `PENDING/RUNNING WORLD_SETTING_COMPARISON` Job 수를 반환한다. 프론트는 이 값으로 일괄 재개 중인 `PENDING` 후보와 활성 Job이 없는 복구 대상을 구분한다.
 - `CHARACTER_FACT_COMPARISON`도 사용자 수정·매칭 변경 또는 stale proposal 한 건을 재비교하는 내부 Job type이다. `analysis_jobs.setting_candidate_id`로 후보 하나만 연결하고 공개 분석 목록·회차 상태 전이에서 제외한다. 후보가 무시되거나 다시 미매칭 상태가 되어 Job이 obsolete가 되면 실패 이력을 만들지 않고 no-op 성공시킨다.
 - Worker는 분석 작업 생성과 상태 전이를 위해 백엔드 DB에 직접 접근하지 않는다. 다만 청킹, 설정 후보, 리포트 같은 분석 산출물 저장은 데이터 양과 모델 안정성에 따라 내부 API 또는 Worker의 DB 직접 저장 중 선택할 수 있으며, DB 직접 저장을 선택하면 관련 스키마/문서 변경을 함께 관리한다.
 

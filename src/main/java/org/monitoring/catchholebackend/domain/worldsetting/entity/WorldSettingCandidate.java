@@ -28,6 +28,7 @@ import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.type.SqlTypes;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
@@ -170,6 +171,10 @@ public class WorldSettingCandidate extends BaseEntity {
     private String comparisonErrorMessage;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "comparison_failure_code", length = 60)
+    private AnalysisFailureCode comparisonFailureCode;
+
+    @Enumerated(EnumType.STRING)
     @Column(name = "review_status", nullable = false, length = 30)
     private WorldSettingReviewStatus reviewStatus;
 
@@ -300,6 +305,7 @@ public class WorldSettingCandidate extends BaseEntity {
         }
         comparisonStatus = WorldSettingComparisonStatus.PROCESSING;
         comparisonErrorMessage = null;
+        comparisonFailureCode = null;
     }
 
     public void completeComparison(
@@ -378,18 +384,51 @@ public class WorldSettingCandidate extends BaseEntity {
         this.comparedAt = Objects.requireNonNull(comparedAt);
         this.comparisonStatus = WorldSettingComparisonStatus.COMPLETED;
         this.comparisonErrorMessage = null;
+        this.comparisonFailureCode = null;
     }
 
     public void failComparison(String errorMessage) {
+        failComparison(AnalysisFailureCode.UNEXPECTED_ERROR, errorMessage);
+    }
+
+    public void failComparison(AnalysisFailureCode failureCode, String errorMessage) {
         validatePendingReview();
         validateProcessingComparison();
         comparisonStatus = WorldSettingComparisonStatus.FAILED;
+        comparisonFailureCode = AnalysisFailureCode.orUnexpected(failureCode);
         comparisonErrorMessage = requiredValue(errorMessage);
+    }
+
+    /** 아직 시작하지 않았거나 처리 중인 비교를 토큰 부족으로 원자적으로 중단한다. */
+    public void interruptComparisonForTokenQuota(String errorMessage) {
+        validatePendingReview();
+        if (comparisonStatus != WorldSettingComparisonStatus.PENDING
+                && comparisonStatus != WorldSettingComparisonStatus.PROCESSING) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        comparisonStatus = WorldSettingComparisonStatus.FAILED;
+        comparisonFailureCode = AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED;
+        comparisonErrorMessage = requiredValue(errorMessage);
+    }
+
+    public boolean isTokenInterruptedComparison() {
+        return reviewStatus == WorldSettingReviewStatus.PENDING_REVIEW
+                && comparisonStatus == WorldSettingComparisonStatus.FAILED
+                && comparisonFailureCode == AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED;
+    }
+
+    public void resumeTokenInterruptedComparison() {
+        if (!isTokenInterruptedComparison()) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        clearComparisonProposal();
+        comparisonStatus = WorldSettingComparisonStatus.PENDING;
     }
 
     public void requestRecomparison() {
         validatePendingReview();
-        if (comparisonStatus == WorldSettingComparisonStatus.PROCESSING
+        if (isTokenInterruptedComparison()
+                || comparisonStatus == WorldSettingComparisonStatus.PROCESSING
                 || comparisonStatus == WorldSettingComparisonStatus.COMPLETED) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
@@ -398,10 +437,10 @@ public class WorldSettingCandidate extends BaseEntity {
     }
 
     public void recoverExpiredComparison() {
-        validatePendingReview();
-        if (comparisonStatus == WorldSettingComparisonStatus.PROCESSING) {
+        if (isPendingReview() && comparisonStatus == WorldSettingComparisonStatus.PROCESSING) {
             comparisonStatus = WorldSettingComparisonStatus.PENDING;
             comparisonErrorMessage = null;
+            comparisonFailureCode = null;
         }
     }
 
@@ -412,6 +451,7 @@ public class WorldSettingCandidate extends BaseEntity {
     public void markRecomparisonRequired(String reason) {
         validatePendingReview();
         comparisonStatus = WorldSettingComparisonStatus.RECOMPARISON_REQUIRED;
+        comparisonFailureCode = null;
         comparisonErrorMessage = requiredValue(reason);
     }
 
@@ -592,6 +632,7 @@ public class WorldSettingCandidate extends BaseEntity {
         rawComparisonJson = null;
         comparedAt = null;
         comparisonErrorMessage = null;
+        comparisonFailureCode = null;
     }
 
     @PrePersist

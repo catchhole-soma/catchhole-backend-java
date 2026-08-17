@@ -9,6 +9,8 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties(prefix = "ai-token")
 public record AiTokenProperties(
         @Min(0) long defaultGrant,
-        @NotBlank String contactEmail
+        @NotBlank String contactEmail,
+        @Min(1) long minimumAnalysisReservation,
+        @Min(1) long minimumComparisonReservation
 ) {
 }

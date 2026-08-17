@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
@@ -71,6 +72,10 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
                        and candidate.comparisonStatus = :failedComparison then 1 else 0 end), 0)
                        as failedComparisonCount,
                    coalesce(sum(case when candidate.reviewStatus = :pendingReview
+                       and candidate.comparisonStatus = :failedComparison
+                       and candidate.comparisonFailureCode = :quotaFailureCode then 1 else 0 end), 0)
+                       as tokenInterruptedComparisonCount,
+                   coalesce(sum(case when candidate.reviewStatus = :pendingReview
                        and candidate.comparisonStatus = :recomparisonRequired then 1 else 0 end), 0)
                        as recomparisonRequiredCount,
                    coalesce(sum(case when candidate.reviewStatus = :pendingReview
@@ -89,6 +94,7 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             @Param("pendingComparison") WorldSettingComparisonStatus pendingComparison,
             @Param("processingComparison") WorldSettingComparisonStatus processingComparison,
             @Param("failedComparison") WorldSettingComparisonStatus failedComparison,
+            @Param("quotaFailureCode") AnalysisFailureCode quotaFailureCode,
             @Param("recomparisonRequired") WorldSettingComparisonStatus recomparisonRequired,
             @Param("completedComparison") WorldSettingComparisonStatus completedComparison,
             @Param("conflictConsolidation") WorldSettingConsolidationStatus conflictConsolidation
@@ -100,7 +106,17 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
                    coalesce(sum(case when candidate.reviewStatus <> :pendingReview then 1 else 0 end), 0)
                        as reviewedCandidateCount,
                    coalesce(sum(case when candidate.reviewStatus = :pendingReview then 1 else 0 end), 0)
-                       as pendingCandidateCount
+                       as pendingCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus = :pendingReview
+                       and candidate.comparisonStatus = :pendingComparison then 1 else 0 end), 0)
+                       as pendingComparisonCount,
+                   coalesce(sum(case when candidate.reviewStatus = :pendingReview
+                       and candidate.comparisonStatus = :processingComparison then 1 else 0 end), 0)
+                       as processingComparisonCount,
+                   coalesce(sum(case when candidate.reviewStatus = :pendingReview
+                       and candidate.comparisonStatus = :failedComparison
+                       and candidate.comparisonFailureCode = :quotaFailureCode then 1 else 0 end), 0)
+                       as tokenInterruptedComparisonCount
             from WorldSettingCandidate candidate
             join candidate.analysisJob analysisJob
             where candidate.work.id = :workId
@@ -110,7 +126,32 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
     List<WorldSettingCandidateBatchReviewCounts> countReviewSummaryByBatchIds(
             @Param("workId") UUID workId,
             @Param("batchIds") List<UUID> batchIds,
-            @Param("pendingReview") WorldSettingReviewStatus pendingReview
+            @Param("pendingReview") WorldSettingReviewStatus pendingReview,
+            @Param("pendingComparison") WorldSettingComparisonStatus pendingComparison,
+            @Param("processingComparison") WorldSettingComparisonStatus processingComparison,
+            @Param("failedComparison") WorldSettingComparisonStatus failedComparison,
+            @Param("quotaFailureCode") AnalysisFailureCode quotaFailureCode
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"sourceEpisode", "analysisJob"})
+    @Query("""
+            select candidate
+            from WorldSettingCandidate candidate
+            join candidate.analysisJob analysisJob
+            where candidate.work.id = :workId
+              and analysisJob.batch.id = :batchId
+              and candidate.reviewStatus = :pendingReview
+              and candidate.comparisonStatus = :failedComparison
+              and candidate.comparisonFailureCode = :quotaFailureCode
+            order by candidate.createdAt asc, candidate.id asc
+            """)
+    List<WorldSettingCandidate> findTokenInterruptedByBatchForUpdate(
+            @Param("workId") UUID workId,
+            @Param("batchId") UUID batchId,
+            @Param("pendingReview") WorldSettingReviewStatus pendingReview,
+            @Param("failedComparison") WorldSettingComparisonStatus failedComparison,
+            @Param("quotaFailureCode") AnalysisFailureCode quotaFailureCode
     );
 
     @EntityGraph(attributePaths = {"sourceEpisode", "reviewedBy"})
@@ -194,9 +235,23 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             WorldSettingComparisonStatus comparisonStatus
     );
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    List<WorldSettingCandidate> findAllByAnalysisJobIdAndReviewStatusAndComparisonStatusIn(
+            UUID analysisJobId,
+            WorldSettingReviewStatus reviewStatus,
+            Collection<WorldSettingComparisonStatus> comparisonStatuses
+    );
+
     boolean existsByAnalysisJobIdAndComparisonStatusIn(
             UUID analysisJobId,
             Collection<WorldSettingComparisonStatus> comparisonStatuses
+    );
+
+    boolean existsByAnalysisJobIdAndReviewStatusAndComparisonStatusAndComparisonFailureCode(
+            UUID analysisJobId,
+            WorldSettingReviewStatus reviewStatus,
+            WorldSettingComparisonStatus comparisonStatus,
+            AnalysisFailureCode comparisonFailureCode
     );
 
     @Query("""

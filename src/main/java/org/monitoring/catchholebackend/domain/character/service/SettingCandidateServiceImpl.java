@@ -668,7 +668,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         )) {
             return;
         }
-        aiTokenService.ensureAnalysisCanStart(memberId);
+        aiTokenService.ensureComparisonCanStart(memberId);
         analysisJobRepository.save(AnalysisJob.createCharacterFactComparison(candidate));
     }
 

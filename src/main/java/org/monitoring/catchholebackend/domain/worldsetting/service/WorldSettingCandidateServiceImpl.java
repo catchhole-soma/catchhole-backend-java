@@ -13,7 +13,9 @@ import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobEpisodeRange;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
@@ -29,6 +31,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSet
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateListResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateDecisionUpdateResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingTokenInterruptedResumeResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
 import org.monitoring.catchholebackend.domain.worldsetting.exception.WorldSettingErrorCode;
@@ -89,12 +92,23 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                 WorldSettingComparisonStatus.PENDING,
                 WorldSettingComparisonStatus.PROCESSING,
                 WorldSettingComparisonStatus.FAILED,
+                AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED,
                 WorldSettingComparisonStatus.RECOMPARISON_REQUIRED,
                 WorldSettingComparisonStatus.COMPLETED,
                 WorldSettingConsolidationStatus.CONFLICT
         );
         AnalysisJobEpisodeRange episodeRange =
                 analysisJobRepository.findEpisodeRangeByWorkIdAndBatchId(work.getId(), batchId);
+        long activeComparisonJobCount = analysisJobRepository.countActiveComparisonsByBatchIds(
+                        work.getId(),
+                        List.of(batchId),
+                        AnalysisJobType.WORLD_SETTING_COMPARISON,
+                        List.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING)
+                )
+                .stream()
+                .mapToLong(countsByBatch -> countsByBatch.getActiveComparisonCount())
+                .findFirst()
+                .orElse(0L);
         Map<String, List<WorldSettingCandidate>> candidatesByGroup = new LinkedHashMap<>();
         for (WorldSettingCandidate candidate : candidates) {
             candidatesByGroup.computeIfAbsent(groupKey(candidate), ignored -> new ArrayList<>())
@@ -124,7 +138,10 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                 counts.getPendingCandidateCount(),
                 counts.getPendingComparisonCount(),
                 counts.getProcessingComparisonCount(),
+                activeComparisonJobCount,
                 counts.getFailedComparisonCount(),
+                counts.getTokenInterruptedComparisonCount(),
+                counts.getTokenInterruptedComparisonCount() > 0,
                 counts.getRecomparisonRequiredCount(),
                 counts.getConflictCandidateCount(),
                 groupPage
@@ -209,6 +226,63 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         enqueueRecomparisonJobIfAbsent(memberId, candidate);
         worldSettingCandidateRepository.flush();
         return worldSettingMapper.toCandidateResponse(candidate);
+    }
+
+    @Override
+    @Transactional
+    public WorldSettingTokenInterruptedResumeResponse resumeTokenInterruptedComparisons(
+            Long memberId,
+            UUID workId,
+            UUID batchId
+    ) {
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        validateBatch(work, batchId);
+        List<WorldSettingCandidate> interruptedCandidates = worldSettingCandidateRepository
+                .findTokenInterruptedByBatchForUpdate(
+                        work.getId(),
+                        batchId,
+                        WorldSettingReviewStatus.PENDING_REVIEW,
+                        WorldSettingComparisonStatus.FAILED,
+                        AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED
+                );
+        long resumedCandidateCount = 0;
+        if (!interruptedCandidates.isEmpty()) {
+            aiTokenService.ensureComparisonCanStart(memberId);
+            for (WorldSettingCandidate candidate : interruptedCandidates) {
+                boolean activeJobExists = analysisJobRepository
+                        .findFirstByWorldSettingCandidateIdAndStatusInOrderByCreatedAtDesc(
+                                candidate.getId(),
+                                List.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING)
+                        )
+                        .isPresent();
+                if (activeJobExists) {
+                    continue;
+                }
+                candidate.resumeTokenInterruptedComparison();
+                analysisJobRepository.save(AnalysisJob.createWorldSettingComparison(candidate));
+                resumedCandidateCount++;
+            }
+            worldSettingCandidateRepository.flush();
+        }
+
+        WorldSettingCandidateBatchCounts counts = worldSettingCandidateRepository.countReviewSummary(
+                work.getId(),
+                batchId,
+                WorldSettingReviewStatus.PENDING_REVIEW,
+                WorldSettingComparisonStatus.PENDING,
+                WorldSettingComparisonStatus.PROCESSING,
+                WorldSettingComparisonStatus.FAILED,
+                AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED,
+                WorldSettingComparisonStatus.RECOMPARISON_REQUIRED,
+                WorldSettingComparisonStatus.COMPLETED,
+                WorldSettingConsolidationStatus.CONFLICT
+        );
+        return new WorldSettingTokenInterruptedResumeResponse(
+                batchId,
+                resumedCandidateCount,
+                counts.getPendingComparisonCount() + counts.getProcessingComparisonCount(),
+                counts.getTokenInterruptedComparisonCount()
+        );
     }
 
     @Override
@@ -585,7 +659,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             }
             return;
         }
-        aiTokenService.ensureAnalysisCanStart(memberId);
+        aiTokenService.ensureComparisonCanStart(memberId);
         analysisJobRepository.save(AnalysisJob.createWorldSettingComparison(candidate));
     }
 

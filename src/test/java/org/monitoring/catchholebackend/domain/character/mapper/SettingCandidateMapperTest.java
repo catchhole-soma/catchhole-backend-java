@@ -11,6 +11,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
@@ -251,6 +252,47 @@ class SettingCandidateMapperTest {
         assertThat(response.matchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
         assertThat(response.attributeNameEditable()).isTrue();
         assertThat(response.attributeNamePrefix()).isEqualTo("status.");
+    }
+
+    @Test
+    @DisplayName("비교 실패 응답은 원문 오류 대신 타입 코드의 안전한 메시지를 노출한다")
+    void toResponseSanitizesComparisonFailure() {
+        Work work = work(UUID.randomUUID());
+        SettingCandidate candidate = SettingCandidate.create(
+                work,
+                null,
+                null,
+                null,
+                SettingEntityType.CHARACTER,
+                "아리아",
+                "아리아",
+                UUID.randomUUID(),
+                SettingCandidateMatchStatus.MATCHED,
+                "stats.strength",
+                "10",
+                SettingValueType.NUMBER,
+                objectMapper.createObjectNode().put("value", 10),
+                null,
+                new BigDecimal("0.9000"),
+                null
+        );
+        candidate.startComparison();
+        candidate.failComparison(
+                AnalysisFailureCode.LLM_PROVIDER_ERROR,
+                "https://provider.internal/v1 stack trace"
+        );
+
+        SettingCandidateResponse response = mapper.toResponse(
+                candidate,
+                false,
+                null,
+                SettingCandidateValueValidation.valid()
+        );
+
+        assertThat(response.comparisonFailureCode()).isEqualTo(AnalysisFailureCode.LLM_PROVIDER_ERROR);
+        assertThat(response.comparisonErrorMessage())
+                .isEqualTo(AnalysisFailureCode.LLM_PROVIDER_ERROR.getPublicMessage());
+        assertThat(response.comparisonErrorMessage()).doesNotContain("provider.internal", "stack trace");
     }
 
     @Test

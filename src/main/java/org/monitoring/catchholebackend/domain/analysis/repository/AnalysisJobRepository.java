@@ -90,6 +90,37 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             @Param("batchIds") Collection<UUID> batchIds
     );
 
+    @Query("""
+            select analysisJob.batch.id as batchId,
+                   count(analysisJob) as activeComparisonCount
+            from AnalysisJob analysisJob
+            where analysisJob.work.id = :workId
+              and analysisJob.batch.id in :batchIds
+              and analysisJob.jobType = :jobType
+              and analysisJob.status in :statuses
+            group by analysisJob.batch.id
+            """)
+    List<AnalysisBatchActiveComparisonCounts> countActiveComparisonsByBatchIds(
+            @Param("workId") UUID workId,
+            @Param("batchIds") Collection<UUID> batchIds,
+            @Param("jobType") AnalysisJobType jobType,
+            @Param("statuses") Collection<AnalysisJobStatus> statuses
+    );
+
+    @Query("""
+            select count(comparisonJob)
+            from AnalysisJob comparisonJob
+            join comparisonJob.worldSettingCandidate candidate
+            where candidate.analysisJob.id = :sourceAnalysisJobId
+              and comparisonJob.jobType =
+                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON
+              and comparisonJob.status in :statuses
+            """)
+    long countActiveWorldSettingComparisonsBySourceAnalysisJobId(
+            @Param("sourceAnalysisJobId") UUID sourceAnalysisJobId,
+            @Param("statuses") Collection<AnalysisJobStatus> statuses
+    );
+
     Optional<AnalysisJob> findFirstByBatchIdOrderByCreatedAtDesc(UUID batchId);
 
     @Query("""
@@ -161,6 +192,12 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             UUID batchId,
             AnalysisJobType jobType,
             Collection<AnalysisJobStatus> statuses
+    );
+
+    Optional<AnalysisJob> findFirstByEpisodeIdAndBatchIdAndJobTypeOrderByCreatedAtDesc(
+            UUID episodeId,
+            UUID batchId,
+            AnalysisJobType jobType
     );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
