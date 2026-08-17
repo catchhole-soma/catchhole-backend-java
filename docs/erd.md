@@ -164,6 +164,7 @@ erDiagram
         int output_token_count
         text summary_json
         text error_message
+        varchar failure_code
         datetime started_at
         datetime completed_at
         datetime created_at
