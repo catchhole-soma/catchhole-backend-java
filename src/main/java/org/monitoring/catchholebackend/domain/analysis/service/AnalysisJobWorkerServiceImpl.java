@@ -223,11 +223,19 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             }
             return;
         }
-        if (analysisJob.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON
-                && (analysisJob.getWorldSettingCandidate() == null
-                || analysisJob.getWorldSettingCandidate().getComparisonStatus()
-                != WorldSettingComparisonStatus.COMPLETED)) {
-            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_CHECKPOINT_INCOMPLETE);
+        if (analysisJob.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON) {
+            WorldSettingCandidate candidate = analysisJob.getWorldSettingCandidate();
+            if (candidate == null) {
+                throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_CHECKPOINT_INCOMPLETE);
+            }
+            // claim 전에 사용자가 후보를 확정/기각했다면 hidden job은 할 일이 없는 정상 종료다.
+            if (!candidate.isPendingReview()) {
+                return;
+            }
+            if (candidate.getComparisonStatus() != WorldSettingComparisonStatus.COMPLETED) {
+                throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_CHECKPOINT_INCOMPLETE);
+            }
+            return;
         }
         if (analysisJob.getJobType() == AnalysisJobType.CHARACTER_FACT_COMPARISON) {
             SettingCandidate candidate = analysisJob.getSettingCandidate();

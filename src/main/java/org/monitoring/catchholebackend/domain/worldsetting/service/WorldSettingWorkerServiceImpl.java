@@ -139,7 +139,8 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
             ).stream().findFirst().orElse(null);
         } else if (analysisJob.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON) {
             candidate = lockLinkedCandidate(analysisJob);
-            if (candidate.getComparisonStatus() != WorldSettingComparisonStatus.PENDING) {
+            if (!candidate.isPendingReview()
+                    || candidate.getComparisonStatus() != WorldSettingComparisonStatus.PENDING) {
                 return Optional.empty();
             }
         } else {

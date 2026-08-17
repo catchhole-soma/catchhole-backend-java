@@ -437,8 +437,7 @@ public class WorldSettingCandidate extends BaseEntity {
     }
 
     public void recoverExpiredComparison() {
-        validatePendingReview();
-        if (comparisonStatus == WorldSettingComparisonStatus.PROCESSING) {
+        if (isPendingReview() && comparisonStatus == WorldSettingComparisonStatus.PROCESSING) {
             comparisonStatus = WorldSettingComparisonStatus.PENDING;
             comparisonErrorMessage = null;
             comparisonFailureCode = null;

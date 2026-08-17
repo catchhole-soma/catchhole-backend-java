@@ -532,6 +532,97 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("기각된 세계관 후보의 만료 hidden Job을 no-op 완료하고 다음 Job을 처리한다")
+    void dismissedWorldCandidateDoesNotBlockHiddenComparisonQueue() throws Exception {
+        AnalysisJob sourceJob = analysisJobRepository.save(
+                episodeJob(AnalysisJobType.SETTING_EXTRACTION, firstEpisode)
+        );
+        WorldSettingCandidate dismissedCandidate = worldSettingCandidateRepository.saveAndFlush(
+                worldCandidate(sourceJob, "폐허", "상태", "봉인됨")
+        );
+        AnalysisJob expiredHiddenJob = AnalysisJob.createWorldSettingComparison(dismissedCandidate);
+        expiredHiddenJob.claim(
+                "gpt-5.6-terra",
+                "세계관 비교 재개",
+                LocalDateTime.now().minusMinutes(1)
+        );
+        analysisJobRepository.saveAndFlush(expiredHiddenJob);
+        dismissedCandidate.dismiss("사용자가 제외함", member);
+        worldSettingCandidateRepository.saveAndFlush(dismissedCandidate);
+
+        String reclaimedJobResponse = mockMvc.perform(post(CLAIM_URL)
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "modelName": "gpt-5.6-terra",
+                                  "currentStep": "WORLD_SETTING_COMPARISON",
+                                  "allowedJobTypes": ["WORLD_SETTING_COMPARISON"]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.analysisJobId").value(expiredHiddenJob.getId().toString()))
+                .andExpect(jsonPath("$.data.claimAttemptCount").value(2))
+                .andReturn().getResponse().getContentAsString();
+        UUID reclaimedLeaseToken = UUID.fromString(
+                objectMapper.readTree(reclaimedJobResponse).at("/data/leaseToken").asText()
+        );
+
+        mockMvc.perform(post(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}/world-setting-comparisons/claim-next",
+                                expiredHiddenJob.getId()
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, reclaimedLeaseToken))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}/complete",
+                                expiredHiddenJob.getId()
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, reclaimedLeaseToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk());
+
+        assertThat(analysisJobRepository.findById(expiredHiddenJob.getId()).orElseThrow().getStatus())
+                .isEqualTo(AnalysisJobStatus.SUCCEEDED);
+        assertThat(worldSettingCandidateRepository.findById(dismissedCandidate.getId()))
+                .get()
+                .satisfies(candidate -> {
+                    assertThat(candidate.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.DISMISSED);
+                    assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.PENDING);
+                });
+
+        WorldSettingCandidate nextCandidate = worldSettingCandidateRepository.saveAndFlush(
+                worldCandidate(sourceJob, "마탑", "위치", "황도 중앙")
+        );
+        AnalysisJob nextHiddenJob = analysisJobRepository.saveAndFlush(
+                AnalysisJob.createWorldSettingComparison(nextCandidate)
+        );
+
+        mockMvc.perform(post(CLAIM_URL)
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "modelName": "gpt-5.6-terra",
+                                  "currentStep": "WORLD_SETTING_COMPARISON",
+                                  "allowedJobTypes": ["WORLD_SETTING_COMPARISON"]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.analysisJobId").value(nextHiddenJob.getId().toString()));
+
+        List<AnalysisJob> hiddenJobs = analysisJobRepository.findAllById(
+                List.of(expiredHiddenJob.getId(), nextHiddenJob.getId())
+        );
+        hiddenJobs.forEach(AnalysisJob::unlinkWorldSettingCandidate);
+        analysisJobRepository.saveAllAndFlush(hiddenJobs);
+    }
+
+    @Test
     @DisplayName("null lease를 가진 기존 RUNNING 작업을 재claim하고 이전 token을 거절한다")
     void claimRecoversLegacyRunningJobsWithIncompleteLeases() throws Exception {
         AnalysisJob missingTokenJob = analysisJobRepository.save(
