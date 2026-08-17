@@ -107,6 +107,20 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             @Param("statuses") Collection<AnalysisJobStatus> statuses
     );
 
+    @Query("""
+            select count(comparisonJob)
+            from AnalysisJob comparisonJob
+            join comparisonJob.worldSettingCandidate candidate
+            where candidate.analysisJob.id = :sourceAnalysisJobId
+              and comparisonJob.jobType =
+                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON
+              and comparisonJob.status in :statuses
+            """)
+    long countActiveWorldSettingComparisonsBySourceAnalysisJobId(
+            @Param("sourceAnalysisJobId") UUID sourceAnalysisJobId,
+            @Param("statuses") Collection<AnalysisJobStatus> statuses
+    );
+
     Optional<AnalysisJob> findFirstByBatchIdOrderByCreatedAtDesc(UUID batchId);
 
     @Query("""

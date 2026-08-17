@@ -7,6 +7,7 @@ import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -93,7 +94,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_ALREADY_IN_PROGRESS);
         }
         if (targetEpisodes.stream().anyMatch(targetEpisode ->
-                hasResumableTokenInterruption(batch, targetEpisode, request.jobType()))) {
+                hasOutstandingTokenInterruptionRecovery(batch, targetEpisode, request.jobType()))) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
         }
 
@@ -382,8 +383,43 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
             Episode episode,
             AnalysisJobType jobType
     ) {
+        return findLatestResumableTokenInterruption(batch, episode, jobType).isPresent();
+    }
+
+    private boolean hasOutstandingTokenInterruptionRecovery(
+            UploadBatch batch,
+            Episode episode,
+            AnalysisJobType jobType
+    ) {
+        return findLatestResumableTokenInterruption(batch, episode, jobType)
+                .map(this::hasUnresolvedOrActiveWorldSettingRecovery)
+                .orElse(false);
+    }
+
+    private boolean hasUnresolvedOrActiveWorldSettingRecovery(AnalysisJob interruptedJob) {
+        boolean unresolvedCandidateExists = worldSettingCandidateRepository
+                .existsByAnalysisJobIdAndReviewStatusAndComparisonStatusAndComparisonFailureCode(
+                        interruptedJob.getId(),
+                        WorldSettingReviewStatus.PENDING_REVIEW,
+                        WorldSettingComparisonStatus.FAILED,
+                        AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED
+                );
+        if (unresolvedCandidateExists) {
+            return true;
+        }
+        return analysisJobRepository.countActiveWorldSettingComparisonsBySourceAnalysisJobId(
+                interruptedJob.getId(),
+                Set.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING)
+        ) > 0;
+    }
+
+    private Optional<AnalysisJob> findLatestResumableTokenInterruption(
+            UploadBatch batch,
+            Episode episode,
+            AnalysisJobType jobType
+    ) {
         if (jobType != AnalysisJobType.SETTING_EXTRACTION) {
-            return false;
+            return Optional.empty();
         }
         return analysisJobRepository
                 .findFirstByEpisodeIdAndBatchIdAndJobTypeOrderByCreatedAtDesc(
@@ -391,8 +427,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                         batch.getId(),
                         jobType
                 )
-                .filter(AnalysisJob::isResumableTokenInterruption)
-                .isPresent();
+                .filter(AnalysisJob::isResumableTokenInterruption);
     }
 
     private void assertPublicJobType(AnalysisJobType jobType) {

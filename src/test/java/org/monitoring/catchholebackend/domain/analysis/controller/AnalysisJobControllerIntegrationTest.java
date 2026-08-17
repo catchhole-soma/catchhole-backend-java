@@ -61,6 +61,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSetti
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -596,6 +597,13 @@ class AnalysisJobControllerIntegrationTest {
         SettingCandidate pendingCharacterCandidate = settingCandidateRepository.save(
                 candidate(interruptedJob, firstEpisode, "profile.preserved")
         );
+        WorldSettingCandidate interruptedWorldCandidate = worldSettingCandidate(
+                interruptedJob,
+                firstEpisode,
+                "왕국"
+        );
+        interruptedWorldCandidate.interruptComparisonForTokenQuota("토큰 부족");
+        interruptedWorldCandidate = worldSettingCandidateRepository.save(interruptedWorldCandidate);
         WorldSettingCandidate completedWorldCandidate = worldSettingCandidate(
                 interruptedJob,
                 firstEpisode,
@@ -629,10 +637,136 @@ class AnalysisJobControllerIntegrationTest {
 
         assertThat(analysisJobRepository.count()).isEqualTo(1);
         assertThat(settingCandidateRepository.existsById(pendingCharacterCandidate.getId())).isTrue();
+        assertThat(worldSettingCandidateRepository.findById(interruptedWorldCandidate.getId()))
+                .get()
+                .satisfies(candidate -> {
+                    assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.FAILED);
+                    assertThat(candidate.getComparisonFailureCode())
+                            .isEqualTo(AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED);
+                });
         assertThat(worldSettingCandidateRepository.findById(completedWorldCandidate.getId()))
                 .get()
                 .extracting(WorldSettingCandidate::getComparisonStatus)
                 .isEqualTo(WorldSettingComparisonStatus.COMPLETED);
+    }
+
+    @Test
+    @DisplayName("토큰 중단 후보가 모두 완료되거나 기각되면 새 추출 작업 생성을 허용한다")
+    void createAnalysisJobAllowsReanalysisAfterTokenRecoveryCompletes() throws Exception {
+        AnalysisJob interruptedJob = AnalysisJob.create(
+                work,
+                uploadBatch,
+                firstEpisode,
+                AnalysisJobType.SETTING_EXTRACTION
+        );
+        interruptedJob.updateCheckpointStage(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+        interruptedJob.fail(AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED, "토큰 부족");
+        interruptedJob = analysisJobRepository.saveAndFlush(interruptedJob);
+
+        WorldSettingCandidate completedCandidate = worldSettingCandidate(
+                interruptedJob,
+                firstEpisode,
+                "마탑"
+        );
+        completedCandidate.interruptComparisonForTokenQuota("토큰 부족");
+        completedCandidate.resumeTokenInterruptedComparison();
+        completedCandidate.startComparison();
+        completedCandidate.completeComparison(
+                null,
+                WorldSettingOperation.ADD,
+                "지형 구조",
+                null,
+                "복잡한 통로 구조",
+                "새 설정",
+                JsonNodeFactory.instance.objectNode().put("operation", "ADD"),
+                LocalDateTime.now()
+        );
+        completedCandidate = worldSettingCandidateRepository.save(completedCandidate);
+
+        WorldSettingCandidate dismissedCandidate = worldSettingCandidate(
+                interruptedJob,
+                firstEpisode,
+                "폐허"
+        );
+        dismissedCandidate.interruptComparisonForTokenQuota("토큰 부족");
+        dismissedCandidate.dismiss("사용자가 제외함", member);
+        dismissedCandidate = worldSettingCandidateRepository.saveAndFlush(dismissedCandidate);
+
+        mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "jobType": "SETTING_EXTRACTION",
+                                  "batchId": "%s",
+                                  "episodeId": "%s"
+                                }
+                                """.formatted(uploadBatch.getId(), firstEpisode.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", hasSize(1)))
+                .andExpect(jsonPath("$.data[0].status").value("PENDING"));
+
+        assertThat(analysisJobRepository.count()).isEqualTo(2);
+        assertThat(analysisJobRepository.findById(interruptedJob.getId()))
+                .get()
+                .satisfies(job -> {
+                    assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
+                    assertThat(job.getFailureCode()).isEqualTo(AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED);
+                });
+        assertThat(worldSettingCandidateRepository.existsById(completedCandidate.getId())).isFalse();
+        assertThat(worldSettingCandidateRepository.findById(dismissedCandidate.getId()))
+                .get()
+                .extracting(WorldSettingCandidate::getReviewStatus)
+                .isEqualTo(WorldSettingReviewStatus.DISMISSED);
+    }
+
+    @Test
+    @DisplayName("토큰 중단 후보를 재개한 hidden Job이 활성 상태면 새 추출 작업을 거절한다")
+    void createAnalysisJobRejectsActiveTokenRecoveryJob() throws Exception {
+        AnalysisJob interruptedJob = AnalysisJob.create(
+                work,
+                uploadBatch,
+                firstEpisode,
+                AnalysisJobType.SETTING_EXTRACTION
+        );
+        interruptedJob.updateCheckpointStage(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+        interruptedJob.fail(AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED, "토큰 부족");
+        interruptedJob = analysisJobRepository.saveAndFlush(interruptedJob);
+
+        WorldSettingCandidate resumedCandidate = worldSettingCandidate(
+                interruptedJob,
+                firstEpisode,
+                "마탑"
+        );
+        resumedCandidate.interruptComparisonForTokenQuota("토큰 부족");
+        resumedCandidate.resumeTokenInterruptedComparison();
+        resumedCandidate = worldSettingCandidateRepository.saveAndFlush(resumedCandidate);
+        AnalysisJob hiddenComparisonJob = analysisJobRepository.saveAndFlush(
+                AnalysisJob.createWorldSettingComparison(resumedCandidate)
+        );
+
+        mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "jobType": "SETTING_EXTRACTION",
+                                  "batchId": "%s",
+                                  "episodeId": "%s"
+                                }
+                                """.formatted(uploadBatch.getId(), firstEpisode.getId())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ANALYSIS_JOB_STATUS_CONFLICT"));
+
+        assertThat(analysisJobRepository.count()).isEqualTo(2);
+        assertThat(analysisJobRepository.findById(hiddenComparisonJob.getId()))
+                .get()
+                .extracting(AnalysisJob::getStatus)
+                .isEqualTo(AnalysisJobStatus.PENDING);
+        assertThat(worldSettingCandidateRepository.findById(resumedCandidate.getId()))
+                .get()
+                .extracting(WorldSettingCandidate::getComparisonStatus)
+                .isEqualTo(WorldSettingComparisonStatus.PENDING);
     }
 
     @Test

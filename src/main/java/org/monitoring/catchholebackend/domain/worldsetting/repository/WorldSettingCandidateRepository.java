@@ -247,6 +247,13 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             Collection<WorldSettingComparisonStatus> comparisonStatuses
     );
 
+    boolean existsByAnalysisJobIdAndReviewStatusAndComparisonStatusAndComparisonFailureCode(
+            UUID analysisJobId,
+            WorldSettingReviewStatus reviewStatus,
+            WorldSettingComparisonStatus comparisonStatus,
+            AnalysisFailureCode comparisonFailureCode
+    );
+
     @Query("""
             select candidate
             from WorldSettingCandidate candidate
