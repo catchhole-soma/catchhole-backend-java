@@ -421,6 +421,7 @@ class WorldSettingCandidateControllerIntegrationTest {
                         .queryParam("batchId", uploadBatch.getId().toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.tokenInterruptedComparisonCount").value(2))
+                .andExpect(jsonPath("$.data.activeComparisonJobCount").value(0))
                 .andExpect(jsonPath("$.data.canResumeTokenInterruptedComparisons").value(true));
 
         mockMvc.perform(get("/api/v1/works/{workId}/world-setting-candidates/{candidateId}",
@@ -466,6 +467,12 @@ class WorldSettingCandidateControllerIntegrationTest {
         assertThat(analysisJobRepository.findAll())
                 .filteredOn(job -> job.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON)
                 .hasSize(2);
+
+        mockMvc.perform(get("/api/v1/works/{workId}/world-setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.activeComparisonJobCount").value(2));
 
         mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
@@ -529,6 +536,7 @@ class WorldSettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.totalCandidateCount").value(2))
                 .andExpect(jsonPath("$.data.pendingCandidateCount").value(2))
                 .andExpect(jsonPath("$.data.pendingComparisonCount").value(1))
+                .andExpect(jsonPath("$.data.activeComparisonJobCount").value(0))
                 .andExpect(jsonPath("$.data.groups.totalElements").value(1))
                 .andExpect(jsonPath("$.data.groups.content[0].changeCount").value(1))
                 .andExpect(jsonPath("$.data.groups.content[0].candidates[0].suggestedOperation").value("ADD"));

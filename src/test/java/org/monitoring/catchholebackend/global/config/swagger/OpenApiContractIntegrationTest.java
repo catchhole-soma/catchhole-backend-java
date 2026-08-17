@@ -539,6 +539,8 @@ class OpenApiContractIntegrationTest {
                         + "['properties']['tokenInterruptedComparisonCount']").exists())
                 .andExpect(jsonPath("$['components']['schemas']['WorldSettingCandidateListResponse']"
                         + "['properties']['canResumeTokenInterruptedComparisons']").exists())
+                .andExpect(jsonPath("$['components']['schemas']['WorldSettingCandidateListResponse']"
+                        + "['properties']['activeComparisonJobCount']").exists())
                 .andExpect(jsonPath("$['components']['schemas']['WorldSettingCandidateResponse']"
                         + "['properties']['comparisonFailureCode']['enum']")
                         .value(org.hamcrest.Matchers.hasItem("AI_TOKEN_QUOTA_EXHAUSTED")))

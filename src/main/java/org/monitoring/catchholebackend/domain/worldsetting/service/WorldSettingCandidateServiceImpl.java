@@ -15,6 +15,7 @@ import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobEpi
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
@@ -98,6 +99,16 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         );
         AnalysisJobEpisodeRange episodeRange =
                 analysisJobRepository.findEpisodeRangeByWorkIdAndBatchId(work.getId(), batchId);
+        long activeComparisonJobCount = analysisJobRepository.countActiveComparisonsByBatchIds(
+                        work.getId(),
+                        List.of(batchId),
+                        AnalysisJobType.WORLD_SETTING_COMPARISON,
+                        List.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING)
+                )
+                .stream()
+                .mapToLong(countsByBatch -> countsByBatch.getActiveComparisonCount())
+                .findFirst()
+                .orElse(0L);
         Map<String, List<WorldSettingCandidate>> candidatesByGroup = new LinkedHashMap<>();
         for (WorldSettingCandidate candidate : candidates) {
             candidatesByGroup.computeIfAbsent(groupKey(candidate), ignored -> new ArrayList<>())
@@ -127,6 +138,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                 counts.getPendingCandidateCount(),
                 counts.getPendingComparisonCount(),
                 counts.getProcessingComparisonCount(),
+                activeComparisonJobCount,
                 counts.getFailedComparisonCount(),
                 counts.getTokenInterruptedComparisonCount(),
                 counts.getTokenInterruptedComparisonCount() > 0,

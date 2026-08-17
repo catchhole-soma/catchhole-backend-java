@@ -15,6 +15,8 @@ public record WorldSettingCandidateListResponse(
         long pendingCandidateCount,
         long pendingComparisonCount,
         long processingComparisonCount,
+        @Schema(description = "PENDING 또는 RUNNING 상태인 세계관 후보 비교 Job 수", example = "2")
+        long activeComparisonJobCount,
         long failedComparisonCount,
         long tokenInterruptedComparisonCount,
         boolean canResumeTokenInterruptedComparisons,
