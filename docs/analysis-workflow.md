@@ -567,7 +567,7 @@ LLM 전처리 출력은 다음 정보를 포함합니다.
 현재 `AnalysisJob`에는 `retryCount`가 없습니다. 재시도 API는 기존 실패 작업을 되살리지 않고 대상 회차마다 같은 `jobType`의 새 단일 회차 작업을 생성합니다. 같은 유형의 활성 재시도 작업은 멱등 재사용하고 다른 유형의 활성 작업은 409로 거절합니다.
 Worker 결과 저장은 같은 작업이 중복 실행되어도 `Episode`, `SettingCandidate`, `ValidationReport`가 중복 생성되지 않도록 작업 ID와 대상 회차 ID를 기준으로 멱등성을 보장해야 합니다.
 
-토큰 부분 중단은 일반 전체 실패 재시도와 분리합니다. 배치 응답의 `worldSettingTokenInterruptedCandidateCount`와 `canResumeTokenInterruptedWorldSettingComparisons`로 중단 건수와 재개 가능 여부를 확인하고, 추가 사용량 지급 뒤 세계관 후보 일괄 재개 API를 호출합니다. API는 `PENDING_REVIEW + FAILED + AI_TOKEN_QUOTA_EXHAUSTED` 후보만 잠가 `PENDING`으로 되돌리고 후보별 숨김 비교 Job을 하나씩 생성합니다. 이미 완료·확정·제외되었거나 다른 실패 코드인 후보는 변경하지 않으며 반복 호출은 기존 활성 Job을 재사용합니다.
+토큰 부분 중단은 일반 전체 실패 재시도와 분리합니다. 배치 응답의 `worldSettingTokenInterruptedCandidateCount`와 `canResumeTokenInterruptedWorldSettingComparisons`로 중단 건수와 재개 가능 여부를 확인하고, 추가 사용량 지급 뒤 세계관 후보 일괄 재개 API를 호출합니다. API는 `PENDING_REVIEW + FAILED + AI_TOKEN_QUOTA_EXHAUSTED` 후보만 잠가 `PENDING`으로 되돌리고 후보별 숨김 비교 Job을 하나씩 생성합니다. 이미 완료·확정·제외되었거나 다른 실패 코드인 후보는 변경하지 않으며 반복 호출은 기존 활성 Job을 재사용합니다. 후보 목록은 `activeComparisonJobCount`로 해당 배치의 활성 세계관 비교 Job 수를 함께 반환해, 화면 재진입 후에도 일괄 재개 중인 `PENDING` 후보를 단건 재시도하지 않게 합니다.
 
 ## 분석 배치 목록 페이지 조회
 
