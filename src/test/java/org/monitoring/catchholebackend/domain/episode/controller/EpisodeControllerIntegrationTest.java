@@ -19,6 +19,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import jakarta.persistence.EntityManagerFactory;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -32,6 +33,10 @@ import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
+import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
+import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
@@ -83,6 +88,9 @@ class EpisodeControllerIntegrationTest {
     private AnalysisJobRepository analysisJobRepository;
 
     @Autowired
+    private SettingCandidateRepository settingCandidateRepository;
+
+    @Autowired
     private UploadBatchRepository uploadBatchRepository;
 
     @Autowired
@@ -117,6 +125,7 @@ class EpisodeControllerIntegrationTest {
                 )
                 """);
         jdbcTemplate.update("delete from episode_chunks");
+        settingCandidateRepository.deleteAll();
         analysisJobRepository.deleteAll();
         episodeRepository.deleteAll();
         uploadFileRepository.deleteAll();
@@ -1019,6 +1028,49 @@ class EpisodeControllerIntegrationTest {
                                 && !prefixes.contains(sibling.getContentS3Key())),
                 argThat((Collection<String> retained) -> retained.isEmpty())
         );
+    }
+
+    @Test
+    @DisplayName("과거 다회차 분석 작업의 형제 회차 후보는 삭제하지 않는다")
+    void deleteEpisodeKeepsSiblingCandidateFromLegacyBatchWideJob() throws Exception {
+        UploadBatch batch = uploadBatchRepository.save(UploadBatch.create(
+                work, member, UploadType.MULTI_EPISODE_SINGLE_FILE, UploadSourceType.FILE));
+        Episode deletedEpisode = episodeRepository.save(Episode.create(
+                work, null, 1, "첫 회차", "works/episodes/1.txt", "v1", "hash-1", 10));
+        Episode siblingEpisode = episodeRepository.save(Episode.create(
+                work, null, 2, "둘째 회차", "works/episodes/2.txt", "v1", "hash-2", 10));
+        AnalysisJob legacyJob = AnalysisJob.create(
+                work, batch, null, AnalysisJobType.SETTING_EXTRACTION);
+        legacyJob.addTargetEpisodes(List.of(deletedEpisode, siblingEpisode));
+        legacyJob.succeed("{}", 10, 5);
+        legacyJob = analysisJobRepository.save(legacyJob);
+        SettingCandidate siblingCandidate = settingCandidateRepository.save(SettingCandidate.create(
+                work,
+                siblingEpisode,
+                UUID.randomUUID(),
+                legacyJob,
+                SettingEntityType.CHARACTER,
+                "형제 회차 인물",
+                "profile.role",
+                "동료",
+                SettingValueType.STRING,
+                null,
+                null,
+                new BigDecimal("0.9000"),
+                null
+        ));
+
+        mockMvc.perform(delete(
+                                "/api/v1/works/{workId}/episodes/{episodeId}",
+                                work.getId(),
+                                deletedEpisode.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
+
+        assertThat(settingCandidateRepository.findById(siblingCandidate.getId())).isPresent();
+        assertThat(episodeRepository.findById(siblingEpisode.getId()).orElseThrow().getStatus())
+                .isEqualTo(EpisodeStatus.UPLOADED);
     }
 
     @Test

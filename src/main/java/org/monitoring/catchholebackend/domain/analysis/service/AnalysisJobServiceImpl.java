@@ -642,10 +642,16 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 .filter(job -> job.getStatus() == AnalysisJobStatus.FAILED)
                 .filter(job -> !job.isResumableTokenInterruption())
                 .count();
+        long canceledCount = currentJobs.stream()
+                .filter(job -> job.getStatus() == AnalysisJobStatus.CANCELED)
+                .count();
         if (currentJobs.stream().anyMatch(job ->
                 job.getStatus() == AnalysisJobStatus.PENDING
                         || job.getStatus() == AnalysisJobStatus.RUNNING)) {
             return AnalysisBatchStatus.IN_PROGRESS;
+        }
+        if (canceledCount > 0) {
+            return AnalysisBatchStatus.CANCELED;
         }
         if (failedCount == currentJobs.size()) {
             return AnalysisBatchStatus.FAILED;
@@ -665,6 +671,9 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         if (activeWorldSettingComparisonCount > 0
                 || jobGroups.stream().anyMatch(group -> group.status() == AnalysisBatchStatus.IN_PROGRESS)) {
             return AnalysisBatchStatus.IN_PROGRESS;
+        }
+        if (jobGroups.stream().anyMatch(group -> group.status() == AnalysisBatchStatus.CANCELED)) {
+            return AnalysisBatchStatus.CANCELED;
         }
         if (jobGroups.stream().allMatch(group -> group.status() == AnalysisBatchStatus.FAILED)) {
             return AnalysisBatchStatus.FAILED;

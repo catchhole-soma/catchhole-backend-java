@@ -30,8 +30,10 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             left join analysisJob.episode jobEpisode
             left join analysisJob.targetEpisodes jobTargetEpisode
             where episode.id = :episodeId
-               or jobEpisode.id = :episodeId
-               or jobTargetEpisode.id = :episodeId
+               or (episode is null and (
+                    jobEpisode.id = :episodeId
+                    or jobTargetEpisode.id = :episodeId
+               ))
             """)
     List<SettingCandidate> findAllByAnalysisTargetEpisodeId(@Param("episodeId") UUID episodeId);
 

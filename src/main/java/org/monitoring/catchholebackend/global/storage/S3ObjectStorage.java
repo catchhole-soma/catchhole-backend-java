@@ -104,9 +104,15 @@ public class S3ObjectStorage implements ObjectStorage {
         int failedCount = 0;
         Set<String> retainedKeySet = new HashSet<>(retainedKeys);
         for (String prefix : prefixes) {
-            List<ObjectIdentifier> targets = listAllVersions(prefix).stream()
-                    .filter(target -> !retainedKeySet.contains(target.key()))
-                    .toList();
+            List<ObjectIdentifier> targets;
+            try {
+                targets = listAllVersions(prefix).stream()
+                        .filter(target -> !retainedKeySet.contains(target.key()))
+                        .toList();
+            } catch (AppException exception) {
+                failedCount++;
+                continue;
+            }
             targetCount += targets.size();
             for (int start = 0; start < targets.size(); start += 1000) {
                 List<ObjectIdentifier> batch = targets.subList(start, Math.min(start + 1000, targets.size()));

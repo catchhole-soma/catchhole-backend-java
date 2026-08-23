@@ -23,6 +23,7 @@ import software.amazon.awssdk.services.s3.model.DeletedObject;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.paginators.ListObjectVersionsIterable;
 
 @ExtendWith(MockitoExtension.class)
@@ -30,6 +31,7 @@ class S3ObjectStorageTest {
 
     @Mock private S3Client s3Client;
     @Mock private ListObjectVersionsIterable paginator;
+    @Mock private ListObjectVersionsIterable failedPaginator;
 
     private S3ObjectStorage objectStorage;
 
@@ -111,5 +113,43 @@ class S3ObjectStorageTest {
         assertThat(requestCaptor.getValue().delete().objects())
                 .extracting(identifier -> identifier.key() + ":" + identifier.versionId())
                 .containsExactly("works/work-1/old.txt:old-v1");
+    }
+
+    @Test
+    void purgePrefixesKeepsCompletedCountsWhenLaterPrefixListingFails() {
+        ListObjectVersionsResponse page = ListObjectVersionsResponse.builder()
+                .versions(ObjectVersion.builder()
+                        .key("works/work-1/source.txt")
+                        .versionId("v1")
+                        .build())
+                .build();
+        when(s3Client.listObjectVersionsPaginator(any(ListObjectVersionsRequest.class)))
+                .thenAnswer(invocation -> {
+                    ListObjectVersionsRequest request = invocation.getArgument(0);
+                    return request.prefix().equals("works/work-1/") ? paginator : failedPaginator;
+                });
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            Consumer<ListObjectVersionsResponse> consumer = invocation.getArgument(0);
+            consumer.accept(page);
+            return null;
+        }).when(paginator).forEach(any());
+        doAnswer(invocation -> {
+            throw S3Exception.builder().message("목록 조회 실패").build();
+        }).when(failedPaginator).forEach(any());
+        when(s3Client.deleteObjects(any(DeleteObjectsRequest.class)))
+                .thenReturn(DeleteObjectsResponse.builder()
+                        .deleted(DeletedObject.builder()
+                                .key("works/work-1/source.txt")
+                                .versionId("v1")
+                                .build())
+                        .build());
+
+        ObjectStoragePurgeResult result = objectStorage.purgePrefixes(List.of(
+                "works/work-1/",
+                "upload-batches/batch-1/"
+        ));
+
+        assertThat(result).isEqualTo(new ObjectStoragePurgeResult(1, 1, 1));
     }
 }

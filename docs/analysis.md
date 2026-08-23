@@ -459,6 +459,7 @@ GET /api/v1/works/{workId}/analysis-jobs/batches?page=0&size=10
 
 - `content` 한 항목은 업로드 배치 하나입니다.
 - `jobGroups`는 같은 배치에서 수행한 `SETTING_EXTRACTION`, `EPISODE_VALIDATION`을 각각 집계합니다.
+- 각 그룹은 성공·실패 건수와 별도로 작품 영구 삭제로 취소된 `canceledJobCount`를 제공합니다.
 - `currentAnalysisJobIds`는 진행·실패·완료 상세 화면에서 다시 조회할 최신 유효 Job ID입니다.
 - `totalCandidateCount`, `reviewedCandidateCount`, `pendingCandidateCount`는 배치에 연결된 캐릭터 설정 후보 검토 현황입니다.
 - `worldSettingTotalCandidateCount`, `worldSettingReviewedCandidateCount`, `worldSettingPendingCandidateCount`는 같은 배치의 세계관 설정 후보 검토 현황입니다. 배치 상태는 두 종류의 대기 후보를 합산해 `REVIEW_REQUIRED` 여부를 판정합니다.
@@ -467,10 +468,11 @@ GET /api/v1/works/{workId}/analysis-jobs/batches?page=0&size=10
 상태 판정 우선순위는 다음과 같습니다.
 
 1. 현재 유효 Job 중 `PENDING` 또는 `RUNNING`이 있으면 `IN_PROGRESS`
-2. 모든 목적의 현재 Job이 실패했으면 `FAILED`
-3. 성공과 실패가 섞였으면 `PARTIALLY_FAILED`
-4. 실행이 끝났고 검토 대기 후보가 있으면 `REVIEW_REQUIRED`
-5. 그 외에는 `COMPLETED`
+2. 현재 유효 Job 중 작품 영구 삭제로 취소된 작업이 있으면 `CANCELED`
+3. 모든 목적의 현재 Job이 실패했으면 `FAILED`
+4. 성공과 실패가 섞였으면 `PARTIALLY_FAILED`
+5. 실행이 끝났고 검토 대기 후보가 있으면 `REVIEW_REQUIRED`
+6. 그 외에는 `COMPLETED`
 
 ### `GET /api/v1/works/{workId}/analysis-jobs/{analysisJobId}`
 

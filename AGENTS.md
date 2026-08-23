@@ -263,7 +263,7 @@ domain/<domain>
 - Work 목록 조회, 수정, 삭제는 `memberId` 기준으로 본인 작품만 허용한다.
 - 존재하지 않는 작품과 다른 회원의 작품 접근은 모두 `WORK_NOT_FOUND`로 응답해 리소스 존재 여부를 노출하지 않는다.
 - 본인 작품 조회가 필요한 도메인 서비스는 `WorkRepository.getOwnedWork(workId, memberId)`를 사용해 소유권 확인과 `WORK_NOT_FOUND` 응답을 일관되게 처리한다.
-- 현재 Work 삭제는 hard delete이므로 `WorkStatus`나 `works.status`를 두지 않는다. 보관/복구 기능을 만들 때 상태 컬럼과 전이 메서드를 함께 추가한다.
+- Work 영구 삭제 요청은 `ACTIVE → PURGING`으로 전이해 신규 변경과 분석을 잠근 뒤, 저장소와 DB 파기가 완료되면 Work 행을 물리 삭제한다. 복구 가능한 보관 상태는 제공하지 않는다.
 
 #### Episode / Upload Domain Policy
 

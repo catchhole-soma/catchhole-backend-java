@@ -34,7 +34,13 @@ public class WorkPurgeProcessor {
 
     public void processPendingRequests() {
         recoverStaleRequests();
-        claimReadyRequests().forEach(this::processRequest);
+        for (int processedCount = 0; processedCount < properties.getBatchSize(); processedCount++) {
+            UUID requestId = claimNextReadyRequest();
+            if (requestId == null) {
+                break;
+            }
+            processRequest(requestId);
+        }
         refreshOverdueMetric();
     }
 
@@ -45,18 +51,20 @@ public class WorkPurgeProcessor {
         });
     }
 
-    private List<UUID> claimReadyRequests() {
-        List<UUID> claimed = transactionTemplate.execute(status -> purgeRequestRepository
+    private UUID claimNextReadyRequest() {
+        return transactionTemplate.execute(status -> purgeRequestRepository
                 .findReadyForUpdate(
                         WorkPurgeStatus.REQUESTED,
                         LocalDateTime.now(),
-                        PageRequest.of(0, properties.getBatchSize())
+                        PageRequest.of(0, 1)
                 )
                 .stream()
-                .peek(WorkPurgeRequest::startProcessing)
-                .map(WorkPurgeRequest::getId)
-                .toList());
-        return claimed == null ? List.of() : claimed;
+                .findFirst()
+                .map(request -> {
+                    request.startProcessing();
+                    return request.getId();
+                })
+                .orElse(null));
     }
 
     private void processRequest(UUID requestId) {

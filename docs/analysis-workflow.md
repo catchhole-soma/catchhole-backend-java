@@ -603,4 +603,4 @@ sequenceDiagram
     Controller-->>Client: "분석 배치 10개와 페이지 메타데이터"
 ```
 
-재시도 전 `FAILED` Job과 재시도 후 `PENDING` Job이 같은 회차에 함께 있어도 최신 Job만 현재 상태에 포함합니다. 이 규칙은 과거 실패 이력을 삭제하지 않으면서 목록 카드가 현재 진행 상태를 표시하게 합니다.
+재시도 전 `FAILED` Job과 재시도 후 `PENDING` Job이 같은 회차에 함께 있어도 최신 Job만 현재 상태에 포함합니다. 이 규칙은 과거 실패 이력을 삭제하지 않으면서 목록 카드가 현재 진행 상태를 표시하게 합니다. 현재 유효 Job이 작품 영구 삭제로 `CANCELED`되면 그룹과 배치도 완료가 아닌 `CANCELED`로 집계하고, 그룹 응답의 `canceledJobCount`로 취소 건수를 제공합니다.

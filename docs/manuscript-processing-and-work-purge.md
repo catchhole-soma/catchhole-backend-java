@@ -47,6 +47,8 @@ POST /api/v1/works/purge-requests/{requestId}/retry
 
 상태는 `REQUESTED → PROCESSING → COMPLETED`로 전이하고, 실패하면 `FAILED` 또는 일부 객체를 지운 `PARTIAL_FAILED`가 됩니다. 실패 상태만 재시도할 수 있습니다.
 
+Spring 스케줄러는 기본 10초 간격으로 한 번 실행될 때 최대 10건을 처리하되, 실제 삭제를 시작할 요청만 한 건씩 `PROCESSING`으로 전환합니다. 따라서 앞 요청 처리 중 서버가 재시작되어도 아직 실행하지 않은 뒤 요청은 `REQUESTED` 상태를 유지합니다.
+
 ## 처리 순서와 경합 방지
 
 1. 작품 row를 잠그고 `lifecycle_status=PURGING`으로 바꿉니다.
@@ -58,6 +60,7 @@ POST /api/v1/works/purge-requests/{requestId}/retry
 7. 삭제 요청 감사 row의 만료 시각을 완료 후 1년으로 설정합니다.
 
 `PURGING` 작품은 잠금을 사용하는 모든 변경 API와 새 분석 요청에서 `WORK_PURGE_IN_PROGRESS`로 거절됩니다. Worker claim 쿼리도 `ACTIVE` 작품만 선택합니다. 저장소 삭제가 실패하면 DB를 보존하므로 prefix 삭제를 안전하게 재시도할 수 있습니다.
+여러 S3 prefix 중 뒤 prefix의 목록 조회가 실패해도 앞 prefix에서 이미 집계한 대상·삭제 건수는 보존하며, 요청은 저장소 실패 건수를 포함한 실패 상태로 기록합니다.
 
 ## 보존하는 최소 감사 정보
 

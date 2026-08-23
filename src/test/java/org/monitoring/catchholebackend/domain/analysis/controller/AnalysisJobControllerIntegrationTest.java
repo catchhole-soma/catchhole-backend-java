@@ -1218,6 +1218,24 @@ class AnalysisJobControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("작품 삭제로 취소된 분석 작업은 완료가 아닌 취소 상태로 집계한다")
+    void getAnalysisBatchesAggregatesCanceledJobsAsCanceled() throws Exception {
+        AnalysisJob canceledJob = AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        canceledJob.cancelForWorkPurge();
+        analysisJobRepository.save(canceledJob);
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].status").value("CANCELED"))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].status").value("CANCELED"))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].canceledJobCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].succeededJobCount").value(0))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].failedJobCount").value(0));
+    }
+
+    @Test
     @DisplayName("분석 배치 목록은 과거 다회차 작업도 회차별 현재 상태로 집계한다")
     void getAnalysisBatchesCountsLegacyBatchWideJobPerEpisode() throws Exception {
         AnalysisJob legacyJob = AnalysisJob.create(

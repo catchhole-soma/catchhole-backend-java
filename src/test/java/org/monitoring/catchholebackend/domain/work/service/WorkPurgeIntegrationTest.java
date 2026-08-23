@@ -2,11 +2,13 @@ package org.monitoring.catchholebackend.domain.work.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -169,6 +171,38 @@ class WorkPurgeIntegrationTest {
         assertThat(workRepository.findById(work.getId())).isEmpty();
         assertThat(purgeRequestRepository.findById(requested.requestId()).orElseThrow().getStatus())
                 .isEqualTo(WorkPurgeStatus.COMPLETED);
+    }
+
+    @Test
+    void processorClaimsEachRequestOnlyWhenItsDeletionStarts() {
+        Work secondWork = workRepository.save(Work.create(
+                member,
+                "두 번째 삭제 작품",
+                WorkGenre.FANTASY,
+                null
+        ));
+        purgeService.requestPurge(
+                member.getId(), work.getId(), new WorkPurgeCreateRequest("영구 삭제"));
+        purgeService.requestPurge(
+                member.getId(), secondWork.getId(), new WorkPurgeCreateRequest("영구 삭제"));
+        AtomicInteger storageCalls = new AtomicInteger();
+        doAnswer(invocation -> {
+            if (storageCalls.getAndIncrement() == 0) {
+                assertThat(purgeRequestRepository.findAll())
+                        .extracting(WorkPurgeRequest::getStatus)
+                        .containsExactlyInAnyOrder(
+                                WorkPurgeStatus.PROCESSING,
+                                WorkPurgeStatus.REQUESTED
+                        );
+            }
+            return new ObjectStoragePurgeResult(0, 0, 0);
+        }).when(objectStorage).purgePrefixes(argThat(prefixes -> true));
+
+        purgeProcessor.processPendingRequests();
+
+        assertThat(purgeRequestRepository.findAll())
+                .extracting(WorkPurgeRequest::getStatus)
+                .containsOnly(WorkPurgeStatus.COMPLETED);
     }
 
     private void clearData() {
