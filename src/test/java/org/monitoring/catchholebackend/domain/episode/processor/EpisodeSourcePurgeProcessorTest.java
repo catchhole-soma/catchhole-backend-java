@@ -1,36 +1,41 @@
 package org.monitoring.catchholebackend.domain.episode.processor;
 
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
-import org.monitoring.catchholebackend.domain.episode.exception.EpisodeErrorCode;
+import org.monitoring.catchholebackend.domain.episode.entity.EpisodeSourcePurgeRequest;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodePurgeDataRepository;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeSourcePurgeRequestRepository;
+import org.monitoring.catchholebackend.domain.episode.type.EpisodeSourcePurgeStatus;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
+import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
-import org.monitoring.catchholebackend.global.exception.AppException;
 import org.monitoring.catchholebackend.global.storage.ObjectStoragePurgeResult;
 import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("회차 원문 파기 처리기 단위 테스트")
@@ -58,7 +63,16 @@ class EpisodeSourcePurgeProcessorTest {
     private UploadFileRepository uploadFileRepository;
 
     @Mock
+    private WorkRepository workRepository;
+
+    @Mock
     private PlatformTransactionManager transactionManager;
+
+    @Mock
+    private TransactionStatus transactionStatus;
+
+    @Mock
+    private EpisodeSourcePurgeRequest purgeRequest;
 
     @Mock
     private Episode episode;
@@ -72,6 +86,8 @@ class EpisodeSourcePurgeProcessorTest {
     private EpisodeSourcePurgeProcessor processor;
     private UUID workId;
     private UUID episodeId;
+    private UUID requestId;
+    private UUID sourceFileId;
 
     @BeforeEach
     void setUp() {
@@ -83,16 +99,29 @@ class EpisodeSourcePurgeProcessorTest {
                 worldSettingCandidateRepository,
                 analysisJobRepository,
                 uploadFileRepository,
+                workRepository,
                 transactionManager
         );
         workId = UUID.randomUUID();
         episodeId = UUID.randomUUID();
-        when(episode.getWork()).thenReturn(work);
-        when(work.getId()).thenReturn(workId);
+        requestId = UUID.randomUUID();
+        sourceFileId = UUID.randomUUID();
+        lenient().when(transactionManager.getTransaction(any())).thenReturn(transactionStatus);
+        lenient().when(purgeRequestRepository.findByIdForUpdate(requestId))
+                .thenReturn(Optional.of(purgeRequest));
+        lenient().when(purgeRequestRepository.findById(requestId)).thenReturn(Optional.of(purgeRequest));
+        lenient().when(purgeRequest.getStatus()).thenReturn(EpisodeSourcePurgeStatus.REQUESTED);
+        lenient().when(purgeRequest.getWorkId()).thenReturn(workId);
+        lenient().when(purgeRequest.getPreviousEpisodeNo()).thenReturn(3);
+        lenient().when(purgeRequest.getPreviousContentKey()).thenReturn("works/old-content.txt");
+        lenient().when(purgeRequest.getPreviousSourceStorageUrl())
+                .thenReturn("s3://upload-batches/old/original.txt");
+        lenient().when(purgeRequest.getRetainedContentKey()).thenReturn("works/new-content.txt");
+        lenient().when(purgeRequest.getPreviousSourceFileId()).thenReturn(sourceFileId);
+        lenient().when(purgeRequest.getEpisode()).thenReturn(episode);
         lenient().when(episode.getId()).thenReturn(episodeId);
-        when(episode.getEpisodeNo()).thenReturn(3);
-        when(episode.getContentS3Key()).thenReturn("works/old-content.txt");
-        when(sourceFile.getStorageUrl()).thenReturn("s3://upload-batches/old/original.txt");
+        lenient().when(workRepository.findByIdForUpdate(workId)).thenReturn(Optional.of(work));
+        lenient().when(uploadFileRepository.findById(sourceFileId)).thenReturn(Optional.of(sourceFile));
     }
 
     @Test
@@ -129,8 +158,11 @@ class EpisodeSourcePurgeProcessorTest {
         when(analysisJobRepository.findAllByWorldSettingCandidateIdIn(List.of(worldCandidateId)))
                 .thenReturn(List.of(worldComparisonJob));
 
-        processor.purgeEpisodeSource(episode, sourceFile, "works/new-content.txt");
+        processor.processRequest(requestId);
 
+        InOrder cleanupOrder = inOrder(workRepository, settingCandidateRepository);
+        cleanupOrder.verify(workRepository).findByIdForUpdate(workId);
+        cleanupOrder.verify(settingCandidateRepository).findAllByAnalysisTargetEpisodeId(episodeId);
         verify(characterComparisonJob).unlinkSettingCandidate();
         verify(worldComparisonJob).unlinkWorldSettingCandidate();
         verify(settingCandidateRepository).deleteAll(List.of(pendingCharacter));
@@ -139,11 +171,13 @@ class EpisodeSourcePurgeProcessorTest {
         verify(reviewedCharacter).purgeSourceEvidence();
         verify(reviewedWorld).purgeSourceEvidence();
         verify(purgeDataRepository).deleteChunks(episodeId);
+        verify(purgeRequestRepository).delete(purgeRequest);
     }
 
     @Test
     @DisplayName("스토리지 version 파기가 하나라도 실패하면 DB 데이터는 건드리지 않는다")
-    void purgeStopsBeforeDatabaseCleanupWhenStorageIsIncomplete() {
+    void purgeKeepsRequestForRetryAndStopsBeforeDatabaseCleanupWhenStorageIsIncomplete() {
+        when(purgeRequest.getRetainedContentKey()).thenReturn(null);
         when(objectStorageService.purgeEpisodeSource(
                 workId,
                 3,
@@ -152,14 +186,13 @@ class EpisodeSourcePurgeProcessorTest {
                 null
         )).thenReturn(new ObjectStoragePurgeResult(3, 2, 1));
 
-        assertThatThrownBy(() -> processor.purgeEpisodeSource(episode, sourceFile, null))
-                .isInstanceOfSatisfying(AppException.class, exception ->
-                        org.assertj.core.api.Assertions.assertThat(exception.getResultCode())
-                                .isEqualTo(EpisodeErrorCode.EPISODE_SOURCE_PURGE_FAILED));
+        processor.processRequest(requestId);
 
         verify(settingCandidateRepository, never()).findAllByAnalysisTargetEpisodeId(episodeId);
         verify(worldSettingCandidateRepository, never()).findAllBySourceEpisodeId(episodeId);
         verify(sourceFile, never()).purgeStoredSource();
         verify(purgeDataRepository, never()).deleteChunks(episodeId);
+        verify(workRepository, never()).findByIdForUpdate(workId);
+        verify(purgeRequest).retry("EPISODE_SOURCE_PURGE_STORAGE_FAILED");
     }
 }

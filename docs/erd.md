@@ -407,7 +407,7 @@ erDiagram
 | `ai_token_usages` | AI provider 요청 UUID별 예약·정산·해제 상태와 input/cached input/output 사용량을 기록합니다. |
 | `works` | 회원이 소유한 작품. 회차/업로드/분석 작업의 최상위 리소스입니다. |
 | `episodes` | 작품에 속한 회차 메타데이터. 원문은 S3에 저장하고 DB에는 key/version/hash/글자 수만 둡니다. |
-| `episode_source_purge_requests` | 회차 수정·파일 교체의 새 원문 참조를 먼저 커밋한 뒤 이전 S3 원문·업로드 원본과 파생 데이터를 재시도 가능하게 정리하는 활성 요청입니다. 완료 즉시 삭제합니다. |
+| `episode_source_purge_requests` | 회차 수정·파일 교체의 이전 원문과 회차 삭제 원문·파생 데이터를 재시도 가능하게 정리하는 활성 요청입니다. 교체 요청만 `retained_content_key`에 새 원문 key를 저장하며 완료 즉시 요청을 삭제합니다. |
 | `episode_chunks` | 회차 원문 청크와 위치 정보, `vector(1536)` 임베딩 및 재생성 판단 메타데이터를 저장합니다. `(episode_id, chunk_index)`는 unique입니다. |
 | `upload_batches` | 한 번의 업로드 요청 단위. 업로드 유형, 소스, 전체 처리 상태를 기록합니다. |
 | `upload_files` | batch에 포함된 개별 파일. 원본 S3 위치, 설정집 편집용 텍스트 위치와 파싱 결과를 기록합니다. |
@@ -583,7 +583,7 @@ erDiagram
 - 회원이 소유한 리소스는 `works.member_id`를 루트로 접근 제어합니다.
 - 회차 원문 전문은 DB에 저장하지 않습니다. `episodes.content_s3_key`를 통해 S3에서 조회합니다.
 - 업로드 원본 파일과 파생 원문은 분리 저장합니다. 원본 파일은 `upload_files.storage_url`, 설정집 편집용 현재 텍스트는 `upload_files.content_storage_url`, 회차 원문은 `episodes.content_s3_key`에 연결됩니다. 회차 삭제·수정·교체로 업로드 원본을 파기하면 `storage_url`은 `null`로 비우며, 다회차 단일 파일의 형제 회차는 분리된 `content_s3_key`를 계속 사용합니다.
-- 회차 수정·파일 교체는 새 원문 참조와 `episode_source_purge_requests`를 먼저 커밋하고 이전 S3 객체를 나중에 파기합니다. 실패 요청은 스케줄러가 재시도하며, 완료 전에는 같은 회차의 추가 변경과 분석 생성을 막습니다.
+- 회차 수정·파일 교체는 새 원문 참조와 정리 요청을, 회차 삭제는 `ARCHIVED` tombstone과 정리 요청을 먼저 커밋하고 S3 객체를 나중에 파기합니다. 실패 요청은 스케줄러가 재시도하며, 완료 전에는 같은 회차의 추가 변경과 분석 생성을 막습니다. 파생 후보 정리는 후보 검토 API와 같은 Work 잠금 아래에서 최신 검토 상태를 다시 확인합니다.
 - `episodes.source_file_id`는 해당 회차가 어떤 업로드 파일에서 파생되었는지 추적하는 nullable FK입니다. 현재 업로드 파일 삭제 API가 없으므로 기본 `NO ACTION`으로 원본 추적 관계를 보호합니다.
 - `upload_batches`는 이후 분석 작업의 대상 단위로 재사용할 수 있도록 `work_id`, `upload_type`, `file_count`, `status`를 유지합니다.
 - 캐릭터 설정은 `setting_candidates`, `character_facts`, `characters`로 나누어 저장합니다. AI 추출 후보는 `setting_candidates`, 회차별 확정/검토 이력은 `character_facts`, 화면 표시용 현재 스냅샷은 `characters`가 담당합니다.
@@ -598,4 +598,4 @@ erDiagram
 - 후속 ERD의 `manuscript_chunks`, `preprocessed_manuscript_chunks`, `setting_snapshots`, `validation_reports`, `validation_findings`는 아직 현재 `main` 기준 Entity가 아닙니다. 캐릭터 중심 MVP의 설정 이력은 우선 `character_facts`로 구현합니다.
 - `characters.first_appearance_episode_id`는 원문이 파기된 `ARCHIVED` Episode tombstone을 계속 참조할 수 있습니다. 향후 Episode 행 물리 삭제 시 재계산 또는 `NULL` 처리 정책이 정해지지 않아 현재 FK를 강제하지 않습니다.
 - `setting_candidates.source_chunk_id`와 `character_facts.source_chunk_id`는 `episode_chunks`를 가리키지만 현재 DB FK를 강제하지 않습니다. Worker가 재청킹 시 기존 청크를 삭제하고 새 UUID로 교체하므로, 청크 ID 안정화 또는 근거 이력 보존 정책을 정한 뒤 다시 검토합니다.
-- Notion 설계의 `AnalysisJob.status`에는 `CANCELED`가 있지만, 현재 분석 문서 초안은 `PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`만 포함합니다. 취소 정책이 필요해질 때 enum을 확장합니다.
+- `AnalysisJob.status`의 `CANCELED`는 작품 영구 삭제로 중단된 작업의 terminal 상태이며 Worker lease와 토큰 예약을 함께 정리합니다.

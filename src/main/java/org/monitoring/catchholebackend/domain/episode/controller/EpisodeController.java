@@ -214,12 +214,12 @@ public class EpisodeController {
     @Operation(
             operationId = "deleteEpisode",
             summary = "회차 원문 영구 삭제",
-            description = "로그인한 사용자가 본인 작품의 회차 원문과 업로드 원본의 모든 저장 버전, "
-                    + "원고 청크 및 미확정 분석 후보를 영구 삭제합니다. "
+            description = "로그인한 사용자가 본인 작품의 회차를 즉시 보관 처리한 뒤 원문과 업로드 원본의 "
+                    + "모든 저장 버전, 원고 청크 및 미확정 분석 후보를 영구 삭제하며 실패 시 자동 재시도합니다. "
                     + "회차 식별 행과 사용자가 확정한 설정은 참조 무결성을 위해 보존하며 복구는 지원하지 않습니다."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "회차 삭제 성공"),
+            @ApiResponse(responseCode = "200", description = "회차 삭제 요청 접수"),
             @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패"),
             @ApiResponse(responseCode = "404", description = "작품 또는 회차를 찾을 수 없음")
     })
@@ -229,6 +229,6 @@ public class EpisodeController {
             @PathVariable UUID episodeId
     ) {
         episodeService.deleteEpisode(member.memberId(), workId, episodeId);
-        return CommonResponse.success("회차 원고가 삭제되었습니다.", null);
+        return CommonResponse.success("회차 원고 삭제가 접수되었습니다.", null);
     }
 }

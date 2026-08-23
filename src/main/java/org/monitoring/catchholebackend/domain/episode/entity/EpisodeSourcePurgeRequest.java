@@ -57,7 +57,7 @@ public class EpisodeSourcePurgeRequest extends BaseEntity {
     @Column(name = "previous_source_storage_url", length = 512, updatable = false)
     private String previousSourceStorageUrl;
 
-    @Column(name = "retained_content_key", nullable = false, length = 512, updatable = false)
+    @Column(name = "retained_content_key", length = 512, updatable = false)
     private String retainedContentKey;
 
     @Enumerated(EnumType.STRING)
@@ -92,12 +92,19 @@ public class EpisodeSourcePurgeRequest extends BaseEntity {
         this.requestedAt = LocalDateTime.now();
     }
 
-    public static EpisodeSourcePurgeRequest request(
+    public static EpisodeSourcePurgeRequest requestReplacement(
             Episode episode,
             UploadFile previousSourceFile,
             String retainedContentKey
     ) {
         return new EpisodeSourcePurgeRequest(episode, previousSourceFile, retainedContentKey);
+    }
+
+    public static EpisodeSourcePurgeRequest requestDeletion(
+            Episode episode,
+            UploadFile previousSourceFile
+    ) {
+        return new EpisodeSourcePurgeRequest(episode, previousSourceFile, null);
     }
 
     public void startProcessing() {

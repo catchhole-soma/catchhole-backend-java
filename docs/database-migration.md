@@ -273,6 +273,13 @@ V28은 회차 수정·파일 교체에서 새 원문 참조를 커밋하기 전�
 - `REQUESTED`, `PROCESSING`, 시도 횟수와 정규화된 실패 코드를 저장해 서버 재시작과 저장소·DB 실패 뒤에도 재시도합니다.
 - 정리가 끝나면 요청 행을 즉시 삭제하고, 작품 영구 삭제 시 남은 요청도 작품 DB 데이터와 함께 삭제합니다.
 
+## V29 기준
+
+V29는 같은 정리 요청을 회차 삭제에도 사용하도록 `episode_source_purge_requests.retained_content_key`를 nullable로 변경합니다.
+
+- 수정·파일 교체 요청은 새 원문 key를 계속 저장해 이전 prefix 정리에서 제외합니다.
+- 삭제 요청은 유지할 원문이 없으므로 `NULL`을 저장하고 tombstone 커밋 후 모든 이전 원문을 재시도 가능하게 파기합니다.
+
 ## 논리 참조와 FK 기준
 
 ID 컬럼이 다른 테이블을 논리적으로 가리키더라도 삭제·재처리 정책이 정해지지 않았다면 FK를 먼저 강제하지 않습니다. V1의 선택은 다음과 같습니다.
@@ -288,7 +295,7 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
 
 ## 로컬 검증
 
-기존 적용 DB에 현재 Backend를 시작해 미적용 migration이 V28까지 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V28이 순서대로 적용되는 경로를 각각 확인합니다.
+기존 적용 DB에 현재 Backend를 시작해 미적용 migration이 V29까지 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V29가 순서대로 적용되는 경로를 각각 확인합니다.
 
 - Flyway 로그에 V1부터 V24까지 적용 성공이 출력됩니다.
 - `flyway_schema_history`에 version 1부터 24까지 성공으로 기록됩니다.
@@ -310,6 +317,7 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
 - V26에서 `works.lifecycle_status`, `work_purge_requests`와 처리·만료 조회 인덱스가 생성됩니다. 작품 삭제 뒤에도 파기 결과를 조회해야 하므로 삭제 요청의 작품 ID에는 의도적으로 FK를 두지 않습니다.
 - V27에서 `member_legal_records`와 회원·기록 시각 조회 인덱스가 생성되고, 가입 시 약관 동의와 방침 확인이 서로 다른 행위 유형으로 기록됩니다.
 - V28에서 `episode_source_purge_requests`와 상태·요청 시각 조회 인덱스가 생성되고, 회차별 활성 요청 unique와 Episode 삭제 cascade가 적용됩니다.
+- V29에서 삭제 요청은 `retained_content_key=NULL`을 저장할 수 있고 교체 요청은 유지할 새 원문 key를 계속 저장합니다.
 - `character_facts.setting_candidate_id`와 FK·조회 인덱스가 생성됩니다.
 - `works.genre`가 enum 상수명으로 저장되고 `NOT NULL`·`chk_works_genre` 제약을 가집니다.
 - `works.description`이 기존 값의 앞 50자로 정규화되고 `VARCHAR(50)` 타입을 가집니다.
@@ -321,7 +329,7 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
   `idx_characters_work_status_updated_id`로 교체됩니다.
 - `idx_analysis_jobs_work_batch_created`, `idx_setting_candidates_job_review` 인덱스가 생성됩니다.
 - Hibernate schema validation을 통과하고 Backend가 정상 시작됩니다.
-- Backend를 재시작해도 V1부터 V28까지 중복 적용되지 않습니다.
+- Backend를 재시작해도 V1부터 V29까지 중복 적용되지 않습니다.
 
 ## 최초 운영 전환
 
@@ -332,7 +340,7 @@ Flyway 도입 전에 JPA가 만든 운영 테스트 DB에는 `flyway_schema_hist
 1. 필요한 데이터가 없는지 확인하고 필요하면 `pg_dump`로 백업합니다.
 2. Backend와 AI Worker를 중지합니다.
 3. PostgreSQL 데이터 volume만 제거하고 빈 PostgreSQL 16 DB를 시작합니다.
-4. Backend를 시작해 Flyway V1~V28과 Hibernate validation 성공을 확인합니다.
+4. Backend를 시작해 Flyway V1~V29와 Hibernate validation 성공을 확인합니다.
 5. DB schema와 Swagger 기본 API를 확인한 뒤 AI Worker를 시작합니다.
 
 실제 사용자 데이터가 생긴 뒤에는 이 초기화 절차를 사용하지 않습니다. 기존 데이터를 보존하는 V2 이상의 `ALTER` migration과 사전 백업·롤백 계획을 별도로 작성합니다.

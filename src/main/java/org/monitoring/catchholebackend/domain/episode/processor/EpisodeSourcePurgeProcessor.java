@@ -11,15 +11,14 @@ import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.entity.EpisodeSourcePurgeRequest;
-import org.monitoring.catchholebackend.domain.episode.exception.EpisodeErrorCode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodePurgeDataRepository;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeSourcePurgeRequestRepository;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeSourcePurgeStatus;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
+import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
-import org.monitoring.catchholebackend.global.exception.AppException;
 import org.monitoring.catchholebackend.global.storage.ObjectStoragePurgeResult;
 import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
 import org.springframework.data.domain.PageRequest;
@@ -46,6 +45,7 @@ public class EpisodeSourcePurgeProcessor {
     private final WorldSettingCandidateRepository worldSettingCandidateRepository;
     private final AnalysisJobRepository analysisJobRepository;
     private final UploadFileRepository uploadFileRepository;
+    private final WorkRepository workRepository;
     private final PlatformTransactionManager transactionManager;
 
     /**
@@ -57,10 +57,18 @@ public class EpisodeSourcePurgeProcessor {
             UploadFile previousSourceFile,
             String retainedContentKey
     ) {
-        return purgeRequestRepository.save(EpisodeSourcePurgeRequest.request(
+        return purgeRequestRepository.save(EpisodeSourcePurgeRequest.requestReplacement(
                 episode,
                 previousSourceFile,
                 retainedContentKey
+        )).getId();
+    }
+
+    /** Episode tombstone과 같은 트랜잭션에 삭제 대상을 남겨 저장소 파기를 재시도 가능하게 한다. */
+    public UUID requestDeletionPurge(Episode episode, UploadFile previousSourceFile) {
+        return purgeRequestRepository.save(EpisodeSourcePurgeRequest.requestDeletion(
+                episode,
+                previousSourceFile
         )).getId();
     }
 
@@ -82,30 +90,6 @@ public class EpisodeSourcePurgeProcessor {
         if (claimRequest(requestId)) {
             processClaimedRequest(requestId);
         }
-    }
-
-    public void purgeEpisodeSource(
-            Episode episode,
-            UploadFile sourceFile,
-            String retainedContentKey
-    ) {
-        ObjectStoragePurgeResult storageResult = objectStorageService.purgeEpisodeSource(
-                episode.getWork().getId(),
-                episode.getEpisodeNo(),
-                episode.getContentS3Key(),
-                sourceFile == null ? null : sourceFile.getStorageUrl(),
-                retainedContentKey
-        );
-        if (!storageResult.isComplete()) {
-            throw new AppException(EpisodeErrorCode.EPISODE_SOURCE_PURGE_FAILED);
-        }
-        if (sourceFile != null) {
-            sourceFile.purgeStoredSource();
-        }
-
-        purgeCharacterCandidates(episode.getId());
-        purgeWorldSettingCandidates(episode.getId());
-        purgeDataRepository.deleteChunks(episode.getId());
     }
 
     private UUID claimNextRequest() {
@@ -151,13 +135,13 @@ public class EpisodeSourcePurgeProcessor {
                     target.retainedContentKey()
             );
         } catch (RuntimeException exception) {
-            log.error("회차 교체 이전 원문 저장소 파기 실패: requestId={}", requestId, exception);
+            log.error("회차 원문 저장소 파기 실패: requestId={}", requestId, exception);
             markForRetry(requestId, STORAGE_ERROR);
             return false;
         }
         if (!storageResult.isComplete()) {
             log.warn(
-                    "회차 교체 이전 원문 일부 파기 실패: requestId={}, target={}, deleted={}, failed={}",
+                    "회차 원문 일부 파기 실패: requestId={}, target={}, deleted={}, failed={}",
                     requestId,
                     storageResult.targetCount(),
                     storageResult.deletedCount(),
@@ -169,10 +153,13 @@ public class EpisodeSourcePurgeProcessor {
 
         try {
             TransactionTemplate transaction = newTransaction();
-            transaction.executeWithoutResult(status -> completeDatabasePurge(requestId));
+            transaction.executeWithoutResult(status -> completeDatabasePurge(
+                    requestId,
+                    target.workId()
+            ));
             return true;
         } catch (RuntimeException exception) {
-            log.error("회차 교체 이전 원문 DB 정리 실패: requestId={}", requestId, exception);
+            log.error("회차 원문 DB 정리 실패: requestId={}", requestId, exception);
             markForRetry(requestId, DATABASE_ERROR);
             return false;
         }
@@ -191,7 +178,11 @@ public class EpisodeSourcePurgeProcessor {
                 .orElse(null));
     }
 
-    private void completeDatabasePurge(UUID requestId) {
+    private void completeDatabasePurge(UUID requestId, UUID workId) {
+        // 모든 후보 검토 API와 같은 Work 잠금을 먼저 잡아 사용자 결정과 정리를 직렬화한다.
+        if (workRepository.findByIdForUpdate(workId).isEmpty()) {
+            return;
+        }
         EpisodeSourcePurgeRequest request = purgeRequestRepository.findByIdForUpdate(requestId).orElse(null);
         if (request == null) {
             return;
@@ -214,7 +205,7 @@ public class EpisodeSourcePurgeProcessor {
                     .findByIdForUpdate(requestId)
                     .ifPresent(request -> request.retry(errorCode)));
         } catch (RuntimeException exception) {
-            log.error("회차 교체 원문 파기 재시도 상태 저장 실패: requestId={}", requestId, exception);
+            log.error("회차 원문 파기 재시도 상태 저장 실패: requestId={}", requestId, exception);
         }
     }
 

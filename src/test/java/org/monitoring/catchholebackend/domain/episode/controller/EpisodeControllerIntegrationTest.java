@@ -1027,6 +1027,56 @@ class EpisodeControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("회차 삭제 저장소 파기가 실패해도 tombstone과 요청을 보존해 재시도한다")
+    void deleteEpisodePersistsCleanupRequestAndRetriesFailedPurge() throws Exception {
+        Episode episode = episodeRepository.save(Episode.create(
+                work, null, 10, "삭제 재시도 대상", "works/delete-retry.txt", "v1", "hash", 5));
+        jdbcTemplate.update(
+                "insert into episode_chunks(id, episode_id, chunk_index, chunk_text) values (?, ?, ?, ?)",
+                UUID.randomUUID(),
+                episode.getId(),
+                0,
+                "재시도 후 파기될 원문 청크"
+        );
+        when(objectStorage.purgePrefixesExcluding(any(), any()))
+                .thenReturn(
+                        new ObjectStoragePurgeResult(2, 1, 1),
+                        new ObjectStoragePurgeResult(2, 2, 0)
+                );
+
+        mockMvc.perform(delete("/api/v1/works/{workId}/episodes/{episodeId}", work.getId(), episode.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
+
+        Episode archived = episodeRepository.findById(episode.getId()).orElseThrow();
+        assertThat(archived.getStatus()).isEqualTo(EpisodeStatus.ARCHIVED);
+        assertThat(archived.getContentS3Key()).isNull();
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from episode_chunks where episode_id = ?",
+                Integer.class,
+                episode.getId()
+        )).isOne();
+        assertThat(episodeSourcePurgeRequestRepository.findAll())
+                .singleElement()
+                .satisfies(request -> {
+                    assertThat(request.getStatus()).isEqualTo(EpisodeSourcePurgeStatus.REQUESTED);
+                    assertThat(request.getAttemptCount()).isEqualTo(1);
+                    assertThat(request.getPreviousContentKey()).isEqualTo("works/delete-retry.txt");
+                    assertThat(request.getRetainedContentKey()).isNull();
+                });
+
+        episodeSourcePurgeProcessor.processPendingRequests();
+
+        assertThat(episodeSourcePurgeRequestRepository.count()).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from episode_chunks where episode_id = ?",
+                Integer.class,
+                episode.getId()
+        )).isZero();
+        verify(objectStorage, times(2)).purgePrefixesExcluding(any(), any());
+    }
+
+    @Test
     @DisplayName("다회차 단일 파일의 한 회차를 삭제하면 공유 업로드 원본은 파기하고 형제 회차 원문은 유지한다")
     void deleteEpisodeFromSharedUploadPurgesSharedOriginalAndKeepsSiblingContent() throws Exception {
         UploadBatch batch = uploadBatchRepository.save(UploadBatch.create(

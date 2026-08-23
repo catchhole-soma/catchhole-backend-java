@@ -223,9 +223,10 @@ public class EpisodeServiceImpl implements EpisodeService {
         UploadFile sourceFile = episode.getSourceFileId() == null
                 ? null
                 : uploadFileRepository.findById(episode.getSourceFileId()).orElse(null);
-        episodeSourcePurgeProcessor.purgeEpisodeSource(episode, sourceFile, null);
+        UUID purgeRequestId = episodeSourcePurgeProcessor.requestDeletionPurge(episode, sourceFile);
         episode.archive();
         refreshLatestEpisodeNo(work);
+        eventPublisher.publishEvent(new EpisodeSourcePurgeRequestedEvent(purgeRequestId));
     }
 
     @Override
