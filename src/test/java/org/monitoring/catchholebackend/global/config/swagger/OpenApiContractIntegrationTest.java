@@ -363,6 +363,10 @@ class OpenApiContractIntegrationTest {
                         .value("detectEpisodes"))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/episodes/detect']['post']['requestBody']['required']")
                         .value(true))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/episodes/{episodeId}']['delete']['description']")
+                        .value(containsString("업로드 원본의 모든 저장 버전")))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/episodes/{episodeId}']['delete']['description']")
+                        .value(containsString("복구는 지원하지 않습니다")))
                 .andExpect(jsonPath("$['components']['schemas']['EpisodeDetectionRequest']['properties']['uploadType']['enum']")
                         .value(containsInAnyOrder(
                                 "SINGLE_EPISODE",

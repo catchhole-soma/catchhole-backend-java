@@ -90,6 +90,11 @@ public class ObjectStorageService {
         return objectStorage.purgePrefixes(prefixes);
     }
 
+    /** DB 커밋이 실패한 교체 요청이 새로 만든 고유 객체 key들을 version까지 보상 파기한다. */
+    public ObjectStoragePurgeResult purgeReplacementObjects(Collection<String> objectKeys) {
+        return objectStorage.purgePrefixes(objectKeys);
+    }
+
     /**
      * 회차 번호 아래에 누적된 모든 원문 version과 현재 업로드 원본을 완전히 파기한다.
      * 파일 교체에서는 먼저 저장한 새 원문 key만 제외해 새 원문까지 함께 지우지 않는다.

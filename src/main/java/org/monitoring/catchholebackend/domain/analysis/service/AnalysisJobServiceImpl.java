@@ -35,6 +35,7 @@ import org.monitoring.catchholebackend.domain.character.repository.SettingCandid
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
+import org.monitoring.catchholebackend.domain.episode.repository.EpisodeSourcePurgeRequestRepository;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
@@ -66,6 +67,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     private final AnalysisJobMapper analysisJobMapper;
     private final AnalysisBatchMapper analysisBatchMapper;
     private final EpisodeRepository episodeRepository;
+    private final EpisodeSourcePurgeRequestRepository episodeSourcePurgeRequestRepository;
     private final SettingCandidateRepository settingCandidateRepository;
     private final WorldSettingCandidateRepository worldSettingCandidateRepository;
     private final AiTokenService aiTokenService;
@@ -89,6 +91,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         if (targetEpisodes.isEmpty()) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_TARGET_NOT_FOUND);
         }
+        assertNoSourcePurgeInProgress(targetEpisodes);
 
         if (targetEpisodes.stream().anyMatch(targetEpisode -> hasActiveAnalysisJob(batch, targetEpisode))) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_ALREADY_IN_PROGRESS);
@@ -237,6 +240,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         if (retryEpisodes.isEmpty()) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_TARGET_NOT_FOUND);
         }
+        assertNoSourcePurgeInProgress(retryEpisodes);
         if (retryEpisodes.stream().anyMatch(episode ->
                 hasResumableTokenInterruption(failedJob.getBatch(), episode, failedJob.getJobType()))) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
@@ -349,6 +353,14 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 ));
         if (differentTypeJobIsActive) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_ALREADY_IN_PROGRESS);
+        }
+    }
+
+    private void assertNoSourcePurgeInProgress(List<Episode> episodes) {
+        if (episodeSourcePurgeRequestRepository.existsByEpisodeIdIn(
+                episodes.stream().map(Episode::getId).toList()
+        )) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
         }
     }
 

@@ -15,6 +15,7 @@ import org.monitoring.catchholebackend.domain.character.repository.SettingCandid
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodePurgeDataRepository;
+import org.monitoring.catchholebackend.domain.episode.repository.EpisodeSourcePurgeRequestRepository;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
@@ -26,10 +27,12 @@ import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSetti
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.jpa.mapping.JpaMetamodelMappingContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest(properties = {
         "work.purge.scheduling-enabled=false",
+        "episode.source-purge.scheduling-enabled=false",
         "spring.autoconfigure.exclude="
                 + "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration,"
                 + "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration"
@@ -53,6 +56,9 @@ class CatchHoleBackendApplicationTests {
     private EpisodePurgeDataRepository episodePurgeDataRepository;
 
     @MockitoBean
+    private EpisodeSourcePurgeRequestRepository episodeSourcePurgeRequestRepository;
+
+    @MockitoBean
     private UploadBatchRepository uploadBatchRepository;
 
     @MockitoBean
@@ -66,6 +72,9 @@ class CatchHoleBackendApplicationTests {
 
     @MockitoBean
     private TransactionTemplate transactionTemplate;
+
+    @MockitoBean
+    private PlatformTransactionManager platformTransactionManager;
 
     @MockitoBean
     private AnalysisJobRepository analysisJobRepository;

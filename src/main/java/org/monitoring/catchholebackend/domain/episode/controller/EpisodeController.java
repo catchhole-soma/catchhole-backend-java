@@ -214,7 +214,9 @@ public class EpisodeController {
     @Operation(
             operationId = "deleteEpisode",
             summary = "회차 원문 영구 삭제",
-            description = "로그인한 사용자가 본인 작품에 등록한 회차를 보관 상태로 전환해 활성 목록에서 숨깁니다."
+            description = "로그인한 사용자가 본인 작품의 회차 원문과 업로드 원본의 모든 저장 버전, "
+                    + "원고 청크 및 미확정 분석 후보를 영구 삭제합니다. "
+                    + "회차 식별 행과 사용자가 확정한 설정은 참조 무결성을 위해 보존하며 복구는 지원하지 않습니다."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "회차 삭제 성공"),

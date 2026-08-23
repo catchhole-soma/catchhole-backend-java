@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -38,7 +39,9 @@ import org.monitoring.catchholebackend.domain.character.repository.SettingCandid
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
+import org.monitoring.catchholebackend.domain.episode.processor.EpisodeSourcePurgeProcessor;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
+import org.monitoring.catchholebackend.domain.episode.repository.EpisodeSourcePurgeRequestRepository;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
@@ -49,6 +52,7 @@ import org.monitoring.catchholebackend.domain.upload.type.UploadFileRole;
 import org.monitoring.catchholebackend.domain.upload.type.UploadSourceType;
 import org.monitoring.catchholebackend.domain.upload.type.UploadType;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
+import org.monitoring.catchholebackend.domain.episode.type.EpisodeSourcePurgeStatus;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
@@ -83,6 +87,12 @@ class EpisodeControllerIntegrationTest {
 
     @Autowired
     private EpisodeRepository episodeRepository;
+
+    @Autowired
+    private EpisodeSourcePurgeRequestRepository episodeSourcePurgeRequestRepository;
+
+    @Autowired
+    private EpisodeSourcePurgeProcessor episodeSourcePurgeProcessor;
 
     @Autowired
     private AnalysisJobRepository analysisJobRepository;
@@ -127,6 +137,7 @@ class EpisodeControllerIntegrationTest {
         jdbcTemplate.update("delete from episode_chunks");
         settingCandidateRepository.deleteAll();
         analysisJobRepository.deleteAll();
+        episodeSourcePurgeRequestRepository.deleteAll();
         episodeRepository.deleteAll();
         uploadFileRepository.deleteAll();
         uploadBatchRepository.deleteAll();
@@ -927,6 +938,53 @@ class EpisodeControllerIntegrationTest {
                         && retained.iterator().next().equals(replaced.getContentS3Key()))
         );
         verify(objectStorage, never()).delete(anyString());
+    }
+
+    @Test
+    @DisplayName("회차 파일 교체 정리가 실패해도 새 참조는 커밋하고 요청을 보존해 재시도한다")
+    void replaceEpisodeFilePersistsCleanupRequestAndRetriesFailedPurge() throws Exception {
+        UploadBatch originalBatch = uploadBatchRepository.save(UploadBatch.create(
+                work, member, UploadType.SINGLE_EPISODE, UploadSourceType.FILE));
+        UploadFile originalFile = uploadFileRepository.save(UploadFile.create(
+                originalBatch, UploadFileRole.EPISODE, "old.txt", MediaType.TEXT_PLAIN_VALUE,
+                "s3://old.txt", 10));
+        originalFile.markEpisodesParsed(7, 7, 1);
+        Episode episode = episodeRepository.save(Episode.create(
+                work, originalFile.getId(), 7, "유지되는 제목", "works/old.txt", "v1", "old-hash", 10));
+        when(objectStorage.purgePrefixesExcluding(any(), any()))
+                .thenReturn(
+                        new ObjectStoragePurgeResult(2, 1, 1),
+                        new ObjectStoragePurgeResult(2, 2, 0)
+                );
+
+        MockMultipartFile replacement = textFile("file", "new-source.txt", "새 원문 입니다.\n");
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes/{episodeId}/file", work.getId(), episode.getId())
+                        .file(replacement)
+                        .with(request -> { request.setMethod("PUT"); return request; })
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
+
+        Episode replaced = episodeRepository.findById(episode.getId()).orElseThrow();
+        assertThat(replaced.getSourceFileId()).isNotEqualTo(originalFile.getId());
+        assertThat(replaced.getContentS3Key()).isNotEqualTo("works/old.txt");
+        assertThat(uploadFileRepository.findById(originalFile.getId()).orElseThrow().getStorageUrl())
+                .isEqualTo("s3://old.txt");
+        assertThat(episodeSourcePurgeRequestRepository.findAll())
+                .singleElement()
+                .satisfies(request -> {
+                    assertThat(request.getStatus()).isEqualTo(EpisodeSourcePurgeStatus.REQUESTED);
+                    assertThat(request.getAttemptCount()).isEqualTo(1);
+                    assertThat(request.getPreviousContentKey()).isEqualTo("works/old.txt");
+                    assertThat(request.getRetainedContentKey()).isEqualTo(replaced.getContentS3Key());
+                });
+
+        episodeSourcePurgeProcessor.processPendingRequests();
+
+        assertThat(episodeSourcePurgeRequestRepository.count()).isZero();
+        assertThat(uploadFileRepository.findById(originalFile.getId()).orElseThrow().getStorageUrl()).isNull();
+        assertThat(episodeRepository.findById(episode.getId()).orElseThrow().getContentS3Key())
+                .isEqualTo(replaced.getContentS3Key());
+        verify(objectStorage, times(2)).purgePrefixesExcluding(any(), any());
     }
 
     @Test

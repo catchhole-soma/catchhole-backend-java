@@ -21,13 +21,16 @@ import org.monitoring.catchholebackend.domain.character.repository.SettingCandid
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.exception.EpisodeErrorCode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodePurgeDataRepository;
+import org.monitoring.catchholebackend.domain.episode.repository.EpisodeSourcePurgeRequestRepository;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
+import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.monitoring.catchholebackend.global.storage.ObjectStoragePurgeResult;
 import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
+import org.springframework.transaction.PlatformTransactionManager;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("회차 원문 파기 처리기 단위 테스트")
@@ -40,6 +43,9 @@ class EpisodeSourcePurgeProcessorTest {
     private EpisodePurgeDataRepository purgeDataRepository;
 
     @Mock
+    private EpisodeSourcePurgeRequestRepository purgeRequestRepository;
+
+    @Mock
     private SettingCandidateRepository settingCandidateRepository;
 
     @Mock
@@ -47,6 +53,12 @@ class EpisodeSourcePurgeProcessorTest {
 
     @Mock
     private AnalysisJobRepository analysisJobRepository;
+
+    @Mock
+    private UploadFileRepository uploadFileRepository;
+
+    @Mock
+    private PlatformTransactionManager transactionManager;
 
     @Mock
     private Episode episode;
@@ -66,9 +78,12 @@ class EpisodeSourcePurgeProcessorTest {
         processor = new EpisodeSourcePurgeProcessor(
                 objectStorageService,
                 purgeDataRepository,
+                purgeRequestRepository,
                 settingCandidateRepository,
                 worldSettingCandidateRepository,
-                analysisJobRepository
+                analysisJobRepository,
+                uploadFileRepository,
+                transactionManager
         );
         workId = UUID.randomUUID();
         episodeId = UUID.randomUUID();

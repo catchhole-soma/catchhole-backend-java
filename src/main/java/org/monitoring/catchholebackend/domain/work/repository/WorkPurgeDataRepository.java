@@ -44,6 +44,7 @@ public class WorkPurgeDataRepository {
         deletedCount += update("delete from world_settings where work_id = ?", workId);
         deletedCount += update("delete from character_setting_schemas where work_id = ?", workId);
         deletedCount += update("delete from characters where work_id = ?", workId);
+        deletedCount += update("delete from episode_source_purge_requests where work_id = ?", workId);
         deletedCount += update("""
                 delete from episode_chunks
                 where episode_id in (select id from episodes where work_id = ?)

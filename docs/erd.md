@@ -17,6 +17,7 @@ erDiagram
     members ||--o{ ai_token_usages : consumes
     works ||--o{ episodes : contains
     episodes ||--o{ episode_chunks : splits
+    episodes ||--o| episode_source_purge_requests : queues_previous_source_cleanup
     works ||--o{ upload_batches : groups
     works ||--o{ analysis_jobs : runs
     works ||--o{ ai_token_usages : meters
@@ -140,6 +141,24 @@ erDiagram
         datetime content_updated_at
         int char_count
         varchar status
+        datetime created_at
+        datetime updated_at
+    }
+
+    episode_source_purge_requests {
+        uuid id PK
+        uuid episode_id FK,UK
+        uuid work_id
+        uuid previous_source_file_id
+        int previous_episode_no
+        varchar previous_content_key
+        varchar previous_source_storage_url
+        varchar retained_content_key
+        varchar status
+        datetime requested_at
+        datetime processing_started_at
+        int attempt_count
+        varchar last_error_code
         datetime created_at
         datetime updated_at
     }
@@ -388,6 +407,7 @@ erDiagram
 | `ai_token_usages` | AI provider 요청 UUID별 예약·정산·해제 상태와 input/cached input/output 사용량을 기록합니다. |
 | `works` | 회원이 소유한 작품. 회차/업로드/분석 작업의 최상위 리소스입니다. |
 | `episodes` | 작품에 속한 회차 메타데이터. 원문은 S3에 저장하고 DB에는 key/version/hash/글자 수만 둡니다. |
+| `episode_source_purge_requests` | 회차 수정·파일 교체의 새 원문 참조를 먼저 커밋한 뒤 이전 S3 원문·업로드 원본과 파생 데이터를 재시도 가능하게 정리하는 활성 요청입니다. 완료 즉시 삭제합니다. |
 | `episode_chunks` | 회차 원문 청크와 위치 정보, `vector(1536)` 임베딩 및 재생성 판단 메타데이터를 저장합니다. `(episode_id, chunk_index)`는 unique입니다. |
 | `upload_batches` | 한 번의 업로드 요청 단위. 업로드 유형, 소스, 전체 처리 상태를 기록합니다. |
 | `upload_files` | batch에 포함된 개별 파일. 원본 S3 위치, 설정집 편집용 텍스트 위치와 파싱 결과를 기록합니다. |
@@ -563,6 +583,7 @@ erDiagram
 - 회원이 소유한 리소스는 `works.member_id`를 루트로 접근 제어합니다.
 - 회차 원문 전문은 DB에 저장하지 않습니다. `episodes.content_s3_key`를 통해 S3에서 조회합니다.
 - 업로드 원본 파일과 파생 원문은 분리 저장합니다. 원본 파일은 `upload_files.storage_url`, 설정집 편집용 현재 텍스트는 `upload_files.content_storage_url`, 회차 원문은 `episodes.content_s3_key`에 연결됩니다. 회차 삭제·수정·교체로 업로드 원본을 파기하면 `storage_url`은 `null`로 비우며, 다회차 단일 파일의 형제 회차는 분리된 `content_s3_key`를 계속 사용합니다.
+- 회차 수정·파일 교체는 새 원문 참조와 `episode_source_purge_requests`를 먼저 커밋하고 이전 S3 객체를 나중에 파기합니다. 실패 요청은 스케줄러가 재시도하며, 완료 전에는 같은 회차의 추가 변경과 분석 생성을 막습니다.
 - `episodes.source_file_id`는 해당 회차가 어떤 업로드 파일에서 파생되었는지 추적하는 nullable FK입니다. 현재 업로드 파일 삭제 API가 없으므로 기본 `NO ACTION`으로 원본 추적 관계를 보호합니다.
 - `upload_batches`는 이후 분석 작업의 대상 단위로 재사용할 수 있도록 `work_id`, `upload_type`, `file_count`, `status`를 유지합니다.
 - 캐릭터 설정은 `setting_candidates`, `character_facts`, `characters`로 나누어 저장합니다. AI 추출 후보는 `setting_candidates`, 회차별 확정/검토 이력은 `character_facts`, 화면 표시용 현재 스냅샷은 `characters`가 담당합니다.

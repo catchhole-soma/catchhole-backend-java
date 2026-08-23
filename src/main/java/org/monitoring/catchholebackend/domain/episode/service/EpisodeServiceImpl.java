@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.episode.service;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,13 +23,16 @@ import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeRespon
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeSummaryResponse;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeUploadResponse;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
+import org.monitoring.catchholebackend.domain.episode.event.EpisodeSourcePurgeRequestedEvent;
 import org.monitoring.catchholebackend.domain.episode.exception.EpisodeErrorCode;
 import org.monitoring.catchholebackend.domain.episode.mapper.EpisodeDetectionMapper;
 import org.monitoring.catchholebackend.domain.episode.mapper.EpisodeMapper;
 import org.monitoring.catchholebackend.domain.episode.parser.EpisodeFileParser;
 import org.monitoring.catchholebackend.domain.episode.processor.EpisodeUploadProcessor;
+import org.monitoring.catchholebackend.domain.episode.processor.EpisodeReplacementStorageCompensator;
 import org.monitoring.catchholebackend.domain.episode.processor.EpisodeSourcePurgeProcessor;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
+import org.monitoring.catchholebackend.domain.episode.repository.EpisodeSourcePurgeRequestRepository;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
@@ -46,6 +50,7 @@ import org.monitoring.catchholebackend.global.exception.AppException;
 import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
 import org.monitoring.catchholebackend.global.storage.StoredObject;
 import org.monitoring.catchholebackend.global.storage.StoredTextObject;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -57,10 +62,12 @@ import org.springframework.web.multipart.MultipartFile;
 public class EpisodeServiceImpl implements EpisodeService {
 
     private final EpisodeRepository episodeRepository;
+    private final EpisodeSourcePurgeRequestRepository episodeSourcePurgeRequestRepository;
     private final WorkRepository workRepository;
     private final EpisodeMapper episodeMapper;
     private final ObjectStorageService objectStorageService;
     private final EpisodeUploadProcessor episodeUploadProcessor;
+    private final EpisodeReplacementStorageCompensator replacementStorageCompensator;
     private final EpisodeSourcePurgeProcessor episodeSourcePurgeProcessor;
     private final EpisodeFileParser episodeFileParser;
     private final TextDocumentReader textDocumentReader;
@@ -69,6 +76,7 @@ public class EpisodeServiceImpl implements EpisodeService {
     private final AnalysisJobRepository analysisJobRepository;
     private final UploadBatchRepository uploadBatchRepository;
     private final UploadMapper uploadMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     public List<EpisodeSummaryResponse> getEpisodes(Long memberId, UUID workId) {
@@ -110,12 +118,15 @@ public class EpisodeServiceImpl implements EpisodeService {
                 ? null
                 : uploadFileRepository.findById(episode.getSourceFileId()).orElse(null);
 
+        List<String> replacementObjectKeys = new ArrayList<>();
+        replacementStorageCompensator.registerRollbackCompensation(replacementObjectKeys);
         StoredTextObject storedEpisodeContent = objectStorageService.replaceEpisodeContent(
                 work.getId(),
                 request.episodeNo(),
                 request.content()
         );
-        episodeSourcePurgeProcessor.purgeEpisodeSource(
+        replacementObjectKeys.add(storedEpisodeContent.key());
+        UUID purgeRequestId = episodeSourcePurgeProcessor.requestReplacementPurge(
                 episode,
                 previousSourceFile,
                 storedEpisodeContent.key()
@@ -130,6 +141,7 @@ public class EpisodeServiceImpl implements EpisodeService {
                 storedEpisodeContent.charCount()
         );
         refreshLatestEpisodeNo(work);
+        eventPublisher.publishEvent(new EpisodeSourcePurgeRequestedEvent(purgeRequestId));
         return episodeMapper.toResponse(episode, request.content());
     }
 
@@ -167,8 +179,11 @@ public class EpisodeServiceImpl implements EpisodeService {
                 work, work.getMember(), UploadType.SINGLE_EPISODE, UploadSourceType.FILE));
         batch.startProcessing();
         batch.updateFileCount(1);
+        List<String> replacementObjectKeys = new ArrayList<>();
+        replacementStorageCompensator.registerRollbackCompensation(replacementObjectKeys);
         StoredObject storedOriginal = objectStorageService.putUploadFile(
                 batch.getId(), resolveOriginalFilename(file), readBytes(file), file.getContentType());
+        replacementObjectKeys.add(storedOriginal.key());
         UploadFile sourceFile = uploadFileRepository.save(uploadMapper.toEntity(
                 batch,
                 UploadFileRole.EPISODE,
@@ -181,7 +196,8 @@ public class EpisodeServiceImpl implements EpisodeService {
 
         StoredTextObject storedContent = objectStorageService.replaceEpisodeContent(
                 work.getId(), episode.getEpisodeNo(), content);
-        episodeSourcePurgeProcessor.purgeEpisodeSource(
+        replacementObjectKeys.add(storedContent.key());
+        UUID purgeRequestId = episodeSourcePurgeProcessor.requestReplacementPurge(
                 episode,
                 previousSourceFile,
                 storedContent.key()
@@ -194,6 +210,7 @@ public class EpisodeServiceImpl implements EpisodeService {
                 storedContent.charCount()
         );
         batch.complete();
+        eventPublisher.publishEvent(new EpisodeSourcePurgeRequestedEvent(purgeRequestId));
         return episodeMapper.toSummaryResponse(episode, sourceFile, null);
     }
 
@@ -357,6 +374,9 @@ public class EpisodeServiceImpl implements EpisodeService {
     }
 
     private void assertEpisodeIsNotAnalyzing(Episode episode) {
+        if (episodeSourcePurgeRequestRepository.existsByEpisodeId(episode.getId())) {
+            throw new AppException(EpisodeErrorCode.EPISODE_SOURCE_PURGE_IN_PROGRESS);
+        }
         if (episode.getStatus() == EpisodeStatus.CHUNKING
                 || episode.getStatus() == EpisodeStatus.CHUNKED
                 || episode.getStatus() == EpisodeStatus.PREPROCESSING
@@ -381,4 +401,5 @@ public class EpisodeServiceImpl implements EpisodeService {
     private String resolveOriginalFilename(MultipartFile file) {
         return textDocumentReader.requireOriginalFilename(file);
     }
+
 }
