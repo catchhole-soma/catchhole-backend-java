@@ -243,6 +243,7 @@ domain/<domain>
 - Refresh token 원문은 저장하지 않는다. `refresh_tokens.token_hash`에 SHA-256 해시만 저장하고, 재발급 시 기존 token은 `revoked_at`으로 폐기한 뒤 새 token을 저장한다.
 - Refresh token은 `HttpOnly` 쿠키로 전달한다. 쿠키 path는 `/api/v1/auth`, SameSite 기본값은 `Lax`, 운영 환경에서는 `Secure=true`를 사용한다.
 - 회원가입과 로그인은 access token을 응답 body로, refresh token을 HttpOnly 쿠키로 함께 발급한다. 회원가입 후 별도 로그인 요청을 요구하지 않는다.
+- 회원가입은 한 화면 체크로 현재 이용약관 동의와 개인정보처리방침 확인을 함께 받되 API에서는 `termsAccepted`, `privacyPolicyAcknowledged`를 각각 `true`로 검증한다. 현재 서비스 화면 문서 버전은 `2026-08-23`이며 서버가 버전과 행위 유형(`AGREED`, `ACKNOWLEDGED`)을 `member_legal_records`에 두 행으로 기록한다. 화면 문구가 바뀌면 Front 표시 버전과 `LegalDocumentType.currentVersion`을 함께 올리며, AI 원고 처리는 별도 가입 동의나 업로드별 동의 이력으로 저장하지 않는다.
 - 인증번호 발송 API에서만 하이픈 없는 `010` 시작 11자리 전화번호를 받고, 회원가입 요청에서는 전화번호를 받지 않는다. 회원가입은 10분 TTL의 1회용 `phoneVerificationToken`에서 번호를 조회해 `members.phone_number`에 unique로 저장하고 `phone_verified=true`로 생성한다. 기존 `phone_verified=false` 회원의 로그인은 허용한다.
 - 인증번호는 HMAC으로 Redis에 5분, 재전송 대기는 60초, 오입력은 5회, 가입 토큰은 10분으로 고정한다. 재전송은 이전 인증 흐름을 폐기하고 가장 최근 번호만 유효하게 한다.
 - 발송 제한은 Redis Lua에서 확인과 증가를 원자 처리한다. 전화번호는 1시간 5건·KST 하루 10건, IP는 1시간 10건·KST 하루 20건, 전체는 KST 하루 20건·월 200건이다. 429 제한 응답에는 `Retry-After`를 포함한다.
@@ -272,7 +273,8 @@ domain/<domain>
 - 회차 업로드 요청 한 번은 `UploadBatch` 하나로 추적하고, 원본 파일 단위는 `UploadFile`로 추적한다.
 - 업로드에서 생성된 회차는 `episodes.source_file_id`로 원본 업로드 파일을 추적한다.
 - 같은 작품 안에서 회차 번호는 중복될 수 없다.
-- 회차 삭제는 `ARCHIVED` 전이로 처리하고 원문 S3 객체는 유지한다. 활성 목록, 최신 회차 번호 계산과 회차 번호 중복 검사는 `ARCHIVED` 회차를 제외한다.
+- 회차 삭제는 S3 원문·업로드 원본의 모든 version과 delete marker, `episode_chunks`, 검토 전 캐릭터·세계관 후보를 파기한 뒤 `ARCHIVED`로 전이한다. Episode 식별자와 이미 확정한 캐릭터·세계관 설정은 유지하되, 확정·무시 후보의 원문 인용과 raw AI payload는 비워 파기된 근거를 다시 노출하지 않는다. 다회차 단일 파일의 한 회차를 삭제하면 공유 업로드 원본 전체를 파기하고 `UploadFile.storageUrl`을 비우되 형제 회차의 분리 원문은 유지한다. 활성 목록, 최신 회차 번호 계산과 회차 번호 중복 검사는 `ARCHIVED` 회차를 제외한다.
+- 회차 파일 교체는 새 원문을 먼저 저장한 뒤 새 content key를 제외한 기존 회차 prefix와 이전 업로드 원본을 완전 파기하고, 삭제와 같은 파생 데이터 정리를 수행한다. 자동 재분석이나 확정 설정 재계산은 하지 않으며 사용자가 경고를 확인한 뒤 해당 회차의 `SETTING_EXTRACTION`을 별도로 요청한다.
 - 회차 제목은 사용자 확정값 또는 원문의 명시적 회차 제목 행에서만 가져온다. 감지하지 못하면 `null`로 두며 원본 파일명을 제목으로 대체하지 않는다.
 - 회차 원고와 설정집 원본은 TXT·DOCX만 허용하고, 명시적으로 첨부한 빈 파일과 파일당 10MB 초과를 서버에서도 거절한다. multipart 요청 전체 제한은 25MB로 둔다. DOCX는 실제 압축 해제량을 누적해 20MB를 초과하거나 본문 탐색 중 ZIP 엔트리가 256개를 초과하면 거절해 압축 폭탄이 서버 자원을 고갈시키지 않게 한다.
 - 설정집은 업로드 원본과 화면 조회·수정용 텍스트를 분리한다. `upload_files.storage_url`에는 최초 TXT/DOCX 원본을 불변으로 보존하고, `content_storage_url`에는 추출한 현재 텍스트의 `works/{workId}/setting-books/{settingBookId}/{normalizedOriginalBasename}.txt` 고정 key를 둔다. 편집본 파일명은 원본 경로·확장자를 제거하고 Unicode NFC로 정규화해 S3에서 작품과 파일을 식별할 수 있게 한다. TXT와 DOCX 모두 텍스트 편집을 허용하되 수정은 같은 key를 PUT하고 원본 MIME·크기를 바꾸지 않는다. S3 Versioning이 활성화된 환경의 과거 version 보관 기한은 Lifecycle 정책으로 제한한다.

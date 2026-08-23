@@ -22,6 +22,19 @@ import org.springframework.data.repository.query.Param;
 
 public interface SettingCandidateRepository extends JpaRepository<SettingCandidate, UUID> {
 
+    @Query("""
+            select distinct candidate
+            from SettingCandidate candidate
+            left join candidate.episode episode
+            left join candidate.analysisJob analysisJob
+            left join analysisJob.episode jobEpisode
+            left join analysisJob.targetEpisodes jobTargetEpisode
+            where episode.id = :episodeId
+               or jobEpisode.id = :episodeId
+               or jobTargetEpisode.id = :episodeId
+            """)
+    List<SettingCandidate> findAllByAnalysisTargetEpisodeId(@Param("episodeId") UUID episodeId);
+
     List<SettingCandidate> findAllByWorkIdOrderByCreatedAtDesc(UUID workId);
 
     List<SettingCandidate> findAllByWorkIdAndReviewStatusOrderByCreatedAtDesc(

@@ -21,7 +21,7 @@ batch에는 작품, 회원, 업로드 방식, 파일 개수, 전체 처리 상�
 - 회차 원고 파일은 `fileRole=EPISODE`
 - 설정집 파일은 `fileRole=SETTING_BOOK`
 
-원본 파일 자체는 S3에 저장하고, DB에는 `storage_url`, 원본 파일명, mime type, size, 파싱 결과를 저장합니다.
+원본 파일 자체는 S3에 저장하고, DB에는 `storage_url`, 원본 파일명, mime type, size, 파싱 결과를 저장합니다. 회차 삭제·수정·교체로 원본 객체를 파기한 뒤에는 존재하지 않는 위치를 노출하지 않도록 `storage_url`을 `null`로 비웁니다.
 
 TXT·DOCX 원본은 파일당 10MB까지 허용하고 multipart 요청 전체는 25MB로 제한합니다. DOCX는 `word/document.xml` 이전 엔트리를 포함한 실제 압축 해제량을 누적해 20MB를 초과하거나 본문 탐색 중 ZIP 엔트리가 256개를 초과하면 `UPLOAD_FILE_TOO_LARGE`로 거절합니다. 선택 part를 생략하는 것과 명시적으로 빈 파일을 첨부하는 것을 구분하며, 빈 파일은 `UPLOAD_FILE_EMPTY`로 거절합니다. multipart 파일의 원본 파일명은 필수이며, 누락되거나 공백이면 서버가 확장자를 추정하지 않고 `UPLOAD_FILE_TYPE_NOT_SUPPORTED`로 거절합니다.
 
@@ -98,7 +98,7 @@ TXT·DOCX 원본은 파일당 10MB까지 허용하고 multipart 요청 전체는
 | `file_role` | 파일 역할 |
 | `original_filename` | 원본 파일명 |
 | `mime_type` | MIME type |
-| `storage_url` | 원본 파일 S3 위치 |
+| `storage_url` | 원본 파일 S3 위치. 회차 원본 파기 후에는 `null` |
 | `content_storage_url` | 설정집에서 추출한 현재 편집용 텍스트 S3 위치. 회차 원본은 null |
 | `file_size` | 파일 크기 |
 | `detected_episode_start_no` | 최종 생성한 시작 회차 번호. API/Java 이름은 `episodeStartNo` |
@@ -110,6 +110,8 @@ TXT·DOCX 원본은 파일당 10MB까지 허용하고 multipart 요청 전체는
 | `updated_at` | 수정 시각 |
 
 회차 원본은 `UploadFile.markEpisodesParsed(episodeStartNo, episodeEndNo, episodeCount)`로 세 범위 값과 `PARSED` 상태를 함께 기록합니다. 회차 범위가 없는 설정집은 범위 값을 비워 둔 채 `UploadFile.markParsed()`로 상태만 변경합니다. `UploadFileResponse`도 legacy DB 컬럼명이 아니라 `episodeStartNo`, `episodeEndNo`, `episodeCount`를 사용합니다.
+
+`MULTI_EPISODE_SINGLE_FILE`은 원본 `UploadFile` 하나를 여러 Episode가 공유합니다. 그중 한 회차를 삭제하거나 수정·교체하면 해당 회차 내용이 포함된 공유 업로드 원본 전체를 파기하고 `storage_url`을 비웁니다. 다른 회차는 작품 prefix 아래에 분리 저장된 현재 원문을 계속 사용합니다.
 
 ## 업로드 파일 저장 key
 
@@ -199,7 +201,7 @@ source
 
 같은 원본 파일명도 덮어쓰지 않고 매 업로드마다 새 설정집 항목과 고유 원본 객체로 누적합니다. 각 설정집은 업로드 원본과 추출된 편집용 UTF-8 텍스트를 분리하며, TXT와 DOCX 모두 화면에서는 편집용 텍스트를 수정합니다. DOCX 바이너리 원본은 변경하지 않습니다. 수정할 때는 동일한 `works/{workId}/setting-books/{settingBookId}/{normalizedOriginalBasename}.txt` key를 교체하므로 수정 횟수만큼 새 key가 생기지 않습니다. 원본 파일명, MIME 타입, 파일 크기와 최초 업로드 시각은 목록 표시값으로 유지합니다. soft delete한 DB row와 저장 객체는 물리 삭제하지 않습니다. 설정집 업로드와 수정은 분석 작업을 생성하지 않습니다.
 
-운영 S3 버킷에 Versioning이 활성화되어 있다면 동일 key PUT도 과거 version을 보관하므로, 보관 기한은 인프라 Lifecycle 정책으로 제한합니다.
+운영 S3 버킷에 Versioning이 활성화되어 있다면 동일 key PUT도 과거 version을 보관합니다. 작품 영구 삭제는 현재 version만 가리는 delete가 아니라 작품·배치 prefix의 모든 version과 delete marker를 명시적으로 삭제합니다.
 
 ## 이후 작업
 

@@ -255,6 +255,15 @@ V22는 provenance source가 같은 캐릭터뿐 아니라 같은 canonical slot�
 - `character_facts(character_id, fact_type, fact_key, id)` unique key를 추가합니다.
 - `character_snapshot_sources(character_id, fact_type, fact_key, source_fact_id)` 복합 FK로 교체합니다.
 
+## V27 기준
+
+V27은 회원가입 당시 적용된 이용약관 동의와 개인정보처리방침 확인을 증명하는 `member_legal_records`를 추가합니다.
+
+- 프론트는 한 체크박스로 두 문서를 함께 확인하지만 API는 두 의미를 각각 `true`로 검증합니다.
+- 서버가 현재 서비스 화면 문서 버전 `2026-08-23`을 선택하고 이용약관은 `AGREED`, 개인정보처리방침은 `ACKNOWLEDGED`로 구분해 가입 트랜잭션 안에서 두 행을 저장합니다. 화면 문구 변경 시 Front 표시 버전과 Backend 버전을 함께 올립니다.
+- 같은 회원·문서·버전의 중복 이력은 unique 제약으로 막고 회원 삭제 시 이력도 함께 삭제합니다.
+- AI 원고 처리는 계약 이행에 필요한 처리 안내로 운영하므로 별도 동의 행을 만들지 않습니다.
+
 ## 논리 참조와 FK 기준
 
 ID 컬럼이 다른 테이블을 논리적으로 가리키더라도 삭제·재처리 정책이 정해지지 않았다면 FK를 먼저 강제하지 않습니다. V1의 선택은 다음과 같습니다.
@@ -262,7 +271,7 @@ ID 컬럼이 다른 테이블을 논리적으로 가리키더라도 삭제·재�
 | 컬럼 | 참조 대상 | V1 정책 | 이유 및 후속 논의 |
 | --- | --- | --- | --- |
 | `episodes.source_file_id` | `upload_files.id` | nullable FK, 기본 `NO ACTION` | 업로드 파일을 먼저 저장한 뒤 회차를 생성하고 현재 업로드 파일 삭제 API가 없으므로 원본 추적 무결성을 강제합니다. 삭제 기능을 추가하면 연결된 회차 처리 정책을 함께 정합니다. |
-| `characters.first_appearance_episode_id` | `episodes.id` | FK 보류 | 현재 회차 삭제는 `ARCHIVED` soft delete이며, 향후 물리 삭제 시 최초 등장 회차를 재계산할지 `NULL`로 둘지 먼저 결정해야 합니다. |
+| `characters.first_appearance_episode_id` | `episodes.id` | FK 보류 | 회차 원문 파기 후에도 `ARCHIVED` Episode tombstone은 유지되며, 향후 Episode 행 물리 삭제 시 최초 등장 회차를 재계산할지 `NULL`로 둘지 먼저 결정해야 합니다. |
 | `setting_candidates.source_chunk_id` | `episode_chunks.id` | FK 보류 | 재청킹이 기존 청크를 삭제하고 새 UUID로 교체하므로 일반 FK는 재청킹을 막고, cascade 또는 set null은 근거를 손실할 수 있습니다. |
 | `character_facts.source_chunk_id` | `episode_chunks.id` | FK 보류 | 확정 설정의 원문 근거이므로 청크 ID 안정화 또는 청크 이력 보존 정책을 정한 뒤 FK를 검토합니다. |
 
@@ -289,6 +298,8 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
 - V21에서 `setting_candidates.proposed_fact_value`, V22에서 same-character/same-slot provenance 복합 FK가 생성됩니다.
 - V24에서 `setting_candidates.suggested_operation` check constraint가 `REMOVE`를 허용합니다.
 - V25에서 분석 작업과 캐릭터·세계관 후보 비교의 typed 실패 코드가 생성됩니다.
+- V26에서 `works.lifecycle_status`, `work_purge_requests`와 처리·만료 조회 인덱스가 생성됩니다. 작품 삭제 뒤에도 파기 결과를 조회해야 하므로 삭제 요청의 작품 ID에는 의도적으로 FK를 두지 않습니다.
+- V27에서 `member_legal_records`와 회원·기록 시각 조회 인덱스가 생성되고, 가입 시 약관 동의와 방침 확인이 서로 다른 행위 유형으로 기록됩니다.
 - `character_facts.setting_candidate_id`와 FK·조회 인덱스가 생성됩니다.
 - `works.genre`가 enum 상수명으로 저장되고 `NOT NULL`·`chk_works_genre` 제약을 가집니다.
 - `works.description`이 기존 값의 앞 50자로 정규화되고 `VARCHAR(50)` 타입을 가집니다.

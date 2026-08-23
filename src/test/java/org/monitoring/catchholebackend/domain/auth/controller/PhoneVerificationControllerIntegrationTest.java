@@ -180,6 +180,8 @@ class PhoneVerificationControllerIntegrationTest {
                                 "concurrent-" + requestIndex + "@example.com",
                                 "password123",
                                 "동시 가입 " + requestIndex,
+                                true,
+                                true,
                                 signupToken
                         ));
                         return true;

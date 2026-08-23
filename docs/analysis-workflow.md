@@ -377,13 +377,15 @@ stateDiagram-v2
     PENDING --> RUNNING: Worker claim
     RUNNING --> SUCCEEDED: Worker complete
     RUNNING --> FAILED: Worker fail 또는 단일 대상 계약 위반
+    PENDING --> CANCELED: 작품 영구 삭제
+    RUNNING --> CANCELED: 작품 영구 삭제
     SUCCEEDED --> [*]
     FAILED --> RETRY_PENDING: 재시도 API
     RETRY_PENDING: 새 단일 회차 AnalysisJob PENDING
     RETRY_PENDING --> RUNNING: Worker claim
 ```
 
-Worker가 내부 claim API로 작업을 가져가면 `AnalysisJob.claim()`이 `RUNNING`, lease token/만료 시각, claim 횟수를 기록합니다. 이후 Worker는 `X-Worker-Lease-Token`을 보내 상태를 `SUCCEEDED` 또는 `FAILED`로 변경합니다. 만료된 lease는 checkpoint를 보존한 채 다시 `PENDING`으로 전환하며 세 번째 만료에는 `FAILED`로 종료합니다.
+Worker가 내부 claim API로 작업을 가져가면 `AnalysisJob.claim()`이 `RUNNING`, lease token/만료 시각, claim 횟수를 기록합니다. 이후 Worker는 `X-Worker-Lease-Token`을 보내 상태를 `SUCCEEDED` 또는 `FAILED`로 변경합니다. 만료된 lease는 checkpoint를 보존한 채 다시 `PENDING`으로 전환하며 세 번째 만료에는 `FAILED`로 종료합니다. 작품 영구 삭제는 활성 Job을 `CANCELED`로 바꾸고 lease를 제거하므로 이후 heartbeat·완료·실패 요청은 상태 검증에서 거절됩니다.
 `FAILED` 이후 재시도는 기존 작업을 `PENDING`으로 되돌리는 전이가 아닙니다. `POST /analysis-jobs/{analysisJobId}/retry`가 실패 회차별로 새로운 `PENDING` 단일 회차 작업을 만듭니다.
 
 화면에서는 같은 upload batch에 생성된 회차별 `AnalysisJob.status`를 집계하고, 각 응답의 단일 `episodes` 항목으로 `Episode.status`를 표시합니다. Worker progress는 `currentStep` 표시 문구와 `episodeStatus` enum을 함께 보내며, 백엔드는 문자열을 해석하지 않고 해당 Job의 회차에만 명시적 상태를 적용합니다. 한 Job이 실패해도 다음 회차 Job은 계속 claim할 수 있습니다.
@@ -422,11 +424,12 @@ Notion 기준 `AnalysisJob.status`
 | 상태 | 의미 | 다음 상태 | 현재 코드 연결 |
 | --- | --- | --- | --- |
 | `PENDING` | 작업 생성 후 대기 | `RUNNING` | 분석 작업 생성 API에서 `AnalysisJob.create()`로 생성 |
-| `RUNNING` | Worker 처리 중 | `SUCCEEDED`, `FAILED` | Worker claim API에서 `AnalysisJob.claim()`으로 lease를 발급하며 전환 |
+| `RUNNING` | Worker 처리 중 | `SUCCEEDED`, `FAILED`, `CANCELED` | Worker claim API에서 `AnalysisJob.claim()`으로 lease를 발급하며 전환 |
 | `SUCCEEDED` | 결과 저장 완료 | 없음 | Worker complete API에서 `AnalysisJob.succeed()`로 전환 |
 | `FAILED` | 처리 실패 | 실패 회차별 새 `PENDING` 작업 | Worker fail API 또는 대상 회차 없음에서 `AnalysisJob.fail()`로 전환 |
+| `CANCELED` | 작품 영구 삭제로 취소 | 없음 | 삭제 요청이 lease를 제거하고 Worker drain 뒤 작품 데이터와 함께 삭제 |
 
-현재 코드에는 `CANCELED`가 없습니다. 취소 API 또는 시스템 취소 정책이 정해질 때 추가합니다.
+현재 `CANCELED`는 작품 전체 영구 삭제에만 사용하며 개별 분석 취소 API는 제공하지 않습니다.
 
 ## 현재 설정 후보 저장 흐름
 

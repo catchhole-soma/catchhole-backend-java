@@ -44,15 +44,9 @@ public class WorkServiceImpl implements WorkService {
     @Override
     @Transactional
     public WorkResponse updateWork(Long memberId, UUID workId, WorkUpdateRequest request) {
-        Work work = workRepository.getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         work.updateInfo(request.title(), request.genre(), request.description());
         return workMapper.toResponse(work);
     }
 
-    @Override
-    @Transactional
-    public void deleteWork(Long memberId, UUID workId) {
-        Work work = workRepository.getOwnedWork(workId, memberId);
-        workRepository.delete(work);
-    }
 }

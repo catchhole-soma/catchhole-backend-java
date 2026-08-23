@@ -180,7 +180,7 @@ public class CharacterServiceImpl implements CharacterService {
     @Override
     @Transactional
     public CharacterArchiveResponse archiveCharacter(Long memberId, UUID workId, UUID characterId) {
-        Work work = workRepository.getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         WorkCharacter character = getActiveCharacterForUpdate(work.getId(), characterId);
         character.archive();
         return characterMapper.toArchiveResponse(character);

@@ -21,7 +21,7 @@ Work는 로그인한 회원의 개인 리소스입니다.
 
 ## 상태 모델
 
-현재 Work API는 삭제 시 hard delete를 수행하므로 별도 `WorkStatus`를 두지 않습니다. 보관/복구 흐름을 구현할 때 상태 컬럼과 전이 메서드를 함께 추가합니다.
+`WorkLifecycleStatus`는 `ACTIVE`, `PURGING` 두 상태를 가집니다. 영구 삭제 요청이 접수되면 같은 트랜잭션에서 `PURGING`으로 전환하며, 이후 작품 수정·원고 업로드·설정 변경·새 분석 요청을 거절합니다. 조회 API는 삭제 진행 상태를 화면에 표시할 수 있도록 작품이 실제로 지워질 때까지 응답합니다.
 
 ## 작품 선택·등록 MVP 계약
 
@@ -48,6 +48,7 @@ Work는 로그인한 회원의 개인 리소스입니다.
 | `genre` | 작품 장르. `WorkGenre` enum 상수명을 `VARCHAR(50) NOT NULL`로 저장 |
 | `description` | 최대 50자의 작품 설명 |
 | `latest_episode_no` | 가장 큰 회차 번호. 회차 생성/수정/삭제 시 갱신 |
+| `lifecycle_status` | `ACTIVE` 또는 영구 삭제 중인 `PURGING` |
 | `created_at` | 생성 시각 |
 | `updated_at` | 수정 시각 |
 
@@ -139,11 +140,21 @@ Request
 DELETE /api/v1/works/{workId}
 ```
 
-본인 작품을 조회한 뒤 삭제합니다.
+Request
 
-현재 구현은 soft delete가 아니라 repository delete입니다.
+```json
+{"confirmation":"영구 삭제"}
+```
 
-`world_settings`와 `world_setting_candidates`의 작품 FK는 `ON DELETE CASCADE`이므로, 작품 삭제 시 해당 작품에 속한 세계관 데이터가 잔존해 삭제를 막지 않습니다. 세계관 대상 단독 삭제 기능과는 별개의 aggregate 정리 규칙입니다.
+정확한 확인 문구를 검증한 뒤 비동기 삭제 요청을 만들고 `202 Accepted`로 응답합니다. 처리 상태·재시도와 실제 삭제 순서는 [원고 처리 안내와 작품 영구 삭제](manuscript-processing-and-work-purge.md)를 기준으로 합니다.
+
+```http
+GET /api/v1/works/{workId}/purge-request
+GET /api/v1/works/purge-requests/{requestId}
+POST /api/v1/works/purge-requests/{requestId}/retry
+```
+
+작품 또는 요청 ID 상태 조회와 실패 요청 재시도는 요청 회원 본인에게만 허용합니다. 다른 회원의 요청은 존재 여부를 노출하지 않고 `WORK_PURGE_NOT_FOUND`로 응답하며, `FAILED`·`PARTIAL_FAILED`가 아닌 요청의 재시도는 `WORK_PURGE_RETRY_NOT_ALLOWED`로 거절합니다.
 
 ## 다른 도메인과의 연결
 
@@ -155,5 +166,4 @@ DELETE /api/v1/works/{workId}
 
 ## 이후 작업
 
-- 작품 보관/복구 API가 필요해지면 `ARCHIVED` 전이 정책 정의
-- 작품 삭제 시 연결된 회차 원문과 업로드 원본 파일 정리 정책 정의
+- 작품 보관/복구 API가 필요해지면 영구 삭제와 분리된 `ARCHIVED` 전이 정책 정의

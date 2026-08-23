@@ -16,6 +16,7 @@
 | [Auth](auth.md) | 회원가입, 로그인, JWT/refresh token, 세션 API 흐름 |
 | [Signup Workflow](signup-workflow.md) | 휴대폰 인증부터 회원 저장·가입 토큰 소비·자동 로그인까지의 코드 실행 순서 |
 | [Work](work.md) | 작품 모델, 소유권 정책, 작품 CRUD API 흐름 |
+| [Manuscript Processing & Work Purge](manuscript-processing-and-work-purge.md) | 외부 AI 처리 안내, 작품 영구 삭제·재시도·보존 정책 |
 | [Episode](episode.md) | 회차 모델, 원문 S3 저장, 회차 CRUD와 업로드 진입점 |
 | [Upload](upload.md) | 업로드 배치/파일 추적 모델, 업로드 유형과 파싱 상태 |
 | [Upload Episode Workflow](upload-episode-workflow.md) | 회차 업로드 시 batch/file/episode 생성 Mermaid workflow |

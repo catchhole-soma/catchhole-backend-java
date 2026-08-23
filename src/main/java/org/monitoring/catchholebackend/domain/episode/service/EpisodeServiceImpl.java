@@ -27,6 +27,7 @@ import org.monitoring.catchholebackend.domain.episode.mapper.EpisodeDetectionMap
 import org.monitoring.catchholebackend.domain.episode.mapper.EpisodeMapper;
 import org.monitoring.catchholebackend.domain.episode.parser.EpisodeFileParser;
 import org.monitoring.catchholebackend.domain.episode.processor.EpisodeUploadProcessor;
+import org.monitoring.catchholebackend.domain.episode.processor.EpisodeSourcePurgeProcessor;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
@@ -60,6 +61,7 @@ public class EpisodeServiceImpl implements EpisodeService {
     private final EpisodeMapper episodeMapper;
     private final ObjectStorageService objectStorageService;
     private final EpisodeUploadProcessor episodeUploadProcessor;
+    private final EpisodeSourcePurgeProcessor episodeSourcePurgeProcessor;
     private final EpisodeFileParser episodeFileParser;
     private final TextDocumentReader textDocumentReader;
     private final EpisodeDetectionMapper episodeDetectionMapper;
@@ -100,15 +102,23 @@ public class EpisodeServiceImpl implements EpisodeService {
             UUID episodeId,
             EpisodeUpdateRequest request
     ) {
-        Work work = workRepository.getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         Episode episode = getEpisodeInWork(episodeId, work);
         validateEpisodeNoForUpdate(work, episode, request.episodeNo());
         assertEpisodeIsNotAnalyzing(episode);
+        UploadFile previousSourceFile = episode.getSourceFileId() == null
+                ? null
+                : uploadFileRepository.findById(episode.getSourceFileId()).orElse(null);
 
         StoredTextObject storedEpisodeContent = objectStorageService.replaceEpisodeContent(
                 work.getId(),
                 request.episodeNo(),
                 request.content()
+        );
+        episodeSourcePurgeProcessor.purgeEpisodeSource(
+                episode,
+                previousSourceFile,
+                storedEpisodeContent.key()
         );
 
         episode.updateContent(
@@ -131,7 +141,7 @@ public class EpisodeServiceImpl implements EpisodeService {
             UUID episodeId,
             EpisodeTitleUpdateRequest request
     ) {
-        Work work = workRepository.getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         Episode episode = getEpisodeInWork(episodeId, work);
         episode.updateTitle(StringUtils.hasText(request.title()) ? request.title().trim() : null);
         return toSummaryResponse(episode);
@@ -145,10 +155,13 @@ public class EpisodeServiceImpl implements EpisodeService {
             UUID episodeId,
             MultipartFile file
     ) {
-        Work work = workRepository.getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         Episode episode = getEpisodeInWork(episodeId, work);
         assertEpisodeIsNotAnalyzing(episode);
         String content = textDocumentReader.readText(file);
+        UploadFile previousSourceFile = episode.getSourceFileId() == null
+                ? null
+                : uploadFileRepository.findById(episode.getSourceFileId()).orElse(null);
 
         UploadBatch batch = uploadBatchRepository.save(UploadBatch.create(
                 work, work.getMember(), UploadType.SINGLE_EPISODE, UploadSourceType.FILE));
@@ -166,8 +179,13 @@ public class EpisodeServiceImpl implements EpisodeService {
         ));
         sourceFile.markEpisodesParsed(episode.getEpisodeNo(), episode.getEpisodeNo(), 1);
 
-        StoredTextObject storedContent = objectStorageService.putEpisodeReplacementContent(
+        StoredTextObject storedContent = objectStorageService.replaceEpisodeContent(
                 work.getId(), episode.getEpisodeNo(), content);
+        episodeSourcePurgeProcessor.purgeEpisodeSource(
+                episode,
+                previousSourceFile,
+                storedContent.key()
+        );
         episode.replaceSourceFileAndContent(
                 sourceFile.getId(),
                 storedContent.key(),
@@ -182,9 +200,13 @@ public class EpisodeServiceImpl implements EpisodeService {
     @Override
     @Transactional
     public void deleteEpisode(Long memberId, UUID workId, UUID episodeId) {
-        Work work = workRepository.getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         Episode episode = getEpisodeInWork(episodeId, work);
         assertEpisodeIsNotAnalyzing(episode);
+        UploadFile sourceFile = episode.getSourceFileId() == null
+                ? null
+                : uploadFileRepository.findById(episode.getSourceFileId()).orElse(null);
+        episodeSourcePurgeProcessor.purgeEpisodeSource(episode, sourceFile, null);
         episode.archive();
         refreshLatestEpisodeNo(work);
     }
@@ -198,7 +220,7 @@ public class EpisodeServiceImpl implements EpisodeService {
             List<MultipartFile> sourceEpisodeFiles,
             MultipartFile attachedSettingBookFile
     ) {
-        Work work = workRepository.getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         return episodeUploadProcessor.processEpisodeUpload(
                 work,
                 uploadRequest,
@@ -214,7 +236,8 @@ public class EpisodeServiceImpl implements EpisodeService {
             EpisodeDetectionRequest detectionRequest,
             List<MultipartFile> sourceEpisodeFiles
     ) {
-        workRepository.getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWork(workId, memberId);
+        work.requireActive();
         return episodeDetectionMapper.toResponse(
                 detectionRequest.uploadType(),
                 episodeFileParser.parseEpisodeFiles(
@@ -341,32 +364,10 @@ public class EpisodeServiceImpl implements EpisodeService {
                 || episode.getStatus() == EpisodeStatus.ANALYZING) {
             throw new AppException(EpisodeErrorCode.EPISODE_ANALYSIS_IN_PROGRESS);
         }
-        if (episode.getSourceFileId() == null) {
-            return;
-        }
         Set<AnalysisJobStatus> activeStatuses = Set.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING);
-        uploadFileRepository.findById(episode.getSourceFileId())
-                .map(UploadFile::getBatch)
-                .map(UploadBatch::getId)
-                .filter(batchId -> analysisJobRepository.existsByBatchIdAndEpisodeIsNullAndJobTypeNotInAndStatusIn(
-                        batchId,
-                        Set.of(
-                                AnalysisJobType.WORLD_SETTING_COMPARISON,
-                                AnalysisJobType.CHARACTER_FACT_COMPARISON
-                        ),
-                        activeStatuses)
-                        || analysisJobRepository.existsByEpisodeIdAndBatchIdAndJobTypeNotInAndStatusIn(
-                        episode.getId(),
-                        batchId,
-                        Set.of(
-                                AnalysisJobType.WORLD_SETTING_COMPARISON,
-                                AnalysisJobType.CHARACTER_FACT_COMPARISON
-                        ),
-                        activeStatuses
-                ))
-                .ifPresent(batchId -> {
-                    throw new AppException(EpisodeErrorCode.EPISODE_ANALYSIS_IN_PROGRESS);
-                });
+        if (analysisJobRepository.existsActiveByEpisodeTarget(episode.getId(), activeStatuses)) {
+            throw new AppException(EpisodeErrorCode.EPISODE_ANALYSIS_IN_PROGRESS);
+        }
     }
 
     private byte[] readBytes(MultipartFile file) {

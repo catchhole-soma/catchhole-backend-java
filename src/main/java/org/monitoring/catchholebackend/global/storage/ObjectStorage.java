@@ -1,5 +1,7 @@
 package org.monitoring.catchholebackend.global.storage;
 
+import java.util.Collection;
+
 public interface ObjectStorage {
 
     StoredObject putText(String key, String content);
@@ -11,4 +13,11 @@ public interface ObjectStorage {
     byte[] getBytes(String key);
 
     void delete(String key);
+
+    ObjectStoragePurgeResult purgePrefixes(Collection<String> prefixes);
+
+    ObjectStoragePurgeResult purgePrefixesExcluding(
+            Collection<String> prefixes,
+            Collection<String> retainedKeys
+    );
 }

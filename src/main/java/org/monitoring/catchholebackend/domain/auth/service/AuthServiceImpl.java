@@ -13,6 +13,7 @@ import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.auth.token.RefreshTokenGenerator;
 import org.monitoring.catchholebackend.domain.auth.token.TokenHashProvider;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
+import org.monitoring.catchholebackend.domain.member.repository.MemberLegalRecordRepository;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.monitoring.catchholebackend.global.config.auth.AuthProperties;
 import org.monitoring.catchholebackend.global.exception.AppException;
@@ -26,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AuthServiceImpl implements AuthService {
 
     private final MemberRepository memberRepository;
+    private final MemberLegalRecordRepository memberLegalRecordRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
@@ -50,8 +52,11 @@ public class AuthServiceImpl implements AuthService {
         );
 
         Member savedMember = memberRepository.save(member);
+        memberLegalRecordRepository.saveAll(
+                authMapper.toLegalRecordEntities(savedMember, LocalDateTime.now())
+        );
         AuthTokenIssueResult result = issueTokens(savedMember);
-        // Redis 토큰 소비 실패가 회원·refresh token 저장까지 롤백되도록 같은 트랜잭션 안에서 먼저 flush한다.
+        // Redis 토큰 소비 실패가 회원·법률 문서 기록·refresh token 저장까지 롤백되도록 같은 트랜잭션 안에서 먼저 flush한다.
         memberRepository.flush();
         phoneVerificationService.consumeSignupToken(request.phoneVerificationToken(), phoneNumber);
         return result;

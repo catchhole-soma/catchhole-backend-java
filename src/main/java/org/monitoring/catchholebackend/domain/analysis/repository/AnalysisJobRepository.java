@@ -19,6 +19,35 @@ import org.springframework.data.repository.query.Param;
 
 public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> {
 
+    @Query("""
+            select case when count(distinct analysisJob.id) > 0 then true else false end
+            from AnalysisJob analysisJob
+            left join analysisJob.targetEpisodes targetEpisode
+            where analysisJob.status in :statuses
+              and (analysisJob.episode.id = :episodeId or targetEpisode.id = :episodeId)
+            """)
+    boolean existsActiveByEpisodeTarget(
+            @Param("episodeId") UUID episodeId,
+            @Param("statuses") Collection<AnalysisJobStatus> statuses
+    );
+
+    List<AnalysisJob> findAllBySettingCandidateIdIn(Collection<UUID> settingCandidateIds);
+
+    List<AnalysisJob> findAllByWorldSettingCandidateIdIn(Collection<UUID> worldSettingCandidateIds);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select analysisJob
+            from AnalysisJob analysisJob
+            where analysisJob.work.id = :workId
+              and analysisJob.status in :statuses
+            order by analysisJob.createdAt asc
+            """)
+    List<AnalysisJob> findAllActiveByWorkIdForUpdate(
+            @Param("workId") UUID workId,
+            @Param("statuses") Collection<AnalysisJobStatus> statuses
+    );
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select analysisJob from AnalysisJob analysisJob join fetch analysisJob.work where analysisJob.id = :id")
     Optional<AnalysisJob> findByIdForUpdate(@Param("id") UUID id);
@@ -209,6 +238,8 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             left join analysisJob.episode episode
             where analysisJob.status = :status
               and analysisJob.jobType in :jobTypes
+              and analysisJob.work.lifecycleStatus =
+                  org.monitoring.catchholebackend.domain.work.type.WorkLifecycleStatus.ACTIVE
             order by analysisJob.createdAt asc, episode.episodeNo asc
             """)
     List<AnalysisJob> findClaimCandidates(
@@ -227,6 +258,8 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             left join fetch analysisJob.settingCandidate
             where analysisJob.status = :status
               and analysisJob.jobType in :jobTypes
+              and analysisJob.work.lifecycleStatus =
+                  org.monitoring.catchholebackend.domain.work.type.WorkLifecycleStatus.ACTIVE
               and (
                     analysisJob.leaseToken is null
                     or analysisJob.leaseExpiresAt is null

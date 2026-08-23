@@ -14,17 +14,22 @@ import org.monitoring.catchholebackend.domain.character.repository.CharacterTime
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
+import org.monitoring.catchholebackend.domain.episode.repository.EpisodePurgeDataRepository;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
+import org.monitoring.catchholebackend.domain.work.repository.WorkPurgeDataRepository;
+import org.monitoring.catchholebackend.domain.work.repository.WorkPurgeRequestRepository;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingRepository;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.jpa.mapping.JpaMetamodelMappingContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest(properties = {
+        "work.purge.scheduling-enabled=false",
         "spring.autoconfigure.exclude="
                 + "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration,"
                 + "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration"
@@ -45,10 +50,22 @@ class CatchHoleBackendApplicationTests {
     private EpisodeRepository episodeRepository;
 
     @MockitoBean
+    private EpisodePurgeDataRepository episodePurgeDataRepository;
+
+    @MockitoBean
     private UploadBatchRepository uploadBatchRepository;
 
     @MockitoBean
     private UploadFileRepository uploadFileRepository;
+
+    @MockitoBean
+    private WorkPurgeRequestRepository workPurgeRequestRepository;
+
+    @MockitoBean
+    private WorkPurgeDataRepository workPurgeDataRepository;
+
+    @MockitoBean
+    private TransactionTemplate transactionTemplate;
 
     @MockitoBean
     private AnalysisJobRepository analysisJobRepository;

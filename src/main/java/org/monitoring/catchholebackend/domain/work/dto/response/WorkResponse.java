@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
+import org.monitoring.catchholebackend.domain.work.type.WorkLifecycleStatus;
 
 @Schema(description = "작품 응답")
 public record WorkResponse(
@@ -42,6 +43,13 @@ public record WorkResponse(
                 requiredMode = Schema.RequiredMode.REQUIRED
         )
         int latestEpisodeNo,
+
+        @Schema(
+                description = "작품 이용 상태. PURGING이면 영구 삭제 완료 전까지 변경·업로드·분석을 할 수 없음",
+                example = "ACTIVE",
+                requiredMode = Schema.RequiredMode.REQUIRED
+        )
+        WorkLifecycleStatus lifecycleStatus,
 
         @Schema(
                 description = "작품 생성 시각",

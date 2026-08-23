@@ -46,7 +46,7 @@ works/{workId}/episodes/{episodeNo}/{UUID}/{episodeNo}.txt
 | `ANALYZING` | AI 분석 중 | `Episode.markAnalyzing()` 상태입니다. 분석 작업 상세에서 회차별 분석 단계로 표시합니다. |
 | `ANALYZED` | AI 분석 완료 | `Episode.markAnalyzed()` 상태입니다. 설정 후보 또는 검수 결과 저장 완료 후로 예상합니다. |
 | `FAILED` | 처리 실패 | `Episode.markFailed()` 상태입니다. 상세 실패 처리 이력은 후속 모니터링 기능에서 조회합니다. |
-| `ARCHIVED` | 보관됨 | 삭제 API가 `Episode.archive()`를 호출하는 soft delete 상태입니다. 활성 목록·중복 검사·최신 회차 계산에서는 제외합니다. |
+| `ARCHIVED` | 원문 파기됨 | 삭제 API가 S3 원문과 파생 원문 데이터를 파기한 뒤 `Episode.archive()`를 호출해 tombstone만 유지한 상태입니다. 활성 목록·중복 검사·최신 회차 계산에서는 제외합니다. |
 
 현재 회차 업로드/수정은 `UPLOADED` 상태로 저장합니다. 이후 청킹, 전처리, 분석 단계에서 상태 전이가 연결됩니다.
 
@@ -151,6 +151,8 @@ Parts
 
 서버는 최종 업로드에서도 원본 파일을 다시 파싱해 `DetectedEpisode*`를 만들고, `EpisodeUploadProcessor.processEpisodeUpload(...)`이 감지된 본문 경계에는 손대지 않은 채 사용자가 확정한 번호와 제목을 적용해 `FinalizedEpisode*`를 만듭니다. 저장 응답의 영속화된 회차 목록 필드는 `createdEpisodes`입니다. 함께 반환되는 업로드 파일 범위는 `files[].episodeStartNo`, `episodeEndNo`, `episodeCount`로 표시합니다.
 
+`MULTI_EPISODE_SINGLE_FILE`은 업로드 원본 객체 하나를 여러 Episode가 공유하고, 각 회차의 현재 원문은 `works/{workId}/episodes/{episodeNo}/...`에 별도로 저장합니다. 공유 파일에 포함된 한 회차를 삭제하거나 수정·교체하면 대상 회차 원문을 완전히 파기하기 위해 공유 업로드 원본 전체를 삭제합니다. 형제 회차의 분리된 현재 원문과 Episode는 유지하며, `UploadFile`의 파일명·회차 범위 메타데이터는 출처 표시용으로 남기되 삭제된 `storage_url`은 비웁니다.
+
 업로드 상세 흐름은 [Upload Episode Workflow](upload-episode-workflow.md)를 기준으로 확인합니다.
 
 ### 회차 원고 사전 감지
@@ -239,9 +241,11 @@ Request
 2. 회차 번호가 바뀌면 같은 작품 안의 중복 번호를 검사합니다.
 3. 회차 상태와 연결된 배치/회차 분석 작업을 확인해 `PENDING` 또는 `RUNNING`이면 `EPISODE_ANALYSIS_IN_PROGRESS`로 거절합니다.
 4. 새 원문을 S3에 저장합니다.
-5. 기존 S3 key와 새 key가 다르면 기존 원문을 삭제합니다.
-6. `Episode.updateContent()`로 번호, 제목, S3 메타데이터, 글자 수와 `content_updated_at`을 갱신합니다.
-7. 작품의 `latestEpisodeNo`를 다시 계산합니다.
+5. 새 key만 제외하고 기존 회차 S3 prefix와 이전 업로드 원본의 모든 version·delete marker를 파기합니다.
+6. 이전 `UploadFile.storage_url`을 비워 삭제된 저장소 위치를 다시 노출하지 않습니다. 다회차 단일 파일이었다면 공유 업로드 원본 전체가 파기되지만 형제 회차의 분리 원문은 유지됩니다.
+7. 기존 `episode_chunks`와 검토 전 후보를 삭제하고, 확정·무시 후보에서 원문 표현·인용·비교 사유와 raw AI payload를 제거합니다.
+8. `Episode.updateContent()`로 번호, 제목, S3 메타데이터, 글자 수와 `content_updated_at`을 갱신합니다.
+9. 작품의 `latestEpisodeNo`를 다시 계산합니다.
 
 이 API는 기존 범용 수정 계약입니다. 원고 목록 MVP에서는 회차 번호·본문 직접 편집을 노출하지 않고 아래 제목 수정과 파일 변경 API를 사용합니다.
 
@@ -266,7 +270,9 @@ PUT /api/v1/works/{workId}/episodes/{episodeId}/file
 Content-Type: multipart/form-data
 ```
 
-`file` part로 TXT 또는 DOCX 한 개를 받습니다. 분석 중인 회차는 변경할 수 없습니다. 새 `UploadBatch`와 `UploadFile`을 만든 뒤 회차 번호·제목·ID는 유지하고 원문 메타데이터, `content_updated_at`, `source_file_id`를 새 파일 기준으로 바꾸며 상태는 `UPLOADED`로 돌아갑니다. 기존 업로드 원본과 분석 작업은 이력·참조 무결성을 위해 물리 삭제하지 않고, 자동 재분석도 시작하지 않습니다.
+`file` part로 TXT 또는 DOCX 한 개를 받습니다. 별도 `metadata` 동의 part는 사용하지 않습니다. 분석 중인 회차는 변경할 수 없습니다. 새 `UploadBatch`와 `UploadFile`, 새 회차 원문을 저장한 뒤 새 content key를 제외한 기존 회차 S3 prefix의 모든 version·delete marker와 이전 업로드 원본을 파기하고 이전 `UploadFile.storage_url`을 비웁니다. 다회차 단일 파일에서 파생된 회차라면 공유 업로드 원본 전체가 삭제되지만 형제 회차의 분리 원문은 유지됩니다. 이어서 기존 `episode_chunks`와 검토 전 캐릭터·세계관 후보를 삭제하고, 확정·무시 후보에서는 원문 표현·인용·비교 사유와 raw AI payload를 제거합니다. 회차 번호·제목·ID와 이미 확정한 캐릭터·세계관 설정은 유지하고 원문 메타데이터, `content_updated_at`, `source_file_id`를 새 파일 기준으로 바꾸며 상태는 `UPLOADED`로 돌아갑니다. 자동 재분석이나 후속 회차 재계산은 시작하지 않습니다.
+
+사용자가 재분석을 요청하면 새 원문으로 이 회차의 `SETTING_EXTRACTION`만 실행합니다. 이후 회차에서 축적된 현재 설정을 비교 문맥으로 사용할 수 있어 중복되거나 시간 순서가 맞지 않는 후보가 생길 수 있으며, 후보 확정 전에는 기존 설정 DB를 자동 변경하지 않습니다.
 
 ### 회차 삭제
 
@@ -274,7 +280,7 @@ Content-Type: multipart/form-data
 DELETE /api/v1/works/{workId}/episodes/{episodeId}
 ```
 
-본인 작품과 활성 회차를 확인한 뒤 `ARCHIVED`로 전환합니다. 분석 중인 회차는 삭제할 수 없습니다. DB row, 업로드 원본과 저장 객체는 물리 삭제하지 않으며, 활성 목록에서 숨기고 작품의 `latestEpisodeNo`를 다시 계산합니다.
+본인 작품과 활성 회차를 확인하고 활성 분석 작업이 없을 때만 삭제합니다. 회차 S3 prefix와 업로드 원본의 모든 version·delete marker를 먼저 파기하고 이전 `UploadFile.storage_url`을 비운 뒤, `episode_chunks`와 검토 전 캐릭터·세계관 후보를 삭제합니다. 다회차 단일 파일에서 파생된 회차라면 공유 업로드 원본 전체가 삭제되지만 형제 회차의 분리 원문과 Episode는 유지됩니다. 이미 확정한 설정과 이를 참조하는 Episode 행은 유지하되 확정·무시 후보의 원문 표현·인용·비교 사유와 raw AI payload를 비워 근거 원문을 더 이상 제공하지 않습니다. 마지막으로 원문 key/version/hash를 비우고 `ARCHIVED`로 전환해 활성 목록에서 숨긴 뒤 작품의 `latestEpisodeNo`를 다시 계산합니다.
 
 ## 접근 제어
 
@@ -285,5 +291,5 @@ DELETE /api/v1/works/{workId}/episodes/{episodeId}
 ## 이후 작업
 
 - DB 레벨 `work_id + episode_no` unique 제약 도입 여부 결정
-- 보관 회차 복구·영구 삭제 정책이 필요해질 때 별도 관리 API 정의
+- 회차 단위 S3 파기와 DB 갱신 사이의 장애 복구 자동화가 필요해질 때 별도 요청 상태 모델 도입 여부 결정
 - 실제 분석 산출물 저장 도메인과 최신 유효 리포트의 미처리 항목 집계 계약 연결

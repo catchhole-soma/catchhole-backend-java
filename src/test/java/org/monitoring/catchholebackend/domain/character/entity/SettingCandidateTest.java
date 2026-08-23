@@ -275,6 +275,31 @@ class SettingCandidateTest {
                                 .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE));
     }
 
+    @Test
+    @DisplayName("확정 후보는 값과 결정은 유지하면서 파기된 원문의 근거만 제거한다")
+    void purgeSourceEvidenceKeepsConfirmedDecisionOnly() {
+        SettingCandidate candidate = candidate("age", "17");
+        ReflectionTestUtils.setField(candidate, "sourceChunkId", UUID.randomUUID());
+        ReflectionTestUtils.setField(candidate, "sourceContentS3Key", "works/test/episodes/1/content.txt");
+        ReflectionTestUtils.setField(candidate, "rawEntityMention", "원문 속 실제 표현");
+        ReflectionTestUtils.setField(candidate, "comparisonReason", "원문을 인용한 비교 사유");
+        ReflectionTestUtils.setField(candidate, "rawComparisonJson", objectMapper.createObjectNode().put("result", "raw"));
+        candidate.confirm();
+
+        candidate.purgeSourceEvidence();
+
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+        assertThat(candidate.getAttributeName()).isEqualTo("age");
+        assertThat(candidate.getAttributeValue()).isEqualTo("17");
+        assertThat(candidate.getSourceChunkId()).isNull();
+        assertThat(candidate.getSourceContentS3Key()).isNull();
+        assertThat(candidate.getRawEntityMention()).isNull();
+        assertThat(candidate.getEvidenceSpans()).isNull();
+        assertThat(candidate.getRawAiResultJson()).isNull();
+        assertThat(candidate.getComparisonReason()).isNull();
+        assertThat(candidate.getRawComparisonJson()).isNull();
+    }
+
     private SettingCandidate candidate(String attributeName, String attributeValue) {
         return candidate(work(), attributeName, attributeValue);
     }

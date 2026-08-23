@@ -28,8 +28,4 @@ public interface WorkService {
      */
     WorkResponse updateWork(Long memberId, UUID workId, WorkUpdateRequest request);
 
-    /**
-     * 작품 소유권을 확인한 뒤 작품을 삭제한다.
-     */
-    void deleteWork(Long memberId, UUID workId);
 }

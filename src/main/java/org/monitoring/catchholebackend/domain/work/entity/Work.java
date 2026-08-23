@@ -18,7 +18,10 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
+import org.monitoring.catchholebackend.domain.work.type.WorkLifecycleStatus;
+import org.monitoring.catchholebackend.domain.work.exception.WorkErrorCode;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
+import org.monitoring.catchholebackend.global.exception.AppException;
 
 @Getter
 @Entity
@@ -54,12 +57,17 @@ public class Work extends BaseEntity {
     @Column(name = "latest_episode_no", nullable = false)
     private int latestEpisodeNo;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "lifecycle_status", nullable = false, length = 20)
+    private WorkLifecycleStatus lifecycleStatus;
+
     private Work(Member member, String title, WorkGenre genre, String description) {
         this.member = member;
         this.title = title;
         this.genre = genre;
         this.description = normalizeDescription(description);
         this.latestEpisodeNo = 0;
+        this.lifecycleStatus = WorkLifecycleStatus.ACTIVE;
     }
 
     public static Work create(Member member, String title, WorkGenre genre, String description) {
@@ -78,6 +86,17 @@ public class Work extends BaseEntity {
 
     public boolean isOwnedBy(Long memberId) {
         return member.getId().equals(memberId);
+    }
+
+    public void requireActive() {
+        if (lifecycleStatus != WorkLifecycleStatus.ACTIVE) {
+            throw new AppException(WorkErrorCode.WORK_PURGE_IN_PROGRESS);
+        }
+    }
+
+    public void startPurging() {
+        requireActive();
+        this.lifecycleStatus = WorkLifecycleStatus.PURGING;
     }
 
     private static String normalizeDescription(String description) {

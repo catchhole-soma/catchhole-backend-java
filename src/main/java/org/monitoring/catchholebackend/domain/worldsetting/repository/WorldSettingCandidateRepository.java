@@ -23,6 +23,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface WorldSettingCandidateRepository extends JpaRepository<WorldSettingCandidate, UUID> {
 
+    List<WorldSettingCandidate> findAllBySourceEpisodeId(UUID episodeId);
+
     Optional<WorldSettingCandidate> findByIdAndWorkId(UUID id, UUID workId);
 
     Optional<WorldSettingCandidate> findByIdAndWorkIdAndAnalysisJobBatchId(UUID id, UUID workId, UUID batchId);

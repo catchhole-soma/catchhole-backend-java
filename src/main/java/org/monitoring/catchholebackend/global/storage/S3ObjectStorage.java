@@ -2,17 +2,25 @@ package org.monitoring.catchholebackend.global.storage;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.global.config.S3StorageProperties;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.monitoring.catchholebackend.global.exception.CommonErrorCode;
-import org.springframework.stereotype.Component;
 import org.springframework.context.annotation.Profile;
+import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
+import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -78,6 +86,69 @@ public class S3ObjectStorage implements ObjectStorage {
                     .build());
         } catch (S3Exception exception) {
             throw new AppException(CommonErrorCode.COMMON_INTERNAL_SERVER_ERROR, "S3 파일 삭제에 실패했습니다.", exception);
+        }
+    }
+
+    @Override
+    public ObjectStoragePurgeResult purgePrefixes(Collection<String> prefixes) {
+        return purgePrefixesExcluding(prefixes, List.of());
+    }
+
+    @Override
+    public ObjectStoragePurgeResult purgePrefixesExcluding(
+            Collection<String> prefixes,
+            Collection<String> retainedKeys
+    ) {
+        int targetCount = 0;
+        int deletedCount = 0;
+        int failedCount = 0;
+        Set<String> retainedKeySet = new HashSet<>(retainedKeys);
+        for (String prefix : prefixes) {
+            List<ObjectIdentifier> targets = listAllVersions(prefix).stream()
+                    .filter(target -> !retainedKeySet.contains(target.key()))
+                    .toList();
+            targetCount += targets.size();
+            for (int start = 0; start < targets.size(); start += 1000) {
+                List<ObjectIdentifier> batch = targets.subList(start, Math.min(start + 1000, targets.size()));
+                try {
+                    var response = s3Client.deleteObjects(DeleteObjectsRequest.builder()
+                            .bucket(properties.getBucket())
+                            .delete(delete -> delete.objects(batch).quiet(false))
+                            .build());
+                    deletedCount += response.deleted().size();
+                    failedCount += response.errors().size();
+                } catch (S3Exception exception) {
+                    failedCount += batch.size();
+                }
+            }
+        }
+        return new ObjectStoragePurgeResult(targetCount, deletedCount, failedCount);
+    }
+
+    private List<ObjectIdentifier> listAllVersions(String prefix) {
+        List<ObjectIdentifier> targets = new ArrayList<>();
+        try {
+            s3Client.listObjectVersionsPaginator(ListObjectVersionsRequest.builder()
+                            .bucket(properties.getBucket())
+                            .prefix(prefix)
+                            .build())
+                    .forEach(response -> {
+                        response.versions().forEach(version -> targets.add(ObjectIdentifier.builder()
+                                .key(version.key())
+                                .versionId(version.versionId())
+                                .build()));
+                        response.deleteMarkers().forEach(marker -> targets.add(ObjectIdentifier.builder()
+                                .key(marker.key())
+                                .versionId(marker.versionId())
+                                .build()));
+                    });
+            return targets;
+        } catch (S3Exception exception) {
+            throw new AppException(
+                    CommonErrorCode.COMMON_INTERNAL_SERVER_ERROR,
+                    "S3 영구 삭제 대상을 조회하지 못했습니다.",
+                    exception
+            );
         }
     }
 

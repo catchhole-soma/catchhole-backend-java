@@ -9,6 +9,7 @@ DB 컬럼과 관계는 Flyway migration이 기준입니다. JPA Entity와 Python
 ```mermaid
 erDiagram
     members ||--o{ refresh_tokens : issues
+    members ||--o{ member_legal_records : acknowledges
     members ||--o{ works : owns
     members ||--o{ upload_batches : uploads
     members ||--o| ai_token_accounts : has_quota
@@ -64,6 +65,17 @@ erDiagram
         varchar token_hash UK
         datetime expires_at
         datetime revoked_at
+        datetime created_at
+        datetime updated_at
+    }
+
+    member_legal_records {
+        bigint id PK
+        bigint member_id FK
+        varchar document_type
+        varchar document_version
+        varchar action_type
+        datetime recorded_at
         datetime created_at
         datetime updated_at
     }
@@ -370,6 +382,7 @@ erDiagram
 | --- | --- |
 | `members` | 로그인 주체인 회원 계정. 이메일과 휴대폰 번호는 각각 unique입니다. |
 | `refresh_tokens` | refresh token 세션. token 원문은 저장하지 않고 `token_hash`만 저장합니다. |
+| `member_legal_records` | 회원가입 때 적용된 이용약관 동의와 개인정보처리방침 확인의 문서 종류·버전·행위·시각을 append-only 이력으로 저장합니다. AI 원고 처리 동의는 저장하지 않습니다. |
 | `ai_token_accounts` | 회원별 누적 지급·사용·처리 중 예약량의 현재 합계를 한 행에 저장합니다. |
 | `ai_token_grants` | 최초 기본 지급과 운영 추가 지급 이력을 저장합니다. |
 | `ai_token_usages` | AI provider 요청 UUID별 예약·정산·해제 상태와 input/cached input/output 사용량을 기록합니다. |
@@ -549,7 +562,7 @@ erDiagram
 
 - 회원이 소유한 리소스는 `works.member_id`를 루트로 접근 제어합니다.
 - 회차 원문 전문은 DB에 저장하지 않습니다. `episodes.content_s3_key`를 통해 S3에서 조회합니다.
-- 업로드 원본 파일과 파생 원문은 분리 저장합니다. 원본 파일은 `upload_files.storage_url`, 설정집 편집용 현재 텍스트는 `upload_files.content_storage_url`, 회차 원문은 `episodes.content_s3_key`에 연결됩니다.
+- 업로드 원본 파일과 파생 원문은 분리 저장합니다. 원본 파일은 `upload_files.storage_url`, 설정집 편집용 현재 텍스트는 `upload_files.content_storage_url`, 회차 원문은 `episodes.content_s3_key`에 연결됩니다. 회차 삭제·수정·교체로 업로드 원본을 파기하면 `storage_url`은 `null`로 비우며, 다회차 단일 파일의 형제 회차는 분리된 `content_s3_key`를 계속 사용합니다.
 - `episodes.source_file_id`는 해당 회차가 어떤 업로드 파일에서 파생되었는지 추적하는 nullable FK입니다. 현재 업로드 파일 삭제 API가 없으므로 기본 `NO ACTION`으로 원본 추적 관계를 보호합니다.
 - `upload_batches`는 이후 분석 작업의 대상 단위로 재사용할 수 있도록 `work_id`, `upload_type`, `file_count`, `status`를 유지합니다.
 - 캐릭터 설정은 `setting_candidates`, `character_facts`, `characters`로 나누어 저장합니다. AI 추출 후보는 `setting_candidates`, 회차별 확정/검토 이력은 `character_facts`, 화면 표시용 현재 스냅샷은 `characters`가 담당합니다.
@@ -562,6 +575,6 @@ erDiagram
 
 - 회차 번호 unique 제약은 현재 DB 제약이 아니라 서비스에서 `work_id + episode_no` 중복을 검사합니다.
 - 후속 ERD의 `manuscript_chunks`, `preprocessed_manuscript_chunks`, `setting_snapshots`, `validation_reports`, `validation_findings`는 아직 현재 `main` 기준 Entity가 아닙니다. 캐릭터 중심 MVP의 설정 이력은 우선 `character_facts`로 구현합니다.
-- `characters.first_appearance_episode_id`는 현재 `ARCHIVED` soft delete된 회차 row를 계속 참조할 수 있습니다. 향후 물리 삭제 시 재계산 또는 `NULL` 처리 정책이 정해지지 않아 현재 FK를 강제하지 않습니다.
+- `characters.first_appearance_episode_id`는 원문이 파기된 `ARCHIVED` Episode tombstone을 계속 참조할 수 있습니다. 향후 Episode 행 물리 삭제 시 재계산 또는 `NULL` 처리 정책이 정해지지 않아 현재 FK를 강제하지 않습니다.
 - `setting_candidates.source_chunk_id`와 `character_facts.source_chunk_id`는 `episode_chunks`를 가리키지만 현재 DB FK를 강제하지 않습니다. Worker가 재청킹 시 기존 청크를 삭제하고 새 UUID로 교체하므로, 청크 ID 안정화 또는 근거 이력 보존 정책을 정한 뒤 다시 검토합니다.
 - Notion 설계의 `AnalysisJob.status`에는 `CANCELED`가 있지만, 현재 분석 문서 초안은 `PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`만 포함합니다. 취소 정책이 필요해질 때 enum을 확장합니다.

@@ -5,6 +5,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.monitoring.catchholebackend.global.exception.CommonErrorCode;
 import org.springframework.beans.factory.annotation.Value;
@@ -60,6 +65,58 @@ public class LocalFileObjectStorage implements ObjectStorage {
             Files.deleteIfExists(resolve(key));
         } catch (IOException exception) {
             throw storageException("로컬 E2E 파일 삭제에 실패했습니다.", exception);
+        }
+    }
+
+    @Override
+    public ObjectStoragePurgeResult purgePrefixes(Collection<String> prefixes) {
+        return purgePrefixesExcluding(prefixes, List.of());
+    }
+
+    @Override
+    public ObjectStoragePurgeResult purgePrefixesExcluding(
+            Collection<String> prefixes,
+            Collection<String> retainedKeys
+    ) {
+        int targetCount = 0;
+        int deletedCount = 0;
+        int failedCount = 0;
+        Set<Path> retainedPaths = new HashSet<>();
+        retainedKeys.forEach(key -> retainedPaths.add(resolve(key)));
+        for (String prefix : prefixes) {
+            Path prefixPath = resolve(prefix);
+            if (!Files.exists(prefixPath)) {
+                continue;
+            }
+            List<Path> paths = listPathsInReverseOrder(prefixPath);
+            for (Path path : paths) {
+                boolean regularFile = Files.isRegularFile(path);
+                if (regularFile && retainedPaths.contains(path)) {
+                    continue;
+                }
+                if (regularFile) {
+                    targetCount++;
+                }
+                try {
+                    Files.deleteIfExists(path);
+                    if (regularFile) {
+                        deletedCount++;
+                    }
+                } catch (IOException exception) {
+                    if (regularFile) {
+                        failedCount++;
+                    }
+                }
+            }
+        }
+        return new ObjectStoragePurgeResult(targetCount, deletedCount, failedCount);
+    }
+
+    private List<Path> listPathsInReverseOrder(Path prefixPath) {
+        try (var paths = Files.walk(prefixPath)) {
+            return paths.sorted(Comparator.reverseOrder()).toList();
+        } catch (IOException exception) {
+            throw storageException("로컬 E2E 영구 삭제 대상을 조회하지 못했습니다.", exception);
         }
     }
 

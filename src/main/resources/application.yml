@@ -64,3 +64,13 @@ ai-token:
   # 실제 동시성·prompt 길이 검증은 Worker 호출 직전 원자적 예약이 최종 권한을 가진다.
   minimum-analysis-reservation: ${AI_TOKEN_MINIMUM_ANALYSIS_RESERVATION:4256}
   minimum-comparison-reservation: ${AI_TOKEN_MINIMUM_COMPARISON_RESERVATION:2256}
+
+work:
+  purge:
+    scheduling-enabled: ${WORK_PURGE_SCHEDULING_ENABLED:true}
+    fixed-delay-ms: ${WORK_PURGE_FIXED_DELAY_MS:10000}
+    worker-drain: ${WORK_PURGE_WORKER_DRAIN:75s}
+    stale-processing: ${WORK_PURGE_STALE_PROCESSING:15m}
+    audit-retention: ${WORK_PURGE_AUDIT_RETENTION:365d}
+    batch-size: ${WORK_PURGE_BATCH_SIZE:10}
+    cleanup-cron: ${WORK_PURGE_CLEANUP_CRON:0 20 3 * * *}

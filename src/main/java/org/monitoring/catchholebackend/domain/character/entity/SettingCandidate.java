@@ -560,6 +560,17 @@ public class SettingCandidate extends BaseEntity {
         return reviewStatus == SettingCandidateReviewStatus.PENDING_REVIEW;
     }
 
+    /** 확정·무시 결정은 유지하되 파기된 회차 원문을 복원·재인용할 수 있는 근거 데이터는 제거한다. */
+    public void purgeSourceEvidence() {
+        this.sourceChunkId = null;
+        this.sourceContentS3Key = null;
+        this.rawEntityMention = null;
+        this.evidenceSpans = null;
+        this.rawAiResultJson = null;
+        this.comparisonReason = null;
+        this.rawComparisonJson = null;
+    }
+
     public boolean isCharacterDiscovery() {
         return candidateKind == SettingCandidateKind.CHARACTER_DISCOVERY;
     }

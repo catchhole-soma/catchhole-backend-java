@@ -213,7 +213,7 @@ public class EpisodeController {
     @DeleteMapping("/{episodeId}")
     @Operation(
             operationId = "deleteEpisode",
-            summary = "회차 soft delete",
+            summary = "회차 원문 영구 삭제",
             description = "로그인한 사용자가 본인 작품에 등록한 회차를 보관 상태로 전환해 활성 목록에서 숨깁니다."
     )
     @ApiResponses({

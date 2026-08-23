@@ -28,6 +28,7 @@ public class WorkMapper {
                 work.getGenre(),
                 work.getDescription(),
                 work.getLatestEpisodeNo(),
+                work.getLifecycleStatus(),
                 work.getCreatedAt(),
                 work.getUpdatedAt()
         );

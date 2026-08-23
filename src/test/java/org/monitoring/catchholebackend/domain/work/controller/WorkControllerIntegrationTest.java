@@ -18,6 +18,8 @@ import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
+import org.monitoring.catchholebackend.domain.work.entity.WorkPurgeRequest;
+import org.monitoring.catchholebackend.domain.work.repository.WorkPurgeRequestRepository;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,6 +47,9 @@ class WorkControllerIntegrationTest {
     private WorkRepository workRepository;
 
     @Autowired
+    private WorkPurgeRequestRepository workPurgeRequestRepository;
+
+    @Autowired
     private JwtTokenProvider jwtTokenProvider;
 
     @Autowired
@@ -53,9 +58,11 @@ class WorkControllerIntegrationTest {
     private Member member;
     private Member otherMember;
     private String accessToken;
+    private String otherAccessToken;
 
     @BeforeEach
     void setUp() {
+        workPurgeRequestRepository.deleteAll();
         workRepository.deleteAll();
         memberRepository.deleteAll();
 
@@ -72,6 +79,7 @@ class WorkControllerIntegrationTest {
                 "다른 작가"
         ));
         accessToken = jwtTokenProvider.generateAccessToken(member);
+        otherAccessToken = jwtTokenProvider.generateAccessToken(otherMember);
     }
 
     @Test
@@ -346,16 +354,24 @@ class WorkControllerIntegrationTest {
     }
 
     @Test
-    void deleteWorkDeletesAuthenticatedMembersWork() throws Exception {
+    void deleteWorkRequestsAuthenticatedMembersWorkPurge() throws Exception {
         Work work = workRepository.save(Work.create(member, "삭제할 작품", WorkGenre.ROMANCE, "삭제 설명"));
 
         mockMvc.perform(delete("/api/v1/works/{workId}", work.getId())
-                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
-                .andExpect(status().isOk())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"confirmation":"영구 삭제"}
+                                """))
+                .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.message").value("작품이 삭제되었습니다."));
+                .andExpect(jsonPath("$.message").value("작품 영구 삭제 요청이 접수되었습니다."))
+                .andExpect(jsonPath("$.data.workId").value(work.getId().toString()))
+                .andExpect(jsonPath("$.data.status").value("REQUESTED"));
 
-        assertThat(workRepository.existsById(work.getId())).isFalse();
+        assertThat(workRepository.findById(work.getId())).get()
+                .extracting(Work::getLifecycleStatus)
+                .isEqualTo(org.monitoring.catchholebackend.domain.work.type.WorkLifecycleStatus.PURGING);
     }
 
     @Test
@@ -363,12 +379,100 @@ class WorkControllerIntegrationTest {
         Work otherWork = workRepository.save(Work.create(otherMember, "다른 회원 작품", WorkGenre.MARTIAL_ARTS, "다른 설명"));
 
         mockMvc.perform(delete("/api/v1/works/{workId}", otherWork.getId())
-                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"confirmation":"영구 삭제"}
+                                """))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.error.code").value("WORK_NOT_FOUND"));
 
         assertThat(workRepository.existsById(otherWork.getId())).isTrue();
+    }
+
+    @Test
+    void deleteWorkRejectsIncorrectPermanentDeletionPhrase() throws Exception {
+        Work work = workRepository.save(Work.create(member, "삭제할 작품", WorkGenre.ROMANCE, null));
+
+        mockMvc.perform(delete("/api/v1/works/{workId}", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"confirmation":"삭제"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"));
+
+        assertThat(workRepository.findById(work.getId())).get()
+                .extracting(Work::getLifecycleStatus)
+                .isEqualTo(org.monitoring.catchholebackend.domain.work.type.WorkLifecycleStatus.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("작품과 요청 ID로 본인의 영구 삭제 상태를 조회하고 타인의 조회는 숨긴다")
+    void getWorkPurgeStatusAllowsOnlyRequestOwner() throws Exception {
+        Work work = workRepository.save(Work.create(member, "상태를 조회할 작품", WorkGenre.FANTASY, null));
+        requestWorkPurge(work);
+        WorkPurgeRequest purgeRequest = workPurgeRequestRepository
+                .findByMemberIdAndWorkId(member.getId(), work.getId())
+                .orElseThrow();
+
+        mockMvc.perform(get("/api/v1/works/{workId}/purge-request", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.requestId").value(purgeRequest.getId().toString()))
+                .andExpect(jsonPath("$.data.workId").value(work.getId().toString()))
+                .andExpect(jsonPath("$.data.status").value("REQUESTED"));
+
+        mockMvc.perform(get("/api/v1/works/purge-requests/{requestId}", purgeRequest.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.requestId").value(purgeRequest.getId().toString()));
+
+        mockMvc.perform(get("/api/v1/works/purge-requests/{requestId}", purgeRequest.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(otherAccessToken)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("WORK_PURGE_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("실패한 본인 요청만 재시도하고 타인·진행 상태의 재시도를 차단한다")
+    void retryWorkPurgeAllowsOnlyFailedOwnerRequest() throws Exception {
+        Work work = workRepository.save(Work.create(member, "재시도할 작품", WorkGenre.FANTASY, null));
+        requestWorkPurge(work);
+        WorkPurgeRequest purgeRequest = workPurgeRequestRepository
+                .findByMemberIdAndWorkId(member.getId(), work.getId())
+                .orElseThrow();
+        purgeRequest.fail("WORK_PURGE_STORAGE_FAILED", false);
+        workPurgeRequestRepository.saveAndFlush(purgeRequest);
+
+        mockMvc.perform(post("/api/v1/works/purge-requests/{requestId}/retry", purgeRequest.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(otherAccessToken)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("WORK_PURGE_NOT_FOUND"));
+
+        mockMvc.perform(post("/api/v1/works/purge-requests/{requestId}/retry", purgeRequest.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("REQUESTED"))
+                .andExpect(jsonPath("$.data.retryable").value(false))
+                .andExpect(jsonPath("$.data.lastErrorCode").value(nullValue()));
+
+        mockMvc.perform(post("/api/v1/works/purge-requests/{requestId}/retry", purgeRequest.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("WORK_PURGE_RETRY_NOT_ALLOWED"));
+    }
+
+    private void requestWorkPurge(Work work) throws Exception {
+        mockMvc.perform(delete("/api/v1/works/{workId}", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"confirmation":"영구 삭제"}
+                                """))
+                .andExpect(status().isAccepted());
     }
 
     @Test

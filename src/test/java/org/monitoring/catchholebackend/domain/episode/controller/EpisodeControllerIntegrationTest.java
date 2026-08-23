@@ -6,6 +6,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -20,7 +21,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import jakarta.persistence.EntityManagerFactory;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -45,6 +48,7 @@ import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.global.storage.ObjectStorage;
+import org.monitoring.catchholebackend.global.storage.ObjectStoragePurgeResult;
 import org.monitoring.catchholebackend.global.storage.StoredObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -52,6 +56,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -89,6 +94,9 @@ class EpisodeControllerIntegrationTest {
     @Autowired
     private EntityManagerFactory entityManagerFactory;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     @MockitoBean
     private ObjectStorage objectStorage;
 
@@ -100,6 +108,15 @@ class EpisodeControllerIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        jdbcTemplate.execute("""
+                create table if not exists episode_chunks (
+                    id uuid primary key,
+                    episode_id uuid not null,
+                    chunk_index integer not null,
+                    chunk_text clob not null
+                )
+                """);
+        jdbcTemplate.update("delete from episode_chunks");
         analysisJobRepository.deleteAll();
         episodeRepository.deleteAll();
         uploadFileRepository.deleteAll();
@@ -127,6 +144,8 @@ class EpisodeControllerIntegrationTest {
                 .thenAnswer(invocation -> new StoredObject(invocation.getArgument(0), "test-version"));
         when(objectStorage.putBytes(anyString(), any(byte[].class), any()))
                 .thenAnswer(invocation -> new StoredObject(invocation.getArgument(0), "test-version"));
+        when(objectStorage.purgePrefixesExcluding(any(), any()))
+                .thenReturn(new ObjectStoragePurgeResult(2, 2, 0));
     }
 
     @Test
@@ -625,6 +644,14 @@ class EpisodeControllerIntegrationTest {
                                 }
                                 """))
                 .andExpect(status().isOk());
+
+        Episode updated = episodeRepository.findById(episode.getId()).orElseThrow();
+        verify(objectStorage).purgePrefixesExcluding(
+                argThat((Collection<String> prefixes) ->
+                        prefixes.contains("works/original.txt") && prefixes.contains("episode.txt")),
+                argThat((Collection<String> retained) -> retained.size() == 1
+                        && retained.iterator().next().equals(updated.getContentS3Key()))
+        );
     }
 
     @Test
@@ -775,13 +802,20 @@ class EpisodeControllerIntegrationTest {
         uploadSingleEpisode(10, "new-10.txt", "새로운 10화 원문")
                 .andExpect(status().isOk());
 
-        assertThat(episodeRepository.findAll())
-                .extracting(Episode::getContentS3Key)
-                .hasSize(2)
-                .doesNotHaveDuplicates()
-                .allMatch(key -> key.matches(
+        List<Episode> storedEpisodes = episodeRepository.findAll();
+        assertThat(storedEpisodes).hasSize(2);
+        assertThat(storedEpisodes.stream()
+                .filter(candidate -> candidate.getStatus() == EpisodeStatus.ARCHIVED)
+                .findFirst()
+                .orElseThrow()
+                .getContentS3Key()).isNull();
+        assertThat(storedEpisodes.stream()
+                .filter(candidate -> candidate.getStatus() != EpisodeStatus.ARCHIVED)
+                .findFirst()
+                .orElseThrow()
+                .getContentS3Key()).matches(
                         "works/" + work.getId() + "/episodes/10/[0-9a-f-]{36}/10\\.txt"
-                ));
+                );
     }
 
     @Test
@@ -849,7 +883,7 @@ class EpisodeControllerIntegrationTest {
     }
 
     @Test
-    void replaceEpisodeFileKeepsIdentityAndTitleButChangesSourceAndAnalysisState() throws Exception {
+    void replaceEpisodeFilePurgesPreviousSourceAndKeepsConfirmedIdentity() throws Exception {
         UploadBatch originalBatch = uploadBatchRepository.save(UploadBatch.create(
                 work, member, UploadType.SINGLE_EPISODE, UploadSourceType.FILE));
         UploadFile originalFile = uploadFileRepository.save(UploadFile.create(
@@ -877,13 +911,26 @@ class EpisodeControllerIntegrationTest {
         assertThat(replaced.getEpisodeNo()).isEqualTo(7);
         assertThat(replaced.getTitle()).isEqualTo("유지되는 제목");
         assertThat(replaced.getStatus()).isEqualTo(EpisodeStatus.UPLOADED);
+        verify(objectStorage).purgePrefixesExcluding(
+                argThat((Collection<String> prefixes) ->
+                        prefixes.contains("works/old.txt") && prefixes.contains("old.txt")),
+                argThat((Collection<String> retained) -> retained.size() == 1
+                        && retained.iterator().next().equals(replaced.getContentS3Key()))
+        );
         verify(objectStorage, never()).delete(anyString());
     }
 
     @Test
-    void deleteEpisodeSoftDeletesWithoutRemovingStoredOriginal() throws Exception {
+    void deleteEpisodePurgesSourceAndKeepsMetadataTombstone() throws Exception {
         Episode episode = episodeRepository.save(Episode.create(
                 work, null, 9, "삭제 대상", "works/delete-target.txt", "v1", "hash", 5));
+        jdbcTemplate.update(
+                "insert into episode_chunks(id, episode_id, chunk_index, chunk_text) values (?, ?, ?, ?)",
+                UUID.randomUUID(),
+                episode.getId(),
+                0,
+                "파기되어야 할 원문 청크"
+        );
 
         mockMvc.perform(delete("/api/v1/works/{workId}/episodes/{episodeId}", work.getId(), episode.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
@@ -891,11 +938,156 @@ class EpisodeControllerIntegrationTest {
 
         assertThat(episodeRepository.findById(episode.getId()).orElseThrow().getStatus())
                 .isEqualTo(EpisodeStatus.ARCHIVED);
+        Episode archived = episodeRepository.findById(episode.getId()).orElseThrow();
+        assertThat(archived.getContentS3Key()).isNull();
+        assertThat(archived.getContentS3Version()).isNull();
+        assertThat(archived.getContentHash()).isNull();
+        assertThat(archived.getCharCount()).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from episode_chunks where episode_id = ?",
+                Integer.class,
+                episode.getId()
+        )).isZero();
         mockMvc.perform(get("/api/v1/works/{workId}/episodes", work.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(0));
+        verify(objectStorage).purgePrefixesExcluding(
+                argThat((Collection<String> prefixes) -> prefixes.contains("works/delete-target.txt")),
+                argThat((Collection<String> retained) -> retained.isEmpty())
+        );
         verify(objectStorage, never()).delete(anyString());
+    }
+
+    @Test
+    @DisplayName("다회차 단일 파일의 한 회차를 삭제하면 공유 업로드 원본은 파기하고 형제 회차 원문은 유지한다")
+    void deleteEpisodeFromSharedUploadPurgesSharedOriginalAndKeepsSiblingContent() throws Exception {
+        UploadBatch batch = uploadBatchRepository.save(UploadBatch.create(
+                work, member, UploadType.MULTI_EPISODE_SINGLE_FILE, UploadSourceType.FILE));
+        String sharedSourceKey = "upload-batches/" + batch.getId() + "/shared-episodes.txt";
+        UploadFile sharedSource = uploadFileRepository.save(UploadFile.create(
+                batch,
+                UploadFileRole.EPISODE,
+                "shared-episodes.txt",
+                MediaType.TEXT_PLAIN_VALUE,
+                "s3://" + sharedSourceKey,
+                100
+        ));
+        sharedSource.markEpisodesParsed(1, 2, 2);
+        Episode deletedEpisode = episodeRepository.save(Episode.create(
+                work,
+                sharedSource.getId(),
+                1,
+                "첫 회차",
+                "works/" + work.getId() + "/episodes/1/old/1.txt",
+                "v1",
+                "hash-1",
+                10
+        ));
+        Episode siblingEpisode = episodeRepository.save(Episode.create(
+                work,
+                sharedSource.getId(),
+                2,
+                "둘째 회차",
+                "works/" + work.getId() + "/episodes/2/current/2.txt",
+                "v1",
+                "hash-2",
+                10
+        ));
+
+        mockMvc.perform(delete(
+                                "/api/v1/works/{workId}/episodes/{episodeId}",
+                                work.getId(),
+                                deletedEpisode.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
+
+        Episode archived = episodeRepository.findById(deletedEpisode.getId()).orElseThrow();
+        Episode sibling = episodeRepository.findById(siblingEpisode.getId()).orElseThrow();
+        assertThat(archived.getStatus()).isEqualTo(EpisodeStatus.ARCHIVED);
+        assertThat(sibling.getStatus()).isEqualTo(EpisodeStatus.UPLOADED);
+        assertThat(sibling.getContentS3Key()).isEqualTo(
+                "works/" + work.getId() + "/episodes/2/current/2.txt"
+        );
+        assertThat(sibling.getSourceFileId()).isEqualTo(sharedSource.getId());
+        assertThat(uploadFileRepository.findById(sharedSource.getId()).orElseThrow().getStorageUrl()).isNull();
+        verify(objectStorage).purgePrefixesExcluding(
+                argThat((Collection<String> prefixes) ->
+                        prefixes.contains("works/" + work.getId() + "/episodes/1/")
+                                && prefixes.contains(sharedSourceKey)
+                                && !prefixes.contains(sibling.getContentS3Key())),
+                argThat((Collection<String> retained) -> retained.isEmpty())
+        );
+    }
+
+    @Test
+    @DisplayName("다회차 단일 파일의 한 회차를 수정하면 공유 업로드 원본은 파기하고 새 원문과 형제 회차는 유지한다")
+    void updateEpisodeFromSharedUploadPurgesSharedOriginalAndRetainsNewAndSiblingContent() throws Exception {
+        UploadBatch batch = uploadBatchRepository.save(UploadBatch.create(
+                work, member, UploadType.MULTI_EPISODE_SINGLE_FILE, UploadSourceType.FILE));
+        String sharedSourceKey = "upload-batches/" + batch.getId() + "/shared-episodes.txt";
+        UploadFile sharedSource = uploadFileRepository.save(UploadFile.create(
+                batch,
+                UploadFileRole.EPISODE,
+                "shared-episodes.txt",
+                MediaType.TEXT_PLAIN_VALUE,
+                "s3://" + sharedSourceKey,
+                100
+        ));
+        sharedSource.markEpisodesParsed(1, 2, 2);
+        Episode updatedEpisode = episodeRepository.save(Episode.create(
+                work,
+                sharedSource.getId(),
+                1,
+                "첫 회차",
+                "works/" + work.getId() + "/episodes/1/old/1.txt",
+                "v1",
+                "hash-1",
+                10
+        ));
+        Episode siblingEpisode = episodeRepository.save(Episode.create(
+                work,
+                sharedSource.getId(),
+                2,
+                "둘째 회차",
+                "works/" + work.getId() + "/episodes/2/current/2.txt",
+                "v1",
+                "hash-2",
+                10
+        ));
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/episodes/{episodeId}",
+                                work.getId(),
+                                updatedEpisode.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "episodeNo": 1,
+                                  "title": "수정한 첫 회차",
+                                  "content": "수정한 첫 회차 원문"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        Episode updated = episodeRepository.findById(updatedEpisode.getId()).orElseThrow();
+        Episode sibling = episodeRepository.findById(siblingEpisode.getId()).orElseThrow();
+        assertThat(updated.getContentS3Key()).isNotEqualTo("works/" + work.getId() + "/episodes/1/old/1.txt");
+        assertThat(sibling.getContentS3Key()).isEqualTo(
+                "works/" + work.getId() + "/episodes/2/current/2.txt"
+        );
+        assertThat(uploadFileRepository.findById(sharedSource.getId()).orElseThrow().getStorageUrl()).isNull();
+        verify(objectStorage).purgePrefixesExcluding(
+                argThat((Collection<String> prefixes) ->
+                        prefixes.contains("works/" + work.getId() + "/episodes/1/")
+                                && prefixes.contains(sharedSourceKey)
+                                && !prefixes.contains(sibling.getContentS3Key())),
+                argThat((Collection<String> retained) -> retained.size() == 1
+                        && retained.iterator().next().equals(updated.getContentS3Key()))
+        );
     }
 
     @Test
