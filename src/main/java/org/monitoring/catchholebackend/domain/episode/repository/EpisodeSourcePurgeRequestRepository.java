@@ -21,6 +21,8 @@ public interface EpisodeSourcePurgeRequestRepository
 
     boolean existsByEpisodeIdIn(Collection<UUID> episodeIds);
 
+    boolean existsByWorkIdAndPreviousEpisodeNo(UUID workId, int previousEpisodeNo);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select request from EpisodeSourcePurgeRequest request where request.id = :id")
     Optional<EpisodeSourcePurgeRequest> findByIdForUpdate(@Param("id") UUID id);

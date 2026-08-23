@@ -74,15 +74,7 @@ public class EpisodeSourcePurgeProcessor {
 
     public void processPendingRequests() {
         recoverStaleRequests();
-        for (int processedCount = 0; processedCount < PROCESS_BATCH_SIZE; processedCount++) {
-            UUID requestId = claimNextRequest();
-            if (requestId == null) {
-                return;
-            }
-            if (!processClaimedRequest(requestId)) {
-                return;
-            }
-        }
+        claimReadyRequests().forEach(this::processClaimedRequest);
     }
 
     /** 커밋 직후 이벤트가 특정 요청을 바로 처리한다. 이미 스케줄러가 선점했다면 건너뛴다. */
@@ -92,19 +84,18 @@ public class EpisodeSourcePurgeProcessor {
         }
     }
 
-    private UUID claimNextRequest() {
+    private List<UUID> claimReadyRequests() {
         TransactionTemplate transaction = newTransaction();
         return transaction.execute(status -> purgeRequestRepository.findReadyForUpdate(
                         EpisodeSourcePurgeStatus.REQUESTED,
-                        PageRequest.of(0, 1)
+                        PageRequest.of(0, PROCESS_BATCH_SIZE)
                 )
                 .stream()
-                .findFirst()
                 .map(request -> {
                     request.startProcessing();
                     return request.getId();
                 })
-                .orElse(null));
+                .toList());
     }
 
     private boolean claimRequest(UUID requestId) {

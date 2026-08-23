@@ -274,8 +274,10 @@ public class EpisodeServiceImpl implements EpisodeService {
 
     private void validateEpisodeNoForUpdate(Work work, Episode episode, int episodeNo) {
         if (episode.getEpisodeNo() != episodeNo
-                && episodeRepository.existsByWorkIdAndEpisodeNoAndStatusNot(
-                work.getId(), episodeNo, EpisodeStatus.ARCHIVED)) {
+                && (episodeRepository.existsByWorkIdAndEpisodeNoAndStatusNot(
+                work.getId(), episodeNo, EpisodeStatus.ARCHIVED)
+                || episodeSourcePurgeRequestRepository.existsByWorkIdAndPreviousEpisodeNo(
+                work.getId(), episodeNo))) {
             throw new AppException(EpisodeErrorCode.EPISODE_DUPLICATED);
         }
     }

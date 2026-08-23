@@ -51,6 +51,7 @@
 - SOLAPI 자동충전은 사용하지 않고 Redis의 전체 KST 일 20건·월 200건 제한과 선불 충전 잔액으로 SMS 비용 상한을 관리한다.
 - 운영 Redis는 `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`로 연결한다. Redis 장애 시 SMS를 보내지 않는 fail-closed 정책을 유지한다.
 - 작품 영구 삭제는 운영·local에서 `WORK_PURGE_SCHEDULING_ENABLED=true`, `WORK_PURGE_FIXED_DELAY_MS=10000`, `WORK_PURGE_BATCH_SIZE=10`을 기본으로 두어 요청을 빠르게 재시도하되 한 번의 DB 점유를 제한한다. 실행 중 Worker 정리와 장애 회수는 `WORK_PURGE_WORKER_DRAIN=75s`, `WORK_PURGE_STALE_PROCESSING=15m`, 완료 감사 보존과 정리는 `WORK_PURGE_AUDIT_RETENTION=365d`, `WORK_PURGE_CLEANUP_CRON="0 20 3 * * *"`를 기본으로 사용한다. 운영 부하에 따라 환경변수로만 override하며 test 프로파일은 스케줄러를 끈다.
+- 회차 원문 파기는 운영·local에서 `EPISODE_SOURCE_PURGE_SCHEDULING_ENABLED=true`, `EPISODE_SOURCE_PURGE_FIXED_DELAY_MS=10000`을 기본으로 사용한다. 커밋 직후 정리에 실패한 S3 원문과 파생 데이터를 10초 간격으로 재시도하기 위한 값이며 운영 부하에 따라 환경변수로 override한다. test 프로파일은 스케줄러를 끈다.
 - 로컬 실행 시 `application.yml`이 `apps/CatchHole-Backend/.env`를 optional import한다. AWS/S3 같은 로컬 비밀값은 `.env`에 둘 수 있지만, `.env`는 커밋하지 않는다.
 - E2E는 `SPRING_PROFILES_ACTIVE=e2e`로 활성화하고 운영에서는 사용하지 않는다. 이 프로파일에서만 `LocalFileObjectStorage`를 사용하며 `storage.local.root` 기본값은 `${java.io.tmpdir}/catchhole-e2e-storage`, 명시적 override는 `CATCHHOLE_E2E_STORAGE_ROOT`로 둔다.
 - 새로운 설정 키를 추가할 때는 base / local / prod 각 위치를 의식적으로 결정한다.

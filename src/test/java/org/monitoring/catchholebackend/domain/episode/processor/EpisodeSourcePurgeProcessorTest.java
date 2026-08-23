@@ -195,4 +195,47 @@ class EpisodeSourcePurgeProcessorTest {
         verify(workRepository, never()).findByIdForUpdate(workId);
         verify(purgeRequest).retry("EPISODE_SOURCE_PURGE_STORAGE_FAILED");
     }
+
+    @Test
+    @DisplayName("앞선 요청이 실패해도 같은 배치로 선점한 다음 요청을 계속 처리한다")
+    void processPendingRequestsDoesNotStarveLaterRequestsAfterFailure() {
+        UUID nextRequestId = UUID.randomUUID();
+        UUID nextEpisodeId = UUID.randomUUID();
+        EpisodeSourcePurgeRequest nextRequest = org.mockito.Mockito.mock(EpisodeSourcePurgeRequest.class);
+        Episode nextEpisode = org.mockito.Mockito.mock(Episode.class);
+
+        when(purgeRequest.getId()).thenReturn(requestId);
+        when(nextRequest.getId()).thenReturn(nextRequestId);
+        when(nextRequest.getWorkId()).thenReturn(workId);
+        when(nextRequest.getPreviousEpisodeNo()).thenReturn(4);
+        when(nextRequest.getPreviousContentKey()).thenReturn("works/next-content.txt");
+        when(nextRequest.getRetainedContentKey()).thenReturn(null);
+        when(nextRequest.getEpisode()).thenReturn(nextEpisode);
+        when(nextEpisode.getId()).thenReturn(nextEpisodeId);
+        when(purgeRequestRepository.findReadyForUpdate(
+                EpisodeSourcePurgeStatus.REQUESTED,
+                org.springframework.data.domain.PageRequest.of(0, 10)
+        )).thenReturn(List.of(purgeRequest, nextRequest));
+        when(purgeRequestRepository.findById(nextRequestId)).thenReturn(Optional.of(nextRequest));
+        when(purgeRequestRepository.findByIdForUpdate(nextRequestId)).thenReturn(Optional.of(nextRequest));
+        when(objectStorageService.purgeEpisodeSource(
+                workId,
+                3,
+                "works/old-content.txt",
+                "s3://upload-batches/old/original.txt",
+                "works/new-content.txt"
+        )).thenReturn(new ObjectStoragePurgeResult(1, 0, 1));
+        when(objectStorageService.purgeEpisodeSource(
+                workId,
+                4,
+                "works/next-content.txt",
+                null,
+                null
+        )).thenReturn(new ObjectStoragePurgeResult(1, 1, 0));
+
+        processor.processPendingRequests();
+
+        verify(purgeRequest).retry("EPISODE_SOURCE_PURGE_STORAGE_FAILED");
+        verify(purgeRequestRepository).delete(nextRequest);
+    }
 }

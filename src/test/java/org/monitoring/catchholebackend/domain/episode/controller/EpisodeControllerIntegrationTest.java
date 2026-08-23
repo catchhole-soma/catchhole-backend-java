@@ -1065,6 +1065,20 @@ class EpisodeControllerIntegrationTest {
                     assertThat(request.getRetainedContentKey()).isNull();
                 });
 
+        MockMultipartFile metadata = metadataPart("""
+                {
+                  "uploadType": "SINGLE_EPISODE",
+                  "singleEpisodeNo": 10,
+                  "singleEpisodeTitle": "새 10화"
+                }
+                """);
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(metadata)
+                        .file(textFile("episodeFiles", "new-episode-10.txt", "새로운 10화 본문입니다."))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("EPISODE_UPLOAD_DUPLICATED"));
+
         episodeSourcePurgeProcessor.processPendingRequests();
 
         assertThat(episodeSourcePurgeRequestRepository.count()).isZero();

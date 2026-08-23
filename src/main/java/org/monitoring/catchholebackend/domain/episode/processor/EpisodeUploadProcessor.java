@@ -17,6 +17,7 @@ import org.monitoring.catchholebackend.domain.episode.parser.DetectedEpisode;
 import org.monitoring.catchholebackend.domain.episode.parser.DetectedEpisodeFile;
 import org.monitoring.catchholebackend.domain.episode.parser.EpisodeFileParser;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
+import org.monitoring.catchholebackend.domain.episode.repository.EpisodeSourcePurgeRequestRepository;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeUploadType;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
@@ -43,6 +44,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class EpisodeUploadProcessor {
 
     private final EpisodeRepository episodeRepository;
+    private final EpisodeSourcePurgeRequestRepository episodeSourcePurgeRequestRepository;
     private final UploadBatchRepository uploadBatchRepository;
     private final UploadFileRepository uploadFileRepository;
     private final EpisodeMapper episodeMapper;
@@ -232,7 +234,9 @@ public class EpisodeUploadProcessor {
                     duplicateEpisodeNosInRequest.add(episodeNo);
                 }
                 if (episodeRepository.existsByWorkIdAndEpisodeNoAndStatusNot(
-                        work.getId(), episodeNo, EpisodeStatus.ARCHIVED)) {
+                        work.getId(), episodeNo, EpisodeStatus.ARCHIVED)
+                        || episodeSourcePurgeRequestRepository.existsByWorkIdAndPreviousEpisodeNo(
+                        work.getId(), episodeNo)) {
                     existingEpisodeNosInWork.add(episodeNo);
                 }
             }

@@ -116,7 +116,8 @@ public class AiTokenUsage extends BaseEntity {
     public void release(AiTokenUsageOutcome outcome) {
         assertReserved();
         if (outcome != AiTokenUsageOutcome.USAGE_UNAVAILABLE
-                && outcome != AiTokenUsageOutcome.WORKER_LEASE_EXPIRED) {
+                && outcome != AiTokenUsageOutcome.WORKER_LEASE_EXPIRED
+                && outcome != AiTokenUsageOutcome.WORK_PURGE_CANCELED) {
             throw new AppException(AiTokenErrorCode.AI_TOKEN_USAGE_INVALID);
         }
         this.outcome = outcome;

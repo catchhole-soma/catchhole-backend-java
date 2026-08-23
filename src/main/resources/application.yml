@@ -74,3 +74,8 @@ work:
     audit-retention: ${WORK_PURGE_AUDIT_RETENTION:365d}
     batch-size: ${WORK_PURGE_BATCH_SIZE:10}
     cleanup-cron: ${WORK_PURGE_CLEANUP_CRON:0 20 3 * * *}
+
+episode:
+  source-purge:
+    scheduling-enabled: ${EPISODE_SOURCE_PURGE_SCHEDULING_ENABLED:true}
+    fixed-delay-ms: ${EPISODE_SOURCE_PURGE_FIXED_DELAY_MS:10000}
