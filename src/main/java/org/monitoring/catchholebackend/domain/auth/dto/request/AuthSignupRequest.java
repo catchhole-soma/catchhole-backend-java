@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.auth.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -23,6 +24,22 @@ public record AuthSignupRequest(
         @NotBlank(message = "표시 이름은 필수입니다.")
         @Size(max = 20, message = "표시 이름은 20자 이하로 입력해주세요.")
         String displayName,
+
+        @Schema(
+                description = "현재 이용약관 필수 동의 여부",
+                example = "true",
+                requiredMode = Schema.RequiredMode.REQUIRED
+        )
+        @AssertTrue(message = "이용약관에 동의해야 합니다.")
+        boolean termsAccepted,
+
+        @Schema(
+                description = "현재 개인정보처리방침 필수 확인 여부",
+                example = "true",
+                requiredMode = Schema.RequiredMode.REQUIRED
+        )
+        @AssertTrue(message = "개인정보처리방침을 확인해야 합니다.")
+        boolean privacyPolicyAcknowledged,
 
         @Schema(description = "휴대폰 인증 완료 후 발급된 1회용 회원가입 토큰", example = "4Kd7...Q2")
         @NotBlank(message = "휴대폰 인증 토큰은 필수입니다.")

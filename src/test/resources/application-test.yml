@@ -16,3 +16,11 @@ spring:
 
 sms:
   provider: fake
+
+work:
+  purge:
+    scheduling-enabled: false
+
+episode:
+  source-purge:
+    scheduling-enabled: false

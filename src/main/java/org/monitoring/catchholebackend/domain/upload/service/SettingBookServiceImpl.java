@@ -60,7 +60,7 @@ public class SettingBookServiceImpl implements SettingBookService {
     @Override
     @Transactional
     public SettingBookSummaryResponse uploadSettingBook(Long memberId, UUID workId, MultipartFile file) {
-        Work work = workRepository.getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         String content = textDocumentReader.readText(file);
         String originalFilename = resolveOriginalFilename(file);
         String mimeType = resolveMimeType(originalFilename);
@@ -107,7 +107,7 @@ public class SettingBookServiceImpl implements SettingBookService {
             UUID settingBookId,
             SettingBookUpdateRequest request
     ) {
-        Work work = workRepository.getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         UploadFile settingBook = getActiveSettingBook(settingBookId, work);
         byte[] editedContent = request.content().getBytes(StandardCharsets.UTF_8);
         if (editedContent.length > MAX_SETTING_BOOK_SIZE) {
@@ -127,7 +127,7 @@ public class SettingBookServiceImpl implements SettingBookService {
     @Override
     @Transactional
     public void deleteSettingBook(Long memberId, UUID workId, UUID settingBookId) {
-        Work work = workRepository.getOwnedWork(workId, memberId);
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         getActiveSettingBook(settingBookId, work).archive();
     }
 

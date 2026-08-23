@@ -150,6 +150,11 @@ public class UploadFile extends BaseEntity {
         this.parseStatus = UploadFileParseStatus.FAILED;
     }
 
+    /** 업로드 원본을 파기한 뒤 존재하지 않는 저장소 위치를 다시 노출하지 않도록 참조를 비운다. */
+    public void purgeStoredSource() {
+        this.storageUrl = null;
+    }
+
     public void archive() {
         this.archivedAt = LocalDateTime.now();
     }

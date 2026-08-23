@@ -40,7 +40,9 @@ public interface WorkRepository extends JpaRepository<Work, UUID> {
     }
 
     default Work getOwnedWorkForUpdate(UUID id, Long memberId) {
-        return findByIdAndMemberIdForUpdate(id, memberId)
+        Work work = findByIdAndMemberIdForUpdate(id, memberId)
                 .orElseThrow(() -> new AppException(WorkErrorCode.WORK_NOT_FOUND));
+        work.requireActive();
+        return work;
     }
 }

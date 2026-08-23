@@ -195,6 +195,10 @@ public class Episode extends BaseEntity {
     }
 
     public void archive() {
+        this.contentS3Key = null;
+        this.contentS3Version = null;
+        this.contentHash = null;
+        this.charCount = 0;
         this.status = EpisodeStatus.ARCHIVED;
     }
 

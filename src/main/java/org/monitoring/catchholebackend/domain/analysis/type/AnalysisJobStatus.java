@@ -29,7 +29,13 @@ public enum AnalysisJobStatus {
      * Worker 처리 실패 또는 분석 대상 회차 없음으로 종료된 상태.
      * TODO: FAILED 작업을 재시도할 때 기존 작업을 되살릴지 새 AnalysisJob을 만들지 후속 정책으로 결정한다.
      */
-    FAILED("분석 실패");
+    FAILED("분석 실패"),
+
+    /**
+     * 작품 영구 삭제 요청으로 더 이상 결과를 저장할 수 없는 상태.
+     * Worker lease를 제거하므로 이후 heartbeat와 완료 요청은 거절된다.
+     */
+    CANCELED("영구 삭제로 취소");
 
     private final String toKorean;
 }

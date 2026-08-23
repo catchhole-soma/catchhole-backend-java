@@ -114,6 +114,10 @@ class OpenApiContractIntegrationTest {
                         .value("#/components/schemas/CommonErrorResponse"))
                 .andExpect(jsonPath("$['components']['schemas']['PageResponseAnalysisBatchSummaryResponse']['properties']['content']['items']['$ref']")
                         .value("#/components/schemas/AnalysisBatchSummaryResponse"))
+                .andExpect(jsonPath("$['components']['schemas']['AnalysisBatchSummaryResponse']['properties']['status']['enum']")
+                        .value(org.hamcrest.Matchers.hasItem("CANCELED")))
+                .andExpect(jsonPath("$['components']['schemas']['AnalysisBatchJobGroupResponse']['properties']['canceledJobCount']")
+                        .exists())
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/characters']['get']['operationId']")
                         .value("getCharacters"))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/characters']['get']['parameters'][1]['name']")
@@ -359,6 +363,10 @@ class OpenApiContractIntegrationTest {
                         .value("detectEpisodes"))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/episodes/detect']['post']['requestBody']['required']")
                         .value(true))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/episodes/{episodeId}']['delete']['description']")
+                        .value(containsString("업로드 원본의 모든 저장 버전")))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/episodes/{episodeId}']['delete']['description']")
+                        .value(containsString("복구는 지원하지 않습니다")))
                 .andExpect(jsonPath("$['components']['schemas']['EpisodeDetectionRequest']['properties']['uploadType']['enum']")
                         .value(containsInAnyOrder(
                                 "SINGLE_EPISODE",
@@ -632,4 +640,69 @@ class OpenApiContractIntegrationTest {
                         + "['properties']['suggestedOperation']['anyOf'][1]['type']")
                         .value("null"));
     }
+
+    @Test
+    @DisplayName("회원가입 계약은 약관 동의와 개인정보처리방침 확인만 필수로 받는다")
+    void openApiContractRequiresSignupLegalAcknowledgements() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$['components']['schemas']['AuthSignupRequest']['required']",
+                        org.hamcrest.Matchers.hasItems(
+                                "termsAccepted",
+                                "privacyPolicyAcknowledged"
+                        )))
+                .andExpect(jsonPath("$['components']['schemas']['AuthSignupRequest']"
+                        + "['properties']['aiProcessingConsent']").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("원고 업로드 계약에는 별도 동의 API와 동의 필드를 노출하지 않는다")
+    void openApiContractDoesNotExposePerUploadManuscriptConsent() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$['paths']['/api/v1/manuscript-consents']").doesNotExist())
+                .andExpect(jsonPath("$['components']['schemas']['ManuscriptConsentRequest']").doesNotExist())
+                .andExpect(jsonPath("$['components']['schemas']['ManuscriptConsentResponse']").doesNotExist())
+                .andExpect(jsonPath("$['components']['schemas']['EpisodeUploadRequest']"
+                        + "['properties']['policyVersion']").doesNotExist())
+                .andExpect(jsonPath("$['components']['schemas']['EpisodeUploadRequest']"
+                        + "['properties']['requiredProcessingConsent']").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("작품 영구 삭제 요청·상태 조회·재시도 계약과 결과 스키마를 공개한다")
+    void openApiContractExposesWorkPurgeOperations() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}']['delete']['operationId']")
+                        .value("deleteWork"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}']['delete']"
+                        + "['requestBody']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/WorkPurgeCreateRequest"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}']['delete']"
+                        + "['responses']['202']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonResponseWorkPurgeResponse"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/purge-request']['get']['operationId']")
+                        .value("getWorkPurgeRequestByWork"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/purge-requests/{requestId}']['get']['operationId']")
+                        .value("getWorkPurgeRequest"))
+                .andExpect(jsonPath("$['paths']['/api/v1/works/purge-requests/{requestId}/retry']['post']['operationId']")
+                        .value("retryWorkPurgeRequest"))
+                .andExpect(jsonPath("$['components']['schemas']['WorkPurgeCreateRequest']['required']")
+                        .value(org.hamcrest.Matchers.hasItem("confirmation")))
+                .andExpect(jsonPath("$['components']['schemas']['WorkPurgeCreateRequest']"
+                        + "['properties']['confirmation']['pattern']")
+                        .value("영구 삭제"))
+                .andExpect(jsonPath("$['components']['schemas']['WorkPurgeResponse']['properties']['status']['enum']")
+                        .value(containsInAnyOrder(
+                                "REQUESTED", "PROCESSING", "COMPLETED", "PARTIAL_FAILED", "FAILED"
+                        )))
+                .andExpect(jsonPath("$['components']['schemas']['WorkPurgeResponse']"
+                        + "['properties']['objectStorage']['$ref']")
+                        .value("#/components/schemas/WorkPurgeStoreResultResponse"))
+                .andExpect(jsonPath("$['components']['schemas']['WorkPurgeResponse']"
+                        + "['properties']['database']['$ref']")
+                        .value("#/components/schemas/WorkPurgeStoreResultResponse"));
+    }
+
 }

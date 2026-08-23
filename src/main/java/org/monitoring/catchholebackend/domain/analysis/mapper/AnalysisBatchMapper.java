@@ -32,6 +32,7 @@ public class AnalysisBatchMapper {
                 countStatus(currentJobs, AnalysisJobStatus.RUNNING),
                 countStatus(currentJobs, AnalysisJobStatus.SUCCEEDED),
                 countStatus(currentJobs, AnalysisJobStatus.FAILED),
+                countStatus(currentJobs, AnalysisJobStatus.CANCELED),
                 currentJobs.stream().map(AnalysisJob::getId).distinct().toList(),
                 currentJobs.stream()
                         .map(AnalysisJob::getUpdatedAt)

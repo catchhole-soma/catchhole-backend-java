@@ -30,6 +30,9 @@ public record AnalysisBatchJobGroupResponse(
         @Schema(description = "분석 실패 작업 수", example = "1")
         int failedJobCount,
 
+        @Schema(description = "작품 영구 삭제로 취소된 작업 수", example = "0")
+        int canceledJobCount,
+
         @Schema(description = "진행·결과 화면에서 조회할 현재 유효 작업 ID")
         List<UUID> currentAnalysisJobIds,
 

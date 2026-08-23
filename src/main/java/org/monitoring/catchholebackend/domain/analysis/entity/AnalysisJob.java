@@ -129,7 +129,7 @@ public class AnalysisJob extends BaseEntity {
     private AnalysisJobType jobType;
 
     // 분석 작업의 큰 상태. 작업 제어와 조회 필터링에 사용한다.
-    // PENDING -> RUNNING -> SUCCEEDED/FAILED
+    // PENDING -> RUNNING -> SUCCEEDED/FAILED/CANCELED
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private AnalysisJobStatus status;
@@ -340,6 +340,18 @@ public class AnalysisJob extends BaseEntity {
         this.errorMessage = errorMessage;
         this.inputTokenCount = inputTokenCount;
         this.outputTokenCount = outputTokenCount;
+        this.completedAt = LocalDateTime.now();
+        clearLease();
+    }
+
+    public void cancelForWorkPurge() {
+        if (status != AnalysisJobStatus.PENDING && status != AnalysisJobStatus.RUNNING) {
+            return;
+        }
+        this.status = AnalysisJobStatus.CANCELED;
+        this.currentStep = "작품 영구 삭제로 취소됨";
+        this.errorMessage = null;
+        this.failureCode = null;
         this.completedAt = LocalDateTime.now();
         clearLease();
     }

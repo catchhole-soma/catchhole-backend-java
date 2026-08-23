@@ -136,7 +136,8 @@ public class AiTokenServiceImpl implements AiTokenService {
     @Transactional
     public void releaseReservedForAnalysisJob(UUID analysisJobId, AiTokenUsageOutcome outcome) {
         if (outcome != AiTokenUsageOutcome.WORKER_LEASE_EXPIRED
-                && outcome != AiTokenUsageOutcome.USAGE_UNAVAILABLE) {
+                && outcome != AiTokenUsageOutcome.USAGE_UNAVAILABLE
+                && outcome != AiTokenUsageOutcome.WORK_PURGE_CANCELED) {
             throw new AppException(AiTokenErrorCode.AI_TOKEN_USAGE_INVALID);
         }
         usageRepository.findAllByAnalysisJobIdAndStatus(analysisJobId, AiTokenUsageStatus.RESERVED)

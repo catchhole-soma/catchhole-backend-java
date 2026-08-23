@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -27,7 +28,11 @@ import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.auth.token.RefreshTokenGenerator;
 import org.monitoring.catchholebackend.domain.auth.token.TokenHashProvider;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
+import org.monitoring.catchholebackend.domain.member.entity.MemberLegalRecord;
+import org.monitoring.catchholebackend.domain.member.repository.MemberLegalRecordRepository;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
+import org.monitoring.catchholebackend.domain.member.type.LegalDocumentType;
+import org.monitoring.catchholebackend.domain.member.type.LegalRecordAction;
 import org.monitoring.catchholebackend.global.config.auth.AuthProperties;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -39,6 +44,9 @@ class AuthServiceImplTest {
 
     @Mock
     private MemberRepository memberRepository;
+
+    @Mock
+    private MemberLegalRecordRepository memberLegalRecordRepository;
 
     @Mock
     private RefreshTokenRepository refreshTokenRepository;
@@ -69,6 +77,7 @@ class AuthServiceImplTest {
         );
         authService = new AuthServiceImpl(
                 memberRepository,
+                memberLegalRecordRepository,
                 refreshTokenRepository,
                 passwordEncoder,
                 jwtTokenProvider,
@@ -87,6 +96,8 @@ class AuthServiceImplTest {
                 "writer@example.com",
                 "password123",
                 "작가",
+                true,
+                true,
                 "phone-verification-token"
         );
         Member savedMember = verifiedMember("writer@example.com", "encoded-password", "01012345678", "작가");
@@ -109,6 +120,31 @@ class AuthServiceImplTest {
         verify(memberRepository).save(memberCaptor.capture());
         assertThat(memberCaptor.getValue().getPasswordHash()).isEqualTo("encoded-password");
         assertThat(memberCaptor.getValue().isPhoneVerified()).isTrue();
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Iterable<MemberLegalRecord>> legalRecordCaptor = ArgumentCaptor.forClass(Iterable.class);
+        verify(memberLegalRecordRepository).saveAll(legalRecordCaptor.capture());
+        List<MemberLegalRecord> legalRecords = new java.util.ArrayList<>();
+        legalRecordCaptor.getValue().forEach(legalRecords::add);
+        assertThat(legalRecords)
+                .extracting(
+                        MemberLegalRecord::getDocumentType,
+                        MemberLegalRecord::getActionType,
+                        MemberLegalRecord::getDocumentVersion
+                )
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(
+                                LegalDocumentType.TERMS_OF_SERVICE,
+                                LegalRecordAction.AGREED,
+                                "2026-08-23"
+                        ),
+                        org.assertj.core.groups.Tuple.tuple(
+                                LegalDocumentType.PRIVACY_POLICY,
+                                LegalRecordAction.ACKNOWLEDGED,
+                                "2026-08-23"
+                        )
+                );
+        assertThat(legalRecords)
+                .allSatisfy(record -> assertThat(record.getMember()).isEqualTo(savedMember));
         ArgumentCaptor<RefreshToken> tokenCaptor = ArgumentCaptor.forClass(RefreshToken.class);
         verify(refreshTokenRepository).save(tokenCaptor.capture());
         assertThat(tokenCaptor.getValue().getMember()).isEqualTo(savedMember);
@@ -123,6 +159,8 @@ class AuthServiceImplTest {
                 "writer@example.com",
                 "password123",
                 "작가",
+                true,
+                true,
                 "phone-verification-token"
         );
         when(phoneVerificationService.getVerifiedPhoneNumberBySignupToken(request.phoneVerificationToken()))

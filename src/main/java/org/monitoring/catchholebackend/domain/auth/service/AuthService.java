@@ -7,8 +7,8 @@ public interface AuthService {
 
     /**
      * 회원가입 요청의 휴대폰 인증 토큰에서 번호를 조회하고 이메일과 번호 중복을 검증해 새 회원을 등록한다.
-     * 비밀번호는 해시로 저장하며, 가입 완료 후 access token과 refresh token을 발급한다.
-     * 회원·refresh token을 DB에 flush한 뒤 가입 토큰을 소비하고, 소비 실패 시 전체 DB 트랜잭션을 롤백한다.
+     * 비밀번호는 해시로 저장하고 현재 이용약관 동의·개인정보처리방침 확인 이력을 기록한 뒤 인증 토큰을 발급한다.
+     * 회원·법률 문서 기록·refresh token을 DB에 flush한 뒤 가입 토큰을 소비하고, 소비 실패 시 전체 DB 트랜잭션을 롤백한다.
      */
     AuthTokenIssueResult signup(AuthSignupRequest request);
 

@@ -142,6 +142,23 @@ class WorldSettingCandidateTest {
         assertThat(candidate.dismiss("다시 제외", fixture.member())).isFalse();
     }
 
+    @Test
+    @DisplayName("검토가 끝난 후보는 최종 결정은 유지하면서 파기된 원문의 근거만 제거한다")
+    void purgeSourceEvidenceKeepsReviewedDecisionOnly() {
+        Fixture fixture = fixture();
+        WorldSettingCandidate candidate = candidate(fixture);
+        candidate.dismiss("일시적 사건", fixture.member());
+
+        candidate.purgeSourceEvidence();
+
+        assertThat(candidate.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.DISMISSED);
+        assertThat(candidate.getFinalOperation()).isEqualTo(WorldSettingOperation.EXCLUDE);
+        assertThat(candidate.getFinalValue()).isEqualTo("혹한 지역");
+        assertThat(candidate.getEvidenceSpans()).isEmpty();
+        assertThat(candidate.getRawExtractionJson()).isNull();
+        assertThat(candidate.getRawComparisonJson()).isNull();
+    }
+
     private WorldSettingCandidate candidate(Fixture fixture) {
         return WorldSettingCandidate.create(
                 fixture.work(),

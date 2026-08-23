@@ -56,8 +56,8 @@ public enum EpisodeStatus {
     FAILED("처리 실패"),
 
     /**
-     * 회차를 일반 조회/분석 대상에서 제외한 보관 상태.
-     * TODO: 현재 삭제 API는 hard delete이므로 archive/restore API 도입 여부를 후속 결정한다.
+     * 원문과 미확정 파생 데이터를 파기하고 식별·확정 설정 참조용 Episode 행만 남긴 상태.
+     * 사용자 복구는 지원하지 않는다.
      */
     ARCHIVED("보관됨");
 

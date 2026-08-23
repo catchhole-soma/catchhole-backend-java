@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.worldsetting.entity;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -590,6 +591,14 @@ public class WorldSettingCandidate extends BaseEntity {
 
     public boolean isPendingReview() {
         return reviewStatus == WorldSettingReviewStatus.PENDING_REVIEW;
+    }
+
+    /** 확정·무시 결정은 유지하되 파기된 회차 원문의 인용·비교 사유와 AI 원본 payload는 제거한다. */
+    public void purgeSourceEvidence() {
+        this.evidenceSpans = JsonNodeFactory.instance.arrayNode();
+        this.rawExtractionJson = null;
+        this.comparisonReason = null;
+        this.rawComparisonJson = null;
     }
 
     private boolean matchesFinalDecision(

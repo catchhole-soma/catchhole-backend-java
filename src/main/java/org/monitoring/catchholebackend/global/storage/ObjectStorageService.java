@@ -4,9 +4,15 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.Normalizer;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 @Component
 @RequiredArgsConstructor
@@ -28,13 +34,9 @@ public class ObjectStorageService {
         );
     }
 
-    public StoredTextObject putEpisodeReplacementContent(UUID workId, int episodeNo, String content) {
-        return putEpisodeContent(workId, episodeNo, content);
-    }
-
     /**
-     * 회차 원문을 새 고유 key에 저장하고 이전 객체는 분석 이력 확인을 위해 보존한다.
-     * 호출자는 반환된 key/version/hash/글자 수로 Episode 메타데이터를 갱신한다.
+     * 교체 원문을 새 고유 key에 먼저 저장한다. 호출자는 이전 원문을 파기할 때 반환된 key를
+     * 제외 대상으로 전달한 뒤 Episode 메타데이터를 갱신한다.
      */
     public StoredTextObject replaceEpisodeContent(UUID workId, int episodeNo, String content) {
         return putEpisodeContent(workId, episodeNo, content);
@@ -79,8 +81,55 @@ public class ObjectStorageService {
         objectStorage.delete(key);
     }
 
+    public ObjectStoragePurgeResult purgeWork(UUID workId, Collection<UUID> uploadBatchIds) {
+        List<String> prefixes = new ArrayList<>();
+        prefixes.add("works/" + workId + "/");
+        uploadBatchIds.stream()
+                .map(batchId -> "upload-batches/" + batchId + "/")
+                .forEach(prefixes::add);
+        return objectStorage.purgePrefixes(prefixes);
+    }
+
+    /** DB 커밋이 실패한 교체 요청이 새로 만든 고유 객체 key들을 version까지 보상 파기한다. */
+    public ObjectStoragePurgeResult purgeReplacementObjects(Collection<String> objectKeys) {
+        return objectStorage.purgePrefixes(objectKeys);
+    }
+
+    /**
+     * 회차 번호 아래에 누적된 모든 원문 version과 현재 업로드 원본을 완전히 파기한다.
+     * 파일 교체에서는 먼저 저장한 새 원문 key만 제외해 새 원문까지 함께 지우지 않는다.
+     */
+    public ObjectStoragePurgeResult purgeEpisodeSource(
+            UUID workId,
+            int episodeNo,
+            String currentContentKey,
+            String sourceStorageUrl,
+            String retainedContentKey
+    ) {
+        String episodePrefix = "works/" + workId + "/episodes/" + episodeNo + "/";
+        Set<String> prefixes = new LinkedHashSet<>();
+        prefixes.add(episodePrefix);
+        if (StringUtils.hasText(currentContentKey) && !currentContentKey.startsWith(episodePrefix)) {
+            prefixes.add(currentContentKey);
+        }
+        String sourceKey = storageKeyOrNull(sourceStorageUrl);
+        if (sourceKey != null) {
+            prefixes.add(sourceKey);
+        }
+        List<String> retainedKeys = StringUtils.hasText(retainedContentKey)
+                ? List.of(retainedContentKey)
+                : List.of();
+        return objectStorage.purgePrefixesExcluding(prefixes, retainedKeys);
+    }
+
     public String toStorageUrl(String key) {
         return "s3://" + key;
+    }
+
+    private String storageKeyOrNull(String storageUrl) {
+        return StringUtils.hasText(storageUrl) && storageUrl.startsWith("s3://")
+                ? storageUrl.substring("s3://".length())
+                : null;
     }
 
     /**

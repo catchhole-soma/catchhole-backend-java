@@ -12,7 +12,10 @@ import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.auth.repository.RefreshTokenRepository;
 import org.monitoring.catchholebackend.domain.auth.service.PhoneVerificationService;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
+import org.monitoring.catchholebackend.domain.member.repository.MemberLegalRecordRepository;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
+import org.monitoring.catchholebackend.domain.member.type.LegalDocumentType;
+import org.monitoring.catchholebackend.domain.member.type.LegalRecordAction;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -36,6 +39,9 @@ class AuthSignupIntegrationTest {
 
     @Autowired
     private MemberRepository memberRepository;
+
+    @Autowired
+    private MemberLegalRecordRepository memberLegalRecordRepository;
 
     @Autowired
     private RefreshTokenRepository refreshTokenRepository;
@@ -62,6 +68,8 @@ class AuthSignupIntegrationTest {
                                   "email": "new-writer@example.com",
                                   "password": "password123",
                                   "displayName": "신규 작가",
+                                  "termsAccepted": true,
+                                  "privacyPolicyAcknowledged": true,
                                   "phoneVerificationToken": "phone-verification-token"
                                 }
                                 """))
@@ -78,8 +86,52 @@ class AuthSignupIntegrationTest {
         assertThat(savedMember.getDisplayName()).isEqualTo("신규 작가");
         assertThat(savedMember.isPhoneVerified()).isTrue();
         assertThat(passwordEncoder.matches("password123", savedMember.getPasswordHash())).isTrue();
+        assertThat(memberLegalRecordRepository.findAllByMemberIdOrderByRecordedAtAsc(savedMember.getId()))
+                .extracting(
+                        record -> record.getDocumentType(),
+                        record -> record.getActionType(),
+                        record -> record.getDocumentVersion()
+                )
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(
+                                LegalDocumentType.TERMS_OF_SERVICE,
+                                LegalRecordAction.AGREED,
+                                "2026-08-23"
+                        ),
+                        org.assertj.core.groups.Tuple.tuple(
+                                LegalDocumentType.PRIVACY_POLICY,
+                                LegalRecordAction.ACKNOWLEDGED,
+                                "2026-08-23"
+                        )
+                );
         assertThat(refreshTokenRepository.count()).isEqualTo(refreshTokenCountBefore + 1);
         org.mockito.Mockito.verify(phoneVerificationService)
                 .consumeSignupToken("phone-verification-token", "01055556666");
+    }
+
+    @Test
+    @DisplayName("회원가입은 이용약관 동의와 개인정보처리방침 확인을 모두 요구한다")
+    void signupRequiresTermsAcceptanceAndPrivacyPolicyAcknowledgement() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "unchecked-writer@example.com",
+                                  "password": "password123",
+                                  "displayName": "미확인 작가",
+                                  "termsAccepted": false,
+                                  "privacyPolicyAcknowledged": false,
+                                  "phoneVerificationToken": "phone-verification-token"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.error.details[*].field")
+                        .value(org.hamcrest.Matchers.containsInAnyOrder(
+                                "termsAccepted",
+                                "privacyPolicyAcknowledged"
+                        )));
+
+        assertThat(memberRepository.findByEmail("unchecked-writer@example.com")).isEmpty();
     }
 }

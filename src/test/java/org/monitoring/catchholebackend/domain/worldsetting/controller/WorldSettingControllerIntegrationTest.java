@@ -113,8 +113,8 @@ class WorldSettingControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("작품 삭제 시 작품에 속한 확정 세계관 설정도 함께 삭제된다")
-    void deleteWorkCascadesWorldSettings() throws Exception {
+    @DisplayName("작품 영구 삭제 요청 시 실제 처리 전까지 세계관 설정을 보존한다")
+    void requestWorkPurgeKeepsWorldSettingsUntilAsyncProcessing() throws Exception {
         worldSettingRepository.save(WorldSetting.create(
                 work,
                 WorldSettingCategory.RACE,
@@ -124,11 +124,15 @@ class WorldSettingControllerIntegrationTest {
         ));
 
         mockMvc.perform(delete("/api/v1/works/{workId}", work.getId())
-                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
-                .andExpect(status().isOk());
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"confirmation":"영구 삭제"}
+                                """))
+                .andExpect(status().isAccepted());
 
-        assertThat(worldSettingRepository.countByWorkId(work.getId())).isZero();
-        assertThat(workRepository.findById(work.getId())).isEmpty();
+        assertThat(worldSettingRepository.countByWorkId(work.getId())).isOne();
+        assertThat(workRepository.findById(work.getId())).isPresent();
     }
 
     @Test

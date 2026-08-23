@@ -74,6 +74,7 @@ NVM-260의 `SETTING_EXTRACTION` Worker는 캐릭터 후보 저장 뒤 회차 원
 | `RUNNING` | 분석 진행 중 | Python AI Worker가 내부 claim API로 작업을 가져가면 `AnalysisJob.claim()`이 lease와 claim 횟수를 기록하며 전환합니다. |
 | `SUCCEEDED` | 분석 성공 | Worker가 완료 API를 호출하면 `AnalysisJob.succeed()`로 전환하고 결과 요약과 Backend token ledger 합계를 기록합니다. |
 | `FAILED` | 분석 실패 | Worker가 실패 API를 호출하거나, claim 후 분석 대상 회차가 없으면 `AnalysisJob.fail()`로 전환합니다. |
+| `CANCELED` | 작품 영구 삭제로 취소 | 삭제 요청이 활성 Job의 lease를 제거하고 예약 토큰을 반환합니다. 이후 Worker 쓰기는 거절됩니다. |
 
 `FAILED`의 원인은 `failureCode`로 구분합니다. 공개 응답은 코드에 대응하는 안전한 사용자 메시지를 제공하고, `errorMessage`의 내부 URL·예외 문자열은 반환하지 않습니다. 현재 코드는 `AI_TOKEN_QUOTA_EXHAUSTED`, `LLM_OUTPUT_TRUNCATED`, `LLM_NETWORK_ERROR`, `LLM_PROVIDER_ERROR`, `LLM_RESPONSE_PARSE_ERROR`, `COMPARISON_VALIDATION_FAILED`, `WORKER_LEASE_EXPIRED`, `UNEXPECTED_ERROR`입니다.
 
@@ -91,7 +92,7 @@ NVM-260의 `SETTING_EXTRACTION` Worker는 캐릭터 후보 저장 뒤 회차 원
 정책 미확정 TODO:
 
 - 실패 처리 이력은 후속 모니터링 기능에서 별도 기록/조회합니다. `AnalysisJob.errorMessage`는 작업 상세 조회에 보여줄 마지막 실패 사유만 저장합니다.
-- 사용자 취소 또는 시스템 취소가 필요해지면 `CANCELED` 상태와 전이 API를 별도 정의합니다.
+- 현재 `CANCELED`는 작품 영구 삭제 전용 시스템 상태입니다. 개별 사용자 취소 API가 필요하면 권한·과금·재시도 정책을 별도로 정의합니다.
 
 상태 표시 기준:
 
@@ -458,6 +459,7 @@ GET /api/v1/works/{workId}/analysis-jobs/batches?page=0&size=10
 
 - `content` 한 항목은 업로드 배치 하나입니다.
 - `jobGroups`는 같은 배치에서 수행한 `SETTING_EXTRACTION`, `EPISODE_VALIDATION`을 각각 집계합니다.
+- 각 그룹은 성공·실패 건수와 별도로 작품 영구 삭제로 취소된 `canceledJobCount`를 제공합니다.
 - `currentAnalysisJobIds`는 진행·실패·완료 상세 화면에서 다시 조회할 최신 유효 Job ID입니다.
 - `totalCandidateCount`, `reviewedCandidateCount`, `pendingCandidateCount`는 배치에 연결된 캐릭터 설정 후보 검토 현황입니다.
 - `worldSettingTotalCandidateCount`, `worldSettingReviewedCandidateCount`, `worldSettingPendingCandidateCount`는 같은 배치의 세계관 설정 후보 검토 현황입니다. 배치 상태는 두 종류의 대기 후보를 합산해 `REVIEW_REQUIRED` 여부를 판정합니다.
@@ -466,10 +468,11 @@ GET /api/v1/works/{workId}/analysis-jobs/batches?page=0&size=10
 상태 판정 우선순위는 다음과 같습니다.
 
 1. 현재 유효 Job 중 `PENDING` 또는 `RUNNING`이 있으면 `IN_PROGRESS`
-2. 모든 목적의 현재 Job이 실패했으면 `FAILED`
-3. 성공과 실패가 섞였으면 `PARTIALLY_FAILED`
-4. 실행이 끝났고 검토 대기 후보가 있으면 `REVIEW_REQUIRED`
-5. 그 외에는 `COMPLETED`
+2. 현재 유효 Job 중 작품 영구 삭제로 취소된 작업이 있으면 `CANCELED`
+3. 모든 목적의 현재 Job이 실패했으면 `FAILED`
+4. 성공과 실패가 섞였으면 `PARTIALLY_FAILED`
+5. 실행이 끝났고 검토 대기 후보가 있으면 `REVIEW_REQUIRED`
+6. 그 외에는 `COMPLETED`
 
 ### `GET /api/v1/works/{workId}/analysis-jobs/{analysisJobId}`
 
