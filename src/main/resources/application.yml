@@ -47,6 +47,15 @@ auth:
     signup-token-expiration: 10m
     max-attempts: 5
 
+member:
+  withdrawal:
+    scheduling-enabled: ${MEMBER_WITHDRAWAL_SCHEDULING_ENABLED:true}
+    fixed-delay-ms: ${MEMBER_WITHDRAWAL_FIXED_DELAY_MS:10000}
+    retry-delay: ${MEMBER_WITHDRAWAL_RETRY_DELAY:10s}
+    audit-retention: ${MEMBER_WITHDRAWAL_AUDIT_RETENTION:365d}
+    batch-size: ${MEMBER_WITHDRAWAL_BATCH_SIZE:10}
+    cleanup-cron: ${MEMBER_WITHDRAWAL_CLEANUP_CRON:0 30 3 * * *}
+
 sms:
   provider: ${SMS_PROVIDER:fake}
   solapi:

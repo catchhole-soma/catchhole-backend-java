@@ -154,7 +154,7 @@ GET /api/v1/works/purge-requests/{requestId}
 POST /api/v1/works/purge-requests/{requestId}/retry
 ```
 
-작품 또는 요청 ID 상태 조회와 실패 요청 재시도는 요청 회원 본인에게만 허용합니다. 다른 회원의 요청은 존재 여부를 노출하지 않고 `WORK_PURGE_NOT_FOUND`로 응답하며, `FAILED`·`PARTIAL_FAILED`가 아닌 요청의 재시도는 `WORK_PURGE_RETRY_NOT_ALLOWED`로 거절합니다.
+작품 또는 요청 ID 상태 조회와 실패 요청 재시도는 요청 회원 본인에게만 허용합니다. 다른 회원의 요청은 존재 여부를 노출하지 않고 `WORK_PURGE_NOT_FOUND`로 응답하며, `FAILED`·`PARTIAL_FAILED`가 아닌 요청의 재시도는 `WORK_PURGE_RETRY_NOT_ALLOWED`로 거절합니다. 회원 탈퇴에서는 별도 삭제 구현 없이 이 WorkPurge 요청을 그대로 사용하고, 탈퇴 후 인증이 차단된 사용자를 대신해 회원 탈퇴 Processor가 실패 요청만 자동 재접수합니다.
 
 ## 다른 도메인과의 연결
 

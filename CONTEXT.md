@@ -35,3 +35,7 @@ _Avoid_: World setting, extracted fact
 **Failure Code**:
 Worker·Backend·Frontend가 실패 원인을 문자열 문구 파싱 없이 구분하는 기계 판독용 분석 코드다.
 _Avoid_: Error message, exception text
+
+**Member Withdrawal Purge**:
+회원 인증을 즉시 차단한 뒤 기존 Work Purge로 모든 소유 작품을 파기하고 회원 행을 물리 삭제할 때까지 추적하는 복구 불가능한 탈퇴 흐름이다.
+_Avoid_: Soft delete, account deactivation, grace period

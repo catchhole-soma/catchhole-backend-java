@@ -6,6 +6,7 @@ import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRep
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenAccountRepository;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenGrantRepository;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenUsageRepository;
+import org.monitoring.catchholebackend.domain.auth.repository.RefreshTokenRepository;
 import org.monitoring.catchholebackend.domain.auth.service.AuthService;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
@@ -17,6 +18,8 @@ import org.monitoring.catchholebackend.domain.episode.repository.EpisodeReposito
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodePurgeDataRepository;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeSourcePurgeRequestRepository;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
+import org.monitoring.catchholebackend.domain.member.repository.MemberWithdrawalDataRepository;
+import org.monitoring.catchholebackend.domain.member.repository.MemberWithdrawalRequestRepository;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
 import org.monitoring.catchholebackend.domain.work.repository.WorkPurgeDataRepository;
@@ -32,6 +35,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest(properties = {
         "work.purge.scheduling-enabled=false",
+        "member.withdrawal.scheduling-enabled=false",
         "episode.source-purge.scheduling-enabled=false",
         "spring.autoconfigure.exclude="
                 + "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration,"
@@ -45,6 +49,15 @@ class CatchHoleBackendApplicationTests {
 
     @MockitoBean
     private MemberRepository memberRepository;
+
+    @MockitoBean
+    private MemberWithdrawalRequestRepository memberWithdrawalRequestRepository;
+
+    @MockitoBean
+    private MemberWithdrawalDataRepository memberWithdrawalDataRepository;
+
+    @MockitoBean
+    private RefreshTokenRepository refreshTokenRepository;
 
     @MockitoBean
     private WorkRepository workRepository;

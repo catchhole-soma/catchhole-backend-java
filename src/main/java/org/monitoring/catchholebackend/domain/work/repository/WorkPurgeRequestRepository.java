@@ -21,6 +21,19 @@ public interface WorkPurgeRequestRepository extends JpaRepository<WorkPurgeReque
     Optional<WorkPurgeRequest> findByIdAndMemberId(UUID id, Long memberId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select request
+            from WorkPurgeRequest request
+            where request.memberId = :memberId
+              and request.status in :statuses
+            order by request.requestedAt asc
+            """)
+    List<WorkPurgeRequest> findAllByMemberIdAndStatusInForUpdate(
+            @Param("memberId") Long memberId,
+            @Param("statuses") List<WorkPurgeStatus> statuses
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select request from WorkPurgeRequest request where request.id = :id and request.memberId = :memberId")
     Optional<WorkPurgeRequest> findByIdAndMemberIdForUpdate(
             @Param("id") UUID id,

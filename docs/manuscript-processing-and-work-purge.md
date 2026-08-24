@@ -45,7 +45,7 @@ GET /api/v1/works/{workId}/purge-request
 POST /api/v1/works/purge-requests/{requestId}/retry
 ```
 
-상태는 `REQUESTED → PROCESSING → COMPLETED`로 전이하고, 실패하면 `FAILED` 또는 일부 객체를 지운 `PARTIAL_FAILED`가 됩니다. 실패 상태만 재시도할 수 있습니다.
+상태는 `REQUESTED → PROCESSING → COMPLETED`로 전이하고, 실패하면 `FAILED` 또는 일부 객체를 지운 `PARTIAL_FAILED`가 됩니다. 일반 작품 삭제에서는 실패 상태만 사용자가 재시도할 수 있습니다. 회원 탈퇴가 소유 작품 파기를 조정하는 동안에는 인증이 이미 차단되어 있으므로 [회원 탈퇴 Processor](member-withdrawal.md)가 같은 실패 요청을 자동으로 `REQUESTED`로 되돌립니다.
 
 Spring 스케줄러는 기본 10초 간격으로 한 번 실행될 때 최대 10건을 처리하되, 실제 삭제를 시작할 요청만 한 건씩 `PROCESSING`으로 전환합니다. 따라서 앞 요청 처리 중 서버가 재시작되어도 아직 실행하지 않은 뒤 요청은 `REQUESTED` 상태를 유지합니다.
 
@@ -62,6 +62,8 @@ Spring 스케줄러는 기본 10초 간격으로 한 번 실행될 때 최대 10
 `PURGING` 작품은 잠금을 사용하는 모든 변경 API와 새 분석 요청에서 `WORK_PURGE_IN_PROGRESS`로 거절됩니다. Worker claim 쿼리도 `ACTIVE` 작품만 선택합니다. 저장소 삭제가 실패하면 DB를 보존하므로 prefix 삭제를 안전하게 재시도할 수 있습니다.
 여러 S3 prefix 중 뒤 prefix의 목록 조회가 실패해도 앞 prefix에서 이미 집계한 대상·삭제 건수는 보존하며, 요청은 저장소 실패 건수를 포함한 실패 상태로 기록합니다.
 
+영구 파기를 실행하는 Backend IAM principal에는 버킷 ARN의 `s3:ListBucketVersions`와 `works/*`, `upload-batches/*` 객체 ARN의 `s3:DeleteObject`, `s3:DeleteObjectVersion` 권한이 필요합니다. 일반 `s3:ListBucket`과 `s3:DeleteObject`만으로는 version과 delete marker를 완전히 제거할 수 없으며, 목록 조회가 403이면 저장소 실패로 기록하고 DB 삭제를 시작하지 않습니다.
+
 ## 회차 수정·파일 교체와 삭제의 원문 파기
 
 회차 원문을 직접 수정하거나 파일로 교체할 때는 새 S3 객체를 만든 뒤, 새 `Episode` 참조와 `episode_source_purge_requests` 정리 요청을 같은 DB 트랜잭션으로 먼저 커밋합니다. 커밋 전에 이전 S3 원문을 지우지 않으므로 마지막 flush·commit이 실패해도 DB가 이미 삭제된 원문을 가리키지 않습니다. 이 트랜잭션이 롤백되면 새 업로드 원본과 새 회차 원문 key의 모든 version을 보상 파기합니다.
@@ -72,7 +74,7 @@ Spring 스케줄러는 기본 10초 간격으로 한 번 실행될 때 최대 10
 
 ## 보존하는 최소 감사 정보
 
-작품 FK 없이 다음 삭제 처리 정보만 보존합니다.
+작품 FK와 회원 FK 없이 다음 삭제 처리 정보만 보존합니다. 회원 FK를 제거하는 이유는 회원 탈퇴가 완료된 뒤에도 파기 완료 여부를 제한된 기간 동안 증명하기 위해서입니다.
 
 - 삭제 요청 ID, 원래 작품 ID, 회원 ID
 - 요청·처리·완료 시각과 시도 횟수

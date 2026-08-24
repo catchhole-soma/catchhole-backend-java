@@ -103,4 +103,13 @@ public class Member extends BaseEntity {
     public boolean isActive() {
         return status == MemberStatus.ACTIVE;
     }
+
+    public boolean isPurging() {
+        return status == MemberStatus.PURGING;
+    }
+
+    public void startPurging() {
+        validateActive();
+        this.status = MemberStatus.PURGING;
+    }
 }

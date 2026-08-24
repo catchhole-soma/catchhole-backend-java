@@ -51,6 +51,16 @@ class JwtMemberAuthenticationConverterTest {
                 .isInstanceOf(OAuth2AuthenticationException.class);
     }
 
+    @Test
+    void rejectsJwtWhenMemberIsPurging() {
+        Member member = member(MemberRole.AUTHOR, MemberStatus.PURGING);
+        when(memberRepository.findById(1L)).thenReturn(Optional.of(member));
+        JwtMemberAuthenticationConverter converter = new JwtMemberAuthenticationConverter(memberRepository);
+
+        assertThatThrownBy(() -> converter.convert(jwt("1")))
+                .isInstanceOf(OAuth2AuthenticationException.class);
+    }
+
     private Jwt jwt(String subject) {
         return new Jwt(
                 "access-token",

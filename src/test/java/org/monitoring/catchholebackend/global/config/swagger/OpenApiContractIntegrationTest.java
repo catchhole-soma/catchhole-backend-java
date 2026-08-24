@@ -705,4 +705,32 @@ class OpenApiContractIntegrationTest {
                         .value("#/components/schemas/WorkPurgeStoreResultResponse"));
     }
 
+    @Test
+    @DisplayName("회원 즉시 탈퇴 계약은 현재 비밀번호와 고정 확인 문구를 요구한다")
+    void openApiContractExposesImmediateMemberWithdrawal() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$['paths']['/api/v1/members/me']['delete']['operationId']")
+                        .value("withdrawMe"))
+                .andExpect(jsonPath("$['paths']['/api/v1/members/me']['delete']['security'][0]['bearerAuth']")
+                        .isArray())
+                .andExpect(jsonPath("$['paths']['/api/v1/members/me']['delete']"
+                        + "['requestBody']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/MemberWithdrawalCreateRequest"))
+                .andExpect(jsonPath("$['paths']['/api/v1/members/me']['delete']"
+                        + "['responses']['202']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/CommonResponseMemberWithdrawalResponse"))
+                .andExpect(jsonPath("$['components']['schemas']['MemberWithdrawalCreateRequest']['required']")
+                        .value(org.hamcrest.Matchers.hasItems("currentPassword", "confirmation")))
+                .andExpect(jsonPath("$['components']['schemas']['MemberWithdrawalCreateRequest']"
+                        + "['properties']['currentPassword']['maxLength']")
+                        .value(64))
+                .andExpect(jsonPath("$['components']['schemas']['MemberWithdrawalCreateRequest']"
+                        + "['properties']['confirmation']['pattern']")
+                        .value("회원 탈퇴"))
+                .andExpect(jsonPath("$['components']['schemas']['MemberWithdrawalResponse']"
+                        + "['properties']['status']['enum']")
+                        .value(containsInAnyOrder("REQUESTED", "PROCESSING", "COMPLETED")));
+    }
+
 }

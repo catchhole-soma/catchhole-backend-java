@@ -51,6 +51,7 @@
 - SOLAPI 자동충전은 사용하지 않고 Redis의 전체 KST 일 20건·월 200건 제한과 선불 충전 잔액으로 SMS 비용 상한을 관리한다.
 - 운영 Redis는 `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`로 연결한다. Redis 장애 시 SMS를 보내지 않는 fail-closed 정책을 유지한다.
 - 작품 영구 삭제는 운영·local에서 `WORK_PURGE_SCHEDULING_ENABLED=true`, `WORK_PURGE_FIXED_DELAY_MS=10000`, `WORK_PURGE_BATCH_SIZE=10`을 기본으로 두어 요청을 빠르게 재시도하되 한 번의 DB 점유를 제한한다. 실행 중 Worker 정리와 장애 회수는 `WORK_PURGE_WORKER_DRAIN=75s`, `WORK_PURGE_STALE_PROCESSING=15m`, 완료 감사 보존과 정리는 `WORK_PURGE_AUDIT_RETENTION=365d`, `WORK_PURGE_CLEANUP_CRON="0 20 3 * * *"`를 기본으로 사용한다. 운영 부하에 따라 환경변수로만 override하며 test 프로파일은 스케줄러를 끈다.
+- 회원 탈퇴 조정은 운영·local에서 `MEMBER_WITHDRAWAL_SCHEDULING_ENABLED=true`, `MEMBER_WITHDRAWAL_FIXED_DELAY_MS=10000`, `MEMBER_WITHDRAWAL_RETRY_DELAY=10s`, `MEMBER_WITHDRAWAL_BATCH_SIZE=10`을 기본으로 사용한다. 완료 감사 row는 `MEMBER_WITHDRAWAL_AUDIT_RETENTION=365d` 뒤 `MEMBER_WITHDRAWAL_CLEANUP_CRON="0 30 3 * * *"`에 정리하며 test 프로파일은 스케줄러를 끈다.
 - 회차 원문 파기는 운영·local에서 `EPISODE_SOURCE_PURGE_SCHEDULING_ENABLED=true`, `EPISODE_SOURCE_PURGE_FIXED_DELAY_MS=10000`을 기본으로 사용한다. 커밋 직후 정리에 실패한 S3 원문과 파생 데이터를 10초 간격으로 재시도하기 위한 값이며 운영 부하에 따라 환경변수로 override한다. test 프로파일은 스케줄러를 끈다.
 - 로컬 실행 시 `application.yml`이 `apps/CatchHole-Backend/.env`를 optional import한다. AWS/S3 같은 로컬 비밀값은 `.env`에 둘 수 있지만, `.env`는 커밋하지 않는다.
 - E2E는 `SPRING_PROFILES_ACTIVE=e2e`로 활성화하고 운영에서는 사용하지 않는다. 이 프로파일에서만 `LocalFileObjectStorage`를 사용하며 `storage.local.root` 기본값은 `${java.io.tmpdir}/catchhole-e2e-storage`, 명시적 override는 `CATCHHOLE_E2E_STORAGE_ROOT`로 둔다.
@@ -167,6 +168,7 @@ org.monitoring.catchholebackend
     │   ├── auth
     │   ├── cors
     │   ├── jpa
+    │   ├── memberwithdrawal
     │   ├── phoneverification
     │   ├── security
     │   └── swagger
@@ -252,6 +254,10 @@ domain/<domain>
 - 회원가입은 회원과 refresh token을 DB에 flush한 뒤 Redis `GETDEL`로 가입 토큰을 소비한다. 소비 실패 시 DB 트랜잭션을 rollback하고 이메일·전화번호 unique 제약을 최종 동시성 방어선으로 유지한다.
 - SOLAPI SMS 요청은 자동 재시도하지 않는다. timeout 뒤 실제 발송 여부를 알 수 없어 중복 SMS와 비용이 발생할 수 있기 때문이다.
 - 회원가입 표시 이름은 20자 이하, 비밀번호는 8~64자이면서 영문과 숫자를 각각 하나 이상 포함하도록 검증한다. 프론트 검증과 OpenAPI schema도 같은 제약을 사용한다.
+- 회원 즉시 탈퇴는 `DELETE /api/v1/members/me`에서 현재 비밀번호와 정확한 `회원 탈퇴` 문구를 요구한다. 접수 트랜잭션에서 `MemberStatus.ACTIVE → PURGING`과 모든 refresh token 폐기를 함께 커밋해 기존 access token의 다음 인증을 차단한다.
+- 회원 탈퇴의 최종 전이는 `DELETED` 저장이 아니라 `PURGING → members 행 hard delete`다. 이메일·휴대폰 번호 재가입은 최종 삭제 뒤 허용하며, 유예·복구·soft delete를 이 흐름에 섞지 않는다.
+- 회원 탈퇴 작품 파기는 `MemberWorkPurgeCoordinator` Interface를 통해 기존 WorkPurge Module만 사용한다. 별도 S3 삭제 Adapter를 만들지 않고, 탈퇴 중 실패한 `FAILED`·`PARTIAL_FAILED` 작품 요청은 인증이 차단된 사용자를 대신해 자동 재접수한다. 모든 작품 행이 사라진 뒤에만 회원 직접 참조와 회원 행을 삭제한다.
+- `member_withdrawal_requests`와 완료된 `work_purge_requests`는 회원 hard delete 뒤에도 최소 파기 감사를 유지하도록 회원 FK를 두지 않는다. 이메일·전화번호·원고·S3 key를 저장하지 않고 완료 후 기본 365일만 보존한다.
 
 #### Work Domain Policy
 

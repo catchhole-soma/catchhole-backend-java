@@ -34,6 +34,16 @@ public interface WorkRepository extends JpaRepository<Work, UUID> {
 
     List<Work> findAllByMemberIdOrderByCreatedAtDesc(Long memberId);
 
+    @Query("""
+            select targetWork.id
+            from Work targetWork
+            where targetWork.member.id = :memberId
+            order by targetWork.createdAt asc
+            """)
+    List<UUID> findAllIdsByMemberId(@Param("memberId") Long memberId);
+
+    long countByMemberId(Long memberId);
+
     default Work getOwnedWork(UUID id, Long memberId) {
         return findByIdAndMemberId(id, memberId)
                 .orElseThrow(() -> new AppException(WorkErrorCode.WORK_NOT_FOUND));
