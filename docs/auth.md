@@ -40,7 +40,8 @@ Auth 도메인은 휴대폰 번호 소유 확인, 이메일/비밀번호 기반 
 | --- | --- |
 | `ACTIVE` | 사용 가능한 회원 |
 | `SUSPENDED` | 정지된 회원 |
-| `DELETED` | 탈퇴 또는 삭제된 회원 |
+| `PURGING` | 탈퇴 접수 후 인증을 차단하고 물리 파기를 진행 중인 회원 |
+| `DELETED` | 기존 데이터 호환용 상태. 즉시 탈퇴 흐름은 이 상태로 전환하지 않음 |
 
 `MemberRole`
 
@@ -271,6 +272,15 @@ Authorization: Bearer <access-token>
 
 Spring Security가 access token을 검증하고 `MemberPrincipal`을 주입하면, controller가 principal 기반 `MemberResponse`를 반환합니다.
 
+### 회원 즉시 탈퇴
+
+```http
+DELETE /api/v1/members/me
+Authorization: Bearer <access-token>
+```
+
+현재 비밀번호와 정확한 `회원 탈퇴` 확인 문구를 검증합니다. 접수 트랜잭션에서 회원을 `PURGING`으로 전환하고 저장된 모든 refresh token을 폐기하므로, 기존 JWT의 서명이 유효해도 다음 요청부터 인증되지 않습니다. 작품은 기존 WorkPurge 기능으로 비동기 영구 파기하고 모든 작품이 사라진 뒤 회원 행을 hard delete합니다. 전체 상태 전이와 자동 재시도 계약은 [회원 즉시 탈퇴와 영구 파기](member-withdrawal.md)를 따릅니다.
+
 ## 접근 제어
 
 - `/phone-verifications`, `/phone-verifications/{verificationId}/confirm`, `/signup`, `/login`, `/refresh`, `/logout`은 인증 없이 호출할 수 있습니다.
@@ -294,4 +304,4 @@ SOLAPI 연동 기준은 [발신번호 가이드](https://solapi.com/guides/sende
 
 - CAPTCHA 또는 별도 WAF가 필요할지 전체 일일 한도 소진 공격을 관측한 뒤 결정
 - PASS·카카오 본인인증처럼 실명·CI/DI가 필요한지 제품 요구가 생기면 별도 도입
-- 회원 탈퇴/정지 API가 생기면 refresh token 폐기 범위 정의
+- 정지 API가 생기면 정지 기간과 refresh token 폐기·복구 범위 정의
