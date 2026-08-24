@@ -17,6 +17,7 @@ API 요청·응답과 오류 코드는 [Auth](auth.md)를, 사용자가 보는 �
 | SMS 발송 | [`SmsSender`](../src/main/java/org/monitoring/catchholebackend/domain/auth/sms/SmsSender.java) | `sendVerificationCode` |
 | 회원가입 API 진입 | [`AuthController`](../src/main/java/org/monitoring/catchholebackend/domain/auth/controller/AuthController.java) | `signup`, `tokenResponse` |
 | 회원가입 유스케이스 | [`AuthServiceImpl`](../src/main/java/org/monitoring/catchholebackend/domain/auth/service/AuthServiceImpl.java) | `signup`, `validateSignupUniqueness`, `issueTokens` |
+| 현재 법률 문서 검증 | [`LegalDocumentServiceImpl`](../src/main/java/org/monitoring/catchholebackend/domain/legal/service/LegalDocumentServiceImpl.java) | `getCurrentDocuments`, `requireCurrentSignupDocuments` |
 | 회원 조립 | [`AuthMapper`](../src/main/java/org/monitoring/catchholebackend/domain/auth/mapper/AuthMapper.java), [`Member`](../src/main/java/org/monitoring/catchholebackend/domain/member/entity/Member.java) | `toEntity`, `registerPhoneVerified` |
 | 로그인 토큰 발급 | [`JwtTokenProvider`](../src/main/java/org/monitoring/catchholebackend/domain/auth/token/JwtTokenProvider.java), [`RefreshTokenGenerator`](../src/main/java/org/monitoring/catchholebackend/domain/auth/token/RefreshTokenGenerator.java), [`TokenHashProvider`](../src/main/java/org/monitoring/catchholebackend/domain/auth/token/TokenHashProvider.java), [`RefreshTokenCookieFactory`](../src/main/java/org/monitoring/catchholebackend/domain/auth/token/RefreshTokenCookieFactory.java) | `generateAccessToken`, `generate`, `hash`, `create` |
 
@@ -33,14 +34,16 @@ flowchart TD
     G --> H["handleConfirmVerification<br/>6자리 인증번호 확인"]
     H --> I["POST /phone-verifications/{verificationId}/confirm"]
     I --> J["인증번호 원자 검증 후<br/>10분 가입 토큰 발급"]
-    J --> K["handleSignup<br/>이메일·비밀번호·필명·가입 토큰 제출"]
-    K --> L["POST /api/v1/auth/signup<br/>전화번호는 body에서 제외"]
-    L --> M["가입 토큰으로 검증된<br/>전화번호 조회"]
-    M --> N["회원·refresh token 저장 후<br/>DB flush"]
-    N --> O["가입 토큰 GETDEL<br/>1회 소비"]
-    O --> P["DB transaction commit"]
-    P --> Q["access token body +<br/>refresh token HttpOnly cookie"]
-    Q --> R["saveAuthToken 후<br/>/works 이동"]
+    J --> K["현재 PUBLISHED 법률 문서 조회<br/>동의·확인과 만 14세 확인"]
+    K --> L["handleSignup<br/>계정 정보·가입 토큰·두 문서 ID 제출"]
+    L --> M["POST /api/v1/auth/signup<br/>전화번호는 body에서 제외"]
+    M --> N["두 문서 ID가 현재 게시본인지 검증"]
+    N --> O["가입 토큰으로 검증된<br/>전화번호 조회"]
+    O --> P["회원·법률 기록·refresh token 저장 후<br/>DB flush"]
+    P --> Q["가입 토큰 GETDEL<br/>1회 소비"]
+    Q --> R["DB transaction commit"]
+    R --> S["access token body +<br/>refresh token HttpOnly cookie"]
+    S --> T["saveAuthToken 후<br/>/works 이동"]
 ```
 
 ## 인증번호 발송 코드 흐름
@@ -141,11 +144,14 @@ sequenceDiagram
     participant PhoneService as PhoneVerificationService
     participant Redis
     participant MemberRepo as MemberRepository
+    participant LegalService as LegalDocumentService
+    participant LegalRepo as LegalDocumentRepository
     participant Mapper as AuthMapper / Member
+    participant RecordRepo as MemberLegalRecordRepository
     participant Token as JWT / RefreshToken components
     participant RefreshRepo as RefreshTokenRepository
 
-    Front->>Controller: POST /auth/signup<br/>email, password, displayName, phoneVerificationToken
+    Front->>Controller: POST /auth/signup<br/>계정 정보, 필수 확인 3개, 두 문서 ID, phoneVerificationToken
     Note over Front,Controller: @Valid 실패 시 Service 호출 전 400 응답
     Controller->>Service: signup(request)
     Note over Service,RefreshRepo: Spring DB transaction 시작
@@ -172,37 +178,48 @@ sequenceDiagram
                 Note over Service,Redis: 가입 토큰은 아직 소비하지 않음
             else 가입 가능
                 MemberRepo-->>Service: false
-                Service->>Service: PasswordEncoder.encode(password)
-                Service->>Mapper: toEntity(request, passwordHash, phoneNumber)
-                Mapper->>Mapper: Member.registerPhoneVerified<br/>ACTIVE, AUTHOR, phoneVerified=true
-                Mapper-->>Service: Member
-                Service->>MemberRepo: save(member)
-                Service->>Token: access token + opaque refresh token 생성<br/>refresh token hash 계산
-                Token-->>Service: AuthTokenIssueResult 재료
-                Service->>RefreshRepo: save(refreshTokenHash, expiresAt)
-                Service->>MemberRepo: flush()
-                Note over MemberRepo,RefreshRepo: members·refresh_tokens insert와 unique 제약을 DB에 먼저 반영
-                alt DB unique 또는 flush 실패
-                    MemberRepo-->>Service: DB flush 예외
-                    Note over Service,Redis: DB rollback, 가입 토큰은 소비하지 않음
-                    Service-->>Front: 요청 실패
-                else DB flush 성공
-                    Service->>PhoneService: consumeSignupToken(token, phoneNumber)
-                    PhoneService->>Redis: GETDEL signup-token:{token}
-                    alt 동시 요청이 먼저 소비했거나 번호 불일치
-                        Redis-->>PhoneService: 없음 또는 다른 번호
-                        PhoneService-->>Service: AUTH_PHONE_VERIFICATION_TOKEN_INVALID 예외
-                        Note over Service,RefreshRepo: 예외로 회원·refresh token DB transaction rollback
-                        Service-->>Front: 400 AUTH_PHONE_VERIFICATION_TOKEN_INVALID
-                    else 토큰 1회 소비 성공
-                        Redis-->>PhoneService: 같은 phoneNumber
-                        PhoneService-->>Service: 완료
-                        Note over Service,RefreshRepo: DB transaction commit
-                        Service-->>Controller: access token + refresh token 원문
-                        Controller->>Controller: RefreshTokenCookieFactory.create(refreshToken)
-                        Controller-->>Front: 200 access token body<br/>refresh token HttpOnly cookie
-                        Front->>Front: sessionStorage 인증 흐름 제거<br/>saveAuthToken(response)
-                        Front->>Front: /works로 replace 이동
+                Service->>LegalService: requireCurrentSignupDocuments(termsId, privacyId)
+                LegalService->>LegalRepo: ko-KR PUBLISHED 문서 조회
+                alt 현재 게시본 없음 또는 ID 불일치
+                    LegalRepo-->>LegalService: 문서 없음 또는 다른 ID
+                    LegalService-->>Front: 503 LEGAL_DOCUMENTS_UNAVAILABLE<br/>또는 409 LEGAL_DOCUMENT_NOT_CURRENT
+                    Note over Service,Redis: 회원·동의 이력은 저장하지 않고 가입 토큰 유지
+                else 두 현재 게시본 검증 완료
+                    LegalRepo-->>LegalService: 이용약관·개인정보처리방침
+                    Service->>Service: 한 번의 recordedAt 생성 + PasswordEncoder.encode
+                    Service->>Mapper: toEntity(request, passwordHash, phoneNumber, recordedAt)
+                    Mapper->>Mapper: Member.registerPhoneVerified<br/>ACTIVE, AUTHOR, phoneVerified=true, age 시각
+                    Mapper-->>Service: Member
+                    Service->>MemberRepo: save(member)
+                    Service->>Mapper: toLegalRecordEntities(member, documents, recordedAt)
+                    Service->>RecordRepo: saveAll(정확한 문서 FK·snapshot 2건)
+                    Service->>Token: access token + opaque refresh token 생성<br/>refresh token hash 계산
+                    Token-->>Service: AuthTokenIssueResult 재료
+                    Service->>RefreshRepo: save(refreshTokenHash, expiresAt)
+                    Service->>MemberRepo: flush()
+                    Note over MemberRepo,RefreshRepo: 회원·법률 기록·refresh token과 unique/FK 제약을 DB에 먼저 반영
+                    alt DB unique 또는 flush 실패
+                        MemberRepo-->>Service: DB flush 예외
+                        Note over Service,Redis: DB rollback, 가입 토큰은 소비하지 않음
+                        Service-->>Front: 요청 실패
+                    else DB flush 성공
+                        Service->>PhoneService: consumeSignupToken(token, phoneNumber)
+                        PhoneService->>Redis: GETDEL signup-token:{token}
+                        alt 동시 요청이 먼저 소비했거나 번호 불일치
+                            Redis-->>PhoneService: 없음 또는 다른 번호
+                            PhoneService-->>Service: AUTH_PHONE_VERIFICATION_TOKEN_INVALID 예외
+                            Note over Service,RefreshRepo: 예외로 회원·법률 기록·refresh token DB transaction rollback
+                            Service-->>Front: 400 AUTH_PHONE_VERIFICATION_TOKEN_INVALID
+                        else 토큰 1회 소비 성공
+                            Redis-->>PhoneService: 같은 phoneNumber
+                            PhoneService-->>Service: 완료
+                            Note over Service,RefreshRepo: DB transaction commit
+                            Service-->>Controller: access token + refresh token 원문
+                            Controller->>Controller: RefreshTokenCookieFactory.create(refreshToken)
+                            Controller-->>Front: 200 access token body<br/>refresh token HttpOnly cookie
+                            Front->>Front: sessionStorage 인증 흐름 제거<br/>saveAuthToken(response)
+                            Front->>Front: /works로 replace 이동
+                        end
                     end
                 end
             end
@@ -219,3 +236,5 @@ sequenceDiagram
 5. 인증번호 확인을 동시에 호출하면 Redis Lua가 최초 가입 토큰 하나만 만들고 이후 요청에는 같은 토큰을 반환합니다.
 6. Redis rate limit과 인증 흐름 저장이 모두 성공한 뒤 SMS를 한 번 호출합니다. SMS timeout이나 provider 오류에서는 중복 문자와 이중 비용을 피하기 위해 자동 재시도하지 않습니다.
 7. 가입 성공 응답 자체가 로그인 결과입니다. access token은 응답 body, refresh token은 원문을 DB에 남기지 않고 hash만 저장한 뒤 `HttpOnly` 쿠키로 전달합니다.
+8. Front는 현재 게시 문서 묶음에서 확인한 두 ID를 보내고 Backend는 버전 문자열을 신뢰하지 않습니다. 두 ID 모두 가입 시점의 현재 `PUBLISHED` 문서여야 하며 교체된 문서는 409로 다시 확인받습니다.
+9. 이용약관 동의, 개인정보처리방침 확인과 만 14세 이상 확인은 모두 필수입니다. 두 법률 기록과 `members.age_requirement_confirmed_at`은 같은 `recordedAt`을 사용해 한 가입 사건으로 추적합니다.

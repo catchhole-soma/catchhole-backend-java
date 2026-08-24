@@ -21,8 +21,12 @@ import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.auth.dto.request.AuthSignupRequest;
 import org.monitoring.catchholebackend.domain.auth.repository.RefreshTokenRepository;
 import org.monitoring.catchholebackend.domain.auth.service.AuthService;
+import org.monitoring.catchholebackend.domain.legal.entity.LegalDocument;
+import org.monitoring.catchholebackend.domain.legal.repository.LegalDocumentRepository;
+import org.monitoring.catchholebackend.domain.legal.type.LegalDocumentType;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
+import org.monitoring.catchholebackend.domain.member.repository.MemberLegalRecordRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -59,6 +63,9 @@ class PhoneVerificationControllerIntegrationTest {
     private MemberRepository memberRepository;
 
     @Autowired
+    private MemberLegalRecordRepository memberLegalRecordRepository;
+
+    @Autowired
     private RefreshTokenRepository refreshTokenRepository;
 
     @Autowired
@@ -67,11 +74,21 @@ class PhoneVerificationControllerIntegrationTest {
     @Autowired
     private AuthService authService;
 
+    @Autowired
+    private LegalDocumentRepository legalDocumentRepository;
+
+    private Long termsDocumentId;
+    private Long privacyPolicyDocumentId;
+
     @BeforeEach
     void cleanUp() {
         refreshTokenRepository.deleteAll();
+        memberLegalRecordRepository.deleteAll();
         memberRepository.deleteAll();
+        legalDocumentRepository.deleteAll();
         redisConnectionFactory.getConnection().serverCommands().flushDb();
+        termsDocumentId = legalDocumentRepository.save(legalDocument(LegalDocumentType.TERMS_OF_SERVICE)).getId();
+        privacyPolicyDocumentId = legalDocumentRepository.save(legalDocument(LegalDocumentType.PRIVACY_POLICY)).getId();
     }
 
     @Test
@@ -87,10 +104,15 @@ class PhoneVerificationControllerIntegrationTest {
                                   "email": "verified@example.com",
                                   "password": "password123",
                                   "displayName": "인증 작가",
+                                  "termsAccepted": true,
+                                  "privacyPolicyAcknowledged": true,
+                                  "age14OrOlderConfirmed": true,
+                                  "termsDocumentId": %d,
+                                  "privacyPolicyDocumentId": %d,
                                   "phoneVerificationToken": "%s",
                                   "phoneNumber": "01000000000"
                                 }
-                                """.formatted(signupToken)))
+                                """.formatted(termsDocumentId, privacyPolicyDocumentId, signupToken)))
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.SET_COOKIE, org.hamcrest.Matchers.containsString("refreshToken=")))
                 .andExpect(jsonPath("$.data.accessToken", notNullValue()));
@@ -106,9 +128,14 @@ class PhoneVerificationControllerIntegrationTest {
                                   "email": "reused@example.com",
                                   "password": "password123",
                                   "displayName": "재사용",
+                                  "termsAccepted": true,
+                                  "privacyPolicyAcknowledged": true,
+                                  "age14OrOlderConfirmed": true,
+                                  "termsDocumentId": %d,
+                                  "privacyPolicyDocumentId": %d,
                                   "phoneVerificationToken": "%s"
                                 }
-                                """.formatted(signupToken)))
+                                """.formatted(termsDocumentId, privacyPolicyDocumentId, signupToken)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("AUTH_PHONE_VERIFICATION_TOKEN_INVALID"));
     }
@@ -122,9 +149,14 @@ class PhoneVerificationControllerIntegrationTest {
                                 {
                                   "email": "missing-token@example.com",
                                   "password": "password123",
-                                  "displayName": "미인증"
+                                  "displayName": "미인증",
+                                  "termsAccepted": true,
+                                  "privacyPolicyAcknowledged": true,
+                                  "age14OrOlderConfirmed": true,
+                                  "termsDocumentId": %d,
+                                  "privacyPolicyDocumentId": %d
                                 }
-                                """))
+                                """.formatted(termsDocumentId, privacyPolicyDocumentId)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"));
     }
@@ -182,6 +214,9 @@ class PhoneVerificationControllerIntegrationTest {
                                 "동시 가입 " + requestIndex,
                                 true,
                                 true,
+                                true,
+                                termsDocumentId,
+                                privacyPolicyDocumentId,
                                 signupToken
                         ));
                         return true;
@@ -232,5 +267,18 @@ class PhoneVerificationControllerIntegrationTest {
         } catch (Exception exception) {
             throw new AssertionError(exception);
         }
+    }
+
+    private LegalDocument legalDocument(LegalDocumentType type) {
+        return LegalDocument.published(
+                type,
+                "ko-KR",
+                "2026-08-24",
+                type == LegalDocumentType.TERMS_OF_SERVICE ? "CatchHole 이용약관" : "CatchHole 개인정보처리방침",
+                "# 원문",
+                type == LegalDocumentType.TERMS_OF_SERVICE ? "a".repeat(64) : "b".repeat(64),
+                java.time.LocalDate.of(2026, 8, 24),
+                java.time.LocalDateTime.of(2026, 8, 24, 18, 0)
+        );
     }
 }

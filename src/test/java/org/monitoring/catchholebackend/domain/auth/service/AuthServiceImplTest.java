@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -27,11 +28,14 @@ import org.monitoring.catchholebackend.domain.auth.repository.RefreshTokenReposi
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.auth.token.RefreshTokenGenerator;
 import org.monitoring.catchholebackend.domain.auth.token.TokenHashProvider;
+import org.monitoring.catchholebackend.domain.legal.entity.LegalDocument;
+import org.monitoring.catchholebackend.domain.legal.service.LegalDocumentService;
+import org.monitoring.catchholebackend.domain.legal.service.SignupLegalDocuments;
+import org.monitoring.catchholebackend.domain.legal.type.LegalDocumentType;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.entity.MemberLegalRecord;
 import org.monitoring.catchholebackend.domain.member.repository.MemberLegalRecordRepository;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
-import org.monitoring.catchholebackend.domain.member.type.LegalDocumentType;
 import org.monitoring.catchholebackend.domain.member.type.LegalRecordAction;
 import org.monitoring.catchholebackend.global.config.auth.AuthProperties;
 import org.monitoring.catchholebackend.global.exception.AppException;
@@ -66,6 +70,9 @@ class AuthServiceImplTest {
     @Mock
     private PhoneVerificationService phoneVerificationService;
 
+    @Mock
+    private LegalDocumentService legalDocumentService;
+
     private AuthServiceImpl authService;
 
     @BeforeEach
@@ -85,7 +92,8 @@ class AuthServiceImplTest {
                 tokenHashProvider,
                 authProperties,
                 phoneVerificationService,
-                new AuthMapper()
+                new AuthMapper(),
+                legalDocumentService
         );
     }
 
@@ -98,14 +106,19 @@ class AuthServiceImplTest {
                 "작가",
                 true,
                 true,
+                true,
+                3L,
+                4L,
                 "phone-verification-token"
         );
         Member savedMember = verifiedMember("writer@example.com", "encoded-password", "01012345678", "작가");
+        SignupLegalDocuments legalDocuments = signupLegalDocuments();
         when(phoneVerificationService.getVerifiedPhoneNumberBySignupToken(request.phoneVerificationToken()))
                 .thenReturn("01012345678");
         when(memberRepository.existsByEmail(request.email())).thenReturn(false);
         when(memberRepository.existsByPhoneNumber("01012345678")).thenReturn(false);
         when(passwordEncoder.encode(request.password())).thenReturn("encoded-password");
+        when(legalDocumentService.requireCurrentSignupDocuments(3L, 4L)).thenReturn(legalDocuments);
         when(memberRepository.save(any(Member.class))).thenReturn(savedMember);
         when(jwtTokenProvider.generateAccessToken(savedMember)).thenReturn("access-token");
         when(jwtTokenProvider.getAccessTokenExpiresInSeconds()).thenReturn(1800L);
@@ -135,12 +148,12 @@ class AuthServiceImplTest {
                         org.assertj.core.groups.Tuple.tuple(
                                 LegalDocumentType.TERMS_OF_SERVICE,
                                 LegalRecordAction.AGREED,
-                                "2026-08-23"
+                                "2026-08-24"
                         ),
                         org.assertj.core.groups.Tuple.tuple(
                                 LegalDocumentType.PRIVACY_POLICY,
                                 LegalRecordAction.ACKNOWLEDGED,
-                                "2026-08-23"
+                                "2026-08-24"
                         )
                 );
         assertThat(legalRecords)
@@ -161,6 +174,9 @@ class AuthServiceImplTest {
                 "작가",
                 true,
                 true,
+                true,
+                3L,
+                4L,
                 "phone-verification-token"
         );
         when(phoneVerificationService.getVerifiedPhoneNumberBySignupToken(request.phoneVerificationToken()))
@@ -243,8 +259,36 @@ class AuthServiceImplTest {
     }
 
     private Member verifiedMember(String email, String passwordHash, String phoneNumber, String displayName) {
-        Member member = Member.registerPhoneVerified(email, passwordHash, phoneNumber, displayName);
+        Member member = Member.registerPhoneVerified(
+                email,
+                passwordHash,
+                phoneNumber,
+                displayName,
+                LocalDateTime.of(2026, 8, 24, 17, 0)
+        );
         ReflectionTestUtils.setField(member, "id", 1L);
         return member;
+    }
+
+    private SignupLegalDocuments signupLegalDocuments() {
+        return new SignupLegalDocuments(
+                legalDocument(3L, LegalDocumentType.TERMS_OF_SERVICE),
+                legalDocument(4L, LegalDocumentType.PRIVACY_POLICY)
+        );
+    }
+
+    private LegalDocument legalDocument(Long id, LegalDocumentType type) {
+        LegalDocument document = LegalDocument.published(
+                type,
+                "ko-KR",
+                "2026-08-24",
+                type == LegalDocumentType.TERMS_OF_SERVICE ? "CatchHole 이용약관" : "CatchHole 개인정보처리방침",
+                "# 원문",
+                "a".repeat(64),
+                LocalDate.of(2026, 8, 24),
+                LocalDateTime.of(2026, 8, 24, 18, 0)
+        );
+        ReflectionTestUtils.setField(document, "id", id);
+        return document;
     }
 }

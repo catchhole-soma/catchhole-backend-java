@@ -10,6 +10,7 @@ DB 컬럼과 관계는 Flyway migration이 기준입니다. JPA Entity와 Python
 erDiagram
     members ||--o{ refresh_tokens : issues
     members ||--o{ member_legal_records : acknowledges
+    legal_documents ||--o{ member_legal_records : is_acknowledged_by
     members ||--o{ works : owns
     members ||--o{ upload_batches : uploads
     members ||--o| ai_token_accounts : has_quota
@@ -52,6 +53,7 @@ erDiagram
         varchar password_hash
         varchar phone_number UK
         boolean phone_verified
+        datetime age_requirement_confirmed_at
         varchar display_name
         varchar profile_image_url
         varchar status
@@ -73,10 +75,27 @@ erDiagram
     member_legal_records {
         bigint id PK
         bigint member_id FK
+        bigint legal_document_id FK
         varchar document_type
         varchar document_version
         varchar action_type
         datetime recorded_at
+        datetime created_at
+        datetime updated_at
+    }
+
+    legal_documents {
+        bigint id PK
+        varchar document_type
+        varchar locale
+        varchar document_version
+        varchar title
+        text content_markdown
+        varchar content_hash
+        varchar status
+        date effective_date
+        datetime published_at
+        datetime retired_at
         datetime created_at
         datetime updated_at
     }
@@ -401,7 +420,8 @@ erDiagram
 | --- | --- |
 | `members` | 로그인 주체인 회원 계정. 이메일과 휴대폰 번호는 각각 unique입니다. |
 | `refresh_tokens` | refresh token 세션. token 원문은 저장하지 않고 `token_hash`만 저장합니다. |
-| `member_legal_records` | 회원가입 때 적용된 이용약관 동의와 개인정보처리방침 확인의 문서 종류·버전·행위·시각을 append-only 이력으로 저장합니다. AI 원고 처리 동의는 저장하지 않습니다. |
+| `legal_documents` | 이용약관·개인정보처리방침의 locale별 불변 Markdown 원문·SHA-256·버전과 `DRAFT/PUBLISHED/RETIRED` 게시 수명주기를 저장합니다. 종류+locale별 현재 `PUBLISHED`는 한 건만 허용합니다. |
+| `member_legal_records` | 회원가입 때 실제로 표시한 `legal_document_id` FK와 문서 종류·버전·행위·서버 시각 snapshot을 append-only 이력으로 저장합니다. AI 원고 처리와 GA4·Meta 고지는 개인정보처리방침 원문에 포함하며 별도 동의 행을 만들지 않습니다. |
 | `ai_token_accounts` | 회원별 누적 지급·사용·처리 중 예약량의 현재 합계를 한 행에 저장합니다. |
 | `ai_token_grants` | 최초 기본 지급과 운영 추가 지급 이력을 저장합니다. |
 | `ai_token_usages` | AI provider 요청 UUID별 예약·정산·해제 상태와 input/cached input/output 사용량을 기록합니다. |

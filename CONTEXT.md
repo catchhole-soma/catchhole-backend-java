@@ -39,3 +39,15 @@ _Avoid_: Error message, exception text
 **Member Withdrawal Purge**:
 회원 인증을 즉시 차단한 뒤 기존 Work Purge로 모든 소유 작품을 파기하고 회원 행을 물리 삭제할 때까지 추적하는 복구 불가능한 탈퇴 흐름이다.
 _Avoid_: Soft delete, account deactivation, grace period
+
+**Legal Document**:
+이용자에게 실제로 표시하는 이용약관 또는 개인정보처리방침의 불변 원문과 locale·버전·게시 상태를 묶는 단위다. 게시 뒤 내용이 바뀌면 같은 행을 수정하지 않고 새 문서를 게시한다.
+_Avoid_: Current version enum, Front legal copy
+
+**Published Legal Document**:
+특정 문서 종류와 locale에서 현재 가입과 공개 화면에 사용하는 유일한 Legal Document다. 교체된 문서는 Retired Legal Document가 되어 과거 기록 조회에만 사용된다.
+_Avoid_: Latest text, active flag
+
+**Member Legal Record**:
+회원이 실제로 본 Legal Document 하나에 대해 동의하거나 확인한 행위와 서버 기록 시각을 보존하는 감사 기록이다. 문서 버전 문자열만으로 원문을 추측하지 않는다.
+_Avoid_: Terms boolean, consent version
