@@ -37,13 +37,14 @@ flowchart TD
     J --> K["현재 PUBLISHED 법률 문서 조회<br/>동의·확인과 만 14세 확인"]
     K --> L["handleSignup<br/>계정 정보·가입 토큰·두 문서 ID 제출"]
     L --> M["POST /api/v1/auth/signup<br/>전화번호는 body에서 제외"]
-    M --> N["두 문서 ID가 현재 게시본인지 검증"]
-    N --> O["가입 토큰으로 검증된<br/>전화번호 조회"]
-    O --> P["회원·법률 기록·refresh token 저장 후<br/>DB flush"]
-    P --> Q["가입 토큰 GETDEL<br/>1회 소비"]
-    Q --> R["DB transaction commit"]
-    R --> S["access token body +<br/>refresh token HttpOnly cookie"]
-    S --> T["saveAuthToken 후<br/>/works 이동"]
+    M --> N["가입 토큰으로 검증된<br/>전화번호 조회"]
+    N --> O["이메일·전화번호<br/>중복 검사"]
+    O --> P["두 문서 ID가 현재 게시본인지<br/>잠금 조회 후 검증"]
+    P --> Q["회원·법률 기록·refresh token 저장 후<br/>DB flush"]
+    Q --> R["가입 토큰 GETDEL<br/>1회 소비"]
+    R --> S["DB transaction commit"]
+    S --> T["access token body +<br/>refresh token HttpOnly cookie"]
+    T --> U["saveAuthToken 후<br/>/works 이동"]
 ```
 
 ## 인증번호 발송 코드 흐름
@@ -179,7 +180,7 @@ sequenceDiagram
             else 가입 가능
                 MemberRepo-->>Service: false
                 Service->>LegalService: requireCurrentSignupDocuments(termsId, privacyId)
-                LegalService->>LegalRepo: ko-KR PUBLISHED 문서 조회
+                LegalService->>LegalRepo: ko-KR PUBLISHED 문서<br/>PESSIMISTIC_READ 잠금 조회
                 alt 현재 게시본 없음 또는 ID 불일치
                     LegalRepo-->>LegalService: 문서 없음 또는 다른 ID
                     LegalService-->>Front: 503 LEGAL_DOCUMENTS_UNAVAILABLE<br/>또는 409 LEGAL_DOCUMENT_NOT_CURRENT
@@ -213,7 +214,7 @@ sequenceDiagram
                         else 토큰 1회 소비 성공
                             Redis-->>PhoneService: 같은 phoneNumber
                             PhoneService-->>Service: 완료
-                            Note over Service,RefreshRepo: DB transaction commit
+                            Note over LegalRepo,RefreshRepo: 법률 문서 잠금 유지 후<br/>DB transaction commit
                             Service-->>Controller: access token + refresh token 원문
                             Controller->>Controller: RefreshTokenCookieFactory.create(refreshToken)
                             Controller-->>Front: 200 access token body<br/>refresh token HttpOnly cookie
@@ -236,5 +237,5 @@ sequenceDiagram
 5. 인증번호 확인을 동시에 호출하면 Redis Lua가 최초 가입 토큰 하나만 만들고 이후 요청에는 같은 토큰을 반환합니다.
 6. Redis rate limit과 인증 흐름 저장이 모두 성공한 뒤 SMS를 한 번 호출합니다. SMS timeout이나 provider 오류에서는 중복 문자와 이중 비용을 피하기 위해 자동 재시도하지 않습니다.
 7. 가입 성공 응답 자체가 로그인 결과입니다. access token은 응답 body, refresh token은 원문을 DB에 남기지 않고 hash만 저장한 뒤 `HttpOnly` 쿠키로 전달합니다.
-8. Front는 현재 게시 문서 묶음에서 확인한 두 ID를 보내고 Backend는 버전 문자열을 신뢰하지 않습니다. 두 ID 모두 가입 시점의 현재 `PUBLISHED` 문서여야 하며 교체된 문서는 409로 다시 확인받습니다.
+8. Front는 현재 게시 문서 묶음에서 확인한 두 ID를 보내고 Backend는 버전 문자열을 신뢰하지 않습니다. Backend는 두 현재 `PUBLISHED` 행을 `PESSIMISTIC_READ`로 잠가 가입 transaction commit까지 문서 교체를 막으며, 교체된 문서는 409로 다시 확인받습니다.
 9. 이용약관 동의, 개인정보처리방침 확인과 만 14세 이상 확인은 모두 필수입니다. 두 법률 기록과 `members.age_requirement_confirmed_at`은 같은 `recordedAt`을 사용해 한 가입 사건으로 추적합니다.
