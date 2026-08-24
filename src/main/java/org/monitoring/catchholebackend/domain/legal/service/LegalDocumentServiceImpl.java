@@ -45,11 +45,12 @@ public class LegalDocumentServiceImpl implements LegalDocumentService {
     }
 
     @Override
+    @Transactional
     public SignupLegalDocuments requireCurrentSignupDocuments(
             Long termsDocumentId,
             Long privacyPolicyDocumentId
     ) {
-        SignupLegalDocuments current = findCurrentDocuments(DEFAULT_LOCALE);
+        SignupLegalDocuments current = findCurrentDocumentsForSignup(DEFAULT_LOCALE);
         if (!current.termsOfService().getId().equals(termsDocumentId)
                 || !current.privacyPolicy().getId().equals(privacyPolicyDocumentId)) {
             throw new AppException(
@@ -66,6 +67,16 @@ public class LegalDocumentServiceImpl implements LegalDocumentService {
     private SignupLegalDocuments findCurrentDocuments(String locale) {
         List<LegalDocument> publishedDocuments = legalDocumentRepository
                 .findAllByLocaleAndStatus(locale, LegalDocumentStatus.PUBLISHED);
+        return toSignupLegalDocuments(publishedDocuments);
+    }
+
+    private SignupLegalDocuments findCurrentDocumentsForSignup(String locale) {
+        List<LegalDocument> publishedDocuments = legalDocumentRepository
+                .findAllByLocaleAndStatusForSignup(locale, LegalDocumentStatus.PUBLISHED);
+        return toSignupLegalDocuments(publishedDocuments);
+    }
+
+    private SignupLegalDocuments toSignupLegalDocuments(List<LegalDocument> publishedDocuments) {
         Map<LegalDocumentType, LegalDocument> documentsByType = new EnumMap<>(LegalDocumentType.class);
         publishedDocuments.forEach(document -> documentsByType.put(document.getDocumentType(), document));
 

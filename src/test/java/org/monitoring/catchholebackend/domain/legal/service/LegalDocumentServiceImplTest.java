@@ -61,7 +61,10 @@ class LegalDocumentServiceImplTest {
     @Test
     @DisplayName("가입 요청 문서 ID가 현재 문서와 다르면 최신 문서 ID를 포함한 충돌을 반환한다")
     void requireCurrentSignupDocumentsRejectsStaleIds() {
-        when(legalDocumentRepository.findAllByLocaleAndStatus("ko-KR", LegalDocumentStatus.PUBLISHED))
+        when(legalDocumentRepository.findAllByLocaleAndStatusForSignup(
+                "ko-KR",
+                LegalDocumentStatus.PUBLISHED
+        ))
                 .thenReturn(List.of(terms, privacy));
 
         assertThatThrownBy(() -> legalDocumentService.requireCurrentSignupDocuments(1L, 4L))
