@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.member.entity;
 
+import java.time.LocalDateTime;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -43,6 +44,9 @@ public class Member extends BaseEntity {
     @Column(name = "phone_verified", nullable = false)
     private boolean phoneVerified;
 
+    @Column(name = "age_requirement_confirmed_at")
+    private LocalDateTime ageRequirementConfirmedAt;
+
     //화면에서 보이는 닉네임
     @Column(name = "display_name", nullable = false, length = 50)
     private String displayName;
@@ -64,7 +68,8 @@ public class Member extends BaseEntity {
             String phoneNumber,
             boolean phoneVerified,
             String displayName,
-            String profileImageUrl
+            String profileImageUrl,
+            LocalDateTime ageRequirementConfirmedAt
     ) {
         this.email = email;
         this.passwordHash = passwordHash;
@@ -72,6 +77,7 @@ public class Member extends BaseEntity {
         this.displayName = displayName;
         this.profileImageUrl = profileImageUrl;
         this.phoneVerified = phoneVerified;
+        this.ageRequirementConfirmedAt = ageRequirementConfirmedAt;
         this.status = MemberStatus.ACTIVE;
         this.role = MemberRole.AUTHOR;
     }
@@ -82,16 +88,25 @@ public class Member extends BaseEntity {
             String phoneNumber,
             String displayName
     ) {
-        return new Member(email, passwordHash, phoneNumber, false, displayName, null);
+        return new Member(email, passwordHash, phoneNumber, false, displayName, null, null);
     }
 
     public static Member registerPhoneVerified(
             String email,
             String passwordHash,
             String phoneNumber,
-            String displayName
+            String displayName,
+            LocalDateTime ageRequirementConfirmedAt
     ) {
-        return new Member(email, passwordHash, phoneNumber, true, displayName, null);
+        return new Member(
+                email,
+                passwordHash,
+                phoneNumber,
+                true,
+                displayName,
+                null,
+                ageRequirementConfirmedAt
+        );
     }
 
     public void validateActive() {

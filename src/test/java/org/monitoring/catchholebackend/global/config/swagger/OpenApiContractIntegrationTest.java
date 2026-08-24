@@ -642,14 +642,17 @@ class OpenApiContractIntegrationTest {
     }
 
     @Test
-    @DisplayName("회원가입 계약은 약관 동의와 개인정보처리방침 확인만 필수로 받는다")
+    @DisplayName("회원가입 계약은 법률 문서 확인과 만 14세 이상 확인을 필수로 받는다")
     void openApiContractRequiresSignupLegalAcknowledgements() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$['components']['schemas']['AuthSignupRequest']['required']",
                         org.hamcrest.Matchers.hasItems(
                                 "termsAccepted",
-                                "privacyPolicyAcknowledged"
+                                "privacyPolicyAcknowledged",
+                                "age14OrOlderConfirmed",
+                                "termsDocumentId",
+                                "privacyPolicyDocumentId"
                         )))
                 .andExpect(jsonPath("$['components']['schemas']['AuthSignupRequest']"
                         + "['properties']['aiProcessingConsent']").doesNotExist());

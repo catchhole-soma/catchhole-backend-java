@@ -27,6 +27,10 @@ public final class SecurityConstant {
             "/api/v1/auth/logout"
     };
 
+    public static final String[] PUBLIC_LEGAL_DOCUMENT_URLS = {
+            "/api/v1/legal-documents/**"
+    };
+
     // Swagger UI 관련 공개 경로
     public static final String[] SWAGGER_URLS = {
             "/v3/api-docs/**",
@@ -47,6 +51,7 @@ public final class SecurityConstant {
     // 모든 공개 URL 통합 (SecurityConfig에서 permitAll에 사용)
     public static final String[] PUBLIC_URLS = Stream.of(
                     PUBLIC_AUTH_URLS,
+                    PUBLIC_LEGAL_DOCUMENT_URLS,
                     SWAGGER_URLS,
                     ACTUATOR_URLS
             )

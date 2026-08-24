@@ -70,6 +70,7 @@ import org.springframework.test.web.servlet.MockMvc;
 class MemberWithdrawalIntegrationTest {
 
     private static final String RAW_PASSWORD = "password123";
+    private static final LocalDateTime AGE_CONFIRMED_AT = LocalDateTime.of(2026, 8, 24, 0, 0);
 
     @Autowired private MockMvc mockMvc;
     @Autowired private MemberRepository memberRepository;
@@ -106,7 +107,8 @@ class MemberWithdrawalIntegrationTest {
                 "withdraw-" + unique + "@example.com",
                 passwordEncoder.encode(RAW_PASSWORD),
                 "010" + unique.substring(0, 8).replaceAll("[a-f]", "1"),
-                "탈퇴 작가"
+                "탈퇴 작가",
+                AGE_CONFIRMED_AT
         ));
         cleanupMemberIds.add(member.getId());
         accessToken = jwtTokenProvider.generateAccessToken(member);
@@ -319,7 +321,8 @@ class MemberWithdrawalIntegrationTest {
                 member.getEmail(),
                 passwordEncoder.encode(RAW_PASSWORD),
                 member.getPhoneNumber(),
-                "재가입 작가"
+                "재가입 작가",
+                AGE_CONFIRMED_AT
         ));
         cleanupMemberIds.add(replacement.getId());
         assertThat(replacement.getId()).isNotEqualTo(member.getId());

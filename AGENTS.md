@@ -136,6 +136,16 @@ org.monitoring.catchholebackend
 │   │   ├── repository
 │   │   ├── service
 │   │   └── type
+│   ├── legal
+│   │   ├── controller
+│   │   ├── dto
+│   │   │   └── response
+│   │   ├── entity
+│   │   ├── exception
+│   │   ├── mapper
+│   │   ├── repository
+│   │   ├── service
+│   │   └── type
 │   ├── worldsetting
 │   │   ├── controller
 │   │   ├── dto
@@ -179,6 +189,14 @@ org.monitoring.catchholebackend
 ### Domain Package
 
 도메인 단위로 패키지를 나누고, 그 안은 레이어드 구조를 따른다.
+
+### Legal Documents
+
+- 법률 문서의 실행 시점 단일 출처는 `legal_documents`다. Front에 이용약관·개인정보처리방침 원문이나 현재 버전을 하드코딩하지 않는다.
+- 게시된 문서는 불변으로 취급한다. 내용이 바뀌면 새 `document_version` 행을 만들고 기존 `PUBLISHED`를 `RETIRED`로 전환한다. 한 `document_type + locale`에는 `PUBLISHED`가 하나만 존재해야 한다.
+- 회원가입은 화면에 표시한 이용약관·개인정보처리방침의 문서 ID를 받고, 둘 다 현재 `PUBLISHED`인지 회원과 동의 기록을 저장하는 같은 트랜잭션에서 검증한다. 버전만 받아 서버 현재값으로 치환하지 않는다.
+- `member_legal_records`는 정확한 `legal_document_id`를 FK로 보존하고 문서 종류·버전·행위는 감사용 snapshot으로 함께 저장한다. 기록 시각은 Backend가 정한다.
+- 공개 조회에서는 `DRAFT`를 절대 반환하지 않고 `PUBLISHED`와 과거 `RETIRED`만 ID로 조회할 수 있게 한다.
 
 본 프로젝트는 도메인 중심 설계를 지향하되, 현재의 도메인별 레이어드 구조를 유지한다.
 Entity는 단순 데이터 보관 객체가 아니라 핵심 상태 변경과 도메인 규칙을 표현하는 객체로 설계한다.
@@ -247,11 +265,12 @@ domain/<domain>
 - Refresh token 원문은 저장하지 않는다. `refresh_tokens.token_hash`에 SHA-256 해시만 저장하고, 재발급 시 기존 token은 `revoked_at`으로 폐기한 뒤 새 token을 저장한다.
 - Refresh token은 `HttpOnly` 쿠키로 전달한다. 쿠키 path는 `/api/v1/auth`, SameSite 기본값은 `Lax`, 운영 환경에서는 `Secure=true`를 사용한다.
 - 회원가입과 로그인은 access token을 응답 body로, refresh token을 HttpOnly 쿠키로 함께 발급한다. 회원가입 후 별도 로그인 요청을 요구하지 않는다.
-- 회원가입은 한 화면 체크로 현재 이용약관 동의와 개인정보처리방침 확인을 함께 받되 API에서는 `termsAccepted`, `privacyPolicyAcknowledged`를 각각 `true`로 검증한다. 현재 서비스 화면 문서 버전은 `2026-08-23`이며 서버가 버전과 행위 유형(`AGREED`, `ACKNOWLEDGED`)을 `member_legal_records`에 두 행으로 기록한다. 화면 문구가 바뀌면 Front 표시 버전과 `LegalDocumentType.currentVersion`을 함께 올리며, AI 원고 처리는 별도 가입 동의나 업로드별 동의 이력으로 저장하지 않는다.
+- 회원가입은 현재 `PUBLISHED` 이용약관 동의와 개인정보처리방침 확인을 한 화면 체크로 함께 받고, 만 14세 이상 확인은 별도 필수 boolean으로 받는다. API는 세 값을 모두 `true`로 검증하고 Front가 실제 표시한 `termsDocumentId`, `privacyPolicyDocumentId`가 가입 시점의 현재 게시본인지 같은 트랜잭션에서 검증한다.
+- `member_legal_records`는 정확한 문서 FK와 종류·버전·행위 snapshot을 두 행으로 저장하고 `members.age_requirement_confirmed_at`과 함께 한 번 생성한 서버 시각을 사용한다. 원문·현재 버전은 `legal_documents`가 단일 출처이며 AI 원고 처리나 GA4·Meta 고지를 별도 가입 동의·업로드별 동의 이력으로 저장하지 않는다.
 - 인증번호 발송 API에서만 하이픈 없는 `010` 시작 11자리 전화번호를 받고, 회원가입 요청에서는 전화번호를 받지 않는다. 회원가입은 10분 TTL의 1회용 `phoneVerificationToken`에서 번호를 조회해 `members.phone_number`에 unique로 저장하고 `phone_verified=true`로 생성한다. 기존 `phone_verified=false` 회원의 로그인은 허용한다.
 - 인증번호는 HMAC으로 Redis에 5분, 재전송 대기는 60초, 오입력은 5회, 가입 토큰은 10분으로 고정한다. 재전송은 이전 인증 흐름을 폐기하고 가장 최근 번호만 유효하게 한다.
 - 발송 제한은 Redis Lua에서 확인과 증가를 원자 처리한다. 전화번호는 1시간 5건·KST 하루 10건, IP는 1시간 10건·KST 하루 20건, 전체는 KST 하루 20건·월 200건이다. 429 제한 응답에는 `Retry-After`를 포함한다.
-- 회원가입은 회원과 refresh token을 DB에 flush한 뒤 Redis `GETDEL`로 가입 토큰을 소비한다. 소비 실패 시 DB 트랜잭션을 rollback하고 이메일·전화번호 unique 제약을 최종 동시성 방어선으로 유지한다.
+- 회원가입은 회원·법률 문서 기록·refresh token을 DB에 flush한 뒤 Redis `GETDEL`로 가입 토큰을 소비한다. 소비 실패 시 DB 트랜잭션을 모두 rollback하고 이메일·전화번호·회원+문서 unique 제약을 최종 동시성 방어선으로 유지한다.
 - SOLAPI SMS 요청은 자동 재시도하지 않는다. timeout 뒤 실제 발송 여부를 알 수 없어 중복 SMS와 비용이 발생할 수 있기 때문이다.
 - 회원가입 표시 이름은 20자 이하, 비밀번호는 8~64자이면서 영문과 숫자를 각각 하나 이상 포함하도록 검증한다. 프론트 검증과 OpenAPI schema도 같은 제약을 사용한다.
 - 회원 즉시 탈퇴는 `DELETE /api/v1/members/me`에서 현재 비밀번호와 정확한 `회원 탈퇴` 문구를 요구한다. 접수 트랜잭션에서 `MemberStatus.ACTIVE → PURGING`과 모든 refresh token 폐기를 함께 커밋해 기존 access token의 다음 인증을 차단한다.

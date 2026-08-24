@@ -41,6 +41,9 @@ class AuthControllerTest {
                 "작가",
                 true,
                 true,
+                true,
+                3L,
+                4L,
                 "phone-verification-token"
         );
         AuthTokenResponse tokenResponse = AuthTokenResponse.bearer("access-token", 1800L);

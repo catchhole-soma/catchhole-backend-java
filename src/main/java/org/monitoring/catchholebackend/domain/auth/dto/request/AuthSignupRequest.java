@@ -4,7 +4,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
 @Schema(description = "회원가입 요청")
@@ -40,6 +42,24 @@ public record AuthSignupRequest(
         )
         @AssertTrue(message = "개인정보처리방침을 확인해야 합니다.")
         boolean privacyPolicyAcknowledged,
+
+        @Schema(
+                description = "만 14세 이상 확인 여부",
+                example = "true",
+                requiredMode = Schema.RequiredMode.REQUIRED
+        )
+        @AssertTrue(message = "만 14세 이상만 가입할 수 있습니다.")
+        boolean age14OrOlderConfirmed,
+
+        @Schema(description = "화면에 표시한 현재 이용약관 문서 식별자", example = "3")
+        @NotNull(message = "이용약관 문서 식별자는 필수입니다.")
+        @Positive(message = "이용약관 문서 식별자는 양수여야 합니다.")
+        Long termsDocumentId,
+
+        @Schema(description = "화면에 표시한 현재 개인정보처리방침 문서 식별자", example = "4")
+        @NotNull(message = "개인정보처리방침 문서 식별자는 필수입니다.")
+        @Positive(message = "개인정보처리방침 문서 식별자는 양수여야 합니다.")
+        Long privacyPolicyDocumentId,
 
         @Schema(description = "휴대폰 인증 완료 후 발급된 1회용 회원가입 토큰", example = "4Kd7...Q2")
         @NotBlank(message = "휴대폰 인증 토큰은 필수입니다.")

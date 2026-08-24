@@ -61,6 +61,7 @@ Auth 도메인은 휴대폰 번호 소유 확인, 이메일/비밀번호 기반 
 | `password_hash` | 암호화된 비밀번호 |
 | `phone_number` | 하이픈 없는 휴대폰 번호, unique |
 | `phone_verified` | 휴대폰 인증 여부. 새 회원가입은 인증 토큰을 요구하므로 `true` |
+| `age_requirement_confirmed_at` | 가입 요청에서 만 14세 이상임을 필수 확인한 서버 시각 |
 | `display_name` | 화면 표시 이름 |
 | `profile_image_url` | 프로필 이미지 URL |
 | `status` | 회원 상태 |
@@ -75,6 +76,23 @@ Auth 도메인은 휴대폰 번호 소유 확인, 이메일/비밀번호 기반 
 | `token_hash` | refresh token SHA-256 해시, unique |
 | `expires_at` | 만료 시각 |
 | `revoked_at` | 폐기 시각. null이면 아직 폐기되지 않음 |
+
+`legal_documents`
+
+| 필드 | 설명 |
+| --- | --- |
+| `document_type`, `locale`, `document_version` | 문서 종류·언어·불변 버전. 조합 unique |
+| `title`, `content_markdown`, `content_hash` | 게시 제목·장문 Markdown 원문·UTF-8 SHA-256 |
+| `status` | `DRAFT`, `PUBLISHED`, `RETIRED`. 종류+locale별 현재 `PUBLISHED`는 한 건 |
+| `effective_date`, `published_at`, `retired_at` | 시행·게시·폐기 수명주기 시각 |
+
+`member_legal_records`
+
+| 필드 | 설명 |
+| --- | --- |
+| `member_id`, `legal_document_id` | 가입 회원과 실제로 표시한 법률 문서 FK. 조합 unique |
+| `document_type`, `document_version`, `action_type` | 당시 종류·버전·동의/확인 행위 snapshot |
+| `recorded_at` | 두 문서에 공통으로 적용한 Backend 서버 기록 시각 |
 
 ## API
 
@@ -93,21 +111,27 @@ Request
   "email": "user@example.com",
   "password": "password123!",
   "displayName": "장은호",
+  "termsAccepted": true,
+  "privacyPolicyAcknowledged": true,
+  "age14OrOlderConfirmed": true,
+  "termsDocumentId": 3,
+  "privacyPolicyDocumentId": 4,
   "phoneVerificationToken": "<one-time-token>"
 }
 ```
 
 처리 흐름
 
-1. 이메일 형식, 영문·숫자를 포함한 8~64자 비밀번호, 20자 이하 표시 이름과 인증 토큰 필수값을 validation 합니다.
+1. 이메일 형식, 영문·숫자를 포함한 8~64자 비밀번호, 20자 이하 표시 이름, 인증 토큰, 두 법률 문서 ID를 validation 하고 세 필수 확인 boolean이 모두 `true`인지 검증합니다.
 2. Redis에서 가입 토큰에 연결된 휴대폰 번호를 조회합니다. 클라이언트는 전화번호를 회원가입 body에 보내지 않습니다.
 3. 이메일 중복 시 `AUTH_EMAIL_DUPLICATED`, 토큰 번호가 이미 가입된 번호이면 `AUTH_PHONE_NUMBER_DUPLICATED`를 반환합니다.
-4. 비밀번호를 `PasswordEncoder`로 hash 합니다.
-5. `Member.registerPhoneVerified()`로 `ACTIVE`, `AUTHOR`, `phoneVerified=true` 회원을 생성합니다.
-6. 회원과 refresh token을 DB에 flush한 뒤 Redis `GETDEL`로 가입 토큰을 한 번만 소비합니다.
-7. 동시 요청에서 `GETDEL` 소비에 실패하면 DB 트랜잭션을 rollback 합니다. 이메일·전화번호 DB unique 제약은 최종 동시성 방어선입니다.
-8. refresh token 원문은 저장하지 않고 SHA-256 hash와 만료 시각을 `refresh_tokens`에 저장합니다.
-9. access token은 응답 body로 반환하고, refresh token은 `HttpOnly` 쿠키로 전달합니다. 회원가입 후 별도 로그인 요청은 필요하지 않습니다.
+4. `LegalDocumentService`가 두 ID를 `ko-KR`의 현재 `PUBLISHED` 이용약관·개인정보처리방침과 정확히 대조합니다. 게시본이 교체되었으면 `LEGAL_DOCUMENT_NOT_CURRENT`, 현재 게시본이 없으면 `LEGAL_DOCUMENTS_UNAVAILABLE`을 반환합니다.
+5. 비밀번호를 `PasswordEncoder`로 hash 합니다.
+6. 한 번 만든 Backend 시각으로 `Member.registerPhoneVerified()`의 `age_requirement_confirmed_at`과 두 `MemberLegalRecord.record()`의 `recorded_at`을 기록합니다.
+7. `ACTIVE`, `AUTHOR`, `phoneVerified=true` 회원, 정확한 두 법률 문서 FK·snapshot, refresh token을 같은 DB 트랜잭션에 저장합니다.
+8. DB를 flush한 뒤 Redis `GETDEL`로 가입 토큰을 한 번만 소비합니다. 동시 요청에서 소비에 실패하면 DB 트랜잭션을 rollback 합니다.
+9. refresh token 원문은 저장하지 않고 SHA-256 hash와 만료 시각을 `refresh_tokens`에 저장합니다.
+10. access token은 응답 body로 반환하고, refresh token은 `HttpOnly` 쿠키로 전달합니다. 회원가입 후 별도 로그인 요청은 필요하지 않습니다.
 
 Response
 
@@ -130,6 +154,18 @@ Set-Cookie: refreshToken=<opaque-token>; Path=/api/v1/auth; Max-Age=1209600; Htt
 ```
 
 운영 환경의 refresh token 쿠키에는 `Secure` 속성을 추가합니다.
+
+### 공개 법률 문서
+
+```http
+GET /api/v1/legal-documents/current?locale=ko-KR
+GET /api/v1/legal-documents/{documentId}
+```
+
+- 현재 문서 API는 회원가입과 공개 `/terms`, `/privacy`가 함께 사용하는 현재 `PUBLISHED` 이용약관·개인정보처리방침 묶음을 반환합니다.
+- ID 조회는 `PUBLISHED`와 과거 `RETIRED`만 공개하고 `DRAFT`는 반환하지 않습니다.
+- 응답에는 문서 ID·종류·locale·버전·제목·Markdown 원문·원문 SHA-256·상태·시행일·게시 시각이 포함됩니다.
+- `LEGAL_DOCUMENT_NOT_FOUND`는 404, 현재 두 게시본 중 하나라도 없으면 `LEGAL_DOCUMENTS_UNAVAILABLE`은 503입니다.
 
 ### 인증번호 발송
 

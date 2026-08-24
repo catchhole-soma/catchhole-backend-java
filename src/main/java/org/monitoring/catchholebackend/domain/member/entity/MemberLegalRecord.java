@@ -17,7 +17,8 @@ import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.monitoring.catchholebackend.domain.member.type.LegalDocumentType;
+import org.monitoring.catchholebackend.domain.legal.entity.LegalDocument;
+import org.monitoring.catchholebackend.domain.legal.type.LegalDocumentType;
 import org.monitoring.catchholebackend.domain.member.type.LegalRecordAction;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 
@@ -26,8 +27,8 @@ import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 @Table(
         name = "member_legal_records",
         uniqueConstraints = @UniqueConstraint(
-                name = "uk_member_legal_records_document_version",
-                columnNames = {"member_id", "document_type", "document_version"}
+                name = "uk_member_legal_records_document",
+                columnNames = {"member_id", "legal_document_id"}
         )
 )
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -45,6 +46,14 @@ public class MemberLegalRecord extends BaseEntity {
     )
     private Member member;
 
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(
+            name = "legal_document_id",
+            nullable = false,
+            foreignKey = @ForeignKey(name = "fk_member_legal_records_document")
+    )
+    private LegalDocument legalDocument;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "document_type", nullable = false, length = 40)
     private LegalDocumentType documentType;
@@ -61,29 +70,22 @@ public class MemberLegalRecord extends BaseEntity {
 
     private MemberLegalRecord(
             Member member,
-            LegalDocumentType documentType,
-            String documentVersion,
-            LegalRecordAction actionType,
+            LegalDocument legalDocument,
             LocalDateTime recordedAt
     ) {
         this.member = member;
-        this.documentType = documentType;
-        this.documentVersion = documentVersion;
-        this.actionType = actionType;
+        this.legalDocument = legalDocument;
+        this.documentType = legalDocument.getDocumentType();
+        this.documentVersion = legalDocument.getDocumentVersion();
+        this.actionType = LegalRecordAction.forDocumentType(legalDocument.getDocumentType());
         this.recordedAt = recordedAt;
     }
 
-    public static MemberLegalRecord recordCurrent(
+    public static MemberLegalRecord record(
             Member member,
-            LegalDocumentType documentType,
+            LegalDocument legalDocument,
             LocalDateTime recordedAt
     ) {
-        return new MemberLegalRecord(
-                member,
-                documentType,
-                documentType.getCurrentVersion(),
-                documentType.getRecordAction(),
-                recordedAt
-        );
+        return new MemberLegalRecord(member, legalDocument, recordedAt);
     }
 }
