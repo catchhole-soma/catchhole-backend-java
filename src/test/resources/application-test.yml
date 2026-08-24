@@ -21,6 +21,10 @@ work:
   purge:
     scheduling-enabled: false
 
+member:
+  withdrawal:
+    scheduling-enabled: false
+
 episode:
   source-purge:
     scheduling-enabled: false

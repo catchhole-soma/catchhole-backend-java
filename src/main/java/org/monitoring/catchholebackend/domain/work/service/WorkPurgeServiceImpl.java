@@ -17,6 +17,7 @@ import org.monitoring.catchholebackend.domain.work.exception.WorkErrorCode;
 import org.monitoring.catchholebackend.domain.work.mapper.WorkPurgeMapper;
 import org.monitoring.catchholebackend.domain.work.repository.WorkPurgeRequestRepository;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
+import org.monitoring.catchholebackend.domain.work.type.WorkPurgeStatus;
 import org.monitoring.catchholebackend.global.config.workpurge.WorkPurgeProperties;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.stereotype.Service;
@@ -25,7 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
-public class WorkPurgeServiceImpl implements WorkPurgeService {
+public class WorkPurgeServiceImpl implements WorkPurgeService, MemberWorkPurgeCoordinator {
 
     private static final List<AnalysisJobStatus> ACTIVE_JOB_STATUSES =
             List.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING);
@@ -40,17 +41,46 @@ public class WorkPurgeServiceImpl implements WorkPurgeService {
     @Override
     @Transactional
     public WorkPurgeResponse requestPurge(Long memberId, UUID workId, WorkPurgeCreateRequest request) {
+        return purgeMapper.toResponse(resolvePurgeRequest(memberId, workId).request());
+    }
+
+    @Override
+    @Transactional
+    public MemberWorkPurgeProgress coordinateForWithdrawal(Long memberId) {
+        int createdRequestCount = 0;
+        for (UUID workId : workRepository.findAllIdsByMemberId(memberId)) {
+            PurgeRequestResolution resolution = resolvePurgeRequest(memberId, workId);
+            if (resolution.created()) {
+                createdRequestCount++;
+            }
+        }
+
+        List<WorkPurgeRequest> retryableRequests = purgeRequestRepository
+                .findAllByMemberIdAndStatusInForUpdate(
+                        memberId,
+                        List.of(WorkPurgeStatus.FAILED, WorkPurgeStatus.PARTIAL_FAILED)
+                );
+        retryableRequests.forEach(WorkPurgeRequest::retry);
+
+        return new MemberWorkPurgeProgress(
+                workRepository.countByMemberId(memberId),
+                createdRequestCount,
+                retryableRequests.size()
+        );
+    }
+
+    private PurgeRequestResolution resolvePurgeRequest(Long memberId, UUID workId) {
         WorkPurgeRequest existing = purgeRequestRepository.findByMemberIdAndWorkId(memberId, workId)
                 .orElse(null);
         if (existing != null) {
-            return purgeMapper.toResponse(existing);
+            return new PurgeRequestResolution(existing, false);
         }
 
         Work work = workRepository.findByIdAndMemberIdForUpdate(workId, memberId)
                 .orElseThrow(() -> new AppException(WorkErrorCode.WORK_NOT_FOUND));
         existing = purgeRequestRepository.findByMemberIdAndWorkId(memberId, workId).orElse(null);
         if (existing != null) {
-            return purgeMapper.toResponse(existing);
+            return new PurgeRequestResolution(existing, false);
         }
 
         work.startPurging();
@@ -74,7 +104,7 @@ public class WorkPurgeServiceImpl implements WorkPurgeService {
         WorkPurgeRequest purgeRequest = purgeRequestRepository.save(
                 WorkPurgeRequest.request(memberId, workId, workerDrainUntil)
         );
-        return purgeMapper.toResponse(purgeRequest);
+        return new PurgeRequestResolution(purgeRequest, true);
     }
 
     @Override
@@ -101,5 +131,8 @@ public class WorkPurgeServiceImpl implements WorkPurgeService {
         }
         purgeRequest.retry();
         return purgeMapper.toResponse(purgeRequest);
+    }
+
+    private record PurgeRequestResolution(WorkPurgeRequest request, boolean created) {
     }
 }
