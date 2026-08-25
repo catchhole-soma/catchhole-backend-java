@@ -8,7 +8,11 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.domain.aitoken.dto.request.AiTokenExtensionCreateRequest;
+import org.monitoring.catchholebackend.domain.aitoken.dto.response.AiTokenExtensionPendingResponse;
+import org.monitoring.catchholebackend.domain.aitoken.dto.response.AiTokenExtensionRequestResponse;
 import org.monitoring.catchholebackend.domain.aitoken.dto.response.AiTokenUsageResponse;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.auth.security.MemberPrincipal;
@@ -17,6 +21,8 @@ import org.monitoring.catchholebackend.global.common.response.CommonResponse;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -47,5 +53,53 @@ public class AiTokenController {
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member
     ) {
         return CommonResponse.success(aiTokenService.getUsage(member.memberId()));
+    }
+
+    @PostMapping(value = "/extension-requests", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(
+            operationId = "createMyAiTokenExtensionRequest",
+            summary = "추가 AI 사용량 요청",
+            description = "피드백을 저장하고 처리 대기 요청을 생성합니다. 이미 처리 대기 중이면 기존 요청을 반환합니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "추가 사용량 요청 접수 또는 기존 처리 대기 요청 조회 성공"),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "피드백 또는 컨텍스트 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "인증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            )
+    })
+    public CommonResponse<AiTokenExtensionRequestResponse> createMyAiTokenExtensionRequest(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @Valid @RequestBody AiTokenExtensionCreateRequest request
+    ) {
+        return CommonResponse.success(
+                "추가 사용량 요청이 접수되었습니다.",
+                aiTokenService.createExtensionRequest(member.memberId(), request)
+        );
+    }
+
+    @GetMapping("/extension-requests/me/pending")
+    @Operation(
+            operationId = "getMyPendingAiTokenExtensionRequest",
+            summary = "내 처리 대기 추가 사용량 요청 조회"
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "처리 대기 요청 조회 성공"),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "인증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            )
+    })
+    public CommonResponse<AiTokenExtensionPendingResponse> getMyPendingAiTokenExtensionRequest(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member
+    ) {
+        return CommonResponse.success(aiTokenService.getPendingExtensionRequest(member.memberId()));
     }
 }

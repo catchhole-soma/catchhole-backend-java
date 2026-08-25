@@ -46,6 +46,7 @@ public final class SecurityConstant {
 
     // ROLE_ADMIN 권한 필요 경로
     public static final String[] ADMIN_URLS = {
+            "/api/v1/admin/ai-token-extension-requests/**"
     };
 
     // 모든 공개 URL 통합 (SecurityConfig에서 permitAll에 사용)

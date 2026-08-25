@@ -336,6 +336,14 @@ domain/<domain>
 - `CHARACTER_FACT_COMPARISON`도 사용자 수정·매칭 변경 또는 stale proposal 한 건을 재비교하는 내부 Job type이다. `analysis_jobs.setting_candidate_id`로 후보 하나만 연결하고 공개 분석 목록·회차 상태 전이에서 제외한다. 후보가 무시되거나 다시 미매칭 상태가 되어 Job이 obsolete가 되면 실패 이력을 만들지 않고 no-op 성공시킨다.
 - Worker는 분석 작업 생성과 상태 전이를 위해 백엔드 DB에 직접 접근하지 않는다. 다만 청킹, 설정 후보, 리포트 같은 분석 산출물 저장은 데이터 양과 모델 안정성에 따라 내부 API 또는 Worker의 DB 직접 저장 중 선택할 수 있으며, DB 직접 저장을 선택하면 관련 스키마/문서 변경을 함께 관리한다.
 
+#### AI Token Domain Policy
+
+- `AI_TOKEN_DEFAULT_GRANT`는 신규 토큰 계정의 최초 지급량과 운영자가 추가 사용량 요청을 승인할 때의 지급량에 공통 사용한다. 승인 API에서 별도 지급량을 받거나 현재 누적 지급량으로 다음 지급량을 계산하지 않는다.
+- `AiTokenUsageResponse.remainingPercent`는 회계용 누적 지급량이 아니라 현재 `AI_TOKEN_DEFAULT_GRANT`를 100% 기준으로 계산하고 최대 100%로 제한한다. 누적 `grantedTokens`·`usedTokens`·`reservedTokens`와 실제 `remainingTokens`는 그대로 유지한다.
+- 추가 사용량 피드백은 앞뒤 공백을 제거한 Unicode 35~1,000자로 검증하고 한 회원에게 `PENDING` 요청은 하나만 허용한다. 원고 원문이나 AI 전체 출력은 자동 첨부하지 않는다.
+- 추가 사용량 승인·거절 API는 `/api/v1/admin/ai-token-extension-requests/**`의 `ROLE_ADMIN` 전용 경로로 둔다. 승인은 요청 행과 토큰 계정을 잠근 뒤 `grantedTokens` 증가, 요청 `APPROVED` 전이, 요청 ID가 연결된 `MANUAL` 지급 원장을 같은 transaction에서 한 번만 저장하며 `usedTokens`와 `reservedTokens`를 초기화하지 않는다.
+- MVP 운영자 계정은 일반 회원가입으로 만든 전용 회원을 DB에서 `ADMIN`으로 한 번 승격하고 다시 로그인해 새 access token을 발급받아 사용한다. 계정 승격 외 토큰 잔액·요청 상태·지급 원장은 DB에서 직접 수정하지 않는다.
+
 #### Character Setting Domain Policy
 
 - 캐릭터 설정 저장 토대는 `domain/character`에 둔다. `WorkCharacter`는 작품별 캐릭터 대표/현재 설정을, `SettingCandidate`는 AI가 추출한 사용자 검토 전 후보를 저장한다.

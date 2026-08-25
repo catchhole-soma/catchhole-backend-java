@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenAccountRepository;
+import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenExtensionRequestRepository;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenGrantRepository;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenUsageRepository;
 import org.monitoring.catchholebackend.domain.auth.repository.RefreshTokenRepository;
@@ -98,6 +99,9 @@ class CatchHoleBackendApplicationTests {
 
     @MockitoBean
     private AiTokenAccountRepository aiTokenAccountRepository;
+
+    @MockitoBean
+    private AiTokenExtensionRequestRepository aiTokenExtensionRequestRepository;
 
     @MockitoBean
     private AiTokenGrantRepository aiTokenGrantRepository;
