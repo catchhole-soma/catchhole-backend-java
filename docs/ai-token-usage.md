@@ -5,13 +5,16 @@ AI 요청별 실제 토큰 사용량을 관측하면서, 결제 기능이 없는
 ## 정책
 
 - 회원은 `AI_TOKEN_DEFAULT_GRANT`만큼 최초 한 번 지급받습니다.
+- 추가 사용량 요청이 승인되면 승인 시점의 `AI_TOKEN_DEFAULT_GRANT`만큼 다시 지급받습니다. 승인 요청에서 지급량을 받지 않습니다.
 - 지급량과 사용량은 누적되며 월 단위로 자동 초기화하지 않습니다.
 - 잔여량은 `granted - used - reserved`입니다.
+- 사용자용 `remainingPercent`는 누적 지급량이 아니라 현재 `AI_TOKEN_DEFAULT_GRANT`를 100% 기준으로 계산하고 최대 100%로 제한합니다. 따라서 한도를 모두 쓴 뒤 기본 지급량과 같은 양을 추가 지급받으면 누적 지급·사용 원장은 유지하면서 화면은 100%로 복구됩니다.
 - 분석 생성·재시도는 잔여량이 최소 첫 추출 예약량(`AI_TOKEN_MINIMUM_ANALYSIS_RESERVATION`, 기본 `6256`)보다 적으면, 세계관 비교 시작·일괄 재개는 최소 첫 비교 예약량(`AI_TOKEN_MINIMUM_COMPARISON_RESERVATION`, 기본 `3256`)보다 적으면 `AI_TOKEN_QUOTA_EXHAUSTED` 409로 거절합니다.
 - 실제로 실행되는 각 LLM·임베딩 호출 직전에는 예상 최대량을 예약하므로 동시 분석이 한도를 중복 소비하지 못합니다. 임베딩 feature flag가 꺼진 경우에는 임베딩 예약도 만들지 않습니다.
 - provider가 사용량을 반환하면 실제 input/output을 정산하고 사용하지 않은 예약량은 즉시 반환합니다.
 - provider를 호출하기 전에 실패했거나 사용량을 알 수 없는 실패는 예약을 해제합니다.
 - prompt, 원고, 모델 응답 본문은 토큰 이력에 저장하지 않습니다.
+- 추가 사용량 피드백은 앞뒤 공백을 제외한 35~1,000자만 저장하며, 한 회원에게 처리 대기 요청은 하나만 허용합니다.
 
 cached input은 input token의 일부이므로 관측 컬럼으로 별도 기록하되 사용량 합계에 다시 더하지 않습니다. 실제 차감량은 `input_tokens + output_tokens`입니다.
 
@@ -22,6 +25,7 @@ cached input은 input token의 일부이므로 관측 컬럼으로 별도 기록
 | `ai_token_accounts` | 회원별 누적 지급·사용·예약량의 현재 상태 |
 | `ai_token_grants` | `DEFAULT`, `MANUAL` 지급 이력 |
 | `ai_token_usages` | 요청 UUID별 예약·정산·해제와 모델 사용량 |
+| `ai_token_extension_requests` | 사용자 피드백과 `PENDING`, `APPROVED`, `REJECTED` 운영 처리 이력 |
 
 `ai_token_usages.purpose`는 호출 목적을 구분합니다.
 
@@ -91,6 +95,21 @@ GET /api/v1/ai-token-usages/me
 
 응답은 `grantedTokens`, `usedTokens`, `reservedTokens`, `remainingTokens`, `remainingPercent`, `exhausted`, `contactEmail`을 제공합니다. Frontend는 사이드바에 `remainingPercent`만 `남은 사용량`으로 표시하고, 정확한 token 수와 처리 중 예약량은 사용자에게 노출하지 않습니다. 한도 소진 안내는 `contactEmail`을 사용하되 내부 token 용어와 수치를 표시하지 않습니다.
 
+### 사용자 추가 사용량 요청
+
+```text
+POST /api/v1/ai-token-usages/extension-requests
+GET  /api/v1/ai-token-usages/extension-requests/me/pending
+```
+
+POST는 앞뒤 공백을 제거한 `feedback` 35~1,000자와 한도 안내 컨텍스트를 저장합니다. 같은 회원에게 `PENDING` 요청이 이미 있으면 새 행을 만들지 않고 기존 요청을 반환합니다. 원고 원문과 AI 전체 출력은 요청에 자동 첨부하지 않습니다.
+
+컨텍스트는 다음 세 값입니다.
+
+- `REQUEST_BLOCKED`: 새 분석 또는 비교 요청이 시작 전에 거절됨
+- `ANALYSIS_FAILED`: 실행 중 회차 분석이 사용량 부족으로 실패함
+- `ANALYSIS_INTERRUPTED`: 세계관 설정 비교가 사용량 부족으로 중단됨
+
 ### Worker 내부 API
 
 ```text
@@ -105,37 +124,49 @@ POST /api/internal/v1/ai-token-usages/{requestId}/release
 
 | 변수 | 기본값 | 의미 |
 | --- | --- | --- |
-| `AI_TOKEN_DEFAULT_GRANT` | `2000000` | 계정 최초 조회 또는 분석 시작 시 한 번 지급할 기본량 |
+| `AI_TOKEN_DEFAULT_GRANT` | `2000000` | 신규 계정 최초 지급과 추가 사용량 요청 승인에 공통으로 사용할 지급량 |
 | `AI_TOKEN_CONTACT_EMAIL` | `aicatchhole@gmail.com` | 한도 소진 안내에 표시할 피드백 연락처 |
 | `AI_TOKEN_MINIMUM_ANALYSIS_RESERVATION` | `6256` | 캐릭터 추출 상한 6,000 + 입력 최소 여유 256. 분석 생성·재시도 전 요구 |
 | `AI_TOKEN_MINIMUM_COMPARISON_RESERVATION` | `3256` | 비교 상한 3,000 + 입력 최소 여유 256. 비교 시작·중단 후보 재개 전 요구 |
 
-기본 지급량을 바꿔도 이미 생성된 계정은 소급 변경하지 않습니다. 기존 회원에게도 200만 token 정책을 적용하려면 현재 `granted_tokens`를 확인하고 목표치와의 양수 차액만 운영 추가 지급 절차로 지급해 `MANUAL` 이력을 남깁니다.
+기본 지급량을 바꾸면 이후 처음 생성되는 계정과 이후 승인되는 추가 사용량 요청부터 새 값이 적용됩니다. 이미 생성된 계정과 과거 `DEFAULT`·`MANUAL` 지급 이력은 소급 변경하지 않습니다.
 
 ## 운영 추가 지급
 
-MVP에는 관리자 화면을 두지 않습니다. 운영자가 지급할 때는 같은 DB transaction에서 계정 행을 잠그고 현재량과 지급 이력을 함께 변경합니다.
+MVP에는 관리자 화면을 두지 않습니다. `ROLE_ADMIN` 운영자가 전용 API로 대기 요청을 조회하고 승인하거나 거절합니다.
+
+운영자 계정은 일반 회원가입으로 만든 전용 계정을 한 번만 DB에서 승격합니다. 정적 관리자 비밀번호를 migration이나 저장소에 넣지 않습니다. 아래 SQL은 정확한 이메일 한 건만 변경됐는지 확인한 뒤 실행하고, 권한은 access token 발급 시 반영되므로 승격 전에 로그인했다면 반드시 로그아웃 후 다시 로그인합니다.
 
 ```sql
-BEGIN;
-
-SELECT member_id
-FROM ai_token_accounts
-WHERE member_id = :member_id
-FOR UPDATE;
-
-UPDATE ai_token_accounts
-SET granted_tokens = granted_tokens + :amount,
-    updated_at = CURRENT_TIMESTAMP
-WHERE member_id = :member_id;
-
-INSERT INTO ai_token_grants (id, member_id, amount, grant_type, note, created_at, updated_at)
-VALUES (gen_random_uuid(), :member_id, :amount, 'MANUAL', :note, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
-
-COMMIT;
+UPDATE members
+SET role = 'ADMIN', updated_at = CURRENT_TIMESTAMP
+WHERE email = 'admin@example.com'
+  AND role = 'AUTHOR';
 ```
 
-계정 행이 아직 없다면 사용량 API를 한 번 조회해 기본 계정을 생성한 뒤 지급합니다. 지급 이력 없이 계정 숫자만 수정하지 않습니다.
+승격 이후에는 일반 로그인 API로 관리자 access token을 발급받아 사용합니다. DB 직접 변경은 계정 역할의 최초 승격에만 사용하고, 사용자 토큰 잔액·추가 요청 상태·지급 원장은 아래 관리자 API로만 처리합니다.
+
+```bash
+export ADMIN_ACCESS_TOKEN='<관리자 access token>'
+
+curl -sS \
+  -H "Authorization: Bearer ${ADMIN_ACCESS_TOKEN}" \
+  'http://localhost:8080/api/v1/admin/ai-token-extension-requests?status=PENDING&page=0&size=20'
+
+curl -sS -X POST \
+  -H "Authorization: Bearer ${ADMIN_ACCESS_TOKEN}" \
+  'http://localhost:8080/api/v1/admin/ai-token-extension-requests/{requestId}/approve'
+
+curl -sS -X POST \
+  -H "Authorization: Bearer ${ADMIN_ACCESS_TOKEN}" \
+  -H 'Content-Type: application/json' \
+  -d '{"reason":"현재 베타 운영 기준에 따라 이번 요청은 지급하지 않습니다."}' \
+  'http://localhost:8080/api/v1/admin/ai-token-extension-requests/{requestId}/reject'
+```
+
+승인은 요청 ID를 멱등 기준으로 사용합니다. 첫 승인만 승인 시점의 `AI_TOKEN_DEFAULT_GRANT`를 `granted_tokens`에 더하고 요청 ID가 연결된 `MANUAL` 지급 원장을 같은 transaction에 저장합니다. `used_tokens`와 `reserved_tokens`는 초기화하지 않으며, 사용자용 잔여 비율만 현재 1회 제공량 기준으로 다시 계산합니다. 같은 승인 API를 반복 호출하면 기존 승인 결과만 반환합니다. 거절은 지급 원장을 만들지 않으며 승인된 요청을 거절하거나 거절된 요청을 승인할 수 없습니다.
+
+운영자가 지급량을 임의로 입력하는 API와 DB 직접 지급 절차는 제공하지 않습니다. 정책 지급량을 바꾸려면 `AI_TOKEN_DEFAULT_GRANT`를 변경하고 Backend 컨테이너를 재생성한 뒤, 이후 승인 응답의 `grantedAmount`를 확인합니다.
 
 ## 장애와 점검
 

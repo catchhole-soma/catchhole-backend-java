@@ -133,7 +133,7 @@ AI_TOKEN_MINIMUM_COMPARISON_RESERVATION=3256
 
 캐릭터 Fact·세계관 후보의 1차 추출은 Terra를 사용하고, 캐릭터·세계관 주체 해소와 캐릭터 Fact/세계관 비교·재비교는 Luna를 사용한다. `LLM_MODEL`은 단계별 값이 없을 때만 사용하는 하위 호환 fallback이다. `LLM_REASONING_EFFORT=none`은 구조화 응답 품질을 별도로 검증하면서 GPT-5.6의 기본 추론 비용이 자동으로 추가되지 않게 하는 MVP 기준값이다.
 
-`AI_TOKEN_DEFAULT_GRANT`는 설정 변경 후 처음 생성되는 토큰 계정에만 적용된다. 기존 회원에게도 정책 차액을 지급할 때는 `docs/ai-token-usage.md`의 운영 추가 지급 절차를 사용해 계정 합계와 지급 이력을 같은 transaction에서 갱신한다.
+`AI_TOKEN_DEFAULT_GRANT`는 설정 변경 후 처음 생성되는 토큰 계정과 이후 승인되는 추가 사용량 요청에 공통 적용된다. 이미 생성된 계정과 과거 지급 이력에는 소급 적용하지 않는다. 운영자는 `docs/ai-token-usage.md`의 관리자 API 절차로만 대기 요청을 승인하며 지급량을 요청 본문이나 SQL로 입력하지 않는다.
 
 `AI_TOKEN_CONTACT_EMAIL`은 기본 사용량을 모두 소진한 사용자에게 표시할 피드백 연락처다. 운영에서 바꿀 때는 Backend 컨테이너를 재생성해야 한다.
 

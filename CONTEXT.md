@@ -28,6 +28,14 @@ _Avoid_: Token charge, estimated usage
 1차 추출 결과는 보존됐지만 회원 사용량 부족으로 아직 완료하지 못해, 추가 지급 후 같은 후보로 재개할 수 있는 세계관 비교다.
 _Avoid_: Permanent failure, full analysis failure
 
+**Token Extension Request**:
+사용량 부족 안내에서 회원이 35자 이상의 피드백과 함께 제출하고 운영자의 승인 또는 거절을 기다리는 추가 사용량 요청이다. 한 회원에게 처리 대기 요청은 하나만 존재한다.
+_Avoid_: Token reset, email request, automatic refill
+
+**Manual Token Grant**:
+운영자가 Token Extension Request를 승인할 때 승인 시점의 `AI_TOKEN_DEFAULT_GRANT`를 계정 누적 지급량에 더하고 요청 ID와 함께 남기는 지급 원장이다. 확정 사용량을 초기화하지 않는다.
+_Avoid_: Quota reset, configurable approval amount
+
 **World Setting Candidate**:
 회차 원문에서 추출되어 확정 세계관에 반영되기 전 사용자의 검토를 기다리는 설정 하나다.
 _Avoid_: World setting, extracted fact
