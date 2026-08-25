@@ -77,6 +77,9 @@ public class AiTokenAccount extends BaseEntity {
     }
 
     public void grant(long tokens) {
+        if (tokens <= 0) {
+            throw new AppException(AiTokenErrorCode.AI_TOKEN_USAGE_INVALID);
+        }
         grantedTokens += tokens;
     }
 }
