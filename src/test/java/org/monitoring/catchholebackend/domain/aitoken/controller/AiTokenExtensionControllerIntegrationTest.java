@@ -104,6 +104,7 @@ class AiTokenExtensionControllerIntegrationTest {
         AiTokenExtensionRequest saved = extensionRequestRepository.findById(firstRequestId).orElseThrow();
         assertThat(saved.getFeedback()).isEqualTo(normalizedFeedback);
         assertThat(saved.getStatus()).isEqualTo(AiTokenExtensionStatus.PENDING);
+        assertThat(saved.getSource().name()).isEqualTo("QUOTA_EXHAUSTION");
 
         mockMvc.perform(get(USER_REQUEST_URL + "/me/pending")
                         .header(HttpHeaders.AUTHORIZATION, bearer(authorToken)))
@@ -121,6 +122,19 @@ class AiTokenExtensionControllerIntegrationTest {
                         .content(requestBody("가".repeat(34))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("AI_TOKEN_EXTENSION_FEEDBACK_INVALID"));
+
+        assertThat(extensionRequestRepository.count()).isZero();
+    }
+
+    @Test
+    @DisplayName("일반 의견 보상 전용 컨텍스트는 사용량 부족 요청에서 거절한다")
+    void rejectsGeneralFeedbackContextForQuotaRequest() throws Exception {
+        mockMvc.perform(post(USER_REQUEST_URL)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(authorToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody("가".repeat(35), "GENERAL_FEEDBACK")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_INVALID_ARGUMENT"));
 
         assertThat(extensionRequestRepository.count()).isZero();
     }
@@ -192,6 +206,7 @@ class AiTokenExtensionControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.content.length()").value(1))
                 .andExpect(jsonPath("$.data.content[0].id").value(requestId.toString()))
                 .andExpect(jsonPath("$.data.content[0].memberEmail").value("writer@example.com"))
+                .andExpect(jsonPath("$.data.content[0].source").value("QUOTA_EXHAUSTION"))
                 .andExpect(jsonPath("$.data.content[0].grantedTokens").value(321));
 
         mockMvc.perform(post(ADMIN_REQUEST_URL + "/{requestId}/reject", requestId)
@@ -227,7 +242,11 @@ class AiTokenExtensionControllerIntegrationTest {
     }
 
     private String requestBody(String feedback) throws Exception {
-        return objectMapper.writeValueAsString(new RequestBody(feedback, "REQUEST_BLOCKED"));
+        return requestBody(feedback, "REQUEST_BLOCKED");
+    }
+
+    private String requestBody(String feedback, String context) throws Exception {
+        return objectMapper.writeValueAsString(new RequestBody(feedback, context));
     }
 
     private String bearer(String token) {

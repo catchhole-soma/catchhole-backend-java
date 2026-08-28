@@ -5,6 +5,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.aitoken.entity.AiTokenExtensionRequest;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenExtensionStatus;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenExtensionSource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -17,6 +18,11 @@ public interface AiTokenExtensionRequestRepository extends JpaRepository<AiToken
     Optional<AiTokenExtensionRequest> findFirstByMemberIdAndStatusOrderByCreatedAtDesc(
             Long memberId,
             AiTokenExtensionStatus status
+    );
+
+    Optional<AiTokenExtensionRequest> findFirstByMemberIdAndSource(
+            Long memberId,
+            AiTokenExtensionSource source
     );
 
     Page<AiTokenExtensionRequest> findAllByStatusOrderByCreatedAtAsc(

@@ -9,6 +9,7 @@ import org.monitoring.catchholebackend.domain.aitoken.dto.request.AiTokenRelease
 import org.monitoring.catchholebackend.domain.aitoken.dto.request.AiTokenReserveRequest;
 import org.monitoring.catchholebackend.domain.aitoken.dto.request.AiTokenSettleRequest;
 import org.monitoring.catchholebackend.domain.aitoken.dto.response.AiTokenExtensionAdminResponse;
+import org.monitoring.catchholebackend.domain.aitoken.dto.response.AiTokenFeedbackRewardResult;
 import org.monitoring.catchholebackend.domain.aitoken.dto.response.AiTokenExtensionPendingResponse;
 import org.monitoring.catchholebackend.domain.aitoken.dto.response.AiTokenExtensionRequestResponse;
 import org.monitoring.catchholebackend.domain.aitoken.dto.response.AiTokenReservationResponse;
@@ -25,6 +26,8 @@ import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenGrantRep
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenUsageRepository;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenTotals;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenExtensionStatus;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenExtensionSource;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenFeedbackRewardOutcome;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenGrantType;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageStatus;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome;
@@ -104,6 +107,51 @@ public class AiTokenServiceImpl implements AiTokenService {
                         memberId,
                         AiTokenExtensionStatus.PENDING
                 ));
+    }
+
+    @Override
+    @Transactional
+    public AiTokenFeedbackRewardResult createGeneralFeedbackRewardRequest(
+            Long memberId,
+            String feedback
+    ) {
+        String normalizedFeedback = normalizeFeedback(feedback);
+        Member member = memberRepository.findByIdForUpdate(memberId)
+                .orElseThrow(() -> new AppException(MemberErrorCode.MEMBER_NOT_FOUND));
+        member.validateActive();
+        getOrCreateAccount(memberId);
+
+        AiTokenExtensionRequest existingRewardRequest = extensionRequestRepository
+                .findFirstByMemberIdAndSource(
+                        memberId,
+                        AiTokenExtensionSource.GENERAL_FEEDBACK_REWARD
+                )
+                .orElse(null);
+        if (existingRewardRequest != null) {
+            return toFeedbackRewardResult(
+                    AiTokenFeedbackRewardOutcome.ALREADY_REQUESTED,
+                    existingRewardRequest
+            );
+        }
+
+        boolean pendingRequestExists = extensionRequestRepository
+                .findFirstByMemberIdAndStatusOrderByCreatedAtDesc(
+                        memberId,
+                        AiTokenExtensionStatus.PENDING
+                )
+                .isPresent();
+        if (pendingRequestExists) {
+            return new AiTokenFeedbackRewardResult(
+                    AiTokenFeedbackRewardOutcome.PENDING_REQUEST_EXISTS,
+                    null,
+                    null
+            );
+        }
+
+        AiTokenExtensionRequest created = extensionRequestRepository.save(
+                AiTokenExtensionRequest.requestGeneralFeedbackReward(member, normalizedFeedback)
+        );
+        return toFeedbackRewardResult(AiTokenFeedbackRewardOutcome.CREATED, created);
     }
 
     @Override
@@ -322,6 +370,17 @@ public class AiTokenServiceImpl implements AiTokenService {
     private AiTokenExtensionRequest getExtensionRequestForUpdate(UUID requestId) {
         return extensionRequestRepository.findByIdForUpdate(requestId)
                 .orElseThrow(() -> new AppException(AiTokenErrorCode.AI_TOKEN_EXTENSION_REQUEST_NOT_FOUND));
+    }
+
+    private AiTokenFeedbackRewardResult toFeedbackRewardResult(
+            AiTokenFeedbackRewardOutcome outcome,
+            AiTokenExtensionRequest request
+    ) {
+        return new AiTokenFeedbackRewardResult(
+                outcome,
+                request.getId(),
+                request.getStatus()
+        );
     }
 
     private String normalizeFeedback(String feedback) {

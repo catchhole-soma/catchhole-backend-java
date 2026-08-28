@@ -47,6 +47,7 @@ public class AiTokenMapper {
         return new AiTokenExtensionRequestResponse(
                 request.getId(),
                 request.getFeedback(),
+                request.getSource(),
                 request.getContext(),
                 request.getStatus(),
                 request.getCreatedAt(),
@@ -73,6 +74,7 @@ public class AiTokenMapper {
                 request.getMember().getEmail(),
                 request.getMember().getDisplayName(),
                 request.getFeedback(),
+                request.getSource(),
                 request.getContext(),
                 request.getStatus(),
                 request.getCreatedAt(),

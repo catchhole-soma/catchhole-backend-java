@@ -32,6 +32,14 @@ _Avoid_: Permanent failure, full analysis failure
 사용량 부족 안내에서 회원이 35자 이상의 피드백과 함께 제출하고 운영자의 승인 또는 거절을 기다리는 추가 사용량 요청이다. 한 회원에게 처리 대기 요청은 하나만 존재한다.
 _Avoid_: Token reset, email request, automatic refill
 
+**General Feedback**:
+회원이 서비스 이용 중 횟수 제한 없이 남기는 의견 한 건이다. 추가 사용량 요청과 수명주기가 다르므로 의견은 요청 처리 상태와 무관하게 모두 보존한다.
+_Avoid_: Token request, extension feedback
+
+**General Feedback Reward Request**:
+회원의 첫 General Feedback을 계기로 만드는 Token Extension Request다. 회원당 한 번만 존재하며 이후 General Feedback은 새 요청을 만들지 않는다.
+_Avoid_: Feedback reset, recurring feedback reward
+
 **Manual Token Grant**:
 운영자가 Token Extension Request를 승인할 때 승인 시점의 `AI_TOKEN_DEFAULT_GRANT`를 계정 누적 지급량에 더하고 요청 ID와 함께 남기는 지급 원장이다. 확정 사용량을 초기화하지 않는다.
 _Avoid_: Quota reset, configurable approval amount

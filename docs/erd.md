@@ -16,6 +16,8 @@ erDiagram
     members ||--o| ai_token_accounts : has_quota
     members ||--o{ ai_token_grants : receives
     members ||--o{ ai_token_usages : consumes
+    members ||--o{ ai_token_extension_requests : requests
+    members ||--o{ feedbacks : submits
     works ||--o{ episodes : contains
     episodes ||--o{ episode_chunks : splits
     episodes ||--o| episode_source_purge_requests : queues_previous_source_cleanup
@@ -44,6 +46,8 @@ erDiagram
     analysis_jobs ||--o{ character_facts : extracts
     setting_candidates o|--o{ analysis_jobs : hidden_comparison_job
     analysis_jobs ||--o{ ai_token_usages : records
+    ai_token_extension_requests o|--o| ai_token_grants : produces_on_approval
+    ai_token_extension_requests o|--o{ feedbacks : rewards
     world_settings o|--o{ world_setting_candidates : comparison_target
     members o|--o{ world_setting_candidates : reviews
 
@@ -112,6 +116,7 @@ erDiagram
     ai_token_grants {
         uuid id PK
         bigint member_id FK
+        uuid extension_request_id FK,UK
         bigint amount
         varchar grant_type
         varchar note
@@ -133,6 +138,31 @@ erDiagram
         bigint input_tokens
         bigint cached_input_tokens
         bigint output_tokens
+        datetime created_at
+        datetime updated_at
+    }
+
+    ai_token_extension_requests {
+        uuid id PK
+        bigint member_id FK
+        varchar feedback
+        varchar request_context
+        varchar request_source
+        varchar status
+        bigint reviewed_by_member_id
+        datetime reviewed_at
+        bigint granted_amount
+        varchar rejection_reason
+        datetime created_at
+        datetime updated_at
+    }
+
+    feedbacks {
+        uuid id PK
+        bigint member_id FK
+        varchar content
+        varchar page_path
+        uuid reward_request_id FK
         datetime created_at
         datetime updated_at
     }
@@ -423,8 +453,10 @@ erDiagram
 | `legal_documents` | 이용약관·개인정보처리방침의 locale별 불변 Markdown 원문·SHA-256·버전과 `DRAFT/PUBLISHED/RETIRED` 게시 수명주기를 저장합니다. 종류+locale별 현재 `PUBLISHED`는 한 건만 허용합니다. |
 | `member_legal_records` | 회원가입 때 실제로 표시한 `legal_document_id` FK와 문서 종류·버전·행위·서버 시각 snapshot을 append-only 이력으로 저장합니다. AI 원고 처리와 GA4·Meta 고지는 개인정보처리방침 원문에 포함하며 별도 동의 행을 만들지 않습니다. |
 | `ai_token_accounts` | 회원별 누적 지급·사용·처리 중 예약량의 현재 합계를 한 행에 저장합니다. |
-| `ai_token_grants` | 최초 기본 지급과 운영 추가 지급 이력을 저장합니다. |
+| `ai_token_grants` | 최초 기본 지급과 운영 추가 지급 이력을 저장합니다. 승인으로 만든 `MANUAL` 지급은 nullable unique `extension_request_id`로 원본 요청을 연결하고, 요청 삭제 시 연결만 `NULL`로 바꿉니다. |
 | `ai_token_usages` | AI provider 요청 UUID별 예약·정산·해제 상태와 input/cached input/output 사용량을 기록합니다. |
+| `ai_token_extension_requests` | 사용량 부족 요청과 일반 의견 1회 보상 요청의 피드백·출처·컨텍스트·운영 처리 상태를 저장합니다. 회원당 `PENDING`은 출처 전체에서 한 건, `GENERAL_FEEDBACK_REWARD`는 전체 상태에서 한 건만 허용합니다. |
+| `feedbacks` | 로그인 회원의 일반 의견을 요청마다 저장합니다. `reward_request_id`는 nullable FK이며 이미 있는 보상 요청을 여러 의견이 공유할 수 있고, 요청 삭제 시 `NULL`로 바꿉니다. |
 | `works` | 회원이 소유한 작품. 회차/업로드/분석 작업의 최상위 리소스입니다. |
 | `episodes` | 작품에 속한 회차 메타데이터. 원문은 S3에 저장하고 DB에는 key/version/hash/글자 수만 둡니다. |
 | `episode_source_purge_requests` | 회차 수정·파일 교체의 이전 원문과 회차 삭제 원문·파생 데이터를 재시도 가능하게 정리하는 활성 요청입니다. 교체 요청만 `retained_content_key`에 새 원문 key를 저장하며 완료 즉시 요청을 삭제합니다. |
@@ -440,6 +472,14 @@ erDiagram
 | `character_setting_schemas` | AI의 `attributeName`을 canonical key로 해석하기 위한 전역/작품별 alias·pattern·값 타입·정책 registry입니다. 실제 캐릭터 값은 저장하지 않습니다. |
 | `world_settings` | 작품별 현재 세계관 확정본. 한 행은 분류·대상 하나이며 루트 문자열 leaf와 선택적 1단계 범위 object를 담은 JSONB, 충돌 검사용 version을 저장합니다. |
 | `world_setting_candidates` | 회차에서 추출한 세계관 속성 후보. 선택적 `scope_name`과 설정명의 전체 경로, 1차 추출, 2차 비교 제안, 사용자 최종 결정과 적용 버전을 한 행에 보존합니다. |
+
+### AI 토큰 추가 요청과 일반 의견 제약
+
+- `ai_token_extension_requests.request_source` 허용값은 `QUOTA_EXHAUSTION`, `GENERAL_FEEDBACK_REWARD`입니다. V34 이전 요청은 전자로 backfill됩니다.
+- `QUOTA_EXHAUSTION`은 `REQUEST_BLOCKED`, `ANALYSIS_FAILED`, `ANALYSIS_INTERRUPTED` 중 하나와만 결합하고, `GENERAL_FEEDBACK_REWARD`는 `GENERAL_FEEDBACK`과만 결합합니다.
+- `uk_ai_token_extension_requests_member_pending`은 한 회원의 두 출처를 통틀어 `PENDING` 행을 하나만 허용합니다. `uk_ai_token_extension_requests_member_feedback_reward`는 상태와 무관하게 일반 의견 보상 요청을 회원당 하나만 허용합니다.
+- `feedbacks.content`는 앞뒤 공백을 제외한 35~1,000자입니다. nullable `page_path`는 `/`로 시작하는 1~255자 내부 경로이며 `?`, `#`를 포함할 수 없습니다.
+- `feedbacks.member_id`는 회원 삭제 시 의견을 cascade 삭제합니다. `reward_request_id`는 보상 요청 삭제 시 `NULL`로 바꾸어 의견 본체를 유지합니다.
 
 ## Notion 기반 후속 AI 분석 ERD
 
