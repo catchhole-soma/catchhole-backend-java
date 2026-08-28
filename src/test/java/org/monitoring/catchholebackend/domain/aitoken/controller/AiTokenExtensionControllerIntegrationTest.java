@@ -127,6 +127,19 @@ class AiTokenExtensionControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("일반 의견 보상 전용 컨텍스트는 사용량 부족 요청에서 거절한다")
+    void rejectsGeneralFeedbackContextForQuotaRequest() throws Exception {
+        mockMvc.perform(post(USER_REQUEST_URL)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(authorToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody("가".repeat(35), "GENERAL_FEEDBACK")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_INVALID_ARGUMENT"));
+
+        assertThat(extensionRequestRepository.count()).isZero();
+    }
+
+    @Test
     @DisplayName("소진 계정 승인은 현재 제공량을 100% 복구하고 반복 승인해도 한 번만 지급한다")
     void approvalUsesDefaultGrantAndIsIdempotent() throws Exception {
         UUID requestId = createRequest("추가 분석이 필요한 이유를 충분히 설명하는 피드백입니다.".repeat(3), authorToken);
@@ -229,7 +242,11 @@ class AiTokenExtensionControllerIntegrationTest {
     }
 
     private String requestBody(String feedback) throws Exception {
-        return objectMapper.writeValueAsString(new RequestBody(feedback, "REQUEST_BLOCKED"));
+        return requestBody(feedback, "REQUEST_BLOCKED");
+    }
+
+    private String requestBody(String feedback, String context) throws Exception {
+        return objectMapper.writeValueAsString(new RequestBody(feedback, context));
     }
 
     private String bearer(String token) {

@@ -23,6 +23,7 @@ import org.monitoring.catchholebackend.domain.aitoken.exception.AiTokenErrorCode
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenExtensionContext;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenExtensionSource;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenExtensionStatus;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenQuotaExtensionContext;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 import org.monitoring.catchholebackend.global.exception.AppException;
@@ -89,12 +90,12 @@ public class AiTokenExtensionRequest extends BaseEntity {
     public static AiTokenExtensionRequest request(
             Member member,
             String feedback,
-            AiTokenExtensionContext context
+            AiTokenQuotaExtensionContext context
     ) {
         return new AiTokenExtensionRequest(
                 member,
                 feedback,
-                context,
+                context.getExtensionContext(),
                 AiTokenExtensionSource.QUOTA_EXHAUSTION
         );
     }

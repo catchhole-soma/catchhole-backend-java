@@ -3,7 +3,7 @@ package org.monitoring.catchholebackend.domain.aitoken.dto.request;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenExtensionContext;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenQuotaExtensionContext;
 
 @Schema(description = "추가 AI 사용량 요청")
 public record AiTokenExtensionCreateRequest(
@@ -18,6 +18,6 @@ public record AiTokenExtensionCreateRequest(
 
         @Schema(description = "사용량 부족 안내가 발생한 화면 컨텍스트")
         @NotNull
-        AiTokenExtensionContext context
+        AiTokenQuotaExtensionContext context
 ) {
 }
