@@ -21,6 +21,7 @@ import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 import org.monitoring.catchholebackend.domain.aitoken.exception.AiTokenErrorCode;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenExtensionContext;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenExtensionSource;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenExtensionStatus;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
@@ -53,6 +54,10 @@ public class AiTokenExtensionRequest extends BaseEntity {
     private AiTokenExtensionContext context;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "request_source", nullable = false, length = 40)
+    private AiTokenExtensionSource source;
+
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private AiTokenExtensionStatus status;
 
@@ -68,10 +73,16 @@ public class AiTokenExtensionRequest extends BaseEntity {
     @Column(name = "rejection_reason", length = 500)
     private String rejectionReason;
 
-    private AiTokenExtensionRequest(Member member, String feedback, AiTokenExtensionContext context) {
+    private AiTokenExtensionRequest(
+            Member member,
+            String feedback,
+            AiTokenExtensionContext context,
+            AiTokenExtensionSource source
+    ) {
         this.member = member;
         this.feedback = feedback;
         this.context = context;
+        this.source = source;
         this.status = AiTokenExtensionStatus.PENDING;
     }
 
@@ -80,7 +91,24 @@ public class AiTokenExtensionRequest extends BaseEntity {
             String feedback,
             AiTokenExtensionContext context
     ) {
-        return new AiTokenExtensionRequest(member, feedback, context);
+        return new AiTokenExtensionRequest(
+                member,
+                feedback,
+                context,
+                AiTokenExtensionSource.QUOTA_EXHAUSTION
+        );
+    }
+
+    public static AiTokenExtensionRequest requestGeneralFeedbackReward(
+            Member member,
+            String feedback
+    ) {
+        return new AiTokenExtensionRequest(
+                member,
+                feedback,
+                AiTokenExtensionContext.GENERAL_FEEDBACK,
+                AiTokenExtensionSource.GENERAL_FEEDBACK_REWARD
+        );
     }
 
     public void approve(Long reviewerMemberId, long amount, LocalDateTime reviewedAt) {

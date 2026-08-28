@@ -104,6 +104,7 @@ class AiTokenExtensionControllerIntegrationTest {
         AiTokenExtensionRequest saved = extensionRequestRepository.findById(firstRequestId).orElseThrow();
         assertThat(saved.getFeedback()).isEqualTo(normalizedFeedback);
         assertThat(saved.getStatus()).isEqualTo(AiTokenExtensionStatus.PENDING);
+        assertThat(saved.getSource().name()).isEqualTo("QUOTA_EXHAUSTION");
 
         mockMvc.perform(get(USER_REQUEST_URL + "/me/pending")
                         .header(HttpHeaders.AUTHORIZATION, bearer(authorToken)))
@@ -192,6 +193,7 @@ class AiTokenExtensionControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.content.length()").value(1))
                 .andExpect(jsonPath("$.data.content[0].id").value(requestId.toString()))
                 .andExpect(jsonPath("$.data.content[0].memberEmail").value("writer@example.com"))
+                .andExpect(jsonPath("$.data.content[0].source").value("QUOTA_EXHAUSTION"))
                 .andExpect(jsonPath("$.data.content[0].grantedTokens").value(321));
 
         mockMvc.perform(post(ADMIN_REQUEST_URL + "/{requestId}/reject", requestId)

@@ -341,6 +341,8 @@ domain/<domain>
 - `AI_TOKEN_DEFAULT_GRANT`는 신규 토큰 계정의 최초 지급량과 운영자가 추가 사용량 요청을 승인할 때의 지급량에 공통 사용한다. 승인 API에서 별도 지급량을 받거나 현재 누적 지급량으로 다음 지급량을 계산하지 않는다.
 - `AiTokenUsageResponse.remainingPercent`는 회계용 누적 지급량이 아니라 현재 `AI_TOKEN_DEFAULT_GRANT`를 100% 기준으로 계산하고 최대 100%로 제한한다. 누적 `grantedTokens`·`usedTokens`·`reservedTokens`와 실제 `remainingTokens`는 그대로 유지한다.
 - 추가 사용량 피드백은 앞뒤 공백을 제거한 Unicode 35~1,000자로 검증하고 한 회원에게 `PENDING` 요청은 하나만 허용한다. 원고 원문이나 AI 전체 출력은 자동 첨부하지 않는다.
+- 일반 피드백은 `feedbacks`에 횟수 제한 없이 매번 새 행으로 저장한다. 일반 피드백 보상용 추가 사용량 요청은 기존 승인·지급 원장을 재사용하되 `GENERAL_FEEDBACK_REWARD` 출처로 회원당 전체 상태를 통틀어 한 번만 생성한다. 이후 의견은 요청 상태와 무관하게 저장하고 새 보상 요청을 만들지 않는다.
+- 다른 추가 사용량 요청이 `PENDING`이면 일반 피드백은 저장하되 보상 요청 생성은 보류한다. 일반 피드백 보상 요청과 사용량 소진 요청은 출처를 구분하고, 사용량 소진 요청의 기존 처리 대기 중복 방지 규칙을 유지한다.
 - 추가 사용량 승인·거절 API는 `/api/v1/admin/ai-token-extension-requests/**`의 `ROLE_ADMIN` 전용 경로로 둔다. 승인은 요청 행과 토큰 계정을 잠근 뒤 `grantedTokens` 증가, 요청 `APPROVED` 전이, 요청 ID가 연결된 `MANUAL` 지급 원장을 같은 transaction에서 한 번만 저장하며 `usedTokens`와 `reservedTokens`를 초기화하지 않는다.
 - MVP 운영자 계정은 일반 회원가입으로 만든 전용 회원을 DB에서 `ADMIN`으로 한 번 승격하고 다시 로그인해 새 access token을 발급받아 사용한다. 계정 승격 외 토큰 잔액·요청 상태·지급 원장은 DB에서 직접 수정하지 않는다.
 

@@ -18,6 +18,7 @@ import org.monitoring.catchholebackend.domain.character.repository.WorkCharacter
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodePurgeDataRepository;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeSourcePurgeRequestRepository;
+import org.monitoring.catchholebackend.domain.feedback.repository.FeedbackRepository;
 import org.monitoring.catchholebackend.domain.legal.repository.LegalDocumentRepository;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.monitoring.catchholebackend.domain.member.repository.MemberWithdrawalDataRepository;
@@ -108,6 +109,9 @@ class CatchHoleBackendApplicationTests {
 
     @MockitoBean
     private AiTokenUsageRepository aiTokenUsageRepository;
+
+    @MockitoBean
+    private FeedbackRepository feedbackRepository;
 
     @MockitoBean
     private SettingCandidateRepository settingCandidateRepository;

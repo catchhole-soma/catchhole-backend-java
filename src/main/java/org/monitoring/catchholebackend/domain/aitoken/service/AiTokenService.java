@@ -7,6 +7,7 @@ import org.monitoring.catchholebackend.domain.aitoken.dto.request.AiTokenRelease
 import org.monitoring.catchholebackend.domain.aitoken.dto.request.AiTokenReserveRequest;
 import org.monitoring.catchholebackend.domain.aitoken.dto.request.AiTokenSettleRequest;
 import org.monitoring.catchholebackend.domain.aitoken.dto.response.AiTokenExtensionAdminResponse;
+import org.monitoring.catchholebackend.domain.aitoken.dto.response.AiTokenFeedbackRewardResult;
 import org.monitoring.catchholebackend.domain.aitoken.dto.response.AiTokenExtensionPendingResponse;
 import org.monitoring.catchholebackend.domain.aitoken.dto.response.AiTokenExtensionRequestResponse;
 import org.monitoring.catchholebackend.domain.aitoken.dto.response.AiTokenReservationResponse;
@@ -31,6 +32,9 @@ public interface AiTokenService {
 
     /** 로그인한 회원의 처리 대기 요청을 조회한다. */
     AiTokenExtensionPendingResponse getPendingExtensionRequest(Long memberId);
+
+    /** 일반 피드백 보상 요청을 회원당 한 번만 만든다. 다른 처리 대기 요청이 있으면 생성을 보류한다. */
+    AiTokenFeedbackRewardResult createGeneralFeedbackRewardRequest(Long memberId, String feedback);
 
     /** 운영자가 상태별 추가 사용량 요청을 오래된 순서로 조회한다. */
     PageResponse<AiTokenExtensionAdminResponse> getExtensionRequests(
