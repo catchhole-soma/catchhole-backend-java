@@ -12,8 +12,8 @@ import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSet
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingTokenInterruptedResumeResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
-import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
 
 public interface WorldSettingCandidateService {
 
@@ -23,7 +23,7 @@ public interface WorldSettingCandidateService {
             UUID batchId,
             WorldSettingReviewStatus reviewStatus,
             WorldSettingCategory category,
-            WorldSettingOperation operation,
+            WorldSettingSuggestedOperation operation,
             int page,
             int size
     );

@@ -16,6 +16,7 @@ public record WorldSettingCandidateGroupResponse(
         int updateCount,
         int mergeCount,
         int excludeCount,
+        int reviewRequiredCount,
         List<Integer> evidenceEpisodeNos,
         WorldSettingCandidateGroupStatus status,
         @Schema(nullable = true) WorldSettingRecomparisonScope recomparisonScope,

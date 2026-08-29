@@ -80,6 +80,23 @@ class CharacterFactComparisonMigrationContractTest {
                 .contains("'ADD', 'UPDATE', 'MERGE', 'REMOVE', 'HISTORY_ONLY', 'EXCLUDE', 'REVIEW_REQUIRED'");
     }
 
+    @Test
+    @DisplayName("기존 완료 EXCLUDE 후보는 설정·이력 변경 없이 자동 무시 상태로 이관한다")
+    void completedExcludeCandidatesAreBackfilledAsDismissed() throws IOException {
+        String sql = readMigration("db/migration/V35__auto_dismiss_character_exclude_candidates.sql");
+
+        assertThat(sql)
+                .contains("review_status = 'DISMISSED'")
+                .contains("comparison_status = 'NOT_REQUIRED'")
+                .contains("suggested_operation = NULL")
+                .contains("WHERE review_status = 'PENDING_REVIEW'")
+                .contains("AND comparison_status = 'COMPLETED'")
+                .contains("AND suggested_operation = 'EXCLUDE'")
+                .doesNotContain("DELETE FROM setting_candidates")
+                .doesNotContain("character_facts")
+                .doesNotContain("UPDATE characters");
+    }
+
     private String readMigration(String path) throws IOException {
         return new ClassPathResource(path).getContentAsString(StandardCharsets.UTF_8);
     }

@@ -1,0 +1,21 @@
+UPDATE setting_candidates
+SET review_status = 'DISMISSED',
+    comparison_status = 'NOT_REQUIRED',
+    suggested_operation = NULL,
+    temporal_scope = NULL,
+    comparison_target_fact_type = NULL,
+    comparison_target_fact_key = NULL,
+    proposed_fact_value = NULL,
+    proposed_value_json = NULL,
+    removed_snapshot_entries_json = NULL,
+    comparison_reason = NULL,
+    comparison_base_snapshot_version = NULL,
+    comparison_context_hash = NULL,
+    raw_comparison_json = NULL,
+    compared_at = NULL,
+    comparison_error_message = NULL,
+    comparison_failure_code = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE review_status = 'PENDING_REVIEW'
+  AND comparison_status = 'COMPLETED'
+  AND suggested_operation = 'EXCLUDE';

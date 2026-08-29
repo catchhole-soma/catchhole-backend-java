@@ -13,6 +13,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComp
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingConsolidationStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -45,9 +46,10 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
                       and targetWorldSetting.category = :category)
                   or (candidate.finalCategory is null and targetWorldSetting is null
                       and candidate.category = :category))
-              and (:operation is null
-                  or (candidate.finalOperation is not null and candidate.finalOperation = :operation)
-                  or (candidate.finalOperation is null and candidate.suggestedOperation = :operation))
+              and (:suggestedOperation is null
+                  or (candidate.finalOperation is not null and candidate.finalOperation = :finalOperation)
+                  or (candidate.finalOperation is null
+                      and candidate.suggestedOperation = :suggestedOperation))
             order by sourceEpisode.episodeNo asc, candidate.createdAt asc, candidate.id asc
             """)
     List<WorldSettingCandidate> findReviewList(
@@ -55,7 +57,8 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             @Param("batchId") UUID batchId,
             @Param("reviewStatus") WorldSettingReviewStatus reviewStatus,
             @Param("category") WorldSettingCategory category,
-            @Param("operation") WorldSettingOperation operation
+            @Param("suggestedOperation") WorldSettingSuggestedOperation suggestedOperation,
+            @Param("finalOperation") WorldSettingOperation finalOperation
     );
 
     @Query("""
