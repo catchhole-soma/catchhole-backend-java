@@ -451,6 +451,29 @@ class WorldSettingWorkerControllerIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("WORLD_SETTING_COMPARISON_TARGET_INVALID"));
 
+        String targetlessRootAddPayload = """
+                {
+                  "consolidationStatus": "SINGLE",
+                  "suggestedOperation": "ADD",
+                  "proposedSettingName": "광원",
+                  "proposedValue": "벽과 천장의 수정들이 주변을 밝힌다.",
+                  "comparisonReason": "루트 광원 설정을 추가한다.",
+                  "exactTargetWorldSettingId": "%s",
+                  "contextVersions": [{"worldSettingId": "%s", "version": %d}]
+                }
+                """.formatted(target.getId(), target.getId(), initialVersion);
+        mockMvc.perform(post(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}/world-setting-candidates/{candidateId}/comparison-complete",
+                                analysisJob.getId(),
+                                candidateId
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(targetlessRootAddPayload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("WORLD_SETTING_COMPARISON_TARGET_INVALID"));
+
         mockMvc.perform(post(
                                 "/api/internal/v1/analysis-jobs/{analysisJobId}/world-setting-candidates/{candidateId}/comparison-complete",
                                 analysisJob.getId(),

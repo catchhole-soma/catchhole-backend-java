@@ -239,7 +239,10 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
         if (request.targetWorldSettingId() != null && target == null) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
         }
-        validateProposal(candidate, target, request);
+        WorldSetting exactTarget = request.exactTargetWorldSettingId() == null
+                ? null
+                : contextTargets.get(request.exactTargetWorldSettingId());
+        validateProposal(candidate, target, exactTarget, request);
         String beforeValue = target == null || isBlank(request.matchedPropertyName())
                 ? null
                 : target.getPropertyValue(request.matchedScopeName(), request.matchedPropertyName());
@@ -318,6 +321,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
     private void validateProposal(
             WorldSettingCandidate candidate,
             WorldSetting target,
+            WorldSetting exactTarget,
             WorkerWorldSettingComparisonCompleteRequest request
     ) {
         WorldSettingSuggestedOperation operation = request.suggestedOperation();
@@ -349,6 +353,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
             if (!isBlank(request.matchedPropertyName())
                     || !isBlank(request.matchedScopeName())
                     || requiresScopeReviewForRootAdd(candidate, target, request)
+                    || requiresScopeReviewForRootAdd(candidate, exactTarget, request)
                     || target != null && (target.hasProperty(
                             request.proposedScopeName(),
                             request.proposedSettingName()
