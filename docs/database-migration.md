@@ -304,6 +304,14 @@ V31은 장문 이용약관·개인정보처리방침 원문과 게시 수명주�
 - `members.age_requirement_confirmed_at`을 nullable로 추가해 기존 회원은 유지하고, 신규 가입은 만 14세 이상 필수 확인과 같은 서버 시각을 저장합니다.
 - GA4·Meta Pixel의 실제 코드는 이 migration에서 설치하지 않으며 관련 자동 수집 고지는 개인정보처리방침 원문에 포함합니다.
 
+## V35 기준
+
+V35는 캐릭터 비교 정책 변경 전에 남아 있던 `PENDING_REVIEW + COMPLETED + EXCLUDE` 후보를 사용자 확인 없이 완료된 자동 무시 상태로 이관합니다.
+
+- 대상 후보 행만 `DISMISSED + NOT_REQUIRED`로 바꾸고 `SettingCandidate.dismiss()`와 같은 비교 proposal 필드를 비웁니다.
+- `setting_candidates` 원본 행과 추출 근거는 유지합니다.
+- `characters`, `character_facts`, `character_snapshot_sources`는 수정하지 않으므로 기존 현재 설정·provenance·이력은 그대로 유지합니다.
+
 ## 논리 참조와 FK 기준
 
 ID 컬럼이 다른 테이블을 논리적으로 가리키더라도 삭제·재처리 정책이 정해지지 않았다면 FK를 먼저 강제하지 않습니다. V1의 선택은 다음과 같습니다.
@@ -319,10 +327,10 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
 
 ## 로컬 검증
 
-기존 적용 DB에 현재 Backend를 시작해 미적용 migration이 V31까지 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V31이 순서대로 적용되는 경로를 각각 확인합니다.
+기존 적용 DB에 현재 Backend를 시작해 미적용 migration이 V35까지 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V35가 순서대로 적용되는 경로를 각각 확인합니다.
 
-- Flyway 로그에 V1부터 V31까지 적용 성공이 출력됩니다.
-- `flyway_schema_history`에 version 1부터 31까지 성공으로 기록됩니다.
+- Flyway 로그에 V1부터 V35까지 적용 성공이 출력됩니다.
+- `flyway_schema_history`에 version 1부터 35까지 성공으로 기록됩니다.
 - `vector` extension이 활성화됩니다.
 - `episode_chunks.embedding`이 `vector(1536)`으로 생성됩니다.
 - cosine HNSW 인덱스가 생성됩니다.
@@ -345,6 +353,7 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
 - V30에서 `member_withdrawal_requests`와 처리·만료 조회 인덱스가 생성되고, 작품 파기 감사의 회원 FK 제거와 검수자 회원 FK의 `ON DELETE SET NULL`이 적용됩니다.
 - V31에서 `legal_documents` 4건(기존 2건 `RETIRED`, 현재 2건 `PUBLISHED`)과 현재 게시본 partial unique가 생성되고, 기존 `member_legal_records`가 실제 문서 FK로 backfill됩니다.
 - V31의 현재 두 문서 `content_hash`가 Front `docs/legal/` 원문의 UTF-8 SHA-256과 일치하며 `members.age_requirement_confirmed_at`이 Entity와 일치합니다.
+- V35에서 기존 `PENDING_REVIEW + COMPLETED + EXCLUDE` 캐릭터 후보가 `DISMISSED + NOT_REQUIRED`로 이관되고 캐릭터 snapshot·Fact·provenance 행 수와 값은 바뀌지 않습니다.
 - `character_facts.setting_candidate_id`와 FK·조회 인덱스가 생성됩니다.
 - `works.genre`가 enum 상수명으로 저장되고 `NOT NULL`·`chk_works_genre` 제약을 가집니다.
 - `works.description`이 기존 값의 앞 50자로 정규화되고 `VARCHAR(50)` 타입을 가집니다.
@@ -356,7 +365,7 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
   `idx_characters_work_status_updated_id`로 교체됩니다.
 - `idx_analysis_jobs_work_batch_created`, `idx_setting_candidates_job_review` 인덱스가 생성됩니다.
 - Hibernate schema validation을 통과하고 Backend가 정상 시작됩니다.
-- Backend를 재시작해도 V1부터 V31까지 중복 적용되지 않습니다.
+- Backend를 재시작해도 V1부터 V35까지 중복 적용되지 않습니다.
 
 ## 최초 운영 전환
 
