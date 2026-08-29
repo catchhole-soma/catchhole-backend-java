@@ -348,6 +348,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
         if (operation == WorldSettingSuggestedOperation.ADD) {
             if (!isBlank(request.matchedPropertyName())
                     || !isBlank(request.matchedScopeName())
+                    || requiresScopeReviewForRootAdd(candidate, target, request)
                     || target != null && (target.hasProperty(
                             request.proposedScopeName(),
                             request.proposedSettingName()
@@ -374,6 +375,20 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 && !isBlank(request.matchedScopeName())) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
         }
+    }
+
+    private boolean requiresScopeReviewForRootAdd(
+            WorldSettingCandidate candidate,
+            WorldSetting target,
+            WorkerWorldSettingComparisonCompleteRequest request
+    ) {
+        return target != null
+                && candidate.getScopeName() == null
+                && isBlank(request.proposedScopeName())
+                && sameName(request.proposedSettingName(), candidate.getSettingName())
+                && target.getProperties().stream().anyMatch(property ->
+                property.scopeName() != null
+                        && sameName(property.settingName(), candidate.getSettingName()));
     }
 
     private void validateScopeUnresolvedReview(

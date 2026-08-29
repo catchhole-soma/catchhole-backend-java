@@ -1553,6 +1553,33 @@ class WorldSettingCandidateControllerIntegrationTest {
         assertThat(worldSettingRepository.findById(target.getId()).orElseThrow().getVersion())
                 .isEqualTo(initialVersion);
 
+        String unresolvedRootAddJson = """
+                {
+                  "batchId": "%s",
+                  "candidates": [{
+                    "candidateId": "%s",
+                    "operation": "ADD",
+                    "category": "LOCATION",
+                    "subjectName": "미궁",
+                    "settingName": "광원",
+                    "value": "벽과 천장의 수정들이 주변을 밝힌다."
+                  }]
+                }
+                """.formatted(uploadBatch.getId(), candidate.getId());
+        mockMvc.perform(post("/api/v1/works/{workId}/world-setting-candidates/group-confirm", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(unresolvedRootAddJson))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code")
+                        .value("WORLD_SETTING_CANDIDATE_OPERATION_INVALID"));
+
+        WorldSettingCandidate unresolved = candidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(unresolved.getFinalOperation()).isNull();
+        assertThat(unresolved.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.PENDING_REVIEW);
+        assertThat(worldSettingRepository.findById(target.getId()).orElseThrow().getVersion())
+                .isEqualTo(initialVersion);
+
         String decisionJson = """
                 {
                   "batchId": "%s",
@@ -1576,6 +1603,21 @@ class WorldSettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.candidates[0].reviewStatus").value("PENDING_REVIEW"))
                 .andExpect(jsonPath("$.data.candidates[0].finalOperation").value("UPDATE"))
                 .andExpect(jsonPath("$.data.candidates[0].finalScopeName").value("1층"));
+
+        mockMvc.perform(post("/api/v1/works/{workId}/world-setting-candidates/group-confirm", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(unresolvedRootAddJson))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code")
+                        .value("WORLD_SETTING_CANDIDATE_OPERATION_INVALID"));
+
+        WorldSettingCandidate unresolvedMismatch =
+                candidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(unresolvedMismatch.getFinalOperation()).isEqualTo(WorldSettingOperation.UPDATE);
+        assertThat(unresolvedMismatch.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.PENDING_REVIEW);
+        assertThat(worldSettingRepository.findById(target.getId()).orElseThrow().getVersion())
+                .isEqualTo(initialVersion);
 
         mockMvc.perform(post("/api/v1/works/{workId}/world-setting-candidates/group-confirm", work.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))

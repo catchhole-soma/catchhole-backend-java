@@ -489,6 +489,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_NOT_READY);
         }
 
+        validateScopeReviewDecisionDrafts(candidates, decisionsById);
         validateResolvedConflicts(candidates, decisionsById);
         validateDistinctSettingNames(request.candidates());
         List<WorldSettingCandidate> appliedCandidates = candidates.stream()
@@ -777,6 +778,28 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_GROUP_INVALID);
         }
         return groupKeys.iterator().next();
+    }
+
+    private void validateScopeReviewDecisionDrafts(
+            List<WorldSettingCandidate> candidates,
+            Map<UUID, WorldSettingCandidateGroupConfirmRequest.Decision> decisionsById
+    ) {
+        for (WorldSettingCandidate candidate : candidates) {
+            if (candidate.getSuggestedOperation() != WorldSettingSuggestedOperation.REVIEW_REQUIRED) {
+                continue;
+            }
+            WorldSettingCandidateGroupConfirmRequest.Decision decision = decisionsById.get(candidate.getId());
+            if (!candidate.finalDecisionMatches(
+                    decision.operation(),
+                    decision.category(),
+                    decision.subjectName(),
+                    decision.scopeName(),
+                    decision.settingName(),
+                    decision.value()
+            )) {
+                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_OPERATION_INVALID);
+            }
+        }
     }
 
     private void validateResolvedConflicts(

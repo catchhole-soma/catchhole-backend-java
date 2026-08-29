@@ -34,6 +34,16 @@ class WorldSettingComparisonMigrationContractTest {
                 .doesNotContain("DROP CONSTRAINT ck_world_setting_candidates_final_operation");
     }
 
+    @Test
+    @DisplayName("범위 확인 operation과 사유의 NULL 조합을 DB 제약이 거절한다")
+    void scopeReviewReasonConstraintIsNullSafe() throws IOException {
+        String sql = readMigration();
+
+        assertThat(sql)
+                .contains("suggested_operation IS NOT NULL")
+                .contains("comparison_review_reason IS NOT NULL");
+    }
+
     private String readMigration() throws IOException {
         return new ClassPathResource("db/migration/V36__add_world_setting_scope_review.sql")
                 .getContentAsString(StandardCharsets.UTF_8);

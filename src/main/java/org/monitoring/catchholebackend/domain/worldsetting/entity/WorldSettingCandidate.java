@@ -593,7 +593,7 @@ public class WorldSettingCandidate extends BaseEntity {
             WorldSetting appliedWorldSetting
     ) {
         if (reviewStatus == WorldSettingReviewStatus.CONFIRMED) {
-            if (matchesFinalDecision(operation, category, subjectName, scopeName, settingName, value)) {
+            if (finalDecisionMatches(operation, category, subjectName, scopeName, settingName, value)) {
                 return false;
             }
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
@@ -660,7 +660,7 @@ public class WorldSettingCandidate extends BaseEntity {
         this.rawComparisonJson = null;
     }
 
-    private boolean matchesFinalDecision(
+    public boolean finalDecisionMatches(
             WorldSettingOperation operation,
             WorldSettingCategory category,
             String subjectName,
