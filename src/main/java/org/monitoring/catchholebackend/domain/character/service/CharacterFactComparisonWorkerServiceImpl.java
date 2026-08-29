@@ -178,7 +178,11 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
                 analysisJobId,
                 leaseToken
         );
-        SettingCandidate candidate = getOwnedProcessingCandidate(analysisJob, candidateId);
+        SettingCandidate candidate = getOwnedCandidate(analysisJob, candidateId);
+        if (isIdempotentExcludedCompletion(candidate, request)) {
+            return;
+        }
+        validateProcessingCandidate(candidate);
         CanonicalTarget canonicalTarget = resolveCanonicalTarget(candidate);
         WorkCharacter character = getMatchedCharacter(candidate, true);
         ContextSnapshot currentContext = buildContext(candidate, character, canonicalTarget);
@@ -221,6 +225,9 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
                 objectMapper.valueToTree(request.rawComparisonJson()),
                 LocalDateTime.now()
         );
+        if (request.operation() == CharacterFactOperation.EXCLUDE) {
+            candidate.dismiss();
+        }
     }
 
     @Override
@@ -530,16 +537,46 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
     }
 
     private SettingCandidate getOwnedProcessingCandidate(AnalysisJob analysisJob, UUID candidateId) {
+        SettingCandidate candidate = getOwnedCandidate(analysisJob, candidateId);
+        validateProcessingCandidate(candidate);
+        return candidate;
+    }
+
+    private SettingCandidate getOwnedCandidate(AnalysisJob analysisJob, UUID candidateId) {
         SettingCandidate candidate = settingCandidateRepository.findByIdAndWorkIdForUpdate(
                         candidateId,
                         analysisJob.getWork().getId()
                 )
                 .orElseThrow(() -> new AppException(CharacterErrorCode.SETTING_CANDIDATE_NOT_FOUND));
         validateOwnership(analysisJob, candidate);
+        return candidate;
+    }
+
+    private void validateProcessingCandidate(SettingCandidate candidate) {
         if (candidate.getComparisonStatus() != CharacterFactComparisonStatus.PROCESSING) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
-        return candidate;
+    }
+
+    private boolean isIdempotentExcludedCompletion(
+            SettingCandidate candidate,
+            WorkerCharacterFactComparisonCompleteRequest request
+    ) {
+        if (candidate.getReviewStatus() != SettingCandidateReviewStatus.DISMISSED
+                || candidate.getComparisonStatus() != CharacterFactComparisonStatus.NOT_REQUIRED
+                || request.operation() != CharacterFactOperation.EXCLUDE) {
+            return false;
+        }
+        if (request.targetFactType() != null || !isBlank(request.targetFactKey())) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_TARGET_INVALID);
+        }
+        if (request.temporalScope() != CharacterFactTemporalScope.PRESENT
+                || request.proposedFactValue() != null
+                || request.proposedValueJson() != null
+                || !request.removedSnapshotEntries().isEmpty()) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
+        }
+        return true;
     }
 
     private SettingCandidate lockLinkedCandidate(AnalysisJob analysisJob) {

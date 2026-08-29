@@ -194,6 +194,141 @@ class CharacterFactComparisonWorkerServiceImplTest {
     }
 
     @Test
+    @DisplayName("초기 분석의 EXCLUDE 비교 완료는 후보만 자동 무시하고 현재 snapshot을 유지한다")
+    void excludeCompletionAutomaticallyDismissesWithoutChangingSnapshot() {
+        character.replaceCurrentSnapshots(null, 1, null, null, null, null, null);
+        long snapshotVersion = character.getSnapshotVersion();
+        SettingCandidate candidate = prepareCandidate(
+                "level",
+                "1",
+                SettingValueType.NUMBER,
+                value(1),
+                schema("level", null, CharacterFactType.LEVEL, SettingValueType.NUMBER)
+        );
+        WorkerCharacterFactComparisonContextResponse context = claimAndGetContext(candidate);
+
+        service.completeCharacterFactComparison(
+                analysisJobId,
+                candidate.getId(),
+                leaseToken,
+                completeRequest(
+                        CharacterFactOperation.EXCLUDE,
+                        null,
+                        null,
+                        null,
+                        List.of(),
+                        CharacterFactTemporalScope.PRESENT,
+                        context.contextToken()
+                )
+        );
+
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.DISMISSED);
+        assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.NOT_REQUIRED);
+        assertThat(candidate.getSuggestedOperation()).isNull();
+        assertThat(candidate.getProposedFactValue()).isNull();
+        assertThat(candidate.getProposedValueJson()).isNull();
+        assertThat(candidate.getEvidenceSpans()).isNotNull();
+        assertThat(character.getCurrentLevel()).isEqualTo(1);
+        assertThat(character.getSnapshotVersion()).isEqualTo(snapshotVersion);
+    }
+
+    @Test
+    @DisplayName("숨김 재비교의 EXCLUDE 완료도 같은 자동 무시 상태로 전환한다")
+    void hiddenRecomparisonExcludeCompletionAutomaticallyDismisses() {
+        character.replaceCurrentSnapshots(
+                null,
+                null,
+                null,
+                objectMapper.createObjectNode().set("stats.physique", value(25)),
+                null,
+                null,
+                null
+        );
+        long snapshotVersion = character.getSnapshotVersion();
+        CharacterSettingSchema physiqueSchema = schema(
+                "stats.physique",
+                null,
+                CharacterFactType.STAT,
+                SettingValueType.NUMBER
+        );
+        SettingCandidate candidate = newCandidate(
+                "stats.physique",
+                "25",
+                SettingValueType.NUMBER,
+                value(25)
+        );
+        when(schemaRepository.findAllActiveForWork(work.getId())).thenReturn(List.of(physiqueSchema));
+        when(candidateRepository.findByIdAndWorkIdForUpdate(candidate.getId(), work.getId()))
+                .thenReturn(Optional.of(candidate));
+        when(characterRepository.findByIdAndWorkId(character.getId(), work.getId()))
+                .thenReturn(Optional.of(character));
+        when(characterRepository.findByIdAndWorkIdForUpdate(character.getId(), work.getId()))
+                .thenReturn(Optional.of(character));
+        ReflectionTestUtils.setField(analysisJob, "jobType", AnalysisJobType.CHARACTER_FACT_COMPARISON);
+        ReflectionTestUtils.setField(analysisJob, "settingCandidate", candidate);
+        WorkerCharacterFactComparisonContextResponse context = claimAndGetContext(candidate);
+
+        service.completeCharacterFactComparison(
+                analysisJobId,
+                candidate.getId(),
+                leaseToken,
+                completeRequest(
+                        CharacterFactOperation.EXCLUDE,
+                        null,
+                        null,
+                        null,
+                        List.of(),
+                        CharacterFactTemporalScope.PRESENT,
+                        context.contextToken()
+                )
+        );
+
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.DISMISSED);
+        assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.NOT_REQUIRED);
+        assertThat(character.getStatsJson().get("stats.physique").get("value").intValue()).isEqualTo(25);
+        assertThat(character.getSnapshotVersion()).isEqualTo(snapshotVersion);
+    }
+
+    @Test
+    @DisplayName("같은 EXCLUDE 완료 요청을 다시 받아도 자동 무시 상태를 유지한다")
+    void duplicateExcludeCompletionIsIdempotent() {
+        character.replaceCurrentSnapshots(null, 1, null, null, null, null, null);
+        SettingCandidate candidate = prepareCandidate(
+                "level",
+                "1",
+                SettingValueType.NUMBER,
+                value(1),
+                schema("level", null, CharacterFactType.LEVEL, SettingValueType.NUMBER)
+        );
+        WorkerCharacterFactComparisonContextResponse context = claimAndGetContext(candidate);
+        WorkerCharacterFactComparisonCompleteRequest request = completeRequest(
+                CharacterFactOperation.EXCLUDE,
+                null,
+                null,
+                null,
+                List.of(),
+                CharacterFactTemporalScope.PRESENT,
+                context.contextToken()
+        );
+
+        service.completeCharacterFactComparison(
+                analysisJobId,
+                candidate.getId(),
+                leaseToken,
+                request
+        );
+        service.completeCharacterFactComparison(
+                analysisJobId,
+                candidate.getId(),
+                leaseToken,
+                request
+        );
+
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.DISMISSED);
+        assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.NOT_REQUIRED);
+    }
+
+    @Test
     @DisplayName("잘못된 후보를 격리하고 다음 정상 후보를 claim한다")
     void claimSkipsInvalidCandidateAndContinuesQueue() {
         SettingCandidate invalid = newCandidate(
