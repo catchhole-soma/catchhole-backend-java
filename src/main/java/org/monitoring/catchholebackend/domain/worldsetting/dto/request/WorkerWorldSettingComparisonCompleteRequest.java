@@ -9,8 +9,9 @@ import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonReviewReason;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingConsolidationStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
 
 @Schema(description = "Worker 세계관 설정 비교 완료 요청")
 public record WorkerWorldSettingComparisonCompleteRequest(
@@ -22,7 +23,10 @@ public record WorkerWorldSettingComparisonCompleteRequest(
         WorldSettingConsolidationStatus consolidationStatus,
 
         @NotNull(message = "세계관 설정 제안 방식은 필수입니다.")
-        WorldSettingOperation suggestedOperation,
+        WorldSettingSuggestedOperation suggestedOperation,
+
+        @Schema(description = "사용자 판단이 필요한 구조화된 비교 사유", nullable = true)
+        WorldSettingComparisonReviewReason comparisonReviewReason,
 
         @Size(max = 100, message = "제안 범위명은 100자 이하여야 합니다.")
         @Schema(description = "제안된 선택적 한 단계 범위", nullable = true, example = "1층")
@@ -52,7 +56,7 @@ public record WorkerWorldSettingComparisonCompleteRequest(
             UUID targetWorldSettingId,
             String matchedPropertyName,
             WorldSettingConsolidationStatus consolidationStatus,
-            WorldSettingOperation suggestedOperation,
+            WorldSettingSuggestedOperation suggestedOperation,
             String proposedSettingName,
             String proposedValue,
             String comparisonReason,
@@ -66,6 +70,7 @@ public record WorkerWorldSettingComparisonCompleteRequest(
                 matchedPropertyName,
                 consolidationStatus,
                 suggestedOperation,
+                null,
                 null,
                 proposedSettingName,
                 proposedValue,

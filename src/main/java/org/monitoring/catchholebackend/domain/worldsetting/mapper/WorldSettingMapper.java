@@ -21,10 +21,10 @@ import org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettin
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCandidateGroupStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
-import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingRecomparisonReason;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingRecomparisonScope;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -95,7 +95,7 @@ public class WorldSettingMapper {
                 ? candidate.getSubjectName()
                 : targetWorldSetting.getSubjectName();
         boolean userModified = candidate.getFinalOperation() != null
-                && (candidate.getFinalOperation() != candidate.getSuggestedOperation()
+                && (!candidate.suggestedOperationMatches(candidate.getFinalOperation())
                 || candidate.getFinalCategory() != candidate.getCategory()
                 || !sameName(candidate.getFinalSubjectName(), suggestedSubjectName)
                 || !sameName(candidate.getFinalScopeName(), candidate.getProposedScopeName())
@@ -116,8 +116,11 @@ public class WorldSettingMapper {
                 candidate.getExtractionConfidence(),
                 targetWorldSetting == null ? null : targetWorldSetting.getId(),
                 targetWorldSetting == null ? null : targetWorldSetting.getSubjectName(),
+                candidate.getMatchedScopeName(),
+                candidate.getMatchedPropertyName(),
                 candidate.getConsolidationStatus(),
                 candidate.getSuggestedOperation(),
+                candidate.getComparisonReviewReason(),
                 candidate.getProposedScopeName(),
                 candidate.getProposedSettingName(),
                 candidate.getBeforeValue(),
@@ -175,10 +178,11 @@ public class WorldSettingMapper {
                 category,
                 subjectName,
                 candidates.size(),
-                operationCount(candidates, WorldSettingOperation.ADD),
-                operationCount(candidates, WorldSettingOperation.UPDATE),
-                operationCount(candidates, WorldSettingOperation.MERGE),
-                operationCount(candidates, WorldSettingOperation.EXCLUDE),
+                operationCount(candidates, WorldSettingSuggestedOperation.ADD),
+                operationCount(candidates, WorldSettingSuggestedOperation.UPDATE),
+                operationCount(candidates, WorldSettingSuggestedOperation.MERGE),
+                operationCount(candidates, WorldSettingSuggestedOperation.EXCLUDE),
+                operationCount(candidates, WorldSettingSuggestedOperation.REVIEW_REQUIRED),
                 candidates.stream()
                         .map(candidate -> candidate.getSourceEpisode().getEpisodeNo())
                         .filter(Objects::nonNull)
@@ -206,10 +210,10 @@ public class WorldSettingMapper {
 
     private int operationCount(
             List<WorldSettingCandidate> candidates,
-            WorldSettingOperation operation
+            WorldSettingSuggestedOperation operation
     ) {
         return (int) candidates.stream()
-                .filter(candidate -> candidate.getEffectiveOperation() == operation)
+                .filter(candidate -> candidate.getEffectiveSuggestedOperation() == operation)
                 .count();
     }
 

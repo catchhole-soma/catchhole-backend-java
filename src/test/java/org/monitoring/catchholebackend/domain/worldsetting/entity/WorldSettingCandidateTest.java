@@ -22,6 +22,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCate
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
 import org.monitoring.catchholebackend.global.exception.AppException;
 
 @DisplayName("세계관 설정 후보 Entity 단위 테스트")
@@ -69,7 +70,7 @@ class WorldSettingCandidateTest {
 
         assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.COMPLETED);
         assertThat(candidate.getTargetWorldSetting()).isSameAs(setting);
-        assertThat(candidate.getSuggestedOperation()).isEqualTo(WorldSettingOperation.ADD);
+        assertThat(candidate.getSuggestedOperation()).isEqualTo(WorldSettingSuggestedOperation.ADD);
         assertThat(candidate.getBaseWorldSettingVersion()).isZero();
         assertThat(candidate.getBeforeValue()).isNull();
     }

@@ -47,6 +47,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOper
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingRecomparisonReason;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingRecomparisonScope;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
 import org.monitoring.catchholebackend.global.common.response.PageResponse;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.stereotype.Service;
@@ -72,7 +73,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             UUID batchId,
             WorldSettingReviewStatus reviewStatus,
             WorldSettingCategory category,
-            WorldSettingOperation operation,
+            WorldSettingSuggestedOperation operation,
             int page,
             int size
     ) {
@@ -83,7 +84,10 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                 batchId,
                 reviewStatus,
                 category,
-                operation
+                operation,
+                operation == null || operation == WorldSettingSuggestedOperation.REVIEW_REQUIRED
+                        ? null
+                        : WorldSettingOperation.valueOf(operation.name())
         );
         WorldSettingCandidateBatchCounts counts = worldSettingCandidateRepository.countReviewSummary(
                 work.getId(),
@@ -982,7 +986,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         String comparedValue = candidate.getProposedValue() == null
                 ? candidate.getExtractedValue()
                 : candidate.getProposedValue();
-        return operation != candidate.getSuggestedOperation()
+        return !candidate.suggestedOperationMatches(operation)
                 || category != comparedCategory
                 || !sameName(subjectName, comparedSubjectName)
                 || !sameName(scopeName, comparedScopeName)

@@ -36,10 +36,12 @@ import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.worldsetting.exception.WorldSettingErrorCode;
 import org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingNameNormalizer;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonReviewReason;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingConsolidationStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 import org.monitoring.catchholebackend.global.exception.AppException;
 
@@ -130,6 +132,12 @@ public class WorldSettingCandidate extends BaseEntity {
     )
     private WorldSetting targetWorldSetting;
 
+    @Column(name = "matched_scope_name", length = NAME_MAX_LENGTH)
+    private String matchedScopeName;
+
+    @Column(name = "matched_property_name", length = NAME_MAX_LENGTH)
+    private String matchedPropertyName;
+
     // 여러 1차 추출값을 2차 LLM이 안전하게 하나로 정리했는지 나타낸다.
     @Enumerated(EnumType.STRING)
     @Column(name = "consolidation_status", nullable = false, length = 20)
@@ -137,7 +145,11 @@ public class WorldSettingCandidate extends BaseEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "suggested_operation", length = 30)
-    private WorldSettingOperation suggestedOperation;
+    private WorldSettingSuggestedOperation suggestedOperation;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "comparison_review_reason", length = 40)
+    private WorldSettingComparisonReviewReason comparisonReviewReason;
 
     @Column(name = "proposed_setting_name", length = NAME_MAX_LENGTH)
     private String proposedSettingName;
@@ -322,7 +334,10 @@ public class WorldSettingCandidate extends BaseEntity {
         completeComparison(
                 targetWorldSetting,
                 WorldSettingConsolidationStatus.SINGLE,
-                suggestedOperation,
+                WorldSettingSuggestedOperation.fromFinalOperation(suggestedOperation),
+                null,
+                null,
+                null,
                 null,
                 proposedSettingName,
                 beforeValue,
@@ -347,7 +362,10 @@ public class WorldSettingCandidate extends BaseEntity {
         completeComparison(
                 targetWorldSetting,
                 consolidationStatus,
-                suggestedOperation,
+                WorldSettingSuggestedOperation.fromFinalOperation(suggestedOperation),
+                null,
+                null,
+                null,
                 null,
                 proposedSettingName,
                 beforeValue,
@@ -370,11 +388,46 @@ public class WorldSettingCandidate extends BaseEntity {
             JsonNode rawComparisonJson,
             LocalDateTime comparedAt
     ) {
+        completeComparison(
+                targetWorldSetting,
+                consolidationStatus,
+                WorldSettingSuggestedOperation.fromFinalOperation(suggestedOperation),
+                null,
+                null,
+                null,
+                proposedScopeName,
+                proposedSettingName,
+                beforeValue,
+                proposedValue,
+                comparisonReason,
+                rawComparisonJson,
+                comparedAt
+        );
+    }
+
+    public void completeComparison(
+            WorldSetting targetWorldSetting,
+            WorldSettingConsolidationStatus consolidationStatus,
+            WorldSettingSuggestedOperation suggestedOperation,
+            String matchedScopeName,
+            String matchedPropertyName,
+            WorldSettingComparisonReviewReason comparisonReviewReason,
+            String proposedScopeName,
+            String proposedSettingName,
+            String beforeValue,
+            String proposedValue,
+            String comparisonReason,
+            JsonNode rawComparisonJson,
+            LocalDateTime comparedAt
+    ) {
         validatePendingReview();
         validateProcessingComparison();
         this.targetWorldSetting = targetWorldSetting;
+        this.matchedScopeName = optionalName(matchedScopeName);
+        this.matchedPropertyName = optionalName(matchedPropertyName);
         this.consolidationStatus = Objects.requireNonNull(consolidationStatus);
         this.suggestedOperation = Objects.requireNonNull(suggestedOperation);
+        this.comparisonReviewReason = comparisonReviewReason;
         this.proposedScopeName = optionalName(proposedScopeName);
         this.proposedSettingName = requiredName(proposedSettingName);
         this.beforeValue = optionalValue(beforeValue);
@@ -481,8 +534,14 @@ public class WorldSettingCandidate extends BaseEntity {
         appliedWorldSettingVersion = null;
     }
 
-    public WorldSettingOperation getEffectiveOperation() {
-        return finalOperation == null ? suggestedOperation : finalOperation;
+    public WorldSettingSuggestedOperation getEffectiveSuggestedOperation() {
+        return finalOperation == null
+                ? suggestedOperation
+                : WorldSettingSuggestedOperation.fromFinalOperation(finalOperation);
+    }
+
+    public boolean suggestedOperationMatches(WorldSettingOperation operation) {
+        return suggestedOperation != null && suggestedOperation.matchesFinalOperation(operation);
     }
 
     public WorldSettingCategory getEffectiveCategory() {
@@ -631,7 +690,10 @@ public class WorldSettingCandidate extends BaseEntity {
 
     private void clearComparisonProposal() {
         targetWorldSetting = null;
+        matchedScopeName = null;
+        matchedPropertyName = null;
         suggestedOperation = null;
+        comparisonReviewReason = null;
         proposedScopeName = null;
         proposedSettingName = null;
         beforeValue = null;

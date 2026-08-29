@@ -30,8 +30,8 @@ import org.monitoring.catchholebackend.domain.worldsetting.service.WorldSettingC
 import org.monitoring.catchholebackend.domain.worldsetting.service.WorldSettingCandidateConfirmResult;
 import org.monitoring.catchholebackend.domain.worldsetting.exception.WorldSettingErrorCode;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
-import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
 import org.monitoring.catchholebackend.global.common.response.CommonErrorResponse;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
 import org.monitoring.catchholebackend.global.exception.AppException;
@@ -81,7 +81,7 @@ public class WorldSettingCandidateController {
             @RequestParam UUID batchId,
             @RequestParam(required = false) WorldSettingReviewStatus reviewStatus,
             @RequestParam(required = false) WorldSettingCategory category,
-            @RequestParam(required = false) WorldSettingOperation operation,
+            @RequestParam(required = false) WorldSettingSuggestedOperation operation,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {

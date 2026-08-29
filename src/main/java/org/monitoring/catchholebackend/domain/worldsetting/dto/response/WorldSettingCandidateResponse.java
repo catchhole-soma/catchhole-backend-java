@@ -7,10 +7,12 @@ import java.util.List;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonReviewReason;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingConsolidationStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
 
 @Schema(description = "세계관 설정 후보 응답")
 public record WorldSettingCandidateResponse(
@@ -29,8 +31,14 @@ public record WorldSettingCandidateResponse(
         @Schema(nullable = true) UUID targetWorldSettingId,
         @Schema(description = "2차 비교가 연결한 기존 확정 대상의 정식 대상명", nullable = true)
         String targetSubjectName,
+        @Schema(description = "2차 비교가 참조한 기존 속성의 범위", nullable = true)
+        String matchedScopeName,
+        @Schema(description = "2차 비교가 참조한 기존 속성명", nullable = true)
+        String matchedPropertyName,
         WorldSettingConsolidationStatus consolidationStatus,
-        @Schema(nullable = true) WorldSettingOperation suggestedOperation,
+        @Schema(nullable = true) WorldSettingSuggestedOperation suggestedOperation,
+        @Schema(description = "사용자 판단이 필요한 구조화된 비교 사유", nullable = true)
+        WorldSettingComparisonReviewReason comparisonReviewReason,
         @Schema(nullable = true) String proposedScopeName,
         @Schema(nullable = true) String proposedSettingName,
         @Schema(nullable = true) String beforeValue,

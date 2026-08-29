@@ -431,6 +431,7 @@ domain/<domain>
 - 외부 변경이 관련 key에만 영향을 주면 해당 row, 대상 생성·삭제·identity 변경이면 그룹 전체를 `RECOMPARISON_REQUIRED`로 전환하고 선택 후보를 하나도 부분 반영하지 않는다. 같은 행의 다른 설정 변경으로 version만 달라진 경우는 허용한다.
 - 1차 `evidence_spans`·회차는 후보 원본으로 보존하고 2차 비교·재비교가 변경하지 않는다. 원고가 바뀐 경우에만 새 1차 분석 후보와 근거를 생성한다.
 - 기존 속성과 의미가 같아 `EXCLUDE`하는 비교 결과는 대상 ID와 실제 속성명을 함께 받아 해당 속성값을 `beforeValue`로 보존한다. 특정 기존 속성과 비교하지 않은 일시적 사건 등의 제외만 `beforeValue`가 없을 수 있으며, 매칭 속성명만 있고 대상이 없는 요청은 거절한다.
+- `scopeName=null` 후보와 같은 이름의 기존 속성이 특정 scope 아래에만 있으면 scope를 자동 상속하거나 concrete operation으로 완료하지 않는다. Worker 제안은 기존 경로를 `matchedScopeName + matchedPropertyName`에 보존한 `REVIEW_REQUIRED + SCOPE_UNRESOLVED`이며 후보는 `PENDING_REVIEW + COMPLETED`로 남는다. 사용자가 기존 scoped 경로의 `UPDATE/MERGE`, root `ADD`, 또는 `EXCLUDE`를 최종 결정하기 전에는 `WorldSetting`·property·version을 바꾸지 않는다. `REVIEW_REQUIRED`는 suggested operation에만 존재하고 final operation에는 허용하지 않으며, 다른 `ADD/UPDATE/MERGE/EXCLUDE`의 후보 scope와 기존 property scope exact-path 검증은 계속 유지한다.
 - 재비교 충돌은 후보 상태를 먼저 commit한 뒤 HTTP 409로 응답해야 한다. Service는 `WorldSettingCandidateConfirmResult.recomparisonRequired`를 정상 반환하고 Controller가 commit 이후 `AppException`으로 변환한다. 이를 위해 전용 예외 클래스를 추가하거나 `noRollbackFor=AppException.class`로 다른 확정 오류의 rollback 범위를 넓히지 않는다.
 - 같은 확정·제외 요청은 멱등 처리하고 `CONFIRMED ↔ DISMISSED` 반대 전이는 충돌로 거절한다. `UPDATE`와 `MERGE`는 DB에서 모두 최종 문자열로 한 property를 교체하되 제안 의미를 기록하기 위해 enum을 구분한다.
 - `recompare` API는 비교 제안을 비우고 `PENDING`으로 전환한 뒤 멱등한 `WORLD_SETTING_COMPARISON` Job을 생성한다. 실제 LLM 호출은 별도 AI comparison runner가 claim해 수행하며 HTTP 요청 트랜잭션 안에서 호출하지 않는다.

@@ -101,8 +101,11 @@ MVP의 후보 출처는 회차 원문만 지원하므로 `source_type`, `source_
 | 컬럼 | 의미 |
 | --- | --- |
 | `target_world_setting_id` | 비교 대상으로 선택한 확정본 FK. 신규 대상이면 `NULL` |
+| `matched_scope_name` | 2차 비교가 참조한 기존 속성 범위. 루트면 `NULL` |
+| `matched_property_name` | 2차 비교가 참조한 기존 속성명 |
 | `consolidation_status` | 여러 1차 추출값의 정리 결과. `SINGLE`, `MERGED`, `CONFLICT` |
 | `suggested_operation` | 2차 LLM이 제안한 반영 방식 |
+| `comparison_review_reason` | 사용자 판단이 필요한 구조화된 사유. 현재 `SCOPE_UNRESOLVED` |
 | `proposed_scope_name` | 비교 후 제안하는 최종 범위 |
 | `proposed_setting_name` | 비교 후 제안하는 최종 설정명 |
 | `before_value` | 비교 당시 같은 설정명의 기존 값. 신규 속성이면 `NULL` |
@@ -112,7 +115,8 @@ MVP의 후보 출처는 회차 원문만 지원하므로 `source_type`, `source_
 | `raw_comparison_json` | 2차 LLM 원본 응답 |
 | `compared_at` | 비교 완료 시각 |
 
-반영 방식은 다음 네 가지입니다.
+2차 비교 제안은 다음 다섯 가지입니다. 사용자 최종 결정인 `final_operation`은
+`ADD`, `UPDATE`, `MERGE`, `EXCLUDE` 네 가지로만 유지합니다.
 
 | enum | 의미 |
 | --- | --- |
@@ -120,6 +124,19 @@ MVP의 후보 출처는 회차 원문만 지원하므로 `source_type`, `source_
 | `UPDATE` | 기존 설정 속성을 새로운 사실로 교체 |
 | `MERGE` | 기존 사실과 신규 사실을 종합한 제안값으로 교체 |
 | `EXCLUDE` | 지속 가능한 세계관 설정이 아니거나 반영할 필요가 없어 제외 |
+| `REVIEW_REQUIRED` | 후보 범위가 없지만 다른 범위의 동명 속성과 관련될 수 있어 사용자가 범위를 결정해야 함 |
+
+`scope_name=NULL` 후보와 같은 이름의 속성이 특정 scope 아래에만 있으면 기존 scope를
+자동 상속하지 않습니다. Worker는 기존 경로를 `matched_scope_name + matched_property_name`에
+보존하고 `REVIEW_REQUIRED + SCOPE_UNRESOLVED`로 비교를 완료합니다. 후보는
+`PENDING_REVIEW + COMPLETED`로 남으며 이 결과만으로 `WorldSetting`, property, version을
+변경하지 않습니다. 사용자가 기존 scoped 경로의 `UPDATE/MERGE`, root `ADD`, 또는
+`EXCLUDE` 중 concrete 결정을 저장한 뒤에만 확정할 수 있습니다.
+
+`ADD`, `UPDATE`, `MERGE`, `EXCLUDE`의 실제 비교 경로 검증은 완화하지 않습니다.
+특히 `UPDATE/MERGE`와 기존 속성을 참조하는 `EXCLUDE`는 후보의 추출 scope와 기존 속성
+scope가 같아야 합니다. 후보와 같은 root 경로가 이미 있으면 그 경로를 우선 비교하며
+scope 미확정으로 처리하지 않습니다.
 
 `UPDATE`와 `MERGE`는 DB에서 모두 해당 설정명 한 개를 최종값으로 교체합니다. 두 enum은 2차 LLM의 판단 의미와 검토 기록을 구분하기 위해 유지하며, Backend가 문자열을 임의로 합성하지 않습니다.
 
@@ -157,7 +174,7 @@ MVP의 후보 출처는 회차 원문만 지원하므로 `source_type`, `source_
 | `FAILED` | 비교 실패. `comparison_error_message`에 이유 저장 |
 | `RECOMPARISON_REQUIRED` | 비교 뒤 외부 변경으로 대상 identity 또는 관련 설정 문맥이 달라져 재비교 필요 |
 
-검토 상태는 `PENDING_REVIEW`, `CONFIRMED`, `DISMISSED`를 사용합니다. `COMPLETED` 후보만 일반 확정할 수 있으며, 비교 실패·처리 중·재비교 필요 후보는 확정하지 않습니다.
+검토 상태는 `PENDING_REVIEW`, `CONFIRMED`, `DISMISSED`를 사용합니다. `COMPLETED` 후보만 일반 확정할 수 있으며, 비교 실패·처리 중·재비교 필요 후보는 확정하지 않습니다. `REVIEW_REQUIRED` 제안은 `COMPLETED`이지만 concrete `final_operation`을 먼저 저장하지 않으면 그룹 확정 대상이 되지 않습니다.
 
 ### 대상 후보 그룹
 

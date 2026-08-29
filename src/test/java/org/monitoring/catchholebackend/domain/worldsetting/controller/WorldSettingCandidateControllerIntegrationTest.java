@@ -50,10 +50,12 @@ import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCa
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonReviewReason;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingConsolidationStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
 import org.monitoring.catchholebackend.global.config.security.SecurityConstant;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -1479,6 +1481,114 @@ class WorldSettingCandidateControllerIntegrationTest {
 
         assertThat(candidateRepository.findById(candidate.getId()).orElseThrow().getReviewStatus())
                 .isEqualTo(WorldSettingReviewStatus.DISMISSED);
+    }
+
+    @Test
+    @DisplayName("범위 확인 필요 후보는 기존 경로를 보여주고 작가가 경로를 선택한 뒤에만 반영한다")
+    void scopeReviewRequiresAuthorDecisionBeforeApplyingExistingPath() throws Exception {
+        WorldSetting target = worldSettingRepository.saveAndFlush(WorldSetting.create(
+                work,
+                WorldSettingCategory.LOCATION,
+                "미궁",
+                "1층",
+                "광원",
+                "벽에 붙은 수정들이 광원 역할을 한다."
+        ));
+        long initialVersion = target.getVersion();
+        WorldSettingCandidate candidate = WorldSettingCandidate.create(
+                work,
+                episode,
+                analysisJob,
+                WorldSettingCategory.LOCATION,
+                "미궁",
+                null,
+                "광원",
+                "벽과 천장의 수정들이 주변을 밝힌다.",
+                objectMapper.createArrayNode().add(
+                        objectMapper.createObjectNode().put("quote", "수정들이 주변을 환하게 밝혔다.")
+                ),
+                new BigDecimal("0.9500"),
+                objectMapper.createObjectNode().put("settingName", "광원")
+        );
+        candidate.startComparison();
+        candidate.completeComparison(
+                target,
+                WorldSettingConsolidationStatus.SINGLE,
+                WorldSettingSuggestedOperation.REVIEW_REQUIRED,
+                "1층",
+                "광원",
+                WorldSettingComparisonReviewReason.SCOPE_UNRESOLVED,
+                null,
+                "광원",
+                "벽에 붙은 수정들이 광원 역할을 한다.",
+                "벽과 천장의 수정들이 주변을 밝힌다.",
+                "후보의 적용 범위 확인이 필요합니다.",
+                objectMapper.createObjectNode().put("operation", "REVIEW_REQUIRED"),
+                LocalDateTime.now()
+        );
+        candidateRepository.saveAndFlush(candidate);
+
+        mockMvc.perform(get("/api/v1/works/{workId}/world-setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString())
+                        .queryParam("operation", "REVIEW_REQUIRED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.pendingCandidateCount").value(1))
+                .andExpect(jsonPath("$.data.groups.content[0].reviewRequiredCount").value(1))
+                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].comparisonStatus")
+                        .value("COMPLETED"))
+                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].reviewStatus")
+                        .value("PENDING_REVIEW"))
+                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].suggestedOperation")
+                        .value("REVIEW_REQUIRED"))
+                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].comparisonReviewReason")
+                        .value("SCOPE_UNRESOLVED"))
+                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].matchedScopeName")
+                        .value("1층"))
+                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].matchedPropertyName")
+                        .value("광원"))
+                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].proposedScopeName")
+                        .doesNotExist());
+
+        assertThat(worldSettingRepository.findById(target.getId()).orElseThrow().getVersion())
+                .isEqualTo(initialVersion);
+
+        String decisionJson = """
+                {
+                  "batchId": "%s",
+                  "candidates": [{
+                    "candidateId": "%s",
+                    "operation": "UPDATE",
+                    "category": "LOCATION",
+                    "subjectName": "미궁",
+                    "scopeName": "1층",
+                    "settingName": "광원",
+                    "value": "벽과 천장의 수정들이 주변을 밝힌다."
+                  }]
+                }
+                """.formatted(uploadBatch.getId(), candidate.getId());
+        mockMvc.perform(patch("/api/v1/works/{workId}/world-setting-candidates/decisions", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(decisionJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidates[0].comparisonStatus").value("COMPLETED"))
+                .andExpect(jsonPath("$.data.candidates[0].reviewStatus").value("PENDING_REVIEW"))
+                .andExpect(jsonPath("$.data.candidates[0].finalOperation").value("UPDATE"))
+                .andExpect(jsonPath("$.data.candidates[0].finalScopeName").value("1층"));
+
+        mockMvc.perform(post("/api/v1/works/{workId}/world-setting-candidates/group-confirm", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(decisionJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidates[0].reviewStatus").value("CONFIRMED"));
+
+        WorldSetting applied = worldSettingRepository.findById(target.getId()).orElseThrow();
+        assertThat(applied.getVersion()).isEqualTo(initialVersion + 1);
+        assertThat(applied.getPropertyValue("1층", "광원"))
+                .isEqualTo("벽과 천장의 수정들이 주변을 밝힌다.");
+        assertThat(applied.getPropertyValue(null, "광원")).isNull();
     }
 
     private WorldSettingCandidate candidate(String subjectName, String settingName, String value) {
