@@ -381,6 +381,8 @@ erDiagram
         varchar comparison_status
         text comparison_error_message
         varchar comparison_failure_code
+        varchar comparison_source_error_code
+        varchar comparison_source_reason_code
         varchar review_status
         varchar final_operation
         varchar final_category

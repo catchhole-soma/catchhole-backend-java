@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -19,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
@@ -38,6 +40,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSetti
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonValidationReason;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
@@ -425,7 +428,9 @@ class WorldSettingWorkerControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(concreteCrossScopePayload))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("WORLD_SETTING_COMPARISON_TARGET_INVALID"));
+                .andExpect(jsonPath("$.error.code").value("WORLD_SETTING_COMPARISON_TARGET_INVALID"))
+                .andExpect(jsonPath("$.error.context.reasonCode")
+                        .value("PROPOSED_PATH_MISMATCH"));
 
         String rootAddPayload = """
                 {
@@ -449,7 +454,9 @@ class WorldSettingWorkerControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(rootAddPayload))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("WORLD_SETTING_COMPARISON_TARGET_INVALID"));
+                .andExpect(jsonPath("$.error.code").value("WORLD_SETTING_COMPARISON_TARGET_INVALID"))
+                .andExpect(jsonPath("$.error.context.reasonCode")
+                        .value("SCOPE_REVIEW_REQUIRED"));
 
         String targetlessRootAddPayload = """
                 {
@@ -472,7 +479,9 @@ class WorldSettingWorkerControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(targetlessRootAddPayload))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("WORLD_SETTING_COMPARISON_TARGET_INVALID"));
+                .andExpect(jsonPath("$.error.code").value("WORLD_SETTING_COMPARISON_TARGET_INVALID"))
+                .andExpect(jsonPath("$.error.context.reasonCode")
+                        .value("SCOPE_REVIEW_REQUIRED"));
 
         mockMvc.perform(post(
                                 "/api/internal/v1/analysis-jobs/{analysisJobId}/world-setting-candidates/{candidateId}/comparison-complete",
@@ -520,6 +529,54 @@ class WorldSettingWorkerControllerIntegrationTest {
         assertThat(unchanged.getPropertyValue("1층", "광원"))
                 .isEqualTo("벽에 붙은 수정들이 광원 역할을 한다.");
         assertThat(unchanged.getPropertyValue(null, "광원")).isNull();
+    }
+
+    @Test
+    @DisplayName("세계관 비교 실패는 상위 실패 코드와 Spring 원본 원인을 분리해 저장한다")
+    void storesComparisonFailureSourceSeparately() throws Exception {
+        WorldSettingCandidate candidate = WorldSettingCandidate.create(
+                work,
+                episode,
+                analysisJob,
+                WorldSettingCategory.LOCATION,
+                "미궁",
+                null,
+                "광원",
+                "수정이 주변을 밝힌다.",
+                objectMapper.readTree("[{\"quote\":\"수정이 빛났다.\"}]"),
+                new BigDecimal("0.95"),
+                null
+        );
+        candidate.startComparison();
+        candidate = candidateRepository.saveAndFlush(candidate);
+
+        mockMvc.perform(post(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}"
+                                        + "/world-setting-candidates/{candidateId}/comparison-fail",
+                                analysisJob.getId(),
+                                candidate.getId()
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "failureCode": "COMPARISON_VALIDATION_FAILED",
+                                  "errorMessage": "backend request failed",
+                                  "sourceErrorCode": "WORLD_SETTING_COMPARISON_TARGET_INVALID",
+                                  "sourceReasonCode": "PROPOSED_PATH_MISMATCH"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        WorldSettingCandidate failed = candidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(failed.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.FAILED);
+        assertThat(failed.getComparisonFailureCode())
+                .isEqualTo(AnalysisFailureCode.COMPARISON_VALIDATION_FAILED);
+        assertThat(failed.getComparisonSourceErrorCode())
+                .isEqualTo("WORLD_SETTING_COMPARISON_TARGET_INVALID");
+        assertThat(failed.getComparisonSourceReasonCode())
+                .isEqualTo(WorldSettingComparisonValidationReason.PROPOSED_PATH_MISMATCH);
     }
 
     @Test

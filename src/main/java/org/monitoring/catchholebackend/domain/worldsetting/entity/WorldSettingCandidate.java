@@ -38,6 +38,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettin
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonReviewReason;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonValidationReason;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingConsolidationStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
@@ -187,6 +188,14 @@ public class WorldSettingCandidate extends BaseEntity {
     @Column(name = "comparison_failure_code", length = 60)
     private AnalysisFailureCode comparisonFailureCode;
 
+    // 사용자용 상위 실패 분류와 분리해 Spring 원본 도메인 오류를 보존한다.
+    @Column(name = "comparison_source_error_code", length = NAME_MAX_LENGTH)
+    private String comparisonSourceErrorCode;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "comparison_source_reason_code", length = NAME_MAX_LENGTH)
+    private WorldSettingComparisonValidationReason comparisonSourceReasonCode;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "review_status", nullable = false, length = 30)
     private WorldSettingReviewStatus reviewStatus;
@@ -319,6 +328,8 @@ public class WorldSettingCandidate extends BaseEntity {
         comparisonStatus = WorldSettingComparisonStatus.PROCESSING;
         comparisonErrorMessage = null;
         comparisonFailureCode = null;
+        comparisonSourceErrorCode = null;
+        comparisonSourceReasonCode = null;
     }
 
     public void completeComparison(
@@ -439,6 +450,8 @@ public class WorldSettingCandidate extends BaseEntity {
         this.comparisonStatus = WorldSettingComparisonStatus.COMPLETED;
         this.comparisonErrorMessage = null;
         this.comparisonFailureCode = null;
+        this.comparisonSourceErrorCode = null;
+        this.comparisonSourceReasonCode = null;
     }
 
     public void failComparison(String errorMessage) {
@@ -446,11 +459,22 @@ public class WorldSettingCandidate extends BaseEntity {
     }
 
     public void failComparison(AnalysisFailureCode failureCode, String errorMessage) {
+        failComparison(failureCode, errorMessage, null, null);
+    }
+
+    public void failComparison(
+            AnalysisFailureCode failureCode,
+            String errorMessage,
+            String sourceErrorCode,
+            WorldSettingComparisonValidationReason sourceReasonCode
+    ) {
         validatePendingReview();
         validateProcessingComparison();
         comparisonStatus = WorldSettingComparisonStatus.FAILED;
         comparisonFailureCode = AnalysisFailureCode.orUnexpected(failureCode);
         comparisonErrorMessage = requiredValue(errorMessage);
+        comparisonSourceErrorCode = optionalSourceCode(sourceErrorCode);
+        comparisonSourceReasonCode = sourceReasonCode;
     }
 
     /** 아직 시작하지 않았거나 처리 중인 비교를 토큰 부족으로 원자적으로 중단한다. */
@@ -463,6 +487,8 @@ public class WorldSettingCandidate extends BaseEntity {
         comparisonStatus = WorldSettingComparisonStatus.FAILED;
         comparisonFailureCode = AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED;
         comparisonErrorMessage = requiredValue(errorMessage);
+        comparisonSourceErrorCode = null;
+        comparisonSourceReasonCode = null;
     }
 
     public boolean isTokenInterruptedComparison() {
@@ -495,6 +521,8 @@ public class WorldSettingCandidate extends BaseEntity {
             comparisonStatus = WorldSettingComparisonStatus.PENDING;
             comparisonErrorMessage = null;
             comparisonFailureCode = null;
+            comparisonSourceErrorCode = null;
+            comparisonSourceReasonCode = null;
         }
     }
 
@@ -507,6 +535,8 @@ public class WorldSettingCandidate extends BaseEntity {
         comparisonStatus = WorldSettingComparisonStatus.RECOMPARISON_REQUIRED;
         comparisonFailureCode = null;
         comparisonErrorMessage = requiredValue(reason);
+        comparisonSourceErrorCode = null;
+        comparisonSourceReasonCode = null;
     }
 
     public void updateDecisionDraft(
@@ -704,6 +734,8 @@ public class WorldSettingCandidate extends BaseEntity {
         comparedAt = null;
         comparisonErrorMessage = null;
         comparisonFailureCode = null;
+        comparisonSourceErrorCode = null;
+        comparisonSourceReasonCode = null;
     }
 
     @PrePersist
@@ -716,6 +748,17 @@ public class WorldSettingCandidate extends BaseEntity {
     private static String requiredName(String value) {
         String normalized = WorldSettingNameNormalizer.displayName(value);
         if (normalized == null || normalized.isEmpty() || normalized.length() > NAME_MAX_LENGTH) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
+        }
+        return normalized;
+    }
+
+    private static String optionalSourceCode(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        if (normalized.isEmpty() || normalized.length() > NAME_MAX_LENGTH) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
         }
         return normalized;

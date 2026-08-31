@@ -446,7 +446,7 @@ Notion 기준 `AnalysisJob.status`
 9. Worker가 `ADD/UPDATE/MERGE/REMOVE/HISTORY_ONLY/EXCLUDE/REVIEW_REQUIRED`와 시간 범위·최종값·제거 slot을 제안하면 Spring은 context token, operation 조합, schema 값, same-character slot을 불신 검증해 저장합니다. `REMOVE`는 동일한 현재 `STATUS` slot의 종료만 표현하며 원본 Fact 이력은 보존합니다. `EXCLUDE`는 비교 완료 트랜잭션에서 후보만 `DISMISSED + NOT_REQUIRED`로 자동 전환하고 Fact·현재 snapshot·이력을 만들지 않습니다. 이 완료 요청은 초기 분석과 숨김 재비교에서 같은 경계를 사용하며 중복 요청을 멱등 처리합니다. 모든 캐릭터 후보 비교가 종료되면 `CHARACTER_COMPARISONS_FINISHED` checkpoint를 기록합니다.
 10. Worker는 회차 원문에서 지속적인 세계관 속성을 추출하고 구조적으로 같은 후보를 제거한 뒤, lease가 보호하는 Spring 내부 API로 `world_setting_candidates`를 멱등 게시합니다.
 11. 세계관 후보마다 같은 category의 기존 대상명을 조회해 LLM이 최대 3개 대상 ID를 고르게 하고, Spring에서 현재 version과 `properties_json`을 포함한 비교 문맥을 검증해 가져옵니다.
-12. Worker가 세계관 `ADD/UPDATE/MERGE/EXCLUDE`를 판단하면 Spring은 문맥 ID·version·exact 대상과 제안을 재검증해 저장합니다. 잘못된 UUID를 LLM이 생성하지 않도록 UUID는 비교 prompt에 넣지 않습니다.
+12. Worker가 세계관 `ADD/UPDATE/MERGE/EXCLUDE`를 판단하면 Spring은 문맥 ID·version·exact 대상과 제안을 재검증해 저장합니다. 계약 검증 400은 외부 `WORLD_SETTING_COMPARISON_TARGET_INVALID`와 안전한 `context.reasonCode`를 반환하며, Worker는 이를 상위 `COMPARISON_VALIDATION_FAILED`와 source code/reason으로 분리해 후보 실패에 저장합니다. 정확한 stale 409만 새 문맥으로 다시 비교합니다. 잘못된 UUID를 LLM이 생성하지 않도록 UUID는 비교 prompt에 넣지 않습니다.
 13. 모든 세계관 후보가 `COMPLETED` 또는 `FAILED`가 되면 `WORLD_COMPARISONS_FINISHED` checkpoint를 기록하고 complete API를 호출해 `AnalysisJob.status=SUCCEEDED`로 변경합니다.
 
 현재 complete API는 checkpoint와 후보 상태를 검증하고 Backend token ledger 합계를 반영한 뒤 대상 회차의 `Episode.status`를 `ANALYZED`로 전환합니다. fail API는 아직 분석 완료되지 않은 대상 회차를 `FAILED`로 전환합니다. 숨김 `CHARACTER_FACT_COMPARISON`, `WORLD_SETTING_COMPARISON` Job은 연결 후보 한 건만 처리하며 회차 상태를 바꾸지 않습니다.

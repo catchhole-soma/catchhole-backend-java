@@ -321,6 +321,15 @@ V36은 범위 없는 세계관 후보와 기존 scoped 동명 속성 사이의 �
 - `REVIEW_REQUIRED`는 `SCOPE_UNRESOLVED` 사유와 함께만 저장하고, 그 밖의 operation은 사유가 `NULL`일 때만 허용합니다. 두 방향 모두 명시적인 `IS NOT NULL` 조건을 사용해 PostgreSQL `CHECK`의 `UNKNOWN` 통과를 막습니다.
 - 기존 후보는 새 컬럼을 `NULL`로 유지하며 별도 상태 추론이나 backfill을 하지 않습니다.
 
+## V37 기준
+
+V37은 세계관 comparison-complete 계약 오류의 Spring 원인을 사용자용 상위 실패 분류와 분리해 보존합니다.
+
+- `world_setting_candidates.comparison_source_error_code VARCHAR(100) NULL`을 추가합니다.
+- `world_setting_candidates.comparison_source_reason_code VARCHAR(100) NULL`을 추가합니다.
+- source error code는 대문자·숫자·밑줄 형식만, source reason은 `WorldSettingComparisonValidationReason` enum 값만 허용합니다.
+- 기존 `comparison_failure_code`와 사용자 공개 응답 계약은 바꾸지 않으며 기존 행은 두 컬럼 모두 `NULL`로 유지합니다.
+
 ## 논리 참조와 FK 기준
 
 ID 컬럼이 다른 테이블을 논리적으로 가리키더라도 삭제·재처리 정책이 정해지지 않았다면 FK를 먼저 강제하지 않습니다. V1의 선택은 다음과 같습니다.
@@ -336,10 +345,10 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
 
 ## 로컬 검증
 
-기존 적용 DB에 현재 Backend를 시작해 미적용 migration이 V36까지 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V36이 순서대로 적용되는 경로를 각각 확인합니다.
+기존 적용 DB에 현재 Backend를 시작해 미적용 migration이 V37까지 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V37이 순서대로 적용되는 경로를 각각 확인합니다.
 
-- Flyway 로그에 V1부터 V36까지 적용 성공이 출력됩니다.
-- `flyway_schema_history`에 version 1부터 36까지 성공으로 기록됩니다.
+- Flyway 로그에 V1부터 V37까지 적용 성공이 출력됩니다.
+- `flyway_schema_history`에 version 1부터 37까지 성공으로 기록됩니다.
 - `vector` extension이 활성화됩니다.
 - `episode_chunks.embedding`이 `vector(1536)`으로 생성됩니다.
 - cosine HNSW 인덱스가 생성됩니다.
@@ -364,6 +373,7 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
 - V31의 현재 두 문서 `content_hash`가 Front `docs/legal/` 원문의 UTF-8 SHA-256과 일치하며 `members.age_requirement_confirmed_at`이 Entity와 일치합니다.
 - V35에서 기존 `PENDING_REVIEW + COMPLETED + EXCLUDE` 캐릭터 후보가 `DISMISSED + NOT_REQUIRED`로 이관되고 캐릭터 snapshot·Fact·provenance 행 수와 값은 바뀌지 않습니다.
 - V36에서 세계관 후보의 matched scope/property와 구조화된 review reason 컬럼, `REVIEW_REQUIRED` operation, `REVIEW_REQUIRED + SCOPE_UNRESOLVED`의 NULL-safe 조합 제약이 생성됩니다.
+- V37에서 세계관 비교 실패의 Spring source error/reason 컬럼과 안전한 값 제약이 생성됩니다.
 - `character_facts.setting_candidate_id`와 FK·조회 인덱스가 생성됩니다.
 - `works.genre`가 enum 상수명으로 저장되고 `NOT NULL`·`chk_works_genre` 제약을 가집니다.
 - `works.description`이 기존 값의 앞 50자로 정규화되고 `VARCHAR(50)` 타입을 가집니다.
@@ -375,7 +385,7 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
   `idx_characters_work_status_updated_id`로 교체됩니다.
 - `idx_analysis_jobs_work_batch_created`, `idx_setting_candidates_job_review` 인덱스가 생성됩니다.
 - Hibernate schema validation을 통과하고 Backend가 정상 시작됩니다.
-- Backend를 재시작해도 V1부터 V36까지 중복 적용되지 않습니다.
+- Backend를 재시작해도 V1부터 V37까지 중복 적용되지 않습니다.
 
 ## 최초 운영 전환
 
@@ -386,7 +396,7 @@ Flyway 도입 전에 JPA가 만든 운영 테스트 DB에는 `flyway_schema_hist
 1. 필요한 데이터가 없는지 확인하고 필요하면 `pg_dump`로 백업합니다.
 2. Backend와 AI Worker를 중지합니다.
 3. PostgreSQL 데이터 volume만 제거하고 빈 PostgreSQL 16 DB를 시작합니다.
-4. Backend를 시작해 Flyway V1~V36과 Hibernate validation 성공을 확인합니다.
+4. Backend를 시작해 Flyway V1~V37과 Hibernate validation 성공을 확인합니다.
 5. DB schema와 Swagger 기본 API를 확인한 뒤 AI Worker를 시작합니다.
 
 실제 사용자 데이터가 생긴 뒤에는 이 초기화 절차를 사용하지 않습니다. 기존 데이터를 보존하는 V2 이상의 `ALTER` migration과 사전 백업·롤백 계획을 별도로 작성합니다.
