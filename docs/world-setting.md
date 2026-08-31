@@ -150,6 +150,9 @@ scope 미확정으로 처리하지 않습니다.
 | --- | --- |
 | `comparison_status` | 2차 비교 진행 상태 |
 | `comparison_error_message` | 비교 실패 이유 |
+| `comparison_failure_code` | 사용자용 상위 비교 실패 분류 |
+| `comparison_source_error_code` | 내부 Worker가 보존한 Spring 원본 오류 코드. 공개 후보 응답에는 미노출 |
+| `comparison_source_reason_code` | Spring 비교 계약 검증의 안전한 enum 분기. 공개 후보 응답에는 미노출 |
 | `review_status` | 사용자 검토 상태 |
 | `final_operation` | 사용자가 최종 선택한 반영 방식 |
 | `final_category` | 사용자가 확정한 분류 |
@@ -336,6 +339,7 @@ sequenceDiagram
 - 초기 `SETTING_EXTRACTION` Job은 캐릭터 후보 저장 뒤 세계관 후보 게시와 비교를 내부 stage로 실행합니다. 후보별 비교 실패는 해당 후보를 `FAILED`로 남기고 나머지 후보와 Job 완료를 계속합니다.
 - Worker는 같은 category의 대상명 목록만 먼저 받고, exact 대상 또는 LLM이 선택한 최대 3개 대상의 상세 properties와 version만 조회합니다. LLM prompt에는 UUID 대신 요청 안에서만 유효한 짧은 참조를 사용합니다.
 - Backend는 lease, 작품·분류·후보 소유권, exact 대상, 비교 문맥의 ID·version, 설정명 존재 여부를 검증하고 `beforeValue`와 `baseWorldSettingVersion`을 산출합니다. AI가 보낸 과거값이나 version을 신뢰하지 않습니다.
+- 비교 요청 계약이 틀리면 외부 `error.code=WORLD_SETTING_COMPARISON_TARGET_INVALID`는 유지하고 `ErrorResponse.context.reasonCode`에 `WorldSettingComparisonValidationReason` enum 분기를 제공합니다. Worker는 이를 `comparisonFailureCode=COMPARISON_VALIDATION_FAILED`와 내부 source code/reason으로 분리 저장하며 같은 LLM 결과를 재생성하지 않습니다. `sourceReasonCode`를 보내는 실패 요청은 이 상위 실패 코드와 source error code를 함께 사용해야 하며, 구버전 Worker 호환을 위해 source 메타데이터 전체 생략은 허용합니다.
 - 사용자의 재비교 요청은 후보를 `PENDING`으로 되돌리고 별도 `WORLD_SETTING_COMPARISON` Job을 멱등 생성합니다. 이 Job은 공개 분석 목록·진행률·회차 실행 잠금에서 제외되며 AI comparison runner가 비동기로 claim합니다.
 - 캐릭터 후보는 기존 SQLAlchemy 저장 흐름을 유지합니다. 세계관 후보 생성과 비교 상태 전이는 아래 Spring 내부 API로만 수행하며 AI Worker가 `world_settings` 또는 `world_setting_candidates`를 직접 수정하지 않습니다.
 
@@ -392,7 +396,7 @@ sequenceDiagram
 - Mapper는 후보·그룹·그룹 액션 응답의 단순 투영과 그룹 표시 상태 계산을 담당하며 Repository 조회나 상태 전이를 수행하지 않습니다.
 - Repository는 필터 조회와 일정한 순서의 잠금 조회만 제공하고 DTO 조립이나 확정 정책을 포함하지 않습니다.
 
-`ErrorResponse.context`는 구조화된 도메인 충돌 문맥이 있을 때만 사용합니다. 그룹 재비교 409는 `scope`, `reason`, `reasonMessage`, `affectedCandidateIds`를 제공하며 일반 오류는 빈 객체를 반환합니다. Frontend는 오류 메시지 문자열을 파싱하지 않고 이 필드로 영향 범위를 판정합니다.
+`ErrorResponse.context`는 구조화된 도메인 문맥이 있을 때만 사용합니다. 그룹 재비교 409는 `scope`, `reason`, `reasonMessage`, `affectedCandidateIds`를 제공하고, 내부 comparison 계약 400은 안전한 `reasonCode`를 제공합니다. Frontend와 Worker는 오류 메시지 문자열을 파싱하지 않습니다.
 
 `recompare`는 HTTP 요청 안에서 LLM을 호출하지 않습니다. 후보를 `PENDING`으로 되돌리고 활성 재비교 Job을 하나만 생성하며, 별도 Worker가 이를 claim해 `PROCESSING → COMPLETED/FAILED`를 저장합니다.
 
@@ -409,6 +413,6 @@ sequenceDiagram
 | `GET` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-subjects` | 같은 작품·category의 대상 ID와 이름 페이지 조회 |
 | `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates/{candidateId}/comparison-context` | 최대 3개 대상의 properties·version과 exact 대상 조회 |
 | `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates/{candidateId}/comparison-complete` | 문맥 version과 제안 구조 검증 후 비교 결과 저장 |
-| `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates/{candidateId}/comparison-fail` | 후보별 비교 실패 사유 저장 |
+| `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates/{candidateId}/comparison-fail` | 상위 `failureCode`와 선택적 `sourceErrorCode`/`sourceReasonCode`를 분리해 후보별 비교 실패 저장 |
 
 모든 내부 endpoint는 `X-Internal-Api-Key`와 claim 응답의 `X-Worker-Lease-Token`을 함께 검증합니다. lease는 5분이며 Worker heartbeat가 갱신합니다. 만료 Job은 최대 3회까지 마지막 checkpoint부터 재개하고, 비교 중이던 후보와 예약 토큰을 복구합니다.

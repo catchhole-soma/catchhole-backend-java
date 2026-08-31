@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
@@ -20,6 +21,7 @@ import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.domain.worldsetting.exception.WorldSettingErrorCode;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonValidationReason;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
@@ -98,6 +100,53 @@ class WorldSettingCandidateTest {
                                 WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT
                         ));
         assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.COMPLETED);
+    }
+
+    @Test
+    @DisplayName("검증 실패 reason은 대응하는 상위 실패 코드와 Spring 오류 코드가 있어야 한다")
+    void validationFailureReasonRequiresConsistentFailureMetadata() {
+        Fixture fixture = fixture();
+        WorldSettingCandidate candidate = candidate(fixture);
+        candidate.startComparison();
+
+        assertThatThrownBy(() -> candidate.failComparison(
+                AnalysisFailureCode.LLM_PROVIDER_ERROR,
+                "비교 실패",
+                "WORLD_SETTING_COMPARISON_TARGET_INVALID",
+                WorldSettingComparisonValidationReason.PROPOSED_PATH_MISMATCH
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID));
+
+        assertThatThrownBy(() -> candidate.failComparison(
+                AnalysisFailureCode.COMPARISON_VALIDATION_FAILED,
+                "비교 실패",
+                "UNRELATED_SOURCE_ERROR",
+                WorldSettingComparisonValidationReason.PROPOSED_PATH_MISMATCH
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID));
+
+        assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.PROCESSING);
+        assertThat(candidate.getComparisonFailureCode()).isNull();
+        assertThat(candidate.getComparisonErrorMessage()).isNull();
+        assertThat(candidate.getComparisonSourceErrorCode()).isNull();
+        assertThat(candidate.getComparisonSourceReasonCode()).isNull();
+    }
+
+    @Test
+    @DisplayName("기존 Worker는 source 실패 메타데이터를 생략할 수 있다")
+    void comparisonFailureAllowsOmittedSourceMetadata() {
+        Fixture fixture = fixture();
+        WorldSettingCandidate candidate = candidate(fixture);
+        candidate.startComparison();
+
+        candidate.failComparison(AnalysisFailureCode.LLM_PROVIDER_ERROR, "provider 오류");
+
+        assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.FAILED);
+        assertThat(candidate.getComparisonFailureCode()).isEqualTo(AnalysisFailureCode.LLM_PROVIDER_ERROR);
+        assertThat(candidate.getComparisonSourceErrorCode()).isNull();
+        assertThat(candidate.getComparisonSourceReasonCode()).isNull();
     }
 
     @Test

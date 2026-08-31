@@ -32,6 +32,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSetti
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonReviewReason;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonValidationReason;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
 import org.monitoring.catchholebackend.global.exception.AppException;
@@ -197,7 +198,9 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
         WorldSettingCandidate candidate = getOwnedProcessingCandidate(analysisJob, candidateId);
         Set<UUID> requestedIds = new HashSet<>(request.targetWorldSettingIds());
         if (requestedIds.size() != request.targetWorldSettingIds().size()) {
-            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
+            throw invalidComparisonTarget(
+                    WorldSettingComparisonValidationReason.CONTEXT_TARGET_DUPLICATED
+            );
         }
         List<WorldSetting> targets = requestedIds.isEmpty()
                 ? List.of()
@@ -207,7 +210,9 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                         requestedIds
                 );
         if (targets.size() != requestedIds.size()) {
-            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
+            throw invalidComparisonTarget(
+                    WorldSettingComparisonValidationReason.CONTEXT_TARGET_NOT_FOUND
+            );
         }
         UUID exactTargetId = findExactTarget(candidate).map(WorldSetting::getId).orElse(null);
         return new WorkerWorldSettingComparisonContextResponse(
@@ -237,7 +242,9 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 ? null
                 : contextTargets.get(request.targetWorldSettingId());
         if (request.targetWorldSettingId() != null && target == null) {
-            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
+            throw invalidComparisonTarget(
+                    WorldSettingComparisonValidationReason.SELECTED_TARGET_NOT_IN_CONTEXT
+            );
         }
         WorldSetting exactTarget = request.exactTargetWorldSettingId() == null
                 ? null
@@ -277,7 +284,9 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
         );
         getOwnedProcessingCandidate(analysisJob, candidateId).failComparison(
                 request.failureCode(),
-                request.errorMessage()
+                request.errorMessage(),
+                request.sourceErrorCode(),
+                request.sourceReasonCode()
         );
     }
 
@@ -290,7 +299,9 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
         for (WorkerWorldSettingComparisonCompleteRequest.ContextVersion contextVersion
                 : request.contextVersions()) {
             if (!contextTargetIds.add(contextVersion.worldSettingId())) {
-                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
+                throw invalidComparisonTarget(
+                        WorldSettingComparisonValidationReason.CONTEXT_VERSION_DUPLICATED
+                );
             }
             expectedVersions.put(contextVersion.worldSettingId(), contextVersion.version());
         }
@@ -311,7 +322,9 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_CONTEXT_STALE);
         }
         if (currentExactTargetId != null && !contextTargetIds.contains(currentExactTargetId)) {
-            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
+            throw invalidComparisonTarget(
+                    WorldSettingComparisonValidationReason.EXACT_TARGET_NOT_IN_CONTEXT
+            );
         }
         Map<UUID, WorldSetting> contextTargetsById = new HashMap<>();
         contextTargets.forEach(target -> contextTargetsById.put(target.getId(), target));
@@ -330,12 +343,16 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
             return;
         }
         if (request.comparisonReviewReason() != null) {
-            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
+            throw invalidComparisonTarget(
+                    WorldSettingComparisonValidationReason.REVIEW_REASON_FORBIDDEN
+            );
         }
         if (operation == WorldSettingSuggestedOperation.UPDATE
                 || operation == WorldSettingSuggestedOperation.MERGE) {
             if (target == null || isBlank(request.matchedPropertyName())) {
-                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
+                throw invalidComparisonTarget(
+                        WorldSettingComparisonValidationReason.MATCHED_TARGET_REQUIRED
+                );
             }
             WorldSetting.StoredPropertyPath storedPath = target.getStoredPropertyPath(
                     request.matchedScopeName(),
@@ -345,23 +362,35 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                     || !sameName(storedPath.scopeName(), candidate.getScopeName())
                     || !sameName(storedPath.scopeName(), request.proposedScopeName())
                     || !sameName(storedPath.settingName(), request.proposedSettingName())) {
-                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
+                throw invalidComparisonTarget(
+                        WorldSettingComparisonValidationReason.PROPOSED_PATH_MISMATCH
+                );
             }
             return;
         }
         if (operation == WorldSettingSuggestedOperation.ADD) {
             if (!isBlank(request.matchedPropertyName())
-                    || !isBlank(request.matchedScopeName())
-                    || requiresScopeReviewForRootAdd(candidate, target, request)
-                    || requiresScopeReviewForRootAdd(candidate, exactTarget, request)
-                    || target != null && (target.hasProperty(
+                    || !isBlank(request.matchedScopeName())) {
+                throw invalidComparisonTarget(
+                        WorldSettingComparisonValidationReason.ADD_MATCHED_PATH_FORBIDDEN
+                );
+            }
+            if (requiresScopeReviewForRootAdd(candidate, target, request)
+                    || requiresScopeReviewForRootAdd(candidate, exactTarget, request)) {
+                throw invalidComparisonTarget(
+                        WorldSettingComparisonValidationReason.SCOPE_REVIEW_REQUIRED
+                );
+            }
+            if (target != null && (target.hasProperty(
                             request.proposedScopeName(),
                             request.proposedSettingName()
                     ) || target.hasPathConflict(
                             request.proposedScopeName(),
                             request.proposedSettingName()
                     ))) {
-                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
+                throw invalidComparisonTarget(
+                        WorldSettingComparisonValidationReason.PROPOSED_PATH_CONFLICT
+                );
             }
             return;
         }
@@ -374,11 +403,15 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                             request.matchedPropertyName()
                     );
             if (storedPath == null || !sameName(storedPath.scopeName(), candidate.getScopeName())) {
-                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
+                throw invalidComparisonTarget(
+                        WorldSettingComparisonValidationReason.EXCLUDE_MATCHED_PATH_INVALID
+                );
             }
         } else if (operation == WorldSettingSuggestedOperation.EXCLUDE
                 && !isBlank(request.matchedScopeName())) {
-            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
+            throw invalidComparisonTarget(
+                    WorldSettingComparisonValidationReason.EXCLUDE_MATCHED_SCOPE_WITHOUT_PROPERTY
+            );
         }
     }
 
@@ -401,15 +434,36 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
             WorldSetting target,
             WorkerWorldSettingComparisonCompleteRequest request
     ) {
-        if (request.comparisonReviewReason() != WorldSettingComparisonReviewReason.SCOPE_UNRESOLVED
-                || target == null
-                || candidate.getScopeName() != null
-                || isBlank(request.matchedScopeName())
-                || isBlank(request.matchedPropertyName())
-                || target.hasProperty(candidate.getScopeName(), candidate.getSettingName())
-                || !sameName(request.proposedScopeName(), candidate.getScopeName())
+        if (request.comparisonReviewReason() != WorldSettingComparisonReviewReason.SCOPE_UNRESOLVED) {
+            throw invalidComparisonTarget(
+                    WorldSettingComparisonValidationReason.SCOPE_REVIEW_REASON_INVALID
+            );
+        }
+        if (target == null) {
+            throw invalidComparisonTarget(
+                    WorldSettingComparisonValidationReason.SCOPE_REVIEW_TARGET_REQUIRED
+            );
+        }
+        if (candidate.getScopeName() != null) {
+            throw invalidComparisonTarget(
+                    WorldSettingComparisonValidationReason.SCOPE_REVIEW_CANDIDATE_ALREADY_SCOPED
+            );
+        }
+        if (isBlank(request.matchedScopeName()) || isBlank(request.matchedPropertyName())) {
+            throw invalidComparisonTarget(
+                    WorldSettingComparisonValidationReason.SCOPE_REVIEW_MATCHED_PATH_REQUIRED
+            );
+        }
+        if (target.hasProperty(candidate.getScopeName(), candidate.getSettingName())) {
+            throw invalidComparisonTarget(
+                    WorldSettingComparisonValidationReason.SCOPE_REVIEW_ROOT_PATH_EXISTS
+            );
+        }
+        if (!sameName(request.proposedScopeName(), candidate.getScopeName())
                 || !sameName(request.proposedSettingName(), candidate.getSettingName())) {
-            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
+            throw invalidComparisonTarget(
+                    WorldSettingComparisonValidationReason.PROPOSED_PATH_MISMATCH
+            );
         }
         WorldSetting.StoredPropertyPath storedPath = target.getStoredPropertyPath(
                 request.matchedScopeName(),
@@ -418,7 +472,9 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
         if (storedPath == null
                 || storedPath.scopeName() == null
                 || !sameName(storedPath.settingName(), candidate.getSettingName())) {
-            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID);
+            throw invalidComparisonTarget(
+                    WorldSettingComparisonValidationReason.SCOPE_REVIEW_MATCHED_PATH_INVALID
+            );
         }
     }
 
@@ -464,6 +520,15 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
         if (!owned) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_WORKER_JOB_INVALID);
         }
+    }
+
+    private AppException invalidComparisonTarget(
+            WorldSettingComparisonValidationReason reason
+    ) {
+        return new AppException(
+                WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID,
+                Map.of("reasonCode", reason.name())
+        );
     }
 
     private boolean isBlank(String value) {

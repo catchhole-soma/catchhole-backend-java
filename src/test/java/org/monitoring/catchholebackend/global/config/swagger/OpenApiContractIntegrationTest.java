@@ -560,7 +560,16 @@ class OpenApiContractIntegrationTest {
                         .value(org.hamcrest.Matchers.hasItem("LLM_OUTPUT_TRUNCATED")))
                 .andExpect(jsonPath("$['components']['schemas']['WorkerCharacterFactComparisonFailRequest']"
                         + "['properties']['failureCode']['enum']")
-                        .value(org.hamcrest.Matchers.hasItem("LLM_PROVIDER_ERROR")));
+                        .value(org.hamcrest.Matchers.hasItem("LLM_PROVIDER_ERROR")))
+                .andExpect(jsonPath("$['components']['schemas']['WorkerWorldSettingComparisonFailRequest']"
+                        + "['properties']['sourceErrorCode']").exists())
+                .andExpect(jsonPath("$['components']['schemas']['WorkerWorldSettingComparisonFailRequest']"
+                        + "['properties']['sourceReasonCode']['enum']")
+                        .value(org.hamcrest.Matchers.hasItem("PROPOSED_PATH_MISMATCH")))
+                .andExpect(jsonPath("$['components']['schemas']['WorldSettingCandidateResponse']"
+                        + "['properties']['comparisonSourceErrorCode']").doesNotExist())
+                .andExpect(jsonPath("$['components']['schemas']['WorldSettingCandidateResponse']"
+                        + "['properties']['comparisonSourceReasonCode']").doesNotExist());
     }
 
     @Test
