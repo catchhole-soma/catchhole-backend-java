@@ -470,10 +470,18 @@ public class WorldSettingCandidate extends BaseEntity {
     ) {
         validatePendingReview();
         validateProcessingComparison();
+        AnalysisFailureCode normalizedFailureCode = AnalysisFailureCode.orUnexpected(failureCode);
+        String normalizedErrorMessage = requiredValue(errorMessage);
+        String normalizedSourceErrorCode = optionalSourceCode(sourceErrorCode);
+        validateComparisonFailureSourceMetadata(
+                normalizedFailureCode,
+                normalizedSourceErrorCode,
+                sourceReasonCode
+        );
         comparisonStatus = WorldSettingComparisonStatus.FAILED;
-        comparisonFailureCode = AnalysisFailureCode.orUnexpected(failureCode);
-        comparisonErrorMessage = requiredValue(errorMessage);
-        comparisonSourceErrorCode = optionalSourceCode(sourceErrorCode);
+        comparisonFailureCode = normalizedFailureCode;
+        comparisonErrorMessage = normalizedErrorMessage;
+        comparisonSourceErrorCode = normalizedSourceErrorCode;
         comparisonSourceReasonCode = sourceReasonCode;
     }
 
@@ -762,6 +770,22 @@ public class WorldSettingCandidate extends BaseEntity {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
         }
         return normalized;
+    }
+
+    private static void validateComparisonFailureSourceMetadata(
+            AnalysisFailureCode failureCode,
+            String sourceErrorCode,
+            WorldSettingComparisonValidationReason sourceReasonCode
+    ) {
+        if (sourceReasonCode == null) {
+            return;
+        }
+        if (failureCode != AnalysisFailureCode.COMPARISON_VALIDATION_FAILED
+                || !WorldSettingErrorCode.WORLD_SETTING_COMPARISON_TARGET_INVALID
+                        .getCode()
+                        .equals(sourceErrorCode)) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
+        }
     }
 
     private static String optionalName(String value) {
