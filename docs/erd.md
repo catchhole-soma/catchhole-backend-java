@@ -474,6 +474,9 @@ erDiagram
 | `character_setting_schemas` | AI의 `attributeName`을 canonical key로 해석하기 위한 전역/작품별 alias·pattern·값 타입·정책 registry입니다. 실제 캐릭터 값은 저장하지 않습니다. |
 | `world_settings` | 작품별 현재 세계관 확정본. 한 행은 분류·대상 하나이며 루트 문자열 leaf와 선택적 1단계 범위 object를 담은 JSONB, 충돌 검사용 version을 저장합니다. |
 | `world_setting_candidates` | 회차에서 추출한 세계관 속성 후보. 선택적 `scope_name`과 설정명의 전체 경로, 1차 추출, 2차 비교 제안, 사용자 최종 결정과 적용 버전을 한 행에 보존합니다. |
+| `world_setting_comparison_batches` | 같은 canonical 주체·원본 범위로 묶인 후보들의 2차 비교 실행, context snapshot, 완료 hash와 상태를 보존합니다. |
+| `world_setting_comparison_decisions` | 여러 후보를 하나의 canonical 설정안으로 정리한 권위 레코드입니다. 기존 root 이동의 이름·값 snapshot과 실제 적용 WorldSetting version도 저장합니다. |
+| `world_setting_comparison_decision_sources` | batch 안의 원본 후보와 canonical decision 사이의 순서 있는 provenance membership입니다. |
 
 ### AI 토큰 추가 요청과 일반 의견 제약
 

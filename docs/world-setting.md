@@ -27,7 +27,7 @@
 
 ## 저장 모델
 
-MVP에서는 `world_settings`와 `world_setting_candidates` 두 테이블만 사용합니다. 별도의 `world_setting_facts`, 삭제·보관·복원 테이블, 전체 변경 이력 테이블은 만들지 않습니다.
+확정본과 1차 후보는 `world_settings`, `world_setting_candidates`에 저장합니다. 2차 비교를 여러 후보 단위로 재현하고 원본 귀속을 보존하기 위해 `world_setting_comparison_batches`, `world_setting_comparison_decisions`, `world_setting_comparison_decision_sources`를 추가로 사용합니다. 별도의 `world_setting_facts`, 삭제·보관·복원 테이블, 전체 변경 이력 테이블은 만들지 않습니다.
 
 ### `world_settings`
 
@@ -191,6 +191,85 @@ scope 미확정으로 처리하지 않습니다.
 - key 존재·값 변경은 해당 후보 row의 재비교 사유이고, 대상 생성·삭제·분류·대상명 변경은 그룹 전체 재비교 사유입니다.
 - 같은 그룹 확정 트랜잭션이 만든 대상 생성과 다른 key 변경은 외부 변경이 아니므로 선택된 나머지 후보를 재비교하지 않습니다.
 
+### Worker 비교 배치
+
+일반 `SETTING_EXTRACTION`의 세계관 비교는 후보별 주체 해소를 먼저 끝낸 뒤, 같은 analysis job·회차·분류·canonical 주체 key·정규화한 원본 `scope_name` 그룹을 하나의 `WorldSettingComparisonBatch`로 claim합니다. Worker는 `C1`, `C2`처럼 배치 안에서만 유효한 후보 ref를 받고, Backend는 배치에 포함된 후보 수와 ref를 잠근 상태로 보존합니다. 동일한 흐름에서 사용자 재비교 Job(`WORLD_SETTING_COMPARISON`)도 후보 하나짜리 배치로 처리하므로 Worker 계약은 단일 후보와 묶음 후보에 동일하게 적용됩니다.
+
+배치 처리 순서는 `claim-next → context → complete|fail`입니다.
+
+- `claim-next`는 한 번에 하나의 배치를 `PROCESSING`으로 만들고 모든 후보를 함께 claim합니다. 후보가 20개를 초과하거나 입력 추정량이 30,000자를 초과하면 LLM을 호출하지 않고 모든 후보를 `REVIEW_REQUIRED + BATCH_LIMIT_EXCEEDED` 결정으로 완료합니다. 이 경로도 원본 후보·결정·source membership를 저장하고 배치 상태를 `REVIEW_REQUIRED`로 남깁니다.
+- `context`는 Worker가 보낼 대상 ID를 검증하고 대상별 현재 version과 후보별 exact target을 `context_snapshot_json`에 기록합니다. 완료 요청은 이 snapshot과 정확히 같은 대상·version·exact target을 다시 보내야 하며, 대상 생성·삭제·version 변경 등 stale 문맥이면 전체 완료를 거절합니다.
+- `complete`는 결정 ref가 중복되지 않고, 모든 `C*`가 정확히 한 결정의 source로 포함되는지(누락·중복·알 수 없는 ref 없음) 검증합니다. 결정의 canonical 대상명, source 후보들의 scope, `SINGLE/MERGED/CONFLICT` 정리 상태와 제안 경로도 Backend가 재검증합니다. 같은 최종 대상에서 동일 top-level 이름을 root 문자열과 scope object로 동시에 제안하는 batch도 저장 전에 거절합니다. 검증을 통과하면 권위 있는 `world_setting_comparison_decisions`를 만들고, `world_setting_comparison_decision_sources`에 원본 후보와 결정의 ordered membership를 기록한 뒤 후보를 완료시킵니다.
+- 기존 대상의 root 문자열 설정과 새 `ADD`를 공통 범위로 정리할 때 Worker는 결정의 `existingRootPropertyNamesToMove`에 이동할 root 설정명을 명시합니다. Backend는 이름마다 같은 대상의 실제 root 문자열인지, 제안 범위 목적지가 비어 있는지, 다른 결정과 중복 이동하지 않는지 검증하고 `world_setting_comparison_decisions.existing_root_property_move_snapshots` 한 JSONB 배열에 `{settingName, beforeValue}`를 저장합니다. Worker 요청과 공개 후보 응답에는 이름 목록만 노출합니다.
+- 1차 후보의 `raw scope`와 다른 범위를 새로 만드는 `ADD`는 같은 최종 대상·제안 범위의 기존 scoped child, 이번 배치의 `ADD` 설정명, 이동할 root 설정명을 합친 서로 다른 child가 둘 이상이어야 합니다. 원문에 명시된 `raw scope`를 그대로 유지하는 singleton은 허용하지만, `기능 > 기능`처럼 범위명과 설정명이 같거나 child 하나뿐인 합성 범위는 완료 단계에서 거절합니다.
+- `fail`은 배치의 모든 처리 중 후보를 같은 정규화된 실패 코드·메시지·provider 원본 코드·검증 사유로 전환하고 배치도 `FAILED`로 마칩니다. 같은 전체 실패 요청의 재전송은 성공 no-op이고, 일부 필드라도 다른 재전송은 상태 충돌입니다. 실패 원문은 운영 진단용으로 보존하되 공개 후보 응답에서는 안전한 상위 코드만 노출합니다.
+
+배치 완료 요청의 정규 JSON SHA-256을 `completion_hash`로 저장합니다. 완료 상태에서 같은 hash를 재수신하면 성공 no-op이고, 다른 결과는 completion conflict입니다. 처리 중이 아닌 배치의 context/complete/fail 재호출은 상태 충돌입니다. 따라서 네트워크 재시도는 멱등이지만, 일부 결정만 저장하는 부분 성공은 허용하지 않습니다.
+
+`WorldSettingComparisonDecision`은 여러 후보를 하나의 canonical 결정으로 통합한 권위 레코드이고, source 테이블은 어떤 `world_setting_candidate`들이 그 결정을 만들었는지 추적하는 감사·provenance 경계입니다. source coverage가 정확히 맞아야 하므로 후보 하나가 여러 결정에 속하거나 source 순서가 중복될 수 없습니다. 1차 `evidence_spans`와 회차는 후보에 남고, 비교 결정은 이를 덮어쓰지 않습니다.
+
+### 기존 root 설정 재범위화 파이프라인
+
+다음 시퀀스는 이전 회차에 root로 확정된 `생명력`과 나중 회차의 새 `근력 기댓값`을 독립 설정으로 유지하면서
+`신체 능력` 범위 아래에 정리하는 실제 경계입니다. 비교 완료는 이동 계획만 저장하며, 확정 전에는
+`world_settings.properties_json`을 변경하지 않습니다.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as 사용자
+    participant Front as Front 후보 검토
+    participant Worker as AI WorldSettingPipeline
+    participant LLM as 2차 비교 LLM
+    participant Backend as Spring Backend
+    participant DB as PostgreSQL
+
+    Note over DB: 기존 확정본은 root 생명력만 보유
+    Worker->>Backend: canonical 바바리안 batch context 요청
+    Backend->>DB: 대상 properties와 version 조회·context snapshot 기록
+    DB-->>Backend: root 생명력 + 현재 version
+    Backend-->>Worker: T1 properties + contextVersions
+    Worker->>LLM: 새 근력 기댓값 후보 + T1 현재 properties
+    LLM-->>Worker: SINGLE ADD<br/>scope=신체 능력<br/>move=[생명력]
+    Worker->>Worker: 실제 root·ADD+scope·경로 충돌 검증<br/>최종 child={생명력, 근력 기댓값}=2 확인
+
+    alt LLM 제안이 구조 검증에 실패함
+        Worker->>LLM: validation feedback과 원 입력으로 전체 JSON 재시도
+    else 구조 검증 통과
+        Worker->>Backend: batch complete<br/>새 ADD + existingRootPropertyNamesToMove + contextVersions
+        Backend->>DB: context stale·root 실존·목적지 충돌 재검증
+        Backend->>DB: 이동 snapshot 저장<br/>settingName=생명력, beforeValue=현재값
+        Note over Backend,DB: 비교 완료 시점에는 WorldSetting을 이동하지 않음
+        Backend-->>Front: 후보 + 이동할 root 이름 목록
+        Front-->>User: 확정 시 생명력 이동 안내
+
+        alt 사용자가 제안을 수정하거나 제외함
+            User->>Front: 수정 또는 제외
+            Front->>Backend: decision 저장 또는 group dismiss
+            Backend->>DB: 이동 계획 decision-wide 비활성화
+            Backend-->>Front: 이동 목록을 빈 배열로 반환
+        else 사용자가 원안을 그룹 확정함
+            User->>Front: 모두 확정
+            Front->>Backend: group-confirm<br/>candidate 최종 결정만 전달
+            Backend->>DB: 후보·대상 잠금<br/>root 현재값과 snapshot·목적지 재검증
+            alt root가 사라짐·값 변경·목적지 충돌
+                Backend->>DB: 영향 후보 RECOMPARISON_REQUIRED<br/>property 변경 없음
+                Backend-->>Front: 409 + 영향 범위와 사유
+            else snapshot과 목적지가 유효함
+                Backend->>DB: JSON deep copy에서 root 제거<br/>신체 능력 › 생명력 이동 + 근력 기댓값 ADD
+                Backend->>DB: version 1회 증가·적용 version 기록·후보 CONFIRMED
+                DB-->>Backend: 단일 트랜잭션 commit
+                Backend-->>Front: 그룹 확정 결과
+            end
+        end
+    end
+```
+
+Frontend의 `group-confirm` 요청에는 `existingRootPropertyNamesToMove`를 다시 싣지 않습니다. Backend가
+`candidateId`에 연결해 저장한 snapshot만 적용 권한으로 사용하므로, 화면이 임의의 기존 root 설정을 이동 대상으로
+추가할 수 없습니다. 실제 이동 version 이전의 기존 root 근거는 현재 scoped 경로에 projection하지만 과거 후보의
+`final_scope_name`은 rewrite하지 않습니다.
+
 ## 후보 확정 규칙
 
 세계관 대상 그룹 화면은 선택된 후보들을 한 요청과 단일 트랜잭션으로 처리합니다. 기존 단일 후보 확정 API를 Frontend가 순차 호출해 그룹 확정을 흉내 내지 않습니다.
@@ -209,6 +288,7 @@ scope 미확정으로 처리하지 않습니다.
 세부 동작은 다음과 같습니다.
 
 - `ADD`: 최초 snapshot에 확정본이 없으면 새 행을 한 번 만들고 선택된 `ADD` 설정들을 함께 추가합니다. 확정본이 있으면 snapshot에 없던 설정만 추가합니다.
+- root 이동 snapshot이 있는 `ADD`는 사용자가 AI 결정을 분류·대상·operation·범위·설정명·값까지 그대로 승인한 경우에만 그룹 확정으로 적용합니다. 확정 직전에 root source의 존재·값과 제안 범위 destination을 다시 검사하고 달라졌으면 해당 row를 `RECOMPARISON_REQUIRED`로 전환합니다. 변경하지 않은 결정은 root 이동과 선택된 property upsert를 JSON deep copy 한 번으로 반영해 대상 version을 정확히 한 번만 증가시킵니다. shared decision의 source 하나라도 AI안과 다른 작가 수정안을 저장하면 decision-wide 비활성 상태를 영속화하고 모든 source 응답에서 이동 목록을 숨깁니다. 이후 입력을 원안으로 되돌려도 root 이동은 다시 적용하지 않습니다. 사용자가 결정을 편집하거나 제외하면 root 이동은 적용하지 않으며, snapshot이 있는 결정은 단건 확정·제외 API로 처리할 수 없습니다.
 - `UPDATE`, `MERGE`: 같은 설정명을 `final_value`로 교체합니다.
 - `EXCLUDE`: 확정본을 변경하지 않고 후보를 `DISMISSED`로 전환합니다.
 - 그룹 확정 요청은 반영 작업과 `EXCLUDE`를 함께 받을 수 있습니다. 반영할 property와 제외할 후보를 한 트랜잭션에서 검증하며, 모두 `EXCLUDE`여도 정상 처리합니다.
@@ -231,6 +311,7 @@ scope 미확정으로 처리하지 않습니다.
 - 작가가 수정한 `ADD`의 전체 경로가 이미 있으면 `WORLD_SETTING_CANDIDATE_ADD_PATH_DUPLICATED`, 수정한 `UPDATE`·`MERGE`의 전체 경로가 없으면 `WORLD_SETTING_CANDIDATE_UPDATE_PATH_NOT_FOUND`로 즉시 거절하고 LLM 재비교 상태로 바꾸지 않습니다. 루트 key와 범위명 역할이 충돌하면 `WORLD_SETTING_PROPERTY_PATH_CONFLICT`를 반환합니다.
 - 같은 그룹 요청의 첫 `ADD`가 대상을 만들거나 다른 key를 변경한 것은 선택된 나머지 row의 재비교 사유가 아닙니다.
 - 같은 행의 다른 설정명만 변경된 경우에는 버전이 달라도 현재 후보를 정상 반영합니다.
+- root 설정이 범위 아래로 이동해도 과거 확정 후보의 `final_scope_name=NULL` 기록은 rewrite하지 않습니다. 실제 이동이 반영된 WorldSetting version을 비교 결정에 기록하고, 상세 `propertyEvidence`는 그 version 이하에서 확정된 동일 이름 root 후보만 현재 scoped 설정 이력으로 projection합니다. 이동 뒤 같은 이름의 root가 다시 생성되어도 새 근거가 scoped 이력에 섞이지 않습니다.
 
 충돌 응답은 409 오류 코드와 함께 `scope=ROW|GROUP`, 충돌 사유, 영향 후보 ID 목록을 제공합니다. 그룹 확정은 부분 성공을 허용하지 않으므로 row 범위 충돌이어도 해당 요청의 선택 후보는 하나도 반영하지 않습니다.
 
@@ -251,12 +332,12 @@ sequenceDiagram
     User->>Front: 대상 그룹에서 선택 key 확정
     Front->>Backend: 그룹 confirm 요청
     Backend->>DB: 작품·선택 후보·현재 확정본 잠금 조회
-    DB-->>Backend: 그룹 후보 상태·최초 대상 snapshot 반환
+    DB-->>Backend: 그룹 후보 상태·최초 대상·root 이동 snapshot 반환
     Backend->>Backend: 같은 그룹·COMPLETED 상태·최종 결정 일괄 검증
-    Backend->>Backend: 최초 snapshot과 row별 beforeValue·finalValue 비교
+    Backend->>Backend: row별 beforeValue·finalValue와<br/>root source 값·이동 목적지 비교
 
     alt 현재 비교가 유효함
-        Backend->>DB: 대상 한 번 생성 또는 선택 property 일괄 반영<br/>version 한 번 증가·후보들 CONFIRMED 기록
+        Backend->>DB: 선택 property와 활성 root 이동을<br/>한 deep copy로 반영·version 한 번 증가<br/>후보 CONFIRMED·이동 적용 version 기록
         DB-->>Backend: 단일 트랜잭션 commit
         Backend-->>Front: 200 그룹 확정 결과
         Front-->>User: 세계관 DB 반영 완료 표시
@@ -336,9 +417,9 @@ sequenceDiagram
 - 기존 속성과 의미가 같아 제외하는 후보는 Worker가 대상 ID와 매칭 속성명을 함께 보내고, Backend가 해당 속성의 실제 값을 `before_value`에 저장합니다. 특정 기존 속성과 비교하지 않은 일시적 사건 등의 제외는 `before_value`가 없으며 Frontend에서 `비교 대상 없음`으로 구분합니다.
 - LLM은 `world_settings`를 직접 변경하지 않습니다. Backend의 사용자 확정 트랜잭션만 확정본을 변경합니다.
 - 의미상 중복과 병합 필요성은 2차 LLM 제안 영역입니다. 유일키, 동일 설정명, 버전과 상태 전이 같은 구조적 무결성은 Backend가 담당합니다.
-- 초기 `SETTING_EXTRACTION` Job은 캐릭터 후보 저장 뒤 세계관 후보 게시와 비교를 내부 stage로 실행합니다. 후보별 비교 실패는 해당 후보를 `FAILED`로 남기고 나머지 후보와 Job 완료를 계속합니다.
-- Worker는 같은 category의 대상명 목록만 먼저 받고, exact 대상 또는 LLM이 선택한 최대 3개 대상의 상세 properties와 version만 조회합니다. LLM prompt에는 UUID 대신 요청 안에서만 유효한 짧은 참조를 사용합니다.
-- Backend는 lease, 작품·분류·후보 소유권, exact 대상, 비교 문맥의 ID·version, 설정명 존재 여부를 검증하고 `beforeValue`와 `baseWorldSettingVersion`을 산출합니다. AI가 보낸 과거값이나 version을 신뢰하지 않습니다.
+- 초기 `SETTING_EXTRACTION` Job은 캐릭터 후보 저장 뒤 세계관 후보 게시·canonical 주체 해소·batch 비교를 내부 stage로 실행합니다. 한 batch의 비교 실패는 그 batch의 source 후보 전체를 `FAILED`로 남기지만 다른 canonical batch와 Job 완료는 계속합니다.
+- Worker는 같은 category의 대상명 전체에서 후보별 target ID 목록을 먼저 확정하고, Backend가 같은 회차·분류·canonical 주체·raw scope로 만든 batch의 고정 target properties와 version을 조회합니다. LLM prompt에는 UUID 대신 batch 안에서만 유효한 `C*`·`T*` 참조를 사용합니다.
+- Backend는 lease, batch/source coverage, 작품·분류·canonical 주체, exact 대상, 비교 문맥의 ID·version, 설정 경로와 root 이동 목적지를 검증합니다. 기존 root 이동값과 `beforeValue`는 현재 확정본에서 직접 snapshot하며 AI가 보낸 과거값이나 version을 신뢰하지 않습니다.
 - 비교 요청 계약이 틀리면 외부 `error.code=WORLD_SETTING_COMPARISON_TARGET_INVALID`는 유지하고 `ErrorResponse.context.reasonCode`에 `WorldSettingComparisonValidationReason` enum 분기를 제공합니다. Worker는 이를 `comparisonFailureCode=COMPARISON_VALIDATION_FAILED`와 내부 source code/reason으로 분리 저장하며 같은 LLM 결과를 재생성하지 않습니다. `sourceReasonCode`를 보내는 실패 요청은 이 상위 실패 코드와 source error code를 함께 사용해야 하며, 구버전 Worker 호환을 위해 source 메타데이터 전체 생략은 허용합니다.
 - 사용자의 재비교 요청은 후보를 `PENDING`으로 되돌리고 별도 `WORLD_SETTING_COMPARISON` Job을 멱등 생성합니다. 이 Job은 공개 분석 목록·진행률·회차 실행 잠금에서 제외되며 AI comparison runner가 비동기로 claim합니다.
 - 캐릭터 후보는 기존 SQLAlchemy 저장 흐름을 유지합니다. 세계관 후보 생성과 비교 상태 전이는 아래 Spring 내부 API로만 수행하며 AI Worker가 `world_settings` 또는 `world_setting_candidates`를 직접 수정하지 않습니다.
@@ -409,10 +490,19 @@ sequenceDiagram
 | Method | Path | 역할 |
 | --- | --- | --- |
 | `PUT` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates` | 1차 추출 후보 전체 게시 및 `WORLD_CANDIDATES_PUBLISHED` checkpoint 반영 |
-| `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-comparisons/claim-next` | Job 소유의 다음 `PENDING` 후보를 `PROCESSING`으로 claim |
-| `GET` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-subjects` | 같은 작품·category의 대상 ID와 이름 페이지 조회 |
-| `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates/{candidateId}/comparison-context` | 최대 3개 대상의 properties·version과 exact 대상 조회 |
-| `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates/{candidateId}/comparison-complete` | 문맥 version과 제안 구조 검증 후 비교 결과 저장 |
-| `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates/{candidateId}/comparison-fail` | 상위 `failureCode`와 선택적 `sourceErrorCode`/`sourceReasonCode`를 분리해 후보별 비교 실패 저장 |
+| `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-comparisons/claim-next` | legacy Worker 호환용 후보 단건 claim |
+| `GET` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-subject-resolutions/pending` | 아직 유효한 canonical 주체가 없는 후보 전체 조회 |
+| `PUT` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-subject-resolutions` | 후보별 대상 ID 집합을 canonical 주체 해소 결과로 원자 저장 |
+| `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-comparison-batches/claim-next` | 같은 회차·분류·canonical 주체·정규화 scope 후보 전체를 원자적으로 묶어 `PROCESSING`으로 claim |
+| `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-comparison-batches/{comparisonBatchId}/context` | 배치의 대상 ID와 현재 version/exact target 문맥을 저장하고 반환 |
+| `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-comparison-batches/{comparisonBatchId}/complete` | source 전체 coverage·canonical 결정·문맥 stale을 검증하고 배치 결과를 원자 저장 |
+| `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-comparison-batches/{comparisonBatchId}/fail` | 배치 전체 후보와 배치를 동일 실패로 종료 |
+| `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-comparison-batches/{comparisonBatchId}/reset-stale-subject-resolution` | stale batch를 닫고 후보를 주체 해소 전 `PENDING` 상태로 원자 복구 |
+| `GET` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-subjects` | 주체 해소용 같은 작품·category 대상 ID·이름 페이지 조회 |
+| `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates/{candidateId}/comparison-context` | legacy Worker 호환용 단건 properties·version 문맥 조회 |
+| `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates/{candidateId}/comparison-complete` | legacy Worker 호환용 단건 비교 완료 저장 |
+| `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates/{candidateId}/comparison-fail` | legacy Worker 호환용 단건 비교 실패 저장 |
 
-모든 내부 endpoint는 `X-Internal-Api-Key`와 claim 응답의 `X-Worker-Lease-Token`을 함께 검증합니다. lease는 5분이며 Worker heartbeat가 갱신합니다. 만료 Job은 최대 3회까지 마지막 checkpoint부터 재개하고, 비교 중이던 후보와 예약 토큰을 복구합니다.
+모든 내부 endpoint는 `X-Internal-Api-Key`와 claim 응답의 `X-Worker-Lease-Token`을 함께 검증합니다. lease는 5분이며 Worker heartbeat가 갱신합니다. 만료 Job은 처리 중 batch를 `WORKER_LEASE_EXPIRED`로 닫고, 최대 3회까지 후보의 canonical 주체 해소 결과를 유지한 채 새 batch로 재claim합니다. 최대 횟수에 도달하면 Job·batch·후보를 함께 실패시키고, 이전 lease의 늦은 완료는 거절합니다.
+
+기존 단일 후보 endpoint(`world-setting-comparisons/claim-next`, `.../{candidateId}/comparison-context`, `.../comparison-complete`, `.../comparison-fail`)는 하위 호환을 위해 유지합니다. 단일 재비교 Job은 새 배치 API를 사용해도 candidate 1개 배치로 동작하며, 구버전 Worker는 기존 endpoint를 계속 사용할 수 있습니다. Worker 운영 지표는 일반 성공/실패·stale context·quota 중단·배치 상태(`COMPLETED`, `FAILED`, `REVIEW_REQUIRED`)를 분리해 집계해야 하며, overflow는 경고 로그와 `BATCH_LIMIT_EXCEEDED` 검토 사유로 확인합니다. `AI_TOKEN_QUOTA_EXHAUSTED`는 재시도 가능한 quota 중단으로 별도 표시하고, 재개 시 기존 후보 ID·1차 근거를 보존합니다.

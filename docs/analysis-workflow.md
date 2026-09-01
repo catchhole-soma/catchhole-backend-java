@@ -43,17 +43,27 @@ flowchart TD
     J --> K["setting_candidates 직접 저장"]
     K --> L["회차 원문에서 세계관 후보 추출"]
     L --> M["Backend API로<br/>world_setting_candidates 게시"]
-    M --> N["후보별 기존 world_settings 탐색·LLM 비교"]
-    N --> O["ADD / UPDATE / MERGE / EXCLUDE 저장"]
-    O --> P["WORLD_COMPARISONS_FINISHED checkpoint"]
-    P --> Q["Worker complete"]
-    Q --> R["해당 Episode ANALYZED<br/>AnalysisJob SUCCEEDED"]
-    N -. "후보 비교 실패" .-> Y["해당 후보만 FAILED<br/>나머지 후보 계속 처리"]
+    M --> N["후보별 canonical 주체 해소<br/>대상 ID 목록을 Backend에 원자 저장"]
+    N --> O["같은 회차·분류·canonical 주체·<br/>raw scope 후보를 batch로 claim"]
+    O --> P["고정 target의 현재<br/>properties + version context 조회"]
+    P --> Q["batch 2차 LLM 비교<br/>독립 속성별 decision 생성"]
+    Q --> R["source coverage·합성 scope child 수·<br/>root 이동·최종 경로 검증"]
+    R --> S["decision/source와 이동 snapshot 저장<br/>ADD / UPDATE / MERGE / EXCLUDE"]
+    S --> T["WORLD_COMPARISONS_FINISHED checkpoint"]
+    T --> U["Worker complete"]
+    U --> V["해당 Episode ANALYZED<br/>AnalysisJob SUCCEEDED"]
+    Q -. "batch 비교 실패" .-> Y["해당 batch 후보 전체 FAILED<br/>다른 canonical batch는 계속 처리"]
     H -. "Job 실패" .-> X["해당 Job/Episode만 FAILED"]
     X --> B
 ```
 
 Spring은 캐릭터 `setting_candidates` 생성 API를 제공하지 않아 1차 Worker의 DB 직접 저장 흐름을 유지합니다. 반면 캐릭터 2차 비교 상태와 세계관 후보·비교 상태는 Spring 내부 API로만 변경합니다. Worker는 claim의 `knownCharacters`를 prompt에 전달해 등록되지 않은 명시적 이름을 `CHARACTER_DISCOVERY`로 만들고, 기존 캐릭터와 같은 이름의 발견 후보는 저장하지 않습니다. `CHARACTER_DISCOVERY` 확정은 캐릭터와 최초 등장만 반영하고 Fact를 만들지 않습니다. `SETTING`은 schema hint로 canonical slot을 결정한 뒤 현재 `WorkCharacter` snapshot과 2차 비교해 operation·시간 범위·최종 표시값/JSON·제거 slot을 제안합니다. 사용자 확정 시 새 `CharacterFact`는 append-only로 저장하고, `APPLY_PROPOSAL`만 snapshot과 `character_snapshot_sources`를 갱신합니다. `HISTORY_ONLY`는 Fact와 원문 근거만 이력에 남깁니다.
+
+세계관 batch에서 raw와 다른 새 scope는 기존 scoped child, 이번 batch의 독립 `ADD`, 함께 이동할 실제 root 설정을
+합친 최종 child가 둘 이상일 때만 허용합니다. 이동 계획은 비교 decision에 snapshot으로 저장할 뿐 비교 완료 시
+확정본을 바꾸지 않으며, 사용자가 수정하지 않은 제안을 그룹 확정할 때만 새 property와 함께 한 번에 적용합니다.
+상세 시퀀스는 [World Setting의 기존 root 설정 재범위화 파이프라인](world-setting.md#기존-root-설정-재범위화-파이프라인)을
+기준으로 확인합니다.
 
 Worker는 `X-Worker-Lease-Token`을 상태·token 예약·세계관 내부 API에 전달하고 heartbeat로 lease를 연장합니다. 이미 시작된 provider 요청의 token 정산·해제는 lease 만료 뒤에도 예약을 정리할 수 있도록 `requestId` 기준으로 처리합니다. 만료된 Job은 마지막 checkpoint부터 최대 세 번 claim하며, 공개 `recompare` 요청은 별도 `WORLD_SETTING_COMPARISON` Job을 생성해 전용 Worker가 후보 하나만 다시 비교합니다. 이 숨김 Job은 공개 분석 진행률과 `Episode.status`에 영향을 주지 않습니다.
 
@@ -445,9 +455,10 @@ Notion 기준 `AnalysisJob.status`
 8. 캐릭터 비교 Worker는 후보를 한 건씩 claim하고 Spring context API에서 canonical slot과 관련 현재 snapshot을 받습니다. 일반 유형은 exact slot만, `STATUS`는 종료 관계 판단을 위해 exact slot을 먼저 두고 최근 생성된 source Fact 순으로 동종 slot 최대 30개를 함께 받습니다.
 9. Worker가 `ADD/UPDATE/MERGE/REMOVE/HISTORY_ONLY/EXCLUDE/REVIEW_REQUIRED`와 시간 범위·최종값·제거 slot을 제안하면 Spring은 context token, operation 조합, schema 값, same-character slot을 불신 검증해 저장합니다. `REMOVE`는 동일한 현재 `STATUS` slot의 종료만 표현하며 원본 Fact 이력은 보존합니다. `EXCLUDE`는 비교 완료 트랜잭션에서 후보만 `DISMISSED + NOT_REQUIRED`로 자동 전환하고 Fact·현재 snapshot·이력을 만들지 않습니다. 이 완료 요청은 초기 분석과 숨김 재비교에서 같은 경계를 사용하며 중복 요청을 멱등 처리합니다. 모든 캐릭터 후보 비교가 종료되면 `CHARACTER_COMPARISONS_FINISHED` checkpoint를 기록합니다.
 10. Worker는 회차 원문에서 지속적인 세계관 속성을 추출하고 구조적으로 같은 후보를 제거한 뒤, lease가 보호하는 Spring 내부 API로 `world_setting_candidates`를 멱등 게시합니다.
-11. 세계관 후보마다 같은 category의 기존 대상명을 조회해 LLM이 최대 3개 대상 ID를 고르게 하고, Spring에서 현재 version과 `properties_json`을 포함한 비교 문맥을 검증해 가져옵니다.
-12. Worker가 세계관 `ADD/UPDATE/MERGE/EXCLUDE`를 판단하면 Spring은 문맥 ID·version·exact 대상과 제안을 재검증해 저장합니다. 계약 검증 400은 외부 `WORLD_SETTING_COMPARISON_TARGET_INVALID`와 안전한 `context.reasonCode`를 반환하며, Worker는 이를 상위 `COMPARISON_VALIDATION_FAILED`와 source code/reason으로 분리해 후보 실패에 저장합니다. 정확한 stale 409만 새 문맥으로 다시 비교합니다. 잘못된 UUID를 LLM이 생성하지 않도록 UUID는 비교 prompt에 넣지 않습니다.
-13. 모든 세계관 후보가 `COMPLETED` 또는 `FAILED`가 되면 `WORLD_COMPARISONS_FINISHED` checkpoint를 기록하고 complete API를 호출해 `AnalysisJob.status=SUCCEEDED`로 변경합니다.
+11. Worker는 canonical 주체가 미해소된 세계관 후보와 같은 category의 기존 대상명 전체를 조회합니다. exact 이름 또는 `S*` LLM 선택 결과를 후보별 target ID 목록으로 Spring에 원자 저장하고, Spring은 같은 회차·분류·canonical 주체 key·정규화 raw scope 후보를 `WorldSettingComparisonBatch`로 묶습니다.
+12. Worker는 batch를 claim한 뒤 고정 target의 현재 `properties_json`·version·exact target을 context로 가져오고, UUID 대신 요청 내부 `C*`·`T*` ref만 2차 LLM에 전달합니다. LLM은 독립 속성별 `ADD/UPDATE/MERGE/EXCLUDE` decision을 반환하며, 기존 root와 새 `ADD`를 공통 scope로 정리할 때는 `existingRootPropertyNamesToMove`에 이동할 root 이름을 명시합니다. Worker는 source coverage, 실제 root, 최종 경로 충돌, 범위명·설정명 중복과 합성 scope의 서로 다른 최종 child 2개 이상을 검증하고 실패하면 batch JSON 전체를 다시 생성합니다.
+13. Spring은 batch complete에서 context ID·version·exact target, 모든 source의 정확한 1회 귀속, decision 조합과 최종 경로를 다시 검증합니다. root 이동 제안은 현재 이름·값을 `{settingName,beforeValue}` snapshot으로 결정에 저장하지만 이 시점에는 확정본을 이동하지 않습니다. 계약 검증 400은 외부 `WORLD_SETTING_COMPARISON_TARGET_INVALID`와 안전한 `context.reasonCode`를 반환하며, Worker는 이를 상위 `COMPARISON_VALIDATION_FAILED`와 source code/reason으로 분리해 batch 후보 전체 실패에 저장합니다. context stale 409는 최신 context로 batch 전체를 다시 비교하고, canonical 주체 stale은 기존 batch를 닫은 뒤 주체 해소부터 다시 수행합니다.
+14. 모든 세계관 후보가 `COMPLETED` 또는 `FAILED`가 되면 `WORLD_COMPARISONS_FINISHED` checkpoint를 기록하고 complete API를 호출해 `AnalysisJob.status=SUCCEEDED`로 변경합니다.
 
 현재 complete API는 checkpoint와 후보 상태를 검증하고 Backend token ledger 합계를 반영한 뒤 대상 회차의 `Episode.status`를 `ANALYZED`로 전환합니다. fail API는 아직 분석 완료되지 않은 대상 회차를 `FAILED`로 전환합니다. 숨김 `CHARACTER_FACT_COMPARISON`, `WORLD_SETTING_COMPARISON` Job은 연결 후보 한 건만 처리하며 회차 상태를 바꾸지 않습니다.
 
