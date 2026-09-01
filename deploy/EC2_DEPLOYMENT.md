@@ -124,11 +124,12 @@ LLM_WORLD_SETTING_EXTRACTION_MAX_OUTPUT_TOKENS=5000
 LLM_WORLD_SETTING_EXTRACTION_RETRY_MAX_OUTPUT_TOKENS=10000
 LLM_SUBJECT_RESOLUTION_MAX_OUTPUT_TOKENS=2000
 LLM_COMPARISON_MAX_OUTPUT_TOKENS=3000
+LLM_WORLD_SETTING_BATCH_COMPARISON_MAX_OUTPUT_TOKENS=16000
 LLM_PROVIDER_MAX_OUTPUT_TOKENS=128000
 AI_TOKEN_DEFAULT_GRANT=2000000
 AI_TOKEN_CONTACT_EMAIL=aicatchhole@gmail.com
 AI_TOKEN_MINIMUM_ANALYSIS_RESERVATION=6256
-AI_TOKEN_MINIMUM_COMPARISON_RESERVATION=3256
+AI_TOKEN_MINIMUM_COMPARISON_RESERVATION=16256
 ```
 
 캐릭터 Fact·세계관 후보의 1차 추출은 Terra를 사용하고, 캐릭터·세계관 주체 해소와 캐릭터 Fact/세계관 비교·재비교는 Luna를 사용한다. `LLM_MODEL`은 단계별 값이 없을 때만 사용하는 하위 호환 fallback이다. `LLM_REASONING_EFFORT=none`은 구조화 응답 품질을 별도로 검증하면서 GPT-5.6의 기본 추론 비용이 자동으로 추가되지 않게 하는 MVP 기준값이다.
@@ -137,7 +138,7 @@ AI_TOKEN_MINIMUM_COMPARISON_RESERVATION=3256
 
 `AI_TOKEN_CONTACT_EMAIL`은 기본 사용량을 모두 소진한 사용자에게 표시할 피드백 연락처다. 운영에서 바꿀 때는 Backend 컨테이너를 재생성해야 한다.
 
-`AI_TOKEN_MINIMUM_ANALYSIS_RESERVATION`과 `AI_TOKEN_MINIMUM_COMPARISON_RESERVATION`은 각각 최초 분석과 후보 비교를 시작하기 전에 요구하는 최소 예약량이다. 기본값 6,256과 3,256은 첫 캐릭터 추출 6,000·비교 3,000에 입력 최소 여유 256을 더한 값이다. 목적별 출력 상한을 바꾸면 두 값도 같은 규칙으로 동기화하며, `.env`에서 조정한 값은 관련 컨테이너 재생성 뒤 적용된다.
+`AI_TOKEN_MINIMUM_ANALYSIS_RESERVATION`과 `AI_TOKEN_MINIMUM_COMPARISON_RESERVATION`은 각각 최초 분석과 후보 비교를 시작하기 전에 요구하는 최소 예약량이다. 기본값 6,256과 16,256은 첫 캐릭터 추출 6,000·가장 큰 세계관 batch 비교 16,000에 입력 최소 여유 256을 더한 값이다. 목적별 출력 상한을 바꾸면 두 값도 같은 규칙으로 동기화하며, `.env`에서 조정한 값은 관련 컨테이너 재생성 뒤 적용된다.
 
 값을 바꾼 뒤에는 관련 컨테이너를 재생성하고 실제 주입값을 확인한다.
 
@@ -148,6 +149,7 @@ docker compose --env-file .env -f compose.prod.yml exec backend printenv AI_TOKE
 docker compose --env-file .env -f compose.prod.yml exec backend printenv AI_TOKEN_MINIMUM_ANALYSIS_RESERVATION
 docker compose --env-file .env -f compose.prod.yml exec backend printenv AI_TOKEN_MINIMUM_COMPARISON_RESERVATION
 docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv LLM_EXTRACTION_MODEL
+docker compose --env-file .env -f compose.prod.yml exec ai-world-comparison-worker printenv LLM_WORLD_SETTING_BATCH_COMPARISON_MAX_OUTPUT_TOKENS
 docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv LLM_SUBJECT_RESOLUTION_MODEL
 docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv LLM_COMPARISON_MODEL
 docker compose --env-file .env -f compose.prod.yml exec ai-worker printenv LLM_REASONING_EFFORT

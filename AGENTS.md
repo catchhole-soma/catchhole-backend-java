@@ -81,7 +81,7 @@
 - 분석 Worker는 빈 실행 슬롯을 확보한 뒤 Job 하나만 claim하고 즉시 실행한다. 미리 여러 Job을 claim해 프로세스 내부 대기열에 쌓지 않으며, `LLM_MAX_CONCURRENT_REQUESTS`와 `AI_WORKER_BLOCKING_MAX_WORKERS`로 프로세스 안의 provider 호출과 동기 DB/S3 offload를 각각 제한한다. 재비교 Worker는 Job·LLM 동시성을 1로 고정한다.
 - Worker는 종료 신호를 받으면 신규 claim을 중단하고 `AI_WORKER_SHUTDOWN_GRACE_SECONDS` 동안 실행 중 Job과 heartbeat를 유지한다. Compose `stop_grace_period`는 내부 grace보다 길게 두어 정리 시간을 보장하며, 현재 운영값은 내부 180초·컨테이너 210초다. grace를 넘긴 Job은 heartbeat가 멈춘 뒤 Spring lease 회수 경로로 재처리한다.
 - 운영 AI 모델은 추출 `LLM_EXTRACTION_MODEL=gpt-5.6-terra`, 캐릭터·세계관 주체 해소 `LLM_SUBJECT_RESOLUTION_MODEL=gpt-5.6-luna`, 세계관 비교·재비교 `LLM_COMPARISON_MODEL=gpt-5.6-luna`로 분리하고 `LLM_MODEL`은 개별 설정이 없을 때의 fallback으로 둔다. 공통 추론 강도는 `LLM_REASONING_EFFORT=none`을 사용한다. 실제 비밀값과 override는 `/opt/catchhole/.env`에 두고 Compose가 AI Worker에 명시적으로 전달한다.
-- 운영 AI 출력 상한은 캐릭터 추출 6,000→12,000, 세계관 추출 5,000→10,000, 주체 해소 2,000, 비교 3,000이며 provider 상한은 128,000이다. Compose가 목적별 환경변수를 사용하는 Worker 서비스에 명시적으로 전달하고, 상한을 바꿀 때는 Backend 최소 예약량도 첫 분석·비교 출력 상한에 입력 여유 256을 더한 값으로 함께 동기화한다. 작업 생성 단계의 빠른 검사가 실제 Worker 예약보다 낮아 실행 직후 실패하는 설정 drift를 막기 위함이다.
+- 운영 AI 출력 상한은 캐릭터 추출 6,000→12,000, 세계관 추출 5,000→10,000, 주체 해소 2,000, 단건 비교 3,000, 세계관 batch 비교 16,000이며 provider 상한은 128,000이다. Compose가 목적별 환경변수를 사용하는 Worker 서비스에 명시적으로 전달하고, Backend 비교 최소 예약량은 가장 큰 비교 출력 상한 16,000에 입력 여유 256을 더한 16,256으로 동기화한다. 작업 생성 단계의 빠른 검사가 실제 Worker 예약보다 낮아 실행 직후 실패하는 설정 drift를 막기 위함이다.
 - 로컬과 운영 PostgreSQL은 `pgvector/pgvector:0.8.2-pg16` 이미지로 통일한다. `latest`나 major version만 지정한 가변 태그를 사용하지 않고 PostgreSQL/pgvector 버전을 함께 고정해 로컬·운영의 vector extension 실행 환경을 일치시킨다.
 - 단일 EC2 운영 배포 파일은 `deploy/` 아래에 둔다. `compose.prod.yml`, `Caddyfile`, `.env.example`을 기준으로 서버의 `/opt/catchhole`에 배치하되, 실제 `.env`는 서버에만 두고 커밋하지 않는다.
 - 운영 PostgreSQL의 호스트 포트는 `127.0.0.1:5432`에만 바인딩한다. SSH 터널 기반 운영 점검은 허용하되 EC2 외부에 데이터베이스 포트를 직접 노출하지 않기 위함이다.
@@ -437,6 +437,7 @@ domain/<domain>
 - 같은 확정·제외 요청은 멱등 처리하고 `CONFIRMED ↔ DISMISSED` 반대 전이는 충돌로 거절한다. `UPDATE`와 `MERGE`는 DB에서 모두 최종 문자열로 한 property를 교체하되 제안 의미를 기록하기 위해 enum을 구분한다.
 - `recompare` API는 비교 제안을 비우고 `PENDING`으로 전환한 뒤 멱등한 `WORLD_SETTING_COMPARISON` Job을 생성한다. 실제 LLM 호출은 별도 AI comparison runner가 claim해 수행하며 HTTP 요청 트랜잭션 안에서 호출하지 않는다.
 - 1차 세계관 후보 게시와 2차 비교 상태 전이는 `domain/worldsetting` 내부 Worker API만 수행한다. Backend는 lease·작품·분류·후보 소유권, 최대 3개 비교 문맥 ID·version, exact 대상과 property를 검증하고 `beforeValue`와 base version을 직접 산출한다. Worker는 `world_settings`를 직접 수정하지 않는다.
+- 세계관 canonical 주체 해소는 정규화 exact 대상 최대 20개를 모두 받아 2개 이상이면 `AMBIGUOUS`로 저장하고, LLM fuzzy 선택만 최대 3개로 제한한다. 주체 해소 LLM의 토큰 예약이 거절된 경우에만 기존 비교 실패 API가 아직 `PENDING`인 현재 후보를 `AI_TOKEN_QUOTA_EXHAUSTED`로 중단하며, 다른 실패 코드의 `PENDING` 전이는 계속 거절한다.
 - 같은 회차를 재분석할 때 이전 Job의 검토 전 세계관 후보만 정리하고 `CONFIRMED`/`DISMISSED` 후보는 보존한다. 같은 Job의 lease 재시도는 checkpoint를 기준으로 이미 게시한 후보를 재생성하지 않는다. 후보별 비교 실패는 후보를 `FAILED`로 남기되 초기 회차 Job의 나머지 후보 비교와 완료는 계속한다.
 - 작품 hard delete 시 `world_settings`와 `world_setting_candidates`도 함께 정리되도록 두 테이블의 `work_id` FK와 JPA 매핑에 delete cascade를 유지한다. 이는 개별 세계관 대상 삭제·보관·복원 기능을 허용하는 규칙이 아니다.
 

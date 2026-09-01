@@ -197,7 +197,7 @@ scope 미확정으로 처리하지 않습니다.
 
 배치 처리 순서는 `claim-next → context → complete|fail`입니다.
 
-- `claim-next`는 한 번에 하나의 배치를 `PROCESSING`으로 만들고 모든 후보를 함께 claim합니다. 후보가 20개를 초과하거나 입력 추정량이 30,000자를 초과하면 LLM을 호출하지 않고 모든 후보를 `REVIEW_REQUIRED + BATCH_LIMIT_EXCEEDED` 결정으로 완료합니다. 이 경로도 원본 후보·결정·source membership를 저장하고 배치 상태를 `REVIEW_REQUIRED`로 남깁니다.
+- `claim-next`는 한 번에 하나의 배치를 `PROCESSING`으로 만들고 모든 후보를 함께 claim합니다. 후보가 20개를 초과하거나 입력 추정량이 30,000자를 초과하면 LLM을 호출하지 않고 모든 후보를 `REVIEW_REQUIRED + BATCH_LIMIT_EXCEEDED` 결정으로 완료합니다. Worker도 provider 호출 전에 원문값·실제 target 경로·decision JSON 여유를 포함한 최소 출력량을 계산하며, 16,000 token을 넘으면 후보별 원본 경로·값을 보존한 같은 검토 사유로 완료합니다. 이 경로도 원본 후보·결정·source membership를 저장하고 배치 상태를 `REVIEW_REQUIRED`로 남깁니다.
 - `context`는 Worker가 보낼 대상 ID를 검증하고 대상별 현재 version과 후보별 exact target을 `context_snapshot_json`에 기록합니다. 완료 요청은 이 snapshot과 정확히 같은 대상·version·exact target을 다시 보내야 하며, 대상 생성·삭제·version 변경 등 stale 문맥이면 전체 완료를 거절합니다.
 - `complete`는 결정 ref가 중복되지 않고, 모든 `C*`가 정확히 한 결정의 source로 포함되는지(누락·중복·알 수 없는 ref 없음) 검증합니다. 결정의 canonical 대상명, source 후보들의 scope, `SINGLE/MERGED/CONFLICT` 정리 상태와 제안 경로도 Backend가 재검증합니다. 같은 최종 대상에서 동일 top-level 이름을 root 문자열과 scope object로 동시에 제안하는 batch도 저장 전에 거절합니다. 검증을 통과하면 권위 있는 `world_setting_comparison_decisions`를 만들고, `world_setting_comparison_decision_sources`에 원본 후보와 결정의 ordered membership를 기록한 뒤 후보를 완료시킵니다.
 - 기존 대상의 root 문자열 설정과 새 `ADD`를 공통 범위로 정리할 때 Worker는 결정의 `existingRootPropertyNamesToMove`에 이동할 root 설정명을 명시합니다. Backend는 이름마다 같은 대상의 실제 root 문자열인지, 제안 범위 목적지가 비어 있는지, 다른 결정과 중복 이동하지 않는지 검증하고 `world_setting_comparison_decisions.existing_root_property_move_snapshots` 한 JSONB 배열에 `{settingName, beforeValue}`를 저장합니다. Worker 요청과 공개 후보 응답에는 이름 목록만 노출합니다.
@@ -369,7 +369,7 @@ sequenceDiagram
             Backend-->>Worker: 비교 후보 payload
             Worker->>Backend: 같은 category 대상명·비교 context 요청
             Backend->>DB: 현재 대상·properties·version 잠금 없는 조회
-            Backend-->>Worker: exact 대상과 최대 3개 비교 대상 context
+            Backend-->>Worker: exact 대상 최대 20개 또는<br/>LLM fuzzy 대상 최대 3개 context
             Worker->>LLM: 현재 확정본과 후보 비교
             LLM-->>Worker: ADD·UPDATE·MERGE·EXCLUDE 제안
 
@@ -417,7 +417,8 @@ sequenceDiagram
 - 기존 속성과 의미가 같아 제외하는 후보는 Worker가 대상 ID와 매칭 속성명을 함께 보내고, Backend가 해당 속성의 실제 값을 `before_value`에 저장합니다. 특정 기존 속성과 비교하지 않은 일시적 사건 등의 제외는 `before_value`가 없으며 Frontend에서 `비교 대상 없음`으로 구분합니다.
 - LLM은 `world_settings`를 직접 변경하지 않습니다. Backend의 사용자 확정 트랜잭션만 확정본을 변경합니다.
 - 의미상 중복과 병합 필요성은 2차 LLM 제안 영역입니다. 유일키, 동일 설정명, 버전과 상태 전이 같은 구조적 무결성은 Backend가 담당합니다.
-- 초기 `SETTING_EXTRACTION` Job은 캐릭터 후보 저장 뒤 세계관 후보 게시·canonical 주체 해소·batch 비교를 내부 stage로 실행합니다. 한 batch의 비교 실패는 그 batch의 source 후보 전체를 `FAILED`로 남기지만 다른 canonical batch와 Job 완료는 계속합니다.
+- 초기 `SETTING_EXTRACTION` Job은 캐릭터 후보 저장 뒤 세계관 후보 게시·canonical 주체 해소·batch 비교를 내부 stage로 실행합니다. 일반적인 한 batch 비교 실패는 그 batch의 source 후보 전체를 `FAILED`로 남기지만 다른 canonical batch와 Job 완료는 계속합니다. 단, 주체 해소 LLM의 quota 예약이 거절되면 아직 `PENDING`인 현재 후보를 `AI_TOKEN_QUOTA_EXHAUSTED`로 기록하고 새 해소·batch claim을 중단합니다.
+- canonical 주체명과 정규화 exact 일치하는 대상은 최대 20개까지 모두 Backend에 전달해 `AMBIGUOUS`로 저장하고, LLM fuzzy 선택만 최대 3개로 유지합니다. exact 대상이 20개를 넘으면 목록을 자르거나 허위 단일 대상을 만들지 않고 명시적 비교 검증 오류로 중단합니다.
 - Worker는 같은 category의 대상명 전체에서 후보별 target ID 목록을 먼저 확정하고, Backend가 같은 회차·분류·canonical 주체·raw scope로 만든 batch의 고정 target properties와 version을 조회합니다. LLM prompt에는 UUID 대신 batch 안에서만 유효한 `C*`·`T*` 참조를 사용합니다.
 - Backend는 lease, batch/source coverage, 작품·분류·canonical 주체, exact 대상, 비교 문맥의 ID·version, 설정 경로와 root 이동 목적지를 검증합니다. 기존 root 이동값과 `beforeValue`는 현재 확정본에서 직접 snapshot하며 AI가 보낸 과거값이나 version을 신뢰하지 않습니다.
 - 비교 요청 계약이 틀리면 외부 `error.code=WORLD_SETTING_COMPARISON_TARGET_INVALID`는 유지하고 `ErrorResponse.context.reasonCode`에 `WorldSettingComparisonValidationReason` enum 분기를 제공합니다. Worker는 이를 `comparisonFailureCode=COMPARISON_VALIDATION_FAILED`와 내부 source code/reason으로 분리 저장하며 같은 LLM 결과를 재생성하지 않습니다. `sourceReasonCode`를 보내는 실패 요청은 이 상위 실패 코드와 source error code를 함께 사용해야 하며, 구버전 Worker 호환을 위해 source 메타데이터 전체 생략은 허용합니다.
