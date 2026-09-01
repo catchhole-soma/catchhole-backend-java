@@ -58,13 +58,17 @@ import org.monitoring.catchholebackend.domain.upload.type.UploadType;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingComparisonBatch;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingComparisonBatchRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingRepository;
-import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonBatchStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSubjectResolutionType;
 import org.monitoring.catchholebackend.global.config.security.SecurityConstant;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -90,6 +94,30 @@ class AnalysisJobWorkerControllerIntegrationTest {
             SecurityConstant.WORKER_LEASE_TOKEN_HEADER;
     private static final String DEFAULT_CLAIM_BODY = """
             {"allowedJobTypes":["SETTING_EXTRACTION","EPISODE_VALIDATION"]}
+            """;
+    private static final String WORLD_COMPARISON_CLAIM_BODY = """
+            {
+              "modelName": "gpt-5.6-terra",
+              "currentStep": "WORLD_SETTING_COMPARISON",
+              "allowedJobTypes": ["WORLD_SETTING_COMPARISON"]
+            }
+            """;
+    private static final String VALID_BATCH_COMPLETION_BODY = """
+            {
+              "contextVersions": [],
+              "decisions": [{
+                "decisionRef": "D1",
+                "sourceCandidateRefs": ["C1"],
+                "canonicalSubjectName": "고블린",
+                "consolidationStatus": "SINGLE",
+                "suggestedOperation": "ADD",
+                "proposedSettingName": "무기",
+                "proposedValue": "창",
+                "comparisonReason": "신규 설정이므로 추가합니다.",
+                "rawComparisonJson": {}
+              }],
+              "rawComparisonJson": {}
+            }
             """;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -123,6 +151,9 @@ class AnalysisJobWorkerControllerIntegrationTest {
 
     @Autowired
     private WorldSettingCandidateRepository worldSettingCandidateRepository;
+
+    @Autowired
+    private WorldSettingComparisonBatchRepository worldSettingComparisonBatchRepository;
 
     @Autowired
     private WorldSettingRepository worldSettingRepository;
@@ -168,6 +199,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
         analysisJobRepository.saveAllAndFlush(existingJobs);
         settingCandidateRepository.deleteAll();
         worldSettingCandidateRepository.deleteAll();
+        worldSettingComparisonBatchRepository.deleteAll();
         worldSettingRepository.deleteAll();
         analysisJobRepository.deleteAll();
         episodeRepository.deleteAll();
@@ -623,6 +655,141 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("만료된 lease의 이전 비교 batch를 닫고 후보를 새 batch로 재claim한다")
+    void expiredLeaseClosesBatchAndReclaimsCandidateIntoNewBatch() throws Exception {
+        ProcessingWorldComparison processing = processingWorldComparison(1);
+
+        String reclaimedJobResponse = mockMvc.perform(post(CLAIM_URL)
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(WORLD_COMPARISON_CLAIM_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.analysisJobId")
+                        .value(processing.analysisJobId().toString()))
+                .andExpect(jsonPath("$.data.claimAttemptCount").value(2))
+                .andReturn().getResponse().getContentAsString();
+        UUID reclaimedLeaseToken = UUID.fromString(
+                objectMapper.readTree(reclaimedJobResponse).at("/data/leaseToken").asText()
+        );
+
+        assertThat(worldSettingComparisonBatchRepository.findById(processing.batchId()))
+                .get()
+                .satisfies(batch -> {
+                    assertThat(batch.getStatus())
+                            .isEqualTo(WorldSettingComparisonBatchStatus.FAILED);
+                    assertThat(batch.getFailureCode())
+                            .isEqualTo(AnalysisFailureCode.WORKER_LEASE_EXPIRED);
+                    assertThat(batch.getErrorMessage())
+                            .isEqualTo("AI Worker lease가 만료되어 이전 비교 묶음을 종료했습니다.");
+                });
+        assertThat(worldSettingCandidateRepository.findById(processing.candidateId()))
+                .get()
+                .satisfies(candidate -> {
+                    assertThat(candidate.getComparisonStatus())
+                            .isEqualTo(WorldSettingComparisonStatus.PENDING);
+                    assertThat(candidate.getComparisonBatch()).isNull();
+                    assertThat(candidate.getComparisonCandidateRef()).isNull();
+                    assertThat(candidate.getSubjectResolutionType())
+                            .isEqualTo(WorldSettingSubjectResolutionType.NEW);
+                    assertThat(candidate.getCanonicalSubjectKey()).isEqualTo("NEW:고블린");
+                });
+
+        mockMvc.perform(post(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}"
+                                        + "/world-setting-comparison-batches/{comparisonBatchId}/complete",
+                                processing.analysisJobId(),
+                                processing.batchId()
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, reclaimedLeaseToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_BATCH_COMPLETION_BODY))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code")
+                        .value("WORLD_SETTING_COMPARISON_BATCH_STATUS_CONFLICT"));
+
+        String newBatchResponse = mockMvc.perform(post(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}"
+                                        + "/world-setting-comparison-batches/claim-next",
+                                processing.analysisJobId()
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, reclaimedLeaseToken))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        UUID newBatchId = UUID.fromString(
+                objectMapper.readTree(newBatchResponse)
+                        .at("/data/comparisonBatchId")
+                        .asText()
+        );
+
+        assertThat(newBatchId).isNotEqualTo(processing.batchId());
+        assertThat(worldSettingCandidateRepository.findById(processing.candidateId()))
+                .get()
+                .satisfies(candidate -> {
+                    assertThat(candidate.getComparisonStatus())
+                            .isEqualTo(WorldSettingComparisonStatus.PROCESSING);
+                    assertThat(candidate.getComparisonBatch().getId()).isEqualTo(newBatchId);
+                    assertThat(candidate.getComparisonCandidateRef()).isEqualTo("C1");
+                });
+    }
+
+    @Test
+    @DisplayName("최대 시도를 넘긴 lease 만료는 Job·batch·출처 후보를 함께 실패 처리한다")
+    void expiredLeaseAtMaxAttemptsFailsJobBatchAndCandidates() throws Exception {
+        ProcessingWorldComparison processing = processingWorldComparison(3);
+
+        mockMvc.perform(post(CLAIM_URL)
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(WORLD_COMPARISON_CLAIM_BODY))
+                .andExpect(status().isNoContent());
+
+        assertThat(analysisJobRepository.findById(processing.analysisJobId()))
+                .get()
+                .satisfies(job -> {
+                    assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
+                    assertThat(job.getFailureCode())
+                            .isEqualTo(AnalysisFailureCode.WORKER_LEASE_EXPIRED);
+                    assertThat(job.getLeaseToken()).isNull();
+                    assertThat(job.getLeaseExpiresAt()).isNull();
+                });
+        assertThat(worldSettingComparisonBatchRepository.findById(processing.batchId()))
+                .get()
+                .satisfies(batch -> {
+                    assertThat(batch.getStatus())
+                            .isEqualTo(WorldSettingComparisonBatchStatus.FAILED);
+                    assertThat(batch.getFailureCode())
+                            .isEqualTo(AnalysisFailureCode.WORKER_LEASE_EXPIRED);
+                    assertThat(batch.getErrorMessage())
+                            .isEqualTo("AI Worker lease가 반복 만료되어 작업을 종료했습니다.");
+                });
+        assertThat(worldSettingCandidateRepository.findById(processing.candidateId()))
+                .get()
+                .satisfies(candidate -> {
+                    assertThat(candidate.getComparisonStatus())
+                            .isEqualTo(WorldSettingComparisonStatus.FAILED);
+                    assertThat(candidate.getComparisonFailureCode())
+                            .isEqualTo(AnalysisFailureCode.WORKER_LEASE_EXPIRED);
+                    assertThat(candidate.getComparisonBatch().getId())
+                            .isEqualTo(processing.batchId());
+                });
+
+        mockMvc.perform(post(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}"
+                                        + "/world-setting-comparison-batches/{comparisonBatchId}/complete",
+                                processing.analysisJobId(),
+                                processing.batchId()
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, processing.expiredLeaseToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_BATCH_COMPLETION_BODY))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ANALYSIS_JOB_STATUS_CONFLICT"));
+    }
+
+    @Test
     @DisplayName("null lease를 가진 기존 RUNNING 작업을 재claim하고 이전 token을 거절한다")
     void claimRecoversLegacyRunningJobsWithIncompleteLeases() throws Exception {
         AnalysisJob missingTokenJob = analysisJobRepository.save(
@@ -1022,7 +1189,28 @@ class AnalysisJobWorkerControllerIntegrationTest {
         );
         WorldSettingCandidate pending = worldCandidate(analysisJob, "마탑", "위치", "황도 중앙");
         WorldSettingCandidate processing = worldCandidate(analysisJob, "왕국", "수도", "아르덴");
-        processing.startComparison();
+        processing.resolveSubject(
+                WorldSettingSubjectResolutionType.NEW,
+                "NEW:왕국",
+                "왕국",
+                objectMapper.createArrayNode()
+        );
+        WorldSettingComparisonBatch processingBatch =
+                worldSettingComparisonBatchRepository.saveAndFlush(
+                        WorldSettingComparisonBatch.create(
+                                work,
+                                firstEpisode,
+                                analysisJob,
+                                processing.getCategory(),
+                                processing.getScopeName(),
+                                processing.getSubjectResolutionType(),
+                                processing.getCanonicalSubjectKey(),
+                                processing.getCanonicalSubjectName(),
+                                processing.getResolvedTargetWorldSettingIds(),
+                                1
+                        )
+                );
+        processing.startComparison(processingBatch, "C1");
         WorldSettingCandidate dismissed = worldCandidate(analysisJob, "폐허", "상태", "봉인됨");
         dismissed.dismiss("사용자가 제외함", member);
         worldSettingCandidateRepository.saveAllAndFlush(List.of(completed, pending, processing, dismissed));
@@ -1051,6 +1239,18 @@ class AnalysisJobWorkerControllerIntegrationTest {
                     assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.FAILED);
                     assertThat(candidate.getComparisonFailureCode())
                             .isEqualTo(AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED);
+                });
+        assertThat(worldSettingComparisonBatchRepository.findById(processingBatch.getId()))
+                .get()
+                .satisfies(batch -> {
+                    assertThat(batch.getStatus())
+                            .isEqualTo(WorldSettingComparisonBatchStatus.FAILED);
+                    assertThat(batch.getFailureCode())
+                            .isEqualTo(AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED);
+                    assertThat(batch.getErrorMessage())
+                            .isEqualTo(
+                                    "Client error 409 for url https://internal.example/token/reserve"
+                            );
                 });
         assertThat(worldSettingCandidateRepository.findById(dismissed.getId()))
                 .get()
@@ -1148,6 +1348,59 @@ class AnalysisJobWorkerControllerIntegrationTest {
         return AnalysisJob.create(work, uploadBatch, episode, jobType);
     }
 
+    private ProcessingWorldComparison processingWorldComparison(int claimAttemptCount) {
+        AnalysisJob sourceJob = analysisJobRepository.save(
+                episodeJob(AnalysisJobType.SETTING_EXTRACTION, firstEpisode)
+        );
+        WorldSettingCandidate candidate = worldSettingCandidateRepository.saveAndFlush(
+                worldCandidate(sourceJob, "고블린", "무기", "창")
+        );
+        candidate.resolveSubject(
+                WorldSettingSubjectResolutionType.NEW,
+                "NEW:고블린",
+                "고블린",
+                objectMapper.createArrayNode()
+        );
+        worldSettingCandidateRepository.saveAndFlush(candidate);
+
+        AnalysisJob comparisonJob = AnalysisJob.createWorldSettingComparison(candidate);
+        UUID expiredLeaseToken = comparisonJob.claim(
+                "gpt-5.6-terra",
+                "WORLD_SETTING_COMPARISON",
+                LocalDateTime.now().plusMinutes(5)
+        );
+        comparisonJob = analysisJobRepository.saveAndFlush(comparisonJob);
+        WorldSettingComparisonBatch batch = worldSettingComparisonBatchRepository.saveAndFlush(
+                WorldSettingComparisonBatch.create(
+                        work,
+                        firstEpisode,
+                        comparisonJob,
+                        candidate.getCategory(),
+                        candidate.getScopeName(),
+                        candidate.getSubjectResolutionType(),
+                        candidate.getCanonicalSubjectKey(),
+                        candidate.getCanonicalSubjectName(),
+                        candidate.getResolvedTargetWorldSettingIds(),
+                        1
+                )
+        );
+        candidate.startComparison(batch, "C1");
+        worldSettingCandidateRepository.saveAndFlush(candidate);
+
+        jdbcTemplate.update("""
+                update analysis_jobs
+                   set lease_expires_at = ?,
+                       claim_attempt_count = ?
+                 where id = ?
+                """, LocalDateTime.now().minusMinutes(1), claimAttemptCount, comparisonJob.getId());
+        return new ProcessingWorldComparison(
+                comparisonJob.getId(),
+                candidate.getId(),
+                batch.getId(),
+                expiredLeaseToken
+        );
+    }
+
     private WorldSettingCandidate worldCandidate(
             AnalysisJob analysisJob,
             String subjectName,
@@ -1237,5 +1490,13 @@ class AnalysisJobWorkerControllerIntegrationTest {
         );
         file.markEpisodesParsed(startNo, endNo, episodeCount);
         return file;
+    }
+
+    private record ProcessingWorldComparison(
+            UUID analysisJobId,
+            UUID candidateId,
+            UUID batchId,
+            UUID expiredLeaseToken
+    ) {
     }
 }

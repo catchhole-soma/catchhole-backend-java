@@ -201,6 +201,56 @@ class WorldSettingTest {
         assertThat(setting.getPropertyValue("2층", "출몰 규칙")).isEqualTo("언데드가 출몰한다");
     }
 
+    @Test
+    @DisplayName("기존 루트 설정 이동과 새 범위 설정 반영을 한 번에 적용하고 버전을 한 번만 증가시킨다")
+    void appliesRootMoveAndNewPropertyWithSingleVersionIncrement() {
+        WorldSetting setting = WorldSetting.create(
+                work(),
+                WorldSettingCategory.RACE,
+                "바바리안",
+                "생명력",
+                "선택 가능한 종족 중 가장 높다"
+        );
+
+        boolean changed = setting.applyRootPropertyMovesAndProperties(
+                List.of(new WorldSetting.RootPropertyMove("생명력", "신체")),
+                List.of(new WorldSetting.Property("신체", "근력 기댓값", "높다"))
+        );
+
+        assertThat(changed).isTrue();
+        assertThat(setting.getPropertyValue("생명력")).isNull();
+        assertThat(setting.getPropertyValue("신체", "생명력"))
+                .isEqualTo("선택 가능한 종족 중 가장 높다");
+        assertThat(setting.getPropertyValue("신체", "근력 기댓값")).isEqualTo("높다");
+        assertThat(setting.getVersion()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("루트 설정의 이동 목적지가 이미 존재하면 원본과 버전을 변경하지 않는다")
+    void rejectsRootMoveDestinationConflictAtomically() {
+        WorldSetting setting = WorldSetting.create(
+                work(),
+                WorldSettingCategory.RACE,
+                "바바리안",
+                List.of(
+                        new WorldSetting.Property(null, "생명력", "기존 루트 값"),
+                        new WorldSetting.Property("신체", "생명력", "기존 범위 값")
+                )
+        );
+
+        assertThatThrownBy(() -> setting.applyRootPropertyMovesAndProperties(
+                List.of(new WorldSetting.RootPropertyMove("생명력", "신체")),
+                List.of(new WorldSetting.Property("신체", "근력 기댓값", "높다"))
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(WorldSettingErrorCode.WORLD_SETTING_PROPERTY_DUPLICATED));
+
+        assertThat(setting.getPropertyValue("생명력")).isEqualTo("기존 루트 값");
+        assertThat(setting.getPropertyValue("신체", "생명력")).isEqualTo("기존 범위 값");
+        assertThat(setting.getPropertyValue("신체", "근력 기댓값")).isNull();
+        assertThat(setting.getVersion()).isZero();
+    }
+
     private WorldSetting worldSetting() {
         return WorldSetting.create(
                 work(),

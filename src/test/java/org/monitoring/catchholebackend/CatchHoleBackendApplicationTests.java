@@ -29,6 +29,9 @@ import org.monitoring.catchholebackend.domain.work.repository.WorkPurgeDataRepos
 import org.monitoring.catchholebackend.domain.work.repository.WorkPurgeRequestRepository;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingComparisonBatchRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingComparisonDecisionRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingComparisonDecisionSourceRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingRepository;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.jpa.mapping.JpaMetamodelMappingContext;
@@ -133,6 +136,15 @@ class CatchHoleBackendApplicationTests {
 
     @MockitoBean
     private WorldSettingCandidateRepository worldSettingCandidateRepository;
+
+    @MockitoBean
+    private WorldSettingComparisonBatchRepository worldSettingComparisonBatchRepository;
+
+    @MockitoBean
+    private WorldSettingComparisonDecisionRepository worldSettingComparisonDecisionRepository;
+
+    @MockitoBean
+    private WorldSettingComparisonDecisionSourceRepository worldSettingComparisonDecisionSourceRepository;
 
     @MockitoBean
     private CharacterTimelineQueryRepository characterTimelineQueryRepository;
