@@ -78,6 +78,21 @@ public interface WorldSettingRepository extends JpaRepository<WorldSetting, UUID
             @Param("ids") Collection<UUID> ids
     );
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select worldSetting
+            from WorldSetting worldSetting
+            where worldSetting.work.id = :workId
+              and worldSetting.category = :category
+              and worldSetting.id in :ids
+            order by worldSetting.id asc
+            """)
+    List<WorldSetting> findAllComparisonTargetsForUpdate(
+            @Param("workId") UUID workId,
+            @Param("category") WorldSettingCategory category,
+            @Param("ids") Collection<UUID> ids
+    );
+
     @Query(
             value = """
                     SELECT world_setting.*

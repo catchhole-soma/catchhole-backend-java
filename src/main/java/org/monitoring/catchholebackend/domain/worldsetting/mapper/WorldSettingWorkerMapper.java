@@ -3,15 +3,20 @@ package org.monitoring.catchholebackend.domain.worldsetting.mapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.StreamSupport;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorkerWorldSettingCandidatePublishRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingCandidatePayload;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingComparisonBatchPayload;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingComparisonContextResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingSubjectPageResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingSubjectResolutionPendingResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingSubjectResolutionResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingPropertyResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingComparisonBatch;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -85,8 +90,89 @@ public class WorldSettingWorkerMapper {
         return candidates.stream().map(this::toResponse).toList();
     }
 
+    public WorkerWorldSettingComparisonBatchPayload toComparisonBatchResponse(
+            WorldSettingComparisonBatch batch,
+            List<WorldSettingCandidate> candidates
+    ) {
+        return new WorkerWorldSettingComparisonBatchPayload(
+                batch.getId(),
+                batch.getWork().getId(),
+                batch.getSourceEpisode().getId(),
+                batch.getCategory(),
+                batch.getSubjectResolutionType(),
+                batch.getCanonicalSubjectKey(),
+                batch.getCanonicalSubjectName(),
+                toUuidList(batch.getResolvedTargetWorldSettingIds()),
+                batch.getRawScopeName(),
+                candidates.stream().map(this::toComparisonBatchCandidate).toList()
+        );
+    }
+
+    public WorkerWorldSettingSubjectResolutionPendingResponse
+            toSubjectResolutionPendingResponse(List<WorldSettingCandidate> candidates) {
+        return new WorkerWorldSettingSubjectResolutionPendingResponse(
+                candidates.stream()
+                        .map(candidate ->
+                                new WorkerWorldSettingSubjectResolutionPendingResponse.Candidate(
+                                        candidate.getId(),
+                                        candidate.getSourceEpisode().getId(),
+                                        candidate.getCategory(),
+                                        candidate.getSubjectName()
+                                ))
+                        .toList()
+        );
+    }
+
+    public WorkerWorldSettingSubjectResolutionResponse toSubjectResolutionResponse(
+            List<WorldSettingCandidate> candidates
+    ) {
+        return new WorkerWorldSettingSubjectResolutionResponse(
+                candidates.stream()
+                        .map(candidate -> new WorkerWorldSettingSubjectResolutionResponse.ResolvedSubject(
+                                candidate.getId(),
+                                candidate.getSubjectResolutionType(),
+                                candidate.getCanonicalSubjectKey(),
+                                candidate.getCanonicalSubjectName(),
+                                toUuidList(candidate.getResolvedTargetWorldSettingIds())
+                        ))
+                        .toList()
+        );
+    }
+
+    public List<WorkerWorldSettingComparisonBatchPayload.Candidate> toComparisonBatchCandidates(
+            List<WorldSettingCandidate> candidates
+    ) {
+        return candidates.stream().map(this::toComparisonBatchCandidate).toList();
+    }
+
+    private WorkerWorldSettingComparisonBatchPayload.Candidate toComparisonBatchCandidate(
+            WorldSettingCandidate candidate
+    ) {
+        return new WorkerWorldSettingComparisonBatchPayload.Candidate(
+                candidate.getComparisonCandidateRef(),
+                candidate.getId(),
+                candidate.getSubjectName(),
+                candidate.getScopeName(),
+                candidate.getSettingName(),
+                candidate.getExtractedValue(),
+                toEvidenceSpans(candidate.getEvidenceSpans()),
+                candidate.getExtractionConfidence()
+        );
+    }
+
     public JsonNode toJsonNode(Object value) {
         return value == null ? null : objectMapper.valueToTree(value);
+    }
+
+    public List<UUID> toUuidList(JsonNode value) {
+        if (value == null || !value.isArray()) {
+            return List.of();
+        }
+        return StreamSupport.stream(value.spliterator(), false)
+                .filter(JsonNode::isTextual)
+                .map(JsonNode::asText)
+                .map(UUID::fromString)
+                .toList();
     }
 
     private List<WorkerWorldSettingCandidatePayload.EvidenceSpan> toEvidenceSpans(JsonNode value) {

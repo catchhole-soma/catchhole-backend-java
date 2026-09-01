@@ -418,7 +418,7 @@ domain/<domain>
 
 #### World Setting Domain Policy
 
-- 세계관 설정은 캐릭터 `SettingCandidate`와 섞지 않고 `domain/worldsetting`의 `WorldSetting`, `WorldSettingCandidate`로 관리한다. MVP 저장 테이블은 `world_settings`, `world_setting_candidates` 두 개이며 `world_setting_facts`나 삭제·보관·복원·전체 변경 로그는 만들지 않는다.
+- 세계관 설정은 캐릭터 `SettingCandidate`와 섞지 않고 `domain/worldsetting`의 `WorldSetting`, `WorldSettingCandidate`로 관리한다. 확정본·1차 후보는 `world_settings`, `world_setting_candidates`에 저장하고, 묶음 비교의 실행·canonical 결정·원본 provenance는 `world_setting_comparison_batches`, `world_setting_comparison_decisions`, `world_setting_comparison_decision_sources`에 저장한다. `world_setting_facts`나 삭제·보관·복원·전체 변경 로그는 만들지 않는다.
 - `WorldSetting` 한 행은 `workId + category + normalizedSubjectName` 대상 하나다. 세부 설정은 루트의 문자열 leaf 또는 선택적 1단계 `scopeName` 아래 문자열 leaf로 JSON object에 저장하고, 생성 후 빈 object 상태는 허용하지 않는다. 이 범위 계층은 세계관 도메인에만 적용하며 캐릭터 `SettingCandidate`/`CharacterFact`의 key 계약을 변경하지 않는다.
 - 대상명·범위명·설정명·설정값은 앞뒤 공백만 제거하며 내부 공백은 보존한다. 대상 중복키는 Unicode NFC와 `Locale.ROOT` 소문자로 정규화하고, property 중복은 `scopeName + settingName` 전체 경로를 같은 기준으로 정규화해 검사한다. `1층/출몰 규칙`과 `2층/출몰 규칙`은 동시에 허용하지만 같은 전체 경로는 허용하지 않는다. 동일 루트 key를 문자열 leaf와 scope object로 동시에 쓰는 충돌도 거절한다.
 - 직접 생성·수정 API는 JSON 전체를 받지 않는다. 대상 정보 수정, 설정 한 개 추가, 설정 한 개 수정 요청을 분리하고 현재 `version`을 확인한 뒤 실제 변경마다 version을 증가시킨다.
@@ -432,6 +432,7 @@ domain/<domain>
 - 1차 `evidence_spans`·회차는 후보 원본으로 보존하고 2차 비교·재비교가 변경하지 않는다. 원고가 바뀐 경우에만 새 1차 분석 후보와 근거를 생성한다.
 - 기존 속성과 의미가 같아 `EXCLUDE`하는 비교 결과는 대상 ID와 실제 속성명을 함께 받아 해당 속성값을 `beforeValue`로 보존한다. 특정 기존 속성과 비교하지 않은 일시적 사건 등의 제외만 `beforeValue`가 없을 수 있으며, 매칭 속성명만 있고 대상이 없는 요청은 거절한다.
 - `scopeName=null` 후보와 같은 이름의 기존 속성이 특정 scope 아래에만 있으면 scope를 자동 상속하거나 concrete operation으로 완료하지 않는다. Worker 제안은 기존 경로를 `matchedScopeName + matchedPropertyName`에 보존한 `REVIEW_REQUIRED + SCOPE_UNRESOLVED`이며 후보는 `PENDING_REVIEW + COMPLETED`로 남는다. 사용자가 기존 scoped 경로의 `UPDATE/MERGE`, root `ADD`, 또는 `EXCLUDE`를 최종 결정하기 전에는 `WorldSetting`·property·version을 바꾸지 않는다. `REVIEW_REQUIRED`는 suggested operation에만 존재하고 final operation에는 허용하지 않으며, 다른 `ADD/UPDATE/MERGE/EXCLUDE`의 후보 scope와 기존 property scope exact-path 검증은 계속 유지한다.
+- 묶음 비교 `ADD`가 기존 대상의 root 문자열 설정을 새 공통 scope 아래로 함께 이동하려면 `existingRootPropertyNamesToMove`를 명시한다. Backend는 같은 대상의 실제 root 경로와 destination 충돌을 검증하고 이름·현재값 snapshot을 결정 JSONB에 저장하며, 원본에 없던 합성 scope는 기존 child·이번 ADD·root 이동을 합쳐 서로 다른 child가 둘 이상일 때만 허용한다. 사용자가 AI 결정을 그대로 그룹 확정할 때만 confirm 직전 snapshot을 재검증해 root 이동과 새 property들을 한 deep copy, version 1회 증가로 반영하고 실제 적용 version을 결정에 기록한다. shared decision의 source 하나라도 작가 수정안이 AI안과 달라지면 decision-wide 비활성 상태를 영속화해 모든 source 응답에서 이동 목록을 숨기고 적용도 막는다. 결정 편집·제외는 이동을 취소하고, snapshot이 있는 결정의 단건 확정·제외는 금지한다. 이동 뒤 상세 근거는 확정 candidate를 rewrite하지 않고 적용 version 이전의 기존 root 동일 설정 이력만 새 scoped 경로에 projection한다.
 - 재비교 충돌은 후보 상태를 먼저 commit한 뒤 HTTP 409로 응답해야 한다. Service는 `WorldSettingCandidateConfirmResult.recomparisonRequired`를 정상 반환하고 Controller가 commit 이후 `AppException`으로 변환한다. 이를 위해 전용 예외 클래스를 추가하거나 `noRollbackFor=AppException.class`로 다른 확정 오류의 rollback 범위를 넓히지 않는다.
 - 같은 확정·제외 요청은 멱등 처리하고 `CONFIRMED ↔ DISMISSED` 반대 전이는 충돌로 거절한다. `UPDATE`와 `MERGE`는 DB에서 모두 최종 문자열로 한 property를 교체하되 제안 의미를 기록하기 위해 enum을 구분한다.
 - `recompare` API는 비교 제안을 비우고 `PENDING`으로 전환한 뒤 멱등한 `WORLD_SETTING_COMPARISON` Job을 생성한다. 실제 LLM 호출은 별도 AI comparison runner가 claim해 수행하며 HTTP 요청 트랜잭션 안에서 호출하지 않는다.

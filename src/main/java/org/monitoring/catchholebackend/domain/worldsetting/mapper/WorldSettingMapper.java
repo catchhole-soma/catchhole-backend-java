@@ -92,7 +92,7 @@ public class WorldSettingMapper {
     public WorldSettingCandidateResponse toCandidateResponse(WorldSettingCandidate candidate) {
         WorldSetting targetWorldSetting = candidate.getTargetWorldSetting();
         String suggestedSubjectName = targetWorldSetting == null
-                ? candidate.getSubjectName()
+                ? candidate.getEffectiveSubjectName()
                 : targetWorldSetting.getSubjectName();
         boolean userModified = candidate.getFinalOperation() != null
                 && (!candidate.suggestedOperationMatches(candidate.getFinalOperation())
@@ -107,6 +107,16 @@ public class WorldSettingMapper {
                 candidate.getSourceEpisode().getId(),
                 candidate.getSourceEpisode().getEpisodeNo(),
                 candidate.getAnalysisJob().getId(),
+                candidate.getComparisonBatch() == null
+                        ? null
+                        : candidate.getComparisonBatch().getId(),
+                candidate.getComparisonDecision() == null
+                        ? null
+                        : candidate.getComparisonDecision().getId(),
+                candidate.getComparisonCandidateRef(),
+                candidate.getComparisonDecision() == null
+                        ? null
+                        : candidate.getComparisonDecision().getCanonicalSubjectName(),
                 candidate.getCategory(),
                 candidate.getSubjectName(),
                 candidate.getScopeName(),
@@ -118,6 +128,10 @@ public class WorldSettingMapper {
                 targetWorldSetting == null ? null : targetWorldSetting.getSubjectName(),
                 candidate.getMatchedScopeName(),
                 candidate.getMatchedPropertyName(),
+                candidate.getComparisonDecision() == null
+                        ? List.of()
+                        : candidate.getComparisonDecision()
+                                .getEligibleExistingRootPropertyNamesToMove(),
                 candidate.getConsolidationStatus(),
                 candidate.getSuggestedOperation(),
                 candidate.getComparisonReviewReason(),
@@ -178,6 +192,8 @@ public class WorldSettingMapper {
                 category,
                 subjectName,
                 candidates.size(),
+                comparisonDecisionCount(candidates),
+                candidates.size(),
                 operationCount(candidates, WorldSettingSuggestedOperation.ADD),
                 operationCount(candidates, WorldSettingSuggestedOperation.UPDATE),
                 operationCount(candidates, WorldSettingSuggestedOperation.MERGE),
@@ -193,6 +209,15 @@ public class WorldSettingMapper {
                 recomparisonScope(candidates),
                 candidates.stream().map(this::toCandidateResponse).toList()
         );
+    }
+
+    private int comparisonDecisionCount(List<WorldSettingCandidate> candidates) {
+        return (int) candidates.stream()
+                .map(candidate -> candidate.getComparisonDecision() == null
+                        ? "candidate:" + candidate.getId()
+                        : "decision:" + candidate.getComparisonDecision().getId())
+                .distinct()
+                .count();
     }
 
     public WorldSettingCandidateGroupActionResponse toCandidateGroupActionResponse(
@@ -214,6 +239,10 @@ public class WorldSettingMapper {
     ) {
         return (int) candidates.stream()
                 .filter(candidate -> candidate.getEffectiveSuggestedOperation() == operation)
+                .map(candidate -> candidate.getComparisonDecision() == null
+                        ? "candidate:" + candidate.getId()
+                        : "decision:" + candidate.getComparisonDecision().getId())
+                .distinct()
                 .count();
     }
 
@@ -262,9 +291,23 @@ public class WorldSettingMapper {
             WorldSetting.Property property,
             List<WorldSettingCandidate> candidates
     ) {
+        Long rootMoveAppliedVersion = property.scopeName() == null
+                ? null
+                : candidates.stream()
+                        .filter(candidate -> isAppliedRootMoveForProperty(
+                                candidate,
+                                property
+                        ))
+                        .map(candidate -> candidate.getComparisonDecision()
+                                .getRootPropertyMovesAppliedWorldSettingVersion())
+                        .max(Long::compareTo)
+                        .orElse(null);
         List<WorldSettingDetailResponse.CandidateEvidence> history = candidates.stream()
-                .filter(candidate -> sameName(candidate.getFinalScopeName(), property.scopeName()))
-                .filter(candidate -> sameName(candidate.getFinalSettingName(), property.settingName()))
+                .filter(candidate -> isEvidenceForProperty(
+                        candidate,
+                        property,
+                        rootMoveAppliedVersion
+                ))
                 .map(this::toCandidateEvidenceResponse)
                 .toList();
         WorldSettingDetailResponse.CandidateEvidence latestEvidence = history.stream()
@@ -277,6 +320,58 @@ public class WorldSettingMapper {
                 latestEvidence,
                 history
         );
+    }
+
+    private boolean isEvidenceForProperty(
+            WorldSettingCandidate candidate,
+            WorldSetting.Property property,
+            Long rootMoveAppliedVersion
+    ) {
+        if (!sameName(candidate.getFinalSettingName(), property.settingName())) {
+            return false;
+        }
+        if (sameName(candidate.getFinalScopeName(), property.scopeName())) {
+            return true;
+        }
+        return rootMoveAppliedVersion != null
+                && candidate.getFinalScopeName() == null
+                && candidate.getAppliedWorldSettingVersion() != null
+                && candidate.getAppliedWorldSettingVersion() <= rootMoveAppliedVersion;
+    }
+
+    private boolean isAppliedRootMoveForProperty(
+            WorldSettingCandidate candidate,
+            WorldSetting.Property property
+    ) {
+        if (candidate.getComparisonDecision() == null
+                || candidate.getComparisonDecision()
+                        .getRootPropertyMovesAppliedWorldSettingVersion() == null
+                || candidate.getReviewStatus() != WorldSettingReviewStatus.CONFIRMED
+                || candidate.getAppliedWorldSettingVersion() == null
+                || candidate.getFinalOperation() == null
+                || !candidate.suggestedOperationMatches(candidate.getFinalOperation())
+                || candidate.getFinalCategory() != candidate.getCategory()
+                || !sameName(
+                        candidate.getFinalSubjectName(),
+                        candidate.getComparisonDecision().getCanonicalSubjectName()
+                )
+                || !sameName(
+                        candidate.getFinalScopeName(),
+                        candidate.getComparisonDecision().getProposedScopeName()
+                )
+                || !sameName(
+                        candidate.getFinalSettingName(),
+                        candidate.getComparisonDecision().getProposedSettingName()
+                )
+                || !Objects.equals(
+                        candidate.getFinalValue(),
+                        candidate.getComparisonDecision().getProposedValue()
+                )
+                || !sameName(candidate.getFinalScopeName(), property.scopeName())) {
+            return false;
+        }
+        return candidate.getComparisonDecision().getExistingRootPropertyMoveSnapshots().stream()
+                .anyMatch(snapshot -> sameName(snapshot.settingName(), property.settingName()));
     }
 
     private WorldSettingDetailResponse.CandidateEvidence toCandidateEvidenceResponse(

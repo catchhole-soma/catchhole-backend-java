@@ -32,6 +32,12 @@ public enum WorldSettingErrorCode implements ResultCode {
     WORLD_SETTING_CANDIDATE_CONFLICT_UNRESOLVED(HttpStatus.CONFLICT, "원문 내용이 서로 다른 설정은 최종 내용을 수정한 뒤 반영해 주세요."),
     WORLD_SETTING_CANDIDATE_RECOMPARISON_REQUIRED(HttpStatus.CONFLICT, "확정본이 변경되어 세계관 설정 후보를 다시 비교해야 합니다."),
     WORLD_SETTING_CANDIDATE_OPERATION_INVALID(HttpStatus.BAD_REQUEST, "세계관 설정 후보의 최종 반영 방식이 올바르지 않습니다."),
+    WORLD_SETTING_COMPARISON_BATCH_NOT_FOUND(HttpStatus.NOT_FOUND, "세계관 설정 비교 묶음을 찾을 수 없습니다."),
+    WORLD_SETTING_COMPARISON_BATCH_STATUS_CONFLICT(HttpStatus.CONFLICT, "세계관 설정 비교 묶음의 상태 전이가 올바르지 않습니다."),
+    WORLD_SETTING_COMPARISON_BATCH_COMPLETION_CONFLICT(HttpStatus.CONFLICT, "이미 완료된 세계관 설정 비교 묶음과 다른 결과를 저장할 수 없습니다."),
+    WORLD_SETTING_SUBJECT_RESOLUTION_REQUIRED(HttpStatus.CONFLICT, "세계관 설정 후보의 canonical 주체를 먼저 해소해야 합니다."),
+    WORLD_SETTING_SUBJECT_RESOLUTION_INVALID(HttpStatus.BAD_REQUEST, "세계관 설정 후보의 canonical 주체 해소 결과가 올바르지 않습니다."),
+    WORLD_SETTING_SUBJECT_RESOLUTION_STALE(HttpStatus.CONFLICT, "canonical 주체로 선택한 세계관 설정이 변경되어 다시 해소해야 합니다."),
     WORLD_SETTING_WORKER_JOB_INVALID(HttpStatus.CONFLICT, "세계관 설정 Worker 작업 범위가 올바르지 않습니다."),
     WORLD_SETTING_COMPARISON_TARGET_INVALID(HttpStatus.BAD_REQUEST, "세계관 설정 비교 대상 또는 속성이 올바르지 않습니다.");
 
