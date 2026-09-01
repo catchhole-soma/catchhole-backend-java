@@ -2210,6 +2210,142 @@ class WorldSettingWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("출력 상한을 넘긴 묶음은 원본값 그대로 사용자 검토 대상으로 완료한다")
+    void completesOutputLimitedBatchAsDeterministicReviewDecisions() throws Exception {
+        List<WorldSettingCandidate> candidates = candidateRepository.saveAllAndFlush(List.of(
+                WorldSettingCandidate.create(
+                        work,
+                        episode,
+                        analysisJob,
+                        WorldSettingCategory.MONSTER,
+                        "고블린",
+                        null,
+                        "서식지",
+                        "동굴",
+                        objectMapper.readTree("[{\"quote\":\"동굴에 산다.\"}]"),
+                        new BigDecimal("0.95"),
+                        null
+                ),
+                WorldSettingCandidate.create(
+                        work,
+                        episode,
+                        analysisJob,
+                        WorldSettingCategory.MONSTER,
+                        "고블린",
+                        null,
+                        "무기",
+                        "검\n몽둥이",
+                        objectMapper.readTree("[{\"quote\":\"검과 몽둥이를 들었다.\"}]"),
+                        new BigDecimal("0.95"),
+                        null
+                )
+        ));
+        analysisJob.updateCheckpointStage(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+        analysisJobRepository.saveAndFlush(analysisJob);
+        resolveSubjects(Map.of(
+                candidates.get(0).getId(), List.of(),
+                candidates.get(1).getId(), List.of()
+        ));
+
+        MvcResult claimResult = mockMvc.perform(post(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}"
+                                        + "/world-setting-comparison-batches/claim-next",
+                                analysisJob.getId()
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidates.length()").value(2))
+                .andReturn();
+        UUID comparisonBatchId = UUID.fromString(objectMapper
+                .readTree(claimResult.getResponse().getContentAsString())
+                .at("/data/comparisonBatchId")
+                .asText());
+
+        mockMvc.perform(post(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}"
+                                        + "/world-setting-comparison-batches/{comparisonBatchId}/context",
+                                analysisJob.getId(),
+                                comparisonBatchId
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"targetWorldSettingIds\":[]}"))
+                .andExpect(status().isOk());
+
+        String completionPayload = """
+                {
+                  "contextVersions": [],
+                  "decisions": [{
+                    "decisionRef": "D1",
+                    "sourceCandidateRefs": ["C1"],
+                    "canonicalSubjectName": "고블린",
+                    "existingRootPropertyNamesToMove": [],
+                    "consolidationStatus": "SINGLE",
+                    "suggestedOperation": "REVIEW_REQUIRED",
+                    "comparisonReviewReason": "BATCH_LIMIT_EXCEEDED",
+                    "proposedSettingName": "서식지",
+                    "proposedValue": "동굴",
+                    "comparisonReason": "비교 결과가 출력 한도를 넘어 자동 비교하지 않았습니다."
+                  }, {
+                    "decisionRef": "D2",
+                    "sourceCandidateRefs": ["C2"],
+                    "canonicalSubjectName": "고블린",
+                    "existingRootPropertyNamesToMove": [],
+                    "consolidationStatus": "CONFLICT",
+                    "suggestedOperation": "REVIEW_REQUIRED",
+                    "comparisonReviewReason": "BATCH_LIMIT_EXCEEDED",
+                    "proposedSettingName": "무기",
+                    "proposedValue": "검\\n몽둥이",
+                    "comparisonReason": "비교 결과가 출력 한도를 넘어 자동 비교하지 않았습니다."
+                  }],
+                  "rawComparisonJson": {"reviewReason": "BATCH_LIMIT_EXCEEDED"}
+                }
+                """;
+        mockMvc.perform(post(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}"
+                                        + "/world-setting-comparison-batches/{comparisonBatchId}/complete",
+                                analysisJob.getId(),
+                                comparisonBatchId
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(completionPayload.replace("\"동굴\"", "\"숲\"")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.context.reasonCode")
+                        .value("BATCH_CONSOLIDATION_STATUS_INVALID"));
+
+        mockMvc.perform(post(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}"
+                                        + "/world-setting-comparison-batches/{comparisonBatchId}/complete",
+                                analysisJob.getId(),
+                                comparisonBatchId
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(completionPayload))
+                .andExpect(status().isOk());
+
+        List<WorldSettingCandidate> persisted = candidateRepository.findAllById(
+                candidates.stream().map(WorldSettingCandidate::getId).toList()
+        );
+        assertThat(persisted)
+                .allMatch(candidate -> candidate.getReviewStatus()
+                        == WorldSettingReviewStatus.PENDING_REVIEW)
+                .allMatch(candidate -> candidate.getComparisonStatus()
+                        == WorldSettingComparisonStatus.COMPLETED)
+                .allMatch(candidate -> candidate.getSuggestedOperation()
+                        == WorldSettingSuggestedOperation.REVIEW_REQUIRED)
+                .allMatch(candidate -> candidate.getComparisonReviewReason().name()
+                        .equals("BATCH_LIMIT_EXCEEDED"));
+        assertThat(worldSettingRepository.count()).isZero();
+        assertThat(comparisonDecisionRepository.count()).isEqualTo(2L);
+    }
+
+    @Test
     @DisplayName("묶음 상한을 넘으면 후보를 조용히 나누지 않고 전체를 사용자 확인 대상으로 남긴다")
     void holdsWholeOversizedBatchForReviewWithoutSplitting() throws Exception {
         List<WorldSettingCandidate> oversizedCandidates = new ArrayList<>();
@@ -2514,6 +2650,97 @@ class WorldSettingWorkerControllerIntegrationTest {
                 .isEqualTo("unexpected provider failure");
         assertThat(failed.getComparisonSourceErrorCode())
                 .isEqualTo("ORIGINAL_PROVIDER_ERROR");
+    }
+
+    @Test
+    @DisplayName("주체 해소 중 토큰 부족은 아직 대기 중인 세계관 후보를 중단한다")
+    void interruptsPendingComparisonWhenSubjectResolutionExhaustsQuota() throws Exception {
+        WorldSettingCandidate candidate = candidateRepository.saveAndFlush(
+                WorldSettingCandidate.create(
+                        work,
+                        episode,
+                        analysisJob,
+                        WorldSettingCategory.LOCATION,
+                        "미궁",
+                        null,
+                        "광원",
+                        "수정이 주변을 밝힌다.",
+                        objectMapper.readTree("[{\"quote\":\"수정이 빛났다.\"}]"),
+                        new BigDecimal("0.95"),
+                        null
+                )
+        );
+
+        mockMvc.perform(post(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}"
+                                        + "/world-setting-candidates/{candidateId}/comparison-fail",
+                                analysisJob.getId(),
+                                candidate.getId()
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "failureCode": "AI_TOKEN_QUOTA_EXHAUSTED",
+                                  "errorMessage": "AI token quota is exhausted."
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        WorldSettingCandidate interrupted = candidateRepository.findById(candidate.getId())
+                .orElseThrow();
+        assertThat(interrupted.getComparisonStatus())
+                .isEqualTo(WorldSettingComparisonStatus.FAILED);
+        assertThat(interrupted.getComparisonFailureCode())
+                .isEqualTo(AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED);
+        assertThat(interrupted.getComparisonErrorMessage())
+                .isEqualTo("AI token quota is exhausted.");
+    }
+
+    @Test
+    @DisplayName("토큰 부족 외 실패는 아직 대기 중인 세계관 후보에 기록하지 않는다")
+    void rejectsNonQuotaFailureForPendingComparison() throws Exception {
+        WorldSettingCandidate candidate = candidateRepository.saveAndFlush(
+                WorldSettingCandidate.create(
+                        work,
+                        episode,
+                        analysisJob,
+                        WorldSettingCategory.LOCATION,
+                        "미궁",
+                        null,
+                        "광원",
+                        "수정이 주변을 밝힌다.",
+                        objectMapper.readTree("[{\"quote\":\"수정이 빛났다.\"}]"),
+                        new BigDecimal("0.95"),
+                        null
+                )
+        );
+
+        mockMvc.perform(post(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}"
+                                        + "/world-setting-candidates/{candidateId}/comparison-fail",
+                                analysisJob.getId(),
+                                candidate.getId()
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "failureCode": "UNEXPECTED_ERROR",
+                                  "errorMessage": "unexpected failure"
+                                }
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code")
+                        .value("WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT"));
+
+        WorldSettingCandidate pending = candidateRepository.findById(candidate.getId())
+                .orElseThrow();
+        assertThat(pending.getComparisonStatus())
+                .isEqualTo(WorldSettingComparisonStatus.PENDING);
+        assertThat(pending.getComparisonFailureCode()).isNull();
     }
 
     @Test
