@@ -80,6 +80,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
     private static final int CLAIM_SIZE = 1;
     private static final int MAX_BATCH_CANDIDATES = 20;
     private static final int MAX_BATCH_INPUT_CHARACTERS = 30_000;
+    private static final int MAX_FUZZY_SUBJECT_TARGETS = 3;
     private static final String STALE_SUBJECT_RESOLUTION_RESET_MESSAGE =
             "canonical 주체 해소 대상이 변경되어 다시 해소해야 합니다.";
 
@@ -1095,6 +1096,18 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                     WorldSettingErrorCode.WORLD_SETTING_SUBJECT_RESOLUTION_INVALID
             );
         }
+        String normalizedCandidateName = WorldSettingNameNormalizer.duplicateKey(
+                candidate.getSubjectName()
+        );
+        boolean exactSelection = targets.stream().allMatch(target -> Objects.equals(
+                target.getNormalizedSubjectName(),
+                normalizedCandidateName
+        ));
+        if (!exactSelection && targetIds.size() > MAX_FUZZY_SUBJECT_TARGETS) {
+            throw new AppException(
+                    WorldSettingErrorCode.WORLD_SETTING_SUBJECT_RESOLUTION_INVALID
+            );
+        }
         UUID exactTargetId = findExactTarget(candidate)
                 .map(WorldSetting::getId)
                 .orElse(null);
@@ -1386,7 +1399,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                     canonicalTarget,
                     null,
                     null,
-                    WorldSettingConsolidationStatus.SINGLE,
+                    batchLimitConsolidationStatus(candidate),
                     WorldSettingSuggestedOperation.REVIEW_REQUIRED,
                     WorldSettingComparisonReviewReason.BATCH_LIMIT_EXCEEDED,
                     candidate.getScopeName(),
@@ -1959,15 +1972,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
         }
 
         WorldSettingCandidate source = sources.getFirst();
-        long sourceValueCount = java.util.Arrays.stream(
-                        source.getExtractedValue().split("\\R", -1)
-                )
-                .map(String::strip)
-                .filter(value -> !value.isEmpty())
-                .count();
-        WorldSettingConsolidationStatus expectedStatus = sourceValueCount > 1
-                ? WorldSettingConsolidationStatus.CONFLICT
-                : WorldSettingConsolidationStatus.SINGLE;
+        WorldSettingConsolidationStatus expectedStatus = batchLimitConsolidationStatus(source);
         if (request.consolidationStatus() != expectedStatus
                 || !Objects.equals(request.proposedScopeName(), source.getScopeName())
                 || !Objects.equals(request.proposedSettingName(), source.getSettingName())
@@ -1976,6 +1981,20 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                     WorldSettingComparisonValidationReason.BATCH_CONSOLIDATION_STATUS_INVALID
             );
         }
+    }
+
+    private WorldSettingConsolidationStatus batchLimitConsolidationStatus(
+            WorldSettingCandidate candidate
+    ) {
+        long valueCount = java.util.Arrays.stream(
+                        candidate.getExtractedValue().split("\\R", -1)
+                )
+                .map(String::strip)
+                .filter(value -> !value.isEmpty())
+                .count();
+        return valueCount > 1
+                ? WorldSettingConsolidationStatus.CONFLICT
+                : WorldSettingConsolidationStatus.SINGLE;
     }
 
     private void validateRootPropertyMoves(

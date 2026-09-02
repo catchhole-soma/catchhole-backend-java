@@ -46,6 +46,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSetti
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonValidationReason;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingConsolidationStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
@@ -1414,6 +1415,71 @@ class WorldSettingWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("fuzzy 주체 해소 대상이 3개를 넘으면 전체 저장을 거절한다")
+    void rejectsFuzzySubjectResolutionBeyondThreeTargets() throws Exception {
+        List<WorldSetting> fuzzyTargets = worldSettingRepository.saveAllAndFlush(List.of(
+                WorldSetting.create(
+                        work,
+                        WorldSettingCategory.MONSTER,
+                        "고블린",
+                        "무기",
+                        "곤봉"
+                ),
+                WorldSetting.create(
+                        work,
+                        WorldSettingCategory.MONSTER,
+                        "오크",
+                        "무기",
+                        "도끼"
+                ),
+                WorldSetting.create(
+                        work,
+                        WorldSettingCategory.MONSTER,
+                        "트롤",
+                        "무기",
+                        "바위"
+                ),
+                WorldSetting.create(
+                        work,
+                        WorldSettingCategory.MONSTER,
+                        "코볼트",
+                        "무기",
+                        "단검"
+                )
+        ));
+        WorldSettingCandidate candidate = candidateRepository.saveAndFlush(
+                WorldSettingCandidate.create(
+                        work,
+                        episode,
+                        analysisJob,
+                        WorldSettingCategory.MONSTER,
+                        "초록 약탈자",
+                        null,
+                        "함정 사용",
+                        "함정을 설치한다.",
+                        objectMapper.readTree("[{\"quote\":\"함정을 팠다.\"}]"),
+                        new BigDecimal("0.95"),
+                        null
+                )
+        );
+        analysisJob.updateCheckpointStage(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+        analysisJobRepository.saveAndFlush(analysisJob);
+
+        assertResolutionRejected(
+                objectMapper.writeValueAsString(Map.of(
+                        "resolutions",
+                        List.of(Map.of(
+                                "candidateId",
+                                candidate.getId(),
+                                "targetWorldSettingIds",
+                                fuzzyTargets.stream().map(WorldSetting::getId).toList()
+                        ))
+                )),
+                List.of(candidate)
+        );
+    }
+
+    @Test
     @DisplayName("주체 해소 요청의 중복·누락·외부 대상은 전체 저장을 롤백한다")
     void rollsBackInvalidSubjectResolutionRequests() throws Exception {
         List<WorldSettingCandidate> candidates = candidateRepository.saveAllAndFlush(List.of(
@@ -2404,6 +2470,9 @@ class WorldSettingWorkerControllerIntegrationTest {
     void holdsWholeOversizedBatchForReviewWithoutSplitting() throws Exception {
         List<WorldSettingCandidate> oversizedCandidates = new ArrayList<>();
         for (int index = 0; index < 21; index++) {
+            String extractedValue = index == 0
+                    ? "충돌 설정값 A\n충돌 설정값 B"
+                    : "원자 설정값 " + index;
             oversizedCandidates.add(WorldSettingCandidate.create(
                     work,
                     episode,
@@ -2412,7 +2481,7 @@ class WorldSettingWorkerControllerIntegrationTest {
                     "고블린",
                     null,
                     "전투 특성 " + index,
-                    "원자 설정값 " + index,
+                    extractedValue,
                     objectMapper.readTree(
                             "[{\"quote\":\"원문 근거 %d\",\"startOffset\":%d}]"
                                     .formatted(index, index * 10)
@@ -2453,6 +2522,9 @@ class WorldSettingWorkerControllerIntegrationTest {
                         == WorldSettingSuggestedOperation.REVIEW_REQUIRED)
                 .allMatch(candidate -> candidate.getComparisonReviewReason().name()
                         .equals("BATCH_LIMIT_EXCEEDED"));
+        assertThat(candidateRepository.findById(oversizedCandidates.getFirst().getId())
+                .orElseThrow().getConsolidationStatus())
+                .isEqualTo(WorldSettingConsolidationStatus.CONFLICT);
         assertThat(jdbcTemplate.queryForObject(
                 "select count(*) from world_setting_comparison_batches where status = 'REVIEW_REQUIRED'",
                 Long.class
