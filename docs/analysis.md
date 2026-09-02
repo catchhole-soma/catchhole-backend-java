@@ -48,7 +48,7 @@ Kafka/SQS 없이 내부 API polling 방식을 사용합니다.
 
 Python AI Worker는 처리할 `allowedJobTypes`를 지정해 내부 claim API를 polling합니다. 백엔드는 가장 오래된 허용 `PENDING` 작업 하나를 `RUNNING`으로 바꾸고 5분짜리 소유권 lease를 발급합니다. Worker는 `X-Worker-Lease-Token` 헤더와 heartbeat로 lease를 유지하며, 만료된 작업은 checkpoint부터 재개할 수 있도록 다시 `PENDING`으로 전환됩니다. claim이 세 번 만료되면 작업을 `FAILED`로 종료합니다.
 
-`SETTING_EXTRACTION` claim에는 Worker가 S3에서 원문을 읽을 수 있도록 단일 `episode` 원문 메타데이터, 캐릭터 매칭에 사용할 `knownCharacters`, `attributeName` 해석에 사용할 `characterSettingSchemas`가 포함됩니다. 복수 target인 과거 작업은 단일 회차 계약으로 claim하지 않고 실패 처리합니다. 캐릭터 후보는 기존 Python 저장 방식을 유지하지만, 세계관 후보와 비교 상태는 반드시 Spring 내부 API를 통해 변경합니다.
+`SETTING_EXTRACTION` claim에는 Worker가 S3에서 원문을 읽을 수 있도록 단일 `episode` 원문 메타데이터, 캐릭터 매칭과 회차 시작 상태 문맥에 사용할 `knownCharacters`, `attributeName` 해석에 사용할 `characterSettingSchemas`가 포함됩니다. `knownCharacters[].activeStatuses`는 각 활성 캐릭터의 현재 `STATUS`를 `factKey/factValue`만으로 제공해 1차가 회복·악화·지속 근거를 놓치지 않게 하며 삭제 operation 결정은 2차에 남깁니다. 복수 target인 과거 작업은 단일 회차 계약으로 claim하지 않고 실패 처리합니다. 캐릭터 후보는 기존 Python 저장 방식을 유지하지만, 세계관 후보와 비교 상태는 반드시 Spring 내부 API를 통해 변경합니다.
 
 NVM-260의 `SETTING_EXTRACTION` Worker는 캐릭터 후보 저장 뒤 회차 원문에서 세계관 후보를 추출하고 Spring에 게시한 다음, 후보별 2차 LLM 비교를 수행합니다. `CHUNKS_READY` → `CHARACTER_CANDIDATES_SAVED` → `WORLD_CANDIDATES_PUBLISHED` → `WORLD_COMPARISONS_FINISHED` checkpoint를 기록하며, 마지막 checkpoint에 도달했고 모든 세계관 후보 비교가 terminal 상태일 때만 Job을 완료할 수 있습니다. 후보 하나의 비교 실패는 해당 후보만 `FAILED`로 남기고 나머지 후보 처리를 계속합니다.
 
@@ -308,7 +308,17 @@ claim할 작업이 있으면 가장 오래된 `PENDING` 작업 하나를 `RUNNIN
     "knownCharacters": [
       {
         "characterId": "01970c2e-7e6d-7000-8e5d-2a9bc4b6d666",
-        "name": "아리아"
+        "name": "아리아",
+        "activeStatuses": [
+          {
+            "factKey": "status.오른발_부상",
+            "factValue": "오른발을 심하게 다쳐 걷기 어려움"
+          },
+          {
+            "factKey": "status.마비독",
+            "factValue": "마비독에 중독됨"
+          }
+        ]
       }
     ],
     "episode": {
@@ -328,7 +338,7 @@ claim할 작업이 있으면 가장 오래된 `PENDING` 작업 하나를 `RUNNIN
 
 원문 본문은 응답에 포함하지 않습니다. Worker는 `contentS3Key`, `contentS3Version`을 사용해 S3에서 원문을 직접 읽습니다.
 `characterSettingSchemas`는 job type과 관계없이 활성 전역 schema와 현재 작품의 활성 추가 schema를 `schemaKey` 오름차순으로 내려줍니다. registry row가 없으면 빈 배열입니다. Worker에는 canonical key 해석에 필요한 5개 필드만 공개하며 source와 merge 정책은 포함하지 않습니다.
-`knownCharacters`는 Python Worker가 `setting_candidates`의 `matched_character_id`, `match_status`를 계산할 때 사용하는 기존 캐릭터 목록입니다. 현재는 `characters.id`, `characters.name`만 내려줍니다.
+`knownCharacters`는 Python Worker가 `setting_candidates`의 `matched_character_id`, `match_status`를 계산하고 1차 추출에서 기존 상태 변화를 찾을 때 사용하는 기존 캐릭터 목록입니다. 각 항목은 `characterId`, `name`, 전체 활성 `activeStatuses`를 가지며 STATUS 항목에는 `factKey`, `factValue`만 포함합니다. DB UUID provenance, 구조화 `valueJson`, 과거 이력은 노출하지 않습니다. 신규 snapshot envelope의 표시값을 우선하고 legacy raw snapshot은 provenance를 캐릭터별 반복 조회하지 않고 한 번에 가져와 보완합니다. provenance도 없는 legacy 고아 값은 사실을 합성하지 않고 `factValue=null`로 남기되 해당 slot 자체를 목록에서 누락하지 않습니다.
 `checkpointStage`는 재claim 시 이미 완료한 내부 stage를 건너뛰는 기준입니다. `WORLD_SETTING_COMPARISON` payload는 연결된 `worldSettingCandidateId`를 포함하고 캐릭터 schema와 목록은 빈 배열입니다.
 
 ### lease heartbeat

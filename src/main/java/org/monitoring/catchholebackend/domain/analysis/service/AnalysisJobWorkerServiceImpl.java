@@ -24,12 +24,15 @@ import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshotSource;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterSnapshotSourceRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
@@ -64,6 +67,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     private final AnalysisJobRepository analysisJobRepository;
     private final AnalysisJobLeaseService analysisJobLeaseService;
     private final WorkCharacterRepository workCharacterRepository;
+    private final CharacterSnapshotSourceRepository characterSnapshotSourceRepository;
     private final CharacterSettingSchemaRepository characterSettingSchemaRepository;
     private final AnalysisJobWorkerMapper analysisJobWorkerMapper;
     private final AiTokenService aiTokenService;
@@ -114,11 +118,18 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                         workId,
                         CharacterStatus.ACTIVE
                 );
+        List<CharacterSnapshotSource> activeStatusSources = knownCharacters.isEmpty()
+                ? List.of()
+                : characterSnapshotSourceRepository.findAllByCharacterIdsAndFactType(
+                        knownCharacters.stream().map(WorkCharacter::getId).toList(),
+                        CharacterFactType.STATUS
+                );
         return Optional.of(analysisJobWorkerMapper.toResponse(
                 analysisJob,
                 targetEpisode,
                 characterSettingSchemas,
-                knownCharacters
+                knownCharacters,
+                activeStatusSources
         ));
     }
 

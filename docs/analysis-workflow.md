@@ -57,7 +57,7 @@ flowchart TD
     X --> B
 ```
 
-Spring은 캐릭터 `setting_candidates` 생성 API를 제공하지 않아 1차 Worker의 DB 직접 저장 흐름을 유지합니다. 반면 캐릭터 2차 비교 상태와 세계관 후보·비교 상태는 Spring 내부 API로만 변경합니다. Worker는 claim의 `knownCharacters`를 prompt에 전달해 등록되지 않은 명시적 이름을 `CHARACTER_DISCOVERY`로 만들고, 기존 캐릭터와 같은 이름의 발견 후보는 저장하지 않습니다. `CHARACTER_DISCOVERY` 확정은 캐릭터와 최초 등장만 반영하고 Fact를 만들지 않습니다. `SETTING`은 schema hint로 canonical slot을 결정한 뒤 현재 `WorkCharacter` snapshot과 2차 비교해 operation·시간 범위·최종 표시값/JSON·제거 slot을 제안합니다. 사용자 확정 시 새 `CharacterFact`는 append-only로 저장하고, `APPLY_PROPOSAL`만 snapshot과 `character_snapshot_sources`를 갱신합니다. `HISTORY_ONLY`는 Fact와 원문 근거만 이력에 남깁니다.
+Spring은 캐릭터 `setting_candidates` 생성 API를 제공하지 않아 1차 Worker의 DB 직접 저장 흐름을 유지합니다. 반면 캐릭터 2차 비교 상태와 세계관 후보·비교 상태는 Spring 내부 API로만 변경합니다. Worker는 claim의 `knownCharacters`를 prompt에 전달해 등록되지 않은 명시적 이름을 `CHARACTER_DISCOVERY`로 만들고, 기존 캐릭터와 같은 이름의 발견 후보는 저장하지 않습니다. 각 기존 캐릭터의 `activeStatuses`는 1차가 회복·악화·지속 근거를 찾는 문맥일 뿐 삭제 판단은 하지 않습니다. `CHARACTER_DISCOVERY` 확정은 캐릭터와 최초 등장만 반영하고 Fact를 만들지 않습니다. `SETTING`은 schema hint로 canonical slot을 결정한 뒤 현재 `WorkCharacter` snapshot과 2차 비교해 operation·시간 범위·최종 표시값/JSON·제거 slot을 제안합니다. 사용자 확정 시 새 `CharacterFact`는 append-only로 저장하고, `APPLY_PROPOSAL`만 snapshot과 `character_snapshot_sources`를 갱신합니다. `HISTORY_ONLY`는 Fact와 원문 근거만 이력에 남깁니다.
 
 세계관 batch에서 raw와 다른 새 scope는 기존 scoped child, 이번 batch의 독립 `ADD`, 함께 이동할 실제 root 설정을
 합친 최종 child가 둘 이상일 때만 허용합니다. 이동 계획은 비교 decision에 snapshot으로 저장할 뿐 비교 완료 시
@@ -445,7 +445,7 @@ Notion 기준 `AnalysisJob.status`
 
 현재 구현은 별도 `PreprocessedManuscriptChunk` 없이 Python Worker가 청크 원문을 LLM에 직접 넣습니다. 캐릭터 후보는 기존 방식대로 `setting_candidates`에 직접 저장하고, 세계관 후보와 비교 결과는 Spring 내부 API로 저장합니다.
 
-1. Spring claim payload는 `analysisJobId`, `workId`, `batchId`, lease/checkpoint, episode S3 메타데이터, ID와 이름을 가진 `knownCharacters`, `characterSettingSchemas`를 내려줍니다.
+1. Spring claim payload는 `analysisJobId`, `workId`, `batchId`, lease/checkpoint, episode S3 메타데이터, ID·이름·전체 활성 `STATUS(factKey/factValue)`를 가진 `knownCharacters`, `characterSettingSchemas`를 내려줍니다. STATUS provenance는 bulk로 조회해 legacy 표시값만 보완하며 내부 ID·이력·구조화 JSON은 보내지 않습니다.
 2. Python Worker는 `contentS3Key`, `contentS3Version`으로 S3 원문을 읽습니다.
 3. Worker는 원문을 정규화/청킹하고 `episode_chunks`를 저장합니다.
 4. Worker는 chunk별 LLM 캐릭터 설정 후보를 추출합니다.
@@ -453,7 +453,9 @@ Notion 기준 `AnalysisJob.status`
 6. Worker는 `rawEntityMention`, `entityName`, `knownCharacters`를 비교해 `matchedCharacterId`, `matchStatus`를 계산합니다.
 7. Worker는 같은 분석 작업 안의 동일 캐릭터 후보를 제거한 뒤 `PENDING_REVIEW`로 저장합니다. 매칭된 `SETTING`은 비교 `PENDING`, 미매칭 후보는 `WAITING_FOR_CHARACTER_MATCH`, 발견 후보는 `NOT_REQUIRED`로 명시합니다.
 8. 캐릭터 비교 Worker는 후보를 한 건씩 claim하고 Spring context API에서 canonical slot과 관련 현재 snapshot을 받습니다. 일반 유형은 exact slot만, `STATUS`는 종료 관계 판단을 위해 exact slot을 먼저 두고 최근 생성된 source Fact 순으로 동종 slot 최대 30개를 함께 받습니다.
-9. Worker가 `ADD/UPDATE/MERGE/REMOVE/HISTORY_ONLY/EXCLUDE/REVIEW_REQUIRED`와 시간 범위·최종값·제거 slot을 제안하면 Spring은 context token, operation 조합, schema 값, same-character slot을 불신 검증해 저장합니다. `REMOVE`는 동일한 현재 `STATUS` slot의 종료만 표현하며 원본 Fact 이력은 보존합니다. `EXCLUDE`는 비교 완료 트랜잭션에서 후보만 `DISMISSED + NOT_REQUIRED`로 자동 전환하고 Fact·현재 snapshot·이력을 만들지 않습니다. 이 완료 요청은 초기 분석과 숨김 재비교에서 같은 경계를 사용하며 중복 요청을 멱등 처리합니다. 모든 캐릭터 후보 비교가 종료되면 `CHARACTER_COMPARISONS_FINISHED` checkpoint를 기록합니다.
+9. Worker가 `ADD/UPDATE/MERGE/REMOVE/HISTORY_ONLY/EXCLUDE/REVIEW_REQUIRED`와 시간 범위·최종값·제거 slot을 제안하면 Spring은 context token, operation 조합, schema 값, same-character current slot을 불신 검증해 저장합니다. 신규 `REMOVE`는 target 없이 현재 `STATUS` 제거 목록을 한 건 이상 보냅니다. 구버전의 순수 `REMOVE + 동일 canonical target`은 effective 제거 집합 한 건으로 해석하되 구 Java rollback을 위해 DB에는 target-only shape를 유지하고, target과 목록을 함께 보낸 전환 요청은 중복 제거한 target 없는 shape로 저장합니다. 회복·종료 후보 Fact와 원문 근거는 이력에 append하지만 후보 자체는 current snapshot에 넣지 않고 제거 목록의 snapshot·provenance만 한 트랜잭션에서 제거합니다. 파괴적 제거는 비교 완료와 사용자 확정 전 모두 정확한 `snapshotVersion`을 요구해 30건 비교 문맥 밖 변경도 stale로 막습니다. `EXCLUDE`는 비교 완료 트랜잭션에서 후보만 `DISMISSED + NOT_REQUIRED`로 자동 전환하고 Fact·현재 snapshot·이력을 만들지 않습니다. 이 완료 요청은 초기 분석과 숨김 재비교에서 같은 경계를 사용하며 중복 요청을 멱등 처리합니다. 모든 캐릭터 후보 비교가 종료되면 `CHARACTER_COMPARISONS_FINISHED` checkpoint를 기록합니다.
+
+Java를 먼저 배포하면 구·신규 Worker 요청을 모두 받을 수 있습니다. 신규 AI가 target 없는 `REMOVE`를 쓰기 시작한 뒤에는 구 Java가 해당 미확정 후보를 적용할 수 없으므로, Java rollback 전 신규 shape의 `PENDING_REVIEW + COMPLETED` 후보를 모두 확정·재비교·forward repair 중 하나로 비운 뒤 Worker를 먼저 구버전으로 되돌려야 합니다.
 10. Worker는 회차 원문에서 지속적인 세계관 속성을 추출하고 구조적으로 같은 후보를 제거한 뒤, lease가 보호하는 Spring 내부 API로 `world_setting_candidates`를 멱등 게시합니다.
 11. Worker는 canonical 주체가 미해소된 세계관 후보와 같은 category의 기존 대상명 전체를 조회합니다. exact 이름 또는 `S*` LLM 선택 결과를 후보별 target ID 목록으로 Spring에 원자 저장하고, Spring은 같은 회차·분류·canonical 주체 key·정규화 raw scope 후보를 `WorldSettingComparisonBatch`로 묶습니다.
 12. Worker는 batch를 claim한 뒤 고정 target의 현재 `properties_json`·version·exact target을 context로 가져오고, UUID 대신 요청 내부 `C*`·`T*` ref만 2차 LLM에 전달합니다. LLM은 독립 속성별 `ADD/UPDATE/MERGE/EXCLUDE` decision을 반환하며, 기존 root와 새 `ADD`를 공통 scope로 정리할 때는 `existingRootPropertyNamesToMove`에 이동할 root 이름을 명시합니다. Worker는 source coverage, 실제 root, 최종 경로 충돌, 범위명·설정명 중복과 합성 scope의 서로 다른 최종 child 2개 이상을 검증하고 실패하면 batch JSON 전체를 다시 생성합니다.

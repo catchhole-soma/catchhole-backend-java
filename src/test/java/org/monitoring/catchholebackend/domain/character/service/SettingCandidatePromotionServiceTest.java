@@ -48,8 +48,12 @@ import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -85,6 +89,9 @@ class SettingCandidatePromotionServiceTest {
 
     @Autowired
     private CharacterSnapshotSourceRepository characterSnapshotSourceRepository;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private final CharacterSnapshotAccessor snapshotAccessor = new CharacterSnapshotAccessor();
     private final SettingCandidateSchemaResolver schemaResolver = new SettingCandidateSchemaResolver();
@@ -406,6 +413,187 @@ class SettingCandidatePromotionServiceTest {
     }
 
     @Test
+    @DisplayName("같은 base version의 일반 ADD 뒤 STATUS REMOVE도 한 묶음에서 stale 없이 반영한다")
+    void promoteGroupUsesInitialSnapshotVersionForLaterRemoval() {
+        Episode episode5 = episode(5);
+        promote(candidate(
+                episode5,
+                "status.오른발_부상",
+                "오른발을 심하게 다침",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode().put("name", "오른발 부상")
+        ));
+        WorkCharacter character = character("아리아");
+        long sharedBaseVersion = character.getSnapshotVersion();
+
+        SettingCandidate agility = matchedCandidate(
+                episode5,
+                character,
+                "stats.agility",
+                "8"
+        );
+        prepareComparisonIfRequired(agility);
+        agility.confirm();
+
+        SettingCandidate recovery = matchedCandidate(
+                episode5,
+                character,
+                "status.회복_중",
+                "포션으로 오른발이 회복됨",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode()
+                        .put("name", "회복 중")
+                        .put("active", false)
+        );
+        recovery.startComparison();
+        recovery.recordComparisonContext(sharedBaseVersion, "group-remove-context");
+        recovery.completeComparison(
+                CharacterFactOperation.REMOVE,
+                null,
+                null,
+                null,
+                null,
+                removalEntries("status.오른발_부상"),
+                CharacterFactTemporalScope.PRESENT,
+                "회복 근거로 기존 부상 종료",
+                objectMapper.createObjectNode(),
+                java.time.LocalDateTime.now()
+        );
+        recovery.confirm();
+
+        promotionService.promoteGroup(List.of(
+                new SettingCandidateGroupPromotion(
+                        agility,
+                        CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+                ),
+                new SettingCandidateGroupPromotion(
+                        recovery,
+                        CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+                )
+        ));
+
+        assertThat(snapshotValue(character, CharacterFactType.STAT, "stats.agility"))
+                .isEqualTo(valueJson("8"));
+        assertThat(snapshotAccessor.read(character)).doesNotContainKey(
+                new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.오른발_부상")
+        );
+        assertThat(character.getSnapshotVersion()).isEqualTo(sharedBaseVersion + 1);
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
+    @DisplayName("그룹의 stale REMOVE는 앞 ADD와 후보 confirm까지 mutation 전에 원자적으로 거절한다")
+    void staleGroupRemovalRollsBackWholeGroup() {
+        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+        UUID[] ids = new UUID[3];
+        long[] initialVersion = new long[1];
+        transactionTemplate.executeWithoutResult(status -> {
+            Episode episode5 = episode(5);
+            promote(candidate(
+                    episode5,
+                    "status.오른발_부상",
+                    "오른발을 심하게 다침",
+                    SettingValueType.JSON,
+                    objectMapper.createObjectNode().put("name", "오른발 부상")
+            ));
+            WorkCharacter character = character("아리아");
+            initialVersion[0] = character.getSnapshotVersion();
+
+            SettingCandidate agility = matchedCandidate(
+                    episode5,
+                    character,
+                    "stats.agility",
+                    "8"
+            );
+            agility.startComparison();
+            agility.recordComparisonContext(initialVersion[0], "group-add-context");
+            agility.completeComparison(
+                    CharacterFactOperation.ADD,
+                    CharacterFactType.STAT,
+                    "stats.agility",
+                    "8",
+                    valueJson("8"),
+                    objectMapper.createArrayNode(),
+                    CharacterFactTemporalScope.PRESENT,
+                    "일반 ADD",
+                    objectMapper.createObjectNode(),
+                    java.time.LocalDateTime.now()
+            );
+
+            SettingCandidate staleRecovery = matchedCandidate(
+                    episode5,
+                    character,
+                    "status.회복_중",
+                    "회복됨",
+                    SettingValueType.JSON,
+                    objectMapper.createObjectNode()
+                            .put("name", "회복")
+                            .put("active", false)
+            );
+            staleRecovery.startComparison();
+            staleRecovery.recordComparisonContext(initialVersion[0] - 1, "stale-group-remove-context");
+            staleRecovery.completeComparison(
+                    CharacterFactOperation.REMOVE,
+                    null,
+                    null,
+                    null,
+                    null,
+                    removalEntries("status.오른발_부상"),
+                    CharacterFactTemporalScope.PRESENT,
+                    "오래된 snapshot 기준 제거",
+                    objectMapper.createObjectNode(),
+                    java.time.LocalDateTime.now()
+            );
+            settingCandidateRepository.flush();
+            ids[0] = agility.getId();
+            ids[1] = staleRecovery.getId();
+            ids[2] = character.getId();
+        });
+
+        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
+            SettingCandidate agility = settingCandidateRepository.findById(ids[0]).orElseThrow();
+            SettingCandidate staleRecovery = settingCandidateRepository.findById(ids[1]).orElseThrow();
+            agility.confirm();
+            staleRecovery.confirm();
+            promotionService.promoteGroup(List.of(
+                    new SettingCandidateGroupPromotion(
+                            agility,
+                            CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+                    ),
+                    new SettingCandidateGroupPromotion(
+                            staleRecovery,
+                            CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+                    )
+            ));
+        })).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE));
+
+        SettingCandidate persistedAgility = settingCandidateRepository.findById(ids[0]).orElseThrow();
+        SettingCandidate persistedRecovery = settingCandidateRepository.findById(ids[1]).orElseThrow();
+        WorkCharacter character = workCharacterRepository.findById(ids[2]).orElseThrow();
+        assertThat(persistedAgility.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+        assertThat(persistedRecovery.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+        assertThat(character.getSnapshotVersion()).isEqualTo(initialVersion[0]);
+        assertThat(snapshotAccessor.read(character))
+                .containsKey(new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.오른발_부상"))
+                .doesNotContainKey(new CharacterSnapshotSlot(CharacterFactType.STAT, "stats.agility"));
+        assertThat(characterFactRepository
+                .findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(
+                        character.getId(),
+                        CharacterFactType.STAT,
+                        "stats.agility"
+                )).isEmpty();
+        assertThat(characterSnapshotSourceRepository
+                .findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderBySourceOrderAsc(
+                        character.getId(),
+                        CharacterFactType.STAT,
+                        "stats.agility"
+                )).isEmpty();
+    }
+
+    @Test
     @DisplayName("동일 STATUS slot 종료 제안은 새 Fact를 이력에 남기고 현재 snapshot에서만 제거한다")
     void promoteRemovePreservesHistoryAndRemovesCurrentStatus() {
         Episode episode3 = episode(3);
@@ -464,6 +652,363 @@ class SettingCandidatePromotionServiceTest {
                         "status.오른발_부상"
                 )).isEmpty();
         assertThat(character.getSnapshotVersion()).isEqualTo(versionBeforeRemoval + 1);
+    }
+
+    @Test
+    @DisplayName("교차 key 다중 REMOVE는 회복 Fact만 이력에 남기고 관련 STATUS와 provenance를 함께 제거한다")
+    void promoteMultiRemovePreservesRecoveryHistoryWithoutCurrentRecoveryStatus() {
+        Episode episode5 = episode(5);
+        promote(candidate(
+                episode5,
+                "status.오른발_부상",
+                "오른발을 심하게 다침",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode().put("name", "오른발 부상")
+        ));
+        WorkCharacter character = character("아리아");
+        SettingCandidate aggravatedInjury = matchedCandidate(
+                episode5,
+                character,
+                "status.오른발_부상",
+                "오른발 부상이 악화됨",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode()
+                        .put("name", "오른발 부상")
+                        .put("severity", "악화")
+        );
+        aggravatedInjury.startComparison();
+        aggravatedInjury.recordComparisonContext(character.getSnapshotVersion(), "injury-merge-context");
+        aggravatedInjury.completeComparison(
+                CharacterFactOperation.MERGE,
+                CharacterFactType.STATUS,
+                "status.오른발_부상",
+                "오른발을 심하게 다쳤고 상태가 악화됨",
+                objectMapper.createObjectNode()
+                        .put("name", "오른발 부상")
+                        .put("severity", "악화"),
+                objectMapper.createArrayNode(),
+                CharacterFactTemporalScope.PRESENT,
+                "같은 부상 상태의 악화 근거를 병합",
+                objectMapper.createObjectNode(),
+                java.time.LocalDateTime.now()
+        );
+        aggravatedInjury.confirm();
+        promotionService.promote(
+                aggravatedInjury,
+                CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+        );
+        assertThat(characterSnapshotSourceRepository
+                .findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderBySourceOrderAsc(
+                        character.getId(),
+                        CharacterFactType.STATUS,
+                        "status.오른발_부상"
+                )).hasSize(2);
+        promote(matchedCandidate(
+                episode5,
+                character,
+                "status.마비독",
+                "마비독에 중독됨",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode().put("name", "마비독")
+        ));
+        long versionBeforeRemoval = character.getSnapshotVersion();
+
+        SettingCandidate recovery = matchedCandidate(
+                episode5,
+                character,
+                "status.회복_중",
+                "포션 효과로 신체가 빠르게 재생됨",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode()
+                        .put("name", "회복 중")
+                        .put("active", false)
+        );
+        recovery.startComparison();
+        recovery.recordComparisonContext(character.getSnapshotVersion(), "multi-remove-context");
+        recovery.completeComparison(
+                CharacterFactOperation.REMOVE,
+                null,
+                null,
+                null,
+                null,
+                removalEntries("status.오른발_부상", "status.마비독"),
+                CharacterFactTemporalScope.PRESENT,
+                "회복이 확인되어 두 활성 상태를 종료",
+                objectMapper.createObjectNode(),
+                java.time.LocalDateTime.now()
+        );
+        recovery.confirm();
+
+        promotionService.promote(recovery, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+
+        var snapshot = snapshotAccessor.read(character);
+        assertThat(snapshot).doesNotContainKeys(
+                new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.오른발_부상"),
+                new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.마비독"),
+                new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.회복_중")
+        );
+        assertThat(characterFactRepository
+                .findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(
+                        character.getId(),
+                        CharacterFactType.STATUS,
+                        "status.회복_중"
+                )).hasSize(1);
+        assertThat(characterSnapshotSourceRepository
+                .findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderBySourceOrderAsc(
+                        character.getId(),
+                        CharacterFactType.STATUS,
+                        "status.오른발_부상"
+                )).isEmpty();
+        assertThat(characterSnapshotSourceRepository
+                .findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderBySourceOrderAsc(
+                        character.getId(),
+                        CharacterFactType.STATUS,
+                        "status.마비독"
+                )).isEmpty();
+        assertThat(character.getSnapshotVersion()).isEqualTo(versionBeforeRemoval + 1);
+    }
+
+    @Test
+    @DisplayName("신규 캐릭터의 비활성 STATUS를 APPLY하면 캐릭터와 Fact 생성 전에 거절한다")
+    void rejectsInactiveStatusForNewCharacterWithoutSideEffects() {
+        SettingCandidate inactiveStatus = candidate(
+                episode(5),
+                "status.회복_완료",
+                "회복이 완료됨",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode()
+                        .put("value", "회복이 완료됨")
+                        .put("active", false)
+        );
+
+        assertThatThrownBy(() -> promote(inactiveStatus))
+                .isInstanceOfSatisfying(AppException.class, exception ->
+                        assertThat(exception.getResultCode())
+                                .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID));
+
+        assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId())).isEmpty();
+        assertThat(characterFactRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("오래된 COMPLETED 후보의 비활성 STATUS proposal도 APPLY 시 다시 거절한다")
+    void rejectsInactiveStatusProposalAtPromotionBoundary() {
+        promote(candidate(episode(5), "level", "3"));
+        WorkCharacter character = character("아리아");
+        SettingCandidate candidate = matchedCandidate(
+                episode(5),
+                character,
+                "status.회복_중",
+                "회복 중",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode()
+                        .put("value", "회복 중")
+                        .put("active", true)
+        );
+        candidate.startComparison();
+        candidate.recordComparisonContext(character.getSnapshotVersion(), "inactive-proposal-context");
+        candidate.completeComparison(
+                CharacterFactOperation.ADD,
+                CharacterFactType.STATUS,
+                "status.회복_중",
+                "회복 중",
+                objectMapper.createObjectNode()
+                        .put("value", "회복 중")
+                        .put("active", false),
+                objectMapper.createArrayNode(),
+                CharacterFactTemporalScope.PRESENT,
+                "오래된 Worker가 잘못 저장한 비활성 proposal",
+                objectMapper.createObjectNode(),
+                java.time.LocalDateTime.now()
+        );
+        candidate.confirm();
+
+        assertThatThrownBy(() -> promotionService.promote(
+                candidate,
+                CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID));
+
+        assertThat(snapshotAccessor.read(character)).doesNotContainKey(
+                new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.회복_중")
+        );
+        assertThat(characterFactRepository
+                .findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(
+                        character.getId(),
+                        CharacterFactType.STATUS,
+                        "status.회복_중"
+                )).isEmpty();
+    }
+
+    @Test
+    @DisplayName("명시적으로 inactive인 STATUS 근거도 HISTORY_ONLY이면 이력에만 보존한다")
+    void allowsInactiveStatusAsHistoryOnly() {
+        promote(candidate(episode(5), "level", "3"));
+        WorkCharacter character = character("아리아");
+        SettingCandidate recovered = matchedCandidate(
+                episode(5),
+                character,
+                "status.회복_완료",
+                "회복이 완료됨",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode()
+                        .put("value", "회복이 완료됨")
+                        .put("active", false)
+        );
+        recovered.startComparison();
+        recovered.recordComparisonContext(character.getSnapshotVersion(), "inactive-history-context");
+        recovered.completeComparison(
+                CharacterFactOperation.HISTORY_ONLY,
+                null,
+                null,
+                null,
+                null,
+                objectMapper.createArrayNode(),
+                CharacterFactTemporalScope.PRESENT,
+                "종료 사건은 현재 상태가 아니라 이력으로만 보존",
+                objectMapper.createObjectNode(),
+                java.time.LocalDateTime.now()
+        );
+        recovered.confirm();
+
+        promotionService.promote(recovered, CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+
+        assertThat(snapshotAccessor.read(character)).doesNotContainKey(
+                new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.회복_완료")
+        );
+        assertThat(characterFactRepository
+                .findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(
+                        character.getId(),
+                        CharacterFactType.STATUS,
+                        "status.회복_완료"
+                )).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("다중 REMOVE 후보를 HISTORY_ONLY로 확정하면 근거 Fact만 남기고 현재 STATUS를 유지한다")
+    void historyOnlyOverrideKeepsStatusesForRemoveProposal() {
+        Episode episode5 = episode(5);
+        promote(candidate(
+                episode5,
+                "status.오른발_부상",
+                "오른발을 심하게 다침",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode().put("name", "오른발 부상")
+        ));
+        WorkCharacter character = character("아리아");
+        long versionBeforeHistory = character.getSnapshotVersion();
+        SettingCandidate recovery = matchedCandidate(
+                episode5,
+                character,
+                "status.회복_중",
+                "회복 징후가 관찰됨",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode().put("name", "회복 징후")
+        );
+        recovery.startComparison();
+        recovery.recordComparisonContext(character.getSnapshotVersion(), "history-only-context");
+        recovery.completeComparison(
+                CharacterFactOperation.REMOVE,
+                null,
+                null,
+                null,
+                null,
+                removalEntries("status.오른발_부상"),
+                CharacterFactTemporalScope.PRESENT,
+                "사용자가 현재 상태 제거를 보류할 수 있음",
+                objectMapper.createObjectNode(),
+                java.time.LocalDateTime.now()
+        );
+        recovery.confirm();
+
+        promotionService.promote(recovery, CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+
+        assertThat(snapshotAccessor.read(character)).containsKey(
+                new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.오른발_부상")
+        );
+        assertThat(snapshotAccessor.read(character)).doesNotContainKey(
+                new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.회복_중")
+        );
+        assertThat(characterFactRepository
+                .findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(
+                        character.getId(),
+                        CharacterFactType.STATUS,
+                        "status.회복_중"
+                )).hasSize(1);
+        assertThat(character.getSnapshotVersion()).isEqualTo(versionBeforeHistory);
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
+    @DisplayName("Fact 저장 뒤 잘못된 제거 대상을 발견해도 promotion 트랜잭션 전체를 rollback한다")
+    void promotionRollsBackRecoveryFactWhenRemovalTargetIsInvalid() {
+        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+        UUID[] ids = new UUID[2];
+        transactionTemplate.executeWithoutResult(status -> {
+            Episode episode5 = episode(5);
+            promote(candidate(
+                    episode5,
+                    "status.오른발_부상",
+                    "오른발을 심하게 다침",
+                    SettingValueType.JSON,
+                    objectMapper.createObjectNode().put("name", "오른발 부상")
+            ));
+            WorkCharacter character = character("아리아");
+            SettingCandidate recovery = matchedCandidate(
+                    episode5,
+                    character,
+                    "status.회복_중",
+                    "회복됨",
+                    SettingValueType.JSON,
+                    objectMapper.createObjectNode()
+                            .put("name", "회복")
+                            .put("active", false)
+            );
+            recovery.startComparison();
+            recovery.recordComparisonContext(character.getSnapshotVersion(), "invalid-remove-context");
+            recovery.completeComparison(
+                    CharacterFactOperation.REMOVE,
+                    null,
+                    null,
+                    null,
+                    null,
+                    removalEntries("status.존재하지_않음"),
+                    CharacterFactTemporalScope.PRESENT,
+                    "오래된 COMPLETED 데이터의 잘못된 제거 대상",
+                    objectMapper.createObjectNode(),
+                    java.time.LocalDateTime.now()
+            );
+            recovery.confirm();
+            settingCandidateRepository.flush();
+            ids[0] = recovery.getId();
+            ids[1] = character.getId();
+        });
+
+        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
+            SettingCandidate recovery = settingCandidateRepository.findById(ids[0]).orElseThrow();
+            promotionService.promote(recovery, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+        })).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_TARGET_INVALID));
+
+        WorkCharacter character = workCharacterRepository.findById(ids[1]).orElseThrow();
+        assertThat(characterFactRepository
+                .findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(
+                        character.getId(),
+                        CharacterFactType.STATUS,
+                        "status.회복_중"
+                )).isEmpty();
+        assertThat(snapshotAccessor.read(character)).containsKey(
+                new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.오른발_부상")
+        );
+        assertThat(characterSnapshotSourceRepository
+                .findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderBySourceOrderAsc(
+                        character.getId(),
+                        CharacterFactType.STATUS,
+                        "status.오른발_부상"
+                )).hasSize(1);
     }
 
     @Test
@@ -1239,6 +1784,16 @@ class SettingCandidatePromotionServiceTest {
             return objectMapper.createObjectNode().put("value", value);
         }
         return objectMapper.createObjectNode().put("value", Integer.parseInt(digits));
+    }
+
+    private JsonNode removalEntries(String... factKeys) {
+        var entries = objectMapper.createArrayNode();
+        for (String factKey : factKeys) {
+            entries.add(objectMapper.createObjectNode()
+                    .put("factType", CharacterFactType.STATUS.name())
+                    .put("factKey", factKey));
+        }
+        return entries;
     }
 
     private CharacterSettingSchema settingSchema(

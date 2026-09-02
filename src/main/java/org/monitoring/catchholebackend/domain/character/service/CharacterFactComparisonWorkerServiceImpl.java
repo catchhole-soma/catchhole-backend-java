@@ -9,9 +9,9 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -186,14 +186,21 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
         CanonicalTarget canonicalTarget = resolveCanonicalTarget(candidate);
         WorkCharacter character = getMatchedCharacter(candidate, true);
         ContextSnapshot currentContext = buildContext(candidate, character, canonicalTarget);
-        validateFreshContext(candidate, character, currentContext, request.contextToken());
+        validateFreshContext(
+                candidate,
+                character,
+                currentContext,
+                request.contextToken(),
+                request.operation() == CharacterFactOperation.REMOVE
+                        || !request.removedSnapshotEntries().isEmpty()
+        );
 
         Map<CharacterSnapshotSlot, CharacterSnapshotEntry> currentSnapshot = snapshotAccessor.read(character);
         CharacterSnapshotSlot targetSlot = validateTarget(canonicalTarget, request);
         Set<CharacterSnapshotSlot> contextSlots = currentContext.entries().stream()
                 .map(entry -> new CharacterSnapshotSlot(entry.factType(), entry.factKey()))
                 .collect(java.util.stream.Collectors.toSet());
-        List<CharacterSnapshotSlot> removedSlots = validateRemovedEntries(
+        List<CharacterSnapshotSlot> removedSlots = normalizeAndValidateRemovedEntries(
                 currentSnapshot,
                 contextSlots,
                 targetSlot,
@@ -205,6 +212,11 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
         if (request.operation() == CharacterFactOperation.ADD
                 || request.operation() == CharacterFactOperation.UPDATE
                 || request.operation() == CharacterFactOperation.MERGE) {
+            if (canonicalTarget.factType() == CharacterFactType.STATUS
+                    && (isExplicitlyInactiveStatus(candidate.getValueJson())
+                    || isExplicitlyInactiveStatus(proposedValueJson))) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
+            }
             valueValidator.validateProposal(
                     proposedValueJson,
                     request.proposedFactValue(),
@@ -212,11 +224,22 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
                     canonicalTarget.valueType()
             );
         }
-        JsonNode removedEntriesJson = objectMapper.valueToTree(request.removedSnapshotEntries());
+        boolean pureLegacyRemove = request.operation() == CharacterFactOperation.REMOVE
+                && targetSlot != null
+                && request.removedSnapshotEntries().isEmpty();
+        List<CharacterSnapshotSlot> storedRemovedSlots = pureLegacyRemove ? List.of() : removedSlots;
+        JsonNode removedEntriesJson = objectMapper.valueToTree(storedRemovedSlots.stream()
+                .map(slot -> new WorkerCharacterFactComparisonCompleteRequest.SnapshotEntry(
+                        slot.factType(),
+                        slot.factKey()
+                ))
+                .toList());
+        CharacterSnapshotSlot storedTargetSlot = request.operation() == CharacterFactOperation.REMOVE
+                && !pureLegacyRemove ? null : targetSlot;
         candidate.completeComparison(
                 request.operation(),
-                targetSlot == null ? null : targetSlot.factType(),
-                targetSlot == null ? null : targetSlot.factKey(),
+                storedTargetSlot == null ? null : storedTargetSlot.factType(),
+                storedTargetSlot == null ? null : storedTargetSlot.factKey(),
                 request.proposedFactValue(),
                 proposedValueJson,
                 removedEntriesJson,
@@ -256,6 +279,13 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
         }
         CanonicalTarget target = resolveCanonicalTarget(candidate);
         WorkCharacter character = getMatchedCharacter(candidate, true);
+        if (hasStoredSnapshotRemoval(candidate)
+                && !Objects.equals(
+                candidate.getComparisonBaseSnapshotVersion(),
+                character.getSnapshotVersion()
+        )) {
+            return false;
+        }
         return Objects.equals(
                 candidate.getComparisonContextHash(),
                 buildContext(candidate, character, target).contextToken()
@@ -398,14 +428,26 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
             SettingCandidate candidate,
             WorkCharacter character,
             ContextSnapshot currentContext,
-            String requestToken
+            String requestToken,
+            boolean requiresExactSnapshotVersion
     ) {
         if (candidate.getComparisonBaseSnapshotVersion() == null
                 || candidate.getComparisonContextHash() == null
+                || requiresExactSnapshotVersion
+                && !Objects.equals(
+                candidate.getComparisonBaseSnapshotVersion(),
+                character.getSnapshotVersion()
+                )
                 || !Objects.equals(candidate.getComparisonContextHash(), requestToken)
                 || !Objects.equals(currentContext.contextToken(), requestToken)) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE);
         }
+    }
+
+    private boolean hasStoredSnapshotRemoval(SettingCandidate candidate) {
+        JsonNode removals = candidate.getRemovedSnapshotEntriesJson();
+        return candidate.getSuggestedOperation() == CharacterFactOperation.REMOVE
+                || removals != null && removals.isArray() && !removals.isEmpty();
     }
 
     private CharacterSnapshotSlot validateTarget(
@@ -420,8 +462,22 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
             return new CharacterSnapshotSlot(canonicalTarget.factType(), canonicalTarget.factKey());
         }
         if (operation == CharacterFactOperation.UPDATE
-                || operation == CharacterFactOperation.MERGE
-                || operation == CharacterFactOperation.REMOVE) {
+                || operation == CharacterFactOperation.MERGE) {
+            if (request.targetFactType() != canonicalTarget.factType()
+                    || !Objects.equals(normalize(request.targetFactKey()), canonicalTarget.factKey())) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_TARGET_INVALID);
+            }
+            return new CharacterSnapshotSlot(canonicalTarget.factType(), canonicalTarget.factKey());
+        }
+        if (operation == CharacterFactOperation.REMOVE) {
+            boolean hasTargetFactType = request.targetFactType() != null;
+            boolean hasTargetFactKey = !isBlank(request.targetFactKey());
+            if (hasTargetFactType != hasTargetFactKey) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_TARGET_INVALID);
+            }
+            if (!hasTargetFactType) {
+                return null;
+            }
             if (request.targetFactType() != canonicalTarget.factType()
                     || !Objects.equals(normalize(request.targetFactKey()), canonicalTarget.factKey())) {
                 throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_TARGET_INVALID);
@@ -434,32 +490,52 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
         return null;
     }
 
-    private List<CharacterSnapshotSlot> validateRemovedEntries(
+    private List<CharacterSnapshotSlot> normalizeAndValidateRemovedEntries(
             Map<CharacterSnapshotSlot, CharacterSnapshotEntry> currentSnapshot,
             Set<CharacterSnapshotSlot> contextSlots,
             CharacterSnapshotSlot targetSlot,
             WorkerCharacterFactComparisonCompleteRequest request
     ) {
-        if (!request.removedSnapshotEntries().isEmpty()
+        CharacterFactOperation operation = request.operation();
+        boolean removeOperation = operation == CharacterFactOperation.REMOVE;
+        if (removeOperation && targetSlot != null && targetSlot.factType() != CharacterFactType.STATUS) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
+        }
+        if (!removeOperation
+                && !request.removedSnapshotEntries().isEmpty()
                 && (targetSlot == null || targetSlot.factType() != CharacterFactType.STATUS)) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
         }
-        Set<CharacterSnapshotSlot> distinct = new HashSet<>();
+        Set<CharacterSnapshotSlot> distinct = new LinkedHashSet<>();
+        if (removeOperation && targetSlot != null) {
+            validateCurrentContextStatus(currentSnapshot, contextSlots, targetSlot);
+            distinct.add(targetSlot);
+        }
         for (WorkerCharacterFactComparisonCompleteRequest.SnapshotEntry removed
                 : request.removedSnapshotEntries()) {
             CharacterSnapshotSlot slot = new CharacterSnapshotSlot(
                     removed.factType(),
                     normalize(removed.factKey())
             );
-            if (!distinct.add(slot)
-                    || !currentSnapshot.containsKey(slot)
-                    || !contextSlots.contains(slot)
-                    || slot.equals(targetSlot)
-                    || slot.factType() != CharacterFactType.STATUS) {
+            validateCurrentContextStatus(currentSnapshot, contextSlots, slot);
+            if (!removeOperation && slot.equals(targetSlot)) {
                 throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_TARGET_INVALID);
             }
+            distinct.add(slot);
         }
         return List.copyOf(distinct);
+    }
+
+    private void validateCurrentContextStatus(
+            Map<CharacterSnapshotSlot, CharacterSnapshotEntry> currentSnapshot,
+            Set<CharacterSnapshotSlot> contextSlots,
+            CharacterSnapshotSlot slot
+    ) {
+        if (slot.factType() != CharacterFactType.STATUS
+                || !currentSnapshot.containsKey(slot)
+                || !contextSlots.contains(slot)) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_TARGET_INVALID);
+        }
     }
 
     private void validateOperation(
@@ -475,6 +551,7 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
         boolean hasProposedFactValue = !isBlank(request.proposedFactValue());
         validateTemporalScope(operation, request.temporalScope());
         if (!removedSlots.isEmpty()
+                && operation != CharacterFactOperation.REMOVE
                 && (request.temporalScope() != CharacterFactTemporalScope.PRESENT
                 || canonicalTarget.factType() != CharacterFactType.STATUS
                 || operation != CharacterFactOperation.ADD
@@ -501,8 +578,7 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
         if (operation == CharacterFactOperation.REMOVE) {
             if (canonicalTarget.factType() != CharacterFactType.STATUS
                     || request.temporalScope() != CharacterFactTemporalScope.PRESENT
-                    || !currentSnapshot.containsKey(targetSlot)
-                    || !removedSlots.isEmpty()
+                    || removedSlots.isEmpty()
                     || hasProposedValue
                     || proposedFactValueProvided) {
                 throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
@@ -518,6 +594,11 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
         if (!removedSlots.isEmpty() || hasProposedValue || proposedFactValueProvided) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
         }
+    }
+
+    private boolean isExplicitlyInactiveStatus(JsonNode valueJson) {
+        JsonNode active = valueJson == null || !valueJson.isObject() ? null : valueJson.get("active");
+        return active != null && active.isBoolean() && !active.booleanValue();
     }
 
     private void validateTemporalScope(

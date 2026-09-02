@@ -1,8 +1,10 @@
 package org.monitoring.catchholebackend.domain.character.processor;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -11,6 +13,7 @@ import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshotSource;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSnapshotSourceRepository;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.springframework.stereotype.Component;
 
 /** snapshot 값과 별도로 해당 값을 뒷받침하는 원본 Fact 목록을 slot 단위로 교체한다. */
@@ -52,6 +55,28 @@ public class CharacterSnapshotSourceManager {
 
     public void removeSources(WorkCharacter character, CharacterSnapshotSlot slot) {
         repository.deleteAll(findSources(character, slot));
+        repository.flush();
+    }
+
+    /** 여러 snapshot slot의 provenance를 fact type별 bulk 조회한 뒤 한 번에 제거한다. */
+    public void removeSources(WorkCharacter character, Collection<CharacterSnapshotSlot> slots) {
+        if (slots.isEmpty()) {
+            return;
+        }
+        Map<CharacterFactType, List<String>> keysByType = new LinkedHashMap<>();
+        for (CharacterSnapshotSlot slot : new LinkedHashSet<>(slots)) {
+            keysByType.computeIfAbsent(slot.factType(), ignored -> new ArrayList<>())
+                    .add(slot.factKey());
+        }
+        List<CharacterSnapshotSource> sources = new ArrayList<>();
+        keysByType.forEach((factType, factKeys) -> sources.addAll(
+                repository.findAllByWorkCharacterIdAndFactTypeAndFactKeyIn(
+                        character.getId(),
+                        factType,
+                        factKeys
+                )
+        ));
+        repository.deleteAllInBatch(sources);
         repository.flush();
     }
 

@@ -2635,13 +2635,17 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("캐릭터 Fact 근거는 분석 당시 회차 원문과 전체 원문 offset을 응답한다")
+    @DisplayName("캐릭터 Fact 근거는 분석 당시 회차 원문과 복수 근거를 저장 순서대로 응답한다")
     void getCharacterFactEvidenceReturnsAnalysisSourceAndSpans() throws Exception {
         WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
         String analysisSourceKey = "works/%s/episodes/1/analysis-source.txt".formatted(work.getId());
-        String analysisSource = "첫 문장\r\n수아는 스물세 살이었다.\t마지막 문장";
-        int startOffset = analysisSource.indexOf("수아는");
-        int endOffset = startOffset + "수아는 스물세 살이었다.".length();
+        String firstQuote = "수아는 스물세 살이었다.";
+        String secondQuote = "수아는 입학식에 참석했다.";
+        String analysisSource = "첫 문장\r\n%s\t%s\n마지막 문장".formatted(firstQuote, secondQuote);
+        int firstStartOffset = analysisSource.indexOf(firstQuote);
+        int firstEndOffset = firstStartOffset + firstQuote.length();
+        int secondStartOffset = analysisSource.indexOf(secondQuote);
+        int secondEndOffset = secondStartOffset + secondQuote.length();
         SettingCandidate candidate = SettingCandidate.create(
                 work,
                 firstEpisode,
@@ -2653,12 +2657,15 @@ class CharacterControllerIntegrationTest {
                 "23",
                 SettingValueType.NUMBER,
                 JsonNodeFactory.instance.objectNode().put("value", 23),
-                JsonNodeFactory.instance.arrayNode().add(
-                        JsonNodeFactory.instance.objectNode()
-                                .put("quote", "수아는 스물세 살이었다.")
-                                .put("start_offset", startOffset)
-                                .put("end_offset", endOffset)
-                ),
+                JsonNodeFactory.instance.arrayNode()
+                        .add(JsonNodeFactory.instance.objectNode()
+                                .put("quote", firstQuote)
+                                .put("start_offset", firstStartOffset)
+                                .put("end_offset", firstEndOffset))
+                        .add(JsonNodeFactory.instance.objectNode()
+                                .put("quote", secondQuote)
+                                .put("startOffset", secondStartOffset)
+                                .put("endOffset", secondEndOffset)),
                 new BigDecimal("0.9000"),
                 JsonNodeFactory.instance.objectNode()
         );
@@ -2687,9 +2694,13 @@ class CharacterControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.episode.episodeNo").value(1))
                 .andExpect(jsonPath("$.data.episode.title").value("입학식"))
                 .andExpect(jsonPath("$.data.content").value(analysisSource))
-                .andExpect(jsonPath("$.data.evidenceSpans[0].quote").value("수아는 스물세 살이었다."))
-                .andExpect(jsonPath("$.data.evidenceSpans[0].startOffset").value(startOffset))
-                .andExpect(jsonPath("$.data.evidenceSpans[0].endOffset").value(endOffset));
+                .andExpect(jsonPath("$.data.evidenceSpans.length()").value(2))
+                .andExpect(jsonPath("$.data.evidenceSpans[0].quote").value(firstQuote))
+                .andExpect(jsonPath("$.data.evidenceSpans[0].startOffset").value(firstStartOffset))
+                .andExpect(jsonPath("$.data.evidenceSpans[0].endOffset").value(firstEndOffset))
+                .andExpect(jsonPath("$.data.evidenceSpans[1].quote").value(secondQuote))
+                .andExpect(jsonPath("$.data.evidenceSpans[1].startOffset").value(secondStartOffset))
+                .andExpect(jsonPath("$.data.evidenceSpans[1].endOffset").value(secondEndOffset));
 
         verify(objectStorage).getText(analysisSourceKey);
         verify(objectStorage, never()).getText(firstEpisode.getContentS3Key());
