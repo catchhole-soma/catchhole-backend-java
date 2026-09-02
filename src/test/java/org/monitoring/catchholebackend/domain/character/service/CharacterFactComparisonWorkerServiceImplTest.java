@@ -560,6 +560,103 @@ class CharacterFactComparisonWorkerServiceImplTest {
     }
 
     @Test
+    @DisplayName("문맥 30건 밖 STATUS가 바뀌어도 파괴적 REMOVE는 snapshot version으로 stale을 감지한다")
+    void destructiveRemoveRejectsSnapshotVersionChangeOutsideBoundedContext() {
+        var statuses = objectMapper.createObjectNode();
+        for (int index = 0; index < 35; index++) {
+            statuses.set("status.%02d".formatted(index), value("상태 " + index));
+        }
+        character.replaceCurrentSnapshots(null, null, null, null, null, null, statuses);
+        SettingCandidate candidate = prepareCandidate(
+                "status.회복_중",
+                "회복이 확인됨",
+                SettingValueType.JSON,
+                value("회복"),
+                schema("statuses.status", "status.*", CharacterFactType.STATUS, SettingValueType.JSON)
+        );
+        WorkerCharacterFactComparisonContextResponse context = claimAndGetContext(candidate);
+        Set<String> providedKeys = context.snapshotEntries().stream()
+                .map(WorkerCharacterFactComparisonContextResponse.SnapshotEntry::factKey)
+                .collect(java.util.stream.Collectors.toSet());
+        String omittedKey = java.util.stream.IntStream.range(0, 35)
+                .mapToObj(index -> "status.%02d".formatted(index))
+                .filter(key -> !providedKeys.contains(key))
+                .findFirst()
+                .orElseThrow();
+        ObjectNode changedStatuses = statuses.deepCopy();
+        changedStatuses.set(omittedKey, value("문맥 밖에서 변경된 상태"));
+        character.replaceCurrentSnapshots(null, null, null, null, null, null, changedStatuses);
+
+        assertThatThrownBy(() -> service.completeCharacterFactComparison(
+                analysisJobId,
+                candidate.getId(),
+                leaseToken,
+                completeRequest(
+                        CharacterFactOperation.REMOVE,
+                        null,
+                        null,
+                        null,
+                        List.of(new WorkerCharacterFactComparisonCompleteRequest.SnapshotEntry(
+                                CharacterFactType.STATUS,
+                                context.snapshotEntries().getFirst().factKey()
+                        )),
+                        CharacterFactTemporalScope.PRESENT,
+                        context.contextToken()
+                )
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE));
+    }
+
+    @Test
+    @DisplayName("완료된 REMOVE는 이후 문맥 밖 STATUS 변경도 확정 전 stale로 판정한다")
+    void completedRemoveIsNotCurrentAfterSnapshotVersionChanges() {
+        var statuses = objectMapper.createObjectNode();
+        for (int index = 0; index < 35; index++) {
+            statuses.set("status.%02d".formatted(index), value("상태 " + index));
+        }
+        character.replaceCurrentSnapshots(null, null, null, null, null, null, statuses);
+        SettingCandidate candidate = prepareCandidate(
+                "status.회복_중",
+                "회복이 확인됨",
+                SettingValueType.JSON,
+                value("회복"),
+                schema("statuses.status", "status.*", CharacterFactType.STATUS, SettingValueType.JSON)
+        );
+        WorkerCharacterFactComparisonContextResponse context = claimAndGetContext(candidate);
+        Set<String> providedKeys = context.snapshotEntries().stream()
+                .map(WorkerCharacterFactComparisonContextResponse.SnapshotEntry::factKey)
+                .collect(java.util.stream.Collectors.toSet());
+        String omittedKey = java.util.stream.IntStream.range(0, 35)
+                .mapToObj(index -> "status.%02d".formatted(index))
+                .filter(key -> !providedKeys.contains(key))
+                .findFirst()
+                .orElseThrow();
+        service.completeCharacterFactComparison(
+                analysisJobId,
+                candidate.getId(),
+                leaseToken,
+                completeRequest(
+                        CharacterFactOperation.REMOVE,
+                        null,
+                        null,
+                        null,
+                        List.of(new WorkerCharacterFactComparisonCompleteRequest.SnapshotEntry(
+                                CharacterFactType.STATUS,
+                                context.snapshotEntries().getFirst().factKey()
+                        )),
+                        CharacterFactTemporalScope.PRESENT,
+                        context.contextToken()
+                )
+        );
+        ObjectNode changedStatuses = statuses.deepCopy();
+        changedStatuses.set(omittedKey, value("확정 전에 변경됨"));
+        character.replaceCurrentSnapshots(null, null, null, null, null, null, changedStatuses);
+
+        assertThat(service.hasCurrentContext(candidate)).isFalse();
+    }
+
+    @Test
     @DisplayName("과거 서술을 현재값 UPDATE로 보내면 신뢰하지 않고 거절한다")
     void rejectsPastUpdate() {
         character.replaceCurrentSnapshots(17, null, null, null, null, null, null);
@@ -661,6 +758,70 @@ class CharacterFactComparisonWorkerServiceImplTest {
     }
 
     @Test
+    @DisplayName("비활성 STATUS 후보를 ADD로 현재 snapshot에 넣는 완료 요청을 거절한다")
+    void rejectsInactiveStatusCandidateUpsert() {
+        SettingCandidate candidate = prepareCandidate(
+                "status.회복_중",
+                "회복 중",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode()
+                        .put("value", "회복 중")
+                        .put("active", false),
+                schema("statuses.status", "status.*", CharacterFactType.STATUS, SettingValueType.JSON)
+        );
+        WorkerCharacterFactComparisonContextResponse context = claimAndGetContext(candidate);
+
+        assertThatThrownBy(() -> service.completeCharacterFactComparison(
+                analysisJobId,
+                candidate.getId(),
+                leaseToken,
+                completeRequest(
+                        CharacterFactOperation.ADD,
+                        null,
+                        null,
+                        Map.of("value", "회복 중", "active", true),
+                        List.of(),
+                        CharacterFactTemporalScope.PRESENT,
+                        context.contextToken()
+                )
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID));
+    }
+
+    @Test
+    @DisplayName("Worker가 proposal만 비활성 STATUS로 바꿔도 현재 snapshot 반영을 거절한다")
+    void rejectsInactiveStatusProposalUpsert() {
+        SettingCandidate candidate = prepareCandidate(
+                "status.회복_중",
+                "회복 중",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode()
+                        .put("value", "회복 중")
+                        .put("active", true),
+                schema("statuses.status", "status.*", CharacterFactType.STATUS, SettingValueType.JSON)
+        );
+        WorkerCharacterFactComparisonContextResponse context = claimAndGetContext(candidate);
+
+        assertThatThrownBy(() -> service.completeCharacterFactComparison(
+                analysisJobId,
+                candidate.getId(),
+                leaseToken,
+                completeRequest(
+                        CharacterFactOperation.ADD,
+                        null,
+                        null,
+                        Map.of("value", "회복 중", "active", false),
+                        List.of(),
+                        CharacterFactTemporalScope.PRESENT,
+                        context.contextToken()
+                )
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID));
+    }
+
+    @Test
     @DisplayName("동일한 현재 STATUS의 종료 제안은 값 없이 정확한 slot을 대상으로 완료할 수 있다")
     void completesSameStatusSlotRemoval() {
         var statuses = objectMapper.createObjectNode().set("status.부상", value("부상"));
@@ -691,8 +852,225 @@ class CharacterFactComparisonWorkerServiceImplTest {
 
         assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.COMPLETED);
         assertThat(candidate.getSuggestedOperation()).isEqualTo(CharacterFactOperation.REMOVE);
+        assertThat(candidate.getComparisonTargetFactType()).isEqualTo(CharacterFactType.STATUS);
+        assertThat(candidate.getComparisonTargetFactKey()).isEqualTo("status.부상");
+        assertThat(candidate.getRemovedSnapshotEntriesJson()).isEmpty();
         assertThat(candidate.getProposedFactValue()).isNull();
         assertThat(candidate.getProposedValueJson()).isNull();
+    }
+
+    @Test
+    @DisplayName("새 REMOVE 계약은 키가 다른 여러 현재 STATUS를 제거 집합으로 완료한다")
+    void completesCrossKeyMultiStatusRemoval() {
+        var statuses = objectMapper.createObjectNode();
+        statuses.set("status.오른발_부상", value("오른발 부상"));
+        statuses.set("status.마비독", value("마비독 중독"));
+        character.replaceCurrentSnapshots(null, null, null, null, null, null, statuses);
+        SettingCandidate candidate = prepareCandidate(
+                "status.회복_중",
+                "포션 효과로 신체가 빠르게 재생됨",
+                SettingValueType.JSON,
+                value("회복 근거"),
+                schema("statuses.status", "status.*", CharacterFactType.STATUS, SettingValueType.JSON)
+        );
+        WorkerCharacterFactComparisonContextResponse context = claimAndGetContext(candidate);
+
+        service.completeCharacterFactComparison(
+                analysisJobId,
+                candidate.getId(),
+                leaseToken,
+                completeRequest(
+                        CharacterFactOperation.REMOVE,
+                        null,
+                        null,
+                        null,
+                        List.of(
+                                new WorkerCharacterFactComparisonCompleteRequest.SnapshotEntry(
+                                        CharacterFactType.STATUS,
+                                        "status.오른발_부상"
+                                ),
+                                new WorkerCharacterFactComparisonCompleteRequest.SnapshotEntry(
+                                        CharacterFactType.STATUS,
+                                        "status.마비독"
+                                )
+                        ),
+                        CharacterFactTemporalScope.PRESENT,
+                        context.contextToken()
+                )
+        );
+
+        assertThat(candidate.getComparisonTargetFactType()).isNull();
+        assertThat(candidate.getComparisonTargetFactKey()).isNull();
+        assertThat(candidate.getRemovedSnapshotEntriesJson()).hasSize(2);
+        assertThat(candidate.getRemovedSnapshotEntriesJson())
+                .extracting(node -> node.path("factKey").asText())
+                .containsExactly("status.오른발_부상", "status.마비독");
+    }
+
+    @Test
+    @DisplayName("REMOVE의 legacy target과 같은 제거 entry는 한 slot으로 정규화한다")
+    void deduplicatesLegacyTargetAndRemovalEntry() {
+        character.replaceCurrentSnapshots(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                objectMapper.createObjectNode().set("status.부상", value("부상"))
+        );
+        SettingCandidate candidate = prepareCandidate(
+                "status.부상",
+                "부상이 완전히 회복됨",
+                SettingValueType.JSON,
+                value("회복됨"),
+                schema("statuses.status", "status.*", CharacterFactType.STATUS, SettingValueType.JSON)
+        );
+        WorkerCharacterFactComparisonContextResponse context = claimAndGetContext(candidate);
+
+        service.completeCharacterFactComparison(
+                analysisJobId,
+                candidate.getId(),
+                leaseToken,
+                completeRequest(
+                        CharacterFactOperation.REMOVE,
+                        CharacterFactType.STATUS,
+                        "status.부상",
+                        null,
+                        List.of(new WorkerCharacterFactComparisonCompleteRequest.SnapshotEntry(
+                                CharacterFactType.STATUS,
+                                "status.부상"
+                        )),
+                        CharacterFactTemporalScope.PRESENT,
+                        context.contextToken()
+                )
+        );
+
+        assertThat(candidate.getComparisonTargetFactType()).isNull();
+        assertThat(candidate.getComparisonTargetFactKey()).isNull();
+        assertThat(candidate.getRemovedSnapshotEntriesJson()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("REMOVE의 legacy target과 다른 제거 entry는 순서가 보존된 신규 union shape로 저장한다")
+    void normalizesHybridRemoveToOrderedUnionShape() {
+        var statuses = objectMapper.createObjectNode();
+        statuses.set("status.오른발_부상", value("오른발 부상"));
+        statuses.set("status.마비독", value("마비독 중독"));
+        character.replaceCurrentSnapshots(null, null, null, null, null, null, statuses);
+        SettingCandidate candidate = prepareCandidate(
+                "status.오른발_부상",
+                "포션으로 부상과 마비독이 함께 해소됨",
+                SettingValueType.JSON,
+                value("회복됨"),
+                schema("statuses.status", "status.*", CharacterFactType.STATUS, SettingValueType.JSON)
+        );
+        WorkerCharacterFactComparisonContextResponse context = claimAndGetContext(candidate);
+
+        service.completeCharacterFactComparison(
+                analysisJobId,
+                candidate.getId(),
+                leaseToken,
+                completeRequest(
+                        CharacterFactOperation.REMOVE,
+                        CharacterFactType.STATUS,
+                        "status.오른발_부상",
+                        null,
+                        List.of(new WorkerCharacterFactComparisonCompleteRequest.SnapshotEntry(
+                                CharacterFactType.STATUS,
+                                "status.마비독"
+                        )),
+                        CharacterFactTemporalScope.PRESENT,
+                        context.contextToken()
+                )
+        );
+
+        assertThat(candidate.getComparisonTargetFactType()).isNull();
+        assertThat(candidate.getComparisonTargetFactKey()).isNull();
+        assertThat(candidate.getRemovedSnapshotEntriesJson())
+                .extracting(node -> node.path("factKey").asText())
+                .containsExactly("status.오른발_부상", "status.마비독");
+    }
+
+    @Test
+    @DisplayName("REMOVE는 target과 제거 entry를 합친 집합이 비어 있으면 거절한다")
+    void rejectsRemoveWithoutAnyRemovalTarget() {
+        character.replaceCurrentSnapshots(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                objectMapper.createObjectNode().set("status.부상", value("부상"))
+        );
+        SettingCandidate candidate = prepareCandidate(
+                "status.회복_중",
+                "회복 중",
+                SettingValueType.JSON,
+                value("회복 중"),
+                schema("statuses.status", "status.*", CharacterFactType.STATUS, SettingValueType.JSON)
+        );
+        WorkerCharacterFactComparisonContextResponse context = claimAndGetContext(candidate);
+
+        assertThatThrownBy(() -> service.completeCharacterFactComparison(
+                analysisJobId,
+                candidate.getId(),
+                leaseToken,
+                completeRequest(
+                        CharacterFactOperation.REMOVE,
+                        null,
+                        null,
+                        null,
+                        List.of(),
+                        CharacterFactTemporalScope.PRESENT,
+                        context.contextToken()
+                )
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID));
+    }
+
+    @Test
+    @DisplayName("REMOVE는 PRESENT가 아닌 종료 제안을 거절한다")
+    void rejectsNonPresentRemove() {
+        character.replaceCurrentSnapshots(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                objectMapper.createObjectNode().set("status.부상", value("부상"))
+        );
+        SettingCandidate candidate = prepareCandidate(
+                "status.회복_중",
+                "과거에 회복했음",
+                SettingValueType.JSON,
+                value("과거 회복"),
+                schema("statuses.status", "status.*", CharacterFactType.STATUS, SettingValueType.JSON)
+        );
+        WorkerCharacterFactComparisonContextResponse context = claimAndGetContext(candidate);
+
+        assertThatThrownBy(() -> service.completeCharacterFactComparison(
+                analysisJobId,
+                candidate.getId(),
+                leaseToken,
+                completeRequest(
+                        CharacterFactOperation.REMOVE,
+                        null,
+                        null,
+                        null,
+                        List.of(new WorkerCharacterFactComparisonCompleteRequest.SnapshotEntry(
+                                CharacterFactType.STATUS,
+                                "status.부상"
+                        )),
+                        CharacterFactTemporalScope.PAST,
+                        context.contextToken()
+                )
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID));
     }
 
     @Test

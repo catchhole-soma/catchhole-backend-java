@@ -150,6 +150,43 @@ class CharacterSettingValueValidatorTest {
     }
 
     @Test
+    @DisplayName("STATUS active 속성은 JSON boolean만 허용한다")
+    void statusCandidateRejectsTextualActiveFlag() {
+        SettingCandidate candidate = candidate(
+                "회복됨",
+                JsonNodeFactory.instance.objectNode()
+                        .put("value", "회복됨")
+                        .put("active", "false")
+        );
+
+        SettingCandidateValueValidation result = validator.evaluateCandidate(
+                candidate,
+                CharacterFactType.STATUS,
+                SettingValueType.JSON
+        );
+
+        assertThat(result.status()).isEqualTo(SettingCandidateValueValidationStatus.INVALID);
+        assertThat(result.errorCode()).isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_VALUE_JSON_INVALID);
+    }
+
+    @Test
+    @DisplayName("STATUS proposal도 문자열 active 값을 거절한다")
+    void statusProposalRejectsTextualActiveFlag() {
+        ObjectNode proposal = JsonNodeFactory.instance.objectNode()
+                .put("value", "회복됨")
+                .put("active", "false");
+
+        assertThatThrownBy(() -> validator.validateProposal(
+                proposal,
+                "회복됨",
+                CharacterFactType.STATUS,
+                SettingValueType.JSON
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_VALUE_JSON_INVALID));
+    }
+
+    @Test
     @DisplayName("NUMBER 구조화 값은 숫자 노드여야 한다")
     void numberCandidateRejectsTextualValueJson() {
         SettingCandidate candidate = candidate(

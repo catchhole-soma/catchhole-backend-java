@@ -3,8 +3,10 @@ package org.monitoring.catchholebackend.domain.character.mapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
@@ -144,8 +146,7 @@ public class SettingCandidateMapper {
         boolean hasUpsert = operation == CharacterFactOperation.ADD
                 || operation == CharacterFactOperation.UPDATE
                 || operation == CharacterFactOperation.MERGE;
-        boolean removesTarget = operation == CharacterFactOperation.REMOVE;
-        if (!hasUpsert && !removesTarget
+        if (!hasUpsert && operation != CharacterFactOperation.REMOVE
                 && (removals == null || !removals.isArray() || removals.isEmpty())) {
             return List.of();
         }
@@ -169,13 +170,29 @@ public class SettingCandidateMapper {
                     toJsonValue(candidate.getProposedValueJson())
             ));
         }
-        if (removesTarget
+        Set<CharacterSnapshotSlot> removalSlots = new LinkedHashSet<>();
+        if (operation == CharacterFactOperation.REMOVE
                 && candidate.getComparisonTargetFactType() != null
                 && candidate.getComparisonTargetFactKey() != null) {
-            CharacterSnapshotSlot slot = new CharacterSnapshotSlot(
+            removalSlots.add(new CharacterSnapshotSlot(
                     candidate.getComparisonTargetFactType(),
                     candidate.getComparisonTargetFactKey()
-            );
+            ));
+        }
+        if (removals != null && removals.isArray()) {
+            for (JsonNode removal : removals) {
+                try {
+                    CharacterSnapshotSlot slot = new CharacterSnapshotSlot(
+                            CharacterFactType.valueOf(removal.path("factType").asText()),
+                            removal.path("factKey").asText()
+                    );
+                    removalSlots.add(slot);
+                } catch (IllegalArgumentException ignored) {
+                    // 과거 비정상 원본 비교 JSON은 응답 전체를 깨뜨리지 않고 변경 미리보기에서만 제외한다.
+                }
+            }
+        }
+        for (CharacterSnapshotSlot slot : removalSlots) {
             CharacterSnapshotEntry before = snapshot.get(slot);
             changes.add(new SettingCandidateSnapshotChangeResponse(
                     CharacterSnapshotAction.REMOVE,
@@ -186,28 +203,6 @@ public class SettingCandidateMapper {
                     null,
                     null
             ));
-        }
-        if (removals != null && removals.isArray()) {
-            for (JsonNode removal : removals) {
-                try {
-                    CharacterSnapshotSlot slot = new CharacterSnapshotSlot(
-                            CharacterFactType.valueOf(removal.path("factType").asText()),
-                            removal.path("factKey").asText()
-                    );
-                    CharacterSnapshotEntry before = snapshot.get(slot);
-                    changes.add(new SettingCandidateSnapshotChangeResponse(
-                            CharacterSnapshotAction.REMOVE,
-                            slot.factType(),
-                            slot.factKey(),
-                            before == null ? null : before.factValue(),
-                            before == null ? null : toJsonValue(before.valueJson()),
-                            null,
-                            null
-                    ));
-                } catch (IllegalArgumentException ignored) {
-                    // 과거 비정상 원본 비교 JSON은 응답 전체를 깨뜨리지 않고 변경 미리보기에서만 제외한다.
-                }
-            }
         }
         return List.copyOf(changes);
     }

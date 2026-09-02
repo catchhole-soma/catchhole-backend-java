@@ -7,6 +7,8 @@ import org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshot
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface CharacterSnapshotSourceRepository extends JpaRepository<CharacterSnapshotSource, UUID> {
 
@@ -20,6 +22,19 @@ public interface CharacterSnapshotSourceRepository extends JpaRepository<Charact
             UUID characterId
     );
 
+    @EntityGraph(attributePaths = {"workCharacter", "sourceFact"})
+    @Query("""
+            select source
+            from CharacterSnapshotSource source
+            where source.workCharacter.id in :characterIds
+              and source.factType = :factType
+            order by source.workCharacter.id, source.factKey, source.sourceOrder
+            """)
+    List<CharacterSnapshotSource> findAllByCharacterIdsAndFactType(
+            @Param("characterIds") Collection<UUID> characterIds,
+            @Param("factType") CharacterFactType factType
+    );
+
     @EntityGraph(attributePaths = {
             "sourceFact",
             "sourceFact.settingCandidate",
@@ -30,6 +45,12 @@ public interface CharacterSnapshotSourceRepository extends JpaRepository<Charact
             UUID characterId,
             CharacterFactType factType,
             String factKey
+    );
+
+    List<CharacterSnapshotSource> findAllByWorkCharacterIdAndFactTypeAndFactKeyIn(
+            UUID characterId,
+            CharacterFactType factType,
+            Collection<String> factKeys
     );
 
     boolean existsBySourceFactId(UUID sourceFactId);

@@ -199,6 +199,9 @@ public class CharacterSettingValueValidator {
             }
             String key = rawKey.trim();
             JsonNode propertyValue = entry.getValue();
+            boolean invalidStatusActive = factType == CharacterFactType.STATUS
+                    && rawKey.equals("active")
+                    && !propertyValue.isBoolean();
             boolean invalidTextValue = propertyValue.isTextual()
                     && (propertyValue.asText().isEmpty()
                     || !propertyValue.asText().equals(propertyValue.asText().trim()));
@@ -207,6 +210,7 @@ public class CharacterSettingValueValidator {
                     || !rawKey.equals(key)
                     || key.equals("value")
                     || !keys.add(key)
+                    || invalidStatusActive
                     || invalidTextValue) {
                 throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_VALUE_JSON_INVALID);
             }

@@ -3,6 +3,8 @@ package org.monitoring.catchholebackend.domain.character.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -72,24 +74,28 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             SettingCandidate candidate,
             CharacterFactConfirmApplicationMode applicationMode
     ) {
-        promote(candidate, applicationMode, new HashSet<>());
+        promote(candidate, applicationMode, new HashSet<>(), Map.of());
     }
 
     @Override
     @Transactional
     public void promoteGroup(List<SettingCandidateGroupPromotion> promotions) {
         Set<UUID> versionedCharacterIds = new HashSet<>();
+        Map<UUID, Long> initialSnapshotVersions = captureInitialSnapshotVersions(promotions);
+        validateGroupRemovalSnapshotVersions(promotions, initialSnapshotVersions);
         promotions.forEach(promotion -> promote(
                 promotion.candidate(),
                 promotion.applicationMode(),
-                versionedCharacterIds
+                versionedCharacterIds,
+                initialSnapshotVersions
         ));
     }
 
     private void promote(
             SettingCandidate candidate,
             CharacterFactConfirmApplicationMode applicationMode,
-            Set<UUID> versionedCharacterIds
+            Set<UUID> versionedCharacterIds,
+            Map<UUID, Long> initialSnapshotVersions
     ) {
         if (candidate.isCharacterDiscovery()) {
             ResolvedCharacter resolved = resolveCharacterForPromotion(candidate);
@@ -103,8 +109,24 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                 schemaMatch.matchedSchema().getFactType(),
                 schemaMatch.matchedSchema().getValueType()
         );
+        validateActiveStatusBeforeCharacterResolution(
+                candidate,
+                schemaMatch.matchedSchema().getFactType(),
+                applicationMode
+        );
         ResolvedCharacter resolved = resolveCharacterForPromotion(candidate);
-        promoteSetting(candidate, applicationMode, schemaMatch, resolved, versionedCharacterIds);
+        long removalSnapshotVersion = initialSnapshotVersions.getOrDefault(
+                resolved.character().getId(),
+                resolved.character().getSnapshotVersion()
+        );
+        promoteSetting(
+                candidate,
+                applicationMode,
+                schemaMatch,
+                resolved,
+                versionedCharacterIds,
+                removalSnapshotVersion
+        );
     }
 
     @Override
@@ -134,14 +156,19 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         }
 
         promotions.stream()
-                .map(SettingCandidateGroupPromotion::candidate)
-                .filter(candidate -> !candidate.isCharacterDiscovery())
-                .forEach(candidate -> {
+                .filter(promotion -> !promotion.candidate().isCharacterDiscovery())
+                .forEach(promotion -> {
+                    SettingCandidate candidate = promotion.candidate();
                     SettingCandidateSchemaMatch schemaMatch = resolveSchema(candidate);
                     valueValidator.validateCandidate(
                             candidate,
                             schemaMatch.matchedSchema().getFactType(),
                             schemaMatch.matchedSchema().getValueType()
+                    );
+                    validateActiveStatusBeforeCharacterResolution(
+                            candidate,
+                            schemaMatch.matchedSchema().getFactType(),
+                            promotion.applicationMode()
                     );
                 });
 
@@ -162,7 +189,8 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                         promotion.applicationMode(),
                         resolveSchema(candidate),
                         resolved,
-                        versionedCharacterIds
+                        versionedCharacterIds,
+                        character.getSnapshotVersion()
                 );
             }
         }
@@ -175,7 +203,8 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             CharacterFactConfirmApplicationMode applicationMode,
             SettingCandidateSchemaMatch schemaMatch,
             ResolvedCharacter resolved,
-            Set<UUID> versionedCharacterIds
+            Set<UUID> versionedCharacterIds,
+            long removalSnapshotVersion
     ) {
         CharacterFactType factType = schemaMatch.matchedSchema().getFactType();
         String factKey = schemaMatch.factKey();
@@ -193,6 +222,19 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                 ? CharacterFactOperation.ADD
                 : candidate.getSuggestedOperation();
         validatePromotionPolicy(candidate, resolved, operation, applicationMode);
+        validateRemovalSnapshotVersion(
+                candidate,
+                operation,
+                applicationMode,
+                removalSnapshotVersion
+        );
+        validateActiveStatusPromotion(
+                candidate,
+                factType,
+                operation,
+                applicationMode,
+                resolved.newlyCreated() ? normalizedCandidateValue : candidate.getProposedValueJson()
+        );
 
         CharacterFact newFact = characterFactRepository.saveAndFlush(
                 promotionMapper.toCharacterFact(
@@ -209,19 +251,22 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         }
 
         CharacterSnapshotSlot targetSlot = new CharacterSnapshotSlot(factType, factKey);
-        validateComparedTarget(candidate, resolved, targetSlot);
         Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshot = snapshotAccessor.read(
                 character,
                 snapshotSourceManager.findSourceFactsBySlot(character)
         );
         if (operation == CharacterFactOperation.REMOVE) {
-            if (factType != CharacterFactType.STATUS || snapshot.remove(targetSlot) == null) {
-                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
-            }
-            snapshotSourceManager.removeSources(character, targetSlot);
+            List<CharacterSnapshotSlot> removedSlots = resolveRemovalSlotsForPromotion(
+                    candidate,
+                    snapshot,
+                    targetSlot
+            );
+            removedSlots.forEach(snapshot::remove);
+            snapshotSourceManager.removeSources(character, removedSlots);
             replaceSnapshotOncePerCharacter(character, snapshot, versionedCharacterIds);
             return;
         }
+        validateComparedTarget(candidate, resolved, targetSlot);
 
         JsonNode proposedValue = resolved.newlyCreated()
                 ? normalizedCandidateValue
@@ -243,10 +288,8 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         List<CharacterSnapshotSlot> removedSlots = resolved.newlyCreated()
                 ? List.of()
                 : parseRemovedSlots(candidate.getRemovedSnapshotEntriesJson(), snapshot, targetSlot);
-        removedSlots.forEach(slot -> {
-            snapshot.remove(slot);
-            snapshotSourceManager.removeSources(character, slot);
-        });
+        removedSlots.forEach(snapshot::remove);
+        snapshotSourceManager.removeSources(character, removedSlots);
 
         snapshot.put(
                 targetSlot,
@@ -316,6 +359,105 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         }
     }
 
+    private void validateRemovalSnapshotVersion(
+            SettingCandidate candidate,
+            CharacterFactOperation operation,
+            CharacterFactConfirmApplicationMode applicationMode,
+            long expectedSnapshotVersion
+    ) {
+        if (applicationMode == CharacterFactConfirmApplicationMode.HISTORY_ONLY) {
+            return;
+        }
+        JsonNode removals = candidate.getRemovedSnapshotEntriesJson();
+        boolean removesSnapshot = operation == CharacterFactOperation.REMOVE
+                || removals != null && removals.isArray() && !removals.isEmpty();
+        if (removesSnapshot
+                && !Objects.equals(
+                candidate.getComparisonBaseSnapshotVersion(),
+                expectedSnapshotVersion
+        )) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE);
+        }
+    }
+
+    private Map<UUID, Long> captureInitialSnapshotVersions(
+            List<SettingCandidateGroupPromotion> promotions
+    ) {
+        Map<UUID, Long> versions = new LinkedHashMap<>();
+        for (SettingCandidateGroupPromotion promotion : promotions) {
+            SettingCandidate candidate = promotion.candidate();
+            UUID characterId = candidate.getMatchedCharacterId();
+            if (characterId == null || versions.containsKey(characterId)) {
+                continue;
+            }
+            WorkCharacter character = getMatchedCharacter(candidate);
+            versions.put(characterId, character.getSnapshotVersion());
+        }
+        return versions;
+    }
+
+    private void validateGroupRemovalSnapshotVersions(
+            List<SettingCandidateGroupPromotion> promotions,
+            Map<UUID, Long> initialSnapshotVersions
+    ) {
+        for (SettingCandidateGroupPromotion promotion : promotions) {
+            if (promotion.applicationMode() == CharacterFactConfirmApplicationMode.HISTORY_ONLY) {
+                continue;
+            }
+            SettingCandidate candidate = promotion.candidate();
+            JsonNode removals = candidate.getRemovedSnapshotEntriesJson();
+            boolean removesSnapshot = candidate.getSuggestedOperation() == CharacterFactOperation.REMOVE
+                    || removals != null && removals.isArray() && !removals.isEmpty();
+            Long initialVersion = initialSnapshotVersions.get(candidate.getMatchedCharacterId());
+            if (removesSnapshot
+                    && (initialVersion == null
+                    || !Objects.equals(candidate.getComparisonBaseSnapshotVersion(), initialVersion))) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE);
+            }
+        }
+    }
+
+    private void validateActiveStatusPromotion(
+            SettingCandidate candidate,
+            CharacterFactType factType,
+            CharacterFactOperation operation,
+            CharacterFactConfirmApplicationMode applicationMode,
+            JsonNode proposedValueJson
+    ) {
+        boolean upsertsSnapshot = operation == CharacterFactOperation.ADD
+                || operation == CharacterFactOperation.UPDATE
+                || operation == CharacterFactOperation.MERGE;
+        if (applicationMode != CharacterFactConfirmApplicationMode.HISTORY_ONLY
+                && factType == CharacterFactType.STATUS
+                && upsertsSnapshot
+                && (isExplicitlyInactiveStatus(candidate.getValueJson())
+                || isExplicitlyInactiveStatus(proposedValueJson))) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
+        }
+    }
+
+    private void validateActiveStatusBeforeCharacterResolution(
+            SettingCandidate candidate,
+            CharacterFactType factType,
+            CharacterFactConfirmApplicationMode applicationMode
+    ) {
+        CharacterFactOperation operation = candidate.getMatchedCharacterId() == null
+                ? CharacterFactOperation.ADD
+                : candidate.getSuggestedOperation();
+        validateActiveStatusPromotion(
+                candidate,
+                factType,
+                operation,
+                applicationMode,
+                candidate.getProposedValueJson()
+        );
+    }
+
+    private boolean isExplicitlyInactiveStatus(JsonNode valueJson) {
+        JsonNode active = valueJson == null || !valueJson.isObject() ? null : valueJson.get("active");
+        return active != null && active.isBoolean() && !active.booleanValue();
+    }
+
     private void validateComparedTarget(
             SettingCandidate candidate,
             ResolvedCharacter resolved,
@@ -362,6 +504,44 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             }
         }
         return slots;
+    }
+
+    private List<CharacterSnapshotSlot> resolveRemovalSlotsForPromotion(
+            SettingCandidate candidate,
+            Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshot,
+            CharacterSnapshotSlot canonicalSlot
+    ) {
+        if (canonicalSlot.factType() != CharacterFactType.STATUS) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
+        }
+        boolean hasLegacyTargetType = candidate.getComparisonTargetFactType() != null;
+        boolean hasLegacyTargetKey = candidate.getComparisonTargetFactKey() != null
+                && !candidate.getComparisonTargetFactKey().isBlank();
+        if (hasLegacyTargetType != hasLegacyTargetKey) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_TARGET_INVALID);
+        }
+
+        Set<CharacterSnapshotSlot> removedSlots = new LinkedHashSet<>();
+        if (hasLegacyTargetType) {
+            CharacterSnapshotSlot legacyTarget = new CharacterSnapshotSlot(
+                    candidate.getComparisonTargetFactType(),
+                    candidate.getComparisonTargetFactKey().trim()
+            );
+            if (!legacyTarget.equals(canonicalSlot)) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_TARGET_INVALID);
+            }
+            removedSlots.add(legacyTarget);
+        }
+        removedSlots.addAll(parseRemovedSlots(
+                candidate.getRemovedSnapshotEntriesJson(),
+                snapshot,
+                null
+        ));
+        if (removedSlots.isEmpty()
+                || removedSlots.stream().anyMatch(slot -> !snapshot.containsKey(slot))) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
+        }
+        return List.copyOf(removedSlots);
     }
 
     private void validateMergePolicy(CharacterSettingMergePolicy mergePolicy) {

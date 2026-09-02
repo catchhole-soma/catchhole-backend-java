@@ -17,10 +17,10 @@ public record WorkerCharacterFactComparisonCompleteRequest(
         @NotNull(message = "캐릭터 설정 제안 방식은 필수입니다.")
         CharacterFactOperation operation,
 
-        @Schema(nullable = true)
+        @Schema(description = "UPDATE/MERGE 대상입니다. REMOVE에서는 구버전 Worker 호환용입니다.", nullable = true)
         CharacterFactType targetFactType,
 
-        @Schema(nullable = true)
+        @Schema(description = "UPDATE/MERGE 대상입니다. REMOVE에서는 구버전 Worker 호환용입니다.", nullable = true)
         @Size(max = 150, message = "대상 Fact key는 150자 이하여야 합니다.")
         String targetFactKey,
 
@@ -33,6 +33,7 @@ public record WorkerCharacterFactComparisonCompleteRequest(
         @Valid
         @NotNull(message = "제거할 snapshot 항목 목록은 필수입니다.")
         @Size(max = 30, message = "제거할 snapshot 항목은 최대 30개입니다.")
+        @Schema(description = "현재 snapshot에서 제거할 STATUS 목록. 신규 REMOVE는 한 건 이상 필요합니다.")
         List<@NotNull @Valid SnapshotEntry> removedSnapshotEntries,
 
         @NotNull(message = "시간 범위 판단은 필수입니다.")

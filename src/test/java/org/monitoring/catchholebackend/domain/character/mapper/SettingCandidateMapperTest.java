@@ -2,6 +2,7 @@ package org.monitoring.catchholebackend.domain.character.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
@@ -16,10 +17,15 @@ import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
+import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessor;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSourceManager;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateValueValidation;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
+import org.monitoring.catchholebackend.domain.character.type.CharacterSnapshotAction;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
@@ -362,6 +368,95 @@ class SettingCandidateMapperTest {
 
         assertThat(response.id()).isEqualTo(candidateId);
         assertThat(response.reviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+    }
+
+    @Test
+    @DisplayName("REMOVE 미리보기는 legacy target과 제거 목록의 중복을 한 번만 보여준다")
+    void removePreviewDeduplicatesLegacyTargetAndRemovalEntries() {
+        Work work = work(UUID.randomUUID());
+        var statuses = objectMapper.createObjectNode();
+        statuses.set("status.부상", objectMapper.createObjectNode().put("value", "부상"));
+        statuses.set("status.마비독", objectMapper.createObjectNode().put("value", "마비독"));
+        WorkCharacter character = WorkCharacter.create(
+                work,
+                "아리아",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                statuses,
+                null
+        );
+        UUID characterId = UUID.randomUUID();
+        ReflectionTestUtils.setField(character, "id", characterId);
+        SettingCandidate candidate = SettingCandidate.create(
+                work,
+                null,
+                UUID.randomUUID(),
+                null,
+                SettingEntityType.CHARACTER,
+                "아리아",
+                "아리아",
+                characterId,
+                SettingCandidateMatchStatus.MATCHED,
+                "status.회복_중",
+                "회복이 확인됨",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode().put("value", "회복"),
+                objectMapper.createArrayNode(),
+                new BigDecimal("0.9000"),
+                objectMapper.createObjectNode()
+        );
+        ReflectionTestUtils.setField(candidate, "matchedCharacter", character);
+        candidate.startComparison();
+        candidate.recordComparisonContext(character.getSnapshotVersion(), "preview-context");
+        candidate.completeComparison(
+                CharacterFactOperation.REMOVE,
+                CharacterFactType.STATUS,
+                "status.부상",
+                null,
+                null,
+                objectMapper.createArrayNode()
+                        .add(objectMapper.createObjectNode()
+                                .put("factType", "STATUS")
+                                .put("factKey", "status.부상"))
+                        .add(objectMapper.createObjectNode()
+                                .put("factType", "STATUS")
+                                .put("factKey", "status.마비독")),
+                CharacterFactTemporalScope.PRESENT,
+                "두 상태를 종료",
+                objectMapper.createObjectNode(),
+                java.time.LocalDateTime.now()
+        );
+        CharacterSnapshotSourceManager sourceManager = mock(CharacterSnapshotSourceManager.class);
+        when(sourceManager.findSourceFactsBySlot(character)).thenReturn(Map.of());
+        SettingCandidateMapper previewMapper = new SettingCandidateMapper(
+                new CharacterSnapshotAccessor(),
+                sourceManager
+        );
+
+        SettingCandidateResponse response = previewMapper.toResponse(
+                candidate,
+                true,
+                "status.",
+                SettingCandidateValueValidation.valid()
+        );
+
+        assertThat(response.snapshotChanges())
+                .extracting(change -> change.action(), change -> change.factKey())
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(
+                                CharacterSnapshotAction.REMOVE,
+                                "status.부상"
+                        ),
+                        org.assertj.core.groups.Tuple.tuple(
+                                CharacterSnapshotAction.REMOVE,
+                                "status.마비독"
+                        )
+                );
     }
 
     private Work work(UUID id) {

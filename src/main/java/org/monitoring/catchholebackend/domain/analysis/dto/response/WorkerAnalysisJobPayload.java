@@ -51,7 +51,7 @@ public record WorkerAnalysisJobPayload(
         @Schema(description = "캐릭터 설정 attribute 해석 schema 목록")
         List<WorkerAnalysisCharacterSettingSchemaPayload> characterSettingSchemas,
 
-        @Schema(description = "캐릭터명 매칭에 사용할 기존 캐릭터 목록")
+        @Schema(description = "캐릭터명 매칭과 활성 STATUS 문맥에 사용할 기존 캐릭터 목록")
         List<WorkerAnalysisKnownCharacterPayload> knownCharacters,
 
         @Schema(description = "분석 대상 단일 회차. 출처 회차가 없는 후보 단독 재비교 Job은 null일 수 있습니다.", nullable = true)

@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.persistence.EntityManagerFactory;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -30,9 +31,13 @@ import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenGrantRep
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenUsageRepository;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshotSource;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterSnapshotSourceRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
@@ -70,6 +75,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOper
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSubjectResolutionType;
 import org.monitoring.catchholebackend.global.config.security.SecurityConstant;
+import org.hibernate.SessionFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -171,6 +177,12 @@ class AnalysisJobWorkerControllerIntegrationTest {
     private WorkCharacterRepository workCharacterRepository;
 
     @Autowired
+    private CharacterFactRepository characterFactRepository;
+
+    @Autowired
+    private CharacterSnapshotSourceRepository characterSnapshotSourceRepository;
+
+    @Autowired
     private SettingCandidateRepository settingCandidateRepository;
 
     @Autowired
@@ -178,6 +190,9 @@ class AnalysisJobWorkerControllerIntegrationTest {
 
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     private Member member;
     private Work work;
@@ -205,6 +220,8 @@ class AnalysisJobWorkerControllerIntegrationTest {
         episodeRepository.deleteAll();
         uploadFileRepository.deleteAll();
         uploadBatchRepository.deleteAll();
+        characterSnapshotSourceRepository.deleteAll();
+        characterFactRepository.deleteAll();
         workCharacterRepository.deleteAll();
         characterSettingSchemaRepository.deleteAll();
         workRepository.deleteAll();
@@ -299,6 +316,19 @@ class AnalysisJobWorkerControllerIntegrationTest {
         AnalysisJob secondJob = analysisJobRepository.save(
                 episodeJob(AnalysisJobType.EPISODE_VALIDATION, secondEpisode)
         );
+        var activeStatuses = objectMapper.createObjectNode();
+        activeStatuses.set(
+                "status.마비독",
+                objectMapper.createObjectNode().put("value", "마비독에 중독됨")
+        );
+        activeStatuses.set(
+                "status.오른발_부상",
+                objectMapper.createObjectNode().put("value", "오른발을 심하게 다침")
+        );
+        activeStatuses.set(
+                "time.회복_시점",
+                objectMapper.createObjectNode().put("value", "다음 날")
+        );
         WorkCharacter knownCharacter = workCharacterRepository.save(WorkCharacter.create(
                 work,
                 "아리아",
@@ -309,7 +339,7 @@ class AnalysisJobWorkerControllerIntegrationTest {
                 null,
                 null,
                 null,
-                null,
+                activeStatuses,
                 null
         ));
         WorkCharacter archivedCharacter = WorkCharacter.create(
@@ -411,6 +441,17 @@ class AnalysisJobWorkerControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.knownCharacters", hasSize(1)))
                 .andExpect(jsonPath("$.data.knownCharacters[0].characterId").value(knownCharacter.getId().toString()))
                 .andExpect(jsonPath("$.data.knownCharacters[0].name").value("아리아"))
+                .andExpect(jsonPath("$.data.knownCharacters[0].activeStatuses", hasSize(2)))
+                .andExpect(jsonPath("$.data.knownCharacters[0].activeStatuses[0].factKey")
+                        .value("status.마비독"))
+                .andExpect(jsonPath("$.data.knownCharacters[0].activeStatuses[0].factValue")
+                        .value("마비독에 중독됨"))
+                .andExpect(jsonPath("$.data.knownCharacters[0].activeStatuses[1].factKey")
+                        .value("status.오른발_부상"))
+                .andExpect(jsonPath("$.data.knownCharacters[0].activeStatuses[1].factValue")
+                        .value("오른발을 심하게 다침"))
+                .andExpect(jsonPath("$.data.knownCharacters[0].activeStatuses[0].valueJson").doesNotExist())
+                .andExpect(jsonPath("$.data.knownCharacters[0].activeStatuses[0].sourceFactId").doesNotExist())
                 .andExpect(jsonPath("$.data.episode.episodeId").value(firstEpisode.getId().toString()))
                 .andExpect(jsonPath("$.data.episode.episodeNo").value(1))
                 .andExpect(jsonPath("$.data.episode.title").value("첫 번째 회차"))
@@ -426,6 +467,60 @@ class AnalysisJobWorkerControllerIntegrationTest {
         assertThat(claimedJob.getModelName()).isEqualTo("gpt-4.1-mini");
         assertThat(claimedJob.getCurrentStep()).isEqualTo("원문 청킹");
         assertThat(pendingJob.getStatus()).isEqualTo(AnalysisJobStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("캐릭터 수와 무관하게 활성 STATUS provenance를 고정 쿼리 수로 claim한다")
+    void claimBulkLoadsActiveStatusProvenance() throws Exception {
+        analysisJobRepository.save(episodeJob(AnalysisJobType.SETTING_EXTRACTION, firstEpisode));
+        for (int index = 0; index < 30; index++) {
+            var statuses = objectMapper.createObjectNode();
+            statuses.set(
+                    "status.부상",
+                    objectMapper.createObjectNode().put("description", "legacy raw snapshot")
+            );
+            WorkCharacter character = workCharacterRepository.save(WorkCharacter.create(
+                    work,
+                    "캐릭터-%02d".formatted(index),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    statuses,
+                    null
+            ));
+            CharacterFact fact = characterFactRepository.save(CharacterFact.createManual(
+                    character,
+                    CharacterFactType.STATUS,
+                    "status.부상",
+                    "오른발을 다침-%02d".formatted(index),
+                    objectMapper.createObjectNode().put("description", "legacy raw snapshot")
+            ));
+            characterSnapshotSourceRepository.save(CharacterSnapshotSource.create(
+                    character,
+                    CharacterFactType.STATUS,
+                    "status.부상",
+                    fact,
+                    0
+            ));
+        }
+
+        var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+
+        mockMvc.perform(post(CLAIM_URL)
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(DEFAULT_CLAIM_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.knownCharacters", hasSize(30)))
+                .andExpect(jsonPath("$.data.knownCharacters[0].activeStatuses", hasSize(1)));
+
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(12);
     }
 
     @Test

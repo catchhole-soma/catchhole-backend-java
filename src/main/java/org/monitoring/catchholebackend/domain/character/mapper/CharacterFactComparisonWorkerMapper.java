@@ -54,8 +54,8 @@ public class CharacterFactComparisonWorkerMapper {
                 .filter(JsonNode::isObject)
                 .map(span -> new WorkerCharacterFactComparisonCandidatePayload.EvidenceSpan(
                         textValue(span, "quote"),
-                        integerValue(span, "startOffset"),
-                        integerValue(span, "endOffset")
+                        integerValue(span, "startOffset", "start_offset"),
+                        integerValue(span, "endOffset", "end_offset")
                 ))
                 .toList();
     }
@@ -65,8 +65,13 @@ public class CharacterFactComparisonWorkerMapper {
         return value == null || value.isNull() ? null : value.asText();
     }
 
-    private Integer integerValue(JsonNode node, String fieldName) {
-        JsonNode value = node.get(fieldName);
-        return value == null || !value.isIntegralNumber() ? null : value.asInt();
+    private Integer integerValue(JsonNode node, String... fieldNames) {
+        for (String fieldName : fieldNames) {
+            JsonNode value = node.get(fieldName);
+            if (value != null && value.isIntegralNumber() && value.canConvertToInt()) {
+                return value.intValue();
+            }
+        }
+        return null;
     }
 }

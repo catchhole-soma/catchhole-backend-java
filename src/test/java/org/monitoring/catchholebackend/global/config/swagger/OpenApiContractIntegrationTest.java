@@ -721,6 +721,27 @@ class OpenApiContractIntegrationTest {
     }
 
     @Test
+    @DisplayName("분석 claim 계약은 기존 캐릭터별 활성 STATUS의 최소 문맥을 노출한다")
+    void openApiContractExposesActiveStatusesOnKnownCharacters() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$['components']['schemas']['WorkerAnalysisKnownCharacterPayload']"
+                        + "['properties']['activeStatuses']['type']")
+                        .value("array"))
+                .andExpect(jsonPath("$['components']['schemas']['WorkerAnalysisKnownCharacterPayload']"
+                        + "['properties']['activeStatuses']['items']['$ref']")
+                        .value("#/components/schemas/WorkerAnalysisActiveCharacterStatusPayload"))
+                .andExpect(jsonPath("$['components']['schemas']['WorkerAnalysisActiveCharacterStatusPayload']"
+                        + "['properties']['factKey']").exists())
+                .andExpect(jsonPath("$['components']['schemas']['WorkerAnalysisActiveCharacterStatusPayload']"
+                        + "['properties']['factValue']").exists())
+                .andExpect(jsonPath("$['components']['schemas']['WorkerAnalysisActiveCharacterStatusPayload']"
+                        + "['properties']['valueJson']").doesNotExist())
+                .andExpect(jsonPath("$['components']['schemas']['WorkerAnalysisActiveCharacterStatusPayload']"
+                        + "['properties']['sourceFactId']").doesNotExist());
+    }
+
+    @Test
     @DisplayName("회원가입 계약은 법률 문서 확인과 만 14세 이상 확인을 필수로 받는다")
     void openApiContractRequiresSignupLegalAcknowledgements() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))
