@@ -193,7 +193,7 @@ scope 미확정으로 처리하지 않습니다.
 
 ### Worker 비교 배치
 
-일반 `SETTING_EXTRACTION`의 세계관 비교는 후보별 주체 해소를 먼저 끝낸 뒤, 같은 analysis job·회차·분류·canonical 주체 key·정규화한 원본 `scope_name` 그룹을 하나의 `WorldSettingComparisonBatch`로 claim합니다. Worker는 `C1`, `C2`처럼 배치 안에서만 유효한 후보 ref를 받고, Backend는 배치에 포함된 후보 수와 ref를 잠근 상태로 보존합니다. 동일한 흐름에서 사용자 재비교 Job(`WORLD_SETTING_COMPARISON`)도 후보 하나짜리 배치로 처리하므로 Worker 계약은 단일 후보와 묶음 후보에 동일하게 적용됩니다.
+일반 `SETTING_EXTRACTION`의 세계관 비교는 최대 500개의 후보를 게시하고 후보별 주체 해소를 한 요청으로 원자 저장한 뒤, 같은 analysis job·회차·분류·canonical 주체 key·정규화한 원본 `scope_name` 그룹을 하나의 `WorldSettingComparisonBatch`로 claim합니다. Worker는 `C1`, `C2`처럼 배치 안에서만 유효한 후보 ref를 받고, Backend는 배치에 포함된 후보 수와 ref를 잠근 상태로 보존합니다. 동일한 흐름에서 사용자 재비교 Job(`WORLD_SETTING_COMPARISON`)도 후보 하나짜리 배치로 처리하므로 Worker 계약은 단일 후보와 묶음 후보에 동일하게 적용됩니다.
 
 배치 처리 순서는 `claim-next → context → complete|fail`입니다.
 
@@ -490,7 +490,7 @@ sequenceDiagram
 
 | Method | Path | 역할 |
 | --- | --- | --- |
-| `PUT` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates` | 1차 추출 후보 전체 게시 및 `WORLD_CANDIDATES_PUBLISHED` checkpoint 반영 |
+| `PUT` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates` | 최대 500개의 1차 추출 후보 전체 게시 및 `WORLD_CANDIDATES_PUBLISHED` checkpoint 반영 |
 | `POST` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-comparisons/claim-next` | legacy Worker 호환용 후보 단건 claim |
 | `GET` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-subject-resolutions/pending` | 아직 유효한 canonical 주체가 없는 후보 전체 조회 |
 | `PUT` | `/api/internal/v1/analysis-jobs/{jobId}/world-setting-subject-resolutions` | 후보별 대상 ID 집합을 canonical 주체 해소 결과로 원자 저장 |
