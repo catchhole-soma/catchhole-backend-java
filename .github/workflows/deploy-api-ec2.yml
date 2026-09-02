@@ -8,7 +8,6 @@ on:
       - completed
     branches:
       - main
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,9 +17,15 @@ concurrency:
   group: deploy-api-ec2
   cancel-in-progress: false
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: catchhole-soma/catchhole-backend-java
+
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
 
     env:
@@ -74,7 +79,16 @@ jobs:
 
           API_EC2_DEPLOY_PATH="${API_EC2_DEPLOY_PATH:-/opt/catchhole}"
           API_EC2_DEPLOY_USER="${API_EC2_DEPLOY_USER:-ubuntu}"
-          RAW_BASE="https://raw.githubusercontent.com/catchhole-soma/catchhole-backend-java/main/deploy"
+          DEPLOY_SHA='${{ github.event.workflow_run.head_sha }}'
+
+          if [[ ! "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Publish workflow returned an invalid commit SHA."
+            exit 1
+          fi
+
+          DEPLOY_SHORT_SHA="${DEPLOY_SHA:0:7}"
+          RAW_BASE="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$DEPLOY_SHA/deploy"
+          BACKEND_IMAGE="$REGISTRY/$IMAGE_NAME:sha-$DEPLOY_SHORT_SHA"
 
           cat > /tmp/catchhole-api-deploy.sh <<EOF
           # AWS-RunShellScript executes this block with /bin/sh, so keep it POSIX-compatible.
@@ -83,12 +97,15 @@ jobs:
           DEPLOY_PATH='$API_EC2_DEPLOY_PATH'
           DEPLOY_USER='$API_EC2_DEPLOY_USER'
           RAW_BASE='$RAW_BASE'
+          BACKEND_IMAGE='$BACKEND_IMAGE'
 
           mkdir -p "\$DEPLOY_PATH"
           curl -fsSL "\$RAW_BASE/compose.api.prod.yml" -o "\$DEPLOY_PATH/compose.api.prod.yml"
           curl -fsSL "\$RAW_BASE/Caddyfile" -o "\$DEPLOY_PATH/Caddyfile"
           test -f "\$DEPLOY_PATH/api.env"
-          chown "\$DEPLOY_USER:\$DEPLOY_USER" "\$DEPLOY_PATH/compose.api.prod.yml" "\$DEPLOY_PATH/Caddyfile"
+          grep -q '^BACKEND_IMAGE=' "\$DEPLOY_PATH/api.env"
+          sed -i "s|^BACKEND_IMAGE=.*|BACKEND_IMAGE=\$BACKEND_IMAGE|" "\$DEPLOY_PATH/api.env"
+          chown "\$DEPLOY_USER:\$DEPLOY_USER" "\$DEPLOY_PATH/compose.api.prod.yml" "\$DEPLOY_PATH/Caddyfile" "\$DEPLOY_PATH/api.env"
 
           runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file api.env -f compose.api.prod.yml config --quiet"
           runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file api.env -f compose.api.prod.yml pull"

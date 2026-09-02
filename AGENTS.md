@@ -74,7 +74,7 @@
 - 백엔드 컨테이너 이미지는 루트 `Dockerfile`에서 빌드한다.
 - Dockerfile은 Gradle Wrapper로 `bootJar`를 만드는 JDK 21 빌드 스테이지와 JRE 21 런타임 스테이지를 분리한다. 런타임 컨테이너는 non-root 사용자로 실행한다.
 - 운영 컨테이너는 `SPRING_PROFILES_ACTIVE=prod`와 외부 환경변수로 설정을 주입한다. AWS/S3 자격 증명은 가능하면 EC2 IAM Role을 사용하고, access key를 이미지나 커밋 파일에 넣지 않는다.
-- 운영 Backend, Python AI Worker, PostgreSQL은 `APP_TIMEZONE`을 공통으로 사용하며 기본값은 `Asia/Seoul`이다. 세 writer가 timezone 없는 `TIMESTAMP` 컬럼에 서로 다른 로컬 시각을 저장하지 않도록 JVM `user.timezone`, 컨테이너 `TZ`, PostgreSQL `timezone`을 함께 변경한다.
+- 운영 Backend, Python AI Worker, PostgreSQL은 `APP_TIMEZONE`을 공통으로 사용하며 기본값은 `Asia/Seoul`이다. 세 writer가 timezone 없는 `TIMESTAMP` 컬럼에 서로 다른 로컬 시각을 저장하지 않도록 Amazon RDS 파라미터 그룹의 `timezone`, JVM `user.timezone`, 컨테이너 `TZ`를 함께 변경한다. Backend는 HikariCP `connection-init-sql`, AI Worker는 SQLAlchemy PostgreSQL 연결 옵션으로 새 연결의 session `timezone`을 매번 `TZ`와 동일하게 설정한다.
 - 운영 AI Worker의 신규 청크 임베딩 생성은 `EMBEDDING_GENERATION_ENABLED`로 제어하고 Compose 기본값은 `false`로 둔다. MVP에서 사용하지 않는 API 비용을 차단하되 pgvector schema와 재활성화 경로는 유지하며, `true` 전환은 신규 분석·재분석에만 적용되고 기존 `NULL` 벡터를 자동 backfill하지 않는다.
 - 운영 캐릭터 Fact·세계관 재비교는 같은 AI 이미지를 각각 `--worker-kind character-comparison`, `--worker-kind world-comparison` command로 실행하는 별도 서비스가 담당한다. 기본 `ai-worker`와 claim Job type을 분리하고 재비교 서비스에서는 임베딩 생성을 항상 끈다.
 - 운영 `SETTING_EXTRACTION` 처리량은 `AI_WORKER_PROCESS_COUNT × AI_WORKER_CONCURRENCY`로 계산한다. 기본 운영값은 분석 Worker 5개 × 프로세스당 Job 10개 = 최대 50개다. 50개 Job 부하 테스트에서 Backend·PostgreSQL·LLM 지표가 기준에 미달하면 Worker 5개는 유지하고 프로세스당 Job과 LLM 요청을 5개로 낮춰 최대 25개로 되돌린다. 이 값은 별도 캐릭터·세계관 비교 Worker를 제외한 분석 Job 용량이며 provider 계정 전체의 분산 동시성 상한을 뜻하지 않는다.
@@ -87,6 +87,7 @@
 - 운영 PostgreSQL은 외부 Amazon RDS를 사용한다. API 서버는 HikariCP 최대 10개, 분석 Worker 5개는 SQLAlchemy 연결을 각각 최대 3개, 캐릭터·세계관 비교 Worker는 각각 최대 1개로 제한해 애플리케이션 전체 최대 연결 수를 27개로 유지한다.
 - 로컬과 운영 Redis는 `redis:7.4.10-alpine3.21`로 고정한다. 운영 Redis는 호스트 포트를 열지 않고 비밀번호, 64MB `noeviction`, 비영속 정책을 유지한다. 휴대폰 인증 데이터는 모두 단기 상태이므로 재시작 시 초기화를 허용한다.
 - `main` 브랜치에 push되면 `.github/workflows/publish-image.yml`이 GHCR에 `ghcr.io/catchhole-soma/catchhole-backend-java:main`과 short SHA 태그를 발행한다.
+- API 자동 배포는 `main` push로 시작된 이미지 발행이 성공했을 때만 실행하고, publish run의 commit SHA에 해당하는 배포 파일과 `sha-<short-sha>` 이미지를 함께 사용한다. Workflow가 API 서버의 `api.env` 속 `BACKEND_IMAGE`를 해당 SHA로 갱신한다.
 
 ### Package Structure
 

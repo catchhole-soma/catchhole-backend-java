@@ -15,8 +15,15 @@ API 서버에는 다음 파일을 둔다.
 
 - `compose.api.prod.yml`과 `Caddyfile`은 백엔드 저장소에서 내려받는다.
 - `api.env`는 `deploy/api.env.example`을 기준으로 서버에서 직접 작성하고 커밋하지 않는다.
+- `BACKEND_IMAGE`에는 발행이 성공한 이미지의 `sha-<short-sha>` 태그를 넣는다. 자동 배포는 이 값을 배포 대상 SHA로 갱신한다.
 - 기존 통합 배포의 `.env`, `compose.prod.yml`, PostgreSQL 볼륨은 전환 검증이 끝날 때까지 삭제하지 않는다.
 - 보존 기간에는 `docker compose up`에 `--remove-orphans`를 붙이지 않는다.
+
+## 데이터 전환 결정
+
+NVM-317 최초 전환은 기존 로컬 PostgreSQL 데이터를 Amazon RDS로 이전하지 않고 빈 데이터베이스에서 새로 시작한다. 따라서 전환 후에는 기존 회원, 작품, 회차, 분석 작업과 Amazon S3 객체를 참조하던 메타데이터가 새 서비스에 표시되지 않는다. Amazon S3 객체 자체는 삭제하지 않지만 새 데이터베이스에는 이를 가리키는 기존 행이 없다.
+
+이 전환은 기존 운영 데이터를 보존해야 한다면 진행하면 안 된다. 보존 요구가 생기면 `DATABASE_URL`을 변경하기 전에 배포를 중단하고 `pg_dump`, Amazon RDS 복원, 행 수와 주요 엔티티 검증을 포함한 별도 이전 계획을 먼저 승인받는다. 기존 PostgreSQL 볼륨은 현재의 신규 시작 결정과 무관하게 롤백 보존 기간이 끝날 때까지 유지한다.
 
 ## 네트워크 계약
 
@@ -25,11 +32,63 @@ API 서버에는 다음 파일을 둔다.
 - Amazon RDS의 TCP 5432번 포트는 API 서버 보안 그룹과 Worker 서버 보안 그룹에서 시작된 요청만 허용한다.
 - Redis는 Docker 네트워크 안에서만 접근하며 호스트 포트를 게시하지 않는다.
 
+## API 서버 인스턴스 역할과 메타데이터 설정
+
+Spring Backend 컨테이너는 고정 AWS 액세스 키 대신 API 서버용 Amazon EC2 인스턴스 역할로 Amazon S3에 접근한다. API 서버용 Amazon EC2 인스턴스에 Amazon S3 버킷 읽기·쓰기 권한이 있는 역할을 연결한다.
+
+Docker 브리지 네트워크 안의 컨테이너가 Instance Metadata Service Version 2 응답을 받을 수 있도록 API 서버용 Amazon EC2 인스턴스의 메타데이터 응답 홉 제한을 `2`로 설정한다. Amazon EC2 콘솔에서 인스턴스를 선택한 뒤 **작업 → 인스턴스 설정 → 인스턴스 메타데이터 옵션 수정**에서 다음과 같이 설정한다.
+
+- Instance Metadata Service: 활성화
+- Instance Metadata Service Version 2: 필수
+- 메타데이터 응답 홉 제한: `2`
+
+AWS Command Line Interface로 수정할 때는 아래 인스턴스 ID를 실제 API 서버용 Amazon EC2 인스턴스 ID로 바꾼다.
+
+```bash
+aws ec2 modify-instance-metadata-options \
+  --instance-id replace-with-api-ec2-instance-id \
+  --http-endpoint enabled \
+  --http-tokens required \
+  --http-put-response-hop-limit 2 \
+  --region ap-northeast-2
+```
+
+적용 상태를 확인한다.
+
+```bash
+aws ec2 describe-instances \
+  --instance-ids replace-with-api-ec2-instance-id \
+  --region ap-northeast-2 \
+  --query 'Reservations[0].Instances[0].MetadataOptions.{Endpoint:HttpEndpoint,Tokens:HttpTokens,HopLimit:HttpPutResponseHopLimit,State:State}' \
+  --output table
+```
+
+`Endpoint=enabled`, `Tokens=required`, `HopLimit=2`, `State=applied`여야 한다. 호스트에서의 AWS 자격 증명 검증만으로 대체하지 않고, API 서버에서 Docker 컨테이너를 직접 실행해 역할과 Amazon S3 권한을 확인한다. 버킷 이름은 `api.env`의 `AWS_S3_BUCKET` 실제 값으로 바꾼다.
+
+```bash
+sudo docker run --rm \
+  -e AWS_REGION=ap-northeast-2 \
+  public.ecr.aws/aws-cli/aws-cli:latest \
+  sts get-caller-identity
+```
+
+```bash
+sudo docker run --rm \
+  -e AWS_REGION=ap-northeast-2 \
+  public.ecr.aws/aws-cli/aws-cli:latest \
+  s3api get-bucket-location \
+  --bucket replace-with-s3-bucket-name \
+  --region ap-northeast-2
+```
+
+첫 번째 명령은 API 서버용 인스턴스 역할의 ARN을 포함한 응답을 반환해야 하고, 두 번째 명령은 버킷 위치를 오류 없이 반환해야 한다. `Unable to locate credentials`가 나오면 인스턴스 역할 연결과 메타데이터 홉 제한을 다시 확인한다. `AccessDenied`가 나오면 인스턴스 역할의 Amazon S3 정책을 확인한다.
+
 ## 환경변수 계약
 
 `api.env`의 데이터베이스 항목은 다음 형식을 사용한다.
 
 ```dotenv
+APP_TIMEZONE=Asia/Seoul
 DATABASE_URL=jdbc:postgresql://replace-with-rds-endpoint:5432/catchhole?sslmode=require
 DATABASE_USERNAME=catchhole_admin
 DATABASE_PASSWORD=replace-with-strong-rds-password
@@ -40,6 +99,18 @@ DATABASE_POOL_MINIMUM_IDLE=2
 `INTERNAL_API_KEY`는 Worker 서버의 `SPRING_INTERNAL_API_KEY`와 정확히 같은 값이어야 한다. 실제 데이터베이스 비밀번호, 내부 API 키, JSON Web Token 서명키, 문자 발송 자격 증명은 GitHub와 저장소에 올리지 않는다.
 
 Spring Backend의 HikariCP 최대 연결 수는 10개다. Worker 서버의 SQLAlchemy 연결 수 17개와 합쳐 애플리케이션이 사용하는 최대 데이터베이스 연결 수는 27개다.
+
+## Amazon RDS와 연결 session 시간대
+
+Amazon RDS의 PostgreSQL session 시간대는 `Asia/Seoul`로 고정한다. Amazon RDS 콘솔의 **파라미터 그룹**에서 실제 PostgreSQL 주 버전과 같은 패밀리의 사용자 정의 DB 파라미터 그룹을 만들고 `timezone=Asia/Seoul`로 설정한다. 예를 들어 PostgreSQL 16을 사용하면 `postgres16` 패밀리를 선택한다. 기본 DB 파라미터 그룹은 직접 수정하지 않는다.
+
+생성한 DB 파라미터 그룹을 `catchhole-prod-postgres` Amazon RDS 인스턴스에 연결하고 인스턴스가 `사용 가능` 상태가 될 때까지 기다린다. Amazon RDS 콘솔이 `pending-reboot`를 표시하면 서비스 중단 가능 시간에 재부팅한 뒤 다음 쿼리로 검증한다.
+
+```sql
+SHOW timezone;
+```
+
+결과는 `Asia/Seoul`이어야 한다. 추가로 Spring Backend는 HikariCP가 새 물리 연결을 만들 때마다 `api.env`의 `APP_TIMEZONE`을 PostgreSQL session에 적용한다. Amazon RDS가 시작될 때의 기본값과 애플리케이션이 만든 연결의 값을 둘 다 `Asia/Seoul`로 유지한다.
 
 ## 최초 전환 전 확인
 
@@ -138,11 +209,16 @@ SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';
 SELECT current_database(), current_user, inet_server_addr(), inet_server_port();
 ```
 
+```sql
+SHOW timezone;
+```
+
 확인 기준은 다음과 같다.
 
 - 가장 높은 Flyway 버전이 저장소의 최신 마이그레이션 버전과 같다.
 - `vector` 확장 버전이 `0.8.2`다.
 - 현재 데이터베이스가 `catchhole`이다.
+- PostgreSQL session 시간대가 `Asia/Seoul`이다.
 - 애플리케이션 기동 로그에 Hibernate 스키마 검증 오류가 없다.
 
 PostgreSQL 프롬프트를 종료한다.
@@ -190,7 +266,9 @@ sudo docker compose --env-file .env -f compose.prod.yml stop postgres
 
 ## GitHub Actions 자동 배포
 
-`.github/workflows/deploy-api-ec2.yml`은 `Publish Backend Image`가 `main` 브랜치에서 성공하거나 사용자가 수동 실행할 때 API 서버용 Amazon EC2 인스턴스만 배포한다.
+`.github/workflows/deploy-api-ec2.yml`은 `main` push에서 시작된 `Publish Backend Image`가 성공했을 때만 API 서버용 Amazon EC2 인스턴스를 배포한다. 수동 이미지 발행은 API 배포로 이어지지 않는다.
+
+배포 Workflow는 `Publish Backend Image` 실행의 commit SHA를 기준으로 `compose.api.prod.yml`과 `Caddyfile`을 내려받고 같은 SHA의 `sha-<short-sha>` 이미지 태그를 `api.env`에 기록한다. `main` 태그나 실행 시점의 최신 배포 파일을 사용하지 않으므로 서로 다른 커밋의 이미지와 설정이 섞이지 않는다.
 
 백엔드 저장소의 GitHub Actions 비밀값은 다음 이름을 사용한다.
 
@@ -243,6 +321,8 @@ sudo -u ubuntu docker compose --env-file api.env -f compose.api.prod.yml up -d -
 ```bash
 curl -fsS https://api.catchhole.com/actuator/health
 ```
+
+롤백 원인을 해결한 뒤에는 GitHub Actions에서 복구할 SHA에 대응하는 성공한 `Deploy API EC2` 실행을 다시 실행한다. 이 Workflow는 해당 publish run의 SHA 태그로 `api.env`를 갱신한 뒤 API 서버를 재배포한다. 이후 새로운 `main` 이미지 발행이 성공해도 같은 방식으로 `BACKEND_IMAGE`가 새 SHA로 자동 갱신되므로 롤백 이미지가 다음 자동 배포에 남지 않는다.
 
 ## 종료 신호 전달
 

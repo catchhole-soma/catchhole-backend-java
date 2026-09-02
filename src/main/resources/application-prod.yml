@@ -7,6 +7,7 @@ spring:
     hikari:
       maximum-pool-size: ${DATABASE_POOL_MAXIMUM_SIZE:10}
       minimum-idle: ${DATABASE_POOL_MINIMUM_IDLE:2}
+      connection-init-sql: "SET TIME ZONE '${TZ:Asia/Seoul}'"
   data:
     redis:
       host: ${REDIS_HOST}
