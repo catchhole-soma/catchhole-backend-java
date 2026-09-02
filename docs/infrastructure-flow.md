@@ -13,15 +13,13 @@ AWS Console에서 수동으로 만든 리소스는 저장소만으로 확인할 
 
 ### 1.1 구성 요약
 
-현재 운영 배포 정의는 단일 EC2에서 다음 컨테이너를 Docker Compose로 실행합니다.
+운영 인프라는 API 서버용 Amazon EC2 인스턴스, Worker 서버용 Amazon EC2 인스턴스, Amazon RDS for PostgreSQL로 분리합니다.
 
-- Caddy
-- Spring Backend
-- Python AI 분석 Worker 2개, 세계관 재비교 Worker 1개, 캐릭터 설정 재비교 Worker 1개
-- PostgreSQL 16 + pgvector
-- Redis 7.4.10 (휴대폰 인증 단기 상태, 비영속)
+- API 서버: Caddy, Spring Backend, Redis 7.4.10
+- Worker 서버: Python AI 분석 Worker 5개, 캐릭터 설정 재비교 Worker 1개, 세계관 재비교 Worker 1개
+- 데이터베이스: Amazon RDS for PostgreSQL 16과 pgvector 0.8.2
 
-프론트엔드는 Vercel에 별도로 배포하고, 회차 원문과 업로드 파일은 AWS S3에 저장합니다. 휴대폰 인증 SMS는 SOLAPI로 발송합니다. Backend와 AI 이미지는 GHCR에 발행하며, GitHub Actions는 AWS Systems Manager Run Command를 사용해 EC2의 Compose 배포를 실행합니다.
+저장소에는 역할별 Docker Compose와 GitHub Actions 작업 흐름이 준비되어 있습니다. 실제 운영 전환 전까지 기존 API 서버의 통합 Compose와 로컬 PostgreSQL 볼륨은 롤백 대상으로 보존합니다. 프론트엔드는 Vercel에 별도로 배포하고, 회차 원문과 업로드 파일은 AWS S3에 저장합니다. 휴대폰 인증 SMS는 SOLAPI로 발송합니다.
 
 ```mermaid
 flowchart LR
@@ -38,19 +36,21 @@ flowchart LR
     subgraph AWS["AWS"]
         SSM["Systems Manager<br/>Run Command"]
 
-        subgraph EC2["단일 EC2"]
-            subgraph COMPOSE["Docker Compose"]
-                CADDY["Caddy<br/>HTTPS·Reverse Proxy"]
-                SPRING["Spring Backend"]
-                WORKER["Python AI 분석 Worker × 2<br/>프로세스당 Job 5개"]
-                COMPARISON_WORKER["세계관 재비교 Worker<br/>Job·LLM 동시성 1"]
-                CHARACTER_COMPARISON_WORKER["캐릭터 설정 재비교 Worker<br/>Job·LLM 동시성 1"]
-                POSTGRES["PostgreSQL 16 + pgvector<br/>Docker Volume"]
-                REDIS["Redis 7.4.10<br/>64MB·noeviction·비영속"]
-            end
-
-            ENV["/opt/catchhole/.env<br/>운영 설정·비밀값"]
+        subgraph API_EC2["API 서버용 Amazon EC2"]
+            CADDY["Caddy<br/>HTTPS·Reverse Proxy"]
+            SPRING["Spring Backend<br/>외부 443·내부 8080"]
+            REDIS["Redis 7.4.10<br/>64MB·noeviction·비영속"]
+            API_ENV["/opt/catchhole/api.env"]
         end
+
+        subgraph WORKER_EC2["Worker 서버용 Amazon EC2"]
+            WORKER["Python AI 분석 Worker × 5<br/>프로세스당 Job 10개"]
+            COMPARISON_WORKER["세계관 재비교 Worker<br/>Job·LLM 동시성 1"]
+            CHARACTER_COMPARISON_WORKER["캐릭터 설정 재비교 Worker<br/>Job·LLM 동시성 1"]
+            WORKER_ENV["/opt/catchhole/worker.env"]
+        end
+
+        POSTGRES["Amazon RDS for PostgreSQL 16<br/>pgvector 0.8.2"]
     end
 
     USER -->|"프론트 파일 요청"| VERCEL
@@ -72,28 +72,29 @@ flowchart LR
     COMPARISON_WORKER -->|"Luna 세계관 재비교"| OPENAI
     CHARACTER_COMPARISON_WORKER -->|"Luna 캐릭터 현재 설정 재비교"| OPENAI
 
-    ENV -.-> SPRING
-    ENV -.-> WORKER
-    ENV -.-> COMPARISON_WORKER
-    ENV -.-> CHARACTER_COMPARISON_WORKER
-    ENV -.-> POSTGRES
-    ENV -.-> REDIS
+    API_ENV -.-> SPRING
+    API_ENV -.-> REDIS
+    WORKER_ENV -.-> WORKER
+    WORKER_ENV -.-> COMPARISON_WORKER
+    WORKER_ENV -.-> CHARACTER_COMPARISON_WORKER
 
     REPOSITORIES -->|"Workflow 실행"| ACTIONS
     ACTIONS -->|"Image push"| GHCR
     ACTIONS -->|"SSM SendCommand"| SSM
-    GHCR -->|"Compose image pull"| EC2
-    SSM -->|"Compose 설정 갱신·up·상태 확인"| EC2
+    GHCR -->|"Backend image pull"| API_EC2
+    GHCR -->|"AI image pull"| WORKER_EC2
+    SSM -->|"API Compose 배포"| API_EC2
+    SSM -->|"Worker Compose 배포"| WORKER_EC2
 ```
 
 ### 1.2 사용자 요청 흐름
 
 1. 사용자 브라우저가 Vercel에서 프론트 정적 파일을 받습니다.
 2. 프론트 코드는 `VITE_API_BASE_URL`로 설정된 `https://api.catchhole.com`에 API를 직접 호출합니다.
-3. API 도메인의 DNS가 EC2의 공개 진입점으로 요청을 전달합니다. DNS 제공자가 Route 53인지는 저장소에서 확인할 수 없습니다.
+3. API 도메인의 DNS가 API 서버용 Amazon EC2 인스턴스의 공개 진입점으로 요청을 전달합니다. DNS 제공자가 Route 53인지는 저장소에서 확인할 수 없습니다.
 4. Caddy가 80/443 포트에서 HTTPS 연결을 처리하고 Docker 내부의 `backend:8080`으로 요청을 전달합니다.
 5. Spring Backend가 인증, 작품·회차·업로드·분석 작업 같은 사용자-facing API를 처리합니다.
-6. 구조화된 도메인 데이터와 `AnalysisJob` 상태는 EC2 내부 PostgreSQL 컨테이너에 저장합니다.
+6. 구조화된 도메인 데이터와 `AnalysisJob` 상태는 Amazon RDS for PostgreSQL에 저장합니다.
 7. 회차 원문과 업로드 파일은 S3에 저장하고 DB에는 S3 key, version, hash 같은 메타데이터만 저장합니다.
 
 신규 가입은 Spring이 Redis에서 전화번호·IP·전체 발송량을 원자적으로 제한하고 SOLAPI로 SMS를 한 번 요청한 뒤, 확인된 1회용 가입 토큰에서 전화번호를 조회해 처리합니다. Redis 장애 시 SMS를 보내지 않으며 Redis 재시작 시 진행 중 인증은 초기화됩니다. 기존 로그인·refresh token 흐름은 PostgreSQL을 사용하므로 유지됩니다.
@@ -103,7 +104,7 @@ Vercel은 Backend 요청을 중계하는 서버가 아닙니다. 브라우저가
 ### 1.3 AI 분석 흐름
 
 1. Spring Backend가 회차별 `AnalysisJob`을 `PENDING` 상태로 생성합니다.
-2. Python AI 분석 Worker 2개가 Spring 내부 API를 polling합니다. 각 프로세스는 빈 실행 슬롯을 먼저 확보한 뒤 가장 오래된 `SETTING_EXTRACTION` Job 하나만 claim하고 즉시 Task로 실행합니다.
+2. Worker 서버의 Python AI 분석 Worker 5개가 API 서버 사설 주소의 Spring 내부 API를 polling합니다. 각 프로세스는 10개 실행 슬롯 중 빈 슬롯을 먼저 확보한 뒤 가장 오래된 `SETTING_EXTRACTION` Job 하나만 claim하고 즉시 Task로 실행합니다.
 3. Spring이 Job을 `RUNNING`으로 바꾸고 단일 회차의 S3 메타데이터, 기존 캐릭터, 활성 설정 schema를 Worker에 전달합니다.
 4. Worker가 S3에서 회차 원문을 읽습니다.
 5. Worker가 원문 청킹과 LLM 설정 후보 추출을 수행하고, `EMBEDDING_GENERATION_ENABLED=true`일 때만 embedding을 생성합니다. MVP 기본값은 `false`입니다.
@@ -123,30 +124,33 @@ flowchart LR
     TEST["Backend 또는 AI 테스트"]
     BUILD["Docker 이미지 빌드"]
     GHCR["GHCR<br/>main·short SHA"]
-    DISPATCH["Backend 배포 Workflow 실행<br/>AI는 repository dispatch"]
+    API_DEPLOY["API 서버 배포 작업 흐름"]
+    WORKER_DEPLOY["Worker 서버 배포 작업 흐름"]
     AUTH["AWS 인증<br/>OIDC 또는 access key"]
     SSM["SSM SendCommand"]
-    PULL["EC2에서 Compose pull"]
-    UP["Compose up -d"]
+    API_UP["API 서버에서 Compose up -d"]
+    WORKER_UP["Worker 서버에서 Compose up -d"]
     HEALTH["api.catchhole.com<br/>Actuator health 확인"]
 
     PUSH --> TEST
     TEST --> BUILD
     BUILD --> GHCR
-    GHCR --> DISPATCH
-    DISPATCH --> AUTH
+    GHCR --> API_DEPLOY
+    GHCR --> WORKER_DEPLOY
+    API_DEPLOY --> AUTH
+    WORKER_DEPLOY --> AUTH
     AUTH --> SSM
-    SSM --> PULL
-    PULL --> UP
-    UP --> HEALTH
+    SSM --> API_UP
+    SSM --> WORKER_UP
+    API_UP --> HEALTH
 ```
 
 - Backend와 AI 이미지는 각각의 저장소에서 GHCR에 발행합니다.
-- Backend 이미지 발행 성공 또는 AI 이미지 발행 repository dispatch가 EC2 배포 Workflow를 실행합니다.
+- Backend 이미지 발행 성공은 API 서버 배포 작업 흐름을 실행하고, AI 이미지 발행 성공은 Worker 서버 배포 작업 흐름을 실행합니다.
 - GitHub Actions는 OIDC role을 우선 지원하고, 설정되지 않은 경우 AWS access key를 사용할 수 있습니다.
 - 배포는 SSH가 아니라 SSM `AWS-RunShellScript`로 수행합니다.
-- EC2는 `/opt/catchhole/.env`를 유지하고, Workflow는 Compose와 Caddy 설정을 갱신한 뒤 이미지를 pull합니다.
-- 배포 후 `https://api.catchhole.com/actuator/health`를 최대 150초 동안 확인합니다.
+- API 서버는 `/opt/catchhole/api.env`, Worker 서버는 `/opt/catchhole/worker.env`를 유지합니다. 작업 흐름은 역할별 Compose 파일을 갱신한 뒤 해당 이미지만 배포합니다.
+- API 서버 배포는 내부 8080번 상태와 `https://api.catchhole.com/actuator/health`를 확인합니다. Worker 서버 배포는 설정 추출 Worker 5개와 두 비교 Worker가 실행 중인지 확인합니다.
 
 ### 1.5 비밀값과 AWS 권한
 
@@ -154,9 +158,10 @@ flowchart LR
 
 | 위치 | 저장 대상 |
 | --- | --- |
-| GitHub Secrets | AWS 배포 role/access key, EC2 instance ID, AI 저장소의 Backend dispatch token |
-| EC2 `/opt/catchhole/.env` | DB·Redis 비밀번호, JWT·휴대폰 인증 HMAC secret, SOLAPI API 자격 증명·발신번호, 내부 API key, LLM API key, 운영 이미지·도메인·공통 `APP_TIMEZONE`, AI Worker replica·동시성·종료 grace와 임베딩 생성 flag 설정 |
-| EC2 IAM Role | SSM managed node 등록과 S3 접근 권한 |
+| GitHub Secrets | AWS 배포 역할 또는 액세스 키, 저장소별 API 서버 또는 Worker 서버 Amazon EC2 인스턴스 ID |
+| API 서버 `/opt/catchhole/api.env` | Amazon RDS 접속 정보, Redis 비밀번호, JSON Web Token·휴대폰 인증 해시 비밀값, SOLAPI 자격 증명·발신번호, 내부 API 키, 백엔드 이미지·도메인·시간대 |
+| Worker 서버 `/opt/catchhole/worker.env` | Amazon RDS 접속 정보, 내부 API 사설 주소·키, 언어 모델 API 키·모델, Worker 수·동시성·종료 유예 시간, 인공지능 작업 이미지 |
+| Amazon EC2 인스턴스 역할 | AWS Systems Manager 관리형 노드 등록과 역할별 Amazon S3 접근 권한 |
 
 AWS Secrets Manager 또는 Systems Manager Parameter Store에서 애플리케이션 비밀값을 읽는 구성은 아직 없습니다.
 
@@ -165,11 +170,11 @@ AWS Secrets Manager 또는 Systems Manager Parameter Store에서 애플리케이
 | 구성요소 | 저장소 기준 상태 | 근거 또는 비고 |
 | --- | --- | --- |
 | Vercel Frontend | 사용 중 | Front README와 배포 URL |
-| EC2 | 운영 배포 정의 존재 | `deploy/EC2_DEPLOYMENT.md` |
-| Docker Compose | 구현됨 | `deploy/compose.prod.yml` |
+| Amazon EC2 | API 서버와 Worker 서버 분리 배포 정의 존재 | 백엔드 `deploy/EC2_DEPLOYMENT.md`, 인공지능 작업 저장소 `deploy/WORKER_EC2_DEPLOYMENT.md` |
+| Docker Compose | 역할별 구현됨 | 백엔드 `deploy/compose.api.prod.yml`, 인공지능 작업 저장소 `deploy/compose.worker.prod.yml` |
 | Caddy | 구현됨 | `deploy/Caddyfile` |
-| PostgreSQL + pgvector | 구현됨 | EC2의 Compose 컨테이너와 named volume |
-| Redis | 구현됨 | EC2 Compose 내부 전용, 64MB `noeviction`, 비영속 |
+| PostgreSQL + pgvector | 외부 연결 정의 구현됨 | Amazon RDS PostgreSQL 16, pgvector 0.8.2, 애플리케이션 최대 연결 수 27개 |
+| Redis | 구현됨 | API 서버 Compose 내부 전용, 64MB `noeviction`, 비영속 |
 | SOLAPI | 애플리케이션 연동 구현됨 | 개인 계정·API key·등록 발신번호·선불 잔액을 준비하고 애플리케이션의 일 20건·월 200건 제한을 배포 전 확인 |
 | AWS S3 | 애플리케이션 연동 구현됨 | Spring AWS SDK, Python boto3 |
 | GHCR | 구현됨 | Backend·AI 이미지 발행 Workflow |
@@ -179,7 +184,7 @@ AWS Secrets Manager 또는 Systems Manager Parameter Store에서 애플리케이
 | Route 53 | 확인 필요 | API 도메인은 있으나 DNS 제공자/IaC 없음 |
 | CloudWatch 애플리케이션 관측 | 미구현 | 로그 전송, Dashboard, Alarm 정의 없음 |
 | Secrets Manager / Parameter Store | 미구현 | 운영 비밀값은 EC2 `.env` 사용 |
-| RDS | 미구현 | PostgreSQL은 EC2 Compose 컨테이너 |
+| Amazon RDS | 수동 생성됨, 애플리케이션 전환 검증 필요 | Single-AZ PostgreSQL 16, `db.t4g.small`, gp3 30GiB |
 | S3 VPC Endpoint | 확인 필요 | 저장소에 VPC/IaC 정의 없음 |
 | ECS / ALB / ACM / ECR | 미구현 | 관련 배포 정의 없음 |
 | SQS 분석 큐 | 미구현 | 환경변수 placeholder만 있고 현재는 DB polling |
@@ -187,8 +192,9 @@ AWS Secrets Manager 또는 Systems Manager Parameter Store에서 애플리케이
 
 ### 1.7 현재 구조의 주요 한계
 
-- EC2 한 대의 장애가 Caddy, Backend, Worker, DB 장애로 동시에 이어집니다.
-- PostgreSQL 데이터가 EC2 Docker volume에 있어 자동 백업과 시점 복구가 보장되지 않습니다.
+- API 서버와 Worker 서버가 각각 단일 Amazon EC2 인스턴스라 인스턴스별 고가용성은 없습니다.
+- Amazon RDS가 Single-AZ라 가용 영역 장애에 대한 자동 대기 인스턴스 전환은 없습니다.
+- 새 Amazon RDS와 역할별 Compose로 실제 전환하기 전까지 기존 통합 서버와 로컬 PostgreSQL을 롤백 대상으로 보존해야 합니다.
 - 애플리케이션 로그와 Job 상태를 중앙에서 검색하거나 알람으로 받을 수 없습니다.
 - 운영 비밀값 갱신과 rotation이 EC2 `.env` 수동 관리에 의존합니다.
 - DNS, 네트워크, IAM, S3 정책 같은 인프라 상태가 IaC로 재현되지 않습니다.
@@ -328,7 +334,7 @@ Spring 수평 확장의 전제는 다음과 같습니다.
 
 Worker는 CPU 사용률보다 **Job 대기량과 가장 오래된 대기 시간**을 기준으로 확장합니다.
 
-현재 운영 검증 rollout은 `SETTING_EXTRACTION` 분석 Worker 2개와 캐릭터 Fact·세계관 재비교 Worker 각 1개입니다. 분석 Worker는 프로세스당 Job 슬롯과 LLM 상한을 5개로 사용하므로 설정 추출 Job 최대 동시성은 10입니다. 두 재비교 Worker는 각각 동시성 1로 격리합니다. 50개 Job 부하 테스트에서 Backend·PostgreSQL·LLM 지표가 기준에 미달하면 프로세스 수는 2개로 유지하고 두 상한을 3으로 되돌립니다.
+현재 운영 기본값은 `SETTING_EXTRACTION` 분석 Worker 5개와 캐릭터 Fact·세계관 재비교 Worker 각 1개입니다. 분석 Worker는 프로세스당 Job 슬롯과 LLM 상한을 10개로 사용하므로 설정 추출 Job 최대 동시성은 50입니다. 두 재비교 Worker는 각각 동시성 1로 격리합니다. 50개 Job 부하 테스트에서 Backend·PostgreSQL·LLM 지표가 기준에 미달하면 분석 Worker 5개는 유지하고 두 상한을 5로 낮춰 최대 25개로 되돌립니다.
 
 여러 Worker가 안전하게 실행되는 현재 계약은 다음과 같습니다.
 
@@ -340,7 +346,7 @@ Worker는 CPU 사용률보다 **Job 대기량과 가장 오래된 대기 시간*
 - 동일 회차의 활성 Job 생성과 후보 교체·세계관 게시에는 기존 중복 방지 및 checkpoint 계약을 유지합니다.
 - 종료 신호 뒤에는 신규 claim을 중단하고 내부 180초 동안 실행 중 Job과 heartbeat를 유지합니다. Compose는 210초 뒤 강제 종료합니다.
 
-현재 pessimistic lock 기반 claim은 정확성을 우선해 claim 요청을 짧게 직렬화합니다. 분석 Job 최대 동시성 10의 부하 테스트에서 claim latency와 lock wait를 측정하고, 병목이 확인될 때만 `SKIP LOCKED` 같은 non-blocking claim 또는 외부 queue를 검토합니다.
+현재 pessimistic lock 기반 claim은 정확성을 우선해 claim 요청을 짧게 직렬화합니다. 분석 Job 최대 동시성 50의 부하 테스트에서 claim latency와 lock wait를 측정하고, 병목이 확인될 때만 `SKIP LOCKED` 같은 non-blocking claim 또는 외부 queue를 검토합니다.
 
 Worker 확장 신호 예시는 다음과 같습니다.
 
@@ -454,7 +460,7 @@ CloudWatch를 애플리케이션 모니터링 구현체로 사용하지 않습�
 | --- | --- | --- |
 | Compute Platform | EC2 유지·분리·Auto Scaling과 ECS Fargate 비교 필요 | 부하, 배포 빈도, 가용성, 월 비용, 팀 운영 역량 |
 | 모니터링 | CloudWatch 미사용, 대체 구현체 미정 | 로그·메트릭·trace 요구, 보존 기간, 비용, 알림 채널 |
-| PostgreSQL Hosting | Compute와 분리 확정, 호스팅 방식 미정 | 데이터 중요도, 복구 목표, 비용 |
+| PostgreSQL 고가용성 | Amazon RDS Single-AZ 사용 | 부하 측정값, 복구 목표, Multi-AZ 추가 비용 |
 | DNS | 제공자 확인 필요 | 현재 계정 inventory와 IaC 범위 |
 | 비밀값 저장소 | EC2 `.env` 사용 중 | rotation, 런타임 주입, 비용과 운영 방식 |
 | Container Registry | GHCR 사용 중 | Compute Platform과 IAM 통합 방식 |
@@ -472,11 +478,15 @@ CloudWatch를 애플리케이션 모니터링 구현체로 사용하지 않습�
 
 ## 8. 관련 파일
 
-- `deploy/compose.prod.yml`
+- `deploy/compose.api.prod.yml`
 - `deploy/Caddyfile`
-- `deploy/.env.example`
+- `deploy/api.env.example`
 - `deploy/EC2_DEPLOYMENT.md`
 - `.github/workflows/publish-image.yml`
-- `.github/workflows/deploy-ec2.yml`
+- `.github/workflows/deploy-api-ec2.yml`
+- `../CatchHole-AI/deploy/compose.worker.prod.yml`
+- `../CatchHole-AI/deploy/worker.env.example`
+- `../CatchHole-AI/deploy/WORKER_EC2_DEPLOYMENT.md`
+- `../CatchHole-AI/.github/workflows/deploy-worker-ec2.yml`
 - `docs/analysis-workflow.md`
 - `docs/database-migration.md`

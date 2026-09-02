@@ -83,7 +83,7 @@ flowchart LR
     R --> S
 ```
 
-현재 운영 검증 rollout은 `SETTING_EXTRACTION` Worker 2개 × 프로세스당 동시 Job 5개 = 최대 10개입니다. 한 Job 안의 청크는 순차 처리하며, 50개 Job 부하 테스트가 기준에 미달하면 프로세스당 3개로 되돌립니다. `ai-world-comparison-worker`는 Job·LLM 동시성을 1로 고정합니다. 따라서 10은 설정 추출 Job 용량이고 provider 계정 전체에 걸친 분산 동시 요청 상한은 아닙니다.
+현재 운영 기본값은 `SETTING_EXTRACTION` Worker 5개 × 프로세스당 동시 Job 10개 = 최대 50개입니다. 한 Job 안의 청크는 순차 처리하며, 50개 Job 부하 테스트가 기준에 미달하면 Worker 5개는 유지하고 프로세스당 Job과 LLM 요청을 5개로 낮춰 최대 25개로 되돌립니다. `ai-character-comparison-worker`와 `ai-world-comparison-worker`는 Job·LLM 동시성을 각각 1로 고정합니다. 따라서 50은 설정 추출 Job 용량이고 provider 계정 전체에 걸친 분산 동시 요청 상한은 아닙니다.
 
 LLM은 역할별로 분리합니다. 캐릭터 Fact·세계관 후보의 1차 추출은 `LLM_EXTRACTION_MODEL=gpt-5.6-terra`, 캐릭터·세계관 주체 해소는 `LLM_SUBJECT_RESOLUTION_MODEL=gpt-5.6-luna`, 세계관 비교와 재비교는 `LLM_COMPARISON_MODEL=gpt-5.6-luna`를 사용합니다. 세 값이 비어 있을 때만 `LLM_MODEL`로 fallback하며 프롬프트·Responses API·구조화 응답 계약은 동일하게 유지합니다.
 
