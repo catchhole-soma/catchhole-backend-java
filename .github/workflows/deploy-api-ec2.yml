@@ -1,4 +1,4 @@
-name: Deploy EC2
+name: Deploy API EC2
 
 on:
   workflow_run:
@@ -8,9 +8,6 @@ on:
       - completed
     branches:
       - main
-  repository_dispatch:
-    types:
-      - ai-image-published
   workflow_dispatch:
 
 permissions:
@@ -18,12 +15,12 @@ permissions:
   id-token: write
 
 concurrency:
-  group: deploy-ec2
+  group: deploy-api-ec2
   cancel-in-progress: false
 
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
 
     env:
@@ -31,12 +28,12 @@ jobs:
       AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
       DEPLOY_AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       DEPLOY_AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
-      EC2_DEPLOY_PATH: ${{ secrets.EC2_DEPLOY_PATH }}
-      EC2_DEPLOY_USER: ${{ secrets.EC2_DEPLOY_USER }}
+      API_EC2_INSTANCE_ID: ${{ secrets.API_EC2_INSTANCE_ID }}
+      API_EC2_DEPLOY_PATH: ${{ secrets.API_EC2_DEPLOY_PATH }}
+      API_EC2_DEPLOY_USER: ${{ secrets.API_EC2_DEPLOY_USER }}
 
     steps:
-      - name: Validate deploy settings
+      - name: Validate API deploy settings
         run: |
           set -euo pipefail
 
@@ -45,8 +42,8 @@ jobs:
             exit 1
           fi
 
-          if [ -z "$EC2_INSTANCE_ID" ]; then
-            echo "::error::EC2_INSTANCE_ID secret is required."
+          if [ -z "$API_EC2_INSTANCE_ID" ]; then
+            echo "::error::API_EC2_INSTANCE_ID secret is required."
             exit 1
           fi
 
@@ -61,7 +58,7 @@ jobs:
         with:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
-          role-session-name: catchhole-github-deploy
+          role-session-name: catchhole-api-github-deploy
 
       - name: Configure AWS credentials with access keys
         if: ${{ env.AWS_ROLE_TO_ASSUME == '' }}
@@ -71,66 +68,65 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-      - name: Deploy with SSM
+      - name: Deploy API server with AWS Systems Manager
         run: |
           set -euo pipefail
 
-          EC2_DEPLOY_PATH="${EC2_DEPLOY_PATH:-/opt/catchhole}"
-          EC2_DEPLOY_USER="${EC2_DEPLOY_USER:-ubuntu}"
+          API_EC2_DEPLOY_PATH="${API_EC2_DEPLOY_PATH:-/opt/catchhole}"
+          API_EC2_DEPLOY_USER="${API_EC2_DEPLOY_USER:-ubuntu}"
           RAW_BASE="https://raw.githubusercontent.com/catchhole-soma/catchhole-backend-java/main/deploy"
 
-          cat > /tmp/catchhole-deploy.sh <<EOF
+          cat > /tmp/catchhole-api-deploy.sh <<EOF
           # AWS-RunShellScript executes this block with /bin/sh, so keep it POSIX-compatible.
           set -eu
 
-          DEPLOY_PATH='$EC2_DEPLOY_PATH'
-          DEPLOY_USER='$EC2_DEPLOY_USER'
+          DEPLOY_PATH='$API_EC2_DEPLOY_PATH'
+          DEPLOY_USER='$API_EC2_DEPLOY_USER'
           RAW_BASE='$RAW_BASE'
 
           mkdir -p "\$DEPLOY_PATH"
-          curl -fsSL "\$RAW_BASE/compose.prod.yml" -o "\$DEPLOY_PATH/compose.prod.yml"
+          curl -fsSL "\$RAW_BASE/compose.api.prod.yml" -o "\$DEPLOY_PATH/compose.api.prod.yml"
           curl -fsSL "\$RAW_BASE/Caddyfile" -o "\$DEPLOY_PATH/Caddyfile"
-          test -f "\$DEPLOY_PATH/.env"
-          chown "\$DEPLOY_USER:\$DEPLOY_USER" "\$DEPLOY_PATH/compose.prod.yml" "\$DEPLOY_PATH/Caddyfile"
+          test -f "\$DEPLOY_PATH/api.env"
+          chown "\$DEPLOY_USER:\$DEPLOY_USER" "\$DEPLOY_PATH/compose.api.prod.yml" "\$DEPLOY_PATH/Caddyfile"
 
-          runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file .env -f compose.prod.yml pull"
-          runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file .env -f compose.prod.yml up -d"
-          runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file .env -f compose.prod.yml ps"
+          runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file api.env -f compose.api.prod.yml config --quiet"
+          runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file api.env -f compose.api.prod.yml pull"
+          runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file api.env -f compose.api.prod.yml up -d"
+          runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file api.env -f compose.api.prod.yml ps"
 
           for i in \$(seq 1 30); do
-            if curl -fsS https://api.catchhole.com/actuator/health; then
+            if curl -fsS http://127.0.0.1:8080/actuator/health >/dev/null && curl -fsS https://api.catchhole.com/actuator/health; then
               exit 0
             fi
 
-            echo "Health check failed. Retrying in 5 seconds... (\$i/30)"
+            echo "API health check failed. Retrying in 5 seconds... (\$i/30)"
             sleep 5
           done
 
-          echo "Health check failed after retries. Printing container logs."
-          runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file .env -f compose.prod.yml logs --tail=200 backend"
-          runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file .env -f compose.prod.yml logs --tail=100 caddy"
+          echo "API health check failed after retries. Printing container logs."
+          runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file api.env -f compose.api.prod.yml logs --tail=200 backend"
+          runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file api.env -f compose.api.prod.yml logs --tail=100 caddy"
           exit 1
           EOF
 
-          jq -n --rawfile script /tmp/catchhole-deploy.sh '{commands: [$script]}' > /tmp/ssm-parameters.json
+          jq -n --rawfile script /tmp/catchhole-api-deploy.sh '{commands: [$script]}' > /tmp/ssm-api-parameters.json
 
           COMMAND_ID=$(aws ssm send-command \
-            --instance-ids "$EC2_INSTANCE_ID" \
+            --instance-ids "$API_EC2_INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --comment "Deploy CatchHole compose from GitHub Actions run ${GITHUB_RUN_ID}" \
-            --parameters file:///tmp/ssm-parameters.json \
+            --comment "Deploy CatchHole API from GitHub Actions run ${GITHUB_RUN_ID}" \
+            --parameters file:///tmp/ssm-api-parameters.json \
             --query "Command.CommandId" \
             --output text)
 
-          echo "SSM command id: $COMMAND_ID"
+          echo "AWS Systems Manager command id: $COMMAND_ID"
 
-          # Worker의 180초 내부 drain과 Compose의 210초 stop grace, 이후 health 확인까지
-          # 기본 SSM waiter의 약 100초보다 길 수 있어 최대 15분 동안 terminal 상태를 확인한다.
           WAIT_STATUS=1
           for i in $(seq 1 180); do
             INVOCATION_STATUS=$(aws ssm get-command-invocation \
               --command-id "$COMMAND_ID" \
-              --instance-id "$EC2_INSTANCE_ID" \
+              --instance-id "$API_EC2_INSTANCE_ID" \
               --query 'Status' \
               --output text 2>/dev/null || true)
 
@@ -149,7 +145,7 @@ jobs:
 
           aws ssm get-command-invocation \
             --command-id "$COMMAND_ID" \
-            --instance-id "$EC2_INSTANCE_ID" \
+            --instance-id "$API_EC2_INSTANCE_ID" \
             --query '{Status:Status,StatusDetails:StatusDetails,StandardOutput:StandardOutputContent,StandardError:StandardErrorContent}' \
             --output json
 
