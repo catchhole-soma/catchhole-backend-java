@@ -66,6 +66,7 @@ docs/.obsidian/
 
 ### Environment ###
 .env
+deploy/api.env
 
 ### macOS ###
 .DS_Store
