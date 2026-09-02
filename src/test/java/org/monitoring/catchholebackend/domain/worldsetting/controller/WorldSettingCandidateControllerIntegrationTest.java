@@ -5,6 +5,7 @@ import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -47,7 +48,13 @@ import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSett
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDismissRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingComparisonBatch;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingComparisonDecision;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingComparisonDecisionSource;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingComparisonBatchRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingComparisonDecisionRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingComparisonDecisionSourceRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonReviewReason;
@@ -56,6 +63,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCons
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSubjectResolutionType;
 import org.monitoring.catchholebackend.global.config.security.SecurityConstant;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -105,6 +113,15 @@ class WorldSettingCandidateControllerIntegrationTest {
 
     @Autowired
     private WorldSettingCandidateRepository candidateRepository;
+
+    @Autowired
+    private WorldSettingComparisonBatchRepository comparisonBatchRepository;
+
+    @Autowired
+    private WorldSettingComparisonDecisionRepository comparisonDecisionRepository;
+
+    @Autowired
+    private WorldSettingComparisonDecisionSourceRepository comparisonSourceRepository;
 
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
@@ -222,6 +239,43 @@ class WorldSettingCandidateControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("묶음 비교 후보의 최종 분류와 대상 초안이 검토 목록 그룹에 우선 반영된다")
+    void reviewListGroupsComparisonDecisionCandidateByFinalDraft() throws Exception {
+        RootMoveFixture fixture = rootMoveFixture();
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/world-setting-candidates/decisions",
+                                work.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of(
+                                "batchId", uploadBatch.getId(),
+                                "candidates", List.of(java.util.Map.of(
+                                        "candidateId", fixture.candidate().getId(),
+                                        "operation", "ADD",
+                                        "category", "LOCATION",
+                                        "subjectName", "미궁",
+                                        "scopeName", "신체",
+                                        "settingName", "근력 기댓값",
+                                        "value", "높다"
+                                ))
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groupKey").value("LOCATION|미궁"));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/world-setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString())
+                        .queryParam("reviewStatus", "PENDING_REVIEW"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groups.totalElements").value(1))
+                .andExpect(jsonPath("$.data.groups.content[0].groupKey").value("LOCATION|미궁"))
+                .andExpect(jsonPath("$.data.groups.content[0].category").value("LOCATION"))
+                .andExpect(jsonPath("$.data.groups.content[0].subjectName").value("미궁"));
+    }
+
+    @Test
     @DisplayName("동명 과거 그룹이 모두 확정되어도 개별 수정한 후보는 새 대기 그룹으로 다시 나타난다")
     void updateDecisionCreatesPendingGroupWhenSameNameHistoricalGroupWasConfirmed() throws Exception {
         WorldSettingCandidate historical = completedAddCandidate(
@@ -325,14 +379,36 @@ class WorldSettingCandidateControllerIntegrationTest {
         UUID comparisonJobId = UUID.fromString(claimBody.at("/data/analysisJobId").asText());
         UUID leaseToken = UUID.fromString(claimBody.at("/data/leaseToken").asText());
 
+        mockMvc.perform(put(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}"
+                                        + "/world-setting-subject-resolutions",
+                                comparisonJobId
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(SecurityConstant.WORKER_LEASE_TOKEN_HEADER, leaseToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "resolutions": [{
+                                    "candidateId": "%s",
+                                    "targetWorldSettingIds": []
+                                  }]
+                                }
+                                """.formatted(candidate.getId())))
+                .andExpect(status().isOk());
+
         mockMvc.perform(post(
-                                "/api/internal/v1/analysis-jobs/{analysisJobId}/world-setting-comparisons/claim-next",
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}"
+                                        + "/world-setting-comparison-batches/claim-next",
                                 comparisonJobId
                         )
                         .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
                         .header(SecurityConstant.WORKER_LEASE_TOKEN_HEADER, leaseToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.candidateId").value(candidate.getId().toString()));
+                .andExpect(jsonPath("$.data.candidates.length()").value(1))
+                .andExpect(jsonPath("$.data.candidates[0].candidateRef").value("C1"))
+                .andExpect(jsonPath("$.data.candidates[0].candidateId")
+                        .value(candidate.getId().toString()));
     }
 
     @Test
@@ -617,6 +693,745 @@ class WorldSettingCandidateControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("같은 설정안의 source 전체를 선택하면 한 후보는 적용하고 다른 후보는 제외할 수 있다")
+    void confirmGroupAllowsMixedApplyAndExcludeForSharedDecision() throws Exception {
+        WorldSetting existingTarget = worldSettingRepository.saveAndFlush(WorldSetting.create(
+                work,
+                WorldSettingCategory.MONSTER,
+                "고블린",
+                "서식지",
+                "미궁 1층"
+        ));
+        WorldSettingCandidate trap = WorldSettingCandidate.create(
+                work,
+                episode,
+                analysisJob,
+                WorldSettingCategory.MONSTER,
+                "고블린 떼",
+                "함정 사용",
+                "사냥감의 이동 경로에 함정을 설치한다.",
+                objectMapper.createArrayNode().add(objectMapper.createObjectNode()
+                        .put("quote", "고블린들은 길목마다 함정을 파 두었다.")
+                        .put("startOffset", 10)
+                        .put("endOffset", 31)),
+                new BigDecimal("0.9500"),
+                null
+        );
+        WorldSettingCandidate ambush = WorldSettingCandidate.create(
+                work,
+                episode,
+                analysisJob,
+                WorldSettingCategory.MONSTER,
+                "고블린 무리",
+                "매복 습성",
+                "숨어서 사냥감이 가까워지기를 기다린다.",
+                objectMapper.createArrayNode().add(objectMapper.createObjectNode()
+                        .put("quote", "수풀에 숨은 고블린들이 일제히 튀어나왔다.")
+                        .put("startOffset", 40)
+                        .put("endOffset", 63)),
+                new BigDecimal("0.9500"),
+                null
+        );
+        candidateRepository.saveAllAndFlush(List.of(trap, ambush));
+        JsonNode resolvedTargetIds = objectMapper.createArrayNode()
+                .add(existingTarget.getId().toString());
+        trap.resolveSubject(
+                WorldSettingSubjectResolutionType.EXISTING,
+                "TARGET:" + existingTarget.getId(),
+                existingTarget.getSubjectName(),
+                resolvedTargetIds
+        );
+        ambush.resolveSubject(
+                WorldSettingSubjectResolutionType.EXISTING,
+                "TARGET:" + existingTarget.getId(),
+                existingTarget.getSubjectName(),
+                resolvedTargetIds
+        );
+
+        WorldSettingComparisonBatch comparisonBatch = comparisonBatchRepository.saveAndFlush(
+                WorldSettingComparisonBatch.create(
+                        work,
+                        episode,
+                        analysisJob,
+                        WorldSettingCategory.MONSTER,
+                        null,
+                        WorldSettingSubjectResolutionType.EXISTING,
+                        "TARGET:" + existingTarget.getId(),
+                        existingTarget.getSubjectName(),
+                        resolvedTargetIds,
+                        2
+                )
+        );
+        trap.startComparison(comparisonBatch, "C1");
+        ambush.startComparison(comparisonBatch, "C2");
+        candidateRepository.saveAllAndFlush(List.of(trap, ambush));
+        WorldSettingComparisonDecision sharedDecision = comparisonDecisionRepository.saveAndFlush(
+                WorldSettingComparisonDecision.create(
+                        comparisonBatch,
+                        "D1",
+                        "고블린",
+                        existingTarget,
+                        null,
+                        null,
+                        WorldSettingConsolidationStatus.MERGED,
+                        WorldSettingSuggestedOperation.ADD,
+                        null,
+                        "전투 특성",
+                        "사냥 전술",
+                        null,
+                        "이동 경로에 함정을 설치한 뒤 숨어서 매복한다.",
+                        "두 근거가 고블린의 한 가지 사냥 전술을 보완한다.",
+                        objectMapper.createObjectNode().put("decisionRef", "D1")
+                )
+        );
+        LocalDateTime comparedAt = LocalDateTime.now();
+        trap.completeComparison(sharedDecision, comparedAt);
+        ambush.completeComparison(sharedDecision, comparedAt);
+        candidateRepository.saveAllAndFlush(List.of(trap, ambush));
+        comparisonSourceRepository.saveAllAndFlush(List.of(
+                WorldSettingComparisonDecisionSource.create(
+                        comparisonBatch,
+                        sharedDecision,
+                        trap,
+                        "C1",
+                        0
+                ),
+                WorldSettingComparisonDecisionSource.create(
+                        comparisonBatch,
+                        sharedDecision,
+                        ambush,
+                        "C2",
+                        1
+                )
+        ));
+
+        WorldSettingCandidateGroupConfirmRequest.Decision trapDecision =
+                new WorldSettingCandidateGroupConfirmRequest.Decision(
+                        trap.getId(),
+                        WorldSettingOperation.ADD,
+                        WorldSettingCategory.MONSTER,
+                        "고블린",
+                        "전투 특성",
+                        "사냥 전술",
+                        "이동 경로에 함정을 설치한 뒤 숨어서 매복한다.",
+                        false,
+                        null
+                );
+        WorldSettingCandidateGroupConfirmRequest.Decision ambushDecision =
+                new WorldSettingCandidateGroupConfirmRequest.Decision(
+                        ambush.getId(),
+                        WorldSettingOperation.EXCLUDE,
+                        WorldSettingCategory.MONSTER,
+                        "고블린",
+                        "전투 특성",
+                        "사냥 전술",
+                        "이동 경로에 함정을 설치한 뒤 숨어서 매복한다.",
+                        false,
+                        "매복 근거는 최종 설정에서 제외"
+                );
+
+        WorldSettingCandidateConfirmRequest singleConfirmRequest =
+                new WorldSettingCandidateConfirmRequest(
+                        WorldSettingOperation.ADD,
+                        WorldSettingCategory.MONSTER,
+                        "고블린",
+                        "전투 특성",
+                        "사냥 전술",
+                        "이동 경로에 함정을 설치한 뒤 숨어서 매복한다.",
+                        false,
+                        null
+                );
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/world-setting-candidates/{candidateId}/confirm",
+                                work.getId(),
+                                trap.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(singleConfirmRequest)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code")
+                        .value("WORLD_SETTING_CANDIDATE_SELECTION_INVALID"));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/world-setting-candidates/{candidateId}/dismiss",
+                                work.getId(),
+                                trap.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new WorldSettingCandidateDismissRequest("한 후보만 제외")
+                        )))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code")
+                        .value("WORLD_SETTING_CANDIDATE_SELECTION_INVALID"));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/world-setting-candidates/group-confirm",
+                                work.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(groupConfirmRequest(trapDecision))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code")
+                        .value("WORLD_SETTING_CANDIDATE_SELECTION_INVALID"));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/world-setting-candidates/group-dismiss",
+                                work.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new WorldSettingCandidateGroupDismissRequest(
+                                        uploadBatch.getId(),
+                                        List.of(trap.getId()),
+                                        "한 후보만 제외"
+                                )
+                        )))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code")
+                        .value("WORLD_SETTING_CANDIDATE_SELECTION_INVALID"));
+
+        assertThat(candidateRepository.findAll())
+                .extracting(WorldSettingCandidate::getReviewStatus)
+                .containsOnly(WorldSettingReviewStatus.PENDING_REVIEW);
+
+        WorldSettingCandidateGroupConfirmRequest request = groupConfirmRequest(
+                trapDecision,
+                ambushDecision
+        );
+
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mockMvc.perform(post(
+                                    "/api/v1/works/{workId}/world-setting-candidates/group-confirm",
+                                    work.getId()
+                            )
+                            .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.candidates.length()").value(2))
+                    .andExpect(jsonPath("$.data.candidates[*].reviewStatus")
+                            .value(containsInAnyOrder("CONFIRMED", "DISMISSED")));
+        }
+
+        WorldSetting applied = worldSettingRepository
+                .findByWorkIdAndCategoryAndNormalizedSubjectName(
+                        work.getId(),
+                        WorldSettingCategory.MONSTER,
+                        "고블린"
+                )
+                .orElseThrow();
+        assertThat(applied.getVersion()).isEqualTo(1L);
+        assertThat(applied.getPropertyCount()).isEqualTo(2);
+        assertThat(applied.getPropertyValue("서식지")).isEqualTo("미궁 1층");
+        assertThat(applied.getPropertyValue("전투 특성", "사냥 전술"))
+                .isEqualTo("이동 경로에 함정을 설치한 뒤 숨어서 매복한다.");
+        assertThat(candidateRepository.findById(trap.getId()).orElseThrow()
+                .getAppliedWorldSettingVersion()).isEqualTo(1L);
+        assertThat(candidateRepository.findById(ambush.getId()).orElseThrow()
+                .getAppliedWorldSettingVersion()).isNull();
+        assertThat(comparisonDecisionRepository.count()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("변경하지 않은 묶음 ADD를 확정하면 기존 root와 새 설정을 공통 범위에 원자 반영한다")
+    void groupConfirmAppliesRootMoveAndPreservesRootEvidence() throws Exception {
+        RootMoveFixture fixture = rootMoveFixture();
+        WorldSettingCandidate candidate = fixture.candidate();
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/world-setting-candidates/{candidateId}",
+                                work.getId(),
+                                candidate.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.existingRootPropertyNamesToMove[0]")
+                        .value("생명력"));
+
+        WorldSettingCandidateConfirmRequest singleConfirm =
+                new WorldSettingCandidateConfirmRequest(
+                        WorldSettingOperation.ADD,
+                        WorldSettingCategory.RACE,
+                        "바바리안",
+                        "신체",
+                        "근력 기댓값",
+                        "높다",
+                        false,
+                        null
+                );
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/world-setting-candidates/{candidateId}/confirm",
+                                work.getId(),
+                                candidate.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(singleConfirm)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code")
+                        .value("WORLD_SETTING_CANDIDATE_SELECTION_INVALID"));
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/world-setting-candidates/{candidateId}/dismiss",
+                                work.getId(),
+                                candidate.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new WorldSettingCandidateDismissRequest("단건 제외 시도")
+                        )))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code")
+                        .value("WORLD_SETTING_CANDIDATE_SELECTION_INVALID"));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/world-setting-candidates/group-confirm",
+                                work.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(groupConfirmRequest(
+                                decision(
+                                        candidate,
+                                        WorldSettingOperation.ADD,
+                                        "신체",
+                                        "근력 기댓값",
+                                        "높다"
+                                )
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.appliedWorldSettingVersion").value(1));
+
+        WorldSetting applied = worldSettingRepository.findById(fixture.target().getId()).orElseThrow();
+        assertThat(applied.getPropertyValue("생명력")).isNull();
+        assertThat(applied.getPropertyValue("신체", "생명력"))
+                .isEqualTo("선택 가능한 종족 중 가장 높다");
+        assertThat(applied.getPropertyValue("신체", "근력 기댓값")).isEqualTo("높다");
+        assertThat(applied.getVersion()).isEqualTo(1L);
+        assertThat(comparisonDecisionRepository.findById(
+                        candidate.getComparisonDecision().getId()
+                ).orElseThrow().getRootPropertyMovesAppliedWorldSettingVersion())
+                .isEqualTo(1L);
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/world-settings/{settingId}",
+                                work.getId(),
+                                applied.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.propertyEvidence[0].scopeName").value("신체"))
+                .andExpect(jsonPath("$.data.propertyEvidence[0].settingName").value("생명력"))
+                .andExpect(jsonPath("$.data.propertyEvidence[0].latestEvidence.value")
+                        .value("선택 가능한 종족 중 가장 높다"))
+                .andExpect(jsonPath("$.data.propertyEvidence[0].history[0].evidenceSpans[0].quote")
+                        .value("바바리안은 선택 가능한 종족 중 생명력이 가장 높다."));
+
+        String recreatedRootValue = "후속 회차에서 별도 root로 다시 기록됐다";
+        applied.addProperty("생명력", recreatedRootValue);
+        worldSettingRepository.saveAndFlush(applied);
+        WorldSettingCandidate recreatedRootEvidence = candidate(
+                "바바리안",
+                "생명력",
+                recreatedRootValue
+        );
+        recreatedRootEvidence.startComparison();
+        recreatedRootEvidence.completeComparison(
+                applied,
+                WorldSettingOperation.UPDATE,
+                "생명력",
+                recreatedRootValue,
+                recreatedRootValue,
+                "이동 뒤 별도로 재생성된 root 설정의 근거",
+                objectMapper.createObjectNode().put("operation", "UPDATE"),
+                LocalDateTime.now().plusMinutes(1)
+        );
+        recreatedRootEvidence.confirm(
+                WorldSettingOperation.UPDATE,
+                WorldSettingCategory.RACE,
+                "바바리안",
+                "생명력",
+                recreatedRootValue,
+                null,
+                member,
+                applied
+        );
+        candidateRepository.saveAndFlush(recreatedRootEvidence);
+
+        MvcResult detailResult = mockMvc.perform(get(
+                                "/api/v1/works/{workId}/world-settings/{settingId}",
+                                work.getId(),
+                                applied.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode detail = objectMapper.readTree(detailResult.getResponse().getContentAsString());
+        JsonNode movedLifeEvidence = propertyEvidence(detail, "신체", "생명력");
+        assertThat(movedLifeEvidence.path("history")).hasSize(1);
+        assertThat(movedLifeEvidence.path("history").toString())
+                .doesNotContain("이동 뒤 별도로 재생성된 root 설정의 근거")
+                .doesNotContain(recreatedRootValue);
+    }
+
+    @Test
+    @DisplayName("확정 전에 이동할 root 값이 바뀌면 새 설정을 부분 적용하지 않고 ROW 재비교로 보낸다")
+    void groupConfirmRecomparesWhenRootMoveSnapshotIsStale() throws Exception {
+        RootMoveFixture fixture = rootMoveFixture();
+        fixture.target().updateProperty(
+                null,
+                "생명력",
+                null,
+                "생명력",
+                "최근 회차에서 하향되었다"
+        );
+        worldSettingRepository.saveAndFlush(fixture.target());
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/world-setting-candidates/group-confirm",
+                                work.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(groupConfirmRequest(
+                                decision(
+                                        fixture.candidate(),
+                                        WorldSettingOperation.ADD,
+                                        "신체",
+                                        "근력 기댓값",
+                                        "높다"
+                                )
+                        ))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.context.scope").value("ROW"))
+                .andExpect(jsonPath("$.error.context.reason").value("PROPERTY_CHANGED"))
+                .andExpect(jsonPath("$.error.context.affectedCandidateIds[0]")
+                        .value(fixture.candidate().getId().toString()));
+
+        WorldSetting unchanged = worldSettingRepository.findById(fixture.target().getId()).orElseThrow();
+        assertThat(unchanged.getPropertyValue("생명력")).isEqualTo("최근 회차에서 하향되었다");
+        assertThat(unchanged.getPropertyValue("신체", "생명력")).isNull();
+        assertThat(unchanged.getPropertyValue("신체", "근력 기댓값")).isNull();
+        assertThat(candidateRepository.findById(fixture.candidate().getId()).orElseThrow()
+                .getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.RECOMPARISON_REQUIRED);
+    }
+
+    @Test
+    @DisplayName("작가가 AI 설정안을 편집하면 새 설정만 반영하고 기존 root는 이동하지 않는다")
+    void groupConfirmSkipsRootMoveForAuthorEditedDecision() throws Exception {
+        RootMoveFixture fixture = rootMoveFixture();
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/world-setting-candidates/group-confirm",
+                                work.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(groupConfirmRequest(
+                                decision(
+                                        fixture.candidate(),
+                                        WorldSettingOperation.ADD,
+                                        "신체",
+                                        "근력 기댓값",
+                                        "매우 높다"
+                                )
+                        ))))
+                .andExpect(status().isOk());
+
+        WorldSetting applied = worldSettingRepository.findById(fixture.target().getId()).orElseThrow();
+        assertThat(applied.getPropertyValue("생명력"))
+                .isEqualTo("선택 가능한 종족 중 가장 높다");
+        assertThat(applied.getPropertyValue("신체", "생명력")).isNull();
+        assertThat(applied.getPropertyValue("신체", "근력 기댓값")).isEqualTo("매우 높다");
+        assertThat(applied.getVersion()).isEqualTo(1L);
+        assertThat(comparisonDecisionRepository.findById(
+                        fixture.candidate().getComparisonDecision().getId()
+                ).orElseThrow().isRootPropertyMovesDisabled())
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("shared 설정안의 source 하나라도 제외하면 해당 설정안의 root 이동 전체를 적용하지 않는다")
+    void groupConfirmSkipsSharedDecisionRootMoveWhenOneSourceIsExcluded() throws Exception {
+        RootMoveFixture fixture = rootMoveFixture();
+        WorldSettingCandidate sibling = addRootMoveDecisionSibling(fixture);
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/world-setting-candidates/group-confirm",
+                                work.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(groupConfirmRequest(
+                                decision(
+                                        fixture.candidate(),
+                                        WorldSettingOperation.ADD,
+                                        "신체",
+                                        "근력 기댓값",
+                                        "높다"
+                                ),
+                                decision(
+                                        sibling,
+                                        WorldSettingOperation.EXCLUDE,
+                                        "신체",
+                                        "근력 기댓값",
+                                        "높다"
+                                )
+                        ))))
+                .andExpect(status().isOk());
+
+        WorldSetting applied = worldSettingRepository.findById(fixture.target().getId()).orElseThrow();
+        assertThat(applied.getPropertyValue("생명력"))
+                .isEqualTo("선택 가능한 종족 중 가장 높다");
+        assertThat(applied.getPropertyValue("신체", "생명력")).isNull();
+        assertThat(applied.getPropertyValue("신체", "근력 기댓값")).isEqualTo("높다");
+        assertThat(candidateRepository.findById(fixture.candidate().getId()).orElseThrow()
+                .getReviewStatus()).isEqualTo(WorldSettingReviewStatus.CONFIRMED);
+        assertThat(candidateRepository.findById(sibling.getId()).orElseThrow()
+                .getReviewStatus()).isEqualTo(WorldSettingReviewStatus.DISMISSED);
+        assertThat(comparisonDecisionRepository.findById(
+                        fixture.candidate().getComparisonDecision().getId()
+                ).orElseThrow().getRootPropertyMovesAppliedWorldSettingVersion())
+                .isNull();
+        assertThat(comparisonDecisionRepository.findById(
+                        fixture.candidate().getComparisonDecision().getId()
+                ).orElseThrow().isRootPropertyMovesDisabled())
+                .isTrue();
+
+        applied.addProperty("신체", "생명력", "별도로 생성된 범위 값");
+        worldSettingRepository.saveAndFlush(applied);
+        MvcResult detailResult = mockMvc.perform(get(
+                                "/api/v1/works/{workId}/world-settings/{settingId}",
+                                work.getId(),
+                                applied.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode detail = objectMapper.readTree(detailResult.getResponse().getContentAsString());
+        assertThat(propertyEvidence(detail, "신체", "생명력").path("history"))
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("shared 설정안의 source 하나를 편집하면 모든 응답과 확정에서 root 이동을 비활성화한다")
+    void updateDecisionDisablesSharedRootMoveForEverySource() throws Exception {
+        RootMoveFixture fixture = rootMoveFixture();
+        WorldSettingCandidate sibling = addRootMoveDecisionSibling(fixture);
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/world-setting-candidates/decisions",
+                                work.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of(
+                                "batchId", uploadBatch.getId(),
+                                "candidates", List.of(java.util.Map.of(
+                                        "candidateId", fixture.candidate().getId(),
+                                        "operation", "ADD",
+                                        "category", "RACE",
+                                        "subjectName", "바바리안",
+                                        "scopeName", "신체",
+                                        "settingName", "근력 기댓값",
+                                        "value", "매우 높다"
+                                ))
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(
+                        "$.data.candidates[0].existingRootPropertyNamesToMove.length()"
+                ).value(0));
+
+        mockMvc.perform(get(
+                                "/api/v1/works/{workId}/world-setting-candidates/{candidateId}",
+                                work.getId(),
+                                sibling.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.existingRootPropertyNamesToMove.length()").value(0));
+        assertThat(comparisonDecisionRepository.findById(
+                        fixture.candidate().getComparisonDecision().getId()
+                ).orElseThrow().isRootPropertyMovesDisabled())
+                .isTrue();
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/world-setting-candidates/group-confirm",
+                                work.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(groupConfirmRequest(
+                                decision(
+                                        fixture.candidate(),
+                                        WorldSettingOperation.ADD,
+                                        "신체",
+                                        "근력 기댓값",
+                                        "높다"
+                                ),
+                                decision(
+                                        sibling,
+                                        WorldSettingOperation.ADD,
+                                        "신체",
+                                        "근력 기댓값",
+                                        "높다"
+                                )
+                        ))))
+                .andExpect(status().isOk());
+
+        WorldSetting applied = worldSettingRepository.findById(fixture.target().getId()).orElseThrow();
+        assertThat(applied.getPropertyValue("생명력"))
+                .isEqualTo("선택 가능한 종족 중 가장 높다");
+        assertThat(applied.getPropertyValue("신체", "생명력")).isNull();
+        assertThat(applied.getPropertyValue("신체", "근력 기댓값")).isEqualTo("높다");
+        assertThat(comparisonDecisionRepository.findById(
+                        fixture.candidate().getComparisonDecision().getId()
+                ).orElseThrow().getRootPropertyMovesAppliedWorldSettingVersion())
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("shared 설정안의 source 전체를 그룹 제외하면 root 이동도 비활성화한다")
+    void groupDismissDisablesSharedDecisionRootMove() throws Exception {
+        RootMoveFixture fixture = rootMoveFixture();
+        WorldSettingCandidate sibling = addRootMoveDecisionSibling(fixture);
+        UUID comparisonDecisionId = fixture.candidate().getComparisonDecision().getId();
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/world-setting-candidates/group-dismiss",
+                                work.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new WorldSettingCandidateGroupDismissRequest(
+                                        uploadBatch.getId(),
+                                        List.of(fixture.candidate().getId(), sibling.getId()),
+                                        "설정안 전체 제외"
+                                )
+                        )))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(
+                        "$.data.candidates[0].existingRootPropertyNamesToMove"
+                ).isEmpty())
+                .andExpect(jsonPath(
+                        "$.data.candidates[1].existingRootPropertyNamesToMove"
+                ).isEmpty());
+
+        assertThat(candidateRepository.findAllById(List.of(
+                        fixture.candidate().getId(),
+                        sibling.getId()
+                )))
+                .extracting(WorldSettingCandidate::getReviewStatus)
+                .containsOnly(WorldSettingReviewStatus.DISMISSED);
+        assertThat(comparisonDecisionRepository.findById(comparisonDecisionId)
+                .orElseThrow().isRootPropertyMovesDisabled()).isTrue();
+    }
+
+    @Test
+    @DisplayName("shared 설정안 source가 다른 결정으로 재비교되면 과거 membership 확정을 거절한다")
+    void groupConfirmRejectsStaleSharedDecisionMembershipAfterRecomparison() throws Exception {
+        RootMoveFixture fixture = rootMoveFixture();
+        WorldSettingCandidate sibling = addRootMoveDecisionSibling(fixture);
+        WorldSettingCandidate recomparisonCandidate = fixture.candidate();
+        UUID abandonedDecisionId = recomparisonCandidate.getComparisonDecision().getId();
+        JsonNode resolvedTargetIds = objectMapper.createArrayNode()
+                .add(fixture.target().getId().toString());
+
+        recomparisonCandidate.markRecomparisonRequired();
+        recomparisonCandidate.requestRecomparison();
+        recomparisonCandidate.resolveSubject(
+                WorldSettingSubjectResolutionType.EXISTING,
+                "TARGET:" + fixture.target().getId(),
+                fixture.target().getSubjectName(),
+                resolvedTargetIds
+        );
+        WorldSettingComparisonBatch recomparisonBatch = comparisonBatchRepository.saveAndFlush(
+                WorldSettingComparisonBatch.create(
+                        work,
+                        episode,
+                        analysisJob,
+                        WorldSettingCategory.RACE,
+                        null,
+                        WorldSettingSubjectResolutionType.EXISTING,
+                        "TARGET:" + fixture.target().getId(),
+                        fixture.target().getSubjectName(),
+                        resolvedTargetIds,
+                        1
+                )
+        );
+        recomparisonCandidate.startComparison(recomparisonBatch, "C1");
+        WorldSettingComparisonDecision recomparisonDecision = comparisonDecisionRepository
+                .saveAndFlush(WorldSettingComparisonDecision.create(
+                        recomparisonBatch,
+                        "D1",
+                        fixture.target().getSubjectName(),
+                        fixture.target(),
+                        null,
+                        null,
+                        WorldSettingConsolidationStatus.SINGLE,
+                        WorldSettingSuggestedOperation.ADD,
+                        null,
+                        "신체",
+                        "근력 기댓값",
+                        null,
+                        "높다",
+                        "재비교된 독립 설정안",
+                        objectMapper.createObjectNode().put("decisionRef", "D1")
+                ));
+        recomparisonCandidate.completeComparison(recomparisonDecision, LocalDateTime.now());
+        candidateRepository.saveAndFlush(recomparisonCandidate);
+        comparisonSourceRepository.saveAndFlush(WorldSettingComparisonDecisionSource.create(
+                recomparisonBatch,
+                recomparisonDecision,
+                recomparisonCandidate,
+                "C1",
+                0
+        ));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/world-setting-candidates/group-confirm",
+                                work.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(groupConfirmRequest(
+                                decision(
+                                        recomparisonCandidate,
+                                        WorldSettingOperation.EXCLUDE,
+                                        "신체",
+                                        "근력 기댓값",
+                                        "높다"
+                                ),
+                                decision(
+                                        sibling,
+                                        WorldSettingOperation.ADD,
+                                        "신체",
+                                        "근력 기댓값",
+                                        "높다"
+                                )
+                        ))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code")
+                        .value("WORLD_SETTING_CANDIDATE_SELECTION_INVALID"));
+
+        WorldSetting unchanged = worldSettingRepository.findById(fixture.target().getId())
+                .orElseThrow();
+        assertThat(unchanged.getPropertyValue("생명력"))
+                .isEqualTo("선택 가능한 종족 중 가장 높다");
+        assertThat(unchanged.getPropertyValue("신체", "생명력")).isNull();
+        assertThat(comparisonDecisionRepository.findById(abandonedDecisionId)
+                .orElseThrow().isRootPropertyMovesDisabled()).isFalse();
+    }
+
+    @Test
     @DisplayName("같은 대상에서 설정명이 중복되면 합치거나 중복 후보를 제외하라는 안내를 반환한다")
     void confirmGroupExplainsDuplicateSettingNames() throws Exception {
         WorldSettingCandidate first = completedAddCandidate("바바리안", "기능", "서로 대화할 수 있다");
@@ -744,8 +1559,8 @@ class WorldSettingCandidateControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("기존 대상의 ADD와 MERGE key를 한 그룹으로 확정하면 버전을 한 번만 증가시킨다")
-    void confirmExistingTargetGroupIncrementsVersionOnce() throws Exception {
+    @DisplayName("같은 기존 대상의 여러 설정안을 한 번에 확정하면 버전을 한 번만 증가시킨다")
+    void confirmMultipleDecisionsForExistingTargetIncrementsVersionOnce() throws Exception {
         WorldSetting target = worldSettingRepository.save(WorldSetting.create(
                 work,
                 WorldSettingCategory.RACE,
@@ -754,30 +1569,93 @@ class WorldSettingCandidateControllerIntegrationTest {
                 "전투에 특화된 종족"
         ));
         WorldSettingCandidate habitat = candidate("바바리안", "서식지", "혹한 지역");
-        habitat.startComparison();
-        habitat.completeComparison(
+        WorldSettingCandidate trait = candidate("바바리안", "특징", "강인한 신체");
+        candidateRepository.saveAllAndFlush(List.of(habitat, trait));
+        JsonNode resolvedTargetIds = objectMapper.createArrayNode().add(target.getId().toString());
+        habitat.resolveSubject(
+                WorldSettingSubjectResolutionType.EXISTING,
+                "TARGET:" + target.getId(),
+                target.getSubjectName(),
+                resolvedTargetIds
+        );
+        trait.resolveSubject(
+                WorldSettingSubjectResolutionType.EXISTING,
+                "TARGET:" + target.getId(),
+                target.getSubjectName(),
+                resolvedTargetIds
+        );
+        WorldSettingComparisonBatch comparisonBatch = comparisonBatchRepository.saveAndFlush(
+                WorldSettingComparisonBatch.create(
+                        work,
+                        episode,
+                        analysisJob,
+                        WorldSettingCategory.RACE,
+                        null,
+                        WorldSettingSubjectResolutionType.EXISTING,
+                        "TARGET:" + target.getId(),
+                        target.getSubjectName(),
+                        resolvedTargetIds,
+                        2
+                )
+        );
+        habitat.startComparison(comparisonBatch, "C1");
+        trait.startComparison(comparisonBatch, "C2");
+        candidateRepository.saveAllAndFlush(List.of(habitat, trait));
+        WorldSettingComparisonDecision habitatDecision = WorldSettingComparisonDecision.create(
+                comparisonBatch,
+                "D1",
+                target.getSubjectName(),
                 target,
-                WorldSettingOperation.ADD,
+                null,
+                null,
+                WorldSettingConsolidationStatus.SINGLE,
+                WorldSettingSuggestedOperation.ADD,
+                null,
+                null,
                 "서식지",
                 null,
                 "혹한 지역",
                 "새 설정 추가",
-                objectMapper.createObjectNode(),
-                LocalDateTime.now()
+                objectMapper.createObjectNode().put("decisionRef", "D1")
         );
-        WorldSettingCandidate trait = candidate("바바리안", "특징", "강인한 신체");
-        trait.startComparison();
-        trait.completeComparison(
+        WorldSettingComparisonDecision traitDecision = WorldSettingComparisonDecision.create(
+                comparisonBatch,
+                "D2",
+                target.getSubjectName(),
                 target,
-                WorldSettingOperation.MERGE,
+                null,
+                "특징",
+                WorldSettingConsolidationStatus.SINGLE,
+                WorldSettingSuggestedOperation.MERGE,
+                null,
+                null,
                 "특징",
                 "전투에 특화된 종족",
                 "강인한 신체를 가진 전투 종족",
                 "기존 특징 병합",
-                objectMapper.createObjectNode(),
-                LocalDateTime.now()
+                objectMapper.createObjectNode().put("decisionRef", "D2")
         );
+        comparisonDecisionRepository.saveAllAndFlush(List.of(habitatDecision, traitDecision));
+        LocalDateTime comparedAt = LocalDateTime.now();
+        habitat.completeComparison(habitatDecision, comparedAt);
+        trait.completeComparison(traitDecision, comparedAt);
         candidateRepository.saveAllAndFlush(List.of(habitat, trait));
+        comparisonSourceRepository.saveAllAndFlush(List.of(
+                WorldSettingComparisonDecisionSource.create(
+                        comparisonBatch,
+                        habitatDecision,
+                        habitat,
+                        "C1",
+                        0
+                ),
+                WorldSettingComparisonDecisionSource.create(
+                        comparisonBatch,
+                        traitDecision,
+                        trait,
+                        "C2",
+                        0
+                )
+        ));
 
         mockMvc.perform(post("/api/v1/works/{workId}/world-setting-candidates/group-confirm", work.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
@@ -803,6 +1681,8 @@ class WorldSettingCandidateControllerIntegrationTest {
         assertThat(candidateRepository.findAll())
                 .extracting(WorldSettingCandidate::getAppliedWorldSettingVersion)
                 .containsOnly(1L);
+        assertThat(comparisonDecisionRepository.count()).isEqualTo(2L);
+        assertThat(habitatDecision.getId()).isNotEqualTo(traitDecision.getId());
     }
 
     @Test
@@ -1278,7 +2158,7 @@ class WorldSettingCandidateControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("서로 다른 원문 값을 사용자가 정리하지 않으면 반영하지 않는다")
+    @DisplayName("CONFLICT 비교 완료는 반영하지 않고 사용자가 정리한 값만 확정한다")
     void conflictRequiresUserResolutionBeforeConfirm() throws Exception {
         WorldSettingCandidate candidate = candidate(
                 "메시지 스톤",
@@ -1298,6 +2178,17 @@ class WorldSettingCandidateControllerIntegrationTest {
                 LocalDateTime.now()
         );
         candidateRepository.save(candidate);
+
+        assertThat(worldSettingRepository.count()).isZero();
+        assertThat(candidateRepository.findById(candidate.getId()).orElseThrow())
+                .extracting(
+                        WorldSettingCandidate::getComparisonStatus,
+                        WorldSettingCandidate::getReviewStatus
+                )
+                .containsExactly(
+                        WorldSettingComparisonStatus.COMPLETED,
+                        WorldSettingReviewStatus.PENDING_REVIEW
+                );
 
         mockMvc.perform(get("/api/v1/works/{workId}/world-setting-candidates", work.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
@@ -1346,6 +2237,17 @@ class WorldSettingCandidateControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.candidates[0].consolidationStatus").value("CONFLICT"))
                 .andExpect(jsonPath("$.data.candidates[0].finalValue").value("약 300m"));
+
+        WorldSetting applied = worldSettingRepository
+                .findByWorkIdAndCategoryAndNormalizedSubjectName(
+                        work.getId(),
+                        WorldSettingCategory.RACE,
+                        "메시지 스톤"
+                )
+                .orElseThrow();
+        assertThat(applied.getPropertyValue("통신 반경")).isEqualTo("약 300m");
+        assertThat(candidateRepository.findById(candidate.getId()).orElseThrow().getReviewStatus())
+                .isEqualTo(WorldSettingReviewStatus.CONFIRMED);
 
         mockMvc.perform(get("/api/v1/works/{workId}/world-setting-candidates", work.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
@@ -1730,6 +2632,161 @@ class WorldSettingCandidateControllerIntegrationTest {
         return candidate;
     }
 
+    private RootMoveFixture rootMoveFixture() {
+        String lifeValue = "선택 가능한 종족 중 가장 높다";
+        WorldSetting target = worldSettingRepository.saveAndFlush(WorldSetting.create(
+                work,
+                WorldSettingCategory.RACE,
+                "바바리안",
+                "생명력",
+                lifeValue
+        ));
+        WorldSettingCandidate historicalLife = WorldSettingCandidate.create(
+                work,
+                episode,
+                analysisJob,
+                WorldSettingCategory.RACE,
+                "바바리안",
+                "생명력",
+                lifeValue,
+                objectMapper.createArrayNode().add(objectMapper.createObjectNode()
+                        .put("quote", "바바리안은 선택 가능한 종족 중 생명력이 가장 높다.")),
+                new BigDecimal("0.9500"),
+                null
+        );
+        historicalLife.startComparison();
+        historicalLife.completeComparison(
+                target,
+                WorldSettingOperation.UPDATE,
+                "생명력",
+                lifeValue,
+                lifeValue,
+                "기존 root 설정의 원문 근거",
+                objectMapper.createObjectNode().put("operation", "UPDATE"),
+                LocalDateTime.now().minusMinutes(1)
+        );
+        historicalLife.confirm(
+                WorldSettingOperation.UPDATE,
+                WorldSettingCategory.RACE,
+                "바바리안",
+                "생명력",
+                lifeValue,
+                null,
+                member,
+                target
+        );
+        candidateRepository.saveAndFlush(historicalLife);
+
+        WorldSettingCandidate candidate = candidate(
+                "바바리안",
+                "근력 기댓값",
+                "높다"
+        );
+        candidateRepository.saveAndFlush(candidate);
+        JsonNode resolvedTargetIds = objectMapper.createArrayNode()
+                .add(target.getId().toString());
+        candidate.resolveSubject(
+                WorldSettingSubjectResolutionType.EXISTING,
+                "TARGET:" + target.getId(),
+                target.getSubjectName(),
+                resolvedTargetIds
+        );
+        WorldSettingComparisonBatch comparisonBatch = comparisonBatchRepository.saveAndFlush(
+                WorldSettingComparisonBatch.create(
+                        work,
+                        episode,
+                        analysisJob,
+                        WorldSettingCategory.RACE,
+                        null,
+                        WorldSettingSubjectResolutionType.EXISTING,
+                        "TARGET:" + target.getId(),
+                        target.getSubjectName(),
+                        resolvedTargetIds,
+                        1
+                )
+        );
+        candidate.startComparison(comparisonBatch, "C1");
+        candidateRepository.saveAndFlush(candidate);
+        WorldSettingComparisonDecision comparisonDecision = comparisonDecisionRepository.saveAndFlush(
+                WorldSettingComparisonDecision.create(
+                        comparisonBatch,
+                        "D1",
+                        "바바리안",
+                        target,
+                        null,
+                        null,
+                        WorldSettingConsolidationStatus.SINGLE,
+                        WorldSettingSuggestedOperation.ADD,
+                        null,
+                        "신체",
+                        "근력 기댓값",
+                        null,
+                        "높다",
+                        "두 신체 관련 설정을 공통 범위로 정리한다.",
+                        List.of(new WorldSettingComparisonDecision.ExistingRootPropertyMoveSnapshot(
+                                "생명력",
+                                lifeValue
+                        )),
+                        objectMapper.createObjectNode().put("decisionRef", "D1")
+                )
+        );
+        candidate.completeComparison(comparisonDecision, LocalDateTime.now());
+        candidateRepository.saveAndFlush(candidate);
+        comparisonSourceRepository.saveAndFlush(WorldSettingComparisonDecisionSource.create(
+                comparisonBatch,
+                comparisonDecision,
+                candidate,
+                "C1",
+                0
+        ));
+        return new RootMoveFixture(target, candidate);
+    }
+
+    private WorldSettingCandidate addRootMoveDecisionSibling(RootMoveFixture fixture) {
+        WorldSettingCandidate sibling = candidate(
+                "바바리안",
+                "근력 보조 근거",
+                "전사 평균보다 높다"
+        );
+        candidateRepository.saveAndFlush(sibling);
+        JsonNode resolvedTargetIds = objectMapper.createArrayNode()
+                .add(fixture.target().getId().toString());
+        sibling.resolveSubject(
+                WorldSettingSubjectResolutionType.EXISTING,
+                "TARGET:" + fixture.target().getId(),
+                fixture.target().getSubjectName(),
+                resolvedTargetIds
+        );
+        sibling.startComparison(fixture.candidate().getComparisonBatch(), "C2");
+        sibling.completeComparison(
+                fixture.candidate().getComparisonDecision(),
+                LocalDateTime.now()
+        );
+        candidateRepository.saveAndFlush(sibling);
+        comparisonSourceRepository.saveAndFlush(WorldSettingComparisonDecisionSource.create(
+                fixture.candidate().getComparisonBatch(),
+                fixture.candidate().getComparisonDecision(),
+                sibling,
+                "C2",
+                1
+        ));
+        return sibling;
+    }
+
+    private JsonNode propertyEvidence(
+            JsonNode response,
+            String scopeName,
+            String settingName
+    ) {
+        for (JsonNode evidence : response.at("/data/propertyEvidence")) {
+            if (scopeName.equals(evidence.path("scopeName").asText())
+                    && settingName.equals(evidence.path("settingName").asText())) {
+                return evidence;
+            }
+        }
+        throw new AssertionError("Property evidence not found: " + scopeName + " / " + settingName);
+    }
+
     private WorldSettingCandidateGroupConfirmRequest.Decision decision(
             WorldSettingCandidate candidate,
             WorldSettingOperation operation,
@@ -1819,5 +2876,11 @@ class WorldSettingCandidateControllerIntegrationTest {
 
     private String bearer(String token) {
         return "Bearer " + token;
+    }
+
+    private record RootMoveFixture(
+            WorldSetting target,
+            WorldSettingCandidate candidate
+    ) {
     }
 }

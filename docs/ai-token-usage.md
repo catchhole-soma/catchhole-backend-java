@@ -9,7 +9,7 @@ AI 요청별 실제 토큰 사용량을 관측하면서, 결제 기능이 없는
 - 지급량과 사용량은 누적되며 월 단위로 자동 초기화하지 않습니다.
 - 잔여량은 `granted - used - reserved`입니다.
 - 사용자용 `remainingPercent`는 누적 지급량이 아니라 현재 `AI_TOKEN_DEFAULT_GRANT`를 100% 기준으로 계산하고 최대 100%로 제한합니다. 따라서 한도를 모두 쓴 뒤 기본 지급량과 같은 양을 추가 지급받으면 누적 지급·사용 원장은 유지하면서 화면은 100%로 복구됩니다.
-- 분석 생성·재시도는 잔여량이 최소 첫 추출 예약량(`AI_TOKEN_MINIMUM_ANALYSIS_RESERVATION`, 기본 `6256`)보다 적으면, 세계관 비교 시작·일괄 재개는 최소 첫 비교 예약량(`AI_TOKEN_MINIMUM_COMPARISON_RESERVATION`, 기본 `3256`)보다 적으면 `AI_TOKEN_QUOTA_EXHAUSTED` 409로 거절합니다.
+- 분석 생성·재시도는 잔여량이 최소 첫 추출 예약량(`AI_TOKEN_MINIMUM_ANALYSIS_RESERVATION`, 기본 `6256`)보다 적으면, 세계관 비교 시작·일괄 재개는 최소 첫 비교 예약량(`AI_TOKEN_MINIMUM_COMPARISON_RESERVATION`, 기본 `16256`)보다 적으면 `AI_TOKEN_QUOTA_EXHAUSTED` 409로 거절합니다.
 - 실제로 실행되는 각 LLM·임베딩 호출 직전에는 예상 최대량을 예약하므로 동시 분석이 한도를 중복 소비하지 못합니다. 임베딩 feature flag가 꺼진 경우에는 임베딩 예약도 만들지 않습니다.
 - provider가 사용량을 반환하면 실제 input/output을 정산하고 사용하지 않은 예약량은 즉시 반환합니다.
 - provider를 호출하기 전에 실패했거나 사용량을 알 수 없는 실패는 예약을 해제합니다.
@@ -168,7 +168,7 @@ POST /api/internal/v1/ai-token-usages/{requestId}/release
 | `AI_TOKEN_DEFAULT_GRANT` | `2000000` | 신규 계정 최초 지급과 추가 사용량 요청 승인에 공통으로 사용할 지급량 |
 | `AI_TOKEN_CONTACT_EMAIL` | `aicatchhole@gmail.com` | 한도 소진 안내에 표시할 피드백 연락처 |
 | `AI_TOKEN_MINIMUM_ANALYSIS_RESERVATION` | `6256` | 캐릭터 추출 상한 6,000 + 입력 최소 여유 256. 분석 생성·재시도 전 요구 |
-| `AI_TOKEN_MINIMUM_COMPARISON_RESERVATION` | `3256` | 비교 상한 3,000 + 입력 최소 여유 256. 비교 시작·중단 후보 재개 전 요구 |
+| `AI_TOKEN_MINIMUM_COMPARISON_RESERVATION` | `16256` | 가장 큰 세계관 batch 비교 상한 16,000 + 입력 최소 여유 256. 비교 시작·중단 후보 재개 전 요구 |
 
 기본 지급량을 바꾸면 이후 처음 생성되는 계정과 이후 승인되는 추가 사용량 요청부터 새 값이 적용됩니다. 이미 생성된 계정과 과거 `DEFAULT`·`MANUAL` 지급 이력은 소급 변경하지 않습니다.
 

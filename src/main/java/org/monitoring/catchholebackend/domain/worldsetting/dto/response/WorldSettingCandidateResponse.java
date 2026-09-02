@@ -21,6 +21,14 @@ public record WorldSettingCandidateResponse(
         UUID sourceEpisodeId,
         Integer sourceEpisodeNo,
         UUID analysisJobId,
+        @Schema(description = "후보를 함께 비교한 묶음 ID", nullable = true)
+        UUID comparisonBatchId,
+        @Schema(description = "여러 source 후보가 공유할 수 있는 최종 설정안 ID", nullable = true)
+        UUID comparisonDecisionId,
+        @Schema(description = "묶음 요청 안에서만 쓰는 안전한 후보 ref", nullable = true)
+        String comparisonCandidateRef,
+        @Schema(description = "2차 비교가 확정한 canonical 대상명", nullable = true)
+        String canonicalSubjectName,
         WorldSettingCategory category,
         String subjectName,
         @Schema(nullable = true) String scopeName,
@@ -35,6 +43,11 @@ public record WorldSettingCandidateResponse(
         String matchedScopeName,
         @Schema(description = "2차 비교가 참조한 기존 속성명", nullable = true)
         String matchedPropertyName,
+        @Schema(
+                description = "현재 제안 범위 아래로 함께 이동할 기존 root 설정명."
+                        + " shared 결정이 비활성화되면 빈 배열"
+        )
+        List<String> existingRootPropertyNamesToMove,
         WorldSettingConsolidationStatus consolidationStatus,
         @Schema(nullable = true) WorldSettingSuggestedOperation suggestedOperation,
         @Schema(description = "사용자 판단이 필요한 구조화된 비교 사유", nullable = true)

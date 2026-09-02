@@ -35,7 +35,9 @@ import org.monitoring.catchholebackend.domain.character.type.SettingCandidateRev
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingComparisonBatchRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonBatchStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.monitoring.catchholebackend.global.exception.AppException;
@@ -53,6 +55,8 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     private static final int MAX_CLAIM_ATTEMPTS = 3;
     private static final Duration LEASE_DURATION = Duration.ofMinutes(5);
     private static final String LEASE_EXPIRED_MESSAGE = "AI Worker lease가 반복 만료되어 작업을 종료했습니다.";
+    private static final String EXPIRED_BATCH_CLOSED_MESSAGE =
+            "AI Worker lease가 만료되어 이전 비교 묶음을 종료했습니다.";
     private static final String NO_TARGET_EPISODES_MESSAGE = "분석 대상 회차가 없습니다.";
     private static final String INVALID_TARGET_EPISODE_COUNT_MESSAGE =
             "분석 작업은 정확히 한 회차를 대상으로 해야 합니다.";
@@ -63,6 +67,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     private final CharacterSettingSchemaRepository characterSettingSchemaRepository;
     private final AnalysisJobWorkerMapper analysisJobWorkerMapper;
     private final AiTokenService aiTokenService;
+    private final WorldSettingComparisonBatchRepository worldSettingComparisonBatchRepository;
     private final WorldSettingCandidateRepository worldSettingCandidateRepository;
     private final SettingCandidateRepository settingCandidateRepository;
 
@@ -177,6 +182,11 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         boolean resumableTokenInterruption = failureCode == AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED
                 && analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION
                 && analysisJob.hasReachedCheckpoint(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+        failProcessingWorldComparisonBatches(
+                analysisJob,
+                failureCode,
+                request.errorMessage()
+        );
         if (resumableTokenInterruption) {
             interruptRemainingWorldCandidatesForTokenQuota(analysisJob, request.errorMessage());
             markTargetEpisodesAnalyzed(analysisJob);
@@ -274,6 +284,11 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                     AiTokenUsageOutcome.WORKER_LEASE_EXPIRED
             );
             if (expiredJob.getClaimAttemptCount() >= MAX_CLAIM_ATTEMPTS) {
+                failProcessingWorldComparisonBatches(
+                        expiredJob,
+                        AnalysisFailureCode.WORKER_LEASE_EXPIRED,
+                        LEASE_EXPIRED_MESSAGE
+                );
                 failProcessingWorldCandidates(
                         expiredJob,
                         AnalysisFailureCode.WORKER_LEASE_EXPIRED,
@@ -296,10 +311,29 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 );
                 continue;
             }
+            failProcessingWorldComparisonBatches(
+                    expiredJob,
+                    AnalysisFailureCode.WORKER_LEASE_EXPIRED,
+                    EXPIRED_BATCH_CLOSED_MESSAGE
+            );
             recoverProcessingWorldCandidates(expiredJob);
             recoverProcessingCharacterCandidates(expiredJob);
             expiredJob.requeueExpiredLease();
         }
+    }
+
+    private void failProcessingWorldComparisonBatches(
+            AnalysisJob analysisJob,
+            AnalysisFailureCode failureCode,
+            String errorMessage
+    ) {
+        worldSettingComparisonBatchRepository.findAllByAnalysisJobIdAndStatusForUpdate(
+                analysisJob.getId(),
+                WorldSettingComparisonBatchStatus.PROCESSING
+        ).forEach(batch -> batch.fail(
+                failureCode,
+                errorMessage
+        ));
     }
 
     private void recoverProcessingWorldCandidates(AnalysisJob analysisJob) {

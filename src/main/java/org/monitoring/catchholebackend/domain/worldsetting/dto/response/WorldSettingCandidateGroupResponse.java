@@ -12,6 +12,8 @@ public record WorldSettingCandidateGroupResponse(
         WorldSettingCategory category,
         String subjectName,
         int changeCount,
+        int decisionCount,
+        int sourceCandidateCount,
         int addCount,
         int updateCount,
         int mergeCount,

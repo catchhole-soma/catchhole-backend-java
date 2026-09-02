@@ -19,6 +19,8 @@ import org.monitoring.catchholebackend.domain.upload.repository.UploadFileReposi
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingComparisonBatchRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingComparisonDecisionRepository;
 import org.monitoring.catchholebackend.global.storage.ObjectStoragePurgeResult;
 import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
 import org.springframework.data.domain.PageRequest;
@@ -37,12 +39,15 @@ public class EpisodeSourcePurgeProcessor {
     private static final String STORAGE_ERROR = "EPISODE_SOURCE_PURGE_STORAGE_FAILED";
     private static final String DATABASE_ERROR = "EPISODE_SOURCE_PURGE_DATABASE_FAILED";
     private static final String STALE_PROCESSING_ERROR = "EPISODE_SOURCE_PURGE_PROCESSING_STALE";
+    private static final String PURGED_COMPARISON_REASON = "SOURCE_EVIDENCE_PURGED";
 
     private final ObjectStorageService objectStorageService;
     private final EpisodePurgeDataRepository purgeDataRepository;
     private final EpisodeSourcePurgeRequestRepository purgeRequestRepository;
     private final SettingCandidateRepository settingCandidateRepository;
     private final WorldSettingCandidateRepository worldSettingCandidateRepository;
+    private final WorldSettingComparisonDecisionRepository comparisonDecisionRepository;
+    private final WorldSettingComparisonBatchRepository comparisonBatchRepository;
     private final AnalysisJobRepository analysisJobRepository;
     private final UploadFileRepository uploadFileRepository;
     private final WorkRepository workRepository;
@@ -250,6 +255,11 @@ public class EpisodeSourcePurgeProcessor {
         candidates.stream()
                 .filter(candidate -> !candidate.isPendingReview())
                 .forEach(WorldSettingCandidate::purgeSourceEvidence);
+        comparisonDecisionRepository.purgeSourceEvidenceBySourceEpisodeId(
+                episodeId,
+                PURGED_COMPARISON_REASON
+        );
+        comparisonBatchRepository.purgeSourceEvidenceBySourceEpisodeId(episodeId);
     }
 
     private record PurgeTarget(

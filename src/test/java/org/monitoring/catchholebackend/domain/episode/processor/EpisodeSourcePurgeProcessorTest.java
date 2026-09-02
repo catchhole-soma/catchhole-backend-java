@@ -32,6 +32,8 @@ import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingComparisonBatchRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingComparisonDecisionRepository;
 import org.monitoring.catchholebackend.global.storage.ObjectStoragePurgeResult;
 import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -55,6 +57,12 @@ class EpisodeSourcePurgeProcessorTest {
 
     @Mock
     private WorldSettingCandidateRepository worldSettingCandidateRepository;
+
+    @Mock
+    private WorldSettingComparisonDecisionRepository comparisonDecisionRepository;
+
+    @Mock
+    private WorldSettingComparisonBatchRepository comparisonBatchRepository;
 
     @Mock
     private AnalysisJobRepository analysisJobRepository;
@@ -97,6 +105,8 @@ class EpisodeSourcePurgeProcessorTest {
                 purgeRequestRepository,
                 settingCandidateRepository,
                 worldSettingCandidateRepository,
+                comparisonDecisionRepository,
+                comparisonBatchRepository,
                 analysisJobRepository,
                 uploadFileRepository,
                 workRepository,
@@ -170,6 +180,11 @@ class EpisodeSourcePurgeProcessorTest {
         verify(sourceFile).purgeStoredSource();
         verify(reviewedCharacter).purgeSourceEvidence();
         verify(reviewedWorld).purgeSourceEvidence();
+        verify(comparisonDecisionRepository).purgeSourceEvidenceBySourceEpisodeId(
+                episodeId,
+                "SOURCE_EVIDENCE_PURGED"
+        );
+        verify(comparisonBatchRepository).purgeSourceEvidenceBySourceEpisodeId(episodeId);
         verify(purgeDataRepository).deleteChunks(episodeId);
         verify(purgeRequestRepository).delete(purgeRequest);
     }
@@ -190,6 +205,8 @@ class EpisodeSourcePurgeProcessorTest {
 
         verify(settingCandidateRepository, never()).findAllByAnalysisTargetEpisodeId(episodeId);
         verify(worldSettingCandidateRepository, never()).findAllBySourceEpisodeId(episodeId);
+        verify(comparisonDecisionRepository, never()).purgeSourceEvidenceBySourceEpisodeId(any(), any());
+        verify(comparisonBatchRepository, never()).purgeSourceEvidenceBySourceEpisodeId(any());
         verify(sourceFile, never()).purgeStoredSource();
         verify(purgeDataRepository, never()).deleteChunks(episodeId);
         verify(workRepository, never()).findByIdForUpdate(workId);

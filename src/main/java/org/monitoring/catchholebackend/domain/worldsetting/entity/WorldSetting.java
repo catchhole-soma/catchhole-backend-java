@@ -274,9 +274,25 @@ public class WorldSetting extends BaseEntity {
     }
 
     public boolean applyProperties(List<Property> properties) {
+        return applyRootPropertyMovesAndProperties(List.of(), properties);
+    }
+
+    public boolean applyRootPropertyMovesAndProperties(
+            List<RootPropertyMove> rootPropertyMoves,
+            List<Property> properties
+    ) {
+        if (rootPropertyMoves == null) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTIES_INVALID);
+        }
         if (properties == null || properties.isEmpty()) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTIES_INVALID);
         }
+        List<RootPropertyMove> normalizedMoves = rootPropertyMoves.stream()
+                .map(move -> normalizedRootPropertyMove(
+                        move.settingName(),
+                        move.scopeName()
+                ))
+                .toList();
         List<Property> normalizedProperties = properties.stream()
                 .map(property -> normalizedProperty(
                         property.scopeName(),
@@ -284,10 +300,30 @@ public class WorldSetting extends BaseEntity {
                         property.value()
                 ))
                 .toList();
+        validateDistinctMoves(normalizedMoves);
         validateDistinctPaths(normalizedProperties);
+        validateMoveTargetsDoNotOverlapProperties(normalizedMoves, normalizedProperties);
 
         ObjectNode updated = propertiesObjectCopy();
         boolean changed = false;
+        for (RootPropertyMove move : normalizedMoves) {
+            StoredPropertyPath storedPath = findStoredPropertyPath(
+                    updated,
+                    null,
+                    move.settingName()
+            );
+            if (storedPath == null) {
+                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTY_NOT_FOUND);
+            }
+            String value = updated.get(storedPath.settingName()).asText();
+            removeStoredProperty(updated, storedPath);
+            putNewProperty(updated, new Property(
+                    move.scopeName(),
+                    storedPath.settingName(),
+                    value
+            ));
+            changed = true;
+        }
         for (Property property : normalizedProperties) {
             changed |= upsertProperty(updated, property);
         }
@@ -392,6 +428,30 @@ public class WorldSetting extends BaseEntity {
             if (!requestedPaths.add(pathKey(property.scopeName(), property.settingName()))) {
                 throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTY_DUPLICATED);
             }
+        }
+    }
+
+    private static void validateDistinctMoves(List<RootPropertyMove> moves) {
+        Set<String> sourceNames = new HashSet<>();
+        Set<String> targetPaths = new HashSet<>();
+        for (RootPropertyMove move : moves) {
+            if (!sourceNames.add(WorldSettingNameNormalizer.duplicateKey(move.settingName()))
+                    || !targetPaths.add(pathKey(move.scopeName(), move.settingName()))) {
+                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTY_DUPLICATED);
+            }
+        }
+    }
+
+    private static void validateMoveTargetsDoNotOverlapProperties(
+            List<RootPropertyMove> moves,
+            List<Property> properties
+    ) {
+        Set<String> propertyPaths = properties.stream()
+                .map(property -> pathKey(property.scopeName(), property.settingName()))
+                .collect(java.util.stream.Collectors.toSet());
+        if (moves.stream().map(move -> pathKey(move.scopeName(), move.settingName()))
+                .anyMatch(propertyPaths::contains)) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTY_DUPLICATED);
         }
     }
 
@@ -541,6 +601,19 @@ public class WorldSetting extends BaseEntity {
         return new Property(optionalName(scopeName), requiredName(settingName), requiredValue(value));
     }
 
+    private static RootPropertyMove normalizedRootPropertyMove(
+            String settingName,
+            String scopeName
+    ) {
+        String normalizedSettingName = requiredName(settingName);
+        String normalizedScopeName = requiredName(scopeName);
+        if (WorldSettingNameNormalizer.duplicateKey(normalizedSettingName)
+                .equals(WorldSettingNameNormalizer.duplicateKey(normalizedScopeName))) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
+        }
+        return new RootPropertyMove(normalizedSettingName, normalizedScopeName);
+    }
+
     private static String pathKey(String scopeName, String settingName) {
         return Objects.toString(WorldSettingNameNormalizer.duplicateKey(scopeName), "<root>")
                 + "|"
@@ -585,6 +658,9 @@ public class WorldSetting extends BaseEntity {
     }
 
     public record Property(String scopeName, String settingName, String value) {
+    }
+
+    public record RootPropertyMove(String settingName, String scopeName) {
     }
 
     public record StoredPropertyPath(String scopeName, String settingName) {

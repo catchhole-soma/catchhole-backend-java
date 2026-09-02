@@ -23,6 +23,8 @@ import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
@@ -93,6 +95,7 @@ public class AnalysisJob extends BaseEntity {
 
     // WORLD_SETTING_COMPARISON Job이 다시 비교할 후보. 일반 회차 분석 Job에서는 null이다.
     @ManyToOne(fetch = FetchType.LAZY)
+    @OnDelete(action = OnDeleteAction.SET_NULL)
     @JoinColumn(
             name = "world_setting_candidate_id",
             foreignKey = @ForeignKey(name = "fk_analysis_jobs_world_setting_candidate")
@@ -101,6 +104,7 @@ public class AnalysisJob extends BaseEntity {
 
     // CHARACTER_FACT_COMPARISON Job이 다시 비교할 후보. 일반 회차 분석 Job에서는 null이다.
     @ManyToOne(fetch = FetchType.LAZY)
+    @OnDelete(action = OnDeleteAction.SET_NULL)
     @JoinColumn(
             name = "setting_candidate_id",
             foreignKey = @ForeignKey(name = "fk_analysis_jobs_setting_candidate")

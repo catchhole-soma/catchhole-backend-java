@@ -30,7 +30,15 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
 
     Optional<WorldSettingCandidate> findByIdAndWorkIdAndAnalysisJobBatchId(UUID id, UUID workId, UUID batchId);
 
-    @EntityGraph(attributePaths = {"work", "sourceEpisode", "analysisJob", "targetWorldSetting", "reviewedBy"})
+    @EntityGraph(attributePaths = {
+            "work",
+            "sourceEpisode",
+            "analysisJob",
+            "targetWorldSetting",
+            "reviewedBy",
+            "comparisonDecision",
+            "comparisonDecision.comparisonBatch"
+    })
     @Query("""
             select candidate
             from WorldSettingCandidate candidate
@@ -159,7 +167,7 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             @Param("quotaFailureCode") AnalysisFailureCode quotaFailureCode
     );
 
-    @EntityGraph(attributePaths = {"sourceEpisode", "reviewedBy"})
+    @EntityGraph(attributePaths = {"sourceEpisode", "reviewedBy", "comparisonDecision"})
     List<WorldSettingCandidate> findAllByTargetWorldSettingIdAndReviewStatusOrderByReviewedAtDescCreatedAtDescIdDesc(
             UUID targetWorldSettingId,
             WorldSettingReviewStatus reviewStatus
@@ -210,6 +218,56 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
     );
 
     List<WorldSettingCandidate> findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(UUID analysisJobId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"work", "sourceEpisode", "analysisJob"})
+    @Query("""
+            select candidate
+            from WorldSettingCandidate candidate
+            where candidate.analysisJob.id = :analysisJobId
+              and candidate.reviewStatus = :reviewStatus
+              and candidate.comparisonStatus = :comparisonStatus
+            order by candidate.createdAt asc, candidate.id asc
+            """)
+    List<WorldSettingCandidate> findSubjectResolutionCandidatesForUpdate(
+            @Param("analysisJobId") UUID analysisJobId,
+            @Param("reviewStatus") WorldSettingReviewStatus reviewStatus,
+            @Param("comparisonStatus") WorldSettingComparisonStatus comparisonStatus
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"sourceEpisode", "analysisJob"})
+    @Query("""
+            select candidate
+            from WorldSettingCandidate candidate
+            where candidate.analysisJob.id = :analysisJobId
+              and candidate.sourceEpisode.id = :sourceEpisodeId
+              and candidate.category = :category
+              and candidate.canonicalSubjectKey = :canonicalSubjectKey
+              and candidate.reviewStatus = :reviewStatus
+              and candidate.comparisonStatus = :comparisonStatus
+            order by candidate.createdAt asc, candidate.id asc
+            """)
+    List<WorldSettingCandidate> findComparisonBatchCandidatesForUpdate(
+            @Param("analysisJobId") UUID analysisJobId,
+            @Param("sourceEpisodeId") UUID sourceEpisodeId,
+            @Param("category") WorldSettingCategory category,
+            @Param("canonicalSubjectKey") String canonicalSubjectKey,
+            @Param("reviewStatus") WorldSettingReviewStatus reviewStatus,
+            @Param("comparisonStatus") WorldSettingComparisonStatus comparisonStatus
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {
+            "sourceEpisode",
+            "analysisJob",
+            "comparisonBatch",
+            "comparisonDecision",
+            "comparisonDecision.targetWorldSetting"
+    })
+    List<WorldSettingCandidate> findAllByComparisonBatchIdOrderByCreatedAtAscIdAsc(
+            UUID comparisonBatchId
+    );
 
     boolean existsByAnalysisJobIdAndReviewStatusNot(
             UUID analysisJobId,

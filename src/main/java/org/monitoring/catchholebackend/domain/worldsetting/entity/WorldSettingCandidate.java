@@ -43,6 +43,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCons
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSubjectResolutionType;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 import org.monitoring.catchholebackend.global.exception.AppException;
 
@@ -57,7 +58,12 @@ import org.monitoring.catchholebackend.global.exception.AppException;
                         columnList = "work_id,review_status,category,created_at,id"
                 ),
                 @Index(name = "idx_world_setting_candidates_source_episode", columnList = "source_episode_id"),
-                @Index(name = "idx_world_setting_candidates_target", columnList = "target_world_setting_id")
+                @Index(name = "idx_world_setting_candidates_target", columnList = "target_world_setting_id"),
+                @Index(
+                        name = "idx_world_setting_candidates_subject_resolution",
+                        columnList = "analysis_job_id,comparison_status,subject_resolution_type,"
+                                + "canonical_subject_key,created_at,id"
+                )
         }
 )
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -132,6 +138,39 @@ public class WorldSettingCandidate extends BaseEntity {
             foreignKey = @ForeignKey(name = "fk_world_setting_candidates_target")
     )
     private WorldSetting targetWorldSetting;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @OnDelete(action = OnDeleteAction.SET_NULL)
+    @JoinColumn(
+            name = "comparison_batch_id",
+            foreignKey = @ForeignKey(name = "fk_world_setting_candidates_comparison_batch")
+    )
+    private WorldSettingComparisonBatch comparisonBatch;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @OnDelete(action = OnDeleteAction.SET_NULL)
+    @JoinColumn(
+            name = "comparison_decision_id",
+            foreignKey = @ForeignKey(name = "fk_world_setting_candidates_comparison_decision")
+    )
+    private WorldSettingComparisonDecision comparisonDecision;
+
+    @Column(name = "comparison_candidate_ref", length = 20)
+    private String comparisonCandidateRef;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "subject_resolution_type", length = 20)
+    private WorldSettingSubjectResolutionType subjectResolutionType;
+
+    @Column(name = "canonical_subject_key", length = 150)
+    private String canonicalSubjectKey;
+
+    @Column(name = "canonical_subject_name", length = NAME_MAX_LENGTH)
+    private String canonicalSubjectName;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "resolved_target_world_setting_ids", columnDefinition = "jsonb")
+    private JsonNode resolvedTargetWorldSettingIds;
 
     @Column(name = "matched_scope_name", length = NAME_MAX_LENGTH)
     private String matchedScopeName;
@@ -332,6 +371,47 @@ public class WorldSettingCandidate extends BaseEntity {
         comparisonSourceReasonCode = null;
     }
 
+    public void startComparison(
+            WorldSettingComparisonBatch comparisonBatch,
+            String comparisonCandidateRef
+    ) {
+        if (!hasSubjectResolution()) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_SUBJECT_RESOLUTION_REQUIRED);
+        }
+        startComparison();
+        this.comparisonBatch = Objects.requireNonNull(comparisonBatch);
+        this.comparisonDecision = null;
+        this.comparisonCandidateRef = requiredReference(comparisonCandidateRef);
+    }
+
+    public void resolveSubject(
+            WorldSettingSubjectResolutionType resolutionType,
+            String canonicalSubjectKey,
+            String canonicalSubjectName,
+            JsonNode resolvedTargetWorldSettingIds
+    ) {
+        validatePendingReview();
+        if (comparisonStatus != WorldSettingComparisonStatus.PENDING) {
+            throw new AppException(
+                    WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT
+            );
+        }
+        this.subjectResolutionType = Objects.requireNonNull(resolutionType);
+        this.canonicalSubjectKey = requiredCanonicalSubjectKey(canonicalSubjectKey);
+        this.canonicalSubjectName = requiredName(canonicalSubjectName);
+        this.resolvedTargetWorldSettingIds = requiredResolvedTargetIds(
+                resolvedTargetWorldSettingIds
+        );
+    }
+
+    public boolean hasSubjectResolution() {
+        return subjectResolutionType != null
+                && canonicalSubjectKey != null
+                && canonicalSubjectName != null
+                && resolvedTargetWorldSettingIds != null
+                && resolvedTargetWorldSettingIds.isArray();
+    }
+
     public void completeComparison(
             WorldSetting targetWorldSetting,
             WorldSettingOperation suggestedOperation,
@@ -454,6 +534,36 @@ public class WorldSettingCandidate extends BaseEntity {
         this.comparisonSourceReasonCode = null;
     }
 
+    /** batch decision을 권위 원본으로 연결하고 구버전 검수 계약용 projection을 함께 갱신한다. */
+    public void completeComparison(
+            WorldSettingComparisonDecision comparisonDecision,
+            LocalDateTime comparedAt
+    ) {
+        Objects.requireNonNull(comparisonDecision);
+        if (comparisonBatch == null
+                || !comparisonBatch.getId().equals(
+                comparisonDecision.getComparisonBatch().getId()
+        )) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        completeComparison(
+                comparisonDecision.getTargetWorldSetting(),
+                comparisonDecision.getConsolidationStatus(),
+                comparisonDecision.getSuggestedOperation(),
+                comparisonDecision.getMatchedScopeName(),
+                comparisonDecision.getMatchedPropertyName(),
+                comparisonDecision.getComparisonReviewReason(),
+                comparisonDecision.getProposedScopeName(),
+                comparisonDecision.getProposedSettingName(),
+                comparisonDecision.getBeforeValue(),
+                comparisonDecision.getProposedValue(),
+                comparisonDecision.getComparisonReason(),
+                comparisonDecision.getRawComparisonJson(),
+                comparedAt
+        );
+        this.comparisonDecision = comparisonDecision;
+    }
+
     public void failComparison(String errorMessage) {
         failComparison(AnalysisFailureCode.UNEXPECTED_ERROR, errorMessage);
     }
@@ -531,7 +641,21 @@ public class WorldSettingCandidate extends BaseEntity {
             comparisonFailureCode = null;
             comparisonSourceErrorCode = null;
             comparisonSourceReasonCode = null;
+            comparisonBatch = null;
+            comparisonDecision = null;
+            comparisonCandidateRef = null;
         }
+    }
+
+    public void resetStaleSubjectResolution() {
+        validatePendingReview();
+        if (comparisonStatus != WorldSettingComparisonStatus.PROCESSING) {
+            throw new AppException(
+                    WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT
+            );
+        }
+        clearComparisonProposal();
+        comparisonStatus = WorldSettingComparisonStatus.PENDING;
     }
 
     public void markRecomparisonRequired() {
@@ -592,6 +716,9 @@ public class WorldSettingCandidate extends BaseEntity {
     public String getEffectiveSubjectName() {
         if (finalSubjectName != null) {
             return finalSubjectName;
+        }
+        if (comparisonDecision != null) {
+            return comparisonDecision.getCanonicalSubjectName();
         }
         return targetWorldSetting == null ? subjectName : targetWorldSetting.getSubjectName();
     }
@@ -744,6 +871,13 @@ public class WorldSettingCandidate extends BaseEntity {
         comparisonFailureCode = null;
         comparisonSourceErrorCode = null;
         comparisonSourceReasonCode = null;
+        comparisonBatch = null;
+        comparisonDecision = null;
+        comparisonCandidateRef = null;
+        subjectResolutionType = null;
+        canonicalSubjectKey = null;
+        canonicalSubjectName = null;
+        resolvedTargetWorldSettingIds = null;
     }
 
     @PrePersist
@@ -751,6 +885,33 @@ public class WorldSettingCandidate extends BaseEntity {
     private void validateEvidenceSpans() {
         requiredEvidenceSpans(evidenceSpans);
         validConfidence(extractionConfidence);
+        validateSubjectResolution();
+    }
+
+    private void validateSubjectResolution() {
+        boolean unresolved = subjectResolutionType == null
+                && canonicalSubjectKey == null
+                && canonicalSubjectName == null
+                && resolvedTargetWorldSettingIds == null;
+        if (unresolved) {
+            return;
+        }
+        if (subjectResolutionType == null
+                || canonicalSubjectKey == null
+                || canonicalSubjectName == null
+                || resolvedTargetWorldSettingIds == null
+                || !resolvedTargetWorldSettingIds.isArray()) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
+        }
+        int targetCount = resolvedTargetWorldSettingIds.size();
+        if ((subjectResolutionType == WorldSettingSubjectResolutionType.NEW
+                && targetCount != 0)
+                || (subjectResolutionType == WorldSettingSubjectResolutionType.EXISTING
+                && targetCount != 1)
+                || (subjectResolutionType == WorldSettingSubjectResolutionType.AMBIGUOUS
+                && targetCount < 2)) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
+        }
     }
 
     private static String requiredName(String value) {
@@ -759,6 +920,31 @@ public class WorldSettingCandidate extends BaseEntity {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
         }
         return normalized;
+    }
+
+    private static String requiredReference(String value) {
+        if (value == null || value.isBlank() || value.length() > 20) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
+        }
+        return value;
+    }
+
+    private static String requiredCanonicalSubjectKey(String value) {
+        if (value == null) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
+        }
+        String normalized = value.trim();
+        if (normalized.isEmpty() || normalized.length() > 150) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
+        }
+        return normalized;
+    }
+
+    private static JsonNode requiredResolvedTargetIds(JsonNode value) {
+        if (value == null || !value.isArray()) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
+        }
+        return value.deepCopy();
     }
 
     private static String optionalSourceCode(String value) {

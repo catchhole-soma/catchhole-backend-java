@@ -512,6 +512,76 @@ class OpenApiContractIntegrationTest {
     }
 
     @Test
+    @DisplayName("세계관 canonical 주체 선해소와 stale reset 내부 계약을 노출한다")
+    void openApiContractExposesWorldSettingCanonicalSubjectResolution() throws Exception {
+        String jobPrefix = "$['paths']['/api/internal/v1/analysis-jobs/{analysisJobId}";
+        String pendingPath = jobPrefix
+                + "/world-setting-subject-resolutions/pending']['get']";
+        String resolvePath = jobPrefix
+                + "/world-setting-subject-resolutions']['put']";
+        String claimPath = jobPrefix
+                + "/world-setting-comparison-batches/claim-next']['post']";
+        String resetPath = jobPrefix
+                + "/world-setting-comparison-batches/{comparisonBatchId}"
+                + "/reset-stale-subject-resolution']['post']";
+        String completePath = jobPrefix
+                + "/world-setting-comparison-batches/{comparisonBatchId}/complete']['post']";
+
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(pendingPath + "['operationId']")
+                        .value("getPendingWorkerWorldSettingSubjectResolutions"))
+                .andExpect(jsonPath(resolvePath + "['operationId']")
+                        .value("resolveWorkerWorldSettingSubjects"))
+                .andExpect(jsonPath(resolvePath
+                        + "['requestBody']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/WorkerWorldSettingSubjectResolutionRequest"))
+                .andExpect(jsonPath(claimPath + "['operationId']")
+                        .value("claimNextWorkerWorldSettingComparisonBatch"))
+                .andExpect(jsonPath(resetPath + "['operationId']")
+                        .value("resetStaleWorkerWorldSettingSubjectResolution"))
+                .andExpect(jsonPath(completePath
+                        + "['requestBody']['content']['application/json']['schema']['$ref']")
+                        .value("#/components/schemas/WorkerWorldSettingComparisonBatchCompleteRequest"))
+                .andExpect(jsonPath("$['components']['schemas']"
+                        + "['WorkerWorldSettingSubjectResolutionRequest']"
+                        + "['properties']['resolutions']['items']['$ref']")
+                        .value("#/components/schemas/SubjectResolutionInput"))
+                .andExpect(jsonPath("$['components']['schemas']"
+                        + "['WorkerWorldSettingComparisonBatchPayload']"
+                        + "['properties']['canonicalSubjectKey']").exists())
+                .andExpect(jsonPath("$['components']['schemas']"
+                        + "['WorkerWorldSettingComparisonBatchPayload']"
+                        + "['properties']['canonicalSubjectName']").exists())
+                .andExpect(jsonPath("$['components']['schemas']"
+                        + "['WorkerWorldSettingComparisonBatchPayload']"
+                        + "['properties']['resolvedTargetWorldSettingIds']").exists())
+                .andExpect(jsonPath("$['components']['schemas']"
+                        + "['WorkerWorldSettingComparisonBatchPayload']"
+                        + "['properties']['resolutionType']['enum']")
+                        .value(org.hamcrest.Matchers.containsInAnyOrder(
+                                "NEW",
+                                "EXISTING",
+                                "AMBIGUOUS"
+                        )))
+                .andExpect(jsonPath("$['components']['schemas']"
+                        + "['WorkerWorldSettingComparisonBatchCompleteRequest']"
+                        + "['properties']['decisions']['items']['$ref']")
+                        .value("#/components/schemas/WorkerWorldSettingComparisonBatchDecision"))
+                .andExpect(jsonPath("$['components']['schemas']"
+                        + "['WorkerWorldSettingComparisonBatchDecision']"
+                        + "['properties']['existingRootPropertyNamesToMove']['type']")
+                        .value(org.hamcrest.Matchers.hasItem("array")))
+                .andExpect(jsonPath("$['components']['schemas']"
+                        + "['WorkerWorldSettingComparisonBatchDecision']"
+                        + "['properties']['existingRootPropertyNamesToMove']['items']['maxLength']")
+                        .value(100))
+                .andExpect(jsonPath("$['components']['schemas']['WorldSettingCandidateResponse']"
+                        + "['properties']['existingRootPropertyNamesToMove']['items']['type']")
+                        .value("string"));
+    }
+
+    @Test
     @DisplayName("분석 실패 코드와 세계관 토큰 중단 일괄 재개 계약을 노출한다")
     void openApiContractExposesTokenInterruptedResumeContracts() throws Exception {
         String resumePath = "$['paths']['/api/v1/works/{workId}/world-setting-candidates"
