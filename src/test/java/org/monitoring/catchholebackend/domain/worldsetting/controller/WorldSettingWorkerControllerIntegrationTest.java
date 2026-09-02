@@ -291,6 +291,36 @@ class WorldSettingWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("원자 주체 해소 상한을 넘는 세계관 후보 게시는 거절한다")
+    void rejectsCandidatePublicationBeyondSubjectResolutionLimit() throws Exception {
+        List<Map<String, Object>> candidates = new ArrayList<>();
+        for (int index = 0; index < 501; index++) {
+            candidates.add(Map.of(
+                    "category", "LOCATION",
+                    "subjectName", "미궁 " + index,
+                    "settingName", "설정 " + index,
+                    "extractedValue", "값 " + index,
+                    "evidenceSpans", List.of(Map.of("quote", "근거 " + index)),
+                    "extractionConfidence", 0.95
+            ));
+        }
+
+        mockMvc.perform(put(
+                                "/api/internal/v1/analysis-jobs/{analysisJobId}/world-setting-candidates",
+                                analysisJob.getId()
+                        )
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("candidates", candidates))))
+                .andExpect(status().isBadRequest());
+
+        assertThat(candidateRepository.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(
+                analysisJob.getId()
+        )).isEmpty();
+    }
+
+    @Test
     @DisplayName("기존 설정과 중복되어 제외한 후보도 비교 당시 기존값을 보존한다")
     void completesDuplicateExcludeWithBeforeValue() throws Exception {
         WorldSetting target = worldSettingRepository.save(WorldSetting.create(
@@ -753,9 +783,33 @@ class WorldSettingWorkerControllerIntegrationTest {
                     "suggestedOperation": "ADD",
                     "proposedSettingName": "사냥 전술",
                     "proposedValue": "이동 경로에 함정을 설치한 뒤 숨어서 매복한다.",
-                    "comparisonReason": "두 근거가 고블린의 한 가지 사냥 전술을 보완한다."
+                    "comparisonReason": "두 근거가 고블린의 한 가지 사냥 전술을 보완한다.",
+                    "rawComparisonJson": {"attempt": 1, "model": "gpt-5.6-luna"}
                   }],
-                  "rawComparisonJson": {"schemaVersion": "world-comparison-batch-v1"}
+                  "rawComparisonJson": {
+                    "schemaVersion": "world-comparison-batch-v1",
+                    "attempt": 1
+                  }
+                }
+                """;
+        String reorderedCompletionPayload = """
+                {
+                  "rawComparisonJson": {
+                    "attempt": 1,
+                    "schemaVersion": "world-comparison-batch-v1"
+                  },
+                  "decisions": [{
+                    "rawComparisonJson": {"model": "gpt-5.6-luna", "attempt": 1},
+                    "comparisonReason": "두 근거가 고블린의 한 가지 사냥 전술을 보완한다.",
+                    "proposedValue": "이동 경로에 함정을 설치한 뒤 숨어서 매복한다.",
+                    "proposedSettingName": "사냥 전술",
+                    "suggestedOperation": "ADD",
+                    "consolidationStatus": "MERGED",
+                    "canonicalSubjectName": "고블린",
+                    "sourceCandidateRefs": ["C2", "C1"],
+                    "decisionRef": "D1"
+                  }],
+                  "contextVersions": []
                 }
                 """;
         mockMvc.perform(post(
@@ -778,7 +832,7 @@ class WorldSettingWorkerControllerIntegrationTest {
                         .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
                         .header(WORKER_LEASE_TOKEN_HEADER, leaseToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(completionPayload))
+                        .content(reorderedCompletionPayload))
                 .andExpect(status().isOk());
 
         mockMvc.perform(post(

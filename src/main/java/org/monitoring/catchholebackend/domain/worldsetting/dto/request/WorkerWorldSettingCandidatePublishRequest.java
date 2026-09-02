@@ -17,6 +17,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCate
 public record WorkerWorldSettingCandidatePublishRequest(
         @Valid
         @NotNull(message = "세계관 설정 후보 목록은 필수입니다.")
+        @Size(max = 500, message = "세계관 설정 후보는 최대 500개입니다.")
         List<Candidate> candidates
 ) {
 

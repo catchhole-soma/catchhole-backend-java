@@ -239,6 +239,43 @@ class WorldSettingCandidateControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("묶음 비교 후보의 최종 분류와 대상 초안이 검토 목록 그룹에 우선 반영된다")
+    void reviewListGroupsComparisonDecisionCandidateByFinalDraft() throws Exception {
+        RootMoveFixture fixture = rootMoveFixture();
+
+        mockMvc.perform(patch(
+                                "/api/v1/works/{workId}/world-setting-candidates/decisions",
+                                work.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of(
+                                "batchId", uploadBatch.getId(),
+                                "candidates", List.of(java.util.Map.of(
+                                        "candidateId", fixture.candidate().getId(),
+                                        "operation", "ADD",
+                                        "category", "LOCATION",
+                                        "subjectName", "미궁",
+                                        "scopeName", "신체",
+                                        "settingName", "근력 기댓값",
+                                        "value", "높다"
+                                ))
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groupKey").value("LOCATION|미궁"));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/world-setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString())
+                        .queryParam("reviewStatus", "PENDING_REVIEW"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groups.totalElements").value(1))
+                .andExpect(jsonPath("$.data.groups.content[0].groupKey").value("LOCATION|미궁"))
+                .andExpect(jsonPath("$.data.groups.content[0].category").value("LOCATION"))
+                .andExpect(jsonPath("$.data.groups.content[0].subjectName").value("미궁"));
+    }
+
+    @Test
     @DisplayName("동명 과거 그룹이 모두 확정되어도 개별 수정한 후보는 새 대기 그룹으로 다시 나타난다")
     void updateDecisionCreatesPendingGroupWhenSameNameHistoricalGroupWasConfirmed() throws Exception {
         WorldSettingCandidate historical = completedAddCandidate(
@@ -1258,6 +1295,140 @@ class WorldSettingCandidateControllerIntegrationTest {
                         fixture.candidate().getComparisonDecision().getId()
                 ).orElseThrow().getRootPropertyMovesAppliedWorldSettingVersion())
                 .isNull();
+    }
+
+    @Test
+    @DisplayName("shared 설정안의 source 전체를 그룹 제외하면 root 이동도 비활성화한다")
+    void groupDismissDisablesSharedDecisionRootMove() throws Exception {
+        RootMoveFixture fixture = rootMoveFixture();
+        WorldSettingCandidate sibling = addRootMoveDecisionSibling(fixture);
+        UUID comparisonDecisionId = fixture.candidate().getComparisonDecision().getId();
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/world-setting-candidates/group-dismiss",
+                                work.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new WorldSettingCandidateGroupDismissRequest(
+                                        uploadBatch.getId(),
+                                        List.of(fixture.candidate().getId(), sibling.getId()),
+                                        "설정안 전체 제외"
+                                )
+                        )))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(
+                        "$.data.candidates[0].existingRootPropertyNamesToMove"
+                ).isEmpty())
+                .andExpect(jsonPath(
+                        "$.data.candidates[1].existingRootPropertyNamesToMove"
+                ).isEmpty());
+
+        assertThat(candidateRepository.findAllById(List.of(
+                        fixture.candidate().getId(),
+                        sibling.getId()
+                )))
+                .extracting(WorldSettingCandidate::getReviewStatus)
+                .containsOnly(WorldSettingReviewStatus.DISMISSED);
+        assertThat(comparisonDecisionRepository.findById(comparisonDecisionId)
+                .orElseThrow().isRootPropertyMovesDisabled()).isTrue();
+    }
+
+    @Test
+    @DisplayName("shared 설정안 source가 다른 결정으로 재비교되면 과거 membership 확정을 거절한다")
+    void groupConfirmRejectsStaleSharedDecisionMembershipAfterRecomparison() throws Exception {
+        RootMoveFixture fixture = rootMoveFixture();
+        WorldSettingCandidate sibling = addRootMoveDecisionSibling(fixture);
+        WorldSettingCandidate recomparisonCandidate = fixture.candidate();
+        UUID abandonedDecisionId = recomparisonCandidate.getComparisonDecision().getId();
+        JsonNode resolvedTargetIds = objectMapper.createArrayNode()
+                .add(fixture.target().getId().toString());
+
+        recomparisonCandidate.markRecomparisonRequired();
+        recomparisonCandidate.requestRecomparison();
+        recomparisonCandidate.resolveSubject(
+                WorldSettingSubjectResolutionType.EXISTING,
+                "TARGET:" + fixture.target().getId(),
+                fixture.target().getSubjectName(),
+                resolvedTargetIds
+        );
+        WorldSettingComparisonBatch recomparisonBatch = comparisonBatchRepository.saveAndFlush(
+                WorldSettingComparisonBatch.create(
+                        work,
+                        episode,
+                        analysisJob,
+                        WorldSettingCategory.RACE,
+                        null,
+                        WorldSettingSubjectResolutionType.EXISTING,
+                        "TARGET:" + fixture.target().getId(),
+                        fixture.target().getSubjectName(),
+                        resolvedTargetIds,
+                        1
+                )
+        );
+        recomparisonCandidate.startComparison(recomparisonBatch, "C1");
+        WorldSettingComparisonDecision recomparisonDecision = comparisonDecisionRepository
+                .saveAndFlush(WorldSettingComparisonDecision.create(
+                        recomparisonBatch,
+                        "D1",
+                        fixture.target().getSubjectName(),
+                        fixture.target(),
+                        null,
+                        null,
+                        WorldSettingConsolidationStatus.SINGLE,
+                        WorldSettingSuggestedOperation.ADD,
+                        null,
+                        "신체",
+                        "근력 기댓값",
+                        null,
+                        "높다",
+                        "재비교된 독립 설정안",
+                        objectMapper.createObjectNode().put("decisionRef", "D1")
+                ));
+        recomparisonCandidate.completeComparison(recomparisonDecision, LocalDateTime.now());
+        candidateRepository.saveAndFlush(recomparisonCandidate);
+        comparisonSourceRepository.saveAndFlush(WorldSettingComparisonDecisionSource.create(
+                recomparisonBatch,
+                recomparisonDecision,
+                recomparisonCandidate,
+                "C1",
+                0
+        ));
+
+        mockMvc.perform(post(
+                                "/api/v1/works/{workId}/world-setting-candidates/group-confirm",
+                                work.getId()
+                        )
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(groupConfirmRequest(
+                                decision(
+                                        recomparisonCandidate,
+                                        WorldSettingOperation.EXCLUDE,
+                                        "신체",
+                                        "근력 기댓값",
+                                        "높다"
+                                ),
+                                decision(
+                                        sibling,
+                                        WorldSettingOperation.ADD,
+                                        "신체",
+                                        "근력 기댓값",
+                                        "높다"
+                                )
+                        ))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code")
+                        .value("WORLD_SETTING_CANDIDATE_SELECTION_INVALID"));
+
+        WorldSetting unchanged = worldSettingRepository.findById(fixture.target().getId())
+                .orElseThrow();
+        assertThat(unchanged.getPropertyValue("생명력"))
+                .isEqualTo("선택 가능한 종족 중 가장 높다");
+        assertThat(unchanged.getPropertyValue("신체", "생명력")).isNull();
+        assertThat(comparisonDecisionRepository.findById(abandonedDecisionId)
+                .orElseThrow().isRootPropertyMovesDisabled()).isFalse();
     }
 
     @Test

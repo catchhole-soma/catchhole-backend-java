@@ -1,6 +1,9 @@
 package org.monitoring.catchholebackend.domain.worldsetting.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -1536,7 +1539,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
 
     private String completionHash(WorkerWorldSettingComparisonBatchCompleteRequest request) {
         try {
-            byte[] bytes = worldSettingWorkerMapper.toJsonNode(request)
+            byte[] bytes = canonicalCompletionPayload(request)
                     .toString()
                     .getBytes(StandardCharsets.UTF_8);
             return HexFormat.of().formatHex(
@@ -1545,6 +1548,79 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 must be available.", exception);
         }
+    }
+
+    private JsonNode canonicalCompletionPayload(
+            WorkerWorldSettingComparisonBatchCompleteRequest request
+    ) {
+        ObjectNode payload = (ObjectNode) worldSettingWorkerMapper.toJsonNode(request);
+        payload.set(
+                "contextVersions",
+                sortedJsonArray(
+                        payload.path("contextVersions"),
+                        Comparator.comparing(item -> item.path("worldSettingId").asText())
+                )
+        );
+
+        ArrayNode decisions = sortedJsonArray(
+                payload.path("decisions"),
+                Comparator.comparing(item -> item.path("decisionRef").asText())
+        );
+        for (JsonNode decision : decisions) {
+            ObjectNode decisionObject = (ObjectNode) decision;
+            decisionObject.set(
+                    "sourceCandidateRefs",
+                    sortedJsonArray(
+                            decisionObject.path("sourceCandidateRefs"),
+                            Comparator.comparing(JsonNode::asText)
+                    )
+            );
+            if (decisionObject.path("existingRootPropertyNamesToMove").isArray()) {
+                decisionObject.set(
+                        "existingRootPropertyNamesToMove",
+                        sortedJsonArray(
+                                decisionObject.path("existingRootPropertyNamesToMove"),
+                                Comparator.comparing(JsonNode::asText)
+                        )
+                );
+            }
+        }
+        payload.set("decisions", decisions);
+        return canonicalizeJson(payload);
+    }
+
+    private ArrayNode sortedJsonArray(
+            JsonNode value,
+            Comparator<JsonNode> comparator
+    ) {
+        List<JsonNode> items = new ArrayList<>();
+        value.forEach(items::add);
+        items.sort(comparator);
+        ArrayNode result = JsonNodeFactory.instance.arrayNode();
+        items.forEach(result::add);
+        return result;
+    }
+
+    private JsonNode canonicalizeJson(JsonNode value) {
+        if (value == null) {
+            return JsonNodeFactory.instance.nullNode();
+        }
+        if (value.isObject()) {
+            ObjectNode result = JsonNodeFactory.instance.objectNode();
+            List<String> fieldNames = new ArrayList<>();
+            value.fieldNames().forEachRemaining(fieldNames::add);
+            fieldNames.sort(String::compareTo);
+            for (String fieldName : fieldNames) {
+                result.set(fieldName, canonicalizeJson(value.get(fieldName)));
+            }
+            return result;
+        }
+        if (value.isArray()) {
+            ArrayNode result = JsonNodeFactory.instance.arrayNode();
+            value.forEach(item -> result.add(canonicalizeJson(item)));
+            return result;
+        }
+        return value.deepCopy();
     }
 
     private Map<UUID, WorldSetting> validateBatchContext(

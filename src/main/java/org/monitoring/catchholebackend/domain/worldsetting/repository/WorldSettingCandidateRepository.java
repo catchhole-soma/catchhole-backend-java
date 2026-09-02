@@ -30,7 +30,15 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
 
     Optional<WorldSettingCandidate> findByIdAndWorkIdAndAnalysisJobBatchId(UUID id, UUID workId, UUID batchId);
 
-    @EntityGraph(attributePaths = {"work", "sourceEpisode", "analysisJob", "targetWorldSetting", "reviewedBy"})
+    @EntityGraph(attributePaths = {
+            "work",
+            "sourceEpisode",
+            "analysisJob",
+            "targetWorldSetting",
+            "reviewedBy",
+            "comparisonDecision",
+            "comparisonDecision.comparisonBatch"
+    })
     @Query("""
             select candidate
             from WorldSettingCandidate candidate
