@@ -74,6 +74,8 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
       - name: Deploy API server with AWS Systems Manager
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -128,6 +130,12 @@ jobs:
           EOF
 
           jq -n --rawfile script /tmp/catchhole-api-deploy.sh '{commands: [$script]}' > /tmp/ssm-api-parameters.json
+
+          CURRENT_MAIN_SHA=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq '.sha')
+          if [ "$DEPLOY_SHA" != "$CURRENT_MAIN_SHA" ]; then
+            echo "::notice::Skipping superseded publish run for $DEPLOY_SHA; current main is $CURRENT_MAIN_SHA."
+            exit 0
+          fi
 
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$API_EC2_INSTANCE_ID" \
