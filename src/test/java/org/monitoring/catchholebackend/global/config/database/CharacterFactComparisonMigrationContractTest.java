@@ -97,6 +97,34 @@ class CharacterFactComparisonMigrationContractTest {
                 .doesNotContain("UPDATE characters");
     }
 
+    @Test
+    @DisplayName("캐릭터 비교 묶음은 nullable 원본 회차와 후보 local ref·의존성을 저장한다")
+    void characterComparisonBatchSupportsHiddenJobsAndLocalReferences() throws IOException {
+        String sql = readMigration("db/migration/V41__add_character_fact_comparison_batches.sql");
+
+        assertThat(sql)
+                .contains("CREATE TABLE character_fact_comparison_batches")
+                .contains("source_episode_id UUID,")
+                .doesNotContain("source_episode_id UUID NOT NULL")
+                .contains("ADD COLUMN character_comparison_candidate_ref VARCHAR(20)")
+                .contains("ADD COLUMN resolved_canonical_fact_key VARCHAR(150)")
+                .contains("ADD COLUMN comparison_dependency_candidate_ids JSONB")
+                .contains("character_comparison_candidate_ref ~ '^C[1-9][0-9]*$'");
+    }
+
+    @Test
+    @DisplayName("묶음 삭제의 SET NULL은 후보 local ref가 남아도 CHECK 제약을 깨뜨리지 않는다")
+    void batchDeleteSetNullIsCompatibleWithReferenceConstraint() throws IOException {
+        String sql = readMigration("db/migration/V41__add_character_fact_comparison_batches.sql");
+
+        assertThat(sql)
+                .contains("REFERENCES character_fact_comparison_batches (id) ON DELETE SET NULL")
+                .contains("(character_comparison_batch_id IS NULL\n"
+                        + "                AND character_comparison_candidate_ref IS NULL)\n"
+                        + "            OR (character_comparison_candidate_ref IS NOT NULL\n"
+                        + "                AND character_comparison_candidate_ref ~ '^C[1-9][0-9]*$')");
+    }
+
     private String readMigration(String path) throws IOException {
         return new ClassPathResource(path).getContentAsString(StandardCharsets.UTF_8);
     }

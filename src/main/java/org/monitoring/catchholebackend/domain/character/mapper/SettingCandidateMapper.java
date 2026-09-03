@@ -100,6 +100,7 @@ public class SettingCandidateMapper {
                 candidate.getTemporalScope(),
                 candidate.getComparisonTargetFactType(),
                 candidate.getComparisonTargetFactKey(),
+                candidate.getResolvedCanonicalFactKey(),
                 toJsonValue(candidate.getProposedValueJson()),
                 candidate.getProposedFactValue(),
                 toSnapshotChanges(candidate),

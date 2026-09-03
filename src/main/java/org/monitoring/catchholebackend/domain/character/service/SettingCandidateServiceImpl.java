@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -342,6 +343,10 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 || request.applicationMode() == null
                 ? CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
                 : request.applicationMode();
+        if (applicationMode == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+                && candidate.hasComparisonDependencies()) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_GROUP_DECISION_DEPENDENCY_CONFLICT);
+        }
         validateConfirmPolicy(candidate, applicationMode, request == null ? null : request.baseSnapshotVersion());
         if (applicationMode == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
                 && !candidate.isCharacterDiscovery()
@@ -611,6 +616,33 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             Map<UUID, SettingCandidateGroupConfirmDecision> decisions,
             List<CharacterSettingSchema> schemas
     ) {
+        Map<UUID, Integer> chronology = new HashMap<>();
+        for (int index = 0; index < candidates.size(); index++) {
+            chronology.put(candidates.get(index).getId(), index);
+        }
+        for (SettingCandidate candidate : candidates) {
+            SettingCandidateGroupConfirmDecision decision = decisions.get(candidate.getId());
+            if (decision.applicationMode() != CharacterFactConfirmApplicationMode.APPLY_PROPOSAL) {
+                continue;
+            }
+            for (UUID dependencyId : comparisonDependencyIds(candidate)) {
+                Integer dependencyIndex = chronology.get(dependencyId);
+                Integer candidateIndex = chronology.get(candidate.getId());
+                SettingCandidateGroupConfirmDecision dependencyDecision = decisions.get(dependencyId);
+                if (dependencyIndex == null
+                        || candidateIndex == null
+                        || dependencyIndex >= candidateIndex
+                        || dependencyDecision == null
+                        || dependencyDecision.applicationMode()
+                        != CharacterFactConfirmApplicationMode.APPLY_PROPOSAL) {
+                    throw new AppException(
+                            CharacterErrorCode.SETTING_CANDIDATE_GROUP_DECISION_DEPENDENCY_CONFLICT
+                    );
+                }
+            }
+        }
+
+        // 배치 의존성 정보가 없는 구버전 단건 결과도 기존 동일-slot 보호를 유지한다.
         Set<CharacterSnapshotSlot> suppressedPriorProposalSlots = new HashSet<>();
         for (SettingCandidate candidate : candidates) {
             CharacterFactOperation operation = candidate.getSuggestedOperation();
@@ -624,7 +656,10 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             );
             CharacterSnapshotSlot slot = new CharacterSnapshotSlot(
                     schemaMatch.matchedSchema().getFactType(),
-                    schemaMatch.factKey()
+                    candidate.getResolvedCanonicalFactKey() == null
+                            || candidate.getResolvedCanonicalFactKey().isBlank()
+                            ? schemaMatch.factKey()
+                            : candidate.getResolvedCanonicalFactKey().trim()
             );
             CharacterFactConfirmApplicationMode applicationMode =
                     decisions.get(candidate.getId()).applicationMode();
@@ -636,6 +671,27 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 suppressedPriorProposalSlots.add(slot);
             }
         }
+    }
+
+    private List<UUID> comparisonDependencyIds(SettingCandidate candidate) {
+        com.fasterxml.jackson.databind.JsonNode dependencies = candidate.getComparisonDependencyCandidateIds();
+        if (dependencies == null || !dependencies.isArray()) {
+            return List.of();
+        }
+        List<UUID> result = new ArrayList<>();
+        Set<UUID> unique = new HashSet<>();
+        for (com.fasterxml.jackson.databind.JsonNode dependency : dependencies) {
+            try {
+                UUID dependencyId = UUID.fromString(dependency.asText());
+                if (!unique.add(dependencyId)) {
+                    throw new IllegalArgumentException("duplicate dependency");
+                }
+                result.add(dependencyId);
+            } catch (IllegalArgumentException exception) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_GROUP_DECISION_DEPENDENCY_CONFLICT);
+            }
+        }
+        return List.copyOf(result);
     }
 
     private boolean changesCurrentSnapshot(CharacterFactOperation operation) {

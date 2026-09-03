@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactCanonicalKeyResolution;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.stereotype.Component;
@@ -24,7 +25,13 @@ public class SettingCandidateSchemaResolver {
                 .filter(schema -> schema.getSchemaKey().trim().equals(trimmedAttributeName))
                 .toList();
         if (!exactMatches.isEmpty()) {
-            return resolveUnique(exactMatches, candidateValueType, trimmedAttributeName, false);
+            return resolveUnique(
+                    exactMatches,
+                    candidateValueType,
+                    trimmedAttributeName,
+                    false,
+                    CharacterFactCanonicalKeyResolution.EXACT
+            );
         }
 
         // 별칭은 단독 값 또는 schemaKey와 같은 분류 경로가 붙은 값만 허용한다.
@@ -33,7 +40,13 @@ public class SettingCandidateSchemaResolver {
                 .filter(schema -> matchesAlias(schema, trimmedAttributeName))
                 .toList();
         if (!aliasMatches.isEmpty()) {
-            return resolveUnique(aliasMatches, candidateValueType, trimmedAttributeName, false);
+            return resolveUnique(
+                    aliasMatches,
+                    candidateValueType,
+                    trimmedAttributeName,
+                    false,
+                    CharacterFactCanonicalKeyResolution.ALIAS
+            );
         }
 
         // 이름이 매번 달라지는 속성은 마지막이 .*로 끝나는 패턴만 허용한다.
@@ -42,7 +55,13 @@ public class SettingCandidateSchemaResolver {
                 .filter(schema -> matchesTrailingWildcard(schema.getAttributePattern(), trimmedAttributeName))
                 .toList();
         if (!patternMatches.isEmpty()) {
-            return resolveUnique(patternMatches, candidateValueType, trimmedAttributeName, true);
+            return resolveUnique(
+                    patternMatches,
+                    candidateValueType,
+                    trimmedAttributeName,
+                    true,
+                    CharacterFactCanonicalKeyResolution.PATTERN
+            );
         }
 
         throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_SCHEMA_NOT_MATCHED);
@@ -90,7 +109,8 @@ public class SettingCandidateSchemaResolver {
             List<CharacterSettingSchema> matches,
             SettingValueType candidateValueType,
             String trimmedAttributeName,
-            boolean preserveAttributeName
+            boolean preserveAttributeName,
+            CharacterFactCanonicalKeyResolution canonicalKeyResolution
     ) {
         // 같은 검사 단계에서 여러 설정 정의가 일치하면 정렬 순서로 임의 선택하지 않는다.
         if (matches.size() > 1) {
@@ -107,7 +127,7 @@ public class SettingCandidateSchemaResolver {
         String factKey = preserveAttributeName
                 ? trimmedAttributeName
                 : matchedSchema.getSchemaKey().trim();
-        return new SettingCandidateSchemaMatch(matchedSchema, factKey);
+        return new SettingCandidateSchemaMatch(matchedSchema, factKey, canonicalKeyResolution);
     }
 
     private String schemaNamespace(String schemaKey) {

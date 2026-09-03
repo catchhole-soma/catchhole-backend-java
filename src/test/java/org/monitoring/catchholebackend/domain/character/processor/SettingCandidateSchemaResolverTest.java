@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactCanonicalKeyResolution;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingMergePolicy;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingSchemaSource;
 import org.monitoring.catchholebackend.domain.character.type.CharacterSettingValueSemantics;
@@ -42,6 +43,7 @@ class SettingCandidateSchemaResolverTest {
 
         assertThat(match.matchedSchema()).isSameAs(schema);
         assertThat(match.factKey()).isEqualTo("stats.strength");
+        assertThat(match.canonicalKeyResolution()).isEqualTo(CharacterFactCanonicalKeyResolution.EXACT);
     }
 
     @Test
@@ -63,6 +65,7 @@ class SettingCandidateSchemaResolverTest {
 
         assertThat(match.matchedSchema()).isSameAs(schema);
         assertThat(match.factKey()).isEqualTo("stats.strength");
+        assertThat(match.canonicalKeyResolution()).isEqualTo(CharacterFactCanonicalKeyResolution.ALIAS);
     }
 
     @Test
@@ -143,6 +146,7 @@ class SettingCandidateSchemaResolverTest {
 
         assertThat(match.matchedSchema()).isSameAs(schema);
         assertThat(match.factKey()).isEqualTo("status.악령_깃들임");
+        assertThat(match.canonicalKeyResolution()).isEqualTo(CharacterFactCanonicalKeyResolution.PATTERN);
     }
 
     @Test

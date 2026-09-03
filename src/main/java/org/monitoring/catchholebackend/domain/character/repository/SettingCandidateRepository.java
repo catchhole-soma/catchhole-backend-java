@@ -277,6 +277,64 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             Pageable pageable
     );
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"work", "episode", "analysisJob", "matchedCharacter"})
+    @Query("""
+            select candidate
+            from SettingCandidate candidate
+            where candidate.analysisJob.id = :analysisJobId
+              and candidate.matchedCharacterId = :characterId
+              and candidate.reviewStatus = :reviewStatus
+              and candidate.comparisonStatus = :comparisonStatus
+              and not exists (
+                  select hiddenJob.id
+                  from AnalysisJob hiddenJob
+                  where hiddenJob.settingCandidate = candidate
+                    and hiddenJob.jobType = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.CHARACTER_FACT_COMPARISON
+                    and hiddenJob.status in (
+                        org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING,
+                        org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING
+                    )
+              )
+            order by candidate.createdAt asc, candidate.id asc
+            """)
+    List<SettingCandidate> findComparisonGroupCandidatesForUpdate(
+            @Param("analysisJobId") UUID analysisJobId,
+            @Param("characterId") UUID characterId,
+            @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus,
+            @Param("comparisonStatus") CharacterFactComparisonStatus comparisonStatus
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"work", "episode", "analysisJob", "matchedCharacter", "characterComparisonBatch"})
+    @Query("""
+            select candidate
+            from SettingCandidate candidate
+            where candidate.characterComparisonBatch.id = :comparisonBatchId
+            order by candidate.createdAt asc, candidate.id asc
+            """)
+    List<SettingCandidate> findAllByCharacterComparisonBatchIdForUpdate(
+            @Param("comparisonBatchId") UUID comparisonBatchId
+    );
+
+    @EntityGraph(attributePaths = {"work", "episode", "analysisJob", "analysisJob.batch", "matchedCharacter"})
+    @Query("""
+            select candidate
+            from SettingCandidate candidate
+            where candidate.analysisJob.id = :analysisJobId
+              and candidate.matchedCharacterId = :characterId
+              and candidate.reviewStatus = :reviewStatus
+              and candidate.comparisonStatus = :comparisonStatus
+              and candidate.characterComparisonBatch is not null
+            order by candidate.createdAt asc, candidate.id asc
+            """)
+    List<SettingCandidate> findCompletedComparisonCandidates(
+            @Param("analysisJobId") UUID analysisJobId,
+            @Param("characterId") UUID characterId,
+            @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus,
+            @Param("comparisonStatus") CharacterFactComparisonStatus comparisonStatus
+    );
+
     @EntityGraph(attributePaths = {"episode", "analysisJob", "analysisJob.batch"})
     @Query("""
             select candidate

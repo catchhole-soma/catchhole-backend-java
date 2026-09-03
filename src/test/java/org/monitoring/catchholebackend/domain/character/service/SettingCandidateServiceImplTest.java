@@ -1727,7 +1727,7 @@ class SettingCandidateServiceImplTest {
     }
 
     @Test
-    @DisplayName("앞선 동일 slot 제안을 이력으로만 저장하면 그 값에 의존한 뒤 제안 적용을 거절한다")
+    @DisplayName("앞선 제안을 이력으로만 저장하면 명시적으로 의존한 뒤 제안 적용을 거절한다")
     void confirmSettingCandidateGroupRejectsSuppressedPriorProposalDependency() {
         Long memberId = 1L;
         UUID workId = UUID.randomUUID();
@@ -1744,9 +1744,14 @@ class SettingCandidateServiceImplTest {
         SettingCandidate second = completedCandidate(
                 work,
                 character,
-                "stats.strength",
+                "stats.agility",
                 "12",
                 CharacterFactOperation.ADD
+        );
+        ReflectionTestUtils.setField(
+                second,
+                "comparisonDependencyCandidateIds",
+                objectMapper.createArrayNode().add(first.getId().toString())
         );
         ReflectionTestUtils.setField(
                 first,
@@ -1776,7 +1781,8 @@ class SettingCandidateServiceImplTest {
         when(characterFactComparisonWorkerService.hasCurrentContext(any(SettingCandidate.class)))
                 .thenReturn(true);
         when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(
-                schema("stats.strength", null, CharacterFactType.STAT, SettingValueType.NUMBER)
+                schema("stats.strength", null, CharacterFactType.STAT, SettingValueType.NUMBER),
+                schema("stats.agility", null, CharacterFactType.STAT, SettingValueType.NUMBER)
         ));
         SettingCandidateGroupConfirmRequest request = new SettingCandidateGroupConfirmRequest(
                 batchId,
@@ -1929,6 +1935,7 @@ class SettingCandidateServiceImplTest {
                 new BigDecimal("0.8000"),
                 SettingCandidateReviewStatus.PENDING_REVIEW,
                 Map.of("raw_value", "17"),
+                null,
                 null,
                 null,
                 null,
