@@ -1,0 +1,79 @@
+name: catchhole
+
+services:
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?API_DOMAIN is required}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  backend:
+    image: ${BACKEND_IMAGE:?BACKEND_IMAGE is required}
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      TZ: ${APP_TIMEZONE:-Asia/Seoul}
+      SPRING_PROFILES_ACTIVE: prod
+      JAVA_OPTS: "${BACKEND_JAVA_OPTS} -Duser.timezone=${APP_TIMEZONE:-Asia/Seoul}"
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      DATABASE_USERNAME: ${DATABASE_USERNAME:?DATABASE_USERNAME is required}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}
+      DATABASE_POOL_MAXIMUM_SIZE: ${DATABASE_POOL_MAXIMUM_SIZE:-10}
+      DATABASE_POOL_MINIMUM_IDLE: ${DATABASE_POOL_MINIMUM_IDLE:-2}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?INTERNAL_API_KEY is required}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS is required}
+      AI_TOKEN_DEFAULT_GRANT: ${AI_TOKEN_DEFAULT_GRANT:-2000000}
+      AI_TOKEN_CONTACT_EMAIL: ${AI_TOKEN_CONTACT_EMAIL:-aicatchhole@gmail.com}
+      AI_TOKEN_MINIMUM_ANALYSIS_RESERVATION: ${AI_TOKEN_MINIMUM_ANALYSIS_RESERVATION:-6256}
+      AI_TOKEN_MINIMUM_COMPARISON_RESERVATION: ${AI_TOKEN_MINIMUM_COMPARISON_RESERVATION:-16256}
+      AWS_REGION: ${AWS_REGION:?AWS_REGION is required}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:?AWS_S3_BUCKET is required}
+      AWS_S3_ENDPOINT_OVERRIDE: ${AWS_S3_ENDPOINT_OVERRIDE:-}
+      SMS_PROVIDER: ${SMS_PROVIDER:-solapi}
+      SOLAPI_API_KEY: ${SOLAPI_API_KEY:?SOLAPI_API_KEY is required}
+      SOLAPI_API_SECRET: ${SOLAPI_API_SECRET:?SOLAPI_API_SECRET is required}
+      SOLAPI_SENDER_NUMBER: ${SOLAPI_SENDER_NUMBER:?SOLAPI_SENDER_NUMBER is required}
+      PHONE_VERIFICATION_HASH_SECRET: ${PHONE_VERIFICATION_HASH_SECRET:?PHONE_VERIFICATION_HASH_SECRET is required}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+
+  redis:
+    image: redis:7.4.10-alpine3.21
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      - --maxmemory
+      - 64mb
+      - --maxmemory-policy
+      - noeviction
+      - --save
+      - ""
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${REDIS_PASSWORD}\" redis-cli ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+
+volumes:
+  caddy_data:
+  caddy_config:

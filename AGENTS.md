@@ -74,19 +74,20 @@
 - 백엔드 컨테이너 이미지는 루트 `Dockerfile`에서 빌드한다.
 - Dockerfile은 Gradle Wrapper로 `bootJar`를 만드는 JDK 21 빌드 스테이지와 JRE 21 런타임 스테이지를 분리한다. 런타임 컨테이너는 non-root 사용자로 실행한다.
 - 운영 컨테이너는 `SPRING_PROFILES_ACTIVE=prod`와 외부 환경변수로 설정을 주입한다. AWS/S3 자격 증명은 가능하면 EC2 IAM Role을 사용하고, access key를 이미지나 커밋 파일에 넣지 않는다.
-- 운영 Backend, Python AI Worker, PostgreSQL은 `APP_TIMEZONE`을 공통으로 사용하며 기본값은 `Asia/Seoul`이다. 세 writer가 timezone 없는 `TIMESTAMP` 컬럼에 서로 다른 로컬 시각을 저장하지 않도록 JVM `user.timezone`, 컨테이너 `TZ`, PostgreSQL `timezone`을 함께 변경한다.
+- 운영 Backend, Python AI Worker, PostgreSQL은 `APP_TIMEZONE`을 공통으로 사용하며 기본값은 `Asia/Seoul`이다. 세 writer가 timezone 없는 `TIMESTAMP` 컬럼에 서로 다른 로컬 시각을 저장하지 않도록 Amazon RDS 파라미터 그룹의 `timezone`, JVM `user.timezone`, 컨테이너 `TZ`를 함께 변경한다. Backend는 HikariCP `connection-init-sql`, AI Worker는 SQLAlchemy PostgreSQL 연결 옵션으로 새 연결의 session `timezone`을 매번 `TZ`와 동일하게 설정한다.
 - 운영 AI Worker의 신규 청크 임베딩 생성은 `EMBEDDING_GENERATION_ENABLED`로 제어하고 Compose 기본값은 `false`로 둔다. MVP에서 사용하지 않는 API 비용을 차단하되 pgvector schema와 재활성화 경로는 유지하며, `true` 전환은 신규 분석·재분석에만 적용되고 기존 `NULL` 벡터를 자동 backfill하지 않는다.
 - 운영 캐릭터 Fact·세계관 재비교는 같은 AI 이미지를 각각 `--worker-kind character-comparison`, `--worker-kind world-comparison` command로 실행하는 별도 서비스가 담당한다. 기본 `ai-worker`와 claim Job type을 분리하고 재비교 서비스에서는 임베딩 생성을 항상 끈다.
-- 운영 `SETTING_EXTRACTION` 처리량은 `AI_WORKER_PROCESS_COUNT × AI_WORKER_CONCURRENCY`로 계산한다. 현재 검증 rollout은 분석 Worker 2개 × 프로세스당 Job 5개 = 최대 10개다. 50개 Job 부하 테스트에서 Backend·PostgreSQL·LLM 지표를 확인하고 기준 미달이면 프로세스당 3개로 되돌린다. 이 10은 별도 캐릭터·세계관 비교 Worker를 제외한 분석 Job 용량이며 provider 계정 전체의 분산 동시성 상한을 뜻하지 않는다.
+- 운영 `SETTING_EXTRACTION` 처리량은 `AI_WORKER_PROCESS_COUNT × AI_WORKER_CONCURRENCY`로 계산한다. 기본 운영값은 분석 Worker 5개 × 프로세스당 Job 10개 = 최대 50개다. 50개 Job 부하 테스트에서 Backend·PostgreSQL·LLM 지표가 기준에 미달하면 Worker 5개는 유지하고 프로세스당 Job과 LLM 요청을 5개로 낮춰 최대 25개로 되돌린다. 이 값은 별도 캐릭터·세계관 비교 Worker를 제외한 분석 Job 용량이며 provider 계정 전체의 분산 동시성 상한을 뜻하지 않는다.
 - 분석 Worker는 빈 실행 슬롯을 확보한 뒤 Job 하나만 claim하고 즉시 실행한다. 미리 여러 Job을 claim해 프로세스 내부 대기열에 쌓지 않으며, `LLM_MAX_CONCURRENT_REQUESTS`와 `AI_WORKER_BLOCKING_MAX_WORKERS`로 프로세스 안의 provider 호출과 동기 DB/S3 offload를 각각 제한한다. 재비교 Worker는 Job·LLM 동시성을 1로 고정한다.
 - Worker는 종료 신호를 받으면 신규 claim을 중단하고 `AI_WORKER_SHUTDOWN_GRACE_SECONDS` 동안 실행 중 Job과 heartbeat를 유지한다. Compose `stop_grace_period`는 내부 grace보다 길게 두어 정리 시간을 보장하며, 현재 운영값은 내부 180초·컨테이너 210초다. grace를 넘긴 Job은 heartbeat가 멈춘 뒤 Spring lease 회수 경로로 재처리한다.
 - 운영 AI 모델은 추출 `LLM_EXTRACTION_MODEL=gpt-5.6-terra`, 캐릭터·세계관 주체 해소 `LLM_SUBJECT_RESOLUTION_MODEL=gpt-5.6-luna`, 세계관 비교·재비교 `LLM_COMPARISON_MODEL=gpt-5.6-luna`로 분리하고 `LLM_MODEL`은 개별 설정이 없을 때의 fallback으로 둔다. 공통 추론 강도는 `LLM_REASONING_EFFORT=none`을 사용한다. 실제 비밀값과 override는 `/opt/catchhole/.env`에 두고 Compose가 AI Worker에 명시적으로 전달한다.
 - 운영 AI 출력 상한은 캐릭터 추출 6,000→12,000, 세계관 추출 5,000→10,000, 주체 해소 2,000, 단건 비교 3,000, 세계관 batch 비교 16,000이며 provider 상한은 128,000이다. Compose가 목적별 환경변수를 사용하는 Worker 서비스에 명시적으로 전달하고, Backend 비교 최소 예약량은 가장 큰 비교 출력 상한 16,000에 입력 여유 256을 더한 16,256으로 동기화한다. 작업 생성 단계의 빠른 검사가 실제 Worker 예약보다 낮아 실행 직후 실패하는 설정 drift를 막기 위함이다.
 - 로컬과 운영 PostgreSQL은 `pgvector/pgvector:0.8.2-pg16` 이미지로 통일한다. `latest`나 major version만 지정한 가변 태그를 사용하지 않고 PostgreSQL/pgvector 버전을 함께 고정해 로컬·운영의 vector extension 실행 환경을 일치시킨다.
-- 단일 EC2 운영 배포 파일은 `deploy/` 아래에 둔다. `compose.prod.yml`, `Caddyfile`, `.env.example`을 기준으로 서버의 `/opt/catchhole`에 배치하되, 실제 `.env`는 서버에만 두고 커밋하지 않는다.
-- 운영 PostgreSQL의 호스트 포트는 `127.0.0.1:5432`에만 바인딩한다. SSH 터널 기반 운영 점검은 허용하되 EC2 외부에 데이터베이스 포트를 직접 노출하지 않기 위함이다.
+- API 서버 운영 배포 파일은 백엔드 저장소의 `deploy/compose.api.prod.yml`, `deploy/Caddyfile`, `deploy/api.env.example`로 관리한다. Worker 서버 운영 배포 파일은 인공지능 작업 저장소의 `deploy/compose.worker.prod.yml`, `deploy/worker.env.example`로 관리한다. 두 서버의 실제 `api.env`와 `worker.env`는 각각 `/opt/catchhole`에만 두고 커밋하지 않는다.
+- 운영 PostgreSQL은 외부 Amazon RDS를 사용한다. API 서버는 HikariCP 최대 10개, 분석 Worker 5개는 SQLAlchemy 연결을 각각 최대 3개, 캐릭터·세계관 비교 Worker는 각각 최대 1개로 제한해 애플리케이션 전체 최대 연결 수를 27개로 유지한다.
 - 로컬과 운영 Redis는 `redis:7.4.10-alpine3.21`로 고정한다. 운영 Redis는 호스트 포트를 열지 않고 비밀번호, 64MB `noeviction`, 비영속 정책을 유지한다. 휴대폰 인증 데이터는 모두 단기 상태이므로 재시작 시 초기화를 허용한다.
 - `main` 브랜치에 push되면 `.github/workflows/publish-image.yml`이 GHCR에 `ghcr.io/catchhole-soma/catchhole-backend-java:main`과 short SHA 태그를 발행한다.
+- API 자동 배포는 `main` push로 시작된 이미지 발행이 성공하고 publish run의 commit SHA가 현재 `main`일 때만 실행한다. 해당 SHA의 배포 파일과 `sha-<short-sha>` 이미지를 함께 사용하며, Workflow가 API 서버의 `api.env` 속 `BACKEND_IMAGE`를 해당 SHA로 갱신한다.
 
 ### Package Structure
 
