@@ -804,7 +804,7 @@ Worker는 후보를 차례대로 비교하므로 앞 후보의 `Q`를 뒤 후보
 
 exact/alias schema key는 Backend가 정한 canonical key로 고정합니다. 이름이 유동적인 `STATUS`의 `status.*` pattern 후보만 2차 비교가 기존 의미상 같은 canonical key로 해소할 수 있고, 최종 `resolved_canonical_fact_key`를 promotion에서도 사용합니다. 완료 요청은 모든 `C`를 decision 또는 typed failure로 정확히 한 번 덮어야 하며, 누락·중복·미래 ref·오래된 context·잘못된 key 또는 operation이 하나라도 있으면 묶음 전체를 변경 없이 거절합니다.
 
-bounded split의 다음 묶음은 앞서 `COMPLETED`된 decision을 원문 순서로 다시 projection합니다. 이때 `dependency_candidate_ids`는 `Q`를 읽거나 제거한 선행 후보를 서버 내부 UUID로 복원해 저장합니다. 단건 `APPLY_PROPOSAL`은 의존 후보가 있으면 거절하며, 그룹 확정은 의존 후보가 더 앞에 있고 함께 `APPLY_PROPOSAL`되는 경우만 원자적으로 허용합니다. 정상 매칭 경로는 후보 표시 이름도 canonical 캐릭터명으로 통일합니다. legacy 이름 불일치로 선행 의존 후보가 다른 검수 그룹에 있다면 먼저 선행 그룹을 확정하고, snapshot version이 바뀐 뒤 후행 그룹을 재비교해야 합니다. `HISTORY_ONLY + PRESENT`는 당일의 일회성 사건을 이력에만 남기는 유효한 조합입니다.
+bounded split의 다음 묶음은 앞서 `COMPLETED`된 decision을 원문 순서로 다시 projection합니다. 이때 `dependency_candidate_ids`는 `Q`를 읽거나 제거한 선행 후보를 서버 내부 UUID로 복원해 저장합니다. 제거되어 현재값이 없는 slot도 batch-local 부재 provenance를 유지하므로, 뒤 후보가 같은 slot을 다시 `ADD`하면 마지막 제거 후보와 그 전이 의존성을 함께 계승합니다. 새 값이 들어오면 부재 provenance는 해당 값의 의존성으로 흡수되고, 이 메모리 projection은 별도 DB·Worker 필드를 만들지 않습니다. 단건 `APPLY_PROPOSAL`은 의존 후보가 있으면 거절하며, 그룹 확정은 의존 후보가 더 앞에 있고 함께 `APPLY_PROPOSAL`되는 경우만 원자적으로 허용합니다. 정상 매칭 경로는 후보 표시 이름도 canonical 캐릭터명으로 통일합니다. legacy 이름 불일치로 선행 의존 후보가 다른 검수 그룹에 있다면 먼저 선행 그룹을 확정하고, snapshot version이 바뀐 뒤 후행 그룹을 재비교해야 합니다. `HISTORY_ONLY + PRESENT`는 당일의 일회성 사건을 이력에만 남기는 유효한 조합입니다.
 
 검수용 후보 응답은 `resolvedCanonicalFactKey`를 별도로 제공합니다. `comparisonTargetFactKey`가 없는 `REMOVE`·`HISTORY_ONLY`도 2차가 어떤 canonical key로 해소했는지 확인할 수 있고, `ADD`·`UPDATE`·`MERGE`에서는 실제 promotion key와 함께 교차 검증할 수 있습니다.
 

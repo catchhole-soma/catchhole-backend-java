@@ -469,6 +469,12 @@ public class CharacterFactComparisonBatchWorker {
         fingerprint.put("snapshotEntries", projection.bySlot().values().stream()
                 .map(this::projectionHashValue)
                 .toList());
+        fingerprint.put("snapshotAbsences", projection.absenceBySlot().entrySet().stream()
+                .sorted(Map.Entry.comparingByKey(Comparator
+                        .comparing((CharacterSnapshotSlot slot) -> slot.factType().name())
+                        .thenComparing(CharacterSnapshotSlot::factKey)))
+                .map(this::projectionAbsenceHashValue)
+                .toList());
         String contextToken = sha256(fingerprint);
         return new BatchContext(
                 List.copyOf(responseEntries),
@@ -500,7 +506,12 @@ public class CharacterFactComparisonBatchWorker {
                                 List.of()
                         )
                 ));
-        return new Projection(values, new LinkedHashMap<>(), new LinkedHashMap<>());
+        return new Projection(
+                values,
+                new LinkedHashMap<>(),
+                new LinkedHashMap<>(),
+                new LinkedHashMap<>()
+        );
     }
 
     private void applyPriorCompletedDecisions(
@@ -539,11 +550,16 @@ public class CharacterFactComparisonBatchWorker {
                     ? target.get().factKey()
                     : candidate.getResolvedCanonicalFactKey().trim();
             CharacterSnapshotSlot slot = new CharacterSnapshotSlot(target.get().factType(), resolvedKey);
-            parseStoredRemovedSlots(candidate).forEach(projection.bySlot()::remove);
+            List<UUID> dependencies = parseStoredDependencyIds(candidate);
+            LinkedHashSet<UUID> withSource = new LinkedHashSet<>(dependencies);
+            withSource.add(candidate.getId());
+            List<UUID> resultingDependencies = sortDependencies(withSource, projection);
+            for (CharacterSnapshotSlot removedSlot : parseStoredRemovedSlots(candidate)) {
+                projection.bySlot().remove(removedSlot);
+                projection.absenceBySlot().put(removedSlot, resultingDependencies);
+            }
             if (upsertsSnapshot(candidate.getSuggestedOperation())) {
-                List<UUID> dependencies = parseStoredDependencyIds(candidate);
-                LinkedHashSet<UUID> withSource = new LinkedHashSet<>(dependencies);
-                withSource.add(candidate.getId());
+                projection.absenceBySlot().remove(slot);
                 projection.bySlot().put(
                         slot,
                         new ProjectionValue(
@@ -555,7 +571,7 @@ public class CharacterFactComparisonBatchWorker {
                                 ),
                                 CharacterFactSnapshotOrigin.PRIOR_DECISION,
                                 candidate.getId(),
-                                List.copyOf(withSource)
+                                resultingDependencies
                         )
                 );
             }
@@ -587,6 +603,7 @@ public class CharacterFactComparisonBatchWorker {
         return new Projection(
                 selected,
                 new LinkedHashMap<>(),
+                new LinkedHashMap<>(projection.absenceBySlot()),
                 new LinkedHashMap<>(projection.dependencyOrder())
         );
     }
@@ -638,7 +655,14 @@ public class CharacterFactComparisonBatchWorker {
                 proposedValueJson
         );
 
-        List<UUID> derivedDependencies = deriveDependencies(targetValue, removedValues, projection);
+        List<UUID> derivedDependencies = deriveDependencies(
+                targetValue,
+                removedValues,
+                upsertsSnapshot(request.operation())
+                        ? projection.absenceBySlot().get(resolvedSlot)
+                        : null,
+                projection
+        );
         Set<UUID> expectedCurrentBatchDependencies = derivedDependencies.stream()
                 .filter(id -> indexOfCandidate(candidates, id) >= 0)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
@@ -651,10 +675,15 @@ public class CharacterFactComparisonBatchWorker {
             throw invalidBatchResponse();
         }
 
-        removedSlots.forEach(projection.bySlot()::remove);
+        LinkedHashSet<UUID> withSource = new LinkedHashSet<>(derivedDependencies);
+        withSource.add(candidate.getId());
+        List<UUID> resultingDependencies = sortDependencies(withSource, projection);
+        for (CharacterSnapshotSlot removedSlot : removedSlots) {
+            projection.bySlot().remove(removedSlot);
+            projection.absenceBySlot().put(removedSlot, resultingDependencies);
+        }
         if (upsertsSnapshot(request.operation())) {
-            LinkedHashSet<UUID> outputDependencies = new LinkedHashSet<>(derivedDependencies);
-            outputDependencies.add(candidate.getId());
+            projection.absenceBySlot().remove(resolvedSlot);
             ProjectionValue projected = new ProjectionValue(
                     snapshotAccessor.entry(
                             resolvedSlot.factType(),
@@ -664,7 +693,7 @@ public class CharacterFactComparisonBatchWorker {
                     ),
                     CharacterFactSnapshotOrigin.PRIOR_DECISION,
                     candidate.getId(),
-                    List.copyOf(outputDependencies)
+                    resultingDependencies
             );
             projection.bySlot().put(resolvedSlot, projected);
             projection.byRef().put(projectedRef(candidateIndex), projected);
@@ -727,6 +756,7 @@ public class CharacterFactComparisonBatchWorker {
     private List<UUID> deriveDependencies(
             ProjectionValue target,
             Set<ProjectionValue> removed,
+            List<UUID> resolvedSlotAbsenceDependencies,
             Projection projection
     ) {
         LinkedHashSet<UUID> dependencies = new LinkedHashSet<>();
@@ -734,6 +764,13 @@ public class CharacterFactComparisonBatchWorker {
             dependencies.addAll(target.dependencyCandidateIds());
         }
         removed.forEach(value -> dependencies.addAll(value.dependencyCandidateIds()));
+        if (resolvedSlotAbsenceDependencies != null) {
+            dependencies.addAll(resolvedSlotAbsenceDependencies);
+        }
+        return sortDependencies(dependencies, projection);
+    }
+
+    private List<UUID> sortDependencies(Set<UUID> dependencies, Projection projection) {
         return dependencies.stream()
                 .sorted(Comparator
                         .comparingInt((UUID id) -> projection.dependencyOrder()
@@ -1096,6 +1133,16 @@ public class CharacterFactComparisonBatchWorker {
         return hash;
     }
 
+    private Map<String, Object> projectionAbsenceHashValue(
+            Map.Entry<CharacterSnapshotSlot, List<UUID>> absence
+    ) {
+        Map<String, Object> hash = new LinkedHashMap<>();
+        hash.put("factType", absence.getKey().factType());
+        hash.put("factKey", absence.getKey().factKey());
+        hash.put("dependencyCandidateIds", absence.getValue());
+        return hash;
+    }
+
     private JsonNode toNullableJsonNode(Object value) {
         return value == null ? null : objectMapper.valueToTree(value);
     }
@@ -1186,12 +1233,14 @@ public class CharacterFactComparisonBatchWorker {
     private record Projection(
             LinkedHashMap<CharacterSnapshotSlot, ProjectionValue> bySlot,
             LinkedHashMap<String, ProjectionValue> byRef,
+            LinkedHashMap<CharacterSnapshotSlot, List<UUID>> absenceBySlot,
             LinkedHashMap<UUID, Integer> dependencyOrder
     ) {
         private Projection copy() {
             return new Projection(
                     new LinkedHashMap<>(bySlot),
                     new LinkedHashMap<>(byRef),
+                    new LinkedHashMap<>(absenceBySlot),
                     new LinkedHashMap<>(dependencyOrder)
             );
         }

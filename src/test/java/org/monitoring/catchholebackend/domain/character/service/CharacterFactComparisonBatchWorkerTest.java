@@ -307,6 +307,192 @@ class CharacterFactComparisonBatchWorkerTest {
     }
 
     @Test
+    @DisplayName("REMOVE 뒤 같은 slot을 다시 만들면 부재를 만든 후보까지 전이 의존한다")
+    void removeAndRecreateSameSlotCarriesTransitiveAbsenceDependencies() {
+        SettingCandidate firstRemoval = candidate("status.오른발_부상", "오른발 부상이 회복됨", 10);
+        SettingCandidate firstRecreation = candidate("status.오른발_부상", "오른발을 다시 다침", 20);
+        SettingCandidate secondRemoval = candidate("status.오른발_부상", "오른발 부상이 다시 회복됨", 30);
+        SettingCandidate secondRecreation = candidate("status.오른발_부상", "오른발을 또 다침", 40);
+        WorkerCharacterFactComparisonBatchPayload claim = worker.claimNext(
+                analysisJobId,
+                leaseToken
+        ).orElseThrow();
+        WorkerCharacterFactComparisonBatchContextResponse context = worker.getContext(
+                analysisJobId,
+                claim.comparisonBatchId(),
+                leaseToken
+        );
+        String injuryRef = snapshotRef(context, "status.오른발_부상");
+
+        worker.complete(
+                analysisJobId,
+                claim.comparisonBatchId(),
+                leaseToken,
+                new WorkerCharacterFactComparisonBatchCompleteRequest(
+                        context.contextToken(),
+                        List.of(
+                                remove(
+                                        "C1",
+                                        "status.오른발_부상",
+                                        List.of(injuryRef),
+                                        List.of()
+                                ),
+                                add(
+                                        "C2",
+                                        "status.오른발_부상",
+                                        List.of("C1"),
+                                        "오른발을 다시 다침"
+                                ),
+                                remove(
+                                        "C3",
+                                        "status.오른발_부상",
+                                        List.of("Q2"),
+                                        List.of("C1", "C2")
+                                ),
+                                add(
+                                        "C4",
+                                        "status.오른발_부상",
+                                        List.of("C1", "C2", "C3"),
+                                        "오른발을 또 다침"
+                                )
+                        ),
+                        List.of(),
+                        Map.of("fixture", "same-slot-absence-provenance")
+                )
+        );
+
+        assertThat(firstRemoval.getComparisonDependencyCandidateIds()).isEmpty();
+        assertThat(firstRecreation.getComparisonDependencyCandidateIds())
+                .extracting(JsonNode::asText)
+                .containsExactly(firstRemoval.getId().toString());
+        assertThat(secondRemoval.getComparisonDependencyCandidateIds())
+                .extracting(JsonNode::asText)
+                .containsExactly(
+                        firstRemoval.getId().toString(),
+                        firstRecreation.getId().toString()
+                );
+        assertThat(secondRecreation.getComparisonDependencyCandidateIds())
+                .extracting(JsonNode::asText)
+                .containsExactly(
+                        firstRemoval.getId().toString(),
+                        firstRecreation.getId().toString(),
+                        secondRemoval.getId().toString()
+                );
+    }
+
+    @Test
+    @DisplayName("앞 bounded 묶음이 만든 slot 부재도 다음 묶음 ADD 의존성으로 이어진다")
+    void boundedPriorRemovalCarriesAbsenceDependencyToNextBatch() {
+        ReflectionTestUtils.setField(worker, "maxBatchCandidates", 1);
+        SettingCandidate removal = candidate("status.오른발_부상", "오른발 부상이 회복됨", 10);
+        SettingCandidate recreation = candidate("status.오른발_부상", "오른발을 다시 다침", 20);
+
+        WorkerCharacterFactComparisonBatchPayload firstClaim = worker.claimNext(
+                analysisJobId,
+                leaseToken
+        ).orElseThrow();
+        WorkerCharacterFactComparisonBatchContextResponse firstContext = worker.getContext(
+                analysisJobId,
+                firstClaim.comparisonBatchId(),
+                leaseToken
+        );
+        worker.complete(
+                analysisJobId,
+                firstClaim.comparisonBatchId(),
+                leaseToken,
+                new WorkerCharacterFactComparisonBatchCompleteRequest(
+                        firstContext.contextToken(),
+                        List.of(remove(
+                                "C1",
+                                "status.오른발_부상",
+                                List.of(snapshotRef(firstContext, "status.오른발_부상")),
+                                List.of()
+                        )),
+                        List.of(),
+                        Map.of("fixture", "bounded-remove")
+                )
+        );
+
+        WorkerCharacterFactComparisonBatchPayload secondClaim = worker.claimNext(
+                analysisJobId,
+                leaseToken
+        ).orElseThrow();
+        WorkerCharacterFactComparisonBatchContextResponse secondContext = worker.getContext(
+                analysisJobId,
+                secondClaim.comparisonBatchId(),
+                leaseToken
+        );
+        assertThat(secondContext.snapshotEntries())
+                .extracting(WorkerCharacterFactComparisonBatchContextResponse.SnapshotEntry::factKey)
+                .doesNotContain("status.오른발_부상");
+        worker.complete(
+                analysisJobId,
+                secondClaim.comparisonBatchId(),
+                leaseToken,
+                new WorkerCharacterFactComparisonBatchCompleteRequest(
+                        secondContext.contextToken(),
+                        List.of(add("C1", "status.오른발_부상", "오른발을 다시 다침")),
+                        List.of(),
+                        Map.of("fixture", "bounded-recreate")
+                )
+        );
+
+        assertThat(recreation.getComparisonDependencyCandidateIds())
+                .extracting(JsonNode::asText)
+                .containsExactly(removal.getId().toString());
+    }
+
+    @Test
+    @DisplayName("현재 상태를 추가하면서 다른 slot을 제거해도 제거 slot의 부재 의존성을 남긴다")
+    void upsertWithRemovalCarriesAbsenceDependencyForRemovedSlot() {
+        SettingCandidate recovery = candidate("status.회복_중", "신체가 빠르게 재생 중", 10);
+        SettingCandidate injury = candidate("status.오른발_부상", "오른발을 다시 다침", 20);
+        WorkerCharacterFactComparisonBatchPayload claim = worker.claimNext(
+                analysisJobId,
+                leaseToken
+        ).orElseThrow();
+        WorkerCharacterFactComparisonBatchContextResponse context = worker.getContext(
+                analysisJobId,
+                claim.comparisonBatchId(),
+                leaseToken
+        );
+
+        worker.complete(
+                analysisJobId,
+                claim.comparisonBatchId(),
+                leaseToken,
+                new WorkerCharacterFactComparisonBatchCompleteRequest(
+                        context.contextToken(),
+                        List.of(
+                                decision(
+                                        "C1",
+                                        CharacterFactOperation.ADD,
+                                        "status.회복_중",
+                                        null,
+                                        List.of(snapshotRef(context, "status.오른발_부상")),
+                                        List.of(),
+                                        "신체가 빠르게 재생 중",
+                                        valueMap("신체가 빠르게 재생 중")
+                                ),
+                                add(
+                                        "C2",
+                                        "status.오른발_부상",
+                                        List.of("C1"),
+                                        "오른발을 다시 다침"
+                                )
+                        ),
+                        List.of(),
+                        Map.of("fixture", "upsert-with-remove")
+                )
+        );
+
+        assertThat(recovery.getComparisonDependencyCandidateIds()).isEmpty();
+        assertThat(injury.getComparisonDependencyCandidateIds())
+                .extracting(JsonNode::asText)
+                .containsExactly(recovery.getId().toString());
+    }
+
+    @Test
     @DisplayName("묶음 실패 응답 유실 뒤 같은 요청을 재전송해도 성공한다")
     void batchFailureIsIdempotentForSameFailure() {
         SettingCandidate first = candidate("status.부상", "부상", 10);
@@ -786,13 +972,22 @@ class CharacterFactComparisonBatchWorkerTest {
             String resolvedKey,
             String displayValue
     ) {
+        return add(candidateRef, resolvedKey, List.of(), displayValue);
+    }
+
+    private WorkerCharacterFactComparisonBatchCompleteRequest.Decision add(
+            String candidateRef,
+            String resolvedKey,
+            List<String> dependencies,
+            String displayValue
+    ) {
         return decision(
                 candidateRef,
                 CharacterFactOperation.ADD,
                 resolvedKey,
                 null,
                 List.of(),
-                List.of(),
+                dependencies,
                 displayValue,
                 valueMap(displayValue)
         );
@@ -878,6 +1073,17 @@ class CharacterFactComparisonBatchWorkerTest {
 
     private Map<String, Object> valueMap(String value) {
         return Map.of("value", value);
+    }
+
+    private String snapshotRef(
+            WorkerCharacterFactComparisonBatchContextResponse context,
+            String factKey
+    ) {
+        return context.snapshotEntries().stream()
+                .filter(entry -> entry.factKey().equals(factKey))
+                .map(WorkerCharacterFactComparisonBatchContextResponse.SnapshotEntry::snapshotRef)
+                .findFirst()
+                .orElseThrow();
     }
 
     private ObjectNode value(String value) {

@@ -607,9 +607,9 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
     }
 
     /**
-     * 뒤 후보의 비교 결과가 앞선 동일 slot 후보의 제안값을 문맥으로 사용했는데 사용자가 그 앞 후보를
-     * HISTORY_ONLY로 바꾸면, 뒤 제안만 적용할 때 검증하지 않은 현재값이 만들어진다. 그룹 확정은 원자적으로
-     * 중단해 사용자가 두 후보의 반영 방식을 일관되게 다시 선택하도록 한다.
+     * 뒤 후보의 비교 결과가 앞선 후보의 제안값이나 제거로 생긴 slot 부재를 문맥으로 사용했는데 사용자가
+     * 그 앞 후보를 HISTORY_ONLY로 바꾸면, 뒤 제안만 적용할 때 검증하지 않은 현재값이 만들어진다. 그룹
+     * 확정은 원자적으로 중단해 사용자가 두 후보의 반영 방식을 일관되게 다시 선택하도록 한다.
      */
     private void validateGroupDecisionDependencies(
             List<SettingCandidate> candidates,

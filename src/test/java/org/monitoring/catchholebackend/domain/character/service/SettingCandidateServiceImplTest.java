@@ -1811,6 +1811,45 @@ class SettingCandidateServiceImplTest {
         );
     }
 
+    @Test
+    @DisplayName("앞선 slot 제거에 의존한 후행 제안은 단건으로 따로 확정할 수 없다")
+    void confirmSettingCandidateRejectsAbsenceDependentProposalAsSingleton() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        Work work = work(workId);
+        WorkCharacter character = character(work, UUID.randomUUID(), "아리아");
+        SettingCandidate recreation = completedCandidate(
+                work,
+                character,
+                "stats.strength",
+                "12",
+                CharacterFactOperation.ADD
+        );
+        UUID removalCandidateId = UUID.randomUUID();
+        ReflectionTestUtils.setField(
+                recreation,
+                "comparisonDependencyCandidateIds",
+                objectMapper.createArrayNode().add(removalCandidateId.toString())
+        );
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(recreation.getId(), workId))
+                .thenReturn(Optional.of(recreation));
+
+        assertThatThrownBy(() -> service.confirmSettingCandidate(
+                memberId,
+                workId,
+                recreation.getId(),
+                null
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode()).isEqualTo(
+                        CharacterErrorCode.SETTING_CANDIDATE_GROUP_DECISION_DEPENDENCY_CONFLICT
+                ));
+        verify(settingCandidatePromotionService, never()).promote(
+                any(SettingCandidate.class),
+                any(CharacterFactConfirmApplicationMode.class)
+        );
+    }
+
     private SettingCandidate candidate(
             Work work,
             String entityName,
