@@ -72,6 +72,7 @@
 ### Docker Deployment
 
 - 백엔드 컨테이너 이미지는 루트 `Dockerfile`에서 빌드한다.
+- 운영 컨테이너는 Docker `journald` 로그 드라이버를 사용한다. API·Worker 서버의 systemd journal은 EC2 로컬 디스크에 최대 14일·1GB로 제한해 보관하며, 외부 로그 저장소와 애플리케이션 파일 로그는 별도 요구가 생기기 전까지 추가하지 않는다.
 - Dockerfile은 Gradle Wrapper로 `bootJar`를 만드는 JDK 21 빌드 스테이지와 JRE 21 런타임 스테이지를 분리한다. 런타임 컨테이너는 non-root 사용자로 실행한다.
 - 운영 컨테이너는 `SPRING_PROFILES_ACTIVE=prod`와 외부 환경변수로 설정을 주입한다. AWS/S3 자격 증명은 가능하면 EC2 IAM Role을 사용하고, access key를 이미지나 커밋 파일에 넣지 않는다.
 - 운영 Backend, Python AI Worker, PostgreSQL은 `APP_TIMEZONE`을 공통으로 사용하며 기본값은 `Asia/Seoul`이다. 세 writer가 timezone 없는 `TIMESTAMP` 컬럼에 서로 다른 로컬 시각을 저장하지 않도록 Amazon RDS 파라미터 그룹의 `timezone`, JVM `user.timezone`, 컨테이너 `TZ`를 함께 변경한다. Backend는 HikariCP `connection-init-sql`, AI Worker는 SQLAlchemy PostgreSQL 연결 옵션으로 새 연결의 session `timezone`을 매번 `TZ`와 동일하게 설정한다.
