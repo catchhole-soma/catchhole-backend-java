@@ -49,6 +49,34 @@
 ./gradlew test
 ```
 
+## 운영 로그 확인
+
+운영 API 컨테이너 로그는 Amazon EC2 호스트의 systemd journal에 최대 14일 또는 1GB까지 보관합니다. API 서버의 `/opt/catchhole`에서 현재 Backend 로그를 확인합니다.
+
+```bash
+sudo -u ubuntu docker compose --env-file api.env -f compose.api.prod.yml logs --tail=200 backend
+```
+
+실시간으로 이어서 확인합니다.
+
+```bash
+sudo -u ubuntu docker compose --env-file api.env -f compose.api.prod.yml logs -f backend
+```
+
+컨테이너 재생성 전 로그를 포함한 최근 로그는 journal에서 조회합니다.
+
+```bash
+sudo journalctl CONTAINER_NAME=catchhole-backend-1 --since '1 hour ago' --no-pager
+```
+
+시간·컨테이너 ID·이미지·메시지 같은 전체 필드는 JSON 형태로 확인할 수 있습니다.
+
+```bash
+sudo journalctl CONTAINER_NAME=catchhole-backend-1 -n 1 -o json-pretty
+```
+
+Caddy와 Redis는 컨테이너 이름을 각각 `catchhole-caddy-1`, `catchhole-redis-1`로 바꿔 조회합니다. 현재 journal 사용량과 상세 운영 절차는 [API Amazon EC2 배포 문서](deploy/EC2_DEPLOYMENT.md)를 참고합니다.
+
 ## 참고
 
 Spring Security가 포함되어 있어 초기 실행 시 기본 로그인 화면이나 `401 Unauthorized` 응답이 나올 수 있습니다. 이후 개발용 보안 설정을 추가할 예정입니다.
