@@ -4,6 +4,8 @@ services:
   caddy:
     image: caddy:2.8-alpine
     restart: unless-stopped
+    logging:
+      driver: journald
     depends_on:
       - backend
     environment:
@@ -19,6 +21,8 @@ services:
   backend:
     image: ${BACKEND_IMAGE:?BACKEND_IMAGE is required}
     restart: unless-stopped
+    logging:
+      driver: journald
     depends_on:
       redis:
         condition: service_healthy
@@ -55,6 +59,8 @@ services:
   redis:
     image: redis:7.4.10-alpine3.21
     restart: unless-stopped
+    logging:
+      driver: journald
     command:
       - redis-server
       - --requirepass
