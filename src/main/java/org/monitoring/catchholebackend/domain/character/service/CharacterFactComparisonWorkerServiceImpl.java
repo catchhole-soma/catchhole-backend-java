@@ -86,6 +86,7 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     @Override
+    @Transactional
     public Optional<WorkerCharacterFactComparisonBatchPayload> claimNextCharacterFactComparisonBatch(
             UUID analysisJobId,
             UUID leaseToken
@@ -94,6 +95,7 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
     }
 
     @Override
+    @Transactional
     public WorkerCharacterFactComparisonBatchContextResponse getCharacterFactComparisonBatchContext(
             UUID analysisJobId,
             UUID comparisonBatchId,
@@ -103,6 +105,7 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
     }
 
     @Override
+    @Transactional
     public void completeCharacterFactComparisonBatch(
             UUID analysisJobId,
             UUID comparisonBatchId,
@@ -113,6 +116,7 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
     }
 
     @Override
+    @Transactional
     public void failCharacterFactComparisonBatch(
             UUID analysisJobId,
             UUID comparisonBatchId,
