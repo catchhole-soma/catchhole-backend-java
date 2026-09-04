@@ -19,6 +19,52 @@ API 서버에는 다음 파일을 둔다.
 - 기존 통합 배포의 `.env`, `compose.prod.yml`, PostgreSQL 볼륨은 전환 검증이 끝날 때까지 삭제하지 않는다.
 - 보존 기간에는 `docker compose up`에 `--remove-orphans`를 붙이지 않는다.
 
+## 로컬 로그 보관
+
+운영 컨테이너는 표준 출력과 표준 오류를 Docker `journald` 로그 드라이버로 전달한다. systemd journal은 API 서버용 Amazon EC2 인스턴스의 로컬 디스크에 최대 14일 또는 1GB까지만 보관한다. 컨테이너 재생성과 인스턴스 재부팅 후에도 로그를 조회할 수 있지만, 인스턴스 또는 루트 Amazon EBS 볼륨을 삭제하면 로그도 삭제된다.
+
+API 서버에서 다음 설정을 적용한다.
+
+```bash
+sudo install -d -m 0755 /etc/systemd/journald.conf.d
+```
+
+```bash
+sudo tee /etc/systemd/journald.conf.d/catchhole.conf > /dev/null <<'EOF'
+[Journal]
+Storage=persistent
+SystemMaxUse=1G
+MaxRetentionSec=14day
+Compress=yes
+EOF
+```
+
+```bash
+sudo install -d -m 2755 /var/log/journal
+```
+
+```bash
+sudo systemd-tmpfiles --create --prefix /var/log/journal
+```
+
+```bash
+sudo systemctl restart systemd-journald
+```
+
+```bash
+sudo journalctl --flush
+```
+
+설정과 현재 사용량을 확인한다.
+
+```bash
+sudo cat /etc/systemd/journald.conf.d/catchhole.conf
+```
+
+```bash
+sudo journalctl --disk-usage
+```
+
 ## 데이터 전환 결정
 
 NVM-317 최초 전환은 기존 로컬 PostgreSQL 데이터를 Amazon RDS로 이전하지 않고 빈 데이터베이스에서 새로 시작한다. 따라서 전환 후에는 기존 회원, 작품, 회차, 분석 작업과 Amazon S3 객체를 참조하던 메타데이터가 새 서비스에 표시되지 않는다. Amazon S3 객체 자체는 삭제하지 않지만 새 데이터베이스에는 이를 가리키는 기존 행이 없다.
@@ -179,6 +225,25 @@ sudo -u ubuntu docker compose --env-file api.env -f compose.api.prod.yml ps
 caddy
 backend
 redis
+```
+
+세 컨테이너의 로그 드라이버가 `journald`인지 확인한다.
+
+```bash
+sudo -u ubuntu docker compose --env-file api.env -f compose.api.prod.yml ps -q caddy backend redis \
+  | xargs -r sudo docker inspect --format '{{.Name}} {{.HostConfig.LogConfig.Type}}'
+```
+
+현재 백엔드 로그는 Docker Compose로 확인한다.
+
+```bash
+sudo -u ubuntu docker compose --env-file api.env -f compose.api.prod.yml logs --tail=100 backend
+```
+
+컨테이너 재생성 전 로그를 포함한 서버 보관 로그는 systemd journal로 확인한다.
+
+```bash
+sudo journalctl CONTAINER_NAME=catchhole-backend-1 --since '14 days ago' --no-pager
 ```
 
 ## Amazon RDS 초기화 검증
