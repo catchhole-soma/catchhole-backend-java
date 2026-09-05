@@ -12,6 +12,7 @@
 | [Database Migration](database-migration.md) | Flyway schema 관리 규칙, V1·V2 검증 및 최초 운영 전환 절차 |
 | [AI Token Usage](ai-token-usage.md) | AI 요청별 토큰 예약·정산, 사용자 한도와 운영 지급 정책 |
 | [Infrastructure Flow](infrastructure-flow.md) | 현재 운영 구조, 스케일링 전략, 미결정 인프라 선택지와 단계별 전환 계획 |
+| [Load Tests](load-tests/README.md) | 운영 조회·실제 TXT 분석 10·50·100건 계획과 결과, 실행기 사용법, 측정·중단 기준 |
 | [Global](global.md) | 공통 응답, 예외 처리, 보안, 설정, 스토리지 기반 구조 |
 | [Auth](auth.md) | 회원가입, 로그인, JWT/refresh token, 세션 API 흐름 |
 | [Signup Workflow](signup-workflow.md) | 휴대폰 인증부터 회원 저장·가입 토큰 소비·자동 로그인까지의 코드 실행 순서 |
