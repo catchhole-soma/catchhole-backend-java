@@ -119,6 +119,12 @@ public record SettingCandidateResponse(
         String comparisonTargetFactKey,
 
         @Schema(
+                description = "2차 묶음 비교가 해소한 canonical Fact key. target이 없는 REMOVE/HISTORY_ONLY에도 남습니다.",
+                nullable = true
+        )
+        String resolvedCanonicalFactKey,
+
+        @Schema(
                 description = "현재 snapshot에 적용하도록 제안된 최종 구조화 값",
                 nullable = true,
                 implementation = JsonNode.class

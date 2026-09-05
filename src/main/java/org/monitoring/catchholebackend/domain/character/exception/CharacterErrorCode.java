@@ -59,6 +59,11 @@ public enum CharacterErrorCode implements ResultCode {
     ),
     SETTING_CANDIDATE_COMPARISON_NOT_READY(HttpStatus.CONFLICT, "비교가 완료된 캐릭터 설정 후보만 확정할 수 있습니다."),
     SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT(HttpStatus.CONFLICT, "캐릭터 설정 후보의 비교 상태 전이가 올바르지 않습니다."),
+    SETTING_CANDIDATE_COMPARISON_BATCH_NOT_FOUND(HttpStatus.NOT_FOUND, "캐릭터 설정 비교 묶음을 찾을 수 없습니다."),
+    SETTING_CANDIDATE_COMPARISON_BATCH_RESPONSE_INVALID(
+            HttpStatus.BAD_REQUEST,
+            "캐릭터 설정 비교 묶음 응답이 요청 후보를 정확히 포함하지 않습니다."
+    ),
     SETTING_CANDIDATE_COMPARISON_STALE(HttpStatus.CONFLICT, "캐릭터 현재 설정이 변경되어 비교 문맥을 다시 조회해야 합니다."),
     SETTING_CANDIDATE_COMPARISON_TARGET_INVALID(HttpStatus.BAD_REQUEST, "캐릭터 설정 비교 대상 또는 변경 제안이 올바르지 않습니다."),
     SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID(HttpStatus.CONFLICT, "현재 확정할 수 없는 캐릭터 설정 비교 결과입니다."),

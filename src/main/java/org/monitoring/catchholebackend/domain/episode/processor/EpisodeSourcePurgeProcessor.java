@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterFactComparisonBatchRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.entity.EpisodeSourcePurgeRequest;
@@ -45,6 +46,7 @@ public class EpisodeSourcePurgeProcessor {
     private final EpisodePurgeDataRepository purgeDataRepository;
     private final EpisodeSourcePurgeRequestRepository purgeRequestRepository;
     private final SettingCandidateRepository settingCandidateRepository;
+    private final CharacterFactComparisonBatchRepository characterComparisonBatchRepository;
     private final WorldSettingCandidateRepository worldSettingCandidateRepository;
     private final WorldSettingComparisonDecisionRepository comparisonDecisionRepository;
     private final WorldSettingComparisonBatchRepository comparisonBatchRepository;
@@ -237,6 +239,7 @@ public class EpisodeSourcePurgeProcessor {
         candidates.stream()
                 .filter(candidate -> !candidate.isPendingReview())
                 .forEach(SettingCandidate::purgeSourceEvidence);
+        characterComparisonBatchRepository.purgeSourceEvidenceBySourceEpisodeId(episodeId);
     }
 
     private void purgeWorldSettingCandidates(UUID episodeId) {

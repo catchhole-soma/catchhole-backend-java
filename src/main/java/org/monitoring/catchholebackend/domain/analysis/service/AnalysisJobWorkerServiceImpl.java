@@ -27,10 +27,12 @@ import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingS
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshotSource;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterFactComparisonBatchRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSnapshotSourceRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonBatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
@@ -72,6 +74,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     private final AnalysisJobWorkerMapper analysisJobWorkerMapper;
     private final AiTokenService aiTokenService;
     private final WorldSettingComparisonBatchRepository worldSettingComparisonBatchRepository;
+    private final CharacterFactComparisonBatchRepository characterFactComparisonBatchRepository;
     private final WorldSettingCandidateRepository worldSettingCandidateRepository;
     private final SettingCandidateRepository settingCandidateRepository;
 
@@ -198,6 +201,11 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 failureCode,
                 request.errorMessage()
         );
+        failProcessingCharacterComparisonBatches(
+                analysisJob,
+                failureCode,
+                request.errorMessage()
+        );
         if (resumableTokenInterruption) {
             interruptRemainingWorldCandidatesForTokenQuota(analysisJob, request.errorMessage());
             markTargetEpisodesAnalyzed(analysisJob);
@@ -300,6 +308,11 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                         AnalysisFailureCode.WORKER_LEASE_EXPIRED,
                         LEASE_EXPIRED_MESSAGE
                 );
+                failProcessingCharacterComparisonBatches(
+                        expiredJob,
+                        AnalysisFailureCode.WORKER_LEASE_EXPIRED,
+                        LEASE_EXPIRED_MESSAGE
+                );
                 failProcessingWorldCandidates(
                         expiredJob,
                         AnalysisFailureCode.WORKER_LEASE_EXPIRED,
@@ -327,6 +340,11 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                     AnalysisFailureCode.WORKER_LEASE_EXPIRED,
                     EXPIRED_BATCH_CLOSED_MESSAGE
             );
+            failProcessingCharacterComparisonBatches(
+                    expiredJob,
+                    AnalysisFailureCode.WORKER_LEASE_EXPIRED,
+                    EXPIRED_BATCH_CLOSED_MESSAGE
+            );
             recoverProcessingWorldCandidates(expiredJob);
             recoverProcessingCharacterCandidates(expiredJob);
             expiredJob.requeueExpiredLease();
@@ -341,6 +359,20 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         worldSettingComparisonBatchRepository.findAllByAnalysisJobIdAndStatusForUpdate(
                 analysisJob.getId(),
                 WorldSettingComparisonBatchStatus.PROCESSING
+        ).forEach(batch -> batch.fail(
+                failureCode,
+                errorMessage
+        ));
+    }
+
+    private void failProcessingCharacterComparisonBatches(
+            AnalysisJob analysisJob,
+            AnalysisFailureCode failureCode,
+            String errorMessage
+    ) {
+        characterFactComparisonBatchRepository.findAllByAnalysisJobIdAndStatusForUpdate(
+                analysisJob.getId(),
+                CharacterFactComparisonBatchStatus.PROCESSING
         ).forEach(batch -> batch.fail(
                 failureCode,
                 errorMessage

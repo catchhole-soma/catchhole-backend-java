@@ -24,8 +24,11 @@ import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErro
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobLeaseService;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.character.dto.request.WorkerCharacterFactComparisonBatchCompleteRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.WorkerCharacterFactComparisonCompleteRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.WorkerCharacterFactComparisonFailRequest;
+import org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterFactComparisonBatchContextResponse;
+import org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterFactComparisonBatchPayload;
 import org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterFactComparisonCandidatePayload;
 import org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterFactComparisonContextResponse;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
@@ -35,13 +38,14 @@ import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.mapper.CharacterFactComparisonWorkerMapper;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterFactComparisonDecisionValidator;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessor;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotEntry;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSlot;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingValueValidator;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateChronology;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaMatch;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver;
-import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateChronology;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSnapshotSourceRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
@@ -75,9 +79,52 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
     private final SettingCandidateSchemaResolver schemaResolver;
     private final CharacterSnapshotAccessor snapshotAccessor;
     private final CharacterSettingValueValidator valueValidator;
+    private final CharacterFactComparisonDecisionValidator decisionValidator;
     private final CharacterFactComparisonWorkerMapper workerMapper;
+    private final CharacterFactComparisonBatchWorker batchWorker;
     // 이 프로젝트는 전역 ObjectMapper bean을 강제하지 않으므로 비교 문맥 hash/JSON 변환 전용 mapper를 둔다.
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+
+    @Override
+    @Transactional
+    public Optional<WorkerCharacterFactComparisonBatchPayload> claimNextCharacterFactComparisonBatch(
+            UUID analysisJobId,
+            UUID leaseToken
+    ) {
+        return batchWorker.claimNext(analysisJobId, leaseToken);
+    }
+
+    @Override
+    @Transactional
+    public WorkerCharacterFactComparisonBatchContextResponse getCharacterFactComparisonBatchContext(
+            UUID analysisJobId,
+            UUID comparisonBatchId,
+            UUID leaseToken
+    ) {
+        return batchWorker.getContext(analysisJobId, comparisonBatchId, leaseToken);
+    }
+
+    @Override
+    @Transactional
+    public void completeCharacterFactComparisonBatch(
+            UUID analysisJobId,
+            UUID comparisonBatchId,
+            UUID leaseToken,
+            WorkerCharacterFactComparisonBatchCompleteRequest request
+    ) {
+        batchWorker.complete(analysisJobId, comparisonBatchId, leaseToken, request);
+    }
+
+    @Override
+    @Transactional
+    public void failCharacterFactComparisonBatch(
+            UUID analysisJobId,
+            UUID comparisonBatchId,
+            UUID leaseToken,
+            WorkerCharacterFactComparisonFailRequest request
+    ) {
+        batchWorker.fail(analysisJobId, comparisonBatchId, leaseToken, request);
+    }
 
     @Override
     @Transactional
@@ -206,24 +253,27 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
                 targetSlot,
                 request
         );
-        validateOperation(canonicalTarget, currentSnapshot, targetSlot, removedSlots, request);
-
         JsonNode proposedValueJson = toNullableJsonNode(request.proposedValueJson());
-        if (request.operation() == CharacterFactOperation.ADD
-                || request.operation() == CharacterFactOperation.UPDATE
-                || request.operation() == CharacterFactOperation.MERGE) {
-            if (canonicalTarget.factType() == CharacterFactType.STATUS
-                    && (isExplicitlyInactiveStatus(candidate.getValueJson())
-                    || isExplicitlyInactiveStatus(proposedValueJson))) {
-                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
-            }
-            valueValidator.validateProposal(
-                    proposedValueJson,
-                    request.proposedFactValue(),
-                    canonicalTarget.factType(),
-                    canonicalTarget.valueType()
-            );
-        }
+        CharacterSnapshotSlot resolvedSlot = new CharacterSnapshotSlot(
+                canonicalTarget.factType(),
+                canonicalTarget.factKey()
+        );
+        boolean explicitTarget = request.targetFactType() != null || !isBlank(request.targetFactKey());
+        decisionValidator.validate(new CharacterFactComparisonDecisionValidator.Decision(
+                request.operation(),
+                request.temporalScope(),
+                canonicalTarget.factType(),
+                canonicalTarget.valueType(),
+                resolvedSlot,
+                explicitTarget,
+                targetSlot != null && currentSnapshot.containsKey(targetSlot),
+                currentSnapshot.containsKey(resolvedSlot),
+                request.operation() == CharacterFactOperation.REMOVE && explicitTarget,
+                removedSlots,
+                request.proposedFactValue(),
+                proposedValueJson,
+                candidate.getValueJson()
+        ));
         boolean pureLegacyRemove = request.operation() == CharacterFactOperation.REMOVE
                 && targetSlot != null
                 && request.removedSnapshotEntries().isEmpty();
@@ -274,6 +324,9 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
     @Override
     @Transactional
     public boolean hasCurrentContext(SettingCandidate candidate) {
+        if (candidate.getCharacterComparisonBatch() != null) {
+            return batchWorker.hasCurrentContext(candidate);
+        }
         if (candidate.getComparisonContextHash() == null || candidate.getMatchedCharacterId() == null) {
             return false;
         }
@@ -535,85 +588,6 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
                 || !currentSnapshot.containsKey(slot)
                 || !contextSlots.contains(slot)) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_TARGET_INVALID);
-        }
-    }
-
-    private void validateOperation(
-            CanonicalTarget canonicalTarget,
-            Map<CharacterSnapshotSlot, CharacterSnapshotEntry> currentSnapshot,
-            CharacterSnapshotSlot targetSlot,
-            List<CharacterSnapshotSlot> removedSlots,
-            WorkerCharacterFactComparisonCompleteRequest request
-    ) {
-        CharacterFactOperation operation = request.operation();
-        boolean hasProposedValue = request.proposedValueJson() != null;
-        boolean proposedFactValueProvided = request.proposedFactValue() != null;
-        boolean hasProposedFactValue = !isBlank(request.proposedFactValue());
-        validateTemporalScope(operation, request.temporalScope());
-        if (!removedSlots.isEmpty()
-                && operation != CharacterFactOperation.REMOVE
-                && (request.temporalScope() != CharacterFactTemporalScope.PRESENT
-                || canonicalTarget.factType() != CharacterFactType.STATUS
-                || operation != CharacterFactOperation.ADD
-                && operation != CharacterFactOperation.UPDATE
-                && operation != CharacterFactOperation.MERGE)) {
-            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
-        }
-        if (operation == CharacterFactOperation.ADD) {
-            if (currentSnapshot.containsKey(targetSlot)
-                    || !hasProposedValue
-                    || !hasProposedFactValue) {
-                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
-            }
-            return;
-        }
-        if (operation == CharacterFactOperation.UPDATE || operation == CharacterFactOperation.MERGE) {
-            if (!currentSnapshot.containsKey(targetSlot)
-                    || !hasProposedValue
-                    || !hasProposedFactValue) {
-                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
-            }
-            return;
-        }
-        if (operation == CharacterFactOperation.REMOVE) {
-            if (canonicalTarget.factType() != CharacterFactType.STATUS
-                    || request.temporalScope() != CharacterFactTemporalScope.PRESENT
-                    || removedSlots.isEmpty()
-                    || hasProposedValue
-                    || proposedFactValueProvided) {
-                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
-            }
-            return;
-        }
-        if (operation == CharacterFactOperation.HISTORY_ONLY) {
-            if (!removedSlots.isEmpty() || hasProposedValue || proposedFactValueProvided) {
-                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
-            }
-            return;
-        }
-        if (!removedSlots.isEmpty() || hasProposedValue || proposedFactValueProvided) {
-            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
-        }
-    }
-
-    private boolean isExplicitlyInactiveStatus(JsonNode valueJson) {
-        JsonNode active = valueJson == null || !valueJson.isObject() ? null : valueJson.get("active");
-        return active != null && active.isBoolean() && !active.booleanValue();
-    }
-
-    private void validateTemporalScope(
-            CharacterFactOperation operation,
-            CharacterFactTemporalScope temporalScope
-    ) {
-        if ((temporalScope == CharacterFactTemporalScope.PAST
-                || temporalScope == CharacterFactTemporalScope.HYPOTHETICAL)
-                && operation != CharacterFactOperation.HISTORY_ONLY
-                && operation != CharacterFactOperation.REVIEW_REQUIRED) {
-            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
-        }
-        if (temporalScope == CharacterFactTemporalScope.UNKNOWN
-                && operation != CharacterFactOperation.REVIEW_REQUIRED) {
-            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
         }
     }
 

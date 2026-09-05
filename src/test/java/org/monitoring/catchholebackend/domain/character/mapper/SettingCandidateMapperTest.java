@@ -429,7 +429,9 @@ class SettingCandidateMapperTest {
                 CharacterFactTemporalScope.PRESENT,
                 "두 상태를 종료",
                 objectMapper.createObjectNode(),
-                java.time.LocalDateTime.now()
+                java.time.LocalDateTime.now(),
+                "status.회복_완료",
+                objectMapper.createArrayNode()
         );
         CharacterSnapshotSourceManager sourceManager = mock(CharacterSnapshotSourceManager.class);
         when(sourceManager.findSourceFactsBySlot(character)).thenReturn(Map.of());
@@ -457,6 +459,7 @@ class SettingCandidateMapperTest {
                                 "status.마비독"
                         )
                 );
+        assertThat(response.resolvedCanonicalFactKey()).isEqualTo("status.회복_완료");
     }
 
     private Work work(UUID id) {

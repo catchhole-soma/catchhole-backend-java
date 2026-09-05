@@ -44,6 +44,11 @@ erDiagram
     analysis_jobs ||--o{ setting_candidates : creates
     analysis_jobs ||--o{ world_setting_candidates : creates
     analysis_jobs ||--o{ character_facts : extracts
+    analysis_jobs ||--o{ character_fact_comparison_batches : runs
+    works ||--o{ character_fact_comparison_batches : owns
+    episodes o|--o{ character_fact_comparison_batches : optional_source
+    characters ||--o{ character_fact_comparison_batches : compares
+    character_fact_comparison_batches o|--o{ setting_candidates : groups
     setting_candidates o|--o{ analysis_jobs : hidden_comparison_job
     analysis_jobs ||--o{ ai_token_usages : records
     ai_token_extension_requests o|--o| ai_token_grants : produces_on_approval
@@ -310,6 +315,8 @@ erDiagram
         uuid episode_id FK
         uuid source_chunk_id
         uuid analysis_job_id FK
+        uuid character_comparison_batch_id FK
+        varchar character_comparison_candidate_ref
         varchar candidate_kind
         varchar entity_type
         varchar entity_name
@@ -329,6 +336,8 @@ erDiagram
         varchar temporal_scope
         varchar comparison_target_fact_type
         varchar comparison_target_fact_key
+        varchar resolved_canonical_fact_key
+        jsonb comparison_dependency_candidate_ids
         text proposed_fact_value
         jsonb proposed_value_json
         jsonb removed_snapshot_entries_json
@@ -339,6 +348,25 @@ erDiagram
         datetime compared_at
         text comparison_error_message
         varchar comparison_failure_code
+        datetime created_at
+        datetime updated_at
+    }
+
+    character_fact_comparison_batches {
+        uuid id PK
+        uuid work_id FK
+        uuid source_episode_id FK
+        uuid analysis_job_id FK
+        uuid matched_character_id FK
+        varchar canonical_fact_type
+        varchar status
+        int candidate_count
+        bigint base_snapshot_version
+        varchar context_hash
+        varchar completion_hash
+        jsonb raw_completion_json
+        varchar failure_code
+        text error_message
         datetime created_at
         datetime updated_at
     }
@@ -467,6 +495,7 @@ erDiagram
 | `upload_files` | batch에 포함된 개별 파일. 원본 S3 위치, 설정집 편집용 텍스트 위치와 파싱 결과를 기록합니다. |
 | `analysis_jobs` | 작품 단위 AI 분석 작업. 작업 유형, 상태, 대상 batch/episode, 결과 메타데이터를 기록합니다. |
 | `analysis_job_episode_targets` | 분석 작업 생성 시 확정한 대상 회차 스냅샷. 이후 원본 교체·회차 보관과 무관하게 과거 작업 대상을 유지합니다. |
+| `character_fact_comparison_batches` | 같은 분석 Job·캐릭터 ID·canonical FactType의 후보를 원문 순서로 묶은 2차 비교 실행입니다. context/completion hash, 원자 완료 상태와 typed failure를 보존하며 후보에는 묶음 내부 참조와 선행 후보 의존성만 저장합니다. |
 | `characters` | 작품별 캐릭터 대표/현재 설정의 유일한 authority. 핵심 조회 값은 일반 컬럼, 상세 설정은 내부 표시값 envelope를 포함한 JSONB, 변경 동시성은 `snapshot_version`으로 관리합니다. |
 | `character_facts` | 캐릭터별 설정 관찰과 원문 근거를 append-only로 저장하는 타임라인. 현재값 여부를 행에 기록하지 않습니다. |
 | `character_snapshot_sources` | 현재 snapshot의 `(character, factType, factKey)` slot을 구성하는 한 개 이상의 source Fact를 순서와 함께 연결합니다. |

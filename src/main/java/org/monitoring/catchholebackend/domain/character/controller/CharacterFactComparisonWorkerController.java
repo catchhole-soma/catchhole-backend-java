@@ -8,7 +8,10 @@ import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.character.dto.request.WorkerCharacterFactComparisonCompleteRequest;
+import org.monitoring.catchholebackend.domain.character.dto.request.WorkerCharacterFactComparisonBatchCompleteRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.WorkerCharacterFactComparisonFailRequest;
+import org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterFactComparisonBatchContextResponse;
+import org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterFactComparisonBatchPayload;
 import org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterFactComparisonCandidatePayload;
 import org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterFactComparisonContextResponse;
 import org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonWorkerService;
@@ -30,6 +33,83 @@ import org.springframework.web.bind.annotation.RestController;
 public class CharacterFactComparisonWorkerController {
 
     private final CharacterFactComparisonWorkerService service;
+
+    @PostMapping("/character-fact-comparison-batches/claim-next")
+    @Operation(
+            operationId = "claimNextWorkerCharacterFactComparisonBatch",
+            summary = "다음 캐릭터 Fact 비교 묶음 claim"
+    )
+    public ResponseEntity<CommonResponse<WorkerCharacterFactComparisonBatchPayload>> claimNextBatch(
+            @PathVariable UUID analysisJobId,
+            @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken
+    ) {
+        return service.claimNextCharacterFactComparisonBatch(analysisJobId, leaseToken)
+                .map(value -> ResponseEntity.ok(CommonResponse.success(
+                        "캐릭터 Fact 비교 묶음을 claim했습니다.",
+                        value
+                )))
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    @PostMapping("/character-fact-comparison-batches/{comparisonBatchId}/context")
+    @Operation(
+            operationId = "getWorkerCharacterFactComparisonBatchContext",
+            summary = "캐릭터 Fact 비교 묶음 문맥 조회"
+    )
+    public CommonResponse<WorkerCharacterFactComparisonBatchContextResponse> getBatchContext(
+            @PathVariable UUID analysisJobId,
+            @PathVariable UUID comparisonBatchId,
+            @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken
+    ) {
+        return CommonResponse.success(
+                "캐릭터 Fact 비교 묶음 문맥을 조회했습니다.",
+                service.getCharacterFactComparisonBatchContext(
+                        analysisJobId,
+                        comparisonBatchId,
+                        leaseToken
+                )
+        );
+    }
+
+    @PostMapping("/character-fact-comparison-batches/{comparisonBatchId}/complete")
+    @Operation(
+            operationId = "completeWorkerCharacterFactComparisonBatch",
+            summary = "캐릭터 Fact 비교 묶음 완료"
+    )
+    public CommonResponse<Void> completeBatch(
+            @PathVariable UUID analysisJobId,
+            @PathVariable UUID comparisonBatchId,
+            @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken,
+            @Valid @RequestBody WorkerCharacterFactComparisonBatchCompleteRequest request
+    ) {
+        service.completeCharacterFactComparisonBatch(
+                analysisJobId,
+                comparisonBatchId,
+                leaseToken,
+                request
+        );
+        return CommonResponse.success("캐릭터 Fact 비교 묶음이 완료되었습니다.", null);
+    }
+
+    @PostMapping("/character-fact-comparison-batches/{comparisonBatchId}/fail")
+    @Operation(
+            operationId = "failWorkerCharacterFactComparisonBatch",
+            summary = "캐릭터 Fact 비교 묶음 실패"
+    )
+    public CommonResponse<Void> failBatch(
+            @PathVariable UUID analysisJobId,
+            @PathVariable UUID comparisonBatchId,
+            @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken,
+            @Valid @RequestBody WorkerCharacterFactComparisonFailRequest request
+    ) {
+        service.failCharacterFactComparisonBatch(
+                analysisJobId,
+                comparisonBatchId,
+                leaseToken,
+                request
+        );
+        return CommonResponse.success("캐릭터 Fact 비교 묶음이 실패 처리되었습니다.", null);
+    }
 
     @PostMapping("/character-fact-comparisons/claim-next")
     @Operation(operationId = "claimNextWorkerCharacterFactComparison", summary = "다음 캐릭터 Fact 비교 claim")

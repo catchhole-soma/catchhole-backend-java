@@ -352,6 +352,15 @@ V40은 root 이동의 실제 적용 경계와 작가 수정에 따른 비활성�
 - shared decision source의 작가 수정으로 이동이 취소됐는지는 `root_property_moves_disabled`에 영속화합니다.
 - 신규 root 이동·합성 범위 validation reason을 `world_setting_candidates.comparison_source_reason_code` 제약에 추가합니다.
 
+## V41 기준
+
+V41은 같은 분석 Job·캐릭터 ID·canonical FactType 후보를 원문 순서로 함께 비교하는 실행 상태를 저장합니다.
+
+- `character_fact_comparison_batches`에 후보 수, 시작 snapshot version, context/completion hash와 typed failure를 저장합니다. 숨김 단건 재비교는 원본 회차가 없을 수 있으므로 `source_episode_id`는 nullable입니다.
+- `setting_candidates`에는 묶음·`C<n>` local ref, 2차가 해소한 canonical key, 앞선 후보 의존성 UUID 배열을 추가합니다. provider에는 실제 후보·캐릭터 UUID를 보내지 않습니다.
+- 후보 FK는 batch 삭제 시 `SET NULL`이며 local ref는 감사 흔적으로 남을 수 있게 제약을 구성합니다. 같은 batch 안의 local ref는 partial unique index로 중복을 막습니다.
+- 문맥 원문을 batch 테이블에 복제하지 않고 hash만 저장하며, 완료 응답은 모든 후보 ref를 decision 또는 typed failure가 정확히 한 번 덮어야 원자 반영됩니다.
+
 ## 논리 참조와 FK 기준
 
 ID 컬럼이 다른 테이블을 논리적으로 가리키더라도 삭제·재처리 정책이 정해지지 않았다면 FK를 먼저 강제하지 않습니다. V1의 선택은 다음과 같습니다.
@@ -367,10 +376,10 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
 
 ## 로컬 검증
 
-기존 적용 DB에 현재 Backend를 시작해 미적용 migration이 V40까지 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V40이 순서대로 적용되는 경로를 각각 확인합니다.
+기존 적용 DB에 현재 Backend를 시작해 미적용 migration이 V41까지 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V41이 순서대로 적용되는 경로를 각각 확인합니다.
 
-- Flyway 로그에 V1부터 V40까지 적용 성공이 출력됩니다.
-- `flyway_schema_history`에 version 1부터 40까지 성공으로 기록됩니다.
+- Flyway 로그에 V1부터 V41까지 적용 성공이 출력됩니다.
+- `flyway_schema_history`에 version 1부터 41까지 성공으로 기록됩니다.
 - `vector` extension이 활성화됩니다.
 - `episode_chunks.embedding`이 `vector(1536)`으로 생성됩니다.
 - cosine HNSW 인덱스가 생성됩니다.
@@ -398,6 +407,7 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
 - V37에서 세계관 비교 실패의 Spring source error/reason 컬럼과 안전한 값 제약이 생성됩니다.
 - V38에서 세계관 비교 batch·canonical decision·source provenance 테이블과 후보의 canonical 주체 해소 snapshot이 생성됩니다.
 - V39에서 root 이동 snapshot이 생성되고, V40에서 실제 적용 version·비활성화 컬럼과 신규 비교 validation reason 제약이 생성됩니다.
+- V41에서 캐릭터 Fact 비교 batch와 후보별 local ref·resolved canonical key·선행 dependency 컬럼 및 제약이 생성됩니다.
 - `character_facts.setting_candidate_id`와 FK·조회 인덱스가 생성됩니다.
 - `works.genre`가 enum 상수명으로 저장되고 `NOT NULL`·`chk_works_genre` 제약을 가집니다.
 - `works.description`이 기존 값의 앞 50자로 정규화되고 `VARCHAR(50)` 타입을 가집니다.
@@ -420,7 +430,7 @@ Flyway 도입 전에 JPA가 만든 운영 테스트 DB에는 `flyway_schema_hist
 1. 필요한 데이터가 없는지 확인하고 필요하면 `pg_dump`로 백업합니다.
 2. Backend와 AI Worker를 중지합니다.
 3. PostgreSQL 데이터 volume만 제거하고 빈 PostgreSQL 16 DB를 시작합니다.
-4. Backend를 시작해 Flyway V1~V40과 Hibernate validation 성공을 확인합니다.
+4. Backend를 시작해 Flyway V1~V41과 Hibernate validation 성공을 확인합니다.
 5. DB schema와 Swagger 기본 API를 확인한 뒤 AI Worker를 시작합니다.
 
 실제 사용자 데이터가 생긴 뒤에는 이 초기화 절차를 사용하지 않습니다. 기존 데이터를 보존하는 V2 이상의 `ALTER` migration과 사전 백업·롤백 계획을 별도로 작성합니다.

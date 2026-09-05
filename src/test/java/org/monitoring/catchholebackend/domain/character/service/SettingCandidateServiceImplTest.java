@@ -1727,7 +1727,7 @@ class SettingCandidateServiceImplTest {
     }
 
     @Test
-    @DisplayName("앞선 동일 slot 제안을 이력으로만 저장하면 그 값에 의존한 뒤 제안 적용을 거절한다")
+    @DisplayName("앞선 제안을 이력으로만 저장하면 명시적으로 의존한 뒤 제안 적용을 거절한다")
     void confirmSettingCandidateGroupRejectsSuppressedPriorProposalDependency() {
         Long memberId = 1L;
         UUID workId = UUID.randomUUID();
@@ -1744,9 +1744,14 @@ class SettingCandidateServiceImplTest {
         SettingCandidate second = completedCandidate(
                 work,
                 character,
-                "stats.strength",
+                "stats.agility",
                 "12",
                 CharacterFactOperation.ADD
+        );
+        ReflectionTestUtils.setField(
+                second,
+                "comparisonDependencyCandidateIds",
+                objectMapper.createArrayNode().add(first.getId().toString())
         );
         ReflectionTestUtils.setField(
                 first,
@@ -1776,7 +1781,8 @@ class SettingCandidateServiceImplTest {
         when(characterFactComparisonWorkerService.hasCurrentContext(any(SettingCandidate.class)))
                 .thenReturn(true);
         when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(
-                schema("stats.strength", null, CharacterFactType.STAT, SettingValueType.NUMBER)
+                schema("stats.strength", null, CharacterFactType.STAT, SettingValueType.NUMBER),
+                schema("stats.agility", null, CharacterFactType.STAT, SettingValueType.NUMBER)
         ));
         SettingCandidateGroupConfirmRequest request = new SettingCandidateGroupConfirmRequest(
                 batchId,
@@ -1799,6 +1805,45 @@ class SettingCandidateServiceImplTest {
                         assertThat(exception.getResultCode()).isEqualTo(
                                 CharacterErrorCode.SETTING_CANDIDATE_GROUP_DECISION_DEPENDENCY_CONFLICT
                         ));
+        verify(settingCandidatePromotionService, never()).promote(
+                any(SettingCandidate.class),
+                any(CharacterFactConfirmApplicationMode.class)
+        );
+    }
+
+    @Test
+    @DisplayName("앞선 slot 제거에 의존한 후행 제안은 단건으로 따로 확정할 수 없다")
+    void confirmSettingCandidateRejectsAbsenceDependentProposalAsSingleton() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        Work work = work(workId);
+        WorkCharacter character = character(work, UUID.randomUUID(), "아리아");
+        SettingCandidate recreation = completedCandidate(
+                work,
+                character,
+                "stats.strength",
+                "12",
+                CharacterFactOperation.ADD
+        );
+        UUID removalCandidateId = UUID.randomUUID();
+        ReflectionTestUtils.setField(
+                recreation,
+                "comparisonDependencyCandidateIds",
+                objectMapper.createArrayNode().add(removalCandidateId.toString())
+        );
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(recreation.getId(), workId))
+                .thenReturn(Optional.of(recreation));
+
+        assertThatThrownBy(() -> service.confirmSettingCandidate(
+                memberId,
+                workId,
+                recreation.getId(),
+                null
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode()).isEqualTo(
+                        CharacterErrorCode.SETTING_CANDIDATE_GROUP_DECISION_DEPENDENCY_CONFLICT
+                ));
         verify(settingCandidatePromotionService, never()).promote(
                 any(SettingCandidate.class),
                 any(CharacterFactConfirmApplicationMode.class)
@@ -1929,6 +1974,7 @@ class SettingCandidateServiceImplTest {
                 new BigDecimal("0.8000"),
                 SettingCandidateReviewStatus.PENDING_REVIEW,
                 Map.of("raw_value", "17"),
+                null,
                 null,
                 null,
                 null,

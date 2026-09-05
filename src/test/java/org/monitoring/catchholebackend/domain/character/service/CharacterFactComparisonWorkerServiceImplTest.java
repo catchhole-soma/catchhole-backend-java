@@ -40,6 +40,7 @@ import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.mapper.CharacterFactComparisonWorkerMapper;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingValueValidator;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterFactComparisonDecisionValidator;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessor;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
@@ -81,6 +82,8 @@ class CharacterFactComparisonWorkerServiceImplTest {
     private CharacterSettingSchemaRepository schemaRepository;
     @Mock
     private CharacterSnapshotSourceRepository snapshotSourceRepository;
+    @Mock
+    private CharacterFactComparisonBatchWorker batchWorker;
 
     private CharacterFactComparisonWorkerServiceImpl service;
     private Work work;
@@ -91,6 +94,7 @@ class CharacterFactComparisonWorkerServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        CharacterSettingValueValidator valueValidator = new CharacterSettingValueValidator();
         service = new CharacterFactComparisonWorkerServiceImpl(
                 analysisJobLeaseService,
                 candidateRepository,
@@ -99,8 +103,10 @@ class CharacterFactComparisonWorkerServiceImplTest {
                 snapshotSourceRepository,
                 new SettingCandidateSchemaResolver(),
                 new CharacterSnapshotAccessor(),
-                new CharacterSettingValueValidator(),
-                new CharacterFactComparisonWorkerMapper()
+                valueValidator,
+                new CharacterFactComparisonDecisionValidator(valueValidator),
+                new CharacterFactComparisonWorkerMapper(),
+                batchWorker
         );
         Member member = Member.register("worker@example.com", "password", "01012345678", "작가");
         work = Work.create(member, "비교 작품", WorkGenre.FANTASY, "테스트");

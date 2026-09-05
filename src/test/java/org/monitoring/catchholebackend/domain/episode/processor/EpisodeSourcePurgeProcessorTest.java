@@ -21,6 +21,7 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterFactComparisonBatchRepository;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.entity.EpisodeSourcePurgeRequest;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodePurgeDataRepository;
@@ -54,6 +55,9 @@ class EpisodeSourcePurgeProcessorTest {
 
     @Mock
     private SettingCandidateRepository settingCandidateRepository;
+
+    @Mock
+    private CharacterFactComparisonBatchRepository characterComparisonBatchRepository;
 
     @Mock
     private WorldSettingCandidateRepository worldSettingCandidateRepository;
@@ -104,6 +108,7 @@ class EpisodeSourcePurgeProcessorTest {
                 purgeDataRepository,
                 purgeRequestRepository,
                 settingCandidateRepository,
+                characterComparisonBatchRepository,
                 worldSettingCandidateRepository,
                 comparisonDecisionRepository,
                 comparisonBatchRepository,
@@ -179,6 +184,7 @@ class EpisodeSourcePurgeProcessorTest {
         verify(worldSettingCandidateRepository).deleteAll(List.of(pendingWorld));
         verify(sourceFile).purgeStoredSource();
         verify(reviewedCharacter).purgeSourceEvidence();
+        verify(characterComparisonBatchRepository).purgeSourceEvidenceBySourceEpisodeId(episodeId);
         verify(reviewedWorld).purgeSourceEvidence();
         verify(comparisonDecisionRepository).purgeSourceEvidenceBySourceEpisodeId(
                 episodeId,
@@ -206,6 +212,7 @@ class EpisodeSourcePurgeProcessorTest {
         verify(settingCandidateRepository, never()).findAllByAnalysisTargetEpisodeId(episodeId);
         verify(worldSettingCandidateRepository, never()).findAllBySourceEpisodeId(episodeId);
         verify(comparisonDecisionRepository, never()).purgeSourceEvidenceBySourceEpisodeId(any(), any());
+        verify(characterComparisonBatchRepository, never()).purgeSourceEvidenceBySourceEpisodeId(any());
         verify(comparisonBatchRepository, never()).purgeSourceEvidenceBySourceEpisodeId(any());
         verify(sourceFile, never()).purgeStoredSource();
         verify(purgeDataRepository, never()).deleteChunks(episodeId);

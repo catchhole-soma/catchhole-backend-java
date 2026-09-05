@@ -90,6 +90,16 @@ public class SettingCandidate extends BaseEntity {
     )
     private AnalysisJob analysisJob;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(
+            name = "character_comparison_batch_id",
+            foreignKey = @ForeignKey(name = "fk_setting_candidates_character_comparison_batch")
+    )
+    private CharacterFactComparisonBatch characterComparisonBatch;
+
+    @Column(name = "character_comparison_candidate_ref", length = 20)
+    private String characterComparisonCandidateRef;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "candidate_kind", nullable = false, length = 30)
     private SettingCandidateKind candidateKind;
@@ -177,6 +187,15 @@ public class SettingCandidate extends BaseEntity {
 
     @Column(name = "comparison_target_fact_key", length = 150)
     private String comparisonTargetFactKey;
+
+    // 1차 raw attributeName과 분리해, 2차 batch가 확정한 실제 snapshot slot key를 보존한다.
+    @Column(name = "resolved_canonical_fact_key", length = 150)
+    private String resolvedCanonicalFactKey;
+
+    // Provider local ref를 서버 내부 candidate UUID로 복원한 선행 decision 의존성이다.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "comparison_dependency_candidate_ids", columnDefinition = "jsonb")
+    private JsonNode comparisonDependencyCandidateIds;
 
     @Column(name = "proposed_fact_value", columnDefinition = "text")
     private String proposedFactValue;
@@ -372,7 +391,10 @@ public class SettingCandidate extends BaseEntity {
         }
         boolean dismissed = transitionReviewStatus(SettingCandidateReviewStatus.DISMISSED);
         if (dismissed) {
-            clearComparisonProposal();
+            boolean preserveCompletedBatchMembership =
+                    comparisonStatus == CharacterFactComparisonStatus.COMPLETED
+                            && characterComparisonBatch != null;
+            clearComparisonProposal(preserveCompletedBatchMembership);
             comparisonStatus = CharacterFactComparisonStatus.NOT_REQUIRED;
         }
         return dismissed;
@@ -462,8 +484,18 @@ public class SettingCandidate extends BaseEntity {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
         comparisonStatus = CharacterFactComparisonStatus.PROCESSING;
+        clearComparisonBatchAssignment();
         comparisonErrorMessage = null;
         comparisonFailureCode = null;
+    }
+
+    public void startComparison(
+            CharacterFactComparisonBatch comparisonBatch,
+            String comparisonCandidateRef
+    ) {
+        startComparison();
+        this.characterComparisonBatch = Objects.requireNonNull(comparisonBatch);
+        this.characterComparisonCandidateRef = requiredComparisonReference(comparisonCandidateRef);
     }
 
     public void quarantineInvalidComparison() {
@@ -495,6 +527,36 @@ public class SettingCandidate extends BaseEntity {
             JsonNode rawComparisonJson,
             LocalDateTime comparedAt
     ) {
+        completeComparison(
+                operation,
+                targetFactType,
+                targetFactKey,
+                proposedFactValue,
+                proposedValueJson,
+                removedSnapshotEntriesJson,
+                temporalScope,
+                comparisonReason,
+                rawComparisonJson,
+                comparedAt,
+                null,
+                null
+        );
+    }
+
+    public void completeComparison(
+            CharacterFactOperation operation,
+            CharacterFactType targetFactType,
+            String targetFactKey,
+            String proposedFactValue,
+            JsonNode proposedValueJson,
+            JsonNode removedSnapshotEntriesJson,
+            CharacterFactTemporalScope temporalScope,
+            String comparisonReason,
+            JsonNode rawComparisonJson,
+            LocalDateTime comparedAt,
+            String resolvedCanonicalFactKey,
+            JsonNode comparisonDependencyCandidateIds
+    ) {
         validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
         if (comparisonStatus != CharacterFactComparisonStatus.PROCESSING) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
@@ -502,6 +564,8 @@ public class SettingCandidate extends BaseEntity {
         this.suggestedOperation = Objects.requireNonNull(operation);
         this.comparisonTargetFactType = targetFactType;
         this.comparisonTargetFactKey = normalizeNullable(targetFactKey);
+        this.resolvedCanonicalFactKey = normalizeNullable(resolvedCanonicalFactKey);
+        this.comparisonDependencyCandidateIds = copyArrayOrNull(comparisonDependencyCandidateIds);
         this.proposedFactValue = normalizeNullable(proposedFactValue);
         this.proposedValueJson = proposedValueJson;
         this.removedSnapshotEntriesJson = removedSnapshotEntriesJson;
@@ -532,6 +596,7 @@ public class SettingCandidate extends BaseEntity {
     public void recoverExpiredComparison() {
         if (isPendingReview() && comparisonStatus == CharacterFactComparisonStatus.PROCESSING) {
             comparisonStatus = CharacterFactComparisonStatus.PENDING;
+            clearComparisonBatchAssignment();
             comparisonErrorMessage = null;
             comparisonFailureCode = null;
         }
@@ -636,10 +701,16 @@ public class SettingCandidate extends BaseEntity {
     }
 
     private void clearComparisonProposal() {
+        clearComparisonProposal(false);
+    }
+
+    private void clearComparisonProposal(boolean preserveCompletedBatchMembership) {
         suggestedOperation = null;
         temporalScope = null;
         comparisonTargetFactType = null;
         comparisonTargetFactKey = null;
+        resolvedCanonicalFactKey = null;
+        comparisonDependencyCandidateIds = null;
         proposedFactValue = null;
         proposedValueJson = null;
         removedSnapshotEntriesJson = null;
@@ -650,6 +721,38 @@ public class SettingCandidate extends BaseEntity {
         comparedAt = null;
         comparisonErrorMessage = null;
         comparisonFailureCode = null;
+        if (!preserveCompletedBatchMembership) {
+            clearComparisonBatchAssignment();
+        }
+    }
+
+    public boolean hasComparisonDependencies() {
+        return comparisonDependencyCandidateIds != null
+                && comparisonDependencyCandidateIds.isArray()
+                && !comparisonDependencyCandidateIds.isEmpty();
+    }
+
+    private void clearComparisonBatchAssignment() {
+        characterComparisonBatch = null;
+        characterComparisonCandidateRef = null;
+    }
+
+    private String requiredComparisonReference(String value) {
+        String normalized = Objects.requireNonNull(value).trim();
+        if (!normalized.matches("C[1-9][0-9]*") || normalized.length() > 20) {
+            throw new IllegalArgumentException("comparisonCandidateRef is invalid.");
+        }
+        return normalized;
+    }
+
+    private JsonNode copyArrayOrNull(JsonNode value) {
+        if (value == null) {
+            return null;
+        }
+        if (!value.isArray()) {
+            throw new IllegalArgumentException("comparison dependencies must be an array.");
+        }
+        return value.deepCopy();
     }
 
     private static CharacterFactComparisonStatus initialComparisonStatus(

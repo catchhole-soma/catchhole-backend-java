@@ -74,6 +74,11 @@ ai-token:
   minimum-analysis-reservation: ${AI_TOKEN_MINIMUM_ANALYSIS_RESERVATION:6256}
   minimum-comparison-reservation: ${AI_TOKEN_MINIMUM_COMPARISON_RESERVATION:16256}
 
+analysis:
+  character-fact-comparison:
+    max-batch-candidates: ${CHARACTER_FACT_COMPARISON_MAX_BATCH_CANDIDATES:10}
+    max-batch-input-characters: ${CHARACTER_FACT_COMPARISON_MAX_BATCH_INPUT_CHARACTERS:30000}
+
 work:
   purge:
     scheduling-enabled: ${WORK_PURGE_SCHEDULING_ENABLED:true}

@@ -207,7 +207,10 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             long removalSnapshotVersion
     ) {
         CharacterFactType factType = schemaMatch.matchedSchema().getFactType();
-        String factKey = schemaMatch.factKey();
+        String factKey = candidate.getResolvedCanonicalFactKey() == null
+                || candidate.getResolvedCanonicalFactKey().isBlank()
+                ? schemaMatch.factKey()
+                : candidate.getResolvedCanonicalFactKey().trim();
         valueValidator.validateCandidate(candidate, factType, schemaMatch.matchedSchema().getValueType());
         JsonNode normalizedCandidateValue = valueValidator.resolveCandidateValue(
                 candidate,
