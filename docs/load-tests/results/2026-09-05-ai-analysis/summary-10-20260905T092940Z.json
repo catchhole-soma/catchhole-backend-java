@@ -1,0 +1,711 @@
+{
+  "runId": "analysis-20260905T085251230Z-10",
+  "target": "https://api.catchhole.com",
+  "generatedAt": "2026-09-05T09:30:55.859Z",
+  "phase": "FINISHED",
+  "plannedJobs": 10,
+  "input": {
+    "alias": "fixture-004",
+    "bytes": 16412,
+    "sha256": "ed8dbecac35a35d67ed6025aeea4b8b1c7c08d07191835111f9c56a08f9b332a"
+  },
+  "startedAt": "2026-09-05T09:29:40.029Z",
+  "finishedAt": "2026-09-05T09:30:55.832Z",
+  "observationDeadline": "2026-09-05T09:49:40.495Z",
+  "statuses": {
+    "PENDING": 0,
+    "RUNNING": 0,
+    "SUCCEEDED": 10,
+    "FAILED": 0,
+    "CANCELED": 0,
+    "UNKNOWN": 0
+  },
+  "verificationPassed": 9,
+  "retryObservedJobs": 0,
+  "maximumSampledRunning": 10,
+  "queueMs": {
+    "n": 10,
+    "avg": 939.8,
+    "median": 982.5,
+    "p95": 1146,
+    "p99": 1146,
+    "max": 1146
+  },
+  "executionMs": {
+    "n": 10,
+    "avg": 50076.2,
+    "median": 48758.5,
+    "p95": 69824,
+    "p99": 69824,
+    "max": 69824
+  },
+  "jobTotalMs": {
+    "n": 10,
+    "avg": 51016,
+    "median": 49702.5,
+    "p95": 70970,
+    "p99": 70970,
+    "max": 70970
+  },
+  "observedCompletionMs": {
+    "n": 10,
+    "avg": 54329,
+    "median": 51100,
+    "p95": 75596,
+    "p99": 75596,
+    "max": 75596
+  },
+  "stageElapsedMs": 75803,
+  "submissionWindowMs": 8,
+  "http": {
+    "createWork": {
+      "requests": 10,
+      "failures": 0,
+      "ms": {
+        "n": 10,
+        "avg": 53.68984180000005,
+        "median": 49.98029150000025,
+        "p95": 82.35220900000013,
+        "p99": 82.35220900000013,
+        "max": 82.35220900000013
+      }
+    },
+    "upload": {
+      "requests": 10,
+      "failures": 0,
+      "ms": {
+        "n": 10,
+        "avg": 329.1546789000001,
+        "median": 157.73352049999994,
+        "p95": 1739.01725,
+        "p99": 1739.01725,
+        "max": 1739.01725
+      }
+    },
+    "health": {
+      "requests": 17,
+      "failures": 0,
+      "ms": {
+        "n": 17,
+        "avg": 60.716872529412846,
+        "median": 59.28829200000109,
+        "p95": 92.80325000001176,
+        "p99": 92.80325000001176,
+        "max": 92.80325000001176
+      }
+    },
+    "preflight": {
+      "requests": 10,
+      "failures": 0,
+      "ms": {
+        "n": 10,
+        "avg": 39.4068709,
+        "median": 33.29943700000001,
+        "p95": 110.59254199999998,
+        "p99": 110.59254199999998,
+        "max": 110.59254199999998
+      }
+    },
+    "quota": {
+      "requests": 2,
+      "failures": 0,
+      "ms": {
+        "n": 2,
+        "avg": 23.883520499994404,
+        "median": 23.883520499994404,
+        "p95": 25.937165999988792,
+        "p99": 25.937165999988792,
+        "max": 25.937165999988792
+      }
+    },
+    "submit": {
+      "requests": 10,
+      "failures": 0,
+      "ms": {
+        "n": 10,
+        "avg": 400.56195429999997,
+        "median": 394.657958,
+        "p95": 457.92954199999997,
+        "p99": 457.92954199999997,
+        "max": 457.92954199999997
+      }
+    },
+    "poll": {
+      "requests": 117,
+      "failures": 0,
+      "ms": {
+        "n": 117,
+        "avg": 36.920739324786176,
+        "median": 32.48949999999604,
+        "p95": 68.47758299999987,
+        "p99": 83.13416699999652,
+        "max": 84.09575000000041
+      }
+    },
+    "verify": {
+      "requests": 30,
+      "failures": 0,
+      "ms": {
+        "n": 30,
+        "avg": 66.72447496666646,
+        "median": 53.966270499997336,
+        "p95": 162.7124580000018,
+        "p99": 202.11945800000103,
+        "max": 202.11945800000103
+      }
+    }
+  },
+  "tokenTotals": {
+    "scope": "all_observed_jobs_reported_usage_not_provider_invoice",
+    "input": 545293,
+    "output": 44743,
+    "missingUsageJobs": 0
+  },
+  "quotaAtSubmission": {
+    "grantedTokens": 2000000,
+    "usedTokens": 0,
+    "reservedTokens": 0,
+    "remainingTokens": 2000000,
+    "exhausted": false
+  },
+  "quotaAfter": {
+    "grantedTokens": 2000000,
+    "usedTokens": 590036,
+    "reservedTokens": 0,
+    "remainingTokens": 1409964,
+    "exhausted": false
+  },
+  "jobs": [
+    {
+      "index": 1,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 3,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 3
+        },
+        "world": {
+          "totalCandidateCount": 15,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 2,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 5,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 5
+        },
+        "world": {
+          "totalCandidateCount": 14,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 3,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 4,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 4
+        },
+        "world": {
+          "totalCandidateCount": 16,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 4,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 5,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 5
+        },
+        "world": {
+          "totalCandidateCount": 15,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 5,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 5,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 5
+        },
+        "world": {
+          "totalCandidateCount": 18,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 6,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 6,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 6
+        },
+        "world": {
+          "totalCandidateCount": 18,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 9,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": false
+      },
+      "pollError": null
+    },
+    {
+      "index": 7,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 3,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 3
+        },
+        "world": {
+          "totalCandidateCount": 16,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 8,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 6,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 6
+        },
+        "world": {
+          "totalCandidateCount": 18,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 9,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 4,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 4
+        },
+        "world": {
+          "totalCandidateCount": 15,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 10,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 5,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 5
+        },
+        "world": {
+          "totalCandidateCount": 17,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    }
+  ],
+  "limitations": [
+    "동일 계정·원문 반복",
+    "HTTP 시간에 연결 수립과 JSON 수신/해석 포함; 기존 k6 조회 timing과 구분",
+    "RUNNING은 5초 polling 샘플이며 실제 최대치의 하한",
+    "CPU·메모리·DB·실제 과금은 실행기 밖에서 관찰",
+    "서버 timestamp는 Asia/Seoul 가정; 재시도 관측 Job은 서버 시간 통계 제외"
+  ],
+  "passed": false,
+  "jobTimings": [
+    {
+      "index": 1,
+      "createdAt": "2026-09-05T18:29:40.330505",
+      "startedAt": "2026-09-05T18:29:41.074207",
+      "completedAt": "2026-09-05T18:30:26.523287",
+      "inputTokenCount": 52444,
+      "outputTokenCount": 3824,
+      "tokenInterruptedAfterExtraction": false
+    },
+    {
+      "index": 2,
+      "createdAt": "2026-09-05T18:29:40.428765",
+      "startedAt": "2026-09-05T18:29:41.522148",
+      "completedAt": "2026-09-05T18:30:29.365762",
+      "inputTokenCount": 50924,
+      "outputTokenCount": 3932,
+      "tokenInterruptedAfterExtraction": false
+    },
+    {
+      "index": 3,
+      "createdAt": "2026-09-05T18:29:40.375298",
+      "startedAt": "2026-09-05T18:29:41.355453",
+      "completedAt": "2026-09-05T18:30:33.969891",
+      "inputTokenCount": 56079,
+      "outputTokenCount": 4196,
+      "tokenInterruptedAfterExtraction": false
+    },
+    {
+      "index": 4,
+      "createdAt": "2026-09-05T18:29:40.358599",
+      "startedAt": "2026-09-05T18:29:41.213254",
+      "completedAt": "2026-09-05T18:30:26.477305",
+      "inputTokenCount": 51028,
+      "outputTokenCount": 4223,
+      "tokenInterruptedAfterExtraction": false
+    },
+    {
+      "index": 5,
+      "createdAt": "2026-09-05T18:29:40.394742",
+      "startedAt": "2026-09-05T18:29:41.379166",
+      "completedAt": "2026-09-05T18:30:31.688759",
+      "inputTokenCount": 56145,
+      "outputTokenCount": 4570,
+      "tokenInterruptedAfterExtraction": false
+    },
+    {
+      "index": 6,
+      "createdAt": "2026-09-05T18:29:40.448927",
+      "startedAt": "2026-09-05T18:29:41.594207",
+      "completedAt": "2026-09-05T18:30:51.418607",
+      "inputTokenCount": 62847,
+      "outputTokenCount": 7054,
+      "tokenInterruptedAfterExtraction": false
+    },
+    {
+      "index": 7,
+      "createdAt": "2026-09-05T18:29:40.416432",
+      "startedAt": "2026-09-05T18:29:41.469283",
+      "completedAt": "2026-09-05T18:30:25.440403",
+      "inputTokenCount": 52540,
+      "outputTokenCount": 3848,
+      "tokenInterruptedAfterExtraction": false
+    },
+    {
+      "index": 8,
+      "createdAt": "2026-09-05T18:29:40.220008",
+      "startedAt": "2026-09-05T18:29:40.864509",
+      "completedAt": "2026-09-05T18:30:36.180332",
+      "inputTokenCount": 59710,
+      "outputTokenCount": 4869,
+      "tokenInterruptedAfterExtraction": false
+    },
+    {
+      "index": 9,
+      "createdAt": "2026-09-05T18:29:40.438905",
+      "startedAt": "2026-09-05T18:29:41.54148",
+      "completedAt": "2026-09-05T18:30:22.039613",
+      "inputTokenCount": 49088,
+      "outputTokenCount": 3771,
+      "tokenInterruptedAfterExtraction": false
+    },
+    {
+      "index": 10,
+      "createdAt": "2026-09-05T18:29:40.344445",
+      "startedAt": "2026-09-05T18:29:41.138242",
+      "completedAt": "2026-09-05T18:30:30.81219",
+      "inputTokenCount": 54488,
+      "outputTokenCount": 4456,
+      "tokenInterruptedAfterExtraction": false
+    }
+  ],
+  "runningSamples": [
+    {
+      "at": "2026-09-05T09:29:40.948Z",
+      "running": 0,
+      "pending": 10,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T09:29:45.926Z",
+      "running": 10,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T09:29:50.959Z",
+      "running": 10,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T09:29:55.909Z",
+      "running": 10,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T09:30:00.911Z",
+      "running": 10,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T09:30:06.025Z",
+      "running": 10,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T09:30:10.911Z",
+      "running": 10,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T09:30:15.894Z",
+      "running": 10,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T09:30:20.860Z",
+      "running": 10,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T09:30:26.646Z",
+      "running": 8,
+      "pending": 0,
+      "succeeded": 2,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 2
+    },
+    {
+      "at": "2026-09-05T09:30:31.442Z",
+      "running": 4,
+      "pending": 0,
+      "succeeded": 6,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 6
+    },
+    {
+      "at": "2026-09-05T09:30:36.048Z",
+      "running": 2,
+      "pending": 0,
+      "succeeded": 8,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 8
+    },
+    {
+      "at": "2026-09-05T09:30:40.812Z",
+      "running": 1,
+      "pending": 0,
+      "succeeded": 9,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 9
+    },
+    {
+      "at": "2026-09-05T09:30:45.660Z",
+      "running": 1,
+      "pending": 0,
+      "succeeded": 9,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 9
+    },
+    {
+      "at": "2026-09-05T09:30:50.640Z",
+      "running": 1,
+      "pending": 0,
+      "succeeded": 9,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 9
+    },
+    {
+      "at": "2026-09-05T09:30:55.830Z",
+      "running": 0,
+      "pending": 0,
+      "succeeded": 10,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 9
+    }
+  ],
+  "runnerSHA256": "bf1b5ae2e98e9173a56a520410fd38f2b7589c2c2020013c936fec7b940b1be5",
+  "runnerExitCode": 2,
+  "diagnostic": {
+    "observedAt": "2026-09-05T09:32:53.609Z",
+    "method": "GET_ONLY",
+    "affectedJobIndex": 6,
+    "failedWorldCandidates": 9,
+    "failureCode": "COMPARISON_VALIDATION_FAILED",
+    "batchValidationFailureCount": 1,
+    "staleBatchRetryCount": 0,
+    "userFacingError": "설정 비교 결과를 검증하지 못했습니다.",
+    "rawErrorIncluded": false,
+    "rootCause": "RESPONSE_VALIDATION_FAILED_EXACT_RULE_UNKNOWN",
+    "workerLogAt": "2026-09-05T18:30:39+09:00",
+    "validationAttempts": 3,
+    "lastExceptionType": "ValueError",
+    "logSource": "user_supplied_worker_journal"
+  },
+  "costEstimate": {
+    "source": "reported_job_tokens",
+    "assumption": "All reported input/output charged at uncached Terra standard text rates; Luna discounts and cache benefits not applied. Not provider invoice or guaranteed upper bound.",
+    "inputUSDPerMillion": 2,
+    "outputUSDPerMillion": 12,
+    "USD": 1.627502,
+    "assumedKRWPerUSD": 1500,
+    "KRW": 2441.253,
+    "exchangeRateIsActual": false,
+    "taxesFeesIncluded": false
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "approximateStartedAt": "2026-09-05T06:06:47.319Z",
+  "finishedAt": "2026-09-05T06:07:47.801Z",
+  "target": "https://api.catchhole.com/api/v1/works",
+  "stage": "1",
+  "configuredLoad": {
+    "vus": 1,
+    "duration": "1m"
+  },
+  "scope": "같은 테스트 계정의 작품 목록 반복 조회; 네트워크 영향을 포함한 단기 측정",
+  "durationMs": {
+    "avg": 19.979355932203386,
+    "min": 16.671,
+    "med": 18.441,
+    "max": 26.053,
+    "p(95)": 24.973100000000002,
+    "p(99)": 25.58552
+  },
+  "failures": {
+    "rate": 0,
+    "failedRequests": 0,
+    "successfulRequests": 59
+  },
+  "checks": {
+    "rate": 1,
+    "passes": 59,
+    "fails": 0
+  },
+  "thresholds": {
+    "duration": {
+      "p(95)<1000": {
+        "ok": true
+      }
+    },
+    "failures": {
+      "rate==0": {
+        "ok": true
+      }
+    }
+  },
+  "iterations": {
+    "count": 59,
+    "rate": 0.9755064387145106
+  },
+  "httpRequestsIncludingHealthAndPreflight": {
+    "count": 68,
+    "rate": 1.124312505637063
+  },
+  "k6RunDurationMs": 60481.405
+}

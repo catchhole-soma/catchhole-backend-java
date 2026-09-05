@@ -1,0 +1,739 @@
+{
+  "runId": "analysis-20260905T101313158Z-10",
+  "target": "https://api.catchhole.com",
+  "generatedAt": "2026-09-05T10:15:06.062Z",
+  "phase": "FINISHED",
+  "plannedJobs": 10,
+  "input": {
+    "alias": "fixture-004",
+    "bytes": 16412,
+    "sha256": "ed8dbecac35a35d67ed6025aeea4b8b1c7c08d07191835111f9c56a08f9b332a"
+  },
+  "startedAt": "2026-09-05T10:13:50.253Z",
+  "finishedAt": "2026-09-05T10:15:06.041Z",
+  "observationDeadline": "2026-09-05T10:33:50.786Z",
+  "statuses": {
+    "PENDING": 0,
+    "RUNNING": 0,
+    "SUCCEEDED": 10,
+    "FAILED": 0,
+    "CANCELED": 0,
+    "UNKNOWN": 0
+  },
+  "verificationPassed": 9,
+  "retryObservedJobs": 0,
+  "maximumSampledRunning": 10,
+  "queueMs": {
+    "n": 10,
+    "avg": 732.9,
+    "median": 765,
+    "p95": 968,
+    "p99": 968,
+    "max": 968
+  },
+  "executionMs": {
+    "n": 10,
+    "avg": 57445.5,
+    "median": 54234,
+    "p95": 73284,
+    "p99": 73284,
+    "max": 73284
+  },
+  "jobTotalMs": {
+    "n": 10,
+    "avg": 58178.4,
+    "median": 54777,
+    "p95": 74160,
+    "p99": 74160,
+    "max": 74160
+  },
+  "observedCompletionMs": {
+    "n": 10,
+    "avg": 61531.6,
+    "median": 58789.5,
+    "p95": 75630,
+    "p99": 75630,
+    "max": 75630
+  },
+  "stageElapsedMs": 75788,
+  "submissionWindowMs": 6,
+  "http": {
+    "createWork": {
+      "requests": 10,
+      "failures": 0,
+      "ms": {
+        "n": 10,
+        "avg": 31.764037499999983,
+        "median": 27.534666499999958,
+        "p95": 69.03187500000001,
+        "p99": 69.03187500000001,
+        "max": 69.03187500000001
+      }
+    },
+    "upload": {
+      "requests": 10,
+      "failures": 0,
+      "ms": {
+        "n": 10,
+        "avg": 202.15510010000003,
+        "median": 131.42777049999995,
+        "p95": 808.0425419999999,
+        "p99": 808.0425419999999,
+        "max": 808.0425419999999
+      }
+    },
+    "health": {
+      "requests": 17,
+      "failures": 0,
+      "ms": {
+        "n": 17,
+        "avg": 46.30628658823451,
+        "median": 47.16108299999905,
+        "p95": 75.6275,
+        "p99": 75.6275,
+        "max": 75.6275
+      }
+    },
+    "preflight": {
+      "requests": 10,
+      "failures": 0,
+      "ms": {
+        "n": 10,
+        "avg": 37.386116799999996,
+        "median": 29.16129150000002,
+        "p95": 112.120917,
+        "p99": 112.120917,
+        "max": 112.120917
+      }
+    },
+    "quota": {
+      "requests": 2,
+      "failures": 0,
+      "ms": {
+        "n": 2,
+        "avg": 20.26789599999529,
+        "median": 20.26789599999529,
+        "p95": 21.089249999999993,
+        "p99": 21.089249999999993,
+        "max": 21.089249999999993
+      }
+    },
+    "submit": {
+      "requests": 10,
+      "failures": 0,
+      "ms": {
+        "n": 10,
+        "avg": 446.6700206999999,
+        "median": 442.196521,
+        "p95": 526.704042,
+        "p99": 526.704042,
+        "max": 526.704042
+      }
+    },
+    "poll": {
+      "requests": 131,
+      "failures": 0,
+      "ms": {
+        "n": 131,
+        "avg": 32.99472867175604,
+        "median": 28.709959000003437,
+        "p95": 55.885582999999315,
+        "p99": 68.15158399999927,
+        "max": 90.2932499999988
+      }
+    },
+    "verify": {
+      "requests": 30,
+      "failures": 0,
+      "ms": {
+        "n": 30,
+        "avg": 70.02277496666672,
+        "median": 56.34149949999846,
+        "p95": 148.5804999999964,
+        "p99": 185.67262499999924,
+        "max": 185.67262499999924
+      }
+    }
+  },
+  "tokenTotals": {
+    "scope": "all_observed_jobs_reported_usage_not_provider_invoice",
+    "input": 549195,
+    "output": 46882,
+    "missingUsageJobs": 0
+  },
+  "quotaAtSubmission": {
+    "grantedTokens": 5000000,
+    "usedTokens": 590036,
+    "reservedTokens": 0,
+    "remainingTokens": 4409964,
+    "exhausted": false
+  },
+  "quotaAfter": {
+    "grantedTokens": 5000000,
+    "usedTokens": 1186113,
+    "reservedTokens": 0,
+    "remainingTokens": 3813887,
+    "exhausted": false
+  },
+  "jobs": [
+    {
+      "index": 1,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 7,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 7
+        },
+        "world": {
+          "totalCandidateCount": 16,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 2,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 6,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 6
+        },
+        "world": {
+          "totalCandidateCount": 14,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 3,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 6,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 6
+        },
+        "world": {
+          "totalCandidateCount": 16,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 4,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 4,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 4
+        },
+        "world": {
+          "totalCandidateCount": 15,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 8,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": false
+      },
+      "pollError": null
+    },
+    {
+      "index": 5,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 5,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 5
+        },
+        "world": {
+          "totalCandidateCount": 17,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 6,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 4,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 4
+        },
+        "world": {
+          "totalCandidateCount": 16,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 7,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 5,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 5
+        },
+        "world": {
+          "totalCandidateCount": 15,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 8,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 7,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 7
+        },
+        "world": {
+          "totalCandidateCount": 13,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 9,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 4,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 4
+        },
+        "world": {
+          "totalCandidateCount": 17,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 10,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 6,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 6
+        },
+        "world": {
+          "totalCandidateCount": 16,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    }
+  ],
+  "limitations": [
+    "동일 계정·원문 반복",
+    "HTTP 시간에 연결 수립과 JSON 수신/해석 포함; 기존 k6 조회 timing과 구분",
+    "RUNNING은 5초 polling 샘플이며 실제 최대치의 하한",
+    "CPU·메모리·DB·실제 과금은 실행기 밖에서 관찰",
+    "서버 timestamp는 Asia/Seoul 가정; 재시도 관측 Job은 서버 시간 통계 제외"
+  ],
+  "passed": false,
+  "timingSamples": [
+    {
+      "index": 1,
+      "createdAt": "2026-09-05T19:13:50.639707",
+      "startedAt": "2026-09-05T19:13:51.152802",
+      "completedAt": "2026-09-05T19:14:55.140999",
+      "submittedAt": "2026-09-05T10:13:50.254Z",
+      "observedTerminalAt": "2026-09-05T10:14:55.894Z",
+      "retryObserved": false
+    },
+    {
+      "index": 2,
+      "createdAt": "2026-09-05T19:13:50.754409",
+      "startedAt": "2026-09-05T19:13:51.57041",
+      "completedAt": "2026-09-05T19:14:43.645259",
+      "submittedAt": "2026-09-05T10:13:50.256Z",
+      "observedTerminalAt": "2026-09-05T10:14:45.908Z",
+      "retryObserved": false
+    },
+    {
+      "index": 3,
+      "createdAt": "2026-09-05T19:13:50.726683",
+      "startedAt": "2026-09-05T19:13:51.563871",
+      "completedAt": "2026-09-05T19:14:47.922642",
+      "submittedAt": "2026-09-05T10:13:50.256Z",
+      "observedTerminalAt": "2026-09-05T10:14:50.905Z",
+      "retryObserved": false
+    },
+    {
+      "index": 4,
+      "createdAt": "2026-09-05T19:13:50.805448",
+      "startedAt": "2026-09-05T19:13:51.773518",
+      "completedAt": "2026-09-05T19:14:56.959802",
+      "submittedAt": "2026-09-05T10:13:50.257Z",
+      "observedTerminalAt": "2026-09-05T10:15:00.892Z",
+      "retryObserved": false
+    },
+    {
+      "index": 5,
+      "createdAt": "2026-09-05T19:13:50.656516",
+      "startedAt": "2026-09-05T19:13:51.235698",
+      "completedAt": "2026-09-05T19:14:46.772983",
+      "submittedAt": "2026-09-05T10:13:50.258Z",
+      "observedTerminalAt": "2026-09-05T10:14:51.132Z",
+      "retryObserved": false
+    },
+    {
+      "index": 6,
+      "createdAt": "2026-09-05T19:13:50.716664",
+      "startedAt": "2026-09-05T19:13:51.430374",
+      "completedAt": "2026-09-05T19:14:43.16661",
+      "submittedAt": "2026-09-05T10:13:50.258Z",
+      "observedTerminalAt": "2026-09-05T10:14:46.467Z",
+      "retryObserved": false
+    },
+    {
+      "index": 7,
+      "createdAt": "2026-09-05T19:13:50.79162",
+      "startedAt": "2026-09-05T19:13:51.66769",
+      "completedAt": "2026-09-05T19:15:04.951511",
+      "submittedAt": "2026-09-05T10:13:50.259Z",
+      "observedTerminalAt": "2026-09-05T10:15:05.889Z",
+      "retryObserved": false
+    },
+    {
+      "index": 8,
+      "createdAt": "2026-09-05T19:13:50.770642",
+      "startedAt": "2026-09-05T19:13:51.602578",
+      "completedAt": "2026-09-05T19:14:42.728436",
+      "submittedAt": "2026-09-05T10:13:50.259Z",
+      "observedTerminalAt": "2026-09-05T10:14:46.709Z",
+      "retryObserved": false
+    },
+    {
+      "index": 9,
+      "createdAt": "2026-09-05T19:13:50.51551",
+      "startedAt": "2026-09-05T19:13:51.022256",
+      "completedAt": "2026-09-05T19:14:43.953661",
+      "submittedAt": "2026-09-05T10:13:50.260Z",
+      "observedTerminalAt": "2026-09-05T10:14:46.907Z",
+      "retryObserved": false
+    },
+    {
+      "index": 10,
+      "createdAt": "2026-09-05T19:13:50.702672",
+      "startedAt": "2026-09-05T19:13:51.389988",
+      "completedAt": "2026-09-05T19:14:43.622041",
+      "submittedAt": "2026-09-05T10:13:50.260Z",
+      "observedTerminalAt": "2026-09-05T10:14:47.190Z",
+      "retryObserved": false
+    }
+  ],
+  "observationSamples": [
+    {
+      "at": "2026-09-05T10:13:51.285Z",
+      "running": 1,
+      "pending": 9,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T10:13:56.184Z",
+      "running": 10,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T10:14:01.174Z",
+      "running": 10,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T10:14:06.165Z",
+      "running": 10,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T10:14:11.131Z",
+      "running": 10,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T10:14:16.153Z",
+      "running": 10,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T10:14:21.265Z",
+      "running": 10,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T10:14:26.137Z",
+      "running": 10,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T10:14:31.159Z",
+      "running": 10,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T10:14:36.131Z",
+      "running": 10,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T10:14:41.147Z",
+      "running": 10,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T10:14:47.436Z",
+      "running": 5,
+      "pending": 0,
+      "succeeded": 5,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 5
+    },
+    {
+      "at": "2026-09-05T10:14:51.330Z",
+      "running": 3,
+      "pending": 0,
+      "succeeded": 7,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 7
+    },
+    {
+      "at": "2026-09-05T10:14:56.101Z",
+      "running": 2,
+      "pending": 0,
+      "succeeded": 8,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 8
+    },
+    {
+      "at": "2026-09-05T10:15:01.112Z",
+      "running": 1,
+      "pending": 0,
+      "succeeded": 9,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 8
+    },
+    {
+      "at": "2026-09-05T10:15:06.040Z",
+      "running": 0,
+      "pending": 0,
+      "succeeded": 10,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 9
+    }
+  ],
+  "verificationDetails": {
+    "failedWorkIndex": 4,
+    "failedBatchCount": 1,
+    "failedCandidateCount": 8,
+    "failureCodes": [
+      "COMPARISON_VALIDATION_FAILED"
+    ],
+    "summaryNumericFields": {
+      "episodeCount": 1,
+      "chunkCount": 2,
+      "embeddedChunkCount": 0,
+      "embeddingFailedChunkCount": 0,
+      "embeddingSkippedChunkCount": 2,
+      "candidateCount": 4,
+      "subjectFallbackCallCount": 2,
+      "subjectFallbackResolvedCount": 0,
+      "subjectFallbackUnresolvedCount": 4,
+      "statusContextCharacterCount": 0,
+      "statusContextEntryCount": 0,
+      "statusInactiveCandidateCount": 0,
+      "characterFactComparisonCompletedCount": 0,
+      "characterFactComparisonFailedCount": 0,
+      "worldSettingCandidateCount": 15,
+      "worldSettingComparisonCompletedCount": 7,
+      "worldSettingComparisonFailedCount": 8,
+      "worldComparisonBatchCount": 7,
+      "worldComparisonDecisionCount": 7,
+      "worldComparisonClusterCount": 7,
+      "averageCandidatesPerBatch": 2.1429,
+      "averageCandidatesPerCluster": 1,
+      "clusteredCandidateCount": 0,
+      "singletonCandidateCount": 7,
+      "batchValidationFailureCount": 1,
+      "staleBatchRetryCount": 0,
+      "worldComparisonProviderRequestCount": 10,
+      "worldComparisonProviderLatencyMs": 38945,
+      "worldComparisonInputTokenCount": 21803,
+      "worldComparisonCachedInputTokenCount": 16729,
+      "worldComparisonOutputTokenCount": 3545
+    },
+    "apiCheckedAt": "2026-09-05T10:16:24.300Z",
+    "detailedValidationOrigin": "not_observable_via_public_api_requires_worker_journal_or_db"
+  },
+  "environment": {
+    "node": "v25.9.0",
+    "runnerSha256": "bf1b5ae2e98e9173a56a520410fd38f2b7589c2c2020013c936fec7b940b1be5",
+    "workerImageTag": "sha-c1377d3",
+    "workerDeploymentEvidence": "https://github.com/catchhole-soma/catchhole-backend-ai/actions/runs/33959831845",
+    "apiImage": "not_rechecked_this_run",
+    "resourceSamples": "not_collected"
+  },
+  "totals": {
+    "characterCandidates": 54,
+    "worldCandidates": 155,
+    "reportedTokens": 596077
+  },
+  "exitCode": 2
+}

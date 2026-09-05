@@ -1,0 +1,2203 @@
+{
+  "runId": "analysis-20260905T102821085Z-50",
+  "target": "https://api.catchhole.com",
+  "generatedAt": "2026-09-05T10:31:38.076Z",
+  "phase": "FINISHED",
+  "plannedJobs": 50,
+  "input": {
+    "alias": "fixture-005",
+    "episodeNo": 5,
+    "bytes": 17222,
+    "sha256": "3f1929ebd8fc05c8486282a25960e2e92b6fdea400d8c4fb116d2ce0bca5992a"
+  },
+  "startedAt": "2026-09-05T10:30:32.204Z",
+  "finishedAt": "2026-09-05T10:31:38.056Z",
+  "observationDeadline": "2026-09-05T10:40:32.756Z",
+  "statuses": {
+    "PENDING": 0,
+    "RUNNING": 0,
+    "SUCCEEDED": 50,
+    "FAILED": 0,
+    "CANCELED": 0,
+    "UNKNOWN": 0
+  },
+  "verificationPassed": 46,
+  "retryObservedJobs": 0,
+  "maximumSampledRunning": 50,
+  "queueMs": {
+    "n": 50,
+    "avg": 2961.8,
+    "median": 3121,
+    "p95": 4203,
+    "p99": 4301,
+    "max": 4301
+  },
+  "executionMs": {
+    "n": 50,
+    "avg": 46397.68,
+    "median": 46596.5,
+    "p95": 53403,
+    "p99": 57781,
+    "max": 57781
+  },
+  "jobTotalMs": {
+    "n": 50,
+    "avg": 49359.48,
+    "median": 49962.5,
+    "p95": 56729,
+    "p99": 60974,
+    "max": 60974
+  },
+  "observedCompletionMs": {
+    "n": 50,
+    "avg": 52262.54,
+    "median": 51547.5,
+    "p95": 60626,
+    "p99": 65669,
+    "max": 65669
+  },
+  "stageElapsedMs": 65852,
+  "submissionWindowMs": 28,
+  "http": {
+    "createWork": {
+      "requests": 50,
+      "failures": 0,
+      "ms": {
+        "n": 50,
+        "avg": 19.920270780000024,
+        "median": 19.540416499999992,
+        "p95": 22.91887499999939,
+        "p99": 23.43645800000013,
+        "max": 23.43645800000013
+      }
+    },
+    "upload": {
+      "requests": 50,
+      "failures": 0,
+      "ms": {
+        "n": 50,
+        "avg": 107.26328908000005,
+        "median": 105.55020800000034,
+        "p95": 120.27720799999997,
+        "p99": 156.885958,
+        "max": 156.885958
+      }
+    },
+    "health": {
+      "requests": 15,
+      "failures": 0,
+      "ms": {
+        "n": 15,
+        "avg": 24.41817513333276,
+        "median": 17.531208000000333,
+        "p95": 77.97054200000001,
+        "p99": 77.97054200000001,
+        "max": 77.97054200000001
+      }
+    },
+    "preflight": {
+      "requests": 50,
+      "failures": 0,
+      "ms": {
+        "n": 50,
+        "avg": 25.138274960000007,
+        "median": 22.56456250000008,
+        "p95": 46.05795899999998,
+        "p99": 85.02083300000004,
+        "max": 85.02083300000004
+      }
+    },
+    "quota": {
+      "requests": 2,
+      "failures": 0,
+      "ms": {
+        "n": 2,
+        "avg": 18.17499999999677,
+        "median": 18.17499999999677,
+        "p95": 18.657166999999845,
+        "p99": 18.657166999999845,
+        "max": 18.657166999999845
+      }
+    },
+    "submit": {
+      "requests": 50,
+      "failures": 0,
+      "ms": {
+        "n": 50,
+        "avg": 352.66037085999994,
+        "median": 357.54981250000003,
+        "p95": 522.4677919999999,
+        "p99": 529.394875,
+        "max": 529.394875
+      }
+    },
+    "poll": {
+      "requests": 552,
+      "failures": 0,
+      "ms": {
+        "n": 552,
+        "avg": 24.312826255434878,
+        "median": 22.67779199999768,
+        "p95": 34.498375000000124,
+        "p99": 52.478250000000116,
+        "max": 79.71958299999824
+      }
+    },
+    "verify": {
+      "requests": 150,
+      "failures": 0,
+      "ms": {
+        "n": 150,
+        "avg": 44.871141933332936,
+        "median": 43.1404584999982,
+        "p95": 58.83191699999588,
+        "p99": 104.46349999999802,
+        "max": 111.87937500000407
+      }
+    }
+  },
+  "tokenTotals": {
+    "scope": "all_observed_jobs_reported_usage_not_provider_invoice",
+    "input": 2426078,
+    "output": 240852,
+    "missingUsageJobs": 0
+  },
+  "quotaAtSubmission": {
+    "grantedTokens": 5000000,
+    "usedTokens": 1186113,
+    "reservedTokens": 0,
+    "remainingTokens": 3813887,
+    "exhausted": false
+  },
+  "quotaAfter": {
+    "grantedTokens": 5000000,
+    "usedTokens": 3853043,
+    "reservedTokens": 0,
+    "remainingTokens": 1146957,
+    "exhausted": false
+  },
+  "jobs": [
+    {
+      "index": 1,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 16,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 11
+        },
+        "world": {
+          "totalCandidateCount": 12,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 2,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": false
+      },
+      "pollError": null
+    },
+    {
+      "index": 2,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 17,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 13,
+          "NOT_REQUIRED": 4
+        },
+        "world": {
+          "totalCandidateCount": 9,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 3,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 14,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 10,
+          "NOT_REQUIRED": 4
+        },
+        "world": {
+          "totalCandidateCount": 11,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 4,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 16,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 11,
+          "NOT_REQUIRED": 5
+        },
+        "world": {
+          "totalCandidateCount": 10,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 5,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 14,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 10,
+          "NOT_REQUIRED": 4
+        },
+        "world": {
+          "totalCandidateCount": 13,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 6,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 17,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 12
+        },
+        "world": {
+          "totalCandidateCount": 7,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 7,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 14,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 9
+        },
+        "world": {
+          "totalCandidateCount": 11,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 8,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 16,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 11
+        },
+        "world": {
+          "totalCandidateCount": 9,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 9,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 15,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 10
+        },
+        "world": {
+          "totalCandidateCount": 11,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 10,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 17,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 12
+        },
+        "world": {
+          "totalCandidateCount": 14,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 11,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 18,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 13
+        },
+        "world": {
+          "totalCandidateCount": 11,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 12,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 14,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 9
+        },
+        "world": {
+          "totalCandidateCount": 11,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 13,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 16,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 11
+        },
+        "world": {
+          "totalCandidateCount": 10,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 14,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 16,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 11
+        },
+        "world": {
+          "totalCandidateCount": 9,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 15,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 15,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 10
+        },
+        "world": {
+          "totalCandidateCount": 13,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 16,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 17,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 12
+        },
+        "world": {
+          "totalCandidateCount": 13,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 17,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 16,
+        "characterStatuses": {
+          "NOT_REQUIRED": 6,
+          "WAITING_FOR_CHARACTER_MATCH": 10
+        },
+        "world": {
+          "totalCandidateCount": 11,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 18,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 20,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 15
+        },
+        "world": {
+          "totalCandidateCount": 12,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 19,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 14,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 9
+        },
+        "world": {
+          "totalCandidateCount": 11,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 20,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 20,
+        "characterStatuses": {
+          "NOT_REQUIRED": 6,
+          "WAITING_FOR_CHARACTER_MATCH": 14
+        },
+        "world": {
+          "totalCandidateCount": 11,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 2,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": false
+      },
+      "pollError": null
+    },
+    {
+      "index": 21,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 15,
+        "characterStatuses": {
+          "NOT_REQUIRED": 4,
+          "WAITING_FOR_CHARACTER_MATCH": 11
+        },
+        "world": {
+          "totalCandidateCount": 9,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 22,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 16,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 11
+        },
+        "world": {
+          "totalCandidateCount": 11,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 23,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 17,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 12
+        },
+        "world": {
+          "totalCandidateCount": 10,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 24,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 15,
+        "characterStatuses": {
+          "NOT_REQUIRED": 4,
+          "WAITING_FOR_CHARACTER_MATCH": 11
+        },
+        "world": {
+          "totalCandidateCount": 11,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 25,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 17,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 12
+        },
+        "world": {
+          "totalCandidateCount": 13,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 26,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 18,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 13
+        },
+        "world": {
+          "totalCandidateCount": 10,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 27,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 16,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 11
+        },
+        "world": {
+          "totalCandidateCount": 11,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 28,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 14,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 9
+        },
+        "world": {
+          "totalCandidateCount": 10,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 29,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 12,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 7
+        },
+        "world": {
+          "totalCandidateCount": 11,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 2,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": false
+      },
+      "pollError": null
+    },
+    {
+      "index": 30,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 16,
+        "characterStatuses": {
+          "NOT_REQUIRED": 6,
+          "WAITING_FOR_CHARACTER_MATCH": 10
+        },
+        "world": {
+          "totalCandidateCount": 12,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 31,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 14,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 10,
+          "NOT_REQUIRED": 4
+        },
+        "world": {
+          "totalCandidateCount": 13,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 32,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 15,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 11,
+          "NOT_REQUIRED": 4
+        },
+        "world": {
+          "totalCandidateCount": 8,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 33,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 15,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 10
+        },
+        "world": {
+          "totalCandidateCount": 10,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 34,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 18,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 13
+        },
+        "world": {
+          "totalCandidateCount": 11,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 35,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 17,
+        "characterStatuses": {
+          "NOT_REQUIRED": 4,
+          "WAITING_FOR_CHARACTER_MATCH": 13
+        },
+        "world": {
+          "totalCandidateCount": 13,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 36,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 14,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 9
+        },
+        "world": {
+          "totalCandidateCount": 10,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 37,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 19,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 13,
+          "NOT_REQUIRED": 6
+        },
+        "world": {
+          "totalCandidateCount": 8,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 38,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 15,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 10
+        },
+        "world": {
+          "totalCandidateCount": 10,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 39,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 14,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 9,
+          "NOT_REQUIRED": 5
+        },
+        "world": {
+          "totalCandidateCount": 10,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 2,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": false
+      },
+      "pollError": null
+    },
+    {
+      "index": 40,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 13,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 8
+        },
+        "world": {
+          "totalCandidateCount": 9,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 41,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 19,
+        "characterStatuses": {
+          "NOT_REQUIRED": 6,
+          "WAITING_FOR_CHARACTER_MATCH": 13
+        },
+        "world": {
+          "totalCandidateCount": 10,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 42,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 16,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 11
+        },
+        "world": {
+          "totalCandidateCount": 11,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 43,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 14,
+        "characterStatuses": {
+          "NOT_REQUIRED": 4,
+          "WAITING_FOR_CHARACTER_MATCH": 10
+        },
+        "world": {
+          "totalCandidateCount": 13,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 44,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 15,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 10
+        },
+        "world": {
+          "totalCandidateCount": 9,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 45,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 17,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 12
+        },
+        "world": {
+          "totalCandidateCount": 9,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 46,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 20,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 15
+        },
+        "world": {
+          "totalCandidateCount": 10,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 47,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 20,
+        "characterStatuses": {
+          "WAITING_FOR_CHARACTER_MATCH": 14,
+          "NOT_REQUIRED": 6
+        },
+        "world": {
+          "totalCandidateCount": 10,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 48,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 20,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 15
+        },
+        "world": {
+          "totalCandidateCount": 11,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 49,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 18,
+        "characterStatuses": {
+          "NOT_REQUIRED": 6,
+          "WAITING_FOR_CHARACTER_MATCH": 12
+        },
+        "world": {
+          "totalCandidateCount": 12,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    },
+    {
+      "index": 50,
+      "status": "SUCCEEDED",
+      "failureCode": null,
+      "submitError": null,
+      "verification": {
+        "episodeStatus": "ANALYZED",
+        "characterCount": 17,
+        "characterStatuses": {
+          "NOT_REQUIRED": 5,
+          "WAITING_FOR_CHARACTER_MATCH": 12
+        },
+        "world": {
+          "totalCandidateCount": 9,
+          "pendingComparisonCount": 0,
+          "processingComparisonCount": 0,
+          "activeComparisonJobCount": 0,
+          "failedComparisonCount": 0,
+          "tokenInterruptedComparisonCount": 0,
+          "recomparisonRequiredCount": 0
+        },
+        "ok": true
+      },
+      "pollError": null
+    }
+  ],
+  "limitations": [
+    "동일 계정·원문 반복",
+    "HTTP 시간에 연결 수립과 JSON 수신/해석 포함; 기존 k6 조회 timing과 구분",
+    "RUNNING은 5초 polling 샘플이며 실제 최대치의 하한",
+    "CPU·메모리·DB·실제 과금은 실행기 밖에서 관찰",
+    "서버 timestamp는 Asia/Seoul 가정; 재시도 관측 Job은 서버 시간 통계 제외"
+  ],
+  "passed": false,
+  "timingSamples": [
+    {
+      "index": 1,
+      "createdAt": "2026-09-05T19:30:32.375455",
+      "startedAt": "2026-09-05T19:30:33.284975",
+      "completedAt": "2026-09-05T19:31:29.571635",
+      "submittedAt": "2026-09-05T10:30:32.205Z",
+      "observedTerminalAt": "2026-09-05T10:31:32.831Z",
+      "retryObserved": false
+    },
+    {
+      "index": 2,
+      "createdAt": "2026-09-05T19:30:32.495984",
+      "startedAt": "2026-09-05T19:30:33.553614",
+      "completedAt": "2026-09-05T19:31:22.507444",
+      "submittedAt": "2026-09-05T10:30:32.207Z",
+      "observedTerminalAt": "2026-09-05T10:31:22.851Z",
+      "retryObserved": false
+    },
+    {
+      "index": 3,
+      "createdAt": "2026-09-05T19:30:32.463495",
+      "startedAt": "2026-09-05T19:30:33.391627",
+      "completedAt": "2026-09-05T19:31:25.141261",
+      "submittedAt": "2026-09-05T10:30:32.208Z",
+      "observedTerminalAt": "2026-09-05T10:31:27.855Z",
+      "retryObserved": false
+    },
+    {
+      "index": 4,
+      "createdAt": "2026-09-05T19:30:32.658721",
+      "startedAt": "2026-09-05T19:30:35.834448",
+      "completedAt": "2026-09-05T19:31:17.449814",
+      "submittedAt": "2026-09-05T10:30:32.209Z",
+      "observedTerminalAt": "2026-09-05T10:31:17.909Z",
+      "retryObserved": false
+    },
+    {
+      "index": 5,
+      "createdAt": "2026-09-05T19:30:32.807057",
+      "startedAt": "2026-09-05T19:30:37.010031",
+      "completedAt": "2026-09-05T19:31:23.123037",
+      "submittedAt": "2026-09-05T10:30:32.210Z",
+      "observedTerminalAt": "2026-09-05T10:31:28.011Z",
+      "retryObserved": false
+    },
+    {
+      "index": 6,
+      "createdAt": "2026-09-05T19:30:32.62092",
+      "startedAt": "2026-09-05T19:30:35.638444",
+      "completedAt": "2026-09-05T19:31:22.809847",
+      "submittedAt": "2026-09-05T10:30:32.211Z",
+      "observedTerminalAt": "2026-09-05T10:31:23.059Z",
+      "retryObserved": false
+    },
+    {
+      "index": 7,
+      "createdAt": "2026-09-05T19:30:32.570884",
+      "startedAt": "2026-09-05T19:30:35.417058",
+      "completedAt": "2026-09-05T19:31:23.962096",
+      "submittedAt": "2026-09-05T10:30:32.212Z",
+      "observedTerminalAt": "2026-09-05T10:31:28.169Z",
+      "retryObserved": false
+    },
+    {
+      "index": 8,
+      "createdAt": "2026-09-05T19:30:32.419064",
+      "startedAt": "2026-09-05T19:30:33.314362",
+      "completedAt": "2026-09-05T19:31:14.840165",
+      "submittedAt": "2026-09-05T10:30:32.212Z",
+      "observedTerminalAt": "2026-09-05T10:31:18.143Z",
+      "retryObserved": false
+    },
+    {
+      "index": 9,
+      "createdAt": "2026-09-05T19:30:32.601967",
+      "startedAt": "2026-09-05T19:30:35.559858",
+      "completedAt": "2026-09-05T19:31:16.183479",
+      "submittedAt": "2026-09-05T10:30:32.213Z",
+      "observedTerminalAt": "2026-09-05T10:31:18.305Z",
+      "retryObserved": false
+    },
+    {
+      "index": 10,
+      "createdAt": "2026-09-05T19:30:32.732925",
+      "startedAt": "2026-09-05T19:30:36.552365",
+      "completedAt": "2026-09-05T19:31:25.536584",
+      "submittedAt": "2026-09-05T10:30:32.215Z",
+      "observedTerminalAt": "2026-09-05T10:31:28.332Z",
+      "retryObserved": false
+    },
+    {
+      "index": 11,
+      "createdAt": "2026-09-05T19:30:32.673246",
+      "startedAt": "2026-09-05T19:30:35.943482",
+      "completedAt": "2026-09-05T19:31:24.90743",
+      "submittedAt": "2026-09-05T10:30:32.215Z",
+      "observedTerminalAt": "2026-09-05T10:31:28.475Z",
+      "retryObserved": false
+    },
+    {
+      "index": 12,
+      "createdAt": "2026-09-05T19:30:32.597459",
+      "startedAt": "2026-09-05T19:30:35.53194",
+      "completedAt": "2026-09-05T19:31:14.829044",
+      "submittedAt": "2026-09-05T10:30:32.216Z",
+      "observedTerminalAt": "2026-09-05T10:31:18.517Z",
+      "retryObserved": false
+    },
+    {
+      "index": 13,
+      "createdAt": "2026-09-05T19:30:32.635075",
+      "startedAt": "2026-09-05T19:30:35.718034",
+      "completedAt": "2026-09-05T19:31:17.326141",
+      "submittedAt": "2026-09-05T10:30:32.216Z",
+      "observedTerminalAt": "2026-09-05T10:31:18.675Z",
+      "retryObserved": false
+    },
+    {
+      "index": 14,
+      "createdAt": "2026-09-05T19:30:32.686703",
+      "startedAt": "2026-09-05T19:30:36.305851",
+      "completedAt": "2026-09-05T19:31:14.938397",
+      "submittedAt": "2026-09-05T10:30:32.217Z",
+      "observedTerminalAt": "2026-09-05T10:31:18.838Z",
+      "retryObserved": false
+    },
+    {
+      "index": 15,
+      "createdAt": "2026-09-05T19:30:32.552945",
+      "startedAt": "2026-09-05T19:30:35.38473",
+      "completedAt": "2026-09-05T19:31:28.787935",
+      "submittedAt": "2026-09-05T10:30:32.217Z",
+      "observedTerminalAt": "2026-09-05T10:31:33.007Z",
+      "retryObserved": false
+    },
+    {
+      "index": 16,
+      "createdAt": "2026-09-05T19:30:32.78307",
+      "startedAt": "2026-09-05T19:30:36.781017",
+      "completedAt": "2026-09-05T19:31:27.908053",
+      "submittedAt": "2026-09-05T10:30:32.218Z",
+      "observedTerminalAt": "2026-09-05T10:31:28.648Z",
+      "retryObserved": false
+    },
+    {
+      "index": 17,
+      "createdAt": "2026-09-05T19:30:32.701493",
+      "startedAt": "2026-09-05T19:30:36.358689",
+      "completedAt": "2026-09-05T19:31:25.352605",
+      "submittedAt": "2026-09-05T10:30:32.218Z",
+      "observedTerminalAt": "2026-09-05T10:31:28.812Z",
+      "retryObserved": false
+    },
+    {
+      "index": 18,
+      "createdAt": "2026-09-05T19:30:32.726268",
+      "startedAt": "2026-09-05T19:30:36.478948",
+      "completedAt": "2026-09-05T19:31:23.899026",
+      "submittedAt": "2026-09-05T10:30:32.219Z",
+      "observedTerminalAt": "2026-09-05T10:31:28.953Z",
+      "retryObserved": false
+    },
+    {
+      "index": 19,
+      "createdAt": "2026-09-05T19:30:32.757183",
+      "startedAt": "2026-09-05T19:30:36.642965",
+      "completedAt": "2026-09-05T19:31:25.743295",
+      "submittedAt": "2026-09-05T10:30:32.219Z",
+      "observedTerminalAt": "2026-09-05T10:31:29.096Z",
+      "retryObserved": false
+    },
+    {
+      "index": 20,
+      "createdAt": "2026-09-05T19:30:32.812709",
+      "startedAt": "2026-09-05T19:30:37.063192",
+      "completedAt": "2026-09-05T19:31:26.869744",
+      "submittedAt": "2026-09-05T10:30:32.220Z",
+      "observedTerminalAt": "2026-09-05T10:31:29.245Z",
+      "retryObserved": false
+    },
+    {
+      "index": 21,
+      "createdAt": "2026-09-05T19:30:32.487099",
+      "startedAt": "2026-09-05T19:30:33.508589",
+      "completedAt": "2026-09-05T19:31:15.093037",
+      "submittedAt": "2026-09-05T10:30:32.220Z",
+      "observedTerminalAt": "2026-09-05T10:31:19.233Z",
+      "retryObserved": false
+    },
+    {
+      "index": 22,
+      "createdAt": "2026-09-05T19:30:32.64383",
+      "startedAt": "2026-09-05T19:30:35.757165",
+      "completedAt": "2026-09-05T19:31:22.556112",
+      "submittedAt": "2026-09-05T10:30:32.221Z",
+      "observedTerminalAt": "2026-09-05T10:31:23.470Z",
+      "retryObserved": false
+    },
+    {
+      "index": 23,
+      "createdAt": "2026-09-05T19:30:32.800859",
+      "startedAt": "2026-09-05T19:30:36.900815",
+      "completedAt": "2026-09-05T19:31:18.68599",
+      "submittedAt": "2026-09-05T10:30:32.221Z",
+      "observedTerminalAt": "2026-09-05T10:31:19.505Z",
+      "retryObserved": false
+    },
+    {
+      "index": 24,
+      "createdAt": "2026-09-05T19:30:32.530147",
+      "startedAt": "2026-09-05T19:30:35.305225",
+      "completedAt": "2026-09-05T19:31:24.252556",
+      "submittedAt": "2026-09-05T10:30:32.222Z",
+      "observedTerminalAt": "2026-09-05T10:31:29.396Z",
+      "retryObserved": false
+    },
+    {
+      "index": 25,
+      "createdAt": "2026-09-05T19:30:32.57844",
+      "startedAt": "2026-09-05T19:30:35.462998",
+      "completedAt": "2026-09-05T19:31:24.515546",
+      "submittedAt": "2026-09-05T10:30:32.223Z",
+      "observedTerminalAt": "2026-09-05T10:31:29.558Z",
+      "retryObserved": false
+    },
+    {
+      "index": 26,
+      "createdAt": "2026-09-05T19:30:32.517954",
+      "startedAt": "2026-09-05T19:30:33.653486",
+      "completedAt": "2026-09-05T19:31:15.960506",
+      "submittedAt": "2026-09-05T10:30:32.223Z",
+      "observedTerminalAt": "2026-09-05T10:31:19.728Z",
+      "retryObserved": false
+    },
+    {
+      "index": 27,
+      "createdAt": "2026-09-05T19:30:32.716073",
+      "startedAt": "2026-09-05T19:30:36.416943",
+      "completedAt": "2026-09-05T19:31:23.454749",
+      "submittedAt": "2026-09-05T10:30:32.224Z",
+      "observedTerminalAt": "2026-09-05T10:31:23.674Z",
+      "retryObserved": false
+    },
+    {
+      "index": 28,
+      "createdAt": "2026-09-05T19:30:32.454534",
+      "startedAt": "2026-09-05T19:30:33.364602",
+      "completedAt": "2026-09-05T19:31:17.961102",
+      "submittedAt": "2026-09-05T10:30:32.224Z",
+      "observedTerminalAt": "2026-09-05T10:31:19.914Z",
+      "retryObserved": false
+    },
+    {
+      "index": 29,
+      "createdAt": "2026-09-05T19:30:32.764331",
+      "startedAt": "2026-09-05T19:30:36.692095",
+      "completedAt": "2026-09-05T19:31:20.090697",
+      "submittedAt": "2026-09-05T10:30:32.225Z",
+      "observedTerminalAt": "2026-09-05T10:31:20.064Z",
+      "retryObserved": false
+    },
+    {
+      "index": 30,
+      "createdAt": "2026-09-05T19:30:32.470543",
+      "startedAt": "2026-09-05T19:30:33.447218",
+      "completedAt": "2026-09-05T19:31:19.959674",
+      "submittedAt": "2026-09-05T10:30:32.225Z",
+      "observedTerminalAt": "2026-09-05T10:31:20.212Z",
+      "retryObserved": false
+    },
+    {
+      "index": 31,
+      "createdAt": "2026-09-05T19:30:32.666254",
+      "startedAt": "2026-09-05T19:30:35.859469",
+      "completedAt": "2026-09-05T19:31:33.640917",
+      "submittedAt": "2026-09-05T10:30:32.226Z",
+      "observedTerminalAt": "2026-09-05T10:31:37.895Z",
+      "retryObserved": false
+    },
+    {
+      "index": 32,
+      "createdAt": "2026-09-05T19:30:32.537691",
+      "startedAt": "2026-09-05T19:30:35.334369",
+      "completedAt": "2026-09-05T19:31:14.155137",
+      "submittedAt": "2026-09-05T10:30:32.226Z",
+      "observedTerminalAt": "2026-09-05T10:31:20.393Z",
+      "retryObserved": false
+    },
+    {
+      "index": 33,
+      "createdAt": "2026-09-05T19:30:32.444324",
+      "startedAt": "2026-09-05T19:30:33.340908",
+      "completedAt": "2026-09-05T19:31:15.564876",
+      "submittedAt": "2026-09-05T10:30:32.226Z",
+      "observedTerminalAt": "2026-09-05T10:31:20.583Z",
+      "retryObserved": false
+    },
+    {
+      "index": 34,
+      "createdAt": "2026-09-05T19:30:32.696523",
+      "startedAt": "2026-09-05T19:30:36.334993",
+      "completedAt": "2026-09-05T19:31:28.870132",
+      "submittedAt": "2026-09-05T10:30:32.227Z",
+      "observedTerminalAt": "2026-09-05T10:31:29.757Z",
+      "retryObserved": false
+    },
+    {
+      "index": 35,
+      "createdAt": "2026-09-05T19:30:32.796311",
+      "startedAt": "2026-09-05T19:30:36.886896",
+      "completedAt": "2026-09-05T19:31:21.310334",
+      "submittedAt": "2026-09-05T10:30:32.227Z",
+      "observedTerminalAt": "2026-09-05T10:31:23.872Z",
+      "retryObserved": false
+    },
+    {
+      "index": 36,
+      "createdAt": "2026-09-05T19:30:32.508116",
+      "startedAt": "2026-09-05T19:30:33.606373",
+      "completedAt": "2026-09-05T19:31:19.937912",
+      "submittedAt": "2026-09-05T10:30:32.228Z",
+      "observedTerminalAt": "2026-09-05T10:31:20.792Z",
+      "retryObserved": false
+    },
+    {
+      "index": 37,
+      "createdAt": "2026-09-05T19:30:32.612507",
+      "startedAt": "2026-09-05T19:30:35.610408",
+      "completedAt": "2026-09-05T19:31:17.17864",
+      "submittedAt": "2026-09-05T10:30:32.228Z",
+      "observedTerminalAt": "2026-09-05T10:31:20.941Z",
+      "retryObserved": false
+    },
+    {
+      "index": 38,
+      "createdAt": "2026-09-05T19:30:32.777445",
+      "startedAt": "2026-09-05T19:30:36.74841",
+      "completedAt": "2026-09-05T19:31:23.429674",
+      "submittedAt": "2026-09-05T10:30:32.228Z",
+      "observedTerminalAt": "2026-09-05T10:31:24.045Z",
+      "retryObserved": false
+    },
+    {
+      "index": 39,
+      "createdAt": "2026-09-05T19:30:32.589188",
+      "startedAt": "2026-09-05T19:30:35.490032",
+      "completedAt": "2026-09-05T19:31:21.41063",
+      "submittedAt": "2026-09-05T10:30:32.229Z",
+      "observedTerminalAt": "2026-09-05T10:31:24.185Z",
+      "retryObserved": false
+    },
+    {
+      "index": 40,
+      "createdAt": "2026-09-05T19:30:32.681747",
+      "startedAt": "2026-09-05T19:30:36.020058",
+      "completedAt": "2026-09-05T19:31:20.265429",
+      "submittedAt": "2026-09-05T10:30:32.230Z",
+      "observedTerminalAt": "2026-09-05T10:31:21.146Z",
+      "retryObserved": false
+    },
+    {
+      "index": 41,
+      "createdAt": "2026-09-05T19:30:32.710379",
+      "startedAt": "2026-09-05T19:30:36.384171",
+      "completedAt": "2026-09-05T19:31:21.126628",
+      "submittedAt": "2026-09-05T10:30:32.230Z",
+      "observedTerminalAt": "2026-09-05T10:31:21.319Z",
+      "retryObserved": false
+    },
+    {
+      "index": 42,
+      "createdAt": "2026-09-05T19:30:32.789283",
+      "startedAt": "2026-09-05T19:30:36.822523",
+      "completedAt": "2026-09-05T19:31:29.518996",
+      "submittedAt": "2026-09-05T10:30:32.230Z",
+      "observedTerminalAt": "2026-09-05T10:31:29.912Z",
+      "retryObserved": false
+    },
+    {
+      "index": 43,
+      "createdAt": "2026-09-05T19:30:32.770053",
+      "startedAt": "2026-09-05T19:30:36.733973",
+      "completedAt": "2026-09-05T19:31:27.352213",
+      "submittedAt": "2026-09-05T10:30:32.231Z",
+      "observedTerminalAt": "2026-09-05T10:31:30.057Z",
+      "retryObserved": false
+    },
+    {
+      "index": 44,
+      "createdAt": "2026-09-05T19:30:32.652503",
+      "startedAt": "2026-09-05T19:30:35.780192",
+      "completedAt": "2026-09-05T19:31:18.622523",
+      "submittedAt": "2026-09-05T10:30:32.231Z",
+      "observedTerminalAt": "2026-09-05T10:31:21.518Z",
+      "retryObserved": false
+    },
+    {
+      "index": 45,
+      "createdAt": "2026-09-05T19:30:32.818463",
+      "startedAt": "2026-09-05T19:30:37.119493",
+      "completedAt": "2026-09-05T19:31:22.069134",
+      "submittedAt": "2026-09-05T10:30:32.232Z",
+      "observedTerminalAt": "2026-09-05T10:31:24.374Z",
+      "retryObserved": false
+    },
+    {
+      "index": 46,
+      "createdAt": "2026-09-05T19:30:32.743611",
+      "startedAt": "2026-09-05T19:30:36.613312",
+      "completedAt": "2026-09-05T19:31:28.717686",
+      "submittedAt": "2026-09-05T10:30:32.232Z",
+      "observedTerminalAt": "2026-09-05T10:31:30.206Z",
+      "retryObserved": false
+    },
+    {
+      "index": 47,
+      "createdAt": "2026-09-05T19:30:32.559348",
+      "startedAt": "2026-09-05T19:30:35.400655",
+      "completedAt": "2026-09-05T19:31:23.317992",
+      "submittedAt": "2026-09-05T10:30:32.232Z",
+      "observedTerminalAt": "2026-09-05T10:31:24.546Z",
+      "retryObserved": false
+    },
+    {
+      "index": 48,
+      "createdAt": "2026-09-05T19:30:32.627049",
+      "startedAt": "2026-09-05T19:30:35.692615",
+      "completedAt": "2026-09-05T19:31:18.577723",
+      "submittedAt": "2026-09-05T10:30:32.233Z",
+      "observedTerminalAt": "2026-09-05T10:31:21.746Z",
+      "retryObserved": false
+    },
+    {
+      "index": 49,
+      "createdAt": "2026-09-05T19:30:32.543316",
+      "startedAt": "2026-09-05T19:30:35.369041",
+      "completedAt": "2026-09-05T19:31:27.152708",
+      "submittedAt": "2026-09-05T10:30:32.233Z",
+      "observedTerminalAt": "2026-09-05T10:31:30.354Z",
+      "retryObserved": false
+    },
+    {
+      "index": 50,
+      "createdAt": "2026-09-05T19:30:32.738842",
+      "startedAt": "2026-09-05T19:30:36.568969",
+      "completedAt": "2026-09-05T19:31:13.4387",
+      "submittedAt": "2026-09-05T10:30:32.233Z",
+      "observedTerminalAt": "2026-09-05T10:31:14.098Z",
+      "retryObserved": false
+    }
+  ],
+  "observationSamples": [
+    {
+      "at": "2026-09-05T10:30:34.035Z",
+      "running": 4,
+      "pending": 46,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T10:30:39.052Z",
+      "running": 50,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T10:30:44.036Z",
+      "running": 50,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T10:30:49.051Z",
+      "running": 50,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T10:30:54.025Z",
+      "running": 50,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T10:30:59.086Z",
+      "running": 50,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T10:31:04.300Z",
+      "running": 50,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T10:31:09.085Z",
+      "running": 50,
+      "pending": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 0
+    },
+    {
+      "at": "2026-09-05T10:31:14.355Z",
+      "running": 49,
+      "pending": 0,
+      "succeeded": 1,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 1
+    },
+    {
+      "at": "2026-09-05T10:31:21.894Z",
+      "running": 29,
+      "pending": 0,
+      "succeeded": 21,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 20
+    },
+    {
+      "at": "2026-09-05T10:31:24.724Z",
+      "running": 20,
+      "pending": 0,
+      "succeeded": 30,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 28
+    },
+    {
+      "at": "2026-09-05T10:31:30.488Z",
+      "running": 3,
+      "pending": 0,
+      "succeeded": 47,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 44
+    },
+    {
+      "at": "2026-09-05T10:31:33.193Z",
+      "running": 1,
+      "pending": 0,
+      "succeeded": 49,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 45
+    },
+    {
+      "at": "2026-09-05T10:31:38.054Z",
+      "running": 0,
+      "pending": 0,
+      "succeeded": 50,
+      "failed": 0,
+      "canceled": 0,
+      "unknown": 0,
+      "verified": 46
+    }
+  ],
+  "postRunDiagnostics": {
+    "checkedAt": "2026-09-05T10:32:19.715Z",
+    "requestCount": 8,
+    "failures": [
+      {
+        "index": 1,
+        "status": "SUCCEEDED",
+        "failedCandidates": 2,
+        "failureCodes": [
+          "COMPARISON_VALIDATION_FAILED"
+        ],
+        "summaryNumbers": {
+          "episodeCount": 1,
+          "chunkCount": 2,
+          "embeddedChunkCount": 0,
+          "embeddingFailedChunkCount": 0,
+          "embeddingSkippedChunkCount": 2,
+          "candidateCount": 16,
+          "subjectFallbackCallCount": 1,
+          "subjectFallbackResolvedCount": 0,
+          "subjectFallbackUnresolvedCount": 4,
+          "statusContextCharacterCount": 0,
+          "statusContextEntryCount": 0,
+          "statusInactiveCandidateCount": 0,
+          "characterFactComparisonCompletedCount": 0,
+          "characterFactComparisonFailedCount": 0,
+          "worldSettingCandidateCount": 12,
+          "worldSettingComparisonCompletedCount": 10,
+          "worldSettingComparisonFailedCount": 2,
+          "worldComparisonBatchCount": 9,
+          "worldComparisonDecisionCount": 10,
+          "worldComparisonClusterCount": 10,
+          "averageCandidatesPerBatch": 1.3333,
+          "averageCandidatesPerCluster": 1,
+          "clusteredCandidateCount": 0,
+          "singletonCandidateCount": 10,
+          "batchValidationFailureCount": 1,
+          "staleBatchRetryCount": 0,
+          "worldComparisonProviderRequestCount": 11,
+          "worldComparisonProviderLatencyMs": 26952,
+          "worldComparisonInputTokenCount": 21408,
+          "worldComparisonCachedInputTokenCount": 14895,
+          "worldComparisonOutputTokenCount": 2135
+        }
+      },
+      {
+        "index": 20,
+        "status": "SUCCEEDED",
+        "failedCandidates": 2,
+        "failureCodes": [
+          "COMPARISON_VALIDATION_FAILED"
+        ],
+        "summaryNumbers": {
+          "episodeCount": 1,
+          "chunkCount": 2,
+          "embeddedChunkCount": 0,
+          "embeddingFailedChunkCount": 0,
+          "embeddingSkippedChunkCount": 2,
+          "candidateCount": 20,
+          "subjectFallbackCallCount": 0,
+          "subjectFallbackResolvedCount": 0,
+          "subjectFallbackUnresolvedCount": 0,
+          "statusContextCharacterCount": 0,
+          "statusContextEntryCount": 0,
+          "statusInactiveCandidateCount": 0,
+          "characterFactComparisonCompletedCount": 0,
+          "characterFactComparisonFailedCount": 0,
+          "worldSettingCandidateCount": 11,
+          "worldSettingComparisonCompletedCount": 9,
+          "worldSettingComparisonFailedCount": 2,
+          "worldComparisonBatchCount": 8,
+          "worldComparisonDecisionCount": 9,
+          "worldComparisonClusterCount": 9,
+          "averageCandidatesPerBatch": 1.375,
+          "averageCandidatesPerCluster": 1,
+          "clusteredCandidateCount": 0,
+          "singletonCandidateCount": 9,
+          "batchValidationFailureCount": 1,
+          "staleBatchRetryCount": 0,
+          "worldComparisonProviderRequestCount": 10,
+          "worldComparisonProviderLatencyMs": 25127,
+          "worldComparisonInputTokenCount": 19203,
+          "worldComparisonCachedInputTokenCount": 17352,
+          "worldComparisonOutputTokenCount": 1944
+        }
+      },
+      {
+        "index": 29,
+        "status": "SUCCEEDED",
+        "failedCandidates": 2,
+        "failureCodes": [
+          "COMPARISON_VALIDATION_FAILED"
+        ],
+        "summaryNumbers": {
+          "episodeCount": 1,
+          "chunkCount": 2,
+          "embeddedChunkCount": 0,
+          "embeddingFailedChunkCount": 0,
+          "embeddingSkippedChunkCount": 2,
+          "candidateCount": 12,
+          "subjectFallbackCallCount": 0,
+          "subjectFallbackResolvedCount": 0,
+          "subjectFallbackUnresolvedCount": 0,
+          "statusContextCharacterCount": 0,
+          "statusContextEntryCount": 0,
+          "statusInactiveCandidateCount": 0,
+          "characterFactComparisonCompletedCount": 0,
+          "characterFactComparisonFailedCount": 0,
+          "worldSettingCandidateCount": 11,
+          "worldSettingComparisonCompletedCount": 9,
+          "worldSettingComparisonFailedCount": 2,
+          "worldComparisonBatchCount": 8,
+          "worldComparisonDecisionCount": 9,
+          "worldComparisonClusterCount": 9,
+          "averageCandidatesPerBatch": 1.375,
+          "averageCandidatesPerCluster": 1,
+          "clusteredCandidateCount": 0,
+          "singletonCandidateCount": 9,
+          "batchValidationFailureCount": 1,
+          "staleBatchRetryCount": 0,
+          "worldComparisonProviderRequestCount": 10,
+          "worldComparisonProviderLatencyMs": 22151,
+          "worldComparisonInputTokenCount": 19140,
+          "worldComparisonCachedInputTokenCount": 17294,
+          "worldComparisonOutputTokenCount": 1926
+        }
+      },
+      {
+        "index": 39,
+        "status": "SUCCEEDED",
+        "failedCandidates": 2,
+        "failureCodes": [
+          "COMPARISON_VALIDATION_FAILED"
+        ],
+        "summaryNumbers": {
+          "episodeCount": 1,
+          "chunkCount": 2,
+          "embeddedChunkCount": 0,
+          "embeddingFailedChunkCount": 0,
+          "embeddingSkippedChunkCount": 2,
+          "candidateCount": 14,
+          "subjectFallbackCallCount": 1,
+          "subjectFallbackResolvedCount": 0,
+          "subjectFallbackUnresolvedCount": 3,
+          "statusContextCharacterCount": 0,
+          "statusContextEntryCount": 0,
+          "statusInactiveCandidateCount": 0,
+          "characterFactComparisonCompletedCount": 0,
+          "characterFactComparisonFailedCount": 0,
+          "worldSettingCandidateCount": 10,
+          "worldSettingComparisonCompletedCount": 8,
+          "worldSettingComparisonFailedCount": 2,
+          "worldComparisonBatchCount": 7,
+          "worldComparisonDecisionCount": 8,
+          "worldComparisonClusterCount": 8,
+          "averageCandidatesPerBatch": 1.4286,
+          "averageCandidatesPerCluster": 1,
+          "clusteredCandidateCount": 0,
+          "singletonCandidateCount": 8,
+          "batchValidationFailureCount": 1,
+          "staleBatchRetryCount": 0,
+          "worldComparisonProviderRequestCount": 9,
+          "worldComparisonProviderLatencyMs": 23170,
+          "worldComparisonInputTokenCount": 17686,
+          "worldComparisonCachedInputTokenCount": 15952,
+          "worldComparisonOutputTokenCount": 1887
+        }
+      }
+    ]
+  }
+}
