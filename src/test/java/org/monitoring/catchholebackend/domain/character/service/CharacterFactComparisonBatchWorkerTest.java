@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -34,6 +35,8 @@ import org.monitoring.catchholebackend.domain.character.dto.request.WorkerCharac
 import org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterFactComparisonBatchContextResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterFactComparisonBatchPayload;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFactComparisonBatch;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshotSource;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
@@ -720,6 +723,157 @@ class CharacterFactComparisonBatchWorkerTest {
         assertThat(candidates).allMatch(candidate ->
                 candidate.getComparisonStatus() == CharacterFactComparisonStatus.FAILED);
         assertThat(worker.claimNext(analysisJobId, leaseToken)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("입력 문자 상한을 혼자 넘는 후보는 provider 전달 없이 typed failure로 종료한다")
+    void oversizedSingletonFailsBeforeBatchClaim() {
+        ReflectionTestUtils.setField(worker, "maxBatchInputCharacters", 1);
+        SettingCandidate oversized = candidate("status.초장문", "아주 긴 상태 설명", 10);
+
+        assertThat(worker.claimNext(analysisJobId, leaseToken)).isEmpty();
+        assertThat(oversized.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.FAILED);
+        assertThat(oversized.getComparisonFailureCode())
+                .isEqualTo(AnalysisFailureCode.COMPARISON_VALIDATION_FAILED);
+        assertThat(oversized.getComparisonErrorMessage())
+                .isEqualTo("character_batch_input_limit_exceeded");
+        assertThat(batches).isEmpty();
+    }
+
+    @Test
+    @DisplayName("완료 묶음의 EXCLUDE 자동 무시는 형제 후보의 문맥 membership을 바꾸지 않는다")
+    void excludedCandidateKeepsCompletedBatchMembership() {
+        SettingCandidate repeated = candidate("status.반복", "이미 알려진 상태", 10);
+        SettingCandidate added = candidate("status.신규", "새 상태", 20);
+        WorkerCharacterFactComparisonBatchPayload claim = worker.claimNext(
+                analysisJobId,
+                leaseToken
+        ).orElseThrow();
+        WorkerCharacterFactComparisonBatchContextResponse context = worker.getContext(
+                analysisJobId,
+                claim.comparisonBatchId(),
+                leaseToken
+        );
+
+        worker.complete(
+                analysisJobId,
+                claim.comparisonBatchId(),
+                leaseToken,
+                new WorkerCharacterFactComparisonBatchCompleteRequest(
+                        context.contextToken(),
+                        List.of(
+                                decision(
+                                        "C1",
+                                        CharacterFactOperation.EXCLUDE,
+                                        "status.반복",
+                                        null,
+                                        List.of(),
+                                        List.of(),
+                                        null,
+                                        null
+                                ),
+                                add("C2", "status.신규", "새 상태")
+                        ),
+                        List.of(),
+                        Map.of()
+                )
+        );
+
+        assertThat(repeated.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.DISMISSED);
+        assertThat(repeated.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.NOT_REQUIRED);
+        assertThat(repeated.getCharacterComparisonBatch()).isNotNull();
+        assertThat(repeated.getCharacterComparisonCandidateRef()).isEqualTo("C1");
+        assertThat(worker.hasCurrentContext(added)).isTrue();
+    }
+
+    @Test
+    @DisplayName("비파괴 결정은 관련 없는 FactType의 snapshot 변경 뒤에도 현재 문맥을 유지한다")
+    void valueOnlyDecisionIgnoresUnrelatedSnapshotVersionChange() {
+        when(schemaRepository.findAllActiveForWork(work.getId())).thenReturn(List.of(profileSchema()));
+        ObjectNode profile = objectMapper.createObjectNode();
+        profile.set("profile.species", value("바바리안"));
+        character.replaceCurrentSnapshots(null, null, profile, null, null, null, character.getStatusesJson());
+        SettingCandidate species = candidate("profile.species", "바바리안", 10);
+        WorkerCharacterFactComparisonBatchPayload claim = worker.claimNext(
+                analysisJobId,
+                leaseToken
+        ).orElseThrow();
+        WorkerCharacterFactComparisonBatchContextResponse context = worker.getContext(
+                analysisJobId,
+                claim.comparisonBatchId(),
+                leaseToken
+        );
+
+        worker.complete(
+                analysisJobId,
+                claim.comparisonBatchId(),
+                leaseToken,
+                new WorkerCharacterFactComparisonBatchCompleteRequest(
+                        context.contextToken(),
+                        List.of(update(
+                                "C1",
+                                "profile.species",
+                                snapshotRef(context, "profile.species"),
+                                List.of(),
+                                "바바리안"
+                        )),
+                        List.of(),
+                        Map.of()
+                )
+        );
+        ObjectNode changedStatuses = character.getStatusesJson().deepCopy();
+        changedStatuses.set("status.새상태", value("관련 없는 변경"));
+        character.replaceCurrentSnapshots(null, null, profile, null, null, null, changedStatuses);
+
+        assertThat(worker.hasCurrentContext(species)).isTrue();
+    }
+
+    @Test
+    @DisplayName("30건 STATUS 문맥은 exact slot 뒤 최근 근거 상태를 우선한다")
+    void statusContextPrioritizesRecentSources() {
+        ObjectNode statuses = objectMapper.createObjectNode();
+        List<CharacterSnapshotSource> sources = new ArrayList<>();
+        LocalDateTime base = LocalDateTime.of(2026, 9, 1, 0, 0);
+        for (int index = 0; index < 31; index++) {
+            String key = "status.%02d".formatted(index);
+            statuses.set(key, value("상태 " + index));
+            CharacterFact fact = CharacterFact.createManual(
+                    character,
+                    CharacterFactType.STATUS,
+                    key,
+                    "상태 " + index,
+                    value("상태 " + index)
+            );
+            ReflectionTestUtils.setField(fact, "createdAt", base.plusMinutes(index));
+            sources.add(CharacterSnapshotSource.create(
+                    character,
+                    CharacterFactType.STATUS,
+                    key,
+                    fact,
+                    0
+            ));
+        }
+        character.replaceCurrentSnapshots(null, null, null, null, null, null, statuses);
+        when(snapshotSourceRepository.findAllByWorkCharacterIdOrderByFactTypeAscFactKeyAscSourceOrderAsc(
+                character.getId()
+        )).thenReturn(sources);
+        candidate("status.회복", "회복됨", 10);
+
+        WorkerCharacterFactComparisonBatchPayload claim = worker.claimNext(
+                analysisJobId,
+                leaseToken
+        ).orElseThrow();
+        WorkerCharacterFactComparisonBatchContextResponse context = worker.getContext(
+                analysisJobId,
+                claim.comparisonBatchId(),
+                leaseToken
+        );
+
+        assertThat(context.snapshotEntries()).hasSize(30);
+        assertThat(context.snapshotEntries())
+                .extracting(WorkerCharacterFactComparisonBatchContextResponse.SnapshotEntry::factKey)
+                .contains("status.30")
+                .doesNotContain("status.00");
     }
 
     @Test

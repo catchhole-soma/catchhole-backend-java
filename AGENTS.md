@@ -56,6 +56,7 @@
 - 로컬 실행 시 `application.yml`이 `apps/CatchHole-Backend/.env`를 optional import한다. AWS/S3 같은 로컬 비밀값은 `.env`에 둘 수 있지만, `.env`는 커밋하지 않는다.
 - E2E는 `SPRING_PROFILES_ACTIVE=e2e`로 활성화하고 운영에서는 사용하지 않는다. 이 프로파일에서만 `LocalFileObjectStorage`를 사용하며 `storage.local.root` 기본값은 `${java.io.tmpdir}/catchhole-e2e-storage`, 명시적 override는 `CATCHHOLE_E2E_STORAGE_ROOT`로 둔다.
 - 새로운 설정 키를 추가할 때는 base / local / prod 각 위치를 의식적으로 결정한다.
+- 캐릭터 Fact 묶음 비교의 후보 수와 입력 문자 상한은 `CHARACTER_FACT_COMPARISON_MAX_BATCH_CANDIDATES`, `CHARACTER_FACT_COMPARISON_MAX_BATCH_INPUT_CHARACTERS`로 조정한다. API Compose가 환경변수를 명시적으로 전달해 운영자가 배포 파일 수정 없이 LLM 입력 상한을 낮출 수 있게 한다.
 - 운영 환경은 Caddy `reverse_proxy` 뒤에서 실행되므로 `application-prod.yml`에 `server.forward-headers-strategy: framework`를 둔다. Swagger/OpenAPI server URL과 보안/리다이렉트 처리가 외부 HTTPS scheme/host를 기준으로 동작하게 하기 위함이다.
 - **로컬 DB 접속 정보는 `compose.yaml` 단일 출처로 둔다.** `spring-boot-docker-compose` 의존성이 컨테이너에서 호스트/포트/사용자/비밀번호를 자동 추출해 `ServiceConnection` 빈으로 주입한다. yml에 `spring.datasource.*`를 중복 작성하지 않는다 (그림자 설정 방지).
 

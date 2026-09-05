@@ -78,6 +78,7 @@ public class CharacterFactComparisonBatchWorker {
 
     private static final int CLAIM_SCAN_SIZE = 100;
     private static final int MAX_CONTEXT_ENTRIES = 30;
+    private static final String INPUT_LIMIT_EXCEEDED = "character_batch_input_limit_exceeded";
     private static final String CHARACTER_REF = "K1";
     private static final Pattern DYNAMIC_STATUS_KEY = Pattern.compile(
             "^status\\.[\\p{L}\\p{N}_-]+$"
@@ -95,10 +96,10 @@ public class CharacterFactComparisonBatchWorker {
     private final CharacterFactComparisonDecisionValidator decisionValidator;
     private final CharacterFactComparisonWorkerMapper workerMapper;
 
-    @Value("${analysis.character-fact-comparison.max-batch-candidates:10}")
+    @Value("${analysis.character-fact-comparison.max-batch-candidates}")
     private int maxBatchCandidates = 10;
 
-    @Value("${analysis.character-fact-comparison.max-batch-input-characters:30000}")
+    @Value("${analysis.character-fact-comparison.max-batch-input-characters}")
     private int maxBatchInputCharacters = 30000;
 
     private final ObjectMapper objectMapper = new ObjectMapper()
@@ -413,11 +414,19 @@ public class CharacterFactComparisonBatchWorker {
         List<CandidateTarget> selected = new ArrayList<>();
         int characters = 0;
         int candidateLimit = Math.min(20, Math.max(1, maxBatchCandidates));
+        int inputLimit = Math.max(1, maxBatchInputCharacters);
         for (CandidateTarget candidate : candidates) {
             int next = estimatedCharacters(candidate.candidate());
+            if (selected.isEmpty() && next > inputLimit) {
+                candidate.candidate().failComparison(
+                        AnalysisFailureCode.COMPARISON_VALIDATION_FAILED,
+                        INPUT_LIMIT_EXCEEDED
+                );
+                continue;
+            }
             if (!selected.isEmpty()
                     && (selected.size() >= candidateLimit
-                    || characters + next > Math.max(1, maxBatchInputCharacters))) {
+                    || characters + next > inputLimit)) {
                 break;
             }
             selected.add(candidate);
@@ -463,10 +472,9 @@ public class CharacterFactComparisonBatchWorker {
         Map<String, Object> fingerprint = new LinkedHashMap<>();
         fingerprint.put("batchId", batch.getId());
         fingerprint.put("characterId", character.getId());
-        fingerprint.put("snapshotVersion", character.getSnapshotVersion());
         fingerprint.put("factType", batch.getCanonicalFactType());
         fingerprint.put("candidates", candidates.stream().map(this::candidateHashValue).toList());
-        fingerprint.put("snapshotEntries", projection.bySlot().values().stream()
+        fingerprint.put("snapshotEntries", selected.bySlot().values().stream()
                 .map(this::projectionHashValue)
                 .toList());
         fingerprint.put("snapshotAbsences", projection.absenceBySlot().entrySet().stream()
@@ -503,7 +511,8 @@ public class CharacterFactComparisonBatchWorker {
                                 entry,
                                 CharacterFactSnapshotOrigin.PERSISTED,
                                 null,
-                                List.of()
+                                List.of(),
+                                latestSourceCreatedAt(entry.slot(), sourceFactsBySlot)
                         )
                 ));
         return new Projection(
@@ -571,7 +580,8 @@ public class CharacterFactComparisonBatchWorker {
                                 ),
                                 CharacterFactSnapshotOrigin.PRIOR_DECISION,
                                 candidate.getId(),
-                                resultingDependencies
+                                resultingDependencies,
+                                candidate.getComparedAt()
                         )
                 );
             }
@@ -597,7 +607,12 @@ public class CharacterFactComparisonBatchWorker {
         });
         projection.bySlot().entrySet().stream()
                 .filter(entry -> !selected.containsKey(entry.getKey()))
-                .sorted(Map.Entry.comparingByKey(Comparator.comparing(CharacterSnapshotSlot::factKey)))
+                .sorted(Comparator
+                        .<Map.Entry<CharacterSnapshotSlot, ProjectionValue>, LocalDateTime>comparing(
+                                entry -> entry.getValue().recency(),
+                                Comparator.nullsLast(Comparator.reverseOrder())
+                        )
+                        .thenComparing(entry -> entry.getKey().factKey()))
                 .limit(Math.max(0, MAX_CONTEXT_ENTRIES - selected.size()))
                 .forEach(entry -> selected.put(entry.getKey(), entry.getValue()));
         return new Projection(
@@ -693,7 +708,8 @@ public class CharacterFactComparisonBatchWorker {
                     ),
                     CharacterFactSnapshotOrigin.PRIOR_DECISION,
                     candidate.getId(),
-                    resultingDependencies
+                    resultingDependencies,
+                    candidate.getComparedAt()
             );
             projection.bySlot().put(resolvedSlot, projected);
             projection.byRef().put(projectedRef(candidateIndex), projected);
@@ -1191,6 +1207,17 @@ public class CharacterFactComparisonBatchWorker {
         return value == null ? 0 : value.length();
     }
 
+    private LocalDateTime latestSourceCreatedAt(
+            CharacterSnapshotSlot slot,
+            Map<CharacterSnapshotSlot, List<CharacterFact>> sourceFactsBySlot
+    ) {
+        return sourceFactsBySlot.getOrDefault(slot, List.of()).stream()
+                .map(CharacterFact::getCreatedAt)
+                .filter(Objects::nonNull)
+                .max(LocalDateTime::compareTo)
+                .orElse(null);
+    }
+
     private String candidateRef(int index) {
         return "C" + (index + 1);
     }
@@ -1226,7 +1253,8 @@ public class CharacterFactComparisonBatchWorker {
             CharacterSnapshotEntry entry,
             CharacterFactSnapshotOrigin origin,
             UUID sourceCandidateId,
-            List<UUID> dependencyCandidateIds
+            List<UUID> dependencyCandidateIds,
+            LocalDateTime recency
     ) {
     }
 

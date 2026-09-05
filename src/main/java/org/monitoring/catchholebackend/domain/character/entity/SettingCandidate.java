@@ -391,7 +391,10 @@ public class SettingCandidate extends BaseEntity {
         }
         boolean dismissed = transitionReviewStatus(SettingCandidateReviewStatus.DISMISSED);
         if (dismissed) {
-            clearComparisonProposal();
+            boolean preserveCompletedBatchMembership =
+                    comparisonStatus == CharacterFactComparisonStatus.COMPLETED
+                            && characterComparisonBatch != null;
+            clearComparisonProposal(preserveCompletedBatchMembership);
             comparisonStatus = CharacterFactComparisonStatus.NOT_REQUIRED;
         }
         return dismissed;
@@ -698,6 +701,10 @@ public class SettingCandidate extends BaseEntity {
     }
 
     private void clearComparisonProposal() {
+        clearComparisonProposal(false);
+    }
+
+    private void clearComparisonProposal(boolean preserveCompletedBatchMembership) {
         suggestedOperation = null;
         temporalScope = null;
         comparisonTargetFactType = null;
@@ -714,7 +721,9 @@ public class SettingCandidate extends BaseEntity {
         comparedAt = null;
         comparisonErrorMessage = null;
         comparisonFailureCode = null;
-        clearComparisonBatchAssignment();
+        if (!preserveCompletedBatchMembership) {
+            clearComparisonBatchAssignment();
+        }
     }
 
     public boolean hasComparisonDependencies() {
