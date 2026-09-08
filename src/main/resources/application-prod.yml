@@ -29,7 +29,12 @@ auth:
   cookie:
     secure: true
   phone-verification:
-    hash-secret: ${PHONE_VERIFICATION_HASH_SECRET}
+    hash-secret: ${PHONE_VERIFICATION_HASH_SECRET:}
+  email-verification:
+    hash-secret: ${EMAIL_VERIFICATION_HASH_SECRET:}
+
+email:
+  provider: ${EMAIL_PROVIDER:smtp}
 
 sms:
   provider: ${SMS_PROVIDER:solapi}

@@ -31,6 +31,20 @@ storage:
     secret-access-key: ${AWS_SECRET_ACCESS_KEY:}
 
 auth:
+  signup-verification:
+    verification-method: ${SIGNUP_VERIFICATION_METHOD:EMAIL}
+  email-verification:
+    hash-secret: ${EMAIL_VERIFICATION_HASH_SECRET:local-email-verification-secret-at-least-32-bytes}
+    code-expiration: 5m
+    resend-interval: 60s
+    signup-token-expiration: 10m
+    max-attempts: 5
+    email-hourly-limit: ${EMAIL_VERIFICATION_EMAIL_HOURLY_LIMIT:5}
+    email-daily-limit: ${EMAIL_VERIFICATION_EMAIL_DAILY_LIMIT:10}
+    ip-hourly-limit: ${EMAIL_VERIFICATION_IP_HOURLY_LIMIT:10}
+    ip-daily-limit: ${EMAIL_VERIFICATION_IP_DAILY_LIMIT:20}
+    global-daily-limit: ${EMAIL_VERIFICATION_GLOBAL_DAILY_LIMIT:100}
+    global-monthly-limit: ${EMAIL_VERIFICATION_GLOBAL_MONTHLY_LIMIT:3000}
   jwt:
     # local 개발용 기본값. prod에서는 JWT_SECRET 환경변수로 override.
     secret: local-development-jwt-secret-must-be-at-least-32-bytes-long
@@ -62,6 +76,15 @@ sms:
     api-key: ${SOLAPI_API_KEY:}
     api-secret: ${SOLAPI_API_SECRET:}
     sender-number: ${SOLAPI_SENDER_NUMBER:}
+
+email:
+  provider: ${EMAIL_PROVIDER:fake}
+  smtp:
+    host: ${EMAIL_SMTP_HOST:}
+    port: ${EMAIL_SMTP_PORT:587}
+    username: ${EMAIL_SMTP_USERNAME:}
+    password: ${EMAIL_SMTP_PASSWORD:}
+    from: ${EMAIL_FROM:}
 
 internal:
   api-key: ${INTERNAL_API_KEY:local-development-internal-api-key}

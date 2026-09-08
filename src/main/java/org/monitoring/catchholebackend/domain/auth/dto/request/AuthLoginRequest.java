@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.auth.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import org.monitoring.catchholebackend.domain.auth.email.EmailAddressNormalizer;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 
@@ -15,4 +16,7 @@ public record AuthLoginRequest(
         @NotBlank(message = "비밀번호는 필수입니다.")
         String password
 ) {
+    public AuthLoginRequest {
+        email = EmailAddressNormalizer.normalize(email);
+    }
 }

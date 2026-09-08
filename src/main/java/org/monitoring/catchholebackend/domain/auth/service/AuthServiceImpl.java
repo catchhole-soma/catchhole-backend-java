@@ -18,10 +18,13 @@ import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.repository.MemberLegalRecordRepository;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.monitoring.catchholebackend.global.config.auth.AuthProperties;
+import org.monitoring.catchholebackend.global.config.auth.SignupVerificationMethod;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 @Service
 @RequiredArgsConstructor
@@ -39,13 +42,29 @@ public class AuthServiceImpl implements AuthService {
     private final PhoneVerificationService phoneVerificationService;
     private final AuthMapper authMapper;
     private final LegalDocumentService legalDocumentService;
+    private final EmailVerificationService emailVerificationService;
+    private final SignupVerificationPolicy signupVerificationPolicy;
 
     @Override
     @Transactional
     public AuthTokenIssueResult signup(AuthSignupRequest request) {
-        String phoneNumber = phoneVerificationService.getVerifiedPhoneNumberBySignupToken(
-                request.phoneVerificationToken()
-        );
+        boolean emailVerification = signupVerificationPolicy.verificationMethod() == SignupVerificationMethod.EMAIL;
+        String phoneNumber = null;
+        String verifiedEmail = null;
+        if (emailVerification) {
+            if (!StringUtils.hasText(request.emailVerificationToken())) {
+                throw new AppException(AuthErrorCode.AUTH_EMAIL_VERIFICATION_TOKEN_REQUIRED);
+            }
+            verifiedEmail = emailVerificationService.getVerifiedEmailBySignupToken(request.emailVerificationToken());
+            if (!request.email().equals(verifiedEmail)) {
+                throw new AppException(AuthErrorCode.AUTH_EMAIL_VERIFICATION_EMAIL_MISMATCH);
+            }
+        } else {
+            if (!StringUtils.hasText(request.phoneVerificationToken())) {
+                throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_TOKEN_REQUIRED);
+            }
+            phoneNumber = phoneVerificationService.getVerifiedPhoneNumberBySignupToken(request.phoneVerificationToken());
+        }
         validateSignupUniqueness(request.email(), phoneNumber);
         SignupLegalDocuments legalDocuments = legalDocumentService.requireCurrentSignupDocuments(
                 request.termsDocumentId(),
@@ -53,21 +72,32 @@ public class AuthServiceImpl implements AuthService {
         );
 
         LocalDateTime recordedAt = LocalDateTime.now();
-        Member member = authMapper.toEntity(
-                request,
-                passwordEncoder.encode(request.password()),
-                phoneNumber,
-                recordedAt
-        );
+        String passwordHash = passwordEncoder.encode(request.password());
+        Member member = emailVerification
+                ? authMapper.toEmailVerifiedEntity(request, passwordHash, verifiedEmail, recordedAt)
+                : authMapper.toEntity(request, passwordHash, phoneNumber, recordedAt);
 
-        Member savedMember = memberRepository.save(member);
+        Member savedMember;
+        try {
+            savedMember = memberRepository.save(member);
+        } catch (DataIntegrityViolationException exception) {
+            throw signupPersistenceFailure(exception);
+        }
         memberLegalRecordRepository.saveAll(
                 authMapper.toLegalRecordEntities(savedMember, legalDocuments, recordedAt)
         );
         AuthTokenIssueResult result = issueTokens(savedMember);
         // Redis 토큰 소비 실패가 회원·법률 문서 기록·refresh token 저장까지 롤백되도록 같은 트랜잭션 안에서 먼저 flush한다.
-        memberRepository.flush();
-        phoneVerificationService.consumeSignupToken(request.phoneVerificationToken(), phoneNumber);
+        try {
+            memberRepository.flush();
+        } catch (DataIntegrityViolationException exception) {
+            throw signupPersistenceFailure(exception);
+        }
+        if (emailVerification) {
+            emailVerificationService.consumeSignupToken(request.emailVerificationToken(), verifiedEmail);
+        } else {
+            phoneVerificationService.consumeSignupToken(request.phoneVerificationToken(), phoneNumber);
+        }
         return result;
     }
 
@@ -135,11 +165,26 @@ public class AuthServiceImpl implements AuthService {
         return new AuthTokenIssueResult(tokenResponse, refreshToken);
     }
 
+    private RuntimeException signupPersistenceFailure(DataIntegrityViolationException exception) {
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (cause instanceof org.hibernate.exception.ConstraintViolationException violation) {
+                String constraint = violation.getConstraintName();
+                if (constraint != null && constraint.contains("uk_members_email")) {
+                    return new AppException(AuthErrorCode.AUTH_EMAIL_DUPLICATED);
+                }
+                if (constraint != null && constraint.contains("uk_members_phone_number")) {
+                    return new AppException(AuthErrorCode.AUTH_PHONE_NUMBER_DUPLICATED);
+                }
+            }
+        }
+        return exception;
+    }
+
     private void validateSignupUniqueness(String email, String phoneNumber) {
         if (memberRepository.existsByEmail(email)) {
             throw new AppException(AuthErrorCode.AUTH_EMAIL_DUPLICATED);
         }
-        if (memberRepository.existsByPhoneNumber(phoneNumber)) {
+        if (phoneNumber != null && memberRepository.existsByPhoneNumber(phoneNumber)) {
             throw new AppException(AuthErrorCode.AUTH_PHONE_NUMBER_DUPLICATED);
         }
     }

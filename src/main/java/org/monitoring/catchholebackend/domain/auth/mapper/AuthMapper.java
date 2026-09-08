@@ -36,4 +36,14 @@ public class AuthMapper {
                 MemberLegalRecord.record(member, documents.privacyPolicy(), recordedAt)
         );
     }
+
+    public Member toEmailVerifiedEntity(
+            AuthSignupRequest request,
+            String passwordHash,
+            String verifiedEmail,
+            LocalDateTime ageRequirementConfirmedAt
+    ) {
+        return Member.registerEmailVerified(verifiedEmail, passwordHash, request.displayName(),
+                ageRequirementConfirmedAt);
+    }
 }
