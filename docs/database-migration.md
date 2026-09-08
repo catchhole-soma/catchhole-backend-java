@@ -434,3 +434,11 @@ Flyway 도입 전에 JPA가 만든 운영 테스트 DB에는 `flyway_schema_hist
 5. DB schema와 Swagger 기본 API를 확인한 뒤 AI Worker를 시작합니다.
 
 실제 사용자 데이터가 생긴 뒤에는 이 초기화 절차를 사용하지 않습니다. 기존 데이터를 보존하는 V2 이상의 `ALTER` migration과 사전 백업·롤백 계획을 별도로 작성합니다.
+
+## V42: 이메일 인증 가입
+
+`V42__add_email_verified_signup.sql`은 `members.email_verified BOOLEAN NOT NULL DEFAULT FALSE`를 추가하고 `phone_number`의 NOT NULL만 해제한다. 기존 전화번호와 unique 제약, 기존 회원 데이터는 보존한다. 인증 이력이 없는 기존 이메일을 인증 완료로 추정하지 않는다.
+
+`EmailSignupMigrationIntegrationTest`는 실제 pgvector PostgreSQL에서 V1~V41 적용 → 기존 전화번호 회원 삽입 → V42 적용 → 기존 값 보존 및 복수 NULL 전화번호 가입을 검증한다. 실행 시 Docker가 필요하다.
+
+이메일 가입 후에는 전화번호가 NULL인 회원이 존재하므로 NOT NULL을 다시 추가하는 방식으로 되돌리지 않는다. 전화번호 가입을 재도입하려면 V42 schema를 유지한 채 `SIGNUP_VERIFICATION_METHOD=PHONE`과 SOLAPI 설정으로 신규 가입 정책을 전환한다. 구버전 코드/이전 데이터 모델로 돌아가는 배포는 별도 호환성 검토가 필요하다.

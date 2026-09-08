@@ -23,12 +23,8 @@ import org.monitoring.catchholebackend.global.config.phoneverification.SmsProper
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-@Component
-@ConditionalOnProperty(prefix = "sms", name = "provider", havingValue = "solapi")
 public class SolapiSmsSender implements SmsSender {
 
     private static final Logger log = LoggerFactory.getLogger(SolapiSmsSender.class);

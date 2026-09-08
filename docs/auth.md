@@ -2,7 +2,7 @@
 
 ## 목적
 
-Auth 도메인은 휴대폰 번호 소유 확인, 이메일/비밀번호 기반 회원가입, 로그인, access token 발급, refresh token 회전, 로그아웃, 현재 사용자 조회를 담당합니다.
+Auth 도메인은 이메일·휴대폰 소유 확인, 이메일/비밀번호 기반 회원가입, 로그인, access token 발급, refresh token 회전, 로그아웃, 현재 사용자 조회를 담당합니다.
 
 회원 계정 자체는 `member` 도메인의 `Member` Entity를 사용하고, 인증 세션은 `auth` 도메인의 `RefreshToken` Entity로 관리합니다.
 
@@ -23,10 +23,17 @@ Auth 도메인은 휴대폰 번호 소유 확인, 이메일/비밀번호 기반 
 
 `MemberStatus.ACTIVE`가 아니면 `MEMBER_INACTIVE`로 인증 흐름을 중단합니다.
 
-### 휴대폰 번호 소유 확인
+### 가입 필수 인증 정책
+
+`SIGNUP_VERIFICATION_METHOD=EMAIL`이 기본값이며 `GET /api/v1/auth/signup-policy`로 프론트에 전달한다. 이메일 인증 API는 `/email-verifications`, `/email-verifications/{verificationId}/confirm`이다. 첫 요청은 `email`, 확인 요청은 `code`를 보내며, 응답 필드는 기존 전화 인증과 같고 가입 토큰 이름만 `emailVerificationToken`이다. EMAIL 모드에서 PHONE 인증 API는 409로 차단한다.
+
+인증번호 5분, 재전송 60초, 오입력 5회, 가입 토큰 10분이다. SMTP 발송·실제 제공자 연결·비용은 [이메일 발송 운영 문서](email-delivery.md), Redis 처리와 전체 가입 흐름은 [Signup Workflow](signup-workflow.md)를 따른다. `email_verified=false`인 기존 회원의 로그인·세션을 막지 않는다.
+
+### 휴대폰 번호 소유 확인 (PHONE 모드)
+
 
 - 이 기능은 PASS처럼 실명·CI/DI를 확인하는 본인인증이 아니라 인증 시점에 해당 번호로 SMS를 수신할 수 있는지 확인합니다.
-- 운영 발송은 SOLAPI를 사용합니다. local은 `SMS_PROVIDER`가 없거나 `fake`이면 인증번호 `123456`을 쓰는 Fake provider를 사용하고, `solapi`이면 실제 SMS를 발송합니다. test/e2e는 항상 Fake provider를 사용하며 `prod`에서 Fake provider를 선택하면 애플리케이션 시작이 실패합니다.
+- 운영 발송은 SOLAPI를 사용합니다. local은 `SMS_PROVIDER`가 없거나 `fake`이면 인증번호 `123456`을 쓰는 Fake provider를 사용하고, `solapi`이면 실제 SMS를 발송합니다. test/e2e는 항상 Fake provider를 사용하며 `prod`의 PHONE 모드에서 Fake provider를 선택하면 애플리케이션 시작이 실패합니다.
 - 인증번호와 가입 토큰, 호출 제한은 Redis에 TTL로 저장합니다. Redis 재시작으로 진행 중 인증이 초기화되는 것은 MVP 운영 제약입니다.
 - 인증번호는 원문 대신 `PHONE_VERIFICATION_HASH_SECRET` 기반 HMAC-SHA256으로 저장합니다. 전화번호와 IP는 Redis key와 로그에 원문을 쓰지 않고 같은 비밀키 기반 HMAC 식별자를 사용합니다.
 - SOLAPI 요청은 timeout이나 5xx에서도 자동 재시도하지 않습니다. 실제 발송 성공 여부를 알 수 없는 상황에서 SMS와 비용이 중복되는 것을 막기 위함입니다.
@@ -59,8 +66,9 @@ Auth 도메인은 휴대폰 번호 소유 확인, 이메일/비밀번호 기반 
 | `id` | 회원 ID |
 | `email` | 로그인 이메일, unique |
 | `password_hash` | 암호화된 비밀번호 |
-| `phone_number` | 하이픈 없는 휴대폰 번호, unique |
-| `phone_verified` | 휴대폰 인증 여부. 새 회원가입은 인증 토큰을 요구하므로 `true` |
+| `phone_number` | 선택값, 하이픈 없는 휴대폰 번호, 실제 값은 unique |
+| `phone_verified` | PHONE 가입 true, EMAIL 가입 false, 기존 값 보존 |
+| `email_verified` | EMAIL 가입 true, 이메일 인증 이력이 없는 기존 회원 false |
 | `age_requirement_confirmed_at` | 가입 요청에서 만 14세 이상임을 필수 확인한 서버 시각 |
 | `display_name` | 화면 표시 이름 |
 | `profile_image_url` | 프로필 이미지 URL |
@@ -96,7 +104,7 @@ Auth 도메인은 휴대폰 번호 소유 확인, 이메일/비밀번호 기반 
 
 ## API
 
-휴대폰 인증번호 발송부터 가입 토큰 소비와 자동 로그인 응답까지 실제 클래스·메서드 호출 순서는 [Signup Workflow](signup-workflow.md)에서 확인합니다.
+현재 인증 수단 조회부터 코드 발송·가입 토큰 소비와 자동 로그인 응답까지 실제 클래스·메서드 호출 순서는 [Signup Workflow](signup-workflow.md)에서 확인합니다.
 
 ### 회원가입
 
@@ -116,20 +124,20 @@ Request
   "age14OrOlderConfirmed": true,
   "termsDocumentId": 3,
   "privacyPolicyDocumentId": 4,
-  "phoneVerificationToken": "<one-time-token>"
+  "emailVerificationToken": "<one-time-token>"
 }
 ```
 
 처리 흐름
 
 1. 이메일 형식, 영문·숫자를 포함한 8~64자 비밀번호, 20자 이하 표시 이름, 인증 토큰, 두 법률 문서 ID를 validation 하고 세 필수 확인 boolean이 모두 `true`인지 검증합니다.
-2. Redis에서 가입 토큰에 연결된 휴대폰 번호를 조회합니다. 클라이언트는 전화번호를 회원가입 body에 보내지 않습니다.
+2. 현재 인증 수단의 가입 토큰을 조회합니다. EMAIL은 인증한 이메일과 가입 이메일이 일치해야 하고, PHONE은 토큰에서만 전화번호를 가져옵니다. PHONE 모드에서는 요청의 `emailVerificationToken` 대신 `phoneVerificationToken`을 사용합니다.
 3. 이메일 중복 시 `AUTH_EMAIL_DUPLICATED`, 토큰 번호가 이미 가입된 번호이면 `AUTH_PHONE_NUMBER_DUPLICATED`를 반환합니다.
 4. `LegalDocumentService`가 두 ID를 `ko-KR`의 현재 `PUBLISHED` 이용약관·개인정보처리방침과 정확히 대조합니다. 게시본이 교체되었으면 `LEGAL_DOCUMENT_NOT_CURRENT`, 현재 게시본이 없으면 `LEGAL_DOCUMENTS_UNAVAILABLE`을 반환합니다.
 5. 비밀번호를 `PasswordEncoder`로 hash 합니다.
-6. 한 번 만든 Backend 시각으로 `Member.registerPhoneVerified()`의 `age_requirement_confirmed_at`과 두 `MemberLegalRecord.record()`의 `recorded_at`을 기록합니다.
-7. `ACTIVE`, `AUTHOR`, `phoneVerified=true` 회원, 정확한 두 법률 문서 FK·snapshot, refresh token을 같은 DB 트랜잭션에 저장합니다.
-8. DB를 flush한 뒤 Redis `GETDEL`로 가입 토큰을 한 번만 소비합니다. 동시 요청에서 소비에 실패하면 DB 트랜잭션을 rollback 합니다.
+6. 한 번 만든 Backend 시각으로 회원의 `age_requirement_confirmed_at`과 두 `MemberLegalRecord.record()`의 `recorded_at`을 기록합니다.
+7. `ACTIVE`, `AUTHOR` 회원과 두 법률 문서 FK·snapshot, refresh token을 같은 DB 트랜잭션에 저장합니다. EMAIL은 전화번호 없이 `emailVerified=true`, `phoneVerified=false`이고 PHONE은 기존 전화번호 인증 경로를 사용합니다.
+8. DB를 flush한 뒤 Redis에서 EMAIL은 값 비교와 삭제를 수행하는 Lua, PHONE은 `GETDEL`로 가입 토큰을 한 번만 소비합니다. 동시 요청에서 소비에 실패하면 DB 트랜잭션을 rollback 합니다.
 9. refresh token 원문은 저장하지 않고 SHA-256 hash와 만료 시각을 `refresh_tokens`에 저장합니다.
 10. access token은 응답 body로 반환하고, refresh token은 `HttpOnly` 쿠키로 전달합니다. 회원가입 후 별도 로그인 요청은 필요하지 않습니다.
 
@@ -167,7 +175,7 @@ GET /api/v1/legal-documents/{documentId}
 - 응답에는 문서 ID·종류·locale·버전·제목·Markdown 원문·원문 SHA-256·상태·시행일·게시 시각이 포함됩니다.
 - `LEGAL_DOCUMENT_NOT_FOUND`는 404, 현재 두 게시본 중 하나라도 없으면 `LEGAL_DOCUMENTS_UNAVAILABLE`은 503입니다.
 
-### 인증번호 발송
+### 휴대폰 인증번호 발송 (PHONE 모드)
 
 ```http
 POST /api/v1/auth/phone-verifications
@@ -211,7 +219,7 @@ POST /api/v1/auth/phone-verifications
 
 동일 전화번호 재전송은 60초 뒤 가능하며 429 응답에는 `Retry-After` 초를 포함합니다.
 
-### 인증번호 확인
+### 휴대폰 인증번호 확인 (PHONE 모드)
 
 ```http
 POST /api/v1/auth/phone-verifications/{verificationId}/confirm
@@ -319,11 +327,11 @@ Authorization: Bearer <access-token>
 
 ## 접근 제어
 
-- `/phone-verifications`, `/phone-verifications/{verificationId}/confirm`, `/signup`, `/login`, `/refresh`, `/logout`은 인증 없이 호출할 수 있습니다.
+- `/signup-policy`, `/email-verifications`, `/email-verifications/{verificationId}/confirm`, `/phone-verifications`, `/phone-verifications/{verificationId}/confirm`, `/signup`, `/login`, `/refresh`, `/logout`은 인증 없이 호출할 수 있습니다.
 - `/me`는 Bearer access token이 필요합니다.
 - token, cookie, password 예시는 실제 값이 아닌 더미 값을 사용합니다.
 
-## 운영 설정
+## PHONE 모드 SMS 운영 설정
 
 - `SMS_PROVIDER=solapi`
 - `SOLAPI_API_KEY`, `SOLAPI_API_SECRET`, `SOLAPI_SENDER_NUMBER`

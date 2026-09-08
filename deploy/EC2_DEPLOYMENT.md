@@ -387,8 +387,23 @@ sudo -u ubuntu docker compose --env-file api.env -f compose.api.prod.yml up -d -
 curl -fsS https://api.catchhole.com/actuator/health
 ```
 
-롤백 원인을 해결한 뒤에는 GitHub Actions에서 복구할 SHA에 대응하는 성공한 `Deploy API EC2` 실행을 다시 실행한다. 이 Workflow는 해당 publish run의 SHA 태그로 `api.env`를 갱신한 뒤 API 서버를 재배포한다. 이후 새로운 `main` 이미지 발행이 성공해도 같은 방식으로 `BACKEND_IMAGE`가 새 SHA로 자동 갱신되므로 롤백 이미지가 다음 자동 배포에 남지 않는다.
+롤백 원인을 해결한 뒤에는 수정 커밋을 `main`에 배포하거나 현재 `main` SHA에 대응하는 `Deploy API EC2` 실행을 다시 실행한다. Workflow는 배포 대상 SHA와 현재 `main`이 다르면 오래된 배포를 건너뛰므로, 과거 성공 run 재실행만으로 과거 이미지가 복원되지는 않는다. 호환되는 과거 이미지 복원에는 위 수동 절차를 사용한다. 이후 새로운 `main` 이미지 발행이 성공하면 `BACKEND_IMAGE`가 새 SHA로 자동 갱신된다.
 
 ## 종료 신호 전달
 
 백엔드 이미지는 셸 안에서 Java 프로세스를 `exec`로 실행한다. Docker가 보내는 종료 신호가 Java 프로세스에 직접 전달되므로 종료 시 셸 프로세스 때문에 전체 제한 시간을 기다리는 문제를 방지한다.
+
+## 이메일 인증 전환 (#181)
+
+[이메일 발송 운영·비용 문서](../docs/email-delivery.md)에 따라 `EMAIL_*` 설정과 별도 해시 secret을 준비한다. 초기 발신 계정은 `aicatchhole@gmail.com`이며 `api.env.example`에 Gmail SMTP 서버·사용자 이름·발신 주소를 반영했다. 실제 서버 `/opt/catchhole/api.env`에는 해당 계정의 앱 비밀번호와 별도 해시 secret을 직접 주입해야 한다. 예제 수정만으로 운영 연결이 완료되지는 않으며 EMAIL 모드의 운영 기동은 설정 누락을 거절한다. 새 유료 서비스 가입이나 자동 결제는 애플리케이션이 수행하지 않는다.
+
+무중단 기존 로그인 유지 및 가입 전환 순서:
+
+1. Backend 새 이미지를 `SIGNUP_VERIFICATION_METHOD=PHONE`으로 배포하여 V42와 `signup-policy`를 먼저 제공한다.
+2. EMAIL/PHONE 두 모드를 지원하는 Frontend를 배포한다.
+3. SMTP 설정이 준비되면 `SIGNUP_VERIFICATION_METHOD=EMAIL`로 Backend를 재기동한다.
+4. 관리자가 지정한 테스트 수신자에서 실제 메일 도착·스팸함·코드 확인·가입을 검증한다. 기존 로그인도 확인한다.
+
+PHONE으로 되돌릴 때에는 SOLAPI 설정과 전화 인증 hash secret을 활성화한다. V42 schema와 이메일로 가입한 회원은 그대로 유지하며 DB에 다시 전화번호 NOT NULL을 걸지 않는다. 코드 롤백과 가입 정책 변경을 동일하게 취급하지 않는다.
+
+가입 공백을 허용한다면 `api.env`에 EMAIL·SMTP 설정을 준비한 뒤 양쪽 PR을 연이어 머지할 수 있다. Backend 배포 Workflow가 저장된 비밀값을 보존하고 새 Compose와 이미지를 적용하므로 별도 수동 컨테이너 재생성은 필요 없다. 다만 새 Frontend가 먼저 배포되면 구 Backend에 `signup-policy`가 없어 가입이 잠기고, EMAIL Backend가 먼저 배포되면 구 Frontend의 전화 인증 요청이 거절된다. 양쪽 배포가 완료되면 EMAIL 계약이 일치한다. health check는 SMTP 접수나 메일 수신을 검증하지 않으므로 4번의 실제 가입 점검을 수행한다.

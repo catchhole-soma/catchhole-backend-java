@@ -41,7 +41,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
-@SpringBootTest
+@SpringBootTest(properties = "auth.signup-verification.verification-method=PHONE")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Testcontainers(disabledWithoutDocker = true)
@@ -158,7 +158,7 @@ class PhoneVerificationControllerIntegrationTest {
                                 }
                                 """.formatted(termsDocumentId, privacyPolicyDocumentId)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"));
+                .andExpect(jsonPath("$.error.code").value("AUTH_PHONE_VERIFICATION_TOKEN_REQUIRED"));
     }
 
     @Test
@@ -217,7 +217,7 @@ class PhoneVerificationControllerIntegrationTest {
                                 true,
                                 termsDocumentId,
                                 privacyPolicyDocumentId,
-                                signupToken
+                                signupToken, null
                         ));
                         return true;
                     } catch (RuntimeException exception) {

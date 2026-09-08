@@ -46,7 +46,7 @@
 - 로컬과 운영 PostgreSQL schema의 단일 변경 주체는 Flyway다. JPA `ddl-auto`는 `validate`로 두어 Entity와 migration 결과의 일치 여부만 검사하며, 공유 환경에서 `update`나 `create-drop`으로 schema를 변경하지 않는다.
 - 운영 JWT 서명키는 `JWT_SECRET` 환경변수로 주입한다. 최소 32바이트 이상이어야 하며, 로그/응답/테스트 실패 메시지에 노출하지 않는다.
 - 운영 Worker 내부 API key는 `INTERNAL_API_KEY` 환경변수로 주입한다. 로컬 기본값은 개발 편의를 위한 값이며 운영에서는 반드시 별도 secret을 사용한다.
-- 운영 휴대폰 인증은 `SMS_PROVIDER=solapi`와 `SOLAPI_API_KEY`, `SOLAPI_API_SECRET`, `SOLAPI_SENDER_NUMBER`를 사용한다. local은 `SMS_PROVIDER`가 없거나 `fake`이면 인증번호 `123456`을 쓰고, `solapi`이면 실제 SMS를 발송한다. test/e2e는 항상 Fake provider를 사용하며, prod에서 Fake provider를 선택하면 기동을 실패시킨다.
+- `SIGNUP_VERIFICATION_METHOD=PHONE`에서 운영 휴대폰 인증은 `SMS_PROVIDER=solapi`와 `SOLAPI_API_KEY`, `SOLAPI_API_SECRET`, `SOLAPI_SENDER_NUMBER`를 사용한다. local은 `SMS_PROVIDER`가 없거나 `fake`이면 인증번호 `123456`을 쓰고, `solapi`이면 실제 SMS를 발송한다. test/e2e는 항상 Fake provider를 사용하며, prod에서 Fake provider를 선택하면 기동을 실패시킨다.
 - `PHONE_VERIFICATION_HASH_SECRET`은 JWT secret과 분리한 최소 32바이트 값으로 주입하고 인증번호·전화번호·IP HMAC에만 사용한다. 원문 인증번호·전화번호·IP·SOLAPI API secret은 로그에 남기지 않는다.
 - SOLAPI 자동충전은 사용하지 않고 Redis의 전체 KST 일 20건·월 200건 제한과 선불 충전 잔액으로 SMS 비용 상한을 관리한다.
 - 운영 Redis는 `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`로 연결한다. Redis 장애 시 SMS를 보내지 않는 fail-closed 정책을 유지한다.
@@ -87,7 +87,7 @@
 - 로컬과 운영 PostgreSQL은 `pgvector/pgvector:0.8.2-pg16` 이미지로 통일한다. `latest`나 major version만 지정한 가변 태그를 사용하지 않고 PostgreSQL/pgvector 버전을 함께 고정해 로컬·운영의 vector extension 실행 환경을 일치시킨다.
 - API 서버 운영 배포 파일은 백엔드 저장소의 `deploy/compose.api.prod.yml`, `deploy/Caddyfile`, `deploy/api.env.example`로 관리한다. Worker 서버 운영 배포 파일은 인공지능 작업 저장소의 `deploy/compose.worker.prod.yml`, `deploy/worker.env.example`로 관리한다. 두 서버의 실제 `api.env`와 `worker.env`는 각각 `/opt/catchhole`에만 두고 커밋하지 않는다.
 - 운영 PostgreSQL은 외부 Amazon RDS를 사용한다. API 서버는 HikariCP 최대 10개, 분석 Worker 5개는 SQLAlchemy 연결을 각각 최대 3개, 캐릭터·세계관 비교 Worker는 각각 최대 1개로 제한해 애플리케이션 전체 최대 연결 수를 27개로 유지한다.
-- 로컬과 운영 Redis는 `redis:7.4.10-alpine3.21`로 고정한다. 운영 Redis는 호스트 포트를 열지 않고 비밀번호, 64MB `noeviction`, 비영속 정책을 유지한다. 휴대폰 인증 데이터는 모두 단기 상태이므로 재시작 시 초기화를 허용한다.
+- 로컬과 운영 Redis는 `redis:7.4.10-alpine3.21`로 고정한다. 운영 Redis는 호스트 포트를 열지 않고 비밀번호, 64MB `noeviction`, 비영속 정책을 유지한다. 이메일·휴대폰 인증 데이터는 모두 단기 상태이므로 재시작 시 초기화를 허용한다.
 - `main` 브랜치에 push되면 `.github/workflows/publish-image.yml`이 GHCR에 `ghcr.io/catchhole-soma/catchhole-backend-java:main`과 short SHA 태그를 발행한다.
 - API 자동 배포는 `main` push로 시작된 이미지 발행이 성공하고 publish run의 commit SHA가 현재 `main`일 때만 실행한다. 해당 SHA의 배포 파일과 `sha-<short-sha>` 이미지를 함께 사용하며, Workflow가 API 서버의 `api.env` 속 `BACKEND_IMAGE`를 해당 SHA로 갱신한다.
 
@@ -193,7 +193,9 @@ org.monitoring.catchholebackend
     │   ├── cors
     │   ├── jpa
     │   ├── memberwithdrawal
-    │   ├── phoneverification
+    │   ├── emaildelivery
+│   ├── emailverification
+│   ├── phoneverification
     │   ├── security
     │   └── swagger
     ├── exception
@@ -274,9 +276,18 @@ domain/<domain>
 - 클라이언트가 분기해야 하는 구조화된 도메인 충돌 정보는 `AppException`의 context로 전달하고 공통 `ErrorResponse.context`에 노출한다. 일반 오류는 빈 context를 사용하며 클라이언트가 message 문자열을 파싱하게 만들지 않는다.
 - 여러 도메인에서 공통으로 쓰는 enum은 `global.common` 아래에 둔다.
 - 사용자 계정 도메인은 `member`로 명명한다. Java 도메인은 `Member`, DB 테이블은 `members`, FK는 `member_id`를 사용한다.
-- 인증 흐름은 `auth` 도메인에 둔다. JWT 발급/검증, refresh token 발급/폐기, 인증 쿠키, 휴대폰 인증 Redis 흐름과 SMS port/adapter는 `domain/auth` 아래에서 관리한다.
+- 인증 흐름은 `auth` 도메인에 둔다. JWT 발급/검증, refresh token 발급/폐기, 인증 쿠키, 이메일·휴대폰 인증 Redis 흐름과 SMTP/SMS port/adapter는 `domain/auth` 아래에서 관리한다.
 
 #### Auth and Token Policy
+
+- 가입 기본 인증 수단은 `SIGNUP_VERIFICATION_METHOD=EMAIL`이며 `PHONE` 전환을 지원한다. 공개 `GET /api/v1/auth/signup-policy`가 화면의 단일 정책 출처다. 선택하지 않은 인증 채널은 발송·확인·토큰 사용 전에 차단한다.
+- 이메일 인증 Redis 구현은 `domain/auth/email`, SMTP port/adapter는 `domain/auth/mail`, 설정은 `global/config/emailverification`과 `emaildelivery`에 둔다. 기존 전화번호 구현을 보존하고 별도 Redis namespace로 토큰 혼용을 차단한다.
+- 이메일은 입력 앞뒤 공백만 제거하고 저장·로그인·토큰 비교에서는 기존 대소문자를 보존한다. 발송 제한과 활성 흐름의 식별자에서만 도메인을 소문자로 바꿔 동일 도메인의 케이스로 제한을 우회하지 못하게 한다. Gmail 점/플러스 등 provider별 주소 변환은 하지 않는다.
+- 이메일 인증번호는 6자리, 유효시간 5분, 재전송 대기 60초, 오입력 5회, 가입 토큰 10분이다. 재확인해도 원래 코드·토큰 만료를 연장하지 않으며 재전송은 이전 코드와 토큰을 폐기한다. Redis Lua가 값 일치 확인과 토큰 삭제를 원자 처리한다.
+- 이메일 발송 상한은 주소 시간 5/일 10, IP 시간 10/일 20, 전체 KST 일 100/월 3,000이다. `EMAIL_VERIFICATION_EMAIL_HOURLY_LIMIT`, `EMAIL_VERIFICATION_EMAIL_DAILY_LIMIT`, `EMAIL_VERIFICATION_IP_HOURLY_LIMIT`, `EMAIL_VERIFICATION_IP_DAILY_LIMIT`, `EMAIL_VERIFICATION_GLOBAL_DAILY_LIMIT`, `EMAIL_VERIFICATION_GLOBAL_MONTHLY_LIMIT`로 운영에서 조정한다. 실패 발송도 횟수를 되돌리지 않는다.
+- `EMAIL_PROVIDER=smtp`는 `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT=587`, `EMAIL_SMTP_USERNAME`, `EMAIL_SMTP_PASSWORD`, `EMAIL_FROM`을 사용한다. SMTP STARTTLS·TLS1.2/1.3·호스트 인증서 검증을 필수로 하고 연결 3초·읽기/쓰기 5초, 자동 재시도 없음으로 고정한다. 운영 EMAIL 모드에서 Fake 또는 불완전한 SMTP 설정은 기동을 실패시킨다. test/e2e는 항상 Fake이며 local 기본 Fake 코드는 `123456`이다.
+- `EMAIL_VERIFICATION_HASH_SECRET`은 운영 EMAIL 모드에서 최소 32바이트 별도 비밀값이다. 비활성 채널의 secret과 발송 계정은 기동에 요구하지 않는다. 환경변수를 새로 만들면 운영 Compose에도 명시적으로 전달한다.
+- V42부터 `members.phone_number`는 nullable이고 실제 값의 unique 제약은 유지한다. `email_verified`는 기존 회원 false, 이메일 인증 신규 회원 true다. 전화번호 없는 신규 회원은 `phone_verified=false`이며 기존 회원 로그인이나 작품 권한에 재인증 조건을 추가하지 않는다.
 
 - Access token은 JWT로 발급하고, refresh token은 랜덤 opaque token으로 발급한다.
 - Access token 만료 기본값은 30분, refresh token 만료 기본값은 14일이다.
@@ -285,10 +296,10 @@ domain/<domain>
 - 회원가입과 로그인은 access token을 응답 body로, refresh token을 HttpOnly 쿠키로 함께 발급한다. 회원가입 후 별도 로그인 요청을 요구하지 않는다.
 - 회원가입은 현재 `PUBLISHED` 이용약관 동의와 개인정보처리방침 확인을 한 화면 체크로 함께 받고, 만 14세 이상 확인은 별도 필수 boolean으로 받는다. API는 세 값을 모두 `true`로 검증하고 Front가 실제 표시한 `termsDocumentId`, `privacyPolicyDocumentId`가 가입 시점의 현재 게시본인지 같은 트랜잭션에서 검증한다.
 - `member_legal_records`는 정확한 문서 FK와 종류·버전·행위 snapshot을 두 행으로 저장하고 `members.age_requirement_confirmed_at`과 함께 한 번 생성한 서버 시각을 사용한다. 원문·현재 버전은 `legal_documents`가 단일 출처이며 AI 원고 처리나 GA4·Meta 고지를 별도 가입 동의·업로드별 동의 이력으로 저장하지 않는다.
-- 인증번호 발송 API에서만 하이픈 없는 `010` 시작 11자리 전화번호를 받고, 회원가입 요청에서는 전화번호를 받지 않는다. 회원가입은 10분 TTL의 1회용 `phoneVerificationToken`에서 번호를 조회해 `members.phone_number`에 unique로 저장하고 `phone_verified=true`로 생성한다. 기존 `phone_verified=false` 회원의 로그인은 허용한다.
+- PHONE 모드 인증번호 발송 API에서만 하이픈 없는 `010` 시작 11자리 전화번호를 받고, 회원가입 요청에서는 전화번호를 받지 않는다. 회원가입은 10분 TTL의 1회용 `phoneVerificationToken`에서 번호를 조회해 `members.phone_number`에 unique로 저장하고 `phone_verified=true`로 생성한다. 기존 `phone_verified=false` 회원의 로그인은 허용한다.
 - 인증번호는 HMAC으로 Redis에 5분, 재전송 대기는 60초, 오입력은 5회, 가입 토큰은 10분으로 고정한다. 재전송은 이전 인증 흐름을 폐기하고 가장 최근 번호만 유효하게 한다.
-- 발송 제한은 Redis Lua에서 확인과 증가를 원자 처리한다. 전화번호는 1시간 5건·KST 하루 10건, IP는 1시간 10건·KST 하루 20건, 전체는 KST 하루 20건·월 200건이다. 429 제한 응답에는 `Retry-After`를 포함한다.
-- 회원가입은 회원·법률 문서 기록·refresh token을 DB에 flush한 뒤 Redis `GETDEL`로 가입 토큰을 소비한다. 소비 실패 시 DB 트랜잭션을 모두 rollback하고 이메일·전화번호·회원+문서 unique 제약을 최종 동시성 방어선으로 유지한다.
+- PHONE 모드 발송 제한은 Redis Lua에서 확인과 증가를 원자 처리한다. 전화번호는 1시간 5건·KST 하루 10건, IP는 1시간 10건·KST 하루 20건, 전체는 KST 하루 20건·월 200건이다. 429 제한 응답에는 `Retry-After`를 포함한다.
+- 회원가입은 회원·법률 문서 기록·refresh token을 DB에 flush한 뒤 EMAIL은 Redis Lua compare-and-delete, PHONE은 `GETDEL`로 가입 토큰을 소비한다. 소비 실패 시 DB 트랜잭션을 모두 rollback하고 이메일·전화번호·회원+문서 unique 제약을 최종 동시성 방어선으로 유지한다.
 - SOLAPI SMS 요청은 자동 재시도하지 않는다. timeout 뒤 실제 발송 여부를 알 수 없어 중복 SMS와 비용이 발생할 수 있기 때문이다.
 - 회원가입 표시 이름은 20자 이하, 비밀번호는 8~64자이면서 영문과 숫자를 각각 하나 이상 포함하도록 검증한다. 프론트 검증과 OpenAPI schema도 같은 제약을 사용한다.
 - 회원 즉시 탈퇴는 `DELETE /api/v1/members/me`에서 현재 비밀번호와 정확한 `회원 탈퇴` 문구를 요구한다. 접수 트랜잭션에서 `MemberStatus.ACTIVE → PURGING`과 모든 refresh token 폐기를 함께 커밋해 기존 access token의 다음 인증을 차단한다.
@@ -692,4 +703,4 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - API 인증/인가, 요청/응답 JSON, Repository 쿼리, JPA 매핑처럼 프레임워크 경계가 중요한 흐름은 MockMvc 또는 JPA 통합 테스트로 검증한다.
 - API 응답 규약을 바꾸면 MockMvc 테스트도 함께 갱신한다.
 - DB 설정이 필요한 통합 테스트는 `test` profile의 H2 인메모리 DB를 기본으로 사용한다.
-- 휴대폰 인증의 TTL, Lua rate limit 경계, 이전 코드 폐기, 오입력 잠금과 동시 토큰 소비는 `redis:7.4.10-alpine3.21` Testcontainers 통합 테스트로 검증한다.
+- 이메일·휴대폰 인증의 TTL, Lua rate limit 경계, 이전 코드 폐기, 오입력 잠금과 동시 토큰 소비는 `redis:7.4.10-alpine3.21` Testcontainers 통합 테스트로 검증한다.
