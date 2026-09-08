@@ -50,6 +50,9 @@ class PhoneVerificationServiceImplTest {
     @Mock
     private PhoneVerificationMapper phoneVerificationMapper;
 
+    @Mock
+    private SignupVerificationPolicy signupVerificationPolicy;
+
     @InjectMocks
     private PhoneVerificationServiceImpl phoneVerificationService;
 

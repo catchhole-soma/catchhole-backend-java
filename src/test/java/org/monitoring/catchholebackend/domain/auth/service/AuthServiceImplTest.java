@@ -73,6 +73,9 @@ class AuthServiceImplTest {
     @Mock
     private LegalDocumentService legalDocumentService;
 
+    @Mock
+    private EmailVerificationService emailVerificationService;
+
     private AuthServiceImpl authService;
 
     @BeforeEach
@@ -93,7 +96,10 @@ class AuthServiceImplTest {
                 authProperties,
                 phoneVerificationService,
                 new AuthMapper(),
-                legalDocumentService
+                legalDocumentService,
+                emailVerificationService,
+                new SignupVerificationPolicy(new org.monitoring.catchholebackend.global.config.auth.SignupVerificationProperties(
+                        org.monitoring.catchholebackend.global.config.auth.SignupVerificationMethod.PHONE))
         );
     }
 
@@ -109,7 +115,7 @@ class AuthServiceImplTest {
                 true,
                 3L,
                 4L,
-                "phone-verification-token"
+                "phone-verification-token", null
         );
         Member savedMember = verifiedMember("writer@example.com", "encoded-password", "01012345678", "작가");
         SignupLegalDocuments legalDocuments = signupLegalDocuments();
@@ -177,7 +183,7 @@ class AuthServiceImplTest {
                 true,
                 3L,
                 4L,
-                "phone-verification-token"
+                "phone-verification-token", null
         );
         when(phoneVerificationService.getVerifiedPhoneNumberBySignupToken(request.phoneVerificationToken()))
                 .thenReturn("01012345678");
