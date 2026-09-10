@@ -4,30 +4,31 @@ CatchHole의 현재 운영 인프라 구성과 스케일링 전략, 향후 인�
 
 이 문서는 두 상태를 명확히 구분합니다.
 
-- **현재 구조(As-Is)**: 저장소의 코드, Docker Compose, GitHub Actions, 배포 문서에서 확인되는 구성
+- **현재 구조(As-Is)**: 저장소의 코드·배포 정의와 2026-09-10 AWS·실행 컨테이너 조회를 대조한 구성
 - **발전 방향(To-Be)**: 아직 구현되지 않은 개선 방향과 결정이 필요한 인프라 선택지
 
-AWS Console에서 수동으로 만든 리소스는 저장소만으로 확인할 수 없습니다. Route 53 Hosted Zone, CloudWatch 기본 지표처럼 코드 밖에서 존재할 수 있는 리소스는 현재 구조에 단정해서 포함하지 않고 `확인 필요`로 표시합니다.
+확인 시각·방법, DB 연결 한도, 백업 설정, 비용과 미확인 항목은 [2026-09-10 운영 현황](operations-status-2026-09-10.md)에 기록합니다. 수동 생성 리소스는 저장소 정의만으로 운영 적용을 단정하지 않으며, 조회하지 않은 항목은 `확인 필요`로 구분합니다.
 
 ## 1. 현재 구조(As-Is)
 
 ### 1.1 구성 요약
 
-운영 인프라는 API 서버용 Amazon EC2 인스턴스, Worker 서버용 Amazon EC2 인스턴스, Amazon RDS for PostgreSQL로 분리합니다.
+운영 인프라는 API 서버용 Amazon EC2 인스턴스, Worker 서버용 Amazon EC2 인스턴스, Amazon RDS for PostgreSQL로 분리되어 실행 중입니다.
 
 - API 서버: Caddy, Spring Backend, Redis 7.4.10
 - Worker 서버: Python AI 분석 Worker 5개, 캐릭터 설정 재비교 Worker 1개, 세계관 재비교 Worker 1개
-- 데이터베이스: Amazon RDS for PostgreSQL 16과 pgvector 0.8.2
+- 데이터베이스: Amazon RDS for PostgreSQL 16.14와 pgvector 0.8.2
 
-저장소에는 역할별 Docker Compose와 GitHub Actions 작업 흐름이 준비되어 있습니다. 실제 운영 전환 전까지 기존 API 서버의 통합 Compose와 로컬 PostgreSQL 볼륨은 롤백 대상으로 보존합니다. 프론트엔드는 Vercel에 별도로 배포하고, 회차 원문과 업로드 파일은 AWS S3에 저장합니다. 휴대폰 인증 SMS는 SOLAPI로 발송합니다.
+역할별 Docker Compose와 SHA 이미지 배포가 운영에 적용되어 있습니다. API 서버에 이전 통합 배포 파일은 남아 있지만 PostgreSQL 컨테이너·전용 Docker 볼륨은 조회되지 않았으므로, 기존 로컬 DB를 현재 복구 대상으로 가정하지 않습니다. 프론트엔드는 Vercel에 별도로 배포하고, 회차 원문과 업로드 파일은 AWS S3에 저장합니다. 현재 가입 인증은 `SIGNUP_VERIFICATION_METHOD=EMAIL`, `EMAIL_PROVIDER=smtp`이며, PHONE 모드의 SOLAPI 연동은 유지되어 있습니다. 발송 계약은 [이메일 운영 문서](email-delivery.md)를 참고합니다.
 
 ```mermaid
 flowchart LR
     USER["사용자 브라우저"]
     VERCEL["Vercel<br/>React 프론트"]
-    DNS["API 도메인 DNS<br/>제공자 확인 필요"]
+    DNS["가비아 DNS<br/>API 도메인 A 레코드"]
     OPENAI["OpenAI API<br/>LLM·Embedding"]
-    SOLAPI["SOLAPI<br/>휴대폰 인증 SMS"]
+    SMTP["SMTP 메일 제공자<br/>현재 EMAIL 인증"]
+    SOLAPI["SOLAPI<br/>PHONE 모드 선택 시"]
     S3["AWS S3<br/>원문·업로드 파일"]
     REPOSITORIES["Backend·AI GitHub 저장소<br/>main push"]
     ACTIONS["GitHub Actions<br/>이미지 발행·배포 제어"]
@@ -38,7 +39,7 @@ flowchart LR
 
         subgraph API_EC2["API 서버용 Amazon EC2"]
             CADDY["Caddy<br/>HTTPS·Reverse Proxy"]
-            SPRING["Spring Backend<br/>외부 443·내부 8080"]
+            SPRING["Spring Backend<br/>8080·외부 HTTPS는 Caddy 경유"]
             REDIS["Redis 7.4.10<br/>64MB·noeviction·비영속"]
             API_ENV["/opt/catchhole/api.env"]
         end
@@ -50,17 +51,19 @@ flowchart LR
             WORKER_ENV["/opt/catchhole/worker.env"]
         end
 
-        POSTGRES["Amazon RDS for PostgreSQL 16<br/>pgvector 0.8.2"]
+        POSTGRES["Amazon RDS for PostgreSQL 16.14<br/>Single-AZ·pgvector 0.8.2"]
     end
 
     USER -->|"프론트 파일 요청"| VERCEL
-    USER -->|"api.catchhole.com API 요청"| DNS
-    DNS --> CADDY
+    USER -.->|"API 도메인 조회"| DNS
+    DNS -.->|"API EC2 주소 응답"| USER
+    USER -->|"api.catchhole.com HTTPS 요청"| CADDY
     CADDY -->|"backend:8080"| SPRING
 
     SPRING -->|"도메인·AnalysisJob 저장"| POSTGRES
     SPRING -->|"인증번호·가입 토큰·발송 제한"| REDIS
-    SPRING -->|"자동 재시도 없는 SMS 요청"| SOLAPI
+    SPRING -->|"이메일 인증번호 발송"| SMTP
+    SPRING -.->|"PHONE 모드의 SMS 발송"| SOLAPI
     SPRING -->|"원문·업로드 파일 저장/조회"| S3
 
     WORKER -->|"Job claim·진행·완료·실패 보고"| SPRING
@@ -91,13 +94,13 @@ flowchart LR
 
 1. 사용자 브라우저가 Vercel에서 프론트 정적 파일을 받습니다.
 2. 프론트 코드는 `VITE_API_BASE_URL`로 설정된 `https://api.catchhole.com`에 API를 직접 호출합니다.
-3. API 도메인의 DNS가 API 서버용 Amazon EC2 인스턴스의 공개 진입점으로 요청을 전달합니다. DNS 제공자가 Route 53인지는 저장소에서 확인할 수 없습니다.
+3. 공개 DNS 조회에서 `catchhole.com`의 권한 NS는 가비아이고, `api.catchhole.com`의 A 레코드는 API EC2 공개 진입점과 일치합니다. `www.catchhole.com`은 Vercel DNS를 가리킵니다. DNS 관리 계정과 변경 책임자는 별도 확인 항목입니다.
 4. Caddy가 80/443 포트에서 HTTPS 연결을 처리하고 Docker 내부의 `backend:8080`으로 요청을 전달합니다.
 5. Spring Backend가 인증, 작품·회차·업로드·분석 작업 같은 사용자-facing API를 처리합니다.
 6. 구조화된 도메인 데이터와 `AnalysisJob` 상태는 Amazon RDS for PostgreSQL에 저장합니다.
 7. 회차 원문과 업로드 파일은 S3에 저장하고 DB에는 S3 key, version, hash 같은 메타데이터만 저장합니다.
 
-신규 가입은 Spring이 Redis에서 전화번호·IP·전체 발송량을 원자적으로 제한하고 SOLAPI로 SMS를 한 번 요청한 뒤, 확인된 1회용 가입 토큰에서 전화번호를 조회해 처리합니다. Redis 장애 시 SMS를 보내지 않으며 Redis 재시작 시 진행 중 인증은 초기화됩니다. 기존 로그인·refresh token 흐름은 PostgreSQL을 사용하므로 유지됩니다.
+현재 신규 가입은 Spring이 Redis에서 이메일·IP·전체 발송량을 제한하고 SMTP로 인증번호를 발송한 뒤, 이메일 소유 확인과 일회용 가입 토큰 소비를 거쳐 처리합니다. PHONE 모드에서는 기존 SOLAPI 휴대폰 인증 경로를 사용합니다. Redis 장애 시 인증 발송을 차단하고, Redis 재시작 시 진행 중 인증·가입 토큰이 초기화됩니다. 기존 로그인·refresh token 흐름은 PostgreSQL을 사용하므로 유지됩니다.
 
 Vercel은 Backend 요청을 중계하는 서버가 아닙니다. 브라우저가 Vercel과 Backend API에 각각 요청합니다.
 
@@ -146,6 +149,7 @@ flowchart LR
 ```
 
 - Backend와 AI 이미지는 각각의 저장소에서 GHCR에 발행합니다.
+- GHCR에는 `main`과 SHA 태그를 발행하지만 운영 배포는 publish run의 `sha-<short-sha>` 이미지와 같은 커밋의 Compose·Caddy 설정을 사용합니다. 실제 실행 SHA는 운영 현황표에 확인 시각과 함께 기록합니다.
 - Backend 이미지 발행 성공은 API 서버 배포 작업 흐름을 실행하고, AI 이미지 발행 성공은 Worker 서버 배포 작업 흐름을 실행합니다.
 - GitHub Actions는 OIDC role을 우선 지원하고, 설정되지 않은 경우 AWS access key를 사용할 수 있습니다.
 - 배포는 SSH가 아니라 SSM `AWS-RunShellScript`로 수행합니다.
@@ -159,7 +163,7 @@ flowchart LR
 | 위치 | 저장 대상 |
 | --- | --- |
 | GitHub Secrets | AWS 배포 역할 또는 액세스 키, 저장소별 API 서버 또는 Worker 서버 Amazon EC2 인스턴스 ID |
-| API 서버 `/opt/catchhole/api.env` | Amazon RDS 접속 정보, Redis 비밀번호, JSON Web Token·휴대폰 인증 해시 비밀값, SOLAPI 자격 증명·발신번호, 내부 API 키, 백엔드 이미지·도메인·시간대 |
+| API 서버 `/opt/catchhole/api.env` | Amazon RDS 접속 정보, Redis 비밀번호, JWT·이메일/휴대폰 인증 해시 비밀값, SMTP 설정, PHONE 모드의 SOLAPI 설정, 내부 API 키, 백엔드 이미지·도메인·시간대 |
 | Worker 서버 `/opt/catchhole/worker.env` | Amazon RDS 접속 정보, 내부 API 사설 주소·키, 언어 모델 API 키·모델, Worker 수·동시성·종료 유예 시간, 인공지능 작업 이미지 |
 | Amazon EC2 인스턴스 역할 | AWS Systems Manager 관리형 노드 등록과 역할별 Amazon S3 접근 권한 |
 
@@ -167,24 +171,24 @@ AWS Secrets Manager 또는 Systems Manager Parameter Store에서 애플리케이
 
 ### 1.6 현재 구현 여부
 
-| 구성요소 | 저장소 기준 상태 | 근거 또는 비고 |
+| 구성요소 | 확인 기준·상태 | 근거 또는 비고 |
 | --- | --- | --- |
-| Vercel Frontend | 사용 중 | Front README와 배포 URL |
-| Amazon EC2 | API 서버와 Worker 서버 분리 배포 정의 존재 | 백엔드 `deploy/EC2_DEPLOYMENT.md`, 인공지능 작업 저장소 `deploy/WORKER_EC2_DEPLOYMENT.md` |
+| Vercel Frontend | 운영 응답 확인 | `www.catchhole.com`의 HTTP 200·`server: Vercel` |
+| Amazon EC2 | API·Worker 두 서버 실행 확인 | 각각 `t3.medium`, gp3 30GiB; API 3개·Worker 7개 컨테이너 |
 | Docker Compose | 역할별 구현됨 | 백엔드 `deploy/compose.api.prod.yml`, 인공지능 작업 저장소 `deploy/compose.worker.prod.yml` |
 | Caddy | 구현됨 | `deploy/Caddyfile` |
-| PostgreSQL + pgvector | 외부 연결 정의 구현됨 | Amazon RDS PostgreSQL 16, pgvector 0.8.2, 애플리케이션 최대 연결 수 27개 |
+| PostgreSQL + pgvector | RDS 설정·읽기 전용 SQL 확인 | PostgreSQL 16.14, pgvector 0.8.2; DB `max_connections=181`, 애플리케이션 연결 예산 27개 |
 | Redis | 구현됨 | API 서버 Compose 내부 전용, 64MB `noeviction`, 비영속 |
-| SOLAPI | 애플리케이션 연동 구현됨 | 개인 계정·API key·등록 발신번호·선불 잔액을 준비하고 애플리케이션의 일 20건·월 200건 제한을 배포 전 확인 |
+| 가입 인증 발송 | 운영 EMAIL·SMTP 설정 확인 | PHONE·SOLAPI 구현 유지; 이번 현황 점검에서는 실제 발송·가입을 실행하지 않음 |
 | AWS S3 | 애플리케이션 연동 구현됨 | Spring AWS SDK, Python boto3 |
 | GHCR | 구현됨 | Backend·AI 이미지 발행 Workflow |
 | GitHub Actions | 구현됨 | 테스트, 이미지 발행, EC2 배포 |
 | AWS Systems Manager | 배포 경로 구현됨 | `aws ssm send-command` |
 | GitHub Actions OIDC | 선택 경로 구현됨 | `AWS_ROLE_TO_ASSUME`이 있을 때 사용 |
-| Route 53 | 확인 필요 | API 도메인은 있으나 DNS 제공자/IaC 없음 |
-| CloudWatch 애플리케이션 관측 | 미구현 | 로그 전송, Dashboard, Alarm 정의 없음 |
+| API·Frontend DNS | 공개 레코드 확인 | 권한 NS는 가비아, 프론트 CNAME은 Vercel; 관리 계정·책임자 확인 필요 |
+| CloudWatch 애플리케이션 관측 | 저장소 구현 없음·계정 설정 미확인 | 기본 AWS 지표의 존재와 별도 수집·알림 구축은 구분 |
 | Secrets Manager / Parameter Store | 미구현 | 운영 비밀값은 EC2 `.env` 사용 |
-| Amazon RDS | 수동 생성됨, 애플리케이션 전환 검증 필요 | Single-AZ PostgreSQL 16, `db.t4g.small`, gp3 30GiB |
+| Amazon RDS | 분리 운영·`available` 확인 | Single-AZ, `db.t4g.small`, gp3 30GiB; 백업 7일·삭제 보호 활성, 복구 훈련은 #175 |
 | S3 VPC Endpoint | 확인 필요 | 저장소에 VPC/IaC 정의 없음 |
 | ECS / ALB / ACM / ECR | 미구현 | 관련 배포 정의 없음 |
 | SQS 분석 큐 | 미구현 | 환경변수 placeholder만 있고 현재는 DB polling |
@@ -194,15 +198,16 @@ AWS Secrets Manager 또는 Systems Manager Parameter Store에서 애플리케이
 
 - API 서버와 Worker 서버가 각각 단일 Amazon EC2 인스턴스라 인스턴스별 고가용성은 없습니다.
 - Amazon RDS가 Single-AZ라 가용 영역 장애에 대한 자동 대기 인스턴스 전환은 없습니다.
-- 새 Amazon RDS와 역할별 Compose로 실제 전환하기 전까지 기존 통합 서버와 로컬 PostgreSQL을 롤백 대상으로 보존해야 합니다.
-- 애플리케이션 로그와 Job 상태를 중앙에서 검색하거나 알람으로 받을 수 없습니다.
+- 이전 통합 배포 파일은 남아 있지만 로컬 PostgreSQL 복구 자원은 확인되지 않았습니다. RDS 백업 복구 능력은 #175에서 검증해야 합니다.
+- 중앙 로그 수집·알림의 저장소 구현은 없으며 계정의 실제 알림 설정은 미확인입니다. API·EC2·RDS 알림은 #173·#174에서 확인·구성합니다.
 - 운영 비밀값 갱신과 rotation이 EC2 `.env` 수동 관리에 의존합니다.
 - DNS, 네트워크, IAM, S3 정책 같은 인프라 상태가 IaC로 재현되지 않습니다.
-- `main` 이미지 태그 배포는 현재 실행 버전 식별과 즉시 rollback을 어렵게 합니다.
+- SHA 이미지 배포와 수동 복구 절차는 존재하지만 DB schema·내부 API 호환성을 포함한 실패 후 복구 검증은 #176·#177에 남아 있습니다.
 - Worker graceful shutdown은 신규 claim을 멈추고 내부 180초, Compose 210초 동안 실행 중 Job을 기다립니다. 강제 종료된 Job은 5분 lease가 만료되어야 회수되므로 배포 직후 일시적인 `RUNNING` 지연이 남을 수 있습니다.
 - `LLM_MAX_CONCURRENT_REQUESTS`는 프로세스별 상한이라 별도 재비교 Worker까지 합친 provider 계정 전체 동시성을 엄격히 제한하지 않습니다.
-- CAPTCHA가 없어 공격자가 휴대폰 인증 전체 일일 한도 20건을 소진할 수 있습니다.
-- Redis 재시작 시 진행 중 휴대폰 인증과 아직 소비하지 않은 가입 토큰이 초기화됩니다.
+- CAPTCHA가 없어 인증 발송의 전체 한도를 소진시키는 요청에 취약할 수 있습니다. 현재 EMAIL 모드의 한도는 이메일 운영 문서를 기준으로 확인합니다.
+- Redis 재시작 시 진행 중 이메일·휴대폰 인증과 아직 소비하지 않은 가입 토큰이 초기화됩니다.
+- RDS는 공개 접근이 활성화되어 있으며 5432는 API·Worker SG 외에 운영 접근용 IPv4 `/32` 두 개도 허용합니다. SG 설명상 팀원 자택·SW 사무실 Wi-Fi의 DB 직접 접속 허용이며 SSM 접속용 인바운드는 아닙니다. 현재 사용 여부·유지 기간 확인과 변경 판단은 현황 기록과 구분합니다.
 
 ## 2. 발전 방향(To-Be, 선택지 검토 중)
 
@@ -220,7 +225,7 @@ AWS Secrets Manager 또는 Systems Manager Parameter Store에서 애플리케이
 - 배포 이미지는 immutable SHA 또는 digest로 식별하고 직전 성공 버전으로 되돌릴 수 있어야 합니다.
 - 실제 병목이 확인되기 전에는 ECS, SQS, EKS 같은 운영 복잡도를 확정하지 않습니다.
 
-CloudWatch는 현재 목표 모니터링 구현체가 아닙니다. ECS도 확정된 실행 환경이 아니라 EC2 유지·확장안과 비교할 후보입니다.
+모니터링 구현체는 #173·#174에서 기존 계정 설정과 비용을 확인한 뒤 선택합니다. ECS는 현재 분리 EC2의 유지·확장안과 비교할 후보입니다.
 
 ### 2.2 플랫폼 중립 논리 구조
 
@@ -278,8 +283,7 @@ flowchart LR
 
 | 선택지 | 장점 | 비용·운영 부담 | 적합한 시점 |
 | --- | --- | --- | --- |
-| 단일 EC2 + Compose 유지 | 현재 자산 재사용, 가장 단순한 배포와 낮은 초기 비용 | 단일 장애점, Backend·Worker 독립 확장 어려움 | MVP와 초기 트래픽 |
-| Backend·Worker EC2 분리 | 서비스별 크기와 배포 분리, 기존 Compose 경험 재사용 | 인스턴스·배포·장애 복구를 직접 관리 | Worker 자원 사용이 Backend에 영향을 주기 시작할 때 |
+| Backend·Worker 분리 EC2 + Compose 유지·확장 | 현재 운영 구성 재사용, 서비스별 크기·배포 독립 조정 | 역할별 단일 장애점, 인스턴스·배포·장애 복구 직접 관리 | 현재 기준안; 부하·가용성 목표 안에서 유지 |
 | EC2 Auto Scaling + Load Balancer | 수평 확장과 호스트 제어 가능 | AMI, Docker runtime, 배포와 용량 정책을 팀이 운영 | 안정적인 장기 부하와 인프라 운영 역량이 있을 때 |
 | ECS Fargate | Backend·Worker 독립 배포, task 단위 교체·확장 | 네트워크/NAT, task definition, 비용과 학습 부담 | 배포 빈도·가용성·수평 확장 요구가 EC2 운영 비용보다 커질 때 |
 
@@ -327,7 +331,7 @@ Spring 수평 확장의 전제는 다음과 같습니다.
 
 1. slow query, 불필요한 외부 호출, 메모리 사용을 먼저 최적화합니다.
 2. 단일 인스턴스 CPU·메모리를 수직 확장합니다.
-3. Backend와 Worker가 자원을 경쟁하면 실행 환경을 분리합니다.
+3. 현재 완료된 Backend·Worker 실행 환경 분리를 유지하며 각각의 자원 사용을 확인합니다.
 4. 단일 Backend 용량 또는 가용성 요구를 넘을 때 Load Balancer 뒤에 Backend를 수평 확장합니다.
 
 ### 3.3 AI Worker 확장
@@ -359,10 +363,10 @@ Worker 확장 신호 예시는 다음과 같습니다.
 
 ### 3.4 PostgreSQL과 pgvector 확장
 
-- 애플리케이션과 DB 장애를 분리하기 위해 PostgreSQL을 Compute 인스턴스 밖으로 이전합니다.
-- 별도 EC2와 RDS PostgreSQL 같은 관리형 DB는 호스팅 후보이며, 비용·백업·운영 정책을 비교해 구현 방식을 확정합니다.
+- PostgreSQL은 이미 EC2 밖의 RDS로 분리되어 있습니다. 현재 Single-AZ 구성을 기준으로 비용·가용성·복구 목표를 평가합니다.
+- RDS 백업 정책 점검(#172)과 복구 훈련(#175) 결과를 확인한 뒤 Multi-AZ 등 추가 가용성 구성을 판단합니다.
 - connection 수, slow query, lock wait, index 사용률을 확인한 뒤 인스턴스 크기와 index를 조정합니다.
-- Backend와 Worker별 connection pool budget을 나누고 전체 상한을 문서화합니다.
+- 현재 연결 예산은 Backend 10 + 분석 Worker 5×3 + 재비교 Worker 2×1 = 27개입니다. 실제 DB 한도·예약 연결은 운영 현황표에 별도로 기록하고 증설 시 함께 재평가합니다.
 - vector 검색은 데이터 크기와 recall/latency 측정 후 적절한 pgvector index와 검색 파라미터를 선택합니다.
 - read replica, connection proxy, read/write 경로 분리는 실제 병목이 확인된 뒤 도입합니다.
 - Flyway는 계속 schema 변경의 단일 주체로 유지합니다.
@@ -391,7 +395,7 @@ SQS 같은 외부 queue는 다음 조건이 실제로 발생할 때 검토합니
 
 ### 4.1 구현체 결정 상태
 
-CloudWatch를 애플리케이션 모니터링 구현체로 사용하지 않습니다. 현재 대체 제품이나 self-hosted stack은 아직 결정하지 않았으며, 제품 선택 전에 수집 계약을 먼저 고정합니다.
+애플리케이션 모니터링 구현체는 아직 결정하지 않았습니다. 저장소에 중앙 로그 수집·알림 구현은 없으며 AWS 계정의 기본 지표·알림 존재 여부는 별도 확인해야 합니다. #173·#174에서 기존 기능·비용을 비교하고 최소 수집·알림 경로를 선택합니다.
 
 현재 Spring은 `/actuator/prometheus`를 제공하지만, Python Worker의 메트릭 노출과 로그 수집 파이프라인은 별도 설계가 필요합니다.
 
@@ -418,36 +422,40 @@ CloudWatch를 애플리케이션 모니터링 구현체로 사용하지 않습�
 
 구현체 후보는 별도 ADR에서 수집 방식, 보존 기간, 운영 비용, 알림 채널과 함께 비교합니다. 이 문서는 특정 모니터링 제품을 미리 확정하지 않습니다.
 
-## 5. 단계별 전환 계획
+## 5. 완료된 기반과 후속 안정화
 
-### 5.1 1단계: 현재 구조 baseline과 복구 능력 확보
+### 5.1 완료된 기반
 
-- 실제 AWS 리소스와 DNS 제공자를 확인해 inventory 작성
-- 모니터링 구현체 ADR 작성
-- Backend·Worker 구조화 로그와 필수 메트릭 계측
-- API 장애, 장시간 PENDING/RUNNING Job 알람과 runbook 구성
-- PostgreSQL 자동 `pg_dump`와 복구 훈련
-- GHCR `main` 대신 short SHA/digest 배포와 직전 버전 rollback
-- Worker 동시 실행에서 lease 만료·checkpoint 재개·graceful shutdown을 부하 및 강제 종료 테스트로 검증
+- API·Worker EC2와 RDS 분리 운영: #160 및 2026-09-10 AWS·컨테이너 조회에서 확인
+- 역할별 Compose, SHA 이미지·동일 커밋 설정 배포 및 기존 수동 이미지 복구 절차 마련
+- RDS 자동 백업 7일·삭제 보호 활성 확인: 정책 적정성 판단과 실제 복구 성공 검증은 후속 작업
+- EC2 로컬 journald 로그 보관 정의와 기존 부하 측정 결과 마련: #164
 
-### 5.2 2단계: 데이터와 비밀값 분리
+### 5.2 #119 운영 안정화 Epic
 
-- PostgreSQL 분리를 전제로 별도 호스트와 RDS PostgreSQL + pgvector 중 호스팅 방식을 ADR로 결정
-- 자동 백업, 보존 기간, 삭제 방지, 복구 훈련 구성
-- S3 Versioning과 Lifecycle 정책 확정
-- EC2 `.env`를 대체할 비밀값 저장소 결정
-- VPC, Security Group, DB, S3 정책을 Terraform 또는 CDK 중 하나로 관리
+| 이슈 | 작업 | 필수 선행 |
+| --- | --- | --- |
+| [#171](https://github.com/catchhole-soma/catchhole-backend-java/issues/171) | 운영 현황·비용·미확인 사항과 문서 정합성 정리 | 없음 |
+| [#172](https://github.com/catchhole-soma/catchhole-backend-java/issues/172) | RPO/RTO 목표와 백업·삭제 보호 정책 점검 | #171 |
+| [#173](https://github.com/catchhole-soma/catchhole-backend-java/issues/173) | API 중단·EC2 디스크 부족 알림 | #171 |
+| [#174](https://github.com/catchhole-soma/catchhole-backend-java/issues/174) | RDS 지표·백업 이상 알림 | #172 |
+| [#175](https://github.com/catchhole-soma/catchhole-backend-java/issues/175) | 격리 DB 복구 훈련·RTO/RPO 검증 | #172 |
+| [#176](https://github.com/catchhole-soma/catchhole-backend-java/issues/176) | API 이전 버전 복구 검증 | #171 |
+| [#177](https://github.com/catchhole-soma/catchhole-backend-java/issues/177) | Worker 이전 버전 복구 검증 | #171 |
+| [#178](https://github.com/catchhole-soma/catchhole-backend-java/issues/178) | Worker 강제 종료 후 lease 기반 Job 회수 검증 | #177 |
 
-이 단계까지는 EC2 + Caddy + Spring + Worker 구조를 유지할 수 있습니다.
+1차·2차는 목적별 묶음이며 전체 차수 완료를 기다리는 조건은 아닙니다. 진행·완료 여부는 [Epic #119](https://github.com/catchhole-soma/catchhole-backend-java/issues/119)를 기준으로 관리합니다. 현황 확인만으로 알림·복구 훈련을 완료 처리하지 않습니다.
 
-### 5.3 3단계: Compute Platform 결정
+비밀값 저장소, S3 정책, IaC·중앙 로그·가용성 강화는 필요성과 비용을 판단해 별도 이슈로 구체화합니다. 특정 제품의 도입을 #171의 완료 조건으로 두지 않습니다.
+
+### 5.3 후속 후보: Compute Platform 재평가
 
 - 수집한 Backend·Worker 부하와 월 비용을 기준으로 EC2 확장안과 ECS Fargate를 비교
 - 선택 결과, Caddy/Load Balancer, container registry, 내부 서비스 통신, 배포 전략을 ADR로 확정
 - 선택한 플랫폼에서 Backend와 Worker를 독립 배포
 - health check 기반 무중단 배포와 자동 또는 수동 rollback 검증
 
-### 5.4 4단계: 수평 확장과 queue 판단
+### 5.4 후속 후보: 수평 확장과 queue 판단
 
 - Backend는 RPS·지연·가용성 목표를 기준으로 수평 확장
 - Worker는 Job 대기 시간과 처리율을 기준으로 수평 확장
@@ -458,10 +466,10 @@ CloudWatch를 애플리케이션 모니터링 구현체로 사용하지 않습�
 
 | 주제 | 현재 상태 | 결정에 필요한 근거 |
 | --- | --- | --- |
-| Compute Platform | EC2 유지·분리·Auto Scaling과 ECS Fargate 비교 필요 | 부하, 배포 빈도, 가용성, 월 비용, 팀 운영 역량 |
-| 모니터링 | CloudWatch 미사용, 대체 구현체 미정 | 로그·메트릭·trace 요구, 보존 기간, 비용, 알림 채널 |
+| Compute Platform | API·Worker 분리 EC2 사용 중, 추가 확장 방식 미정 | 부하, 배포 빈도, 가용성, 월 비용, 팀 운영 역량 |
+| 모니터링 | 중앙 수집·알림 구현체 미정, 계정 설정 확인 필요 | #173·#174의 최소 수집·알림 요구와 비용 |
 | PostgreSQL 고가용성 | Amazon RDS Single-AZ 사용 | 부하 측정값, 복구 목표, Multi-AZ 추가 비용 |
-| DNS | 제공자 확인 필요 | 현재 계정 inventory와 IaC 범위 |
+| DNS 관리 | 공개 NS는 가비아, 관리 계정·책임자 미확인 | 계정 접근·변경 책임 확인 |
 | 비밀값 저장소 | EC2 `.env` 사용 중 | rotation, 런타임 주입, 비용과 운영 방식 |
 | Container Registry | GHCR 사용 중 | Compute Platform과 IAM 통합 방식 |
 | Job Queue | DB polling 사용 중 | claim 경합, queue depth, retry·DLQ 요구 |
@@ -478,6 +486,7 @@ CloudWatch를 애플리케이션 모니터링 구현체로 사용하지 않습�
 
 ## 8. 관련 파일
 
+- [2026-09-10 운영 현황·비용·확인 방법](operations-status-2026-09-10.md)
 - `deploy/compose.api.prod.yml`
 - `deploy/Caddyfile`
 - `deploy/api.env.example`

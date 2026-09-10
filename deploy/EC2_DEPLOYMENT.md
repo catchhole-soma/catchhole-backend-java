@@ -2,6 +2,8 @@
 
 이 문서는 API 서버용 Amazon EC2 인스턴스에서 Caddy, Spring Backend, Redis만 실행하는 절차를 설명한다. PostgreSQL은 Amazon RDS를 사용하고 인공지능 작업 프로세스는 별도의 Worker 서버용 Amazon EC2 인스턴스에서 실행한다.
 
+2026-09-10에 분리 운영과 SHA 이미지 실행을 확인했다. 실제 사양·연결·백업·비용 및 확인 방법은 [운영 현황표](../docs/operations-status-2026-09-10.md)를 참고한다. 이 문서의 최초 데이터 전환·초기화·기존 PostgreSQL 중지 절차는 당시의 전환 안내이며, 현재 운영의 일반 재배포 절차는 **GitHub Actions 자동 배포** 항목이다. 과거 안내에 적힌 모든 보존·정리 작업의 실제 수행 여부를 이번 점검에서 확인한 것은 아니다.
+
 ## 서버 파일
 
 API 서버에는 다음 파일을 둔다.
@@ -16,8 +18,8 @@ API 서버에는 다음 파일을 둔다.
 - `compose.api.prod.yml`과 `Caddyfile`은 백엔드 저장소에서 내려받는다.
 - `api.env`는 `deploy/api.env.example`을 기준으로 서버에서 직접 작성하고 커밋하지 않는다.
 - `BACKEND_IMAGE`에는 발행이 성공한 이미지의 `sha-<short-sha>` 태그를 넣는다. 자동 배포는 이 값을 배포 대상 SHA로 갱신한다.
-- 기존 통합 배포의 `.env`, `compose.prod.yml`, PostgreSQL 볼륨은 전환 검증이 끝날 때까지 삭제하지 않는다.
-- 보존 기간에는 `docker compose up`에 `--remove-orphans`를 붙이지 않는다.
+- 2026-09-10 조회에서 기존 `.env`와 `compose.prod.yml` 파일은 남아 있지만 PostgreSQL 컨테이너·전용 Docker 볼륨은 발견되지 않았다. 파일 존재만으로 예전 DB 복구가 가능하다고 판단하지 않는다.
+- 잔존 파일의 보존·정리와 과거 DB의 별도 백업 여부는 담당자 확인 항목이다. 현재 배포에는 `api.env`와 `compose.api.prod.yml`을 사용한다.
 
 ## 로컬 로그 보관
 
@@ -65,7 +67,7 @@ sudo cat /etc/systemd/journald.conf.d/catchhole.conf
 sudo journalctl --disk-usage
 ```
 
-## 데이터 전환 결정
+## 데이터 전환 결정 (최초 전환 이력)
 
 NVM-317 최초 전환은 기존 로컬 PostgreSQL 데이터를 Amazon RDS로 이전하지 않고 빈 데이터베이스에서 새로 시작한다. 따라서 전환 후에는 기존 회원, 작품, 회차, 분석 작업과 Amazon S3 객체를 참조하던 메타데이터가 새 서비스에 표시되지 않는다. Amazon S3 객체 자체는 삭제하지 않지만 새 데이터베이스에는 이를 가리키는 기존 행이 없다.
 
@@ -75,7 +77,7 @@ NVM-317 최초 전환은 기존 로컬 PostgreSQL 데이터를 Amazon RDS로 이
 
 - Caddy는 인터넷에서 TCP 80번과 443번 포트를 받는다.
 - Spring Backend의 TCP 8080번 포트는 호스트에 게시하지만, API 서버 보안 그룹은 Worker 서버 보안 그룹에서 시작된 요청만 허용한다.
-- Amazon RDS의 TCP 5432번 포트는 API 서버 보안 그룹과 Worker 서버 보안 그룹에서 시작된 요청만 허용한다.
+- 서비스 간 연결은 Amazon RDS의 TCP 5432번 포트에 API 서버 SG와 Worker 서버 SG를 허용한다. 2026-09-10 실제 설정에는 운영 접근용 IPv4 `/32` 두 개가 추가로 허용되어 있고 RDS 공개 접근도 활성화되어 있다. SG 설명상 팀원 자택·SW 사무실 Wi-Fi에서 DB에 직접 접속하는 허용이며, SSM 접속을 위한 인바운드 규칙은 아니다. 현재 사용 여부·유지 기간은 확인 필요하며 이 현황 기록이 예외의 상시 허용을 결정한 것은 아니다. 원문 IP·리소스 식별자는 비공개 운영 기록에서 관리한다.
 - Redis는 Docker 네트워크 안에서만 접근하며 호스트 포트를 게시하지 않는다.
 
 ## API 서버 인스턴스 역할과 메타데이터 설정
@@ -158,7 +160,9 @@ SHOW timezone;
 
 결과는 `Asia/Seoul`이어야 한다. 추가로 Spring Backend는 HikariCP가 새 물리 연결을 만들 때마다 `api.env`의 `APP_TIMEZONE`을 PostgreSQL session에 적용한다. Amazon RDS가 시작될 때의 기본값과 애플리케이션이 만든 연결의 값을 둘 다 `Asia/Seoul`로 유지한다.
 
-## 최초 전환 전 확인
+## 최초 전환 전 확인 (이력)
+
+아래는 통합 Compose에서 역할별 배포로 처음 옮길 때 안내한 절차다. 현재는 전환이 완료되어 있으며 운영 재배포 시 반복하지 않는다.
 
 다음 항목을 먼저 기록한다.
 
@@ -246,7 +250,7 @@ sudo -u ubuntu docker compose --env-file api.env -f compose.api.prod.yml logs --
 sudo journalctl CONTAINER_NAME=catchhole-backend-1 --since '14 days ago' --no-pager
 ```
 
-## Amazon RDS 초기화 검증
+## Amazon RDS 초기화 검증 (최초 전환 이력)
 
 새 Amazon RDS는 빈 데이터베이스이므로 Spring Backend가 처음 시작될 때 Flyway가 스키마를 생성한다. 백엔드 로그에서 Flyway와 Hibernate 검증 결과를 확인한다.
 
@@ -319,7 +323,9 @@ curl -fsS http://replace-with-api-private-ip:8080/actuator/health
 3. API 서버 보안 그룹의 TCP 8080번 인바운드 소스가 Worker 서버 보안 그룹인지 확인한다.
 4. `compose.api.prod.yml`의 `8080:8080` 포트 게시가 적용되었는지 확인한다.
 
-## 기존 로컬 PostgreSQL 보존
+## 기존 로컬 PostgreSQL 보존 (최초 전환 이력)
+
+전환 당시 문서는 아래 보존 절차를 안내했다. 2026-09-10 Docker 조회에서는 PostgreSQL 컨테이너·전용 볼륨이 확인되지 않았으며, 별도 백업·과거 정리 이력은 미확인이다. 현재 DB 복구는 RDS 백업을 기준으로 #175에서 검증한다.
 
 새 API 서버와 Worker 서버의 읽기·쓰기 검증이 끝나면 기존 로컬 PostgreSQL 컨테이너만 중지한다.
 
