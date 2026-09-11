@@ -18,6 +18,9 @@ public record WorkerAnalysisJobClaimRequest(
 
         @Schema(description = "Worker가 처리할 분석 작업 유형")
         @NotEmpty(message = "처리할 분석 작업 유형은 하나 이상이어야 합니다.")
-        Set<AnalysisJobType> allowedJobTypes
+        Set<AnalysisJobType> allowedJobTypes,
+
+        @Schema(description = "신규 캐릭터 그룹 비교 Job 지원 여부", nullable = true)
+        Boolean supportsCharacterComparisonGroups
 ) {
 }

@@ -231,6 +231,10 @@ public class SettingCandidate extends BaseEntity {
     @Column(name = "comparison_failure_code", length = 60)
     private AnalysisFailureCode comparisonFailureCode;
 
+    // 그룹 확정 성공 응답이 유실된 뒤 동일 결정을 멱등적으로 반환하기 위한 hash.
+    @Column(name = "confirmed_group_decision_hash", length = 64)
+    private String confirmedGroupDecisionHash;
+
     private SettingCandidate(
             Work work,
             Episode episode,
@@ -454,7 +458,6 @@ public class SettingCandidate extends BaseEntity {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
         }
         applyCharacterMatch(character, targetMatchStatus);
-        requestComparisonAfterCandidateChange();
     }
 
     private void applyCharacterMatch(
@@ -470,17 +473,23 @@ public class SettingCandidate extends BaseEntity {
         // 사용자가 기존 매칭을 취소하고 신규 캐릭터로 판단한 상태다. 실제 생성은 confirm까지 미룬다.
         validateEditable();
 
+        if (matchedCharacterId == null
+                && matchStatus == SettingCandidateMatchStatus.UNRESOLVED
+                && Objects.equals(this.entityName, entityName)) {
+            return;
+        }
+
         this.entityName = entityName;
         this.matchedCharacterId = null;
         this.matchStatus = SettingCandidateMatchStatus.UNRESOLVED;
-        markWaitingForCharacterMatch();
+        requestComparisonAfterCandidateChange();
     }
 
     public void startComparison() {
         validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
         if (isCharacterDiscovery()
                 || comparisonStatus != CharacterFactComparisonStatus.PENDING
-                || matchedCharacterId == null) {
+                || matchStatus == SettingCandidateMatchStatus.AMBIGUOUS) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
         comparisonStatus = CharacterFactComparisonStatus.PROCESSING;
@@ -612,13 +621,24 @@ public class SettingCandidate extends BaseEntity {
     public void requestComparison() {
         validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
         clearComparisonProposal();
-        comparisonStatus = matchedCharacterId == null
+        comparisonStatus = matchStatus == SettingCandidateMatchStatus.AMBIGUOUS
                 ? CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH
                 : CharacterFactComparisonStatus.PENDING;
     }
 
     public boolean isComparisonCompleted() {
         return comparisonStatus == CharacterFactComparisonStatus.COMPLETED;
+    }
+
+    public void recordGroupConfirmation(String decisionHash) {
+        if (reviewStatus == SettingCandidateReviewStatus.PENDING_REVIEW) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
+        }
+        String normalized = Objects.requireNonNull(decisionHash).trim();
+        if (!normalized.matches("[0-9a-f]{64}")) {
+            throw new IllegalArgumentException("decisionHash must be a lowercase SHA-256 value.");
+        }
+        this.confirmedGroupDecisionHash = normalized;
     }
 
     public boolean isPendingReview() {
@@ -688,7 +708,7 @@ public class SettingCandidate extends BaseEntity {
             return;
         }
         clearComparisonProposal();
-        comparisonStatus = matchedCharacterId == null
+        comparisonStatus = matchStatus == SettingCandidateMatchStatus.AMBIGUOUS
                 ? CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH
                 : CharacterFactComparisonStatus.PENDING;
     }
@@ -763,11 +783,9 @@ public class SettingCandidate extends BaseEntity {
         if (candidateKind != SettingCandidateKind.SETTING) {
             return CharacterFactComparisonStatus.NOT_REQUIRED;
         }
-        return matchedCharacterId != null
-                && (matchStatus == SettingCandidateMatchStatus.MATCHED
-                || matchStatus == SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME)
-                ? CharacterFactComparisonStatus.PENDING
-                : CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH;
+        return matchStatus == SettingCandidateMatchStatus.AMBIGUOUS
+                ? CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH
+                : CharacterFactComparisonStatus.PENDING;
     }
 
     private static String normalizeNullable(String value) {

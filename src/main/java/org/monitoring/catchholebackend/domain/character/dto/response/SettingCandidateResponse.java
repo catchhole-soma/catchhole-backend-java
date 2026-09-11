@@ -149,6 +149,9 @@ public record SettingCandidateResponse(
         @Schema(description = "비교 문맥을 만든 당시 캐릭터 snapshot version", nullable = true)
         Long comparisonBaseSnapshotVersion,
 
+        @Schema(description = "서버가 고정한 비교 그룹 입력 revision", nullable = true)
+        String comparisonRevision,
+
         @Schema(description = "생성 시각", example = "2026-06-14T10:29:00")
         LocalDateTime createdAt,
 

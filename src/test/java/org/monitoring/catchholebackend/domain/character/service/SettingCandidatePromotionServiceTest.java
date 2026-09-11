@@ -24,6 +24,7 @@ import org.monitoring.catchholebackend.domain.character.repository.CharacterSnap
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope;
@@ -50,6 +51,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -766,6 +768,126 @@ class SettingCandidatePromotionServiceTest {
                         "status.마비독"
                 )).isEmpty();
         assertThat(character.getSnapshotVersion()).isEqualTo(versionBeforeRemoval + 1);
+    }
+
+    @Test
+    @DisplayName("GH-189 신규 발생·해제·종족은 이력 3건과 최종 현재값을 남긴다")
+    void newCharacterGroupAppliesComparedOccurrenceAndRecovery() {
+        characterSettingSchemaRepository.save(settingSchema(
+                null,
+                "profile.species",
+                null,
+                CharacterFactType.PROFILE,
+                SettingValueType.JSON,
+                true,
+                CharacterSettingMergePolicy.REPLACE,
+                "종족"
+        ));
+        Episode firstEpisode = episode(1);
+        SettingCandidate occurrence = candidate(
+                firstEpisode,
+                "status.의식_상실",
+                "의식을 잃음",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode().put("name", "의식 상실").put("active", true)
+        );
+        SettingCandidate recovery = candidate(
+                firstEpisode,
+                "status.의식_상실",
+                "의식을 되찾음",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode().put("name", "의식 상실").put("active", false)
+        );
+        SettingCandidate species = candidate(
+                firstEpisode,
+                "profile.species",
+                "바바리안",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode().put("value", "바바리안")
+        );
+
+        // 승격 경계의 회귀 검증을 위해 미등록 대상의 비교 완료 결과를 구성한다.
+        // 실제 신규 scope claim과 비교 완료까지의 통합 검증은 별도 작업 단계다.
+        for (SettingCandidate candidate : List.of(occurrence, recovery, species)) {
+            ReflectionTestUtils.setField(candidate, "comparisonStatus", CharacterFactComparisonStatus.PROCESSING);
+            candidate.recordComparisonContext(0L, "gh-189-empty-baseline");
+        }
+        occurrence.completeComparison(
+                CharacterFactOperation.ADD,
+                CharacterFactType.STATUS,
+                "status.의식_상실",
+                "의식을 잃음",
+                occurrence.getValueJson(),
+                objectMapper.createArrayNode(),
+                CharacterFactTemporalScope.PRESENT,
+                "빈 현재 설정에 의식 상실이 발생함",
+                objectMapper.createObjectNode(),
+                java.time.LocalDateTime.now(),
+                "status.의식_상실",
+                objectMapper.createArrayNode()
+        );
+        recovery.completeComparison(
+                CharacterFactOperation.REMOVE,
+                null,
+                null,
+                null,
+                null,
+                removalEntries("status.의식_상실"),
+                CharacterFactTemporalScope.PRESENT,
+                "앞선 후보에서 발생한 의식 상실이 해제됨",
+                objectMapper.createObjectNode(),
+                java.time.LocalDateTime.now(),
+                "status.의식_상실",
+                objectMapper.createArrayNode().add(occurrence.getId().toString())
+        );
+        species.completeComparison(
+                CharacterFactOperation.ADD,
+                CharacterFactType.PROFILE,
+                "profile.species",
+                "바바리안",
+                species.getValueJson(),
+                objectMapper.createArrayNode(),
+                CharacterFactTemporalScope.PRESENT,
+                "빈 현재 설정에 종족을 추가함",
+                objectMapper.createObjectNode(),
+                java.time.LocalDateTime.now(),
+                "profile.species",
+                objectMapper.createArrayNode()
+        );
+
+        assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId())).isEmpty();
+        assertThat(occurrence.getMatchedCharacterId()).isNull();
+        assertThat(recovery.getMatchedCharacterId()).isNull();
+        assertThat(species.getMatchedCharacterId()).isNull();
+
+        promotionService.promoteNewCharacterGroup(List.of(
+                new SettingCandidateGroupPromotion(occurrence, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL),
+                new SettingCandidateGroupPromotion(recovery, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL),
+                new SettingCandidateGroupPromotion(species, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL)
+        ));
+
+        WorkCharacter character = character("아리아");
+        assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId())).hasSize(1);
+        assertThat(List.of(occurrence, recovery, species))
+                .allMatch(candidate -> candidate.getReviewStatus() == SettingCandidateReviewStatus.CONFIRMED);
+        assertThat(characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId()))
+                .hasSize(3);
+        assertThat(characterFactRepository
+                .findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(
+                        character.getId(), CharacterFactType.STATUS, "status.의식_상실"
+                ))
+                .extracting(CharacterFact::getFactValue)
+                .containsExactlyInAnyOrder("의식을 잃음", "의식을 되찾음");
+        assertThat(snapshotAccessor.read(character))
+                .doesNotContainKey(new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.의식_상실"));
+        assertThat(snapshotAccessor.read(character)
+                .get(new CharacterSnapshotSlot(CharacterFactType.PROFILE, "profile.species"))
+                .factValue()).isEqualTo("바바리안");
+        assertThat(characterSnapshotSourceRepository
+                .findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderBySourceOrderAsc(
+                        character.getId(), CharacterFactType.STATUS, "status.의식_상실"
+                )).isEmpty();
+        assertThat(character.getSnapshotVersion()).isEqualTo(1L);
     }
 
     @Test
@@ -1568,7 +1690,6 @@ class SettingCandidatePromotionServiceTest {
 
     private void prepareComparisonIfRequired(SettingCandidate candidate) {
         if (candidate.isCharacterDiscovery()
-                || candidate.getMatchedCharacterId() == null
                 || candidate.getComparisonStatus()
                 != org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus.PENDING) {
             return;
@@ -1578,16 +1699,18 @@ class SettingCandidatePromotionServiceTest {
                 candidate.getValueType(),
                 characterSettingSchemaRepository.findAllActiveForWork(work.getId())
         );
-        WorkCharacter character = workCharacterRepository.findById(candidate.getMatchedCharacterId()).orElseThrow();
+        WorkCharacter character = candidate.getMatchedCharacterId() == null
+                ? null
+                : workCharacterRepository.findById(candidate.getMatchedCharacterId()).orElseThrow();
         CharacterSnapshotSlot slot = new CharacterSnapshotSlot(
                 schemaMatch.matchedSchema().getFactType(),
                 schemaMatch.factKey()
         );
-        CharacterFactOperation operation = snapshotAccessor.read(character).containsKey(slot)
+        CharacterFactOperation operation = character != null && snapshotAccessor.read(character).containsKey(slot)
                 ? CharacterFactOperation.UPDATE
                 : CharacterFactOperation.ADD;
         candidate.startComparison();
-        candidate.recordComparisonContext(character.getSnapshotVersion(), "test-context");
+        candidate.recordComparisonContext(character == null ? 0L : character.getSnapshotVersion(), "test-context");
         candidate.completeComparison(
                 operation,
                 slot.factType(),
