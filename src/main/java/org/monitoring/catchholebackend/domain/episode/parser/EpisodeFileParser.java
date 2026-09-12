@@ -21,6 +21,8 @@ import org.springframework.web.multipart.MultipartFile;
 @Slf4j
 public class EpisodeFileParser {
 
+    public static final int MAX_UPLOAD_CHARACTERS = 250_000;
+
     private static final Pattern EPISODE_HEADING_PATTERN = Pattern.compile(
             "(?im)^\\h*(?:제\\h*)?(\\d+)\\h*(?:화|회|편|장)\\h*[:：\\-.\\)]?\\h*(.*)$"
                     + "|^\\h*(?:EP|Episode|Chapter)\\h*[._\\h-]?(\\d+)\\h*[:：\\-.\\)]?\\h*(.*)$"
@@ -46,24 +48,41 @@ public class EpisodeFileParser {
         if (uploadType == EpisodeUploadType.MULTI_EPISODE_MULTI_FILE) {
             validateOneEpisodePerFileFormats(sourceEpisodeFiles);
         }
+        List<SourceDocument> sourceDocuments = readWithinCharacterLimit(sourceEpisodeFiles);
         return switch (uploadType) {
             case SINGLE_EPISODE -> parseSingleEpisodeFile(
                     singleEpisodeNo,
                     singleEpisodeTitle,
-                    sourceEpisodeFiles
+                    sourceDocuments
             );
-            case MULTI_EPISODE_MULTI_FILE -> parseOneEpisodePerFile(sourceEpisodeFiles);
-            case MULTI_EPISODE_SINGLE_FILE -> parseMultipleEpisodesFromSingleFile(sourceEpisodeFiles);
+            case MULTI_EPISODE_MULTI_FILE -> parseOneEpisodePerFile(sourceDocuments);
+            case MULTI_EPISODE_SINGLE_FILE -> parseMultipleEpisodesFromSingleFile(sourceDocuments);
         };
+    }
+
+    private List<SourceDocument> readWithinCharacterLimit(List<MultipartFile> sourceFiles) {
+        List<SourceDocument> sourceDocuments = new ArrayList<>();
+        long totalCharacters = 0;
+        for (MultipartFile sourceFile : sourceFiles) {
+            String content = textDocumentReader.readTextPreservingWhitespace(sourceFile);
+            int characters = content.codePointCount(0, content.length());
+            totalCharacters += characters;
+            if (totalCharacters > MAX_UPLOAD_CHARACTERS) {
+                throw new AppException(UploadErrorCode.UPLOAD_CHARACTER_LIMIT_EXCEEDED);
+            }
+            sourceDocuments.add(new SourceDocument(sourceFile, content, characters));
+        }
+        return sourceDocuments;
     }
 
     private List<DetectedEpisodeFile> parseSingleEpisodeFile(
             Integer singleEpisodeNo,
             String singleEpisodeTitle,
-            List<MultipartFile> sourceEpisodeFiles
+            List<SourceDocument> sourceDocuments
     ) {
-        MultipartFile sourceFile = sourceEpisodeFiles.getFirst();
-        String content = textDocumentReader.readText(sourceFile);
+        SourceDocument document = sourceDocuments.getFirst();
+        MultipartFile sourceFile = document.sourceFile();
+        String content = document.content();
         validateOneEpisodePerFileContent(
                 content,
                 UploadErrorCode.UPLOAD_SINGLE_EPISODE_COUNT_INVALID
@@ -76,13 +95,14 @@ public class EpisodeFileParser {
                 resolveEpisodeTitle(singleEpisodeTitle, content, episodeNo),
                 content
         );
-        return List.of(new DetectedEpisodeFile(sourceFile, List.of(detectedEpisode)));
+        return List.of(new DetectedEpisodeFile(sourceFile, List.of(detectedEpisode), document.characters()));
     }
 
-    private List<DetectedEpisodeFile> parseOneEpisodePerFile(List<MultipartFile> sourceEpisodeFiles) {
+    private List<DetectedEpisodeFile> parseOneEpisodePerFile(List<SourceDocument> sourceDocuments) {
         List<DetectedEpisodeFile> detectedEpisodeFiles = new ArrayList<>();
-        for (MultipartFile sourceFile : sourceEpisodeFiles) {
-            String content = textDocumentReader.readText(sourceFile);
+        for (SourceDocument document : sourceDocuments) {
+            MultipartFile sourceFile = document.sourceFile();
+            String content = document.content();
             validateOneEpisodePerFileContent(
                     content,
                     UploadErrorCode.UPLOAD_MULTI_FILE_EPISODE_COUNT_INVALID
@@ -93,16 +113,17 @@ public class EpisodeFileParser {
                     resolveEpisodeTitle(null, content, episodeNo),
                     content
             );
-            detectedEpisodeFiles.add(new DetectedEpisodeFile(sourceFile, List.of(detectedEpisode)));
+            detectedEpisodeFiles.add(new DetectedEpisodeFile(sourceFile, List.of(detectedEpisode), document.characters()));
         }
         return detectedEpisodeFiles;
     }
 
     private List<DetectedEpisodeFile> parseMultipleEpisodesFromSingleFile(
-            List<MultipartFile> sourceEpisodeFiles
+            List<SourceDocument> sourceDocuments
     ) {
-        MultipartFile sourceFile = sourceEpisodeFiles.getFirst();
-        String episodeText = textDocumentReader.readText(sourceFile);
+        SourceDocument document = sourceDocuments.getFirst();
+        MultipartFile sourceFile = document.sourceFile();
+        String episodeText = document.content();
         List<EpisodeHeading> headings = findEpisodeHeadings(episodeText);
         if (headings.isEmpty()) {
             throw new AppException(UploadErrorCode.UPLOAD_EPISODE_NO_DETECTION_FAILED);
@@ -157,7 +178,7 @@ public class EpisodeFileParser {
             ));
         }
 
-        return List.of(new DetectedEpisodeFile(sourceFile, detectedEpisodes));
+        return List.of(new DetectedEpisodeFile(sourceFile, detectedEpisodes, document.characters()));
     }
 
     private void validateSourceFileCount(
@@ -292,5 +313,8 @@ public class EpisodeFileParser {
     }
 
     private record EpisodeHeading(int startOffset, int endOffset, int episodeNo, String title) {
+    }
+
+    private record SourceDocument(MultipartFile sourceFile, String content, int characters) {
     }
 }

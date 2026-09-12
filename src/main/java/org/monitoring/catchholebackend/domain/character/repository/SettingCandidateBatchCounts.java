@@ -9,4 +9,14 @@ public interface SettingCandidateBatchCounts {
     long getPendingCandidateCount();
 
     long getMatchRequiredCandidateCount();
+
+    long getAttentionRequiredCandidateCount();
+    long getConfirmedCandidateCount();
+
+    long getDismissedCandidateCount();
+
+    long getDirectReviewCandidateCount();
+
+    long getProcessingCandidateCount();
+
 }

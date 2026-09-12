@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.worldsetting.mapper;
 
+import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisExplanationText;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
 import java.util.Objects;
@@ -25,6 +26,8 @@ import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReco
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingRecomparisonScope;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.WorldSettingComparisonDiagnostic;
+import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -107,6 +110,7 @@ public class WorldSettingMapper {
                 candidate.getSourceEpisode().getId(),
                 candidate.getSourceEpisode().getEpisodeNo(),
                 candidate.getAnalysisJob().getId(),
+                candidate.getAnalysisJob().getAnalysisMode(),
                 candidate.getComparisonBatch() == null
                         ? null
                         : candidate.getComparisonBatch().getId(),
@@ -139,7 +143,11 @@ public class WorldSettingMapper {
                 candidate.getProposedSettingName(),
                 candidate.getBeforeValue(),
                 candidate.getProposedValue(),
-                candidate.getComparisonReason(),
+                AnalysisExplanationText.forReader(candidate.getComparisonReason(), candidate.getSubjectName(),
+                        candidate.getEffectiveSubjectName(), candidate.getScopeName(), candidate.getSettingName(),
+                        candidate.getMatchedScopeName(), candidate.getMatchedPropertyName(),
+                        candidate.getProposedScopeName(), candidate.getProposedSettingName(),
+                        candidate.getExtractedValue(), candidate.getBeforeValue(), candidate.getProposedValue()),
                 candidate.getBaseWorldSettingVersion(),
                 candidate.getComparedAt(),
                 candidate.getComparisonStatus(),
@@ -159,8 +167,24 @@ public class WorldSettingMapper {
                 candidate.getReviewedAt(),
                 candidate.getAppliedWorldSettingVersion(),
                 candidate.getCreatedAt(),
-                candidate.getUpdatedAt()
+                candidate.getUpdatedAt(),
+                candidate.isManualReviewAvailable(),
+                toComparisonDiagnostics(candidate.getComparisonDiagnostics()),
+                candidate.isPendingReview() ? candidate.getAutomaticReviewHoldReason() : null,
+                candidate.isAutomaticApplicationPending()
         );
+    }
+
+    private List<WorldSettingComparisonDiagnostic> toComparisonDiagnostics(JsonNode value) {
+        if (value == null || !value.isArray()) return List.of();
+        return StreamSupport.stream(value.spliterator(), false).map(entry -> new WorldSettingComparisonDiagnostic(
+                entry.path("attempt").asInt(), textValue(entry, "rule"),
+                StreamSupport.stream(entry.path("candidateRefs").spliterator(), false).map(JsonNode::asText).toList(),
+                StreamSupport.stream(entry.path("selectedProperties").spliterator(), false).map(path ->
+                        new WorldSettingComparisonDiagnostic.SelectedProperty(path.hasNonNull("targetWorldSettingId")
+                                ? UUID.fromString(path.path("targetWorldSettingId").asText()) : null,
+                                textValue(path, "provisionalSubjectKey"), textValue(path, "scopeName"),
+                                textValue(path, "propertyName"))).toList())).toList();
     }
 
     private String publicComparisonErrorMessage(WorldSettingCandidate candidate) {
@@ -168,7 +192,7 @@ public class WorldSettingMapper {
             return publicComparisonFailureCode(candidate).getPublicMessage();
         }
         if (candidate.getComparisonStatus() == WorldSettingComparisonStatus.RECOMPARISON_REQUIRED) {
-            return candidate.getComparisonErrorMessage();
+            return AnalysisExplanationText.forReader(candidate.getComparisonErrorMessage());
         }
         return null;
     }

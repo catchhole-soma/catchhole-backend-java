@@ -26,6 +26,8 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobLeaseService;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.WorldSettingComparisonDiagnostic;
+import org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingComparisonDiagnostics;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorkerWorldSettingCandidatePublishRequest;
@@ -91,6 +93,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
     private final WorldSettingComparisonDecisionSourceRepository comparisonSourceRepository;
     private final WorldSettingRepository worldSettingRepository;
     private final WorldSettingWorkerMapper worldSettingWorkerMapper;
+    private final OrderedWorldSettingWorker orderedWorker;
 
     @Override
     @Transactional
@@ -124,7 +127,9 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
         )) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_NOT_EDITABLE);
         }
-        validateDistinctCandidateSettingNames(request);
+        if (!analysisJob.isOrderedProvisional()) {
+            validateDistinctCandidateSettingNames(request);
+        }
 
         worldSettingCandidateRepository.deleteAllByAnalysisJobId(analysisJobId);
         List<WorldSettingCandidate> candidates = request.candidates().stream()
@@ -167,6 +172,9 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 analysisJobId,
                 leaseToken
         );
+        if (analysisJob.isOrderedProvisional()) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_WORKER_JOB_INVALID);
+        }
         WorldSettingCandidate candidate;
         if (analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION) {
             if (!analysisJob.hasReachedCheckpoint(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED)) {
@@ -195,7 +203,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
     }
 
     @Override
-    @Transactional
+    @Transactional(noRollbackFor = org.monitoring.catchholebackend.domain.worldsetting.exception.OrderedWorldSettingComparisonClaimException.class)
     public Optional<WorkerWorldSettingComparisonBatchPayload>
             claimNextWorldSettingComparisonBatch(
             UUID analysisJobId,
@@ -205,6 +213,9 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 analysisJobId,
                 leaseToken
         );
+        if (analysisJob.isOrderedProvisional()) {
+            return orderedWorker.claimBatch(analysisJob);
+        }
         if (analysisJob.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON) {
             WorldSettingCandidate candidate = lockLinkedCandidate(analysisJob);
             if (!candidate.isPendingReview()
@@ -287,6 +298,9 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 analysisJobId,
                 leaseToken
         );
+        if (analysisJob.isOrderedProvisional()) {
+            return orderedWorker.getPendingSubjects(analysisJob);
+        }
         List<WorldSettingCandidate> candidates = subjectResolutionCandidates(analysisJob);
         return worldSettingWorkerMapper.toSubjectResolutionPendingResponse(
                 candidates.stream()
@@ -306,6 +320,9 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 analysisJobId,
                 leaseToken
         );
+        if (analysisJob.isOrderedProvisional()) {
+            return orderedWorker.resolveSubjects(analysisJob, request);
+        }
         List<WorldSettingCandidate> candidates = subjectResolutionCandidates(analysisJob);
         Map<UUID, WorldSettingCandidate> candidatesById = new LinkedHashMap<>();
         candidates.forEach(candidate -> candidatesById.put(candidate.getId(), candidate));
@@ -401,6 +418,9 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 analysisJobId,
                 leaseToken
         );
+        if (analysisJob.isOrderedProvisional()) {
+            return orderedWorker.getContext(analysisJob, comparisonBatchId, request);
+        }
         WorldSettingComparisonBatch batch = getOwnedComparisonBatchForUpdate(
                 analysisJob,
                 comparisonBatchId
@@ -504,6 +524,9 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 analysisJobId,
                 leaseToken
         );
+        if (analysisJob.isOrderedProvisional()) {
+            return orderedWorker.getSubjects(analysisJob, category, page, size);
+        }
         Page<WorldSetting> worldSettingPage = worldSettingRepository
                 .findAllByWorkIdAndCategoryOrderBySubjectNameAscIdAsc(
                         analysisJob.getWork().getId(),
@@ -531,6 +554,9 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 analysisJobId,
                 leaseToken
         );
+        if (analysisJob.isOrderedProvisional()) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_WORKER_JOB_INVALID);
+        }
         WorldSettingCandidate candidate = getOwnedProcessingCandidate(analysisJob, candidateId);
         Set<UUID> requestedIds = new HashSet<>(request.targetWorldSettingIds());
         if (requestedIds.size() != request.targetWorldSettingIds().size()) {
@@ -574,6 +600,9 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 analysisJobId,
                 leaseToken
         );
+        if (analysisJob.isOrderedProvisional()) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_WORKER_JOB_INVALID);
+        }
         WorldSettingCandidate candidate = getOwnedProcessingCandidate(analysisJob, candidateId);
         Map<UUID, WorldSetting> contextTargets = validateContext(candidate, request);
         WorldSetting target = request.targetWorldSettingId() == null
@@ -620,6 +649,13 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 analysisJobId,
                 leaseToken
         );
+        if (analysisJob.isOrderedProvisional()) {
+            orderedWorker.completeBatch(analysisJob, comparisonBatchId, request);
+            return;
+        }
+        if (request.decisions().isEmpty() || !request.failures().isEmpty() || !request.diagnostics().isEmpty()) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
+        }
         String requestHash = completionHash(request);
         WorldSettingComparisonBatch batch = getOwnedComparisonBatchForUpdate(
                 analysisJob,
@@ -756,6 +792,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 analysisJob,
                 candidateId
         );
+        JsonNode diagnostics = validatedFailureDiagnostics(candidate.getComparisonBatch(), request.diagnostics());
         if (candidate.getComparisonStatus() == WorldSettingComparisonStatus.PENDING) {
             NormalizedComparisonFailure failure = normalizeComparisonFailure(request);
             if (failure.failureCode() != AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED) {
@@ -764,6 +801,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 );
             }
             candidate.interruptComparisonForTokenQuota(failure.errorMessage());
+            candidate.recordComparisonDiagnostics(WorldSettingComparisonDiagnostics.forCandidate(diagnostics, candidate.getComparisonCandidateRef()));
             return;
         }
         if (candidate.getComparisonStatus() != WorldSettingComparisonStatus.PROCESSING) {
@@ -777,6 +815,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 request.sourceErrorCode(),
                 request.sourceReasonCode()
         );
+        candidate.recordComparisonDiagnostics(WorldSettingComparisonDiagnostics.forCandidate(diagnostics, candidate.getComparisonCandidateRef()));
     }
 
     @Override
@@ -796,9 +835,10 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 analysisJob,
                 comparisonBatchId
         );
+        JsonNode diagnostics = validatedFailureDiagnostics(batch, request.diagnostics());
         if (!batch.isProcessing()) {
             if (batch.getStatus() == WorldSettingComparisonBatchStatus.FAILED
-                    && isSameFailedBatchRequest(batch, failure)) {
+                    && isSameFailedBatchRequest(batch, failure, diagnostics)) {
                 return;
             }
             throw new AppException(
@@ -813,6 +853,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                     failure.sourceErrorCode(),
                     failure.sourceReasonCode()
             );
+            candidate.recordComparisonDiagnostics(WorldSettingComparisonDiagnostics.forCandidate(diagnostics, candidate.getComparisonCandidateRef()));
         }
         batch.fail(failure.failureCode(), failure.errorMessage());
     }
@@ -904,7 +945,13 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
     ) {
         WorldSettingSuggestedOperation operation = request.suggestedOperation();
         if (operation == WorldSettingSuggestedOperation.REVIEW_REQUIRED) {
-            validateScopeUnresolvedReview(candidate, target, request);
+            if (request.comparisonReviewReason() == WorldSettingComparisonReviewReason.GENERAL_UNCERTAINTY) {
+                validateGeneralUncertaintyReview(candidate, target, request.matchedScopeName(),
+                        request.matchedPropertyName(), request.proposedScopeName(), request.proposedSettingName(),
+                        request.proposedValue());
+            } else {
+                validateScopeUnresolvedReview(candidate, target, request);
+            }
             return;
         }
         if (request.comparisonReviewReason() != null) {
@@ -992,6 +1039,23 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 && target.getProperties().stream().anyMatch(property ->
                 property.scopeName() != null
                         && sameName(property.settingName(), candidate.getSettingName()));
+    }
+
+    private void validateGeneralUncertaintyReview(
+            WorldSettingCandidate candidate, WorldSetting target,
+            String matchedScopeName, String matchedPropertyName,
+            String proposedScopeName, String proposedSettingName, String proposedValue
+    ) {
+        if (!sameName(candidate.getScopeName(), proposedScopeName)
+                || !sameName(candidate.getSettingName(), proposedSettingName)
+                || !Objects.equals(candidate.getExtractedValue(), proposedValue)) {
+            throw invalidComparisonTarget(WorldSettingComparisonValidationReason.PROPOSED_PATH_MISMATCH);
+        }
+        if (isBlank(matchedPropertyName) && !isBlank(matchedScopeName)
+                || !isBlank(matchedPropertyName) && (target == null
+                    || target.getStoredPropertyPath(matchedScopeName, matchedPropertyName) == null)) {
+            throw invalidComparisonTarget(WorldSettingComparisonValidationReason.SCOPE_REVIEW_MATCHED_PATH_INVALID);
+        }
     }
 
     private void validateScopeUnresolvedReview(
@@ -1486,7 +1550,8 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
 
     private boolean isSameFailedBatchRequest(
             WorldSettingComparisonBatch batch,
-            NormalizedComparisonFailure failure
+            NormalizedComparisonFailure failure,
+            JsonNode diagnostics
     ) {
         if (batch.getFailureCode() != failure.failureCode()
                 || !Objects.equals(batch.getErrorMessage(), failure.errorMessage())) {
@@ -1507,7 +1572,21 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                         failure.sourceErrorCode()
                 )
                         && candidate.getComparisonSourceReasonCode()
-                        == failure.sourceReasonCode());
+                        == failure.sourceReasonCode()
+                        && Objects.equals(candidate.getComparisonDiagnostics() == null
+                                ? com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.arrayNode() : candidate.getComparisonDiagnostics(),
+                        WorldSettingComparisonDiagnostics.forCandidate(diagnostics, candidate.getComparisonCandidateRef())));
+    }
+
+    private JsonNode validatedFailureDiagnostics(WorldSettingComparisonBatch batch,
+            List<WorldSettingComparisonDiagnostic> diagnostics) {
+        Set<String> refs = batch == null ? Set.of() : worldSettingCandidateRepository
+                .findAllByComparisonBatchIdOrderByCreatedAtAscIdAsc(batch.getId()).stream()
+                .map(WorldSettingCandidate::getComparisonCandidateRef).filter(Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+        JsonNode snapshot = batch == null ? null : batch.getContextSnapshotJson();
+        return WorldSettingComparisonDiagnostics.validate(diagnostics, refs,
+                snapshot == null ? null : snapshot.path("targets"));
     }
 
     private NormalizedComparisonFailure normalizeComparisonFailure(
@@ -1867,6 +1946,13 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                         resolvedTargetIds,
                         request
                 );
+            } else if (request.comparisonReviewReason() == WorldSettingComparisonReviewReason.GENERAL_UNCERTAINTY) {
+                if (sources.size() != 1) {
+                    throw invalidComparisonTarget(WorldSettingComparisonValidationReason.BATCH_CONSOLIDATION_STATUS_INVALID);
+                }
+                validateGeneralUncertaintyReview(sources.getFirst(), target, request.matchedScopeName(),
+                        request.matchedPropertyName(), request.proposedScopeName(), request.proposedSettingName(),
+                        request.proposedValue());
             } else {
                 validateBatchScopeReview(sources, target, request);
             }

@@ -33,6 +33,7 @@ public class EpisodeDetectionMapper {
                 uploadType,
                 detectedEpisodes.size(),
                 detectedEpisodes.stream().mapToInt(DetectedEpisodeResponse::charCount).sum(),
+                detectedEpisodeFiles.stream().mapToInt(DetectedEpisodeFile::uploadCharacters).sum(),
                 detectedEpisodes
         );
     }

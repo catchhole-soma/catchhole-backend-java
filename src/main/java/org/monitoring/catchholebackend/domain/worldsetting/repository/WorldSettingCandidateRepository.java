@@ -24,6 +24,30 @@ import org.springframework.data.repository.query.Param;
 
 public interface WorldSettingCandidateRepository extends JpaRepository<WorldSettingCandidate, UUID> {
 
+    @Query("""
+            select distinct candidate.analysisJob from WorldSettingCandidate candidate
+            where candidate.work.id = :workId and candidate.id in :candidateIds
+              and candidate.reviewStatus = org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.PENDING_REVIEW
+            """)
+    List<org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob> findPendingReviewSourceJobs(
+            @Param("workId") UUID workId, @Param("candidateIds") Collection<UUID> candidateIds);
+
+    boolean existsByAnalysisJobIdAndComparisonStatusAndComparisonFailureCodeIn(UUID analysisJobId,
+            org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus comparisonStatus,
+            java.util.Collection<org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode> failureCodes);
+
+    @Query("""
+            select min(coalesce(episode.episodeNo, 0)) from WorldSettingCandidate candidate
+            left join candidate.sourceEpisode episode
+            where candidate.work.id = :workId and candidate.id in :candidateIds
+              and candidate.reviewStatus = :reviewStatus
+            """)
+    Integer findMutationSourceEpisodeNo(
+            @Param("workId") UUID workId,
+            @Param("candidateIds") java.util.Collection<UUID> candidateIds,
+            @Param("reviewStatus") WorldSettingReviewStatus reviewStatus
+    );
+
     List<WorldSettingCandidate> findAllBySourceEpisodeId(UUID episodeId);
 
     Optional<WorldSettingCandidate> findByIdAndWorkId(UUID id, UUID workId);
@@ -71,6 +95,20 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
 
     @Query("""
             select count(candidate) as totalCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus = org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.CONFIRMED then 1 else 0 end), 0) as confirmedCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus = org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.DISMISSED then 1 else 0 end), 0) as dismissedCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus = :pendingReview
+                     and candidate.comparisonStatus not in (org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus.PENDING, org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus.PROCESSING)
+                     and not (analysisJob.reviewMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC
+                         and analysisJob.automaticAppliedAt is null
+                         and analysisJob.status in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING, org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING))
+                     then 1 else 0 end), 0) as directReviewCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus = :pendingReview
+                     and (candidate.comparisonStatus in (org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus.PENDING, org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus.PROCESSING)
+                         or (analysisJob.reviewMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC
+                         and analysisJob.automaticAppliedAt is null
+                         and analysisJob.status in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING, org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING)))
+                     then 1 else 0 end), 0) as processingCandidateCount,
                    coalesce(sum(case when candidate.reviewStatus <> :pendingReview then 1 else 0 end), 0)
                        as reviewedCandidateCount,
                    coalesce(sum(case when candidate.reviewStatus = :pendingReview then 1 else 0 end), 0)
@@ -218,6 +256,9 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
     );
 
     List<WorldSettingCandidate> findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(UUID analysisJobId);
+
+    List<WorldSettingCandidate> findAllByWorkIdAndReviewStatusOrderByCreatedAtDesc(
+            UUID workId, WorldSettingReviewStatus reviewStatus);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @EntityGraph(attributePaths = {"work", "sourceEpisode", "analysisJob"})

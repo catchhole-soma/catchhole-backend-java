@@ -3,6 +3,7 @@ package org.monitoring.catchholebackend.domain.worldsetting.service;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCreateRequest;
@@ -36,6 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class WorldSettingServiceImpl implements WorldSettingService {
 
     private final WorkRepository workRepository;
+    private final AnalysisRunStateService analysisRunStateService;
     private final WorldSettingRepository worldSettingRepository;
     private final WorldSettingCandidateRepository worldSettingCandidateRepository;
     private final WorldSettingMapper worldSettingMapper;
@@ -91,6 +93,8 @@ public class WorldSettingServiceImpl implements WorldSettingService {
             WorldSettingCreateRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        analysisRunStateService.invalidateRunsForWorkForUpdate(
+                work.getId(), null, "사용자가 확정 설정을 변경했습니다.");
         String normalizedSubjectName = WorldSettingNameNormalizer.duplicateKey(request.subjectName());
         if (worldSettingRepository.findByWorkIdAndCategoryAndNormalizedSubjectName(
                 work.getId(),
@@ -113,6 +117,8 @@ public class WorldSettingServiceImpl implements WorldSettingService {
             WorldSettingIdentityUpdateRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        analysisRunStateService.invalidateRunsForWorkForUpdate(
+                work.getId(), null, "사용자가 확정 설정을 변경했습니다.");
         WorldSetting worldSetting = getWorldSettingForUpdate(worldSettingId, work.getId());
         worldSetting.validateVersion(request.version());
         String normalizedSubjectName = WorldSettingNameNormalizer.duplicateKey(request.subjectName());
@@ -138,6 +144,8 @@ public class WorldSettingServiceImpl implements WorldSettingService {
             WorldSettingPropertyCreateRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        analysisRunStateService.invalidateRunsForWorkForUpdate(
+                work.getId(), null, "사용자가 확정 설정을 변경했습니다.");
         WorldSetting worldSetting = getWorldSettingForUpdate(worldSettingId, work.getId());
         worldSetting.validateVersion(request.version());
         worldSetting.addProperty(request.scopeName(), request.settingName(), request.settingValue());
@@ -154,6 +162,8 @@ public class WorldSettingServiceImpl implements WorldSettingService {
             WorldSettingPropertyUpdateRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        analysisRunStateService.invalidateRunsForWorkForUpdate(
+                work.getId(), null, "사용자가 확정 설정을 변경했습니다.");
         WorldSetting worldSetting = getWorldSettingForUpdate(worldSettingId, work.getId());
         worldSetting.validateVersion(request.version());
         worldSetting.updateProperty(

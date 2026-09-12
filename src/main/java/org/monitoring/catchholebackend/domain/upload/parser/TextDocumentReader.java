@@ -28,19 +28,32 @@ public class TextDocumentReader {
     private static final String DOCX_DOCUMENT_ENTRY = "word/document.xml";
 
     public String readText(MultipartFile sourceFile) {
+        return readText(sourceFile, false);
+    }
+
+    /** 회차 업로드 분량 검사에서는 DOCX 본문 앞뒤의 원고 공백도 빠뜨리지 않는다. */
+    public String readTextPreservingWhitespace(MultipartFile sourceFile) {
+        return readText(sourceFile, true);
+    }
+
+    private String readText(MultipartFile sourceFile, boolean preserveWhitespace) {
         validateTextDocument(sourceFile);
         try {
-            return readText(requireOriginalFilename(sourceFile), sourceFile.getBytes());
+            return readText(requireOriginalFilename(sourceFile), sourceFile.getBytes(), preserveWhitespace);
         } catch (IOException exception) {
             throw new AppException(UploadErrorCode.UPLOAD_FILE_READ_FAILED, exception);
         }
     }
 
     public String readText(String originalFilename, byte[] fileBytes) {
+        return readText(originalFilename, fileBytes, false);
+    }
+
+    private String readText(String originalFilename, byte[] fileBytes, boolean preserveWhitespace) {
         validateTextDocument(originalFilename, fileBytes);
         try {
             String content = originalFilename.toLowerCase(Locale.ROOT).endsWith(".docx")
-                    ? readDocxText(fileBytes)
+                    ? readDocxText(fileBytes, preserveWhitespace)
                     : stripUtf8Bom(new String(fileBytes, StandardCharsets.UTF_8));
             if (!StringUtils.hasText(content)) {
                 throw new AppException(UploadErrorCode.UPLOAD_FILE_EMPTY);
@@ -75,7 +88,7 @@ public class TextDocumentReader {
         }
     }
 
-    private String readDocxText(byte[] fileBytes) throws IOException, XMLStreamException {
+    private String readDocxText(byte[] fileBytes, boolean preserveWhitespace) throws IOException, XMLStreamException {
         try (ZipInputStream zipInputStream = new ZipInputStream(new ByteArrayInputStream(fileBytes))) {
             byte[] buffer = new byte[DOCX_READ_BUFFER_SIZE];
             long totalUncompressedBytes = 0;
@@ -131,7 +144,11 @@ public class TextDocumentReader {
                     }
                 }
                 reader.close();
-                String result = text.toString().trim();
+                // 마지막 문단 끝에서 reader가 붙인 구분 줄바꿈만 제외한다. 실제 원고 공백은 유지한다.
+                String extractedText = text.toString();
+                String result = preserveWhitespace
+                        ? (extractedText.endsWith("\n") ? extractedText.substring(0, extractedText.length() - 1) : extractedText)
+                        : extractedText.trim();
                 if (!StringUtils.hasText(result)) {
                     throw new AppException(UploadErrorCode.UPLOAD_FILE_PARSE_FAILED);
                 }

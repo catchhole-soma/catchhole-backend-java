@@ -16,6 +16,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface WorldSettingRepository extends JpaRepository<WorldSetting, UUID> {
 
+    List<WorldSetting> findAllByWorkIdOrderByIdAsc(UUID workId);
+
     long countByWorkId(UUID workId);
 
     Optional<WorldSetting> findByIdAndWorkId(UUID id, UUID workId);

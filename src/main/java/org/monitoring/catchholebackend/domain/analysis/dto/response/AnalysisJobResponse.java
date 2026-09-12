@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.analysis.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -7,6 +8,7 @@ import java.util.UUID;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode;
 
 @Schema(description = "분석 작업 응답")
 public record AnalysisJobResponse(
@@ -71,6 +73,13 @@ public record AnalysisJobResponse(
         LocalDateTime createdAt,
 
         @Schema(description = "수정 시각", example = "2026-06-14T10:29:00")
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        @Schema(description = "누적 분석 실행의 고정 모드와 변경 기록 상태. CONFIRMED_ONLY 직접 검토에서는 생략합니다.", nullable = true)
+        AnalysisRunResponse analysisRun,
+
+        @Schema(description = "설정 반영 방식") AnalysisReviewMode reviewMode,
+        @Schema(description = "캐릭터·세계관 자동 반영 완료 시각", nullable = true) LocalDateTime automaticAppliedAt
 ) {
 }

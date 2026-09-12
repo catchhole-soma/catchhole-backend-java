@@ -105,6 +105,10 @@ public class WorldSettingComparisonBatch extends BaseEntity {
     )
     private JsonNode resolvedTargetWorldSettingIds;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "resolved_provisional_subject_keys", nullable = false, updatable = false, columnDefinition = "jsonb")
+    private JsonNode resolvedProvisionalSubjectKeys = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.arrayNode();
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 30)
     private WorldSettingComparisonBatchStatus status;
@@ -203,6 +207,32 @@ public class WorldSettingComparisonBatch extends BaseEntity {
     public void recordContext(JsonNode contextSnapshotJson) {
         requireProcessing();
         this.contextSnapshotJson = Objects.requireNonNull(contextSnapshotJson);
+    }
+
+    public static WorldSettingComparisonBatch createOrdered(
+            Work work, Episode episode, AnalysisJob job, WorldSettingCategory category, String scope,
+            WorldSettingSubjectResolutionType type, String canonicalKey, String canonicalName,
+            JsonNode actualIds, JsonNode provisionalKeys, int count
+    ) {
+        if (!job.isOrderedProvisional() || count < 1 || actualIds == null || !actualIds.isArray()
+                || provisionalKeys == null || !provisionalKeys.isArray()
+                || actualIds.size() + provisionalKeys.size() > 20) {
+            throw new IllegalArgumentException("누적 세계관 비교 대상이 올바르지 않습니다.");
+        }
+        WorldSettingComparisonBatch batch = new WorldSettingComparisonBatch();
+        batch.work = Objects.requireNonNull(work);
+        batch.sourceEpisode = Objects.requireNonNull(episode);
+        batch.analysisJob = job;
+        batch.category = Objects.requireNonNull(category);
+        batch.rawScopeName = scope;
+        batch.subjectResolutionType = Objects.requireNonNull(type);
+        batch.canonicalSubjectKey = Objects.requireNonNull(canonicalKey);
+        batch.canonicalSubjectName = Objects.requireNonNull(canonicalName);
+        batch.resolvedTargetWorldSettingIds = actualIds.deepCopy();
+        batch.resolvedProvisionalSubjectKeys = provisionalKeys.deepCopy();
+        batch.candidateCount = count;
+        batch.status = WorldSettingComparisonBatchStatus.PROCESSING;
+        return batch;
     }
 
     public void complete(String completionHash, JsonNode rawCompletionJson) {

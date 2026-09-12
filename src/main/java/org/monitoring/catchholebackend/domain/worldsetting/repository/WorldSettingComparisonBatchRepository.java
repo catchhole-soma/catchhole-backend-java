@@ -50,4 +50,16 @@ public interface WorldSettingComparisonBatchRepository
     int purgeSourceEvidenceBySourceEpisodeId(
             @Param("sourceEpisodeId") UUID sourceEpisodeId
     );
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update WorldSettingComparisonBatch batch set batch.contextSnapshotJson = null
+            where batch.analysisJob.id in (
+                select job.id from AnalysisJob job
+                where job.work.id = :workId and job.sourceEpisodeNo >= :sourceEpisodeNo
+                  and job.analysisMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL
+            )
+            """)
+    int purgeOrderedContextByWorkIdAndSourceEpisodeNo(
+            @Param("workId") UUID workId, @Param("sourceEpisodeNo") int sourceEpisodeNo);
+
 }

@@ -17,6 +17,7 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisJobWorkerMapper;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobClaimRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
@@ -45,6 +46,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSetti
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonBatchStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
+import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -55,7 +57,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
 
-    private static final int CLAIM_SIZE = 1;
+    private final AnalysisJobClaimRepository analysisJobClaimRepository;
+    private final AnalysisRunStateService analysisRunStateService;
+    private final List<AnalysisJournalContributor> analysisJournalContributors;
+    private final List<AnalysisAutomaticApplicationContributor> automaticApplicationContributors;
+    private final WorkRepository workRepository;
+
     private static final int EXPIRED_LEASE_SCAN_SIZE = 20;
     private static final int MAX_CLAIM_ATTEMPTS = 3;
     private static final Duration LEASE_DURATION = Duration.ofMinutes(5);
@@ -83,16 +90,15 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     public Optional<WorkerAnalysisJobPayload> claimAnalysisJob(WorkerAnalysisJobClaimRequest request) {
         LocalDateTime now = LocalDateTime.now();
         recoverExpiredLeases(request.allowedJobTypes(), now);
-        List<AnalysisJob> claimCandidates = analysisJobRepository.findClaimCandidates(
-                AnalysisJobStatus.PENDING,
-                request.allowedJobTypes(),
-                PageRequest.of(0, CLAIM_SIZE)
-        );
-        if (claimCandidates.isEmpty()) {
+        Optional<AnalysisJob> claimed = analysisJobClaimRepository.findClaimableJob(request);
+        if (claimed.isEmpty()) {
             return Optional.empty();
         }
 
-        AnalysisJob analysisJob = claimCandidates.getFirst();
+        AnalysisJob analysisJob = claimed.get();
+        if (analysisJob.isOrderedProvisional() && !analysisRunStateService.prepareInput(analysisJob)) {
+            return Optional.empty();
+        }
         analysisJob.claim(request.modelName(), request.currentStep(), now.plus(LEASE_DURATION));
 
         boolean hiddenComparison = isHiddenComparisonJob(analysisJob);
@@ -132,7 +138,8 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 targetEpisode,
                 characterSettingSchemas,
                 knownCharacters,
-                activeStatusSources
+                activeStatusSources,
+                analysisJob.isOrderedProvisional() ? analysisRunStateService.getInputState(analysisJob) : null
         ));
     }
 
@@ -173,11 +180,47 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             UUID leaseToken,
             WorkerAnalysisJobCompleteRequest request
     ) {
+        // 사용자 수정과 같은 Work → Job 잠금 순서로 두 도메인의 반영과 완료를 원자적으로 처리한다.
+        analysisJobRepository.findById(analysisJobId).filter(AnalysisJob::isAutomaticReview)
+                .ifPresent(job -> workRepository.findByIdForUpdate(job.getWork().getId())
+                        .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND)));
         AnalysisJob analysisJob = analysisJobLeaseService.getRunningAnalysisJobForUpdate(
                 analysisJobId,
                 leaseToken
         );
         validateCompletion(analysisJob);
+        if (analysisJob.isOrderedProvisional()) {
+            analysisJournalContributors.forEach(contributor -> contributor.finalizeChanges(analysisJob));
+            boolean incomplete = settingCandidateRepository.existsByAnalysisJobIdAndComparisonStatusIn(
+                    analysisJob.getId(), List.of(CharacterFactComparisonStatus.FAILED))
+                    || worldSettingCandidateRepository.existsByAnalysisJobIdAndComparisonStatusIn(
+                    analysisJob.getId(), List.of(WorldSettingComparisonStatus.FAILED));
+            boolean fatalComparison = incomplete && (settingCandidateRepository
+                    .findAllByAnalysisJobIdAndComparisonStatusIn(analysisJob.getId(),
+                            List.of(CharacterFactComparisonStatus.FAILED)).stream()
+                    .anyMatch(candidate -> !candidate.canDeferFailedComparison())
+                    || worldSettingCandidateRepository.findAllByAnalysisJobIdAndComparisonStatus(
+                            analysisJob.getId(), WorldSettingComparisonStatus.FAILED).stream()
+                    .anyMatch(candidate -> !candidate.canDeferFailedComparison()));
+            if (incomplete && (!analysisJob.isAutomaticReview() || fatalComparison)) {
+                analysisJob.markJournalIncomplete();
+            } else {
+                analysisRunStateService.seal(analysisJob);
+                if (analysisJob.isAutomaticReview()) {
+                    java.util.Set<String> domains = new java.util.HashSet<>();
+                    for (AnalysisAutomaticApplicationContributor contributor : automaticApplicationContributors) {
+                        if (!domains.add(contributor.applicationDomain())) {
+                            throw new IllegalStateException("자동 반영 도메인이 중복되었습니다.");
+                        }
+                        contributor.applyAutomatically(analysisJob);
+                    }
+                    if (!domains.equals(java.util.Set.of("characters", "worldSettings"))) {
+                        throw new IllegalStateException("캐릭터와 세계관 자동 반영이 모두 필요합니다.");
+                    }
+                    analysisJob.completeAutomaticApplication();
+                }
+            }
+        }
         if (!isHiddenComparisonJob(analysisJob)) {
             findTargetEpisodes(analysisJob).forEach(Episode::markAnalyzed);
         }
@@ -193,7 +236,8 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 leaseToken
         );
         AnalysisFailureCode failureCode = AnalysisFailureCode.orUnexpected(request.failureCode());
-        boolean resumableTokenInterruption = failureCode == AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED
+        boolean resumableTokenInterruption = !analysisJob.isOrderedProvisional()
+                && failureCode == AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED
                 && analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION
                 && analysisJob.hasReachedCheckpoint(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
         failProcessingWorldComparisonBatches(

@@ -15,6 +15,12 @@ import org.springframework.data.repository.query.Param;
 public interface CharacterFactComparisonBatchRepository
         extends JpaRepository<CharacterFactComparisonBatch, UUID> {
 
+    boolean existsByAnalysisJobIdAndProvisionalSubjectKeyAndCanonicalFactTypeAndStatus(
+            UUID analysisJobId, String provisionalSubjectKey,
+            org.monitoring.catchholebackend.domain.character.type.CharacterFactType canonicalFactType,
+            CharacterFactComparisonBatchStatus status
+    );
+
     boolean existsByAnalysisJobIdAndMatchedCharacterIdAndCanonicalFactTypeAndStatus(
             UUID analysisJobId,
             UUID matchedCharacterId,
@@ -50,10 +56,23 @@ public interface CharacterFactComparisonBatchRepository
     @Modifying(flushAutomatically = true)
     @Query("""
             update CharacterFactComparisonBatch batch
-            set batch.rawCompletionJson = null
+            set batch.rawCompletionJson = null,
+                batch.analysisContextSnapshotJson = null
             where batch.sourceEpisode.id = :sourceEpisodeId
             """)
     int purgeSourceEvidenceBySourceEpisodeId(
             @Param("sourceEpisodeId") UUID sourceEpisodeId
     );
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update CharacterFactComparisonBatch batch set batch.analysisContextSnapshotJson = null
+            where batch.analysisJob.id in (
+                select job.id from AnalysisJob job
+                where job.work.id = :workId and job.sourceEpisodeNo >= :sourceEpisodeNo
+                  and job.analysisMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL
+            )
+            """)
+    int purgeOrderedContextByWorkIdAndSourceEpisodeNo(
+            @Param("workId") UUID workId, @Param("sourceEpisodeNo") int sourceEpisodeNo);
+
 }

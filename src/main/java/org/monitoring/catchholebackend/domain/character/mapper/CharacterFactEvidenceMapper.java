@@ -43,7 +43,7 @@ public class CharacterFactEvidenceMapper {
         );
     }
 
-    private List<CharacterFactEvidenceSpanResponse> toEvidenceSpans(JsonNode evidenceSpans) {
+    public List<CharacterFactEvidenceSpanResponse> toEvidenceSpans(JsonNode evidenceSpans) {
         if (evidenceSpans == null || !evidenceSpans.isArray()) {
             return List.of();
         }

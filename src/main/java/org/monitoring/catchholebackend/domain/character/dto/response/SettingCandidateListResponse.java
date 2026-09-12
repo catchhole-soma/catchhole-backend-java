@@ -30,6 +30,18 @@ public record SettingCandidateListResponse(
         @Schema(description = "검토 대기이면서 캐릭터 연결이 필요한 후보 수", example = "3")
         long matchRequiredCandidateCount,
 
+        @Schema(description = "필터·페이지와 무관한 묶음 전체의 확인 필요 후보 수. 검토 대기 중 연결이 모호하거나 비교 실패·재비교가 필요한 후보를 중복 없이 셉니다.",
+                example = "5", requiredMode = Schema.RequiredMode.REQUIRED)
+        long attentionRequiredCandidateCount,
+
+        @Schema(description = "작품 설정 또는 이력에 반영한 후보 수; 필터·페이지와 무관한 묶음 전체", requiredMode = Schema.RequiredMode.REQUIRED)
+        long confirmedCandidateCount,
+        @Schema(description = "제외한 후보 수; 필터·페이지와 무관한 묶음 전체", requiredMode = Schema.RequiredMode.REQUIRED)
+        long dismissedCandidateCount,
+        @Schema(description = "비교 대기·진행과 회차 자동 반영 대기를 제외하고 직접 확인할 미확정 후보 수; 필터·페이지와 무관한 묶음 전체", requiredMode = Schema.RequiredMode.REQUIRED)
+        long directReviewCandidateCount,
+        @Schema(description = "비교 대기·진행 또는 회차 자동 반영을 기다리는 미확정 후보 수; 필터·페이지와 무관한 묶음 전체", requiredMode = Schema.RequiredMode.REQUIRED)
+        long processingCandidateCount,
         @Schema(description = "현재 필터를 적용한 캐릭터 이름별 후보 그룹 페이지")
         PageResponse<SettingCandidateGroupResponse> groups,
 

@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.worldsetting.entity;
 
+import org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import jakarta.persistence.Column;
@@ -30,6 +31,7 @@ import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.type.SqlTypes;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
+import org.monitoring.catchholebackend.domain.analysis.type.CandidatePreparationFailureStage;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
@@ -172,6 +174,14 @@ public class WorldSettingCandidate extends BaseEntity {
     @Column(name = "resolved_target_world_setting_ids", columnDefinition = "jsonb")
     private JsonNode resolvedTargetWorldSettingIds;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "resolved_provisional_subject_keys", nullable = false, columnDefinition = "jsonb")
+    private JsonNode resolvedProvisionalSubjectKeys = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.arrayNode();
+
+    // 분석 실행의 임시 대상이다. targetWorldSetting 실제 FK와 구분한다.
+    @Column(name = "provisional_subject_key", length = 160)
+    private String provisionalSubjectKey;
+
     @Column(name = "matched_scope_name", length = NAME_MAX_LENGTH)
     private String matchedScopeName;
 
@@ -227,6 +237,10 @@ public class WorldSettingCandidate extends BaseEntity {
     @Column(name = "comparison_failure_code", length = 60)
     private AnalysisFailureCode comparisonFailureCode;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "preparation_failure_stage", length = 40)
+    private CandidatePreparationFailureStage preparationFailureStage;
+
     // 사용자용 상위 실패 분류와 분리해 Spring 원본 도메인 오류를 보존한다.
     @Column(name = "comparison_source_error_code", length = NAME_MAX_LENGTH)
     private String comparisonSourceErrorCode;
@@ -234,6 +248,11 @@ public class WorldSettingCandidate extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "comparison_source_reason_code", length = NAME_MAX_LENGTH)
     private WorldSettingComparisonValidationReason comparisonSourceReasonCode;
+
+    // 실제 비교 입력의 후보·기존 경로와 시도별 규칙만 저장한다. 원문 prompt/response는 포함하지 않는다.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "comparison_diagnostics", columnDefinition = "jsonb")
+    private JsonNode comparisonDiagnostics;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "review_status", nullable = false, length = 30)
@@ -271,6 +290,17 @@ public class WorldSettingCandidate extends BaseEntity {
 
     @Column(name = "reviewed_at")
     private LocalDateTime reviewedAt;
+
+    @Column(name = "reviewed_automatically", nullable = false)
+    private boolean reviewedAutomatically;
+
+    public void markAutomaticallyReviewed() {
+        if (reviewStatus == WorldSettingReviewStatus.PENDING_REVIEW) {
+            throw new IllegalStateException("검토가 끝난 후보만 자동 반영 이력을 기록할 수 있습니다.");
+        }
+        reviewedAutomatically = true;
+        reviewedBy = null;
+    }
 
     @Column(name = "applied_world_setting_version")
     private Long appliedWorldSettingVersion;
@@ -359,6 +389,32 @@ public class WorldSettingCandidate extends BaseEntity {
         );
     }
 
+    /** 원본 후보는 보존하면서 서버가 정확히 일치한 사용자 반려를 비교 입력에서 제외한다. */
+    public void preservePriorHumanRejection(JsonNode reference) {
+        validatePendingReview();
+        if (analysisJob == null || !analysisJob.isOrderedProvisional()
+                || comparisonStatus != WorldSettingComparisonStatus.PENDING || !hasSubjectResolution()
+                || reference == null || !"HUMAN_REJECTION_POLICY".equals(reference.path("kind").asText())) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        consolidationStatus = WorldSettingConsolidationStatus.SINGLE;
+        suggestedOperation = WorldSettingSuggestedOperation.EXCLUDE;
+        proposedScopeName = scopeName;
+        proposedSettingName = settingName;
+        proposedValue = extractedValue;
+        comparisonReason = "USER_REJECTED";
+        rawComparisonJson = reference.deepCopy();
+        ((com.fasterxml.jackson.databind.node.ObjectNode) rawComparisonJson).put("origin", "USER_REJECTION");
+        comparedAt = LocalDateTime.now();
+        comparisonStatus = WorldSettingComparisonStatus.COMPLETED;
+        comparisonErrorMessage = null;
+        comparisonFailureCode = null;
+        clearPreparationFailure();
+        comparisonDiagnostics = null;
+        comparisonSourceErrorCode = null;
+        comparisonSourceReasonCode = null;
+    }
+
     public void startComparison() {
         validatePendingReview();
         if (comparisonStatus != WorldSettingComparisonStatus.PENDING) {
@@ -367,6 +423,8 @@ public class WorldSettingCandidate extends BaseEntity {
         comparisonStatus = WorldSettingComparisonStatus.PROCESSING;
         comparisonErrorMessage = null;
         comparisonFailureCode = null;
+        clearPreparationFailure();
+        comparisonDiagnostics = null;
         comparisonSourceErrorCode = null;
         comparisonSourceReasonCode = null;
     }
@@ -410,6 +468,18 @@ public class WorldSettingCandidate extends BaseEntity {
                 && canonicalSubjectName != null
                 && resolvedTargetWorldSettingIds != null
                 && resolvedTargetWorldSettingIds.isArray();
+    }
+
+    public void resolveOrderedSubject(WorldSettingSubjectResolutionType type, String subjectKey, String subjectName,
+            JsonNode actualIds, JsonNode provisionalKeys) {
+        if (!analysisJob.isOrderedProvisional() || provisionalKeys == null || !provisionalKeys.isArray()) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_WORKER_JOB_INVALID);
+        }
+        resolveSubject(type, subjectKey, subjectName, actualIds);
+        resolvedProvisionalSubjectKeys = provisionalKeys.deepCopy();
+        provisionalSubjectKey = provisionalKeys.size() == 1 && actualIds.isEmpty()
+                ? provisionalKeys.get(0).asText() : null;
+        validateSubjectResolution();
     }
 
     public void completeComparison(
@@ -530,6 +600,8 @@ public class WorldSettingCandidate extends BaseEntity {
         this.comparisonStatus = WorldSettingComparisonStatus.COMPLETED;
         this.comparisonErrorMessage = null;
         this.comparisonFailureCode = null;
+        clearPreparationFailure();
+        this.comparisonDiagnostics = null;
         this.comparisonSourceErrorCode = null;
         this.comparisonSourceReasonCode = null;
     }
@@ -562,10 +634,66 @@ public class WorldSettingCandidate extends BaseEntity {
                 comparedAt
         );
         this.comparisonDecision = comparisonDecision;
+        this.provisionalSubjectKey = comparisonDecision.getProvisionalSubjectKey();
     }
 
     public void failComparison(String errorMessage) {
         failComparison(AnalysisFailureCode.UNEXPECTED_ERROR, errorMessage);
+    }
+
+    public boolean canDeferFailedComparison() {
+        return comparisonStatus == WorldSettingComparisonStatus.FAILED
+                && AnalysisFailureCode.orUnexpected(comparisonFailureCode).isCandidateComparisonFailure()
+                && (hasDeferredPreparationFailure() || comparisonBatch != null && comparisonBatch.getContextSnapshotJson() != null)
+                && comparisonSourceErrorCode == null && comparisonSourceReasonCode == null;
+    }
+
+    public boolean hasDeferredPreparationFailure() {
+        return analysisJob != null && analysisJob.isOrderedProvisional() && analysisJob.isAutomaticReview()
+                && preparationFailureStage != null
+                && AnalysisFailureCode.orUnexpected(comparisonFailureCode).isCandidateComparisonFailure()
+                && (preparationFailureStage == CandidatePreparationFailureStage.SUBJECT_RESOLUTION
+                    ? subjectResolutionType == WorldSettingSubjectResolutionType.FAILED
+                    && targetWorldSetting == null && provisionalSubjectKey == null
+                    && resolvedTargetWorldSettingIds != null && resolvedTargetWorldSettingIds.isEmpty()
+                    && resolvedProvisionalSubjectKeys != null && resolvedProvisionalSubjectKeys.isEmpty()
+                    : comparisonFailureCode == AnalysisFailureCode.COMPARISON_VALIDATION_FAILED
+                        && automaticReviewHoldReason == AutomaticReviewHoldReason.COMPARISON_INPUT_TOO_LARGE);
+    }
+
+    public void deferSubjectResolution(AnalysisFailureCode failureCode) {
+        if (analysisJob == null || !analysisJob.isOrderedProvisional() || !analysisJob.isAutomaticReview()
+                || failureCode == null || !failureCode.isCandidateComparisonFailure() || hasSubjectResolution()) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_WORKER_JOB_INVALID);
+        }
+        validatePendingReview();
+        if (comparisonStatus != WorldSettingComparisonStatus.PENDING) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        preparationFailureStage = CandidatePreparationFailureStage.SUBJECT_RESOLUTION;
+        resolveOrderedSubject(WorldSettingSubjectResolutionType.FAILED, "failed:" + id, subjectName,
+                JsonNodeFactory.instance.arrayNode(), JsonNodeFactory.instance.arrayNode());
+        comparisonStatus = WorldSettingComparisonStatus.FAILED;
+        comparisonFailureCode = failureCode;
+        comparisonErrorMessage = AutomaticReviewHoldReason.SUBJECT_RESOLUTION_FAILED.getMessage();
+        preparationFailureStage = CandidatePreparationFailureStage.SUBJECT_RESOLUTION;
+        recordAutomaticReviewHold(AutomaticReviewHoldReason.SUBJECT_RESOLUTION_FAILED);
+    }
+
+    public void deferComparisonInputLimit() {
+        if (analysisJob == null || !analysisJob.isOrderedProvisional() || !analysisJob.isAutomaticReview()) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_WORKER_JOB_INVALID);
+        }
+        validatePendingReview();
+        if (comparisonStatus != WorldSettingComparisonStatus.PENDING
+                && comparisonStatus != WorldSettingComparisonStatus.PROCESSING) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        comparisonStatus = WorldSettingComparisonStatus.FAILED;
+        comparisonFailureCode = AnalysisFailureCode.COMPARISON_VALIDATION_FAILED;
+        comparisonErrorMessage = AutomaticReviewHoldReason.COMPARISON_INPUT_TOO_LARGE.getMessage();
+        preparationFailureStage = CandidatePreparationFailureStage.COMPARISON_PREPARATION;
+        recordAutomaticReviewHold(AutomaticReviewHoldReason.COMPARISON_INPUT_TOO_LARGE);
     }
 
     public void failComparison(AnalysisFailureCode failureCode, String errorMessage) {
@@ -593,6 +721,15 @@ public class WorldSettingCandidate extends BaseEntity {
         comparisonErrorMessage = normalizedErrorMessage;
         comparisonSourceErrorCode = normalizedSourceErrorCode;
         comparisonSourceReasonCode = sourceReasonCode;
+        comparisonDiagnostics = null;
+    }
+
+    public void recordComparisonDiagnostics(JsonNode diagnostics) {
+        if ((comparisonStatus != WorldSettingComparisonStatus.FAILED && comparisonStatus != WorldSettingComparisonStatus.COMPLETED) || diagnostics == null
+                || !diagnostics.isArray() || diagnostics.size() > 30) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
+        }
+        comparisonDiagnostics = diagnostics.deepCopy();
     }
 
     /** 아직 시작하지 않았거나 처리 중인 비교를 토큰 부족으로 원자적으로 중단한다. */
@@ -621,6 +758,7 @@ public class WorldSettingCandidate extends BaseEntity {
         }
         clearComparisonProposal();
         comparisonStatus = WorldSettingComparisonStatus.PENDING;
+        automaticReviewHoldReason = null;
     }
 
     public void requestRecomparison() {
@@ -632,13 +770,35 @@ public class WorldSettingCandidate extends BaseEntity {
         }
         clearComparisonProposal();
         comparisonStatus = WorldSettingComparisonStatus.PENDING;
+        automaticReviewHoldReason = null;
+    }
+
+    public void retryFailedOrderedComparison() {
+        if (analysisJob == null || !analysisJob.isOrderedProvisional() || !isPendingReview()
+                || comparisonStatus != WorldSettingComparisonStatus.FAILED) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        comparisonBatch = null;
+        comparisonDecision = null;
+        comparisonCandidateRef = null;
+        comparisonStatus = WorldSettingComparisonStatus.PENDING;
+        automaticReviewHoldReason = null;
+        comparisonErrorMessage = null;
+        comparisonFailureCode = null;
+        clearPreparationFailure();
+        comparisonDiagnostics = null;
+        comparisonSourceErrorCode = null;
+        comparisonSourceReasonCode = null;
     }
 
     public void recoverExpiredComparison() {
         if (isPendingReview() && comparisonStatus == WorldSettingComparisonStatus.PROCESSING) {
             comparisonStatus = WorldSettingComparisonStatus.PENDING;
+        automaticReviewHoldReason = null;
             comparisonErrorMessage = null;
             comparisonFailureCode = null;
+            clearPreparationFailure();
+            comparisonDiagnostics = null;
             comparisonSourceErrorCode = null;
             comparisonSourceReasonCode = null;
             comparisonBatch = null;
@@ -656,6 +816,7 @@ public class WorldSettingCandidate extends BaseEntity {
         }
         clearComparisonProposal();
         comparisonStatus = WorldSettingComparisonStatus.PENDING;
+        automaticReviewHoldReason = null;
     }
 
     public void markRecomparisonRequired() {
@@ -666,6 +827,8 @@ public class WorldSettingCandidate extends BaseEntity {
         validatePendingReview();
         comparisonStatus = WorldSettingComparisonStatus.RECOMPARISON_REQUIRED;
         comparisonFailureCode = null;
+        clearPreparationFailure();
+        comparisonDiagnostics = null;
         comparisonErrorMessage = requiredValue(reason);
         comparisonSourceErrorCode = null;
         comparisonSourceReasonCode = null;
@@ -681,9 +844,10 @@ public class WorldSettingCandidate extends BaseEntity {
             String reviewNote
     ) {
         validatePendingReview();
-        if (comparisonStatus != WorldSettingComparisonStatus.COMPLETED) {
+        if (comparisonStatus != WorldSettingComparisonStatus.COMPLETED && !isManualReviewAvailable()) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_NOT_READY);
         }
+        automaticReviewHoldReason = null;
         finalOperation = Objects.requireNonNull(operation);
         finalCategory = Objects.requireNonNull(category);
         finalSubjectName = requiredName(subjectName);
@@ -694,6 +858,29 @@ public class WorldSettingCandidate extends BaseEntity {
         reviewedBy = null;
         reviewedAt = null;
         appliedWorldSettingVersion = null;
+    }
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "automatic_review_hold_reason", length = 50)
+    private AutomaticReviewHoldReason automaticReviewHoldReason;
+
+    public void recordAutomaticReviewHold(AutomaticReviewHoldReason reason) {
+        if (isPendingReview()) automaticReviewHoldReason = Objects.requireNonNull(reason);
+    }
+
+    public boolean isManualReviewAvailable() {
+        return isPendingReview() && analysisJob != null && analysisJob.isAutomaticReview()
+                && analysisJob.getAutomaticAppliedAt() != null
+                && comparisonStatus != WorldSettingComparisonStatus.PENDING
+                && comparisonStatus != WorldSettingComparisonStatus.PROCESSING;
+    }
+
+    public boolean isAutomaticApplicationPending() {
+        return isPendingReview() && analysisJob != null && analysisJob.isAutomaticApplicationPending();
+    }
+
+    public boolean hasManualReviewDecision() {
+        return isManualReviewAvailable() && finalOperation != null;
     }
 
     public WorldSettingSuggestedOperation getEffectiveSuggestedOperation() {
@@ -766,7 +953,7 @@ public class WorldSettingCandidate extends BaseEntity {
         if (reviewStatus == WorldSettingReviewStatus.DISMISSED) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
         }
-        if (comparisonStatus != WorldSettingComparisonStatus.COMPLETED) {
+        if (comparisonStatus != WorldSettingComparisonStatus.COMPLETED && !hasManualReviewDecision()) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_NOT_READY);
         }
         if (operation == null || operation == WorldSettingOperation.EXCLUDE) {
@@ -783,7 +970,9 @@ public class WorldSettingCandidate extends BaseEntity {
         reviewedBy = Objects.requireNonNull(reviewer);
         reviewedAt = LocalDateTime.now();
         targetWorldSetting = Objects.requireNonNull(appliedWorldSetting);
+        provisionalSubjectKey = null;
         appliedWorldSettingVersion = appliedWorldSetting.getVersion();
+        automaticReviewHoldReason = null;
         reviewStatus = WorldSettingReviewStatus.CONFIRMED;
         return true;
     }
@@ -809,6 +998,7 @@ public class WorldSettingCandidate extends BaseEntity {
         reviewedBy = Objects.requireNonNull(reviewer);
         reviewedAt = LocalDateTime.now();
         appliedWorldSettingVersion = null;
+        automaticReviewHoldReason = null;
         reviewStatus = WorldSettingReviewStatus.DISMISSED;
         return true;
     }
@@ -853,7 +1043,20 @@ public class WorldSettingCandidate extends BaseEntity {
         }
     }
 
+    private void clearPreparationFailure() {
+        preparationFailureStage = null;
+        if (subjectResolutionType == WorldSettingSubjectResolutionType.FAILED) {
+            subjectResolutionType = null;
+            canonicalSubjectKey = null;
+            canonicalSubjectName = null;
+            resolvedTargetWorldSettingIds = null;
+            resolvedProvisionalSubjectKeys = JsonNodeFactory.instance.arrayNode();
+            provisionalSubjectKey = null;
+        }
+    }
+
     private void clearComparisonProposal() {
+        automaticReviewHoldReason = null;
         targetWorldSetting = null;
         matchedScopeName = null;
         matchedPropertyName = null;
@@ -869,6 +1072,8 @@ public class WorldSettingCandidate extends BaseEntity {
         comparedAt = null;
         comparisonErrorMessage = null;
         comparisonFailureCode = null;
+        clearPreparationFailure();
+        comparisonDiagnostics = null;
         comparisonSourceErrorCode = null;
         comparisonSourceReasonCode = null;
         comparisonBatch = null;
@@ -904,7 +1109,26 @@ public class WorldSettingCandidate extends BaseEntity {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
         }
         int targetCount = resolvedTargetWorldSettingIds.size();
-        if ((subjectResolutionType == WorldSettingSubjectResolutionType.NEW
+        if (analysisJob != null && analysisJob.isOrderedProvisional()) {
+            if (resolvedProvisionalSubjectKeys == null || !resolvedProvisionalSubjectKeys.isArray()) {
+                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
+            }
+            int provisionalCount = resolvedProvisionalSubjectKeys.size();
+            int totalCount = targetCount + provisionalCount;
+            if (totalCount > 20
+                    || subjectResolutionType == WorldSettingSubjectResolutionType.NEW
+                    && (targetCount != 0 || provisionalCount > 1)
+                    || subjectResolutionType == WorldSettingSubjectResolutionType.EXISTING && totalCount != 1
+                    || subjectResolutionType == WorldSettingSubjectResolutionType.AMBIGUOUS && totalCount == 1
+                    || subjectResolutionType == WorldSettingSubjectResolutionType.FAILED
+                        && (totalCount != 0 || !analysisJob.isAutomaticReview()
+                            || preparationFailureStage != CandidatePreparationFailureStage.SUBJECT_RESOLUTION)) {
+                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
+            }
+            return;
+        }
+        if (subjectResolutionType == WorldSettingSubjectResolutionType.FAILED
+                || (subjectResolutionType == WorldSettingSubjectResolutionType.NEW
                 && targetCount != 0)
                 || (subjectResolutionType == WorldSettingSubjectResolutionType.EXISTING
                 && targetCount != 1)

@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactComparisonBatchRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
@@ -51,6 +52,7 @@ public class EpisodeSourcePurgeProcessor {
     private final WorldSettingComparisonDecisionRepository comparisonDecisionRepository;
     private final WorldSettingComparisonBatchRepository comparisonBatchRepository;
     private final AnalysisJobRepository analysisJobRepository;
+    private final AnalysisRunStateService analysisRunStateService;
     private final UploadFileRepository uploadFileRepository;
     private final WorkRepository workRepository;
     private final PlatformTransactionManager transactionManager;
@@ -190,6 +192,11 @@ public class EpisodeSourcePurgeProcessor {
             uploadFileRepository.findById(previousSourceFileId).ifPresent(UploadFile::purgeStoredSource);
         }
         UUID episodeId = request.getEpisode().getId();
+        analysisRunStateService.purgeSourceEvidenceForWorkForUpdate(workId, request.getPreviousEpisodeNo());
+        characterComparisonBatchRepository.purgeOrderedContextByWorkIdAndSourceEpisodeNo(
+                workId, request.getPreviousEpisodeNo());
+        comparisonBatchRepository.purgeOrderedContextByWorkIdAndSourceEpisodeNo(
+                workId, request.getPreviousEpisodeNo());
         purgeCharacterCandidates(episodeId);
         purgeWorldSettingCandidates(episodeId);
         purgeDataRepository.deleteChunks(episodeId);

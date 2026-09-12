@@ -22,6 +22,14 @@ public record WorldSettingCandidateListResponse(
         boolean canResumeTokenInterruptedComparisons,
         long recomparisonRequiredCount,
         long conflictCandidateCount,
+        @Schema(description = "작품 설정 또는 이력에 반영한 후보 수; 필터·페이지와 무관한 묶음 전체", requiredMode = Schema.RequiredMode.REQUIRED)
+        long confirmedCandidateCount,
+        @Schema(description = "제외한 후보 수; 필터·페이지와 무관한 묶음 전체", requiredMode = Schema.RequiredMode.REQUIRED)
+        long dismissedCandidateCount,
+        @Schema(description = "비교 대기·진행과 회차 자동 반영 대기를 제외하고 직접 확인할 미확정 후보 수; 필터·페이지와 무관한 묶음 전체", requiredMode = Schema.RequiredMode.REQUIRED)
+        long directReviewCandidateCount,
+        @Schema(description = "비교 대기·진행 또는 회차 자동 반영을 기다리는 미확정 후보 수; 필터·페이지와 무관한 묶음 전체", requiredMode = Schema.RequiredMode.REQUIRED)
+        long processingCandidateCount,
         PageResponse<WorldSettingCandidateGroupResponse> groups
 ) {
 }

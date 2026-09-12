@@ -23,6 +23,71 @@ import org.springframework.data.repository.query.Param;
 public interface SettingCandidateRepository extends JpaRepository<SettingCandidate, UUID> {
 
     @Query("""
+            select distinct candidate.analysisJob from SettingCandidate candidate
+            where candidate.work.id = :workId and candidate.id in :candidateIds
+              and candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.PENDING_REVIEW
+            """)
+    List<org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob> findPendingReviewSourceJobs(
+            @Param("workId") UUID workId, @Param("candidateIds") Collection<UUID> candidateIds);
+
+    boolean existsByAnalysisJobIdAndComparisonStatusAndComparisonFailureCodeIn(UUID analysisJobId,
+            CharacterFactComparisonStatus comparisonStatus,
+            Collection<org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode> failureCodes);
+
+    @Query("""
+            select candidate from SettingCandidate candidate
+            where candidate.work.id = :workId
+              and candidate.candidateKind = org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind.CHARACTER_DISCOVERY
+              and candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CONFIRMED
+              and candidate.matchedCharacterId is not null
+            order by candidate.createdAt, candidate.id
+            """)
+    List<SettingCandidate> findConfirmedDiscoveries(@Param("workId") UUID workId);
+
+    @Query("""
+            select min(coalesce(episode.episodeNo, 0)) from SettingCandidate candidate
+            left join candidate.episode episode
+            where candidate.work.id = :workId and candidate.id in :candidateIds
+              and candidate.reviewStatus = :reviewStatus
+            """)
+    Integer findMutationSourceEpisodeNo(
+            @Param("workId") UUID workId,
+            @Param("candidateIds") java.util.Collection<UUID> candidateIds,
+            @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus
+    );
+
+    @Query("""
+            select distinct candidate.matchedCharacterId from SettingCandidate candidate
+            left join candidate.characterComparisonBatch comparisonBatch
+            where candidate.work.id = :workId and candidate.reviewStatus = :reviewStatus
+              and candidate.matchedCharacterId is not null
+              and (comparisonBatch.provisionalSubjectKey = :subjectKey or candidate.id = :anchorId)
+            """)
+    List<UUID> findPromotedProvisionalCharacterIds(
+            @Param("workId") UUID workId, @Param("subjectKey") String subjectKey,
+            @Param("anchorId") UUID anchorId, @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus);
+
+    List<SettingCandidate> findAllByAnalysisJobIdAndProvisionalSubjectKeyIsNotNull(UUID analysisJobId);
+
+    List<SettingCandidate> findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(UUID analysisJobId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select candidate from SettingCandidate candidate
+            where candidate.analysisJob.id = :analysisJobId
+              and candidate.provisionalSubjectKey = :subjectKey
+              and candidate.reviewStatus = :reviewStatus
+              and candidate.comparisonStatus = :comparisonStatus
+            order by candidate.createdAt asc, candidate.id asc
+            """)
+    List<SettingCandidate> findProvisionalComparisonGroupForUpdate(
+            @Param("analysisJobId") UUID analysisJobId,
+            @Param("subjectKey") String subjectKey,
+            @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus,
+            @Param("comparisonStatus") CharacterFactComparisonStatus comparisonStatus
+    );
+
+    @Query("""
             select distinct candidate
             from SettingCandidate candidate
             left join candidate.episode episode
@@ -125,6 +190,20 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
 
     @Query("""
             select count(candidate) as totalCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CONFIRMED then 1 else 0 end), 0) as confirmedCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.DISMISSED then 1 else 0 end), 0) as dismissedCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus = :pendingStatus
+                     and candidate.comparisonStatus not in (org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus.PENDING, org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus.PROCESSING)
+                     and not (analysisJob.reviewMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC
+                         and analysisJob.automaticAppliedAt is null
+                         and analysisJob.status in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING, org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING))
+                     then 1 else 0 end), 0) as directReviewCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus = :pendingStatus
+                     and (candidate.comparisonStatus in (org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus.PENDING, org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus.PROCESSING)
+                         or (analysisJob.reviewMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC
+                         and analysisJob.automaticAppliedAt is null
+                         and analysisJob.status in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING, org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING)))
+                     then 1 else 0 end), 0) as processingCandidateCount,
                    coalesce(sum(case
                        when candidate.reviewStatus <> :pendingStatus then 1
                        else 0
@@ -137,7 +216,13 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
                        when candidate.reviewStatus = :pendingStatus
                         and candidate.matchStatus = :matchRequiredStatus then 1
                        else 0
-                   end), 0) as matchRequiredCandidateCount
+                   end), 0) as matchRequiredCandidateCount,
+                   coalesce(sum(case
+                       when candidate.reviewStatus = :pendingStatus
+                        and (candidate.matchStatus = :matchRequiredStatus
+                             or candidate.comparisonStatus in :attentionComparisonStatuses) then 1
+                       else 0
+                   end), 0) as attentionRequiredCandidateCount
             from SettingCandidate candidate
             join candidate.analysisJob analysisJob
             where candidate.work.id = :workId
@@ -147,7 +232,8 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             @Param("workId") UUID workId,
             @Param("batchId") UUID batchId,
             @Param("pendingStatus") SettingCandidateReviewStatus pendingStatus,
-            @Param("matchRequiredStatus") SettingCandidateMatchStatus matchRequiredStatus
+            @Param("matchRequiredStatus") SettingCandidateMatchStatus matchRequiredStatus,
+            @Param("attentionComparisonStatuses") Collection<CharacterFactComparisonStatus> attentionComparisonStatuses
     );
 
     @Query("""

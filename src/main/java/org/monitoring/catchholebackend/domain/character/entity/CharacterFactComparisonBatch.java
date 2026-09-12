@@ -77,15 +77,18 @@ public class CharacterFactComparisonBatch extends BaseEntity {
     )
     private AnalysisJob analysisJob;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(fetch = FetchType.LAZY)
     @OnDelete(action = OnDeleteAction.CASCADE)
     @JoinColumn(
             name = "matched_character_id",
-            nullable = false,
             updatable = false,
             foreignKey = @ForeignKey(name = "fk_character_fact_comparison_batches_character")
     )
     private WorkCharacter matchedCharacter;
+
+    // 정식 캐릭터가 없는 누적 실행의 대상이다. matchedCharacter와 둘 중 하나만 가진다.
+    @Column(name = "provisional_subject_key", updatable = false, length = 160)
+    private String provisionalSubjectKey;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "canonical_fact_type", nullable = false, updatable = false, length = 30)
@@ -103,6 +106,11 @@ public class CharacterFactComparisonBatch extends BaseEntity {
 
     @Column(name = "context_hash", length = 64)
     private String contextHash;
+
+    // 누적 실행의 비교 입력이다. 사용자 확정은 이 값을 실제 snapshot과 다시 대조한다.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "analysis_context_snapshot_json", columnDefinition = "jsonb")
+    private JsonNode analysisContextSnapshotJson;
 
     @Column(name = "completion_hash", length = 64)
     private String completionHash;
@@ -169,6 +177,34 @@ public class CharacterFactComparisonBatch extends BaseEntity {
         this.contextHash = requireHash(contextHash);
     }
 
+    public void recordAnalysisContext(JsonNode context) {
+        requireProcessing();
+        if (!analysisJob.isOrderedProvisional() || context == null || !context.isObject()) {
+            throw new IllegalArgumentException("누적 분석의 비교 입력 상태가 필요합니다.");
+        }
+        analysisContextSnapshotJson = context.deepCopy();
+    }
+
+    public static CharacterFactComparisonBatch createProvisional(
+            Work work, Episode sourceEpisode, AnalysisJob analysisJob, String provisionalSubjectKey,
+            CharacterFactType factType, int candidateCount
+    ) {
+        if (!analysisJob.isOrderedProvisional() || provisionalSubjectKey == null
+                || !provisionalSubjectKey.startsWith("provisional-character:") || candidateCount < 1) {
+            throw new IllegalArgumentException("누적 분석의 임시 캐릭터 비교 대상이 올바르지 않습니다.");
+        }
+        CharacterFactComparisonBatch batch = new CharacterFactComparisonBatch();
+        batch.work = Objects.requireNonNull(work);
+        batch.sourceEpisode = sourceEpisode;
+        batch.analysisJob = analysisJob;
+        batch.provisionalSubjectKey = provisionalSubjectKey;
+        batch.canonicalFactType = Objects.requireNonNull(factType);
+        batch.candidateCount = candidateCount;
+        batch.baseSnapshotVersion = 0;
+        batch.status = CharacterFactComparisonBatchStatus.PROCESSING;
+        return batch;
+    }
+
     public void complete(String completionHash, JsonNode rawCompletionJson) {
         requireProcessing();
         this.status = CharacterFactComparisonBatchStatus.COMPLETED;
@@ -185,12 +221,18 @@ public class CharacterFactComparisonBatch extends BaseEntity {
         this.errorMessage = Objects.requireNonNull(errorMessage).trim();
     }
 
+    public void failCompletion(String requestHash, AnalysisFailureCode code, String message) {
+        fail(code, message);
+        completionHash = requireHash(requestHash);
+    }
+
     public boolean isProcessing() {
         return status == CharacterFactComparisonBatchStatus.PROCESSING;
     }
 
     public boolean isCompletedWith(String requestHash) {
-        return status == CharacterFactComparisonBatchStatus.COMPLETED
+        return (status == CharacterFactComparisonBatchStatus.COMPLETED
+                || status == CharacterFactComparisonBatchStatus.FAILED)
                 && Objects.equals(completionHash, requestHash);
     }
 

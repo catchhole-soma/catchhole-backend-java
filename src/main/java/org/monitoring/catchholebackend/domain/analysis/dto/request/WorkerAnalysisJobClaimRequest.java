@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
 import java.util.Set;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode;
 
 @Schema(description = "AI Worker 분석 작업 claim 요청")
 public record WorkerAnalysisJobClaimRequest(
@@ -18,6 +19,17 @@ public record WorkerAnalysisJobClaimRequest(
 
         @Schema(description = "Worker가 처리할 분석 작업 유형")
         @NotEmpty(message = "처리할 분석 작업 유형은 하나 이상이어야 합니다.")
-        Set<AnalysisJobType> allowedJobTypes
+        Set<AnalysisJobType> allowedJobTypes,
+
+        @Schema(description = "지원하는 분석 입력 정책. 구 Worker의 생략 요청은 CONFIRMED_ONLY만 허용합니다.", nullable = true)
+        Set<AnalysisMode> supportedAnalysisModes
 ) {
+    public WorkerAnalysisJobClaimRequest(String modelName, String currentStep, Set<AnalysisJobType> allowedJobTypes) {
+        this(modelName, currentStep, allowedJobTypes, null);
+    }
+
+    public Set<AnalysisMode> effectiveSupportedAnalysisModes() {
+        return supportedAnalysisModes == null || supportedAnalysisModes.isEmpty()
+                ? Set.of(AnalysisMode.CONFIRMED_ONLY) : Set.copyOf(supportedAnalysisModes);
+    }
 }

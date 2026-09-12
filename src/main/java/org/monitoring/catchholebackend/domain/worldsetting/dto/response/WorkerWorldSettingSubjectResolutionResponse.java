@@ -15,7 +15,12 @@ public record WorkerWorldSettingSubjectResolutionResponse(
             WorldSettingSubjectResolutionType resolutionType,
             String canonicalSubjectKey,
             String canonicalSubjectName,
-            List<UUID> targetWorldSettingIds
+            List<UUID> targetWorldSettingIds,
+            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) List<String> provisionalSubjectKeys
     ) {
+        public ResolvedSubject(UUID candidateId, WorldSettingSubjectResolutionType resolutionType,
+                String canonicalSubjectKey, String canonicalSubjectName, List<UUID> targetWorldSettingIds) {
+            this(candidateId, resolutionType, canonicalSubjectKey, canonicalSubjectName, targetWorldSettingIds, null);
+        }
     }
 }

@@ -8,6 +8,13 @@ import java.util.UUID;
 public record WorkerWorldSettingComparisonBatchContextRequest(
         @NotNull(message = "비교 대상 목록은 필수입니다.")
         @Size(max = 20, message = "묶음 상세 비교 대상은 최대 20개입니다.")
-        List<UUID> targetWorldSettingIds
+        List<UUID> targetWorldSettingIds,
+        @Size(max = 20) List<String> provisionalSubjectKeys
 ) {
+    public WorkerWorldSettingComparisonBatchContextRequest(List<UUID> targetWorldSettingIds) {
+        this(targetWorldSettingIds, List.of());
+    }
+    public WorkerWorldSettingComparisonBatchContextRequest {
+        provisionalSubjectKeys = provisionalSubjectKeys == null ? List.of() : List.copyOf(provisionalSubjectKeys);
+    }
 }

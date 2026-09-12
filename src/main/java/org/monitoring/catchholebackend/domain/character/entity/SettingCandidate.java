@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.character.entity;
 
+import org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -25,8 +26,10 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
+import org.monitoring.catchholebackend.domain.analysis.type.CandidatePreparationFailureStage;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
@@ -119,6 +122,10 @@ public class SettingCandidate extends BaseEntity {
     // 기존 characters.id와 확실히 매칭된 경우에만 채웁니다.
     @Column(name = "matched_character_id")
     private UUID matchedCharacterId;
+
+    // 누적 분석 실행 안의 임시 인물 식별자다. 실제 캐릭터 FK로 해석하지 않는다.
+    @Column(name = "provisional_subject_key", length = 160)
+    private String provisionalSubjectKey;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(
@@ -230,6 +237,48 @@ public class SettingCandidate extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "comparison_failure_code", length = 60)
     private AnalysisFailureCode comparisonFailureCode;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "preparation_failure_stage", length = 40)
+    private CandidatePreparationFailureStage preparationFailureStage;
+
+    // 개별 확정 뒤에도 후속 제안이 선행 APPLY_PROPOSAL에 의존할 수 있는지 확인한다. 과거 확정은 null이다.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "confirmed_application_mode", length = 30)
+    private CharacterFactConfirmApplicationMode confirmedApplicationMode;
+
+    @Column(name = "user_modified", nullable = false)
+    private boolean userModified;
+
+    @Column(name = "reviewed_automatically", nullable = false)
+    private boolean reviewedAutomatically;
+
+    public void markAutomaticallyReviewed() {
+        if (reviewStatus == SettingCandidateReviewStatus.PENDING_REVIEW) {
+            throw new IllegalStateException("검토가 끝난 후보만 자동 반영 이력을 기록할 수 있습니다.");
+        }
+        reviewedAutomatically = true;
+    }
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "automatic_review_hold_reason", length = 50)
+    private AutomaticReviewHoldReason automaticReviewHoldReason;
+
+    public void recordAutomaticReviewHold(AutomaticReviewHoldReason reason) {
+        if (isPendingReview()) automaticReviewHoldReason = Objects.requireNonNull(reason);
+    }
+
+    public boolean isManualReviewAvailable() {
+        return isPendingReview() && analysisJob != null && analysisJob.isAutomaticReview()
+                && analysisJob.getAutomaticAppliedAt() != null
+                && comparisonStatus != CharacterFactComparisonStatus.PENDING
+                && comparisonStatus != CharacterFactComparisonStatus.PROCESSING;
+    }
+
+    public boolean isAutomaticApplicationPending() {
+        return isPendingReview() && analysisJob != null && analysisJob.isAutomaticApplicationPending();
+    }
+
 
     private SettingCandidate(
             Work work,
@@ -380,8 +429,69 @@ public class SettingCandidate extends BaseEntity {
         );
     }
 
+    public void recordUserModification() {
+        if (reviewStatus == SettingCandidateReviewStatus.PENDING_REVIEW) {
+            userModified = true;
+            automaticReviewHoldReason = null;
+        }
+    }
+
+    public void prepareUserEditedValue(CharacterFactType factType, String factKey, String value,
+            JsonNode typedValue, CharacterFactOperation operation, long snapshotVersion) {
+        validateReviewContentEditable();
+        if (analysisJob == null || !analysisJob.isOrderedProvisional() || !userModified
+                || comparisonStatus == CharacterFactComparisonStatus.PROCESSING
+                || matchStatus == SettingCandidateMatchStatus.AMBIGUOUS
+                || operation != CharacterFactOperation.ADD && operation != CharacterFactOperation.UPDATE) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        clearComparisonProposal();
+        suggestedOperation = operation;
+        comparisonTargetFactType = Objects.requireNonNull(factType);
+        comparisonTargetFactKey = Objects.requireNonNull(factKey);
+        resolvedCanonicalFactKey = factKey;
+        proposedFactValue = value;
+        proposedValueJson = typedValue == null ? null : typedValue.deepCopy();
+        comparisonBaseSnapshotVersion = snapshotVersion;
+        temporalScope = CharacterFactTemporalScope.PRESENT;
+        comparisonReason = "사용자가 수정값 적용을 명시적으로 선택했습니다.";
+        rawComparisonJson = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode()
+                .put("origin", "USER_EDIT");
+        comparedAt = LocalDateTime.now();
+        comparisonStatus = CharacterFactComparisonStatus.COMPLETED;
+    }
+
+    /** 새 누적 실행에서 정확히 같은 원문 주장의 이전 사용자 반려를 비교 전에 이어받는다. */
+    public void preservePriorHumanRejection(JsonNode reference) {
+        validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
+        if (analysisJob == null || !analysisJob.isOrderedProvisional() || isCharacterDiscovery()
+                || userModified || comparisonStatus != CharacterFactComparisonStatus.PENDING
+                || reference == null || !"HUMAN_REJECTION_POLICY".equals(reference.path("kind").asText())) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        clearComparisonProposal();
+        suggestedOperation = CharacterFactOperation.EXCLUDE;
+        proposedFactValue = attributeValue;
+        proposedValueJson = valueJson == null ? null : valueJson.deepCopy();
+        comparisonReason = "USER_REJECTED";
+        rawComparisonJson = reference.deepCopy();
+        ((com.fasterxml.jackson.databind.node.ObjectNode) rawComparisonJson).put("origin", "USER_REJECTION");
+        comparedAt = LocalDateTime.now();
+        comparisonStatus = CharacterFactComparisonStatus.COMPLETED;
+    }
+
+    public void recordConfirmedApplicationMode(CharacterFactConfirmApplicationMode mode) {
+        if (reviewStatus != SettingCandidateReviewStatus.CONFIRMED || mode == null
+                || confirmedApplicationMode != null && confirmedApplicationMode != mode) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
+        }
+        confirmedApplicationMode = mode;
+    }
+
     public boolean confirm() {
-        return transitionReviewStatus(SettingCandidateReviewStatus.CONFIRMED);
+        boolean changed = transitionReviewStatus(SettingCandidateReviewStatus.CONFIRMED);
+        if (changed) automaticReviewHoldReason = null;
+        return changed;
     }
 
     public boolean dismiss() {
@@ -410,6 +520,8 @@ public class SettingCandidate extends BaseEntity {
         this.attributeName = attributeName;
         this.attributeValue = attributeValue;
         this.valueJson = valueJson;
+        userModified = true;
+        automaticReviewHoldReason = null;
         requestComparisonAfterCandidateChange();
     }
 
@@ -443,6 +555,20 @@ public class SettingCandidate extends BaseEntity {
         applyPromotedCharacterMatch(character, SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
     }
 
+    public void bindPromotedProvisionalCharacter(WorkCharacter character) {
+        if (reviewStatus != SettingCandidateReviewStatus.CONFIRMED || matchedCharacterId != null
+                || provisionalSubjectKey == null && !userModified || analysisJob == null || !analysisJob.isOrderedProvisional()) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
+        }
+        // 확정 발견의 원래 이름이 다음 회차의 별칭 문맥이므로 정식 이름으로 덮지 않는다.
+        if (!isCharacterDiscovery()) {
+            entityName = character.getName();
+        }
+        matchedCharacterId = character.getId();
+        matchStatus = SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME;
+        provisionalSubjectKey = null;
+    }
+
     private void applyPromotedCharacterMatch(
             WorkCharacter character,
             SettingCandidateMatchStatus targetMatchStatus
@@ -463,6 +589,7 @@ public class SettingCandidate extends BaseEntity {
     ) {
         this.entityName = character.getName();
         this.matchedCharacterId = character.getId();
+        this.provisionalSubjectKey = null;
         this.matchStatus = targetMatchStatus;
     }
 
@@ -472,6 +599,7 @@ public class SettingCandidate extends BaseEntity {
 
         this.entityName = entityName;
         this.matchedCharacterId = null;
+        this.provisionalSubjectKey = null;
         this.matchStatus = SettingCandidateMatchStatus.UNRESOLVED;
         markWaitingForCharacterMatch();
     }
@@ -480,13 +608,46 @@ public class SettingCandidate extends BaseEntity {
         validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
         if (isCharacterDiscovery()
                 || comparisonStatus != CharacterFactComparisonStatus.PENDING
-                || matchedCharacterId == null) {
+                || (matchedCharacterId == null && (provisionalSubjectKey == null
+                || analysisJob == null || !analysisJob.isOrderedProvisional()))) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
         comparisonStatus = CharacterFactComparisonStatus.PROCESSING;
         clearComparisonBatchAssignment();
         comparisonErrorMessage = null;
         comparisonFailureCode = null;
+        preparationFailureStage = null;
+    }
+
+    public void prepareProvisionalComparison() {
+        validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
+        if (isCharacterDiscovery() || matchedCharacterId != null || provisionalSubjectKey == null
+                || analysisJob == null || !analysisJob.isOrderedProvisional()) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
+        }
+        if (comparisonStatus == CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH) {
+            comparisonStatus = CharacterFactComparisonStatus.PENDING;
+        }
+    }
+
+    public void holdForRejectedDiscoveryAnchor(JsonNode rejection) {
+        validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
+        if (analysisJob == null || !analysisJob.isOrderedProvisional()
+                || matchedCharacterId != null || provisionalSubjectKey == null
+                || comparisonStatus != CharacterFactComparisonStatus.PENDING
+                && comparisonStatus != CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH
+                && !(isCharacterDiscovery() && comparisonStatus == CharacterFactComparisonStatus.NOT_REQUIRED)
+                || rejection == null || !rejection.isObject()) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        clearComparisonProposal();
+        matchStatus = SettingCandidateMatchStatus.AMBIGUOUS;
+        comparisonStatus = isCharacterDiscovery() ? CharacterFactComparisonStatus.NOT_REQUIRED
+                : CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH;
+        comparisonReason = "같은 원문 발견에 대한 사용자 반려로 인물 연결을 보류했습니다.";
+        com.fasterxml.jackson.databind.node.ObjectNode reference = rejection.deepCopy();
+        reference.put("origin", "USER_REJECTION");
+        rawComparisonJson = reference;
     }
 
     public void startComparison(
@@ -576,10 +737,41 @@ public class SettingCandidate extends BaseEntity {
         this.comparisonStatus = CharacterFactComparisonStatus.COMPLETED;
         this.comparisonErrorMessage = null;
         this.comparisonFailureCode = null;
+        this.preparationFailureStage = null;
     }
 
     public void failComparison(String errorMessage) {
         failComparison(AnalysisFailureCode.UNEXPECTED_ERROR, errorMessage);
+    }
+
+    public boolean canDeferFailedComparison() {
+        return comparisonStatus == CharacterFactComparisonStatus.FAILED
+                && AnalysisFailureCode.orUnexpected(comparisonFailureCode).isCandidateComparisonFailure()
+                && (hasDeferredPreparationFailure() || characterComparisonBatch != null
+                && characterComparisonBatch.getAnalysisContextSnapshotJson() != null);
+    }
+
+    public boolean hasDeferredPreparationFailure() {
+        return analysisJob != null && analysisJob.isOrderedProvisional() && analysisJob.isAutomaticReview()
+                && preparationFailureStage != null
+                && AnalysisFailureCode.orUnexpected(comparisonFailureCode).isCandidateComparisonFailure()
+                && (preparationFailureStage == CandidatePreparationFailureStage.SUBJECT_RESOLUTION
+                    ? matchedCharacterId == null && provisionalSubjectKey == null
+                        && matchStatus == SettingCandidateMatchStatus.AMBIGUOUS
+                    : comparisonFailureCode == AnalysisFailureCode.COMPARISON_VALIDATION_FAILED
+                        && (automaticReviewHoldReason == AutomaticReviewHoldReason.SETTING_VALUE_CONFIRMATION_REQUIRED
+                            || automaticReviewHoldReason == AutomaticReviewHoldReason.COMPARISON_INPUT_TOO_LARGE));
+    }
+
+    public void deferComparisonPreparation(AutomaticReviewHoldReason reason) {
+        if (analysisJob == null || !analysisJob.isOrderedProvisional() || !analysisJob.isAutomaticReview()
+                || reason != AutomaticReviewHoldReason.SETTING_VALUE_CONFIRMATION_REQUIRED
+                    && reason != AutomaticReviewHoldReason.COMPARISON_INPUT_TOO_LARGE) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_WORKER_JOB_INVALID);
+        }
+        failComparison(AnalysisFailureCode.COMPARISON_VALIDATION_FAILED, reason.getMessage());
+        preparationFailureStage = CandidatePreparationFailureStage.COMPARISON_PREPARATION;
+        recordAutomaticReviewHold(reason);
     }
 
     public void failComparison(AnalysisFailureCode failureCode, String errorMessage) {
@@ -593,12 +785,25 @@ public class SettingCandidate extends BaseEntity {
         comparisonErrorMessage = Objects.requireNonNull(errorMessage).trim();
     }
 
+    public void retryFailedOrderedComparison() {
+        if (analysisJob == null || !analysisJob.isOrderedProvisional() || !isPendingReview()
+                || comparisonStatus != CharacterFactComparisonStatus.FAILED) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        clearComparisonBatchAssignment();
+        comparisonStatus = CharacterFactComparisonStatus.PENDING;
+        comparisonErrorMessage = null;
+        comparisonFailureCode = null;
+        preparationFailureStage = null;
+    }
+
     public void recoverExpiredComparison() {
         if (isPendingReview() && comparisonStatus == CharacterFactComparisonStatus.PROCESSING) {
             comparisonStatus = CharacterFactComparisonStatus.PENDING;
             clearComparisonBatchAssignment();
             comparisonErrorMessage = null;
             comparisonFailureCode = null;
+            preparationFailureStage = null;
         }
     }
 
@@ -705,6 +910,7 @@ public class SettingCandidate extends BaseEntity {
     }
 
     private void clearComparisonProposal(boolean preserveCompletedBatchMembership) {
+        automaticReviewHoldReason = null;
         suggestedOperation = null;
         temporalScope = null;
         comparisonTargetFactType = null;
@@ -721,6 +927,7 @@ public class SettingCandidate extends BaseEntity {
         comparedAt = null;
         comparisonErrorMessage = null;
         comparisonFailureCode = null;
+        preparationFailureStage = null;
         if (!preserveCompletedBatchMembership) {
             clearComparisonBatchAssignment();
         }

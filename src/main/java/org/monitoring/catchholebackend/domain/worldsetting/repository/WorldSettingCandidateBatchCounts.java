@@ -19,4 +19,12 @@ public interface WorldSettingCandidateBatchCounts {
     long getRecomparisonRequiredCount();
 
     long getConflictCandidateCount();
+    long getConfirmedCandidateCount();
+
+    long getDismissedCandidateCount();
+
+    long getDirectReviewCandidateCount();
+
+    long getProcessingCandidateCount();
+
 }
