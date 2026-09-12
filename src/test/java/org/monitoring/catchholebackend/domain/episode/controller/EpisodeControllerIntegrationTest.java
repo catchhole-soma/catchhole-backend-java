@@ -22,6 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import jakarta.persistence.EntityManagerFactory;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -29,6 +30,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.hibernate.SessionFactory;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
@@ -53,6 +56,9 @@ import org.monitoring.catchholebackend.domain.upload.type.UploadSourceType;
 import org.monitoring.catchholebackend.domain.upload.type.UploadType;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeSourcePurgeStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
@@ -101,6 +107,9 @@ class EpisodeControllerIntegrationTest {
     private SettingCandidateRepository settingCandidateRepository;
 
     @Autowired
+    private WorldSettingCandidateRepository worldSettingCandidateRepository;
+
+    @Autowired
     private UploadBatchRepository uploadBatchRepository;
 
     @Autowired
@@ -135,6 +144,7 @@ class EpisodeControllerIntegrationTest {
                 )
                 """);
         jdbcTemplate.update("delete from episode_chunks");
+        worldSettingCandidateRepository.deleteAll();
         settingCandidateRepository.deleteAll();
         analysisJobRepository.deleteAll();
         episodeSourcePurgeRequestRepository.deleteAll();
@@ -259,6 +269,7 @@ class EpisodeControllerIntegrationTest {
 
     @Test
     void uploadMultiEpisodeSingleFileSplitsEpisodes() throws Exception {
+        seedCompletedSingleEpisodes(10);
         MockMultipartFile metadata = metadataPart("""
                 {
                   "uploadType": "MULTI_EPISODE_SINGLE_FILE",
@@ -295,6 +306,7 @@ class EpisodeControllerIntegrationTest {
 
     @Test
     void detectEpisodesReturnsDetectedContractWithoutTemporaryId() throws Exception {
+        seedCompletedSingleEpisodes(10);
         MockMultipartFile metadata = metadataPart("""
                 {
                   "uploadType": "MULTI_EPISODE_SINGLE_FILE"
@@ -330,6 +342,7 @@ class EpisodeControllerIntegrationTest {
 
     @Test
     void uploadEpisodesAppliesConfirmedNumbersAndTitles() throws Exception {
+        seedCompletedSingleEpisodes(10);
         MockMultipartFile metadata = metadataPart("""
                 {
                   "uploadType": "MULTI_EPISODE_SINGLE_FILE",
@@ -375,7 +388,7 @@ class EpisodeControllerIntegrationTest {
                 EpisodeStatus.ARCHIVED
         ))
                 .extracting(Episode::getEpisodeNo)
-                .containsExactly(11, 10);
+                .containsExactly(109, 108, 107, 106, 105, 104, 103, 102, 101, 100, 11, 10);
     }
 
     @Test
@@ -503,6 +516,7 @@ class EpisodeControllerIntegrationTest {
 
     @Test
     void uploadMultiEpisodeSingleFileRejectsEpisodeNosThatAreNotStrictlyAscending() throws Exception {
+        seedCompletedSingleEpisodes(10);
         MockMultipartFile metadata = metadataPart("""
                 {
                   "uploadType": "MULTI_EPISODE_SINGLE_FILE",
@@ -546,6 +560,7 @@ class EpisodeControllerIntegrationTest {
 
     @Test
     void uploadMultiEpisodeMultiFileRejectsExistingEpisodeNosInWork() throws Exception {
+        seedCompletedSingleEpisodes(10);
         episodeRepository.save(Episode.create(work, null, 2, "2화", "works/test/episodes/2.txt", "v1", "hash2", 20));
         episodeRepository.save(Episode.create(work, null, 4, "4화", "works/test/episodes/4.txt", "v1", "hash4", 40));
         MockMultipartFile metadata = metadataPart("""
@@ -1292,6 +1307,258 @@ class EpisodeControllerIntegrationTest {
                 .andExpect(jsonPath("$.error.code").value("WORK_NOT_FOUND"));
     }
 
+    @Test
+    @DisplayName("업로드 정책은 본인 작품에서만 조회되고 인증 없이 접근할 수 없다")
+    void uploadPolicyRequiresOwnerAndAuthentication() throws Exception {
+        mockMvc.perform(get("/api/v1/works/{workId}/episodes/upload-policy", work.getId()))
+                .andExpect(status().isUnauthorized());
+        for (UUID inaccessibleWork : List.of(otherWork.getId(), UUID.randomUUID())) {
+            mockMvc.perform(get("/api/v1/works/{workId}/episodes/upload-policy", inaccessibleWork)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.error.code").value("WORK_NOT_FOUND"));
+        }
+    }
+
+    @Test
+    @DisplayName("분석 이력이 없는 작품도 다회차를 허용하고 실제 완료 수는 계속 제공한다")
+    void uploadPolicyAllowsMultiEpisodeUploadsWithoutCompletedAnalysis() throws Exception {
+        getUploadPolicy().andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.completedSingleEpisodeCount").value(0))
+                .andExpect(jsonPath("$.data.requiredSingleEpisodeCount").value(0))
+                .andExpect(jsonPath("$.data.multiEpisodeUploadEnabled").value(true));
+        seedCompletedSingleEpisodes(9);
+        getUploadPolicy().andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.completedSingleEpisodeCount").value(9))
+                .andExpect(jsonPath("$.data.requiredSingleEpisodeCount").value(0))
+                .andExpect(jsonPath("$.data.multiEpisodeUploadEnabled").value(true))
+                .andExpect(jsonPath("$.data.maxUploadCharacters").value(250000));
+        createCompletedSingleEpisode(work, 109);
+        getUploadPolicy().andExpect(jsonPath("$.data.completedSingleEpisodeCount").value(10))
+                .andExpect(jsonPath("$.data.multiEpisodeUploadEnabled").value(true));
+    }
+
+    @Test
+    @DisplayName("재시도는 중복 집계하지 않고 실패·수정 전 성공·다회차·삭제·다른 작품은 완료 수에서 제외한다")
+    void uploadPolicyCountsOnlySuccessfulCurrentSingleSources() throws Exception {
+        AnalysisJob valid = createCompletedSingleEpisode(work, 1);
+        AnalysisJob duplicate = AnalysisJob.create(work, valid.getBatch(), valid.getEpisode(), AnalysisJobType.SETTING_EXTRACTION);
+        duplicate.claim("test-model", "분석", LocalDateTime.now().plusMinutes(5));
+        duplicate.succeed("{}", 1, 1);
+        analysisJobRepository.save(duplicate);
+        AnalysisJob failed = createCompletedSingleEpisode(work, 2);
+        jdbcTemplate.update("update analysis_jobs set status = 'FAILED' where id = ?", failed.getId());
+        AnalysisJob stale = createCompletedSingleEpisode(work, 3);
+        clearLegacySourceSnapshot(stale);
+        jdbcTemplate.update("update episodes set content_updated_at = ? where id = ?",
+                LocalDateTime.now().plusMinutes(1), stale.getEpisode().getId());
+        AnalysisJob multi = createCompletedSingleEpisode(work, 4);
+        jdbcTemplate.update("update upload_batches set upload_type = 'MULTI_EPISODE_MULTI_FILE' where id = ?", multi.getBatch().getId());
+        AnalysisJob archived = createCompletedSingleEpisode(work, 5);
+        jdbcTemplate.update("update episodes set status = 'ARCHIVED' where id = ?", archived.getEpisode().getId());
+        AnalysisJob unknownStart = createCompletedSingleEpisode(work, 6);
+        clearLegacySourceSnapshot(unknownStart);
+        jdbcTemplate.update("update analysis_jobs set started_at = null where id = ?", unknownStart.getId());
+        AnalysisJob wrongPurpose = createCompletedSingleEpisode(work, 7);
+        jdbcTemplate.update("update analysis_jobs set job_type = 'EPISODE_VALIDATION' where id = ?", wrongPurpose.getId());
+        AnalysisJob pending = createCompletedSingleEpisode(work, 8);
+        jdbcTemplate.update("update analysis_jobs set status = 'PENDING' where id = ?", pending.getId());
+        createCompletedSingleEpisode(otherWork, 1);
+        getUploadPolicy().andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.completedSingleEpisodeCount").value(1));
+    }
+
+    @Test
+    @DisplayName("원문 snapshot 없는 기존 성공은 시작 시점이 현재 원문 이후일 때만 인정한다")
+    void uploadPolicyAcceptsProvenLegacySourceTiming() throws Exception {
+        AnalysisJob source = createCompletedSingleEpisode(work, 1);
+        clearLegacySourceSnapshot(source);
+        getUploadPolicy().andExpect(jsonPath("$.data.completedSingleEpisodeCount").value(1));
+        jdbcTemplate.update("update analysis_jobs set started_at = null where id = ?", source.getId());
+        getUploadPolicy().andExpect(jsonPath("$.data.completedSingleEpisodeCount").value(0));
+    }
+
+    @Test
+    @DisplayName("고정한 원문 hash·저장 key·버전·회차 번호가 달라지면 성공 이력을 세지 않는다")
+    void uploadPolicyRequiresExactSnapshotWhenPresent() throws Exception {
+        AnalysisJob source = createCompletedSingleEpisode(work, 1);
+        Episode episode = source.getEpisode();
+        jdbcTemplate.update("""
+                update analysis_jobs set source_content_hash = ?, source_content_s3_key = ?,
+                    source_content_s3_version = ?, source_episode_no = ? where id = ?
+                """, episode.getContentHash(), episode.getContentS3Key(), episode.getContentS3Version(), 1, source.getId());
+        getUploadPolicy().andExpect(jsonPath("$.data.completedSingleEpisodeCount").value(1));
+        for (String changedColumn : List.of("source_content_hash", "source_content_s3_key", "source_content_s3_version")) {
+            String original = switch (changedColumn) {
+                case "source_content_hash" -> episode.getContentHash();
+                case "source_content_s3_key" -> episode.getContentS3Key();
+                default -> episode.getContentS3Version();
+            };
+            jdbcTemplate.update("update analysis_jobs set " + changedColumn + " = ? where id = ?", "changed", source.getId());
+            getUploadPolicy().andExpect(jsonPath("$.data.completedSingleEpisodeCount").value(0));
+            jdbcTemplate.update("update analysis_jobs set " + changedColumn + " = ? where id = ?", original, source.getId());
+        }
+        jdbcTemplate.update("update analysis_jobs set source_episode_no = 2 where id = ?", source.getId());
+        getUploadPolicy().andExpect(jsonPath("$.data.completedSingleEpisodeCount").value(0));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"MULTI_EPISODE_SINGLE_FILE", "MULTI_EPISODE_MULTI_FILE"})
+    @DisplayName("분석 이력이 없는 작품에서 두 다회차 방식의 감지와 최종 저장을 허용한다")
+    void multiUploadNeedsNoPriorAnalysisForDetectionOrStorage(String uploadType) throws Exception {
+        for (String suffix : List.of("/detect", "")) {
+            String confirmations = suffix.isEmpty()
+                    ? ",\"episodeConfirmations\":[{\"detectionOrder\":0,\"episodeNo\":1},{\"detectionOrder\":1,\"episodeNo\":2}]"
+                    : "";
+            var request = multipart("/api/v1/works/{workId}/episodes" + suffix, work.getId())
+                    .file(metadataPart("{\"uploadType\":\"" + uploadType + "\"" + confirmations + "}"))
+                    .header(HttpHeaders.AUTHORIZATION, bearer(accessToken));
+            if (uploadType.equals("MULTI_EPISODE_MULTI_FILE")) {
+                request.file(textFile("episodeFiles", "제 1화.txt", "첫 원고"))
+                        .file(textFile("episodeFiles", "제 2화.txt", "둘째 원고"));
+            } else {
+                request.file(textFile("episodeFiles", "episodes.txt", "제 1화\n첫 원고\n제 2화\n둘째 원고"));
+            }
+            mockMvc.perform(request).andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.episodeCount").value(2));
+            if (!suffix.isEmpty()) {
+                assertThat(uploadBatchRepository.count()).isZero();
+                verify(objectStorage, never()).putBytes(anyString(), any(), any());
+                verify(objectStorage, never()).putText(anyString(), anyString());
+            }
+        }
+        assertThat(uploadBatchRepository.count()).isEqualTo(1);
+        assertThat(episodeRepository.count()).isEqualTo(2);
+        getUploadPolicy().andExpect(jsonPath("$.data.completedSingleEpisodeCount").value(0))
+                .andExpect(jsonPath("$.data.multiEpisodeUploadEnabled").value(true));
+    }
+
+    @Test
+    @DisplayName("검토 대기 캐릭터와 세계관은 안내 수에 포함하지만 단일·다회차 업로드를 막지 않는다")
+    void pendingCandidatesOnlyWarnAndDoNotBlockUpload() throws Exception {
+        AnalysisJob source = createCompletedSingleEpisode(work, 1);
+        SettingCandidate characterCandidate = settingCandidateRepository.save(SettingCandidate.create(work, source.getEpisode(), UUID.randomUUID(), source,
+                SettingEntityType.CHARACTER, "에르웬", "profile.species", "엘프", SettingValueType.STRING,
+                null, null, new BigDecimal("0.9"), null));
+        WorldSettingCandidate worldCandidate = worldSettingCandidateRepository.save(WorldSettingCandidate.create(work, source.getEpisode(), source,
+                WorldSettingCategory.RACE, "엘프", "수명", "길다",
+                com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.arrayNode(), new BigDecimal("0.9"), null));
+        getUploadPolicy().andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.pendingCharacterCandidateCount").value(1))
+                .andExpect(jsonPath("$.data.pendingWorldSettingCandidateCount").value(1));
+        uploadSingleEpisode(2, "episode-2.txt", "다음 회차").andExpect(status().isOk());
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(metadataPart("""
+                                {"uploadType":"MULTI_EPISODE_MULTI_FILE","episodeConfirmations":[
+                                  {"detectionOrder":0,"episodeNo":3},{"detectionOrder":1,"episodeNo":4}]}
+                                """))
+                        .file(textFile("episodeFiles", "제 3화.txt", "셋째 회차"))
+                        .file(textFile("episodeFiles", "제 4화.txt", "넷째 회차"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
+        characterCandidate.dismiss();
+        settingCandidateRepository.save(characterCandidate);
+        worldCandidate.dismiss("검토 완료", member);
+        worldSettingCandidateRepository.save(worldCandidate);
+        getUploadPolicy().andExpect(jsonPath("$.data.pendingCharacterCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.pendingWorldSettingCandidateCount").value(0));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"MULTI_EPISODE_SINGLE_FILE", "MULTI_EPISODE_MULTI_FILE"})
+    @DisplayName("새 작품도 다회차 감지와 저장에서 합산 분량 초과를 저장 전에 거부한다")
+    void multiUploadEnforcesCombinedSizeBeforeStorageWithoutPriorAnalysis(String uploadType) throws Exception {
+        for (String suffix : List.of("/detect", "")) {
+            String confirmations = suffix.isEmpty()
+                    ? ",\"episodeConfirmations\":[{\"detectionOrder\":0,\"episodeNo\":11},{\"detectionOrder\":1,\"episodeNo\":12}]"
+                    : "";
+            var request = multipart("/api/v1/works/{workId}/episodes" + suffix, work.getId())
+                    .file(metadataPart("{\"uploadType\":\"" + uploadType + "\"" + confirmations + "}"))
+                    .header(HttpHeaders.AUTHORIZATION, bearer(accessToken));
+            if (uploadType.equals("MULTI_EPISODE_MULTI_FILE")) {
+                request.file(textFile("episodeFiles", "제 11화.txt", "가".repeat(125000)))
+                        .file(textFile("episodeFiles", "제 12화.txt", "나".repeat(125001)));
+            } else {
+                request.file(textFile("episodeFiles", "episodes.txt",
+                        "제 11화\n" + "가".repeat(125000) + "\n제 12화\n" + "나".repeat(125000)));
+            }
+            mockMvc.perform(request).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("UPLOAD_CHARACTER_LIMIT_EXCEEDED"));
+        }
+        assertThat(uploadBatchRepository.count()).isZero();
+        assertThat(episodeRepository.count()).isZero();
+        verify(objectStorage, never()).putBytes(anyString(), any(), any());
+        verify(objectStorage, never()).putText(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("250001자 원고는 감지와 저장에서 거절하고 저장소와 DB를 변경하지 않는다")
+    void excessiveTextIsRejectedBeforeStorageInBothEndpoints() throws Exception {
+        for (String suffix : List.of("/detect", "")) {
+            mockMvc.perform(multipart("/api/v1/works/{workId}/episodes" + suffix, work.getId())
+                            .file(metadataPart("{\"uploadType\":\"SINGLE_EPISODE\",\"singleEpisodeNo\":1}"))
+                            .file(textFile("episodeFiles", "episode-1.txt", "가" + " ".repeat(250000)))
+                            .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("UPLOAD_CHARACTER_LIMIT_EXCEEDED"));
+        }
+        assertThat(uploadBatchRepository.count()).isZero();
+        assertThat(episodeRepository.count()).isZero();
+        verify(objectStorage, never()).putBytes(anyString(), any(), any());
+        verify(objectStorage, never()).putText(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("공백 포함 250000자 경계를 허용하고 첨부 설정집은 합계에서 제외한다")
+    void exactTextLimitExcludesAttachedSettingBook() throws Exception {
+        String content = "가" + " ".repeat(249999);
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes/detect", work.getId())
+                        .file(metadataPart("{\"uploadType\":\"SINGLE_EPISODE\",\"singleEpisodeNo\":1}"))
+                        .file(textFile("episodeFiles", "episode-1.txt", content))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalUploadCharacters").value(250000))
+                .andExpect(jsonPath("$.data.totalCharCount").value(1));
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(metadataPart("{\"uploadType\":\"SINGLE_EPISODE\",\"singleEpisodeNo\":1}"))
+                        .file(textFile("episodeFiles", "episode-1.txt", content))
+                        .file(textFile("settingBookFile", "settings.txt", "별도 설정집".repeat(50000)))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
+    }
+
+    private ResultActions getUploadPolicy() throws Exception {
+        return mockMvc.perform(get("/api/v1/works/{workId}/episodes/upload-policy", work.getId())
+                .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)));
+    }
+
+    private void clearLegacySourceSnapshot(AnalysisJob job) {
+        jdbcTemplate.update("""
+                update analysis_jobs set source_content_hash = null, source_content_s3_key = null,
+                    source_content_s3_version = null, source_episode_no = null where id = ?
+                """, job.getId());
+    }
+
+    private void seedCompletedSingleEpisodes(int count) {
+        for (int index = 0; index < count; index++) {
+            createCompletedSingleEpisode(work, 100 + index);
+        }
+    }
+
+    private AnalysisJob createCompletedSingleEpisode(Work ownerWork, int episodeNo) {
+        UploadBatch batch = UploadBatch.create(ownerWork, ownerWork.getMember(), UploadType.SINGLE_EPISODE, UploadSourceType.FILE);
+        batch.complete();
+        batch = uploadBatchRepository.save(batch);
+        UploadFile source = uploadFileRepository.save(UploadFile.create(batch, UploadFileRole.EPISODE,
+                "episode-" + episodeNo + ".txt", "text/plain", "source-" + episodeNo, 10));
+        Episode episode = episodeRepository.save(Episode.create(ownerWork, source.getId(), episodeNo, "제목",
+                "content-" + UUID.randomUUID(), "v1", "a".repeat(64), 10));
+        AnalysisJob job = AnalysisJob.create(ownerWork, batch, episode, AnalysisJobType.SETTING_EXTRACTION);
+        job.claim("test-model", "분석", LocalDateTime.now().plusMinutes(5));
+        job.succeed("{}", 1, 1);
+        return analysisJobRepository.save(job);
+    }
+
     private MockMultipartFile metadataPart(String content) {
         return new MockMultipartFile(
                 "metadata",
@@ -1314,6 +1581,7 @@ class EpisodeControllerIntegrationTest {
     }
 
     private ResultActions performTwoEpisodeUpload(MockMultipartFile metadata) throws Exception {
+        seedCompletedSingleEpisodes(10);
         MockMultipartFile sourceEpisodeFile = textFile(
                 "episodeFiles",
                 "episodes.txt",

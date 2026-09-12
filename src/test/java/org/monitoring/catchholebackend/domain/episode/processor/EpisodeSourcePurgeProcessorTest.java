@@ -19,6 +19,7 @@ import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactComparisonBatchRepository;
@@ -72,6 +73,9 @@ class EpisodeSourcePurgeProcessorTest {
     private AnalysisJobRepository analysisJobRepository;
 
     @Mock
+    private AnalysisRunStateService analysisRunStateService;
+
+    @Mock
     private UploadFileRepository uploadFileRepository;
 
     @Mock
@@ -113,6 +117,7 @@ class EpisodeSourcePurgeProcessorTest {
                 comparisonDecisionRepository,
                 comparisonBatchRepository,
                 analysisJobRepository,
+                analysisRunStateService,
                 uploadFileRepository,
                 workRepository,
                 transactionManager

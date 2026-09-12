@@ -503,6 +503,75 @@ class EpisodeFileParserTest {
         );
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = {249999, 250000, 250001})
+    @DisplayName("단일 TXT의 공백 포함 Unicode 문자 수는 250000자까지 허용한다")
+    void singleEpisodeCharacterLimitCountsUnicodeCodepoints(int characters) {
+        String content = "😀".repeat(characters - 1) + " ";
+        List<MultipartFile> files = List.of(textFile("제 1화.txt", content));
+        if (characters <= 250000) {
+            assertThat(parseEpisodeFiles(EpisodeUploadType.SINGLE_EPISODE, files).getFirst().uploadCharacters())
+                    .isEqualTo(characters);
+        } else {
+            assertThatThrownBy(() -> parseEpisodeFiles(EpisodeUploadType.SINGLE_EPISODE, files))
+                    .isInstanceOfSatisfying(AppException.class, error -> assertThat(error.getResultCode())
+                            .isEqualTo(UploadErrorCode.UPLOAD_CHARACTER_LIMIT_EXCEEDED));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {250000, 250001})
+    @DisplayName("여러 TXT는 파일별이 아닌 전체 원고 합산으로 제한한다")
+    void multipleFileCharacterLimitUsesCombinedText(int characters) {
+        List<MultipartFile> files = List.of(textFile("제 1화.txt", "가".repeat(125000)),
+                textFile("제 2화.txt", "나".repeat(characters - 125000)));
+        if (characters <= 250000) {
+            assertThat(parseEpisodeFiles(EpisodeUploadType.MULTI_EPISODE_MULTI_FILE, files).stream()
+                    .mapToInt(DetectedEpisodeFile::uploadCharacters).sum()).isEqualTo(characters);
+        } else {
+            assertThatThrownBy(() -> parseEpisodeFiles(EpisodeUploadType.MULTI_EPISODE_MULTI_FILE, files))
+                    .isInstanceOfSatisfying(AppException.class, error -> assertThat(error.getResultCode())
+                            .isEqualTo(UploadErrorCode.UPLOAD_CHARACTER_LIMIT_EXCEEDED));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {250000, 250001})
+    @DisplayName("단일 파일 다회차는 파싱에서 제거되는 제목과 구분 공백도 업로드 분량에 포함한다")
+    void multiEpisodeCharacterLimitIncludesHeadingsAndWhitespace(int characters) {
+        String headings = "제 1화 제목\n첫 본문\n제 2화 제목\n";
+        String content = headings + "나".repeat(characters - headings.codePointCount(0, headings.length()));
+        List<MultipartFile> files = List.of(textFile("episodes.txt", content));
+        if (characters <= 250000) {
+            assertThat(parseEpisodeFiles(EpisodeUploadType.MULTI_EPISODE_SINGLE_FILE, files).getFirst().uploadCharacters())
+                    .isEqualTo(characters);
+        } else {
+            assertThatThrownBy(() -> parseEpisodeFiles(EpisodeUploadType.MULTI_EPISODE_SINGLE_FILE, files))
+                    .isInstanceOfSatisfying(AppException.class, error -> assertThat(error.getResultCode())
+                            .isEqualTo(UploadErrorCode.UPLOAD_CHARACTER_LIMIT_EXCEEDED));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {250000, 250001})
+    @DisplayName("DOCX도 압축 파일 크기가 아니라 추출한 본문 글자 수로 제한한다")
+    void docxCharacterLimitUsesExtractedText(int characters) throws IOException {
+        String text = " ".repeat(characters - 2) + "가 ";
+        MockMultipartFile file = docxFile("제 1화.docx", """
+                <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                  <w:body><w:p><w:r><w:t>%s</w:t></w:r></w:p></w:body>
+                </w:document>
+                """.formatted(text));
+        if (characters <= 250000) {
+            assertThat(parseEpisodeFiles(EpisodeUploadType.SINGLE_EPISODE, List.of(file)).getFirst().uploadCharacters())
+                    .isEqualTo(characters);
+        } else {
+            assertThatThrownBy(() -> parseEpisodeFiles(EpisodeUploadType.SINGLE_EPISODE, List.of(file)))
+                    .isInstanceOfSatisfying(AppException.class, error -> assertThat(error.getResultCode())
+                            .isEqualTo(UploadErrorCode.UPLOAD_CHARACTER_LIMIT_EXCEEDED));
+        }
+    }
+
     private MockMultipartFile docxFile(String filename, String documentXml) throws IOException {
         return docxFile(filename, documentXml, 1, 8);
     }

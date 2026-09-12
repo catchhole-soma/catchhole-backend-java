@@ -33,6 +33,51 @@ class WorldSettingCandidateTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
+    @DisplayName("자동 반영 보류는 비교를 실패로 바꾸지 않으며 직접 수정하면 사유를 해제한다")
+    void holdReasonPreservesComparisonAndClearsAfterAuthorDraft() {
+        Fixture fixture = fixture();
+        WorldSettingCandidate candidate = candidate(fixture);
+        candidate.startComparison();
+        candidate.completeComparison(null, WorldSettingOperation.ADD, "서식지", null, "혹한 지역", "새 설정",
+                objectMapper.createObjectNode(), LocalDateTime.now());
+        candidate.recordAutomaticReviewHold(
+                org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason.SUBJECT_CONFIRMATION_REQUIRED);
+        assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.COMPLETED);
+        assertThat(candidate.getComparisonReason()).isEqualTo("새 설정");
+        assertThat(candidate.getSuggestedOperation()).isEqualTo(WorldSettingSuggestedOperation.ADD);
+        candidate.updateDecisionDraft(WorldSettingOperation.ADD, WorldSettingCategory.RACE,
+                "바바리안", null, "서식지", "확인한 지역", null);
+        assertThat(candidate.getAutomaticReviewHoldReason()).isNull();
+    }
+
+    @Test
+    @DisplayName("누적 재시도는 실패한 임시 대상의 identity를 보존하고 완료 또는 제외 후보는 거절한다")
+    void orderedRetryPreservesProvisionalIdentity() {
+        Fixture fixture = fixture();
+        org.springframework.test.util.ReflectionTestUtils.setField(fixture.analysisJob(), "analysisMode",
+                org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL);
+        WorldSettingCandidate failed = candidate(fixture);
+        String key = "provisional-world:" + java.util.UUID.randomUUID();
+        failed.resolveOrderedSubject(org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSubjectResolutionType.NEW,
+                key, "바바리안", objectMapper.createArrayNode(), objectMapper.createArrayNode().add(key));
+        failed.startComparison();
+        failed.failComparison(AnalysisFailureCode.LLM_PROVIDER_ERROR, "일시 실패");
+        failed.retryFailedOrderedComparison();
+        assertThat(failed.getProvisionalSubjectKey()).isEqualTo(key);
+        assertThat(failed.getResolvedProvisionalSubjectKeys().get(0).asText()).isEqualTo(key);
+        assertThat(failed.getCanonicalSubjectKey()).isEqualTo(key);
+        assertThat(failed.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.PENDING);
+        assertThat(failed.getComparisonFailureCode()).isNull();
+        assertThatThrownBy(failed::retryFailedOrderedComparison).isInstanceOf(AppException.class);
+        failed.startComparison();
+        failed.completeComparison(null, WorldSettingOperation.ADD, "서식지", null, "혹한 지역", "제안",
+                objectMapper.createObjectNode(), LocalDateTime.now());
+        assertThatThrownBy(failed::retryFailedOrderedComparison).isInstanceOf(AppException.class);
+        failed.dismiss("제외", fixture.member());
+        assertThatThrownBy(failed::retryFailedOrderedComparison).isInstanceOf(AppException.class);
+    }
+
+    @Test
     @DisplayName("1차 추출 후보는 비교 대기와 검토 대기 상태로 생성된다")
     void createInitializesPendingStatuses() {
         Fixture fixture = fixture();

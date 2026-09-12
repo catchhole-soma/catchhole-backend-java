@@ -82,9 +82,19 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
 
     private AnalysisJobWorkerServiceImpl service;
 
+    @Mock
+    private org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobClaimRepository claimRepository;
+    @Mock
+    private AnalysisRunStateService analysisRunStateService;
+
     @BeforeEach
     void setUp() {
         service = new AnalysisJobWorkerServiceImpl(
+                claimRepository,
+                analysisRunStateService,
+                List.of(),
+                List.of(),
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.work.repository.WorkRepository.class),
                 analysisJobRepository,
                 analysisJobLeaseService,
                 workCharacterRepository,
@@ -159,11 +169,7 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
                 any(LocalDateTime.class),
                 any(Pageable.class)
         )).thenReturn(List.of(job));
-        when(analysisJobRepository.findClaimCandidates(
-                eq(AnalysisJobStatus.PENDING),
-                eq(Set.of(AnalysisJobType.SETTING_EXTRACTION)),
-                any(Pageable.class)
-        )).thenReturn(List.of());
+        when(claimRepository.findClaimableJob(any())).thenReturn(java.util.Optional.empty());
         when(worldBatchRepository.findAllByAnalysisJobIdAndStatusForUpdate(
                 job.getId(),
                 WorldSettingComparisonBatchStatus.PROCESSING

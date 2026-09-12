@@ -1,0 +1,1181 @@
+package org.monitoring.catchholebackend.domain.analysis.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doCallRealMethod;
+import static org.mockito.Mockito.doThrow;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import jakarta.persistence.EntityManager;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Stream;
+import java.util.Set;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobClaimRequest;
+import org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobCompleteRequest;
+import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisJobPayload;
+import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.global.exception.AppException;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
+import org.monitoring.catchholebackend.domain.character.dto.request.WorkerCharacterFactComparisonBatchCompleteRequest;
+import org.monitoring.catchholebackend.domain.character.dto.request.WorkerCharacterFactComparisonFailRequest;
+import org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonWorkerService;
+import org.monitoring.catchholebackend.domain.character.exception.OrderedCharacterComparisonClaimException;
+import org.monitoring.catchholebackend.domain.worldsetting.service.WorldSettingWorkerService;
+import org.monitoring.catchholebackend.domain.worldsetting.exception.OrderedWorldSettingComparisonClaimException;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorkerWorldSettingSubjectResolutionRequest;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorkerWorldSettingComparisonBatchCompleteRequest;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorkerWorldSettingComparisonBatchContextRequest;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorkerWorldSettingComparisonFailRequest;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingComparisonBatchPayload;
+import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateConfirmRequest;
+import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateUpdateRequest;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
+import org.monitoring.catchholebackend.domain.character.service.SettingCandidateService;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateConfirmRequest;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDecisionUpdateRequest;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDecisionUpdateItem;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterFactComparisonBatch;
+import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
+import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
+import org.monitoring.catchholebackend.domain.character.mapper.CharacterAnalysisStateMapper;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotEntry;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSlot;
+import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.character.service.CharacterAnalysisStateService;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
+import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
+import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope;
+import org.monitoring.catchholebackend.domain.character.type.CharacterSettingMergePolicy;
+import org.monitoring.catchholebackend.domain.character.type.CharacterSettingValueSemantics;
+import org.monitoring.catchholebackend.domain.character.type.CharacterSettingSchemaSource;
+import org.monitoring.catchholebackend.domain.episode.entity.Episode;
+import org.monitoring.catchholebackend.domain.member.entity.Member;
+import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
+import org.monitoring.catchholebackend.domain.upload.type.UploadSourceType;
+import org.monitoring.catchholebackend.domain.upload.type.UploadType;
+import org.monitoring.catchholebackend.domain.work.entity.Work;
+import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
+import org.monitoring.catchholebackend.domain.worldsetting.service.WorldSettingCandidateServiceImpl;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingComparisonBatch;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingComparisonDecision;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingComparisonDecisionSource;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSubjectResolutionType;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingConsolidationStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
+import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateChange;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+@SpringBootTest(properties = {"spring.config.import=", "spring.datasource.url=jdbc:h2:mem:automatic-analysis;MODE=PostgreSQL;DB_CLOSE_DELAY=-1"})
+@ActiveProfiles("test")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
+@DisplayName("회차별 자동 반영과 다음 회차 문맥의 실제 저장 경계")
+class AutomaticAnalysisIntegrationTest {
+    private static final JsonNodeFactory JSON = JsonNodeFactory.instance;
+    @Autowired EntityManager entities;
+    @Autowired PlatformTransactionManager transactions;
+    @Autowired AnalysisJobRepository jobs;
+    @Autowired SettingCandidateRepository candidates;
+    @Autowired AnalysisRunStateService states;
+    @Autowired CharacterAnalysisStateService characterStates;
+    @Autowired SettingCandidateService characterReview;
+    @Autowired AnalysisJobWorkerService worker;
+    @Autowired WorldSettingWorkerService worldWorker;
+    @Autowired CharacterFactComparisonWorkerService characterWorker;
+    @MockitoSpyBean WorldSettingCandidateServiceImpl worldApplication;
+    private TransactionTemplate tx;
+
+    @BeforeEach
+    void prepareTransactions() { tx = new TransactionTemplate(transactions); }
+
+    @Test
+    @DisplayName("앞 회차의 새 캐릭터와 스탯을 저장한 뒤 다음 회차는 실제 ID와 최신값 및 동일인 이름을 읽는다")
+    void savesCharacterThenRefreshesActualIdentityValuesAndAliases() {
+        Run run = run(3);
+        WorkerAnalysisJobPayload first = claim();
+        UUID discoveryId = tx.execute(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            SettingCandidate discovery = discovery(job, "에르웬", null, true);
+            addStat(job, discovery.getProvisionalSubjectKey(), null, 35, CharacterFactOperation.ADD);
+            addWorld(job);
+            return discovery.getId();
+        });
+        complete(first);
+        UUID actualId = tx.execute(status -> candidates.findById(discoveryId).orElseThrow().getMatchedCharacterId());
+        assertThat(actualId).isNotNull();
+        WorkerAnalysisJobPayload second = claim();
+        assertThat(second.analysisJobId()).isEqualTo(run.jobs().get(1));
+        assertThat(second.knownCharacters()).anySatisfy(character -> assertThat(character.characterId()).isEqualTo(actualId));
+        JsonNode secondInput = input(second);
+        assertThat(secondInput.path("worldSettings").toString()).contains("북부", "actualWorldSettingId", "AUTOMATIC");
+        assertThat(secondInput.path("worldSettings").size()).isEqualTo(1);
+        JsonNode world = secondInput.path("worldSettings").elements().next();
+        assertThat(world.path("actualWorldSettingId").isTextual()).isTrue();
+        assertThat(world.path("propertiesJson").path("서식지").asText()).isEqualTo("북부");
+        JsonNode actual = secondInput.path("characters").path("character:" + actualId);
+        assertThat(actual.path("slots").path("STAT:stats.mental").path("factValue").asText()).as(actual.toPrettyString()).isEqualTo("35");
+        assertThat(actual.path("slots").path("STAT:stats.mental").path("provenance").path("reviewSource").asText())
+                .isEqualTo("AUTOMATIC");
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(second.analysisJobId()).orElseThrow();
+            discovery(job, "에르웬 미샤", actualId, false);
+            addStat(job, null, actualId, 36, CharacterFactOperation.UPDATE);
+        });
+        complete(second);
+        WorkerAnalysisJobPayload third = claim();
+        assertThat(third.knownCharacters()).anySatisfy(character -> {
+            assertThat(character.characterId()).isEqualTo(actualId);
+            assertThat(character.aliases()).contains("에르웬 미샤");
+        });
+        JsonNode thirdIdentity = input(third).path("characters").path("character:" + actualId);
+        assertThat(thirdIdentity.path("aliases").toString()).contains("에르웬 미샤");
+        assertThat(thirdIdentity.path("slots").path("STAT:stats.mental").path("factValue").asText()).isEqualTo("36");
+        assertThat(tx.<Long>execute(status -> entities.createQuery("select count(c) from WorkCharacter c", Long.class).getSingleResult())).isEqualTo(1);
+        assertThat(tx.<Long>execute(status -> entities.createQuery("select count(f) from CharacterFact f", Long.class).getSingleResult())).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("같은 임시 인물의 두 발견은 각 이름과 근거를 저장하고 다음 회차의 별칭으로 이어진다")
+    void provisionalAliasDiscoveriesKeepOriginalNamesAfterAutomaticPromotion() {
+        run(2);
+        WorkerAnalysisJobPayload first = claim();
+        List<UUID> discoveries = tx.execute(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            SettingCandidate anchor = discovery(job, "에르웬", null, true);
+            SettingCandidate alias = SettingCandidate.createCharacterDiscovery(job.getWork(), job.getEpisode(), null, job,
+                    "에르웬 미샤", "에르웬", null, SettingCandidateMatchStatus.MATCHED,
+                    JSON.arrayNode().add(JSON.objectNode().put("quote", "에르웬의 본명은 에르웬 미샤다.")
+                            .put("startOffset", 20).put("endOffset", 39)), BigDecimal.ONE, null);
+            ReflectionTestUtils.setField(anchor, "evidenceSpans", JSON.arrayNode().add(JSON.objectNode()
+                    .put("quote", "에르웬이 등장했다.").put("startOffset", 0).put("endOffset", 10)));
+            ReflectionTestUtils.setField(alias, "provisionalSubjectKey", anchor.getProvisionalSubjectKey());
+            entities.persist(alias);
+            addStat(job, anchor.getProvisionalSubjectKey(), null, 35, CharacterFactOperation.ADD);
+            return List.of(anchor.getId(), alias.getId());
+        });
+
+        complete(first);
+
+        UUID actualId = tx.execute(status -> {
+            SettingCandidate anchor = candidates.findById(discoveries.getFirst()).orElseThrow();
+            SettingCandidate alias = candidates.findById(discoveries.getLast()).orElseThrow();
+            assertThat(anchor.getEntityName()).isEqualTo("에르웬");
+            assertThat(alias.getEntityName()).isEqualTo("에르웬 미샤");
+            assertThat(alias.getRawEntityMention()).isEqualTo("에르웬");
+            assertThat(alias.getEvidenceSpans().get(0).path("quote").asText()).isEqualTo("에르웬의 본명은 에르웬 미샤다.");
+            assertThat(alias.getMatchedCharacterId()).isEqualTo(anchor.getMatchedCharacterId());
+            assertThat(alias.getProvisionalSubjectKey()).isNull();
+            assertThat(alias.isReviewedAutomatically()).isTrue();
+            assertThat(alias.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+            return anchor.getMatchedCharacterId();
+        });
+        WorkerAnalysisJobPayload second = claim();
+        assertThat(second.knownCharacters()).singleElement().satisfies(character -> {
+            assertThat(character.characterId()).isEqualTo(actualId);
+            assertThat(character.name()).isEqualTo("에르웬");
+            assertThat(character.aliases()).containsExactly("에르웬 미샤");
+            assertThat(character.identityEvidence()).extracting(span -> span.quote())
+                    .contains("에르웬이 등장했다.", "에르웬의 본명은 에르웬 미샤다.");
+        });
+        assertThat(input(second).path("references").isEmpty()).isTrue();
+    }
+
+    @Test
+    @DisplayName("미상 보류 후보는 실제 캐릭터와 Fact가 되지 않고 다음 회차의 참고 정보에만 남는다")
+    void pendingCandidateOnlyBecomesReference() {
+        run(2);
+        WorkerAnalysisJobPayload first = claim();
+        UUID pending = tx.execute(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            SettingCandidate candidate = SettingCandidate.create(job.getWork(), job.getEpisode(), null, job,
+                    SettingEntityType.CHARACTER, "미상", "stats.mental", "99", SettingValueType.NUMBER,
+                    JSON.objectNode().put("value", 99), JSON.arrayNode().add(JSON.objectNode().put("quote", "정신 수치는 99였다.")), BigDecimal.ONE, null);
+            entities.persist(candidate);
+            return candidate.getId();
+        });
+        complete(first);
+        WorkerAnalysisJobPayload second = claim();
+        JsonNode input = input(second);
+        assertThat(input.path("characters").size()).isZero();
+        assertThat(input.path("references").path("pending-character:" + pending).path("value").asText()).isEqualTo("99");
+        assertThat(tx.<SettingCandidateReviewStatus>execute(status -> candidates.findById(pending).orElseThrow().getReviewStatus()))
+                .isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+    }
+
+    @Test
+    @DisplayName("새 업로드 묶음의 첫 회차도 이전 묶음의 미확정 근거를 확정 사실과 구분해서 받는다")
+    void newBatchReadsEarlierPendingAlongsideConfirmedFacts() {
+        Run run = run(1);
+        WorkerAnalysisJobPayload first = claim();
+        UUID pending = tx.execute(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            var discovered = discovery(job, "에르웬", null, true);
+            addStat(job, discovered.getProvisionalSubjectKey(), null, 35, CharacterFactOperation.ADD);
+            return addUnresolvedReference(job).getId();
+        });
+        complete(first);
+        UUID secondId = nextBatch(run.workId(), 2);
+        WorkerAnalysisJobPayload second = claim();
+        assertThat(second.analysisJobId()).isEqualTo(secondId);
+        assertThat(second.analysisContext().runId()).isNotEqualTo(first.analysisContext().runId());
+        assertThat(second.analysisContext().unresolvedReferences()).singleElement().satisfies(reference -> {
+            assertThat(reference.sourceEpisodeNo()).isEqualTo(1);
+            assertThat(reference.value()).isEqualTo("99");
+            assertThat(reference.evidenceSpans()).singleElement().satisfies(span -> assertThat(span.quote()).contains("99"));
+        });
+        JsonNode input = input(second);
+        assertThat(input.path("references").path("pending-character:" + pending).path("value").asText()).isEqualTo("99");
+        assertThat(input.path("characters").elements().next().path("slots").path("STAT:stats.mental").path("factValue").asText())
+                .isEqualTo("35");
+        assertThat(input.path("characters").findValuesAsText("factValue")).doesNotContain("99");
+        tx.executeWithoutResult(status -> {
+            assertThat(candidates.findById(pending).orElseThrow().getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+            assertThat(entities.createQuery("select count(f) from CharacterFact f", Long.class).getSingleResult()).isEqualTo(1L);
+            assertThat(states.prepareInput(jobs.findById(secondId).orElseThrow())).isTrue();
+        });
+        assertThat(input(second)).isEqualTo(input);
+    }
+
+    @Test
+    @DisplayName("이전 묶음 후보 수정은 새 묶음 입력을 무효화하며 재시작은 최신 사용자 내용만 참고한다")
+    void crossBatchHumanEditInvalidatesFrozenInputAndNextRunUsesLatestText() {
+        Run run = run(1);
+        WorkerAnalysisJobPayload first = claim();
+        UUID pending = tx.execute(status -> addUnresolvedReference(jobs.findById(first.analysisJobId()).orElseThrow()).getId());
+        complete(first);
+        UUID secondId = nextBatch(run.workId(), 2);
+        WorkerAnalysisJobPayload second = claim();
+        JsonNode frozen = input(second);
+        String frozenHash = second.analysisContext().inputStateHash();
+        Long ownerId = tx.execute(status -> entities.find(Work.class, run.workId()).getMember().getId());
+
+        characterReview.updateSettingCandidate(ownerId, run.workId(), pending, new SettingCandidateUpdateRequest("stats.mental", "77"));
+
+        tx.executeWithoutResult(status -> {
+            AnalysisJob secondJob = jobs.findById(secondId).orElseThrow();
+            assertThat(secondJob.getJournalStatus()).isEqualTo(AnalysisJournalStatus.INVALIDATED);
+            assertThat(secondJob.getStatus()).isEqualTo(AnalysisJobStatus.CANCELED);
+            assertThat(secondJob.getAutomaticInputState()).isEqualTo(frozen);
+            assertThat(secondJob.getInputStateHash()).isEqualTo(frozenHash);
+        });
+        assertThatThrownBy(() -> tx.executeWithoutResult(status -> states.assertValidInput(jobs.findById(secondId).orElseThrow())))
+                .isInstanceOf(AppException.class);
+        nextBatch(run.workId(), 3);
+        var third = claim();
+        JsonNode reference = input(third).path("references").path("pending-character:" + pending);
+        assertThat(reference.path("value").asText()).isEqualTo("77");
+        assertThat(reference.path("reason").asText()).contains("사용자", "수정 전 원문");
+        assertThat(reference.path("evidenceSpans").toString()).contains("99");
+        assertThat(input(third).path("characters")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("같은 회차를 재분석한 최신 작업이 실패했으면 이전 성공 작업의 후보를 다시 가져오지 않는다")
+    void newBatchDoesNotResurrectPendingFromSupersededAnalysis() {
+        Run run = run(1);
+        WorkerAnalysisJobPayload first = claim();
+        tx.executeWithoutResult(status -> addUnresolvedReference(jobs.findById(first.analysisJobId()).orElseThrow()));
+        complete(first);
+        tx.executeWithoutResult(status -> {
+            AnalysisJob old = jobs.findById(first.analysisJobId()).orElseThrow();
+            AnalysisJob replacement = AnalysisJob.create(old.getWork(), old.getBatch(), old.getEpisode(), AnalysisJobType.SETTING_EXTRACTION);
+            replacement.configureReviewMode(AnalysisReviewMode.AUTOMATIC);
+            states.initializeRun(List.of(replacement));
+            ReflectionTestUtils.setField(replacement, "status", AnalysisJobStatus.FAILED);
+            ReflectionTestUtils.setField(replacement, "createdAt", old.getCreatedAt().plusSeconds(1));
+        });
+        nextBatch(run.workId(), 2);
+        assertThat(input(claim()).path("references")).isEmpty();
+    }
+
+    private UUID nextBatch(UUID workId, int episodeNumber) {
+        return tx.execute(status -> {
+            Work work = entities.find(Work.class, workId);
+            UploadBatch batch = UploadBatch.create(work, work.getMember(), UploadType.SINGLE_EPISODE, UploadSourceType.FILE);
+            entities.persist(batch);
+            Episode episode = Episode.create(work, null, episodeNumber, "다음 원고", "automatic-test/" + episodeNumber,
+                    "v1", "a".repeat(64), 10);
+            entities.persist(episode);
+            AnalysisJob job = AnalysisJob.create(work, batch, episode, AnalysisJobType.SETTING_EXTRACTION);
+            job.configureReviewMode(AnalysisReviewMode.AUTOMATIC);
+            states.initializeRun(List.of(job));
+            return job.getId();
+        });
+    }
+
+    private SettingCandidate addUnresolvedReference(AnalysisJob job) {
+        SettingCandidate candidate = SettingCandidate.create(job.getWork(), job.getEpisode(), null, job,
+                SettingEntityType.CHARACTER, "미상", "stats.mental", "99", SettingValueType.NUMBER,
+                JSON.objectNode().put("value", 99), JSON.arrayNode().add(JSON.objectNode().put("quote", "정신 수치는 99였다.")),
+                BigDecimal.ONE, null);
+        entities.persist(candidate);
+        return candidate;
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("저장 직전 제안 오류는 그 항목과 의존 항목만 보류하고 정상 설정 저장과 다음 회차를 이어간다")
+    void invalidFinalProposalDoesNotRollBackUnrelatedSettings(boolean invalidValueType) {
+        Run run = run(2);
+        WorkerAnalysisJobPayload first = claim();
+        List<UUID> ids = tx.execute(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            SettingCandidate badSubject = discovery(job, "에르웬", null, true);
+            SettingCandidate bad = addStat(job, badSubject.getProvisionalSubjectKey(), null, 35, CharacterFactOperation.ADD);
+            // Simulate a persisted comparison that passes preparation but is invalid for actual promotion.
+            if (invalidValueType) {
+                ReflectionTestUtils.setField(bad, "proposedValueJson", JSON.objectNode().put("value", "숫자 아님"));
+            } else {
+                ReflectionTestUtils.setField(bad, "proposedFactValue", " ");
+            }
+            SettingCandidate dependent = addStat(job, badSubject.getProvisionalSubjectKey(), null, 36, CharacterFactOperation.UPDATE);
+            SettingCandidate goodSubject = discovery(job, "비요른", null, true);
+            SettingCandidate good = addStat(job, goodSubject.getProvisionalSubjectKey(), null, 50, CharacterFactOperation.ADD);
+            ReflectionTestUtils.setField(good, "entityName", "비요른");
+            addWorld(job);
+            return List.of(bad.getId(), dependent.getId(), good.getId(), badSubject.getId(), goodSubject.getId());
+        });
+        complete(first);
+        List<UUID> actualIds = tx.execute(status -> {
+            SettingCandidate bad = candidates.findById(ids.get(0)).orElseThrow();
+            assertThat(bad.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+            assertThat(bad.getAutomaticReviewHoldReason()).isEqualTo(
+                    org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason.SETTING_VALUE_CONFIRMATION_REQUIRED);
+            SettingCandidate dependent = candidates.findById(ids.get(1)).orElseThrow();
+            assertThat(dependent.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+            assertThat(dependent.getAutomaticReviewHoldReason()).isNotNull();
+            assertThat(candidates.findById(ids.get(2)).orElseThrow().getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+            assertThat(entities.createQuery("select count(f) from CharacterFact f", Long.class).getSingleResult()).isEqualTo(1);
+            assertThat(entities.createQuery("select count(w) from WorldSetting w", Long.class).getSingleResult()).isEqualTo(1);
+            AnalysisJob completed = jobs.findById(first.analysisJobId()).orElseThrow();
+            assertThat(completed.getStatus()).isEqualTo(AnalysisJobStatus.SUCCEEDED);
+            assertThat(completed.getJournalStatus()).isEqualTo(AnalysisJournalStatus.SEALED);
+            assertThat(completed.getAutomaticAppliedAt()).isNotNull();
+            return List.of(candidates.findById(ids.get(3)).orElseThrow().getMatchedCharacterId(),
+                    candidates.findById(ids.get(4)).orElseThrow().getMatchedCharacterId());
+        });
+        WorkerAnalysisJobPayload second = claim();
+        assertThat(second.analysisJobId()).isEqualTo(run.jobs().get(1));
+        JsonNode next = input(second).path("characters");
+        assertThat(next.path("character:" + actualIds.get(0)).path("slots").isEmpty()).isTrue();
+        assertThat(next.path("character:" + actualIds.get(1)).path("slots").path("STAT:stats.mental").path("factValue").asText())
+                .isEqualTo("50");
+    }
+
+    @Test
+    @DisplayName("분석 성공과 journal 봉인만으로 다음 회차를 열지 않고 자동 저장 완료 표시까지 요구한다")
+    void nextClaimWaitsForAppliedMarker() {
+        run(2);
+        WorkerAnalysisJobPayload first = claim();
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            states.seal(job);
+            job.succeed("{}", 0, 0);
+        });
+        assertThat(worker.claimAnalysisJob(request())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("캐릭터 저장 뒤 세계관 반영이 실패하면 전체를 롤백하고 같은 완료 요청 재시도는 중복 없이 저장한다")
+    void rollbackAndRetryDoNotDuplicateCharacter() {
+        run(2);
+        WorkerAnalysisJobPayload first = claim();
+        UUID candidateId = tx.execute(status -> discovery(jobs.findById(first.analysisJobId()).orElseThrow(), "에르웬", null, true).getId());
+        doThrow(new IllegalStateException("세계관 저장 실패 재현")).when(worldApplication).applyAutomatically(any());
+        assertThatThrownBy(() -> complete(first)).isInstanceOf(IllegalStateException.class);
+        assertThat(tx.<Long>execute(status -> entities.createQuery("select count(c) from WorkCharacter c", Long.class).getSingleResult())).isZero();
+        assertThat(tx.<SettingCandidateReviewStatus>execute(status -> candidates.findById(candidateId).orElseThrow().getReviewStatus()))
+                .isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+        assertThat(worker.claimAnalysisJob(request())).isEmpty();
+        doCallRealMethod().when(worldApplication).applyAutomatically(any());
+        complete(first);
+        assertThat(tx.<Long>execute(status -> entities.createQuery("select count(c) from WorkCharacter c", Long.class).getSingleResult())).isEqualTo(1);
+        assertThat(tx.<Boolean>execute(status -> candidates.findById(candidateId).orElseThrow().isReviewedAutomatically())).isTrue();
+        assertThatThrownBy(() -> complete(first)).isInstanceOf(RuntimeException.class);
+        assertThat(tx.<Long>execute(status -> entities.createQuery("select count(c) from WorkCharacter c", Long.class).getSingleResult())).isEqualTo(1);
+        assertThat(worker.claimAnalysisJob(request())).isPresent();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("새 인물의 끝난 상태는 이력만 저장하고 저장 재시도와 다음 회차에도 현재 상태로 추가하지 않는다")
+    void newCharacterPastStatusOnlyCreatesHistoryIncludingAfterCompletionRetry(boolean failFirstCompletion) {
+        Run run = run(2);
+        WorkerAnalysisJobPayload first = claim();
+        UUID statusId = tx.execute(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            entities.persist(CharacterSettingSchema.create(job.getWork(), "statuses.status", "status.*", "상태",
+                    CharacterFactType.STATUS, SettingValueType.JSON, CharacterSettingValueSemantics.BASE_VALUE,
+                    CharacterSettingMergePolicy.UPSERT_BY_NAME, JSON.arrayNode(), CharacterSettingSchemaSource.SYSTEM_SEED, true));
+            SettingCandidate discovered = discovery(job, "데이비스", null, true);
+            ObjectNode value = JSON.objectNode().put("name", "기절").put("active", false)
+                    .put("description", "기절했다가 치료를 받고 회복했다.");
+            SettingCandidate candidate = SettingCandidate.create(job.getWork(), job.getEpisode(), null, job,
+                    SettingEntityType.CHARACTER, "데이비스", "데이비스", null, SettingCandidateMatchStatus.UNRESOLVED,
+                    "status.기절", "기절했다가 회복함", SettingValueType.JSON, value,
+                    JSON.arrayNode().add(JSON.objectNode().put("quote", "데이비스는 기절했지만 치료 후 깨어났다.")),
+                    BigDecimal.ONE, null);
+            ReflectionTestUtils.setField(candidate, "provisionalSubjectKey", discovered.getProvisionalSubjectKey());
+            entities.persist(candidate);
+            entities.flush();
+            characterStates.prepareProvisionalCandidates(job);
+            CharacterFactComparisonBatch batch = CharacterFactComparisonBatch.createProvisional(
+                    job.getWork(), job.getEpisode(), job, discovered.getProvisionalSubjectKey(), CharacterFactType.STATUS, 1);
+            batch.recordAnalysisContext(JSON.objectNode().set("slots", JSON.arrayNode()));
+            entities.persist(batch);
+            candidate.startComparison(batch, "C1");
+            candidate.recordComparisonContext(batch.getBaseSnapshotVersion(), job.getInputStateHash());
+            candidate.completeComparison(CharacterFactOperation.HISTORY_ONLY, null, null, null, null,
+                    JSON.arrayNode(), CharacterFactTemporalScope.PAST, "이미 끝난 기절은 과거 이력으로 남깁니다.",
+                    JSON.objectNode(), LocalDateTime.now(), "status.기절", JSON.arrayNode());
+            batch.complete("d".repeat(64), JSON.objectNode());
+            characterStates.recordDecision(job, candidate,
+                    new CharacterSnapshotEntry(new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.기절"),
+                            candidate.getAttributeValue(), value, true), List.of(), List.of());
+            job.updateCheckpointStage(AnalysisJobCheckpointStage.WORLD_COMPARISONS_FINISHED);
+            return candidate.getId();
+        });
+        if (failFirstCompletion) {
+            doThrow(new IllegalStateException("세계관 저장 실패 재현")).when(worldApplication).applyAutomatically(any());
+            assertThatThrownBy(() -> complete(first)).isInstanceOf(IllegalStateException.class);
+            tx.executeWithoutResult(status -> {
+                assertThat(entities.createQuery("select count(c) from WorkCharacter c", Long.class).getSingleResult()).isZero();
+                assertThat(entities.createQuery("select count(f) from CharacterFact f", Long.class).getSingleResult()).isZero();
+                SettingCandidate candidate = candidates.findById(statusId).orElseThrow();
+                assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.COMPLETED);
+                assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+                assertThat(candidate.getAnalysisJob().getCheckpointStage()).isEqualTo(AnalysisJobCheckpointStage.WORLD_COMPARISONS_FINISHED);
+            });
+            assertThat(worker.claimAnalysisJob(request())).isEmpty();
+            doCallRealMethod().when(worldApplication).applyAutomatically(any());
+        }
+        complete(first);
+        UUID characterId = tx.execute(status -> {
+            SettingCandidate candidate = candidates.findById(statusId).orElseThrow();
+            assertThat(candidate.getSuggestedOperation()).isEqualTo(CharacterFactOperation.HISTORY_ONLY);
+            assertThat(candidate.getTemporalScope()).isEqualTo(CharacterFactTemporalScope.PAST);
+            assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+            assertThat(candidate.isReviewedAutomatically()).isTrue();
+            assertThat(candidate.getConfirmedApplicationMode()).isEqualTo(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+            assertThat(candidate.getAnalysisJob().getStatus()).isEqualTo(AnalysisJobStatus.SUCCEEDED);
+            assertThat(candidate.getAnalysisJob().getAutomaticAppliedAt()).isNotNull();
+            List<CharacterFact> facts = entities.createQuery("select f from CharacterFact f", CharacterFact.class).getResultList();
+            assertThat(facts).singleElement().satisfies(fact -> {
+                assertThat(fact.getSettingCandidate().getId()).isEqualTo(statusId);
+                assertThat(fact.getFactType()).isEqualTo(CharacterFactType.STATUS);
+                assertThat(fact.getFactKey()).isEqualTo("status.기절");
+                assertThat(fact.getValueJson().path("active").asBoolean()).isFalse();
+            });
+            assertThat(entities.createQuery("select count(c) from WorkCharacter c", Long.class).getSingleResult()).isEqualTo(1);
+            return candidate.getMatchedCharacterId();
+        });
+        assertThat(characterId).isNotNull();
+        assertThatThrownBy(() -> complete(first)).isInstanceOf(RuntimeException.class);
+        assertThat(tx.<Long>execute(status -> entities.createQuery("select count(f) from CharacterFact f", Long.class).getSingleResult())).isEqualTo(1);
+        WorkerAnalysisJobPayload second = claim();
+        assertThat(second.analysisJobId()).isEqualTo(run.jobs().get(1));
+        assertThat(second.knownCharacters()).singleElement().satisfies(character -> {
+            assertThat(character.characterId()).isEqualTo(characterId);
+            assertThat(character.activeStatuses()).isEmpty();
+        });
+        assertThat(input(second).path("characters").path("character:" + characterId).path("slots").isEmpty()).isTrue();
+        complete(second);
+    }
+
+    @Test
+    @DisplayName("작가가 직접 등록한 인물과 세계관은 자동 분석 문맥에서도 HUMAN 출처로 구분한다")
+    void existingHumanSettingsKeepHumanProvenance() {
+        Run run = run(1);
+        tx.executeWithoutResult(status -> {
+            Work work = entities.find(Work.class, run.workId());
+            entities.persist(WorkCharacter.create(work, "작가 확인 인물", null, null, null, null, null, null, null, null, null));
+            entities.persist(WorldSetting.create(work, WorldSettingCategory.RACE, "작가 확인 종족", "수명", "천 년"));
+        });
+        JsonNode input = input(claim());
+        assertThat(input.path("characters").elements().next().path("provenance").path("reviewSource").asText()).isEqualTo("HUMAN");
+        assertThat(input.path("worldSettings").elements().next().path("provenance").path("reviewSource").asText()).isEqualTo("HUMAN");
+    }
+
+    @Test
+    @DisplayName("같은 이름의 서로 다른 임시 인물은 자동 생성하거나 합치지 않고 연결된 설정도 보류한다")
+    void sameNameDistinctAnchorsRemainPending() {
+        run(2);
+        WorkerAnalysisJobPayload first = claim();
+        List<UUID> anchors = tx.execute(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            SettingCandidate left = discovery(job, "에르웬", null, true);
+            SettingCandidate right = discovery(job, " 에르웬 ", null, true);
+            addStat(job, left.getProvisionalSubjectKey(), null, 35, CharacterFactOperation.ADD);
+            return List.of(left.getId(), right.getId());
+        });
+        complete(first);
+        assertThat(tx.<Long>execute(status -> entities.createQuery("select count(c) from WorkCharacter c", Long.class).getSingleResult())).isZero();
+        tx.executeWithoutResult(status -> assertThat(candidates.findAllById(anchors))
+                .allSatisfy(candidate -> assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW)));
+        JsonNode second = input(claim());
+        assertThat(second.path("characters").size()).isZero();
+        assertThat(second.path("references").size()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("원문 파기는 다음 회차에 복사된 근거와 보류 정보 및 새 실행 시작 snapshot의 근거를 지운다")
+    void purgesCopiedIdentityEvidenceAndPendingReferences() {
+        Run run = run(2);
+        WorkerAnalysisJobPayload first = claim();
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            discovery(job, "에르웬", null, true);
+            SettingCandidate pending = SettingCandidate.create(job.getWork(), job.getEpisode(), null, job,
+                    SettingEntityType.CHARACTER, "미상", "stats.mental", "99", SettingValueType.NUMBER,
+                    JSON.objectNode().put("value", 99), JSON.arrayNode().add(JSON.objectNode().put("quote", "파기할 보류 근거")), BigDecimal.ONE, null);
+            entities.persist(pending);
+        });
+        complete(first);
+        WorkerAnalysisJobPayload second = claim();
+        assertThat(input(second).toString()).contains("에르웬라고 말했다.", "파기할 보류 근거");
+        UUID freshRunRoot = tx.execute(status -> {
+            AnalysisJob next = jobs.findById(second.analysisJobId()).orElseThrow();
+            AnalysisJob fresh = AnalysisJob.create(next.getWork(), next.getBatch(), next.getEpisode(), AnalysisJobType.SETTING_EXTRACTION);
+            fresh.configureReviewMode(AnalysisReviewMode.AUTOMATIC);
+            states.initializeRun(List.of(fresh));
+            assertThat(fresh.getRunBaseState().toString()).contains("에르웬라고 말했다.");
+            return fresh.getId();
+        });
+        tx.executeWithoutResult(status -> {
+            entities.lock(entities.find(Work.class, run.workId()), jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+            states.purgeSourceEvidenceForWorkForUpdate(run.workId(), 1);
+        });
+        tx.executeWithoutResult(status -> {
+            AnalysisJob secondJob = jobs.findById(second.analysisJobId()).orElseThrow();
+            assertThat(secondJob.getJournalStatus()).isEqualTo(AnalysisJournalStatus.INVALIDATED);
+            assertThat(secondJob.getAutomaticInputState().toString()).doesNotContain("에르웬라고 말했다.", "파기할 보류 근거");
+            assertThat(secondJob.getAutomaticInputState().path("references").size()).isZero();
+            assertThat(jobs.findById(freshRunRoot).orElseThrow().getRunBaseState().toString()).doesNotContain("에르웬라고 말했다.");
+        });
+    }
+
+    @Test
+    @DisplayName("개별 비교 실패는 후보로 남기고 같은 회차의 정상 캐릭터·세계관을 저장해 다음 회차를 연다")
+    void failedComparisonsStayAsReferencesWhileValidSettingsApply() {
+        run(2);
+        WorkerAnalysisJobPayload first = claim();
+        List<UUID> failedIds = tx.execute(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            SettingCandidate discovery = discovery(job, "에르웬", null, true);
+            addStat(job, discovery.getProvisionalSubjectKey(), null, 35, CharacterFactOperation.ADD);
+            addWorld(job);
+            SettingCandidate failedCharacter = SettingCandidate.create(job.getWork(), job.getEpisode(), null, job,
+                    SettingEntityType.CHARACTER, "에르웬", "stats.mental", "99", SettingValueType.NUMBER,
+                    JSON.objectNode().put("value", 99), JSON.arrayNode().add(JSON.objectNode().put("quote", "정신 수치는 99였다.")), BigDecimal.ONE, null);
+            ReflectionTestUtils.setField(failedCharacter, "provisionalSubjectKey", discovery.getProvisionalSubjectKey());
+            entities.persist(failedCharacter);
+            entities.flush();
+            characterStates.prepareProvisionalCandidates(job);
+            failPreparedCharacterComparison(job, failedCharacter, "개별 비교 해석 실패");
+            WorldSettingCandidate failedWorld = WorldSettingCandidate.create(job.getWork(), job.getEpisode(), job,
+                    WorldSettingCategory.RACE, "판단 실패 종족", "수명", "미확인 값", JSON.arrayNode().add(JSON.objectNode().put("quote", "해당 종족의 수명을 알 수 없다.")), BigDecimal.ONE, null);
+            entities.persist(failedWorld);
+            String key = "provisional-world:" + failedWorld.getId();
+            failedWorld.resolveOrderedSubject(WorldSettingSubjectResolutionType.NEW, key, "판단 실패 종족", JSON.arrayNode(), JSON.arrayNode().add(key));
+            WorldSettingComparisonBatch batch = WorldSettingComparisonBatch.createOrdered(job.getWork(), job.getEpisode(), job,
+                    WorldSettingCategory.RACE, null, WorldSettingSubjectResolutionType.NEW, key, "판단 실패 종족", JSON.arrayNode(), JSON.arrayNode().add(key), 1);
+            entities.persist(batch);
+            failedWorld.startComparison(batch, "C1");
+            batch.recordContext(JSON.objectNode().putObject("targets").putObject(key));
+            failedWorld.failComparison(AnalysisFailureCode.LLM_RESPONSE_PARSE_ERROR, "개별 비교 해석 실패");
+            batch.fail(AnalysisFailureCode.LLM_RESPONSE_PARSE_ERROR, "개별 비교 해석 실패");
+            return List.of(failedCharacter.getId(), failedWorld.getId());
+        });
+        complete(first);
+        WorkerAnalysisJobPayload second = claim();
+        JsonNode input = input(second);
+        assertThat(input.path("characters").size()).isEqualTo(1);
+        assertThat(input.path("characters").elements().next().path("slots").path("STAT:stats.mental").path("factValue").asText()).isEqualTo("35");
+        assertThat(input.path("worldSettings").size()).isEqualTo(1);
+        assertThat(input.path("worldSettings").toString()).doesNotContain("판단 실패 종족");
+        assertThat(input.path("references").path("pending-character:" + failedIds.get(0)).path("value").asText()).isEqualTo("99");
+        assertThat(input.path("references").path("pending-world:" + failedIds.get(1)).path("value").asText()).isEqualTo("미확인 값");
+        tx.executeWithoutResult(status -> {
+            SettingCandidate character = candidates.findById(failedIds.get(0)).orElseThrow();
+            WorldSettingCandidate world = entities.find(WorldSettingCandidate.class, failedIds.get(1));
+            assertThat(character.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+            assertThat(character.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.FAILED);
+            assertThat(world.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.PENDING_REVIEW);
+            assertThat(world.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.FAILED);
+            assertThat(jobs.findById(first.analysisJobId()).orElseThrow().getAutomaticAppliedAt()).isNotNull();
+        });
+    }
+
+    @Test
+    @DisplayName("한 세계관 batch의 정상 결정과 실패 진단을 함께 저장하고 다음 회차에는 정상값과 실패 참고만 전달한다")
+    void mixedWorldCompletionKeepsFailureAndAdvancesNextEpisode() {
+        run(2);
+        var first = claim();
+        List<UUID> ids = tx.execute(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            var good = WorldSettingCandidate.create(job.getWork(), job.getEpisode(), job, WorldSettingCategory.RACE,
+                    "엘프", "서식지", "북부", JSON.arrayNode(), BigDecimal.ONE, null);
+            var failed = WorldSettingCandidate.create(job.getWork(), job.getEpisode(), job, WorldSettingCategory.RACE,
+                    "엘프", "수명", "미확인 수명", JSON.arrayNode().add(JSON.objectNode().put("quote", "엘프의 수명을 알 수 없다.")), BigDecimal.ONE, null);
+            entities.persist(good);
+            entities.persist(failed);
+            entities.flush();
+            ReflectionTestUtils.setField(good, "createdAt", LocalDateTime.now().minusSeconds(1));
+            return List.of(good.getId(), failed.getId());
+        });
+        String key = "provisional-world:" + ids.getFirst();
+        worldWorker.resolveWorldSettingSubjects(first.analysisJobId(), first.leaseToken(), new WorkerWorldSettingSubjectResolutionRequest(
+                ids.stream().map(id -> new WorkerWorldSettingSubjectResolutionRequest.SubjectResolutionInput(id, List.of(), List.of(key), false)).toList()));
+        var batch = worldWorker.claimNextWorldSettingComparisonBatch(first.analysisJobId(), first.leaseToken()).orElseThrow();
+        var context = worldWorker.getWorldSettingComparisonBatchContext(first.analysisJobId(), batch.comparisonBatchId(), first.leaseToken(),
+                new WorkerWorldSettingComparisonBatchContextRequest(List.of(), List.of(key)));
+        var initial = new org.monitoring.catchholebackend.domain.worldsetting.dto.WorldSettingComparisonDiagnostic(
+                1, "RESPONSE_PARSE_ERROR", List.of(), List.of());
+        var failedAttempt = new org.monitoring.catchholebackend.domain.worldsetting.dto.WorldSettingComparisonDiagnostic(
+                2, "PROPOSED_PATH_MISMATCH", List.of("C2"), List.of());
+        var request = new WorkerWorldSettingComparisonBatchCompleteRequest(
+                List.of(new WorkerWorldSettingComparisonBatchCompleteRequest.ContextVersion(null, context.targets().getFirst().version(), key)),
+                List.of(new WorkerWorldSettingComparisonBatchCompleteRequest.Decision("D1", List.of("C1"), "엘프", null,
+                        null, null, List.of(), WorldSettingConsolidationStatus.SINGLE, WorldSettingSuggestedOperation.ADD, null,
+                        null, "서식지", "북부", "확인된 서식지", Map.of(), key)), Map.of(), context.contextToken(),
+                List.of(new WorkerWorldSettingComparisonBatchCompleteRequest.Failure(List.of("C2"),
+                        AnalysisFailureCode.COMPARISON_VALIDATION_FAILED, "검증 실패", List.of(failedAttempt))), List.of(initial));
+        var conflicting = new WorkerWorldSettingComparisonBatchCompleteRequest(request.contextVersions(),
+                List.of(request.decisions().getFirst(), new WorkerWorldSettingComparisonBatchCompleteRequest.Decision("D2", List.of("C2"), "엘프", null,
+                        null, null, List.of(), WorldSettingConsolidationStatus.SINGLE, WorldSettingSuggestedOperation.ADD, null,
+                        null, "서식지", "덮어쓸 값", "겹친 경로", Map.of(), key)), Map.of(), context.contextToken());
+        assertThatThrownBy(() -> worldWorker.completeWorldSettingComparisonBatch(first.analysisJobId(), batch.comparisonBatchId(), first.leaseToken(), conflicting))
+                .isInstanceOf(AppException.class);
+        tx.executeWithoutResult(status -> {
+            assertThat(entities.find(WorldSettingCandidate.class, ids.getFirst()).getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.PROCESSING);
+            assertThat(entities.find(WorldSettingCandidate.class, ids.getLast()).getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.PROCESSING);
+            assertThat(entities.createQuery("select count(d) from WorldSettingComparisonDecision d", Long.class).getSingleResult()).isZero();
+        });
+        worldWorker.completeWorldSettingComparisonBatch(first.analysisJobId(), batch.comparisonBatchId(), first.leaseToken(), request);
+        worldWorker.completeWorldSettingComparisonBatch(first.analysisJobId(), batch.comparisonBatchId(), first.leaseToken(), request);
+        complete(first);
+
+        tx.executeWithoutResult(status -> {
+            var good = entities.find(WorldSettingCandidate.class, ids.getFirst());
+            var failed = entities.find(WorldSettingCandidate.class, ids.getLast());
+            assertThat(good.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.CONFIRMED);
+            assertThat(good.getComparisonDiagnostics().size()).isEqualTo(1);
+            assertThat(failed.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.FAILED);
+            assertThat(failed.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.PENDING_REVIEW);
+            assertThat(failed.getComparisonDiagnostics().size()).isEqualTo(2);
+            var response = new org.monitoring.catchholebackend.domain.worldsetting.mapper.WorldSettingMapper().toCandidateResponse(failed);
+            assertThat(response.comparisonDiagnostics()).hasSize(2);
+            assertThat(response.comparisonDiagnostics().getLast().rule()).isEqualTo("PROPOSED_PATH_MISMATCH");
+            assertThat(jobs.findById(first.analysisJobId()).orElseThrow().getJournalStatus()).isEqualTo(AnalysisJournalStatus.SEALED);
+        });
+        var second = input(claim());
+        assertThat(second.path("worldSettings").size()).isEqualTo(1);
+        assertThat(second.path("worldSettings").toString()).contains("북부").doesNotContain("미확인 수명");
+        assertThat(second.path("references").path("pending-world:" + ids.getLast()).path("value").asText()).isEqualTo("미확인 수명");
+    }
+
+    @Test
+    @DisplayName("자동 반영 후 남은 캐릭터 실패 후보를 원문 값 그대로 직접 확인하면 실제 설정과 사용자 확인 이력으로 저장한다")
+    void manuallyConfirmsFailedCharacterValueAfterAutomaticCompletion() {
+        Run run = run(1);
+        WorkerAnalysisJobPayload first = claim();
+        UUID failedId = tx.execute(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            SettingCandidate discovery = discovery(job, "에르웬", null, true);
+            addStat(job, discovery.getProvisionalSubjectKey(), null, 35, CharacterFactOperation.ADD);
+            SettingCandidate failed = SettingCandidate.create(job.getWork(), job.getEpisode(), null, job,
+                    SettingEntityType.CHARACTER, "에르웬", "stats.mental", "99", SettingValueType.NUMBER,
+                    JSON.objectNode().put("value", 99), JSON.arrayNode().add(JSON.objectNode().put("quote", "정신 수치는 99였다.")), BigDecimal.ONE, null);
+            ReflectionTestUtils.setField(failed, "provisionalSubjectKey", discovery.getProvisionalSubjectKey());
+            entities.persist(failed);
+            entities.flush();
+            characterStates.prepareProvisionalCandidates(job);
+            failPreparedCharacterComparison(job, failed, "직접 검토할 비교 실패");
+            return failed.getId();
+        });
+        complete(first);
+        Long ownerId = tx.execute(status -> entities.find(Work.class, run.workId()).getMember().getId());
+        assertThat(tx.<Boolean>execute(status -> candidates.findById(failedId).orElseThrow().isManualReviewAvailable())).isTrue();
+        characterReview.updateSettingCandidate(ownerId, run.workId(), failedId, new SettingCandidateUpdateRequest("stats.mental", "99"));
+        var result = characterReview.confirmSettingCandidate(ownerId, run.workId(), failedId,
+                new SettingCandidateConfirmRequest(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, null, true));
+        assertThat(result.recomparisonRequired()).isFalse();
+        tx.executeWithoutResult(status -> {
+            SettingCandidate candidate = candidates.findById(failedId).orElseThrow();
+            assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+            assertThat(candidate.isUserModified()).isTrue();
+            assertThat(candidate.isReviewedAutomatically()).isFalse();
+            assertThat(candidate.getMatchedCharacterId()).isNotNull();
+            List<CharacterFact> facts = entities.createQuery("select f from CharacterFact f where f.workCharacter.id = :id", CharacterFact.class)
+                    .setParameter("id", candidate.getMatchedCharacterId()).getResultList();
+            assertThat(facts).hasSize(2).anySatisfy(fact -> assertThat(fact.getFactValue()).isEqualTo("99"));
+        });
+    }
+
+    @Test
+    @DisplayName("자동 반영 후 남은 세계관 실패 후보의 수정안을 저장하고 확정하면 실제 세계관과 작가 검토자를 남긴다")
+    void manuallyConfirmsFailedWorldDraftAfterAutomaticCompletion() {
+        Run run = run(1);
+        WorkerAnalysisJobPayload first = claim();
+        UUID failedId = tx.execute(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            addWorld(job);
+            WorldSettingCandidate failed = WorldSettingCandidate.create(job.getWork(), job.getEpisode(), job,
+                    WorldSettingCategory.RACE, "설인", "서식지", "미확인", JSON.arrayNode(), BigDecimal.ONE, null);
+            entities.persist(failed);
+            String key = "provisional-world:" + failed.getId();
+            failed.resolveOrderedSubject(WorldSettingSubjectResolutionType.NEW, key, "설인", JSON.arrayNode(), JSON.arrayNode().add(key));
+            WorldSettingComparisonBatch batch = WorldSettingComparisonBatch.createOrdered(job.getWork(), job.getEpisode(), job,
+                    WorldSettingCategory.RACE, null, WorldSettingSubjectResolutionType.NEW, key, "설인", JSON.arrayNode(), JSON.arrayNode().add(key), 1);
+            entities.persist(batch);
+            failed.startComparison(batch, "C1");
+            batch.recordContext(JSON.objectNode().putObject("targets").putObject(key));
+            failed.failComparison(AnalysisFailureCode.LLM_RESPONSE_PARSE_ERROR, "직접 검토할 비교 실패");
+            batch.fail(AnalysisFailureCode.LLM_RESPONSE_PARSE_ERROR, "직접 검토할 비교 실패");
+            return failed.getId();
+        });
+        complete(first);
+        Long ownerId = tx.execute(status -> entities.find(Work.class, run.workId()).getMember().getId());
+        UUID batchId = tx.execute(status -> jobs.findById(first.analysisJobId()).orElseThrow().getBatch().getId());
+        assertThat(tx.<Boolean>execute(status -> entities.find(WorldSettingCandidate.class, failedId).isManualReviewAvailable())).isTrue();
+        worldApplication.updateCandidateDecisions(ownerId, run.workId(), new WorldSettingCandidateDecisionUpdateRequest(batchId,
+                List.of(new WorldSettingCandidateDecisionUpdateItem(failedId, WorldSettingOperation.ADD, WorldSettingCategory.RACE,
+                        "설인", null, "서식지", "눈 덮인 산맥", "작가 확인"))));
+        var result = worldApplication.confirmCandidate(ownerId, run.workId(), failedId,
+                new WorldSettingCandidateConfirmRequest(WorldSettingOperation.ADD, WorldSettingCategory.RACE,
+                        "설인", null, "서식지", "눈 덮인 산맥", true, "작가 확인"));
+        assertThat(result.recomparisonRequired()).isFalse();
+        tx.executeWithoutResult(status -> {
+            WorldSettingCandidate candidate = entities.find(WorldSettingCandidate.class, failedId);
+            assertThat(candidate.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.CONFIRMED);
+            assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.FAILED);
+            assertThat(candidate.isReviewedAutomatically()).isFalse();
+            assertThat(candidate.getReviewedBy().getId()).isEqualTo(ownerId);
+            assertThat(candidate.getTargetWorldSetting().getPropertiesJson().path("서식지").asText()).isEqualTo("눈 덮인 산맥");
+            assertThat(entities.createQuery("select count(w) from WorldSetting w", Long.class).getSingleResult()).isEqualTo(2L);
+        });
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(value = AnalysisFailureCode.class, names = {"LLM_OUTPUT_TRUNCATED", "LLM_NETWORK_ERROR", "LLM_PROVIDER_ERROR",
+            "LLM_RESPONSE_PARSE_ERROR", "COMPARISON_VALIDATION_FAILED"})
+    @DisplayName("세계관 4개 묶음 검증 실패를 API 서비스로 기록한 뒤 다음 묶음과 회차가 계속되고 실패값은 참고에만 남는다")
+    void continuesWorldBatchClaimsAfterRecoverableFailureAndAppliesOnlySuccessfulSettings(AnalysisFailureCode code) {
+        Run run = run(2);
+        WorkerAnalysisJobPayload first = claim();
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            SettingCandidate discovered = discovery(job, "에르웬", null, true);
+            addStat(job, discovered.getProvisionalSubjectKey(), null, 35, CharacterFactOperation.ADD);
+        });
+        List<UUID> worldIds = prepareWorldBatches(first);
+        var failedBatch = worldWorker.claimNextWorldSettingComparisonBatch(first.analysisJobId(), first.leaseToken()).orElseThrow();
+        assertThat(failedBatch.candidates()).hasSize(4);
+        worldWorker.getWorldSettingComparisonBatchContext(first.analysisJobId(), failedBatch.comparisonBatchId(), first.leaseToken(),
+                new WorkerWorldSettingComparisonBatchContextRequest(failedBatch.resolvedTargetWorldSettingIds(), failedBatch.resolvedProvisionalSubjectKeys()));
+        var failure = new WorkerWorldSettingComparisonFailRequest(code, "묶음 LLM 비교 실패 재현", null, null,
+                List.of(new org.monitoring.catchholebackend.domain.worldsetting.dto.WorldSettingComparisonDiagnostic(
+                        1, "RESPONSE_PARSE_ERROR", List.of(), List.of()),
+                        new org.monitoring.catchholebackend.domain.worldsetting.dto.WorldSettingComparisonDiagnostic(
+                                2, "PROPOSED_PATH_MISMATCH", List.of("C1"), List.of())));
+        worldWorker.failWorldSettingComparisonBatch(first.analysisJobId(), failedBatch.comparisonBatchId(), first.leaseToken(), failure);
+        worldWorker.failWorldSettingComparisonBatch(first.analysisJobId(), failedBatch.comparisonBatchId(), first.leaseToken(), failure);
+        tx.executeWithoutResult(status -> worldIds.subList(0, 4).forEach(id -> {
+            var failed = entities.find(WorldSettingCandidate.class, id);
+            assertThat(failed.getComparisonDiagnostics().size()).isEqualTo("C1".equals(failed.getComparisonCandidateRef()) ? 2 : 1);
+        }));
+
+        var nextBatch = worldWorker.claimNextWorldSettingComparisonBatch(first.analysisJobId(), first.leaseToken()).orElseThrow();
+        assertThat(nextBatch.candidates()).singleElement().satisfies(candidate -> assertThat(candidate.candidateId()).isEqualTo(worldIds.getLast()));
+        completeWorldBatch(first, nextBatch);
+        assertThat(worldWorker.claimNextWorldSettingComparisonBatch(first.analysisJobId(), first.leaseToken())).isEmpty();
+        complete(first);
+        assertThatThrownBy(() -> complete(first)).isInstanceOf(RuntimeException.class);
+
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            assertThat(job.getAutomaticAppliedAt()).isNotNull();
+            assertThat(job.getJournalStatus()).isEqualTo(AnalysisJournalStatus.SEALED);
+            var failedReferences = java.util.stream.StreamSupport.stream(job.getStateJournal().path("changes").spliterator(), false)
+                    .filter(change -> change.path("eventId").asText().startsWith("world-comparison-failed:")).toList();
+            assertThat(failedReferences).hasSize(4).allSatisfy(change -> {
+                assertThat(change.path("path").get(0).asText()).isEqualTo("references");
+                assertThat(change.path("value").path("confirmationStatus").asText()).isEqualTo("UNCONFIRMED");
+                assertThat(change.path("value").path("evidenceSpans").toString()).contains("미궁 원문 근거");
+            });
+            for (UUID id : worldIds.subList(0, 4)) {
+                WorldSettingCandidate candidate = entities.find(WorldSettingCandidate.class, id);
+                assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.FAILED);
+                assertThat(candidate.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.PENDING_REVIEW);
+                assertThat(candidate.isManualReviewAvailable()).isTrue();
+            }
+            assertThat(entities.createQuery("select count(w) from WorldSetting w", Long.class).getSingleResult()).isEqualTo(1L);
+            assertThat(entities.createQuery("select count(f) from CharacterFact f", Long.class).getSingleResult()).isEqualTo(1L);
+            assertThat(entities.createQuery("select count(d) from WorldSettingComparisonDecision d", Long.class).getSingleResult()).isEqualTo(1L);
+        });
+        WorkerAnalysisJobPayload second = claim();
+        assertThat(second.analysisJobId()).isEqualTo(run.jobs().getLast());
+        JsonNode nextInput = input(second);
+        assertThat(nextInput.path("worldSettings").size()).isEqualTo(1);
+        assertThat(nextInput.path("worldSettings").toString()).contains("엘프", "북부").doesNotContain("미궁", "미확인 값");
+        assertThat(nextInput.path("characters").size()).isEqualTo(1);
+        assertThat(nextInput.path("characters").elements().next().path("slots").path("STAT:stats.mental").path("factValue").asText())
+                .isEqualTo("35");
+        for (UUID id : worldIds.subList(0, 4)) {
+            JsonNode reference = nextInput.path("references").path("pending-world:" + id);
+            assertThat(reference.path("subjectName").asText()).isEqualTo("미궁");
+            assertThat(reference.path("confirmationStatus").asText()).isEqualTo("UNCONFIRMED");
+            assertThat(reference.path("value").asText()).startsWith("미확인 값");
+            assertThat(reference.path("evidenceSpans").toString()).contains("미궁 원문 근거");
+        }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(value = AnalysisFailureCode.class, names = {"LLM_OUTPUT_TRUNCATED", "LLM_NETWORK_ERROR", "LLM_PROVIDER_ERROR",
+            "LLM_RESPONSE_PARSE_ERROR", "COMPARISON_VALIDATION_FAILED"})
+    @DisplayName("캐릭터 비교 묶음 실패 뒤 다른 인물 묶음을 계속 저장하고 실패 스탯은 다음 회차 실제값에 포함하지 않는다")
+    void continuesCharacterBatchClaimsAfterRecoverableFailure(AnalysisFailureCode code) {
+        Run run = run(2);
+        WorkerAnalysisJobPayload first = claim();
+        List<UUID> ids = prepareCharacterBatches(first);
+        var failed = characterWorker.claimNextCharacterFactComparisonBatch(first.analysisJobId(), first.leaseToken()).orElseThrow();
+        characterWorker.getCharacterFactComparisonBatchContext(first.analysisJobId(), failed.comparisonBatchId(), first.leaseToken());
+        var failure = new WorkerCharacterFactComparisonFailRequest(code, "묶음 LLM 비교 실패 재현");
+        characterWorker.failCharacterFactComparisonBatch(first.analysisJobId(), failed.comparisonBatchId(), first.leaseToken(), failure);
+        characterWorker.failCharacterFactComparisonBatch(first.analysisJobId(), failed.comparisonBatchId(), first.leaseToken(), failure);
+        var next = characterWorker.claimNextCharacterFactComparisonBatch(first.analysisJobId(), first.leaseToken()).orElseThrow();
+        completeCharacterBatch(first, next.comparisonBatchId());
+        assertThat(characterWorker.claimNextCharacterFactComparisonBatch(first.analysisJobId(), first.leaseToken())).isEmpty();
+        complete(first);
+        WorkerAnalysisJobPayload second = claim();
+        assertThat(second.analysisJobId()).isEqualTo(run.jobs().getLast());
+        JsonNode nextInput = input(second);
+        List<JsonNode> identities = java.util.stream.StreamSupport.stream(nextInput.path("characters").spliterator(), false).toList();
+        assertThat(identities).hasSize(2).anySatisfy(character -> {
+            assertThat(character.path("name").asText()).isEqualTo("에르웬");
+            assertThat(character.path("slots").path("STAT:stats.mental").path("factValue").asText()).isEqualTo("35");
+        }).anySatisfy(character -> {
+            assertThat(character.path("name").asText()).isEqualTo("비요른");
+            assertThat(character.path("slots").has("STAT:stats.mental")).isFalse();
+        });
+        assertThat(nextInput.path("references").path("pending-character:" + ids.getFirst()).path("value").asText()).isEqualTo("99");
+        tx.executeWithoutResult(status -> {
+            assertThat(candidates.findById(ids.getFirst()).orElseThrow().getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.FAILED);
+            assertThat(candidates.findById(ids.getFirst()).orElseThrow().getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+            assertThat(candidates.findById(ids.getLast()).orElseThrow().getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+            assertThat(entities.createQuery("select count(f) from CharacterFact f", Long.class).getSingleResult()).isEqualTo(1L);
+        });
+    }
+
+    @ParameterizedTest(name = "{0} / {1} / {2} / context={3}")
+    @MethodSource("blockingWorldFailures")
+    @DisplayName("수동 검토 또는 실행·저장 경계 오류는 세계관 다음 묶음과 자동 저장 및 다음 회차를 계속 차단한다")
+    void worldExecutionFailuresAndManualReviewStillBlock(AnalysisReviewMode mode, AnalysisFailureCode code, String sourceError, boolean contextReady) {
+        run(2, mode);
+        WorkerAnalysisJobPayload first = claim();
+        prepareWorldBatches(first);
+        var batch = worldWorker.claimNextWorldSettingComparisonBatch(first.analysisJobId(), first.leaseToken()).orElseThrow();
+        var healthy = worldWorker.claimNextWorldSettingComparisonBatch(first.analysisJobId(), first.leaseToken()).orElseThrow();
+        if (contextReady) worldWorker.getWorldSettingComparisonBatchContext(first.analysisJobId(), batch.comparisonBatchId(), first.leaseToken(),
+                new WorkerWorldSettingComparisonBatchContextRequest(batch.resolvedTargetWorldSettingIds(), batch.resolvedProvisionalSubjectKeys()));
+        worldWorker.failWorldSettingComparisonBatch(first.analysisJobId(), batch.comparisonBatchId(), first.leaseToken(),
+                new WorkerWorldSettingComparisonFailRequest(code, "중단해야 하는 실패", sourceError, null));
+        assertThatThrownBy(() -> worldWorker.claimNextWorldSettingComparisonBatch(first.analysisJobId(), first.leaseToken()))
+                .isInstanceOf(OrderedWorldSettingComparisonClaimException.class);
+        completeWorldBatch(first, healthy);
+        complete(first);
+        assertThat(worker.claimAnalysisJob(request())).isEmpty();
+        tx.executeWithoutResult(status -> {
+            assertIncompleteAndUnapplied(first);
+            assertThat(entities.createQuery("select count(w) from WorldSetting w", Long.class).getSingleResult()).isZero();
+        });
+    }
+
+    private void assertIncompleteAndUnapplied(WorkerAnalysisJobPayload payload) {
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(payload.analysisJobId()).orElseThrow();
+            // 기존 완료 API는 결과 수신과 누적 실행 봉인을 구별한다. 성공 응답으로 다음 회차가 열리면 안 된다.
+            assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.SUCCEEDED);
+            assertThat(job.getJournalStatus()).isEqualTo(AnalysisJournalStatus.INCOMPLETE);
+            assertThat(job.getAutomaticAppliedAt()).isNull();
+        });
+    }
+
+    private static Stream<Arguments> blockingWorldFailures() {
+        return Stream.of(
+                Arguments.of(AnalysisReviewMode.MANUAL, AnalysisFailureCode.LLM_RESPONSE_PARSE_ERROR, null, true),
+                Arguments.of(AnalysisReviewMode.AUTOMATIC, AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED, null, true),
+                Arguments.of(AnalysisReviewMode.AUTOMATIC, AnalysisFailureCode.WORKER_LEASE_EXPIRED, null, true),
+                Arguments.of(AnalysisReviewMode.AUTOMATIC, AnalysisFailureCode.UNEXPECTED_ERROR, null, true),
+                Arguments.of(AnalysisReviewMode.AUTOMATIC, AnalysisFailureCode.COMPARISON_VALIDATION_FAILED,
+                        "WORLD_SETTING_CANDIDATE_COMPARISON_CONTEXT_STALE", true),
+                Arguments.of(AnalysisReviewMode.AUTOMATIC, AnalysisFailureCode.COMPARISON_VALIDATION_FAILED, null, false));
+    }
+
+    @ParameterizedTest(name = "{0} / {1} / context={2}")
+    @MethodSource("blockingCharacterFailures")
+    @DisplayName("수동 검토 또는 실행 자체 오류는 캐릭터 다음 비교 묶음과 다음 회차를 차단한다")
+    void characterExecutionFailuresAndManualReviewStillBlock(AnalysisReviewMode mode, AnalysisFailureCode code, boolean contextReady) {
+        run(2, mode);
+        WorkerAnalysisJobPayload first = claim();
+        prepareCharacterBatches(first);
+        var batch = characterWorker.claimNextCharacterFactComparisonBatch(first.analysisJobId(), first.leaseToken()).orElseThrow();
+        var healthy = characterWorker.claimNextCharacterFactComparisonBatch(first.analysisJobId(), first.leaseToken()).orElseThrow();
+        if (contextReady) characterWorker.getCharacterFactComparisonBatchContext(first.analysisJobId(), batch.comparisonBatchId(), first.leaseToken());
+        characterWorker.failCharacterFactComparisonBatch(first.analysisJobId(), batch.comparisonBatchId(), first.leaseToken(),
+                new WorkerCharacterFactComparisonFailRequest(code, "중단해야 하는 실패"));
+        assertThatThrownBy(() -> characterWorker.claimNextCharacterFactComparisonBatch(first.analysisJobId(), first.leaseToken()))
+                .isInstanceOf(OrderedCharacterComparisonClaimException.class);
+        completeCharacterBatch(first, healthy.comparisonBatchId());
+        complete(first);
+        assertIncompleteAndUnapplied(first);
+        assertThat(worker.claimAnalysisJob(request())).isEmpty();
+    }
+
+    private static Stream<Arguments> blockingCharacterFailures() {
+        return Stream.of(
+                Arguments.of(AnalysisReviewMode.MANUAL, AnalysisFailureCode.LLM_RESPONSE_PARSE_ERROR, true),
+                Arguments.of(AnalysisReviewMode.AUTOMATIC, AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED, true),
+                Arguments.of(AnalysisReviewMode.AUTOMATIC, AnalysisFailureCode.WORKER_LEASE_EXPIRED, true),
+                Arguments.of(AnalysisReviewMode.AUTOMATIC, AnalysisFailureCode.UNEXPECTED_ERROR, true),
+                Arguments.of(AnalysisReviewMode.AUTOMATIC, AnalysisFailureCode.LLM_RESPONSE_PARSE_ERROR, false));
+    }
+
+    private List<UUID> prepareWorldBatches(WorkerAnalysisJobPayload payload) {
+        List<UUID> ids = tx.execute(status -> {
+            AnalysisJob job = jobs.findById(payload.analysisJobId()).orElseThrow();
+            job.updateCheckpointStage(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+            List<UUID> created = new ArrayList<>();
+            LocalDateTime start = LocalDateTime.now().minusMinutes(1);
+            for (int index = 0; index < 5; index++) {
+                boolean failed = index < 4;
+                WorldSettingCandidate candidate = WorldSettingCandidate.create(job.getWork(), job.getEpisode(), job,
+                        WorldSettingCategory.RACE, failed ? "미궁" : "엘프", failed ? "설정" + index : "서식지",
+                        failed ? "미확인 값" + index : "북부",
+                        JSON.arrayNode().add(JSON.objectNode().put("quote", failed ? "미궁 원문 근거" : "엘프는 북부에 산다.")), BigDecimal.ONE, null);
+                entities.persist(candidate);
+                entities.flush();
+                ReflectionTestUtils.setField(candidate, "createdAt", start.plusSeconds(index));
+                created.add(candidate.getId());
+            }
+            return created;
+        });
+        List<WorkerWorldSettingSubjectResolutionRequest.SubjectResolutionInput> resolutions = new ArrayList<>();
+        for (int index = 0; index < ids.size(); index++) {
+            String key = "provisional-world:" + (index < 4 ? ids.getFirst() : ids.getLast());
+            resolutions.add(new WorkerWorldSettingSubjectResolutionRequest.SubjectResolutionInput(ids.get(index), List.of(), List.of(key), false));
+        }
+        worldWorker.resolveWorldSettingSubjects(payload.analysisJobId(), payload.leaseToken(), new WorkerWorldSettingSubjectResolutionRequest(resolutions));
+        return ids;
+    }
+
+    private void completeWorldBatch(WorkerAnalysisJobPayload payload, WorkerWorldSettingComparisonBatchPayload batch) {
+        var context = worldWorker.getWorldSettingComparisonBatchContext(payload.analysisJobId(), batch.comparisonBatchId(), payload.leaseToken(),
+                new WorkerWorldSettingComparisonBatchContextRequest(batch.resolvedTargetWorldSettingIds(), batch.resolvedProvisionalSubjectKeys()));
+        var target = context.targets().getFirst();
+        var completion = new WorkerWorldSettingComparisonBatchCompleteRequest(
+                List.of(new WorkerWorldSettingComparisonBatchCompleteRequest.ContextVersion(target.worldSettingId(), target.version(), target.provisionalSubjectKey())),
+                List.of(new WorkerWorldSettingComparisonBatchCompleteRequest.Decision("D1", List.of("C1"), "엘프", null,
+                        null, null, List.of(), WorldSettingConsolidationStatus.SINGLE, WorldSettingSuggestedOperation.ADD, null,
+                        null, "서식지", "북부", "원문 서식지", Map.of(), target.provisionalSubjectKey())), Map.of(), context.contextToken());
+        worldWorker.completeWorldSettingComparisonBatch(payload.analysisJobId(), batch.comparisonBatchId(), payload.leaseToken(), completion);
+        worldWorker.completeWorldSettingComparisonBatch(payload.analysisJobId(), batch.comparisonBatchId(), payload.leaseToken(), completion);
+    }
+
+    private void completeCharacterBatch(WorkerAnalysisJobPayload payload, UUID batchId) {
+        var context = characterWorker.getCharacterFactComparisonBatchContext(payload.analysisJobId(), batchId, payload.leaseToken());
+        var completion = new WorkerCharacterFactComparisonBatchCompleteRequest(context.contextToken(),
+                List.of(new WorkerCharacterFactComparisonBatchCompleteRequest.Decision("C1", CharacterFactOperation.ADD,
+                        "stats.mental", null, List.of(), List.of(), "35", Map.of("value", 35),
+                        CharacterFactTemporalScope.PRESENT, "원문 수치", Map.of())), List.of(), Map.of());
+        characterWorker.completeCharacterFactComparisonBatch(payload.analysisJobId(), batchId, payload.leaseToken(), completion);
+        characterWorker.completeCharacterFactComparisonBatch(payload.analysisJobId(), batchId, payload.leaseToken(), completion);
+    }
+
+    private List<UUID> prepareCharacterBatches(WorkerAnalysisJobPayload payload) {
+        return tx.execute(status -> {
+            AnalysisJob job = jobs.findById(payload.analysisJobId()).orElseThrow();
+            List<UUID> created = new ArrayList<>();
+            LocalDateTime start = LocalDateTime.now().minusMinutes(1);
+            for (int index = 0; index < 2; index++) {
+                String name = index == 0 ? "비요른" : "에르웬";
+                SettingCandidate discovered = discovery(job, name, null, true);
+                int value = index == 0 ? 99 : 35;
+                SettingCandidate candidate = SettingCandidate.create(job.getWork(), job.getEpisode(), null, job,
+                        SettingEntityType.CHARACTER, name, "stats.mental", String.valueOf(value), SettingValueType.NUMBER,
+                        JSON.objectNode().put("value", value), JSON.arrayNode().add(JSON.objectNode().put("quote", name + "의 정신 " + value)), BigDecimal.ONE, null);
+                ReflectionTestUtils.setField(candidate, "provisionalSubjectKey", discovered.getProvisionalSubjectKey());
+                entities.persist(candidate);
+                entities.flush();
+                ReflectionTestUtils.setField(candidate, "createdAt", start.plusSeconds(index));
+                created.add(candidate.getId());
+            }
+            job.updateCheckpointStage(AnalysisJobCheckpointStage.CHARACTER_CANDIDATES_SAVED);
+            return created;
+        });
+    }
+
+    private void failPreparedCharacterComparison(AnalysisJob job, SettingCandidate candidate, String message) {
+        JsonNode target = characterStates.getTarget(job, candidate.getMatchedCharacterId(), candidate.getProvisionalSubjectKey());
+        CharacterFactComparisonBatch batch = CharacterFactComparisonBatch.createProvisional(job.getWork(), job.getEpisode(), job,
+                candidate.getProvisionalSubjectKey(), CharacterFactType.STAT, 1);
+        batch.recordAnalysisContext(target);
+        entities.persist(batch);
+        candidate.startComparison(batch, "C1");
+        candidate.failComparison(AnalysisFailureCode.LLM_RESPONSE_PARSE_ERROR, message);
+        batch.fail(AnalysisFailureCode.LLM_RESPONSE_PARSE_ERROR, message);
+    }
+
+    private Run run(int count) { return run(count, AnalysisReviewMode.AUTOMATIC); }
+
+    private Run run(int count, AnalysisReviewMode mode) {
+        return tx.execute(status -> {
+            Member member = Member.register("automatic@example.invalid", "test-only", "01012345678", "검증 작가");
+            entities.persist(member);
+            Work work = Work.create(member, "격리 자동 분석", WorkGenre.FANTASY, "테스트");
+            entities.persist(work);
+            CharacterSettingSchema schema = CharacterSettingSchema.create(work, "stats.mental", null, "정신",
+                    CharacterFactType.STAT, SettingValueType.NUMBER, CharacterSettingValueSemantics.BASE_VALUE,
+                    CharacterSettingMergePolicy.REPLACE, JSON.arrayNode(), CharacterSettingSchemaSource.SYSTEM_SEED, true);
+            entities.persist(schema);
+            UploadBatch batch = UploadBatch.create(work, member, UploadType.MULTI_EPISODE_MULTI_FILE, UploadSourceType.FILE);
+            entities.persist(batch);
+            List<AnalysisJob> created = new ArrayList<>();
+            for (int number = 1; number <= count; number++) {
+                Episode episode = Episode.create(work, null, number, "원고", "automatic-test/" + number, "v1", "a".repeat(64), 10);
+                entities.persist(episode);
+                AnalysisJob job = AnalysisJob.create(work, batch, episode, AnalysisJobType.SETTING_EXTRACTION);
+                job.configureReviewMode(mode);
+                created.add(job);
+            }
+            states.initializeRun(created);
+            return new Run(work.getId(), created.stream().map(AnalysisJob::getId).toList());
+        });
+    }
+
+    private SettingCandidate discovery(AnalysisJob job, String name, UUID actualId, boolean provisional) {
+        SettingCandidate candidate = SettingCandidate.createCharacterDiscovery(job.getWork(), job.getEpisode(), null, job,
+                name, name, actualId, actualId == null ? SettingCandidateMatchStatus.UNRESOLVED : SettingCandidateMatchStatus.MATCHED,
+                JSON.arrayNode().add(JSON.objectNode().put("quote", name + "라고 말했다.")), BigDecimal.ONE, null);
+        entities.persist(candidate);
+        if (provisional) ReflectionTestUtils.setField(candidate, "provisionalSubjectKey", CharacterAnalysisStateMapper.provisionalRef(candidate.getId()));
+        entities.flush();
+        characterStates.prepareProvisionalCandidates(job);
+        return candidate;
+    }
+
+    private SettingCandidate addStat(AnalysisJob job, String provisional, UUID actualId, int value, CharacterFactOperation operation) {
+        SettingCandidate candidate = SettingCandidate.create(job.getWork(), job.getEpisode(), null, job,
+                SettingEntityType.CHARACTER, "에르웬", "에르웬", actualId,
+                actualId == null ? SettingCandidateMatchStatus.UNRESOLVED : SettingCandidateMatchStatus.MATCHED,
+                "stats.mental", String.valueOf(value), SettingValueType.NUMBER, JSON.objectNode().put("value", value), JSON.arrayNode().add(JSON.objectNode().put("quote", "정신 수치는 " + value + "였다.")), BigDecimal.ONE, null);
+        if (provisional != null) ReflectionTestUtils.setField(candidate, "provisionalSubjectKey", provisional);
+        entities.persist(candidate);
+        entities.flush();
+        characterStates.prepareProvisionalCandidates(job);
+        JsonNode target = characterStates.getTarget(job, actualId, provisional);
+        CharacterFactComparisonBatch batch = provisional != null
+                ? CharacterFactComparisonBatch.createProvisional(job.getWork(), job.getEpisode(), job, provisional, CharacterFactType.STAT, 1)
+                : CharacterFactComparisonBatch.create(job.getWork(), job.getEpisode(), job, entities.find(WorkCharacter.class, actualId), CharacterFactType.STAT, 1, target.path("snapshotVersion").asLong());
+        ObjectNode comparisonContext = JSON.objectNode();
+        var slots = comparisonContext.putArray("slots");
+        target.path("slots").forEach(slot -> slots.add(slot.deepCopy()));
+        batch.recordAnalysisContext(comparisonContext);
+        entities.persist(batch);
+        candidate.startComparison(batch, "C1");
+        candidate.recordComparisonContext(batch.getBaseSnapshotVersion(), job.getInputStateHash());
+        candidate.completeComparison(operation, CharacterFactType.STAT, "stats.mental", String.valueOf(value), JSON.objectNode().put("value", value),
+                JSON.arrayNode(), CharacterFactTemporalScope.PRESENT, "원문 수치", JSON.objectNode(), LocalDateTime.now(), "stats.mental", JSON.arrayNode());
+        batch.complete("b".repeat(64), JSON.objectNode());
+        characterStates.recordDecision(job, candidate, new CharacterSnapshotEntry(new CharacterSnapshotSlot(CharacterFactType.STAT, "stats.mental"),
+                String.valueOf(value), JSON.objectNode().put("value", value), true), List.of(), List.of());
+        return candidate;
+    }
+
+    private void addWorld(AnalysisJob job) {
+        WorldSettingCandidate candidate = WorldSettingCandidate.create(job.getWork(), job.getEpisode(), job,
+                WorldSettingCategory.RACE, "엘프", "서식지", "북부", JSON.arrayNode(), BigDecimal.ONE, null);
+        entities.persist(candidate);
+        String key = "provisional-world:" + candidate.getId();
+        candidate.resolveOrderedSubject(WorldSettingSubjectResolutionType.NEW, key, "엘프", JSON.arrayNode(), JSON.arrayNode().add(key));
+        WorldSettingComparisonBatch batch = WorldSettingComparisonBatch.createOrdered(job.getWork(), job.getEpisode(), job,
+                WorldSettingCategory.RACE, null, WorldSettingSubjectResolutionType.NEW, key, "엘프", JSON.arrayNode(), JSON.arrayNode().add(key), 1);
+        entities.persist(batch);
+        candidate.startComparison(batch, "C1");
+        WorldSettingComparisonDecision decision = WorldSettingComparisonDecision.create(batch, "D1", "엘프", null, null, null,
+                WorldSettingConsolidationStatus.SINGLE, WorldSettingSuggestedOperation.ADD, null, null, "서식지", null, "북부", "원문 근거", null);
+        decision.bindOrderedTarget(key, 0L);
+        entities.persist(decision);
+        candidate.completeComparison(decision, LocalDateTime.now());
+        entities.persist(WorldSettingComparisonDecisionSource.create(batch, decision, candidate, "C1", 0));
+        batch.complete("c".repeat(64), JSON.objectNode());
+        ObjectNode target = JSON.objectNode();
+        target.putNull("actualWorldSettingId");
+        target.put("provisionalSubjectKey", key);
+        target.put("category", "RACE");
+        target.put("subjectName", "엘프");
+        target.put("normalizedSubjectName", "엘프");
+        target.put("version", 1);
+        target.putObject("propertiesJson").put("서식지", "북부");
+        target.putObject("provenanceByPath");
+        states.appendValidatedChanges(job, job.getInputStateHash(), List.of(new AnalysisStateChange("world-decision:" + decision.getId(),
+                List.of("worldSettings", key), target, false, "ADD", List.of(candidate.getId()))));
+    }
+
+    private WorkerAnalysisJobPayload claim() { return worker.claimAnalysisJob(request()).orElseThrow(); }
+    private WorkerAnalysisJobClaimRequest request() {
+        return new WorkerAnalysisJobClaimRequest("test-only", "검증", Set.of(AnalysisJobType.SETTING_EXTRACTION), Set.of(AnalysisMode.ORDERED_PROVISIONAL));
+    }
+    private JsonNode input(WorkerAnalysisJobPayload payload) {
+        return tx.execute(status -> states.getInputState(jobs.findById(payload.analysisJobId()).orElseThrow()).deepCopy());
+    }
+    private void complete(WorkerAnalysisJobPayload payload) {
+        tx.executeWithoutResult(status -> {
+            jobs.findById(payload.analysisJobId()).orElseThrow().updateCheckpointStage(AnalysisJobCheckpointStage.WORLD_COMPARISONS_FINISHED);
+            worker.completeAnalysisJob(payload.analysisJobId(), payload.leaseToken(), new WorkerAnalysisJobCompleteRequest("{}", null, null));
+        });
+    }
+    private record Run(UUID workId, List<UUID> jobs) { }
+}

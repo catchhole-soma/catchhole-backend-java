@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
@@ -71,10 +72,11 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-@SpringBootTest
+@SpringBootTest(properties = "spring.datasource.url=jdbc:h2:mem:world-candidate-review-test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @DisplayName("세계관 설정 후보 API 통합 테스트")
@@ -612,6 +614,10 @@ class WorldSettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.episodeEndNo").value(3))
                 .andExpect(jsonPath("$.data.episodeCount").value(1))
                 .andExpect(jsonPath("$.data.totalCandidateCount").value(2))
+                .andExpect(jsonPath("$.data.confirmedCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.dismissedCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.directReviewCandidateCount").value(1))
+                .andExpect(jsonPath("$.data.processingCandidateCount").value(1))
                 .andExpect(jsonPath("$.data.pendingCandidateCount").value(2))
                 .andExpect(jsonPath("$.data.pendingComparisonCount").value(1))
                 .andExpect(jsonPath("$.data.activeComparisonJobCount").value(0))
@@ -2533,6 +2539,99 @@ class WorldSettingCandidateControllerIntegrationTest {
         assertThat(applied.getPropertyValue("1층", "광원"))
                 .isEqualTo("벽과 천장의 수정들이 주변을 밝힌다.");
         assertThat(applied.getPropertyValue(null, "광원")).isNull();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = WorldSettingOperation.class, names = {"ADD", "UPDATE", "MERGE"})
+    @DisplayName("누적 범위 불일치는 작가가 원본 또는 기존 경로를 저장한 뒤 재비교 없이 확정한다")
+    void orderedScopeMismatchAllowsExplicitAuthorPathWithoutRecomparison(WorldSettingOperation operation) throws Exception {
+        verifyExplicitAuthorReview(operation, WorldSettingComparisonReviewReason.SCOPE_MISMATCH);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = WorldSettingOperation.class, names = {"ADD", "UPDATE", "MERGE"})
+    @DisplayName("일반 검토도 화면에서 사유를 읽고 작가가 최종 결정을 저장한 뒤 재비교 없이 확정한다")
+    void generalUncertaintyAllowsExplicitAuthorDecision(WorldSettingOperation operation) throws Exception {
+        verifyExplicitAuthorReview(operation, WorldSettingComparisonReviewReason.GENERAL_UNCERTAINTY);
+    }
+
+    private void verifyExplicitAuthorReview(WorldSettingOperation operation, WorldSettingComparisonReviewReason reason) throws Exception {
+        ReflectionTestUtils.setField(episode, "contentHash", "a".repeat(64));
+        episodeRepository.saveAndFlush(episode);
+        analysisJob.initializeOrderedRun(UUID.randomUUID(), 1, 0, null, new AnalysisStateJournal().emptyState());
+        analysisJobRepository.saveAndFlush(analysisJob);
+        long initialJobCount = analysisJobRepository.count();
+        String before = "벽에 붙은 수정들이 광원 역할을 한다.";
+        String proposed = "바깥에는 횃불들이 주변을 밝힌다.";
+        WorldSetting target = worldSettingRepository.saveAndFlush(WorldSetting.create(
+                work, WorldSettingCategory.LOCATION, "미궁", "1층", "광원", before));
+        long initialVersion = target.getVersion();
+        WorldSettingCandidate candidate = WorldSettingCandidate.create(work, episode, analysisJob,
+                WorldSettingCategory.LOCATION, "미궁", "외부", "조명", proposed,
+                objectMapper.createArrayNode().add(objectMapper.createObjectNode().put("quote", proposed)),
+                BigDecimal.ONE, objectMapper.createObjectNode().put("settingName", "조명"));
+        candidate.startComparison();
+        candidate.completeComparison(target, WorldSettingConsolidationStatus.SINGLE,
+                WorldSettingSuggestedOperation.REVIEW_REQUIRED, "1층", "광원",
+                reason, "외부", "조명", before, proposed,
+                "원문 범위와 기존 경로가 다릅니다.", objectMapper.createObjectNode(), LocalDateTime.now());
+        candidateRepository.saveAndFlush(candidate);
+
+        mockMvc.perform(get("/api/v1/works/{workId}/world-setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString())
+                        .queryParam("operation", "REVIEW_REQUIRED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].comparisonStatus").value("COMPLETED"))
+                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].reviewStatus").value("PENDING_REVIEW"))
+                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].comparisonReviewReason").value(reason.name()))
+                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].scopeName").value("외부"))
+                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].settingName").value("조명"))
+                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].proposedScopeName").value("외부"))
+                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].matchedScopeName").value("1층"))
+                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].matchedPropertyName").value("광원"));
+
+        String chosenScope = operation == WorldSettingOperation.ADD ? "외부" : "1층";
+        String chosenProperty = operation == WorldSettingOperation.ADD ? "조명" : "광원";
+        String decisionJson = objectMapper.writeValueAsString(java.util.Map.of(
+                "batchId", uploadBatch.getId(), "candidates", List.of(java.util.Map.of(
+                        "candidateId", candidate.getId(), "operation", operation, "category", "LOCATION",
+                        "subjectName", "미궁", "scopeName", chosenScope, "settingName", chosenProperty, "value", proposed))));
+        mockMvc.perform(post("/api/v1/works/{workId}/world-setting-candidates/group-confirm", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON).content(decisionJson))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("WORLD_SETTING_CANDIDATE_OPERATION_INVALID"));
+        assertThat(worldSettingRepository.findById(target.getId()).orElseThrow().getVersion()).isEqualTo(initialVersion);
+
+        mockMvc.perform(patch("/api/v1/works/{workId}/world-setting-candidates/decisions", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON).content(decisionJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidates[0].comparisonStatus").value("COMPLETED"))
+                .andExpect(jsonPath("$.data.candidates[0].reviewStatus").value("PENDING_REVIEW"))
+                .andExpect(jsonPath("$.data.candidates[0].finalOperation").value(operation.name()))
+                .andExpect(jsonPath("$.data.candidates[0].finalScopeName").value(chosenScope));
+        mockMvc.perform(post("/api/v1/works/{workId}/world-setting-candidates/group-confirm", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON).content(decisionJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidates[0].reviewStatus").value("CONFIRMED"));
+
+        WorldSetting applied = worldSettingRepository.findById(target.getId()).orElseThrow();
+        assertThat(applied.getVersion()).isEqualTo(initialVersion + 1);
+        assertThat(applied.getPropertyValue(chosenScope, chosenProperty)).isEqualTo(proposed);
+        if (operation == WorldSettingOperation.ADD) {
+            assertThat(applied.getPropertyValue("1층", "광원")).isEqualTo(before);
+        } else {
+            assertThat(applied.getPropertyValue("외부", "조명")).isNull();
+        }
+        WorldSettingCandidate confirmed = candidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(confirmed.getSuggestedOperation()).isEqualTo(WorldSettingSuggestedOperation.REVIEW_REQUIRED);
+        assertThat(confirmed.getComparisonReviewReason()).isEqualTo(reason);
+        assertThat(confirmed.getScopeName()).isEqualTo("외부");
+        assertThat(confirmed.getMatchedScopeName()).isEqualTo("1층");
+        assertThat(analysisJobRepository.count()).isEqualTo(initialJobCount);
     }
 
     private WorldSettingCandidate candidate(String subjectName, String settingName, String value) {

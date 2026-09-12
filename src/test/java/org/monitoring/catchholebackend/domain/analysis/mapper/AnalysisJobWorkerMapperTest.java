@@ -12,6 +12,8 @@ import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshotSource;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
+import org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessor;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
@@ -24,7 +26,8 @@ class AnalysisJobWorkerMapperTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final AnalysisJobWorkerMapper mapper = new AnalysisJobWorkerMapper(
-            new CharacterSnapshotAccessor()
+            new CharacterSnapshotAccessor(), new AnalysisRunContextMapper(new org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper(new org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver())),
+            new CharacterFactEvidenceMapper(new CharacterFactSourceResolver())
     );
 
     @Test
