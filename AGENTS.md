@@ -68,6 +68,7 @@
 - 새 Entity나 컬럼을 추가하는 작업은 JPA 매핑과 Flyway migration을 같은 PR에서 변경한다.
 - Python SQLAlchemy 모델은 schema를 생성하지 않고 Flyway가 만든 공유 테이블을 조회·저장하는 매핑으로만 사용한다. 공유 컬럼을 변경하면 Java migration과 Python 매핑의 이름, 타입, nullable 여부를 함께 확인한다.
 - PostgreSQL 전용 migration은 H2 기반 `test` profile에서 실행하지 않는다. migration 자체는 빈 pgvector PostgreSQL에서 실행하고, 이후 JPA `validate` 상태로 애플리케이션 기동까지 확인한다.
+- 누적 분석의 실제 DB 테스트는 별도 생성한 localhost `gh180_test` DB의 `GH180_POSTGRES_JDBC_URL`을 명시할 때만 실행한다. 해당 테스트가 격리 fixture를 정리하므로 공유·운영 DB나 기존 `.env` URL을 재사용하지 않는다. Python 저장 경계와 Spring↔Worker 통합도 각각 별도 테스트 DB를 사용한다.
 - 최초 V1 기준과 운영 적용 절차는 `docs/database-migration.md`를 따른다.
 
 ### Docker Deployment
@@ -112,8 +113,10 @@ org.monitoring.catchholebackend
 │   │   │   ├── request
 │   │   │   └── response
 │   │   ├── entity
+│   │   ├── event
 │   │   ├── exception
 │   │   ├── mapper
+│   │   ├── processor
 │   │   ├── repository
 │   │   ├── service
 │   │   └── type
@@ -312,6 +315,9 @@ domain/<domain>
 
 #### Episode / Upload Domain Policy
 
+- 다회차 업로드는 선행 단일 분석 없이 새 작품부터 두 방식 모두 허용한다. `/episodes/upload-policy`는 호환을 위해 `requiredSingleEpisodeCount=0`, `multiEpisodeUploadEnabled=true`를 반환하고, 현재 원문의 서로 다른 단일 업로드 분석 성공 회차 수와 캐릭터·세계관 검토 대기 수·분량 상한을 계속 제공한다. 검토 대기 후보는 안내에만 사용하고 업로드를 막지 않는다. 초기 여러 회차를 바로 분석할 수 있게 선행 완료 조건과 환경별 임시 해제 설정을 제거했다.
+- 단일·다회차 원고는 한 요청의 텍스트 합계 250,000 Unicode code point까지 허용한다. TXT/DOCX에서 추출한 공백·제목을 포함하고 설정집은 제외한다. 분량 검사는 S3 저장 전에 수행한다. 감지 응답의 `totalUploadCharacters`는 이 제한용 합계이며 기존 공백 제외 `totalCharCount`와 구분한다.
+
 - 회차 원문 전문은 DB에 저장하지 않고 S3에 저장한다. DB에는 `content_s3_key`, `content_s3_version`, `content_hash`, `char_count`, `content_updated_at`만 둔다.
 - 회차 원문 key는 `works/{workId}/episodes/{episodeNo}/{UUID}/{episodeNo}.txt`로 매 저장본을 고유하게 만든다. 보관된 회차 번호를 재사용해도 기존 원문을 덮어쓰지 않으면서 S3에서 회차 번호를 식별하기 위함이다.
 - `episodes.content_updated_at`은 원문 직접 수정이나 파일 교체 때만 갱신하고 제목만 바꿀 때는 유지한다.
@@ -334,7 +340,7 @@ domain/<domain>
 #### Analysis Domain Policy
 
 - AnalysisJob은 작품에 속한 단일 회차 AI 분석 작업의 상태와 결과 메타데이터를 추적한다. `UploadBatch`는 업로드 출처 묶음이며 분석 실행 단위가 아니다.
-- 원문 텍스트는 `Episode`의 S3 저장 구조를 재사용하고, `analysis_jobs`에는 상태, 현재 단계, 모델명, 토큰 수, 요약 JSON, 마지막 실패 사유만 저장한다.
+- 원문 텍스트는 `Episode`의 S3 저장 구조를 재사용한다. `analysis_jobs`에는 작업 메타데이터와 누적 모드의 고정 S0·검증 변경 기록을 저장하며 원문 전문이나 raw LLM 응답을 중복 저장하지 않는다.
 - 분석 실패 처리 이력은 `analysis_jobs.error_message`에 누적하지 않고, 후속 모니터링 기능에서 별도 기록/조회한다.
 - 화면은 업로드 묶음에 생성된 회차별 `AnalysisJob.status`를 집계하고, 각 Job의 단일 대상 `Episode.status`를 단계별 상태로 보여준다.
 - 신규 분석 작업은 정확히 한 회차를 `analysis_job_episode_targets`에 스냅샷으로 저장한다. 이후 회차 원본 교체나 `ARCHIVED` 전이로 과거 작업의 대상이 바뀌지 않게 하며, 과거 batch-wide 작업의 복수 target 연결은 조회 이력 호환용으로만 유지한다.
@@ -345,6 +351,29 @@ domain/<domain>
 - Python AI Worker는 작업 claim과 `AnalysisJob` 상태 변경에 `/api/internal/**` 내부 API를 `X-Internal-Api-Key`로 인증해 사용한다. Worker에는 원문 본문을 응답하지 않으며, 단일 `episode`의 S3 key/version/hash/charCount 메타데이터, 활성 캐릭터 설정 schema와 `ACTIVE` 캐릭터 목록을 전달한다. 각 캐릭터는 ID·대표 이름과 현재 `STATUS`의 `factKey/factValue`만 가지며 UUID provenance·이력·`valueJson`은 1차 추출 문맥에 노출하지 않는다. 현재 STATUS는 임의 절단하지 않고, legacy raw snapshot의 표시값은 provenance를 작품 전체 bulk 조회해 보완하되 복원 불가능한 고아 값만 `null`로 유지한다. `ARCHIVED` 캐릭터는 이후 원고 매칭과 상태 문맥에서 제외한다.
 - Worker claim은 `allowedJobTypes`가 필수이며, claim 성공 시 5분 lease token을 발급한다. progress·heartbeat·complete·fail, 토큰 예약과 세계관 내부 API는 같은 `X-Worker-Lease-Token`을 검증한다. 만료 Job은 다음 claim에서 최대 3회까지 checkpoint부터 재대기시키고, 예약 중 토큰을 해제한 뒤 한도를 넘으면 실패 처리한다.
 - 일반 `SETTING_EXTRACTION` Job은 `CHUNKS_READY → CHARACTER_CANDIDATES_SAVED → CHARACTER_COMPARISONS_FINISHED → WORLD_CANDIDATES_PUBLISHED → WORLD_COMPARISONS_FINISHED` checkpoint를 단조 증가시킨다. 캐릭터 또는 세계관 후보 비교가 `PENDING`/`PROCESSING`이면 완료를 거절한다. Java가 신규 checkpoint를 먼저 배포한 호환 구간에는 실제 캐릭터 비교 대기 후보가 없을 때만 구버전 Worker의 checkpoint 누락을 허용한다.
+- 새 `SETTING_EXTRACTION` 생성·재분석 요청에서 `reviewMode` 생략은 `AUTOMATIC`이며 단일 회차는 명시적인 `MANUAL` 선택을 유지한다. 새 다회차 전체 분석은 항상 `AUTOMATIC + ORDERED_PROVISIONAL`이고 자동 단일도 같은 입력 정책을 사용한다. 수동 단일의 `analysisMode` 생략은 `CONFIRMED_ONLY`, `EPISODE_VALIDATION`의 반영 방식 생략은 `MANUAL`을 유지한다. 업로드 화면의 자동 기본 선택과 API 생성 정책을 일치시키되 기존 Job의 실패 재시도는 최초 정책과 입력을 그대로 보존한다. 실행 ID·generation·회차 목록/순서·원문 hash/key/version/회차 번호·반영 방식은 생성 시 고정하며 기존 Job을 소급 변경하지 않고 구 Worker에는 광고한 모드만 claim한다.
+- 같은 작품의 `SETTING_EXTRACTION`은 짧은 작품 row 잠금 후 새 statement에서 claim 조건을 재확인한다. 누적 모드의 후속 회차는 같은 run/generation predecessor가 `SUCCEEDED`이고 journal이 `SEALED`여야 한다. 다른 작품의 실행은 유지하고 LLM 호출 동안 DB 잠금을 유지하지 않는다.
+- 수동 누적 실행은 첫 Job의 S0에 당시 검증한 변경 기록을 순서대로 replay한다. 자동 누적 실행은 각 회차 claim 직전에 실제 저장된 캐릭터·세계관을 다시 읽고 앞 회차의 검토 대기 후보를 별도 `unresolvedReferences`로 고정한다. 같은 회차의 1차·2차 비교와 재시도는 이 `automatic_input_state`와 hash를 일관되게 사용한다. 후보 현재값을 과거 journal replay 원본으로 사용하지 않는다. 도메인 validator와 `AnalysisJournalContributor`가 모든 source 후보 coverage를 검증한 뒤 seal한다. `AnalysisStateSource`는 설정 조회·매핑만 담당한다.
+- 누적 대상의 `provisionalSubjectKey`는 실제 FK와 별도이며 비교 도중 실제 대상을 생성하지 않는다. 자동 반영 Job 완료는 `Work → Job` 순서로 잠근 같은 트랜잭션에서 캐릭터·세계관 기존 확정 규칙을 적용하고 `automatic_applied_at`과 성공 상태를 함께 기록한다. 다음 회차 claim은 이 완료 기록까지 요구하므로 저장 전 설정을 읽지 않는다. 모호한 연결·검토 필요·사용자 수정·오래된 비교는 대기로 남긴다. 자동 반영만으로 사용자 수정 무효화를 호출하지 않으며 작가의 수정은 기존 무효화 규칙을 유지한다.
+- 자동 검토 출처는 후보의 `reviewed_automatically`로 보존하며 세계관의 `reviewed_by`에 작가를 기록하지 않는다. ordered 입력의 `reviewSource`는 `HUMAN`과 `AUTOMATIC`을 구분한다. 확정된 인물 발견의 이름·근거를 별칭 문맥으로 보존하되 이름의 부분 일치만으로 인물을 병합하지 않는다. 미해결 참고는 현재 설정이나 매칭 가능한 대상에 섞지 않는다. 수동 `CONFIRMED_ONLY`의 기존 입력·프롬프트는 유지한다.
+- 수동 누적 모드는 첫 실패 비교 묶음에서 후속 비교를 중단한다. 자동 누적 모드는 개별 비교 묶음 실패의 원문 주장을 미확정 참고로 보존하고 다른 정상 묶음의 비교·저장과 다음 회차를 계속한다. 자동 누적 세계관 묶음은 독립적으로 검증한 `decisions`와 typed `failures`가 전체 후보를 중복 없이 정확히 덮을 때 하나의 완료 트랜잭션으로 저장할 수 있다. 정상 결정은 기존 고정 문맥·경로 충돌·합성 범위 검증을 그대로 통과해야 하고 실패 후보는 FAILED와 불변 실패 참고로 남는다. 순차 캐릭터 묶음은 자동·수동 모두 독립적으로 검증한 정상 결정과 격리 가능한 실패를 함께 저장할 수 있다. 수동은 실패가 남으면 다음 묶음·회차를 차단하고 자동만 다음 진행을 허용한다. 실패 후보의 결과 참조·의존은 허용하지 않으며 작업 단위 오류를 정상 결정과 섞어 완료할 수 없다. 수동 세계관 묶음은 기존처럼 일부 성공을 저장하지 않는다. 토큰 부족·lease 상실·입력 불일치·Backend 오류·추출 단계 전체 실패는 작업을 중단한다. 자동 누적의 후보별 주체 연결 실패는 아래 준비 실패 계약에 따라 격리한다. PENDING/PROCESSING은 실패 참고로 가장하지 않는다. 사용자 재시도는 원래 Job/run/generation/S0/input/checkpoint와 완료 prefix를 보존한다. 임시 대상을 legacy hidden 재비교 Job으로 보내지 않는다.
+- 자동 모드의 실패 격리는 후보의 `canDeferFailedComparison()`을 claim·journal 마무리·작업 완료에서 공통으로 사용한다. 실제 비교 문맥이 저장된 묶음의 격리 가능한 AI 실패와, 자동 누적 후보에 명시적으로 기록한 `preparation_failure_stage`의 실패만 허용한다. 주체 연결 실패는 실제/임시 대상 연결 없이 보존하며 비교 준비의 값 형식·문맥 크기 실패는 해당 후보/묶음만 보류한다. 단계 기록 없는 선검증 실패와 Backend 원인 코드가 있는 세계관 실패는 계속 차단한다. AI의 입력 문맥 오류도 격리 가능한 비교 코드로 기록하지 않는다. 같은 오류가 처리 단계에 따라 다르게 취급되어 후속 회차가 잘못 진행되는 것을 막기 위한 규칙이다. 실패 참고의 멱등 기준은 후보가 다른 사건에 사용됐는지가 아니라 해당 실패 참고의 eventId이며, 주체 등록에 쓰인 첫 후보도 원문·값을 빠짐없이 보존한다.
+- 자동 누적 세계관 연결의 실행 실패는 `failureCode`와 빈 대상 목록을 받으며 `FAILED`로 저장한다. 정상적인 `AMBIGUOUS`와 구분하고 실제/임시 대상을 생성하지 않는다. 선택적 캐릭터 연결 보강의 실패도 원본 후보 최초 저장 시 단계와 실패 코드를 기록하고 Spring이 실패 참고와 보류 안내를 완성한다. 계정 인증·결제·토큰·lease·입력 변경·저장 오류는 후보 격리 코드로 우회하지 않는다.
+- 자동 누적 비교 준비는 캐릭터 설정 형식 오류를 항목별로 보류한다. 세계관 묶음은 기존 원문 순서를 유지하여 후보 20개/입력 30,000자 이내로 나누고 앞 묶음 처리를 반영한 뒤 다음 묶음을 준비한다. 기존 문맥을 포함한 독립 비교도 너무 크면 그 묶음만 `COMPARISON_INPUT_TOO_LARGE`로 보류한다. 전체 문맥을 임의 절단하지 않는다. 수동 모드의 기존 거절 경계는 유지한다.
+- 캐릭터 자동 저장 전에 실제 저장과 같은 순수 검증 계획을 순서대로 계산한다. 앞서 수용한 후보만 예상 상태에 적용하고 실패 항목과 의존 항목은 보류한다. 검증 예외를 DB 쓰기 후 삼키지 않으며 실제 저장 장애는 회차 완료 트랜잭션 전체를 롤백한다. 명시적 이력 저장은 현재 상태를 변경하지 않는다. 자동 모드의 격리 가능한 준비·비교 실패는 인프라 오류 후 같은 작업 재개에서도 초기화하지 않는다. 이미 journal에 기록한 실패 참고와 새 비교 결정이 중복되는 것을 막는다.
+- 세계관 신뢰도는 필수 유한 숫자 0~1의 원값을 보존한다. 정해진 세 등급값만 허용하거나 반올림해 정상 추출을 거절하지 않는다.
+- 분석 목록의 완료 집계는 누적 기록 봉인과 자동 저장 완료까지 확인한다. 실패·무효화된 앞 회차에 막힌 대기는 실행 중으로 세지 않는다. 검토 후보가 남는 것과 분석 실패를 구분한다.
+- 자동 분석의 미확정 참고는 업로드 묶음과 무관하게 같은 작품의 앞 회차별 최신 추출 작업에서 수집한다. 최신 작업이 실패·진행 중·무효여도 이전 성공 후보로 돌아가지 않으며 원문 manifest·대기 상태·원문 인용을 검증한다. 무효 작업에서는 원문이 유효한 명시적 사용자 수정만 최신 편집값/수정안으로 참고하고, 제외 수정안·보관된 인물·비어 있는 값은 제외한다. 비교 실패의 제안값·잘못된 경로·모델 판단 문장은 참고 근거로 복사하지 않는다. 다른 실행의 journal을 replay하거나 참고 후보를 실제 대상·확정 사실로 승격하지 않으며, claim에서 고정한 입력/hash와 작품 단위 수정·원문 파기 무효화를 그대로 유지한다. 업로드를 나눴다는 이유로 앞 회차 정보를 잊거나 오래된 분석을 다시 신뢰하는 문제를 방지하기 위한 규칙이다.
+- Worker 입력 문맥의 미확정 참고 목록은 고정된 참조 식별자로 정렬해 반환한다. PostgreSQL jsonb의 객체 키 순서와 메모리 생성 순서가 달라도 claim과 후속 비교가 동일한 목록을 받아야 하며, Worker의 입력 동일성 검증을 느슨하게 바꾸어 해결하지 않는다.
+- 세계관 비교 진단은 완료·실패 API의 typed `diagnostics`로만 저장한다. 최대 30개 항목의 시도 번호, 안전한 규칙 코드, 입력 후보 ref, 고정 비교 문맥에 실제 있던 대상·범위·속성 경로만 허용한다. 원문 prompt/response·설정값은 진단에 저장하지 않는다. 후보·경로를 특정 못했으면 빈 목록을 사용한다. 정상 복구를 포함해 후보별 관련 진단과 후보를 특정하지 못한 공통 진단을 합쳐 중복 제거 후 시도 순서상 최근 30개를 `comparisonDiagnostics` 응답에 보존하며 재비교 시작 때 이전 진단을 비운다. 실패 항목 진단은 해당 source refs로 제한하고 전체 완료 진단은 묶음의 source refs로 제한한다.
+- 자동 저장이 끝난 회차의 보류 후보는 `manualReviewAvailable`로 직접 검토 가능 여부를 제공한다. 캐릭터는 사용자가 값을 명시적으로 저장한 뒤 `applyEditedValue`로 현재 설정에 반영하고, 세계관은 저장된 사용자 결정 draft로만 비교 실패·재비교 필요 후보를 확정한다. 세계관의 원래 FAILED 비교 상태는 보존하여 사람의 결정을 AI 비교 완료로 위장하지 않는다. 자동 반영의 정상 EXCLUDE는 자동 제외로 처리하고 사용자 반려 정책으로 승격하지 않는다.
+- 누적 캐릭터 비교의 표시용 기존값은 실제 비교 직전 상태를 Backend가 `rawComparisonJson.backendComparisonBefore`에 덮어써 보존한다. AI가 보낸 동명 필드는 신뢰하지 않는다. 이전 데이터는 저장된 비교 입력으로 복원하며 현재 DB로 대체하지 않는다. 세계관 후보 응답의 `analysisMode`는 회차 간 동일 경로 갱신과 같은 회차 중복을 구분하기 위한 계약이며 최종 순차 반영 검증은 Backend가 담당한다.
+- 사용자 후보·정식 설정 변경과 원문 교체/삭제는 `Work → ordered Job → candidate/설정` 순서로 잠그고 영향 회차 이후를 무효화한다. 유료 재실행은 자동 시작하지 않는다. 무효화된 Job은 동일 입력 재개를 거절하며 새 ordered 생성 요청은 새 S0의 알려진 출처에 시작 회차 이후 정보가 없을 때만 허용한다. 지원하지 않는 과거 복원을 현재 snapshot으로 대체하지 않는다.
+- 실행 중 ordered Job의 무효화는 해당 Episode의 진행 상태와 미정산 토큰 예약도 같은 트랜잭션에서 정리한다. 토큰 정리는 동기 `AnalysisRunInvalidatedEvent`로 연결해 token→lease→state service의 생성자 순환을 피한다. 이미 정산된 사용량은 바꾸지 않는다.
+- S0의 미래 출처 검사는 현재 snapshot뿐 아니라 전체 확정 후보·캐릭터 Fact 이력·최초 등장 회차도 확인한다. REMOVE로 현재 slot이 사라졌거나 인물 발견만 확정된 경우도 현재 snapshot을 과거 설정으로 오인하지 않기 위함이다.
+- ordered 캐릭터 수정 후보는 `applyEditedValue=true`를 명시한 사용자 확정에서만 현재 실제 snapshot·schema로 ADD/UPDATE를 검증한다. AI 비교로 가장하지 않고 `USER_EDIT` 출처를 기록하며 기존 AI journal은 무효화 상태로 보존한다. `confirmed_application_mode`가 `APPLY_PROPOSAL`인 선행 확정만 후속 임시 의존성의 실제 반영 근거로 인정한다.
+- 명시적 새 ordered 실행은 동일 원문·대상·값·근거의 사용자 반려를 S0 `references`의 `HUMAN_REJECTION_POLICY/EXACT_SOURCE_CLAIM_V1` 해시로 이어받는다. 이 해시는 서버 판정용이며 prompt/current fact/scoring history로 전달하지 않는다. 비교 전 원본 후보는 보존하면서 반려 reference로 coverage를 채우고, 정확히 반려된 discovery에 직접 연결된 설정은 미해결 상태로 둔다. 이름만으로 차단하거나 불변 원문 manifest가 없는 legacy 후보에 소급하지 않는다.
+- 원문 파기는 기존 후보 근거뿐 아니라 영향 이후 ordered journal·S0·자동 시작 문맥에 복사된 identity evidence·참고 주장과 비교 context도 정리한다. S0는 실행 중 불변이며 원문 파기를 위한 무효화 이후의 근거 삭제만 허용한다. 당시 hash는 감사용으로 보존하되 `sourceEvidencePurged` 기록은 다시 replay하지 않는다.
 - Worker 실패는 `AnalysisFailureCode`로 분류해 `analysis_jobs.failure_code`와 후보별 비교 실패 코드에 저장한다. `error_message`는 운영 진단용 원문이며 공개 DTO의 실패 문구는 코드별 안전한 사용자 메시지만 사용한다. URL, 내부 API 경로, stack trace가 공개 응답에 섞이지 않게 한다.
 - `WORLD_CANDIDATES_PUBLISHED` 이후 `SETTING_EXTRACTION`이 `AI_TOKEN_QUOTA_EXHAUSTED`로 중단되면 완료된 1차 추출·비교와 `Episode.ANALYZED`를 보존하고, 남은 세계관 후보만 같은 코드의 재개 가능한 중단 상태로 표시한다. 미해결 토큰 중단 후보나 해당 후보의 활성 `WORLD_SETTING_COMPARISON` Job이 남아 있는 동안 새 전체 분석 생성과 다른 실패 Job을 통한 우회 재시도를 차단하고 배치 단위 세계관 비교 재개 API로만 복구한다. 후보가 모두 완료·기각되고 활성 복구 Job이 사라지면 새 분석 생성은 다시 허용한다.
 - 공개 분석 생성·재시도는 최소 첫 추출 예약량, 세계관 비교 시작·일괄 재개는 최소 첫 비교 예약량을 사전 확인한다. 이 검사는 빠른 사용자 피드백용이며, 동시 실행에서 실제 사용 권한은 Worker 호출 직전의 계정 잠금 기반 원자적 예약이 최종 결정한다.
@@ -364,6 +393,10 @@ domain/<domain>
 - MVP 운영자 계정은 일반 회원가입으로 만든 전용 회원을 DB에서 `ADMIN`으로 한 번 승격하고 다시 로그인해 새 access token을 발급받아 사용한다. 계정 승격 외 토큰 잔액·요청 상태·지급 원장은 DB에서 직접 수정하지 않는다.
 
 #### Character Setting Domain Policy
+
+- 캐릭터·세계관 후보 목록은 반영/제외/직접 확인/분석·반영 진행 네 가지 묶음 전체 집계를 필수 int64로 제공한다. 페이지·필터와 무관하며 미확정의 비교 PENDING/PROCESSING 또는 원본 회차 자동 반영 대기를 진행 수에 포함하여 전체 합과 미확정 합이 일치하게 한다. 후보의 `automaticApplicationPending`은 미확정 + 원본 Job AUTOMATIC + automaticAppliedAt 없음 + PENDING/RUNNING일 때만 참이다. 사용자 후보 수정·연결·확정·제외·재비교는 Work 잠금 뒤 무효화 전에 같은 조건으로 409를 반환해 자동 완료와 수동 변경을 직렬화한다. 완료된 앞 회차 보류 후보의 변경과 후속 무효화 정책은 유지한다. 자동 반영 보류는 선택적 `automaticReviewHoldReason`에 별도로 기록하고 원래 비교 operation·근거·성공 상태를 덮지 않는다. 공개 오류·판단 문장만 자연어로 정리하며 실제 이름·원문·설정값·저장된 AI 응답은 보존한다. 표현을 다듬는 사유만으로 분석 실패나 유료 재시도를 추가하지 않는다. 이는 기존 AI의 실제 ID·알 수 없는 참조·내부 enum 노출 검증을 해제하는 정책이 아니다.
+
+- 캐릭터 후보 목록의 `attentionRequiredCandidateCount`는 업로드 batch 전체에서 검토 대기이면서 `AMBIGUOUS` 연결 또는 `FAILED/RECOMPARISON_REQUIRED` 비교 상태인 후보를 중복 없이 센다. 필터·페이지와 무관하며 확정·무시 후보는 제외한다. 연결 필요만 세는 기존 `matchRequiredCandidateCount`는 호환을 위해 유지한다. 비교 실패 후보가 좌측에는 확인 필요로 보이지만 전체 요약에서 누락되는 불일치를 막기 위한 계약이다.
 
 - 캐릭터 설정 저장 토대는 `domain/character`에 둔다. `WorkCharacter`는 작품별 캐릭터 대표/현재 설정을, `SettingCandidate`는 AI가 추출한 사용자 검토 전 후보를 저장한다.
 - `SettingCandidate.candidateKind`는 값이 있는 기존 설정 후보 `SETTING`과 이름의 존재만 확인한 `CHARACTER_DISCOVERY`를 구분한다. 발견 후보는 `attributeName`, `attributeValue`, `valueType`, `valueJson`을 모두 `NULL`로 저장하고 이름·원문 표현·근거·신뢰도만 보관한다.
@@ -396,6 +429,7 @@ domain/<domain>
 - confirm으로 생성하는 `CharacterFact`는 `setting_candidate_id` FK로 원본 `SettingCandidate`를 연결하고, 구체적인 원문 인용은 후보의 `evidence_spans`에서 조회한다. 기존 Fact는 추정 backfill하지 않고 `NULL`로 유지하며, 근거 JSON을 Fact에 중복 저장하지 않는다.
 - `SettingCandidate` 확정 반영처럼 후보/요청 데이터를 저장용 Entity로 변환하는 코드는 service에서 `Entity.create()` 파라미터를 직접 조립하지 말고 mapper의 `toEntity` 계열 메서드로 분리한다. service는 권한 확인, 조회, 트랜잭션 흐름, 저장 호출, 도메인 메서드 조율에 집중한다.
 - `CharacterFact`는 append-only 타임라인이다. 값·근거·current 상태를 수정하지 않으며 `is_current` 컬럼도 사용하지 않는다. 현재값의 유일한 authority는 `WorkCharacter.currentAge/currentLevel`과 JSON snapshot이다.
+- 새 캐릭터 후보의 같은 회차 내 순서는 실제 저장 근거의 `start_offset`과 구형 `startOffset`을 모두 읽어 가장 이른 원문 위치를 먼저 사용한다. 생성 시각·UUID는 원문 위치 다음의 결정적 정렬 기준이다. 이미 배정된 후보는 묶음 생성 순서와 C 참조 순서를 문맥 조회·완료·이전 결정 재적용·그룹 확정에서도 유지한다. 미배정 후보의 원문상 자리를 두고 배정 후보끼리만 별도 총순서로 복원해 비교 함수의 전이성을 깨지 않으며, 참조 누락·중복/문맥/의존 검증은 완화하지 않는다. 기존 근거/확정 이력을 재작성하지 않는다. 실패 재개는 이전 batch/ref 연결을 지운 뒤 새 claim으로 참조를 다시 부여하고 완료된 앞부분은 보존한다.
 - `MATCHED` 또는 `AUTO_MATCHED_BY_NAME` 후보 반영은 `SettingCandidate`와 `WorkCharacter`를 pessimistic write lock으로 조회하고, 새 Fact append, snapshot 변경, `character_snapshot_sources` provenance 변경, `snapshotVersion` 증가를 한 트랜잭션에서 처리한다. 관련 slot의 값 또는 source가 달라질 때만 트랜잭션당 version을 정확히 한 번 증가시킨다. snapshot 제거가 있는 비교는 제한된 LLM 문맥 밖 상태 변경도 놓치지 않도록 완료와 사용자 확정 전 모두 비교 당시 `snapshotVersion`의 정확한 일치를 요구한다. 같은 캐릭터의 후보 묶음은 mutation 전 initial version을 고정해 모든 제거 제안을 그 값으로 preflight하고, 묶음 앞 후보가 만든 version 증가를 뒤 후보의 외부 stale 변경으로 오인하지 않는다. 값만 반영하는 독립 slot 비교는 기존 문맥 hash 기준을 유지한다.
 - JSON snapshot entry는 사용자 `valueJson`을 그대로 유지하면서 표시용 `factValue`를 잃지 않도록 내부 `__catchhole_snapshot` envelope에 둘을 함께 저장한다. API는 envelope를 노출하지 않는다. 기존 raw entry는 그대로 읽고 source Fact의 표시값으로 보완하며, 다음 실제 수정 시 새 envelope로 점진 전환한다.
 - `character_snapshot_sources`는 현재 snapshot slot을 만든 Fact를 순서대로 연결한다. `ADD`/`UPDATE`는 source를 새 Fact 하나로 교체하고 `MERGE`는 기존 source 뒤에 새 Fact를 추가하며, 제거 제안은 slot과 source link만 제거한다. Fact 자체와 원문 근거는 항상 타임라인에 남는다.
@@ -439,6 +473,9 @@ domain/<domain>
 - 1차 `evidence_spans`·회차는 후보 원본으로 보존하고 2차 비교·재비교가 변경하지 않는다. 원고가 바뀐 경우에만 새 1차 분석 후보와 근거를 생성한다.
 - 기존 속성과 의미가 같아 `EXCLUDE`하는 비교 결과는 대상 ID와 실제 속성명을 함께 받아 해당 속성값을 `beforeValue`로 보존한다. 특정 기존 속성과 비교하지 않은 일시적 사건 등의 제외만 `beforeValue`가 없을 수 있으며, 매칭 속성명만 있고 대상이 없는 요청은 거절한다.
 - `scopeName=null` 후보와 같은 이름의 기존 속성이 특정 scope 아래에만 있으면 scope를 자동 상속하거나 concrete operation으로 완료하지 않는다. Worker 제안은 기존 경로를 `matchedScopeName + matchedPropertyName`에 보존한 `REVIEW_REQUIRED + SCOPE_UNRESOLVED`이며 후보는 `PENDING_REVIEW + COMPLETED`로 남는다. 사용자가 기존 scoped 경로의 `UPDATE/MERGE`, root `ADD`, 또는 `EXCLUDE`를 최종 결정하기 전에는 `WorldSetting`·property·version을 바꾸지 않는다. `REVIEW_REQUIRED`는 suggested operation에만 존재하고 final operation에는 허용하지 않으며, 다른 `ADD/UPDATE/MERGE/EXCLUDE`의 후보 scope와 기존 property scope exact-path 검증은 계속 유지한다.
+- 누적 세계관의 명시적인 `SCOPE_UNRESOLVED`는 이름이 다른 경우 범위 없는 단일 출처 후보와 입력에 제공된 실제 scoped 속성을 연결한다. 두 설정명이 달라도 허용하지만 제안 경로는 원본의 null 범위와 설정명을 유지한다. 이름이 같을 때의 자동 보류와 다중 출처 공유 검토 및 `CONFIRMED_ONLY` 검증은 그대로 유지한다.
+- 누적 세계관 비교에서 범위가 명시된 단일 출처 후보가 다른 범위의 기존 속성과 연결되면 `REVIEW_REQUIRED + SCOPE_MISMATCH`로 두 경로를 보존할 수 있다. 실제 제공된 canonical 대상의 기존 경로만 허용하며 기존 경로의 범위는 root(`null`)여도 된다. 제안 경로는 원본 후보의 범위·설정명을 유지하고, 후보·journal 참고에 기존 경로와 이전값·사유를 함께 남긴다. 값은 자동 반영하지 않지만 정상 비교 완료로 처리해 다른 묶음·다음 회차를 계속한다. 작가는 최종 결정 draft를 저장한 뒤 원본 경로의 `ADD` 또는 기존 경로의 `UPDATE/MERGE`를 재비교 없이 확정할 수 있다. 다중 출처·없는 대상/속성·동일 범위·임의 경로 변경은 이 검토 사유로 완화하지 않으며 `CONFIRMED_ONLY`에는 적용하지 않는다.
+- 범위 차이로 설명할 수 없는 세계관 대상·내용 불확실성은 `REVIEW_REQUIRED + GENERAL_UNCERTAINTY`로 정상 비교 완료한다. 단건·확정 설정 전용 묶음·누적 묶음 모두 지원하되, 묶음 결정은 출처 후보 하나씩 원본 경로와 값을 보존한다. 대상이나 기존 속성을 명시하면 실제 비교 문맥의 유효한 대상·전체 경로여야 하며 이동 요청과 자동 확정은 허용하지 않는다. 누적 journal과 다음 회차 참고에는 원본 주체와 원문 근거, `UNCONFIRMED` 및 일반 검토 사유를 유지하므로 선택된 기존 대상을 확정 사실로 승격하지 않는다. `SCOPE_UNRESOLVED`·`SCOPE_MISMATCH`의 기존 조건은 완화하지 않고, 과거 `FAILED` 후보를 새 사유로 재분류하지 않는다. 구조적으로 유효한 ‘판단 보류’를 응답 오류로 취급하지 않으면서도 확정 설정은 보호하기 위한 계약이다.
 - 묶음 비교 `ADD`가 기존 대상의 root 문자열 설정을 새 공통 scope 아래로 함께 이동하려면 `existingRootPropertyNamesToMove`를 명시한다. Backend는 같은 대상의 실제 root 경로와 destination 충돌을 검증하고 이름·현재값 snapshot을 결정 JSONB에 저장하며, 원본에 없던 합성 scope는 기존 child·이번 ADD·root 이동을 합쳐 서로 다른 child가 둘 이상일 때만 허용한다. 사용자가 AI 결정을 그대로 그룹 확정할 때만 confirm 직전 snapshot을 재검증해 root 이동과 새 property들을 한 deep copy, version 1회 증가로 반영하고 실제 적용 version을 결정에 기록한다. shared decision의 source 하나라도 작가 수정안이 AI안과 달라지면 decision-wide 비활성 상태를 영속화해 모든 source 응답에서 이동 목록을 숨기고 적용도 막는다. 결정 편집·제외는 이동을 취소하고, snapshot이 있는 결정의 단건 확정·제외는 금지한다. 이동 뒤 상세 근거는 확정 candidate를 rewrite하지 않고 적용 version 이전의 기존 root 동일 설정 이력만 새 scoped 경로에 projection한다.
 - 재비교 충돌은 후보 상태를 먼저 commit한 뒤 HTTP 409로 응답해야 한다. Service는 `WorldSettingCandidateConfirmResult.recomparisonRequired`를 정상 반환하고 Controller가 commit 이후 `AppException`으로 변환한다. 이를 위해 전용 예외 클래스를 추가하거나 `noRollbackFor=AppException.class`로 다른 확정 오류의 rollback 범위를 넓히지 않는다.
 - 같은 확정·제외 요청은 멱등 처리하고 `CONFIRMED ↔ DISMISSED` 반대 전이는 충돌로 거절한다. `UPDATE`와 `MERGE`는 DB에서 모두 최종 문자열로 한 property를 교체하되 제안 의미를 기록하기 위해 enum을 구분한다.

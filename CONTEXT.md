@@ -4,6 +4,24 @@ CatchHole에서 회차 원문을 설정 후보로 바꾸고 사용자가 검토�
 
 ## Language
 
+**Ordered Analysis Run**:
+명시적으로 `ORDERED_PROVISIONAL`을 선택한 회차 목록·순서·시작 상태를 고정한 실행이다.
+각 회차는 별도의 Analysis Job이며 새 업로드나 단일 회차 요청이 기존 run에 자동 편입되지 않는다.
+
+**Analysis Journal**:
+Backend가 검증한 당시 제안값·출처·순서를 저장한 불변 변경 기록이다. S0와 선행 SEALED 기록으로
+다음 회차 입력을 복원하며 후보의 사용자 수정 현재값을 과거 입력으로 대신 읽지 않는다.
+
+**Provisional Subject**:
+아직 사용자 확정으로 실제 대표 레코드가 만들어지지 않은 실행 내부 대상이다. 실제 UUID FK와
+별도인 provisionalSubjectKey를 사용하며 AI 분석 완료로 정식 캐릭터·세계관을 만들지 않는다.
+
+**Invalidated Analysis**:
+원문이나 사용자 결정 변경으로 기존 입력을 다시 사용할 수 없는 실행이다. 후속 작업을 멈추고
+명시적인 새 요청이 필요함을 표시한다. 같은 입력의 처리 실패 retry와 구분하며 자동 유료 재실행은 하지 않는다.
+
+상세 계약과 현재 검증 범위는 [누적 분석 설계](docs/ordered-provisional-analysis.md)를 따른다.
+
 **Analysis Job**:
 작품에 속한 단일 회차의 AI 분석 실행과 상태를 추적하는 단위다.
 _Avoid_: Batch job, upload analysis
