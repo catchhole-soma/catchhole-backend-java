@@ -100,7 +100,11 @@ class AnalysisStateJournalTest {
     void purgesCopiedEvidenceWithoutChangingDomainValues() throws Exception {
         JsonNode original = mapper.readTree("""
                 {"outputStateHash":"old-hash","changes":[
-                  {"path":["references","one"],"value":{"reason":"원문 인용","factValue":"설정값"}},
+                  {"path":["references","one"],"value":{"domain":"characters","operation":"REVIEW_REQUIRED",
+                    "sourceEpisodeNo":3,"sourceCandidateIds":["candidate-1"],"reason":"삭제할 원문 인용",
+                    "factValue":"삭제할 참고 값","valueJson":{"text":"삭제할 값"},"value":"삭제할 값",
+                    "proposedValue":"삭제할 값","sourceValues":["삭제할 값"],
+                    "evidenceSpans":[{"quote":"삭제할 원문 인용"}],"futurePayload":{"quote":"삭제할 원문 인용"}}},
                   {"path":["worldSettings","one"],"value":{"identityEvidence":["원문"],"propertiesJson":{"reason":"세계관 속성값"}}},
                   {"path":["characters","one","slots","key"],"value":{"valueJson":{"reason":"설정값"}}}
                 ]}
@@ -108,11 +112,16 @@ class AnalysisStateJournalTest {
         JsonNode redacted = journal.purgeSourceEvidence(original);
         assertThat(redacted.at("/changes/0/value/reason").isMissingNode()).isTrue();
         assertThat(redacted.at("/changes/1/value/identityEvidence").isMissingNode()).isTrue();
-        assertThat(redacted.at("/changes/0/value/factValue").asText()).isEqualTo("설정값");
+        assertThat(redacted.at("/changes/0/value")).isEqualTo(mapper.readTree("""
+                {"domain":"characters","operation":"REVIEW_REQUIRED","sourceEpisodeNo":3,
+                 "sourceCandidateIds":["candidate-1"]}
+                """));
+        assertThat(redacted.toString()).doesNotContain("삭제할");
         assertThat(redacted.at("/changes/1/value/propertiesJson/reason").asText()).isEqualTo("세계관 속성값");
         assertThat(redacted.at("/changes/2/value/valueJson/reason").asText()).isEqualTo("설정값");
         assertThat(redacted.path("outputStateHash")).isEqualTo(original.path("outputStateHash"));
         assertThat(redacted.path("sourceEvidencePurged").asBoolean()).isTrue();
-        assertThat(original.at("/changes/0/value/reason").asText()).isEqualTo("원문 인용");
+        assertThat(original.at("/changes/0/value/reason").asText()).isEqualTo("삭제할 원문 인용");
+        assertThat(journal.purgeSourceEvidence(redacted)).isEqualTo(redacted);
     }
 }

@@ -47,6 +47,7 @@ public final class AnalysisExplanationText {
                 {"value", "내용"}, {"version", "저장 시점"}, {"schema", "설정 작성 기준"},
                 {"UPDATE", "수정"}, {"MERGE", "병합"}, {"ADD", "추가"}, {"EXCLUDE", "제외"},
                 {"REMOVE", "해제"}, {"HISTORY_ONLY", "이력에만 저장"}, {"REVIEW_REQUIRED", "직접 확인 필요"},
+                {"SCOPE_MISMATCH", "적용 범위 차이"},
                 {"NULL", "없음"}, {"LLM", "AI"}, {"enum", "구분 값"}
         };
         for (String[] entry : vocabulary) {

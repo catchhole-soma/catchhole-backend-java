@@ -7,6 +7,14 @@ import org.junit.jupiter.api.Test;
 @DisplayName("사용자에게 보여 주는 분석 판단 문장")
 class AnalysisExplanationTextTest {
     @Test
+    void translatesScopeMismatchWithoutRejectingTheComparisonOrChangingActualNames() {
+        assertThat(AnalysisExplanationText.forReader("SCOPE_MISMATCH 때문에 확인이 필요합니다."))
+                .isEqualTo("적용 범위 차이 때문에 확인이 필요합니다.");
+        assertThat(AnalysisExplanationText.forReader("SCOPE_MISMATCH 길드의 설정입니다.", "SCOPE_MISMATCH 길드"))
+                .isEqualTo("SCOPE_MISMATCH 길드의 설정입니다.");
+    }
+
+    @Test
     @DisplayName("범위가 없는 위치를 뜻하는 개발 표현을 자연어로 안내한다")
     void translatesStorageLocationProse() {
         assertThat(AnalysisExplanationText.forReader("기존 속성이 없으므로 root에 포함합니다."))

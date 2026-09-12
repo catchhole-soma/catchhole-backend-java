@@ -184,7 +184,20 @@ public class WorldSettingMapper {
                         new WorldSettingComparisonDiagnostic.SelectedProperty(path.hasNonNull("targetWorldSettingId")
                                 ? UUID.fromString(path.path("targetWorldSettingId").asText()) : null,
                                 textValue(path, "provisionalSubjectKey"), textValue(path, "scopeName"),
-                                textValue(path, "propertyName"))).toList())).toList();
+                                textValue(path, "propertyName"))).toList(),
+                diagnosticEnum(entry, "stage", WorldSettingComparisonDiagnostic.Stage.class),
+                diagnosticEnum(entry, "phase", WorldSettingComparisonDiagnostic.Phase.class))).toList();
+    }
+
+    private <E extends Enum<E>> E diagnosticEnum(JsonNode entry, String field, Class<E> type) {
+        String value = textValue(entry, field);
+        if (value == null) return null;
+        try {
+            return Enum.valueOf(type, value);
+        } catch (IllegalArgumentException ignored) {
+            // 이전/이후 버전의 선택적 진단 때문에 후보 목록 조회를 실패시키지 않는다.
+            return null;
+        }
     }
 
     private String publicComparisonErrorMessage(WorldSettingCandidate candidate) {

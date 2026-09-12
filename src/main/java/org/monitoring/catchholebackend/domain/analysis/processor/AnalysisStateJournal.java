@@ -95,7 +95,11 @@ public class AnalysisStateJournal {
                 continue;
             }
             if ("references".equals(path.path(0).asText())) {
-                ((ObjectNode) value).remove("reason");
+                // 참고 기록에는 정식 설정과 달리 원문 주장·인용의 복사본이 들어 있다.
+                // 새 payload 필드가 추가되어도 파기에서 빠지지 않도록 감사 메타데이터만 남긴다.
+                ((ObjectNode) value).retain(List.of("domain", "operation", "confirmationStatus",
+                        "candidateId", "decisionId", "targetRef", "sourceEpisodeNo", "sourceCandidateIds",
+                        "discoveryCandidateId", "rejectedCandidateId", "kind", "policyVersion", "claimHash"));
             } else if (List.of("characters", "worldSettings").contains(path.path(0).asText())) {
                 ((ObjectNode) value).remove("identityEvidence");
             }
