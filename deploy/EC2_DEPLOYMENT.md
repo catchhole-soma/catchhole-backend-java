@@ -2,6 +2,8 @@
 
 이 문서는 API 서버용 Amazon EC2 인스턴스에서 Caddy, Spring Backend, Redis만 실행하는 절차를 설명한다. PostgreSQL은 Amazon RDS를 사용하고 인공지능 작업 프로세스는 별도의 Worker 서버용 Amazon EC2 인스턴스에서 실행한다.
 
+2026-09-10에 분리 운영과 SHA 이미지 실행을 확인했다. 실제 사양·연결·백업·비용 및 확인 방법은 [운영 현황표](../docs/operations-status-2026-09-10.md)를 참고한다. 이 문서의 최초 데이터 전환·초기화·기존 PostgreSQL 중지 절차는 당시의 전환 안내이며, 현재 운영의 일반 재배포 절차는 **GitHub Actions 자동 배포** 항목이다. 과거 안내에 적힌 모든 보존·정리 작업의 실제 수행 여부를 이번 점검에서 확인한 것은 아니다.
+
 ## 서버 파일
 
 API 서버에는 다음 파일을 둔다.
@@ -16,8 +18,8 @@ API 서버에는 다음 파일을 둔다.
 - `compose.api.prod.yml`과 `Caddyfile`은 백엔드 저장소에서 내려받는다.
 - `api.env`는 `deploy/api.env.example`을 기준으로 서버에서 직접 작성하고 커밋하지 않는다.
 - `BACKEND_IMAGE`에는 발행이 성공한 이미지의 `sha-<short-sha>` 태그를 넣는다. 자동 배포는 이 값을 배포 대상 SHA로 갱신한다.
-- 기존 통합 배포의 `.env`, `compose.prod.yml`, PostgreSQL 볼륨은 전환 검증이 끝날 때까지 삭제하지 않는다.
-- 보존 기간에는 `docker compose up`에 `--remove-orphans`를 붙이지 않는다.
+- 2026-09-10 조회에서 기존 `.env`와 `compose.prod.yml` 파일은 남아 있지만 PostgreSQL 컨테이너·전용 Docker 볼륨은 발견되지 않았다. 파일 존재만으로 예전 DB 복구가 가능하다고 판단하지 않는다.
+- 잔존 파일의 보존·정리와 과거 DB의 별도 백업 여부는 담당자 확인 항목이다. 현재 배포에는 `api.env`와 `compose.api.prod.yml`을 사용한다.
 
 ## 로컬 로그 보관
 
@@ -65,7 +67,7 @@ sudo cat /etc/systemd/journald.conf.d/catchhole.conf
 sudo journalctl --disk-usage
 ```
 
-## 데이터 전환 결정
+## 데이터 전환 결정 (최초 전환 이력)
 
 NVM-317 최초 전환은 기존 로컬 PostgreSQL 데이터를 Amazon RDS로 이전하지 않고 빈 데이터베이스에서 새로 시작한다. 따라서 전환 후에는 기존 회원, 작품, 회차, 분석 작업과 Amazon S3 객체를 참조하던 메타데이터가 새 서비스에 표시되지 않는다. Amazon S3 객체 자체는 삭제하지 않지만 새 데이터베이스에는 이를 가리키는 기존 행이 없다.
 
@@ -75,7 +77,7 @@ NVM-317 최초 전환은 기존 로컬 PostgreSQL 데이터를 Amazon RDS로 이
 
 - Caddy는 인터넷에서 TCP 80번과 443번 포트를 받는다.
 - Spring Backend의 TCP 8080번 포트는 호스트에 게시하지만, API 서버 보안 그룹은 Worker 서버 보안 그룹에서 시작된 요청만 허용한다.
-- Amazon RDS의 TCP 5432번 포트는 API 서버 보안 그룹과 Worker 서버 보안 그룹에서 시작된 요청만 허용한다.
+- 서비스 간 연결은 Amazon RDS의 TCP 5432번 포트에 API 서버 SG와 Worker 서버 SG를 허용한다. 2026-09-10 실제 설정에는 운영 접근용 IPv4 `/32` 두 개가 추가로 허용되어 있고 RDS 공개 접근도 활성화되어 있다. SG 설명상 팀원 자택·SW 사무실 Wi-Fi에서 DB에 직접 접속하는 허용이며, SSM 접속을 위한 인바운드 규칙은 아니다. 현재 사용 여부·유지 기간은 확인 필요하며 이 현황 기록이 예외의 상시 허용을 결정한 것은 아니다. 원문 IP·리소스 식별자는 비공개 운영 기록에서 관리한다.
 - Redis는 Docker 네트워크 안에서만 접근하며 호스트 포트를 게시하지 않는다.
 
 ## API 서버 인스턴스 역할과 메타데이터 설정
@@ -158,7 +160,9 @@ SHOW timezone;
 
 결과는 `Asia/Seoul`이어야 한다. 추가로 Spring Backend는 HikariCP가 새 물리 연결을 만들 때마다 `api.env`의 `APP_TIMEZONE`을 PostgreSQL session에 적용한다. Amazon RDS가 시작될 때의 기본값과 애플리케이션이 만든 연결의 값을 둘 다 `Asia/Seoul`로 유지한다.
 
-## 최초 전환 전 확인
+## 최초 전환 전 확인 (이력)
+
+아래는 통합 Compose에서 역할별 배포로 처음 옮길 때 안내한 절차다. 현재는 전환이 완료되어 있으며 운영 재배포 시 반복하지 않는다.
 
 다음 항목을 먼저 기록한다.
 
@@ -246,7 +250,7 @@ sudo -u ubuntu docker compose --env-file api.env -f compose.api.prod.yml logs --
 sudo journalctl CONTAINER_NAME=catchhole-backend-1 --since '14 days ago' --no-pager
 ```
 
-## Amazon RDS 초기화 검증
+## Amazon RDS 초기화 검증 (최초 전환 이력)
 
 새 Amazon RDS는 빈 데이터베이스이므로 Spring Backend가 처음 시작될 때 Flyway가 스키마를 생성한다. 백엔드 로그에서 Flyway와 Hibernate 검증 결과를 확인한다.
 
@@ -319,7 +323,9 @@ curl -fsS http://replace-with-api-private-ip:8080/actuator/health
 3. API 서버 보안 그룹의 TCP 8080번 인바운드 소스가 Worker 서버 보안 그룹인지 확인한다.
 4. `compose.api.prod.yml`의 `8080:8080` 포트 게시가 적용되었는지 확인한다.
 
-## 기존 로컬 PostgreSQL 보존
+## 기존 로컬 PostgreSQL 보존 (최초 전환 이력)
+
+전환 당시 문서는 아래 보존 절차를 안내했다. 2026-09-10 Docker 조회에서는 PostgreSQL 컨테이너·전용 볼륨이 확인되지 않았으며, 별도 백업·과거 정리 이력은 미확인이다. 현재 DB 복구는 RDS 백업을 기준으로 #175에서 검증한다.
 
 새 API 서버와 Worker 서버의 읽기·쓰기 검증이 끝나면 기존 로컬 PostgreSQL 컨테이너만 중지한다.
 
@@ -387,8 +393,23 @@ sudo -u ubuntu docker compose --env-file api.env -f compose.api.prod.yml up -d -
 curl -fsS https://api.catchhole.com/actuator/health
 ```
 
-롤백 원인을 해결한 뒤에는 GitHub Actions에서 복구할 SHA에 대응하는 성공한 `Deploy API EC2` 실행을 다시 실행한다. 이 Workflow는 해당 publish run의 SHA 태그로 `api.env`를 갱신한 뒤 API 서버를 재배포한다. 이후 새로운 `main` 이미지 발행이 성공해도 같은 방식으로 `BACKEND_IMAGE`가 새 SHA로 자동 갱신되므로 롤백 이미지가 다음 자동 배포에 남지 않는다.
+롤백 원인을 해결한 뒤에는 수정 커밋을 `main`에 배포하거나 현재 `main` SHA에 대응하는 `Deploy API EC2` 실행을 다시 실행한다. Workflow는 배포 대상 SHA와 현재 `main`이 다르면 오래된 배포를 건너뛰므로, 과거 성공 run 재실행만으로 과거 이미지가 복원되지는 않는다. 호환되는 과거 이미지 복원에는 위 수동 절차를 사용한다. 이후 새로운 `main` 이미지 발행이 성공하면 `BACKEND_IMAGE`가 새 SHA로 자동 갱신된다.
 
 ## 종료 신호 전달
 
 백엔드 이미지는 셸 안에서 Java 프로세스를 `exec`로 실행한다. Docker가 보내는 종료 신호가 Java 프로세스에 직접 전달되므로 종료 시 셸 프로세스 때문에 전체 제한 시간을 기다리는 문제를 방지한다.
+
+## 이메일 인증 전환 (#181)
+
+[이메일 발송 운영·비용 문서](../docs/email-delivery.md)에 따라 `EMAIL_*` 설정과 별도 해시 secret을 준비한다. 초기 발신 계정은 `aicatchhole@gmail.com`이며 `api.env.example`에 Gmail SMTP 서버·사용자 이름·발신 주소를 반영했다. 실제 서버 `/opt/catchhole/api.env`에는 해당 계정의 앱 비밀번호와 별도 해시 secret을 직접 주입해야 한다. 예제 수정만으로 운영 연결이 완료되지는 않으며 EMAIL 모드의 운영 기동은 설정 누락을 거절한다. 새 유료 서비스 가입이나 자동 결제는 애플리케이션이 수행하지 않는다.
+
+무중단 기존 로그인 유지 및 가입 전환 순서:
+
+1. Backend 새 이미지를 `SIGNUP_VERIFICATION_METHOD=PHONE`으로 배포하여 V42와 `signup-policy`를 먼저 제공한다.
+2. EMAIL/PHONE 두 모드를 지원하는 Frontend를 배포한다.
+3. SMTP 설정이 준비되면 `SIGNUP_VERIFICATION_METHOD=EMAIL`로 Backend를 재기동한다.
+4. 관리자가 지정한 테스트 수신자에서 실제 메일 도착·스팸함·코드 확인·가입을 검증한다. 기존 로그인도 확인한다.
+
+PHONE으로 되돌릴 때에는 SOLAPI 설정과 전화 인증 hash secret을 활성화한다. V42 schema와 이메일로 가입한 회원은 그대로 유지하며 DB에 다시 전화번호 NOT NULL을 걸지 않는다. 코드 롤백과 가입 정책 변경을 동일하게 취급하지 않는다.
+
+가입 공백을 허용한다면 `api.env`에 EMAIL·SMTP 설정을 준비한 뒤 양쪽 PR을 연이어 머지할 수 있다. Backend 배포 Workflow가 저장된 비밀값을 보존하고 새 Compose와 이미지를 적용하므로 별도 수동 컨테이너 재생성은 필요 없다. 다만 새 Frontend가 먼저 배포되면 구 Backend에 `signup-policy`가 없어 가입이 잠기고, EMAIL Backend가 먼저 배포되면 구 Frontend의 전화 인증 요청이 거절된다. 양쪽 배포가 완료되면 EMAIL 계약이 일치한다. health check는 SMTP 접수나 메일 수신을 검증하지 않으므로 4번의 실제 가입 점검을 수행한다.

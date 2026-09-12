@@ -44,7 +44,7 @@ class AuthControllerTest {
                 true,
                 3L,
                 4L,
-                "phone-verification-token"
+                "phone-verification-token", null
         );
         AuthTokenResponse tokenResponse = AuthTokenResponse.bearer("access-token", 1800L);
         when(authService.signup(request))
@@ -107,6 +107,7 @@ class AuthControllerTest {
                 1L,
                 "writer@example.com",
                 "01012345678",
+                false,
                 false,
                 "작가",
                 null,

@@ -31,7 +31,7 @@ class AuthMapperTest {
                 true,
                 3L,
                 4L,
-                "phone-verification-token"
+                "phone-verification-token", null
         );
 
         LocalDateTime confirmedAt = LocalDateTime.of(2026, 8, 24, 17, 0);

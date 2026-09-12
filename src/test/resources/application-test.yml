@@ -17,6 +17,9 @@ spring:
 sms:
   provider: fake
 
+email:
+  provider: fake
+
 work:
   purge:
     scheduling-enabled: false

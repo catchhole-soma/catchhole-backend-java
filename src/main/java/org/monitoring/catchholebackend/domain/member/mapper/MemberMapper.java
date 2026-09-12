@@ -13,6 +13,7 @@ public class MemberMapper {
                 member.getEmail(),
                 member.getPhoneNumber(),
                 member.isPhoneVerified(),
+                member.isEmailVerified(),
                 member.getDisplayName(),
                 member.getProfileImageUrl(),
                 member.getStatus(),

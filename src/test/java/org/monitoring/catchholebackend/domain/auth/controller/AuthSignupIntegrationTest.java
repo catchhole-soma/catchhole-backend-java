@@ -31,7 +31,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
-@SpringBootTest
+@SpringBootTest(properties = "auth.signup-verification.verification-method=PHONE")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Transactional

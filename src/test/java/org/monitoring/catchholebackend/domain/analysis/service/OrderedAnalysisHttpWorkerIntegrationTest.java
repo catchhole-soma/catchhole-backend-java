@@ -147,8 +147,10 @@ class OrderedAnalysisHttpWorkerIntegrationTest {
     }
 
     private String runHarness(int count, String mode) throws Exception {
-        Path ai = Path.of("../catchhole-backend-ai-gh180").toAbsolutePath().normalize();
-        Path python = Path.of("../catchhole-backend-ai/.venv/bin/python").toAbsolutePath().normalize();
+        Path ai = Path.of(System.getenv().getOrDefault("GH180_AI_ROOT", "../catchhole-backend-ai"))
+                .toAbsolutePath().normalize();
+        Path python = Path.of(System.getenv().getOrDefault("GH180_PYTHON", "../catchhole-backend-ai/.venv/bin/python"))
+                .toAbsolutePath().normalize();
         assertThat(Files.isRegularFile(ai.resolve("tests/ordered_analysis_http_harness.py"))).isTrue();
         String database = System.getenv("GH180_E2E_JDBC_URL").replace("jdbc:postgresql://",
                 "postgresql+psycopg://gh180:gh180-test-only@");
@@ -161,6 +163,9 @@ class OrderedAnalysisHttpWorkerIntegrationTest {
         builder.environment().put("PATH", System.getenv("PATH"));
         builder.environment().put("PYTHONPATH", ai.toString());
         builder.environment().put("PYTHONDONTWRITEBYTECODE", "1");
+        if (System.getenv("TIKTOKEN_CACHE_DIR") != null) {
+            builder.environment().put("TIKTOKEN_CACHE_DIR", System.getenv("TIKTOKEN_CACHE_DIR"));
+        }
         Process process = builder.start();
         boolean exited = process.waitFor(90, TimeUnit.SECONDS);
         if (!exited) process.destroyForcibly();

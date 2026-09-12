@@ -61,6 +61,7 @@ erDiagram
         varchar email UK
         varchar password_hash
         varchar phone_number UK
+        boolean email_verified
         boolean phone_verified
         datetime age_requirement_confirmed_at
         varchar display_name
@@ -727,3 +728,7 @@ erDiagram
 - `characters.first_appearance_episode_id`는 원문이 파기된 `ARCHIVED` Episode tombstone을 계속 참조할 수 있습니다. 향후 Episode 행 물리 삭제 시 재계산 또는 `NULL` 처리 정책이 정해지지 않아 현재 FK를 강제하지 않습니다.
 - `setting_candidates.source_chunk_id`와 `character_facts.source_chunk_id`는 `episode_chunks`를 가리키지만 현재 DB FK를 강제하지 않습니다. Worker가 재청킹 시 기존 청크를 삭제하고 새 UUID로 교체하므로, 청크 ID 안정화 또는 근거 이력 보존 정책을 정한 뒤 다시 검토합니다.
 - `AnalysisJob.status`의 `CANCELED`는 작품 영구 삭제 또는 누적 입력 무효화로 중단된 작업의 terminal 상태이며 Worker lease와 토큰 예약을 함께 정리합니다. 이미 완료된 Job의 누적 입력 무효화는 기존 작업 상태와 별개로 `journal_status=INVALIDATED`에 표시합니다.
+
+## 이메일 인증 회원 (V42)
+
+`members.phone_number`는 NULL을 허용하며 실제 값의 unique 제약은 유지한다. `email_verified`는 NOT NULL, 기본 false다. 기존 회원은 실제 이메일 인증 이력이 없으므로 false를 유지하고, 이메일 인증 가입은 전화번호 없이 `email_verified=true`, `phone_verified=false`로 저장한다. 인증번호·가입 토큰은 Redis에만 두며 새 인증 테이블은 만들지 않는다.

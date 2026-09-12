@@ -38,11 +38,14 @@ public class Member extends BaseEntity {
     @Column(name = "password_hash", nullable = false, length = 255)
     private String passwordHash;
 
-    @Column(name = "phone_number", nullable = false, length = 20)
+    @Column(name = "phone_number", length = 20)
     private String phoneNumber;
 
     @Column(name = "phone_verified", nullable = false)
     private boolean phoneVerified;
+
+    @Column(name = "email_verified", nullable = false)
+    private boolean emailVerified;
 
     @Column(name = "age_requirement_confirmed_at")
     private LocalDateTime ageRequirementConfirmedAt;
@@ -113,6 +116,18 @@ public class Member extends BaseEntity {
         if (!isActive()) {
             throw new AppException(MemberErrorCode.MEMBER_INACTIVE);
         }
+    }
+
+    public static Member registerEmailVerified(
+            String email,
+            String passwordHash,
+            String displayName,
+            LocalDateTime ageRequirementConfirmedAt
+    ) {
+        Member member = new Member(email, passwordHash, null, false, displayName, null,
+                ageRequirementConfirmedAt);
+        member.emailVerified = true;
+        return member;
     }
 
     public boolean isActive() {

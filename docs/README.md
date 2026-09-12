@@ -12,6 +12,7 @@
 | [Database Migration](database-migration.md) | Flyway schema 관리 규칙, V1·V2 검증 및 최초 운영 전환 절차 |
 | [AI Token Usage](ai-token-usage.md) | AI 요청별 토큰 예약·정산, 사용자 한도와 운영 지급 정책 |
 | [Infrastructure Flow](infrastructure-flow.md) | 현재 운영 구조, 스케일링 전략, 미결정 인프라 선택지와 단계별 전환 계획 |
+| [2026-09-10 운영 현황](operations-status-2026-09-10.md) | #171 AWS·컨테이너 확인 결과, DB 연결 한도·백업·비용, 재확인 방법과 미확인 항목 |
 | [Load Tests](load-tests/README.md) | 운영 조회·실제 TXT 분석 10·50·100건 계획과 결과, 실행기 사용법, 측정·중단 기준 |
 | [Global](global.md) | 공통 응답, 예외 처리, 보안, 설정, 스토리지 기반 구조 |
 | [Auth](auth.md) | 회원가입, 로그인, JWT/refresh token, 세션 API 흐름 |
@@ -44,3 +45,6 @@ DFD와 유스케이스 다이어그램은 Front나 AI 저장소 한쪽에 종속
 - API 요청/응답, DB 필드, 상태 전이, 접근 제어처럼 구현에 영향을 주는 결정은 이유를 함께 남깁니다.
 - Notion에 정리한 ERD나 워크플로우를 코드 기준으로 옮길 때는 현재 백엔드 구현과 다른 부분을 명시합니다.
 - 전역 개발 규칙과 컨벤션은 `AGENTS.md`에 두고, 도메인별 설계 의도와 흐름은 `docs/`에 둡니다.
+
+- [이메일 발송 프로토콜·설정·비용](email-delivery.md)
+- [가입 인증 전환과 검증 결과](email-signup-implementation.md)

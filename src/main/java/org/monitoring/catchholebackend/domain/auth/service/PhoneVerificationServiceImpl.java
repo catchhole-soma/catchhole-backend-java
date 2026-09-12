@@ -13,6 +13,7 @@ import org.monitoring.catchholebackend.domain.auth.phone.PhoneVerificationTokenG
 import org.monitoring.catchholebackend.domain.auth.sms.SmsSender;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.monitoring.catchholebackend.global.exception.AppException;
+import org.monitoring.catchholebackend.global.config.auth.SignupVerificationMethod;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -37,9 +38,11 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService {
     private final PhoneVerificationTokenGenerator phoneVerificationTokenGenerator;
     private final SmsSender smsSender;
     private final PhoneVerificationMapper phoneVerificationMapper;
+    private final SignupVerificationPolicy signupVerificationPolicy;
 
     @Override
     public PhoneVerificationSendResponse sendPhoneVerificationCode(String phoneNumber, String clientIp) {
+        signupVerificationPolicy.requireMethod(SignupVerificationMethod.PHONE);
         if (memberRepository.existsByPhoneNumber(phoneNumber)) {
             throw new AppException(AuthErrorCode.AUTH_PHONE_NUMBER_DUPLICATED);
         }
@@ -78,6 +81,7 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService {
             String verificationId,
             String verificationCode
     ) {
+        signupVerificationPolicy.requireMethod(SignupVerificationMethod.PHONE);
         String signupToken = phoneVerificationTokenGenerator.generate();
         PhoneVerificationStore.ConfirmationResult confirmationResult =
                 phoneVerificationStore.confirmVerificationCodeAndIssueSignupToken(
@@ -106,6 +110,7 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService {
 
     @Override
     public String getVerifiedPhoneNumberBySignupToken(String signupToken) {
+        signupVerificationPolicy.requireMethod(SignupVerificationMethod.PHONE);
         String phoneNumber = phoneVerificationStore.findPhoneNumberBySignupToken(signupToken);
         if (phoneNumber == null) {
             throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_TOKEN_INVALID);
@@ -115,6 +120,7 @@ public class PhoneVerificationServiceImpl implements PhoneVerificationService {
 
     @Override
     public void consumeSignupToken(String signupToken, String expectedPhoneNumber) {
+        signupVerificationPolicy.requireMethod(SignupVerificationMethod.PHONE);
         if (!phoneVerificationStore.consumeSignupToken(signupToken, expectedPhoneNumber)) {
             throw new AppException(AuthErrorCode.AUTH_PHONE_VERIFICATION_TOKEN_INVALID);
         }

@@ -13,11 +13,14 @@ public record MemberResponse(
         @Schema(description = "회원 이메일", example = "user@example.com")
         String email,
 
-        @Schema(description = "하이픈 없는 회원 휴대폰 번호", example = "01012345678")
+        @Schema(description = "하이픈 없는 회원 휴대폰 번호. 이메일 가입 회원은 null", example = "01012345678", nullable = true)
         String phoneNumber,
 
         @Schema(description = "휴대폰 인증 완료 여부", example = "false")
         boolean phoneVerified,
+
+        @Schema(description = "이메일 인증 완료 여부", example = "true", requiredMode = Schema.RequiredMode.REQUIRED)
+        boolean emailVerified,
 
         @Schema(description = "서비스 화면에 표시할 사용자 이름", example = "장은호")
         String displayName,
@@ -38,6 +41,7 @@ public record MemberResponse(
                 member.email(),
                 member.phoneNumber(),
                 member.phoneVerified(),
+                member.emailVerified(),
                 member.displayName(),
                 member.profileImageUrl(),
                 member.status(),

@@ -20,6 +20,9 @@ public final class SecurityConstant {
     // 도메인 추가 시 카테고리 주석과 함께 여기에 등록한다.
     public static final String[] PUBLIC_AUTH_URLS = {
             "/api/v1/auth/signup",
+            "/api/v1/auth/signup-policy",
+            "/api/v1/auth/email-verifications",
+            "/api/v1/auth/email-verifications/**",
             "/api/v1/auth/phone-verifications",
             "/api/v1/auth/phone-verifications/**",
             "/api/v1/auth/login",

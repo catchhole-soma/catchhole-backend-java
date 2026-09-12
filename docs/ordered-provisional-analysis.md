@@ -93,7 +93,7 @@ path는 문자열 배열이며 실제 대상·설정 경로를 완전히 해소�
 같은 eventId의 같은 내용은 한 번만 적용하고 다른 내용은 거절한다. 부모 경로와 제거 경로를 암묵적으로 생성하지 않는다.
 회차와 회차 내부 event 순서는 저장된 배열 순서로 고정한다. source 후보를 다시 읽어 당시 값을 변경하지 않는다.
 
-V42~46은 기존 Job·후보·비교 batch/decision 컬럼을 보완한다. 첫 Job의 `run_base_state`가 S0이고,
+V43~47은 기존 Job·후보·비교 batch/decision 컬럼을 보완한다. 첫 Job의 `run_base_state`가 S0이고,
 각 Job의 `state_journal`이 당시 제안값과 source ID를 가진다. run/generation/sequence, 원문
 ID·번호·hash·S3 version, 입력 hash, journal 포맷/완성 상태를 함께 검증한다. 동일 이벤트의
 동일 내용은 한 번 적용하고 다른 내용은 거절한다. 현재 후보를 편집해도 저장 당시 값은 바뀌지 않는다.
@@ -204,7 +204,7 @@ S0 references에 보관한 해시만 사용하고 반려 내용이나 비공개 
 
 ## 읽는 순서와 초기 제한
 
-1. `AnalysisJobCreateRequest` → `AnalysisJobServiceImpl` → `AnalysisJob` / V42~46: 명시적 모드와 고정 실행 생성.
+1. `AnalysisJobCreateRequest` → `AnalysisJobServiceImpl` → `AnalysisJob` / V43~47: 명시적 모드와 고정 실행 생성.
 2. `AnalysisStateJournal` → `AnalysisRunStateServiceImpl` → `AnalysisJobClaimRepository`: 결정적 복원·claim·seal·무효화.
 3. `CharacterAnalysisStateService`, `OrderedWorldSettingWorker` 및 각 StateMapper/Confirmation: 실제·임시 문맥, 검증, 최종 확정.
 4. AI `analysis_job_worker.py` → `ordered_context.py`, `ordered_character_subjects.py` → comparator/pipeline: 단계별 입력과 실패 전파.
@@ -287,3 +287,7 @@ AI 무료 non-integration **935개 통과 / integration 14개 별도 선택**, �
 유료 LLM/semantic judge 평가, 운영 배포, GitHub Actions 실행, Notion 정답지 수정,
 원격 push·PR·merge는 별도 요청 전 실행하지 않는다. 과거 DRAFT 실험을 FINAL/운영 품질로 표시하지 않는다.
 기존 채점 결과의 단순 문구 차이를 의미 오답으로 단정하지 않고 구조·대상 오류와 구분한다.
+
+### 2026-09-13 PR 통합 검증
+
+main 이메일 가입 V42를 보존하며 미배포 migration 번호를 V43~V53으로 옮겼습니다. 위 과거 검증 표의 V42~V46은 실행 당시 번호입니다. 최종 코드에서 Python HTTP 하네스는 `GH180_AI_ROOT`와 `GH180_PYTHON`으로 별도 checkout/runtime을 지정할 수 있습니다. 기본 경로는 옆의 `catchhole-backend-ai` 저장소입니다. 사용자 로컬 DB 35432는 테스트 대상에서 제외합니다.

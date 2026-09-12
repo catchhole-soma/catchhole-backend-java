@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.auth.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import org.monitoring.catchholebackend.domain.auth.email.EmailAddressNormalizer;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -14,6 +15,7 @@ public record AuthSignupRequest(
         @Schema(description = "로그인 ID로 사용할 이메일", example = "user@example.com")
         @NotBlank(message = "이메일은 필수입니다.")
         @Email(message = "이메일 형식이 올바르지 않습니다.")
+        @Size(max = 255, message = "이메일은 255자 이하로 입력해주세요.")
         String email,
 
         @Schema(description = "영문과 숫자를 포함한 8자 이상 64자 이하의 비밀번호", example = "password123!", format = "password")
@@ -61,8 +63,15 @@ public record AuthSignupRequest(
         @Positive(message = "개인정보처리방침 문서 식별자는 양수여야 합니다.")
         Long privacyPolicyDocumentId,
 
-        @Schema(description = "휴대폰 인증 완료 후 발급된 1회용 회원가입 토큰", example = "4Kd7...Q2")
-        @NotBlank(message = "휴대폰 인증 토큰은 필수입니다.")
-        String phoneVerificationToken
+        @Schema(description = "PHONE 모드에서 필수인 1회용 회원가입 토큰", nullable = true)
+        @Size(max = 128)
+        String phoneVerificationToken,
+
+        @Schema(description = "EMAIL 모드에서 필수인 이메일 인증 후 1회용 회원가입 토큰", nullable = true)
+        @Size(max = 128)
+        String emailVerificationToken
 ) {
+    public AuthSignupRequest {
+        email = EmailAddressNormalizer.normalize(email);
+    }
 }
