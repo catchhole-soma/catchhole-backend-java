@@ -48,3 +48,5 @@ DFD와 유스케이스 다이어그램은 Front나 AI 저장소 한쪽에 종속
 
 - [이메일 발송 프로토콜·설정·비용](email-delivery.md)
 - [가입 인증 전환과 검증 결과](email-signup-implementation.md)
+
+- [GH180 최신 main 통합 검증과 배포 순서](gh180-integration-validation.md)
