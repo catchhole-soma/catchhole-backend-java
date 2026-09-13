@@ -27,3 +27,10 @@
 - 원문 파일 교체에도 기존 250,000자 정책을 적용한다. TXT·DOCX를 공백을 보존하여 읽고 Unicode code point로 계산한 뒤, 초과하면 이전 분석 무효화·업로드 생성·저장소 쓰기 전에 거절한다. 실행 중인 분석에 새 중단 조건을 추가한 것은 아니다.
 - `AnalysisJobControllerIntegrationTest`, `EpisodeControllerIntegrationTest`, `AutomaticAnalysisIntegrationTest`, `AnalysisJobOrderedRetryTest` 합계 **156개 통과**. 두 업로드 방식의 수동 검수, 교체 제한 초과의 DB/저장소 부작용 없음, 공백과 비 BMP 문자로 정확히 250,000자인 교체 허용, 기존 자동 반영·재개를 포함한다. H2와 모의 저장소를 사용했고 운영 데이터는 변경하지 않았다.
 - 위 보류 결정은 유지한다.
+
+## 세 번째 리뷰 반영
+
+- 세계관 대상의 현재 이름·분류를 그대로 재저장하면 기존 순차 실행을 무효화하지 않는다. 도메인의 이름 정리와 version 증가 결과로 실제 변경 여부를 판단하므로 앞뒤 공백만 있는 재전송도 안전하다. 실제 이름·분류 변경의 영향 분석 무효화와 version 검증은 유지한다.
+- `AutomaticAnalysisIntegrationTest`, `WorldSettingControllerIntegrationTest`, `AnalysisJobOrderedRetryTest` **64개 통과**. 동일 요청 반복으로 RUNNING·SUCCEEDED/SEALED 및 뒤 회차 PENDING을 보존하고, 실제 변경에서는 영향 분석을 무효화하는 저장 경계를 확인했다.
+- 만료 lease 복구와 작품 잠금의 교착 지적은 미해결로 남긴다. 현재 claim의 작품 잠금은 SKIP LOCKED를 사용하므로 리뷰가 지목한 대기 순환을 그대로 단정할 수 없다. 복구 조회의 연관 entity 잠금까지 실제 PostgreSQL 동시 실행으로 확인한 뒤 트랜잭션 경계를 변경해야 한다. 이번에 실제 교착을 재현하거나 해결했다고 주장하지 않는다.
+- 캐릭터 전체 실패 응답의 오류 종류 검사 강화는 보류한다. 작업 전체 오류를 후보 실패로 받아들이는 계약의 빈틈은 남지만, 단순 HTTP 거절로 바꾸면 기존 원인을 다른 API 오류로 가리거나 새 중단 조건을 만들 수 있다. 후속 대응은 실제 중단 코드를 부모 작업에 보존하는 실패 경로로 설계한다.

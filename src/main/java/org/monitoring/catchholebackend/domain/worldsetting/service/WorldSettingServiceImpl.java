@@ -117,8 +117,6 @@ public class WorldSettingServiceImpl implements WorldSettingService {
             WorldSettingIdentityUpdateRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        analysisRunStateService.invalidateRunsForWorkForUpdate(
-                work.getId(), null, "사용자가 확정 설정을 변경했습니다.");
         WorldSetting worldSetting = getWorldSettingForUpdate(worldSettingId, work.getId());
         worldSetting.validateVersion(request.version());
         String normalizedSubjectName = WorldSettingNameNormalizer.duplicateKey(request.subjectName());
@@ -130,7 +128,12 @@ public class WorldSettingServiceImpl implements WorldSettingService {
         )) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_SUBJECT_DUPLICATED);
         }
+        long previousVersion = worldSetting.getVersion();
         worldSetting.changeIdentity(request.category(), request.subjectName());
+        if (worldSetting.getVersion() != previousVersion) {
+            analysisRunStateService.invalidateRunsForWorkForUpdate(
+                    work.getId(), null, "사용자가 확정 설정을 변경했습니다.");
+        }
         flushIdentityChange(worldSetting);
         return toDetail(worldSetting);
     }

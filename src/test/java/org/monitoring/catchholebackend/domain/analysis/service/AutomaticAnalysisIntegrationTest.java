@@ -94,6 +94,8 @@ import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCo
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingComparisonDecision;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingComparisonDecisionSource;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
+import org.monitoring.catchholebackend.domain.worldsetting.service.WorldSettingService;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingIdentityUpdateRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSubjectResolutionType;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingConsolidationStatus;
@@ -123,12 +125,46 @@ class AutomaticAnalysisIntegrationTest {
     @Autowired SettingCandidateService characterReview;
     @Autowired AnalysisJobWorkerService worker;
     @Autowired WorldSettingWorkerService worldWorker;
+    @Autowired WorldSettingService worldSettings;
     @Autowired CharacterFactComparisonWorkerService characterWorker;
     @MockitoSpyBean WorldSettingCandidateServiceImpl worldApplication;
     private TransactionTemplate tx;
 
     @BeforeEach
     void prepareTransactions() { tx = new TransactionTemplate(transactions); }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void unchangedWorldIdentityPreservesRunningAndCompletedAnalysis(boolean completed) {
+        Run run = run(2);
+        UUID settingId = tx.execute(status -> {
+            WorldSetting setting = WorldSetting.create(entities.find(Work.class, run.workId()),
+                    WorldSettingCategory.RACE, "바바리안", "서식지", "북부");
+            entities.persist(setting);
+            return setting.getId();
+        });
+        Long owner = tx.execute(status -> entities.find(Work.class, run.workId()).getMember().getId());
+        WorkerAnalysisJobPayload first = claim();
+        if (completed) complete(first);
+        JsonNode originalInput = input(first);
+        var unchanged = new WorldSettingIdentityUpdateRequest(WorldSettingCategory.RACE, "  바바리안  ", 0L);
+        worldSettings.updateWorldSettingIdentity(owner, run.workId(), settingId, unchanged);
+        worldSettings.updateWorldSettingIdentity(owner, run.workId(), settingId, unchanged);
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            assertThat(job.getStatus()).isEqualTo(completed ? AnalysisJobStatus.SUCCEEDED : AnalysisJobStatus.RUNNING);
+            assertThat(job.getJournalStatus()).isEqualTo(completed ? AnalysisJournalStatus.SEALED : AnalysisJournalStatus.PENDING);
+            assertThat(jobs.findById(run.jobs().get(1)).orElseThrow().getStatus()).isEqualTo(AnalysisJobStatus.PENDING);
+            assertThat(entities.find(WorldSetting.class, settingId).getVersion()).isZero();
+        });
+        assertThat(input(first)).isEqualTo(originalInput);
+        worldSettings.updateWorldSettingIdentity(owner, run.workId(), settingId,
+                new WorldSettingIdentityUpdateRequest(WorldSettingCategory.RACE, "북부 바바리안", 0L));
+        tx.executeWithoutResult(status -> {
+            assertThat(jobs.findById(first.analysisJobId()).orElseThrow().getJournalStatus()).isEqualTo(AnalysisJournalStatus.INVALIDATED);
+            assertThat(jobs.findById(run.jobs().get(1)).orElseThrow().getStatus()).isEqualTo(AnalysisJobStatus.CANCELED);
+        });
+    }
 
     @Test
     @DisplayName("앞 회차의 새 캐릭터와 스탯을 저장한 뒤 다음 회차는 실제 ID와 최신값 및 동일인 이름을 읽는다")
