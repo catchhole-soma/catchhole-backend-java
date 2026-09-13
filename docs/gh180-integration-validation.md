@@ -37,11 +37,14 @@ AI 비교 버전을 새 수동 제안의 버전으로 오인해 거절하지 않
 | migration 업그레이드 | main V43→V54의 11단계, 이메일 회원과 기존 nullable 새 인물 비교 그룹 보존 확인 |
 | AI 오프라인 전체 | 1,883 통과, integration 14 제외; Ruff 통과 |
 | AI 실제 PostgreSQL 저장 경계 | 별도 DB에서 12 통과 |
-| Front Playwright 전체 | 최종 전체 실행 315 통과, 환경 의존 live 2 제외 |
+| Front Playwright 전체 | 조회 완료 후속 수정까지 최종 로컬 전체 316 통과, 환경 의존 live 2 제외 |
 | Front 정적 검사 | TypeScript·빌드 통과, ESLint 오류 0·기존 경고 2, Knip 통과; React Doctor는 권고 진단을 별도 출력 |
 
 Playwright 중 polling 테스트 1개가 전체 실행에서 시간 조건으로 실패했다. 단독 재실행
 2개와 이후 전체 315개 실행은 통과했다. 시간에 의존하는 테스트의 변동 가능성은 남는다.
+이후 GitHub CI에서 동일 응답의 재조회 완료를 화면에 전달하지 않아 필터 복귀 후 상세가
+비는 오류를 발견했다. 응답을 지연시켜 수정 전 실패를 재현했고, 캐릭터·세계관 목록의
+조회 완료 상태 구독을 보완한 뒤 관련 70개와 최종 로컬 전체 316개가 통과했다.
 외부 API를 가로채는 UI 테스트와 실제 서버 연결 검증은 구분한다.
 
 별도 `gh180_browser_test`에서 실제 로그인(access token 저장·HttpOnly refresh cookie),
