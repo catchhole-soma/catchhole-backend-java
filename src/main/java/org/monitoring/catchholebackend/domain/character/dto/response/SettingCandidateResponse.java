@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.character.dto.response;
 
+import org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
@@ -156,6 +157,17 @@ public record SettingCandidateResponse(
         LocalDateTime createdAt,
 
         @Schema(description = "수정 시각", example = "2026-06-14T10:29:00")
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+
+        @Schema(description = "자동 분석 뒤 보류된 후보를 작가가 직접 수정·확정할 수 있는지 여부",
+                requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+        boolean manualReviewAvailable,
+        @Schema(description = "비교 결과와 별도로 기록한 자동 반영 보류 사유. 과거 기록은 없을 수 있습니다", nullable = true, requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+        AutomaticReviewHoldReason automaticReviewHoldReason,
+        @Schema(description = "이 후보의 회차가 자동 분석·반영 중이므로 수동 변경을 기다려야 하는지 여부", requiredMode = Schema.RequiredMode.REQUIRED)
+        boolean automaticApplicationPending,
+
+        @Schema(description = "후보 원본 분석의 입력 정책", nullable = true)
+        org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode analysisMode
 ) {
 }

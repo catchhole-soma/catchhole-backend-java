@@ -16,6 +16,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService;
 import org.monitoring.catchholebackend.domain.character.dto.request.CharacterSettingPropertyRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.CharacterSettingUpdateRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.CharacterUpdateRequest;
@@ -70,6 +71,7 @@ public class CharacterServiceImpl implements CharacterService {
     );
 
     private final WorkRepository workRepository;
+    private final AnalysisRunStateService analysisRunStateService;
     private final WorkCharacterRepository workCharacterRepository;
     private final CharacterFactRepository characterFactRepository;
     private final CharacterSettingSchemaRepository characterSettingSchemaRepository;
@@ -145,6 +147,8 @@ public class CharacterServiceImpl implements CharacterService {
             CharacterUpdateRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        analysisRunStateService.invalidateRunsForWorkForUpdate(
+                work.getId(), null, "사용자가 확정 설정을 변경했습니다.");
         WorkCharacter character = getActiveCharacterForUpdate(work.getId(), characterId);
         String name = request.name().trim();
         if (workCharacterRepository.existsByWorkIdAndNameAndStatusAndIdNot(
@@ -181,6 +185,8 @@ public class CharacterServiceImpl implements CharacterService {
     @Transactional
     public CharacterArchiveResponse archiveCharacter(Long memberId, UUID workId, UUID characterId) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        analysisRunStateService.invalidateRunsForWorkForUpdate(
+                work.getId(), null, "사용자가 확정 설정을 변경했습니다.");
         WorkCharacter character = getActiveCharacterForUpdate(work.getId(), characterId);
         character.archive();
         return characterMapper.toArchiveResponse(character);
@@ -190,6 +196,8 @@ public class CharacterServiceImpl implements CharacterService {
     @Transactional
     public CharacterRestoreResponse restoreCharacter(Long memberId, UUID workId, UUID characterId) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        analysisRunStateService.invalidateRunsForWorkForUpdate(
+                work.getId(), null, "사용자가 확정 설정을 변경했습니다.");
         WorkCharacter character = getArchivedCharacterForUpdate(work.getId(), characterId);
         if (workCharacterRepository.existsByWorkIdAndNameAndStatusAndIdNot(
                 work.getId(),

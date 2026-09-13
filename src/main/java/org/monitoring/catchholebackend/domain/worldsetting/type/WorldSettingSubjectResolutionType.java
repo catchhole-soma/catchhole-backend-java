@@ -4,5 +4,6 @@ package org.monitoring.catchholebackend.domain.worldsetting.type;
 public enum WorldSettingSubjectResolutionType {
     NEW,
     EXISTING,
-    AMBIGUOUS
+    AMBIGUOUS,
+    FAILED
 }

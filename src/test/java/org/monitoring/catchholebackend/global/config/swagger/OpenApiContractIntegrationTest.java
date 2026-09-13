@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -22,6 +24,76 @@ class OpenApiContractIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Test
+    @DisplayName("캐릭터 후보 전체 확인 필요 수는 기존 연결 필요 수와 함께 필수 int64로 문서화한다")
+    void characterCandidateAttentionCountIsRequiredAndPreservesLegacyCount() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateListResponse']['required']")
+                        .value(org.hamcrest.Matchers.hasItem("attentionRequiredCandidateCount")))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateListResponse']['properties']['attentionRequiredCandidateCount']['type']")
+                        .value("integer"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateListResponse']['properties']['attentionRequiredCandidateCount']['format']")
+                        .value("int64"))
+                .andExpect(jsonPath("$['components']['schemas']['SettingCandidateListResponse']['properties']['matchRequiredCandidateCount']")
+                        .exists());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SettingCandidateListResponse", "WorldSettingCandidateListResponse"})
+    @DisplayName("두 후보 목록은 반영·제외·직접 확인·비교 중 개수를 모두 필수 정수로 제공한다")
+    void candidateReviewPartitionCountsAreRequiredInt64(String schema) throws Exception {
+        var result = mockMvc.perform(get("/v3/api-docs")).andExpect(status().isOk());
+        String base = "$['components']['schemas']['" + schema + "']";
+        for (String field : java.util.List.of("confirmedCandidateCount", "dismissedCandidateCount",
+                "directReviewCandidateCount", "processingCandidateCount")) {
+            result.andExpect(jsonPath(base + "['required']").value(org.hamcrest.Matchers.hasItem(field)))
+                    .andExpect(jsonPath(base + "['properties']['" + field + "']['type']").value("integer"))
+                    .andExpect(jsonPath(base + "['properties']['" + field + "']['format']").value("int64"));
+        }
+        result.andExpect(jsonPath(base + "['properties']['totalCandidateCount']").exists())
+                .andExpect(jsonPath(base + "['properties']['pendingCandidateCount']").exists())
+                .andExpect(jsonPath(base + "['properties']['reviewedCandidateCount']").exists());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SettingCandidateResponse", "WorldSettingCandidateResponse"})
+    @DisplayName("자동 반영 대기 여부는 두 후보에 필수 boolean으로 공개한다")
+    void automaticApplicationPendingIsRequiredBoolean(String schema) throws Exception {
+        String base = "$['components']['schemas']['" + schema + "']";
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(base + "['required']")
+                        .value(org.hamcrest.Matchers.hasItem("automaticApplicationPending")))
+                .andExpect(jsonPath(base + "['properties']['automaticApplicationPending']['type']")
+                        .value("boolean"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SettingCandidateResponse", "WorldSettingCandidateResponse"})
+    @DisplayName("자동 반영 보류 사유는 기존 후보와 호환되는 선택 enum이며 비교 상태와 별도로 제공한다")
+    void automaticHoldReasonIsOptionalAndDoesNotReplaceComparisonStatus(String schema) throws Exception {
+        String base = "$['components']['schemas']['" + schema + "']";
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(result -> {
+                    var required = new com.fasterxml.jackson.databind.ObjectMapper()
+                            .readTree(result.getResponse().getContentAsString())
+                            .path("components").path("schemas").path(schema).path("required");
+                    org.assertj.core.api.Assertions.assertThat(java.util.stream.StreamSupport.stream(required.spliterator(), false)
+                            .anyMatch(field -> field.asText().equals("automaticReviewHoldReason"))).isFalse();
+                })
+                .andExpect(jsonPath(base + "['properties']['automaticReviewHoldReason']['type']")
+                        .value(containsInAnyOrder("string", "null")))
+                .andExpect(jsonPath(base + "['properties']['automaticReviewHoldReason']['enum']")
+                        .value(containsInAnyOrder("SUBJECT_CONFIRMATION_REQUIRED", "DEPENDENCY_CONFIRMATION_REQUIRED",
+                                "CURRENT_SETTING_CHANGED", "SETTING_VALUE_CONFIRMATION_REQUIRED",
+                                "SETTING_LOCATION_CONFLICT", "REVIEW_REQUIRED", "SUBJECT_RESOLUTION_FAILED", "COMPARISON_INPUT_TOO_LARGE")))
+                .andExpect(jsonPath(base + "['properties']['comparisonStatus']").exists())
+                .andExpect(jsonPath(base + "['properties']['comparisonReason']").exists())
+                .andExpect(jsonPath(base + "['properties']['comparisonFailureCode']").exists());
+    }
 
     @Test
     @DisplayName("공개 Auth API와 JWT·내부 API Key 보호 API의 보안 계약을 구분한다")
@@ -398,6 +470,7 @@ class OpenApiContractIntegrationTest {
                                 "uploadType",
                                 "episodeCount",
                                 "totalCharCount",
+                                "totalUploadCharacters",
                                 "detectedEpisodes"
                         )))
                 .andExpect(jsonPath("$['components']['schemas']['EpisodeDetectionResponse']['properties']['episodes']")
@@ -562,7 +635,7 @@ class OpenApiContractIntegrationTest {
                         .value(org.hamcrest.Matchers.containsInAnyOrder(
                                 "NEW",
                                 "EXISTING",
-                                "AMBIGUOUS"
+                                "AMBIGUOUS", "FAILED"
                         )))
                 .andExpect(jsonPath("$['components']['schemas']"
                         + "['WorkerWorldSettingComparisonBatchCompleteRequest']"

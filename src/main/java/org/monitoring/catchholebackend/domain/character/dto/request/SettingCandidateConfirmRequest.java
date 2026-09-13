@@ -9,6 +9,11 @@ public record SettingCandidateConfirmRequest(
         CharacterFactConfirmApplicationMode applicationMode,
 
         @Schema(description = "화면에서 확인한 비교 기준 snapshot version", example = "3", nullable = true)
-        Long baseSnapshotVersion
+        Long baseSnapshotVersion,
+        @Schema(description = "사용자가 수정한 값을 현재 실제 설정에 직접 검증하여 적용할지 여부. 누적 분석의 명시적 수정 확정에만 사용합니다.")
+        Boolean applyEditedValue
 ) {
+    public SettingCandidateConfirmRequest(CharacterFactConfirmApplicationMode applicationMode, Long baseSnapshotVersion) {
+        this(applicationMode, baseSnapshotVersion, null);
+    }
 }

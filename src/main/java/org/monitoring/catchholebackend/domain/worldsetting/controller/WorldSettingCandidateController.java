@@ -122,7 +122,7 @@ public class WorldSettingCandidateController {
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "작품, 묶음 또는 후보를 찾을 수 없음",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
-            @ApiResponse(responseCode = "409", description = "검토 또는 비교 상태 충돌",
+            @ApiResponse(responseCode = "409", description = "자동 반영 진행 중(ANALYSIS_AUTOMATIC_APPLICATION_PENDING), 검토 또는 비교 상태 충돌",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
     })
     public CommonResponse<WorldSettingCandidateDecisionUpdateResponse> updateWorldSettingCandidateDecisions(
@@ -148,7 +148,7 @@ public class WorldSettingCandidateController {
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "작품 또는 후보를 찾을 수 없음",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
-            @ApiResponse(responseCode = "409", description = "검토 상태 충돌",
+            @ApiResponse(responseCode = "409", description = "자동 반영 진행 중(ANALYSIS_AUTOMATIC_APPLICATION_PENDING), 검토 상태 충돌",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
     })
     public CommonResponse<WorldSettingCandidateResponse> retryWorldSettingCandidateComparison(
@@ -174,7 +174,7 @@ public class WorldSettingCandidateController {
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "작품 또는 업로드 묶음을 찾을 수 없음",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
-            @ApiResponse(responseCode = "409", description = "최소 비교 예약 토큰 부족",
+            @ApiResponse(responseCode = "409", description = "자동 반영 진행 중(ANALYSIS_AUTOMATIC_APPLICATION_PENDING), 최소 비교 예약 토큰 부족",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
     })
     public CommonResponse<WorldSettingTokenInterruptedResumeResponse>
@@ -201,7 +201,7 @@ public class WorldSettingCandidateController {
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "작품, 묶음 또는 후보를 찾을 수 없음",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
-            @ApiResponse(responseCode = "409", description = "검토 상태 충돌 또는 ROW/GROUP 재비교 필요",
+            @ApiResponse(responseCode = "409", description = "자동 반영 진행 중(ANALYSIS_AUTOMATIC_APPLICATION_PENDING), 검토 상태 충돌 또는 ROW/GROUP 재비교 필요",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
     })
     public CommonResponse<WorldSettingCandidateGroupActionResponse> confirmWorldSettingCandidateGroup(
@@ -243,7 +243,7 @@ public class WorldSettingCandidateController {
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "작품, 묶음 또는 후보를 찾을 수 없음",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
-            @ApiResponse(responseCode = "409", description = "검토 또는 비교 상태 충돌",
+            @ApiResponse(responseCode = "409", description = "자동 반영 진행 중(ANALYSIS_AUTOMATIC_APPLICATION_PENDING), 검토 또는 비교 상태 충돌",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
     })
     public CommonResponse<WorldSettingCandidateGroupActionResponse> dismissWorldSettingCandidateGroup(
@@ -269,7 +269,7 @@ public class WorldSettingCandidateController {
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "작품 또는 후보를 찾을 수 없음",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
-            @ApiResponse(responseCode = "409", description = "검토 상태 충돌 또는 재비교 필요",
+            @ApiResponse(responseCode = "409", description = "자동 반영 진행 중(ANALYSIS_AUTOMATIC_APPLICATION_PENDING), 검토 상태 충돌 또는 재비교 필요",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
     })
     public CommonResponse<WorldSettingCandidateResponse> confirmWorldSettingCandidate(
@@ -296,7 +296,7 @@ public class WorldSettingCandidateController {
             @ApiResponse(responseCode = "200", description = "세계관 설정 후보 제외 성공"),
             @ApiResponse(responseCode = "404", description = "작품 또는 후보를 찾을 수 없음",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
-            @ApiResponse(responseCode = "409", description = "이미 확정된 후보와 상태 충돌",
+            @ApiResponse(responseCode = "409", description = "자동 반영 진행 중(ANALYSIS_AUTOMATIC_APPLICATION_PENDING), 이미 확정된 후보와 상태 충돌",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
     })
     public CommonResponse<WorldSettingCandidateResponse> dismissWorldSettingCandidate(

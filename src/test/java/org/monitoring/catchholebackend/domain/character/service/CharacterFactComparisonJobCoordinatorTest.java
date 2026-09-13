@@ -75,6 +75,27 @@ class CharacterFactComparisonJobCoordinatorTest {
     }
 
     @Test
+    @DisplayName("순차 회차의 후보는 batch 입력 barrier와 legacy 숨김 Job에 넘기지 않는다")
+    void orderedCandidatesNeverEnterLegacyGroupHandoff() {
+        AnalysisJob ordered = sourceJob();
+        ReflectionTestUtils.setField(ordered, "analysisMode",
+                org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL);
+        SettingCandidate provisional = candidate(ordered, "세룸", "status.부상", true);
+        ReflectionTestUtils.setField(provisional, "provisionalSubjectKey", "provisional-character:" + UUID.randomUUID());
+
+        coordinator.handoffIfInputComplete(ordered);
+        coordinator.enqueueIfNeeded(1L, provisional);
+
+        assertThat(coordinator.scopeRefs(List.of(provisional))).isEmpty();
+        org.mockito.Mockito.verifyNoInteractions(uploadBatchRepository, analysisJobRepository,
+                settingCandidateRepository, aiTokenService);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ordered.updateCheckpointStage(
+                AnalysisJobCheckpointStage.CHARACTER_COMPARISONS_HANDED_OFF))
+                .isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class);
+        assertThat(ordered.hasHandedOffCharacterComparisons()).isFalse();
+    }
+
+    @Test
     @DisplayName("모든 회차가 후보 게시를 인계한 뒤에만 하나의 그룹 Job을 생성한다")
     void waitsForAllSourceJobsBeforeCreatingOneGroupJob() {
         when(batch.getId()).thenReturn(batchId);

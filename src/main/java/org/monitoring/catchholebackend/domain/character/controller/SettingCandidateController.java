@@ -219,7 +219,7 @@ public class SettingCandidateController {
             ),
             @ApiResponse(
                     responseCode = "409",
-                    description = "검토 대기 상태가 아니거나 schema 해석이 모호함",
+                    description = "자동 반영 진행 중(ANALYSIS_AUTOMATIC_APPLICATION_PENDING), 검토 대기 상태가 아니거나 schema 해석이 모호함",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
             )
     })
@@ -247,6 +247,11 @@ public class SettingCandidateController {
             description = "현재 같은 이름으로 묶인 모든 검토 대기 후보를 하나의 기존 캐릭터에 연결하거나 "
                     + "같은 이름의 새 캐릭터 등록 예정 그룹으로 지정합니다. 일부 후보만 전달하면 거절합니다."
     )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "설정 후보 처리 성공"),
+            @ApiResponse(responseCode = "409", description = "자동 반영 진행 중(ANALYSIS_AUTOMATIC_APPLICATION_PENDING) 또는 검토 상태 충돌",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
+    })
     public CommonResponse<SettingCandidateGroupActionResponse> updateSettingCandidateGroupCharacterMatch(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,
@@ -286,7 +291,7 @@ public class SettingCandidateController {
             ),
             @ApiResponse(
                     responseCode = "409",
-                    description = "검토 대기 상태가 아니거나 캐릭터 연결 요청이 올바르지 않음",
+                    description = "자동 반영 진행 중(ANALYSIS_AUTOMATIC_APPLICATION_PENDING), 검토 대기 상태가 아니거나 캐릭터 연결 요청이 올바르지 않음",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
             )
     })
@@ -341,7 +346,7 @@ public class SettingCandidateController {
             ),
             @ApiResponse(
                     responseCode = "409",
-                    description = "검토/캐릭터 매칭 상태 충돌, 비교 대기·실패·stale 문맥, "
+                    description = "자동 반영 진행 중(ANALYSIS_AUTOMATIC_APPLICATION_PENDING), 검토/캐릭터 매칭 상태 충돌, 비교 대기·실패·stale 문맥, "
                             + "EXCLUDE/REVIEW_REQUIRED 제안 적용 시도, 동명 기존 캐릭터 연결 후 재비교 필요, "
                             + "schema 복수 매칭 또는 미지원 merge policy",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
@@ -382,6 +387,11 @@ public class SettingCandidateController {
                     + "EXCLUDE 제안은 현재 설정이나 이력을 만들지 않고 자동으로 무시 완료하며, "
                     + "그 밖의 후보는 선택한 반영 방식대로 저장합니다. 단일 후보 확정 UI는 제공하지 않습니다."
     )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "설정 후보 처리 성공"),
+            @ApiResponse(responseCode = "409", description = "자동 반영 진행 중(ANALYSIS_AUTOMATIC_APPLICATION_PENDING) 또는 검토 상태 충돌",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
+    })
     public CommonResponse<SettingCandidateGroupActionResponse> confirmSettingCandidateGroup(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,
@@ -406,6 +416,11 @@ public class SettingCandidateController {
             description = "실패하거나 현재 문맥과 어긋난 PENDING_REVIEW 후보의 비교 상태를 초기화하고 "
                     + "동일 후보에 대한 숨김 비교 Job을 멱등 생성합니다."
     )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "설정 후보 처리 성공"),
+            @ApiResponse(responseCode = "409", description = "자동 반영 진행 중(ANALYSIS_AUTOMATIC_APPLICATION_PENDING) 또는 검토 상태 충돌",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
+    })
     public CommonResponse<SettingCandidateResponse> retrySettingCandidateComparison(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,
@@ -444,7 +459,7 @@ public class SettingCandidateController {
             ),
             @ApiResponse(
                     responseCode = "409",
-                    description = "설정 후보 검토 상태 충돌",
+                    description = "자동 반영 진행 중(ANALYSIS_AUTOMATIC_APPLICATION_PENDING), 설정 후보 검토 상태 충돌",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
             )
     })

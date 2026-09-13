@@ -277,6 +277,18 @@ public class WorldSetting extends BaseEntity {
         return applyRootPropertyMovesAndProperties(List.of(), properties);
     }
 
+    /** 사용자 그룹 확정이 실제 상태와 선행 제안을 검증한 최종 전체 속성만 반영한다. */
+    public void replaceConfirmedProperties(List<Property> properties) {
+        if (properties == null || properties.isEmpty()) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_PROPERTIES_INVALID);
+        }
+        ObjectNode replacement = toPropertiesObject(properties);
+        if (!Objects.equals(propertiesJson, replacement)) {
+            propertiesJson = replacement;
+            version++;
+        }
+    }
+
     public boolean applyRootPropertyMovesAndProperties(
             List<RootPropertyMove> rootPropertyMoves,
             List<Property> properties
@@ -521,42 +533,14 @@ public class WorldSetting extends BaseEntity {
         }
     }
 
-    private static StoredPropertyPath findStoredPropertyPath(
-            JsonNode properties,
-            String scopeName,
-            String settingName
-    ) {
-        if (properties == null || !properties.isObject()) {
-            return null;
-        }
-        if (scopeName == null) {
-            String storedSettingName = findStoredFieldName(properties, settingName);
-            return storedSettingName != null && properties.get(storedSettingName).isTextual()
-                    ? new StoredPropertyPath(null, storedSettingName)
-                    : null;
-        }
-
-        String storedScopeName = findStoredFieldName(properties, scopeName);
-        if (storedScopeName == null || !properties.get(storedScopeName).isObject()) {
-            return null;
-        }
-        JsonNode scope = properties.get(storedScopeName);
-        String storedSettingName = findStoredFieldName(scope, settingName);
-        return storedSettingName != null && scope.get(storedSettingName).isTextual()
-                ? new StoredPropertyPath(storedScopeName, storedSettingName)
-                : null;
+    private static StoredPropertyPath findStoredPropertyPath(JsonNode properties, String scopeName, String settingName) {
+        return org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingPropertyView
+                .findStoredPath(properties, scopeName, settingName);
     }
 
     private static String findStoredFieldName(JsonNode object, String name) {
-        String duplicateKey = WorldSettingNameNormalizer.duplicateKey(name);
-        Iterator<String> fieldNames = object.fieldNames();
-        while (fieldNames.hasNext()) {
-            String fieldName = fieldNames.next();
-            if (WorldSettingNameNormalizer.duplicateKey(fieldName).equals(duplicateKey)) {
-                return fieldName;
-            }
-        }
-        return null;
+        return org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingPropertyView
+                .findStoredFieldName(object, name);
     }
 
     private ObjectNode propertiesObjectCopy() {

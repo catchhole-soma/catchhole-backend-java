@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -25,13 +26,18 @@ import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchP
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisBatchStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode;
+import org.monitoring.catchholebackend.domain.upload.type.UploadType;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateBatchReviewCounts;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
 import org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
@@ -61,6 +67,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class AnalysisJobServiceImpl implements AnalysisJobService {
 
+    private final AnalysisRunStateService analysisRunStateService;
+
     private final AnalysisJobRepository analysisJobRepository;
     private final WorkRepository workRepository;
     private final UploadBatchRepository uploadBatchRepository;
@@ -82,8 +90,23 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
             AnalysisJobCreateRequest request
     ) {
         assertPublicJobType(request.jobType());
+        if (request.effectiveAnalysisMode() == AnalysisMode.ORDERED_PROVISIONAL
+                && request.jobType() != AnalysisJobType.SETTING_EXTRACTION) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_RUN_MODE_INVALID);
+        }
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         UploadBatch batch = getBatchInWork(request.batchId(), work);
+        boolean multiEpisodeUpload = request.episodeId() == null
+                && (batch.getUploadType() == UploadType.MULTI_EPISODE_SINGLE_FILE
+                || batch.getUploadType() == UploadType.MULTI_EPISODE_MULTI_FILE);
+        AnalysisReviewMode reviewMode = multiEpisodeUpload && request.jobType() == AnalysisJobType.SETTING_EXTRACTION
+                ? AnalysisReviewMode.AUTOMATIC
+                : request.effectiveReviewMode();
+        AnalysisMode analysisMode = reviewMode == AnalysisReviewMode.AUTOMATIC
+                ? AnalysisMode.ORDERED_PROVISIONAL : request.effectiveAnalysisMode();
+        if (analysisMode == AnalysisMode.ORDERED_PROVISIONAL && request.jobType() != AnalysisJobType.SETTING_EXTRACTION) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_RUN_MODE_INVALID);
+        }
         Episode episode = request.episodeId() == null ? null : getEpisodeInBatch(request.episodeId(), work, batch);
 
         List<UploadFile> uploadFiles = getUploadFiles(batch);
@@ -111,9 +134,19 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         );
         aiTokenService.ensureAnalysisCanStart(memberId);
         List<AnalysisJob> analysisJobs = targetEpisodes.stream()
-                .map(targetEpisode -> AnalysisJob.create(work, batch, targetEpisode, request.jobType()))
+                .sorted(Comparator.comparing(Episode::getEpisodeNo))
+                .map(targetEpisode -> {
+                    AnalysisJob job = AnalysisJob.create(work, batch, targetEpisode, request.jobType());
+                    job.configureReviewMode(reviewMode);
+                    return job;
+                })
                 .toList();
-        return analysisJobRepository.saveAll(analysisJobs).stream()
+        if (analysisMode == AnalysisMode.ORDERED_PROVISIONAL) {
+            analysisRunStateService.initializeRun(analysisJobs);
+        } else {
+            analysisJobRepository.saveAll(analysisJobs);
+        }
+        return analysisJobs.stream()
                 .map(savedJob -> analysisJobMapper.toResponse(
                         savedJob,
                         uploadFiles,
@@ -228,6 +261,9 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         AnalysisJob failedJob = analysisJobRepository.findByIdAndWorkId(analysisJobId, work.getId())
                 .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND));
         assertPublicJobType(failedJob.getJobType());
+        if (failedJob.isOrderedProvisional()) {
+            return List.of(toResponse(resumeOrderedJob(work, failedJob.getId())));
+        }
         if (failedJob.getStatus() != AnalysisJobStatus.FAILED) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
         }
@@ -253,6 +289,43 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 .map(episode -> getOrCreateRetryJob(work, failedJob, episode))
                 .map(this::toResponse)
                 .toList();
+    }
+
+    private AnalysisJob resumeOrderedJob(Work work, UUID jobId) {
+        AnalysisJob job = analysisJobRepository.findByIdForUpdate(jobId)
+                .filter(found -> found.getWork().getId().equals(work.getId()))
+                .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND));
+        if (job.getStatus() != AnalysisJobStatus.FAILED
+                && !(job.getStatus() == AnalysisJobStatus.SUCCEEDED
+                    && job.getJournalStatus() == AnalysisJournalStatus.INCOMPLETE)) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
+        }
+        // 무효화된 원문·사용자 변경은 같은 입력의 실패 재개로 바꾸지 않는다.
+        analysisRunStateService.validateResume(job);
+        assertNoSourcePurgeInProgress(List.of(job.getEpisode()));
+        if (analysisJobRepository.existsActiveByEpisodeTarget(
+                job.getEpisode().getId(), Set.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING))) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_ALREADY_IN_PROGRESS);
+        }
+        aiTokenService.ensureAnalysisCanStart(work.getMember().getId());
+
+        // 저장 장애 재개는 자동 모드에서 이미 보류한 실패와 변경 기록도 보존한다.
+        for (SettingCandidate failed : settingCandidateRepository.findAllByAnalysisJobIdAndComparisonStatus(
+                job.getId(), CharacterFactComparisonStatus.FAILED)) {
+            SettingCandidate candidate = settingCandidateRepository
+                    .findByIdAndWorkIdForUpdate(failed.getId(), work.getId())
+                    .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_RUN_STATE_CONFLICT));
+            if (!job.isAutomaticReview() || !candidate.canDeferFailedComparison()) candidate.retryFailedOrderedComparison();
+        }
+        for (WorldSettingCandidate failed : worldSettingCandidateRepository.findAllByAnalysisJobIdAndComparisonStatus(
+                job.getId(), WorldSettingComparisonStatus.FAILED)) {
+            WorldSettingCandidate candidate = worldSettingCandidateRepository
+                    .findByIdAndWorkIdForUpdate(failed.getId(), work.getId())
+                    .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_RUN_STATE_CONFLICT));
+            if (!job.isAutomaticReview() || !candidate.canDeferFailedComparison()) candidate.retryFailedOrderedComparison();
+        }
+        job.resumeFailedOrderedAttempt();
+        return job;
     }
 
     private AnalysisJobResponse toResponse(AnalysisJob analysisJob) {
@@ -459,7 +532,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
 
     /**
      * 새 분석 시도가 같은 목적·회차의 이전 미검토 후보를 대체하도록 pending 데이터만 정리한다.
-     * 이미 확정·무시한 검토 이력과 다른 분석 목적의 후보는 보존한다.
+     * 이미 확정·무시한 검토 이력, 다른 분석 목적과 누적 실행의 원본 후보는 보존한다.
      */
     private void deleteSupersededPendingCandidates(
             UUID workId,
@@ -480,7 +553,10 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                         episodeIds,
                         jobType,
                         SettingCandidateReviewStatus.PENDING_REVIEW
-                );
+                ).stream()
+                .filter(candidate -> candidate.getAnalysisJob() == null
+                        || !candidate.getAnalysisJob().isOrderedProvisional())
+                .toList();
         List<CharacterFactComparisonJobCoordinator.ScopeRef> reopenedScopes =
                 characterComparisonJobCoordinator.scopeRefs(supersededCharacterCandidates);
         supersededCharacterCandidates.forEach(candidate -> analysisJobRepository
@@ -510,7 +586,10 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                         episodeIds,
                         jobType,
                         WorldSettingReviewStatus.PENDING_REVIEW
-                );
+                ).stream()
+                .filter(candidate -> candidate.getAnalysisJob() == null
+                        || !candidate.getAnalysisJob().isOrderedProvisional())
+                .toList();
         supersededWorldSettingCandidates.forEach(candidate -> analysisJobRepository
                 .findFirstByWorldSettingCandidateIdAndStatusInOrderByCreatedAtDesc(
                         candidate.getId(),
@@ -566,7 +645,9 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 .map(entry -> analysisBatchMapper.toJobGroupResponse(
                         entry.getKey(),
                         resolveJobGroupStatus(entry.getValue()),
-                        entry.getValue()
+                        entry.getValue(),
+                        entry.getValue().stream().collect(Collectors.toMap(
+                                AnalysisJob::getId, this::listedJobStatus, (first, ignored) -> first))
                 ))
                 .toList();
         Map<UUID, Episode> targetEpisodesById = currentJobsByType.values().stream()
@@ -659,27 +740,47 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
 
     private AnalysisBatchStatus resolveJobGroupStatus(List<AnalysisJob> currentJobs) {
         long failedCount = currentJobs.stream()
-                .filter(job -> job.getStatus() == AnalysisJobStatus.FAILED)
+                .filter(job -> listedJobStatus(job) == AnalysisJobStatus.FAILED)
                 .filter(job -> !job.isResumableTokenInterruption())
                 .count();
         long canceledCount = currentJobs.stream()
-                .filter(job -> job.getStatus() == AnalysisJobStatus.CANCELED)
+                .filter(job -> listedJobStatus(job) == AnalysisJobStatus.CANCELED)
                 .count();
         if (currentJobs.stream().anyMatch(job ->
-                job.getStatus() == AnalysisJobStatus.PENDING
-                        || job.getStatus() == AnalysisJobStatus.RUNNING)) {
+                listedJobStatus(job) == AnalysisJobStatus.RUNNING
+                        || listedJobStatus(job) == AnalysisJobStatus.PENDING
+                        && !isBlockedOrderedJob(job, currentJobs))) {
             return AnalysisBatchStatus.IN_PROGRESS;
         }
         if (canceledCount > 0) {
             return AnalysisBatchStatus.CANCELED;
         }
-        if (failedCount == currentJobs.size()) {
-            return AnalysisBatchStatus.FAILED;
-        }
         if (failedCount > 0) {
-            return AnalysisBatchStatus.PARTIALLY_FAILED;
+            return currentJobs.stream().anyMatch(job -> listedJobStatus(job) == AnalysisJobStatus.SUCCEEDED)
+                    ? AnalysisBatchStatus.PARTIALLY_FAILED : AnalysisBatchStatus.FAILED;
         }
         return AnalysisBatchStatus.COMPLETED;
+    }
+
+    private AnalysisJobStatus listedJobStatus(AnalysisJob job) {
+        if (!job.isOrderedProvisional()) return job.getStatus();
+        if (job.getJournalStatus() == AnalysisJournalStatus.INVALIDATED) return AnalysisJobStatus.CANCELED;
+        if (job.getStatus() == AnalysisJobStatus.SUCCEEDED
+                && (job.getJournalStatus() != AnalysisJournalStatus.SEALED
+                || job.isAutomaticReview() && job.getAutomaticAppliedAt() == null)) {
+            return AnalysisJobStatus.FAILED;
+        }
+        return job.getStatus();
+    }
+
+    private boolean isBlockedOrderedJob(AnalysisJob job, List<AnalysisJob> currentJobs) {
+        if (!job.isOrderedProvisional()) return false;
+        return currentJobs.stream().anyMatch(earlier -> earlier.isOrderedProvisional()
+                && Objects.equals(earlier.getAnalysisRunId(), job.getAnalysisRunId())
+                && Objects.equals(earlier.getRunGeneration(), job.getRunGeneration())
+                && earlier.getRunSequence() < job.getRunSequence()
+                && (listedJobStatus(earlier) == AnalysisJobStatus.FAILED
+                || listedJobStatus(earlier) == AnalysisJobStatus.CANCELED));
     }
 
     private AnalysisBatchStatus resolveBatchStatus(

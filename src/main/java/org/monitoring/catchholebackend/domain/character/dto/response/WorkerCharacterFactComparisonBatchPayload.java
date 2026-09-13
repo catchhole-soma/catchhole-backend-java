@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.character.dto.response;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.util.List;
@@ -17,8 +18,19 @@ public record WorkerCharacterFactComparisonBatchPayload(
         String characterRef,
         String matchedCharacterName,
         CharacterFactType canonicalFactType,
-        List<Candidate> candidates
+        List<Candidate> candidates,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String provisionalSubjectKey,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisContextPayload analysisContext
 ) {
+
+    public WorkerCharacterFactComparisonBatchPayload(
+            UUID comparisonBatchId, UUID workId, UUID sourceEpisodeId, String characterRef,
+            String matchedCharacterName, CharacterFactType canonicalFactType, List<Candidate> candidates
+    ) {
+        this(comparisonBatchId, workId, sourceEpisodeId, characterRef, matchedCharacterName,
+                canonicalFactType, candidates, null, null);
+    }
 
     public record Candidate(
             String candidateRef,

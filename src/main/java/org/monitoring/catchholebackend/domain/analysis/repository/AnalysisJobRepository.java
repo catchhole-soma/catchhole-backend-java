@@ -20,6 +20,90 @@ import org.springframework.data.repository.query.Param;
 public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> {
 
     @Query("""
+            select max(coalesce(sourceEpisode.episodeNo, candidateEpisode.episodeNo))
+            from CharacterFact fact
+            left join fact.sourceEpisode sourceEpisode
+            left join fact.settingCandidate candidate
+            left join candidate.episode candidateEpisode
+            where fact.workCharacter.work.id = :workId
+            """)
+    Integer findLatestCharacterFactSourceEpisodeNo(@Param("workId") UUID workId);
+
+    @Query("""
+            select max(episode.episodeNo) from WorkCharacter character
+            join Episode episode on episode.id = character.firstAppearanceEpisodeId
+            where character.work.id = :workId
+            """)
+    Integer findLatestCharacterFirstAppearanceEpisodeNo(@Param("workId") UUID workId);
+
+    @Query("""
+            select max(candidate.episode.episodeNo) from SettingCandidate candidate
+            where candidate.work.id = :workId
+              and candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CONFIRMED
+            """)
+    Integer findLatestConfirmedCharacterSourceEpisodeNo(@Param("workId") UUID workId);
+
+    @Query("""
+            select max(candidate.sourceEpisode.episodeNo) from WorldSettingCandidate candidate
+            where candidate.work.id = :workId
+              and candidate.reviewStatus = org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.CONFIRMED
+            """)
+    Integer findLatestConfirmedWorldSourceEpisodeNo(@Param("workId") UUID workId);
+
+    @Query("select candidate.id from SettingCandidate candidate where candidate.analysisJob.id = :jobId")
+    List<UUID> findCharacterSourceCandidateIds(@Param("jobId") UUID jobId);
+
+    @Query("select candidate.id from WorldSettingCandidate candidate where candidate.analysisJob.id = :jobId")
+    List<UUID> findWorldSourceCandidateIds(@Param("jobId") UUID jobId);
+
+    List<AnalysisJob> findAllByAnalysisRunIdAndRunGenerationOrderByRunSequenceAsc(UUID runId, Long generation);
+
+    @Query("""
+            select job from AnalysisJob job
+            join fetch job.episode episode
+            join fetch job.work
+            where job.work.id = :workId
+              and job.jobType = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION
+              and episode.episodeNo < :sourceEpisodeNo
+            order by job.createdAt desc, job.id desc
+            """)
+    List<AnalysisJob> findEarlierExtractionJobsForReferences(@Param("workId") UUID workId,
+            @Param("sourceEpisodeNo") int sourceEpisodeNo);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select job from AnalysisJob job
+            where job.analysisRunId = :runId and job.runGeneration = :generation
+              and job.runSequence >= :sequence
+            order by job.runSequence asc
+            """)
+    List<AnalysisJob> findRunTailForUpdate(@Param("runId") UUID runId,
+            @Param("generation") Long generation, @Param("sequence") int sequence);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select job from AnalysisJob job
+            where job.work.id = :workId
+              and job.analysisMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL
+              and job.journalStatus <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.INVALIDATED
+              and (:sourceEpisodeNo is null or job.sourceEpisodeNo >= :sourceEpisodeNo)
+            order by job.analysisRunId, job.runGeneration, job.runSequence
+            """)
+    List<AnalysisJob> findAffectedOrderedJobsForUpdate(@Param("workId") UUID workId,
+            @Param("sourceEpisodeNo") Integer sourceEpisodeNo);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select job from AnalysisJob job
+            where job.work.id = :workId
+              and job.analysisMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL
+              and job.sourceEpisodeNo >= :sourceEpisodeNo
+            order by job.analysisRunId, job.runGeneration, job.runSequence
+            """)
+    List<AnalysisJob> findOrderedJobsForSourcePurgeForUpdate(@Param("workId") UUID workId,
+            @Param("sourceEpisodeNo") int sourceEpisodeNo);
+
+    @Query("""
             select case when count(distinct analysisJob.id) > 0 then true else false end
             from AnalysisJob analysisJob
             left join analysisJob.targetEpisodes targetEpisode
@@ -247,28 +331,6 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             UUID episodeId,
             UUID batchId,
             AnalysisJobType jobType
-    );
-
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("""
-            select analysisJob
-            from AnalysisJob analysisJob
-            join fetch analysisJob.work
-            left join fetch analysisJob.batch
-            left join analysisJob.episode episode
-            where analysisJob.status = :status
-              and analysisJob.jobType in :jobTypes
-              and (:supportsCharacterComparisonGroups = true
-                   or analysisJob.characterComparisonInputHash is null)
-              and analysisJob.work.lifecycleStatus =
-                  org.monitoring.catchholebackend.domain.work.type.WorkLifecycleStatus.ACTIVE
-            order by analysisJob.createdAt asc, episode.episodeNo asc
-            """)
-    List<AnalysisJob> findClaimCandidates(
-            @Param("status") AnalysisJobStatus status,
-            @Param("jobTypes") Collection<AnalysisJobType> jobTypes,
-            @Param("supportsCharacterComparisonGroups") boolean supportsCharacterComparisonGroups,
-            Pageable pageable
     );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

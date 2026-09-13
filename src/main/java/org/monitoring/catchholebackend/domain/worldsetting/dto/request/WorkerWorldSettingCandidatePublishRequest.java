@@ -21,12 +21,6 @@ public record WorkerWorldSettingCandidatePublishRequest(
         List<Candidate> candidates
 ) {
 
-    private static final List<BigDecimal> SUPPORTED_CONFIDENCE_VALUES = List.of(
-            new BigDecimal("0.65"),
-            new BigDecimal("0.80"),
-            new BigDecimal("0.95")
-    );
-
     public record Candidate(
             @NotNull(message = "세계관 설정 분류는 필수입니다.")
             WorldSettingCategory category,
@@ -77,10 +71,10 @@ public record WorkerWorldSettingCandidatePublishRequest(
             );
         }
 
-        @AssertTrue(message = "추출 신뢰도는 0.65, 0.80, 0.95 중 하나여야 합니다.")
+        @AssertTrue(message = "추출 신뢰도는 0 이상 1 이하이어야 합니다.")
         public boolean hasSupportedExtractionConfidence() {
-            return extractionConfidence == null || SUPPORTED_CONFIDENCE_VALUES.stream()
-                    .anyMatch(supported -> supported.compareTo(extractionConfidence) == 0);
+            return extractionConfidence == null || extractionConfidence.compareTo(BigDecimal.ZERO) >= 0
+                    && extractionConfidence.compareTo(BigDecimal.ONE) <= 0;
         }
     }
 

@@ -1,11 +1,13 @@
 package org.monitoring.catchholebackend.domain.worldsetting.dto.response;
 
+import org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonReviewReason;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
@@ -13,6 +15,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCons
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.WorldSettingComparisonDiagnostic;
 
 @Schema(description = "세계관 설정 후보 응답")
 public record WorldSettingCandidateResponse(
@@ -21,6 +24,8 @@ public record WorldSettingCandidateResponse(
         UUID sourceEpisodeId,
         Integer sourceEpisodeNo,
         UUID analysisJobId,
+        @Schema(description = "후보를 생성한 회차 분석 방식. 누적 모드는 회차 간 같은 설정의 순차 변경을 허용한다")
+        AnalysisMode analysisMode,
         @Schema(description = "후보를 함께 비교한 묶음 ID", nullable = true)
         UUID comparisonBatchId,
         @Schema(description = "여러 source 후보가 공유할 수 있는 최종 설정안 ID", nullable = true)
@@ -77,6 +82,15 @@ public record WorldSettingCandidateResponse(
         @Schema(nullable = true) LocalDateTime reviewedAt,
         @Schema(nullable = true) Long appliedWorldSettingVersion,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+        @Schema(description = "자동 분석 뒤 보류된 후보를 작가가 직접 수정·확정할 수 있는지 여부",
+                requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+        boolean manualReviewAvailable,
+        @Schema(description = "실패 시도별 안전한 검증 규칙·후보 ref·비교 입력의 기존 경로")
+        List<WorldSettingComparisonDiagnostic> comparisonDiagnostics,
+        @Schema(description = "비교 결과와 별도로 기록한 자동 반영 보류 사유. 과거 기록은 없을 수 있습니다", nullable = true, requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+        AutomaticReviewHoldReason automaticReviewHoldReason,
+        @Schema(description = "이 후보의 회차가 자동 분석·반영 중이므로 수동 변경을 기다려야 하는지 여부", requiredMode = Schema.RequiredMode.REQUIRED)
+        boolean automaticApplicationPending
 ) {
 }

@@ -1,11 +1,14 @@
 package org.monitoring.catchholebackend.domain.analysis.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode;
 
 @Schema(description = "AI Worker 분석 작업 payload")
 public record WorkerAnalysisJobPayload(
@@ -55,6 +58,22 @@ public record WorkerAnalysisJobPayload(
         List<WorkerAnalysisKnownCharacterPayload> knownCharacters,
 
         @Schema(description = "분석 대상 단일 회차. 출처 회차가 없는 후보 단독 재비교 Job은 null일 수 있습니다.", nullable = true)
-        WorkerAnalysisEpisodePayload episode
+        WorkerAnalysisEpisodePayload episode,
+
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        @Schema(description = "누적 분석 모드. 생략하면 기존 CONFIRMED_ONLY입니다.", nullable = true)
+        AnalysisMode analysisMode,
+
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        @Schema(description = "누적 실행의 고정 입력 버전", nullable = true)
+        WorkerAnalysisContextPayload analysisContext,
+
+        @JsonInclude(JsonInclude.Include.NON_EMPTY)
+        @Schema(description = "실행에서 검증한 미확정 캐릭터 목록")
+        List<WorkerAnalysisProvisionalCharacterPayload> provisionalCharacters,
+
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        @Schema(description = "자동 반영 작업의 후보별 실패 격리 정책. 생략하면 기존 MANUAL입니다.", nullable = true)
+        AnalysisReviewMode reviewMode
 ) {
 }

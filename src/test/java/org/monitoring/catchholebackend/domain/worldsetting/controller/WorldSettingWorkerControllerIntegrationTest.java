@@ -575,6 +575,48 @@ class WorldSettingWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("확정 설정 전용 비교는 누적 분석 전용 범위 불일치 검토를 거절한다")
+    void confirmedOnlyComparisonRejectsOrderedScopeMismatchReview() throws Exception {
+        WorldSetting target = worldSettingRepository.saveAndFlush(WorldSetting.create(
+                work, WorldSettingCategory.LOCATION, "미궁", "1층", "광원", "수정 빛"));
+        WorldSettingCandidate candidate = WorldSettingCandidate.create(work, episode, analysisJob,
+                WorldSettingCategory.LOCATION, "미궁", "외부", "조명", "횃불 빛",
+                objectMapper.createArrayNode(), BigDecimal.ONE, objectMapper.createObjectNode());
+        candidate.startComparison();
+        candidateRepository.saveAndFlush(candidate);
+        String request = """
+                {
+                  "targetWorldSettingId": "%s",
+                  "matchedScopeName": "1층",
+                  "matchedPropertyName": "광원",
+                  "consolidationStatus": "SINGLE",
+                  "suggestedOperation": "REVIEW_REQUIRED",
+                  "comparisonReviewReason": "SCOPE_MISMATCH",
+                  "proposedScopeName": "외부",
+                  "proposedSettingName": "조명",
+                  "proposedValue": "횃불 빛",
+                  "comparisonReason": "원문 범위와 기존 경로가 다릅니다.",
+                  "exactTargetWorldSettingId": "%s",
+                  "contextVersions": [{"worldSettingId": "%s", "version": %d}]
+                }
+                """.formatted(target.getId(), target.getId(), target.getId(), target.getVersion());
+
+        mockMvc.perform(post(
+                        "/api/internal/v1/analysis-jobs/{analysisJobId}/world-setting-candidates/{candidateId}/comparison-complete",
+                        analysisJob.getId(), candidate.getId())
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(request))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("WORLD_SETTING_COMPARISON_TARGET_INVALID"));
+
+        assertThat(candidateRepository.findById(candidate.getId()).orElseThrow().getComparisonStatus())
+                .isEqualTo(WorldSettingComparisonStatus.PROCESSING);
+        assertThat(worldSettingRepository.findById(target.getId()).orElseThrow().getPropertyValue("1층", "광원"))
+                .isEqualTo("수정 빛");
+    }
+
+    @Test
     @DisplayName("같은 회차와 raw 범위의 후보를 한 묶음에서 최종 설정안 하나로 연결한다")
     void completesTwoSourceCandidatesAsOneComparisonDecision() throws Exception {
         MvcResult publishResult = mockMvc.perform(put(
@@ -2969,8 +3011,8 @@ class WorldSettingWorkerControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("정해진 세 단계가 아닌 추출 신뢰도는 후보 게시 전에 거절한다")
-    void rejectsUnsupportedExtractionConfidence() throws Exception {
+    @DisplayName("추출 신뢰도가 대표 세 숫자가 아니어도 유효한 확률이면 원래 값을 그대로 저장한다")
+    void preservesValidExtractionConfidenceWithoutQuantizing() throws Exception {
         mockMvc.perform(put(
                                 "/api/internal/v1/analysis-jobs/{analysisJobId}/world-setting-candidates",
                                 analysisJob.getId()
@@ -2986,13 +3028,109 @@ class WorldSettingWorkerControllerIntegrationTest {
                                     "settingName": "서식지",
                                     "extractedValue": "극지방",
                                     "evidenceSpans": [{"quote": "원문 근거"}],
-                                    "extractionConfidence": 0.70
+                                    "extractionConfidence": 0.90
                                   }]
                                 }
                                 """))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isOk());
 
-        assertThat(candidateRepository.count()).isZero();
+        assertThat(candidateRepository.findAll()).singleElement()
+                .satisfies(saved -> assertThat(saved.getExtractionConfidence()).isEqualByComparingTo("0.90"));
+    }
+
+    @Test
+    @DisplayName("단건 일반 검토는 기존 속성의 선택 없이 완료하고 잘못된 대상과 범위 검토는 계속 거절한다")
+    void completesGeneralReviewWithoutBypassingTargetAndScopeChecks() throws Exception {
+        WorldSetting target = worldSettingRepository.saveAndFlush(WorldSetting.create(
+                work, WorldSettingCategory.LOCATION, "미궁", "광원", "수정 빛"));
+        WorldSettingCandidate candidate = WorldSettingCandidate.create(work, episode, analysisJob,
+                WorldSettingCategory.LOCATION, "미궁", "광원", "희미한 빛일 수 있다",
+                objectMapper.createArrayNode(), BigDecimal.ONE, objectMapper.createObjectNode());
+        candidate.startComparison();
+        candidateRepository.saveAndFlush(candidate);
+        var payload = objectMapper.createObjectNode();
+        payload.put("targetWorldSettingId", target.getId().toString());
+        payload.put("exactTargetWorldSettingId", target.getId().toString());
+        payload.put("consolidationStatus", "SINGLE");
+        payload.put("suggestedOperation", "REVIEW_REQUIRED");
+        payload.put("comparisonReviewReason", "GENERAL_UNCERTAINTY");
+        payload.put("proposedSettingName", candidate.getSettingName());
+        payload.put("proposedValue", candidate.getExtractedValue());
+        payload.put("comparisonReason", "현재 광원에 대한 정보인지 원문을 확인해 주세요.");
+        payload.putArray("contextVersions").addObject().put("worldSettingId", target.getId().toString())
+                .put("version", target.getVersion());
+        String endpoint = "/api/internal/v1/analysis-jobs/" + analysisJob.getId()
+                + "/world-setting-candidates/" + candidate.getId() + "/comparison-complete";
+        for (String invalid : List.of("target", "property", "scopeReason", "addReason")) {
+            var bad = payload.deepCopy();
+            switch (invalid) {
+                case "target" -> bad.put("targetWorldSettingId", UUID.randomUUID().toString());
+                case "property" -> bad.put("matchedPropertyName", "없는 설정");
+                case "scopeReason" -> bad.put("comparisonReviewReason", "SCOPE_UNRESOLVED");
+                case "addReason" -> bad.put("suggestedOperation", "ADD");
+            }
+            mockMvc.perform(post(endpoint).header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                            .header(WORKER_LEASE_TOKEN_HEADER, leaseToken).contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(bad))).andExpect(status().isBadRequest());
+        }
+        mockMvc.perform(post(endpoint).header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken).contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload))).andExpect(status().isOk());
+        var saved = candidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(saved.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.COMPLETED);
+        assertThat(saved.getComparisonReviewReason().name()).isEqualTo("GENERAL_UNCERTAINTY");
+        assertThat(saved.getReviewStatus().name()).isEqualTo("PENDING_REVIEW");
+        assertThat(saved.getMatchedPropertyName()).isNull();
+        assertThat(worldSettingRepository.findById(target.getId()).orElseThrow().getPropertyValue("광원"))
+                .isEqualTo("수정 빛");
+    }
+
+    @Test
+    @DisplayName("기존 묶음 비교도 일반 검토와 정상 추가를 독립 결정으로 함께 완료한다")
+    void confirmedOnlyBatchSupportsGeneralReviewAlongsideNormalDecision() throws Exception {
+        var review = candidateRepository.saveAndFlush(WorldSettingCandidate.create(work, episode, analysisJob,
+                WorldSettingCategory.RACE, "설인", "서식지", "북부일 수 있다", objectMapper.createArrayNode(), BigDecimal.ONE, null));
+        var normal = candidateRepository.saveAndFlush(WorldSettingCandidate.create(work, episode, analysisJob,
+                WorldSettingCategory.RACE, "설인", "체격", "크다", objectMapper.createArrayNode(), BigDecimal.ONE, null));
+        analysisJob.updateCheckpointStage(org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+        analysisJobRepository.saveAndFlush(analysisJob);
+        resolveSubjects(Map.of(review.getId(), List.of(), normal.getId(), List.of()));
+        String base = "/api/internal/v1/analysis-jobs/" + analysisJob.getId() + "/world-setting-comparison-batches/";
+        var claim = mockMvc.perform(post(base + "claim-next")
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken)).andExpect(status().isOk()).andReturn();
+        var claimed = objectMapper.readTree(claim.getResponse().getContentAsString()).path("data");
+        String batchId = claimed.path("comparisonBatchId").asText();
+        mockMvc.perform(post(base + batchId + "/context")
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"targetWorldSettingIds\":[]}" )).andExpect(status().isOk());
+        var payload = objectMapper.createObjectNode();
+        payload.putArray("contextVersions");
+        var resultDecisions = payload.putArray("decisions");
+        int sequence = 0;
+        for (var input : claimed.path("candidates")) {
+            boolean uncertain = input.path("settingName").asText().equals("서식지");
+            var decision = resultDecisions.addObject();
+            decision.put("decisionRef", "D" + (++sequence));
+            decision.putArray("sourceCandidateRefs").add(input.path("candidateRef").asText());
+            decision.put("canonicalSubjectName", "설인");
+            decision.put("consolidationStatus", "SINGLE");
+            decision.put("suggestedOperation", uncertain ? "REVIEW_REQUIRED" : "ADD");
+            if (uncertain) decision.put("comparisonReviewReason", "GENERAL_UNCERTAINTY");
+            decision.put("proposedSettingName", input.path("settingName").asText());
+            decision.put("proposedValue", input.path("extractedValue").asText());
+            decision.put("comparisonReason", uncertain ? "대상이 확실하지 않아 확인이 필요합니다." : "명시된 정보입니다.");
+        }
+        mockMvc.perform(post(base + batchId + "/complete")
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken).contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload))).andExpect(status().isOk());
+        var savedReview = candidateRepository.findById(review.getId()).orElseThrow();
+        assertThat(savedReview.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.COMPLETED);
+        assertThat(savedReview.getComparisonReviewReason().name()).isEqualTo("GENERAL_UNCERTAINTY");
+        assertThat(savedReview.getReviewStatus().name()).isEqualTo("PENDING_REVIEW");
+        assertThat(candidateRepository.findById(normal.getId()).orElseThrow().getSuggestedOperation().name()).isEqualTo("ADD");
     }
 
     private JsonNode resolveSubjects(Map<UUID, List<UUID>> targetsByCandidate)

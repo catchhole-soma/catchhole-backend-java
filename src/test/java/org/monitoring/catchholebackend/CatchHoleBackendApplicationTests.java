@@ -3,6 +3,7 @@ package org.monitoring.catchholebackend;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobClaimRepository;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenAccountRepository;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenExtensionRequestRepository;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenGrantRepository;
@@ -76,6 +77,9 @@ class CatchHoleBackendApplicationTests {
     private EpisodeRepository episodeRepository;
 
     @MockitoBean
+    private org.monitoring.catchholebackend.domain.episode.repository.EpisodeUploadPolicyRepository episodeUploadPolicyRepository;
+
+    @MockitoBean
     private EpisodePurgeDataRepository episodePurgeDataRepository;
 
     @MockitoBean
@@ -101,6 +105,9 @@ class CatchHoleBackendApplicationTests {
 
     @MockitoBean
     private AnalysisJobRepository analysisJobRepository;
+
+    @MockitoBean
+    private AnalysisJobClaimRepository analysisJobClaimRepository;
 
     @MockitoBean
     private AiTokenAccountRepository aiTokenAccountRepository;

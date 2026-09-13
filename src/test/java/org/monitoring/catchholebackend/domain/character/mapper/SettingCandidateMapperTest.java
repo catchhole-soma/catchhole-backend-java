@@ -11,12 +11,15 @@ import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterFactComparisonBatch;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessor;
@@ -460,6 +463,45 @@ class SettingCandidateMapperTest {
                         )
                 );
         assertThat(response.resolvedCanonicalFactKey()).isEqualTo("status.회복_완료");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"stats.mental,35,36", "stats.combat_power,67,68"})
+    @DisplayName("누적 비교의 기존값은 아직 확정하지 않은 앞 회차에서 읽는다")
+    void orderedPreviewReadsPriorEpisode(String key, String before, String after) throws Exception {
+        SettingCandidate candidate = mock(SettingCandidate.class);
+        AnalysisJob job = mock(AnalysisJob.class);
+        CharacterFactComparisonBatch batch = mock(CharacterFactComparisonBatch.class);
+        when(candidate.getWork()).thenReturn(work(UUID.randomUUID()));
+        when(candidate.getAnalysisJob()).thenReturn(job);
+        when(job.isOrderedProvisional()).thenReturn(true);
+        when(candidate.getCharacterComparisonBatch()).thenReturn(batch);
+        when(batch.getAnalysisJob()).thenReturn(job);
+        when(candidate.getSuggestedOperation()).thenReturn(CharacterFactOperation.UPDATE);
+        when(candidate.getComparisonTargetFactType()).thenReturn(CharacterFactType.STAT);
+        when(candidate.getComparisonTargetFactKey()).thenReturn(key);
+        when(candidate.getProposedFactValue()).thenReturn(after);
+        var entry = objectMapper.createObjectNode().put("factType", "STAT")
+                .put("factKey", key).put("factValue", before);
+        entry.putObject("valueJson").put("value", Integer.parseInt(before));
+        var context = objectMapper.createObjectNode();
+        context.putObject("slots").set("STAT:" + key, entry);
+        when(batch.getAnalysisContextSnapshotJson()).thenReturn(context);
+
+        var response = mapper.toReviewListResponse(candidate, false, null, SettingCandidateValueValidation.valid());
+        assertThat(response.snapshotChanges()).hasSize(1);
+        assertThat(response.snapshotChanges().getFirst().beforeFactValue()).isEqualTo(before);
+        assertThat(response.snapshotChanges().getFirst().proposedFactValue()).isEqualTo(after);
+
+        // 같은 묶음의 앞 판단까지 적용한 직전 값이 저장돼 있으면 묶음 시작값보다 우선한다.
+        var raw = objectMapper.createObjectNode();
+        raw.putArray("backendComparisonBefore").add(entry.deepCopy().put("factValue", "99"));
+        when(candidate.getRawComparisonJson()).thenReturn(raw);
+        assertThat(mapper.toResponse(candidate, false, null, SettingCandidateValueValidation.valid())
+                .snapshotChanges().getFirst().beforeFactValue()).isEqualTo("99");
+        raw.putArray("backendComparisonBefore");
+        assertThat(mapper.toResponse(candidate, false, null, SettingCandidateValueValidation.valid())
+                .snapshotChanges().getFirst().beforeFactValue()).isNull();
     }
 
     private Work work(UUID id) {

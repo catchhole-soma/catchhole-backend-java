@@ -19,13 +19,17 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode;
 import org.monitoring.catchholebackend.domain.aitoken.dto.request.AiTokenReserveRequest;
 import org.monitoring.catchholebackend.domain.aitoken.entity.AiTokenAccount;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenAccountRepository;
@@ -69,6 +73,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -174,9 +179,9 @@ class AnalysisJobControllerIntegrationTest {
         UploadFile secondUploadFile = uploadFileRepository.save(
                 parsedEpisodeFile(uploadBatch, "episodes-2.txt", 4, 5, 2));
         firstEpisode = episodeRepository.save(Episode.create(
-                work, firstUploadFile.getId(), 1, "첫 회차", "episodes/1.txt", null, "hash-1", 10));
+                work, firstUploadFile.getId(), 1, "첫 회차", "episodes/1.txt", null, "a".repeat(64), 10));
         secondEpisode = episodeRepository.save(Episode.create(
-                work, secondUploadFile.getId(), 4, "넷째 회차", "episodes/4.txt", null, "hash-4", 10));
+                work, secondUploadFile.getId(), 4, "넷째 회차", "episodes/4.txt", null, "b".repeat(64), 10));
 
         otherUploadBatch = uploadBatchRepository.save(UploadBatch.create(
                 otherWork,
@@ -220,6 +225,23 @@ class AnalysisJobControllerIntegrationTest {
                 .andExpect(jsonPath("$.data[1].episodeId").value(secondEpisode.getId().toString()));
 
         assertThat(analysisJobRepository.count()).isEqualTo(2);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = UploadType.class, names = {"MULTI_EPISODE_SINGLE_FILE", "MULTI_EPISODE_MULTI_FILE"})
+    void batchValidationKeepsManualMode(UploadType type) throws Exception {
+        org.springframework.test.util.ReflectionTestUtils.setField(uploadBatch, "uploadType", type);
+        uploadBatchRepository.saveAndFlush(uploadBatch);
+        mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"jobType":"EPISODE_VALIDATION","batchId":"%s"}
+                                """.formatted(uploadBatch.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", hasSize(2)))
+                .andExpect(jsonPath("$.data[0].reviewMode").value("MANUAL"))
+                .andExpect(jsonPath("$.data[0].analysisRun").doesNotExist());
     }
 
     @ParameterizedTest
@@ -293,6 +315,80 @@ class AnalysisJobControllerIntegrationTest {
                 .andExpect(jsonPath("$.data[1].episodeId").value(secondEpisode.getId().toString()));
     }
 
+    @ParameterizedTest
+    @EnumSource(value = UploadType.class, names = {
+            "SINGLE_EPISODE", "MULTI_EPISODE_SINGLE_FILE", "MULTI_EPISODE_MULTI_FILE"})
+    @DisplayName("단일·다회차 업로드의 새 설정 분석은 기본 자동 반영이며 회차 순서를 고정한다")
+    void newUploadSettingAnalysisDefaultsToAutomaticInEpisodeOrder(UploadType uploadType) throws Exception {
+        UploadBatch batch = uploadBatchRepository.save(UploadBatch.create(
+                work, member, uploadType, UploadSourceType.FILE));
+        boolean single = uploadType == UploadType.SINGLE_EPISODE;
+        UploadFile file = uploadFileRepository.save(parsedEpisodeFile(
+                batch, "new-episodes.txt", 10, single ? 10 : 11, single ? 1 : 2));
+        Episode earlier = episodeRepository.save(Episode.create(
+                work, file.getId(), 10, "열 번째", "episodes/10.txt", null, "c".repeat(64), 10));
+        if (!single) {
+            episodeRepository.save(Episode.create(
+                    work, file.getId(), 11, "열한 번째", "episodes/11.txt", null, "d".repeat(64), 10));
+        }
+
+        mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"jobType":"SETTING_EXTRACTION","batchId":"%s"}
+                                """.formatted(batch.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", hasSize(single ? 1 : 2)))
+                .andExpect(jsonPath("$.data[0].episodeId").value(earlier.getId().toString()))
+                .andExpect(jsonPath("$.data[0].reviewMode").value("AUTOMATIC"))
+                .andExpect(jsonPath("$.data[0].analysisRun.mode").value("ORDERED_PROVISIONAL"))
+                .andExpect(jsonPath("$.data[0].analysisRun.sequence").value(0));
+
+        List<AnalysisJob> jobs = analysisJobRepository.findAll().stream()
+                .sorted(java.util.Comparator.comparing(AnalysisJob::getRunSequence)).toList();
+        assertThat(jobs).allSatisfy(job -> {
+            assertThat(job.getReviewMode()).isEqualTo(AnalysisReviewMode.AUTOMATIC);
+            assertThat(job.getAnalysisMode()).isEqualTo(AnalysisMode.ORDERED_PROVISIONAL);
+        });
+        if (!single) {
+            assertThat(jobs.get(1).getAnalysisRunId()).isEqualTo(jobs.getFirst().getAnalysisRunId());
+            assertThat(jobs.get(1).getPredecessorJobId()).isEqualTo(jobs.getFirst().getId());
+            assertThat(jobs.get(1).getRunSequence()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    @DisplayName("기본 자동 재분석도 미래 확정 이력을 거절하고 명시 직접 검토는 허용한다")
+    void defaultAutomaticReanalysisPreservesFutureHistoryGuardAndManualAlternative() throws Exception {
+        AnalysisJob previous = succeededJob(secondEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        SettingCandidate confirmed = candidate(previous, secondEpisode, "profile.future");
+        confirmed.confirm();
+        settingCandidateRepository.saveAndFlush(confirmed);
+
+        mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"jobType":"SETTING_EXTRACTION","batchId":"%s","episodeId":"%s"}
+                                """.formatted(uploadBatch.getId(), firstEpisode.getId())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("ANALYSIS_RUN_MODE_INVALID"));
+        assertThat(analysisJobRepository.count()).isEqualTo(1);
+
+        mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"jobType":"SETTING_EXTRACTION","batchId":"%s","episodeId":"%s","reviewMode":"MANUAL"}
+                                """.formatted(uploadBatch.getId(), firstEpisode.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].reviewMode").value("MANUAL"))
+                .andExpect(jsonPath("$.data[0].analysisRun").doesNotExist());
+        assertThat(settingCandidateRepository.findById(confirmed.getId())).get()
+                .extracting(SettingCandidate::getReviewStatus).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+    }
+
     @Test
     @DisplayName("현재 대상 회차가 없는 배치에는 분석 작업을 생성하지 않는다")
     void createAnalysisJobRejectsBatchWithoutTargetEpisodes() throws Exception {
@@ -354,6 +450,30 @@ class AnalysisJobControllerIntegrationTest {
 
         AnalysisJob savedJob = analysisJobRepository.findAll().getFirst();
         assertThat(savedJob.getEpisode().getId()).isEqualTo(firstEpisode.getId());
+        assertThat(savedJob.getReviewMode()).isEqualTo(jobType == AnalysisJobType.SETTING_EXTRACTION
+                ? AnalysisReviewMode.AUTOMATIC : AnalysisReviewMode.MANUAL);
+        assertThat(savedJob.getAnalysisMode()).isEqualTo(jobType == AnalysisJobType.SETTING_EXTRACTION
+                ? AnalysisMode.ORDERED_PROVISIONAL : AnalysisMode.CONFIRMED_ONLY);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"MANUAL", "AUTOMATIC"})
+    @DisplayName("단일 회차 설정 추출은 명시한 직접 검토·자동 반영 선택을 보존한다")
+    void createSingleEpisodeAnalysisPreservesExplicitReviewMode(String reviewMode) throws Exception {
+        mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"jobType":"SETTING_EXTRACTION","batchId":"%s","episodeId":"%s",
+                                 "reviewMode":"%s"}
+                                """.formatted(uploadBatch.getId(), firstEpisode.getId(), reviewMode)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", hasSize(1)))
+                .andExpect(jsonPath("$.data[0].reviewMode").value(reviewMode));
+
+        AnalysisJob savedJob = analysisJobRepository.findAll().getFirst();
+        assertThat(savedJob.getAnalysisMode()).isEqualTo(reviewMode.equals("AUTOMATIC")
+                ? AnalysisMode.ORDERED_PROVISIONAL : AnalysisMode.CONFIRMED_ONLY);
     }
 
     @Test
@@ -560,6 +680,7 @@ class AnalysisJobControllerIntegrationTest {
                         .content("""
                                 {
                                   "jobType": "%s",
+                                  "reviewMode": "MANUAL",
                                   "batchId": "%s",
                                   "episodeId": "%s"
                                 }
@@ -1089,7 +1210,9 @@ class AnalysisJobControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data", hasSize(1)))
                 .andExpect(jsonPath("$.data[0].jobType").value("SETTING_EXTRACTION"))
-                .andExpect(jsonPath("$.data[0].status").value("PENDING"));
+                .andExpect(jsonPath("$.data[0].status").value("PENDING"))
+                .andExpect(jsonPath("$.data[0].reviewMode").value("MANUAL"))
+                .andExpect(jsonPath("$.data[0].analysisRun").doesNotExist());
 
         assertThat(analysisJobRepository.count()).isEqualTo(2);
     }
@@ -1193,6 +1316,73 @@ class AnalysisJobControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.content[0].worldSettingTotalCandidateCount").value(1))
                 .andExpect(jsonPath("$.data.content[0].worldSettingReviewedCandidateCount").value(0))
                 .andExpect(jsonPath("$.data.content[0].worldSettingPendingCandidateCount").value(1));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "FAILED, PENDING, false, FAILED, 1, 0, 0",
+            "SUCCEEDED, INCOMPLETE, false, FAILED, 1, 0, 0",
+            "SUCCEEDED, PENDING, false, FAILED, 1, 0, 0",
+            "SUCCEEDED, SEALED, false, FAILED, 1, 0, 0",
+            "SUCCEEDED, INVALIDATED, true, CANCELED, 0, 0, 1",
+            "RUNNING, PENDING, false, IN_PROGRESS, 0, 0, 0",
+            "SUCCEEDED, SEALED, true, IN_PROGRESS, 0, 1, 0"
+    })
+    @DisplayName("순차 분석의 차단 대기는 진행으로 세지 않으며 저장 미완료를 성공으로 표시하지 않는다")
+    void orderedBatchStatusReflectsPredecessorCompletion(
+            AnalysisJobStatus status, AnalysisJournalStatus journalStatus, boolean applied,
+            String expectedBatchStatus, int failed, int succeeded, int canceled
+    ) throws Exception {
+        UUID runId = UUID.randomUUID();
+        AnalysisJob first = orderedListJob(firstEpisode, runId, 0, null);
+        ReflectionTestUtils.setField(first, "status", status);
+        ReflectionTestUtils.setField(first, "journalStatus", journalStatus);
+        if (applied) ReflectionTestUtils.setField(first, "automaticAppliedAt", LocalDateTime.now());
+        analysisJobRepository.saveAndFlush(first);
+        orderedListJob(secondEpisode, runId, 1, first.getId());
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].status").value(expectedBatchStatus))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].status").value(expectedBatchStatus))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].pendingJobCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].failedJobCount").value(failed))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].succeededJobCount").value(succeeded))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].canceledJobCount").value(canceled));
+    }
+
+    @Test
+    @DisplayName("앞 회차가 저장된 순차 분석의 후행 실패는 대기 회차가 있어도 일부 실패로 표시한다")
+    void orderedBatchWithCompletedPrefixAndBlockedTailIsPartiallyFailed() throws Exception {
+        UUID runId = UUID.randomUUID();
+        AnalysisJob first = orderedListJob(firstEpisode, runId, 0, null);
+        ReflectionTestUtils.setField(first, "status", AnalysisJobStatus.SUCCEEDED);
+        ReflectionTestUtils.setField(first, "journalStatus", AnalysisJournalStatus.SEALED);
+        ReflectionTestUtils.setField(first, "automaticAppliedAt", LocalDateTime.now());
+        analysisJobRepository.saveAndFlush(first);
+        AnalysisJob second = orderedListJob(secondEpisode, runId, 1, first.getId());
+        second.fail("분석 연결 중 오류");
+        analysisJobRepository.saveAndFlush(second);
+        Episode third = episodeRepository.save(Episode.create(work, secondEpisode.getSourceFileId(),
+                5, "다섯째 회차", "episodes/5.txt", null, "c".repeat(64), 10));
+        orderedListJob(third, runId, 2, second.getId());
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].status").value("PARTIALLY_FAILED"))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].pendingJobCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].failedJobCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].jobGroups[0].succeededJobCount").value(1));
+    }
+
+    private AnalysisJob orderedListJob(Episode episode, UUID runId, int sequence, UUID predecessorId) {
+        AnalysisJob job = AnalysisJob.create(work, uploadBatch, episode, AnalysisJobType.SETTING_EXTRACTION);
+        job.configureReviewMode(AnalysisReviewMode.AUTOMATIC);
+        job.initializeOrderedRun(runId, 1, sequence, predecessorId,
+                sequence == 0 ? JsonNodeFactory.instance.objectNode() : null);
+        return analysisJobRepository.saveAndFlush(job);
     }
 
     @Test

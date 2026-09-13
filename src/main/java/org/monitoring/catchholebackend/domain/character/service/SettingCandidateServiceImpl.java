@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.character.service;
 
+import org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.NullNode;
@@ -24,6 +25,11 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobEpisodeRange;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
+import org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateCharacterMatchRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateConfirmRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateGroupConfirmRequest;
@@ -73,9 +79,11 @@ import org.springframework.data.domain.PageRequest;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
-public class SettingCandidateServiceImpl implements SettingCandidateService {
+public class SettingCandidateServiceImpl implements SettingCandidateService,
+        org.monitoring.catchholebackend.domain.analysis.service.AnalysisAutomaticApplicationContributor {
 
     private final WorkRepository workRepository;
+    private final AnalysisRunStateService analysisRunStateService;
     private final UploadBatchRepository uploadBatchRepository;
     private final AnalysisJobRepository analysisJobRepository;
     private final SettingCandidateRepository settingCandidateRepository;
@@ -86,6 +94,8 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
     private final CharacterFactComparisonWorkerService characterFactComparisonWorkerService;
     private final SettingCandidateSchemaResolver settingCandidateSchemaResolver;
     private final CharacterSettingValueValidator characterSettingValueValidator;
+    private final AiTokenService aiTokenService;
+    private final CharacterAnalysisConfirmation analysisConfirmation;
     private final CharacterFactComparisonJobCoordinator characterComparisonJobCoordinator;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -127,7 +137,8 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 work.getId(),
                 batchId,
                 SettingCandidateReviewStatus.PENDING_REVIEW,
-                SettingCandidateMatchStatus.AMBIGUOUS
+                SettingCandidateMatchStatus.AMBIGUOUS,
+                EnumSet.of(CharacterFactComparisonStatus.FAILED, CharacterFactComparisonStatus.RECOMPARISON_REQUIRED)
         );
         AnalysisJobEpisodeRange episodeRange =
                 analysisJobRepository.findEpisodeRangeByWorkIdAndBatchId(work.getId(), batchId);
@@ -171,6 +182,11 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 counts.getReviewedCandidateCount(),
                 counts.getPendingCandidateCount(),
                 counts.getMatchRequiredCandidateCount(),
+                counts.getAttentionRequiredCandidateCount(),
+                counts.getConfirmedCandidateCount(),
+                counts.getDismissedCandidateCount(),
+                counts.getDirectReviewCandidateCount(),
+                counts.getProcessingCandidateCount(),
                 groupPage,
                 candidatePage == null
                         ? null
@@ -208,6 +224,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             SettingCandidateUpdateRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        invalidateSelectedRuns(work, List.of(candidateId));
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
         candidate.validateReviewContentEditable();
         validateComparisonNotProcessing(candidate);
@@ -220,6 +237,10 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 normalizeOptionalText(request.attributeValue()),
                 schemas
         );
+        if (candidate.isManualReviewAvailable() && !reviewContent.updateRequired()) {
+            // 실패 후보도 원문 값 그대로를 명시적으로 확인해 직접 반영할 수 있다.
+            candidate.recordUserModification();
+        }
         if (reviewContent.updateRequired()) {
             candidate.updateReviewContent(
                     reviewContent.attributeName(),
@@ -257,6 +278,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         if (requestedIds.size() != request.candidateIds().size()) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
         }
+        invalidateSelectedRuns(work, requestedIds);
         List<SettingCandidate> candidates = settingCandidateRepository.findAllByIdsAndBatchForUpdate(
                 work.getId(), request.batchId(), requestedIds
         );
@@ -289,6 +311,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             SettingCandidateCharacterMatchRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        invalidateSelectedRuns(work, List.of(candidateId));
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
         candidate.validateEditable();
         validateComparisonNotProcessing(candidate);
@@ -320,6 +343,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             SettingCandidateConfirmRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        invalidateSelectedRuns(work, List.of(candidateId));
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
         if (candidate.getReviewStatus() == SettingCandidateReviewStatus.CONFIRMED) {
             return SettingCandidateConfirmResult.confirmed(
@@ -339,6 +363,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         // Java-first 순차 배포 중 구버전 AI가 남긴 미준비 후보는 확정을 우회하지 않고
         // 신규 hidden 그룹 비교 Job으로 복구한다.
         if (!candidate.isCharacterDiscovery()
+                && !isOrdered(candidate)
                 && candidate.getComparisonStatus() != CharacterFactComparisonStatus.COMPLETED) {
             if (candidate.getComparisonStatus() != CharacterFactComparisonStatus.PENDING
                     && candidate.getComparisonStatus() != CharacterFactComparisonStatus.PROCESSING) {
@@ -355,15 +380,23 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 || request.applicationMode() == null
                 ? CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
                 : request.applicationMode();
+        boolean applyEditedValue = request != null && Boolean.TRUE.equals(request.applyEditedValue());
+        if (applyEditedValue) {
+            prepareUserEditedValue(candidate);
+        }
         if (applicationMode == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
-                && candidate.hasComparisonDependencies()) {
+                && candidate.hasComparisonDependencies()
+                && (!isOrdered(candidate) || comparisonDependencyIds(candidate).stream()
+                .anyMatch(id -> !analysisConfirmation.isDependencyConfirmed(candidate, id)))) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_GROUP_DECISION_DEPENDENCY_CONFLICT);
         }
-        validateConfirmPolicy(candidate, applicationMode, request == null ? null : request.baseSnapshotVersion());
+        // 직접 확인한 값은 잠근 현재 설정으로 새 제안을 만든다. 요청의 이전 AI 비교 버전은 재사용하지 않는다.
+        validateConfirmPolicy(candidate, applicationMode,
+                applyEditedValue || request == null ? null : request.baseSnapshotVersion());
         if (applicationMode == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
                 && !candidate.isCharacterDiscovery()
-                && !characterFactComparisonWorkerService.hasCurrentContext(candidate)) {
-            candidate.requestComparison();
+                && !applyEditedValue && !hasCurrentContext(candidate, List.of())) {
+            requestRecomparisonAfterStale(candidate);
             enqueueComparisonJobIfNeeded(memberId, candidate);
             settingCandidateRepository.flush();
             return SettingCandidateConfirmResult.recomparisonRequired(
@@ -395,6 +428,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
             }
         });
+        invalidateSelectedRuns(work, decisions.keySet());
         List<SettingCandidate> candidates = SettingCandidateChronology.sorted(
                 settingCandidateRepository.findAllByIdsAndBatchForUpdate(
                         work.getId(), request.batchId(), decisions.keySet()
@@ -424,7 +458,8 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         // 같은 이름의 기존 캐릭터가 확인되면 모든 UNRESOLVED 행을 먼저 연결한다.
         // 연결 전 문맥으로는 확정하지 않고 그룹 전체를 숨김 비교 Worker에 다시 맡긴다.
         List<SettingCandidate> unresolved = candidates.stream()
-                .filter(candidate -> candidate.getMatchStatus() == SettingCandidateMatchStatus.UNRESOLVED)
+                .filter(candidate -> !isOrdered(candidate)
+                        && candidate.getMatchStatus() == SettingCandidateMatchStatus.UNRESOLVED)
                 .toList();
         if (!unresolved.isEmpty()) {
             String entityName = SettingCandidateGroupNameNormalizer.toDisplayName(
@@ -458,7 +493,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             }
             List<UUID> pendingComparisons = new ArrayList<>();
             for (SettingCandidate candidate : candidates) {
-                if (candidate.isCharacterDiscovery()
+                if (candidate.isCharacterDiscovery() || isOrdered(candidate)
                         || candidate.getComparisonStatus() == CharacterFactComparisonStatus.COMPLETED) {
                     continue;
                 }
@@ -479,10 +514,14 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                     continue;
                 }
                 SettingCandidateGroupConfirmDecision decision = decisions.get(candidate.getId());
-                if (candidate.getSuggestedOperation() != CharacterFactOperation.EXCLUDE) {
-                    validateConfirmPolicy(candidate, decision.applicationMode(), decision.baseSnapshotVersion());
+                if (Boolean.TRUE.equals(decision.applyEditedValue())) {
+                    prepareUserEditedValue(candidate);
                 }
-                if (!characterFactComparisonWorkerService.hasCurrentContext(candidate)) {
+                if (candidate.getSuggestedOperation() != CharacterFactOperation.EXCLUDE) {
+                    validateConfirmPolicy(candidate, decision.applicationMode(),
+                            Boolean.TRUE.equals(decision.applyEditedValue()) ? null : decision.baseSnapshotVersion());
+                }
+                if (!isOrdered(candidate) && !characterFactComparisonWorkerService.hasCurrentContext(candidate)) {
                     candidate.requestComparison();
                     enqueueComparisonJobIfNeeded(memberId, candidate);
                     pendingComparisons.add(candidate.getId());
@@ -506,6 +545,21 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                             decisions.get(candidate.getId()).applicationMode()
                     ))
                     .toList();
+            List<SettingCandidate> earlierApplied = new ArrayList<>();
+            if (candidates.stream().filter(candidate -> candidate.getProvisionalSubjectKey() != null)
+                    .map(SettingCandidate::getProvisionalSubjectKey).distinct().count() > 1) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
+            }
+            for (SettingCandidate candidate : candidates) {
+                if (isOrdered(candidate) && decisions.get(candidate.getId()).applicationMode()
+                        == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+                        && !Boolean.TRUE.equals(decisions.get(candidate.getId()).applyEditedValue())) {
+                    if (!hasCurrentContext(candidate, earlierApplied)) {
+                        throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE);
+                    }
+                    earlierApplied.add(candidate);
+                }
+            }
             if (promotions.isEmpty()) {
                 candidates.forEach(candidate -> candidate.recordGroupConfirmation(decisionHash));
                 return SettingCandidateGroupConfirmResult.confirmed(
@@ -519,12 +573,18 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             );
         }
 
+        for (SettingCandidate candidate : candidates) {
+            if (Boolean.TRUE.equals(decisions.get(candidate.getId()).applyEditedValue())) {
+                prepareUserEditedValue(candidate);
+            }
+        }
+
         List<UUID> bootstrapped = new ArrayList<>();
         for (SettingCandidate candidate : candidates) {
             if (!candidate.isCharacterDiscovery()
                     && candidate.getMatchedCharacterId() != null
                     && candidate.getComparisonStatus() == CharacterFactComparisonStatus.NOT_REQUIRED) {
-                candidate.requestComparison();
+                requestRecomparisonAfterStale(candidate);
                 enqueueComparisonJobIfNeeded(memberId, candidate);
                 bootstrapped.add(candidate.getId());
             }
@@ -535,6 +595,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         }
 
         // 한 행을 반영한 결과가 다음 행의 기존 context hash를 바꾸기 전에 그룹 전체를 먼저 검증한다.
+        List<SettingCandidate> earlierApplied = new ArrayList<>();
         for (SettingCandidate candidate : candidates) {
             SettingCandidateGroupConfirmDecision decision = decisions.get(candidate.getId());
             // EXCLUDE는 현재값이나 이력을 만들지 않는 것도 하나의 AI 제안이다. 그룹 전체 확정에서는
@@ -542,13 +603,18 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             if (candidate.getSuggestedOperation() == CharacterFactOperation.EXCLUDE) {
                 continue;
             }
-            validateConfirmPolicy(candidate, decision.applicationMode(), decision.baseSnapshotVersion());
+            validateConfirmPolicy(candidate, decision.applicationMode(),
+                            Boolean.TRUE.equals(decision.applyEditedValue()) ? null : decision.baseSnapshotVersion());
             if (decision.applicationMode() == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
                     && !candidate.isCharacterDiscovery()
-                    && !characterFactComparisonWorkerService.hasCurrentContext(candidate)) {
-                candidate.requestComparison();
+                    && !Boolean.TRUE.equals(decision.applyEditedValue())
+                    && !hasCurrentContext(candidate, earlierApplied)) {
+                requestRecomparisonAfterStale(candidate);
                 enqueueComparisonJobIfNeeded(memberId, candidate);
                 bootstrapped.add(candidate.getId());
+            }
+            if (decision.applicationMode() == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL) {
+                earlierApplied.add(candidate);
             }
         }
         if (!bootstrapped.isEmpty()) {
@@ -581,10 +647,153 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
     }
 
     @Override
+    public String applicationDomain() { return "characters"; }
+
+    @Override
+    @Transactional
+    public void applyAutomatically(AnalysisJob job) {
+        if (!job.isAutomaticReview()) return;
+        List<SettingCandidate> candidates = SettingCandidateChronology.sorted(
+                settingCandidateRepository.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(job.getId()));
+        List<SettingCandidate> accepted = new ArrayList<>();
+        Set<UUID> acceptedIds = new HashSet<>();
+        Set<String> blockedSubjects = new HashSet<>();
+        Map<String, Set<String>> newNames = new HashMap<>();
+        for (SettingCandidate discovery : candidates) {
+            if (!discovery.isCharacterDiscovery() || discovery.getProvisionalSubjectKey() == null) continue;
+            String subject = discovery.getProvisionalSubjectKey();
+            if (!discovery.isPendingReview() || discovery.isUserModified()
+                    || isUnknownCharacterName(discovery.getEntityName())
+                    || discovery.getMatchStatus() == SettingCandidateMatchStatus.AMBIGUOUS
+                    || analysisConfirmation.resolvedCharacterId(discovery) == null
+                    && existsCharacterByGroupName(job.getWork().getId(), discovery.getEntityName())) {
+                blockedSubjects.add(subject);
+            }
+            newNames.computeIfAbsent(groupKey(discovery.getEntityName()), ignored -> new HashSet<>()).add(subject);
+        }
+        newNames.values().stream().filter(subjects -> subjects.size() > 1).forEach(blockedSubjects::addAll);
+        List<SettingCandidate> applicationOrder = new ArrayList<>();
+        candidates.stream().filter(SettingCandidate::isCharacterDiscovery).forEach(applicationOrder::add);
+        candidates.stream().filter(candidate -> !candidate.isCharacterDiscovery()).forEach(applicationOrder::add);
+        for (SettingCandidate candidate : applicationOrder) {
+            if (!candidate.isPendingReview() || candidate.isUserModified()
+                    || isUnknownCharacterName(candidate.getEntityName())) continue;
+            String subject = candidate.getProvisionalSubjectKey();
+            if (candidate.getMatchStatus() == SettingCandidateMatchStatus.AMBIGUOUS
+                    || candidate.getMatchedCharacterId() == null && subject == null) continue;
+            if (subject != null && blockedSubjects.contains(subject)) {
+                candidate.recordAutomaticReviewHold(AutomaticReviewHoldReason.SUBJECT_CONFIRMATION_REQUIRED);
+                continue;
+            }
+            if (!candidate.isCharacterDiscovery()) {
+                if (!candidate.isComparisonCompleted() || candidate.getSuggestedOperation() == null
+                        || candidate.getSuggestedOperation() == CharacterFactOperation.REVIEW_REQUIRED) continue;
+                if (subject != null && analysisConfirmation.resolvedCharacterId(candidate) == null
+                        && accepted.stream().noneMatch(discovery -> discovery.isCharacterDiscovery()
+                        && subject.equals(discovery.getProvisionalSubjectKey()))) {
+                    candidate.recordAutomaticReviewHold(AutomaticReviewHoldReason.SUBJECT_CONFIRMATION_REQUIRED);
+                    continue;
+                }
+                boolean priorHumanRejection = candidate.getRawComparisonJson() != null
+                        && "USER_REJECTION".equals(candidate.getRawComparisonJson().path("origin").asText());
+                if (candidate.getSuggestedOperation() == CharacterFactOperation.EXCLUDE && priorHumanRejection) {
+                    candidate.dismiss();
+                    candidate.markAutomaticallyReviewed();
+                    continue;
+                }
+                boolean dependencyMissing = comparisonDependencyIds(candidate).stream()
+                        .anyMatch(id -> !acceptedIds.contains(id) && !analysisConfirmation.isDependencyConfirmed(candidate, id));
+                if (dependencyMissing || !hasCurrentContext(candidate, accepted)) {
+                    candidate.recordAutomaticReviewHold(dependencyMissing ? AutomaticReviewHoldReason.DEPENDENCY_CONFIRMATION_REQUIRED : AutomaticReviewHoldReason.CURRENT_SETTING_CHANGED);
+                    continue;
+                }
+                if (candidate.getSuggestedOperation() == CharacterFactOperation.EXCLUDE) {
+                    candidate.dismiss();
+                    candidate.markAutomaticallyReviewed();
+                    continue;
+                }
+                try {
+                    validateConfirmPolicy(candidate, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, null);
+                    var schema = settingCandidateSchemaResolver.resolve(candidate.getAttributeName(), candidate.getValueType(),
+                            characterSettingSchemaRepository.findAllActiveForWork(job.getWork().getId()));
+                    characterSettingValueValidator.validateCandidate(candidate, schema.matchedSchema().getFactType(),
+                            schema.matchedSchema().getValueType());
+                    characterSettingValueValidator.resolveCandidateValue(candidate, schema.matchedSchema().getFactType(),
+                            schema.matchedSchema().getValueType());
+                    settingCandidatePromotionService.validateAutomaticPromotion(candidate, accepted);
+                } catch (AppException invalidProposal) {
+                    candidate.recordAutomaticReviewHold(AutomaticReviewHoldReason.SETTING_VALUE_CONFIRMATION_REQUIRED);
+                    continue;
+                }
+            }
+            accepted.add(candidate);
+            acceptedIds.add(candidate.getId());
+        }
+        List<SettingCandidateGroupPromotion> promotions = new ArrayList<>();
+        for (SettingCandidate candidate : accepted) {
+            if (candidate.confirm()) promotions.add(new SettingCandidateGroupPromotion(
+                    candidate, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL));
+        }
+        settingCandidatePromotionService.promoteGroup(promotions);
+        accepted.forEach(SettingCandidate::markAutomaticallyReviewed);
+        settingCandidateRepository.flush();
+    }
+
+    private void prepareUserEditedValue(SettingCandidate candidate) {
+        if (!isOrdered(candidate) || !candidate.isUserModified()) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        if (candidate.isCharacterDiscovery()) {
+            return;
+        }
+        List<CharacterSettingSchema> schemas = characterSettingSchemaRepository.findAllActiveForWork(candidate.getWork().getId());
+        SettingCandidateSchemaMatch schema = settingCandidateSchemaResolver.resolve(
+                candidate.getAttributeName(), candidate.getValueType(), schemas);
+        CharacterFactType factType = schema.matchedSchema().getFactType();
+        characterSettingValueValidator.validateCandidate(candidate, factType, schema.matchedSchema().getValueType());
+        JsonNode typedValue = characterSettingValueValidator.resolveCandidateValue(candidate, factType,
+                schema.matchedSchema().getValueType());
+        UUID actualId = analysisConfirmation.resolvedCharacterId(candidate);
+        long version = actualId == null ? 0 : workCharacterRepository.findByIdAndWorkIdForUpdate(
+                actualId, candidate.getWork().getId()).orElseThrow(() ->
+                new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID)).getSnapshotVersion();
+        Map<CharacterSnapshotSlot, org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotEntry> snapshot =
+                analysisConfirmation.loadActual(candidate);
+        if (snapshot == null && actualId != null) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID);
+        }
+        String key = schema.factKey();
+        CharacterFactOperation operation = snapshot != null && snapshot.containsKey(new CharacterSnapshotSlot(factType, key))
+                ? CharacterFactOperation.UPDATE : CharacterFactOperation.ADD;
+        candidate.prepareUserEditedValue(factType, key, candidate.getAttributeValue(), typedValue, operation, version);
+    }
+
+    private void requestRecomparisonAfterStale(SettingCandidate candidate) {
+        if (isOrdered(candidate)) {
+            candidate.markRecomparisonRequired("누적 분석 입력이 변경되어 명시적 재분석이 필요합니다.");
+        } else {
+            candidate.requestComparison();
+        }
+    }
+
+    private boolean isOrdered(SettingCandidate candidate) {
+        return candidate.getAnalysisJob() != null && candidate.getAnalysisJob().isOrderedProvisional();
+    }
+
+    private boolean hasCurrentContext(SettingCandidate candidate, List<SettingCandidate> earlierApplied) {
+        return isOrdered(candidate) ? analysisConfirmation.hasCurrentContext(candidate, earlierApplied)
+                : characterFactComparisonWorkerService.hasCurrentContext(candidate);
+    }
+
+    @Override
     @Transactional
     public SettingCandidateResponse retryComparison(Long memberId, UUID workId, UUID candidateId) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        validateAutomaticApplicationNotPending(work, List.of(candidateId));
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
+        if (isOrdered(candidate)) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_ORDERED_JOB_RETRY_REQUIRED);
+        }
         candidate.validateReviewContentEditable();
         validateComparisonNotProcessing(candidate);
         if (candidate.getComparisonStatus() == CharacterFactComparisonStatus.COMPLETED) {
@@ -614,7 +823,9 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             UUID candidateId
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        invalidateSelectedRuns(work, List.of(candidateId));
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
+        candidate.recordUserModification();
         List<CharacterFactComparisonJobCoordinator.ScopeRef> previousScopes =
                 characterComparisonJobCoordinator.scopeRefs(List.of(candidate));
         candidate.dismiss();
@@ -627,7 +838,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
             SettingCandidate candidate,
             Work work
     ) {
-        if (candidate.isCharacterDiscovery()
+        if (isOrdered(candidate) || candidate.isCharacterDiscovery()
                 || candidate.getMatchStatus() != SettingCandidateMatchStatus.UNRESOLVED
                 || candidate.getMatchedCharacterId() != null) {
             return false;
@@ -706,6 +917,10 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 continue;
             }
             for (UUID dependencyId : comparisonDependencyIds(candidate)) {
+                if (isOrdered(candidate) && !chronology.containsKey(dependencyId)
+                        && analysisConfirmation.isDependencyConfirmed(candidate, dependencyId)) {
+                    continue;
+                }
                 Integer dependencyIndex = chronology.get(dependencyId);
                 Integer candidateIndex = chronology.get(candidate.getId());
                 SettingCandidateGroupConfirmDecision dependencyDecision = decisions.get(dependencyId);
@@ -782,7 +997,8 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 .forEach(decision -> canonical
                         .append(decision.candidateId()).append('|')
                         .append(decision.applicationMode()).append('|')
-                        .append(decision.baseSnapshotVersion()).append('\n'));
+                        .append(decision.baseSnapshotVersion()).append('|')
+                        .append(Boolean.TRUE.equals(decision.applyEditedValue())).append('\n'));
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(canonical.toString().getBytes(StandardCharsets.UTF_8)));
@@ -825,7 +1041,36 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
         }
     }
 
+    private void invalidateSelectedRuns(Work work, java.util.Collection<UUID> candidateIds) {
+        validateAutomaticApplicationNotPending(work, candidateIds);
+        Integer cutoff = settingCandidateRepository.findMutationSourceEpisodeNo(
+                work.getId(), candidateIds, SettingCandidateReviewStatus.PENDING_REVIEW);
+        if (cutoff != null) {
+            analysisRunStateService.invalidateRunsForWorkForUpdate(
+                    work.getId(), cutoff, "사용자가 설정 후보를 변경했습니다.");
+        }
+    }
+
+    private void validateAutomaticApplicationNotPending(Work work, java.util.Collection<UUID> candidateIds) {
+        // 자동 완료도 Work 잠금을 먼저 잡는다. 무효화하거나 후보를 잠그기 전에 원본 분석 상태를 확인한다.
+        if (!candidateIds.isEmpty() && settingCandidateRepository
+                .findPendingReviewSourceJobs(work.getId(), candidateIds).stream()
+                .anyMatch(AnalysisJob::isAutomaticApplicationPending)) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_AUTOMATIC_APPLICATION_PENDING);
+        }
+    }
+
     private void enqueueComparisonJobIfNeeded(Long memberId, SettingCandidate candidate) {
+        if (isOrdered(candidate)) {
+            // 사용자 수정·연결 경로는 누적 입력을 무효화하며 hidden Job을 만들지 않는다.
+            // 따라서 자동 처리가 없는 상태를 PENDING으로 표시하지 않는다.
+            if (!candidate.isCharacterDiscovery() && candidate.isPendingReview()
+                    && (candidate.getComparisonStatus() == CharacterFactComparisonStatus.PENDING
+                    || candidate.getComparisonStatus() == CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH)) {
+                candidate.markRecomparisonRequired("누적 분석의 내용 또는 캐릭터 연결이 변경되었습니다. 변경된 내용으로 새 분석이 필요합니다.");
+            }
+            return;
+        }
         characterComparisonJobCoordinator.enqueueIfNeeded(memberId, candidate);
     }
 
@@ -876,6 +1121,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService {
                 candidates.forEach(candidate -> candidate.markAsNewCharacter(entityName));
             }
         }
+        candidates.forEach(SettingCandidate::recordUserModification);
     }
 
     private void validateCompletePendingGroup(

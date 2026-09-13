@@ -37,6 +37,7 @@ import org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshot
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
+import org.monitoring.catchholebackend.domain.character.exception.OrderedCharacterComparisonClaimException;
 import org.monitoring.catchholebackend.domain.character.mapper.CharacterFactComparisonWorkerMapper;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterFactComparisonDecisionValidator;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessor;
@@ -86,7 +87,7 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     @Override
-    @Transactional
+    @Transactional(noRollbackFor = OrderedCharacterComparisonClaimException.class)
     public Optional<WorkerCharacterFactComparisonBatchPayload> claimNextCharacterFactComparisonBatch(
             UUID analysisJobId,
             UUID leaseToken
@@ -136,6 +137,9 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
                 analysisJobId,
                 leaseToken
         );
+        if (analysisJob.isOrderedProvisional()) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_WORKER_JOB_INVALID);
+        }
         SettingCandidate candidate;
         CanonicalTarget target;
         if (analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION) {
@@ -195,6 +199,9 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
                 analysisJobId,
                 leaseToken
         );
+        if (analysisJob.isOrderedProvisional()) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_WORKER_JOB_INVALID);
+        }
         SettingCandidate candidate = getOwnedProcessingCandidate(analysisJob, candidateId);
         CanonicalTarget target = resolveCanonicalTarget(candidate);
         WorkCharacter character = getMatchedCharacter(candidate, true);
@@ -225,6 +232,9 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
                 analysisJobId,
                 leaseToken
         );
+        if (analysisJob.isOrderedProvisional()) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_WORKER_JOB_INVALID);
+        }
         SettingCandidate candidate = getOwnedCandidate(analysisJob, candidateId);
         if (isIdempotentExcludedCompletion(candidate, request)) {
             return;

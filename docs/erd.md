@@ -47,7 +47,7 @@ erDiagram
     analysis_jobs ||--o{ character_fact_comparison_batches : runs
     works ||--o{ character_fact_comparison_batches : owns
     episodes o|--o{ character_fact_comparison_batches : optional_source
-    characters ||--o{ character_fact_comparison_batches : compares
+    characters o|--o{ character_fact_comparison_batches : optionally_compares_actual_target
     character_fact_comparison_batches o|--o{ setting_candidates : groups
     setting_candidates o|--o{ analysis_jobs : hidden_comparison_job
     analysis_jobs ||--o{ ai_token_usages : records
@@ -243,6 +243,23 @@ erDiagram
         uuid episode_id FK
         uuid setting_candidate_id FK
         varchar job_type
+        varchar analysis_mode
+        varchar review_mode
+        jsonb automatic_input_state
+        timestamp automatic_applied_at
+        uuid analysis_run_id
+        bigint run_generation
+        int run_sequence
+        uuid predecessor_job_id
+        jsonb run_base_state
+        varchar input_state_hash
+        int source_episode_no
+        varchar source_content_hash
+        text source_content_s3_key
+        varchar source_content_s3_version
+        jsonb state_journal
+        varchar journal_status
+        varchar journal_invalidation_reason
         varchar status
         varchar current_step
         varchar model_name
@@ -323,6 +340,7 @@ erDiagram
         varchar entity_name
         varchar raw_entity_mention
         uuid matched_character_id FK
+        varchar provisional_subject_key
         varchar match_status
         varchar attribute_name
         text attribute_value
@@ -331,8 +349,12 @@ erDiagram
         jsonb evidence_spans
         decimal confidence
         varchar review_status
+        boolean user_modified
+        varchar confirmed_application_mode
         jsonb raw_ai_result_json
         varchar comparison_status
+        varchar automatic_review_hold_reason
+        varchar preparation_failure_stage
         varchar suggested_operation
         varchar temporal_scope
         varchar comparison_target_fact_type
@@ -359,6 +381,8 @@ erDiagram
         uuid source_episode_id FK
         uuid analysis_job_id FK
         uuid matched_character_id FK
+        varchar provisional_subject_key
+        jsonb analysis_context_snapshot_json
         varchar canonical_fact_type
         varchar status
         int candidate_count
@@ -398,6 +422,8 @@ erDiagram
         decimal extraction_confidence
         jsonb raw_extraction_json
         uuid target_world_setting_id FK
+        varchar provisional_subject_key
+        jsonb resolved_provisional_subject_keys
         varchar suggested_operation
         varchar proposed_scope_name
         varchar proposed_setting_name
@@ -408,6 +434,8 @@ erDiagram
         jsonb raw_comparison_json
         datetime compared_at
         varchar comparison_status
+        varchar automatic_review_hold_reason
+        varchar preparation_failure_stage
         text comparison_error_message
         varchar comparison_failure_code
         varchar comparison_source_error_code
@@ -494,9 +522,9 @@ erDiagram
 | `episode_chunks` | 회차 원문 청크와 위치 정보, `vector(1536)` 임베딩 및 재생성 판단 메타데이터를 저장합니다. `(episode_id, chunk_index)`는 unique입니다. |
 | `upload_batches` | 한 번의 업로드 요청 단위. 업로드 유형, 소스, 전체 처리 상태를 기록합니다. |
 | `upload_files` | batch에 포함된 개별 파일. 원본 S3 위치, 설정집 편집용 텍스트 위치와 파싱 결과를 기록합니다. |
-| `analysis_jobs` | 작품 단위 AI 분석 작업. 작업 유형, 상태, 대상 batch/episode, 결과 메타데이터를 기록합니다. |
+| `analysis_jobs` | 회차 분석 작업과 실행 메타데이터를 기록합니다. 누적 모드는 첫 Job의 고정 S0와 각 Job의 불변 변경 기록을 보존하며, 같은 run/generation의 선행 Job이 SUCCEEDED·SEALED일 때 다음 회차를 허용합니다. 별도 누적 snapshot 테이블은 만들지 않습니다. |
 | `analysis_job_episode_targets` | 분석 작업 생성 시 확정한 대상 회차 스냅샷. 이후 원본 교체·회차 보관과 무관하게 과거 작업 대상을 유지합니다. |
-| `character_fact_comparison_batches` | 같은 분석 Job·캐릭터 ID·canonical FactType의 후보를 원문 순서로 묶은 2차 비교 실행입니다. context/completion hash, 원자 완료 상태와 typed failure를 보존하며 후보에는 묶음 내부 참조와 선행 후보 의존성만 저장합니다. |
+| `character_fact_comparison_batches` | 같은 분석 Job·실제 캐릭터 ID 또는 임시 대상 key·canonical FactType의 후보를 원문 순서로 묶습니다. 실제 FK와 임시 key 중 하나만 가지며 누적 모드의 검증 문맥은 JSON으로 고정합니다. context/completion hash, 원자 완료 상태와 typed failure를 보존합니다. |
 | `characters` | 작품별 캐릭터 대표/현재 설정의 유일한 authority. 핵심 조회 값은 일반 컬럼, 상세 설정은 내부 표시값 envelope를 포함한 JSONB, 변경 동시성은 `snapshot_version`으로 관리합니다. |
 | `character_facts` | 캐릭터별 설정 관찰과 원문 근거를 append-only로 저장하는 타임라인. 현재값 여부를 행에 기록하지 않습니다. |
 | `character_snapshot_sources` | 현재 snapshot의 `(character, factType, factKey)` slot을 구성하는 한 개 이상의 source Fact를 순서와 함께 연결합니다. |
@@ -507,6 +535,12 @@ erDiagram
 | `world_setting_comparison_batches` | 같은 canonical 주체·원본 범위로 묶인 후보들의 2차 비교 실행, context snapshot, 완료 hash와 상태를 보존합니다. |
 | `world_setting_comparison_decisions` | 여러 후보를 하나의 canonical 설정안으로 정리한 권위 레코드입니다. 기존 root 이동의 이름·값 snapshot과 실제 적용 WorldSetting version도 저장합니다. |
 | `world_setting_comparison_decision_sources` | batch 안의 원본 후보와 canonical decision 사이의 순서 있는 provenance membership입니다. |
+
+누적 모드의 `world_setting_comparison_batches.resolved_provisional_subject_keys`와
+`world_setting_comparison_decisions.provisional_subject_key`는 실제 세계관 FK와 구분합니다.
+신규 대상의 실제 대표 레코드는 사용자 확정 전 생성하지 않습니다. `predecessor_job_id`는
+작품 삭제의 순환 FK를 피하기 위한 논리 참조이며 서비스에서 작품·run·generation·순서를 검증합니다.
+공유 컬럼과 제약의 전체 목록은 V42~46 migration 및 [누적 분석 설계](ordered-provisional-analysis.md)를 참고합니다.
 
 ### AI 토큰 추가 요청과 일반 의견 제약
 
@@ -693,7 +727,7 @@ erDiagram
 - 후속 ERD의 `manuscript_chunks`, `preprocessed_manuscript_chunks`, `setting_snapshots`, `validation_reports`, `validation_findings`는 아직 현재 `main` 기준 Entity가 아닙니다. 캐릭터 중심 MVP의 설정 이력은 우선 `character_facts`로 구현합니다.
 - `characters.first_appearance_episode_id`는 원문이 파기된 `ARCHIVED` Episode tombstone을 계속 참조할 수 있습니다. 향후 Episode 행 물리 삭제 시 재계산 또는 `NULL` 처리 정책이 정해지지 않아 현재 FK를 강제하지 않습니다.
 - `setting_candidates.source_chunk_id`와 `character_facts.source_chunk_id`는 `episode_chunks`를 가리키지만 현재 DB FK를 강제하지 않습니다. Worker가 재청킹 시 기존 청크를 삭제하고 새 UUID로 교체하므로, 청크 ID 안정화 또는 근거 이력 보존 정책을 정한 뒤 다시 검토합니다.
-- `AnalysisJob.status`의 `CANCELED`는 작품 영구 삭제로 중단된 작업의 terminal 상태이며 Worker lease와 토큰 예약을 함께 정리합니다.
+- `AnalysisJob.status`의 `CANCELED`는 작품 영구 삭제 또는 누적 입력 무효화로 중단된 작업의 terminal 상태이며 Worker lease와 토큰 예약을 함께 정리합니다. 이미 완료된 Job의 누적 입력 무효화는 기존 작업 상태와 별개로 `journal_status=INVALIDATED`에 표시합니다.
 
 ## 이메일 인증 회원 (V42)
 

@@ -43,7 +43,8 @@ public class CharacterFactComparisonJobCoordinator {
     private final AiTokenService aiTokenService;
 
     public void handoffIfInputComplete(AnalysisJob sourceJob) {
-        if (sourceJob.getJobType() != AnalysisJobType.SETTING_EXTRACTION
+        if (sourceJob.isOrderedProvisional()
+                || sourceJob.getJobType() != AnalysisJobType.SETTING_EXTRACTION
                 || sourceJob.getBatch() == null) {
             return;
         }
@@ -262,6 +263,7 @@ public class CharacterFactComparisonJobCoordinator {
                 && candidate.getReviewStatus() == SettingCandidateReviewStatus.PENDING_REVIEW
                 && candidate.getMatchStatus() != SettingCandidateMatchStatus.AMBIGUOUS
                 && candidate.getAnalysisJob() != null
+                && !candidate.getAnalysisJob().isOrderedProvisional()
                 && candidate.getAnalysisJob().getBatch() != null;
     }
 

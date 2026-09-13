@@ -14,6 +14,8 @@ import java.util.UUID;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonReviewReason;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingConsolidationStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.WorldSettingComparisonDiagnostic;
 
 @Schema(description = "Worker 세계관 설정 묶음 비교 완료 요청")
 public record WorkerWorldSettingComparisonBatchCompleteRequest(
@@ -23,20 +25,60 @@ public record WorkerWorldSettingComparisonBatchCompleteRequest(
         List<ContextVersion> contextVersions,
 
         @Valid
-        @NotEmpty(message = "최종 설정안은 한 개 이상이어야 합니다.")
+        @NotNull(message = "최종 설정안 목록은 필수입니다.")
         @Size(max = 20, message = "최종 설정안은 최대 20개입니다.")
         List<Decision> decisions,
 
-        Map<String, Object> rawComparisonJson
+        Map<String, Object> rawComparisonJson,
+        @Pattern(regexp = "[0-9a-f]{64}") String contextToken,
+        @Valid @Size(max = 20)
+        @Schema(description = "자동 누적 분석에서만 허용하는 후보별 실패. 설정안과 함께 전체 후보를 중복 없이 덮어야 합니다.")
+        List<@NotNull Failure> failures,
+        @Valid @Size(max = 30) List<@NotNull WorldSettingComparisonDiagnostic> diagnostics
 ) {
+    public WorkerWorldSettingComparisonBatchCompleteRequest {
+        failures = failures == null ? List.of() : failures;
+        diagnostics = diagnostics == null ? List.of() : diagnostics;
+    }
+    public WorkerWorldSettingComparisonBatchCompleteRequest(List<ContextVersion> contextVersions,
+            List<Decision> decisions, Map<String, Object> rawComparisonJson, String contextToken, List<Failure> failures) {
+        this(contextVersions, decisions, rawComparisonJson, contextToken, failures, List.of());
+    }
+    public WorkerWorldSettingComparisonBatchCompleteRequest(List<ContextVersion> contextVersions,
+            List<Decision> decisions, Map<String, Object> rawComparisonJson, String contextToken) {
+        this(contextVersions, decisions, rawComparisonJson, contextToken, List.of());
+    }
+    public WorkerWorldSettingComparisonBatchCompleteRequest(List<ContextVersion> contextVersions,
+            List<Decision> decisions, Map<String, Object> rawComparisonJson) {
+        this(contextVersions, decisions, rawComparisonJson, null);
+    }
+
+    @Schema(description = "독립적인 정상 설정안과 함께 저장할 후보 비교 실패")
+    public record Failure(
+            @NotEmpty @Size(max = 20) List<@NotNull @Pattern(regexp = "C[1-9][0-9]*") String> sourceCandidateRefs,
+            @NotNull AnalysisFailureCode failureCode,
+            @NotBlank @Size(max = 1000) String errorMessage,
+            @Valid @Size(max = 30) List<@NotNull WorldSettingComparisonDiagnostic> diagnostics
+    ) {
+        public Failure {
+            diagnostics = diagnostics == null ? List.of() : diagnostics;
+        }
+    }
 
     public record ContextVersion(
-            @NotNull(message = "비교 대상 ID는 필수입니다.")
             UUID worldSettingId,
 
             @PositiveOrZero(message = "비교 대상 version은 0 이상이어야 합니다.")
-            long version
+            long version,
+            @Size(max = 160) String provisionalSubjectKey
     ) {
+        public ContextVersion(UUID worldSettingId, long version) {
+            this(worldSettingId, version, null);
+        }
+        @jakarta.validation.constraints.AssertTrue(message = "실제 대상과 임시 대상 중 하나가 필요합니다.")
+        public boolean isTargetReferenceValid() {
+            return (worldSettingId == null) != (provisionalSubjectKey == null);
+        }
     }
 
     @Schema(
@@ -81,6 +123,7 @@ public record WorkerWorldSettingComparisonBatchCompleteRequest(
             @NotNull(message = "세계관 설정 제안 방식은 필수입니다.")
             WorldSettingSuggestedOperation suggestedOperation,
 
+            @Schema(description = "검토 사유. GENERAL_UNCERTAINTY는 단일 출처의 원본 경로·값을 보존합니다. SCOPE_MISMATCH는 누적 분석의 단일 출처 후보와 기존 설정의 서로 다른 범위를 보존할 때만 허용합니다.")
             WorldSettingComparisonReviewReason comparisonReviewReason,
 
             @Size(max = 100)
@@ -96,7 +139,23 @@ public record WorkerWorldSettingComparisonBatchCompleteRequest(
             @NotBlank(message = "비교 이유는 필수입니다.")
             String comparisonReason,
 
-            Map<String, Object> rawComparisonJson
+            Map<String, Object> rawComparisonJson,
+            @Size(max = 160) String provisionalSubjectKey
     ) {
+        public Decision(String decisionRef, List<String> sourceCandidateRefs, String canonicalSubjectName,
+                UUID targetWorldSettingId, String matchedScopeName, String matchedPropertyName,
+                List<String> existingRootPropertyNamesToMove, WorldSettingConsolidationStatus consolidationStatus,
+                WorldSettingSuggestedOperation suggestedOperation, WorldSettingComparisonReviewReason comparisonReviewReason,
+                String proposedScopeName, String proposedSettingName, String proposedValue, String comparisonReason,
+                Map<String, Object> rawComparisonJson) {
+            this(decisionRef, sourceCandidateRefs, canonicalSubjectName, targetWorldSettingId, matchedScopeName,
+                    matchedPropertyName, existingRootPropertyNamesToMove, consolidationStatus, suggestedOperation,
+                    comparisonReviewReason, proposedScopeName, proposedSettingName, proposedValue, comparisonReason,
+                    rawComparisonJson, null);
+        }
+        @jakarta.validation.constraints.AssertTrue(message = "실제 대상과 임시 대상을 동시에 지정할 수 없습니다.")
+        public boolean isTargetReferenceValid() {
+            return targetWorldSettingId == null || provisionalSubjectKey == null;
+        }
     }
 }

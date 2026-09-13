@@ -19,6 +19,7 @@ import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeDetect
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeResponse;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeSummaryResponse;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeUploadResponse;
+import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeUploadPolicyResponse;
 import org.monitoring.catchholebackend.domain.episode.service.EpisodeService;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
 import org.springframework.http.MediaType;
@@ -43,6 +44,21 @@ import org.springframework.web.multipart.MultipartFile;
 public class EpisodeController {
 
     private final EpisodeService episodeService;
+
+    @GetMapping("/upload-policy")
+    @Operation(operationId = "getEpisodeUploadPolicy", summary = "회차 업로드 정책 조회",
+            description = "본인 작품의 단일 회차 분석 완료 수, 다회차 사용 가능 여부와 검토 대기 후보 수를 조회합니다.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "업로드 정책 조회 성공"),
+            @ApiResponse(responseCode = "401", description = "인증되지 않은 요청"),
+            @ApiResponse(responseCode = "404", description = "작품을 찾을 수 없음")
+    })
+    public CommonResponse<EpisodeUploadPolicyResponse> getEpisodeUploadPolicy(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId
+    ) {
+        return CommonResponse.success(episodeService.getEpisodeUploadPolicy(member.memberId(), workId));
+    }
 
     @GetMapping
     @Operation(

@@ -295,7 +295,30 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 - `totalCandidateCount`: 묶음 전체 후보 수
 - `reviewedCandidateCount`: `CONFIRMED` 또는 `DISMISSED` 후보 수
 - `pendingCandidateCount`: `PENDING_REVIEW` 후보 수
-- `matchRequiredCandidateCount`: `PENDING_REVIEW + AMBIGUOUS` 후보 수
+- `matchRequiredCandidateCount`: `PENDING_REVIEW + AMBIGUOUS` 후보 수. 기존 연결 필요 집계로 유지합니다.
+- `attentionRequiredCandidateCount`: `PENDING_REVIEW`이면서 `AMBIGUOUS`이거나 비교 상태가 `FAILED` 또는 `RECOMPARISON_REQUIRED`인 후보 수. 한 후보가 두 조건에 해당해도 한 번만 세며, 비교 실패가 남아 있어도 이미 확정·무시한 후보는 제외합니다. 기존 클라이언트 호환 집계이며, 새 전체 직접 확인 요약은 아래의 `directReviewCandidateCount`를 사용합니다.
+
+새 검토 화면은 다음 네 필수 집계를 사용합니다. 모두 필터·페이지와 무관한 묶음 전체를 기준으로 하며,
+네 값의 합은 `totalCandidateCount`와 같습니다.
+
+- `confirmedCandidateCount`: 반영한 후보. 이력에만 저장한 확정도 포함합니다.
+- `dismissedCandidateCount`: 제외한 후보.
+- `directReviewCandidateCount`: 미확정이면서 비교 `PENDING`/`PROCESSING`이 아니고 회차 자동 반영 대기도 아닌 후보.
+- `processingCandidateCount`: 미확정이면서 비교를 기다리거나 진행 중이거나 회차 자동 반영을 기다리는 후보.
+
+`automaticApplicationPending`은 검토 대기 후보의 원본 작업이 `AUTOMATIC`, 자동 반영 시각 없음,
+`PENDING`/`RUNNING`일 때만 참인 필수 boolean입니다. 이때 사용자 수정·연결·확정·제외·재비교는 작품 잠금
+뒤 무효화 전에 `409 / ANALYSIS_AUTOMATIC_APPLICATION_PENDING`으로 거절합니다. 자동 반영이 끝난 앞 회차의
+보류 항목은 기존처럼 수정할 수 있고 후속 분석 무효화 정책도 유지합니다.
+
+후보의 선택적 `automaticReviewHoldReason`은 자동 반영에서 확인한 보류 사유입니다. 이 사유를 기록해도
+원래 비교 operation·판단 근거·성공 상태를 덮지 않으며, 검토 완료 후보에는 노출하지 않습니다. 단건·그룹
+수동 확정은 사유 표시와 무관하게 기존 인물·의존·현재 설정·값 검증을 계속 적용합니다.
+공개 판단 문장만 자연어로 정리하고 원문 인용과 추출/제안값은 보존합니다.
+
+순차 캐릭터 묶음의 독립적인 정상 비교는 일부 실패와 함께 저장할 수 있습니다. 자동 반영은 격리 가능한
+실패를 남기고 다음 묶음·회차를 계속하며, 직접 검토 실행은 정상 비교를 보존하되 실패가 남으면 다음 진행을
+차단합니다. 상세 구현과 실패 경계는 [자동 분석 신뢰성 문서](automatic-review-reliability.md)를 참고합니다.
 
 목록에는 `reviewStatus`, 복수 `matchStatuses` 필터를 선택적으로 적용하며, 집계는 이 필터의 영향을 받지
 않습니다. 후보는 `episodeNo ASC, createdAt ASC, id ASC`로 고정 정렬해 페이지 사이 순서를
@@ -449,6 +472,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `proposed_fact_value`, `proposed_value_json` | 사용자에게 제안할 최종 표시값과 구조화 값 |
 | `removed_snapshot_entries_json` | 현재 snapshot에서 제거하도록 제안한 slot 목록 |
 | `comparison_reason` | 비교 판단 근거 |
+| `automatic_review_hold_reason` | 비교 결과와 별도로 기록한 자동 반영 보류 사유. V52의 nullable 컬럼이며 과거 사유를 추정하여 채우지 않음 |
 | `comparison_base_snapshot_version` | 비교 시점 snapshot 버전. 일반 독립 slot은 관련 문맥 hash로 stale을 판정하고, `REMOVE` 또는 제거 목록이 있는 파괴적 제안은 이 버전의 정확한 일치도 함께 요구 |
 | `comparison_context_hash` | 후보 의미와 관련 snapshot 값·provenance로 만든 64자 SHA-256 문맥 token |
 | `raw_comparison_json`, `compared_at` | 운영 진단용 원본 비교 응답과 완료 시각 |
@@ -844,6 +868,7 @@ flowchart TD
 
 상세 처리 기준:
 
+- 새 후보 비교는 회차 번호와 원문 인용의 가장 이른 위치를 먼저 사용합니다. 실제 저장된 `start_offset`과 구형 `startOffset`을 모두 읽으며, 생성 시각이 같아도 식별자 순서가 원문 순서를 앞서지 않습니다. 이미 배정된 후보는 묶음 생성 순서와 후보 참조 순서를 이후 문맥 조회·완료·그룹 확정에서도 유지해 과거 판단의 선행 의존을 바꾸지 않습니다. 근거 JSON이나 기존 확정 이력을 재작성하지 않습니다.
 - 후보 수정·연결·확정·재비교·무시는 `Work` 다음 `SettingCandidate` row lock을 획득하고, snapshot mutation은 `WorkCharacter`까지 잠급니다. Worker claim/complete도 같은 후보 lock을 사용하므로 사용자 변경과 AI 결과가 last-write-wins로 덮이지 않습니다.
 - `SettingCandidateSchemaResolver`가 canonical `factType + factKey`와 값 타입을 결정합니다. 일반 slot은 exact key만 비교하고, 기존 상태의 종료 제안이 필요한 `STATUS`만 같은 캐릭터의 STATUS snapshot을 source Fact 생성 시각 최신순으로 최대 30개까지 제공합니다. 생성 시각이 같거나 없는 legacy slot은 `factKey`로 순서를 고정하며 exact slot은 항상 제한보다 우선합니다.
 - context token은 후보 의미, canonical target, 선택된 snapshot의 `factValue/valueJson`과 source Fact ID로 계산합니다. 일반 독립 slot은 이 관련 문맥 hash로 stale을 판정하므로 작품의 무관한 다른 slot 변경은 재비교를 만들지 않습니다. `REMOVE` 또는 `removedSnapshotEntries`가 한 건 이상인 파괴적 제안은 제한된 STATUS 문맥 밖 변경도 놓치지 않도록 문맥 hash와 `comparisonBaseSnapshotVersion`의 정확한 일치를 함께 요구합니다.

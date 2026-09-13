@@ -23,6 +23,10 @@ public record EpisodeDetectionResponse(
         )
         int totalCharCount,
 
+        @Schema(description = "공백과 회차 제목을 포함한 원고 전체 Unicode 글자 수. 업로드 제한 기준",
+                example = "25000", requiredMode = Schema.RequiredMode.REQUIRED)
+        int totalUploadCharacters,
+
         @Schema(description = "원문 순서의 감지 회차 목록", requiredMode = Schema.RequiredMode.REQUIRED)
         List<DetectedEpisodeResponse> detectedEpisodes
 ) {

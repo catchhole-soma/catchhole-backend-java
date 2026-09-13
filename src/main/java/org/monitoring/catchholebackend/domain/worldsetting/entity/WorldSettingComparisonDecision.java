@@ -89,6 +89,10 @@ public class WorldSettingComparisonDecision extends BaseEntity {
     )
     private WorldSetting targetWorldSetting;
 
+    // 정식 설정이 없는 누적 실행의 대상이며 실제 targetWorldSetting과 동시에 저장하지 않는다.
+    @Column(name = "provisional_subject_key", updatable = false, length = 160)
+    private String provisionalSubjectKey;
+
     @Column(name = "matched_scope_name", updatable = false, length = 100)
     private String matchedScopeName;
 
@@ -221,6 +225,15 @@ public class WorldSettingComparisonDecision extends BaseEntity {
                 List.of(),
                 rawComparisonJson
         );
+    }
+
+    public void bindOrderedTarget(String provisionalSubjectKey, Long inputVersion) {
+        if (!comparisonBatch.getAnalysisJob().isOrderedProvisional()
+                || provisionalSubjectKey != null && targetWorldSetting != null) {
+            throw new IllegalArgumentException("세계관 실제 대상과 임시 대상을 구분해야 합니다.");
+        }
+        this.provisionalSubjectKey = provisionalSubjectKey;
+        this.baseWorldSettingVersion = inputVersion;
     }
 
     public static WorldSettingComparisonDecision create(

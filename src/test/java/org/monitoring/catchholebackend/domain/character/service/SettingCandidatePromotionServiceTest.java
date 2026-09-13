@@ -12,7 +12,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
@@ -67,6 +69,12 @@ class SettingCandidatePromotionServiceTest {
 
     @Autowired
     private SettingCandidatePromotionService promotionService;
+
+    @Autowired
+    private org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository analysisJobRepository;
+
+    @Autowired
+    private org.monitoring.catchholebackend.domain.character.repository.CharacterFactComparisonBatchRepository comparisonBatchRepository;
 
     @Autowired
     private MemberRepository memberRepository;
@@ -176,6 +184,196 @@ class SettingCandidatePromotionServiceTest {
                 true,
                 CharacterSettingMergePolicy.UPSERT_BY_NAME
         ));
+    }
+
+    @Test
+    @DisplayName("누적 임시 대상을 확정할 때 한 실제 캐릭터에 순서대로 최종 제안값만 반영한다")
+    void promotesOrderedProvisionalGroupWithoutRawValueFallback() {
+        Episode firstEpisode = episode(1);
+        Episode secondEpisode = episode(2);
+        org.springframework.test.util.ReflectionTestUtils.setField(firstEpisode, "contentHash", "a".repeat(64));
+        org.springframework.test.util.ReflectionTestUtils.setField(secondEpisode, "contentHash", "b".repeat(64));
+        UUID runId = UUID.randomUUID();
+        var firstJob = org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.create(work, null, firstEpisode,
+                org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION);
+        firstJob.initializeOrderedRun(runId, 1, 0, null,
+                new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal().emptyState());
+        analysisJobRepository.saveAndFlush(firstJob);
+        var secondJob = org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.create(work, null, secondEpisode,
+                org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION);
+        secondJob.initializeOrderedRun(runId, 1, 1, firstJob.getId(), null);
+        analysisJobRepository.saveAndFlush(secondJob);
+        SettingCandidate discovery = SettingCandidate.createCharacterDiscovery(work, firstEpisode, null, firstJob,
+                "누적 신규 인물", "새 인물", null, SettingCandidateMatchStatus.UNRESOLVED,
+                objectMapper.createArrayNode(), BigDecimal.ONE, null);
+        settingCandidateRepository.saveAndFlush(discovery);
+        String subjectKey = "provisional-character:" + discovery.getId();
+        org.springframework.test.util.ReflectionTestUtils.setField(discovery, "provisionalSubjectKey", subjectKey);
+        discovery.confirm();
+        SettingCandidate first = orderedProposal(firstEpisode, firstJob, subjectKey, "17", "17", CharacterFactOperation.ADD);
+        SettingCandidate second = orderedProposal(secondEpisode, secondJob, subjectKey, "18", "23", CharacterFactOperation.UPDATE);
+        promotionService.promoteGroup(List.of(
+                new SettingCandidateGroupPromotion(discovery, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL),
+                new SettingCandidateGroupPromotion(first, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL),
+                new SettingCandidateGroupPromotion(second, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL)));
+        settingCandidateRepository.flush();
+        WorkCharacter actual = workCharacterRepository.findById(discovery.getMatchedCharacterId()).orElseThrow();
+        assertThat(first.getMatchedCharacterId()).isEqualTo(actual.getId());
+        assertThat(second.getMatchedCharacterId()).isEqualTo(actual.getId());
+        assertThat(snapshotAccessor.read(actual).get(new CharacterSnapshotSlot(CharacterFactType.AGE, "age")).factValue()).isEqualTo("23");
+        assertThat(second.getAttributeValue()).isEqualTo("18");
+        assertThat(second.getConfirmedApplicationMode()).isEqualTo(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("신규 누적 인물의 과거 비활성 STATUS 제안은 발견 선행 여부와 무관하게 이력에만 반영한다")
+    void preservesOrderedInactiveHistoryProposalWithOrWithoutDiscovery(boolean discoveryFirst) {
+        OrderedStatusCandidates candidates = orderedStatusCandidates(CharacterFactOperation.HISTORY_ONLY, false, null);
+        candidates.setting().confirm();
+        List<SettingCandidateGroupPromotion> promotions;
+        if (discoveryFirst) {
+            candidates.discovery().confirm();
+            promotions = List.of(
+                    new SettingCandidateGroupPromotion(candidates.discovery(), CharacterFactConfirmApplicationMode.APPLY_PROPOSAL),
+                    new SettingCandidateGroupPromotion(candidates.setting(), CharacterFactConfirmApplicationMode.APPLY_PROPOSAL));
+        } else {
+            promotions = List.of(new SettingCandidateGroupPromotion(
+                    candidates.setting(), CharacterFactConfirmApplicationMode.APPLY_PROPOSAL));
+        }
+
+        promotionService.promoteGroup(promotions);
+
+        assertInactiveStatusStoredOnlyAsHistory(candidates.setting());
+        if (discoveryFirst) {
+            assertThat(candidates.discovery().getMatchedCharacterId()).isEqualTo(candidates.setting().getMatchedCharacterId());
+        }
+    }
+
+    @Test
+    @DisplayName("신규 인물 그룹 확정도 누적 비교의 과거 비활성 STATUS를 ADD로 바꾸지 않는다")
+    void preservesOrderedInactiveHistoryInNewCharacterGroup() {
+        OrderedStatusCandidates candidates = orderedStatusCandidates(CharacterFactOperation.HISTORY_ONLY, false, null);
+
+        promotionService.promoteNewCharacterGroup(List.of(
+                new SettingCandidateGroupPromotion(candidates.discovery(), CharacterFactConfirmApplicationMode.APPLY_PROPOSAL),
+                new SettingCandidateGroupPromotion(candidates.setting(), CharacterFactConfirmApplicationMode.APPLY_PROPOSAL)));
+
+        assertInactiveStatusStoredOnlyAsHistory(candidates.setting());
+        assertThat(candidates.discovery().getMatchedCharacterId()).isEqualTo(candidates.setting().getMatchedCharacterId());
+    }
+
+    @Test
+    @DisplayName("임시 대상 key 없는 사용자 수정 누적 후보도 실제 반영과 같은 이력 연산으로 사전 검증한다")
+    void preservesEditedOrderedInactiveHistoryWithoutProvisionalSubject() {
+        OrderedStatusCandidates candidates = orderedStatusCandidates(CharacterFactOperation.HISTORY_ONLY, false, null);
+        SettingCandidate setting = candidates.setting();
+        org.springframework.test.util.ReflectionTestUtils.setField(setting, "userModified", true);
+        org.springframework.test.util.ReflectionTestUtils.setField(setting, "provisionalSubjectKey", null);
+        setting.confirm();
+
+        promotionService.promote(setting, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+
+        assertInactiveStatusStoredOnlyAsHistory(setting);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"ADD,false,true", "UPDATE,false,true", "MERGE,false,true",
+            "ADD,true,false", "UPDATE,true,false", "MERGE,true,false"})
+    @DisplayName("신규 누적 인물이라도 원본 또는 proposal이 비활성이면 현재 STATUS 추가·변경을 계속 거절한다")
+    void rejectsOrderedInactiveSnapshotOperationsBeforeCreatingCharacter(
+            CharacterFactOperation operation, boolean sourceActive, boolean proposalActive) {
+        OrderedStatusCandidates candidates = orderedStatusCandidates(operation, sourceActive, proposalActive);
+        candidates.setting().confirm();
+
+        assertThatThrownBy(() -> promotionService.promote(
+                candidates.setting(), CharacterFactConfirmApplicationMode.APPLY_PROPOSAL))
+                .isInstanceOfSatisfying(AppException.class, exception -> assertThat(exception.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID));
+
+        assertThat(candidates.setting().getMatchedCharacterId()).isNull();
+        assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId())).isEmpty();
+        assertThat(characterFactRepository.findAll()).isEmpty();
+    }
+
+    private OrderedStatusCandidates orderedStatusCandidates(
+            CharacterFactOperation operation, boolean sourceActive, Boolean proposalActive) {
+        Episode sourceEpisode = episode(64);
+        org.springframework.test.util.ReflectionTestUtils.setField(sourceEpisode, "contentHash", "c".repeat(64));
+        var job = org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.create(work, null, sourceEpisode,
+                org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION);
+        job.initializeOrderedRun(UUID.randomUUID(), 1, 0, null,
+                new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal().emptyState());
+        analysisJobRepository.saveAndFlush(job);
+        SettingCandidate discovery = settingCandidateRepository.saveAndFlush(SettingCandidate.createCharacterDiscovery(
+                work, sourceEpisode, null, job, "누적 신규 인물", "새 인물", null,
+                SettingCandidateMatchStatus.UNRESOLVED, objectMapper.createArrayNode(), BigDecimal.ONE, null));
+        String subjectKey = "provisional-character:" + discovery.getId();
+        org.springframework.test.util.ReflectionTestUtils.setField(discovery, "provisionalSubjectKey", subjectKey);
+        SettingCandidate setting = SettingCandidate.create(work, sourceEpisode, null, job, SettingEntityType.CHARACTER,
+                "누적 신규 인물", "원문 인물", null, SettingCandidateMatchStatus.UNRESOLVED, "status.기절", "기절",
+                SettingValueType.JSON, objectMapper.createObjectNode().put("value", "기절").put("active", sourceActive),
+                objectMapper.createArrayNode(), BigDecimal.ONE, null);
+        org.springframework.test.util.ReflectionTestUtils.setField(setting, "provisionalSubjectKey", subjectKey);
+        setting.prepareProvisionalComparison();
+        settingCandidateRepository.saveAndFlush(setting);
+        var batch = comparisonBatchRepository.saveAndFlush(
+                org.monitoring.catchholebackend.domain.character.entity.CharacterFactComparisonBatch.createProvisional(
+                        work, sourceEpisode, job, subjectKey, CharacterFactType.STATUS, 1));
+        setting.startComparison(batch, "C1");
+        setting.recordComparisonContext(0, "ordered-status-context");
+        boolean historyOnly = operation == CharacterFactOperation.HISTORY_ONLY;
+        setting.completeComparison(operation, historyOnly ? null : CharacterFactType.STATUS,
+                historyOnly ? null : "status.기절", proposalActive == null ? null : "기절",
+                proposalActive == null ? null : objectMapper.createObjectNode().put("value", "기절").put("active", proposalActive),
+                objectMapper.createArrayNode(), historyOnly ? CharacterFactTemporalScope.PAST : CharacterFactTemporalScope.PRESENT,
+                "과거 근거와 현재 상태를 구분한 비교 제안", objectMapper.createObjectNode(), java.time.LocalDateTime.now(),
+                "status.기절", objectMapper.createArrayNode());
+        return new OrderedStatusCandidates(discovery, setting);
+    }
+
+    private void assertInactiveStatusStoredOnlyAsHistory(SettingCandidate setting) {
+        settingCandidateRepository.flush();
+        WorkCharacter character = workCharacterRepository.findById(setting.getMatchedCharacterId()).orElseThrow();
+        assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId())).hasSize(1);
+        assertThat(setting.getSuggestedOperation()).isEqualTo(CharacterFactOperation.HISTORY_ONLY);
+        assertThat(setting.getTemporalScope()).isEqualTo(CharacterFactTemporalScope.PAST);
+        assertThat(setting.getConfirmedApplicationMode()).isEqualTo(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+        assertThat(setting.getValueJson().path("active").booleanValue()).isFalse();
+        assertThat(setting.getProposedValueJson()).isNull();
+        assertThat(snapshotAccessor.read(character)).isEmpty();
+        assertThat(character.getSnapshotVersion()).isZero();
+        assertThat(characterSnapshotSourceRepository.findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderBySourceOrderAsc(
+                character.getId(), CharacterFactType.STATUS, "status.기절")).isEmpty();
+        assertThat(characterFactRepository.findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(
+                character.getId(), CharacterFactType.STATUS, "status.기절"))
+                .singleElement().satisfies(fact -> {
+                    assertThat(fact.getSettingCandidate().getId()).isEqualTo(setting.getId());
+                    assertThat(fact.getValueJson().path("active").booleanValue()).isFalse();
+                });
+    }
+
+    private record OrderedStatusCandidates(SettingCandidate discovery, SettingCandidate setting) {}
+
+    private SettingCandidate orderedProposal(Episode episode,
+            org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob job, String subjectKey,
+            String raw, String proposed, CharacterFactOperation operation) {
+        SettingCandidate candidate = SettingCandidate.create(work, episode, null, job, SettingEntityType.CHARACTER,
+                "누적 신규 인물", "원문 인물", null, SettingCandidateMatchStatus.UNRESOLVED, "age", raw,
+                SettingValueType.NUMBER, valueJson(raw), objectMapper.createArrayNode(), BigDecimal.ONE, null);
+        org.springframework.test.util.ReflectionTestUtils.setField(candidate, "provisionalSubjectKey", subjectKey);
+        candidate.prepareProvisionalComparison();
+        settingCandidateRepository.saveAndFlush(candidate);
+        var batch = comparisonBatchRepository.saveAndFlush(
+                org.monitoring.catchholebackend.domain.character.entity.CharacterFactComparisonBatch.createProvisional(
+                        work, episode, job, subjectKey, CharacterFactType.AGE, 1));
+        candidate.startComparison(batch, "C1");
+        candidate.recordComparisonContext(0, "ordered-context");
+        candidate.completeComparison(operation, CharacterFactType.AGE, "age", proposed, valueJson(proposed),
+                objectMapper.createArrayNode(), CharacterFactTemporalScope.PRESENT, "누적 제안", objectMapper.createObjectNode(),
+                java.time.LocalDateTime.now(), "age", objectMapper.createArrayNode());
+        candidate.confirm();
+        return candidate;
     }
 
     @Test

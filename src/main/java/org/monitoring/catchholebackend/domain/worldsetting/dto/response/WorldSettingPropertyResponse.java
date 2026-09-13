@@ -9,6 +9,10 @@ public record WorldSettingPropertyResponse(
         @Schema(description = "설정명", example = "방향별 몬스터 출몰 규칙")
         String settingName,
         @Schema(description = "설정값", example = "동서남북에 따라 출몰 몬스터가 달라진다.")
-        String value
+        String value,
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) Object provenance
 ) {
+    public WorldSettingPropertyResponse(String scopeName, String settingName, String value) {
+        this(scopeName, settingName, value, null);
+    }
 }

@@ -25,7 +25,7 @@ public record WorkerWorldSettingComparisonCompleteRequest(
         @NotNull(message = "세계관 설정 제안 방식은 필수입니다.")
         WorldSettingSuggestedOperation suggestedOperation,
 
-        @Schema(description = "사용자 판단이 필요한 구조화된 비교 사유", nullable = true)
+        @Schema(description = "사용자 판단이 필요한 비교 사유. GENERAL_UNCERTAINTY는 원본 대상·경로·값을 보존하는 일반 검토 사유입니다.", nullable = true)
         WorldSettingComparisonReviewReason comparisonReviewReason,
 
         @Size(max = 100, message = "제안 범위명은 100자 이하여야 합니다.")

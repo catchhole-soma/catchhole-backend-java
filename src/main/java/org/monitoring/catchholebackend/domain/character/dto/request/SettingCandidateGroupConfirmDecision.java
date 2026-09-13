@@ -9,6 +9,11 @@ import org.monitoring.catchholebackend.domain.character.type.CharacterFactConfir
 public record SettingCandidateGroupConfirmDecision(
         @NotNull UUID candidateId,
         @NotNull CharacterFactConfirmApplicationMode applicationMode,
-        @Schema(nullable = true) Long baseSnapshotVersion
+        @Schema(nullable = true) Long baseSnapshotVersion,
+        @Schema(description = "사용자가 수정한 값을 현재 실제 설정에 직접 검증하여 적용할지 여부. 누적 분석의 명시적 수정 확정에만 사용합니다.")
+        Boolean applyEditedValue
 ) {
+    public SettingCandidateGroupConfirmDecision(UUID candidateId, CharacterFactConfirmApplicationMode applicationMode, Long baseSnapshotVersion) {
+        this(candidateId, applicationMode, baseSnapshotVersion, null);
+    }
 }

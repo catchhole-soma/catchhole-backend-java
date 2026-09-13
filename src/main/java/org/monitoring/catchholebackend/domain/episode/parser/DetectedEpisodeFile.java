@@ -5,7 +5,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 public record DetectedEpisodeFile(
         MultipartFile sourceFile,
-        List<DetectedEpisode> detectedEpisodes
+        List<DetectedEpisode> detectedEpisodes,
+        int uploadCharacters
 ) {
 
     public int episodeCount() {

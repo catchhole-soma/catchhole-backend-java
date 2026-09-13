@@ -12,6 +12,7 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeDetectionRequest;
@@ -22,6 +23,7 @@ import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeDetect
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeResponse;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeSummaryResponse;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeUploadResponse;
+import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeUploadPolicyResponse;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.event.EpisodeSourcePurgeRequestedEvent;
 import org.monitoring.catchholebackend.domain.episode.exception.EpisodeErrorCode;
@@ -29,6 +31,7 @@ import org.monitoring.catchholebackend.domain.episode.mapper.EpisodeDetectionMap
 import org.monitoring.catchholebackend.domain.episode.mapper.EpisodeMapper;
 import org.monitoring.catchholebackend.domain.episode.parser.EpisodeFileParser;
 import org.monitoring.catchholebackend.domain.episode.processor.EpisodeUploadProcessor;
+import org.monitoring.catchholebackend.domain.episode.processor.EpisodeUploadPolicy;
 import org.monitoring.catchholebackend.domain.episode.processor.EpisodeReplacementStorageCompensator;
 import org.monitoring.catchholebackend.domain.episode.processor.EpisodeSourcePurgeProcessor;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
@@ -67,6 +70,7 @@ public class EpisodeServiceImpl implements EpisodeService {
     private final EpisodeMapper episodeMapper;
     private final ObjectStorageService objectStorageService;
     private final EpisodeUploadProcessor episodeUploadProcessor;
+    private final EpisodeUploadPolicy episodeUploadPolicy;
     private final EpisodeReplacementStorageCompensator replacementStorageCompensator;
     private final EpisodeSourcePurgeProcessor episodeSourcePurgeProcessor;
     private final EpisodeFileParser episodeFileParser;
@@ -74,9 +78,16 @@ public class EpisodeServiceImpl implements EpisodeService {
     private final EpisodeDetectionMapper episodeDetectionMapper;
     private final UploadFileRepository uploadFileRepository;
     private final AnalysisJobRepository analysisJobRepository;
+    private final AnalysisRunStateService analysisRunStateService;
     private final UploadBatchRepository uploadBatchRepository;
     private final UploadMapper uploadMapper;
     private final ApplicationEventPublisher eventPublisher;
+
+    @Override
+    public EpisodeUploadPolicyResponse getEpisodeUploadPolicy(Long memberId, UUID workId) {
+        Work work = workRepository.getOwnedWork(workId, memberId);
+        return episodeUploadPolicy.getPolicy(work.getId());
+    }
 
     @Override
     public List<EpisodeSummaryResponse> getEpisodes(Long memberId, UUID workId) {
@@ -114,6 +125,8 @@ public class EpisodeServiceImpl implements EpisodeService {
         Episode episode = getEpisodeInWork(episodeId, work);
         validateEpisodeNoForUpdate(work, episode, request.episodeNo());
         assertEpisodeIsNotAnalyzing(episode);
+        analysisRunStateService.invalidateRunsForWorkForUpdate(workId,
+                Math.min(episode.getEpisodeNo(), request.episodeNo()), "앞 회차의 원문 또는 회차 순서가 수정되었습니다.");
         UploadFile previousSourceFile = episode.getSourceFileId() == null
                 ? null
                 : uploadFileRepository.findById(episode.getSourceFileId()).orElse(null);
@@ -170,7 +183,12 @@ public class EpisodeServiceImpl implements EpisodeService {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         Episode episode = getEpisodeInWork(episodeId, work);
         assertEpisodeIsNotAnalyzing(episode);
-        String content = textDocumentReader.readText(file);
+        String content = textDocumentReader.readTextPreservingWhitespace(file);
+        if (content.codePointCount(0, content.length()) > EpisodeFileParser.MAX_UPLOAD_CHARACTERS) {
+            throw new AppException(UploadErrorCode.UPLOAD_CHARACTER_LIMIT_EXCEEDED);
+        }
+        analysisRunStateService.invalidateRunsForWorkForUpdate(workId, episode.getEpisodeNo(),
+                "앞 회차의 원문 파일이 교체되었습니다.");
         UploadFile previousSourceFile = episode.getSourceFileId() == null
                 ? null
                 : uploadFileRepository.findById(episode.getSourceFileId()).orElse(null);
@@ -220,6 +238,8 @@ public class EpisodeServiceImpl implements EpisodeService {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         Episode episode = getEpisodeInWork(episodeId, work);
         assertEpisodeIsNotAnalyzing(episode);
+        analysisRunStateService.invalidateRunsForWorkForUpdate(workId, episode.getEpisodeNo(),
+                "앞 회차가 삭제되었습니다.");
         UploadFile sourceFile = episode.getSourceFileId() == null
                 ? null
                 : uploadFileRepository.findById(episode.getSourceFileId()).orElse(null);

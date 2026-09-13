@@ -3,6 +3,7 @@ package org.monitoring.catchholebackend.domain.analysis.mapper;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatchJobGroupResponse;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatchSummaryResponse;
@@ -22,17 +23,18 @@ public class AnalysisBatchMapper {
     public AnalysisBatchJobGroupResponse toJobGroupResponse(
             AnalysisJobType jobType,
             AnalysisBatchStatus status,
-            List<AnalysisJob> currentJobs
+            List<AnalysisJob> currentJobs,
+            Map<UUID, AnalysisJobStatus> listedStatuses
     ) {
         return new AnalysisBatchJobGroupResponse(
                 jobType,
                 status,
                 currentJobs.size(),
-                countStatus(currentJobs, AnalysisJobStatus.PENDING),
-                countStatus(currentJobs, AnalysisJobStatus.RUNNING),
-                countStatus(currentJobs, AnalysisJobStatus.SUCCEEDED),
-                countStatus(currentJobs, AnalysisJobStatus.FAILED),
-                countStatus(currentJobs, AnalysisJobStatus.CANCELED),
+                countStatus(currentJobs, listedStatuses, AnalysisJobStatus.PENDING),
+                countStatus(currentJobs, listedStatuses, AnalysisJobStatus.RUNNING),
+                countStatus(currentJobs, listedStatuses, AnalysisJobStatus.SUCCEEDED),
+                countStatus(currentJobs, listedStatuses, AnalysisJobStatus.FAILED),
+                countStatus(currentJobs, listedStatuses, AnalysisJobStatus.CANCELED),
                 currentJobs.stream().map(AnalysisJob::getId).distinct().toList(),
                 currentJobs.stream()
                         .map(AnalysisJob::getUpdatedAt)
@@ -78,9 +80,9 @@ public class AnalysisBatchMapper {
         );
     }
 
-    private int countStatus(List<AnalysisJob> jobs, AnalysisJobStatus status) {
+    private int countStatus(List<AnalysisJob> jobs, Map<UUID, AnalysisJobStatus> listedStatuses, AnalysisJobStatus status) {
         return (int) jobs.stream()
-                .filter(job -> job.getStatus() == status)
+                .filter(job -> listedStatuses.get(job.getId()) == status)
                 .count();
     }
 }

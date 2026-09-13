@@ -1,5 +1,8 @@
 # Analysis Domain
 
+> 회차별 자동 반영과 새 업로드 정책은 [GH-180 자동 반영 설계](ordered-provisional-analysis.md#회차별-자동-반영과-업로드-정책)를 따릅니다. 아래 기존 수동 흐름과 구분하며, 새 다회차는 회차별 실제 저장 후 다음 분석을 시작합니다.
+
+
 ## 목적
 
 Analysis 도메인은 작품의 각 회차를 대상으로 하는 AI 분석 작업의 상태와 결과 메타데이터를 추적합니다. `UploadBatch`는 한 번의 업로드 출처를 묶지만 분석 실행과 실패 격리의 단위는 단일 회차 `AnalysisJob`입니다.
@@ -7,6 +10,23 @@ Analysis 도메인은 작품의 각 회차를 대상으로 하는 AI 분석 작�
 현재 범위에서는 백엔드가 분석 작업을 생성/조회하고 Worker가 내부 API로 작업을 claim/상태 갱신할 수 있는 계약을 제공합니다. 실제 원문 청킹, LLM 캐릭터·세계관 설정 후보 추출, 세계관 비교, quote 위치 보정은 Python AI Worker가 담당하며, Spring은 lease/checkpoint, 세계관 후보 저장 경계, 분석 작업 상태와 사용자 검토 도메인을 관리합니다.
 
 ## 핵심 결정
+
+### 명시적 누적 분석 모드
+
+새 `SETTING_EXTRACTION` 생성 요청은 `reviewMode`를 생략하면 `AUTOMATIC + ORDERED_PROVISIONAL`을
+사용한다. 단일 회차에 `MANUAL`을 명시하면 직접 검토하며, 이때 `analysisMode` 생략은 `CONFIRMED_ONLY`다.
+새 다회차 전체 분석은 항상 자동 반영한다. 회차 검증의 생략 기본값과 기존 Job의 실패 재시도 정책은 유지한다.
+
+누적 실행은 대상 회차·순서·원문 버전과 S0를 고정한다. 자동 반영에서는 선행 회차의 정상 결과가 실제 설정에
+저장된 뒤 다음 회차가 현재 설정을 다시 읽으며, 수동 누적 실행은 SEALED 변경 기록을 입력에 반영한다.
+임시 대상과 검토 참고는 정식 설정과 분리한다. 시작 회차 이후의 확정 이력이 있는 새 누적 재분석은 기존대로
+거절하므로, 이전 회차를 현재 확정 문맥으로 다시 분석할 때는 단일 `MANUAL + CONFIRMED_ONLY`를 선택한다.
+같은 작품의 extraction Job은 직렬화하고 다른 작품은 병렬로 처리한다.
+
+Job 응답의 optional `analysisRun`으로 run/generation/순서/journal 상태를 조회한다.
+처리 실패는 기존 retry API에서 같은 ordered Job과 완료 prefix를 보존해 재개하고, 사용자 변경으로
+INVALIDATED된 실행은 새 명시적 요청과 시작 기준 검증을 거친다. 상세 schema·실패·최종 확정 경계와
+검증 결과는 [누적 분석 설계](ordered-provisional-analysis.md)에 정리한다.
 
 ### 원문 저장
 
@@ -19,7 +39,8 @@ Analysis 도메인은 작품의 각 회차를 대상으로 하는 AI 분석 작�
 - `episodes.content_hash`
 - `episodes.char_count`
 
-`analysis_jobs`에는 분석 상태와 결과 메타데이터만 저장합니다.
+`analysis_jobs`에는 분석 상태·결과 메타데이터와 누적 모드의 고정 S0·검증 변경 기록을 저장합니다.
+원문 전문과 raw LLM 응답은 중복 저장하지 않습니다.
 
 ### 생성 요청 단위
 
@@ -46,7 +67,12 @@ upload_batches.id
 
 Kafka/SQS 없이 내부 API polling 방식을 사용합니다.
 
-Python AI Worker는 처리할 `allowedJobTypes`를 지정해 내부 claim API를 polling합니다. 백엔드는 가장 오래된 허용 `PENDING` 작업 하나를 `RUNNING`으로 바꾸고 5분짜리 소유권 lease를 발급합니다. Worker는 `X-Worker-Lease-Token` 헤더와 heartbeat로 lease를 유지하며, 만료된 작업은 checkpoint부터 재개할 수 있도록 다시 `PENDING`으로 전환됩니다. claim이 세 번 만료되면 작업을 `FAILED`로 종료합니다.
+Python AI Worker는 `allowedJobTypes`와 지원하는 `supportedAnalysisModes`로 내부 claim API를 polling합니다.
+모드 지원 정보가 없는 기존 Worker에는 `CONFIRMED_ONLY`만 제공합니다. 백엔드는 작품 잠금 뒤 실행
+조건을 다시 확인해 허용된 `PENDING` 하나를 `RUNNING`으로 바꾸고 5분 lease를 발급합니다. 같은
+작품의 extraction RUNNING과 누적 predecessor의 SEALED 여부를 확인하므로 ORDER BY만으로 순서를
+보장하지 않습니다. Worker는 `X-Worker-Lease-Token`과 heartbeat로 lease를 유지하며 만료 작업은
+checkpoint부터 다시 대기합니다. 자동 claim 시도 한도를 넘기면 실패로 종료합니다.
 
 `SETTING_EXTRACTION` claim에는 Worker가 S3에서 원문을 읽을 수 있도록 단일 `episode` 원문 메타데이터, 캐릭터 매칭과 회차 시작 상태 문맥에 사용할 `knownCharacters`, `attributeName` 해석에 사용할 `characterSettingSchemas`가 포함됩니다. `knownCharacters[].activeStatuses`는 각 활성 캐릭터의 현재 `STATUS`를 `factKey/factValue`만으로 제공해 1차가 회복·악화·지속 근거를 놓치지 않게 하며 삭제 operation 결정은 2차에 남깁니다. 복수 target인 과거 작업은 단일 회차 계약으로 claim하지 않고 실패 처리합니다. 캐릭터 후보는 기존 Python 저장 방식을 유지하지만, 세계관 후보와 비교 상태는 반드시 Spring 내부 API를 통해 변경합니다.
 

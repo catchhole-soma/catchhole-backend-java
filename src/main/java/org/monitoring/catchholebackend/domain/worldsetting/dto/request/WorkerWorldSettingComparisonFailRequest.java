@@ -1,11 +1,15 @@
 package org.monitoring.catchholebackend.domain.worldsetting.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonValidationReason;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.WorldSettingComparisonDiagnostic;
+import java.util.List;
 
 @Schema(description = "Worker 세계관 설정 비교 실패 요청")
 public record WorkerWorldSettingComparisonFailRequest(
@@ -25,6 +29,14 @@ public record WorkerWorldSettingComparisonFailRequest(
         String sourceErrorCode,
 
         @Schema(description = "Spring 세계관 비교 계약 검증 분기", nullable = true)
-        WorldSettingComparisonValidationReason sourceReasonCode
+        WorldSettingComparisonValidationReason sourceReasonCode,
+        @Valid @Size(max = 30) List<@NotNull WorldSettingComparisonDiagnostic> diagnostics
 ) {
+    public WorkerWorldSettingComparisonFailRequest {
+        diagnostics = diagnostics == null ? List.of() : diagnostics;
+    }
+    public WorkerWorldSettingComparisonFailRequest(AnalysisFailureCode failureCode, String errorMessage,
+            String sourceErrorCode, WorldSettingComparisonValidationReason sourceReasonCode) {
+        this(failureCode, errorMessage, sourceErrorCode, sourceReasonCode, List.of());
+    }
 }

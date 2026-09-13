@@ -9,6 +9,11 @@ import java.math.BigDecimal;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind;
@@ -26,6 +31,49 @@ import org.springframework.test.util.ReflectionTestUtils;
 class SettingCandidateTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @ParameterizedTest
+    @EnumSource(SettingCandidateKind.class)
+    @DisplayName("임시 인물을 실제 ID에 연결할 때 발견의 별칭 원본은 보존하고 설정 표시명은 갱신한다")
+    void provisionalPromotionPreservesDiscoverySpellingAndEvidence(SettingCandidateKind kind) {
+        Work work = work();
+        AnalysisJob job = AnalysisJob.create(work, null, null, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(job, "analysisMode", AnalysisMode.ORDERED_PROVISIONAL);
+        SettingCandidate candidate = kind == SettingCandidateKind.CHARACTER_DISCOVERY
+                ? characterDiscovery(work, "세룸 로안") : candidate(work, "age", "17");
+        ReflectionTestUtils.setField(candidate, "analysisJob", job);
+        ReflectionTestUtils.setField(candidate, "provisionalSubjectKey", "provisional-character:" + UUID.randomUUID());
+        JsonNode evidence = candidate.getEvidenceSpans();
+        String mention = candidate.getRawEntityMention();
+        candidate.confirm();
+        WorkCharacter character = character(work, "세룸");
+
+        candidate.bindPromotedProvisionalCharacter(character);
+
+        assertThat(candidate.getEntityName()).isEqualTo(kind == SettingCandidateKind.CHARACTER_DISCOVERY ? "세룸 로안" : "세룸");
+        assertThat(candidate.getEvidenceSpans()).isSameAs(evidence);
+        assertThat(candidate.getRawEntityMention()).isEqualTo(mention);
+        assertThat(candidate.getMatchedCharacterId()).isEqualTo(character.getId());
+        assertThat(candidate.getProvisionalSubjectKey()).isNull();
+        assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
+    }
+
+    @Test
+    @DisplayName("자동 반영 보류는 AI 판단과 원문을 덮지 않으며 확정하면 해제된다")
+    void holdReasonPreservesComparisonAndClearsAfterReview() {
+        SettingCandidate candidate = candidate("age", "17");
+        ReflectionTestUtils.setField(candidate, "comparisonReason", "원문에 나이가 명시되어 있습니다.");
+        ReflectionTestUtils.setField(candidate, "suggestedOperation",
+                org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation.ADD);
+        candidate.recordAutomaticReviewHold(
+                org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason.CURRENT_SETTING_CHANGED);
+        assertThat(candidate.getComparisonReason()).isEqualTo("원문에 나이가 명시되어 있습니다.");
+        assertThat(candidate.getSuggestedOperation()).isEqualTo(
+                org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation.ADD);
+        assertThat(candidate.getAttributeValue()).isEqualTo("17");
+        candidate.confirm();
+        assertThat(candidate.getAutomaticReviewHoldReason()).isNull();
+    }
 
     @Test
     @DisplayName("설정 후보 생성 시 검토 대기 상태가 된다")

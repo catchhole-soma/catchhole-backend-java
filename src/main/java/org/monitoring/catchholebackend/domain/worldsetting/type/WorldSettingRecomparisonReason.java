@@ -12,7 +12,7 @@ public enum WorldSettingRecomparisonReason {
     PROPERTY_ADDED("추가하려던 설정이 먼저 생성되었습니다."),
     PROPERTY_REMOVED("비교했던 기존 설정이 삭제되었습니다."),
     PROPERTY_CHANGED("비교했던 기존 설정값이 변경되었습니다."),
-    PROPERTY_PATH_CONFLICT("설정 경로가 루트 설정과 하위 범위 역할로 충돌합니다.");
+    PROPERTY_PATH_CONFLICT("같은 이름이 설정 항목과 여러 설정을 묶는 이름으로 겹칩니다. 반영할 위치를 확인해 주세요.");
 
     private final String message;
 }

@@ -17,6 +17,9 @@ public interface SettingCandidatePromotionService {
      */
     void promoteGroup(List<SettingCandidateGroupPromotion> promotions);
 
+    /** 실제 쓰기와 같은 규칙으로 자동 반영 후보를 선행 채택 결과 위에서 검증한다. */
+    void validateAutomaticPromotion(SettingCandidate candidate, List<SettingCandidate> earlierAccepted);
+
     /**
      * 아직 존재하지 않는 같은 이름의 캐릭터를 한 번만 만들고 그룹의 모든 후보를 순서대로 반영한다.
      */

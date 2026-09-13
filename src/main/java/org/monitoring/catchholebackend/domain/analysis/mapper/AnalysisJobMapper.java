@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobResponse;
+import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisRunResponse;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobTargetResponse;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobEpisodeResponse;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
@@ -45,7 +46,11 @@ public class AnalysisJobMapper {
                 analysisJob.getStartedAt(),
                 analysisJob.getCompletedAt(),
                 analysisJob.getCreatedAt(),
-                analysisJob.getUpdatedAt()
+                analysisJob.getUpdatedAt(),
+                analysisJob.isOrderedProvisional() ? new AnalysisRunResponse(analysisJob.getAnalysisMode(),
+                        analysisJob.getAnalysisRunId(), analysisJob.getRunGeneration(), analysisJob.getRunSequence(),
+                        analysisJob.getPredecessorJobId(), analysisJob.getJournalStatus(), analysisJob.getJournalInvalidationReason()) : null,
+                analysisJob.getReviewMode(), analysisJob.getAutomaticAppliedAt()
         );
     }
 

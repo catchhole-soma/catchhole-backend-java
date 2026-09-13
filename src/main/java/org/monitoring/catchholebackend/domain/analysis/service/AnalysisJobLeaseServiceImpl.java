@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AnalysisJobLeaseServiceImpl implements AnalysisJobLeaseService {
 
     private final AnalysisJobRepository analysisJobRepository;
+    private final AnalysisRunStateService analysisRunStateService;
 
     @Override
     @Transactional
@@ -29,6 +30,7 @@ public class AnalysisJobLeaseServiceImpl implements AnalysisJobLeaseService {
         if (!analysisJob.hasLease(leaseToken) || analysisJob.isLeaseExpired(LocalDateTime.now())) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_LEASE_CONFLICT);
         }
+        analysisRunStateService.assertValidInput(analysisJob);
         return analysisJob;
     }
 }

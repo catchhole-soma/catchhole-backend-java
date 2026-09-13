@@ -15,7 +15,11 @@ public record WorkerWorldSettingComparisonContextResponse(
             UUID worldSettingId,
             String subjectName,
             List<WorldSettingPropertyResponse> properties,
-            long version
+            long version,
+            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String provisionalSubjectKey
     ) {
+        public Target(UUID worldSettingId, String subjectName, List<WorldSettingPropertyResponse> properties, long version) {
+            this(worldSettingId, subjectName, properties, version, null);
+        }
     }
 }

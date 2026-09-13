@@ -18,8 +18,17 @@ public record WorkerWorldSettingComparisonBatchPayload(
         String canonicalSubjectName,
         List<UUID> resolvedTargetWorldSettingIds,
         @Schema(nullable = true) String rawScopeName,
-        List<Candidate> candidates
+        List<Candidate> candidates,
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) List<String> resolvedProvisionalSubjectKeys,
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisContextPayload analysisContext
 ) {
+    public WorkerWorldSettingComparisonBatchPayload(UUID comparisonBatchId, UUID workId, UUID sourceEpisodeId,
+            WorldSettingCategory category, WorldSettingSubjectResolutionType resolutionType,
+            String canonicalSubjectKey, String canonicalSubjectName, List<UUID> resolvedTargetWorldSettingIds,
+            String rawScopeName, List<Candidate> candidates) {
+        this(comparisonBatchId, workId, sourceEpisodeId, category, resolutionType, canonicalSubjectKey,
+                canonicalSubjectName, resolvedTargetWorldSettingIds, rawScopeName, candidates, null, null);
+    }
 
     public record Candidate(
             String candidateRef,

@@ -10,9 +10,13 @@ import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeDetect
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeResponse;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeSummaryResponse;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeUploadResponse;
+import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeUploadPolicyResponse;
 import org.springframework.web.multipart.MultipartFile;
 
 public interface EpisodeService {
+
+    /** 작품 소유권을 확인한 뒤 다회차 사용 조건과 검토 대기 수를 조회한다. */
+    EpisodeUploadPolicyResponse getEpisodeUploadPolicy(Long memberId, UUID workId);
 
     /**
      * 작품 소유권을 확인한 뒤 작품에 속한 회차 목록을 최신 회차순으로 조회한다.

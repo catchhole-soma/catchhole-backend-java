@@ -1,9 +1,11 @@
 package org.monitoring.catchholebackend.domain.character.mapper;
 
+import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisExplanationText;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -104,7 +106,8 @@ public class SettingCandidateMapper {
                 toJsonValue(candidate.getProposedValueJson()),
                 candidate.getProposedFactValue(),
                 toSnapshotChanges(candidate),
-                candidate.getComparisonReason(),
+                AnalysisExplanationText.forReader(candidate.getComparisonReason(), candidate.getEntityName(),
+                        candidate.getAttributeValue(), candidate.getProposedFactValue()),
                 publicComparisonErrorMessage(candidate),
                 publicComparisonFailureCode(candidate),
                 candidate.getComparisonBaseSnapshotVersion(),
@@ -113,7 +116,11 @@ public class SettingCandidateMapper {
                         : candidate.getCharacterComparisonBatch().getAnalysisJob()
                         .getCharacterComparisonInputHash(),
                 candidate.getCreatedAt(),
-                candidate.getUpdatedAt()
+                candidate.getUpdatedAt(),
+                candidate.isManualReviewAvailable(),
+                candidate.isPendingReview() ? candidate.getAutomaticReviewHoldReason() : null,
+                candidate.isAutomaticApplicationPending(),
+                analysisJob == null ? null : analysisJob.getAnalysisMode()
         );
     }
 
@@ -122,7 +129,7 @@ public class SettingCandidateMapper {
             return publicComparisonFailureCode(candidate).getPublicMessage();
         }
         if (candidate.getComparisonStatus() == CharacterFactComparisonStatus.RECOMPARISON_REQUIRED) {
-            return candidate.getComparisonErrorMessage();
+            return AnalysisExplanationText.forReader(candidate.getComparisonErrorMessage());
         }
         return null;
     }
@@ -213,6 +220,35 @@ public class SettingCandidateMapper {
     }
 
     private Map<CharacterSnapshotSlot, CharacterSnapshotEntry> currentSnapshot(SettingCandidate candidate) {
+        if (candidate.getAnalysisJob() != null && candidate.getAnalysisJob().isOrderedProvisional()) {
+            // 비교 미리보기는 확정 시점의 DB가 아니라 실제 비교에 사용한 상태를 보여준다.
+            JsonNode raw = candidate.getRawComparisonJson();
+            JsonNode entries = raw == null ? null : raw.get("backendComparisonBefore");
+            if (entries == null && candidate.getCharacterComparisonBatch() != null) {
+                JsonNode context = candidate.getCharacterComparisonBatch().getAnalysisContextSnapshotJson();
+                entries = context == null ? null : context.get("slots");
+            }
+            Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshot = new LinkedHashMap<>();
+            if (entries != null && (entries.isObject() || entries.isArray())) {
+                for (JsonNode entry : entries) {
+                    if (!entry.path("factType").isTextual() || !entry.path("factKey").isTextual()) {
+                        continue;
+                    }
+                    CharacterFactType type;
+                    try {
+                        type = CharacterFactType.valueOf(entry.path("factType").asText());
+                    } catch (IllegalArgumentException ignored) {
+                        continue;
+                    }
+                    CharacterSnapshotEntry value = snapshotAccessor.entry(type, entry.path("factKey").asText(),
+                            entry.path("factValue").isTextual() ? entry.path("factValue").asText() : null,
+                            entry.path("valueJson").isMissingNode() || entry.path("valueJson").isNull()
+                                    ? null : entry.path("valueJson"));
+                    snapshot.put(value.slot(), value);
+                }
+            }
+            return snapshot;
+        }
         WorkCharacter character = candidate.getMatchedCharacter();
         return character == null
                 ? Map.of()

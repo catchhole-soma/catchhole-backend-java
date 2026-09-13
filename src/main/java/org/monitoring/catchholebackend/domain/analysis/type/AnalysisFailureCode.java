@@ -24,6 +24,15 @@ public enum AnalysisFailureCode {
         return publicMessage;
     }
 
+    /** 비교 입력 검증을 마친 뒤 발생한 AI 응답 실패에만 적용하는 허용 목록이다. */
+    public boolean isCandidateComparisonFailure() {
+        return switch (this) {
+            case LLM_OUTPUT_TRUNCATED, LLM_NETWORK_ERROR, LLM_PROVIDER_ERROR,
+                    LLM_RESPONSE_PARSE_ERROR, COMPARISON_VALIDATION_FAILED -> true;
+            default -> false;
+        };
+    }
+
     public static AnalysisFailureCode orUnexpected(AnalysisFailureCode failureCode) {
         return failureCode == null ? UNEXPECTED_ERROR : failureCode;
     }

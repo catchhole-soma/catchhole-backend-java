@@ -219,6 +219,7 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.reviewedCandidateCount").value(0))
                 .andExpect(jsonPath("$.data.pendingCandidateCount").value(1))
                 .andExpect(jsonPath("$.data.matchRequiredCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.attentionRequiredCandidateCount").value(0))
                 .andExpect(jsonPath("$.data.candidates.content[0].id").value(candidate.getId().toString()))
                 .andExpect(jsonPath("$.data.candidates.content[0].workId").value(work.getId().toString()))
                 .andExpect(jsonPath("$.data.candidates.content[0].episodeNo").value(1))
@@ -485,6 +486,7 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.reviewedCandidateCount").value(0))
                 .andExpect(jsonPath("$.data.pendingCandidateCount").value(0))
                 .andExpect(jsonPath("$.data.matchRequiredCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.attentionRequiredCandidateCount").value(0))
                 .andExpect(jsonPath("$.data.candidates.content").isEmpty())
                 .andExpect(jsonPath("$.data.candidates.totalElements").value(0))
                 .andExpect(jsonPath("$.data.candidates.totalPages").value(0));
@@ -537,10 +539,102 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.reviewedCandidateCount").value(2))
                 .andExpect(jsonPath("$.data.pendingCandidateCount").value(1))
                 .andExpect(jsonPath("$.data.matchRequiredCandidateCount").value(1))
+                .andExpect(jsonPath("$.data.attentionRequiredCandidateCount").value(1))
                 .andExpect(jsonPath("$.data.candidates.content.length()").value(1))
                 .andExpect(jsonPath("$.data.candidates.content[0].id").value(ambiguous.getId().toString()))
                 .andExpect(jsonPath("$.data.candidates.totalElements").value(1))
                 .andExpect(jsonPath("$.data.candidates.size").value(1));
+    }
+
+    @Test
+    @DisplayName("연결된 캐릭터의 비교 실패 두 개와 미상 연결 후보 한 개를 모두 확인 필요로 집계한다")
+    void attentionCountIncludesMatchedComparisonFailuresAndAmbiguousCandidate() throws Exception {
+        WorkCharacter character = workCharacterRepository.save(character(work, "비요른"));
+        for (String attribute : List.of("age", "level")) {
+            SettingCandidate failed = candidate(work, episode, analysisJob, "비요른", attribute, "23");
+            failed.matchExistingCharacter(character);
+            failed.failComparison("비교 응답 검증 실패");
+            settingCandidateRepository.save(failed);
+        }
+        settingCandidateRepository.save(candidate(work, episode, analysisJob, "미상", "age", "17",
+                SettingValueType.NUMBER, valueJson("17"), SettingCandidateMatchStatus.AMBIGUOUS));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString())
+                        .queryParam("reviewStatus", "PENDING_REVIEW")
+                        .queryParam("matchStatuses", "MATCHED")
+                        .queryParam("size", "1")
+                        .queryParam("includeLegacyCandidates", "false"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalCandidateCount").value(3))
+                .andExpect(jsonPath("$.data.pendingCandidateCount").value(3))
+                .andExpect(jsonPath("$.data.matchRequiredCandidateCount").value(1))
+                .andExpect(jsonPath("$.data.attentionRequiredCandidateCount").value(3))
+                .andExpect(jsonPath("$.data.confirmedCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.dismissedCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.directReviewCandidateCount").value(3))
+                .andExpect(jsonPath("$.data.processingCandidateCount").value(0))
+                .andExpect(jsonPath("$.data.groups.content.length()").value(1))
+                .andExpect(jsonPath("$.data.groups.content[0].candidates.length()").value(2));
+    }
+
+    @Test
+    @DisplayName("확인 필요는 중복 조건을 한 번만 세고 검토 완료·다른 배치를 제외하며 빈 페이지에서도 유지한다")
+    void attentionCountDeduplicatesConditionsAndIgnoresFiltersPagesAndOtherBatches() throws Exception {
+        WorkCharacter character = workCharacterRepository.save(character(work, "아리아"));
+        SettingCandidate overlapping = candidate(work, episode, analysisJob, "미상", "age", "17",
+                SettingValueType.NUMBER, valueJson("17"), SettingCandidateMatchStatus.AMBIGUOUS);
+        overlapping.markRecomparisonRequired("비교 입력 변경");
+        settingCandidateRepository.save(overlapping);
+        SettingCandidate healthy = candidate(work, episode, analysisJob, "아리아", "age", "23");
+        healthy.matchExistingCharacter(character);
+        settingCandidateRepository.save(healthy);
+        settingCandidateRepository.save(candidate(work, episode, analysisJob, "새 인물", "age", "25"));
+        SettingCandidate confirmed = candidate(work, episode, analysisJob, "아리아", "level", "23");
+        confirmed.matchExistingCharacter(character);
+        confirmed.failComparison("비교 실패 후 작가 확인");
+        confirmed.confirm();
+        settingCandidateRepository.save(confirmed);
+        SettingCandidate dismissed = candidate(work, episode, analysisJob, "미상", "level", "17",
+                SettingValueType.NUMBER, valueJson("17"), SettingCandidateMatchStatus.AMBIGUOUS);
+        dismissed.markRecomparisonRequired("작가 제외 전 재비교 필요");
+        dismissed.dismiss();
+        settingCandidateRepository.save(dismissed);
+        UploadBatch anotherBatch = uploadBatchRepository.save(UploadBatch.create(
+                work, member, UploadType.SINGLE_EPISODE, UploadSourceType.FILE));
+        AnalysisJob anotherJob = analysisJobRepository.save(AnalysisJob.create(
+                work, anotherBatch, episode, AnalysisJobType.SETTING_EXTRACTION));
+        SettingCandidate otherBatchFailure = candidate(work, episode, anotherJob, "아리아", "age", "23");
+        otherBatchFailure.matchExistingCharacter(character);
+        otherBatchFailure.failComparison("다른 배치의 비교 실패");
+        settingCandidateRepository.save(otherBatchFailure);
+
+        for (String reviewStatus : List.of("PENDING_REVIEW", "CONFIRMED")) {
+            for (String page : List.of("0", "10")) {
+                var response = mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates", work.getId())
+                                .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                                .queryParam("batchId", uploadBatch.getId().toString())
+                                .queryParam("reviewStatus", reviewStatus)
+                                .queryParam("matchStatuses", "MATCHED")
+                                .queryParam("page", page)
+                                .queryParam("size", "1"))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.data.totalCandidateCount").value(5))
+                        .andExpect(jsonPath("$.data.reviewedCandidateCount").value(2))
+                        .andExpect(jsonPath("$.data.pendingCandidateCount").value(3))
+                        .andExpect(jsonPath("$.data.matchRequiredCandidateCount").value(1))
+                        .andExpect(jsonPath("$.data.attentionRequiredCandidateCount").value(1))
+                        .andExpect(jsonPath("$.data.confirmedCandidateCount").value(1))
+                        .andExpect(jsonPath("$.data.dismissedCandidateCount").value(1))
+                        .andExpect(jsonPath("$.data.directReviewCandidateCount").value(1))
+                        .andExpect(jsonPath("$.data.processingCandidateCount").value(2));
+                if (page.equals("10")) {
+                    response.andExpect(jsonPath("$.data.groups.content").isEmpty())
+                            .andExpect(jsonPath("$.data.candidates.content").isEmpty());
+                }
+            }
+        }
     }
 
     @Test
