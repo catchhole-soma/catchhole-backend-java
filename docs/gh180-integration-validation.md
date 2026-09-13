@@ -78,3 +78,20 @@ GH180_AI_ROOT=../catchhole-backend-ai-gh180-pr \
 - 분석에 필요한 인프라·사용량·입력·저장 오류까지 무시하지 않는다. 모든 원인에서 절대 멈추지 않는다는 보장은 아니다.
 
 설계 읽기: [순차 상태 계약](ordered-provisional-analysis.md) → [자동 반영·보류](automatic-review-reliability.md) → [세계관 비교 복구](world-comparison-recovery.md).
+
+## 이번 PR에서 보류한 리뷰
+
+2026-09-13 사용자 결정에 따라 아래 7건의 구현 변경은 보류하고 이번 PR을 머지 준비한다.
+GitHub의 미해결 대화 차단 규칙에 맞춰 리뷰 대화는 **보류 합의로 종료**한다. 이는 코드 문제가
+해결됐다는 뜻이 아니며, 위 테스트 통과도 아래 위험의 해소를 보장하지 않는다. 승인 리뷰와
+실제 머지는 별도이며, 다음 작업에서 원 리뷰·재현 조건과 아래 방향을 함께 확인한다.
+
+| 원 리뷰 | 남은 내용과 후속 확인 방향 |
+| --- | --- |
+| [준비 실패용 도메인 예외](https://github.com/catchhole-soma/catchhole-backend-java/pull/193#discussion_r3996851722) | 기록을 보존하는 현재 commit/rollback 의미를 유지하며 예외·트랜잭션 구조를 정리한다. |
+| [추출 신뢰도 저장 정밀도](https://github.com/catchhole-soma/catchhole-backend-java/pull/193#discussion_r3996851730) | NUMERIC(5,4) 반올림이 남는다. 정상 입력을 새로 거절하기보다 저장 정밀도 확장을 검토한다. |
+| [실패한 임시 세계관 대상의 참조](https://github.com/catchhole-soma/catchhole-backend-java/pull/193#discussion_r3996851731) | 실패 대상에 의존한 후보만 보류하고 독립 후보의 연속 처리를 유지하는 보완이 필요하다. |
+| [lease 회수와 작품 잠금 순서](https://github.com/catchhole-soma/catchhole-backend-java/pull/193#discussion_r3999076031) | 제시된 교착은 미재현이다. PostgreSQL의 SKIP LOCKED·연관 잠금을 포함한 실제 동시성 검증이 필요하다. |
+| [캐릭터 전체 실패 응답의 오류 분류](https://github.com/catchhole-soma/catchhole-backend-java/pull/193#discussion_r3999076034) | quota·lease 등 작업 수준 오류를 후보 실패로 수락할 수 있다. 부모 실패 분류를 보존하는 후속 수정이 필요하다. |
+| [단일 회차 분석 완료 수](https://github.com/catchhole-soma/catchhole-backend-java/pull/193#discussion_r3999173606) | SUCCEEDED라도 누적 journal이 INCOMPLETE인 작업이 완료 수에 포함될 수 있다. 봉인·자동 반영 완료 조건과 집계를 맞춘다. |
+| [캐릭터 REVIEW_REQUIRED 보류 사유](https://github.com/catchhole-soma/catchhole-backend-java/pull/193#discussion_r3999173610) | 자동 반영에서 이 제안을 건너뛸 때 전용 hold reason이 누락된다. 후보는 보류되지만 응답의 이유 표기가 불완전할 수 있다. |
