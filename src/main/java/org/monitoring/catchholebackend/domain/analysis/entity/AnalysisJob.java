@@ -37,6 +37,8 @@ import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
+import org.monitoring.catchholebackend.global.exception.AppException;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
@@ -118,6 +120,15 @@ public class AnalysisJob extends BaseEntity {
             foreignKey = @ForeignKey(name = "fk_analysis_jobs_setting_candidate")
     )
     private SettingCandidate settingCandidate;
+
+    // CHARACTER_FACT_COMPARISON 그룹 Job이 고정해서 처리할 후보 입력 fingerprint.
+    // null이면 settingCandidate 한 건을 처리하는 구 계약이다.
+    @Column(name = "character_comparison_input_hash", length = 64)
+    private String characterComparisonInputHash;
+
+    // 구 Worker의 CHARACTER_COMPARISONS_FINISHED와 신규 그룹 Job 인계를 구별해 보존한다.
+    @Column(name = "character_comparisons_handed_off", nullable = false)
+    private boolean characterComparisonsHandedOff;
 
     // 생성 시점의 실제 분석 대상 회차를 보존해 이후 원본 교체·보관과 무관하게 이력을 조회한다.
     @ManyToMany
@@ -301,6 +312,10 @@ public class AnalysisJob extends BaseEntity {
     }
 
     public static AnalysisJob createCharacterFactComparison(SettingCandidate candidate) {
+        return createCharacterFactComparison(candidate, null);
+    }
+
+    public static AnalysisJob createCharacterFactComparison(SettingCandidate candidate, String inputHash) {
         AnalysisJob sourceJob = candidate.getAnalysisJob();
         AnalysisJob analysisJob = new AnalysisJob(
                 candidate.getWork(),
@@ -309,6 +324,7 @@ public class AnalysisJob extends BaseEntity {
                 AnalysisJobType.CHARACTER_FACT_COMPARISON
         );
         analysisJob.settingCandidate = candidate;
+        analysisJob.characterComparisonInputHash = inputHash;
         return analysisJob;
     }
 
@@ -484,9 +500,19 @@ public class AnalysisJob extends BaseEntity {
         if (checkpointStage == null) {
             return;
         }
+        if (checkpointStage == AnalysisJobCheckpointStage.CHARACTER_COMPARISONS_HANDED_OFF) {
+            if (isOrderedProvisional()) {
+                throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_CHECKPOINT_INCOMPLETE);
+            }
+            characterComparisonsHandedOff = true;
+        }
         if (this.checkpointStage == null || checkpointStage.ordinal() >= this.checkpointStage.ordinal()) {
             this.checkpointStage = checkpointStage;
         }
+    }
+
+    public boolean hasHandedOffCharacterComparisons() {
+        return characterComparisonsHandedOff;
     }
 
     public boolean hasReachedCheckpoint(AnalysisJobCheckpointStage checkpointStage) {

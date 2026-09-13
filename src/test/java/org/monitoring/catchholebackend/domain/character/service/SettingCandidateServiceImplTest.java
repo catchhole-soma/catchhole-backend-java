@@ -33,7 +33,6 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobEpisodeRange;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
-import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateCharacterMatchRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateConfirmRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateGroupConfirmDecision;
@@ -43,6 +42,7 @@ import org.monitoring.catchholebackend.domain.character.dto.response.SettingCand
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateReviewStatusResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateValueValidationResponse;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterFactComparisonBatch;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
@@ -116,8 +116,9 @@ class SettingCandidateServiceImplTest {
     private CharacterFactComparisonWorkerService characterFactComparisonWorkerService;
 
     @Mock
-    private AiTokenService aiTokenService;
+    private CharacterFactComparisonJobCoordinator characterComparisonJobCoordinator;
 
+    @Mock private org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService aiTokenService;
     private SettingCandidateServiceImpl service;
 
     @BeforeEach
@@ -136,7 +137,8 @@ class SettingCandidateServiceImplTest {
                 new SettingCandidateSchemaResolver(),
                 new CharacterSettingValueValidator(),
                 aiTokenService,
-                org.mockito.Mockito.mock(CharacterAnalysisConfirmation.class)
+                org.mockito.Mockito.mock(CharacterAnalysisConfirmation.class),
+                characterComparisonJobCoordinator
         );
     }
 
@@ -357,6 +359,70 @@ class SettingCandidateServiceImplTest {
                 null,
                 SettingCandidateValueValidation.valid()
         );
+    }
+
+    @Test
+    @DisplayName("이름이 달라도 같은 기존 캐릭터에 연결된 후보는 하나의 그룹이다")
+    void getSettingCandidatesGroupsExistingAliasesByCharacterId() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        Work work = work(workId);
+        WorkCharacter character = character(work, UUID.randomUUID(), "아리아");
+        SettingCandidate first = candidate(work, "아리아", "age", "17");
+        SettingCandidate second = candidate(work, "왕녀", "age", "18");
+        first.matchExistingCharacter(character);
+        second.matchExistingCharacter(character);
+        SettingCandidateBatchCounts counts = org.mockito.Mockito.mock(SettingCandidateBatchCounts.class);
+        AnalysisJobEpisodeRange episodeRange = org.mockito.Mockito.mock(AnalysisJobEpisodeRange.class);
+        when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
+        when(uploadBatchRepository.findByIdAndWorkId(batchId, workId))
+                .thenReturn(Optional.of(org.mockito.Mockito.mock(UploadBatch.class)));
+        when(settingCandidateRepository.findReviewCandidates(
+                workId,
+                batchId,
+                SettingCandidateReviewStatus.PENDING_REVIEW,
+                Set.of(SettingCandidateMatchStatus.MATCHED)
+        )).thenReturn(List.of(first, second));
+        when(settingCandidateRepository.countReviewSummary(
+                workId,
+                batchId,
+                SettingCandidateReviewStatus.PENDING_REVIEW,
+                SettingCandidateMatchStatus.AMBIGUOUS,
+                Set.of(CharacterFactComparisonStatus.FAILED, CharacterFactComparisonStatus.RECOMPARISON_REQUIRED)
+        )).thenReturn(counts);
+        when(analysisJobRepository.findEpisodeRangeByWorkIdAndBatchId(workId, batchId))
+                .thenReturn(episodeRange);
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId))
+                .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
+        when(settingCandidateMapper.toReviewListResponse(
+                first,
+                false,
+                null,
+                SettingCandidateValueValidation.valid()
+        )).thenReturn(response(workId));
+        when(settingCandidateMapper.toReviewListResponse(
+                second,
+                false,
+                null,
+                SettingCandidateValueValidation.valid()
+        )).thenReturn(response(workId));
+
+        SettingCandidateListResponse result = service.getSettingCandidates(
+                memberId,
+                workId,
+                batchId,
+                SettingCandidateReviewStatus.PENDING_REVIEW,
+                Set.of(SettingCandidateMatchStatus.MATCHED),
+                0,
+                20,
+                false
+        );
+
+        assertThat(result.groups().content()).singleElement().satisfies(group -> {
+            assertThat(group.groupKey()).isEqualTo("existing:" + character.getId());
+            assertThat(group.candidateCount()).isEqualTo(2);
+        });
     }
 
     @Test
@@ -1377,8 +1443,8 @@ class SettingCandidateServiceImplTest {
     }
 
     @Test
-    @DisplayName("검토 대기 후보를 확정 상태로 전환한다")
-    void confirmSettingCandidateConfirmsPendingCandidate() {
+    @DisplayName("비교하지 않은 신규 후보는 그룹 비교로 인계한다")
+    void confirmSettingCandidateHandsUncomparedNewCandidateOff() {
         Long memberId = 1L;
         UUID workId = UUID.randomUUID();
         UUID candidateId = UUID.randomUUID();
@@ -1396,12 +1462,10 @@ class SettingCandidateServiceImplTest {
                 service.confirmSettingCandidate(memberId, workId, candidateId, null);
 
         assertThat(result.response()).isSameAs(response);
-        assertThat(result.recomparisonRequired()).isFalse();
-        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
-        verify(settingCandidatePromotionService).promote(
-                candidate,
-                CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
-        );
+        assertThat(result.recomparisonRequired()).isTrue();
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+        verify(characterComparisonJobCoordinator).enqueueIfNeeded(memberId, candidate);
+        verifyNoInteractions(settingCandidatePromotionService);
     }
 
     @Test
@@ -1445,7 +1509,7 @@ class SettingCandidateServiceImplTest {
         assertThat(result.recomparisonRequired()).isTrue();
         assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
         assertThat(candidate.getMatchedCharacterId()).isEqualTo(characterId);
-        verify(analysisJobRepository).save(any(AnalysisJob.class));
+        verify(characterComparisonJobCoordinator).enqueueIfNeeded(memberId, candidate);
         verify(settingCandidatePromotionService, never()).promote(
                 any(SettingCandidate.class),
                 any(CharacterFactConfirmApplicationMode.class)
@@ -1576,7 +1640,7 @@ class SettingCandidateServiceImplTest {
         assertThat(result.response()).isSameAs(response);
         assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
         assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PENDING);
-        verify(analysisJobRepository).save(any(org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.class));
+        verify(characterComparisonJobCoordinator).enqueueIfNeeded(memberId, candidate);
         verify(settingCandidatePromotionService, never()).promote(
                 any(SettingCandidate.class),
                 any(CharacterFactConfirmApplicationMode.class)
@@ -1608,13 +1672,6 @@ class SettingCandidateServiceImplTest {
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId))
                 .thenReturn(Optional.of(candidate));
-        when(analysisJobRepository.existsBySettingCandidateIdAndStatusIn(
-                candidateId,
-                List.of(
-                        org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING,
-                        org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING
-                )
-        )).thenReturn(false);
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
         when(settingCandidateMapper.toResponse(
@@ -1628,10 +1685,9 @@ class SettingCandidateServiceImplTest {
 
         assertThat(result).isSameAs(response);
         assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PENDING);
-        verify(analysisJobRepository).save(any(AnalysisJob.class));
+        verify(characterComparisonJobCoordinator).enqueueIfNeeded(memberId, candidate);
         verify(analysisJobRepository, never())
                 .findFirstBySettingCandidateIdAndStatusInOrderByCreatedAtDesc(any(), any());
-        verify(aiTokenService).ensureComparisonCanStart(memberId);
     }
 
     @Test
@@ -1671,8 +1727,7 @@ class SettingCandidateServiceImplTest {
                                 .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_VALUE_FORMAT_INVALID));
 
         assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.FAILED);
-        verify(analysisJobRepository, never()).save(any(AnalysisJob.class));
-        verifyNoInteractions(aiTokenService);
+        verifyNoInteractions(characterComparisonJobCoordinator);
     }
 
     @Test
@@ -1700,8 +1755,7 @@ class SettingCandidateServiceImplTest {
                                 CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT
                         ));
 
-        verify(analysisJobRepository, never()).save(any(AnalysisJob.class));
-        verify(aiTokenService, never()).ensureComparisonCanStart(anyLong());
+        verifyNoInteractions(characterComparisonJobCoordinator);
     }
 
     @Test
@@ -1822,6 +1876,7 @@ class SettingCandidateServiceImplTest {
                 org.monitoring.catchholebackend.domain.character.entity.CharacterFactComparisonBatch.class);
         when(comparisonBatch.getId()).thenReturn(UUID.randomUUID());
         when(comparisonBatch.getCreatedAt()).thenReturn(LocalDateTime.of(2026, 9, 10, 12, 0));
+        when(comparisonBatch.getAnalysisJob()).thenReturn(org.mockito.Mockito.mock(AnalysisJob.class));
         ReflectionTestUtils.setField(first, "characterComparisonBatch", comparisonBatch);
         ReflectionTestUtils.setField(first, "characterComparisonCandidateRef", "C1");
         ReflectionTestUtils.setField(second, "characterComparisonBatch", comparisonBatch);
@@ -1942,6 +1997,114 @@ class SettingCandidateServiceImplTest {
                 any(SettingCandidate.class),
                 any(CharacterFactConfirmApplicationMode.class)
         );
+    }
+
+    @Test
+    @DisplayName("같은 그룹 확정 요청을 다시 보내도 스냅샷을 두 번 반영하지 않는다")
+    void confirmSettingCandidateGroupIsIdempotentForSameDecision() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = completedCandidate(
+                work,
+                character(work, UUID.randomUUID(), "아리아"),
+                "stats.strength",
+                "10",
+                CharacterFactOperation.ADD
+        );
+        SettingCandidateGroupConfirmRequest request = new SettingCandidateGroupConfirmRequest(
+                batchId,
+                List.of(new SettingCandidateGroupConfirmDecision(
+                        candidate.getId(),
+                        CharacterFactConfirmApplicationMode.APPLY_PROPOSAL,
+                        0L
+                ))
+        );
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(uploadBatchRepository.findByIdAndWorkId(batchId, workId))
+                .thenReturn(Optional.of(org.mockito.Mockito.mock(UploadBatch.class)));
+        when(settingCandidateRepository.findAllByIdsAndBatchForUpdate(
+                workId, batchId, Set.of(candidate.getId())
+        )).thenReturn(List.of(candidate));
+        when(settingCandidateRepository.findReviewCandidates(
+                workId,
+                batchId,
+                SettingCandidateReviewStatus.PENDING_REVIEW,
+                java.util.EnumSet.allOf(SettingCandidateMatchStatus.class)
+        )).thenReturn(List.of(candidate));
+        when(characterFactComparisonWorkerService.hasCurrentContext(candidate)).thenReturn(true);
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(
+                schema("stats.strength", null, CharacterFactType.STAT, SettingValueType.NUMBER)
+        ));
+
+        assertThat(service.confirmSettingCandidateGroup(memberId, workId, request).recomparisonRequired())
+                .isFalse();
+        assertThat(service.confirmSettingCandidateGroup(memberId, workId, request).recomparisonRequired())
+                .isFalse();
+
+        verify(settingCandidatePromotionService).promoteGroup(any());
+    }
+
+    @Test
+    @DisplayName("현재 그룹과 다른 비교 revision으로는 확정할 수 없다")
+    void confirmSettingCandidateGroupRejectsStaleRevision() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        Work work = work(workId);
+        WorkCharacter character = character(work, UUID.randomUUID(), "아리아");
+        SettingCandidate candidate = completedCandidate(
+                work,
+                character,
+                "stats.strength",
+                "10",
+                CharacterFactOperation.ADD
+        );
+        UploadBatch uploadBatch = org.mockito.Mockito.mock(UploadBatch.class);
+        AnalysisJob sourceJob = AnalysisJob.create(work, uploadBatch, null, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(candidate, "analysisJob", sourceJob);
+        AnalysisJob comparisonJob = AnalysisJob.createCharacterFactComparison(candidate, "a".repeat(64));
+        CharacterFactComparisonBatch comparisonBatch = CharacterFactComparisonBatch.create(
+                work,
+                null,
+                comparisonJob,
+                character,
+                CharacterFactType.STAT,
+                1,
+                0L
+        );
+        ReflectionTestUtils.setField(candidate, "characterComparisonBatch", comparisonBatch);
+        SettingCandidateGroupConfirmRequest request = new SettingCandidateGroupConfirmRequest(
+                batchId,
+                "b".repeat(64),
+                List.of(new SettingCandidateGroupConfirmDecision(
+                        candidate.getId(),
+                        CharacterFactConfirmApplicationMode.APPLY_PROPOSAL,
+                        0L
+                ))
+        );
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(uploadBatchRepository.findByIdAndWorkId(batchId, workId))
+                .thenReturn(Optional.of(uploadBatch));
+        when(settingCandidateRepository.findAllByIdsAndBatchForUpdate(
+                workId, batchId, Set.of(candidate.getId())
+        )).thenReturn(List.of(candidate));
+        when(settingCandidateRepository.findReviewCandidates(
+                workId,
+                batchId,
+                SettingCandidateReviewStatus.PENDING_REVIEW,
+                java.util.EnumSet.allOf(SettingCandidateMatchStatus.class)
+        )).thenReturn(List.of(candidate));
+        when(characterFactComparisonWorkerService.hasCurrentContext(candidate)).thenReturn(true);
+        when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of(
+                schema("stats.strength", null, CharacterFactType.STAT, SettingValueType.NUMBER)
+        ));
+
+        assertThatThrownBy(() -> service.confirmSettingCandidateGroup(memberId, workId, request))
+                .isInstanceOfSatisfying(AppException.class, exception -> assertThat(exception.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE));
+        verify(settingCandidatePromotionService, never()).promoteGroup(any());
     }
 
     @Test
@@ -2122,9 +2285,11 @@ class SettingCandidateServiceImplTest {
                 null,
                 null,
                 null,
+                null,
                 false,
                 null,
-                false
+                false,
+                null
         );
     }
 

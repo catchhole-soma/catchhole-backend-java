@@ -279,6 +279,9 @@ public class SettingCandidate extends BaseEntity {
         return isPendingReview() && analysisJob != null && analysisJob.isAutomaticApplicationPending();
     }
 
+    // 그룹 확정 성공 응답이 유실된 뒤 동일 결정을 멱등적으로 반환하기 위한 hash.
+    @Column(name = "confirmed_group_decision_hash", length = 64)
+    private String confirmedGroupDecisionHash;
 
     private SettingCandidate(
             Work work,
@@ -317,7 +320,7 @@ public class SettingCandidate extends BaseEntity {
         this.confidence = confidence;
         this.reviewStatus = SettingCandidateReviewStatus.PENDING_REVIEW;
         this.rawAiResultJson = rawAiResultJson;
-        this.comparisonStatus = initialComparisonStatus(candidateKind, this.matchStatus, matchedCharacterId);
+        this.comparisonStatus = initialComparisonStatus(candidateKind, this.matchStatus, matchedCharacterId, analysisJob);
     }
 
     public static SettingCandidate create(
@@ -580,7 +583,6 @@ public class SettingCandidate extends BaseEntity {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
         }
         applyCharacterMatch(character, targetMatchStatus);
-        requestComparisonAfterCandidateChange();
     }
 
     private void applyCharacterMatch(
@@ -597,19 +599,24 @@ public class SettingCandidate extends BaseEntity {
         // 사용자가 기존 매칭을 취소하고 신규 캐릭터로 판단한 상태다. 실제 생성은 confirm까지 미룬다.
         validateEditable();
 
+        if (matchedCharacterId == null
+                && matchStatus == SettingCandidateMatchStatus.UNRESOLVED
+                && Objects.equals(this.entityName, entityName)) {
+            return;
+        }
+
         this.entityName = entityName;
         this.matchedCharacterId = null;
         this.provisionalSubjectKey = null;
         this.matchStatus = SettingCandidateMatchStatus.UNRESOLVED;
-        markWaitingForCharacterMatch();
+        requestComparisonAfterCandidateChange();
     }
 
     public void startComparison() {
         validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
         if (isCharacterDiscovery()
                 || comparisonStatus != CharacterFactComparisonStatus.PENDING
-                || (matchedCharacterId == null && (provisionalSubjectKey == null
-                || analysisJob == null || !analysisJob.isOrderedProvisional()))) {
+                || matchStatus == SettingCandidateMatchStatus.AMBIGUOUS) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
         comparisonStatus = CharacterFactComparisonStatus.PROCESSING;
@@ -817,13 +824,24 @@ public class SettingCandidate extends BaseEntity {
     public void requestComparison() {
         validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
         clearComparisonProposal();
-        comparisonStatus = matchedCharacterId == null
+        comparisonStatus = needsCharacterMatch()
                 ? CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH
                 : CharacterFactComparisonStatus.PENDING;
     }
 
     public boolean isComparisonCompleted() {
         return comparisonStatus == CharacterFactComparisonStatus.COMPLETED;
+    }
+
+    public void recordGroupConfirmation(String decisionHash) {
+        if (reviewStatus == SettingCandidateReviewStatus.PENDING_REVIEW) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
+        }
+        String normalized = Objects.requireNonNull(decisionHash).trim();
+        if (!normalized.matches("[0-9a-f]{64}")) {
+            throw new IllegalArgumentException("decisionHash must be a lowercase SHA-256 value.");
+        }
+        this.confirmedGroupDecisionHash = normalized;
     }
 
     public boolean isPendingReview() {
@@ -887,13 +905,19 @@ public class SettingCandidate extends BaseEntity {
         }
     }
 
+    private boolean needsCharacterMatch() {
+        return matchStatus == SettingCandidateMatchStatus.AMBIGUOUS
+                || matchedCharacterId == null && provisionalSubjectKey == null
+                && analysisJob != null && analysisJob.isOrderedProvisional();
+    }
+
     private void requestComparisonAfterCandidateChange() {
         if (isCharacterDiscovery() || !isPendingReview()) {
             comparisonStatus = CharacterFactComparisonStatus.NOT_REQUIRED;
             return;
         }
         clearComparisonProposal();
-        comparisonStatus = matchedCharacterId == null
+        comparisonStatus = needsCharacterMatch()
                 ? CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH
                 : CharacterFactComparisonStatus.PENDING;
     }
@@ -965,16 +989,16 @@ public class SettingCandidate extends BaseEntity {
     private static CharacterFactComparisonStatus initialComparisonStatus(
             SettingCandidateKind candidateKind,
             SettingCandidateMatchStatus matchStatus,
-            UUID matchedCharacterId
+            UUID matchedCharacterId,
+            AnalysisJob analysisJob
     ) {
         if (candidateKind != SettingCandidateKind.SETTING) {
             return CharacterFactComparisonStatus.NOT_REQUIRED;
         }
-        return matchedCharacterId != null
-                && (matchStatus == SettingCandidateMatchStatus.MATCHED
-                || matchStatus == SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME)
-                ? CharacterFactComparisonStatus.PENDING
-                : CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH;
+        return matchStatus == SettingCandidateMatchStatus.AMBIGUOUS
+                || matchedCharacterId == null && analysisJob != null && analysisJob.isOrderedProvisional()
+                ? CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH
+                : CharacterFactComparisonStatus.PENDING;
     }
 
     private static String normalizeNullable(String value) {

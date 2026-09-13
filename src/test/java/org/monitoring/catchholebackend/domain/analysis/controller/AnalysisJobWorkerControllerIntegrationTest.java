@@ -577,6 +577,53 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("그룹 비교 capability가 없는 구 Worker는 신규 그룹 Job을 claim하지 않는다")
+    void legacyWorkerDoesNotClaimCharacterComparisonGroupJob() throws Exception {
+        AnalysisJob sourceJob = analysisJobRepository.save(
+                episodeJob(AnalysisJobType.SETTING_EXTRACTION, firstEpisode)
+        );
+        SettingCandidate candidate = settingCandidateRepository.save(SettingCandidate.create(
+                work,
+                firstEpisode,
+                UUID.randomUUID(),
+                sourceJob,
+                SettingEntityType.CHARACTER,
+                "아리아",
+                "아리아",
+                null,
+                SettingCandidateMatchStatus.UNRESOLVED,
+                "age",
+                "17",
+                SettingValueType.NUMBER,
+                objectMapper.createObjectNode().put("value", 17),
+                objectMapper.createArrayNode(),
+                new BigDecimal("0.90"),
+                objectMapper.createObjectNode()
+        ));
+        AnalysisJob groupJob = analysisJobRepository.save(
+                AnalysisJob.createCharacterFactComparison(candidate, "a".repeat(64))
+        );
+
+        mockMvc.perform(post(CLAIM_URL)
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"allowedJobTypes\":[\"CHARACTER_FACT_COMPARISON\"]}"))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post(CLAIM_URL)
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "allowedJobTypes": ["CHARACTER_FACT_COMPARISON"],
+                                  "supportsCharacterComparisonGroups": true
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.analysisJobId").value(groupJob.getId().toString()));
+    }
+
+    @Test
     @DisplayName("active hidden Job에 위임된 후보는 원 분석 Job이 claim하거나 실패 처리하지 않는다")
     void activeHiddenComparisonOwnsCandidateAcrossSourceJobFailure() throws Exception {
         AnalysisJob sourceJob = episodeJob(AnalysisJobType.SETTING_EXTRACTION, firstEpisode);

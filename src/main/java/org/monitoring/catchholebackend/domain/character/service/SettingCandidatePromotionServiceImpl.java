@@ -12,10 +12,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
-import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
-import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
-import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
@@ -61,8 +57,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
     private final EpisodeRepository episodeRepository;
     private final WorkRepository workRepository;
     private final CharacterAnalysisConfirmation analysisConfirmation;
-    private final AnalysisJobRepository analysisJobRepository;
-    private final AiTokenService aiTokenService;
+    private final CharacterFactComparisonJobCoordinator characterComparisonJobCoordinator;
     private final SettingCandidatePromotionMapper promotionMapper;
     private final SettingCandidateSchemaResolver schemaResolver;
     private final CharacterSnapshotAccessor snapshotAccessor;
@@ -173,17 +168,16 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                     validateActiveStatusPromotion(
                             candidate,
                             schemaMatch.matchedSchema().getFactType(),
-                            hasOrderedProvisionalSubject(candidate)
-                                    ? candidate.getSuggestedOperation() : CharacterFactOperation.ADD,
+                            candidate.getSuggestedOperation(),
                             promotion.applicationMode(),
                             candidate.getProposedValueJson()
                     );
                 });
 
         WorkCharacter character = workCharacterRepository.save(promotionMapper.toWorkCharacter(representative));
-        ResolvedCharacter resolved = new ResolvedCharacter(character, true, false);
-        long initialSnapshotVersion = character.getSnapshotVersion();
+        ResolvedCharacter resolved = new ResolvedCharacter(character, false);
         Set<UUID> versionedCharacterIds = new HashSet<>();
+        long initialSnapshotVersion = character.getSnapshotVersion();
         for (SettingCandidateGroupPromotion promotion : promotions) {
             SettingCandidate candidate = promotion.candidate();
             if (!candidate.confirm()) {
@@ -203,7 +197,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                         candidate,
                         promotion.applicationMode(),
                         resolveSchema(candidate),
-                        orderedProposal ? new ResolvedCharacter(character, false, false) : resolved,
+                        orderedProposal ? new ResolvedCharacter(character, false) : resolved,
                         versionedCharacterIds,
                         initialSnapshotVersion
                 );
@@ -229,13 +223,13 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                     || !Objects.equals(earlier.getMatchedCharacterId(), candidate.getMatchedCharacterId())
                     || !Objects.equals(earlier.getProvisionalSubjectKey(), candidate.getProvisionalSubjectKey())) continue;
             PromotionPlan plan = preparePromotion(earlier, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL,
-                    resolveSchema(earlier), new ResolvedCharacter(null, false, false), snapshot, 0);
+                    resolveSchema(earlier), new ResolvedCharacter(null, false), snapshot, 0);
             projectPlan(snapshot, plan);
         }
         // Ordered provisional subjects use their explicit comparison operation,
         // including history-only. No entity, fact or source is written here.
         preparePromotion(candidate, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL,
-                resolveSchema(candidate), new ResolvedCharacter(null, false, false), snapshot, 0);
+                resolveSchema(candidate), new ResolvedCharacter(null, false), snapshot, 0);
     }
 
     private void projectPlan(Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshot, PromotionPlan plan) {
@@ -257,7 +251,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
     ) {
         WorkCharacter character = resolved.character();
         boolean historyOnly = applicationMode == CharacterFactConfirmApplicationMode.HISTORY_ONLY
-                || !resolved.newlyCreated() && candidate.getSuggestedOperation() == CharacterFactOperation.HISTORY_ONLY;
+                || candidate.getSuggestedOperation() == CharacterFactOperation.HISTORY_ONLY;
         Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshot = historyOnly ? Map.of() : snapshotAccessor.read(
                 character, snapshotSourceManager.findSourceFactsBySlot(character));
         PromotionPlan plan = preparePromotion(candidate, applicationMode, schemaMatch, resolved,
@@ -292,11 +286,10 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         valueValidator.validateCandidate(candidate, factType, schemaMatch.matchedSchema().getValueType());
         JsonNode normalized = valueValidator.resolveCandidateValue(candidate, factType,
                 schemaMatch.matchedSchema().getValueType());
-        CharacterFactOperation operation = resolved.newlyCreated()
-                ? CharacterFactOperation.ADD : candidate.getSuggestedOperation();
+        CharacterFactOperation operation = candidate.getSuggestedOperation();
         validatePromotionPolicy(candidate, resolved, operation, applicationMode);
         validateRemovalSnapshotVersion(candidate, operation, applicationMode, removalSnapshotVersion);
-        JsonNode proposed = resolved.newlyCreated() ? normalized : candidate.getProposedValueJson();
+        JsonNode proposed = candidate.getProposedValueJson();
         validateActiveStatusPromotion(candidate, factType, operation, applicationMode, proposed);
         CharacterSnapshotSlot slot = new CharacterSnapshotSlot(factType, factKey);
         if (applicationMode == CharacterFactConfirmApplicationMode.HISTORY_ONLY
@@ -307,14 +300,10 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             return new PromotionPlan(operation, slot, normalized, null, null,
                     resolveRemovalSlotsForPromotion(candidate, snapshot, slot), false);
         }
-        validateComparedTarget(candidate, resolved, slot);
-        String proposedText = resolved.newlyCreated() ? candidate.getAttributeValue() : candidate.getProposedFactValue();
-        if (!resolved.newlyCreated() && (proposedText == null || proposedText.isBlank())) {
-            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
-        }
+        validateComparedTarget(candidate, slot);
+        String proposedText = candidate.getProposedFactValue();
         valueValidator.validateProposal(proposed, proposedText, factType, schemaMatch.matchedSchema().getValueType());
-        List<CharacterSnapshotSlot> removals = resolved.newlyCreated() ? List.of()
-                : parseRemovedSlots(candidate.getRemovedSnapshotEntriesJson(), snapshot, slot);
+        List<CharacterSnapshotSlot> removals = parseRemovedSlots(candidate.getRemovedSnapshotEntriesJson(), snapshot, slot);
         return new PromotionPlan(operation, slot, normalized, proposed, proposedText, removals, false);
     }
 
@@ -353,9 +342,6 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
     ) {
         if (resolved.reusedExistingForUnresolved()) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_NOT_READY);
-        }
-        if (resolved.newlyCreated()) {
-            return;
         }
         if (!candidate.isComparisonCompleted() || operation == null) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_NOT_READY);
@@ -458,15 +444,10 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             CharacterFactType factType,
             CharacterFactConfirmApplicationMode applicationMode
     ) {
-        // 누적 대상은 아직 실제 ID가 없어도 비교 제안대로 반영하므로 신규 ADD로 추정하지 않는다.
-        CharacterFactOperation operation = candidate.getMatchedCharacterId() == null
-                && !usesOrderedCharacterResolution(candidate)
-                ? CharacterFactOperation.ADD
-                : candidate.getSuggestedOperation();
         validateActiveStatusPromotion(
                 candidate,
                 factType,
-                operation,
+                candidate.getSuggestedOperation(),
                 applicationMode,
                 candidate.getProposedValueJson()
         );
@@ -479,12 +460,8 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
 
     private void validateComparedTarget(
             SettingCandidate candidate,
-            ResolvedCharacter resolved,
             CharacterSnapshotSlot canonicalSlot
     ) {
-        if (resolved.newlyCreated()) {
-            return;
-        }
         if (candidate.getComparisonTargetFactType() != canonicalSlot.factType()
                 || !Objects.equals(candidate.getComparisonTargetFactKey(), canonicalSlot.factKey())) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_TARGET_INVALID);
@@ -596,12 +573,11 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                 throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID);
             }
             candidate.bindPromotedProvisionalCharacter(character);
-            return new ResolvedCharacter(character, false, false);
+            return new ResolvedCharacter(character, false);
         }
         return switch (candidate.getMatchStatus()) {
             case MATCHED, AUTO_MATCHED_BY_NAME -> new ResolvedCharacter(
                     getMatchedCharacter(candidate),
-                    false,
                     false
             );
             case UNRESOLVED -> resolveUnresolvedCharacter(candidate);
@@ -651,7 +627,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         if (existingCharacter != null) {
             candidate.matchPromotedExistingCharacter(existingCharacter);
             matchPendingUnresolvedSiblings(workId, characterName, existingCharacter, false);
-            return new ResolvedCharacter(existingCharacter, false, true);
+            return new ResolvedCharacter(existingCharacter, true);
         }
         if (existsCharacterByGroupName(workId, characterName)) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
@@ -665,7 +641,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             candidate.matchPromotedNewCharacter(newCharacter);
         }
         matchPendingUnresolvedSiblings(workId, characterName, newCharacter, true);
-        return new ResolvedCharacter(newCharacter, !orderedProposal, false);
+        return new ResolvedCharacter(newCharacter, false);
     }
 
     private WorkCharacter lockActiveCharacter(WorkCharacter character, UUID workId) {
@@ -744,21 +720,10 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
     }
 
     private void enqueueComparisonJobIfNeeded(SettingCandidate candidate) {
-        if (candidate.isCharacterDiscovery()) {
-            return;
-        }
-        // 같은 이름 sibling은 사용자 확정 트랜잭션에서 새로 MATCHED/PENDING이 되므로
-        // 원 분석 Job의 drain 시점과 무관하게 후보 전용 hidden Job에 위임한다.
-        // promotion도 Work -> candidate 잠금 순서 안에서 실행된다. Worker의 Job -> candidate
-        // 순서와 교차하지 않도록 활성 Job 존재 여부는 pessimistic lock 없이 확인한다.
-        if (analysisJobRepository.existsBySettingCandidateIdAndStatusIn(
-                candidate.getId(),
-                List.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING)
-        )) {
-            return;
-        }
-        aiTokenService.ensureComparisonCanStart(candidate.getWork().getMember().getId());
-        analysisJobRepository.save(AnalysisJob.createCharacterFactComparison(candidate));
+        characterComparisonJobCoordinator.enqueueIfNeeded(
+                candidate.getWork().getMember().getId(),
+                candidate
+        );
     }
 
     private void updateFirstAppearance(WorkCharacter character, Episode sourceEpisode) {
@@ -777,7 +742,6 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
 
     private record ResolvedCharacter(
             WorkCharacter character,
-            boolean newlyCreated,
             boolean reusedExistingForUnresolved
     ) {
     }

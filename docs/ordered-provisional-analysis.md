@@ -34,7 +34,7 @@
 
 후보의 자동 검토 출처와 실제 저장한 이력을 보존하고 모델에도 작가 확인과 AI 자동 반영을 구분해 준다.
 기존 인물에 연결된 새로운 이름의 발견 후보를 유지해 이후 회차에서 별칭과 원문 근거를 다시 참고할 수 있다.
-V47은 반영 방식·자동 시작 문맥·자동 반영 완료 시각과 두 후보 도메인의 자동 검토 표시를 추가한다.
+V49는 반영 방식·자동 시작 문맥·자동 반영 완료 시각과 두 후보 도메인의 자동 검토 표시를 추가한다.
 
 자동 처리 뒤 남은 후보는 작가가 직접 수정안을 저장한 다음 확정할 수 있다. 서버가 이 경로의 가능 여부를 제공하고
 사용자 결정 없이 실패값을 현재 설정으로 올리지 않는다. 세계관은 원래 비교 실패 이력을 유지한 채 사람의 확정으로 기록한다.
@@ -93,7 +93,7 @@ path는 문자열 배열이며 실제 대상·설정 경로를 완전히 해소�
 같은 eventId의 같은 내용은 한 번만 적용하고 다른 내용은 거절한다. 부모 경로와 제거 경로를 암묵적으로 생성하지 않는다.
 회차와 회차 내부 event 순서는 저장된 배열 순서로 고정한다. source 후보를 다시 읽어 당시 값을 변경하지 않는다.
 
-V43~47은 기존 Job·후보·비교 batch/decision 컬럼을 보완한다. 첫 Job의 `run_base_state`가 S0이고,
+V44~48은 기존 Job·후보·비교 batch/decision 컬럼을 보완한다. 첫 Job의 `run_base_state`가 S0이고,
 각 Job의 `state_journal`이 당시 제안값과 source ID를 가진다. run/generation/sequence, 원문
 ID·번호·hash·S3 version, 입력 hash, journal 포맷/완성 상태를 함께 검증한다. 동일 이벤트의
 동일 내용은 한 번 적용하고 다른 내용은 거절한다. 현재 후보를 편집해도 저장 당시 값은 바뀌지 않는다.
@@ -204,7 +204,7 @@ S0 references에 보관한 해시만 사용하고 반려 내용이나 비공개 
 
 ## 읽는 순서와 초기 제한
 
-1. `AnalysisJobCreateRequest` → `AnalysisJobServiceImpl` → `AnalysisJob` / V43~47: 명시적 모드와 고정 실행 생성.
+1. `AnalysisJobCreateRequest` → `AnalysisJobServiceImpl` → `AnalysisJob` / V44~48: 명시적 모드와 고정 실행 생성.
 2. `AnalysisStateJournal` → `AnalysisRunStateServiceImpl` → `AnalysisJobClaimRepository`: 결정적 복원·claim·seal·무효화.
 3. `CharacterAnalysisStateService`, `OrderedWorldSettingWorker` 및 각 StateMapper/Confirmation: 실제·임시 문맥, 검증, 최종 확정.
 4. AI `analysis_job_worker.py` → `ordered_context.py`, `ordered_character_subjects.py` → comparator/pipeline: 단계별 입력과 실패 전파.
@@ -290,4 +290,8 @@ AI 무료 non-integration **935개 통과 / integration 14개 별도 선택**, �
 
 ### 2026-09-13 PR 통합 검증
 
-main 이메일 가입 V42를 보존하며 미배포 migration 번호를 V43~V53으로 옮겼습니다. 위 과거 검증 표의 V42~V46은 실행 당시 번호입니다. 최종 코드에서 Python HTTP 하네스는 `GH180_AI_ROOT`와 `GH180_PYTHON`으로 별도 checkout/runtime을 지정할 수 있습니다. 기본 경로는 옆의 `catchhole-backend-ai` 저장소입니다. 사용자 로컬 DB 35432는 테스트 대상에서 제외합니다.
+main 이메일 가입 V42와 신규 캐릭터 그룹 비교 V43을 보존하며 미배포 migration을 V44~V54로 배치했습니다. 위 과거 검증 표의 V42~V46은 실행 당시 번호입니다. Python HTTP 하네스는 `GH180_AI_ROOT`와 `GH180_PYTHON`으로 검증할 checkout/runtime을 명시합니다. 사용자 로컬 DB 35432는 테스트 대상에서 제외합니다.
+
+`CONFIRMED_ONLY`의 일반 분석은 main #191/#69의 그룹 handoff를 사용합니다. `ORDERED_PROVISIONAL`은 각 회차의 고정 입력을 원 Job 안에서 비교하고 저장해야 하므로 batch 전체 게시 barrier를 기다리지 않습니다. ordered 후보를 legacy 숨김 그룹에 보내지 않고, Worker의 모드 지원과 그룹 지원 capability를 claim에서 각각 확인합니다. 신규 캐릭터도 비교 제안 없이 ADD로 추정하지 않습니다.
+
+검토 응답의 `analysisMode`는 프론트가 그룹 공통 revision을 요구하는 일반 비교와 회차별 고정 문맥을 검증하는 순차 비교를 구분하도록 합니다. 자동 보류 후보는 기존 직접 수정·`applyEditedValue` 확정을 유지합니다. 순차 그룹의 최종 승인은 서버가 실제 상태·선행 결정 의존성과 사용자 수정을 다시 검증합니다.

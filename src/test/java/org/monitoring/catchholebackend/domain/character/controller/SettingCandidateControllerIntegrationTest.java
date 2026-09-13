@@ -3,6 +3,8 @@ package org.monitoring.catchholebackend.domain.character.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -33,6 +35,7 @@ import org.monitoring.catchholebackend.domain.character.repository.CharacterSett
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSnapshotSourceRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
+import org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonWorkerService;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
@@ -62,6 +65,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
@@ -111,6 +115,9 @@ class SettingCandidateControllerIntegrationTest {
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
 
+    @MockitoBean
+    private CharacterFactComparisonWorkerService characterFactComparisonWorkerService;
+
     private Member member;
     private Member otherMember;
     private Work work;
@@ -122,6 +129,7 @@ class SettingCandidateControllerIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        when(characterFactComparisonWorkerService.hasCurrentContext(any())).thenReturn(true);
         characterSnapshotSourceRepository.deleteAll();
         characterFactRepository.deleteAll();
         // 후보를 FK로 참조하는 hidden 비교 Job을 먼저 지워 양방향 FK 정리 순서를 지킨다.
@@ -315,7 +323,7 @@ class SettingCandidateControllerIntegrationTest {
                                 "matchedCharacterId", character.getId()
                         ))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.groupKey").value("나은"))
+                .andExpect(jsonPath("$.data.groupKey").value("existing:" + character.getId()))
                 .andExpect(jsonPath("$.data.candidates.length()").value(2))
                 .andExpect(jsonPath("$.data.candidates[*].entityName")
                         .value(containsInAnyOrder("나은", "나은")))
@@ -342,12 +350,16 @@ class SettingCandidateControllerIntegrationTest {
                 null, "level", null, CharacterFactType.LEVEL,
                 SettingValueType.NUMBER, "레벨"
         ));
-        SettingCandidate age = settingCandidateRepository.save(
-                candidate(work, episode, analysisJob, "Aria Smith", "age", "17")
-        );
-        SettingCandidate level = settingCandidateRepository.save(
-                candidate(work, episode, analysisJob, "aria  smith", "level", "3")
-        );
+        SettingCandidate age = settingCandidateRepository.save(comparisonCompleted(
+                candidate(work, episode, analysisJob, "Aria Smith", "age", "17"),
+                CharacterFactType.AGE,
+                "age"
+        ));
+        SettingCandidate level = settingCandidateRepository.save(comparisonCompleted(
+                candidate(work, episode, analysisJob, "aria  smith", "level", "3"),
+                CharacterFactType.LEVEL,
+                "level"
+        ));
 
         mockMvc.perform(post("/api/v1/works/{workId}/setting-candidates/group-confirm", work.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
@@ -615,8 +627,8 @@ class SettingCandidateControllerIntegrationTest {
                         .andExpect(jsonPath("$.data.attentionRequiredCandidateCount").value(1))
                         .andExpect(jsonPath("$.data.confirmedCandidateCount").value(1))
                         .andExpect(jsonPath("$.data.dismissedCandidateCount").value(1))
-                        .andExpect(jsonPath("$.data.directReviewCandidateCount").value(2))
-                        .andExpect(jsonPath("$.data.processingCandidateCount").value(1));
+                        .andExpect(jsonPath("$.data.directReviewCandidateCount").value(1))
+                        .andExpect(jsonPath("$.data.processingCandidateCount").value(2));
                 if (page.equals("10")) {
                     response.andExpect(jsonPath("$.data.groups.content").isEmpty())
                             .andExpect(jsonPath("$.data.candidates.content").isEmpty());
@@ -842,6 +854,13 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.evidenceSpans[0].paragraph_index").value(1))
                 .andExpect(jsonPath("$.data.reviewStatus").value("PENDING_REVIEW"))
                 .andExpect(jsonPath("$.data.rawAiResultJson.raw_value").value("17"));
+
+        SettingCandidate updated = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
+        settingCandidateRepository.saveAndFlush(comparisonCompleted(
+                updated,
+                CharacterFactType.AGE,
+                "age"
+        ));
 
         mockMvc.perform(post(
                                 "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
@@ -1153,14 +1172,14 @@ class SettingCandidateControllerIntegrationTest {
     @Test
     @DisplayName("검토 대기 설정 후보를 확정한다")
     void confirmSettingCandidateConfirmsPendingCandidate() throws Exception {
-        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+        SettingCandidate candidate = settingCandidateRepository.save(comparisonCompleted(candidate(
                 work,
                 episode,
                 analysisJob,
                 "아리아",
                 "age",
                 "17"
-        ));
+        ), CharacterFactType.AGE, "age"));
 
         mockMvc.perform(post(
                                 "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
@@ -1207,14 +1226,14 @@ class SettingCandidateControllerIntegrationTest {
                 SettingValueType.NUMBER,
                 "레벨"
         ));
-        SettingCandidate ageCandidate = settingCandidateRepository.save(candidate(
+        SettingCandidate ageCandidate = settingCandidateRepository.save(comparisonCompleted(candidate(
                 work,
                 episode,
                 analysisJob,
                 "아리아",
                 "age",
                 "17"
-        ));
+        ), CharacterFactType.AGE, "age"));
         SettingCandidate levelCandidate = settingCandidateRepository.save(candidate(
                 work,
                 episode,
@@ -1275,14 +1294,14 @@ class SettingCandidateControllerIntegrationTest {
     @Test
     @DisplayName("활성 schema와 매칭되지 않는 후보 확정은 rollback하고 부수효과를 남기지 않는다")
     void confirmSettingCandidateRollsBackUnmatchedSchema() throws Exception {
-        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+        SettingCandidate candidate = settingCandidateRepository.save(comparisonCompleted(candidate(
                 work,
                 episode,
                 analysisJob,
                 "아리아",
                 "profile",
                 "북부 기사단"
-        ));
+        ), CharacterFactType.PROFILE, "profile"));
 
         mockMvc.perform(post(
                                 "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
@@ -1303,7 +1322,7 @@ class SettingCandidateControllerIntegrationTest {
     @Test
     @DisplayName("schema와 값 타입이 다른 후보 확정은 rollback하고 부수효과를 남기지 않는다")
     void confirmSettingCandidateRollsBackMismatchedValueType() throws Exception {
-        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+        SettingCandidate candidate = settingCandidateRepository.save(comparisonCompleted(candidate(
                 work,
                 episode,
                 analysisJob,
@@ -1312,7 +1331,7 @@ class SettingCandidateControllerIntegrationTest {
                 "열일곱",
                 SettingValueType.STRING,
                 objectMapper.createObjectNode().put("value", "열일곱")
-        ));
+        ), CharacterFactType.AGE, "age"));
 
         mockMvc.perform(post(
                                 "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
@@ -1342,7 +1361,7 @@ class SettingCandidateControllerIntegrationTest {
                 "레벨"
         ));
         List<SettingCandidate> candidates = settingCandidateRepository.saveAll(List.of(
-                candidate(
+                comparisonCompleted(candidate(
                         work,
                         episode,
                         analysisJob,
@@ -1351,8 +1370,8 @@ class SettingCandidateControllerIntegrationTest {
                         "-1",
                         SettingValueType.NUMBER,
                         objectMapper.createObjectNode().put("value", -1)
-                ),
-                candidate(
+                ), CharacterFactType.AGE, "age"),
+                comparisonCompleted(candidate(
                         work,
                         episode,
                         analysisJob,
@@ -1361,8 +1380,8 @@ class SettingCandidateControllerIntegrationTest {
                         "23.5",
                         SettingValueType.NUMBER,
                         objectMapper.createObjectNode().put("value", new BigDecimal("23.5"))
-                ),
-                candidate(
+                ), CharacterFactType.LEVEL, "level"),
+                comparisonCompleted(candidate(
                         work,
                         episode,
                         analysisJob,
@@ -1371,7 +1390,7 @@ class SettingCandidateControllerIntegrationTest {
                         "2147483648",
                         SettingValueType.NUMBER,
                         objectMapper.createObjectNode().put("value", 2147483648L)
-                )
+                ), CharacterFactType.AGE, "age")
         ));
 
         for (SettingCandidate candidate : candidates) {
@@ -1411,7 +1430,7 @@ class SettingCandidateControllerIntegrationTest {
                 SettingValueType.JSON,
                 CharacterSettingMergePolicy.UPSERT_BY_NAME
         ));
-        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+        SettingCandidate candidate = settingCandidateRepository.save(comparisonCompleted(candidate(
                 work,
                 episode,
                 analysisJob,
@@ -1420,7 +1439,7 @@ class SettingCandidateControllerIntegrationTest {
                 "검술",
                 SettingValueType.JSON,
                 invalidStructuredValueJson(invalidCase)
-        ));
+        ), CharacterFactType.SKILL, "skill.검술"));
 
         mockMvc.perform(post(
                                 "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
@@ -1452,7 +1471,7 @@ class SettingCandidateControllerIntegrationTest {
         if (invalidCase.equals("mismatched-value")) {
             valueJson.put("value", 3);
         }
-        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+        SettingCandidate candidate = settingCandidateRepository.save(comparisonCompleted(candidate(
                 work,
                 episode,
                 analysisJob,
@@ -1461,7 +1480,7 @@ class SettingCandidateControllerIntegrationTest {
                 "기사",
                 SettingValueType.STRING,
                 valueJson
-        ));
+        ), CharacterFactType.PROFILE, "profile.rank"));
 
         mockMvc.perform(post(
                                 "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
@@ -1489,7 +1508,7 @@ class SettingCandidateControllerIntegrationTest {
                 SettingValueType.JSON,
                 CharacterSettingMergePolicy.APPEND
         ));
-        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+        SettingCandidate candidate = settingCandidateRepository.save(comparisonCompleted(candidate(
                 work,
                 episode,
                 analysisJob,
@@ -1498,7 +1517,7 @@ class SettingCandidateControllerIntegrationTest {
                 "기록",
                 SettingValueType.JSON,
                 objectMapper.createObjectNode().put("name", "기록")
-        ));
+        ), CharacterFactType.STATUS, "status.log"));
 
         mockMvc.perform(post(
                                 "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
@@ -1527,14 +1546,14 @@ class SettingCandidateControllerIntegrationTest {
                 CharacterFactType.AGE,
                 SettingValueType.NUMBER
         ));
-        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+        SettingCandidate candidate = settingCandidateRepository.save(comparisonCompleted(candidate(
                 work,
                 episode,
                 analysisJob,
                 "아리아",
                 "age",
                 "17"
-        ));
+        ), CharacterFactType.AGE, "age"));
 
         mockMvc.perform(post(
                                 "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
@@ -1609,14 +1628,14 @@ class SettingCandidateControllerIntegrationTest {
     @Test
     @DisplayName("이미 확정된 설정 후보 재시도는 CharacterFact를 중복 생성하지 않는다")
     void confirmSettingCandidateRetryDoesNotDuplicateCharacterFact() throws Exception {
-        SettingCandidate candidate = settingCandidateRepository.save(candidate(
+        SettingCandidate candidate = settingCandidateRepository.save(comparisonCompleted(candidate(
                 work,
                 episode,
                 analysisJob,
                 "아리아",
                 "age",
                 "17"
-        ));
+        ), CharacterFactType.AGE, "age"));
 
         mockMvc.perform(post(
                                 "/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm",
@@ -1826,6 +1845,30 @@ class SettingCandidateControllerIntegrationTest {
                 new BigDecimal("0.8000"),
                 rawAiResultJson(attributeValue)
         );
+    }
+
+    private SettingCandidate comparisonCompleted(
+            SettingCandidate candidate,
+            CharacterFactType factType,
+            String factKey
+    ) {
+        candidate.startComparison();
+        candidate.recordComparisonContext(0L, "test-context-" + candidate.getId());
+        candidate.completeComparison(
+                CharacterFactOperation.ADD,
+                factType,
+                factKey,
+                candidate.getAttributeValue(),
+                candidate.getValueJson(),
+                objectMapper.createArrayNode(),
+                CharacterFactTemporalScope.PRESENT,
+                "컨트롤러 확정 테스트용 비교 결과",
+                objectMapper.createObjectNode(),
+                LocalDateTime.of(2026, 9, 11, 12, 0),
+                factKey,
+                objectMapper.createArrayNode()
+        );
+        return candidate;
     }
 
     private WorkCharacter character(Work targetWork, String name) {

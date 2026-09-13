@@ -476,6 +476,7 @@ class SettingCandidateMapperTest {
         when(candidate.getAnalysisJob()).thenReturn(job);
         when(job.isOrderedProvisional()).thenReturn(true);
         when(candidate.getCharacterComparisonBatch()).thenReturn(batch);
+        when(batch.getAnalysisJob()).thenReturn(job);
         when(candidate.getSuggestedOperation()).thenReturn(CharacterFactOperation.UPDATE);
         when(candidate.getComparisonTargetFactType()).thenReturn(CharacterFactType.STAT);
         when(candidate.getComparisonTargetFactKey()).thenReturn(key);

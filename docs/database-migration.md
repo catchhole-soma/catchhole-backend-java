@@ -4,15 +4,15 @@ PostgreSQL schema는 Spring Backend의 Flyway migration을 단일 변경 주체�
 
 ## 실행 순서
 
-GH-180의 V43~47은 새 snapshot 테이블을 만들지 않고 기존 테이블을 보완한다.
+GH-180의 V44~48은 새 snapshot 테이블을 만들지 않고 기존 테이블을 보완한다.
 
 | migration | 변경 |
 | --- | --- |
-| V43 | AnalysisJob의 고정 run/S0/source/input/journal 메타데이터와 실행 순서 인덱스 |
-| V44 | 실제 FK와 provisionalSubjectKey 분리, 비교 당시 누적 context 보존 |
-| V45 | 고정 sourceEpisodeNo, SEALED JSON 제약, 미해결 세계관 대상의 명시적 보류 계약 |
-| V46 | 캐릭터 사용자 확정의 APPLY_PROPOSAL/HISTORY_ONLY 기록 |
-| V47 | 캐릭터 후보의 사용자 수정·반려와 AI 자동 판단 구분 |
+| V44 | AnalysisJob의 고정 run/S0/source/input/journal 메타데이터와 실행 순서 인덱스 |
+| V45 | 실제 FK와 provisionalSubjectKey 분리, 비교 당시 누적 context 보존 |
+| V46 | 고정 sourceEpisodeNo, SEALED JSON 제약, 미해결 세계관 대상의 명시적 보류 계약 |
+| V47 | 캐릭터 사용자 확정의 APPLY_PROPOSAL/HISTORY_ONLY 기록 |
+| V48 | 캐릭터 후보의 사용자 수정·반려와 AI 자동 판단 구분 |
 
 기존 행은 `CONFIRMED_ONLY`로 유지한다. old Worker가 새 mode를 claim하지 않도록 capability를
 확인하고 nullable 신규 필드의 요청/응답 기본값을 보존한다. 세부 불변성·현재 검증 현황은
@@ -375,10 +375,10 @@ V41은 같은 분석 Job·캐릭터 ID·canonical FactType 후보를 원문 순�
 - 후보 FK는 batch 삭제 시 `SET NULL`이며 local ref는 감사 흔적으로 남을 수 있게 제약을 구성합니다. 같은 batch 안의 local ref는 partial unique index로 중복을 막습니다.
 - 문맥 원문을 batch 테이블에 복제하지 않고 hash만 저장하며, 완료 응답은 모든 후보 ref를 decision 또는 typed failure가 정확히 한 번 덮어야 원자 반영됩니다.
 
-## V51 기준
+## V52 기준
 
-V43~50의 순차 실행·자동 반영·비교 진단 계약은 [순차 분석 문서](ordered-provisional-analysis.md)와
-[세계관 복구 문서](world-comparison-recovery.md)에 설명합니다. V51은 비교 결과와 별개인 자동 반영 보류 사유를 저장합니다.
+V44~51의 순차 실행·자동 반영·비교 진단 계약은 [순차 분석 문서](ordered-provisional-analysis.md)와
+[세계관 복구 문서](world-comparison-recovery.md)에 설명합니다. V52는 비교 결과와 별개인 자동 반영 보류 사유를 저장합니다.
 
 - `setting_candidates.automatic_review_hold_reason VARCHAR(50) NULL`을 추가합니다.
 - `world_setting_candidates.automatic_review_hold_reason VARCHAR(50) NULL`을 추가합니다.
@@ -436,7 +436,7 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
 - V38에서 세계관 비교 batch·canonical decision·source provenance 테이블과 후보의 canonical 주체 해소 snapshot이 생성됩니다.
 - V39에서 root 이동 snapshot이 생성되고, V40에서 실제 적용 version·비활성화 컬럼과 신규 비교 validation reason 제약이 생성됩니다.
 - V41에서 캐릭터 Fact 비교 batch와 후보별 local ref·resolved canonical key·선행 dependency 컬럼 및 제약이 생성됩니다.
-- V51에서 두 후보 테이블의 자동 반영 보류 사유 nullable 컬럼이 추가되며 기존 비교 결과는 유지됩니다.
+- V52에서 두 후보 테이블의 자동 반영 보류 사유 nullable 컬럼이 추가되며 기존 비교 결과는 유지됩니다.
 - `character_facts.setting_candidate_id`와 FK·조회 인덱스가 생성됩니다.
 - `works.genre`가 enum 상수명으로 저장되고 `NOT NULL`·`chk_works_genre` 제약을 가집니다.
 - `works.description`이 기존 값의 앞 50자로 정규화되고 `VARCHAR(50)` 타입을 가집니다.
@@ -472,7 +472,7 @@ Flyway 도입 전에 JPA가 만든 운영 테스트 DB에는 `flyway_schema_hist
 
 이메일 가입 후에는 전화번호가 NULL인 회원이 존재하므로 NOT NULL을 다시 추가하는 방식으로 되돌리지 않는다. 전화번호 가입을 재도입하려면 V42 schema를 유지한 채 `SIGNUP_VERIFICATION_METHOD=PHONE`과 SOLAPI 설정으로 신규 가입 정책을 전환한다. 구버전 코드/이전 데이터 모델로 돌아가는 배포는 별도 호환성 검토가 필요하다.
 
-## V48: 회차별 자동 반영
+## V49: 회차별 자동 반영
 
 - DB와 Entity의 기존 작업 기본 반영 방식은 `MANUAL`입니다. 신규 설정 추출 생성 API는 `reviewMode` 생략 시 `AUTOMATIC`을 명시적으로 저장하며 단일의 `MANUAL` 선택은 유지합니다. API 기본 선택 변경에는 migration이 필요하지 않고, 기존 작업의 방식과 실패 재시도 정책은 소급 변경하지 않습니다.
 - 각 자동 회차의 시작 상태와 두 도메인 저장 완료 시각을 보존합니다. 다음 회차는 이 저장 완료 이후에 실제 설정을 다시 읽습니다.
@@ -482,7 +482,7 @@ Flyway 도입 전에 JPA가 만든 운영 테스트 DB에는 `flyway_schema_hist
 - 이번 검증에서 빈 PostgreSQL의 V1→V47 적용 및 JPA validation, 로컬 기존 V46→V47 업그레이드 후 기동을 확인했습니다. 운영 DB에는 적용하지 않았습니다.
 
 
-## V52 기준 — 자동 순차 후보 준비 실패
+## V53 기준 — 자동 순차 후보 준비 실패
 
 - 캐릭터·세계관 후보에 `preparation_failure_stage VARCHAR(40) NULL`을 추가합니다.
 - `SUBJECT_RESOLUTION`은 연결 판단 실패, `COMPARISON_PREPARATION`은 비교 입력 준비 실패를 뜻합니다.
@@ -490,12 +490,21 @@ Flyway 도입 전에 JPA가 만든 운영 테스트 DB에는 `flyway_schema_hist
 - 세계관 주체 해소 상태에 `FAILED`를 허용하고, 대상 목록이 비어 있으며 연결 실패 단계가 있는지 DB에서 확인합니다.
   보류 후보를 사람이 직접 확정한 뒤 실제 대상이 연결되어도 원래 실패 이력은 유지할 수 있습니다.
   새 비교 준비로 실패 단계를 지울 때에는 연결 실패 상태와 참조도 함께 정리합니다.
-- 기존 V51과 이전 migration은 수정하지 않습니다. 별도 빈 PostgreSQL에서 전체 Flyway 실행과 JPA validate,
+- 기존 V52와 이전 migration은 수정하지 않습니다. 별도 빈 PostgreSQL에서 전체 Flyway 실행과 JPA validate,
   실제 Worker 게시·회차 완료·후속 입력·직접 확정까지 검증합니다. 사용자 로컬 데이터베이스를 테스트 초기화 대상으로 쓰지 않습니다.
 - 서버 migration/API를 먼저 반영한 뒤 새 후보 단계 필드를 저장하는 AI Worker를 갱신합니다.
 
 ## 최신 main 통합 시 실험 migration 번호 정리
 
-2026-09-13 PR 통합에서 main에 먼저 머지된 이메일 가입 V42를 보존하고, 미배포 GH180 migration V42~V52를 V43~V53으로 순서대로 옮겼습니다. 위의 과거 로컬 실행 기록은 당시 실험 번호를 뜻합니다. 이 PR은 정식 main의 V42에서 V43~V53으로 업그레이드하는 경로를 사용합니다. 이전 실험 번호가 적용된 로컬 데이터베이스에는 그대로 실행하지 않으며, 별도 빈 검증 DB를 사용합니다. 기존 실험 데이터와 Flyway 이력을 삭제하거나 checksum을 덮어쓰지 않습니다.
+2026-09-13 최신 main의 이메일 가입 V42와 신규 캐릭터 그룹 비교 V43을 그대로 보존합니다. 미배포 GH180 migration은 V44~V54입니다. 위 과거 로컬 실행 기록의 V42~V52 등은 실행 당시 번호이며 현재 파일명과 구분합니다. 이전 실험 DB의 이력을 삭제하거나 checksum을 덮어쓰지 않고 새 검증 DB에서 실행합니다.
 
-`OrderedAnalysisMigrationIntegrationTest`는 별도 PostgreSQL에서 main V42까지 적용하고 이메일 인증 회원을 저장한 뒤 V43~V53의 11개 migration을 적용·validate하여 회원 보존을 확인합니다. 현재 main 이메일 migration 검증과 GH180 PostgreSQL·실제 Worker HTTP 시나리오도 함께 통과했습니다.
+| 현재 번호 | 추가 내용 |
+| --- | --- |
+| V49 | 회차별 자동 반영 정책·고정 입력·저장 완료 시각 |
+| V50 | 순차 세계관 범위 불일치 검토 |
+| V51 | 세계관 비교 진단 |
+| V52 | 자동 반영 보류 사유 |
+| V53 | 후보 준비 단계의 실패 기록 |
+| V54 | 일반 세계관 불확실성 검토 |
+
+`OrderedAnalysisMigrationIntegrationTest`는 빈 전용 PostgreSQL에 main V43까지 적용하고 이메일 회원과 실제 캐릭터 ID가 없는 그룹 비교 batch를 저장한 뒤 V44~V54 11개 migration을 적용·validate합니다. V45의 식별자 제약은 실제 ID와 임시 ID의 동시 저장을 막으면서 V43의 신규 그룹(null/null)을 보존합니다. [세 PR 통합 검증](gh180-integration-validation.md)을 따릅니다.

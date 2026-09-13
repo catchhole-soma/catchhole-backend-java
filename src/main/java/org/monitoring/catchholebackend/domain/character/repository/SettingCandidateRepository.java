@@ -171,6 +171,24 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
     );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"work", "episode", "analysisJob", "analysisJob.batch", "matchedCharacter"})
+    @Query("""
+            select candidate
+            from SettingCandidate candidate
+            join candidate.analysisJob analysisJob
+            left join candidate.episode episode
+            where candidate.work.id = :workId
+              and analysisJob.batch.id = :batchId
+              and candidate.reviewStatus = :reviewStatus
+            order by episode.episodeNo asc, candidate.createdAt asc, candidate.id asc
+            """)
+    List<SettingCandidate> findAllPendingInBatchForUpdate(
+            @Param("workId") UUID workId,
+            @Param("batchId") UUID batchId,
+            @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @EntityGraph(attributePaths = {"work", "episode", "analysisJob", "matchedCharacter"})
     @Query("""
             select candidate

@@ -89,7 +89,8 @@ class AnalysisJobOrderedRetryTest {
     void setUp() {
         service = new AnalysisJobServiceImpl(runStateService, jobRepository, workRepository,
                 batchRepository, fileRepository, new AnalysisJobMapper(), batchMapper,
-                episodeRepository, purgeRepository, characterRepository, worldRepository, tokenService);
+                episodeRepository, purgeRepository, characterRepository, worldRepository, tokenService,
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator.class));
         Member member = Member.register("retry@example.com", "password", "01012345678", "작가");
         ReflectionTestUtils.setField(member, "id", MEMBER_ID);
         work = Work.create(member, "누적 작품", WorkGenre.FANTASY, "설명");
@@ -329,7 +330,8 @@ class AnalysisJobOrderedRetryTest {
 
         assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
         assertThat(job.getJournalStatus()).isEqualTo(AnalysisJournalStatus.INVALIDATED);
-        verifyNoInteractions(characterRepository, worldRepository, tokenService);
+        verifyNoInteractions(characterRepository, worldRepository, tokenService,
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator.class));
     }
 
     @Test
@@ -344,7 +346,8 @@ class AnalysisJobOrderedRetryTest {
                         error -> assertThat(error.getResultCode()).isEqualTo(AnalysisJobErrorCode.ANALYSIS_JOB_ALREADY_IN_PROGRESS));
 
         assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
-        verifyNoInteractions(characterRepository, worldRepository, tokenService);
+        verifyNoInteractions(characterRepository, worldRepository, tokenService,
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator.class));
     }
 
     @Test
@@ -357,7 +360,8 @@ class AnalysisJobOrderedRetryTest {
                 .isInstanceOf(AppException.class);
 
         assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
-        verifyNoInteractions(characterRepository, worldRepository, tokenService);
+        verifyNoInteractions(characterRepository, worldRepository, tokenService,
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator.class));
     }
 
     @Test
@@ -383,7 +387,8 @@ class AnalysisJobOrderedRetryTest {
         assertThatThrownBy(() -> service.retryFailedAnalysisJob(MEMBER_ID, work.getId(), job.getId()))
                 .isInstanceOf(AppException.class);
 
-        verifyNoInteractions(runStateService, characterRepository, worldRepository, tokenService);
+        verifyNoInteractions(runStateService, characterRepository, worldRepository, tokenService,
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator.class));
         verify(jobRepository, never()).save(any());
     }
 

@@ -119,6 +119,26 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
 
     List<AnalysisJob> findAllByWorldSettingCandidateIdIn(Collection<UUID> worldSettingCandidateIds);
 
+    List<AnalysisJob> findAllByBatchIdAndJobTypeOrderByCreatedAtAsc(
+            UUID batchId,
+            AnalysisJobType jobType
+    );
+
+    @Query("""
+            select analysisJob
+            from AnalysisJob analysisJob
+            left join fetch analysisJob.settingCandidate
+            where analysisJob.batch.id = :batchId
+              and analysisJob.jobType = :jobType
+              and analysisJob.status in :statuses
+            order by analysisJob.id asc
+            """)
+    List<AnalysisJob> findAllActiveComparisonJobs(
+            @Param("batchId") UUID batchId,
+            @Param("jobType") AnalysisJobType jobType,
+            @Param("statuses") Collection<AnalysisJobStatus> statuses
+    );
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select analysisJob

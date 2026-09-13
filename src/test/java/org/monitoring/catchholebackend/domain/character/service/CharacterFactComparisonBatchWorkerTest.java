@@ -66,6 +66,7 @@ import org.monitoring.catchholebackend.domain.character.type.SettingCandidateRev
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
 import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
+import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.global.exception.AppException;
@@ -93,6 +94,8 @@ class CharacterFactComparisonBatchWorkerTest {
     private CharacterSnapshotSourceRepository snapshotSourceRepository;
     @Mock
     private CharacterAnalysisStateService analysisStateService;
+    @Mock
+    private CharacterFactComparisonJobCoordinator comparisonJobCoordinator;
 
     private CharacterFactComparisonBatchWorker worker;
     private Work work;
@@ -119,7 +122,8 @@ class CharacterFactComparisonBatchWorkerTest {
                 new CharacterFactComparisonDecisionValidator(valueValidator),
                 new CharacterFactComparisonWorkerMapper(),
                 analysisStateService,
-                new org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisRunContextMapper(new org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper(new org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver()))
+                new org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisRunContextMapper(new org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper(new org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver())),
+                comparisonJobCoordinator
         );
 
         Member member = Member.register("batch-worker@example.com", "password", "01012345678", "작가");
@@ -354,6 +358,85 @@ class CharacterFactComparisonBatchWorkerTest {
         when(analysisStateService.getTarget(eq(analysisJob), eq(character.getId()), any()))
                 .thenAnswer(invocation -> state.deepCopy());
         return state;
+    }
+
+    @Test
+    @DisplayName("신규 캐릭터 그룹은 빈 snapshot에서 발생 후보를 해제 후보의 의존성으로 사용한다")
+    void comparesNewCharacterOccurrenceAndRecoveryFromEmptySnapshot() {
+        UploadBatch uploadBatch = org.mockito.Mockito.mock(UploadBatch.class);
+        when(uploadBatch.getId()).thenReturn(UUID.randomUUID());
+        AnalysisJob sourceJob = AnalysisJob.create(work, uploadBatch, null, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(sourceJob, "id", UUID.randomUUID());
+        SettingCandidate occurrence = unmatchedCandidate(
+                sourceJob,
+                "status.의식_상실",
+                "의식을 잃음",
+                true,
+                10
+        );
+        SettingCandidate recovery = unmatchedCandidate(
+                sourceJob,
+                "status.의식_상실",
+                "의식을 되찾음",
+                false,
+                20
+        );
+        analysisJob = AnalysisJob.createCharacterFactComparison(occurrence, "a".repeat(64));
+        analysisJobId = UUID.randomUUID();
+        ReflectionTestUtils.setField(analysisJob, "id", analysisJobId);
+        when(analysisJobLeaseService.getRunningAnalysisJobForUpdate(analysisJobId, leaseToken))
+                .thenReturn(analysisJob);
+        when(comparisonJobCoordinator.lockScopeCandidates(analysisJob))
+                .thenReturn(List.of(occurrence, recovery));
+        when(comparisonJobCoordinator.hasCurrentInput(analysisJob, List.of(occurrence, recovery)))
+                .thenReturn(true);
+        when(batchRepository.findByIdAndAnalysisJobIdForUpdate(any(UUID.class), eq(analysisJobId)))
+                .thenAnswer(invocation -> Optional.ofNullable(batches.get(invocation.getArgument(0))));
+
+        WorkerCharacterFactComparisonBatchPayload claim = worker.claimNext(
+                analysisJobId,
+                leaseToken
+        ).orElseThrow();
+        WorkerCharacterFactComparisonBatchContextResponse context = worker.getContext(
+                analysisJobId,
+                claim.comparisonBatchId(),
+                leaseToken
+        );
+
+        assertThat(claim.matchedCharacterName()).isEqualTo("아리아");
+        assertThat(context.baseSnapshotVersion()).isZero();
+        assertThat(context.snapshotEntries()).isEmpty();
+        assertThat(claim.candidates())
+                .extracting(WorkerCharacterFactComparisonBatchPayload.Candidate::candidateRef)
+                .containsExactly("C1", "C2");
+
+        worker.complete(
+                analysisJobId,
+                claim.comparisonBatchId(),
+                leaseToken,
+                new WorkerCharacterFactComparisonBatchCompleteRequest(
+                        context.contextToken(),
+                        List.of(
+                                add("C1", "status.의식_상실", "의식을 잃음"),
+                                remove(
+                                        "C2",
+                                        "status.의식_상실",
+                                        List.of("Q1"),
+                                        List.of("C1")
+                                )
+                        ),
+                        List.of(),
+                        Map.of("fixture", "new-character-occurrence-recovery")
+                )
+        );
+
+        assertThat(occurrence.getSuggestedOperation()).isEqualTo(CharacterFactOperation.ADD);
+        assertThat(recovery.getSuggestedOperation()).isEqualTo(CharacterFactOperation.REMOVE);
+        assertThat(recovery.getComparisonDependencyCandidateIds().get(0).asText())
+                .isEqualTo(occurrence.getId().toString());
+        assertThat(List.of(occurrence, recovery))
+                .allMatch(candidate -> candidate.getReviewStatus()
+                        == SettingCandidateReviewStatus.PENDING_REVIEW);
     }
 
     @Test
@@ -1375,6 +1458,39 @@ class CharacterFactComparisonBatchWorkerTest {
         return candidates.stream()
                 .filter(candidate -> candidate.getComparisonStatus() == CharacterFactComparisonStatus.PENDING)
                 .toList();
+    }
+
+    private SettingCandidate unmatchedCandidate(
+            AnalysisJob sourceJob,
+            String key,
+            String displayValue,
+            boolean active,
+            int evidenceOffset
+    ) {
+        SettingCandidate candidate = SettingCandidate.create(
+                work,
+                null,
+                UUID.randomUUID(),
+                sourceJob,
+                SettingEntityType.CHARACTER,
+                "아리아",
+                "아리아",
+                null,
+                SettingCandidateMatchStatus.UNRESOLVED,
+                key,
+                displayValue,
+                SettingValueType.JSON,
+                objectMapper.createObjectNode().put("name", "의식 상실").put("active", active),
+                objectMapper.createArrayNode().add(objectMapper.createObjectNode()
+                        .put("quote", displayValue)
+                        .put("startOffset", evidenceOffset)
+                        .put("endOffset", evidenceOffset + displayValue.length())),
+                new BigDecimal("0.9000"),
+                objectMapper.createObjectNode()
+        );
+        ReflectionTestUtils.setField(candidate, "id", UUID.randomUUID());
+        candidates.add(candidate);
+        return candidate;
     }
 
     private SettingCandidate candidate(String key, String displayValue, int evidenceOffset) {

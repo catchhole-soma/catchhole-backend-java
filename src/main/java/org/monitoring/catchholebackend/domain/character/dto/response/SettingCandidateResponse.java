@@ -150,6 +150,9 @@ public record SettingCandidateResponse(
         @Schema(description = "비교 문맥을 만든 당시 캐릭터 snapshot version", nullable = true)
         Long comparisonBaseSnapshotVersion,
 
+        @Schema(description = "서버가 고정한 비교 그룹 입력 revision", nullable = true)
+        String comparisonRevision,
+
         @Schema(description = "생성 시각", example = "2026-06-14T10:29:00")
         LocalDateTime createdAt,
 
@@ -162,6 +165,9 @@ public record SettingCandidateResponse(
         @Schema(description = "비교 결과와 별도로 기록한 자동 반영 보류 사유. 과거 기록은 없을 수 있습니다", nullable = true, requiredMode = Schema.RequiredMode.NOT_REQUIRED)
         AutomaticReviewHoldReason automaticReviewHoldReason,
         @Schema(description = "이 후보의 회차가 자동 분석·반영 중이므로 수동 변경을 기다려야 하는지 여부", requiredMode = Schema.RequiredMode.REQUIRED)
-        boolean automaticApplicationPending
+        boolean automaticApplicationPending,
+
+        @Schema(description = "후보 원본 분석의 입력 정책", nullable = true)
+        org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode analysisMode
 ) {
 }

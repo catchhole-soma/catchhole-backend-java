@@ -54,6 +54,8 @@ import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorkerWor
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorkerWorldSettingComparisonFailRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingComparisonBatchPayload;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateConfirmRequest;
+import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateGroupConfirmRequest;
+import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateGroupConfirmDecision;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateUpdateRequest;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.service.SettingCandidateService;
@@ -752,9 +754,10 @@ class AutomaticAnalysisIntegrationTest {
         assertThat(second.path("references").path("pending-world:" + ids.getLast()).path("value").asText()).isEqualTo("미확인 수명");
     }
 
-    @Test
-    @DisplayName("자동 반영 후 남은 캐릭터 실패 후보를 원문 값 그대로 직접 확인하면 실제 설정과 사용자 확인 이력으로 저장한다")
-    void manuallyConfirmsFailedCharacterValueAfterAutomaticCompletion() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("자동 반영으로 실제 버전이 바뀌어도 이전 AI 버전을 보낸 명시적 직접 확인은 단건과 그룹 모두 저장한다")
+    void manuallyConfirmsFailedCharacterValueAfterAutomaticCompletion(boolean groupConfirm) {
         Run run = run(1);
         WorkerAnalysisJobPayload first = claim();
         UUID failedId = tx.execute(status -> {
@@ -775,9 +778,22 @@ class AutomaticAnalysisIntegrationTest {
         Long ownerId = tx.execute(status -> entities.find(Work.class, run.workId()).getMember().getId());
         assertThat(tx.<Boolean>execute(status -> candidates.findById(failedId).orElseThrow().isManualReviewAvailable())).isTrue();
         characterReview.updateSettingCandidate(ownerId, run.workId(), failedId, new SettingCandidateUpdateRequest("stats.mental", "99"));
-        var result = characterReview.confirmSettingCandidate(ownerId, run.workId(), failedId,
-                new SettingCandidateConfirmRequest(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, null, true));
-        assertThat(result.recomparisonRequired()).isFalse();
+        UUID batchId = tx.execute(status -> jobs.findById(first.analysisJobId()).orElseThrow().getBatch().getId());
+        tx.executeWithoutResult(status -> {
+            WorkCharacter character = entities.createQuery("select c from WorkCharacter c where c.work.id = :id", WorkCharacter.class)
+                    .setParameter("id", run.workId()).getSingleResult();
+            assertThat(character.getSnapshotVersion()).isPositive();
+        });
+        if (groupConfirm) {
+            var result = characterReview.confirmSettingCandidateGroup(ownerId, run.workId(),
+                    new SettingCandidateGroupConfirmRequest(batchId, List.of(new SettingCandidateGroupConfirmDecision(
+                            failedId, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, 0L, true))));
+            assertThat(result.recomparisonRequired()).isFalse();
+        } else {
+            var result = characterReview.confirmSettingCandidate(ownerId, run.workId(), failedId,
+                    new SettingCandidateConfirmRequest(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, 0L, true));
+            assertThat(result.recomparisonRequired()).isFalse();
+        }
         tx.executeWithoutResult(status -> {
             SettingCandidate candidate = candidates.findById(failedId).orElseThrow();
             assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);

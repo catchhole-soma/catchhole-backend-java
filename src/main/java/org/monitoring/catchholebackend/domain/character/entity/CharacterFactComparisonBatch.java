@@ -141,7 +141,7 @@ public class CharacterFactComparisonBatch extends BaseEntity {
         this.work = Objects.requireNonNull(work);
         this.sourceEpisode = sourceEpisode;
         this.analysisJob = Objects.requireNonNull(analysisJob);
-        this.matchedCharacter = Objects.requireNonNull(matchedCharacter);
+        this.matchedCharacter = matchedCharacter;
         this.canonicalFactType = Objects.requireNonNull(canonicalFactType);
         this.candidateCount = candidateCount;
         this.baseSnapshotVersion = baseSnapshotVersion;

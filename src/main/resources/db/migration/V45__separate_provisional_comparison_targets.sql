@@ -7,7 +7,7 @@ ALTER TABLE character_fact_comparison_batches
     ADD COLUMN provisional_subject_key VARCHAR(160),
     ADD COLUMN analysis_context_snapshot_json JSONB;
 ALTER TABLE character_fact_comparison_batches ADD CONSTRAINT ck_character_comparison_target_identity
-    CHECK ((matched_character_id IS NOT NULL) <> (provisional_subject_key IS NOT NULL));
+    CHECK (matched_character_id IS NULL OR provisional_subject_key IS NULL);
 
 ALTER TABLE world_setting_candidates
     ADD COLUMN provisional_subject_key VARCHAR(160),

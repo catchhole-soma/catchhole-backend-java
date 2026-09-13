@@ -21,6 +21,7 @@ public class AnalysisJobClaimRepository {
     private static final String ELIGIBLE = """
             job.status = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING
             and job.jobType in :jobTypes and job.analysisMode in :modes
+            and (:supportsCharacterComparisonGroups = true or job.characterComparisonInputHash is null)
             and job.work.lifecycleStatus = org.monitoring.catchholebackend.domain.work.type.WorkLifecycleStatus.ACTIVE
             and (job.analysisMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.CONFIRMED_ONLY
                 or (job.journalStatus = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.PENDING
@@ -50,6 +51,7 @@ public class AnalysisJobClaimRepository {
                         + ELIGIBLE + " group by job.work.id order by min(job.createdAt), job.work.id", UUID.class)
                 .setParameter("jobTypes", request.allowedJobTypes())
                 .setParameter("modes", request.effectiveSupportedAnalysisModes())
+                .setParameter("supportsCharacterComparisonGroups", Boolean.TRUE.equals(request.supportsCharacterComparisonGroups()))
                 .setMaxResults(100)
                 .getResultList();
         for (UUID workId : workIds) {
@@ -67,6 +69,7 @@ public class AnalysisJobClaimRepository {
                             AnalysisJob.class)
                     .setParameter("jobTypes", request.allowedJobTypes())
                     .setParameter("modes", request.effectiveSupportedAnalysisModes())
+                .setParameter("supportsCharacterComparisonGroups", Boolean.TRUE.equals(request.supportsCharacterComparisonGroups()))
                     .setParameter("workId", workId)
                     .setLockMode(LockModeType.PESSIMISTIC_WRITE)
                     .setMaxResults(1)

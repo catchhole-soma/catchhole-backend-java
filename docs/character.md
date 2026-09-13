@@ -472,7 +472,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `proposed_fact_value`, `proposed_value_json` | 사용자에게 제안할 최종 표시값과 구조화 값 |
 | `removed_snapshot_entries_json` | 현재 snapshot에서 제거하도록 제안한 slot 목록 |
 | `comparison_reason` | 비교 판단 근거 |
-| `automatic_review_hold_reason` | 비교 결과와 별도로 기록한 자동 반영 보류 사유. V50의 nullable 컬럼이며 과거 사유를 추정하여 채우지 않음 |
+| `automatic_review_hold_reason` | 비교 결과와 별도로 기록한 자동 반영 보류 사유. V52의 nullable 컬럼이며 과거 사유를 추정하여 채우지 않음 |
 | `comparison_base_snapshot_version` | 비교 시점 snapshot 버전. 일반 독립 slot은 관련 문맥 hash로 stale을 판정하고, `REMOVE` 또는 제거 목록이 있는 파괴적 제안은 이 버전의 정확한 일치도 함께 요구 |
 | `comparison_context_hash` | 후보 의미와 관련 snapshot 값·provenance로 만든 64자 SHA-256 문맥 token |
 | `raw_comparison_json`, `compared_at` | 운영 진단용 원본 비교 응답과 완료 시각 |
