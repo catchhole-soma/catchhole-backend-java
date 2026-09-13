@@ -228,6 +228,23 @@ class AnalysisJobControllerIntegrationTest {
     }
 
     @ParameterizedTest
+    @EnumSource(value = UploadType.class, names = {"MULTI_EPISODE_SINGLE_FILE", "MULTI_EPISODE_MULTI_FILE"})
+    void batchValidationKeepsManualMode(UploadType type) throws Exception {
+        org.springframework.test.util.ReflectionTestUtils.setField(uploadBatch, "uploadType", type);
+        uploadBatchRepository.saveAndFlush(uploadBatch);
+        mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"jobType":"EPISODE_VALIDATION","batchId":"%s"}
+                                """.formatted(uploadBatch.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", hasSize(2)))
+                .andExpect(jsonPath("$.data[0].reviewMode").value("MANUAL"))
+                .andExpect(jsonPath("$.data[0].analysisRun").doesNotExist());
+    }
+
+    @ParameterizedTest
     @ValueSource(longs = {0L, 4255L})
     @DisplayName("잔여 토큰이 없거나 첫 분석 최소 예약량보다 작으면 작업 생성을 409로 거절한다")
     void createAnalysisJobRejectsWhenFirstReservationCannotBeCovered(long remainingTokens) throws Exception {

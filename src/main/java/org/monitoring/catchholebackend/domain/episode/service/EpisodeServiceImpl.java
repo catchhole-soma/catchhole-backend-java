@@ -183,7 +183,10 @@ public class EpisodeServiceImpl implements EpisodeService {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         Episode episode = getEpisodeInWork(episodeId, work);
         assertEpisodeIsNotAnalyzing(episode);
-        String content = textDocumentReader.readText(file);
+        String content = textDocumentReader.readTextPreservingWhitespace(file);
+        if (content.codePointCount(0, content.length()) > EpisodeFileParser.MAX_UPLOAD_CHARACTERS) {
+            throw new AppException(UploadErrorCode.UPLOAD_CHARACTER_LIMIT_EXCEEDED);
+        }
         analysisRunStateService.invalidateRunsForWorkForUpdate(workId, episode.getEpisodeNo(),
                 "앞 회차의 원문 파일이 교체되었습니다.");
         UploadFile previousSourceFile = episode.getSourceFileId() == null

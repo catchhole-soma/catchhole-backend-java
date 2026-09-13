@@ -955,6 +955,53 @@ class EpisodeControllerIntegrationTest {
         verify(objectStorage, never()).delete(anyString());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"txt", "docx"})
+    void replacementLimitCountsWhitespaceAndUnicodeBeforeAnyWrite(String extension) throws Exception {
+        Episode episode = episodeRepository.save(Episode.create(
+                work, null, 7, "기존 회차", "works/unchanged.txt", "v1", "old-hash", 10));
+        long batchesBefore = uploadBatchRepository.count();
+        long purgesBefore = episodeSourcePurgeRequestRepository.count();
+        String content = " ".repeat(249_999) + "😀x";
+        byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+        if (extension.equals("docx")) {
+            var output = new java.io.ByteArrayOutputStream();
+            try (var zip = new java.util.zip.ZipOutputStream(output)) {
+                zip.putNextEntry(new java.util.zip.ZipEntry("word/document.xml"));
+                zip.write(("<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">"
+                        + "<w:body><w:p><w:r><w:t xml:space=\"preserve\">" + content
+                        + "</w:t></w:r></w:p></w:body></w:document>").getBytes(StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+            bytes = output.toByteArray();
+        }
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes/{episodeId}/file", work.getId(), episode.getId())
+                        .file(new MockMultipartFile("file", "oversized." + extension, "application/octet-stream", bytes))
+                        .with(request -> { request.setMethod("PUT"); return request; })
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("UPLOAD_CHARACTER_LIMIT_EXCEEDED"));
+        assertThat(episodeRepository.findById(episode.getId()).orElseThrow().getContentHash()).isEqualTo("old-hash");
+        assertThat(uploadBatchRepository.count()).isEqualTo(batchesBefore);
+        assertThat(episodeSourcePurgeRequestRepository.count()).isEqualTo(purgesBefore);
+        verify(objectStorage, never()).putBytes(anyString(), any(byte[].class), anyString());
+        verify(objectStorage, never()).putText(anyString(), anyString());
+    }
+
+    @Test
+    void replacementAcceptsExactly250000UnicodeCharactersWithoutTrimming() throws Exception {
+        Episode episode = episodeRepository.save(Episode.create(
+                work, null, 7, "기존 회차", "works/boundary.txt", "v1", "old-hash", 10));
+        String content = " ".repeat(249_999) + "😀";
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes/{episodeId}/file", work.getId(), episode.getId())
+                        .file(new MockMultipartFile("file", "boundary.txt", MediaType.TEXT_PLAIN_VALUE,
+                                content.getBytes(StandardCharsets.UTF_8)))
+                        .with(request -> { request.setMethod("PUT"); return request; })
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
+        verify(objectStorage).putText(anyString(), eq(content));
+    }
+
     @Test
     @DisplayName("회차 파일 교체 정리가 실패해도 새 참조는 커밋하고 요청을 보존해 재시도한다")
     void replaceEpisodeFilePersistsCleanupRequestAndRetriesFailedPurge() throws Exception {

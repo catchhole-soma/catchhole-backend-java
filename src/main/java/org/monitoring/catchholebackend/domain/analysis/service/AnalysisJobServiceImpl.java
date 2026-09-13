@@ -97,7 +97,8 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         boolean multiEpisodeUpload = request.episodeId() == null
                 && (batch.getUploadType() == UploadType.MULTI_EPISODE_SINGLE_FILE
                 || batch.getUploadType() == UploadType.MULTI_EPISODE_MULTI_FILE);
-        AnalysisReviewMode reviewMode = multiEpisodeUpload ? AnalysisReviewMode.AUTOMATIC
+        AnalysisReviewMode reviewMode = multiEpisodeUpload && request.jobType() == AnalysisJobType.SETTING_EXTRACTION
+                ? AnalysisReviewMode.AUTOMATIC
                 : request.effectiveReviewMode();
         AnalysisMode analysisMode = reviewMode == AnalysisReviewMode.AUTOMATIC
                 ? AnalysisMode.ORDERED_PROVISIONAL : request.effectiveAnalysisMode();

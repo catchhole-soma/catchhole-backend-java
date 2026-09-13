@@ -20,3 +20,10 @@
 `AnalysisStateJournalTest`, `AnalysisExplanationTextTest`, `WorldSettingMapperDiagnosticsTest`, `AnalysisJobOrderedRetryTest`, `AutomaticAnalysisIntegrationTest`로 원문 복사본 파기·표시 정보·연속 자동 저장·동일 작업 재개를 검증한다. 운영 DB나 실제 AI 호출은 사용하지 않는다.
 
 관련 PR: [Java #193](https://github.com/catchhole-soma/catchhole-backend-java/pull/193), [AI #70](https://github.com/catchhole-soma/catchhole-backend-ai/pull/70), [Front #77](https://github.com/catchhole-soma/catchhole-front/pull/77).
+
+## 두 번째 리뷰 반영
+
+- 다회차 자동 반영 강제는 설정 추출에만 적용한다. 다회차 단일 파일·여러 파일의 회차 검수 요청은 기존 수동 모드를 유지하여 잘못된 모드 오류로 거절되지 않는다.
+- 원문 파일 교체에도 기존 250,000자 정책을 적용한다. TXT·DOCX를 공백을 보존하여 읽고 Unicode code point로 계산한 뒤, 초과하면 이전 분석 무효화·업로드 생성·저장소 쓰기 전에 거절한다. 실행 중인 분석에 새 중단 조건을 추가한 것은 아니다.
+- `AnalysisJobControllerIntegrationTest`, `EpisodeControllerIntegrationTest`, `AutomaticAnalysisIntegrationTest`, `AnalysisJobOrderedRetryTest` 합계 **156개 통과**. 두 업로드 방식의 수동 검수, 교체 제한 초과의 DB/저장소 부작용 없음, 공백과 비 BMP 문자로 정확히 250,000자인 교체 허용, 기존 자동 반영·재개를 포함한다. H2와 모의 저장소를 사용했고 운영 데이터는 변경하지 않았다.
+- 위 보류 결정은 유지한다.
