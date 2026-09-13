@@ -20,6 +20,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobClaimRequest;
+import org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobCompleteRequest;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisJobWorkerMapper;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
@@ -34,6 +35,7 @@ import org.monitoring.catchholebackend.domain.character.repository.CharacterFact
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSnapshotSourceRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonBatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
@@ -79,6 +81,8 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
     private WorldSettingCandidateRepository worldCandidateRepository;
     @Mock
     private SettingCandidateRepository settingCandidateRepository;
+    @Mock
+    private CharacterFactComparisonJobCoordinator characterComparisonJobCoordinator;
 
     private AnalysisJobWorkerServiceImpl service;
 
@@ -95,7 +99,8 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
                 worldBatchRepository,
                 characterBatchRepository,
                 worldCandidateRepository,
-                settingCandidateRepository
+                settingCandidateRepository,
+                characterComparisonJobCoordinator
         );
     }
 
@@ -162,6 +167,7 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
         when(analysisJobRepository.findClaimCandidates(
                 eq(AnalysisJobStatus.PENDING),
                 eq(Set.of(AnalysisJobType.SETTING_EXTRACTION)),
+                eq(false),
                 any(Pageable.class)
         )).thenReturn(List.of());
         when(worldBatchRepository.findAllByAnalysisJobIdAndStatusForUpdate(
@@ -184,7 +190,8 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
         assertThat(service.claimAnalysisJob(new WorkerAnalysisJobClaimRequest(
                 "test-model",
                 "claim",
-                Set.of(AnalysisJobType.SETTING_EXTRACTION)
+                Set.of(AnalysisJobType.SETTING_EXTRACTION),
+                false
         ))).isEqualTo(Optional.empty());
 
         assertThat(batch.getStatus()).isEqualTo(CharacterFactComparisonBatchStatus.FAILED);
@@ -196,5 +203,114 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
                 job.getId(),
                 org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome.WORKER_LEASE_EXPIRED
         );
+    }
+
+    @Test
+    @DisplayName("오래된 그룹 Job의 lease 만료는 최신 입력 후보 상태를 되돌리지 않는다")
+    void expiredStaleGroupJobDoesNotRecoverCurrentCandidates() {
+        Member member = Member.register("stale@example.com", "password", "01012345678", "작가");
+        Work work = Work.create(member, "stale 작품", WorkGenre.FANTASY, "테스트");
+        ReflectionTestUtils.setField(work, "id", UUID.randomUUID());
+        SettingCandidate candidate = SettingCandidate.create(
+                work,
+                null,
+                UUID.randomUUID(),
+                null,
+                SettingEntityType.CHARACTER,
+                "수아",
+                "수아",
+                null,
+                SettingCandidateMatchStatus.UNRESOLVED,
+                "status.부상",
+                "부상",
+                SettingValueType.JSON,
+                objectMapper.createObjectNode().put("value", "부상"),
+                objectMapper.createArrayNode(),
+                new BigDecimal("0.9000"),
+                objectMapper.createObjectNode()
+        );
+        ReflectionTestUtils.setField(candidate, "id", UUID.randomUUID());
+        candidate.startComparison();
+        AnalysisJob staleJob = AnalysisJob.createCharacterFactComparison(candidate, "a".repeat(64));
+        ReflectionTestUtils.setField(staleJob, "id", UUID.randomUUID());
+        staleJob.claim("test-model", "비교 중", LocalDateTime.now().minusMinutes(1));
+        when(analysisJobRepository.findExpiredLeaseCandidates(
+                eq(AnalysisJobStatus.RUNNING),
+                eq(Set.of(AnalysisJobType.CHARACTER_FACT_COMPARISON)),
+                any(LocalDateTime.class),
+                any(Pageable.class)
+        )).thenReturn(List.of(staleJob));
+        when(analysisJobRepository.findClaimCandidates(
+                eq(AnalysisJobStatus.PENDING),
+                eq(Set.of(AnalysisJobType.CHARACTER_FACT_COMPARISON)),
+                eq(false),
+                any(Pageable.class)
+        )).thenReturn(List.of());
+        when(worldBatchRepository.findAllByAnalysisJobIdAndStatusForUpdate(
+                staleJob.getId(),
+                WorldSettingComparisonBatchStatus.PROCESSING
+        )).thenReturn(List.of());
+        when(characterBatchRepository.findAllByAnalysisJobIdAndStatusForUpdate(
+                staleJob.getId(),
+                CharacterFactComparisonBatchStatus.PROCESSING
+        )).thenReturn(List.of());
+        when(characterComparisonJobCoordinator.lockScopeCandidates(staleJob))
+                .thenReturn(List.of(candidate));
+        when(characterComparisonJobCoordinator.hasCurrentInput(staleJob, List.of(candidate)))
+                .thenReturn(false);
+
+        assertThat(service.claimAnalysisJob(new WorkerAnalysisJobClaimRequest(
+                "test-model",
+                "claim",
+                Set.of(AnalysisJobType.CHARACTER_FACT_COMPARISON),
+                false
+        ))).isEqualTo(Optional.empty());
+
+        assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PROCESSING);
+        assertThat(staleJob.getStatus()).isEqualTo(AnalysisJobStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("그룹 Job은 비교할 수 없어 격리한 후보를 남기고 정상 종료한다")
+    void groupJobCompletesWithQuarantinedCandidate() {
+        Member member = Member.register("invalid@example.com", "password", "01012345678", "작가");
+        Work work = Work.create(member, "invalid 작품", WorkGenre.FANTASY, "테스트");
+        SettingCandidate candidate = SettingCandidate.create(
+                work,
+                null,
+                UUID.randomUUID(),
+                null,
+                SettingEntityType.CHARACTER,
+                "수아",
+                "수아",
+                null,
+                SettingCandidateMatchStatus.UNRESOLVED,
+                "unknown",
+                "값",
+                SettingValueType.STRING,
+                objectMapper.createObjectNode().put("value", "값"),
+                objectMapper.createArrayNode(),
+                new BigDecimal("0.9000"),
+                objectMapper.createObjectNode()
+        );
+        candidate.quarantineInvalidComparison();
+        AnalysisJob job = AnalysisJob.createCharacterFactComparison(candidate, "a".repeat(64));
+        ReflectionTestUtils.setField(job, "id", UUID.randomUUID());
+        UUID leaseToken = job.claim("test-model", "비교 완료", LocalDateTime.now().plusMinutes(1));
+
+        when(analysisJobLeaseService.getRunningAnalysisJobForUpdate(job.getId(), leaseToken))
+                .thenReturn(job);
+        when(characterComparisonJobCoordinator.lockScopeCandidates(job)).thenReturn(List.of(candidate));
+        when(characterComparisonJobCoordinator.hasCurrentInput(job, List.of(candidate))).thenReturn(true);
+        when(aiTokenService.getAnalysisJobTokenTotals(job.getId())).thenReturn(new long[]{0L, 0L});
+
+        service.completeAnalysisJob(
+                job.getId(),
+                leaseToken,
+                new WorkerAnalysisJobCompleteRequest("{}", null, null)
+        );
+
+        assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.SUCCEEDED);
+        assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.NOT_REQUIRED);
     }
 }

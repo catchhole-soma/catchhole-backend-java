@@ -77,11 +77,10 @@ public class CharacterFactComparisonBatch extends BaseEntity {
     )
     private AnalysisJob analysisJob;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(fetch = FetchType.LAZY)
     @OnDelete(action = OnDeleteAction.CASCADE)
     @JoinColumn(
             name = "matched_character_id",
-            nullable = false,
             updatable = false,
             foreignKey = @ForeignKey(name = "fk_character_fact_comparison_batches_character")
     )
@@ -133,7 +132,7 @@ public class CharacterFactComparisonBatch extends BaseEntity {
         this.work = Objects.requireNonNull(work);
         this.sourceEpisode = sourceEpisode;
         this.analysisJob = Objects.requireNonNull(analysisJob);
-        this.matchedCharacter = Objects.requireNonNull(matchedCharacter);
+        this.matchedCharacter = matchedCharacter;
         this.canonicalFactType = Objects.requireNonNull(canonicalFactType);
         this.candidateCount = candidateCount;
         this.baseSnapshotVersion = baseSnapshotVersion;

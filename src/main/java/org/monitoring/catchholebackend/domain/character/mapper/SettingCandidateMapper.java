@@ -108,6 +108,10 @@ public class SettingCandidateMapper {
                 publicComparisonErrorMessage(candidate),
                 publicComparisonFailureCode(candidate),
                 candidate.getComparisonBaseSnapshotVersion(),
+                candidate.getCharacterComparisonBatch() == null
+                        ? null
+                        : candidate.getCharacterComparisonBatch().getAnalysisJob()
+                        .getCharacterComparisonInputHash(),
                 candidate.getCreatedAt(),
                 candidate.getUpdatedAt()
         );

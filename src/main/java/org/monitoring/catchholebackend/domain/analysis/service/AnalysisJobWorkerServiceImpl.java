@@ -32,6 +32,7 @@ import org.monitoring.catchholebackend.domain.character.repository.CharacterSett
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSnapshotSourceRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
+import org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonBatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
@@ -77,6 +78,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     private final CharacterFactComparisonBatchRepository characterFactComparisonBatchRepository;
     private final WorldSettingCandidateRepository worldSettingCandidateRepository;
     private final SettingCandidateRepository settingCandidateRepository;
+    private final CharacterFactComparisonJobCoordinator characterComparisonJobCoordinator;
 
     @Override
     @Transactional
@@ -86,6 +88,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         List<AnalysisJob> claimCandidates = analysisJobRepository.findClaimCandidates(
                 AnalysisJobStatus.PENDING,
                 request.allowedJobTypes(),
+                Boolean.TRUE.equals(request.supportsCharacterComparisonGroups()),
                 PageRequest.of(0, CLAIM_SIZE)
         );
         if (claimCandidates.isEmpty()) {
@@ -157,6 +160,10 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         );
         analysisJob.updateCurrentStep(request.currentStep());
         analysisJob.updateCheckpointStage(request.checkpointStage());
+        if (analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION
+                && analysisJob.hasHandedOffCharacterComparisons()) {
+            characterComparisonJobCoordinator.handoffIfInputComplete(analysisJob);
+        }
         if (isHiddenComparisonJob(analysisJob)) {
             return;
         }
@@ -223,6 +230,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 Math.toIntExact(totals[0]),
                 Math.toIntExact(totals[1])
         );
+        characterComparisonJobCoordinator.handoffIfInputComplete(analysisJob);
     }
 
     private void validateCompletion(AnalysisJob analysisJob) {
@@ -245,7 +253,8 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                     );
             // Java가 AI보다 먼저 배포되는 짧은 구간의 구버전 AI는 character 비교 checkpoint를
             // 보고하지 않는다. 실제 대기/처리 후보가 없다면 legacy 작업으로 보고 완료를 허용한다.
-            if (characterComparisonIsRunning
+            boolean characterComparisonsHandedOff = analysisJob.hasHandedOffCharacterComparisons();
+            if ((!characterComparisonsHandedOff && characterComparisonIsRunning)
                     || !analysisJob.hasReachedCheckpoint(AnalysisJobCheckpointStage.WORLD_COMPARISONS_FINISHED)
                     || comparisonIsRunning) {
                 throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_CHECKPOINT_INCOMPLETE);
@@ -267,6 +276,20 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             return;
         }
         if (analysisJob.getJobType() == AnalysisJobType.CHARACTER_FACT_COMPARISON) {
+            if (analysisJob.getCharacterComparisonInputHash() != null) {
+                List<SettingCandidate> candidates = characterComparisonJobCoordinator
+                        .lockScopeCandidates(analysisJob);
+                if (!characterComparisonJobCoordinator.hasCurrentInput(analysisJob, candidates)) {
+                    return;
+                }
+                if (candidates.stream().anyMatch(candidate ->
+                        candidate.getComparisonStatus() != CharacterFactComparisonStatus.COMPLETED
+                                && candidate.getComparisonStatus()
+                                != CharacterFactComparisonStatus.NOT_REQUIRED)) {
+                    throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_CHECKPOINT_INCOMPLETE);
+                }
+                return;
+            }
             SettingCandidate candidate = analysisJob.getSettingCandidate();
             if (candidate == null) {
                 throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_CHECKPOINT_INCOMPLETE);
@@ -428,6 +451,9 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
 
     private void recoverProcessingCharacterCandidates(AnalysisJob analysisJob) {
         if (analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION) {
+            if (analysisJob.hasHandedOffCharacterComparisons()) {
+                return;
+            }
             settingCandidateRepository.findAllByAnalysisJobIdAndComparisonStatus(
                     analysisJob.getId(),
                     CharacterFactComparisonStatus.PROCESSING
@@ -436,6 +462,18 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         }
         if (analysisJob.getJobType() == AnalysisJobType.CHARACTER_FACT_COMPARISON
                 && analysisJob.getSettingCandidate() != null) {
+            if (analysisJob.getCharacterComparisonInputHash() != null) {
+                List<SettingCandidate> candidates = characterComparisonJobCoordinator
+                        .lockScopeCandidates(analysisJob);
+                if (!characterComparisonJobCoordinator.hasCurrentInput(analysisJob, candidates)) {
+                    return;
+                }
+                candidates.stream()
+                        .filter(candidate -> candidate.getComparisonStatus()
+                                == CharacterFactComparisonStatus.PROCESSING)
+                        .forEach(SettingCandidate::recoverExpiredComparison);
+                return;
+            }
             analysisJob.getSettingCandidate().recoverExpiredComparison();
         }
     }
@@ -446,6 +484,9 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             String errorMessage
     ) {
         if (analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION) {
+            if (analysisJob.hasHandedOffCharacterComparisons()) {
+                return;
+            }
             settingCandidateRepository.findAllByAnalysisJobIdAndComparisonStatusIn(
                     analysisJob.getId(),
                     List.of(
@@ -456,12 +497,18 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             return;
         }
         if (analysisJob.getJobType() == AnalysisJobType.CHARACTER_FACT_COMPARISON
-                && analysisJob.getSettingCandidate() != null
-                && (analysisJob.getSettingCandidate().getComparisonStatus()
-                == CharacterFactComparisonStatus.PENDING
-                || analysisJob.getSettingCandidate().getComparisonStatus()
-                == CharacterFactComparisonStatus.PROCESSING)) {
-            analysisJob.getSettingCandidate().failComparison(failureCode, errorMessage);
+                && analysisJob.getSettingCandidate() != null) {
+            List<SettingCandidate> candidates = analysisJob.getCharacterComparisonInputHash() == null
+                    ? List.of(analysisJob.getSettingCandidate())
+                    : characterComparisonJobCoordinator.lockScopeCandidates(analysisJob);
+            if (analysisJob.getCharacterComparisonInputHash() != null
+                    && !characterComparisonJobCoordinator.hasCurrentInput(analysisJob, candidates)) {
+                return;
+            }
+            candidates.stream()
+                    .filter(candidate -> candidate.getComparisonStatus() == CharacterFactComparisonStatus.PENDING
+                            || candidate.getComparisonStatus() == CharacterFactComparisonStatus.PROCESSING)
+                    .forEach(candidate -> candidate.failComparison(failureCode, errorMessage));
         }
     }
 

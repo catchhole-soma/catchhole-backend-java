@@ -71,6 +71,23 @@ class CharacterFactComparisonMigrationContractTest {
     }
 
     @Test
+    @DisplayName("그룹 비교 Job은 활성 입력 revision별로 하나만 예약한다")
+    void activeGroupComparisonJobIsUniquePerInputRevision() throws IOException {
+        String sql = readMigration("db/migration/V43__add_character_comparison_group_handoff.sql");
+
+        assertThat(sql)
+                .contains("character_comparisons_handed_off BOOLEAN NOT NULL DEFAULT FALSE")
+                .contains("DROP INDEX uk_analysis_jobs_active_setting_candidate")
+                .contains("CREATE UNIQUE INDEX uk_analysis_jobs_active_setting_candidate")
+                .contains("ON analysis_jobs (setting_candidate_id)")
+                .contains("character_comparison_input_hash IS NULL")
+                .contains("CREATE UNIQUE INDEX uk_analysis_jobs_active_character_comparison_input")
+                .contains("ON analysis_jobs (batch_id, character_comparison_input_hash)")
+                .contains("status IN ('PENDING', 'RUNNING')")
+                .doesNotContain("character_comparison_input_hash, status");
+    }
+
+    @Test
     @DisplayName("캐릭터 상태 종료 제안을 suggested operation으로 저장할 수 있다")
     void suggestedOperationConstraintAllowsRemove() throws IOException {
         String sql = readMigration("db/migration/V24__allow_character_fact_remove_operation.sql");

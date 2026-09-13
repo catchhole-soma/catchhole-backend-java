@@ -32,6 +32,7 @@ import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateBatchReviewCounts;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
@@ -71,6 +72,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     private final SettingCandidateRepository settingCandidateRepository;
     private final WorldSettingCandidateRepository worldSettingCandidateRepository;
     private final AiTokenService aiTokenService;
+    private final CharacterFactComparisonJobCoordinator characterComparisonJobCoordinator;
 
     @Override
     @Transactional
@@ -479,6 +481,8 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                         jobType,
                         SettingCandidateReviewStatus.PENDING_REVIEW
                 );
+        List<CharacterFactComparisonJobCoordinator.ScopeRef> reopenedScopes =
+                characterComparisonJobCoordinator.scopeRefs(supersededCharacterCandidates);
         supersededCharacterCandidates.forEach(candidate -> analysisJobRepository
                 .findFirstBySettingCandidateIdAndStatusInOrderByCreatedAtDesc(
                         candidate.getId(),
@@ -493,6 +497,10 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                     comparisonJob.unlinkSettingCandidate();
                 }));
         analysisJobRepository.flush();
+        characterComparisonJobCoordinator.invalidateReopenedInputScopes(
+                reopenedScopes,
+                supersededCharacterCandidates.stream().map(SettingCandidate::getId).collect(Collectors.toSet())
+        );
         settingCandidateRepository.deleteAll(supersededCharacterCandidates);
 
         List<WorldSettingCandidate> supersededWorldSettingCandidates = worldSettingCandidateRepository
