@@ -13,6 +13,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSett
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingDetailResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingListItemResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingListResponse;
+import org.monitoring.catchholebackend.domain.worldimage.service.WorldImageService;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
 import org.monitoring.catchholebackend.domain.worldsetting.exception.WorldSettingErrorCode;
@@ -36,6 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class WorldSettingServiceImpl implements WorldSettingService {
 
+    private final WorldImageService worldImageService;
     private final WorkRepository workRepository;
     private final AnalysisRunStateService analysisRunStateService;
     private final WorldSettingRepository worldSettingRepository;
@@ -69,9 +71,10 @@ public class WorldSettingServiceImpl implements WorldSettingService {
                         category == null ? null : category.name(),
                         pageable
                 );
+        var images = worldImageService.getSettingImages(worldSettingPage.getContent());
         String mappingQuery = normalizedQuery;
         List<WorldSettingListItemResponse> items = worldSettingPage.getContent().stream()
-                .map(worldSetting -> worldSettingMapper.toListItemResponse(worldSetting, mappingQuery))
+                .map(worldSetting -> worldSettingMapper.toListItemResponse(worldSetting, mappingQuery, images.get(worldSetting.getId())))
                 .toList();
         return new WorldSettingListResponse(
                 worldSettingRepository.countByWorkId(work.getId()),
@@ -130,6 +133,7 @@ public class WorldSettingServiceImpl implements WorldSettingService {
         }
         long previousVersion = worldSetting.getVersion();
         worldSetting.changeIdentity(request.category(), request.subjectName());
+        worldImageService.clearMismatchedImage(worldSetting);
         if (worldSetting.getVersion() != previousVersion) {
             analysisRunStateService.invalidateRunsForWorkForUpdate(
                     work.getId(), null, "사용자가 확정 설정을 변경했습니다.");
@@ -212,6 +216,7 @@ public class WorldSettingServiceImpl implements WorldSettingService {
                         worldSetting.getId(),
                         WorldSettingReviewStatus.CONFIRMED
                 );
-        return worldSettingMapper.toDetailResponse(worldSetting, confirmedCandidates);
+        return worldSettingMapper.toDetailResponse(worldSetting, confirmedCandidates,
+                worldImageService.getSettingImages(List.of(worldSetting)).get(worldSetting.getId()));
     }
 }

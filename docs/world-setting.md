@@ -507,3 +507,7 @@ sequenceDiagram
 모든 내부 endpoint는 `X-Internal-Api-Key`와 claim 응답의 `X-Worker-Lease-Token`을 함께 검증합니다. lease는 5분이며 Worker heartbeat가 갱신합니다. 만료 Job은 처리 중 batch를 `WORKER_LEASE_EXPIRED`로 닫고, 최대 3회까지 후보의 canonical 주체 해소 결과를 유지한 채 새 batch로 재claim합니다. 최대 횟수에 도달하면 Job·batch·후보를 함께 실패시키고, 이전 lease의 늦은 완료는 거절합니다.
 
 기존 단일 후보 endpoint(`world-setting-comparisons/claim-next`, `.../{candidateId}/comparison-context`, `.../comparison-complete`, `.../comparison-fail`)는 하위 호환을 위해 유지합니다. 단일 재비교 Job은 새 배치 API를 사용해도 candidate 1개 배치로 동작하며, 구버전 Worker는 기존 endpoint를 계속 사용할 수 있습니다. Worker 운영 지표는 일반 성공/실패·stale context·quota 중단·배치 상태(`COMPLETED`, `FAILED`, `REVIEW_REQUIRED`)를 분리해 집계해야 하며, overflow는 경고 로그와 `BATCH_LIMIT_EXCEEDED` 검토 사유로 확인합니다. `AI_TOKEN_QUOTA_EXHAUSTED`는 재시도 가능한 quota 중단으로 별도 표시하고, 재개 시 기존 후보 ID·1차 근거를 보존합니다.
+
+## 대표 이미지
+
+목록·상세의 `image`는 설정 내용과 독립적인 공용 도감 선택이다. 최초·미선택 대상은 분류 기본 이미지로 조회되며, 수동 변경/해제는 별도 image API와 이미지 version을 사용한다. LLM 추출·자동 확정 계약은 그대로다. [도감 설계와 API](world-image-catalog.md)를 참고한다.

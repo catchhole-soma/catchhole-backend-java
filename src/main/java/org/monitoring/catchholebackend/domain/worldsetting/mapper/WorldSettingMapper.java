@@ -3,6 +3,7 @@ package org.monitoring.catchholebackend.domain.worldsetting.mapper;
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisExplanationText;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
+import org.monitoring.catchholebackend.domain.worldimage.dto.response.WorldSettingImageResponse;
 import java.util.Objects;
 import java.util.stream.StreamSupport;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
@@ -56,6 +57,10 @@ public class WorldSettingMapper {
     }
 
     public WorldSettingListItemResponse toListItemResponse(WorldSetting worldSetting, String query) {
+        return toListItemResponse(worldSetting, query, null);
+    }
+
+    public WorldSettingListItemResponse toListItemResponse(WorldSetting worldSetting, String query, WorldSettingImageResponse image) {
         WorldSetting.Property matchedProperty = findMatchedProperty(worldSetting, query);
         return new WorldSettingListItemResponse(
                 worldSetting.getId(),
@@ -66,13 +71,20 @@ public class WorldSettingMapper {
                 worldSetting.getUpdatedAt(),
                 matchedProperty == null ? null : matchedProperty.scopeName(),
                 matchedProperty == null ? null : matchedProperty.settingName(),
-                matchedProperty == null ? null : matchedProperty.value()
+                matchedProperty == null ? null : matchedProperty.value(),
+                image
         );
     }
 
     public WorldSettingDetailResponse toDetailResponse(
             WorldSetting worldSetting,
             List<WorldSettingCandidate> confirmedCandidates
+    ) {
+        return toDetailResponse(worldSetting, confirmedCandidates, null);
+    }
+
+    public WorldSettingDetailResponse toDetailResponse(
+            WorldSetting worldSetting, List<WorldSettingCandidate> confirmedCandidates, WorldSettingImageResponse image
     ) {
         List<WorldSetting.Property> properties = worldSetting.getProperties();
         List<WorldSettingDetailResponse.PropertyEvidence> propertyEvidence = properties.stream()
@@ -88,7 +100,8 @@ public class WorldSettingMapper {
                 worldSetting.getVersion(),
                 propertyEvidence,
                 worldSetting.getCreatedAt(),
-                worldSetting.getUpdatedAt()
+                worldSetting.getUpdatedAt(),
+                image
         );
     }
 
