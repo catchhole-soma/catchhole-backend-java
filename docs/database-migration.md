@@ -508,3 +508,7 @@ Flyway 도입 전에 JPA가 만든 운영 테스트 DB에는 `flyway_schema_hist
 | V54 | 일반 세계관 불확실성 검토 |
 
 `OrderedAnalysisMigrationIntegrationTest`는 빈 전용 PostgreSQL에 main V43까지 적용하고 이메일 회원과 실제 캐릭터 ID가 없는 그룹 비교 batch를 저장한 뒤 V44~V54 11개 migration을 적용·validate합니다. V45의 식별자 제약은 실제 ID와 임시 ID의 동시 저장을 막으면서 V43의 신규 그룹(null/null)을 보존합니다. [세 PR 통합 검증](gh180-integration-validation.md)을 따릅니다.
+
+## V55·V56 세계관 대표 이미지 도감
+
+V55는 도감/별칭/대상 선택 테이블을 추가하고 V56은 승인된 공용 이미지 340종을 등록한다. 기존 세계관 데이터는 갱신하지 않는다. API가 참조할 자산 680개를 해당 환경의 S3에 먼저 업로드·해시 검증한 후 적용한다. 로컬 PostgreSQL 적용과 Hibernate validate를 확인했으며 운영 반영은 배포 시 진행한다. [자산과 배포 순서](world-image-catalog.md)를 따른다.

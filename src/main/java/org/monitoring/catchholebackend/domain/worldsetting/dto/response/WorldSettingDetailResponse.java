@@ -2,6 +2,7 @@ package org.monitoring.catchholebackend.domain.worldsetting.dto.response;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
+import org.monitoring.catchholebackend.domain.worldimage.dto.response.WorldSettingImageResponse;
 import java.util.List;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
@@ -19,7 +20,8 @@ public record WorldSettingDetailResponse(
         long version,
         List<PropertyEvidence> propertyEvidence,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+        WorldSettingImageResponse image
 ) {
 
     @Schema(description = "현재 설정명별 후보 근거와 확정 이력")

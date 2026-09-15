@@ -175,6 +175,15 @@ org.monitoring.catchholebackend
 │   │   ├── repository
 │   │   ├── service
 │   │   └── type
+│   ├── worldimage
+│   │   ├── controller
+│   │   ├── dto (request / response)
+│   │   ├── entity
+│   │   ├── exception
+│   │   ├── mapper
+│   │   ├── processor
+│   │   ├── repository
+│   │   └── service
 │   └── work
 │       ├── controller
 │       ├── dto
@@ -744,3 +753,10 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 이메일·휴대폰 인증의 TTL, Lua rate limit 경계, 이전 코드 폐기, 오입력 잠금과 동시 토큰 소비는 `redis:7.4.10-alpine3.21` Testcontainers 통합 테스트로 검증한다.
 
 - 그룹 검토 응답의 `analysisMode`는 원 후보 Job의 정책이다. `CONFIRMED_ONLY`는 그룹 공통 비교 revision을 확인하고, `ORDERED_PROVISIONAL`은 회차별 고정 문맥·실제 상태·의존성을 검증한다. 자동 보류 후보의 명시적 사용자 수정 확정과 그룹 멱등 결정 hash의 `applyEditedValue`를 함께 보존한다.
+
+### World Image Catalog (GH194)
+
+- 공용 도감·별칭·대상 선택은 `worldimage` 도메인과 `world_image_catalog`, `world_image_aliases`, `world_setting_images`에서 관리한다. 상세 계약·자산 배포 순서는 `docs/world-image-catalog.md`를 따른다.
+- 대표 이미지 선택은 설정 내용/설정 version/분석 상태와 독립적이다. 대상 잠금과 별도 이미지 version으로 충돌을 막고, 대상 분류 변경은 맞지 않는 이미지 선택을 해제한다.
+- 공용 이미지 경로는 활성 도감에 등록된 SHA만 허용한다. S3 임의 key를 클라이언트에서 받거나 기존 원고 저장소를 공개하지 않는다. 선택·도감 검색 API는 인증/작품 소유권 경계를 유지한다.
+- 자동 이미지 매칭·LLM 프롬프트 확장은 아직 보류다. 별칭 검색을 작품 대상의 동일성 판단에 사용하지 않는다.

@@ -8,6 +8,9 @@ DB 컬럼과 관계는 Flyway migration이 기준입니다. JPA Entity와 Python
 
 ```mermaid
 erDiagram
+    world_settings ||--o| world_setting_images : selects_image
+    world_image_catalog ||--o{ world_setting_images : represents
+    world_image_catalog ||--o{ world_image_aliases : has_aliases
     members ||--o{ refresh_tokens : issues
     members ||--o{ member_legal_records : acknowledges
     legal_documents ||--o{ member_legal_records : is_acknowledged_by
@@ -732,3 +735,7 @@ erDiagram
 ## 이메일 인증 회원 (V42)
 
 `members.phone_number`는 NULL을 허용하며 실제 값의 unique 제약은 유지한다. `email_verified`는 NOT NULL, 기본 false다. 기존 회원은 실제 이메일 인증 이력이 없으므로 false를 유지하고, 이메일 인증 가입은 전화번호 없이 `email_verified=true`, `phone_verified=false`로 저장한다. 인증번호·가입 토큰은 Redis에만 두며 새 인증 테이블은 만들지 않는다.
+
+## 공용 이미지 도감 (V55·V56)
+
+`world_setting_images.world_setting_id`는 대상 FK 겸 PK이며 대상 삭제 시 cascade된다. 선택 도감 FK는 nullable이며 해제 후에도 version 행을 보존한다. `world_image_catalog`는 category별 기본 이미지가 최대 하나인 partial unique index를 가지며 `world_image_aliases`는 `(catalog_id, alias)` 복합 PK다. 상세 필드와 관계는 [대표 이미지 도감](world-image-catalog.md)을 따른다.

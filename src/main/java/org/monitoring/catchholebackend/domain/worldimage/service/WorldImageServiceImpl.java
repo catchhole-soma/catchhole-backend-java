@@ -1,0 +1,106 @@
+package org.monitoring.catchholebackend.domain.worldimage.service;
+
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.domain.worldimage.dto.request.WorldSettingImageUpdateRequest;
+import org.monitoring.catchholebackend.domain.worldimage.dto.response.WorldImageCatalogResponse;
+import org.monitoring.catchholebackend.domain.worldimage.dto.response.WorldSettingImageResponse;
+import org.monitoring.catchholebackend.domain.worldimage.entity.WorldImageCatalog;
+import org.monitoring.catchholebackend.domain.worldimage.entity.WorldSettingImage;
+import org.monitoring.catchholebackend.domain.worldimage.exception.WorldImageErrorCode;
+import org.monitoring.catchholebackend.domain.worldimage.mapper.WorldImageMapper;
+import org.monitoring.catchholebackend.domain.worldimage.processor.WorldImageSearch;
+import org.monitoring.catchholebackend.domain.worldimage.repository.WorldImageCatalogRepository;
+import org.monitoring.catchholebackend.domain.worldimage.repository.WorldSettingImageRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
+import org.monitoring.catchholebackend.domain.worldsetting.exception.WorldSettingErrorCode;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
+import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
+import org.monitoring.catchholebackend.global.common.response.PageResponse;
+import org.monitoring.catchholebackend.global.exception.AppException;
+import org.monitoring.catchholebackend.global.storage.ObjectStorage;
+import org.monitoring.catchholebackend.global.storage.WorldImageAssetPaths;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
+public class WorldImageServiceImpl implements WorldImageService {
+    private final WorldImageCatalogRepository catalogRepository;
+    private final WorldSettingImageRepository selectionRepository;
+    private final WorldSettingRepository worldSettingRepository;
+    private final WorkRepository workRepository;
+    private final WorldImageMapper mapper;
+    private final ObjectStorage objectStorage;
+
+    @Override
+    public PageResponse<WorldImageCatalogResponse> getImageCatalog(WorldSettingCategory category, String query, int page, int size) {
+        var result = catalogRepository.searchCatalog(category, WorldImageSearch.containsQuery(query), PageRequest.of(page, size));
+        return PageResponse.from(result, result.getContent().stream().map(mapper::toResponse).toList());
+    }
+
+    @Override
+    public Map<UUID, WorldSettingImageResponse> getSettingImages(Collection<WorldSetting> settings) {
+        if (settings.isEmpty()) return Map.of();
+        Map<WorldSettingCategory, WorldImageCatalog> defaults = catalogRepository.findAllByDefaultImageTrueAndActiveTrue()
+                .stream().collect(Collectors.toMap(WorldImageCatalog::getCategory, Function.identity()));
+        Map<UUID, WorldSettingImage> selections = selectionRepository.findSelections(settings.stream().map(WorldSetting::getId).toList())
+                .stream().collect(Collectors.toMap(WorldSettingImage::getWorldSettingId, Function.identity()));
+        Map<UUID, WorldSettingImageResponse> result = new HashMap<>();
+        for (WorldSetting setting : settings) {
+            WorldSettingImage selection = selections.get(setting.getId());
+            WorldImageCatalog chosen = selection == null ? null : selection.getCatalog();
+            boolean manual = chosen != null && chosen.isActive() && chosen.getCategory() == setting.getCategory();
+            result.put(setting.getId(), mapper.toSelectionResponse(manual ? chosen : defaults.get(setting.getCategory()),
+                    manual, selection == null ? 0 : selection.getVersion()));
+        }
+        return result;
+    }
+
+    @Override
+    @Transactional
+    public WorldSettingImageResponse updateSettingImage(Long memberId, UUID workId, UUID settingId, WorldSettingImageUpdateRequest request) {
+        workRepository.getOwnedWork(workId, memberId);
+        // 최초 선택도 대상 행을 잠가 직렬화한다. 대상 Entity의 내용·version은 변경하지 않는다.
+        WorldSetting setting = worldSettingRepository.findByIdAndWorkIdForUpdate(settingId, workId)
+                .orElseThrow(() -> new AppException(WorldSettingErrorCode.WORLD_SETTING_NOT_FOUND));
+        WorldSettingImage selection = selectionRepository.findById(settingId).orElseGet(() -> WorldSettingImage.create(setting));
+        selection.validateVersion(request.version());
+        WorldImageCatalog catalog = request.catalogId() == null ? null : catalogRepository.findById(request.catalogId())
+                .filter(WorldImageCatalog::isActive)
+                .orElseThrow(() -> new AppException(WorldImageErrorCode.WORLD_IMAGE_NOT_FOUND));
+        if (catalog != null && catalog.getCategory() != setting.getCategory()) {
+            throw new AppException(WorldImageErrorCode.WORLD_IMAGE_CATEGORY_MISMATCH);
+        }
+        if (catalog != null && catalog.isDefaultImage()) catalog = null;
+        if (selection.selectImage(catalog)) selectionRepository.saveAndFlush(selection);
+        return getSettingImages(List.of(setting)).get(settingId);
+    }
+
+    @Override
+    @Transactional
+    public void clearMismatchedImage(WorldSetting setting) {
+        selectionRepository.findById(setting.getId()).ifPresent(selection -> {
+            if (selection.getCatalog() != null && selection.getCatalog().getCategory() != setting.getCategory()) {
+                selection.selectImage(null);
+            }
+        });
+    }
+
+    @Override
+    public byte[] getPublishedImage(String sha) {
+        if (catalogRepository.findPublishedAsset(sha, PageRequest.of(0, 1)).isEmpty()) {
+            throw new AppException(WorldImageErrorCode.WORLD_IMAGE_NOT_FOUND);
+        }
+        return objectStorage.getBytes(WorldImageAssetPaths.storageKey(sha));
+    }
+}

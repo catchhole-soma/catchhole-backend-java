@@ -2,6 +2,7 @@ package org.monitoring.catchholebackend.domain.worldsetting.dto.response;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
+import org.monitoring.catchholebackend.domain.worldimage.dto.response.WorldSettingImageResponse;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 
@@ -15,6 +16,7 @@ public record WorldSettingListItemResponse(
         LocalDateTime updatedAt,
         @Schema(nullable = true) String matchedScopeName,
         @Schema(nullable = true) String matchedSettingName,
-        @Schema(nullable = true) String matchedSettingValue
+        @Schema(nullable = true) String matchedSettingValue,
+        WorldSettingImageResponse image
 ) {
 }
