@@ -404,10 +404,10 @@ FK를 보류한 컬럼도 임의 UUID 용도가 아니라 위 참조 대상을 �
 
 ## 로컬 검증
 
-기존 적용 DB에 현재 Backend를 시작해 미적용 migration이 V41까지 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V41이 순서대로 적용되는 경로를 각각 확인합니다.
+기존 적용 DB에 현재 Backend를 시작해 미적용 migration이 V55까지 추가 적용되는 경로와, 빈 PostgreSQL에서 V1→V55이 순서대로 적용되는 경로를 각각 확인합니다.
 
-- Flyway 로그에 V1부터 V41까지 적용 성공이 출력됩니다.
-- `flyway_schema_history`에 version 1부터 41까지 성공으로 기록됩니다.
+- Flyway 로그에 V1부터 V55까지 적용 성공이 출력됩니다.
+- `flyway_schema_history`에 version 1부터 55까지 성공으로 기록됩니다.
 - `vector` extension이 활성화됩니다.
 - `episode_chunks.embedding`이 `vector(1536)`으로 생성됩니다.
 - cosine HNSW 인덱스가 생성됩니다.
@@ -508,3 +508,7 @@ Flyway 도입 전에 JPA가 만든 운영 테스트 DB에는 `flyway_schema_hist
 | V54 | 일반 세계관 불확실성 검토 |
 
 `OrderedAnalysisMigrationIntegrationTest`는 빈 전용 PostgreSQL에 main V43까지 적용하고 이메일 회원과 실제 캐릭터 ID가 없는 그룹 비교 batch를 저장한 뒤 V44~V54 11개 migration을 적용·validate합니다. V45의 식별자 제약은 실제 ID와 임시 ID의 동시 저장을 막으면서 V43의 신규 그룹(null/null)을 보존합니다. [세 PR 통합 검증](gh180-integration-validation.md)을 따릅니다.
+
+## V55: 서비스 의견 안내와 입력 최소 조건
+
+`members.feedback_prompt_shown_at`은 계정당 일회 의견 안내를 선점한 시각입니다. 활성 작품의 삭제되지 않은 실제 회차가 3개 이상이고 의견·안내 이력이 없는 계정만 대상입니다. 일반 의견과 `GENERAL_FEEDBACK_REWARD` 요청은 앞뒤 공백을 제외한 10~1,000자이며, `QUOTA_EXHAUSTION` 요청은 기존 35~1,000자를 유지합니다.
