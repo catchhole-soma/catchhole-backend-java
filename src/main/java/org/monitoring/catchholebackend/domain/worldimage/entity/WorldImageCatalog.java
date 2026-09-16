@@ -40,6 +40,11 @@ public class WorldImageCatalog {
     private String thumbnailSha;
     @Column(name = "image_sha", nullable = false, length = 64)
     private String imageSha;
+    @ElementCollection
+    @CollectionTable(name = "world_image_recommendations", joinColumns = @JoinColumn(name = "catalog_id"))
+    @Column(name = "theme", nullable = false, length = 30)
+    private Set<String> themes = new LinkedHashSet<>();
+
     // 별칭은 대표 이미지 검색용 관련 표현이며, 원고의 설정명이나 대상명을 치환하지 않는다.
     @ElementCollection
     @CollectionTable(name = "world_image_aliases", joinColumns = @JoinColumn(name = "catalog_id"))

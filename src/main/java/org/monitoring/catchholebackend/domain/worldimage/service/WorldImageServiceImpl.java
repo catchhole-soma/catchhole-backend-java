@@ -1,6 +1,10 @@
 package org.monitoring.catchholebackend.domain.worldimage.service;
 
 import java.util.Collection;
+import org.monitoring.catchholebackend.domain.worldimage.dto.response.WorldImageThemeResponse;
+import org.monitoring.catchholebackend.domain.worldimage.entity.WorldImageThemeAsset;
+import org.monitoring.catchholebackend.domain.worldimage.repository.WorldImageThemeAssetRepository;
+import org.monitoring.catchholebackend.domain.worldimage.processor.WorldImageThemes;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +41,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class WorldImageServiceImpl implements WorldImageService {
     private final WorldImageCatalogRepository catalogRepository;
+    private final WorldImageThemeAssetRepository themeRepository;
     private final WorldSettingImageRepository selectionRepository;
     private final WorldSettingRepository worldSettingRepository;
     private final WorkRepository workRepository;
@@ -45,9 +50,19 @@ public class WorldImageServiceImpl implements WorldImageService {
     private final PrivateWorldImageRepository privateImageRepository;
 
     @Override
-    public PageResponse<WorldImageCatalogResponse> getImageCatalog(WorldSettingCategory category, String query, int page, int size) {
-        var result = catalogRepository.searchCatalog(category, WorldImageSearch.containsQuery(query), PageRequest.of(page, size));
+    public PageResponse<WorldImageCatalogResponse> getImageCatalog(Long memberId, UUID workId, boolean recommended, WorldSettingCategory category, String query, int page, int size) {
+        String theme = workId == null ? null : WorldImageThemes.forGenre(workRepository.getOwnedWork(workId, memberId).getGenre());
+        if (recommended && theme == null) throw new AppException(WorldImageErrorCode.WORLD_IMAGE_WORK_REQUIRED);
+        var result = recommended
+                ? catalogRepository.searchRecommendedCatalog(category, WorldImageSearch.containsQuery(query), theme, PageRequest.of(page, size))
+                : catalogRepository.searchCatalog(category, WorldImageSearch.containsQuery(query), PageRequest.of(page, size));
         return PageResponse.from(result, result.getContent().stream().map(mapper::toResponse).toList());
+    }
+
+    @Override
+    public WorldImageThemeResponse getImageTheme(Long memberId, UUID workId) {
+        String theme = WorldImageThemes.forGenre(workRepository.getOwnedWork(workId, memberId).getGenre());
+        return mapper.toThemeResponse(theme, themeRepository.findAllByThemeIn(List.of(theme)));
     }
 
     @Override
@@ -55,6 +70,10 @@ public class WorldImageServiceImpl implements WorldImageService {
         if (settings.isEmpty()) return Map.of();
         Map<WorldSettingCategory, WorldImageCatalog> defaults = catalogRepository.findAllByDefaultImageTrueAndActiveTrue()
                 .stream().collect(Collectors.toMap(WorldImageCatalog::getCategory, Function.identity()));
+        var themes = settings.stream().map(setting -> WorldImageThemes.forGenre(setting.getWork().getGenre())).distinct().toList();
+        Map<String, WorldImageThemeAsset> themeDefaults = themeRepository.findAllByThemeIn(themes).stream()
+                .filter(asset -> asset.getPurpose().equals("DEFAULT"))
+                .collect(Collectors.toMap(asset -> asset.getTheme() + ":" + asset.getSlot(), Function.identity()));
         Map<UUID, WorldSettingImage> selections = selectionRepository.findSelections(settings.stream().map(WorldSetting::getId).toList())
                 .stream().collect(Collectors.toMap(WorldSettingImage::getWorldSettingId, Function.identity()));
         Map<UUID, WorldSettingImageResponse> result = new HashMap<>();
@@ -66,8 +85,11 @@ public class WorldImageServiceImpl implements WorldImageService {
             }
             WorldImageCatalog chosen = selection == null ? null : selection.getCatalog();
             boolean manual = chosen != null && chosen.isActive() && chosen.getCategory() == setting.getCategory();
-            result.put(setting.getId(), mapper.toSelectionResponse(manual ? chosen : defaults.get(setting.getCategory()),
-                    manual, selection == null ? 0 : selection.getVersion()));
+            long version = selection == null ? 0 : selection.getVersion();
+            var themeDefault = themeDefaults.get(WorldImageThemes.forGenre(setting.getWork().getGenre()) + ":" + setting.getCategory().name());
+            result.put(setting.getId(), !manual && themeDefault != null
+                    ? mapper.toThemeAssetResponse(themeDefault, version)
+                    : mapper.toSelectionResponse(manual ? chosen : defaults.get(setting.getCategory()), manual, version));
         }
         return result;
     }
@@ -111,7 +133,8 @@ public class WorldImageServiceImpl implements WorldImageService {
 
     @Override
     public byte[] getPublishedImage(String sha) {
-        if (catalogRepository.findPublishedAsset(sha, PageRequest.of(0, 1)).isEmpty()) {
+        if (catalogRepository.findPublishedAsset(sha, PageRequest.of(0, 1)).isEmpty()
+                && !themeRepository.existsByThumbnailShaOrImageSha(sha, sha)) {
             throw new AppException(WorldImageErrorCode.WORLD_IMAGE_NOT_FOUND);
         }
         return objectStorage.getBytes(WorldImageAssetPaths.storageKey(sha));

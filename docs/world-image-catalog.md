@@ -6,8 +6,8 @@
 
 개인 이미지 업로드·선택은 [개인 세계관 이미지](private-world-images.md)의 V57 계약으로 확장한다. `world_setting_images`는 공용 도감과 개인 이미지 중 하나만 참조하며, API에 `privateImageId`·`vaultId`와 `PRIVATE` 출처가 추가된다. 공용 도감의 기존 범위와 공개 자산 계약은 아래와 같다.
 
-- 공용 대표 이미지 333종: 종족 33, 세력 40, 장소 30, 몬스터 60, 마법·능력 50, 규칙·역사 40, 중요 아이템 80.
-- 분류 기본 이미지 7종을 포함해 도감 340행, 검색 별칭 905개. `전체` 이미지는 Front의 분류 탐색용이며 대상 이미지 도감에는 넣지 않는다.
+- 기존 공용 대표 이미지 333종: 종족 33, 세력 40, 장소 30, 몬스터 60, 마법·능력 50, 규칙·역사 40, 중요 아이템 80.
+- V60에서 장르 도감 130종을 더해 개별 463종 + 기본 7종 = 470행이다. 최초 V56은 도감 340행·별칭 905개였다. `전체` 이미지는 Front의 분류 탐색용이며 대상 이미지 도감에는 넣지 않는다.
 - 이름·별칭의 NFC/소문자/공백·구분자 정규화 검색. 별칭은 이미지 검색용 관련 표현이며 작품 대상의 동일성을 판정하거나 이름을 바꾸지 않는다.
 - LLM 추출·확정 프롬프트, 자동 이미지 유형 선택, 기존 대상의 자동 일괄 매칭은 포함하지 않는다. 기존 대상은 데이터 수정 없이 분류 기본 이미지로 표시된다.
 
@@ -29,7 +29,7 @@
 | --- | --- |
 | `GET /api/v1/world-image-catalog` | 인증 필요. `category` 필수, `q` 최대 100자, 0-based `page`, `size` 1–60/기본 18. 활성 상태의 해당 분류 일반 이미지만 `PageResponse.content`에 반환 |
 | `PATCH /api/v1/works/{workId}/world-settings/{worldSettingId}/image` | 작품 소유자만 변경. `{catalogId: "location-forest", version: 0}`. `catalogId: null`은 기본 이미지 복귀 |
-| `GET /api/v1/world-image-assets/{sha}.webp` | 인증 없이 공용 이미지 bytes 제공. 활성 도감에 등록된 64자리 SHA만 허용. 임의 S3 key/원고 파일 접근 불가 |
+| `GET /api/v1/world-image-assets/{sha}.webp` | 인증 없이 공용 이미지 bytes 제공. 활성 도감 또는 테마 슬롯에 등록된 64자리 SHA만 허용. 임의 S3 key/원고 파일 접근 불가 |
 
 목록과 상세 응답에 `image: {catalogId, name, thumbnailUrl, imageUrl, source, version}`를 추가했다. 목록은 분류 기본 이미지와 현재 페이지 선택을 각각 batch 조회하므로 카드마다 상세 API나 선택 쿼리를 추가하지 않는다. 검색 aliases는 Hibernate batch fetch를 사용한다.
 
@@ -64,3 +64,35 @@ SHA로 파일 경로가 정해지므로 이미지 교체는 새 자산·새 SHA�
 - Java 전체 테스트 1,162개 중 1,097 통과, 기존 조건부 65개 건너뜀. 이미지 통합 테스트: 첫 선택/목록·상세/해제/중복 저장/오래된 버전/분류 변경/별칭/권한/공용 자산 허용 범위.
 - Front live E2E는 기존 인증 계정으로 테스트 작품을 만들고 실제 API에 저장한 뒤 재조회·새로고침·충돌·복귀 및 320px 화면을 확인하며, 테스트 작품은 정리한다.
 - 로컬은 기존 원고·워커와 함께 파일 저장소를 사용한다. 공용 자산을 같은 key로 복사해 동일한 API를 검증했다. 개발 S3 업로드는 완료했으며 운영 DB migration·배포는 이 작업에서 실행하지 않았다.
+
+## 2026-09-16 장르 테마 확장 (V59/V60)
+
+`world_image_theme_assets`: id PK, theme, purpose(OVERVIEW/DEFAULT), slot(분류 enum/ALL), name, thumbnail_sha/image_sha, created_at/updated_at. `(theme,purpose,slot)` unique, DEFAULT에는 ALL 금지. 7개 테마 × (초기 8칸 + 기본 7칸) = 105행이다.
+
+`world_image_recommendations`: catalog_id FK + theme 복합 PK, theme 인덱스. 동일 ID/자산을 여러 테마가 참조한다. 판타지 333, 현대 공통 50, 무협 70, SF 70, 추리 61, 호러 80, 스포츠 56 = 720행. 테마별 선택 목록은 중복 ID를 만들지 않는다. 현대 공통은 로맨스·코미디·일상·기타가 공유한다.
+
+- `GET /api/v1/works/{workId}/world-image-theme`: 소유자에게 `{theme,overview,defaults}`를 반환한다. overview 키는 7분류+ALL, defaults는 7분류다.
+- `GET /api/v1/world-image-catalog`: optional `workId`, `recommended=false` 추가. true는 workId 필수(400), 전달된 workId는 항상 소유권 검증(404). false/생략은 기존 분류 전체 검색을 유지한다. 수동 저장 시에는 장르 제한을 적용하지 않는다.
+- 조회 우선순위: 개인 선택 → 같은 분류의 유효한 수동 도감 → 현재 작품 장르 기본 → 구형 분류 기본. 테마 기본 응답은 catalogId=null, source=DEFAULT다. 잠금은 개인 이미지 응답을 받은 Front에서 처리한다.
+- 작품 장르 변경은 설정/이미지 행을 갱신하지 않는다. 기존 미선택 대상에도 즉시 기본 그림이 적용되고, 수동/개인 선택과 이미지 version은 보존된다. 캐릭터 자동 선택 로직·추출 프롬프트는 변경하지 않는다.
+- V60은 초기 카드 이미지와 혼용되던 기본 7행의 SHA를 승인된 별도 중립 기본으로 바꾼다. 대상 선택 행이나 V55~V58을 수정하지 않는다. 추가 장르 그림은 130개 도감 행으로 등록한다.
+
+### 빌드·업로드
+
+기존 자산은 `build_catalog.py`로 만든 바이트를 그대로 보존한다. 아래 두 빌더를 **같은 output**으로 실행하면 전체 자산을 모을 수 있다. 원본 PNG와 테마 구성표는 상위 workspace에 필요하다. Pillow 12.3.0 기준이며 적용된 V60과 seed가 달라지면 덮어쓰기를 거부한다. 이후 변경은 새 manifest/migration으로 추가한다.
+
+```sh
+python scripts/world-images/build_catalog.py --workspace /path/to/catchhole --output /path/to/assets
+python scripts/world-images/build_themes.py --workspace /path/to/catchhole --output /path/to/assets
+AWS_PROFILE=catchhole python scripts/world-images/upload_catalog.py --manifest src/main/resources/world-images/themes-v1.json --root /path/to/assets --bucket YOUR_BUCKET
+```
+
+새 manifest는 전체 catalog + theme 슬롯과 추천 관계를 담는다. 자산 key는 SHA 기반이며 용도·테마 간 동일 파일은 중복 업로드하지 않는다. 업로드 도구는 기존 객체를 덮어쓰지 않고 1,010개 고유 WebP의 실제 바이트를 검증한다. 다른 환경의 버킷에도 **자산 → Java V59/V60/API → Front** 순서로 배포한다.
+
+### 검증
+
+- 개발 버킷 소유권 확인 후 신규 330개 추가, 전체 1,010개/70,140,720 bytes SHA·content type 확인. ACL/버킷 정책 유지.
+- 빈 PostgreSQL V1~V60, Hibernate validate, health UP. 로컬 기존 DB V60 적용 후 470/105/720행 확인.
+- Java 전체 1,174개: 1,109 통과·조건부 65 건너뜀. 장르 기본/수동 보존·추천 공유/별칭·소유권·공용 SHA 허용 범위와 개인 선택 보존 통합 테스트 통과.
+- 실제 Front→Java→PostgreSQL에서 10장르/7테마, 초기 8칸/기본 7칸, 공용 숲 동일 자산, 타 장르 객잔 수동 선택·장르 변경 보존·기본 복귀 검증. 테스트 작품 정리.
+- 운영 DB/서비스 배포는 수행하지 않았다.

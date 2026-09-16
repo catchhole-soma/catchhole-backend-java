@@ -138,6 +138,11 @@ class PrivateWorldImageIntegrationTest {
         select(imageId, 0).andExpect(status().isOk()).andExpect(jsonPath("$.data.source").value("PRIVATE"))
                 .andExpect(jsonPath("$.data.vaultId").value(vaultId.toString())).andExpect(jsonPath("$.data.version").value(1));
         select(imageId, 1).andExpect(status().isOk()).andExpect(jsonPath("$.data.version").value(1));
+        works.getReferenceById(workId).updateInfo("개인 이미지", WorkGenre.SPORTS, "장르 변경");
+        mvc.perform(get("/api/v1/works/" + workId + "/world-settings/" + settingId).header("Authorization", token))
+                .andExpect(jsonPath("$.data.image.source").value("PRIVATE"))
+                .andExpect(jsonPath("$.data.image.privateImageId").value(imageId.toString()))
+                .andExpect(jsonPath("$.data.image.version").value(1));
         select(null, 0).andExpect(status().isConflict());
         mvc.perform(patch("/api/v1/works/" + workId + "/world-settings/" + settingId + "/identity")
                 .header("Authorization", token).contentType(MediaType.APPLICATION_JSON)

@@ -143,6 +143,9 @@ class CatchHoleBackendApplicationTests {
     private CharacterSnapshotSourceRepository characterSnapshotSourceRepository;
 
     @MockitoBean
+    private org.monitoring.catchholebackend.domain.worldimage.repository.WorldImageThemeAssetRepository worldImageThemeAssetRepository;
+
+    @MockitoBean
     private org.monitoring.catchholebackend.domain.worldimage.repository.WorldImageCatalogRepository worldImageCatalogRepository;
 
     @MockitoBean

@@ -11,6 +11,10 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
+import java.util.UUID;
+import org.monitoring.catchholebackend.domain.auth.security.MemberPrincipal;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import io.swagger.v3.oas.annotations.Parameter;
 import org.monitoring.catchholebackend.domain.worldimage.dto.response.WorldImageCatalogResponse;
 import org.monitoring.catchholebackend.domain.worldimage.service.WorldImageService;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
@@ -40,11 +44,14 @@ public class WorldImageCatalogController {
             @ApiResponse(responseCode = "401", description = "인증 필요", content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
     })
     public CommonResponse<PageResponse<WorldImageCatalogResponse>> getWorldImageCatalog(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @Parameter(description = "장르 추천을 받을 작품 ID") @RequestParam(required = false) UUID workId,
+            @Parameter(description = "true는 작품 장르 추천, false는 같은 분류 전체 도감") @RequestParam(defaultValue = "false") boolean recommended,
             @RequestParam WorldSettingCategory category,
             @RequestParam(defaultValue = "") @Size(max = 100) String q,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "18") @Min(1) @Max(60) int size
     ) {
-        return CommonResponse.success(service.getImageCatalog(category, q, page, size));
+        return CommonResponse.success(service.getImageCatalog(member.memberId(), workId, recommended, category, q, page, size));
     }
 }

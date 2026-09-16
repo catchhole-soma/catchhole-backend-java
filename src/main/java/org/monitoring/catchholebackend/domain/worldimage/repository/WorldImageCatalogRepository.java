@@ -17,6 +17,15 @@ public interface WorldImageCatalogRepository extends JpaRepository<WorldImageCat
             """)
     Page<WorldImageCatalog> searchCatalog(WorldSettingCategory category, String query, Pageable pageable);
 
+    @Query("""
+            select c from WorldImageCatalog c
+            where c.active = true and c.defaultImage = false
+              and c.category = :category and c.searchText like :query escape '!'
+              and :theme member of c.themes
+            order by c.name, c.id
+            """)
+    Page<WorldImageCatalog> searchRecommendedCatalog(WorldSettingCategory category, String query, String theme, Pageable pageable);
+
     List<WorldImageCatalog> findAllByDefaultImageTrueAndActiveTrue();
 
     @Query("select distinct c from WorldImageCatalog c left join fetch c.aliases where c.active = true and c.defaultImage = false and c.category = org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory.RACE")

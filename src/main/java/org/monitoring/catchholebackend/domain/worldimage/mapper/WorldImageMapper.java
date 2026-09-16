@@ -7,9 +7,27 @@ import org.monitoring.catchholebackend.domain.worldimage.entity.PrivateWorldImag
 import org.monitoring.catchholebackend.global.storage.PrivateWorldImagePaths;
 import org.monitoring.catchholebackend.global.storage.WorldImageAssetPaths;
 import org.springframework.stereotype.Component;
+import java.util.List;
+import java.util.LinkedHashMap;
+import org.monitoring.catchholebackend.domain.worldimage.dto.response.WorldImageThemeResponse;
+import org.monitoring.catchholebackend.domain.worldimage.entity.WorldImageThemeAsset;
 
 @Component
 public class WorldImageMapper {
+    public WorldSettingImageResponse toThemeAssetResponse(WorldImageThemeAsset asset, long version) {
+        return new WorldSettingImageResponse(null, asset.getName(), WorldImageAssetPaths.publicPath(asset.getThumbnailSha()),
+                WorldImageAssetPaths.publicPath(asset.getImageSha()), "DEFAULT", version, null, null);
+    }
+
+    public WorldImageThemeResponse toThemeResponse(String theme, List<WorldImageThemeAsset> assets) {
+        var overview = new LinkedHashMap<String, WorldSettingImageResponse>();
+        var defaults = new LinkedHashMap<String, WorldSettingImageResponse>();
+        for (var asset : assets) {
+            (asset.getPurpose().equals("OVERVIEW") ? overview : defaults).put(asset.getSlot(), toThemeAssetResponse(asset, 0));
+        }
+        return new WorldImageThemeResponse(theme, overview, defaults);
+    }
+
     public WorldImageCatalogResponse toResponse(WorldImageCatalog catalog) {
         return new WorldImageCatalogResponse(catalog.getId(), catalog.getCategory(), catalog.getName(),
                 catalog.getAliases().stream().sorted().toList(),

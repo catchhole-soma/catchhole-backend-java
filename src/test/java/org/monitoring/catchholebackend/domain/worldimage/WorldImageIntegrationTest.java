@@ -65,6 +65,72 @@ class WorldImageIntegrationTest {
         jdbc.update("INSERT INTO world_image_aliases(catalog_id, alias) VALUES (?, ?)", "race-goblin", "홉고블린");
     }
 
+    private void themeAsset(String theme, String purpose, String slot, String sha) {
+        jdbc.update("INSERT INTO world_image_theme_assets(id,theme,purpose,slot,name,thumbnail_sha,image_sha,created_at,updated_at) VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
+                theme + purpose + slot, theme, purpose, slot, "테마 기본", sha, sha);
+    }
+
+    @Test
+    @DisplayName("장르가 바뀌면 기본 그림만 바뀌고 직접 선택·설정 내용·이미지 버전은 보존한다")
+    void genreDefaultsPreserveManualSelection() throws Exception {
+        themeAsset("fantasy", "DEFAULT", "RACE", "b".repeat(64));
+        themeAsset("sports", "DEFAULT", "RACE", "c".repeat(64));
+        mvc.perform(get(base).header("Authorization", token)).andExpect(jsonPath("$.data.image.imageUrl").value("/api/v1/world-image-assets/" + "b".repeat(64) + ".webp"));
+        choose("race-goblin", 0).andExpect(status().isOk());
+        setting.getWork().updateInfo("이미지 테스트", WorkGenre.SPORTS, "도감");
+        mvc.perform(get(base).header("Authorization", token)).andExpect(jsonPath("$.data.image.catalogId").value("race-goblin"))
+                .andExpect(jsonPath("$.data.image.version").value(1));
+        choose(null, 1).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.imageUrl").value("/api/v1/world-image-assets/" + "c".repeat(64) + ".webp"))
+                .andExpect(jsonPath("$.data.version").value(2));
+        mvc.perform(get(base).header("Authorization", token)).andExpect(jsonPath("$.data.properties[0].value").value("경계한다"))
+                .andExpect(jsonPath("$.data.version").value(0));
+    }
+
+    @Test
+    @DisplayName("하나의 원본을 여러 장르가 추천하고 전체 도감과 직접 선택에는 장르 제한이 없다")
+    void sharedRecommendationsAndFullCatalog() throws Exception {
+        jdbc.update("INSERT INTO world_image_recommendations(catalog_id,theme) VALUES ('race-goblin','fantasy'),('race-goblin','horror')");
+        String workId = setting.getWork().getId().toString();
+        for (WorkGenre genre : new WorkGenre[]{WorkGenre.FANTASY, WorkGenre.HORROR}) {
+            setting.getWork().updateInfo("이미지 테스트", genre, "도감");
+            mvc.perform(get("/api/v1/world-image-catalog").header("Authorization", token).param("category", "RACE")
+                    .param("workId", workId).param("recommended", "true").param("q", "홉 고블린").param("size", "1"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.data.totalElements").value(1))
+                    .andExpect(jsonPath("$.data.content[0].id").value("race-goblin"));
+        }
+        setting.getWork().updateInfo("이미지 테스트", WorkGenre.SPORTS, "도감");
+        mvc.perform(get("/api/v1/world-image-catalog").header("Authorization", token).param("category", "RACE")
+                .param("workId", workId).param("recommended", "true")).andExpect(jsonPath("$.data.totalElements").value(0));
+        mvc.perform(get("/api/v1/world-image-catalog").header("Authorization", token).param("category", "RACE")
+                .param("workId", workId)).andExpect(jsonPath("$.data.totalElements").value(1));
+        choose("race-goblin", 0).andExpect(status().isOk());
+        mvc.perform(get("/api/v1/world-image-catalog").header("Authorization", token).param("category", "RACE")
+                .param("recommended", "true")).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("일상·로맨스·코미디·기타가 같은 구성을 공유하고 테마 자산도 등록된 SHA만 공개한다")
+    void commonThemeAndPublishedAssets() throws Exception {
+        themeAsset("modern-common", "OVERVIEW", "ALL", "d".repeat(64));
+        themeAsset("modern-common", "DEFAULT", "RACE", "d".repeat(64));
+        String endpoint = "/api/v1/works/" + setting.getWork().getId() + "/world-image-theme";
+        for (WorkGenre genre : new WorkGenre[]{WorkGenre.ROMANCE, WorkGenre.COMEDY, WorkGenre.SLICE_OF_LIFE, WorkGenre.ETC}) {
+            setting.getWork().updateInfo("이미지 테스트", genre, "도감");
+            mvc.perform(get(endpoint).header("Authorization", token)).andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.theme").value("modern-common"))
+                    .andExpect(jsonPath("$.data.overview.ALL.imageUrl").value("/api/v1/world-image-assets/" + "d".repeat(64) + ".webp"));
+        }
+        when(storage.getBytes("world-image-catalog/v1/" + "d".repeat(64) + ".webp")).thenReturn(new byte[]{1});
+        mvc.perform(get("/api/v1/world-image-assets/" + "d".repeat(64) + ".webp")).andExpect(status().isOk());
+        mvc.perform(get(endpoint)).andExpect(status().isUnauthorized());
+        Member stranger = members.save(Member.register("theme-other@example.com", "encoded", "01077776666", "다른 작가"));
+        String otherToken = "Bearer " + jwt.generateAccessToken(stranger);
+        mvc.perform(get(endpoint).header("Authorization", otherToken)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/world-image-catalog").header("Authorization", otherToken).param("category", "RACE")
+                .param("workId", setting.getWork().getId().toString()).param("recommended", "true")).andExpect(status().isNotFound());
+    }
+
     private void seed(String id, String category, String name, String search, boolean isDefault) {
         jdbc.update("INSERT INTO world_image_catalog(id,category,name,search_text,is_default,active,thumbnail_sha,image_sha) VALUES (?,?,?,?,?,true,?,?)",
                 id, category, name, search, isDefault, SHA, SHA);
