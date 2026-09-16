@@ -512,3 +512,10 @@ Flyway 도입 전에 JPA가 만든 운영 테스트 DB에는 `flyway_schema_hist
 ## V55: 서비스 의견 안내와 입력 최소 조건
 
 `members.feedback_prompt_shown_at`은 계정당 일회 의견 안내를 선점한 시각입니다. 활성 작품의 삭제되지 않은 실제 회차가 3개 이상이고 의견·안내 이력이 없는 계정만 대상입니다. 일반 의견과 `GENERAL_FEEDBACK_REWARD` 요청은 앞뒤 공백을 제외한 10~1,000자이며, `QUOTA_EXHAUSTION` 요청은 기존 35~1,000자를 유지합니다.
+
+## V56: 의견 안내 자격 조회 인덱스
+
+- 활성 작품만 담는 `works(member_id, id)` 부분 인덱스와 보관되지 않은 회차만 담는 `episodes(work_id)` 부분 인덱스를 추가합니다.
+- 자격 조회는 `LIMIT 3`으로 제한한 하위 쿼리의 결과만 COUNT해 세 번째 유효 회차의 존재를 판단합니다. PostgreSQL과 H2에서 같은 트랜잭션 내 변경도 읽으면서 최대 3행만 집계합니다. 정렬이나 엔티티 로딩은 필요하지 않습니다.
+- SQL의 `ACTIVE` / `ARCHIVED` 리터럴 조건을 부분 인덱스 조건과 동일하게 유지합니다. 자격 정책을 바꾸면 쿼리와 인덱스를 함께 검토합니다.
+- V55는 수정하지 않습니다. `FeedbackPromptMigrationIntegrationTest`는 격리된 PostgreSQL에 전체 migration과 JPA validate를 수행하고 2,000개 작품·100,000개 회차에서 두 인덱스 사용과 조인의 3행 반환을 확인합니다.

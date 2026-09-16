@@ -738,3 +738,9 @@ erDiagram
 
 - `members.feedback_prompt_shown_at`은 의견 안내를 최초 선점한 시각으로, 실제 의견 행과 독립적으로 계정당 1회 노출을 보장합니다.
 - `ai_token_extension_requests.feedback`는 `GENERAL_FEEDBACK_REWARD` 출처일 때 10~1,000자, `QUOTA_EXHAUSTION`일 때 35~1,000자를 허용합니다.
+
+### 의견 안내 조회 인덱스 (V56)
+
+- `idx_works_active_member`: `works(member_id, id) WHERE lifecycle_status = 'ACTIVE'`
+- `idx_episodes_non_archived_work`: `episodes(work_id) WHERE status <> 'ARCHIVED'`
+- 안내 자격은 세 번째 유효 회차의 존재까지만 조회하며 전체 회차 수를 집계하지 않습니다.
