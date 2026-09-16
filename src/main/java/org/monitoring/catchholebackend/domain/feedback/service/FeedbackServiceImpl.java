@@ -3,8 +3,6 @@ package org.monitoring.catchholebackend.domain.feedback.service;
 import lombok.RequiredArgsConstructor;
 import java.time.LocalDateTime;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
-import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
-import org.monitoring.catchholebackend.domain.work.type.WorkLifecycleStatus;
 import org.monitoring.catchholebackend.domain.feedback.dto.response.FeedbackPromptResponse;
 import org.monitoring.catchholebackend.domain.aitoken.dto.response.AiTokenFeedbackRewardResult;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
@@ -76,9 +74,7 @@ public class FeedbackServiceImpl implements FeedbackService {
     private boolean isEligibleForPrompt(Member member) {
         return member.getFeedbackPromptShownAt() == null
                 && !feedbackRepository.existsByMemberId(member.getId())
-                && episodeRepository.countByWorkMemberIdAndWorkLifecycleStatusAndStatusNot(
-                        member.getId(), WorkLifecycleStatus.ACTIVE, EpisodeStatus.ARCHIVED
-                ) >= 3;
+                && episodeRepository.existsAtLeastThreePromptEligibleEpisodes(member.getId());
     }
 
     private String normalizeContent(String content) {
