@@ -38,7 +38,12 @@ class CharacterImageIntegrationTest {
     @Autowired WorkRepository works;
     @Autowired WorkCharacterRepository characters;
     @Autowired JwtTokenProvider jwt;
+    @Autowired org.monitoring.catchholebackend.domain.worldimage.service.AutomaticImageService automaticImages;
     @MockitoBean ObjectStorage storage;
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    org.monitoring.catchholebackend.domain.worldimage.repository.WorldImageCatalogRepository imageCatalogs;
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    org.monitoring.catchholebackend.domain.worldimage.processor.CharacterRaceImageMatcher imageMatcher;
     WorkCharacter character;
     String token;
     String stranger;
@@ -67,13 +72,14 @@ class CharacterImageIntegrationTest {
         if (value != null) profile.set("profile.species", JsonNodeFactory.instance.objectNode().put("value", value));
         character.replaceCurrentSnapshots(null, null, profile, null, null, null, null);
         characters.flush();
+        automaticImages.refreshCharacterImages(java.util.List.of(character));
     }
     ResultActions read() throws Exception { return mvc.perform(get(base).header("Authorization", token)); }
     ResultActions choose(String payload) throws Exception {
         return mvc.perform(patch(base + "/image").header("Authorization", token).contentType("application/json").content(payload));
     }
 
-    @Test @DisplayName("이름을 추측하지 않고 명시 종족만 연결하며 기존 데이터에도 조회 시 적용한다")
+    @Test @DisplayName("이름을 추측하지 않고 명시 종족만 연결하며 저장된 결과로 목록과 상세를 표시한다")
     void automaticOnlyFromSpecies() throws Exception {
         read().andExpect(status().isOk()).andExpect(jsonPath("$.data.image.catalogId").isEmpty()).andExpect(jsonPath("$.data.image.source").value("AUTO"));
         species(" 엘프 족 ");
@@ -86,16 +92,18 @@ class CharacterImageIntegrationTest {
         read().andExpect(jsonPath("$.data.image.catalogId").isEmpty());
         species(null);
         read().andExpect(jsonPath("$.data.image.catalogId").isEmpty());
-        assertThat(jdbc.queryForObject("select count(*) from character_images", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from character_images", Long.class)).isEqualTo(1);
     }
 
     @Test @DisplayName("중복 별칭과 상충하는 종족 값은 기본 이미지로 표시한다")
     void ambiguousSpecies() throws Exception {
-        species("엘프족");
         jdbc.update("INSERT INTO world_image_aliases(catalog_id,alias) VALUES ('race-goblin','엘프족')");
+        species("엘프족");
+        automaticImages.refreshCharacterImages(java.util.List.of(character));
         read().andExpect(jsonPath("$.data.image.catalogId").isEmpty());
         var profile = JsonNodeFactory.instance.objectNode().put("profile.species", "엘프").put("species", "고블린");
         character.replaceCurrentSnapshots(null,null,profile,null,null,null,null);
+        automaticImages.refreshCharacterImages(java.util.List.of(character));
         read().andExpect(jsonPath("$.data.image.catalogId").isEmpty());
     }
 
@@ -116,6 +124,17 @@ class CharacterImageIntegrationTest {
         read().andExpect(jsonPath("$.data.image.catalogId").isEmpty());
         choose("{\"version\":2}").andExpect(jsonPath("$.data.source").value("AUTO")).andExpect(jsonPath("$.data.catalogId").value("race-elf"));
         choose("{\"useDefault\":true,\"version\":1}").andExpect(status().isConflict());
+    }
+
+    @Test @DisplayName("이미 저장된 자동 결과는 목록·상세 조회에서 도감·별칭 조회나 재매칭을 하지 않는다")
+    void readsOnlyPersistedImage() throws Exception {
+        species("엘프");
+        org.mockito.Mockito.clearInvocations(imageCatalogs, imageMatcher);
+        read().andExpect(jsonPath("$.data.image.catalogId").value("race-elf"));
+        mvc.perform(get(base.substring(0, base.lastIndexOf('/'))).header("Authorization", token))
+                .andExpect(jsonPath("$.data.content[0].image.catalogId").value("race-elf"));
+        org.mockito.Mockito.verify(imageCatalogs, org.mockito.Mockito.never()).findRaceImagesWithAliases();
+        org.mockito.Mockito.verifyNoInteractions(imageMatcher);
     }
 
     @Test @DisplayName("다른 분류·인증 없음·타인·보관 캐릭터의 변경을 거절한다")

@@ -106,6 +106,9 @@ class SettingCandidatePromotionServiceTest {
     private final CharacterSnapshotAccessor snapshotAccessor = new CharacterSnapshotAccessor();
     private final SettingCandidateSchemaResolver schemaResolver = new SettingCandidateSchemaResolver();
 
+    @Autowired org.springframework.jdbc.core.JdbcTemplate imageJdbc;
+    @Autowired org.monitoring.catchholebackend.domain.worldimage.repository.CharacterImageRepository imageSelections;
+
     private Work work;
 
     @BeforeEach
@@ -971,6 +974,7 @@ class SettingCandidatePromotionServiceTest {
     @Test
     @DisplayName("GH-189 신규 발생·해제·종족은 이력 3건과 최종 현재값을 남긴다")
     void newCharacterGroupAppliesComparedOccurrenceAndRecovery() {
+        imageJdbc.update("INSERT INTO world_image_catalog(id,category,name,search_text,is_default,active,thumbnail_sha,image_sha) VALUES ('race-barbarian','RACE','바바리안','바바리안',false,true,?,?)", "a".repeat(64), "b".repeat(64));
         characterSettingSchemaRepository.save(settingSchema(
                 null,
                 "profile.species",
@@ -1065,6 +1069,9 @@ class SettingCandidatePromotionServiceTest {
         ));
 
         WorkCharacter character = character("아리아");
+        var persistedImage = imageSelections.findById(character.getId()).orElseThrow();
+        assertThat(persistedImage.getCatalog().getId()).isEqualTo("race-barbarian");
+        assertThat(persistedImage.getSelectionSource()).isEqualTo("AUTO");
         assertThat(workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(work.getId())).hasSize(1);
         assertThat(List.of(occurrence, recovery, species))
                 .allMatch(candidate -> candidate.getReviewStatus() == SettingCandidateReviewStatus.CONFIRMED);

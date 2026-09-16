@@ -135,6 +135,8 @@ class WorldSettingCandidateControllerIntegrationTest {
     private AnalysisJob analysisJob;
     private String accessToken;
 
+    @Autowired org.monitoring.catchholebackend.domain.worldimage.repository.WorldSettingImageRepository persistedImages;
+
     @BeforeEach
     void setUp() {
         clearData();
@@ -690,6 +692,7 @@ class WorldSettingCandidateControllerIntegrationTest {
         assertThat(applied.getPropertyValue("서식지")).isEqualTo("혹한 지역");
         assertThat(applied.getPropertyValue("특징")).isEqualTo("강인한 신체");
         assertThat(applied.getPropertyValue("사회 구조")).isEqualTo("부족 단위로 생활");
+        assertThat(persistedImages.findById(applied.getId()).orElseThrow().getSelectionSource()).isEqualTo("AUTO");
         assertThat(candidateRepository.findAll())
                 .extracting(WorldSettingCandidate::getAppliedWorldSettingVersion)
                 .containsOnly(0L);

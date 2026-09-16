@@ -181,6 +181,9 @@ class CatchHoleBackendApplicationTests {
     @MockitoBean
     private JpaMetamodelMappingContext jpaMetamodelMappingContext;
 
+    @MockitoBean
+    private org.monitoring.catchholebackend.domain.worldimage.service.WorldImageBackfillService worldImageBackfillService;
+
     @Test
     @DisplayName("Spring ApplicationContext를 로드한다")
     void contextLoads() {
