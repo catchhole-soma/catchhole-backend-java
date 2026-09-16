@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.worldimage.service;
 
+import org.monitoring.catchholebackend.domain.worldimage.processor.WorldSettingImageMatcher;
 import java.util.Collection;
 import org.monitoring.catchholebackend.domain.worldimage.dto.response.WorldImageThemeResponse;
 import org.monitoring.catchholebackend.domain.worldimage.entity.WorldImageThemeAsset;
@@ -42,6 +43,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class WorldImageServiceImpl implements WorldImageService {
     private final WorldImageCatalogRepository catalogRepository;
     private final WorldImageThemeAssetRepository themeRepository;
+    private final WorldSettingImageMatcher settingMatcher;
     private final WorldSettingImageRepository selectionRepository;
     private final WorldSettingRepository worldSettingRepository;
     private final WorkRepository workRepository;
@@ -84,12 +86,14 @@ public class WorldImageServiceImpl implements WorldImageService {
                 continue;
             }
             WorldImageCatalog chosen = selection == null ? null : selection.getCatalog();
-            boolean manual = chosen != null && chosen.isActive() && chosen.getCategory() == setting.getCategory();
+            boolean available = chosen != null && chosen.isActive() && chosen.getCategory() == setting.getCategory();
+            String source = selection == null || selection.isAutomatic() ? "AUTO" : "DEFAULT".equals(selection.getSelectionSource()) ? "DEFAULT" : "MANUAL";
             long version = selection == null ? 0 : selection.getVersion();
             var themeDefault = themeDefaults.get(WorldImageThemes.forGenre(setting.getWork().getGenre()) + ":" + setting.getCategory().name());
-            result.put(setting.getId(), !manual && themeDefault != null
-                    ? mapper.toThemeAssetResponse(themeDefault, version)
-                    : mapper.toSelectionResponse(manual ? chosen : defaults.get(setting.getCategory()), manual, version));
+            result.put(setting.getId(), available
+                    ? mapper.toSelectionResponse(chosen, source, version)
+                    : themeDefault != null ? mapper.toThemeAssetResponse(themeDefault, version, source)
+                    : mapper.toSelectionResponse(defaults.get(setting.getCategory()), source, version));
         }
         return result;
     }
@@ -103,6 +107,13 @@ public class WorldImageServiceImpl implements WorldImageService {
                 .orElseThrow(() -> new AppException(WorldSettingErrorCode.WORLD_SETTING_NOT_FOUND));
         WorldSettingImage selection = selectionRepository.findById(settingId).orElseGet(() -> WorldSettingImage.create(setting));
         selection.validateVersion(request.version());
+        if (Boolean.TRUE.equals(request.useAutomatic())) {
+            if (request.catalogId() != null || request.privateImageId() != null) throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_INVALID);
+            var candidates = catalogRepository.findAutomaticWorldImagesWithAliases(WorldImageThemes.forGenre(setting.getWork().getGenre()));
+            selection.selectAutomaticImage(settingMatcher.match(setting, candidates));
+            selectionRepository.saveAndFlush(selection);
+            return getSettingImages(List.of(setting)).get(settingId);
+        }
         if (request.privateImageId() != null) {
             if (request.catalogId() != null) throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_INVALID);
             var image = privateImageRepository.findByIdAndWorkId(request.privateImageId(), workId)
@@ -126,7 +137,8 @@ public class WorldImageServiceImpl implements WorldImageService {
     public void clearMismatchedImage(WorldSetting setting) {
         selectionRepository.findById(setting.getId()).ifPresent(selection -> {
             if (selection.getCatalog() != null && selection.getCatalog().getCategory() != setting.getCategory()) {
-                selection.selectImage(null);
+                var candidates = catalogRepository.findAutomaticWorldImagesWithAliases(WorldImageThemes.forGenre(setting.getWork().getGenre()));
+                selection.selectAutomaticImage(settingMatcher.match(setting, candidates));
             }
         });
     }

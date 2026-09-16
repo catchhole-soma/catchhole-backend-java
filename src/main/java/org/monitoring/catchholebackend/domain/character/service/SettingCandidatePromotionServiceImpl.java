@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.character.service;
 
+import org.monitoring.catchholebackend.domain.worldimage.service.AutomaticImageService;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -63,6 +64,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
     private final CharacterSnapshotAccessor snapshotAccessor;
     private final CharacterSnapshotSourceManager snapshotSourceManager;
     private final CharacterSettingValueValidator valueValidator;
+    private final AutomaticImageService automaticImages;
 
     @Override
     @Transactional
@@ -70,7 +72,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             SettingCandidate candidate,
             CharacterFactConfirmApplicationMode applicationMode
     ) {
-        promote(candidate, applicationMode, new HashSet<>(), Map.of(), new LinkedHashMap<>());
+        automaticImages.refreshCharacterImages(List.of(promote(candidate, applicationMode, new HashSet<>(), Map.of(), new LinkedHashMap<>())));
     }
 
     @Override
@@ -80,16 +82,17 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         Map<UUID, Long> initialSnapshotVersions = captureInitialSnapshotVersions(promotions);
         validateGroupRemovalSnapshotVersions(promotions, initialSnapshotVersions);
         Map<String, WorkCharacter> promotedSubjects = new LinkedHashMap<>();
-        promotions.forEach(promotion -> promote(
+        var affected = promotions.stream().map(promotion -> promote(
                 promotion.candidate(),
                 promotion.applicationMode(),
                 versionedCharacterIds,
                 initialSnapshotVersions,
                 promotedSubjects
-        ));
+        )).toList();
+        automaticImages.refreshCharacterImages(affected);
     }
 
-    private void promote(
+    private WorkCharacter promote(
             SettingCandidate candidate,
             CharacterFactConfirmApplicationMode applicationMode,
             Set<UUID> versionedCharacterIds,
@@ -100,7 +103,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         if (candidate.isCharacterDiscovery()) {
             ResolvedCharacter resolved = resolveCharacterForPromotion(candidate, promotedSubjects);
             updateFirstAppearance(resolved.character(), candidate.getEpisode());
-            return;
+            return resolved.character();
         }
 
         SettingCandidateSchemaMatch schemaMatch = resolveSchema(candidate);
@@ -127,6 +130,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                 versionedCharacterIds,
                 removalSnapshotVersion
         );
+        return resolved.character();
     }
 
     @Override
@@ -203,6 +207,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                 );
             }
         }
+        automaticImages.refreshCharacterImages(List.of(character));
         // 현재 묶음 밖에도 같은 이름의 미검토 후보가 있다면 새 캐릭터에 연결하고 재비교를 예약한다.
         matchPendingUnresolvedSiblings(workId, characterName, character, true);
     }

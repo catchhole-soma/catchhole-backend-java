@@ -15,8 +15,12 @@ import org.monitoring.catchholebackend.domain.worldimage.entity.WorldImageThemeA
 @Component
 public class WorldImageMapper {
     public WorldSettingImageResponse toThemeAssetResponse(WorldImageThemeAsset asset, long version) {
+        return toThemeAssetResponse(asset, version, "DEFAULT");
+    }
+
+    public WorldSettingImageResponse toThemeAssetResponse(WorldImageThemeAsset asset, long version, String source) {
         return new WorldSettingImageResponse(null, asset.getName(), WorldImageAssetPaths.publicPath(asset.getThumbnailSha()),
-                WorldImageAssetPaths.publicPath(asset.getImageSha()), "DEFAULT", version, null, null);
+                WorldImageAssetPaths.publicPath(asset.getImageSha()), source, version, null, null);
     }
 
     public WorldImageThemeResponse toThemeResponse(String theme, List<WorldImageThemeAsset> assets) {

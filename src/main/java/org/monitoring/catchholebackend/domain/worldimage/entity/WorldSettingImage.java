@@ -50,7 +50,6 @@ public class WorldSettingImage implements Persistable<UUID> {
     @JoinColumn(name = "world_setting_id", insertable = false, updatable = false)
     @OnDelete(action = OnDeleteAction.CASCADE)
     private WorldSetting worldSetting;
-    // null은 분류 기본 이미지 사용. 선택 해제 후에도 별도 version을 유지해 오래된 요청을 거절한다.
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "catalog_id")
     private WorldImageCatalog catalog;
@@ -59,6 +58,7 @@ public class WorldSettingImage implements Persistable<UUID> {
     private PrivateWorldImage privateImage;
     @Column(nullable = false)
     private long version;
+    // AUTO는 저장된 자동 결과, DEFAULT는 작가가 선택한 분류 기본 이미지다.
     @Column(name = "selection_source", length = 20)
     private String selectionSource;
     @Column(name = "updated_at", nullable = false)
@@ -78,13 +78,32 @@ public class WorldSettingImage implements Persistable<UUID> {
         }
     }
 
+    public boolean isAutomatic() { return selectionSource == null || "AUTO".equals(selectionSource); }
+
+    public boolean applyAutomaticImage(WorldImageCatalog image) {
+        if (!isAutomatic()) return false;
+        if ("AUTO".equals(selectionSource) && Objects.equals(catalog == null ? null : catalog.getId(), image == null ? null : image.getId())) return false;
+        catalog = image;
+        privateImage = null;
+        selectionSource = "AUTO";
+        if (!newEntity) version++;
+        updatedAt = LocalDateTime.now();
+        return true;
+    }
+
+    public boolean selectAutomaticImage(WorldImageCatalog image) {
+        if (!isAutomatic()) selectionSource = null;
+        return applyAutomaticImage(image);
+    }
+
     public boolean selectImage(WorldImageCatalog image) {
-        if (privateImage == null && Objects.equals(catalog == null ? null : catalog.getId(), image == null ? null : image.getId())) {
+        String source = image == null ? "DEFAULT" : "MANUAL";
+        if (Objects.equals(selectionSource, source) && privateImage == null && Objects.equals(catalog == null ? null : catalog.getId(), image == null ? null : image.getId())) {
             return false;
         }
         catalog = image;
         privateImage = null;
-        selectionSource = image == null ? null : "MANUAL";
+        selectionSource = source;
         version++;
         updatedAt = LocalDateTime.now();
         return true;

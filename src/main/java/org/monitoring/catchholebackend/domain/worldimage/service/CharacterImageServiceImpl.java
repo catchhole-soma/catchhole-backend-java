@@ -43,7 +43,6 @@ public class CharacterImageServiceImpl implements CharacterImageService {
         if (subjects.isEmpty()) return Map.of();
         var selected = selections.findSelections(subjects.stream().map(WorkCharacter::getId).toList()).stream()
                 .collect(Collectors.toMap(CharacterImage::getCharacterId, Function.identity()));
-        var races = catalogs.findRaceImagesWithAliases();
         Map<UUID, WorldSettingImageResponse> result = new HashMap<>();
         for (var character : subjects) {
             var selection = selected.get(character.getId());
@@ -54,11 +53,9 @@ public class CharacterImageServiceImpl implements CharacterImageService {
             }
             WorldImageCatalog catalog = null;
             String source = selection == null ? null : selection.getSelectionSource();
-            if ("MANUAL".equals(source)) {
+            if ("MANUAL".equals(source) || "AUTO".equals(source)) {
                 var chosen = selection.getCatalog();
                 if (chosen != null && chosen.isActive() && chosen.getCategory() == WorldSettingCategory.RACE) catalog = chosen;
-            } else if (source == null) {
-                catalog = matcher.matchRace(character, races);
             }
             result.put(character.getId(), mapper.toSelectionResponse(catalog,
                     "MANUAL".equals(source) ? "MANUAL" : "DEFAULT".equals(source) ? "DEFAULT" : "AUTO", version));
@@ -77,6 +74,11 @@ public class CharacterImageServiceImpl implements CharacterImageService {
         boolean useDefault = Boolean.TRUE.equals(request.useDefault());
         int choices = (request.catalogId() != null ? 1 : 0) + (request.privateImageId() != null ? 1 : 0) + (useDefault ? 1 : 0);
         if (choices > 1) throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_INVALID);
+        if (choices == 0) {
+            var matched = matcher.matchRace(character, catalogs.findRaceImagesWithAliases());
+            if (selection.selectAutomaticImage(matched)) selections.saveAndFlush(selection);
+            return getCharacterImages(List.of(character)).get(characterId);
+        }
         var privateImage = request.privateImageId() == null ? null : privateImages.findByIdAndWorkId(request.privateImageId(), workId)
                 .orElseThrow(() -> new AppException(WorldImageErrorCode.WORLD_IMAGE_NOT_FOUND));
         var catalog = request.catalogId() == null ? null : catalogs.findById(request.catalogId()).filter(WorldImageCatalog::isActive)

@@ -11,7 +11,7 @@
 3. `useDefault=true`로 직접 선택한 공통 기본. 경로를 비워 Front 번들 그림을 사용한다.
 4. 직접 선택이 없으면 현재 확정 프로필의 `profile.species`와 호환 키 `species`, `profile.race`, `race`만 읽는다. NFC·소문자·공백/구분자 정규화 후 활성 종족 도감 이름·별칭과 전체 값이 일치하는 단일 결과만 `AUTO`로 반환한다. 이름·직업·설명·스킬에서 부분 문자열을 찾지 않는다. 종족 값이 없거나 서로 다르거나 여러 그림이 일치하면 경로 없는 `AUTO`로 공통 기본 그림을 표시한다.
 
-자동 연결은 조회 시 계산하므로 기존 캐릭터에도 적용되며 backfill UPDATE가 필요 없다. `CharacterSnapshotAccessor`로 현재 snapshot의 envelope와 legacy 값 형식을 읽는다. 설정·snapshotVersion·updatedAt·분석 실행은 변경하지 않고 LLM 호출도 추가하지 않는다. 목록은 페이지의 선택과 종족 도감·별칭을 일괄 조회한다.
+자동 연결은 V63부터 확정/수정 시 계산해 character_images에 AUTO로 저장한다. 기존 미처리 캐릭터는 별도 운영자 보정 배치 대상이다. `CharacterSnapshotAccessor`로 현재 snapshot의 envelope와 legacy 값 형식을 읽는다. 설정·snapshotVersion·updatedAt·분석 실행은 변경하지 않고 LLM 호출도 추가하지 않는다. 목록은 페이지의 저장된 선택만 일괄 조회하고 도감 별칭 재조회나 재매칭을 하지 않는다. [저장·보정 계약](automatic-subject-images.md)을 따른다.
 
 ## 선택 API
 

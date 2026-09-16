@@ -1,5 +1,7 @@
 package org.monitoring.catchholebackend.domain.work.service;
 
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingRepository;
+import org.monitoring.catchholebackend.domain.worldimage.service.AutomaticImageService;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +24,8 @@ public class WorkServiceImpl implements WorkService {
     private final WorkRepository workRepository;
     private final MemberRepository memberRepository;
     private final WorkMapper workMapper;
+    private final AutomaticImageService automaticImages;
+    private final WorldSettingRepository worldSettings;
 
     @Override
     @Transactional
@@ -45,7 +49,9 @@ public class WorkServiceImpl implements WorkService {
     @Transactional
     public WorkResponse updateWork(Long memberId, UUID workId, WorkUpdateRequest request) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        var previousGenre = work.getGenre();
         work.updateInfo(request.title(), request.genre(), request.description());
+        if (previousGenre != work.getGenre()) automaticImages.refreshWorldSettingImages(worldSettings.findAllByWorkIdOrderByIdAsc(workId));
         return workMapper.toResponse(work);
     }
 

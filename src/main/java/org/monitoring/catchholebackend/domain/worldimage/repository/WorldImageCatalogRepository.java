@@ -31,6 +31,9 @@ public interface WorldImageCatalogRepository extends JpaRepository<WorldImageCat
     @Query("select distinct c from WorldImageCatalog c left join fetch c.aliases where c.active = true and c.defaultImage = false and c.category = org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory.RACE")
     List<WorldImageCatalog> findRaceImagesWithAliases();
 
+    @Query("select distinct c from WorldImageCatalog c left join fetch c.aliases where c.active = true and c.defaultImage = false and :theme member of c.themes")
+    List<WorldImageCatalog> findAutomaticWorldImagesWithAliases(String theme);
+
     @Query("select c from WorldImageCatalog c where c.active = true and (c.thumbnailSha = :sha or c.imageSha = :sha)")
     List<WorldImageCatalog> findPublishedAsset(String sha, Pageable pageable);
 }

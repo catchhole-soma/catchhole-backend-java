@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.worldsetting.service;
 
+import org.monitoring.catchholebackend.domain.worldimage.service.AutomaticImageService;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +39,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class WorldSettingServiceImpl implements WorldSettingService {
 
     private final WorldImageService worldImageService;
+    private final AutomaticImageService automaticImages;
     private final WorkRepository workRepository;
     private final AnalysisRunStateService analysisRunStateService;
     private final WorldSettingRepository worldSettingRepository;
@@ -108,7 +110,9 @@ public class WorldSettingServiceImpl implements WorldSettingService {
         }
 
         WorldSetting worldSetting = worldSettingMapper.toEntity(work, request);
-        return toDetail(saveNewWorldSetting(worldSetting));
+        worldSetting = saveNewWorldSetting(worldSetting);
+        automaticImages.refreshWorldSettingImages(List.of(worldSetting));
+        return toDetail(worldSetting);
     }
 
     @Override
@@ -138,6 +142,7 @@ public class WorldSettingServiceImpl implements WorldSettingService {
             analysisRunStateService.invalidateRunsForWorkForUpdate(
                     work.getId(), null, "사용자가 확정 설정을 변경했습니다.");
         }
+        automaticImages.refreshWorldSettingImages(List.of(worldSetting));
         flushIdentityChange(worldSetting);
         return toDetail(worldSetting);
     }

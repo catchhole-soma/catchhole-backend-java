@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.character.service;
 
+import org.monitoring.catchholebackend.domain.worldimage.service.AutomaticImageService;
 import org.monitoring.catchholebackend.domain.worldimage.service.CharacterImageService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -80,6 +81,7 @@ public class CharacterServiceImpl implements CharacterService {
     private final CharacterSettingEditPolicyResolver characterSettingEditPolicyResolver;
     private final SettingCandidateSchemaResolver settingCandidateSchemaResolver;
     private final CharacterSnapshotAccessor characterSnapshotAccessor;
+    private final AutomaticImageService automaticImages;
     private final CharacterSnapshotSourceManager characterSnapshotSourceManager;
     private final CharacterMapper characterMapper;
     private final CharacterImageService characterImageService;
@@ -181,6 +183,7 @@ public class CharacterServiceImpl implements CharacterService {
         );
 
         applyManualCorrections(character, snapshotEntries, desiredFacts);
+        automaticImages.refreshCharacterImages(List.of(character));
         return toDetailResponse(character, firstAppearanceEpisode, schemas);
     }
 

@@ -760,3 +760,7 @@ erDiagram
 V59의 `private_image_vaults`는 회원당 1개인 UUID 보관함으로 암호화된 키 확인값만 보관한다. `private_world_images`는 작품·보관함 FK, 암호화 메타데이터, 원본/썸네일 크기를 가진다. `world_setting_images.private_image_id`와 catalog_id는 동시에 값이 들어갈 수 없으며 개인 선택 출처는 `PRIVATE`다. 작품 삭제 시 개인 이미지 행도 cascade한다. [개인 이미지 상세 계약](private-world-images.md).
 
 V61/V62: `world_image_recommendations`는 `(catalog_id, theme)` PK로 공용 도감을 여러 테마에 추천한다. `world_image_theme_assets`는 `id` PK와 `(theme,purpose,slot)` unique로 초기/기본 그림을 별도 관리하며 사용자 선택 FK로 사용하지 않는다. 장르 기본은 조회 시 계산한다. 상세 필드는 [대표 이미지 도감](world-image-catalog.md)의 장르 테마 확장을 따른다.
+
+### V63 이미지 자동 결과
+
+`character_images`와 `world_setting_images`의 `selection_source=AUTO`는 확정 시 저장된 결과이며 미일치면 catalog_id=null이다. MANUAL/PRIVATE/DEFAULT는 사용자 선택이다. 새 테이블 없이 CHECK 제약을 확장하며 기존 데이터 매칭은 별도 운영자 배치를 사용한다.

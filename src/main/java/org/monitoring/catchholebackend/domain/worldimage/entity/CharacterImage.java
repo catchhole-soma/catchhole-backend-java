@@ -29,7 +29,7 @@ public class CharacterImage extends BaseEntity implements Persistable<UUID> {
     private WorldImageCatalog catalog;
     @ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "private_image_id")
     private PrivateWorldImage privateImage;
-    // null은 자동 연결, DEFAULT는 작가가 공통 기본 그림을 직접 고른 상태다.
+    // AUTO는 저장된 자동 매칭 결과(미일치도 포함), null은 아직 보정하지 않은 이전 자동 상태다.
     @Column(name = "selection_source", length = 20) private String selectionSource;
     @Column(nullable = false) private long version;
 
@@ -46,6 +46,23 @@ public class CharacterImage extends BaseEntity implements Persistable<UUID> {
 
     public void validateVersion(long expected) {
         if (version != expected) throw new AppException(WorldImageErrorCode.WORLD_IMAGE_VERSION_CONFLICT);
+    }
+
+    public boolean isAutomatic() { return selectionSource == null || "AUTO".equals(selectionSource); }
+
+    public boolean applyAutomaticImage(WorldImageCatalog image) {
+        if (!isAutomatic()) return false;
+        if ("AUTO".equals(selectionSource) && Objects.equals(catalog == null ? null : catalog.getId(), image == null ? null : image.getId())) return false;
+        catalog = image;
+        privateImage = null;
+        selectionSource = "AUTO";
+        if (!newEntity) version++;
+        return true;
+    }
+
+    public boolean selectAutomaticImage(WorldImageCatalog image) {
+        if (!isAutomatic()) selectionSource = null;
+        return applyAutomaticImage(image);
     }
 
     public boolean selectImage(WorldImageCatalog catalog, PrivateWorldImage image, boolean useDefault) {
