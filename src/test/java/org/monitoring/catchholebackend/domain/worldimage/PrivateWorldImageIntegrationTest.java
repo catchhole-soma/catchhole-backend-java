@@ -45,6 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 @DisplayName("암호화 개인 이미지의 소유권·선택·저장 경계")
 class PrivateWorldImageIntegrationTest {
+    @Autowired org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository characters;
     @Autowired MockMvc mvc;
     @Autowired MemberRepository members;
     @Autowired WorkRepository works;
@@ -65,6 +66,7 @@ class PrivateWorldImageIntegrationTest {
 
     @BeforeEach
     void prepare() {
+        org.mockito.Mockito.clearInvocations(storage);
         var owner = members.save(Member.register("private-image@example.com", "encoded", "01077771111", "작가"));
         var stranger = members.save(Member.register("private-other@example.com", "encoded", "01077772222", "타인"));
         var work = works.save(Work.create(owner, "개인 이미지", WorkGenre.FANTASY, "설정"));
@@ -161,4 +163,22 @@ class PrivateWorldImageIntegrationTest {
         assertThat(images.countByWorkId(workId)).isZero();
         verifyNoInteractions(storage);
     }
+    @Test
+    @DisplayName("같은 작품의 개인 이미지를 세계관과 캐릭터에서 공유하고 모든 사용이 해제될 때만 삭제한다")
+    void characterAndWorldSharePrivateImage() throws Exception {
+        createVault().andExpect(status().isOk()); upload(token, envelope).andExpect(status().isOk());
+        var character = characters.saveAndFlush(org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.create(
+                works.getReferenceById(workId), "인물", null, null, null, null, null, null, null, null, null));
+        String characterPath = "/api/v1/works/" + workId + "/characters/" + character.getId() + "/image";
+        mvc.perform(patch(characterPath).header("Authorization", token).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"privateImageId\":\"" + imageId + "\",\"version\":0}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.source").value("PRIVATE"));
+        select(imageId, 0).andExpect(status().isOk());
+        select(null, 1).andExpect(status().isOk());
+        mvc.perform(delete(base + "/" + imageId).header("Authorization", token)).andExpect(status().isConflict());
+        mvc.perform(patch(characterPath).header("Authorization", token).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"version\":1}")).andExpect(status().isOk());
+        mvc.perform(delete(base + "/" + imageId).header("Authorization", token)).andExpect(status().isOk());
+    }
+
 }
