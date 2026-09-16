@@ -18,11 +18,15 @@ public class WorldImageMapper {
     }
 
     public WorldSettingImageResponse toSelectionResponse(WorldImageCatalog catalog, boolean manual, long version) {
+        return toSelectionResponse(catalog, manual ? "MANUAL" : "DEFAULT", version);
+    }
+
+    public WorldSettingImageResponse toSelectionResponse(WorldImageCatalog catalog, String source, long version) {
         return new WorldSettingImageResponse(catalog == null ? null : catalog.getId(),
                 catalog == null ? null : catalog.getName(),
                 catalog == null ? null : WorldImageAssetPaths.publicPath(catalog.getThumbnailSha()),
                 catalog == null ? null : WorldImageAssetPaths.publicPath(catalog.getImageSha()),
-                manual ? "MANUAL" : "DEFAULT", version, null, null);
+                source, version, null, null);
     }
 
     public WorldSettingImageResponse toPrivateSelectionResponse(PrivateWorldImage image, long version) {

@@ -63,3 +63,7 @@ V57은 아래 테이블과 개인 이미지 선택 FK를 추가한다. 기존 V5
 참고: [AWS client-side encryption](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingClientSideEncryption.html), [Web Crypto AES-GCM](https://developer.mozilla.org/en-US/docs/Web/API/AesGcmParams), [OWASP 암호 저장 가이드](https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html).
 
 2026-09-16: Java 전체 1,166개 중 1,101 통과/기존 조건부 65 건너뜀. 로컬 PostgreSQL V55·V56·V57 성공과 Hibernate validate 기동, Front 실제 연결 검증을 완료했다. 운영 DB·원고·S3의 개인 파일은 변경하지 않았다.
+
+## 캐릭터와 함께 사용
+
+같은 작품의 캐릭터 이미지 선택에서도 이 보관함·업로드·조회 API와 CHI1 계약을 재사용한다. 서버 경로/저장 키는 호환성을 위해 유지한다. 개인 이미지 삭제는 세계관과 캐릭터 선택을 모두 확인한다. 자세한 선택 우선순위와 V58은 [캐릭터 이미지](character-images.md)를 참고한다.

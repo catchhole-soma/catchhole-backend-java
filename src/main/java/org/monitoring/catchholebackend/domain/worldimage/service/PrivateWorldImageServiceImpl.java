@@ -18,6 +18,7 @@ import org.monitoring.catchholebackend.domain.worldimage.processor.PrivateImageC
 import org.monitoring.catchholebackend.domain.worldimage.repository.PrivateImageVaultRepository;
 import org.monitoring.catchholebackend.domain.worldimage.repository.PrivateWorldImageRepository;
 import org.monitoring.catchholebackend.domain.worldimage.repository.WorldSettingImageRepository;
+import org.monitoring.catchholebackend.domain.worldimage.repository.CharacterImageRepository;
 import org.monitoring.catchholebackend.global.common.response.PageResponse;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.monitoring.catchholebackend.global.exception.CommonErrorCode;
@@ -39,6 +40,7 @@ public class PrivateWorldImageServiceImpl implements PrivateWorldImageService {
     private final PrivateImageVaultRepository vaults;
     private final PrivateWorldImageRepository images;
     private final WorldSettingImageRepository selections;
+    private final CharacterImageRepository characterSelections;
     private final MemberRepository members;
     private final WorkRepository works;
     private final ObjectStorage storage;
@@ -119,7 +121,7 @@ public class PrivateWorldImageServiceImpl implements PrivateWorldImageService {
     public void delete(Long memberId, UUID workId, UUID imageId) {
         works.getOwnedWorkForUpdate(workId, memberId);
         var image = requireImage(workId, imageId);
-        if (selections.existsByPrivateImageId(imageId)) throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_IN_USE);
+        if (selections.existsByPrivateImageId(imageId) || characterSelections.existsByPrivateImageId(imageId)) throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_IN_USE);
         if (!storage.purgePrefixes(List.of(PrivateWorldImagePaths.prefix(workId, imageId))).isComplete()) {
             throw new AppException(CommonErrorCode.COMMON_INTERNAL_SERVER_ERROR, "이미지 삭제를 마치지 못했어요. 다시 시도해 주세요.");
         }
