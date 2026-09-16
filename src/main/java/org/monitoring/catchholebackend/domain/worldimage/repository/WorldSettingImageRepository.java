@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
 public interface WorldSettingImageRepository extends JpaRepository<WorldSettingImage, UUID> {
-    @Query("select i from WorldSettingImage i left join fetch i.catalog where i.worldSettingId in :ids")
+    @Query("select i from WorldSettingImage i left join fetch i.catalog left join fetch i.privateImage p left join fetch p.vault where i.worldSettingId in :ids")
     List<WorldSettingImage> findSelections(Collection<UUID> ids);
+    boolean existsByPrivateImageId(UUID privateImageId);
 }

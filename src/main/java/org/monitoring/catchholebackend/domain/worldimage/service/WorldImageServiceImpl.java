@@ -18,6 +18,7 @@ import org.monitoring.catchholebackend.domain.worldimage.mapper.WorldImageMapper
 import org.monitoring.catchholebackend.domain.worldimage.processor.WorldImageSearch;
 import org.monitoring.catchholebackend.domain.worldimage.repository.WorldImageCatalogRepository;
 import org.monitoring.catchholebackend.domain.worldimage.repository.WorldSettingImageRepository;
+import org.monitoring.catchholebackend.domain.worldimage.repository.PrivateWorldImageRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
 import org.monitoring.catchholebackend.domain.worldsetting.exception.WorldSettingErrorCode;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingRepository;
@@ -41,6 +42,7 @@ public class WorldImageServiceImpl implements WorldImageService {
     private final WorkRepository workRepository;
     private final WorldImageMapper mapper;
     private final ObjectStorage objectStorage;
+    private final PrivateWorldImageRepository privateImageRepository;
 
     @Override
     public PageResponse<WorldImageCatalogResponse> getImageCatalog(WorldSettingCategory category, String query, int page, int size) {
@@ -58,6 +60,10 @@ public class WorldImageServiceImpl implements WorldImageService {
         Map<UUID, WorldSettingImageResponse> result = new HashMap<>();
         for (WorldSetting setting : settings) {
             WorldSettingImage selection = selections.get(setting.getId());
+            if (selection != null && selection.getPrivateImage() != null) {
+                result.put(setting.getId(), mapper.toPrivateSelectionResponse(selection.getPrivateImage(), selection.getVersion()));
+                continue;
+            }
             WorldImageCatalog chosen = selection == null ? null : selection.getCatalog();
             boolean manual = chosen != null && chosen.isActive() && chosen.getCategory() == setting.getCategory();
             result.put(setting.getId(), mapper.toSelectionResponse(manual ? chosen : defaults.get(setting.getCategory()),
@@ -69,12 +75,19 @@ public class WorldImageServiceImpl implements WorldImageService {
     @Override
     @Transactional
     public WorldSettingImageResponse updateSettingImage(Long memberId, UUID workId, UUID settingId, WorldSettingImageUpdateRequest request) {
-        workRepository.getOwnedWork(workId, memberId);
+        workRepository.getOwnedWorkForUpdate(workId, memberId);
         // 최초 선택도 대상 행을 잠가 직렬화한다. 대상 Entity의 내용·version은 변경하지 않는다.
         WorldSetting setting = worldSettingRepository.findByIdAndWorkIdForUpdate(settingId, workId)
                 .orElseThrow(() -> new AppException(WorldSettingErrorCode.WORLD_SETTING_NOT_FOUND));
         WorldSettingImage selection = selectionRepository.findById(settingId).orElseGet(() -> WorldSettingImage.create(setting));
         selection.validateVersion(request.version());
+        if (request.privateImageId() != null) {
+            if (request.catalogId() != null) throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_INVALID);
+            var image = privateImageRepository.findByIdAndWorkId(request.privateImageId(), workId)
+                    .orElseThrow(() -> new AppException(WorldImageErrorCode.WORLD_IMAGE_NOT_FOUND));
+            if (selection.selectPrivateImage(image)) selectionRepository.saveAndFlush(selection);
+            return getSettingImages(List.of(setting)).get(settingId);
+        }
         WorldImageCatalog catalog = request.catalogId() == null ? null : catalogRepository.findById(request.catalogId())
                 .filter(WorldImageCatalog::isActive)
                 .orElseThrow(() -> new AppException(WorldImageErrorCode.WORLD_IMAGE_NOT_FOUND));

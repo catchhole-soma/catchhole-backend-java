@@ -54,6 +54,9 @@ public class WorldSettingImage implements Persistable<UUID> {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "catalog_id")
     private WorldImageCatalog catalog;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "private_image_id")
+    private PrivateWorldImage privateImage;
     @Column(nullable = false)
     private long version;
     @Column(name = "selection_source", length = 20)
@@ -76,11 +79,22 @@ public class WorldSettingImage implements Persistable<UUID> {
     }
 
     public boolean selectImage(WorldImageCatalog image) {
-        if (Objects.equals(catalog == null ? null : catalog.getId(), image == null ? null : image.getId())) {
+        if (privateImage == null && Objects.equals(catalog == null ? null : catalog.getId(), image == null ? null : image.getId())) {
             return false;
         }
         catalog = image;
+        privateImage = null;
         selectionSource = image == null ? null : "MANUAL";
+        version++;
+        updatedAt = LocalDateTime.now();
+        return true;
+    }
+
+    public boolean selectPrivateImage(PrivateWorldImage image) {
+        if (privateImage != null && privateImage.getId().equals(image.getId())) return false;
+        catalog = null;
+        privateImage = image;
+        selectionSource = "PRIVATE";
         version++;
         updatedAt = LocalDateTime.now();
         return true;

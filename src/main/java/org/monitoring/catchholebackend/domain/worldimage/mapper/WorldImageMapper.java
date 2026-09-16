@@ -3,6 +3,8 @@ package org.monitoring.catchholebackend.domain.worldimage.mapper;
 import org.monitoring.catchholebackend.domain.worldimage.dto.response.WorldImageCatalogResponse;
 import org.monitoring.catchholebackend.domain.worldimage.dto.response.WorldSettingImageResponse;
 import org.monitoring.catchholebackend.domain.worldimage.entity.WorldImageCatalog;
+import org.monitoring.catchholebackend.domain.worldimage.entity.PrivateWorldImage;
+import org.monitoring.catchholebackend.global.storage.PrivateWorldImagePaths;
 import org.monitoring.catchholebackend.global.storage.WorldImageAssetPaths;
 import org.springframework.stereotype.Component;
 
@@ -20,6 +22,13 @@ public class WorldImageMapper {
                 catalog == null ? null : catalog.getName(),
                 catalog == null ? null : WorldImageAssetPaths.publicPath(catalog.getThumbnailSha()),
                 catalog == null ? null : WorldImageAssetPaths.publicPath(catalog.getImageSha()),
-                manual ? "MANUAL" : "DEFAULT", version);
+                manual ? "MANUAL" : "DEFAULT", version, null, null);
+    }
+
+    public WorldSettingImageResponse toPrivateSelectionResponse(PrivateWorldImage image, long version) {
+        return new WorldSettingImageResponse(null, null,
+                PrivateWorldImagePaths.apiPath(image.getWork().getId(), image.getId(), true),
+                PrivateWorldImagePaths.apiPath(image.getWork().getId(), image.getId(), false),
+                "PRIVATE", version, image.getId(), image.getVault().getId());
     }
 }

@@ -11,6 +11,10 @@ erDiagram
     world_settings ||--o| world_setting_images : selects_image
     world_image_catalog ||--o{ world_setting_images : represents
     world_image_catalog ||--o{ world_image_aliases : has_aliases
+    members ||--o| private_image_vaults : owns_key_check
+    private_image_vaults ||--o{ private_world_images : encrypts
+    works ||--o{ private_world_images : owns
+    private_world_images ||--o{ world_setting_images : represents_privately
     members ||--o{ refresh_tokens : issues
     members ||--o{ member_legal_records : acknowledges
     legal_documents ||--o{ member_legal_records : is_acknowledged_by
@@ -739,3 +743,5 @@ erDiagram
 ## 공용 이미지 도감 (V55·V56)
 
 `world_setting_images.world_setting_id`는 대상 FK 겸 PK이며 대상 삭제 시 cascade된다. 선택 도감 FK는 nullable이며 해제 후에도 version 행을 보존한다. `world_image_catalog`는 category별 기본 이미지가 최대 하나인 partial unique index를 가지며 `world_image_aliases`는 `(catalog_id, alias)` 복합 PK다. 상세 필드와 관계는 [대표 이미지 도감](world-image-catalog.md)을 따른다.
+
+V57의 `private_image_vaults`는 회원당 1개인 UUID 보관함으로 암호화된 키 확인값만 보관한다. `private_world_images`는 작품·보관함 FK, 암호화 메타데이터, 원본/썸네일 크기를 가진다. `world_setting_images.private_image_id`와 catalog_id는 동시에 값이 들어갈 수 없으며 개인 선택 출처는 `PRIVATE`다. 작품 삭제 시 개인 이미지 행도 cascade한다. [개인 이미지 상세 계약](private-world-images.md).
