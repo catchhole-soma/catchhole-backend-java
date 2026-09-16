@@ -82,7 +82,7 @@ public class AiTokenServiceImpl implements AiTokenService {
             Long memberId,
             AiTokenExtensionCreateRequest request
     ) {
-        String feedback = normalizeFeedback(request.feedback());
+        String feedback = normalizeFeedback(request.feedback(), MIN_EXTENSION_FEEDBACK_LENGTH);
         Member member = memberRepository.findByIdForUpdate(memberId)
                 .orElseThrow(() -> new AppException(MemberErrorCode.MEMBER_NOT_FOUND));
         member.validateActive();
@@ -115,7 +115,7 @@ public class AiTokenServiceImpl implements AiTokenService {
             Long memberId,
             String feedback
     ) {
-        String normalizedFeedback = normalizeFeedback(feedback);
+        String normalizedFeedback = normalizeFeedback(feedback, 10);
         Member member = memberRepository.findByIdForUpdate(memberId)
                 .orElseThrow(() -> new AppException(MemberErrorCode.MEMBER_NOT_FOUND));
         member.validateActive();
@@ -383,10 +383,10 @@ public class AiTokenServiceImpl implements AiTokenService {
         );
     }
 
-    private String normalizeFeedback(String feedback) {
+    private String normalizeFeedback(String feedback, int minimumLength) {
         String normalized = feedback == null ? "" : feedback.strip();
         int length = normalized.codePointCount(0, normalized.length());
-        if (length < MIN_EXTENSION_FEEDBACK_LENGTH
+        if (length < minimumLength
                 || length > MAX_EXTENSION_FEEDBACK_LENGTH) {
             throw new AppException(AiTokenErrorCode.AI_TOKEN_EXTENSION_FEEDBACK_INVALID);
         }

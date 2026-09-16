@@ -50,6 +50,10 @@ public class Member extends BaseEntity {
     @Column(name = "age_requirement_confirmed_at")
     private LocalDateTime ageRequirementConfirmedAt;
 
+    // 의견을 작성하지 않고 안내를 닫아도 계정당 한 번만 요청하기 위한 노출 선점 시각
+    @Column(name = "feedback_prompt_shown_at")
+    private LocalDateTime feedbackPromptShownAt;
+
     //화면에서 보이는 닉네임
     @Column(name = "display_name", nullable = false, length = 50)
     private String displayName;
@@ -110,6 +114,12 @@ public class Member extends BaseEntity {
                 null,
                 ageRequirementConfirmedAt
         );
+    }
+
+    public void markFeedbackPromptShown(LocalDateTime shownAt) {
+        if (feedbackPromptShownAt == null) {
+            feedbackPromptShownAt = shownAt;
+        }
     }
 
     public void validateActive() {

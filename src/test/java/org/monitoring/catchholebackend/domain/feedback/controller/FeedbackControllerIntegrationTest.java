@@ -2,6 +2,7 @@ package org.monitoring.catchholebackend.domain.feedback.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -17,6 +18,11 @@ import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenExtensio
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenExtensionSource;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.feedback.entity.Feedback;
+import org.monitoring.catchholebackend.domain.episode.entity.Episode;
+import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
+import org.monitoring.catchholebackend.domain.work.entity.Work;
+import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
+import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.domain.feedback.repository.FeedbackRepository;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
@@ -62,6 +68,12 @@ class FeedbackControllerIntegrationTest {
 
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
+
+    @Autowired
+    private WorkRepository workRepository;
+
+    @Autowired
+    private EpisodeRepository episodeRepository;
 
     private Member author;
     private String authorToken;
@@ -142,12 +154,12 @@ class FeedbackControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("35자 미만 의견과 쿼리가 포함된 화면 경로는 저장하지 않는다")
+    @DisplayName("10자 미만 의견과 쿼리가 포함된 화면 경로는 저장하지 않는다")
     void rejectsInvalidFeedbackInput() throws Exception {
         mockMvc.perform(post(FEEDBACK_URL)
                         .header(HttpHeaders.AUTHORIZATION, bearer(authorToken))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestBody("가".repeat(34), "/dashboard")))
+                        .content(requestBody("😀".repeat(9), "/dashboard")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("FEEDBACK_CONTENT_INVALID"));
 
@@ -160,6 +172,117 @@ class FeedbackControllerIntegrationTest {
 
         assertThat(feedbackRepository.count()).isZero();
         assertThat(extensionRequestRepository.count()).isZero();
+    }
+
+    @Test
+    @DisplayName("앞뒤 공백을 뺀 Unicode 10자 의견은 보상 요청과 함께 저장한다")
+    void acceptsTenCodePointsWithReward() throws Exception {
+        createFeedback("  " + "😀".repeat(10) + "  ", "/dashboard");
+        assertThat(feedbackRepository.findAll()).extracting(Feedback::getContent)
+                .containsExactly("😀".repeat(10));
+        assertThat(extensionRequestRepository.findAll()).extracting(AiTokenExtensionRequest::getFeedback)
+                .containsExactly("😀".repeat(10));
+    }
+
+    @Test
+    @DisplayName("1,000자를 넘는 의견과 35자 미만 소진 피드백은 거절한다")
+    void preservesMaximumAndQuotaFeedbackMinimum() throws Exception {
+        mockMvc.perform(post(FEEDBACK_URL)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(authorToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody("가".repeat(1001), null)))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(post(EXTENSION_URL)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(authorToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ExtensionRequestBody("가".repeat(34), "REQUEST_BLOCKED"))))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("안내는 활성 작품의 실제 회차 세 개부터 자격을 주고 조회는 소비하지 않는다")
+    void countsActualActiveEpisodesAcrossWorks() throws Exception {
+        Work first = workRepository.save(Work.create(author, "첫 작품", WorkGenre.FANTASY, null));
+        first.updateLatestEpisodeNo(100);
+        addEpisode(first, 100);
+        Work second = workRepository.save(Work.create(author, "두 번째 작품", WorkGenre.FANTASY, null));
+        addEpisode(second, 200);
+        addEpisode(second, 201).archive();
+        Work purging = workRepository.save(Work.create(author, "삭제 중", WorkGenre.FANTASY, null));
+        addEpisode(purging, 1);
+        purging.startPurging();
+        expectPrompt(false);
+        claimPrompt(false);
+        addEpisode(second, 202);
+        expectPrompt(true);
+        expectPrompt(true);
+        claimPrompt(true);
+        expectPrompt(false);
+        claimPrompt(false);
+    }
+
+    @Test
+    @DisplayName("다른 회원 회차를 제외하고 0개부터 4개까지 세 번째 업로드 경계를 유지한다")
+    void preservesThresholdAndMemberIsolation() throws Exception {
+        Member other = memberRepository.save(Member.register("other-prompt@example.com", "encoded",
+                "01076543210", "다른 작가"));
+        Work otherWork = workRepository.save(Work.create(other, "다른 작품", WorkGenre.FANTASY, null));
+        for (int number = 1; number <= 4; number++) addEpisode(otherWork, number);
+        Work mine = workRepository.save(Work.create(author, "내 작품", WorkGenre.FANTASY, null));
+        for (int count = 0; count <= 4; count++) {
+            if (count > 0) addEpisode(mine, count);
+            expectPrompt(count >= 3);
+        }
+        claimPrompt(true);
+    }
+
+    @Test
+    @DisplayName("기존 의견 작성자는 안내 대상에서 제외한다")
+    void excludesPriorFeedbackAuthors() throws Exception {
+        Work work = workRepository.save(Work.create(author, "작품", WorkGenre.FANTASY, null));
+        for (int number = 1; number <= 3; number++) {
+            addEpisode(work, number);
+        }
+        createFeedback("충분한 길이의 기존 의견입니다. ".repeat(3), "/dashboard");
+        expectPrompt(false);
+        claimPrompt(false);
+    }
+
+    @Test
+    @DisplayName("의견 안내 조회와 선점에는 로그인이 필요하다")
+    void requiresAuthenticationForPrompt() throws Exception {
+        mockMvc.perform(get(FEEDBACK_URL + "/prompt")).andExpect(status().isUnauthorized());
+        mockMvc.perform(post(FEEDBACK_URL + "/prompt/claim")).andExpect(status().isUnauthorized());
+    }
+
+    private Episode addEpisode(Work work, int number) {
+        return episodeRepository.save(Episode.create(work, null, number, null,
+                "test/" + UUID.randomUUID(), null, "hash", 100));
+    }
+
+    private void expectPrompt(boolean shouldShow) throws Exception {
+        mockMvc.perform(get(FEEDBACK_URL + "/prompt")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(authorToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.shouldShow").value(shouldShow));
+    }
+
+    private void claimPrompt(boolean shouldShow) throws Exception {
+        mockMvc.perform(post(FEEDBACK_URL + "/prompt/claim")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(authorToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.shouldShow").value(shouldShow));
+    }
+
+    @Test
+    @DisplayName("의견 안내 API와 10자 최소 길이를 OpenAPI에 노출한다")
+    void exposesPromptOpenApiContract() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paths['/api/v1/feedbacks/prompt'].get.operationId").value("getMyFeedbackPrompt"))
+                .andExpect(jsonPath("$.paths['/api/v1/feedbacks/prompt/claim'].post.operationId").value("claimMyFeedbackPrompt"))
+                .andExpect(jsonPath("$.components.schemas.FeedbackCreateRequest.properties.content.minLength").value(10))
+                .andExpect(jsonPath("$.components.schemas.FeedbackPromptResponse.properties.shouldShow.type").value("boolean"));
     }
 
     private JsonNode createFeedback(String content, String pagePath) throws Exception {

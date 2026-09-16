@@ -7,8 +7,8 @@ import jakarta.validation.constraints.Size;
 @Schema(description = "서비스 의견 등록 요청")
 public record FeedbackCreateRequest(
         @Schema(
-                description = "서비스 의견. 앞뒤 공백을 제외하고 35~1,000자",
-                minLength = 35,
+                description = "서비스 의견. 앞뒤 공백을 제외하고 10~1,000자",
+                minLength = 10,
                 maxLength = 1000,
                 example = "캐릭터별 변경 이력을 한 화면에서 비교할 수 있으면 검토 시간이 더 줄어들 것 같습니다."
         )
