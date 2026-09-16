@@ -222,6 +222,21 @@ class FeedbackControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("다른 회원 회차를 제외하고 0개부터 4개까지 세 번째 업로드 경계를 유지한다")
+    void preservesThresholdAndMemberIsolation() throws Exception {
+        Member other = memberRepository.save(Member.register("other-prompt@example.com", "encoded",
+                "01076543210", "다른 작가"));
+        Work otherWork = workRepository.save(Work.create(other, "다른 작품", WorkGenre.FANTASY, null));
+        for (int number = 1; number <= 4; number++) addEpisode(otherWork, number);
+        Work mine = workRepository.save(Work.create(author, "내 작품", WorkGenre.FANTASY, null));
+        for (int count = 0; count <= 4; count++) {
+            if (count > 0) addEpisode(mine, count);
+            expectPrompt(count >= 3);
+        }
+        claimPrompt(true);
+    }
+
+    @Test
     @DisplayName("기존 의견 작성자는 안내 대상에서 제외한다")
     void excludesPriorFeedbackAuthors() throws Exception {
         Work work = workRepository.save(Work.create(author, "작품", WorkGenre.FANTASY, null));
