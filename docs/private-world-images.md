@@ -1,5 +1,7 @@
 # 개인 세계관 이미지 — GH194
 
+번호 안내: 2026-09-16 main 통합으로 미배포 GH194 migration을 V55~V60에서 **V57~V62**로 이동했다. 아래 계약은 최종 번호로 표기하며, 이전 검증 실행 당시에는 각 번호가 2씩 작았다. SQL 내용과 기존 사용자 선택은 보존했다.
+
 세계관 대상의 대표 이미지 선택창에서 공용 도감 또는 작품별 `내 이미지`를 선택한다. 개인 원본·썸네일·파일명은 **브라우저에서 암호화한 다음** 서버에 전송한다. 서버에 복호화 키를 저장하지 않는다. 원고 업로드·AI 분석 경로는 변경하지 않았다.
 
 ## 보호 범위와 한계
@@ -29,7 +31,7 @@ part     = "check" | "metadata" | "image" | "thumbnail"
 
 ## 저장과 API
 
-V57은 아래 테이블과 개인 이미지 선택 FK를 추가한다. 기존 V55/V56 및 기존 대상 선택값은 수정하지 않는다.
+V59는 아래 테이블과 개인 이미지 선택 FK를 추가한다. 기존 V57/V58 및 기존 대상 선택값은 수정하지 않는다.
 
 | 테이블 | 컬럼/역할 |
 | --- | --- |
@@ -55,15 +57,15 @@ V57은 아래 테이블과 개인 이미지 선택 FK를 추가한다. 기존 V5
 
 ## 배포와 검증
 
-1. V57을 포함한 Java를 먼저 배포한다. 기존 bucket/IAM의 `works/*` 쓰기·읽기·전체 버전 삭제 권한을 사용한다. 새 공개 bucket 정책은 필요 없다.
+1. V59를 포함한 Java를 먼저 배포한다. 기존 bucket/IAM의 `works/*` 쓰기·읽기·전체 버전 삭제 권한을 사용한다. 새 공개 bucket 정책은 필요 없다.
 2. 새 OpenAPI로 생성한 SDK와 Front를 배포한다. HTTPS가 필수이며 개발 localhost는 secure context 예외다.
 3. 일회용 계정에서 보관함 생성 → 업로드 → 대표 이미지 저장 → 새로고침 잠금 → 올바른 복구키 복호화 → 기본 복귀/삭제를 확인한다.
 4. 이 구현의 로컬 검증은 PostgreSQL migration+Hibernate validate, MockMvc 소유권/선택/크기 테스트, 실제 Chromium Web Crypto 변조/키/AAD 테스트, 실제 API를 사용하는 Front live E2E를 포함한다. 로컬 저장소는 e2e filesystem이며 운영 S3 업로드/운영 DB 변경은 수행하지 않는다.
 
 참고: [AWS client-side encryption](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingClientSideEncryption.html), [Web Crypto AES-GCM](https://developer.mozilla.org/en-US/docs/Web/API/AesGcmParams), [OWASP 암호 저장 가이드](https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html).
 
-2026-09-16: Java 전체 1,166개 중 1,101 통과/기존 조건부 65 건너뜀. 로컬 PostgreSQL V55·V56·V57 성공과 Hibernate validate 기동, Front 실제 연결 검증을 완료했다. 운영 DB·원고·S3의 개인 파일은 변경하지 않았다.
+2026-09-16: Java 전체 1,166개 중 1,101 통과/기존 조건부 65 건너뜀. 로컬 PostgreSQL V57·V58·V59 성공과 Hibernate validate 기동, Front 실제 연결 검증을 완료했다. 운영 DB·원고·S3의 개인 파일은 변경하지 않았다.
 
 ## 캐릭터와 함께 사용
 
-같은 작품의 캐릭터 이미지 선택에서도 이 보관함·업로드·조회 API와 CHI1 계약을 재사용한다. 서버 경로/저장 키는 호환성을 위해 유지한다. 개인 이미지 삭제는 세계관과 캐릭터 선택을 모두 확인한다. 자세한 선택 우선순위와 V58은 [캐릭터 이미지](character-images.md)를 참고한다.
+같은 작품의 캐릭터 이미지 선택에서도 이 보관함·업로드·조회 API와 CHI1 계약을 재사용한다. 서버 경로/저장 키는 호환성을 위해 유지한다. 개인 이미지 삭제는 세계관과 캐릭터 선택을 모두 확인한다. 자세한 선택 우선순위와 V60은 [캐릭터 이미지](character-images.md)를 참고한다.

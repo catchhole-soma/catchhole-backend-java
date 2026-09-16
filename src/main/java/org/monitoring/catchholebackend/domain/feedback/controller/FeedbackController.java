@@ -19,6 +19,8 @@ import org.monitoring.catchholebackend.global.common.response.CommonResponse;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.monitoring.catchholebackend.domain.feedback.dto.response.FeedbackPromptResponse;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -31,6 +33,34 @@ import org.springframework.web.bind.annotation.RestController;
 public class FeedbackController {
 
     private final FeedbackService feedbackService;
+
+    @GetMapping("/prompt")
+    @Operation(operationId = "getMyFeedbackPrompt", summary = "서비스 의견 안내 대상 조회",
+            description = "활성 작품에 보관되지 않은 회차가 총 3개 이상이고, 의견 작성·안내 노출 기록이 없는 회원인지 조회합니다. 조회는 노출 기록을 변경하지 않습니다.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "안내 대상 조회 성공"),
+            @ApiResponse(responseCode = "401", description = "인증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
+    })
+    public CommonResponse<FeedbackPromptResponse> getMyFeedbackPrompt(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member
+    ) {
+        return CommonResponse.success(feedbackService.getFeedbackPrompt(member.memberId()));
+    }
+
+    @PostMapping("/prompt/claim")
+    @Operation(operationId = "claimMyFeedbackPrompt", summary = "서비스 의견 안내 노출 선점",
+            description = "노출 자격을 다시 확인하고 계정당 한 번만 안내 시각을 기록합니다. shouldShow가 true인 요청만 안내를 표시하며, 이미 선점되었거나 대상이 아니면 false를 반환합니다.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "안내 노출 선점 결과"),
+            @ApiResponse(responseCode = "401", description = "인증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
+    })
+    public CommonResponse<FeedbackPromptResponse> claimMyFeedbackPrompt(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member
+    ) {
+        return CommonResponse.success(feedbackService.claimFeedbackPrompt(member.memberId()));
+    }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     @Operation(

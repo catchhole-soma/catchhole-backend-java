@@ -72,6 +72,7 @@ erDiagram
         boolean email_verified
         boolean phone_verified
         datetime age_requirement_confirmed_at
+        datetime feedback_prompt_shown_at
         varchar display_name
         varchar profile_image_url
         varchar status
@@ -555,7 +556,7 @@ erDiagram
 - `ai_token_extension_requests.request_source` 허용값은 `QUOTA_EXHAUSTION`, `GENERAL_FEEDBACK_REWARD`입니다. V34 이전 요청은 전자로 backfill됩니다.
 - `QUOTA_EXHAUSTION`은 `REQUEST_BLOCKED`, `ANALYSIS_FAILED`, `ANALYSIS_INTERRUPTED` 중 하나와만 결합하고, `GENERAL_FEEDBACK_REWARD`는 `GENERAL_FEEDBACK`과만 결합합니다.
 - `uk_ai_token_extension_requests_member_pending`은 한 회원의 두 출처를 통틀어 `PENDING` 행을 하나만 허용합니다. `uk_ai_token_extension_requests_member_feedback_reward`는 상태와 무관하게 일반 의견 보상 요청을 회원당 하나만 허용합니다.
-- `feedbacks.content`는 앞뒤 공백을 제외한 35~1,000자입니다. nullable `page_path`는 `/`로 시작하는 1~255자 내부 경로이며 `?`, `#`를 포함할 수 없습니다.
+- `feedbacks.content`는 앞뒤 공백을 제외한 Unicode code point 10~1,000자입니다. nullable `page_path`는 `/`로 시작하는 1~255자 내부 경로이며 `?`, `#`를 포함할 수 없습니다.
 - `feedbacks.member_id`는 회원 삭제 시 의견을 cascade 삭제합니다. `reward_request_id`는 보상 요청 삭제 시 `NULL`로 바꾸어 의견 본체를 유지합니다.
 
 ## Notion 기반 후속 AI 분석 ERD
@@ -741,10 +742,21 @@ erDiagram
 
 `members.phone_number`는 NULL을 허용하며 실제 값의 unique 제약은 유지한다. `email_verified`는 NOT NULL, 기본 false다. 기존 회원은 실제 이메일 인증 이력이 없으므로 false를 유지하고, 이메일 인증 가입은 전화번호 없이 `email_verified=true`, `phone_verified=false`로 저장한다. 인증번호·가입 토큰은 Redis에만 두며 새 인증 테이블은 만들지 않는다.
 
-## 공용 이미지 도감 (V55·V56)
+## 서비스 의견 안내 (V55)
+
+- `members.feedback_prompt_shown_at`은 의견 안내를 최초 선점한 시각으로, 실제 의견 행과 독립적으로 계정당 1회 노출을 보장합니다.
+- `ai_token_extension_requests.feedback`는 `GENERAL_FEEDBACK_REWARD` 출처일 때 10~1,000자, `QUOTA_EXHAUSTION`일 때 35~1,000자를 허용합니다.
+
+### 의견 안내 조회 인덱스 (V56)
+
+- `idx_works_active_member`: `works(member_id, id) WHERE lifecycle_status = 'ACTIVE'`
+- `idx_episodes_non_archived_work`: `episodes(work_id) WHERE status <> 'ARCHIVED'`
+- 안내 자격은 세 번째 유효 회차의 존재까지만 조회하며 전체 회차 수를 집계하지 않습니다.
+
+## 공용 이미지 도감 (V57·V58)
 
 `world_setting_images.world_setting_id`는 대상 FK 겸 PK이며 대상 삭제 시 cascade된다. 선택 도감 FK는 nullable이며 해제 후에도 version 행을 보존한다. `world_image_catalog`는 category별 기본 이미지가 최대 하나인 partial unique index를 가지며 `world_image_aliases`는 `(catalog_id, alias)` 복합 PK다. 상세 필드와 관계는 [대표 이미지 도감](world-image-catalog.md)을 따른다.
 
-V57의 `private_image_vaults`는 회원당 1개인 UUID 보관함으로 암호화된 키 확인값만 보관한다. `private_world_images`는 작품·보관함 FK, 암호화 메타데이터, 원본/썸네일 크기를 가진다. `world_setting_images.private_image_id`와 catalog_id는 동시에 값이 들어갈 수 없으며 개인 선택 출처는 `PRIVATE`다. 작품 삭제 시 개인 이미지 행도 cascade한다. [개인 이미지 상세 계약](private-world-images.md).
+V59의 `private_image_vaults`는 회원당 1개인 UUID 보관함으로 암호화된 키 확인값만 보관한다. `private_world_images`는 작품·보관함 FK, 암호화 메타데이터, 원본/썸네일 크기를 가진다. `world_setting_images.private_image_id`와 catalog_id는 동시에 값이 들어갈 수 없으며 개인 선택 출처는 `PRIVATE`다. 작품 삭제 시 개인 이미지 행도 cascade한다. [개인 이미지 상세 계약](private-world-images.md).
 
-V59/V60: `world_image_recommendations`는 `(catalog_id, theme)` PK로 공용 도감을 여러 테마에 추천한다. `world_image_theme_assets`는 `id` PK와 `(theme,purpose,slot)` unique로 초기/기본 그림을 별도 관리하며 사용자 선택 FK로 사용하지 않는다. 장르 기본은 조회 시 계산한다. 상세 필드는 [대표 이미지 도감](world-image-catalog.md)의 장르 테마 확장을 따른다.
+V61/V62: `world_image_recommendations`는 `(catalog_id, theme)` PK로 공용 도감을 여러 테마에 추천한다. `world_image_theme_assets`는 `id` PK와 `(theme,purpose,slot)` unique로 초기/기본 그림을 별도 관리하며 사용자 선택 FK로 사용하지 않는다. 장르 기본은 조회 시 계산한다. 상세 필드는 [대표 이미지 도감](world-image-catalog.md)의 장르 테마 확장을 따른다.

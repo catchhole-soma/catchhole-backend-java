@@ -5,9 +5,14 @@ import org.monitoring.catchholebackend.domain.feedback.dto.response.FeedbackCrea
 import org.monitoring.catchholebackend.domain.feedback.entity.Feedback;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.springframework.stereotype.Component;
+import org.monitoring.catchholebackend.domain.feedback.dto.response.FeedbackPromptResponse;
 
 @Component
 public class FeedbackMapper {
+
+    public FeedbackPromptResponse toPromptResponse(boolean shouldShow) {
+        return new FeedbackPromptResponse(shouldShow);
+    }
 
     public Feedback toEntity(
             Member member,

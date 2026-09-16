@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""장르 구성표를 공용 자산·다대다 추천·초기/기본 슬롯으로 변환한다. V56은 보존한다."""
+"""장르 구성표를 공용 자산·다대다 추천·초기/기본 슬롯으로 변환한다. V58은 보존한다."""
 import argparse
 from collections import Counter
 import hashlib
@@ -96,6 +96,7 @@ def build(workspace, output, repo):
             for slot, item in plan[name].items():
                 slots.append(dict(id=f'{theme}-{purpose.lower()}-{slot.lower()}', theme=theme, purpose=purpose,
                                   slot=slot, name=item['name'], **encode(item['source'])))
+    # 이전 V56 이름을 담은 seed 주석도 바이트 보존을 위해 유지한다(현재 V58).
     statements = ['-- build_themes.py에서 생성. V56과 기존 선택 행은 보존한다.']
     for e in catalog.values():
         if e['id'] in originals:
@@ -114,9 +115,9 @@ def build(workspace, output, repo):
     for id, theme in sorted(recommendations):
         statements.append(f'INSERT INTO world_image_recommendations(catalog_id,theme) VALUES ({sql(id)},{sql(theme)});')
     seed = '\n'.join(statements)+'\n'
-    target = repo/'src/main/resources/db/migration/V60__seed_world_image_themes.sql'
+    target = repo/'src/main/resources/db/migration/V62__seed_world_image_themes.sql'
     if target.exists() and target.read_text() != seed:
-        raise ValueError('V60 결과가 달라졌습니다. 적용된 migration은 덮어쓸 수 없습니다.')
+        raise ValueError('V62 결과가 달라졌습니다. 적용된 migration은 덮어쓸 수 없습니다.')
     target.write_text(seed)
     manifest = {'version':2,'entries':list(catalog.values())+slots,'themeSlots':slots,
                 'recommendations':[{'catalogId':i,'theme':t} for i,t in sorted(recommendations)]}

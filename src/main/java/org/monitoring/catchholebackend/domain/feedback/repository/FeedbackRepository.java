@@ -6,5 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface FeedbackRepository extends JpaRepository<Feedback, UUID> {
 
+    boolean existsByMemberId(Long memberId);
+
     long countByMemberId(Long memberId);
 }

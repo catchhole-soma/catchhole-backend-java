@@ -82,10 +82,10 @@ def build(workspace, output, repo):
         statements.append('INSERT INTO world_image_catalog (id, category, name, search_text, is_default, active, thumbnail_sha, image_sha) VALUES (' + ', '.join(values) + ');')
         for alias in e['aliases']:
             statements.append('INSERT INTO world_image_aliases (catalog_id, alias) VALUES (' + sql(e['id']) + ', ' + sql(alias) + ');')
-    seed_path = repo / 'src/main/resources/db/migration/V56__seed_world_image_catalog.sql'
+    seed_path = repo / 'src/main/resources/db/migration/V58__seed_world_image_catalog.sql'
     seed_sql = '\n'.join(statements) + '\n'
     if seed_path.exists() and seed_path.read_text() != seed_sql:
-        raise ValueError('기존 V56 migration과 달라졌습니다. 적용된 seed를 덮어쓰지 말고 새 migration/도감 버전을 만드세요.')
+        raise ValueError('기존 V58 migration과 달라졌습니다. 적용된 seed를 덮어쓰지 말고 새 migration/도감 버전을 만드세요.')
     seed_path.write_text(seed_sql)
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
     report = {
