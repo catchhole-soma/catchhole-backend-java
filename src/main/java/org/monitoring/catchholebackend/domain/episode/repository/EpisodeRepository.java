@@ -9,6 +9,12 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface EpisodeRepository extends JpaRepository<Episode, UUID> {
 
+    long countByWorkMemberIdAndWorkLifecycleStatusAndStatusNot(
+            Long memberId,
+            org.monitoring.catchholebackend.domain.work.type.WorkLifecycleStatus lifecycleStatus,
+            org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus status
+    );
+
     Optional<Episode> findByIdAndWorkId(UUID id, UUID workId);
 
     Optional<Episode> findByIdAndWorkIdAndStatusNot(UUID id, UUID workId, org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus status);

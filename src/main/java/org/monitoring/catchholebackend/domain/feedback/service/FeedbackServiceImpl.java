@@ -1,6 +1,11 @@
 package org.monitoring.catchholebackend.domain.feedback.service;
 
 import lombok.RequiredArgsConstructor;
+import java.time.LocalDateTime;
+import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
+import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
+import org.monitoring.catchholebackend.domain.work.type.WorkLifecycleStatus;
+import org.monitoring.catchholebackend.domain.feedback.dto.response.FeedbackPromptResponse;
 import org.monitoring.catchholebackend.domain.aitoken.dto.response.AiTokenFeedbackRewardResult;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.feedback.dto.request.FeedbackCreateRequest;
@@ -21,7 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class FeedbackServiceImpl implements FeedbackService {
 
-    private static final int MIN_CONTENT_LENGTH = 35;
+    private static final int MIN_CONTENT_LENGTH = 10;
     private static final int MAX_CONTENT_LENGTH = 1000;
     private static final int MAX_PAGE_PATH_LENGTH = 255;
 
@@ -29,13 +34,14 @@ public class FeedbackServiceImpl implements FeedbackService {
     private final MemberRepository memberRepository;
     private final AiTokenService aiTokenService;
     private final FeedbackMapper feedbackMapper;
+    private final EpisodeRepository episodeRepository;
 
     @Override
     @Transactional
     public FeedbackCreateResponse createFeedback(Long memberId, FeedbackCreateRequest request) {
         String content = normalizeContent(request.content());
         String pagePath = normalizePagePath(request.pagePath());
-        Member member = memberRepository.findById(memberId)
+        Member member = memberRepository.findByIdForUpdate(memberId)
                 .orElseThrow(() -> new AppException(MemberErrorCode.MEMBER_NOT_FOUND));
         member.validateActive();
 
@@ -45,6 +51,34 @@ public class FeedbackServiceImpl implements FeedbackService {
                 feedbackMapper.toEntity(member, content, pagePath, rewardResult)
         );
         return feedbackMapper.toResponse(saved, rewardResult);
+    }
+
+    @Override
+    public FeedbackPromptResponse getFeedbackPrompt(Long memberId) {
+        Member member = memberRepository.getByIdOrThrow(memberId);
+        member.validateActive();
+        return feedbackMapper.toPromptResponse(isEligibleForPrompt(member));
+    }
+
+    @Override
+    @Transactional
+    public FeedbackPromptResponse claimFeedbackPrompt(Long memberId) {
+        Member member = memberRepository.findByIdForUpdate(memberId)
+                .orElseThrow(() -> new AppException(MemberErrorCode.MEMBER_NOT_FOUND));
+        member.validateActive();
+        boolean shouldShow = isEligibleForPrompt(member);
+        if (shouldShow) {
+            member.markFeedbackPromptShown(LocalDateTime.now());
+        }
+        return feedbackMapper.toPromptResponse(shouldShow);
+    }
+
+    private boolean isEligibleForPrompt(Member member) {
+        return member.getFeedbackPromptShownAt() == null
+                && !feedbackRepository.existsByMemberId(member.getId())
+                && episodeRepository.countByWorkMemberIdAndWorkLifecycleStatusAndStatusNot(
+                        member.getId(), WorkLifecycleStatus.ACTIVE, EpisodeStatus.ARCHIVED
+                ) >= 3;
     }
 
     private String normalizeContent(String content) {
