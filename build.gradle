@@ -53,4 +53,7 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+    // 전체 통합 테스트에서 Spring Context가 누적되어 CI 테스트 JVM의 heap이 고갈되지 않게 한다.
+    maxHeapSize = '1g'
+    systemProperty 'spring.test.context.cache.maxSize', '8'
 }
