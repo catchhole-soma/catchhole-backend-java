@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/v1/analysis-mode-guide")
+@RequestMapping("/api/v1/analysis-mode-guides")
 @Tag(name = "AnalysisGuide", description = "계정별 최초 분석 방식 안내")
 @SecurityRequirement(name = "bearerAuth")
 @ApiResponses({

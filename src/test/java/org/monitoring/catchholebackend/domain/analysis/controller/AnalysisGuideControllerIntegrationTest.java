@@ -40,7 +40,7 @@ class AnalysisGuideControllerIntegrationTest {
     @Autowired AnalysisGuideService guides;
     Member member;
     String token;
-    final String endpoint = "/api/v1/analysis-mode-guide";
+    final String endpoint = "/api/v1/analysis-mode-guides";
 
     @BeforeEach
     void prepare() {
