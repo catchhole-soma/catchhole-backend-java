@@ -1,5 +1,8 @@
 package org.monitoring.catchholebackend.domain.worldimage.service;
 
+import org.monitoring.catchholebackend.domain.worldimage.type.PrivateWorldImageStatus;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.monitoring.catchholebackend.domain.worldimage.processor.WorldSettingImageMatcher;
 import java.util.Collection;
 import org.monitoring.catchholebackend.domain.worldimage.dto.response.WorldImageThemeResponse;
@@ -49,6 +52,7 @@ public class WorldImageServiceImpl implements WorldImageService {
     private final WorkRepository workRepository;
     private final WorldImageMapper mapper;
     private final ObjectStorage objectStorage;
+    private final TransactionTemplate transactionTemplate;
     private final PrivateWorldImageRepository privateImageRepository;
 
     @Override
@@ -108,15 +112,15 @@ public class WorldImageServiceImpl implements WorldImageService {
         WorldSettingImage selection = selectionRepository.findById(settingId).orElseGet(() -> WorldSettingImage.create(setting));
         selection.validateVersion(request.version());
         if (Boolean.TRUE.equals(request.useAutomatic())) {
-            if (request.catalogId() != null || request.privateImageId() != null) throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_INVALID);
+            if (request.catalogId() != null || request.privateImageId() != null) throw new AppException(WorldImageErrorCode.WORLD_IMAGE_SELECTION_CONFLICT);
             var candidates = catalogRepository.findAutomaticWorldImagesWithAliases(WorldImageThemes.forGenre(setting.getWork().getGenre()));
             selection.selectAutomaticImage(settingMatcher.match(setting, candidates));
             selectionRepository.saveAndFlush(selection);
             return getSettingImages(List.of(setting)).get(settingId);
         }
         if (request.privateImageId() != null) {
-            if (request.catalogId() != null) throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_INVALID);
-            var image = privateImageRepository.findByIdAndWorkId(request.privateImageId(), workId)
+            if (request.catalogId() != null) throw new AppException(WorldImageErrorCode.WORLD_IMAGE_SELECTION_CONFLICT);
+            var image = privateImageRepository.findByIdAndWorkIdAndStatus(request.privateImageId(), workId, PrivateWorldImageStatus.READY)
                     .orElseThrow(() -> new AppException(WorldImageErrorCode.WORLD_IMAGE_NOT_FOUND));
             if (selection.selectPrivateImage(image)) selectionRepository.saveAndFlush(selection);
             return getSettingImages(List.of(setting)).get(settingId);
@@ -144,11 +148,14 @@ public class WorldImageServiceImpl implements WorldImageService {
     }
 
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public byte[] getPublishedImage(String sha) {
-        if (catalogRepository.findPublishedAsset(sha, PageRequest.of(0, 1)).isEmpty()
-                && !themeRepository.existsByThumbnailShaOrImageSha(sha, sha)) {
-            throw new AppException(WorldImageErrorCode.WORLD_IMAGE_NOT_FOUND);
-        }
+        transactionTemplate.executeWithoutResult(status -> {
+            if (catalogRepository.findPublishedAsset(sha, PageRequest.of(0, 1)).isEmpty()
+                    && !themeRepository.existsByThumbnailShaOrImageSha(sha, sha)) {
+                throw new AppException(WorldImageErrorCode.WORLD_IMAGE_NOT_FOUND);
+            }
+        });
         return objectStorage.getBytes(WorldImageAssetPaths.storageKey(sha));
     }
 }

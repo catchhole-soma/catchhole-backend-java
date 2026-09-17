@@ -974,7 +974,7 @@ class SettingCandidatePromotionServiceTest {
     @Test
     @DisplayName("GH-189 신규 발생·해제·종족은 이력 3건과 최종 현재값을 남긴다")
     void newCharacterGroupAppliesComparedOccurrenceAndRecovery() {
-        imageJdbc.update("INSERT INTO world_image_catalog(id,category,name,search_text,is_default,active,thumbnail_sha,image_sha) VALUES ('race-barbarian','RACE','바바리안','바바리안',false,true,?,?)", "a".repeat(64), "b".repeat(64));
+        imageJdbc.update("INSERT INTO world_image_catalog(id,category,name,search_text,is_default,active,thumbnail_sha,image_sha,created_at,updated_at) VALUES ('race-barbarian','RACE','바바리안','바바리안',false,true,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)", "a".repeat(64), "b".repeat(64));
         characterSettingSchemaRepository.save(settingSchema(
                 null,
                 "profile.species",

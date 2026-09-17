@@ -22,6 +22,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 class AnalysisGuideConcurrencyIntegrationTest {
 
     @Autowired private AnalysisGuideService guideService;
+    @Autowired private AnalysisJobService jobService;
+    @Autowired private org.monitoring.catchholebackend.domain.work.repository.WorkRepository works;
     @Autowired private MemberRepository memberRepository;
     @Autowired private PlatformTransactionManager transactionManager;
 
@@ -56,6 +58,27 @@ class AnalysisGuideConcurrencyIntegrationTest {
             transaction.executeWithoutResult(status -> {
                 memberRepository.deleteById(memberId);
             });
+        }
+    }
+
+    @Test
+    @DisplayName("회원 잠금을 먼저 얻어도 분석 생성이 실패하면 최초 분석 기록도 롤백한다")
+    void failedCreationRollsBackFirstAnalysisMarker() {
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        Long memberId = transaction.execute(status -> memberRepository.saveAndFlush(Member.register(
+                "guide-rollback@example.com", "encoded", "01078787777", "작가")).getId());
+        var workId = transaction.execute(status -> works.saveAndFlush(org.monitoring.catchholebackend.domain.work.entity.Work.create(
+                memberRepository.getReferenceById(memberId), "기록 롤백", org.monitoring.catchholebackend.domain.work.type.WorkGenre.FANTASY, null)).getId());
+        try {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> jobService.createAnalysisJobs(memberId, workId,
+                    new org.monitoring.catchholebackend.domain.analysis.dto.request.AnalysisJobCreateRequest(
+                            org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION,
+                            java.util.UUID.randomUUID(), null)))
+                    .isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class);
+            assertThat(memberRepository.findById(memberId).orElseThrow().getFirstAnalysisStartedAt()).isNull();
+            assertThat(guideService.getGuide(memberId).shouldShow()).isTrue();
+        } finally {
+            transaction.executeWithoutResult(status -> { works.deleteById(workId); memberRepository.deleteById(memberId); });
         }
     }
 }

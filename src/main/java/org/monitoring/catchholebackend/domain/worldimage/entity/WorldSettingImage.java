@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.worldimage.entity;
 
+import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -11,7 +12,6 @@ import jakarta.persistence.PostLoad;
 import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
-import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.AccessLevel;
@@ -28,7 +28,7 @@ import org.monitoring.catchholebackend.global.exception.AppException;
 @Entity
 @Table(name = "world_setting_images")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class WorldSettingImage implements Persistable<UUID> {
+public class WorldSettingImage extends BaseEntity implements Persistable<UUID> {
     // 직접 부여한 UUID의 최초 저장은 merge 대신 persist로 처리한다.
     @Transient
     private boolean newEntity = true;
@@ -61,14 +61,11 @@ public class WorldSettingImage implements Persistable<UUID> {
     // AUTO는 저장된 자동 결과, DEFAULT는 작가가 선택한 분류 기본 이미지다.
     @Column(name = "selection_source", length = 20)
     private String selectionSource;
-    @Column(name = "updated_at", nullable = false)
-    private LocalDateTime updatedAt;
 
     public static WorldSettingImage create(WorldSetting setting) {
         WorldSettingImage selection = new WorldSettingImage();
         selection.worldSetting = setting;
         selection.worldSettingId = setting.getId();
-        selection.updatedAt = LocalDateTime.now();
         return selection;
     }
 
@@ -87,7 +84,6 @@ public class WorldSettingImage implements Persistable<UUID> {
         privateImage = null;
         selectionSource = "AUTO";
         if (!newEntity) version++;
-        updatedAt = LocalDateTime.now();
         return true;
     }
 
@@ -105,7 +101,6 @@ public class WorldSettingImage implements Persistable<UUID> {
         privateImage = null;
         selectionSource = source;
         version++;
-        updatedAt = LocalDateTime.now();
         return true;
     }
 
@@ -115,7 +110,6 @@ public class WorldSettingImage implements Persistable<UUID> {
         privateImage = image;
         selectionSource = "PRIVATE";
         version++;
-        updatedAt = LocalDateTime.now();
         return true;
     }
 }

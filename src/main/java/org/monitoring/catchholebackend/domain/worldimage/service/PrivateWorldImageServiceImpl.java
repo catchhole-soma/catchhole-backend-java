@@ -28,8 +28,11 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.support.TransactionTemplate;
+import java.time.LocalDateTime;
+import java.util.Objects;
+import static org.monitoring.catchholebackend.domain.worldimage.type.PrivateWorldImageStatus.*;
 import org.springframework.web.multipart.MultipartFile;
 
 @Slf4j
@@ -45,6 +48,7 @@ public class PrivateWorldImageServiceImpl implements PrivateWorldImageService {
     private final WorkRepository works;
     private final ObjectStorage storage;
     private final PrivateWorldImageMapper mapper;
+    private final TransactionTemplate transactionTemplate;
 
     @Override
     public PrivateImageVaultResponse getVault(Long memberId) {
@@ -70,63 +74,116 @@ public class PrivateWorldImageServiceImpl implements PrivateWorldImageService {
     @Override
     public PageResponse<PrivateWorldImageResponse> list(Long memberId, UUID workId, int page, int size) {
         works.getOwnedWork(workId, memberId);
-        var result = images.findAllByWorkId(workId,
+        var result = images.findAllByWorkIdAndStatus(workId, READY,
                 PageRequest.of(page, size, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))));
         return PageResponse.from(result, result.getContent().stream().map(mapper::toResponse).toList());
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PrivateWorldImageResponse upload(Long memberId, UUID workId, PrivateWorldImageUploadRequest request,
             MultipartFile image, MultipartFile thumbnail) {
-        var work = works.getOwnedWorkForUpdate(workId, memberId);
-        var vault = vaults.findByMemberId(memberId)
-                .filter(value -> value.getId().equals(request.vaultId()))
-                .orElseThrow(() -> new AppException(WorldImageErrorCode.PRIVATE_IMAGE_VAULT_REQUIRED));
-        if (images.existsById(request.id())) throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_CONFLICT);
-        if (images.countByWorkId(workId) >= 50) throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_LIMIT);
         PrivateImageCiphertext.validateBase64(request.encryptedMetadata());
         byte[] encryptedImage = PrivateImageCiphertext.read(image, PrivateImageCiphertext.IMAGE_LIMIT);
         byte[] encryptedThumbnail = PrivateImageCiphertext.read(thumbnail, PrivateImageCiphertext.THUMBNAIL_LIMIT);
-        // 먼저 ID를 예약해 경쟁 요청의 저장소 덮어쓰기를 막는다. 실패 시 두 객체의 모든 버전을 정리한다.
-        var saved = images.saveAndFlush(PrivateWorldImage.create(request.id(), work, vault,
-                request.encryptedMetadata(), encryptedImage.length, encryptedThumbnail.length));
-        String prefix = PrivateWorldImagePaths.prefix(workId, request.id());
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override public void afterCompletion(int status) {
-                if (status == STATUS_COMMITTED) return;
-                try {
-                    if (!storage.purgePrefixes(List.of(prefix)).isComplete()) {
-                        log.warn("개인 이미지 업로드 취소 파일 정리가 완료되지 않았습니다.");
-                    }
-                } catch (RuntimeException ignored) {
-                    log.warn("개인 이미지 업로드 취소 파일 정리에 실패했습니다.");
-                }
-            }
+        UUID attemptId = UUID.randomUUID();
+        transactionTemplate.executeWithoutResult(status -> {
+            var work = works.getOwnedWorkForUpdate(workId, memberId);
+            var vault = vaults.findByMemberId(memberId)
+                    .filter(value -> value.getId().equals(request.vaultId()))
+                    .orElseThrow(() -> new AppException(WorldImageErrorCode.PRIVATE_IMAGE_VAULT_REQUIRED));
+            if (images.existsById(request.id())) throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_CONFLICT);
+            if (images.countByWorkId(workId) >= 50) throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_LIMIT);
+            var reserved = PrivateWorldImage.create(request.id(), work, vault, request.encryptedMetadata(),
+                    encryptedImage.length, encryptedThumbnail.length);
+            reserved.reserveUpload(attemptId);
+            images.saveAndFlush(reserved);
         });
-        storage.putBytes(PrivateWorldImagePaths.key(workId, request.id(), false), encryptedImage, "application/octet-stream");
-        storage.putBytes(PrivateWorldImagePaths.key(workId, request.id(), true), encryptedThumbnail, "application/octet-stream");
-        return mapper.toResponse(saved);
-    }
-
-    @Override
-    public byte[] getCiphertext(Long memberId, UUID workId, UUID imageId, boolean thumbnail) {
-        works.getOwnedWork(workId, memberId);
-        requireImage(workId, imageId);
-        return storage.getBytes(PrivateWorldImagePaths.key(workId, imageId, thumbnail));
-    }
-
-    @Override
-    @Transactional
-    public void delete(Long memberId, UUID workId, UUID imageId) {
-        works.getOwnedWorkForUpdate(workId, memberId);
-        var image = requireImage(workId, imageId);
-        if (selections.existsByPrivateImageId(imageId) || characterSelections.existsByPrivateImageId(imageId)) throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_IN_USE);
-        if (!storage.purgePrefixes(List.of(PrivateWorldImagePaths.prefix(workId, imageId))).isComplete()) {
-            throw new AppException(CommonErrorCode.COMMON_INTERNAL_SERVER_ERROR, "이미지 삭제를 마치지 못했어요. 다시 시도해 주세요.");
+        var target = new CleanupTarget(workId, request.id(), attemptId);
+        try {
+            storage.putBytes(PrivateWorldImagePaths.key(workId, request.id(), attemptId, false), encryptedImage, "application/octet-stream");
+            storage.putBytes(PrivateWorldImagePaths.key(workId, request.id(), attemptId, true), encryptedThumbnail, "application/octet-stream");
+            return transactionTemplate.execute(status -> {
+                works.getOwnedWorkForUpdate(workId, memberId);
+                var saved = images.findByIdForUpdate(request.id()).filter(value -> attemptId.equals(value.getStorageAttemptId()))
+                        .orElseThrow(() -> new AppException(WorldImageErrorCode.PRIVATE_IMAGE_CONFLICT));
+                saved.completeUpload();
+                images.flush();
+                return mapper.toResponse(saved);
+            });
+        } catch (RuntimeException failure) {
+            // 예약은 별도 커밋되어 재시작 후에도 정리할 수 있고, 다른 시도의 파일은 건드리지 않는다.
+            try {
+                transactionTemplate.executeWithoutResult(status -> images.findByIdForUpdate(request.id())
+                        .filter(value -> attemptId.equals(value.getStorageAttemptId()))
+                        .ifPresent(PrivateWorldImage::requestDeletion));
+                cleanup(target);
+            } catch (RuntimeException ignored) {
+                log.warn("개인 이미지 업로드 정리를 다음 실행에서 재시도합니다.");
+            }
+            throw failure;
         }
-        images.delete(image);
     }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public byte[] getCiphertext(Long memberId, UUID workId, UUID imageId, boolean thumbnail) {
+        String key = transactionTemplate.execute(status -> {
+            works.getOwnedWork(workId, memberId);
+            var image = images.findByIdAndWorkIdAndStatus(imageId, workId, READY)
+                    .orElseThrow(() -> new AppException(WorldImageErrorCode.WORLD_IMAGE_NOT_FOUND));
+            return PrivateWorldImagePaths.key(workId, imageId, image.getStorageAttemptId(), thumbnail);
+        });
+        return storage.getBytes(key);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public void delete(Long memberId, UUID workId, UUID imageId) {
+        CleanupTarget target = transactionTemplate.execute(status -> {
+            works.getOwnedWorkForUpdate(workId, memberId);
+            var image = requireImage(workId, imageId);
+            if (image.getStatus() == UPLOADING) throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_CONFLICT);
+            if (selections.existsByPrivateImageId(imageId) || characterSelections.existsByPrivateImageId(imageId)) {
+                throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_IN_USE);
+            }
+            image.requestDeletion();
+            return new CleanupTarget(workId, imageId, image.getStorageAttemptId());
+        });
+        if (!cleanup(target)) throw new AppException(CommonErrorCode.COMMON_INTERNAL_SERVER_ERROR,
+                "이미지 삭제를 마치지 못했어요. 잠시 후 다시 시도해 주세요.");
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public void retryPendingCleanup() {
+        LocalDateTime staleBefore = LocalDateTime.now().minusHours(1);
+        var ids = transactionTemplate.execute(status -> images.findCleanupIds(staleBefore, PageRequest.of(0, 20)));
+        for (UUID id : ids) {
+            try {
+                CleanupTarget target = transactionTemplate.execute(status -> images.findByIdForUpdate(id)
+                        .filter(image -> image.getStatus() == DELETING
+                                || (image.getStatus() == UPLOADING && image.getUpdatedAt().isBefore(staleBefore)))
+                        .map(image -> {
+                            image.requestDeletion();
+                            return new CleanupTarget(image.getWork().getId(), id, image.getStorageAttemptId());
+                        }).orElse(null));
+                if (target != null && !cleanup(target)) log.warn("개인 이미지 파일 정리를 다음 실행에서 재시도합니다.");
+            } catch (RuntimeException ignored) {
+                log.warn("개인 이미지 파일 정리를 다음 실행에서 재시도합니다.");
+            }
+        }
+    }
+
+    private boolean cleanup(CleanupTarget target) {
+        if (!storage.purgePrefixes(List.of(PrivateWorldImagePaths.prefix(target.workId(), target.imageId(), target.attemptId()))).isComplete()) return false;
+        transactionTemplate.executeWithoutResult(status -> images.findByIdForUpdate(target.imageId())
+                .filter(image -> image.getStatus() == DELETING && Objects.equals(image.getStorageAttemptId(), target.attemptId()))
+                .ifPresent(images::delete));
+        return true;
+    }
+
+    private record CleanupTarget(UUID workId, UUID imageId, UUID attemptId) {}
 
     private PrivateWorldImage requireImage(UUID workId, UUID imageId) {
         return images.findByIdAndWorkId(imageId, workId)

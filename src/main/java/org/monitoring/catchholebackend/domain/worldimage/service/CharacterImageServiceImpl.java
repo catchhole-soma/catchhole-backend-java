@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.worldimage.service;
 
+import org.monitoring.catchholebackend.domain.worldimage.type.PrivateWorldImageStatus;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -73,13 +74,13 @@ public class CharacterImageServiceImpl implements CharacterImageService {
         selection.validateVersion(request.version());
         boolean useDefault = Boolean.TRUE.equals(request.useDefault());
         int choices = (request.catalogId() != null ? 1 : 0) + (request.privateImageId() != null ? 1 : 0) + (useDefault ? 1 : 0);
-        if (choices > 1) throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_INVALID);
+        if (choices > 1) throw new AppException(WorldImageErrorCode.WORLD_IMAGE_SELECTION_CONFLICT);
         if (choices == 0) {
             var matched = matcher.matchRace(character, catalogs.findRaceImagesWithAliases());
             if (selection.selectAutomaticImage(matched)) selections.saveAndFlush(selection);
             return getCharacterImages(List.of(character)).get(characterId);
         }
-        var privateImage = request.privateImageId() == null ? null : privateImages.findByIdAndWorkId(request.privateImageId(), workId)
+        var privateImage = request.privateImageId() == null ? null : privateImages.findByIdAndWorkIdAndStatus(request.privateImageId(), workId, PrivateWorldImageStatus.READY)
                 .orElseThrow(() -> new AppException(WorldImageErrorCode.WORLD_IMAGE_NOT_FOUND));
         var catalog = request.catalogId() == null ? null : catalogs.findById(request.catalogId()).filter(WorldImageCatalog::isActive)
                 .orElseThrow(() -> new AppException(WorldImageErrorCode.WORLD_IMAGE_NOT_FOUND));

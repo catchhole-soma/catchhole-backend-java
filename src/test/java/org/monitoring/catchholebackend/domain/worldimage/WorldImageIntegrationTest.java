@@ -41,6 +41,7 @@ import org.springframework.transaction.annotation.Transactional;
 class WorldImageIntegrationTest {
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
+    @Autowired org.springframework.transaction.support.TransactionTemplate transaction;
     @Autowired MemberRepository members;
     @Autowired WorkRepository works;
     @Autowired WorldSettingRepository settings;
@@ -122,6 +123,7 @@ class WorldImageIntegrationTest {
                     .andExpect(jsonPath("$.data.overview.ALL.imageUrl").value("/api/v1/world-image-assets/" + "d".repeat(64) + ".webp"));
         }
         when(storage.getBytes("world-image-catalog/v1/" + "d".repeat(64) + ".webp")).thenReturn(new byte[]{1});
+        commitFixture();
         mvc.perform(get("/api/v1/world-image-assets/" + "d".repeat(64) + ".webp")).andExpect(status().isOk());
         mvc.perform(get(endpoint)).andExpect(status().isUnauthorized());
         Member stranger = members.save(Member.register("theme-other@example.com", "encoded", "01077776666", "다른 작가"));
@@ -131,8 +133,26 @@ class WorldImageIntegrationTest {
                 .param("workId", setting.getWork().getId().toString()).param("recommended", "true")).andExpect(status().isNotFound());
     }
 
+    private void commitFixture() {
+        org.springframework.test.context.transaction.TestTransaction.flagForCommit();
+        org.springframework.test.context.transaction.TestTransaction.end();
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void cleanupCommittedFixture() {
+        if (org.springframework.test.context.transaction.TestTransaction.isActive()) return;
+        transaction.executeWithoutResult(status -> {
+            jdbc.update("DELETE FROM world_settings WHERE work_id=?", setting.getWork().getId());
+            jdbc.update("DELETE FROM works WHERE id=?", setting.getWork().getId());
+            jdbc.update("DELETE FROM members WHERE email IN ('image-test@example.com','theme-other@example.com')");
+            jdbc.update("DELETE FROM world_image_aliases WHERE catalog_id IN ('race-default','race-goblin','location-forest','location-default')");
+            jdbc.update("DELETE FROM world_image_catalog WHERE id IN ('race-default','race-goblin','location-forest','location-default')");
+            jdbc.update("DELETE FROM world_image_theme_assets WHERE theme='modern-common'");
+        });
+    }
+
     private void seed(String id, String category, String name, String search, boolean isDefault) {
-        jdbc.update("INSERT INTO world_image_catalog(id,category,name,search_text,is_default,active,thumbnail_sha,image_sha) VALUES (?,?,?,?,?,true,?,?)",
+        jdbc.update("INSERT INTO world_image_catalog(id,category,name,search_text,is_default,active,thumbnail_sha,image_sha,created_at,updated_at) VALUES (?,?,?,?,?,true,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
                 id, category, name, search, isDefault, SHA, SHA);
     }
 
@@ -215,9 +235,13 @@ class WorldImageIntegrationTest {
     @Test
     @DisplayName("등록된 이미지에만 공개 접근을 허용하며 임의 저장소 키는 읽지 않는다")
     void publicWhitelist() throws Exception {
+        commitFixture();
         mvc.perform(get("/api/v1/world-image-assets/" + "b".repeat(64) + ".webp")).andExpect(status().isNotFound());
         verifyNoInteractions(storage);
-        when(storage.getBytes("world-image-catalog/v1/" + SHA + ".webp")).thenReturn(new byte[]{1, 2, 3});
+        when(storage.getBytes("world-image-catalog/v1/" + SHA + ".webp")).thenAnswer(invocation -> {
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            return new byte[]{1, 2, 3};
+        });
         mvc.perform(get("/api/v1/world-image-assets/" + SHA + ".webp")).andExpect(status().isOk())
                 .andExpect(content().contentType("image/webp"))
                 .andExpect(header().string("Cache-Control", "max-age=31536000, public, immutable"))

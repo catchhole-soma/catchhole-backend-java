@@ -42,11 +42,17 @@ import org.springframework.transaction.annotation.Transactional;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-@Transactional
 @DisplayName("암호화 개인 이미지의 소유권·선택·저장 경계")
 class PrivateWorldImageIntegrationTest {
     @Autowired org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository characters;
     @Autowired MockMvc mvc;
+    @Autowired org.monitoring.catchholebackend.domain.worldimage.repository.PrivateImageVaultRepository vaults;
+    @Autowired org.monitoring.catchholebackend.domain.work.repository.WorkPurgeRequestRepository purges;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
+    @Autowired org.springframework.transaction.support.TransactionTemplate transaction;
+    @Autowired org.monitoring.catchholebackend.domain.worldimage.service.PrivateWorldImageServiceImpl service;
+    private Long ownerId;
+    private Long strangerId;
     @Autowired MemberRepository members;
     @Autowired WorkRepository works;
     @Autowired WorldSettingRepository settings;
@@ -69,6 +75,7 @@ class PrivateWorldImageIntegrationTest {
         org.mockito.Mockito.clearInvocations(storage);
         var owner = members.save(Member.register("private-image@example.com", "encoded", "01077771111", "작가"));
         var stranger = members.save(Member.register("private-other@example.com", "encoded", "01077772222", "타인"));
+        ownerId = owner.getId(); strangerId = stranger.getId();
         var work = works.save(Work.create(owner, "개인 이미지", WorkGenre.FANTASY, "설정"));
         workId = work.getId();
         otherWorkId = works.save(Work.create(owner, "다른 작품", WorkGenre.FANTASY, "설정")).getId();
@@ -78,9 +85,26 @@ class PrivateWorldImageIntegrationTest {
         base = "/api/v1/works/" + workId + "/private-world-images";
         when(storage.purgePrefixes(any())).thenReturn(new ObjectStoragePurgeResult(2, 2, 0));
     }
+    @org.junit.jupiter.api.AfterEach
+    void cleanupFixture() {
+        transaction.executeWithoutResult(status -> {
+            for (UUID id : List.of(workId, otherWorkId)) {
+                jdbc.update("DELETE FROM world_setting_images WHERE world_setting_id IN (SELECT id FROM world_settings WHERE work_id=?)", id);
+                jdbc.update("DELETE FROM character_images WHERE character_id IN (SELECT id FROM characters WHERE work_id=?)", id);
+                jdbc.update("DELETE FROM private_world_images WHERE work_id=?", id);
+                jdbc.update("DELETE FROM world_settings WHERE work_id=?", id);
+                jdbc.update("DELETE FROM characters WHERE work_id=?", id);
+                jdbc.update("DELETE FROM works WHERE id=?", id);
+            }
+            jdbc.update("DELETE FROM work_purge_requests WHERE member_id=?", ownerId);
+            jdbc.update("DELETE FROM private_image_vaults WHERE member_id=?", ownerId);
+            members.deleteById(ownerId); members.deleteById(strangerId);
+        });
+    }
+    private UUID attemptId() { return images.findById(imageId).orElseThrow().getStorageAttemptId(); }
     private String encoded() { return Base64.getEncoder().encodeToString(envelope); }
     private ResultActions createVault() throws Exception {
-        return mvc.perform(post("/api/v1/private-image-vault").header("Authorization", token).contentType(MediaType.APPLICATION_JSON)
+        return mvc.perform(post("/api/v1/private-image-vaults").header("Authorization", token).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"id\":\"" + vaultId + "\",\"keyCheck\":\"" + encoded() + "\"}"));
     }
     private ResultActions upload(String auth, byte[] bytes) throws Exception {
@@ -101,14 +125,14 @@ class PrivateWorldImageIntegrationTest {
     void ciphertextRoundtrip() throws Exception {
         createVault().andExpect(status().isOk()).andExpect(jsonPath("$.data.keyCheck").value(encoded()));
         createVault().andExpect(status().isOk()); // Same request is safe to retry.
-        mvc.perform(post("/api/v1/private-image-vault").header("Authorization", token).contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post("/api/v1/private-image-vaults").header("Authorization", token).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"id\":\"" + UUID.randomUUID() + "\",\"keyCheck\":\"" + encoded() + "\"}"))
                 .andExpect(status().isConflict());
         upload(token, envelope).andExpect(status().isOk()).andExpect(jsonPath("$.data.encryptedMetadata").value(encoded()))
                 .andExpect(jsonPath("$.data.filename").doesNotExist()).andExpect(jsonPath("$.data.key").doesNotExist());
-        verify(storage).putBytes(PrivateWorldImagePaths.key(workId, imageId, false), envelope, "application/octet-stream");
-        verify(storage).putBytes(PrivateWorldImagePaths.key(workId, imageId, true), envelope, "application/octet-stream");
-        when(storage.getBytes(PrivateWorldImagePaths.key(workId, imageId, false))).thenReturn(envelope);
+        verify(storage).putBytes(PrivateWorldImagePaths.key(workId, imageId, attemptId(), false), envelope, "application/octet-stream");
+        verify(storage).putBytes(PrivateWorldImagePaths.key(workId, imageId, attemptId(), true), envelope, "application/octet-stream");
+        when(storage.getBytes(PrivateWorldImagePaths.key(workId, imageId, attemptId(), false))).thenReturn(envelope);
         mvc.perform(get(base + "/" + imageId + "/image").header("Authorization", token)).andExpect(status().isOk())
                 .andExpect(content().bytes(envelope)).andExpect(header().string("Cache-Control", "no-store, private"));
         upload(token, envelope).andExpect(status().isConflict());
@@ -118,7 +142,7 @@ class PrivateWorldImageIntegrationTest {
     @DisplayName("인증 없음·타인·다른 작품은 조회·업로드·삭제·선택할 수 없다")
     void ownershipBoundaries() throws Exception {
         mvc.perform(get(base)).andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/v1/private-image-vault")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/private-image-vaults")).andExpect(status().isUnauthorized());
         mvc.perform(get(base).header("Authorization", strangerToken)).andExpect(status().isNotFound());
         upload(strangerToken, envelope).andExpect(status().isNotFound());
         mvc.perform(delete(base + "/" + imageId).header("Authorization", strangerToken)).andExpect(status().isNotFound());
@@ -138,7 +162,7 @@ class PrivateWorldImageIntegrationTest {
         select(imageId, 0).andExpect(status().isOk()).andExpect(jsonPath("$.data.source").value("PRIVATE"))
                 .andExpect(jsonPath("$.data.vaultId").value(vaultId.toString())).andExpect(jsonPath("$.data.version").value(1));
         select(imageId, 1).andExpect(status().isOk()).andExpect(jsonPath("$.data.version").value(1));
-        works.getReferenceById(workId).updateInfo("개인 이미지", WorkGenre.SPORTS, "장르 변경");
+        transaction.executeWithoutResult(status -> works.getReferenceById(workId).updateInfo("개인 이미지", WorkGenre.SPORTS, "장르 변경"));
         mvc.perform(get("/api/v1/works/" + workId + "/world-settings/" + settingId).header("Authorization", token))
                 .andExpect(jsonPath("$.data.image.source").value("PRIVATE"))
                 .andExpect(jsonPath("$.data.image.privateImageId").value(imageId.toString()))
@@ -153,8 +177,9 @@ class PrivateWorldImageIntegrationTest {
                 .andExpect(jsonPath("$.data.version").value(1)).andExpect(jsonPath("$.data.image.privateImageId").value(imageId.toString()))
                 .andExpect(jsonPath("$.data.image.version").value(1));
         select(null, 1).andExpect(status().isOk()).andExpect(jsonPath("$.data.source").value("DEFAULT"));
+        UUID uploadedAttempt = attemptId();
         mvc.perform(delete(base + "/" + imageId).header("Authorization", token)).andExpect(status().isOk());
-        verify(storage).purgePrefixes(List.of(PrivateWorldImagePaths.prefix(workId, imageId)));
+        verify(storage).purgePrefixes(List.of(PrivateWorldImagePaths.prefix(workId, imageId, uploadedAttempt)));
         assertThat(images.findById(imageId)).isEmpty();
     }
 
@@ -186,4 +211,137 @@ class PrivateWorldImageIntegrationTest {
         mvc.perform(delete(base + "/" + imageId).header("Authorization", token)).andExpect(status().isOk());
     }
 
+    @Test
+    @DisplayName("저장소 읽기·쓰기·삭제는 DB 트랜잭션을 점유하지 않는다")
+    void storageCallsOutsideTransactions() throws Exception {
+        createVault().andExpect(status().isOk());
+        when(storage.putBytes(any(), any(), any())).thenAnswer(invocation -> {
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            // 업로드 예약은 이미 커밋됐지만 목록·선택에는 노출되지 않는다.
+            assertThat(images.findById(imageId).orElseThrow().getStatus().name()).isEqualTo("UPLOADING");
+            mvc.perform(get(base).header("Authorization", token)).andExpect(jsonPath("$.data.totalElements").value(0));
+            select(imageId, 0).andExpect(status().isNotFound());
+            return new org.monitoring.catchholebackend.global.storage.StoredObject(invocation.getArgument(0), null);
+        });
+        when(storage.getBytes(any())).thenAnswer(invocation -> {
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            return envelope;
+        });
+        when(storage.purgePrefixes(any())).thenAnswer(invocation -> {
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            assertThat(images.findById(imageId).orElseThrow().getStatus().name()).isEqualTo("DELETING");
+            return new ObjectStoragePurgeResult(2, 2, 0);
+        });
+        upload(token, envelope).andExpect(status().isOk());
+        mvc.perform(get(base + "/" + imageId + "/image").header("Authorization", token)).andExpect(status().isOk());
+        mvc.perform(delete(base + "/" + imageId).header("Authorization", token)).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("삭제 실패는 숨겨진 삭제 대기로 남고 재시도 후 정리된다")
+    void failedDeletionIsRecoverable() throws Exception {
+        createVault().andExpect(status().isOk()); upload(token, envelope).andExpect(status().isOk());
+        when(storage.purgePrefixes(any())).thenReturn(new ObjectStoragePurgeResult(2, 1, 1));
+        mvc.perform(delete(base + "/" + imageId).header("Authorization", token)).andExpect(status().isInternalServerError());
+        assertThat(images.findById(imageId).orElseThrow().getStatus().name()).isEqualTo("DELETING");
+        mvc.perform(get(base).header("Authorization", token)).andExpect(jsonPath("$.data.totalElements").value(0));
+        mvc.perform(get(base + "/" + imageId + "/image").header("Authorization", token)).andExpect(status().isNotFound());
+        select(imageId, 0).andExpect(status().isNotFound());
+        when(storage.purgePrefixes(any())).thenReturn(new ObjectStoragePurgeResult(0, 0, 0));
+        service.retryPendingCleanup();
+        assertThat(images.findById(imageId)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("지연된 실패 업로드 정리는 같은 ID로 재시도한 파일과 행을 지우지 않는다")
+    void lateCleanupCannotDeleteRetriedUpload() throws Exception {
+        createVault().andExpect(status().isOk());
+        var files = new java.util.concurrent.ConcurrentHashMap<String, byte[]>();
+        var fail = new java.util.concurrent.atomic.AtomicBoolean(true);
+        when(storage.putBytes(any(), any(), any())).thenAnswer(invocation -> {
+            String key = invocation.getArgument(0);
+            if (key.endsWith("thumbnail.enc") && fail.getAndSet(false)) throw new IllegalStateException("저장소 장애 재현");
+            files.put(key, invocation.getArgument(1));
+            return new org.monitoring.catchholebackend.global.storage.StoredObject(key, null);
+        });
+        when(storage.purgePrefixes(any())).thenReturn(new ObjectStoragePurgeResult(1, 0, 1));
+        upload(token, envelope).andExpect(status().isInternalServerError());
+        UUID oldAttempt = attemptId();
+        var started = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var delayFirst = new java.util.concurrent.atomic.AtomicBoolean(true);
+        when(storage.purgePrefixes(any())).thenAnswer(invocation -> {
+            if (delayFirst.getAndSet(false)) {
+                started.countDown();
+                assertThat(release.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            }
+            List<String> prefixes = invocation.getArgument(0);
+            files.keySet().removeIf(key -> prefixes.stream().anyMatch(key::startsWith));
+            return new ObjectStoragePurgeResult(1, 1, 0);
+        });
+        try (var executor = java.util.concurrent.Executors.newSingleThreadExecutor()) {
+            var lateCleanup = executor.submit(service::retryPendingCleanup);
+            try {
+                assertThat(started.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                // 다른 정리 요청이 먼저 끝나면 같은 이미지 ID로 다시 업로드할 수 있다.
+                mvc.perform(delete(base + "/" + imageId).header("Authorization", token)).andExpect(status().isOk());
+                upload(token, envelope).andExpect(status().isOk());
+                UUID nextAttempt = attemptId();
+                assertThat(nextAttempt).isNotEqualTo(oldAttempt);
+                release.countDown();
+                lateCleanup.get(10, java.util.concurrent.TimeUnit.SECONDS);
+                assertThat(attemptId()).isEqualTo(nextAttempt);
+                assertThat(files).containsOnlyKeys(PrivateWorldImagePaths.key(workId, imageId, nextAttempt, false),
+                        PrivateWorldImagePaths.key(workId, imageId, nextAttempt, true));
+            } finally { release.countDown(); }
+        }
+    }
+
+    @Test
+    @DisplayName("잘못된 페이지와 이미지 선택 조합은 입력 오류로 응답한다")
+    void invalidRequestsReturnClientErrors() throws Exception {
+        for (String value : List.of("0", "51")) {
+            mvc.perform(get(base).header("Authorization", token).param("size", value)).andExpect(status().isBadRequest());
+        }
+        mvc.perform(get(base).header("Authorization", token).param("page", "-1")).andExpect(status().isBadRequest());
+        mvc.perform(patch("/api/v1/works/" + workId + "/world-settings/" + settingId + "/image")
+                .header("Authorization", token).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"useAutomatic\":true,\"catalogId\":\"race-goblin\",\"version\":0}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("WORLD_IMAGE_SELECTION_CONFLICT"));
+    }
+    @Test
+    @DisplayName("V65 이전 개인 이미지는 기존 저장소 경로로 계속 조회한다")
+    void legacyImageKeepsItsStoragePath() throws Exception {
+        createVault().andExpect(status().isOk());
+        transaction.executeWithoutResult(status -> images.saveAndFlush(
+                org.monitoring.catchholebackend.domain.worldimage.entity.PrivateWorldImage.create(imageId,
+                        works.getReferenceById(workId), vaults.getReferenceById(vaultId), encoded(), envelope.length, envelope.length)));
+        assertThat(attemptId()).isNull();
+        when(storage.getBytes(PrivateWorldImagePaths.key(workId, imageId, false))).thenReturn(envelope);
+        mvc.perform(get(base + "/" + imageId + "/image").header("Authorization", token))
+                .andExpect(status().isOk()).andExpect(content().bytes(envelope));
+    }
+
+    @Test
+    @DisplayName("작품 전체 파기는 진행 중인 이미지 업로드가 마무리된 뒤에만 시작한다")
+    void workPurgeWaitsForImageWriter() throws Exception {
+        createVault().andExpect(status().isOk());
+        var request = transaction.execute(status -> {
+            var image = org.monitoring.catchholebackend.domain.worldimage.entity.PrivateWorldImage.create(imageId,
+                    works.getReferenceById(workId), vaults.getReferenceById(vaultId), encoded(), envelope.length, envelope.length);
+            image.reserveUpload(UUID.randomUUID());
+            images.saveAndFlush(image);
+            return purges.saveAndFlush(org.monitoring.catchholebackend.domain.work.entity.WorkPurgeRequest.request(ownerId, workId, null));
+        });
+        transaction.executeWithoutResult(status -> {
+            assertThat(purges.findReadyForUpdate(org.monitoring.catchholebackend.domain.work.type.WorkPurgeStatus.REQUESTED,
+                    java.time.LocalDateTime.now(), org.springframework.data.domain.PageRequest.of(0, 100)))
+                    .extracting(org.monitoring.catchholebackend.domain.work.entity.WorkPurgeRequest::getId).doesNotContain(request.getId());
+            images.findById(imageId).orElseThrow().completeUpload();
+            images.flush();
+            assertThat(purges.findReadyForUpdate(org.monitoring.catchholebackend.domain.work.type.WorkPurgeStatus.REQUESTED,
+                    java.time.LocalDateTime.now(), org.springframework.data.domain.PageRequest.of(0, 100)))
+                    .extracting(org.monitoring.catchholebackend.domain.work.entity.WorkPurgeRequest::getId).contains(request.getId());
+        });
+    }
 }

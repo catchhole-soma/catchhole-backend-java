@@ -43,8 +43,8 @@ V59는 아래 테이블과 개인 이미지 선택 FK를 추가한다. 기존 V5
 
 | 메서드/경로 | 동작 |
 | --- | --- |
-| `GET /api/v1/private-image-vault` | 현재 회원의 보관함 `{id,keyCheck}` 또는 null |
-| `POST /api/v1/private-image-vault` | `{id,keyCheck}` 생성. 동일 요청 재전송은 허용, 기존 키 체크 교체는 409 |
+| `GET /api/v1/private-image-vaults` | 현재 회원의 보관함 `{id,keyCheck}` 또는 null |
+| `POST /api/v1/private-image-vaults` | `{id,keyCheck}` 생성. 동일 요청 재전송은 허용, 기존 키 체크 교체는 409 |
 | `GET /api/v1/works/{workId}/private-world-images` | 본인 작품 목록. page 0부터, size 기본 18/최대 50 |
 | `POST /api/v1/works/{workId}/private-world-images` | multipart: metadata JSON `{id,vaultId,encryptedMetadata}`, image·thumbnail 암호문 |
 | `GET .../{imageId}/image`, `/thumbnail` | 소유권 확인 후 암호문. octet-stream, `Cache-Control: no-store, private`, nosniff |
@@ -69,3 +69,12 @@ V59는 아래 테이블과 개인 이미지 선택 FK를 추가한다. 기존 V5
 ## 캐릭터와 함께 사용
 
 같은 작품의 캐릭터 이미지 선택에서도 이 보관함·업로드·조회 API와 CHI1 계약을 재사용한다. 서버 경로/저장 키는 호환성을 위해 유지한다. 개인 이미지 삭제는 세계관과 캐릭터 선택을 모두 확인한다. 자세한 선택 우선순위와 V60은 [캐릭터 이미지](character-images.md)를 참고한다.
+
+## V65 저장소 작업과 장애 복구
+
+- 예약·완료 확정·삭제 요청만 짧은 DB 트랜잭션에서 처리하며 저장소 입출력은 트랜잭션 밖에서 실행한다.
+- 개인 이미지는 `UPLOADING → READY → DELETING` 상태를 가진다. 목록·조회·새 선택은 `READY`만 허용하고 업로드 중 예약도 작품당 50개 제한에 포함한다.
+- 업로드마다 서버가 발급한 `storage_attempt_id`의 독립 경로를 사용한다. 이전 요청의 늦은 정리는 다음 시도의 파일이나 DB 행을 지우지 않는다. V65 이전 행은 `READY`·기존 경로로 유지한다.
+- 삭제 요청을 먼저 커밋하므로 저장소 삭제나 마지막 DB 삭제가 실패해도 삭제 대기 상태가 남는다. 10초마다 최대 20건을 재시도하고, 중단된 업로드는 1시간 뒤 정리 대상으로 전환한다. 같은 ID의 재업로드는 정리가 끝난 뒤에 가능하다.
+- 작품 전체 파기는 진행 중인 개인 이미지 업로드가 끝나거나 회수될 때까지 기다린다. 작품이 파기 상태에 들어가면 신규 업로드 예약·완료 확정은 거절한다.
+- `world-image.cleanup.scheduling-enabled`와 `fixed-delay-ms`의 공통 기본값은 true·10000이다. 테스트 프로파일에서는 스케줄러를 끄고 명시적으로 호출한다.

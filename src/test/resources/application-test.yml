@@ -31,3 +31,7 @@ member:
 episode:
   source-purge:
     scheduling-enabled: false
+
+world-image:
+  cleanup:
+    scheduling-enabled: false

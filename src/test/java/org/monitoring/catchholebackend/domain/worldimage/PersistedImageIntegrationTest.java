@@ -49,7 +49,7 @@ class PersistedImageIntegrationTest {
         token = "Bearer " + jwt.generateAccessToken(owner);
         base = "/api/v1/works/" + work.getId() + "/world-settings";
         for (String[] row : new String[][]{{"forest", "숲"}, {"cave", "동굴"}}) {
-            jdbc.update("INSERT INTO world_image_catalog(id,category,name,search_text,is_default,active,thumbnail_sha,image_sha) VALUES (?,'LOCATION',?,?,false,true,?,?)",row[0],row[1],row[1],"a".repeat(64),"b".repeat(64));
+            jdbc.update("INSERT INTO world_image_catalog(id,category,name,search_text,is_default,active,thumbnail_sha,image_sha,created_at,updated_at) VALUES (?,'LOCATION',?,?,false,true,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",row[0],row[1],row[1],"a".repeat(64),"b".repeat(64));
             jdbc.update("INSERT INTO world_image_recommendations(catalog_id,theme) VALUES (?,'fantasy')", row[0]);
         }
     }
@@ -121,7 +121,7 @@ class PersistedImageIntegrationTest {
 
     @Test @DisplayName("운영자는 기존 캐릭터의 미처리·이전 자동 상태만 보정하고 재실행해도 직접 선택을 유지한다")
     void adminBackfillsLegacyCharacters() throws Exception {
-        jdbc.update("INSERT INTO world_image_catalog(id,category,name,search_text,is_default,active,thumbnail_sha,image_sha) VALUES ('elf','RACE','엘프','엘프',false,true,?,?)", "a".repeat(64), "b".repeat(64));
+        jdbc.update("INSERT INTO world_image_catalog(id,category,name,search_text,is_default,active,thumbnail_sha,image_sha,created_at,updated_at) VALUES ('elf','RACE','엘프','엘프',false,true,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)", "a".repeat(64), "b".repeat(64));
         var elf = characters.saveAndFlush(WorkCharacter.create(work, "엘프 검사", null, null, null, null, null, null, null, null, null));
         var profile = JsonNodeFactory.instance.objectNode().put("profile.species", "엘프");
         elf.replaceCurrentSnapshots(null, null, profile, null, null, null, null);

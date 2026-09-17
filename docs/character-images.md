@@ -30,7 +30,7 @@
 
 ## 개인 이미지·삭제·마이그레이션
 
-기존 `/private-image-vault`, `/works/{workId}/private-world-images` API와 CHI1 암호화 계약을 그대로 사용한다. 같은 작품의 세계관·캐릭터에서 동일 이미지를 선택할 수 있다. 삭제는 두 선택 테이블을 모두 검사하며 보관된 캐릭터의 선택도 사용 중으로 취급한다. 캐릭터 보관·복구는 선택을 유지한다. 작품 영구 삭제 시 캐릭터 FK cascade로 선택을 정리하고 기존 개인 이미지 purge 경로를 따른다.
+기존 `/private-image-vaults`, `/works/{workId}/private-world-images` API와 CHI1 암호화 계약을 그대로 사용한다. 같은 작품의 세계관·캐릭터에서 동일 이미지를 선택할 수 있다. 삭제는 두 선택 테이블을 모두 검사하며 보관된 캐릭터의 선택도 사용 중으로 취급한다. 캐릭터 보관·복구는 선택을 유지한다. 작품 영구 삭제 시 캐릭터 FK cascade로 선택을 정리하고 기존 개인 이미지 purge 경로를 따른다.
 
 V60은 `character_images`만 추가한다. 적용된 V57~V59를 수정하지 않는다. Python Worker와 LLM 추출·비교 프롬프트는 변경하지 않는다.
 

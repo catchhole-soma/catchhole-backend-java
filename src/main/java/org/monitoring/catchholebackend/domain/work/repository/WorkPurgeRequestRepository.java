@@ -50,6 +50,9 @@ public interface WorkPurgeRequestRepository extends JpaRepository<WorkPurgeReque
             from WorkPurgeRequest request
             where request.status = :status
               and (request.workerDrainUntil is null or request.workerDrainUntil <= :now)
+              and not exists (select image.id from PrivateWorldImage image
+                  where image.work.id = request.workId
+                    and image.status = org.monitoring.catchholebackend.domain.worldimage.type.PrivateWorldImageStatus.UPLOADING)
             order by request.requestedAt asc
             """)
     List<WorkPurgeRequest> findReadyForUpdate(

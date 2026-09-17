@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.worldimage.entity;
 
+import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
@@ -21,7 +22,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCate
 @Entity
 @Table(name = "world_image_catalog")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class WorldImageCatalog {
+public class WorldImageCatalog extends BaseEntity {
     @Id
     @Column(length = 100)
     private String id;

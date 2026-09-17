@@ -64,7 +64,7 @@ class CharacterImageIntegrationTest {
         jdbc.update("INSERT INTO world_image_aliases(catalog_id,alias) VALUES ('race-elf','엘프족')");
     }
     void seed(String id, String category, String name) {
-        jdbc.update("INSERT INTO world_image_catalog(id,category,name,search_text,is_default,active,thumbnail_sha,image_sha) VALUES (?,?,?,?,false,true,?,?)",
+        jdbc.update("INSERT INTO world_image_catalog(id,category,name,search_text,is_default,active,thumbnail_sha,image_sha,created_at,updated_at) VALUES (?,?,?,?,false,true,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
                 id, category, name, name, "a".repeat(64), "b".repeat(64));
     }
     void species(String value) {

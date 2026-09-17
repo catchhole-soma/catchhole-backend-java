@@ -15,5 +15,6 @@ public interface PrivateWorldImageService {
     PrivateWorldImageResponse upload(Long memberId, UUID workId, PrivateWorldImageUploadRequest request,
             MultipartFile image, MultipartFile thumbnail);
     byte[] getCiphertext(Long memberId, UUID workId, UUID imageId, boolean thumbnail);
+    void retryPendingCleanup();
     void delete(Long memberId, UUID workId, UUID imageId);
 }

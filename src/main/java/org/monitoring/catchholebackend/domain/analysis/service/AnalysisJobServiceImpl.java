@@ -95,6 +95,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 && request.jobType() != AnalysisJobType.SETTING_EXTRACTION) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_RUN_MODE_INVALID);
         }
+        analysisGuideService.markAnalysisStarted(memberId);
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         UploadBatch batch = getBatchInWork(request.batchId(), work);
         boolean multiEpisodeUpload = request.episodeId() == null
@@ -147,7 +148,6 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         } else {
             analysisJobRepository.saveAll(analysisJobs);
         }
-        analysisGuideService.markAnalysisStarted(memberId);
         return analysisJobs.stream()
                 .map(savedJob -> analysisJobMapper.toResponse(
                         savedJob,

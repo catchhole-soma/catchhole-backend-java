@@ -1,5 +1,10 @@
 package org.monitoring.catchholebackend.domain.worldimage.entity;
 
+import org.monitoring.catchholebackend.domain.worldimage.exception.WorldImageErrorCode;
+import org.monitoring.catchholebackend.global.exception.AppException;
+import org.monitoring.catchholebackend.domain.worldimage.type.PrivateWorldImageStatus;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -33,6 +38,25 @@ public class PrivateWorldImage extends BaseEntity {
     @Column(name = "image_bytes", nullable = false) private long imageBytes;
     @Column(name = "thumbnail_bytes", nullable = false) private long thumbnailBytes;
     @Version private Long version;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private PrivateWorldImageStatus status = PrivateWorldImageStatus.READY;
+    @Column(name = "storage_attempt_id")
+    private UUID storageAttemptId;
+
+    public void reserveUpload(UUID attemptId) {
+        storageAttemptId = attemptId;
+        status = PrivateWorldImageStatus.UPLOADING;
+    }
+    public void completeUpload() {
+        if (status != PrivateWorldImageStatus.UPLOADING) {
+            throw new AppException(
+                    WorldImageErrorCode.PRIVATE_IMAGE_CONFLICT);
+        }
+        status = PrivateWorldImageStatus.READY;
+    }
+    public void requestDeletion() { status = PrivateWorldImageStatus.DELETING; }
+
 
     public static PrivateWorldImage create(UUID id, Work work, PrivateImageVault vault,
             String encryptedMetadata, long imageBytes, long thumbnailBytes) {
