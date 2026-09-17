@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.character.mapper;
 
+import org.monitoring.catchholebackend.domain.worldimage.dto.response.WorldSettingImageResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.List;
@@ -37,6 +38,10 @@ public class CharacterMapper {
     private final CharacterFactSourceResolver characterFactSourceResolver;
 
     public CharacterSummaryResponse toSummaryResponse(WorkCharacter character, Integer firstAppearanceEpisodeNo) {
+        return toSummaryResponse(character, firstAppearanceEpisodeNo, null);
+    }
+
+    public CharacterSummaryResponse toSummaryResponse(WorkCharacter character, Integer firstAppearanceEpisodeNo, WorldSettingImageResponse image) {
         Integer currentLevel = character.getCurrentLevel();
         return new CharacterSummaryResponse(
                 character.getId(),
@@ -44,7 +49,7 @@ public class CharacterMapper {
                 character.getCurrentAge(),
                 currentLevel == null ? null : "레벨",
                 currentLevel == null ? null : currentLevel.toString(),
-                firstAppearanceEpisodeNo
+                firstAppearanceEpisodeNo, image
         );
     }
 
@@ -52,13 +57,18 @@ public class CharacterMapper {
             List<WorkCharacter> characters,
             Map<UUID, Integer> firstAppearanceEpisodeNosById
     ) {
+        return toSummaryResponseList(characters, firstAppearanceEpisodeNosById, Map.of());
+    }
+
+    public List<CharacterSummaryResponse> toSummaryResponseList(List<WorkCharacter> characters,
+            Map<UUID, Integer> firstAppearanceEpisodeNosById, Map<UUID, WorldSettingImageResponse> images) {
         return characters.stream()
                 .map(character -> {
                     UUID firstAppearanceEpisodeId = character.getFirstAppearanceEpisodeId();
                     Integer firstAppearanceEpisodeNo = firstAppearanceEpisodeId == null
                             ? null
                             : firstAppearanceEpisodeNosById.get(firstAppearanceEpisodeId);
-                    return toSummaryResponse(character, firstAppearanceEpisodeNo);
+                    return toSummaryResponse(character, firstAppearanceEpisodeNo, images.get(character.getId()));
                 })
                 .toList();
     }
@@ -70,6 +80,13 @@ public class CharacterMapper {
             Map<CharacterSnapshotSlot, List<CharacterFact>> sourceFactsBySlot,
             List<CharacterSettingSchema> schemas
     ) {
+        return toDetailResponse(character, firstAppearanceEpisode, snapshotEntries, sourceFactsBySlot, schemas, null);
+    }
+
+    public CharacterDetailResponse toDetailResponse(WorkCharacter character, Episode firstAppearanceEpisode,
+            Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshotEntries,
+            Map<CharacterSnapshotSlot, List<CharacterFact>> sourceFactsBySlot, List<CharacterSettingSchema> schemas,
+            WorldSettingImageResponse image) {
         CharacterSnapshotSlot ageSlot = new CharacterSnapshotSlot(CharacterFactType.AGE, "age");
         CharacterSnapshotSlot levelSlot = new CharacterSnapshotSlot(CharacterFactType.LEVEL, "level");
         List<CharacterFactReferenceResponse> currentAgeSourceFacts = toFactReferenceResponses(
@@ -97,7 +114,7 @@ public class CharacterMapper {
                 toSettingResponses(snapshotEntries, sourceFactsBySlot, schemas, CharacterFactType.STAT),
                 toSettingResponses(snapshotEntries, sourceFactsBySlot, schemas, CharacterFactType.SKILL),
                 toSettingResponses(snapshotEntries, sourceFactsBySlot, schemas, CharacterFactType.ITEM),
-                toSettingResponses(snapshotEntries, sourceFactsBySlot, schemas, CharacterFactType.STATUS)
+                toSettingResponses(snapshotEntries, sourceFactsBySlot, schemas, CharacterFactType.STATUS), image
         );
     }
 

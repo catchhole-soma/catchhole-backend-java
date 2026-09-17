@@ -68,6 +68,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AnalysisJobServiceImpl implements AnalysisJobService {
 
     private final AnalysisRunStateService analysisRunStateService;
+    private final AnalysisGuideService analysisGuideService;
 
     private final AnalysisJobRepository analysisJobRepository;
     private final WorkRepository workRepository;
@@ -94,6 +95,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 && request.jobType() != AnalysisJobType.SETTING_EXTRACTION) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_RUN_MODE_INVALID);
         }
+        analysisGuideService.markAnalysisStarted(memberId);
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         UploadBatch batch = getBatchInWork(request.batchId(), work);
         boolean multiEpisodeUpload = request.episodeId() == null

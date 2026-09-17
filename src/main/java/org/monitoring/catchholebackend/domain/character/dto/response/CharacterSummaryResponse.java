@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.character.dto.response;
 
+import org.monitoring.catchholebackend.domain.worldimage.dto.response.WorldSettingImageResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.UUID;
 
@@ -21,6 +22,9 @@ public record CharacterSummaryResponse(
         String representativeAttributeValue,
 
         @Schema(description = "첫 등장 회차 번호", example = "1", nullable = true)
-        Integer firstAppearanceEpisodeNo
+        Integer firstAppearanceEpisodeNo,
+
+        @Schema(description = "대표 이미지와 독립 선택 버전")
+        WorldSettingImageResponse image
 ) {
 }

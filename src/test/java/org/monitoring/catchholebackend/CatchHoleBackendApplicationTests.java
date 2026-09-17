@@ -143,6 +143,24 @@ class CatchHoleBackendApplicationTests {
     private CharacterSnapshotSourceRepository characterSnapshotSourceRepository;
 
     @MockitoBean
+    private org.monitoring.catchholebackend.domain.worldimage.repository.WorldImageThemeAssetRepository worldImageThemeAssetRepository;
+
+    @MockitoBean
+    private org.monitoring.catchholebackend.domain.worldimage.repository.WorldImageCatalogRepository worldImageCatalogRepository;
+
+    @MockitoBean
+    private org.monitoring.catchholebackend.domain.worldimage.repository.WorldSettingImageRepository worldSettingImageRepository;
+
+    @MockitoBean
+    private org.monitoring.catchholebackend.domain.worldimage.repository.CharacterImageRepository characterImageRepository;
+
+    @MockitoBean
+    private org.monitoring.catchholebackend.domain.worldimage.repository.PrivateImageVaultRepository privateImageVaultRepository;
+
+    @MockitoBean
+    private org.monitoring.catchholebackend.domain.worldimage.repository.PrivateWorldImageRepository privateWorldImageRepository;
+
+    @MockitoBean
     private WorldSettingRepository worldSettingRepository;
 
     @MockitoBean
@@ -162,6 +180,9 @@ class CatchHoleBackendApplicationTests {
 
     @MockitoBean
     private JpaMetamodelMappingContext jpaMetamodelMappingContext;
+
+    @MockitoBean
+    private org.monitoring.catchholebackend.domain.worldimage.service.WorldImageBackfillService worldImageBackfillService;
 
     @Test
     @DisplayName("Spring ApplicationContext를 로드한다")

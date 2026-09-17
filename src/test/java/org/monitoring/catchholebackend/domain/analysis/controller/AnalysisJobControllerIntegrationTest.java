@@ -225,6 +225,7 @@ class AnalysisJobControllerIntegrationTest {
                 .andExpect(jsonPath("$.data[1].episodeId").value(secondEpisode.getId().toString()));
 
         assertThat(analysisJobRepository.count()).isEqualTo(2);
+        assertThat(memberRepository.findById(member.getId()).orElseThrow().getFirstAnalysisStartedAt()).isNotNull();
     }
 
     @ParameterizedTest

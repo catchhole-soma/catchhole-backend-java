@@ -54,6 +54,14 @@ public class Member extends BaseEntity {
     @Column(name = "feedback_prompt_shown_at")
     private LocalDateTime feedbackPromptShownAt;
 
+    // 분석 방식 안내는 작품·기기에 관계없이 계정당 한 번만 자동 표시한다.
+    @Column(name = "analysis_guide_shown_at")
+    private LocalDateTime analysisGuideShownAt;
+
+    // 분석/작품을 삭제하더라도 첫 사용자 안내가 다시 나타나지 않도록 보존한다.
+    @Column(name = "first_analysis_started_at")
+    private LocalDateTime firstAnalysisStartedAt;
+
     //화면에서 보이는 닉네임
     @Column(name = "display_name", nullable = false, length = 50)
     private String displayName;
@@ -126,6 +134,14 @@ public class Member extends BaseEntity {
         if (!isActive()) {
             throw new AppException(MemberErrorCode.MEMBER_INACTIVE);
         }
+    }
+
+    public void markAnalysisGuideShown(LocalDateTime shownAt) {
+        if (analysisGuideShownAt == null) analysisGuideShownAt = shownAt;
+    }
+
+    public void markFirstAnalysisStarted(LocalDateTime startedAt) {
+        if (firstAnalysisStartedAt == null) firstAnalysisStartedAt = startedAt;
     }
 
     public static Member registerEmailVerified(

@@ -519,3 +519,27 @@ Flyway 도입 전에 JPA가 만든 운영 테스트 DB에는 `flyway_schema_hist
 - 자격 조회는 `LIMIT 3`으로 제한한 하위 쿼리의 결과만 COUNT해 세 번째 유효 회차의 존재를 판단합니다. PostgreSQL과 H2에서 같은 트랜잭션 내 변경도 읽으면서 최대 3행만 집계합니다. 정렬이나 엔티티 로딩은 필요하지 않습니다.
 - SQL의 `ACTIVE` / `ARCHIVED` 리터럴 조건을 부분 인덱스 조건과 동일하게 유지합니다. 자격 정책을 바꾸면 쿼리와 인덱스를 함께 검토합니다.
 - V55는 수정하지 않습니다. `FeedbackPromptMigrationIntegrationTest`는 격리된 PostgreSQL에 전체 migration과 JPA validate를 수행하고 2,000개 작품·100,000개 회차에서 두 인덱스 사용과 조인의 3행 반환을 확인합니다.
+
+## V57·V58 세계관 대표 이미지 도감
+
+V57은 도감/별칭/대상 선택 테이블을 추가하고 V58은 승인된 공용 이미지 340종을 등록한다. 기존 세계관 데이터는 갱신하지 않는다. API가 참조할 자산 680개를 해당 환경의 S3에 먼저 업로드·해시 검증한 후 적용한다. 로컬 PostgreSQL 적용과 Hibernate validate를 확인했으며 운영 반영은 배포 시 진행한다. [자산과 배포 순서](world-image-catalog.md)를 따른다.
+
+
+## GH194 이미지 migration 번호 충돌 정리 (2026-09-16)
+
+main의 PR #197이 피드백 V55/V56을 먼저 확정했다. 미배포 GH194 여섯 파일만 V57 도감 테이블, V58 seed, V59 개인 이미지, V60 캐릭터 선택, V61 테마 테이블, V62 테마 seed로 옮겼다. main의 SQL과 이미지 SQL 내용은 모두 바이트 단위로 유지한다. 빌더 출력 경로·문서·API 생성물도 최종 번호와 통합 서버에 맞췄다.
+
+- 빈 PostgreSQL V1~V62 적용과 Hibernate validate/health UP을 확인했다.
+- 기존 GH194 로컬 DB 전체를 백업한 후 별도 복제 DB에서 적용 이력의 파일명/버전 전환을 검증했다. 원 SQL checksum을 먼저 대조했고 business 테이블을 다시 생성하거나 seed를 재실행하지 않았다.
+- 복제 DB와 실제 로컬 DB 모두 새 피드백 V55/V56을 1회 out-of-order 적용한 뒤 옵션 없는 정상 Flyway 기동을 재확인했다. 작품·설정·공용/개인 이미지 테이블의 행 수와 내용 해시는 전환 전후 동일하며 테스트 작품 9개/설정 63개가 유지된다.
+- 이 이력 전환은 구번호가 이미 적용된 개발용 GH194 DB에만 수행했다. main을 사용하는 환경은 정상 순서로 V57~V62를 적용하며 이력 수정이나 repair가 필요하지 않다.
+- 통합 후 `./gradlew test bootJar`는 총 1,183개 중 1,117 통과·조건부 66 건너뜀·실패 0이다. 실제 Java/PostgreSQL 연결로 장르 테마와 캐릭터·개인 이미지 E2E도 각각 통과했다.
+
+## V63 확정 시 이미지 결과 저장
+
+기존 V1~V62를 수정하지 않고 이미지 선택 CHECK 제약에 AUTO 저장을 허용한다. 이전 세계관의 null source 선택 해제 행은 DEFAULT로 옮겨 사용자 기본 선택을 보존한다. 기존 대상 이미지 매칭을 기동 중 실행하지 않으며 [운영자 보정](automatic-subject-images.md)을 별도 실행한다.
+
+
+## V64 첫 분석 안내
+
+`members.analysis_guide_shown_at`과 `first_analysis_started_at` nullable timestamp를 추가한다. 남아 있는 계정 전체 Job의 최초 생성 시각을 집계해 기존 분석 계정의 최초 시각을 채운다. 이후 분석 Job 생성과 최초 시각 기록은 같은 트랜잭션이다. 안내 선점·작품 삭제 이후의 이력 유지·과거에 이미 파기된 이력의 한계는 [첫 분석 안내](analysis-mode-guide.md)를 따른다. 작품·원고·설정 및 이미지 매칭 보정은 변경하지 않는다. 기존 migration 수정 없이 Java 시작 시 V64를 적용한 후 Front를 배포한다.

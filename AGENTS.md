@@ -175,6 +175,16 @@ org.monitoring.catchholebackend
 │   │   ├── repository
 │   │   ├── service
 │   │   └── type
+│   ├── worldimage
+│   │   ├── controller
+│   │   ├── dto (request / response)
+│   │   ├── entity
+│   │   ├── exception
+│   │   ├── mapper
+│   │   ├── processor
+│   │   ├── repository
+│   │   ├── service
+│   │   └── type
 │   └── work
 │       ├── controller
 │       ├── dto
@@ -351,6 +361,7 @@ domain/<domain>
 #### Analysis Domain Policy
 
 - AnalysisJob은 작품에 속한 단일 회차 AI 분석 작업의 상태와 결과 메타데이터를 추적한다. `UploadBatch`는 업로드 출처 묶음이며 분석 실행 단위가 아니다.
+- 첫 분석 안내는 계정 전체 기준으로 V64의 `analysis_guide_shown_at`과 `first_analysis_started_at`을 사용한다. 조회는 비소비, 노출 선점은 회원 잠금 아래 한 번만 성공하며 Job 생성과 최초 분석 시각을 같은 트랜잭션에 저장한다. 작품 삭제 후에도 경험 기록을 유지한다. 예시 확정은 실제 분석·설정 변경을 호출하지 않는다. 상세 API·이관 범위는 `docs/analysis-mode-guide.md`를 따른다.
 - 원문 텍스트는 `Episode`의 S3 저장 구조를 재사용한다. `analysis_jobs`에는 작업 메타데이터와 누적 모드의 고정 S0·검증 변경 기록을 저장하며 원문 전문이나 raw LLM 응답을 중복 저장하지 않는다.
 - 분석 실패 처리 이력은 `analysis_jobs.error_message`에 누적하지 않고, 후속 모니터링 기능에서 별도 기록/조회한다.
 - 화면은 업로드 묶음에 생성된 회차별 `AnalysisJob.status`를 집계하고, 각 Job의 단일 대상 `Episode.status`를 단계별 상태로 보여준다.
@@ -745,3 +756,18 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 이메일·휴대폰 인증의 TTL, Lua rate limit 경계, 이전 코드 폐기, 오입력 잠금과 동시 토큰 소비는 `redis:7.4.10-alpine3.21` Testcontainers 통합 테스트로 검증한다.
 
 - 그룹 검토 응답의 `analysisMode`는 원 후보 Job의 정책이다. `CONFIRMED_ONLY`는 그룹 공통 비교 revision을 확인하고, `ORDERED_PROVISIONAL`은 회차별 고정 문맥·실제 상태·의존성을 검증한다. 자동 보류 후보의 명시적 사용자 수정 확정과 그룹 멱등 결정 hash의 `applyEditedValue`를 함께 보존한다.
+
+### World Image Catalog (GH194)
+
+- 공용 도감·별칭·대상 선택은 `worldimage` 도메인과 `world_image_catalog`, `world_image_aliases`, `world_setting_images`에서 관리한다. 상세 계약·자산 배포 순서는 `docs/world-image-catalog.md`를 따른다.
+- 이미지 제작·업로드·기존 데이터 보정 도구는 `scripts/world-images/`, 생성된 SHA manifest는 그 아래 `manifests/`에 둔다. Java는 manifest를 읽지 않고 DB에 등록된 도감과 테마를 조회하므로 제작 자료를 `src/main/resources`나 배포 JAR에 포함하지 않는다. 서버 기동에 필요한 Flyway SQL은 기존 `src/main/resources/db/migration`에 유지한다.
+- 대표 이미지 선택은 설정 내용/설정 version/분석 상태와 독립적이다. 대상 잠금과 별도 이미지 version으로 충돌을 막고, 대상 분류 변경은 맞지 않는 공용 이미지 선택을 해제한다. 사용자가 고른 개인 이미지는 분류 변경에도 유지한다.
+- 공용 이미지 경로는 활성 도감 또는 테마 슬롯에 등록된 SHA만 허용한다. S3 임의 key를 클라이언트에서 받거나 기존 원고 저장소를 공개하지 않는다. 선택·도감 검색 API는 인증/작품 소유권 경계를 유지한다.
+- V63 이후 캐릭터·세계관 자동 이미지는 확정/수정 트랜잭션에서 매칭해 선택 행에 저장한다. 조회에서 Matcher·종족 별칭 조회를 호출하지 않는다. 규칙·사용자 선택 우선·운영자 보정 절차는 `docs/automatic-subject-images.md`를 따른다. 캐릭터 이름/설명 추론과 LLM 프롬프트 변경은 하지 않으며 이미지 별칭을 대상 동일성 판단에 사용하지 않는다.
+- 개인 이미지의 V59 테이블·CHI1 프로토콜·보호 범위는 `docs/private-world-images.md`를 따른다. 복호화 키/평문 이미지/원본 파일명은 서버에 받거나 저장하지 않는다. 계정 보관함과 작품 소유권을 확인하고 개인 암호문을 공개 도감 경로에 등록하지 않는다. `works/{workId}/private-world-images/`는 작품 전체 버전 purge에 포함되며, 사용 중 이미지 삭제는 거절한다. 개인 선택과 업로드 예약·완료·삭제 요청의 DB 변경은 작품 잠금으로 직렬화한다. 저장소 입출력은 V65 상태 계약에 따라 잠금 밖에서 수행한다. 원고 암호화 변경은 보류다.
+
+- 캐릭터 이미지는 같은 `worldimage` 도메인의 V60 `character_images`에서 관리한다. 수동 도감·개인 이미지·공통 기본 선택은 자동 연결보다 우선하고 설정 snapshot/version/분석 상태와 독립적이다. 개인 이미지 삭제 시 세계관·캐릭터 참조를 모두 확인한다. 목록은 저장된 선택과 그 이미지만 일괄 조회한다.
+
+- 장르 이미지는 V61/V62의 `world_image_theme_assets`(초기/기본 슬롯)와 `world_image_recommendations`(도감 ID·테마 다대다)로 구성한다. 장르 매핑은 `WorldImageThemes` 한 곳에서 관리하며 로맨스·코미디·일상·기타는 modern-common이다. 미일치 기본값은 조회 시 해당 슬롯을 사용하고 수동·개인·기본 고정이 우선한다. 추천과 실제 대상 자동 매칭을 혼동하지 않고 LLM 추출을 변경하지 않는다. 적용된 migration은 수정하지 않는다.
+
+- GH194 V65 개인 이미지 저장소 입출력은 DB 트랜잭션 밖에서 수행하고 예약/완료/삭제 요청만 짧게 잠근다. `worldimage/type/PrivateWorldImageStatus`의 UPLOADING/READY/DELETING 상태로 조회·선택을 제한하며 시도별 저장소 경로로 지연 정리와 재업로드를 격리한다. 삭제 대기와 1시간 지난 업로드는 `worldimage/processor/PrivateWorldImageCleanupScheduler`가 최대 20건씩 회수한다. V66의 `cleanup_attempted_at`을 저장소 호출 전에 커밋하고 가장 오래 시도하지 않은 순서로 회수해 반복 실패가 후속 항목을 막지 않게 한다. `world-image.cleanup.scheduling-enabled=true`, `fixed-delay-ms=10000`은 공통 YAML, 테스트 비활성은 test YAML에 둔다. 작품 purge는 UPLOADING 예약이 남으면 기다려 늦은 파일 쓰기와 겹치지 않게 한다.

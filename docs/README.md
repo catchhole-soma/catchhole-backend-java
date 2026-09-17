@@ -29,6 +29,7 @@
 | [Character](character.md) | 캐릭터 설정 저장 모델, CharacterFact 검색·근거 상세 API, Schema Registry, JSONB 기준, AI 설정 후보 저장 구조 |
 | [World Comparison Recovery](world-comparison-recovery.md) | 기존 속성 선택, 순차 자동 분석의 제한된 묶음 복구, 실패 진단 및 다음 회차 전달 |
 | [World Setting](world-setting.md) | 세계관 확정본·후보 저장 모델, 2차 비교 경계, 속성 단위 확정·직접 수정과 충돌 정책 |
+| [World Image Catalog](world-image-catalog.md) | 공용 대표 이미지 도감·별칭·독립적인 이미지 선택과 S3 배포 |
 
 ## 추가 예정 설계 문서
 

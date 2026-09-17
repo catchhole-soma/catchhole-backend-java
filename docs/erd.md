@@ -8,6 +8,14 @@ DB 컬럼과 관계는 Flyway migration이 기준입니다. JPA Entity와 Python
 
 ```mermaid
 erDiagram
+    world_settings ||--o| world_setting_images : selects_image
+    world_image_catalog ||--o{ world_setting_images : represents
+    world_image_catalog ||--o{ world_image_aliases : has_aliases
+    world_image_catalog ||--o{ world_image_recommendations : recommended_for_themes
+    members ||--o| private_image_vaults : owns_key_check
+    private_image_vaults ||--o{ private_world_images : encrypts
+    works ||--o{ private_world_images : owns
+    private_world_images ||--o{ world_setting_images : represents_privately
     members ||--o{ refresh_tokens : issues
     members ||--o{ member_legal_records : acknowledges
     legal_documents ||--o{ member_legal_records : is_acknowledged_by
@@ -65,6 +73,8 @@ erDiagram
         boolean phone_verified
         datetime age_requirement_confirmed_at
         datetime feedback_prompt_shown_at
+        datetime analysis_guide_shown_at
+        datetime first_analysis_started_at
         varchar display_name
         varchar profile_image_url
         varchar status
@@ -744,3 +754,20 @@ erDiagram
 - `idx_works_active_member`: `works(member_id, id) WHERE lifecycle_status = 'ACTIVE'`
 - `idx_episodes_non_archived_work`: `episodes(work_id) WHERE status <> 'ARCHIVED'`
 - 안내 자격은 세 번째 유효 회차의 존재까지만 조회하며 전체 회차 수를 집계하지 않습니다.
+
+## 공용 이미지 도감 (V57·V58)
+
+`world_setting_images.world_setting_id`는 대상 FK 겸 PK이며 대상 삭제 시 cascade된다. 선택 도감 FK는 nullable이며 해제 후에도 version 행을 보존한다. `world_image_catalog`는 category별 기본 이미지가 최대 하나인 partial unique index를 가지며 `world_image_aliases`는 `(catalog_id, alias)` 복합 PK다. 상세 필드와 관계는 [대표 이미지 도감](world-image-catalog.md)을 따른다.
+
+V59의 `private_image_vaults`는 회원당 1개인 UUID 보관함으로 암호화된 키 확인값만 보관한다. `private_world_images`는 작품·보관함 FK, 암호화 메타데이터, 원본/썸네일 크기를 가진다. `world_setting_images.private_image_id`와 catalog_id는 동시에 값이 들어갈 수 없으며 개인 선택 출처는 `PRIVATE`다. 작품 삭제 시 개인 이미지 행도 cascade한다. [개인 이미지 상세 계약](private-world-images.md).
+
+V61/V62: `world_image_recommendations`는 `(catalog_id, theme)` PK로 공용 도감을 여러 테마에 추천한다. `world_image_theme_assets`는 `id` PK와 `(theme,purpose,slot)` unique로 초기/기본 그림을 별도 관리하며 사용자 선택 FK로 사용하지 않는다. 장르 기본은 조회 시 계산한다. 상세 필드는 [대표 이미지 도감](world-image-catalog.md)의 장르 테마 확장을 따른다.
+
+### V63 이미지 자동 결과
+
+`character_images`와 `world_setting_images`의 `selection_source=AUTO`는 확정 시 저장된 결과이며 미일치면 catalog_id=null이다. MANUAL/PRIVATE/DEFAULT는 사용자 선택이다. 새 테이블 없이 CHECK 제약을 확장하며 기존 데이터 매칭은 별도 운영자 배치를 사용한다.
+
+
+### V64 최초 분석 안내
+
+`members.analysis_guide_shown_at`은 계정당 1회 자동 안내 선점 시각, `first_analysis_started_at`은 최초 분석 Job 생성 시각이다. 둘 다 nullable이며 한 번 기록된 값은 작품 삭제·재분석으로 초기화하지 않는다. V64는 기존 Job의 최초 시각을 이관한다. 상세 계약은 [첫 분석 안내](analysis-mode-guide.md)를 참고한다.

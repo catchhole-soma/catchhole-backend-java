@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.worldsetting.service;
 
+import org.monitoring.catchholebackend.domain.worldimage.service.AutomaticImageService;
 import org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -73,6 +74,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
     private final UploadBatchRepository uploadBatchRepository;
     private final AnalysisJobRepository analysisJobRepository;
     private final WorldSettingRepository worldSettingRepository;
+    private final AutomaticImageService automaticImages;
     private final WorldSettingCandidateRepository worldSettingCandidateRepository;
     private final WorldSettingComparisonDecisionSourceRepository comparisonDecisionSourceRepository;
     private final WorldSettingMapper worldSettingMapper;
@@ -556,6 +558,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                 current.replaceConfirmedProperties(projected.get());
                 target = current;
             }
+            automaticImages.refreshWorldSettingImages(List.of(target));
             candidate.confirm(request.operation(), request.category(), request.subjectName(), request.scopeName(),
                     request.settingName(), request.value(), request.reviewNote(), work.getMember(), target);
             worldSettingCandidateRepository.flush();
@@ -582,6 +585,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                 worldSettingRepository.flush();
                 appliedTarget = currentTarget;
             }
+            automaticImages.refreshWorldSettingImages(List.of(appliedTarget));
             candidate.confirm(
                     request.operation(),
                     request.category(),
@@ -640,6 +644,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             appliedTarget = currentTarget;
         }
 
+        automaticImages.refreshWorldSettingImages(List.of(appliedTarget));
         candidate.confirm(
                 request.operation(),
                 request.category(),
@@ -940,6 +945,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             }
         }
         worldSettingCandidateRepository.flush();
+        automaticImages.refreshWorldSettingImages(appliedTargetsByCandidateId.values());
         WorldSetting responseTarget = singleAppliedTarget(appliedTargetsByCandidateId.values());
         return WorldSettingCandidateGroupConfirmResult.confirmed(
                 worldSettingMapper.toCandidateGroupActionResponse(

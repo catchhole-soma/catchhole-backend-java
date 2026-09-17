@@ -34,6 +34,11 @@ public final class SecurityConstant {
             "/api/v1/legal-documents/**"
     };
 
+    // 공용 도감 파일만 공개한다. 도감 검색과 작품의 이미지 변경은 인증을 유지한다.
+    public static final String[] PUBLIC_WORLD_IMAGE_URLS = {
+            "/api/v1/world-image-assets/*.webp"
+    };
+
     // Swagger UI 관련 공개 경로
     public static final String[] SWAGGER_URLS = {
             "/v3/api-docs/**",
@@ -49,13 +54,15 @@ public final class SecurityConstant {
 
     // ROLE_ADMIN 권한 필요 경로
     public static final String[] ADMIN_URLS = {
-            "/api/v1/admin/ai-token-extension-requests/**"
+            "/api/v1/admin/ai-token-extension-requests/**",
+            "/api/v1/admin/world-images/**"
     };
 
     // 모든 공개 URL 통합 (SecurityConfig에서 permitAll에 사용)
     public static final String[] PUBLIC_URLS = Stream.of(
                     PUBLIC_AUTH_URLS,
                     PUBLIC_LEGAL_DOCUMENT_URLS,
+                    PUBLIC_WORLD_IMAGE_URLS,
                     SWAGGER_URLS,
                     ACTUATOR_URLS
             )

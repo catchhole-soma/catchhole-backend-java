@@ -1,5 +1,7 @@
 package org.monitoring.catchholebackend.domain.character.service;
 
+import org.monitoring.catchholebackend.domain.worldimage.service.AutomaticImageService;
+import org.monitoring.catchholebackend.domain.worldimage.service.CharacterImageService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -79,8 +81,10 @@ public class CharacterServiceImpl implements CharacterService {
     private final CharacterSettingEditPolicyResolver characterSettingEditPolicyResolver;
     private final SettingCandidateSchemaResolver settingCandidateSchemaResolver;
     private final CharacterSnapshotAccessor characterSnapshotAccessor;
+    private final AutomaticImageService automaticImages;
     private final CharacterSnapshotSourceManager characterSnapshotSourceManager;
     private final CharacterMapper characterMapper;
+    private final CharacterImageService characterImageService;
     private final ObjectMapper objectMapper = new ObjectMapper()
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
@@ -127,7 +131,8 @@ public class CharacterServiceImpl implements CharacterService {
         );
         return PageResponse.from(
                 characters,
-                characterMapper.toSummaryResponseList(characters.getContent(), firstAppearanceEpisodeNosById)
+                characterMapper.toSummaryResponseList(characters.getContent(), firstAppearanceEpisodeNosById,
+                        characterImageService.getCharacterImages(characters.getContent()))
         );
     }
 
@@ -178,6 +183,7 @@ public class CharacterServiceImpl implements CharacterService {
         );
 
         applyManualCorrections(character, snapshotEntries, desiredFacts);
+        automaticImages.refreshCharacterImages(List.of(character));
         return toDetailResponse(character, firstAppearanceEpisode, schemas);
     }
 
@@ -295,7 +301,8 @@ public class CharacterServiceImpl implements CharacterService {
                 firstAppearanceEpisode,
                 characterSnapshotAccessor.read(character, sourceFactsBySlot),
                 sourceFactsBySlot,
-                schemas
+                schemas,
+                characterImageService.getCharacterImages(List.of(character)).get(character.getId())
         );
     }
 

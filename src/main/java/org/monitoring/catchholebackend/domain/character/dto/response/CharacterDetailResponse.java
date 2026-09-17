@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.character.dto.response;
 
+import org.monitoring.catchholebackend.domain.worldimage.dto.response.WorldSettingImageResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 import java.util.UUID;
@@ -59,6 +60,9 @@ public record CharacterDetailResponse(
         List<CharacterSettingResponse> items,
 
         @Schema(description = "상태 현재 설정")
-        List<CharacterSettingResponse> statuses
+        List<CharacterSettingResponse> statuses,
+
+        @Schema(description = "대표 이미지와 독립 선택 버전")
+        WorldSettingImageResponse image
 ) {
 }

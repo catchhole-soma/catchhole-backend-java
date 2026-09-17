@@ -87,7 +87,7 @@ class AnalysisJobOrderedRetryTest {
 
     @BeforeEach
     void setUp() {
-        service = new AnalysisJobServiceImpl(runStateService, jobRepository, workRepository,
+        service = new AnalysisJobServiceImpl(runStateService, org.mockito.Mockito.mock(AnalysisGuideService.class), jobRepository, workRepository,
                 batchRepository, fileRepository, new AnalysisJobMapper(), batchMapper,
                 episodeRepository, purgeRepository, characterRepository, worldRepository, tokenService,
                 org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator.class));

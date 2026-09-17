@@ -116,3 +116,8 @@ episode:
   source-purge:
     scheduling-enabled: ${EPISODE_SOURCE_PURGE_SCHEDULING_ENABLED:true}
     fixed-delay-ms: ${EPISODE_SOURCE_PURGE_FIXED_DELAY_MS:10000}
+
+world-image:
+  cleanup:
+    scheduling-enabled: true
+    fixed-delay-ms: 10000
