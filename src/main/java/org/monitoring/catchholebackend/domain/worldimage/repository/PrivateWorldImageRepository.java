@@ -25,7 +25,7 @@ public interface PrivateWorldImageRepository extends JpaRepository<PrivateWorldI
             where image.status = org.monitoring.catchholebackend.domain.worldimage.type.PrivateWorldImageStatus.DELETING
                or (image.status = org.monitoring.catchholebackend.domain.worldimage.type.PrivateWorldImageStatus.UPLOADING
                    and image.updatedAt < :staleBefore)
-            order by image.updatedAt, image.id
+            order by coalesce(image.cleanupAttemptedAt, image.updatedAt), image.id
             """)
     java.util.List<UUID> findCleanupIds(java.time.LocalDateTime staleBefore, Pageable pageable);
 }

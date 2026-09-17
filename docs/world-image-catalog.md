@@ -29,7 +29,7 @@
 
 | 메서드·경로 | 계약 |
 | --- | --- |
-| `GET /api/v1/world-image-catalog` | 인증 필요. `category` 필수, `q` 최대 100자, 0-based `page`, `size` 1–60/기본 18. 활성 상태의 해당 분류 일반 이미지만 `PageResponse.content`에 반환 |
+| `GET /api/v1/world-image-catalogs` | 인증 필요. `category` 필수, `q` 최대 100자, 0-based `page`, `size` 1–60/기본 18. 활성 상태의 해당 분류 일반 이미지만 `PageResponse.content`에 반환 |
 | `PATCH /api/v1/works/{workId}/world-settings/{worldSettingId}/image` | 작품 소유자만 변경. `{catalogId: "location-forest", version: 0}`. `catalogId: null`은 기본 이미지 복귀 |
 | `GET /api/v1/world-image-assets/{sha}.webp` | 인증 없이 공용 이미지 bytes 제공. 활성 도감 또는 테마 슬롯에 등록된 64자리 SHA만 허용. 임의 S3 key/원고 파일 접근 불가 |
 
@@ -74,7 +74,7 @@ SHA로 파일 경로가 정해지므로 이미지 교체는 새 자산·새 SHA�
 `world_image_recommendations`: catalog_id FK + theme 복합 PK, theme 인덱스. 동일 ID/자산을 여러 테마가 참조한다. 판타지 333, 현대 공통 50, 무협 70, SF 70, 추리 61, 호러 80, 스포츠 56 = 720행. 테마별 선택 목록은 중복 ID를 만들지 않는다. 현대 공통은 로맨스·코미디·일상·기타가 공유한다.
 
 - `GET /api/v1/works/{workId}/world-image-theme`: 소유자에게 `{theme,overview,defaults}`를 반환한다. overview 키는 7분류+ALL, defaults는 7분류다.
-- `GET /api/v1/world-image-catalog`: optional `workId`, `recommended=false` 추가. true는 workId 필수(400), 전달된 workId는 항상 소유권 검증(404). false/생략은 기존 분류 전체 검색을 유지한다. 수동 저장 시에는 장르 제한을 적용하지 않는다.
+- `GET /api/v1/world-image-catalogs`: optional `workId`, `recommended=false` 추가. true는 workId 필수(400), 전달된 workId는 항상 소유권 검증(404). false/생략은 기존 분류 전체 검색을 유지한다. 수동 저장 시에는 장르 제한을 적용하지 않는다.
 - 조회 우선순위: 개인 선택 → 같은 분류의 유효한 수동 도감 → 현재 작품 장르 기본 → 구형 분류 기본. 테마 기본 응답은 catalogId=null, source=DEFAULT다. 잠금은 개인 이미지 응답을 받은 Front에서 처리한다.
 - 작품 장르 변경은 자동 상태의 세계관 이미지 결과만 다시 저장한다. 미일치에는 현재 장르 기본 그림을 표시하며, 수동·개인·기본 고정과 해당 선택의 image version은 보존한다. 설정 내용/version·추출 프롬프트는 변경하지 않는다.
 - V62는 초기 카드 이미지와 혼용되던 기본 7행의 SHA를 승인된 별도 중립 기본으로 바꾼다. 대상 선택 행이나 V57~V60을 수정하지 않는다. 추가 장르 그림은 130개 도감 행으로 등록한다.

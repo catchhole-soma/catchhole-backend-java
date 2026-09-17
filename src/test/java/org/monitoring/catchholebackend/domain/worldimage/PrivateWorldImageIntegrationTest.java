@@ -253,6 +253,56 @@ class PrivateWorldImageIntegrationTest {
     }
 
     @Test
+    @DisplayName("정리 실패 20건 뒤의 삭제 대기와 오래된 업로드도 다음 배치에서 처리한다")
+    void failedCleanupBatchDoesNotStarveLaterImages() throws Exception {
+        createVault().andExpect(status().isOk());
+        var failedPrefixes = new java.util.HashMap<String, Integer>();
+        var ids = new java.util.ArrayList<UUID>();
+        var old = java.time.LocalDateTime.now().minusHours(3);
+        transaction.executeWithoutResult(status -> {
+            for (int i = 0; i < 23; i++) {
+                UUID id = UUID.randomUUID();
+                UUID attempt = UUID.randomUUID();
+                var image = org.monitoring.catchholebackend.domain.worldimage.entity.PrivateWorldImage.create(id,
+                        works.getReferenceById(workId), vaults.getReferenceById(vaultId), encoded(), envelope.length, envelope.length);
+                image.reserveUpload(attempt);
+                if (i < 21) image.requestDeletion();
+                images.saveAndFlush(image);
+                // 20건의 실패 뒤에 삭제 1건, 오래된 업로드 1건, 아직 진행 중인 업로드 1건을 배치한다.
+                if (i < 22) jdbc.update("UPDATE private_world_images SET updated_at=? WHERE id=?", old.plusSeconds(i), id);
+                if (i < 20) failedPrefixes.put(PrivateWorldImagePaths.prefix(workId, id, attempt), i);
+                ids.add(id);
+            }
+        });
+        var visited = new java.util.ArrayList<String>();
+        when(storage.purgePrefixes(any())).thenAnswer(invocation -> {
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            List<String> prefixes = invocation.getArgument(0);
+            String prefix = prefixes.getFirst();
+            visited.add(prefix);
+            Integer failedIndex = failedPrefixes.get(prefix);
+            if (failedIndex == null) return new ObjectStoragePurgeResult(1, 1, 0);
+            if (failedIndex % 2 == 0) throw new IllegalStateException("저장소 장애 재현");
+            return new ObjectStoragePurgeResult(1, 0, 1);
+        });
+
+        service.retryPendingCleanup();
+        assertThat(visited).hasSize(20).containsOnlyOnceElementsOf(failedPrefixes.keySet());
+        for (UUID id : ids.subList(0, 20)) {
+            assertThat(images.findById(id).orElseThrow().getCleanupAttemptedAt()).isAfter(old.plusHours(2));
+        }
+        assertThat(images.countByWorkId(workId)).isEqualTo(23);
+
+        visited.clear();
+        service.retryPendingCleanup();
+        assertThat(visited).hasSize(20);
+        assertThat(images.findById(ids.get(20))).isEmpty();
+        assertThat(images.findById(ids.get(21))).isEmpty();
+        assertThat(images.findById(ids.get(22)).orElseThrow().getStatus().name()).isEqualTo("UPLOADING");
+        assertThat(images.countByWorkId(workId)).isEqualTo(21);
+    }
+
+    @Test
     @DisplayName("지연된 실패 업로드 정리는 같은 ID로 재시도한 파일과 행을 지우지 않는다")
     void lateCleanupCannotDeleteRetriedUpload() throws Exception {
         createVault().andExpect(status().isOk());

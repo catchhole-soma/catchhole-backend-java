@@ -30,18 +30,19 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @Validated
 @RequiredArgsConstructor
-@RequestMapping("/api/v1/world-image-catalog")
+@RequestMapping("/api/v1/world-image-catalogs")
 @Tag(name = "WorldImageCatalog", description = "세계관 대표 이미지 도감")
 @SecurityRequirement(name = "bearerAuth")
 public class WorldImageCatalogController {
     private final WorldImageService service;
 
     @GetMapping
-    @Operation(operationId = "getWorldImageCatalog", summary = "분류별 대표 이미지 이름·별칭 검색")
+    @Operation(operationId = "getWorldImageCatalog", summary = "분류별 대표 이미지 이름·별칭 검색", description = "전체 도감 또는 소유한 작품의 장르 추천 이미지를 검색합니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "도감 조회 성공"),
             @ApiResponse(responseCode = "400", description = "검색 조건 오류", content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
-            @ApiResponse(responseCode = "401", description = "인증 필요", content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
+            @ApiResponse(responseCode = "401", description = "인증 필요", content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "작품이 없거나 소유자가 아님", content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
     })
     public CommonResponse<PageResponse<WorldImageCatalogResponse>> getWorldImageCatalog(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,

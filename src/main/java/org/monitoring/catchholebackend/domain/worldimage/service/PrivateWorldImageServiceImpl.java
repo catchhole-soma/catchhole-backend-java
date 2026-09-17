@@ -165,7 +165,8 @@ public class PrivateWorldImageServiceImpl implements PrivateWorldImageService {
                         .filter(image -> image.getStatus() == DELETING
                                 || (image.getStatus() == UPLOADING && image.getUpdatedAt().isBefore(staleBefore)))
                         .map(image -> {
-                            image.requestDeletion();
+                            // 실패·중단된 시도도 다음 배치의 오래된 미처리 항목을 막지 않는다.
+                            image.startCleanup(LocalDateTime.now());
                             return new CleanupTarget(image.getWork().getId(), id, image.getStorageAttemptId());
                         }).orElse(null));
                 if (target != null && !cleanup(target)) log.warn("개인 이미지 파일 정리를 다음 실행에서 재시도합니다.");

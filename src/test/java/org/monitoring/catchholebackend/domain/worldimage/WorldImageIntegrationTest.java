@@ -95,18 +95,18 @@ class WorldImageIntegrationTest {
         String workId = setting.getWork().getId().toString();
         for (WorkGenre genre : new WorkGenre[]{WorkGenre.FANTASY, WorkGenre.HORROR}) {
             setting.getWork().updateInfo("이미지 테스트", genre, "도감");
-            mvc.perform(get("/api/v1/world-image-catalog").header("Authorization", token).param("category", "RACE")
+            mvc.perform(get("/api/v1/world-image-catalogs").header("Authorization", token).param("category", "RACE")
                     .param("workId", workId).param("recommended", "true").param("q", "홉 고블린").param("size", "1"))
                     .andExpect(status().isOk()).andExpect(jsonPath("$.data.totalElements").value(1))
                     .andExpect(jsonPath("$.data.content[0].id").value("race-goblin"));
         }
         setting.getWork().updateInfo("이미지 테스트", WorkGenre.SPORTS, "도감");
-        mvc.perform(get("/api/v1/world-image-catalog").header("Authorization", token).param("category", "RACE")
+        mvc.perform(get("/api/v1/world-image-catalogs").header("Authorization", token).param("category", "RACE")
                 .param("workId", workId).param("recommended", "true")).andExpect(jsonPath("$.data.totalElements").value(0));
-        mvc.perform(get("/api/v1/world-image-catalog").header("Authorization", token).param("category", "RACE")
+        mvc.perform(get("/api/v1/world-image-catalogs").header("Authorization", token).param("category", "RACE")
                 .param("workId", workId)).andExpect(jsonPath("$.data.totalElements").value(1));
         choose("race-goblin", 0).andExpect(status().isOk());
-        mvc.perform(get("/api/v1/world-image-catalog").header("Authorization", token).param("category", "RACE")
+        mvc.perform(get("/api/v1/world-image-catalogs").header("Authorization", token).param("category", "RACE")
                 .param("recommended", "true")).andExpect(status().isBadRequest());
     }
 
@@ -129,7 +129,7 @@ class WorldImageIntegrationTest {
         Member stranger = members.save(Member.register("theme-other@example.com", "encoded", "01077776666", "다른 작가"));
         String otherToken = "Bearer " + jwt.generateAccessToken(stranger);
         mvc.perform(get(endpoint).header("Authorization", otherToken)).andExpect(status().isNotFound());
-        mvc.perform(get("/api/v1/world-image-catalog").header("Authorization", otherToken).param("category", "RACE")
+        mvc.perform(get("/api/v1/world-image-catalogs").header("Authorization", otherToken).param("category", "RACE")
                 .param("workId", setting.getWork().getId().toString()).param("recommended", "true")).andExpect(status().isNotFound());
     }
 
@@ -211,20 +211,20 @@ class WorldImageIntegrationTest {
     @Test
     @DisplayName("같은 분류의 별칭을 공백 없이 검색하고 기본 이미지와 다른 분류는 제외한다")
     void searchAliases() throws Exception {
-        mvc.perform(get("/api/v1/world-image-catalog").header("Authorization", token)
+        mvc.perform(get("/api/v1/world-image-catalogs").header("Authorization", token)
                         .param("category", "RACE").param("q", " 홉 고블린 ").param("size", "1"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.totalElements").value(1))
                 .andExpect(jsonPath("$.data.content[0].aliases[0]").value("홉고블린"));
-        mvc.perform(get("/api/v1/world-image-catalog").header("Authorization", token).param("category", "RACE").param("q", "%"))
+        mvc.perform(get("/api/v1/world-image-catalogs").header("Authorization", token).param("category", "RACE").param("q", "%"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.totalElements").value(0));
-        mvc.perform(get("/api/v1/world-image-catalog").header("Authorization", token).param("category", "RACE").param("size", "61"))
+        mvc.perform(get("/api/v1/world-image-catalogs").header("Authorization", token).param("category", "RACE").param("size", "61"))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
     @DisplayName("인증 없는 도감 접근과 타인 작품의 이미지 변경을 거절한다")
     void authorization() throws Exception {
-        mvc.perform(get("/api/v1/world-image-catalog").param("category", "RACE")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/world-image-catalogs").param("category", "RACE")).andExpect(status().isUnauthorized());
         mvc.perform(patch(base + "/image").contentType("application/json").content("{\"catalogId\":null,\"version\":0}"))
                 .andExpect(status().isUnauthorized());
         Member stranger = members.save(Member.register("image-other@example.com", "encoded", "01077779999", "다른 작가"));

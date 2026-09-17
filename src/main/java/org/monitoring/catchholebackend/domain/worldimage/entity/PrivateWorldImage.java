@@ -14,6 +14,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.util.UUID;
+import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -43,6 +44,8 @@ public class PrivateWorldImage extends BaseEntity {
     private PrivateWorldImageStatus status = PrivateWorldImageStatus.READY;
     @Column(name = "storage_attempt_id")
     private UUID storageAttemptId;
+    @Column(name = "cleanup_attempted_at")
+    private LocalDateTime cleanupAttemptedAt;
 
     public void reserveUpload(UUID attemptId) {
         storageAttemptId = attemptId;
@@ -56,6 +59,11 @@ public class PrivateWorldImage extends BaseEntity {
         status = PrivateWorldImageStatus.READY;
     }
     public void requestDeletion() { status = PrivateWorldImageStatus.DELETING; }
+
+    public void startCleanup(LocalDateTime attemptedAt) {
+        requestDeletion();
+        cleanupAttemptedAt = attemptedAt;
+    }
 
 
     public static PrivateWorldImage create(UUID id, Work work, PrivateImageVault vault,
