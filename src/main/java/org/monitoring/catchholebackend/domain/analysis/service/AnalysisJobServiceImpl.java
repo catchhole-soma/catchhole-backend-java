@@ -68,6 +68,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AnalysisJobServiceImpl implements AnalysisJobService {
 
     private final AnalysisRunStateService analysisRunStateService;
+    private final AnalysisGuideService analysisGuideService;
 
     private final AnalysisJobRepository analysisJobRepository;
     private final WorkRepository workRepository;
@@ -146,6 +147,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         } else {
             analysisJobRepository.saveAll(analysisJobs);
         }
+        analysisGuideService.markAnalysisStarted(memberId);
         return analysisJobs.stream()
                 .map(savedJob -> analysisJobMapper.toResponse(
                         savedJob,

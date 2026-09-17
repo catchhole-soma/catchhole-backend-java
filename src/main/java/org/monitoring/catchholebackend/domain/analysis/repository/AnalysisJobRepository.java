@@ -19,6 +19,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> {
 
+    boolean existsByWork_Member_Id(Long memberId);
+
     @Query("""
             select max(coalesce(sourceEpisode.episodeNo, candidateEpisode.episodeNo))
             from CharacterFact fact

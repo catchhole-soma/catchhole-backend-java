@@ -538,3 +538,8 @@ main의 PR #197이 피드백 V55/V56을 먼저 확정했다. 미배포 GH194 여
 ## V63 확정 시 이미지 결과 저장
 
 기존 V1~V62를 수정하지 않고 이미지 선택 CHECK 제약에 AUTO 저장을 허용한다. 이전 세계관의 null source 선택 해제 행은 DEFAULT로 옮겨 사용자 기본 선택을 보존한다. 기존 대상 이미지 매칭을 기동 중 실행하지 않으며 [운영자 보정](automatic-subject-images.md)을 별도 실행한다.
+
+
+## V64 첫 분석 안내
+
+`members.analysis_guide_shown_at`과 `first_analysis_started_at` nullable timestamp를 추가한다. 남아 있는 계정 전체 Job의 최초 생성 시각을 집계해 기존 분석 계정의 최초 시각을 채운다. 이후 분석 Job 생성과 최초 시각 기록은 같은 트랜잭션이다. 안내 선점·작품 삭제 이후의 이력 유지·과거에 이미 파기된 이력의 한계는 [첫 분석 안내](analysis-mode-guide.md)를 따른다. 작품·원고·설정 및 이미지 매칭 보정은 변경하지 않는다. 기존 migration 수정 없이 Java 시작 시 V64를 적용한 후 Front를 배포한다.

@@ -360,6 +360,7 @@ domain/<domain>
 #### Analysis Domain Policy
 
 - AnalysisJob은 작품에 속한 단일 회차 AI 분석 작업의 상태와 결과 메타데이터를 추적한다. `UploadBatch`는 업로드 출처 묶음이며 분석 실행 단위가 아니다.
+- 첫 분석 안내는 계정 전체 기준으로 V64의 `analysis_guide_shown_at`과 `first_analysis_started_at`을 사용한다. 조회는 비소비, 노출 선점은 회원 잠금 아래 한 번만 성공하며 Job 생성과 최초 분석 시각을 같은 트랜잭션에 저장한다. 작품 삭제 후에도 경험 기록을 유지한다. 예시 확정은 실제 분석·설정 변경을 호출하지 않는다. 상세 API·이관 범위는 `docs/analysis-mode-guide.md`를 따른다.
 - 원문 텍스트는 `Episode`의 S3 저장 구조를 재사용한다. `analysis_jobs`에는 작업 메타데이터와 누적 모드의 고정 S0·검증 변경 기록을 저장하며 원문 전문이나 raw LLM 응답을 중복 저장하지 않는다.
 - 분석 실패 처리 이력은 `analysis_jobs.error_message`에 누적하지 않고, 후속 모니터링 기능에서 별도 기록/조회한다.
 - 화면은 업로드 묶음에 생성된 회차별 `AnalysisJob.status`를 집계하고, 각 Job의 단일 대상 `Episode.status`를 단계별 상태로 보여준다.

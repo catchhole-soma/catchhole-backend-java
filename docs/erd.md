@@ -73,6 +73,8 @@ erDiagram
         boolean phone_verified
         datetime age_requirement_confirmed_at
         datetime feedback_prompt_shown_at
+        datetime analysis_guide_shown_at
+        datetime first_analysis_started_at
         varchar display_name
         varchar profile_image_url
         varchar status
@@ -764,3 +766,8 @@ V61/V62: `world_image_recommendations`는 `(catalog_id, theme)` PK로 공용 도
 ### V63 이미지 자동 결과
 
 `character_images`와 `world_setting_images`의 `selection_source=AUTO`는 확정 시 저장된 결과이며 미일치면 catalog_id=null이다. MANUAL/PRIVATE/DEFAULT는 사용자 선택이다. 새 테이블 없이 CHECK 제약을 확장하며 기존 데이터 매칭은 별도 운영자 배치를 사용한다.
+
+
+### V64 최초 분석 안내
+
+`members.analysis_guide_shown_at`은 계정당 1회 자동 안내 선점 시각, `first_analysis_started_at`은 최초 분석 Job 생성 시각이다. 둘 다 nullable이며 한 번 기록된 값은 작품 삭제·재분석으로 초기화하지 않는다. V64는 기존 Job의 최초 시각을 이관한다. 상세 계약은 [첫 분석 안내](analysis-mode-guide.md)를 참고한다.
