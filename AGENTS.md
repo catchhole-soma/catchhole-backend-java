@@ -753,6 +753,9 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - API 인증/인가, 요청/응답 JSON, Repository 쿼리, JPA 매핑처럼 프레임워크 경계가 중요한 흐름은 MockMvc 또는 JPA 통합 테스트로 검증한다.
 - API 응답 규약을 바꾸면 MockMvc 테스트도 함께 갱신한다.
 - DB 설정이 필요한 통합 테스트는 `test` profile의 H2 인메모리 DB를 기본으로 사용한다.
+- 기본 H2 DB 이름은 `${random.uuid}`로 Spring Context마다 분리하고 `src/test/java/.../support/TestClassContextCustomizerFactory`를 test 전용 `META-INF/spring.factories`에 등록해 Context 캐시도 테스트 클래스별로 분리한다. 서로 다른 클래스가 같은 DB의 schema를 생성·삭제하거나 커밋된 fixture를 공유하지 않게 하기 위함이다. 같은 클래스의 메서드 간에는 기존 트랜잭션 rollback 또는 명시적인 fixture 정리를 유지하며 PostgreSQL 테스트의 명시적인 DB override는 보존한다.
+- Gradle 테스트 JVM heap은 1GiB, Spring TestContext 캐시는 8개로 제한한다. 전체 테스트에서 여러 JPA Context를 보관하다 CI heap이 고갈되는 것을 막기 위한 테스트 전용 설정이며 운영 JVM 설정을 바꾸지 않는다.
+- `main` 대상 PR은 `.github/workflows/ci.yml`에서 전체 테스트와 `bootJar`를 실행하고 실패 보고서를 7일간 보관한다. 배포 전에 실패를 확인하기 위한 검증 전용 workflow이며 이미지 발행·운영 배포는 실행하지 않는다. `main` push의 기존 이미지 발행 테스트도 유지한다.
 - 이메일·휴대폰 인증의 TTL, Lua rate limit 경계, 이전 코드 폐기, 오입력 잠금과 동시 토큰 소비는 `redis:7.4.10-alpine3.21` Testcontainers 통합 테스트로 검증한다.
 
 - 그룹 검토 응답의 `analysisMode`는 원 후보 Job의 정책이다. `CONFIRMED_ONLY`는 그룹 공통 비교 revision을 확인하고, `ORDERED_PROVISIONAL`은 회차별 고정 문맥·실제 상태·의존성을 검증한다. 자동 보류 후보의 명시적 사용자 수정 확정과 그룹 멱등 결정 hash의 `applyEditedValue`를 함께 보존한다.
