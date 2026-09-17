@@ -73,7 +73,7 @@ def build(workspace, output, repo):
         for term in [entry['name']] + entry['aliases']:
             aliases[(entry['category'], normalize(term))].add(entry['id'])
     manifest = {'version': 1, 'entries': entries}
-    manifest_path = repo / 'src/main/resources/world-images/catalog-v1.json'
+    manifest_path = repo / 'scripts/world-images/manifests/catalog-v1.json'
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     statements = ['-- scripts/world-images/build_catalog.py에서 생성. 적용된 migration은 수정하지 않는다.']
     for e in entries:

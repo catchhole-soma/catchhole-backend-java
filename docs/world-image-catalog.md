@@ -41,17 +41,53 @@
 
 ## 자산 제작·등록·배포 순서
 
-1. 원본 PNG와 개별 `ASSET_INDEX.json`은 상위 workspace의 `design-assets/world-subjects/...`에 보존한다. 선택된 원본의 경로·SHA, ID·이름·별칭·최종 S3 key는 `src/main/resources/world-images/catalog-v1.json`에서 확인한다.
+### 제작 도구와 서버의 역할
+
+Python 파일은 운영자가 필요할 때 직접 실행하는 자산 제작·운영 도구다. Java 빌드·서버 기동·이미지 조회에서는 Python을 실행하지 않는다. 이미지 ID·별칭·SHA를 서버와 같은 저장소에서 관리하여 제작 결과와 DB 등록 SQL을 함께 검토한다.
+
+```text
+scripts/world-images/
+├── build_catalog.py
+├── build_themes.py
+├── upload_catalog.py
+├── backfill.py
+└── manifests/
+    ├── catalog-v1.json
+    └── themes-v1.json
+```
+
+| 파일 | 입력과 역할 | 출력·변경 대상 |
+| --- | --- | --- |
+| `build_catalog.py` | 승인된 원본과 `ASSET_INDEX.json`을 Pillow로 변환 | WebP, `catalog-v1.json`, V58 seed SQL |
+| `build_themes.py` | 기존 catalog manifest와 장르별 `THEME_PLAN.json`·원본을 조합 | 추가 WebP, `themes-v1.json`, V62 seed SQL |
+| `upload_catalog.py` | manifest에 등록된 WebP의 SHA·크기를 확인하고 지정 버킷에 업로드 | S3 공용 이미지와 업로드 검증 보고서. DB는 변경하지 않음 |
+| `backfill.py` | 작품·대상 종류별 ADMIN API 호출. 기본은 미리보기 | `--apply`일 때 Java가 기존 대상의 자동 이미지 연결을 저장. 직접 SQL이나 LLM은 실행하지 않음 |
+
+JSON 두 개는 원본 경로·별칭·이미지 SHA·크기·테마 관계를 담은 **생성된 제작 자료**다. Python 빌더와 업로드 도구가 사용하며 Java는 읽지 않는다. `scripts/`는 Gradle 기본 리소스 경로 밖이므로 manifest와 Python은 배포 JAR에 포함되지 않는다. 서버는 `src/main/resources/db/migration`의 SQL로 등록한 DB 도감·테마를 조회하고, 이미지 파일은 S3에서 읽는다. 따라서 SQL은 배포 리소스에 유지한다.
+
+실행 명령은 백엔드 저장소 루트 기준이다. 제작·업로드에 사용할 별도 Python 환경에서 의존성을 준비한다. `backfill.py`는 Python 표준 라이브러리만 사용한다.
+
+```sh
+python3 -m venv /path/to/world-images-venv
+. /path/to/world-images-venv/bin/activate
+python3 -m pip install 'Pillow==12.3.0' boto3
+```
+
+원본 PNG·인덱스·테마 구성표와 Front 분류 이미지는 상위 workspace에 별도로 필요하다. Java 저장소만으로 원본을 다시 생성할 수는 없다. 업로드는 선택한 AWS 프로필의 자격증명을 사용하며, 기존 대상 보정의 인증·미리보기·적용 절차는 [자동 연결과 보정](automatic-subject-images.md#기존-데이터-보정)을 따른다.
+
+### 최초 도감 (V57/V58)
+
+1. 원본 PNG와 개별 `ASSET_INDEX.json`은 상위 workspace의 `design-assets/world-subjects/...`에 보존한다. 선택된 원본의 경로·SHA, ID·이름·별칭·최종 S3 key는 `scripts/world-images/manifests/catalog-v1.json`에서 확인한다.
 2. Python/Pillow 12.3.0으로 승인된 v1 자산을 빌드한다. 480×320/quality78 썸네일, 960×640/quality82 상세 WebP이며 원본은 수정하지 않는다.
 
 ```sh
-python scripts/world-images/build_catalog.py --workspace /path/to/catchhole --output /path/to/artifacts/world-images
+python3 scripts/world-images/build_catalog.py --workspace /path/to/catchhole --output /path/to/artifacts/world-images
 ```
 
 3. 원하는 AWS 프로필/버킷을 명시해 업로드한다. boto3가 필요하다. metadata만 비교하지 않고 S3에서 실제 bytes를 읽어 SHA와 content type을 검증한다. 기존 key는 덮어쓰지 않으며 신규 업로드도 `IfNoneMatch=*`를 사용한다. 원고·설정 데이터는 업로드하지 않는다.
 
 ```sh
-AWS_PROFILE=catchhole python scripts/world-images/upload_catalog.py --root /path/to/artifacts/world-images --bucket YOUR_BUCKET --region ap-northeast-2
+AWS_PROFILE=catchhole python3 scripts/world-images/upload_catalog.py --root /path/to/artifacts/world-images --bucket YOUR_BUCKET --region ap-northeast-2
 ```
 
 4. 해당 환경의 서비스 IAM이 `world-image-catalog/v1/*`를 읽을 수 있는지 확인한 후 Java를 배포해 V57(테이블)·V58(seed)를 적용한다. 다른 버킷을 쓰는 환경은 같은 manifest의 680개 자산을 그 버킷에도 먼저 업로드한다.
@@ -84,9 +120,9 @@ SHA로 파일 경로가 정해지므로 이미지 교체는 새 자산·새 SHA�
 기존 자산은 `build_catalog.py`로 만든 바이트를 그대로 보존한다. 아래 두 빌더를 **같은 output**으로 실행하면 전체 자산을 모을 수 있다. 원본 PNG와 테마 구성표는 상위 workspace에 필요하다. Pillow 12.3.0 기준이며 적용된 V62와 seed가 달라지면 덮어쓰기를 거부한다. 이후 변경은 새 manifest/migration으로 추가한다.
 
 ```sh
-python scripts/world-images/build_catalog.py --workspace /path/to/catchhole --output /path/to/assets
-python scripts/world-images/build_themes.py --workspace /path/to/catchhole --output /path/to/assets
-AWS_PROFILE=catchhole python scripts/world-images/upload_catalog.py --manifest src/main/resources/world-images/themes-v1.json --root /path/to/assets --bucket YOUR_BUCKET
+python3 scripts/world-images/build_catalog.py --workspace /path/to/catchhole --output /path/to/assets
+python3 scripts/world-images/build_themes.py --workspace /path/to/catchhole --output /path/to/assets
+AWS_PROFILE=catchhole python3 scripts/world-images/upload_catalog.py --manifest scripts/world-images/manifests/themes-v1.json --root /path/to/assets --bucket YOUR_BUCKET
 ```
 
 새 manifest는 전체 catalog + theme 슬롯과 추천 관계를 담는다. 자산 key는 SHA 기반이며 용도·테마 간 동일 파일은 중복 업로드하지 않는다. 업로드 도구는 기존 객체를 덮어쓰지 않고 1,010개 고유 WebP의 실제 바이트를 검증한다. 다른 환경의 버킷에도 **자산 → Java V61/V62/API → Front** 순서로 배포한다.

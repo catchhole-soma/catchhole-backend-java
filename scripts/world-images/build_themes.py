@@ -24,7 +24,7 @@ def collect_ids(value):
 
 
 def build(workspace, output, repo):
-    old = json.loads((repo / 'src/main/resources/world-images/catalog-v1.json').read_text())
+    old = json.loads((repo / 'scripts/world-images/manifests/catalog-v1.json').read_text())
     catalog = {e['id']: e for e in old['entries']}
     originals = set(catalog)
     encoded = {}
@@ -121,7 +121,7 @@ def build(workspace, output, repo):
     target.write_text(seed)
     manifest = {'version':2,'entries':list(catalog.values())+slots,'themeSlots':slots,
                 'recommendations':[{'catalogId':i,'theme':t} for i,t in sorted(recommendations)]}
-    (repo/'src/main/resources/world-images/themes-v1.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
+    (repo/'scripts/world-images/manifests/themes-v1.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
     report = {'catalog':len(catalog),'newCatalog':len(catalog)-len(originals),'themeSlots':len(slots),
               'recommendations':dict(Counter(t for _,t in recommendations)),
               'newAssetFiles':len(list((output/'world-image-catalog/v1').glob('*.webp')))}

@@ -760,6 +760,7 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 ### World Image Catalog (GH194)
 
 - 공용 도감·별칭·대상 선택은 `worldimage` 도메인과 `world_image_catalog`, `world_image_aliases`, `world_setting_images`에서 관리한다. 상세 계약·자산 배포 순서는 `docs/world-image-catalog.md`를 따른다.
+- 이미지 제작·업로드·기존 데이터 보정 도구는 `scripts/world-images/`, 생성된 SHA manifest는 그 아래 `manifests/`에 둔다. Java는 manifest를 읽지 않고 DB에 등록된 도감과 테마를 조회하므로 제작 자료를 `src/main/resources`나 배포 JAR에 포함하지 않는다. 서버 기동에 필요한 Flyway SQL은 기존 `src/main/resources/db/migration`에 유지한다.
 - 대표 이미지 선택은 설정 내용/설정 version/분석 상태와 독립적이다. 대상 잠금과 별도 이미지 version으로 충돌을 막고, 대상 분류 변경은 맞지 않는 공용 이미지 선택을 해제한다. 사용자가 고른 개인 이미지는 분류 변경에도 유지한다.
 - 공용 이미지 경로는 활성 도감 또는 테마 슬롯에 등록된 SHA만 허용한다. S3 임의 key를 클라이언트에서 받거나 기존 원고 저장소를 공개하지 않는다. 선택·도감 검색 API는 인증/작품 소유권 경계를 유지한다.
 - V63 이후 캐릭터·세계관 자동 이미지는 확정/수정 트랜잭션에서 매칭해 선택 행에 저장한다. 조회에서 Matcher·종족 별칭 조회를 호출하지 않는다. 규칙·사용자 선택 우선·운영자 보정 절차는 `docs/automatic-subject-images.md`를 따른다. 캐릭터 이름/설명 추론과 LLM 프롬프트 변경은 하지 않으며 이미지 별칭을 대상 동일성 판단에 사용하지 않는다.

@@ -57,7 +57,7 @@ def upload(manifest, root, bucket, region):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', required=True, type=Path)
-    parser.add_argument('--manifest', type=Path, default=Path(__file__).resolve().parents[2] / 'src/main/resources/world-images/catalog-v1.json')
+    parser.add_argument('--manifest', type=Path, default=Path(__file__).resolve().parents[2] / 'scripts/world-images/manifests/catalog-v1.json')
     parser.add_argument('--bucket', default=os.environ.get('AWS_S3_BUCKET'))
     parser.add_argument('--region', default=os.environ.get('AWS_REGION', 'ap-northeast-2'))
     args = parser.parse_args()
