@@ -1045,7 +1045,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         var current = worldSettingRepository.findByIdentityForUpdate(work.getId(), decision.category(),
                 WorldSettingNameNormalizer.duplicateKey(decision.subjectName())).orElse(null);
         boolean historyOnly = false;
-        if (current == null && candidate.getTargetWorldSetting() != null) {
+        if (current == null && lateDecisionKeepsOriginalTarget(candidate, decision)) {
             current = worldSettingRepository.findByIdAndWorkIdForUpdate(
                     candidate.getTargetWorldSetting().getId(),
                     work.getId()
@@ -1087,6 +1087,19 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             histories.computeIfAbsent(current.getId(), id -> new ArrayList<>()).add(candidate);
             automaticImages.refreshWorldSettingImages(List.of(current));
         }
+    }
+
+    private boolean lateDecisionKeepsOriginalTarget(
+            WorldSettingCandidate candidate,
+            WorldSettingCandidateGroupConfirmRequest.Decision decision
+    ) {
+        WorldSetting original = candidate.getTargetWorldSetting();
+        if (original == null) return false;
+        boolean categoryMatches = decision.category() == original.getCategory()
+                || decision.category() == candidate.getCategory();
+        return categoryMatches
+                && (sameLateReviewName(decision.subjectName(), original.getSubjectName())
+                || sameLateReviewName(decision.subjectName(), candidate.getCanonicalSubjectName()));
     }
 
     private void validateReviewMutationAllowed(Work work, java.util.Collection<UUID> candidateIds) {

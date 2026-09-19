@@ -483,6 +483,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
 
         if (candidates.stream().allMatch(this::isCompletedOrderedReview)) {
             List<SettingCandidateGroupPromotion> promotions = new ArrayList<>();
+            Set<CharacterSnapshotSlot> projectedCurrentSlots = new HashSet<>();
             for (SettingCandidate candidate : candidates) {
                 if (candidate.getSuggestedOperation() == CharacterFactOperation.EXCLUDE) candidate.dismiss();
                 else {
@@ -492,6 +493,15 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                             decision.applicationMode(),
                             Boolean.TRUE.equals(decision.applyEditedValue())
                     );
+                    if (promotion != null
+                            && promotion.applicationMode() == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+                            && !candidate.isCharacterDiscovery()
+                            && !projectedCurrentSlots.add(lateReviewSnapshotSlot(candidate))) {
+                        promotion = new SettingCandidateGroupPromotion(
+                                candidate,
+                                CharacterFactConfirmApplicationMode.HISTORY_ONLY
+                        );
+                    }
                     if (promotion != null) promotions.add(promotion);
                 }
             }
@@ -843,6 +853,19 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         if (!candidate.confirm()) return null;
         return new SettingCandidateGroupPromotion(candidate, historyOnly
                 ? CharacterFactConfirmApplicationMode.HISTORY_ONLY : CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+    }
+
+    private CharacterSnapshotSlot lateReviewSnapshotSlot(SettingCandidate candidate) {
+        SettingCandidateSchemaMatch schema = settingCandidateSchemaResolver.resolve(
+                candidate.getAttributeName(),
+                candidate.getValueType(),
+                characterSettingSchemaRepository.findAllActiveForWork(candidate.getWork().getId())
+        );
+        String key = candidate.getResolvedCanonicalFactKey() == null
+                || candidate.getResolvedCanonicalFactKey().isBlank()
+                ? schema.factKey()
+                : candidate.getResolvedCanonicalFactKey().trim();
+        return new CharacterSnapshotSlot(schema.matchedSchema().getFactType(), key);
     }
 
     private void prepareUserEditedValue(SettingCandidate candidate) {

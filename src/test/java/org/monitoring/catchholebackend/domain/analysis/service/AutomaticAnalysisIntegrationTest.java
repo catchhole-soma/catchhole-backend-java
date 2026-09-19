@@ -640,6 +640,47 @@ class AutomaticAnalysisIntegrationTest {
         });
     }
 
+    @Test
+    @DisplayName("완료된 회차의 같은 캐릭터 항목을 묶어 확정하면 앞 후보만 현재값이 되고 뒤 후보는 이력에 남는다")
+    void lateCharacterGroupProjectsEarlierSlotDecisions() {
+        Run run = run(1, AnalysisReviewMode.MANUAL);
+        var payload = claim();
+        List<UUID> candidateIds = tx.execute(status -> {
+            AnalysisJob job = jobs.findById(payload.analysisJobId()).orElseThrow();
+            SettingCandidate discovered = discovery(job, "에르웬", null, true);
+            SettingCandidate first = addStat(job, discovered.getProvisionalSubjectKey(), null,
+                    "stats.mental", 35, CharacterFactOperation.ADD);
+            SettingCandidate second = addStat(job, discovered.getProvisionalSubjectKey(), null,
+                    "stats.mental", 36, CharacterFactOperation.ADD);
+            return List.of(discovered.getId(), first.getId(), second.getId());
+        });
+        complete(payload);
+        Long owner = tx.execute(status -> entities.find(Work.class, run.workId()).getMember().getId());
+        UUID batch = tx.execute(status -> jobs.findById(payload.analysisJobId()).orElseThrow().getBatch().getId());
+        var request = new SettingCandidateGroupConfirmRequest(batch, candidateIds.stream()
+                .map(id -> new SettingCandidateGroupConfirmDecision(
+                        id, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, null, false))
+                .toList());
+
+        assertThat(characterReview.confirmSettingCandidateGroup(owner, run.workId(), request).recomparisonRequired())
+                .isFalse();
+
+        tx.executeWithoutResult(status -> {
+            WorkCharacter character = entities.createQuery(
+                            "select c from WorkCharacter c where c.work.id = :work", WorkCharacter.class)
+                    .setParameter("work", run.workId())
+                    .getSingleResult();
+            assertThat(character.getSnapshotVersion()).isEqualTo(1L);
+            assertThat(character.getStatsJson().toString()).contains("mental", "35").doesNotContain("36");
+            assertThat(candidates.findById(candidateIds.get(1)).orElseThrow().getConfirmedApplicationMode())
+                    .isEqualTo(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+            assertThat(candidates.findById(candidateIds.get(2)).orElseThrow().getConfirmedApplicationMode())
+                    .isEqualTo(CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+            assertThat(entities.createQuery("select count(f) from CharacterFact f", Long.class).getSingleResult())
+                    .isEqualTo(2L);
+        });
+    }
+
     @ParameterizedTest(name = "{0}, group={1}")
     @MethodSource("lateWorldCases")
     @DisplayName("세계관 늦은 확정은 같은 경로의 최신값·수동 수정·제거를 보호하고 새 경로만 추가한다")
@@ -715,6 +756,80 @@ class AutomaticAnalysisIntegrationTest {
     static Stream<Arguments> lateWorldCases() {
         return Stream.of("latest", "removed", "manual", "newProperty", "newScope", "missingUpdate")
                 .flatMap(scenario -> Stream.of(Arguments.of(scenario, false), Arguments.of(scenario, true)));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("늦은 세계관 후보의 대상을 새 이름으로 바꾸면 원래 대상이 아닌 새 대상에 반영한다")
+    void lateWorldEditedTargetUsesSelectedIdentity(boolean group) {
+        Run run = run(1, AnalysisReviewMode.MANUAL);
+        var payload = claim();
+        UUID candidateId = tx.execute(status -> {
+            AnalysisJob job = jobs.findById(payload.analysisJobId()).orElseThrow();
+            addWorld(job);
+            return entities.createQuery(
+                            "select c.id from WorldSettingCandidate c where c.analysisJob.id = :job",
+                            UUID.class
+                    )
+                    .setParameter("job", job.getId())
+                    .getSingleResult();
+        });
+        complete(payload);
+        Long owner = tx.execute(status -> entities.find(Work.class, run.workId()).getMember().getId());
+        UUID originalId = tx.execute(status -> {
+            WorldSetting original = WorldSetting.create(entities.find(Work.class, run.workId()),
+                    WorldSettingCategory.RACE, "엘프", "서식지", "북부");
+            entities.persist(original);
+            ReflectionTestUtils.setField(
+                    entities.find(WorldSettingCandidate.class, candidateId),
+                    "targetWorldSetting",
+                    original
+            );
+            return original.getId();
+        });
+        UUID batch = tx.execute(status -> jobs.findById(payload.analysisJobId()).orElseThrow().getBatch().getId());
+        worldApplication.updateCandidateDecisions(owner, run.workId(), new WorldSettingCandidateDecisionUpdateRequest(
+                batch,
+                List.of(new WorldSettingCandidateDecisionUpdateItem(
+                        candidateId, WorldSettingOperation.ADD, WorldSettingCategory.RACE,
+                        "하이엘프", null, "서식지", "남부", "새 대상으로 직접 확인"
+                ))
+        ));
+
+        if (group) {
+            var request = new org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateGroupConfirmRequest(
+                    batch,
+                    List.of(new org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateGroupConfirmRequest.Decision(
+                            candidateId, WorldSettingOperation.ADD, WorldSettingCategory.RACE,
+                            "하이엘프", null, "서식지", "남부", false, "새 대상으로 직접 확인"
+                    ))
+            );
+            assertThat(worldApplication.confirmCandidateGroup(owner, run.workId(), request).recomparisonRequired())
+                    .isFalse();
+        } else {
+            var request = new WorldSettingCandidateConfirmRequest(
+                    WorldSettingOperation.ADD, WorldSettingCategory.RACE,
+                    "하이엘프", null, "서식지", "남부", false, "새 대상으로 직접 확인"
+            );
+            assertThat(worldApplication.confirmCandidate(owner, run.workId(), candidateId, request)
+                    .recomparisonRequired()).isFalse();
+        }
+
+        tx.executeWithoutResult(status -> {
+            WorldSetting original = entities.find(WorldSetting.class, originalId);
+            WorldSetting selected = entities.createQuery(
+                            "select w from WorldSetting w where w.work.id = :work and w.subjectName = :name",
+                            WorldSetting.class
+                    )
+                    .setParameter("work", run.workId())
+                    .setParameter("name", "하이엘프")
+                    .getSingleResult();
+            assertThat(original.getPropertyValue(null, "서식지")).isEqualTo("북부");
+            assertThat(selected.getPropertyValue(null, "서식지")).isEqualTo("남부");
+            WorldSettingCandidate candidate = entities.find(WorldSettingCandidate.class, candidateId);
+            assertThat(candidate.getTargetWorldSetting().getId()).isEqualTo(selected.getId());
+            assertThat(candidate.isHistoryOnly()).isFalse();
+        });
     }
 
     private SettingCandidate addUnresolvedReference(AnalysisJob job) {
