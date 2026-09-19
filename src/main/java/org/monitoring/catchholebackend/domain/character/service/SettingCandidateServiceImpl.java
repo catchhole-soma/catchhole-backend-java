@@ -29,6 +29,7 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateCharacterMatchRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateConfirmRequest;
@@ -355,9 +356,29 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             candidate.confirm();
         }
 
+        CharacterFactConfirmApplicationMode applicationMode = request == null
+                || request.applicationMode() == null
+                ? CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+                : request.applicationMode();
+        boolean applyEditedValue = request != null && Boolean.TRUE.equals(request.applyEditedValue());
+        validateEditedApplicationSelection(candidate, applyEditedValue);
+
         if (isCompletedOrderedReview(candidate)) {
-            confirmCompletedOrderedCandidate(candidate, request == null ? CharacterFactConfirmApplicationMode.APPLY_PROPOSAL : request.applicationMode());
+            SettingCandidateGroupPromotion promotion = prepareCompletedOrderedCandidate(
+                    candidate,
+                    applicationMode,
+                    applyEditedValue
+            );
+            if (promotion != null) {
+                settingCandidatePromotionService.promote(promotion.candidate(), promotion.applicationMode());
+            }
             return SettingCandidateConfirmResult.confirmed(settingCandidateMapper.toReviewStatusResponse(candidate));
+        }
+        if (isInvalidatedOrderedReview(candidate) && !candidate.isUserModified()) {
+            requestRecomparisonAfterStale(candidate);
+            return SettingCandidateConfirmResult.recomparisonRequired(
+                    settingCandidateMapper.toReviewStatusResponse(candidate)
+            );
         }
 
         if (prepareUnresolvedExistingCharacterForComparison(memberId, candidate, work)) {
@@ -382,11 +403,6 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             );
         }
 
-        CharacterFactConfirmApplicationMode applicationMode = request == null
-                || request.applicationMode() == null
-                ? CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
-                : request.applicationMode();
-        boolean applyEditedValue = request != null && Boolean.TRUE.equals(request.applyEditedValue());
         if (applyEditedValue) {
             prepareUserEditedValue(candidate);
         }
@@ -460,15 +476,39 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 == SettingCandidateMatchStatus.AMBIGUOUS)) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
         }
+        candidates.forEach(candidate -> validateEditedApplicationSelection(
+                candidate,
+                Boolean.TRUE.equals(decisions.get(candidate.getId()).applyEditedValue())
+        ));
 
         if (candidates.stream().allMatch(this::isCompletedOrderedReview)) {
+            List<SettingCandidateGroupPromotion> promotions = new ArrayList<>();
             for (SettingCandidate candidate : candidates) {
                 if (candidate.getSuggestedOperation() == CharacterFactOperation.EXCLUDE) candidate.dismiss();
-                else confirmCompletedOrderedCandidate(candidate, decisions.get(candidate.getId()).applicationMode());
+                else {
+                    SettingCandidateGroupConfirmDecision decision = decisions.get(candidate.getId());
+                    SettingCandidateGroupPromotion promotion = prepareCompletedOrderedCandidate(
+                            candidate,
+                            decision.applicationMode(),
+                            Boolean.TRUE.equals(decision.applyEditedValue())
+                    );
+                    if (promotion != null) promotions.add(promotion);
+                }
             }
+            settingCandidatePromotionService.promoteGroup(promotions);
             candidates.forEach(candidate -> candidate.recordGroupConfirmation(decisionHash));
             return SettingCandidateGroupConfirmResult.confirmed(toGroupActionResponse(groupKey(candidates.getFirst()),
                     candidates, characterSettingSchemaRepository.findAllActiveForWork(work.getId())));
+        }
+        List<SettingCandidate> invalidated = candidates.stream()
+                .filter(this::isInvalidatedOrderedReview)
+                .filter(candidate -> !candidate.isUserModified())
+                .toList();
+        if (!invalidated.isEmpty()) {
+            invalidated.forEach(this::requestRecomparisonAfterStale);
+            return SettingCandidateGroupConfirmResult.recomparisonRequired(
+                    invalidated.stream().map(SettingCandidate::getId).toList()
+            );
         }
 
         // 같은 이름의 기존 캐릭터가 확인되면 모든 UNRESOLVED 행을 먼저 연결한다.
@@ -757,15 +797,34 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
 
     private boolean isCompletedOrderedReview(SettingCandidate candidate) {
         var job = candidate.getAnalysisJob();
-        return job != null && job.isOrderedProvisional() && job.getStatus() == AnalysisJobStatus.SUCCEEDED;
+        return job != null && job.isOrderedProvisional() && job.getStatus() == AnalysisJobStatus.SUCCEEDED
+                && job.getJournalStatus() == AnalysisJournalStatus.SEALED;
     }
 
-    private void confirmCompletedOrderedCandidate(SettingCandidate candidate, CharacterFactConfirmApplicationMode requested) {
+    private boolean isInvalidatedOrderedReview(SettingCandidate candidate) {
+        var job = candidate.getAnalysisJob();
+        return job != null && job.isOrderedProvisional() && job.getStatus() == AnalysisJobStatus.SUCCEEDED
+                && job.getJournalStatus() != AnalysisJournalStatus.SEALED;
+    }
+
+    private void validateEditedApplicationSelection(SettingCandidate candidate, boolean applyEditedValue) {
+        if (isOrdered(candidate) && !candidate.isCharacterDiscovery()
+                && candidate.isUserModified() && !applyEditedValue) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_EDIT_APPLICATION_REQUIRED);
+        }
+    }
+
+    private SettingCandidateGroupPromotion prepareCompletedOrderedCandidate(
+            SettingCandidate candidate,
+            CharacterFactConfirmApplicationMode requested,
+            boolean applyEditedValue
+    ) {
         var job = candidate.getAnalysisJob();
         if (!job.hasCurrentSourceVersion()) throw new AppException(AnalysisJobErrorCode.ANALYSIS_RUN_STATE_CONFLICT);
         if (candidate.isCharacterDiscovery()) {
-            if (candidate.confirm()) settingCandidatePromotionService.promote(candidate, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
-            return;
+            return candidate.confirm()
+                    ? new SettingCandidateGroupPromotion(candidate, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL)
+                    : null;
         }
         // 보류 판단을 확정으로 위장하지 않는다. 사용자가 수정안을 저장했거나 정상 비교가 있어야 한다.
         if (!candidate.isUserModified()) validateConfirmPolicy(candidate, requested == null
@@ -781,7 +840,8 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 || analysisConfirmation.keepLateReviewInHistory(candidate, schema.matchedSchema().getFactType(), key);
         // 오래된 비교의 병합값·부수 삭제를 재사용하지 않고 작가가 확인한 이 후보의 값만 반영한다.
         prepareUserEditedValue(candidate, reviewedScope, true);
-        if (candidate.confirm()) settingCandidatePromotionService.promote(candidate, historyOnly
+        if (!candidate.confirm()) return null;
+        return new SettingCandidateGroupPromotion(candidate, historyOnly
                 ? CharacterFactConfirmApplicationMode.HISTORY_ONLY : CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
     }
 

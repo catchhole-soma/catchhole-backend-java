@@ -20,6 +20,7 @@ import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobEpi
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
@@ -547,6 +548,9 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             worldSettingCandidateRepository.flush();
             return WorldSettingCandidateConfirmResult.confirmed(worldSettingMapper.toCandidateResponse(candidate));
         }
+        if (isInvalidatedOrderedReview(candidate) && !isAuthorEditedDecision(candidate, request)) {
+            return markRecomparisonRequired(candidate);
+        }
         if (isOrdered(candidate)) {
             WorldSetting current = worldSettingRepository.findByIdentityForUpdate(work.getId(), request.category(),
                     WorldSettingNameNormalizer.duplicateKey(request.subjectName())).orElse(null);
@@ -773,6 +777,16 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             return WorldSettingCandidateGroupConfirmResult.confirmed(worldSettingMapper.toCandidateGroupActionResponse(
                     selectedGroupKey, candidates, singleAppliedTarget(candidates.stream()
                             .map(WorldSettingCandidate::getTargetWorldSetting).filter(Objects::nonNull).toList())));
+        }
+        if (!automatic && candidates.stream()
+                .filter(this::isInvalidatedOrderedReview)
+                .anyMatch(candidate -> !isAuthorEditedDecision(candidate, decisionsById.get(candidate.getId())))) {
+            return markGroupRecomparisonRequired(
+                    work,
+                    request.batchId(),
+                    selectedGroupKey,
+                    WorldSettingRecomparisonReason.PROPERTY_CHANGED
+            );
         }
         Set<UUID> rootMoveDecisionIds = rootMoveDecisionIdsToApply(
                 candidates,
@@ -1010,7 +1024,14 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
 
     private boolean isCompletedOrderedReview(WorldSettingCandidate candidate) {
         var job = candidate.getAnalysisJob();
-        return job != null && job.isOrderedProvisional() && job.getStatus() == AnalysisJobStatus.SUCCEEDED;
+        return job != null && job.isOrderedProvisional() && job.getStatus() == AnalysisJobStatus.SUCCEEDED
+                && job.getJournalStatus() == AnalysisJournalStatus.SEALED;
+    }
+
+    private boolean isInvalidatedOrderedReview(WorldSettingCandidate candidate) {
+        var job = candidate.getAnalysisJob();
+        return job != null && job.isOrderedProvisional() && job.getStatus() == AnalysisJobStatus.SUCCEEDED
+                && job.getJournalStatus() != AnalysisJournalStatus.SEALED;
     }
 
     private void confirmLateCandidate(Work work, WorldSettingCandidate candidate,
@@ -1024,6 +1045,13 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         var current = worldSettingRepository.findByIdentityForUpdate(work.getId(), decision.category(),
                 WorldSettingNameNormalizer.duplicateKey(decision.subjectName())).orElse(null);
         boolean historyOnly = false;
+        if (current == null && candidate.getTargetWorldSetting() != null) {
+            current = worldSettingRepository.findByIdAndWorkIdForUpdate(
+                    candidate.getTargetWorldSetting().getId(),
+                    work.getId()
+            ).orElse(null);
+            historyOnly = current != null;
+        }
         if (current != null) {
             String value = current.getPropertyValue(decision.scopeName(), decision.settingName());
             var prior = histories.computeIfAbsent(current.getId(), id -> new ArrayList<>(worldSettingCandidateRepository
@@ -1032,15 +1060,21 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                             && sameLateReviewName(previous.getFinalScopeName(), decision.scopeName())
                             && sameLateReviewName(previous.getFinalSettingName(), decision.settingName())).toList();
             int episode = candidate.getSourceEpisode() == null ? -1 : candidate.getSourceEpisode().getEpisodeNo();
-            historyOnly = current.isManuallyEdited(decision.scopeName(), decision.settingName())
+            historyOnly = historyOnly
+                    || current.isManuallyEdited(decision.scopeName(), decision.settingName())
                     || current.hasPathConflict(decision.scopeName(), decision.settingName())
                     || value == null && !prior.isEmpty()
+                    || value == null && (decision.operation() == WorldSettingOperation.UPDATE
+                        || decision.operation() == WorldSettingOperation.MERGE)
                     || value != null && (episode < 1 || prior.isEmpty()
                         || prior.stream().noneMatch(previous -> Objects.equals(previous.getFinalValue(), value))
                         || prior.stream().anyMatch(previous -> previous.getSourceEpisode() == null
                             || previous.getSourceEpisode().getEpisodeNo() >= episode));
         }
         if (current == null) {
+            if (decision.operation() != WorldSettingOperation.ADD) {
+                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_UPDATE_PATH_NOT_FOUND);
+            }
             current = worldSettingRepository.saveAndFlush(WorldSetting.create(work, decision.category(),
                     decision.subjectName(), decision.scopeName(), decision.settingName(), decision.value()));
         } else if (!historyOnly) {

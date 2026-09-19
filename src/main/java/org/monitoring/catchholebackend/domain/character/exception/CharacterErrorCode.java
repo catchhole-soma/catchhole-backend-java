@@ -43,6 +43,10 @@ public enum CharacterErrorCode implements ResultCode {
             HttpStatus.BAD_REQUEST,
             "수정한 내용을 이 설정에 맞는 형식으로 입력해 주세요."
     ),
+    SETTING_CANDIDATE_EDIT_APPLICATION_REQUIRED(
+            HttpStatus.CONFLICT,
+            "수정한 내용을 현재 설정에 반영하려면 직접 확인한 값으로 확정해 주세요."
+    ),
     SETTING_CANDIDATE_SCHEMA_NOT_MATCHED(HttpStatus.BAD_REQUEST, "이 설정의 입력 형식을 확인하지 못했습니다."),
     SETTING_CANDIDATE_SCHEMA_MATCH_AMBIGUOUS(HttpStatus.CONFLICT, "이 설정에 적용할 입력 형식을 하나로 정하지 못했습니다."),
     SETTING_CANDIDATE_VALUE_TYPE_MISMATCH(HttpStatus.BAD_REQUEST, "이 설정에 맞는 형식으로 내용을 입력해 주세요."),
