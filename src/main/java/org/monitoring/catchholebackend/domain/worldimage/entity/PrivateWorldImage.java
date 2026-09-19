@@ -30,12 +30,14 @@ public class PrivateWorldImage extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "work_id", nullable = false)
     private Work work;
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "vault_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "vault_id")
     private PrivateImageVault vault;
     // 파일명·MIME 등 표시 메타데이터도 브라우저만 복호화한다.
-    @Column(name = "encrypted_metadata", nullable = false, length = 4096)
+    @Column(name = "encrypted_metadata", length = 4096)
     private String encryptedMetadata;
+    @Column(name = "display_name", length = 180)
+    private String displayName;
     @Column(name = "image_bytes", nullable = false) private long imageBytes;
     @Column(name = "thumbnail_bytes", nullable = false) private long thumbnailBytes;
     @Version private Long version;
@@ -75,6 +77,13 @@ public class PrivateWorldImage extends BaseEntity {
         image.encryptedMetadata = encryptedMetadata;
         image.imageBytes = imageBytes;
         image.thumbnailBytes = thumbnailBytes;
+        return image;
+    }
+
+    public static PrivateWorldImage createAccountImage(UUID id, Work work, String name,
+            long imageBytes, long thumbnailBytes) {
+        PrivateWorldImage image = create(id, work, null, null, imageBytes, thumbnailBytes);
+        image.displayName = name;
         return image;
     }
 }

@@ -12,7 +12,8 @@ public class PrivateWorldImageMapper {
         return new PrivateImageVaultResponse(vault.getId(), vault.getKeyCheck());
     }
     public PrivateWorldImageResponse toResponse(PrivateWorldImage image) {
-        return new PrivateWorldImageResponse(image.getId(), image.getWork().getId(), image.getVault().getId(),
-                image.getEncryptedMetadata(), image.getCreatedAt());
+        return new PrivateWorldImageResponse(image.getId(), image.getWork().getId(),
+                image.getVault() == null ? null : image.getVault().getId(),
+                image.getEncryptedMetadata(), image.getCreatedAt(), image.getDisplayName());
     }
 }

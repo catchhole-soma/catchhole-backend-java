@@ -55,6 +55,6 @@ public class WorldImageMapper {
         return new WorldSettingImageResponse(null, null,
                 PrivateWorldImagePaths.apiPath(image.getWork().getId(), image.getId(), true),
                 PrivateWorldImagePaths.apiPath(image.getWork().getId(), image.getId(), false),
-                "PRIVATE", version, image.getId(), image.getVault().getId());
+                "PRIVATE", version, image.getId(), image.getVault() == null ? null : image.getVault().getId());
     }
 }

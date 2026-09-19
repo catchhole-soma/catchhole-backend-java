@@ -110,6 +110,7 @@ public class WorldSettingServiceImpl implements WorldSettingService {
         }
 
         WorldSetting worldSetting = worldSettingMapper.toEntity(work, request);
+        for (var property : worldSetting.getProperties()) worldSetting.protectManualProperty(property.scopeName(), property.settingName());
         worldSetting = saveNewWorldSetting(worldSetting);
         automaticImages.refreshWorldSettingImages(List.of(worldSetting));
         return toDetail(worldSetting);
@@ -161,6 +162,7 @@ public class WorldSettingServiceImpl implements WorldSettingService {
         WorldSetting worldSetting = getWorldSettingForUpdate(worldSettingId, work.getId());
         worldSetting.validateVersion(request.version());
         worldSetting.addProperty(request.scopeName(), request.settingName(), request.settingValue());
+        worldSetting.protectManualProperty(request.scopeName(), request.settingName());
         worldSettingRepository.flush();
         return toDetail(worldSetting);
     }
@@ -185,6 +187,8 @@ public class WorldSettingServiceImpl implements WorldSettingService {
                 request.settingName(),
                 request.settingValue()
         );
+        worldSetting.protectManualProperty(request.currentScopeName(), request.currentSettingName());
+        worldSetting.protectManualProperty(request.scopeName(), request.settingName());
         worldSettingRepository.flush();
         return toDetail(worldSetting);
     }

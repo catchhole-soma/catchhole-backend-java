@@ -39,7 +39,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/works/{workId}/private-world-images")
-@Tag(name = "PrivateWorldImage", description = "작품 소유자만 조회·선택하는 암호화 이미지. 원본과 썸네일 모두 암호문으로 저장합니다.")
+@Tag(name = "PrivateWorldImage", description = "로그인한 작품 소유자만 업로드·조회·선택하는 개인 이미지입니다. 기존 암호화 이미지도 보존합니다.")
 @SecurityRequirement(name = "bearerAuth")
 public class PrivateWorldImageController {
     private final PrivateWorldImageService service;
@@ -60,10 +60,10 @@ public class PrivateWorldImageController {
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @Operation(operationId = "uploadPrivateWorldImage", summary = "암호화한 개인 이미지 업로드", description = "image·thumbnail은 CHI1 인증 암호문입니다. 이미지 내용이나 복구키를 전송하지 않습니다.")
+    @Operation(operationId = "uploadPrivateWorldImage", summary = "개인 이미지 업로드", description = "새 업로드는 metadata의 id·name과 PNG로 변환한 image·thumbnail을 보냅니다. 별도 보관용 코드는 필요 없습니다. 기존 vaultId·encryptedMetadata 방식도 호환합니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "개인 이미지 저장 완료"),
-            @ApiResponse(responseCode = "400", description = "암호문·메타데이터 오류, 보관함 없음 또는 이미지 개수 초과", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "400", description = "이미지·메타데이터 오류 또는 이미지 개수 초과", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = CommonErrorResponse.class))),
             @ApiResponse(responseCode = "401", description = "인증 필요", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = CommonErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "작품이 없거나 소유자가 아님", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = CommonErrorResponse.class))),
             @ApiResponse(responseCode = "409", description = "이미지 중복 또는 작품·이미지 상태 충돌", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = CommonErrorResponse.class))),
@@ -77,9 +77,9 @@ public class PrivateWorldImageController {
     }
 
     @GetMapping(value = "/{imageId}/image", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
-    @Operation(operationId = "getPrivateWorldImageContent", summary = "개인 이미지 암호문 조회", description = "작품 소유자에게 저장이 완료된 이미지 암호문을 캐시 금지로 반환합니다.")
+    @Operation(operationId = "getPrivateWorldImageContent", summary = "개인 이미지 파일 조회", description = "작품 소유자에게 저장이 완료된 이미지 파일을 캐시 금지로 반환합니다.")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "개인 이미지 암호문 조회 성공", content = @Content(mediaType = MediaType.APPLICATION_OCTET_STREAM_VALUE, schema = @Schema(type = "string", format = "binary"))),
+            @ApiResponse(responseCode = "200", description = "개인 이미지 파일 조회 성공", content = @Content(mediaType = MediaType.APPLICATION_OCTET_STREAM_VALUE, schema = @Schema(type = "string", format = "binary"))),
             @ApiResponse(responseCode = "400", description = "잘못된 식별자", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = CommonErrorResponse.class))),
             @ApiResponse(responseCode = "401", description = "인증 필요", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = CommonErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "작품·이미지가 없거나 소유자가 아님", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = CommonErrorResponse.class))),
@@ -91,9 +91,9 @@ public class PrivateWorldImageController {
     }
 
     @GetMapping(value = "/{imageId}/thumbnail", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
-    @Operation(operationId = "getPrivateWorldImageThumbnail", summary = "개인 이미지 썸네일 암호문 조회", description = "작품 소유자에게 썸네일 암호문을 캐시 금지로 반환합니다.")
+    @Operation(operationId = "getPrivateWorldImageThumbnail", summary = "개인 이미지 썸네일 파일 조회", description = "작품 소유자에게 썸네일 파일을 캐시 금지로 반환합니다.")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "개인 이미지 썸네일 암호문 조회 성공", content = @Content(mediaType = MediaType.APPLICATION_OCTET_STREAM_VALUE, schema = @Schema(type = "string", format = "binary"))),
+            @ApiResponse(responseCode = "200", description = "개인 이미지 썸네일 파일 조회 성공", content = @Content(mediaType = MediaType.APPLICATION_OCTET_STREAM_VALUE, schema = @Schema(type = "string", format = "binary"))),
             @ApiResponse(responseCode = "400", description = "잘못된 식별자", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = CommonErrorResponse.class))),
             @ApiResponse(responseCode = "401", description = "인증 필요", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = CommonErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "작품·이미지가 없거나 소유자가 아님", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = CommonErrorResponse.class))),

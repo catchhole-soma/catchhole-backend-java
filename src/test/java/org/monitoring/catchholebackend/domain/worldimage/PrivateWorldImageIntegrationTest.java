@@ -101,6 +101,20 @@ class PrivateWorldImageIntegrationTest {
             members.deleteById(ownerId); members.deleteById(strangerId);
         });
     }
+    @Test
+    @DisplayName("예전 방식 업로드의 암호화 정보 누락은 저장 전에 입력 오류로 거절한다")
+    void missingLegacyMetadataReturnsBadRequest() throws Exception {
+        mvc.perform(multipart(base)
+                .file(new MockMultipartFile("metadata", "metadata.json", "application/json",
+                        ("{\"id\":\"" + imageId + "\",\"vaultId\":\"" + vaultId + "\"}").getBytes(StandardCharsets.UTF_8)))
+                .file(new MockMultipartFile("image", "image.enc", "application/octet-stream", envelope))
+                .file(new MockMultipartFile("thumbnail", "thumbnail.enc", "application/octet-stream", envelope))
+                .header("Authorization", token))
+                .andExpect(status().isBadRequest());
+        assertThat(images.existsById(imageId)).isFalse();
+        verifyNoInteractions(storage);
+    }
+
     private UUID attemptId() { return images.findById(imageId).orElseThrow().getStorageAttemptId(); }
     private String encoded() { return Base64.getEncoder().encodeToString(envelope); }
     private ResultActions createVault() throws Exception {
@@ -118,6 +132,69 @@ class PrivateWorldImageIntegrationTest {
         return mvc.perform(patch("/api/v1/works/" + workId + "/world-settings/" + settingId + "/image")
                 .header("Authorization", token).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"privateImageId\":" + (id == null ? "null" : "\"" + id + "\"") + ",\"version\":" + version + "}"));
+    }
+
+    private byte[] png() throws Exception {
+        var output = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(2, 2, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", output);
+        return output.toByteArray();
+    }
+
+    private ResultActions uploadAccountImage(String auth, byte[] bytes) throws Exception {
+        return mvc.perform(multipart(base).file(new MockMultipartFile("metadata", "metadata.json", "application/json",
+                        ("{\"id\":\"" + imageId + "\",\"name\":\"내 그림.png\"}").getBytes(StandardCharsets.UTF_8)))
+                .file(new MockMultipartFile("image", "image.png", "image/png", bytes))
+                .file(new MockMultipartFile("thumbnail", "thumbnail.png", "image/png", png()))
+                .header("Authorization", auth));
+    }
+
+    @Test
+    @DisplayName("별도 보관함이나 코드 없이 이미지를 저장하고 로그인 소유권으로 조회·선택한다")
+    void accountImageRoundtripWithoutVault() throws Exception {
+        byte[] png = png();
+        uploadAccountImage(token, png).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.vaultId").doesNotExist())
+                .andExpect(jsonPath("$.data.name").value("내 그림.png"));
+        assertThat(vaults.findByMemberId(ownerId)).isEmpty();
+        assertThat(images.findById(imageId).orElseThrow().getVault()).isNull();
+        when(storage.getBytes(PrivateWorldImagePaths.key(workId, imageId, attemptId(), false))).thenReturn(png);
+        mvc.perform(get(base + "/" + imageId + "/image").header("Authorization", token)).andExpect(status().isOk())
+                .andExpect(content().bytes(png)).andExpect(header().string("Cache-Control", "no-store, private"));
+        mvc.perform(get(base + "/" + imageId + "/image").header("Authorization", strangerToken)).andExpect(status().isNotFound());
+        select(imageId, 0).andExpect(status().isOk()).andExpect(jsonPath("$.data.source").value("PRIVATE"));
+        uploadAccountImage(token, png).andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("정상 PNG는 5MiB까지 허용하고 1바이트라도 초과하면 저장하지 않는다")
+    void accountImageFiveMiBBoundary() throws Exception {
+        byte[] valid = png();
+        uploadAccountImage(token, java.util.Arrays.copyOf(valid, 5 * 1024 * 1024 + 1))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(storage);
+        uploadAccountImage(token, java.util.Arrays.copyOf(valid, 5 * 1024 * 1024))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("이전 암호화 업로드도 5MiB에 암호화 부가정보를 더한 크기로 제한한다")
+    void legacyUploadUsesSameFiveMiBLimit() throws Exception {
+        createVault().andExpect(status().isOk());
+        upload(token, java.util.Arrays.copyOf(envelope, 5 * 1024 * 1024 + 33))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(storage);
+        upload(token, java.util.Arrays.copyOf(envelope, 5 * 1024 * 1024 + 32))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("새 업로드도 타인 작품·위장 파일·잘못된 크기를 거절한다")
+    void accountImageRejectsForeignOwnerAndInvalidBytes() throws Exception {
+        uploadAccountImage(strangerToken, png()).andExpect(status().isNotFound());
+        uploadAccountImage(token, envelope).andExpect(status().isBadRequest());
+        uploadAccountImage(token, "<svg onload='alert(1)'/>".getBytes(StandardCharsets.UTF_8)).andExpect(status().isBadRequest());
+        uploadAccountImage(token, new byte[5 * 1024 * 1024 + 1]).andExpect(status().isBadRequest());
+        verifyNoInteractions(storage);
     }
 
     @Test
@@ -189,7 +266,7 @@ class PrivateWorldImageIntegrationTest {
         upload(token, envelope).andExpect(status().isBadRequest());
         createVault().andExpect(status().isOk());
         upload(token, "plain image".getBytes(StandardCharsets.UTF_8)).andExpect(status().isBadRequest());
-        upload(token, new byte[8 * 1024 * 1024 + 33]).andExpect(status().isBadRequest());
+        upload(token, new byte[5 * 1024 * 1024 + 33]).andExpect(status().isBadRequest());
         assertThat(images.countByWorkId(workId)).isZero();
         verifyNoInteractions(storage);
     }

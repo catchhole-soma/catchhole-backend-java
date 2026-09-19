@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 public enum AnalysisJobErrorCode implements ResultCode {
 
+    ANALYSIS_REVIEW_WAIT_REQUIRED(HttpStatus.CONFLICT, "연속 분석이 끝나면 이 설정을 수정·확정할 수 있습니다. 진행 중인 분석은 계속됩니다."),
     ANALYSIS_JOB_NOT_FOUND(HttpStatus.NOT_FOUND, "분석 작업을 찾을 수 없습니다."),
     ANALYSIS_JOB_TARGET_NOT_FOUND(HttpStatus.NOT_FOUND, "분석 대상 리소스를 찾을 수 없습니다."),
     ANALYSIS_JOB_ALREADY_IN_PROGRESS(HttpStatus.CONFLICT, "같은 대상의 분석 작업이 이미 진행 중입니다."),

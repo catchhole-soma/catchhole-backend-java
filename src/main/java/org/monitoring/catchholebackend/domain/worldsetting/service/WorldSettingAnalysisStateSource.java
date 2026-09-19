@@ -32,7 +32,8 @@ public class WorldSettingAnalysisStateSource implements AnalysisStateSource {
             ObjectNode state = mapper.toState(setting);
             var candidates = candidateRepository
                     .findAllByTargetWorldSettingIdAndReviewStatusOrderByReviewedAtDescCreatedAtDescIdDesc(
-                            setting.getId(), WorldSettingReviewStatus.CONFIRMED);
+                            setting.getId(), WorldSettingReviewStatus.CONFIRMED).stream()
+                    .filter(candidate -> !candidate.isHistoryOnly()).toList();
             mapper.addConfirmedProvenance(state, candidates);
             Integer latestSourceEpisodeNo = candidates.stream()
                     .map(candidate -> candidate.getSourceEpisode())

@@ -20,6 +20,7 @@ import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobEpi
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
@@ -374,7 +375,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         if (candidateIds.size() != request.candidates().size()) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_SELECTION_INVALID);
         }
-        invalidateSelectedRuns(work, candidateIds);
+        validateReviewMutationAllowed(work, candidateIds);
         List<WorldSettingCandidate> candidates = worldSettingCandidateRepository.findAllByIdsAndBatchForUpdate(
                 work.getId(),
                 request.batchId(),
@@ -515,7 +516,6 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             WorldSettingCandidateConfirmRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        invalidateSelectedRuns(work, List.of(candidateId));
         WorldSettingCandidate candidate = getCandidateForUpdate(candidateId, work.getId());
         requireSingletonComparisonDecision(candidate);
 
@@ -535,11 +535,22 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                     worldSettingMapper.toCandidateResponse(candidate)
             );
         }
+        validateReviewMutationAllowed(work, List.of(candidateId));
         if (candidate.getReviewStatus() == WorldSettingReviewStatus.DISMISSED) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
         }
 
         validateComparisonReadyAndOperation(candidate, request);
+        if (isCompletedOrderedReview(candidate)) {
+            confirmLateCandidate(work, candidate, new WorldSettingCandidateGroupConfirmRequest.Decision(candidate.getId(),
+                    request.operation(), request.category(), request.subjectName(), request.scopeName(),
+                    request.settingName(), request.value(), request.conflictResolved(), request.reviewNote()));
+            worldSettingCandidateRepository.flush();
+            return WorldSettingCandidateConfirmResult.confirmed(worldSettingMapper.toCandidateResponse(candidate));
+        }
+        if (isInvalidatedOrderedReview(candidate) && !isAuthorEditedDecision(candidate, request)) {
+            return markRecomparisonRequired(candidate);
+        }
         if (isOrdered(candidate)) {
             WorldSetting current = worldSettingRepository.findByIdentityForUpdate(work.getId(), request.category(),
                     WorldSettingNameNormalizer.duplicateKey(request.subjectName())).orElse(null);
@@ -671,8 +682,11 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             WorldSettingCandidateDismissRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        invalidateSelectedRuns(work, List.of(candidateId));
         WorldSettingCandidate candidate = getCandidateForUpdate(candidateId, work.getId());
+        if (candidate.getReviewStatus() == WorldSettingReviewStatus.DISMISSED) {
+            return worldSettingMapper.toCandidateResponse(candidate);
+        }
+        validateReviewMutationAllowed(work, List.of(candidateId));
         requireSingletonComparisonDecision(candidate);
         candidate.dismiss(request.reviewNote(), work.getMember());
         worldSettingCandidateRepository.flush();
@@ -696,9 +710,6 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
     ) {
         Map<UUID, WorldSettingCandidateGroupConfirmRequest.Decision> decisionsById =
                 decisionsById(request.candidates());
-        if (!automatic) {
-            invalidateSelectedRuns(work, decisionsById.keySet());
-        }
         List<WorldSettingCandidate> candidates = worldSettingCandidateRepository
                 .findAllByIdsAndBatchForUpdate(work.getId(), request.batchId(), decisionsById.keySet());
         validateRequestedCandidates(candidates, decisionsById.size());
@@ -738,6 +749,9 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                     )
             );
         }
+        if (!automatic) {
+            validateReviewMutationAllowed(work, decisionsById.keySet());
+        }
         if (candidates.stream().anyMatch(candidate -> candidate.getReviewStatus()
                 != WorldSettingReviewStatus.PENDING_REVIEW)) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
@@ -754,6 +768,29 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
 
         validateScopeReviewDecisionDrafts(candidates, decisionsById);
         validateResolvedConflicts(candidates, decisionsById);
+        if (!automatic && candidates.stream().allMatch(this::isCompletedOrderedReview)) {
+            Map<UUID, List<WorldSettingCandidate>> histories = new LinkedHashMap<>();
+            for (WorldSettingCandidate candidate : candidates.stream()
+                    .sorted(org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingCandidateChronology.comparator()).toList()) {
+                var decision = decisionsById.get(candidate.getId());
+                if (decision.operation() == WorldSettingOperation.EXCLUDE) candidate.dismiss(decision.reviewNote(), work.getMember());
+                else confirmLateCandidate(work, candidate, decision, histories);
+            }
+            worldSettingCandidateRepository.flush();
+            return WorldSettingCandidateGroupConfirmResult.confirmed(worldSettingMapper.toCandidateGroupActionResponse(
+                    selectedGroupKey, candidates, singleAppliedTarget(candidates.stream()
+                            .map(WorldSettingCandidate::getTargetWorldSetting).filter(Objects::nonNull).toList())));
+        }
+        if (!automatic && candidates.stream()
+                .filter(this::isInvalidatedOrderedReview)
+                .anyMatch(candidate -> !isAuthorEditedDecision(candidate, decisionsById.get(candidate.getId())))) {
+            return markGroupRecomparisonRequired(
+                    work,
+                    request.batchId(),
+                    selectedGroupKey,
+                    WorldSettingRecomparisonReason.PROPERTY_CHANGED
+            );
+        }
         Set<UUID> rootMoveDecisionIds = rootMoveDecisionIdsToApply(
                 candidates,
                 decisionsById
@@ -969,12 +1006,16 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         if (candidateIds.size() != request.candidateIds().size()) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_SELECTION_INVALID);
         }
-        invalidateSelectedRuns(work, candidateIds);
         List<WorldSettingCandidate> candidates = worldSettingCandidateRepository
                 .findAllByIdsAndBatchForUpdate(work.getId(), request.batchId(), candidateIds);
         validateRequestedCandidates(candidates, candidateIds.size());
         validateCompleteComparisonDecisionMembership(candidates, candidateIds);
         String selectedGroupKey = validateSameCandidateGroup(candidates);
+        if (candidates.stream().allMatch(candidate ->
+                candidate.getReviewStatus() == WorldSettingReviewStatus.DISMISSED)) {
+            return worldSettingMapper.toCandidateGroupActionResponse(selectedGroupKey, candidates, null);
+        }
+        validateReviewMutationAllowed(work, candidateIds);
         disableRootPropertyMoves(candidates);
         for (WorldSettingCandidate candidate : candidates) {
             candidate.dismiss(request.reviewNote(), work.getMember());
@@ -983,14 +1024,97 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         return worldSettingMapper.toCandidateGroupActionResponse(selectedGroupKey, candidates, null);
     }
 
-    private void invalidateSelectedRuns(Work work, java.util.Collection<UUID> candidateIds) {
-        validateAutomaticApplicationNotPending(work, candidateIds);
-        Integer cutoff = worldSettingCandidateRepository.findMutationSourceEpisodeNo(
-                work.getId(), candidateIds, WorldSettingReviewStatus.PENDING_REVIEW);
-        if (cutoff != null) {
-            analysisRunStateService.invalidateRunsForWorkForUpdate(
-                    work.getId(), cutoff, "사용자가 설정 후보를 변경했습니다.");
+    private boolean sameLateReviewName(String left, String right) {
+        return left == null || right == null ? left == right
+                : WorldSettingNameNormalizer.duplicateKey(left).equals(WorldSettingNameNormalizer.duplicateKey(right));
+    }
+
+    private boolean isCompletedOrderedReview(WorldSettingCandidate candidate) {
+        var job = candidate.getAnalysisJob();
+        return job != null && job.isOrderedProvisional() && job.getStatus() == AnalysisJobStatus.SUCCEEDED
+                && job.getJournalStatus() == AnalysisJournalStatus.SEALED;
+    }
+
+    private boolean isInvalidatedOrderedReview(WorldSettingCandidate candidate) {
+        var job = candidate.getAnalysisJob();
+        return job != null && job.isOrderedProvisional() && job.getStatus() == AnalysisJobStatus.SUCCEEDED
+                && job.getJournalStatus() != AnalysisJournalStatus.SEALED;
+    }
+
+    private void confirmLateCandidate(Work work, WorldSettingCandidate candidate,
+            WorldSettingCandidateGroupConfirmRequest.Decision decision) {
+        confirmLateCandidate(work, candidate, decision, new LinkedHashMap<>());
+    }
+
+    private void confirmLateCandidate(Work work, WorldSettingCandidate candidate,
+            WorldSettingCandidateGroupConfirmRequest.Decision decision, Map<UUID, List<WorldSettingCandidate>> histories) {
+        if (!candidate.getAnalysisJob().hasCurrentSourceVersion()) throw new AppException(AnalysisJobErrorCode.ANALYSIS_RUN_STATE_CONFLICT);
+        var current = worldSettingRepository.findByIdentityForUpdate(work.getId(), decision.category(),
+                WorldSettingNameNormalizer.duplicateKey(decision.subjectName())).orElse(null);
+        boolean historyOnly = false;
+        if (current == null && lateDecisionKeepsOriginalTarget(candidate, decision)) {
+            current = worldSettingRepository.findByIdAndWorkIdForUpdate(
+                    candidate.getTargetWorldSetting().getId(),
+                    work.getId()
+            ).orElse(null);
+            historyOnly = current != null;
         }
+        if (current != null) {
+            String value = current.getPropertyValue(decision.scopeName(), decision.settingName());
+            var prior = histories.computeIfAbsent(current.getId(), id -> new ArrayList<>(worldSettingCandidateRepository
+                    .findAllByTargetWorldSettingIdAndReviewStatusOrderByReviewedAtDescCreatedAtDescIdDesc(id, WorldSettingReviewStatus.CONFIRMED))).stream()
+                    .filter(previous -> !previous.isHistoryOnly()
+                            && sameLateReviewName(previous.getFinalScopeName(), decision.scopeName())
+                            && sameLateReviewName(previous.getFinalSettingName(), decision.settingName())).toList();
+            int episode = candidate.getSourceEpisode() == null ? -1 : candidate.getSourceEpisode().getEpisodeNo();
+            historyOnly = historyOnly
+                    || current.isManuallyEdited(decision.scopeName(), decision.settingName())
+                    || current.hasPathConflict(decision.scopeName(), decision.settingName())
+                    || value == null && !prior.isEmpty()
+                    || value == null && (decision.operation() == WorldSettingOperation.UPDATE
+                        || decision.operation() == WorldSettingOperation.MERGE)
+                    || value != null && (episode < 1 || prior.isEmpty()
+                        || prior.stream().noneMatch(previous -> Objects.equals(previous.getFinalValue(), value))
+                        || prior.stream().anyMatch(previous -> previous.getSourceEpisode() == null
+                            || previous.getSourceEpisode().getEpisodeNo() >= episode));
+        }
+        if (current == null) {
+            if (decision.operation() != WorldSettingOperation.ADD) {
+                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_UPDATE_PATH_NOT_FOUND);
+            }
+            current = worldSettingRepository.saveAndFlush(WorldSetting.create(work, decision.category(),
+                    decision.subjectName(), decision.scopeName(), decision.settingName(), decision.value()));
+        } else if (!historyOnly) {
+            current.applyProperty(decision.scopeName(), decision.settingName(), decision.value());
+        }
+        candidate.confirm(decision.operation(), decision.category(), decision.subjectName(), decision.scopeName(),
+                decision.settingName(), decision.value(), decision.reviewNote(), work.getMember(), current);
+        if (historyOnly) candidate.markHistoryOnly();
+        else {
+            histories.computeIfAbsent(current.getId(), id -> new ArrayList<>()).add(candidate);
+            automaticImages.refreshWorldSettingImages(List.of(current));
+        }
+    }
+
+    private boolean lateDecisionKeepsOriginalTarget(
+            WorldSettingCandidate candidate,
+            WorldSettingCandidateGroupConfirmRequest.Decision decision
+    ) {
+        WorldSetting original = candidate.getTargetWorldSetting();
+        if (original == null) return false;
+        boolean categoryMatches = decision.category() == original.getCategory()
+                || decision.category() == candidate.getCategory();
+        return categoryMatches
+                && (sameLateReviewName(decision.subjectName(), original.getSubjectName())
+                || sameLateReviewName(decision.subjectName(), candidate.getCanonicalSubjectName()));
+    }
+
+    private void validateReviewMutationAllowed(Work work, java.util.Collection<UUID> candidateIds) {
+        validateAutomaticApplicationNotPending(work, candidateIds);
+        if (analysisJobRepository.existsActiveOrderedReview(work.getId())) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_REVIEW_WAIT_REQUIRED);
+        }
+        // 완료된 분석의 입력·결과는 보존한다. 후보 변경만으로 후속 분석을 취소하지 않는다.
     }
 
     private void validateAutomaticApplicationNotPending(Work work, java.util.Collection<UUID> candidateIds) {

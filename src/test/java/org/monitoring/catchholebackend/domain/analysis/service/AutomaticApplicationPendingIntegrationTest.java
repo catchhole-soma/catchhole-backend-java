@@ -162,16 +162,22 @@ class AutomaticApplicationPendingIntegrationTest {
     }
 
     @Test
-    @DisplayName("완료된 앞 회차의 보류 후보를 수정하면 기존 정책대로 후속 분석을 무효화한다")
-    void permitsCompletedEarlierReviewAndInvalidatesFuture() throws Exception {
+    @DisplayName("후속 분석 중에는 앞 회차 편집을 잠시 막고 완료 후에는 분석을 취소하지 않고 허용한다")
+    void waitsDuringActiveRunThenPreservesCompletedFuture() throws Exception {
         prepare(AnalysisReviewMode.AUTOMATIC);
         ReflectionTestUtils.setField(job, "status", AnalysisJobStatus.SUCCEEDED);
         ReflectionTestUtils.setField(job, "automaticAppliedAt", LocalDateTime.now());
         entities.flush();
+        mvc.perform(auth(mutation("world-dismiss"))).andExpect(status().isConflict());
+        assertThat(world.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.PENDING_REVIEW);
+        assertThat(next.getStatus()).isEqualTo(AnalysisJobStatus.PENDING);
+        ReflectionTestUtils.setField(next, "status", AnalysisJobStatus.SUCCEEDED);
+        ReflectionTestUtils.setField(next, "journalStatus", AnalysisJournalStatus.SEALED);
+        entities.flush();
         mvc.perform(auth(mutation("world-dismiss"))).andExpect(status().isOk());
         assertThat(world.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.DISMISSED);
-        assertThat(next.getJournalStatus()).isEqualTo(AnalysisJournalStatus.INVALIDATED);
-        assertThat(next.getStatus()).isEqualTo(AnalysisJobStatus.CANCELED);
+        assertThat(next.getJournalStatus()).isEqualTo(AnalysisJournalStatus.SEALED);
+        assertThat(next.getStatus()).isEqualTo(AnalysisJobStatus.SUCCEEDED);
     }
 
     private MockHttpServletRequestBuilder mutation(String action) throws Exception {

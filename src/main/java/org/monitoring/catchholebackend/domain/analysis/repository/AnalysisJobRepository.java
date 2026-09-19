@@ -377,4 +377,13 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             UUID settingCandidateId,
             Collection<AnalysisJobStatus> statuses
     );
+    @Query("""
+            select count(job) > 0 from AnalysisJob job
+            where job.work.id = :workId
+              and job.analysisMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL
+              and job.status in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING,
+                                 org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING)
+            """)
+    boolean existsActiveOrderedReview(@Param("workId") UUID workId);
+
 }
