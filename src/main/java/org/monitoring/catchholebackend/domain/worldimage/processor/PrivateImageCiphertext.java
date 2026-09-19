@@ -9,7 +9,7 @@ import org.springframework.web.multipart.MultipartFile;
 /** CHI1 + 12-byte nonce + AES-GCM ciphertext/tag. 서버는 복호화나 이미지 디코딩을 하지 않는다. */
 public final class PrivateImageCiphertext {
     private PrivateImageCiphertext() {}
-    public static final long IMAGE_LIMIT = 8L * 1024 * 1024 + 32;
+    public static final long IMAGE_LIMIT = 5L * 1024 * 1024 + 32;
     public static final long THUMBNAIL_LIMIT = 512L * 1024;
 
     public static byte[] read(MultipartFile file, long limit) {

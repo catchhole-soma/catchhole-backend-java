@@ -130,7 +130,7 @@ class PrivateWorldImageIntegrationTest {
         return mvc.perform(multipart(base).file(new MockMultipartFile("metadata", "metadata.json", "application/json",
                         ("{\"id\":\"" + imageId + "\",\"name\":\"내 그림.png\"}").getBytes(StandardCharsets.UTF_8)))
                 .file(new MockMultipartFile("image", "image.png", "image/png", bytes))
-                .file(new MockMultipartFile("thumbnail", "thumbnail.png", "image/png", bytes))
+                .file(new MockMultipartFile("thumbnail", "thumbnail.png", "image/png", png()))
                 .header("Authorization", auth));
     }
 
@@ -152,12 +152,34 @@ class PrivateWorldImageIntegrationTest {
     }
 
     @Test
+    @DisplayName("정상 PNG는 5MiB까지 허용하고 1바이트라도 초과하면 저장하지 않는다")
+    void accountImageFiveMiBBoundary() throws Exception {
+        byte[] valid = png();
+        uploadAccountImage(token, java.util.Arrays.copyOf(valid, 5 * 1024 * 1024 + 1))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(storage);
+        uploadAccountImage(token, java.util.Arrays.copyOf(valid, 5 * 1024 * 1024))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("이전 암호화 업로드도 5MiB에 암호화 부가정보를 더한 크기로 제한한다")
+    void legacyUploadUsesSameFiveMiBLimit() throws Exception {
+        createVault().andExpect(status().isOk());
+        upload(token, java.util.Arrays.copyOf(envelope, 5 * 1024 * 1024 + 33))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(storage);
+        upload(token, java.util.Arrays.copyOf(envelope, 5 * 1024 * 1024 + 32))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     @DisplayName("새 업로드도 타인 작품·위장 파일·잘못된 크기를 거절한다")
     void accountImageRejectsForeignOwnerAndInvalidBytes() throws Exception {
         uploadAccountImage(strangerToken, png()).andExpect(status().isNotFound());
         uploadAccountImage(token, envelope).andExpect(status().isBadRequest());
         uploadAccountImage(token, "<svg onload='alert(1)'/>".getBytes(StandardCharsets.UTF_8)).andExpect(status().isBadRequest());
-        uploadAccountImage(token, new byte[8 * 1024 * 1024 + 1]).andExpect(status().isBadRequest());
+        uploadAccountImage(token, new byte[5 * 1024 * 1024 + 1]).andExpect(status().isBadRequest());
         verifyNoInteractions(storage);
     }
 
@@ -230,7 +252,7 @@ class PrivateWorldImageIntegrationTest {
         upload(token, envelope).andExpect(status().isBadRequest());
         createVault().andExpect(status().isOk());
         upload(token, "plain image".getBytes(StandardCharsets.UTF_8)).andExpect(status().isBadRequest());
-        upload(token, new byte[8 * 1024 * 1024 + 33]).andExpect(status().isBadRequest());
+        upload(token, new byte[5 * 1024 * 1024 + 33]).andExpect(status().isBadRequest());
         assertThat(images.countByWorkId(workId)).isZero();
         verifyNoInteractions(storage);
     }

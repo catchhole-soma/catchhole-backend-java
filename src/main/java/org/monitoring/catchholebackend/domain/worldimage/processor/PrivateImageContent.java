@@ -14,7 +14,7 @@ public final class PrivateImageContent {
     private PrivateImageContent() {}
 
     public static byte[] readPng(MultipartFile file, boolean thumbnail) {
-        long limit = thumbnail ? 512 * 1024 : 8 * 1024 * 1024;
+        long limit = thumbnail ? 512 * 1024 : 5 * 1024 * 1024;
         if (file == null || file.isEmpty() || file.getSize() > limit) throw invalid();
         try (var input = new MemoryCacheImageInputStream(new ByteArrayInputStream(file.getBytes()))) {
             var readers = ImageIO.getImageReaders(input);
