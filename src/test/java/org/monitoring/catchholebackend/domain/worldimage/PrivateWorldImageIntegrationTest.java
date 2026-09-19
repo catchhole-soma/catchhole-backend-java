@@ -101,6 +101,20 @@ class PrivateWorldImageIntegrationTest {
             members.deleteById(ownerId); members.deleteById(strangerId);
         });
     }
+    @Test
+    @DisplayName("예전 방식 업로드의 암호화 정보 누락은 저장 전에 입력 오류로 거절한다")
+    void missingLegacyMetadataReturnsBadRequest() throws Exception {
+        mvc.perform(multipart(base)
+                .file(new MockMultipartFile("metadata", "metadata.json", "application/json",
+                        ("{\"id\":\"" + imageId + "\",\"vaultId\":\"" + vaultId + "\"}").getBytes(StandardCharsets.UTF_8)))
+                .file(new MockMultipartFile("image", "image.enc", "application/octet-stream", envelope))
+                .file(new MockMultipartFile("thumbnail", "thumbnail.enc", "application/octet-stream", envelope))
+                .header("Authorization", token))
+                .andExpect(status().isBadRequest());
+        assertThat(images.existsById(imageId)).isFalse();
+        verifyNoInteractions(storage);
+    }
+
     private UUID attemptId() { return images.findById(imageId).orElseThrow().getStorageAttemptId(); }
     private String encoded() { return Base64.getEncoder().encodeToString(envelope); }
     private ResultActions createVault() throws Exception {

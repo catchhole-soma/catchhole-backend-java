@@ -344,13 +344,13 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             SettingCandidateConfirmRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        validateReviewMutationAllowed(work, List.of(candidateId));
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
         if (candidate.getReviewStatus() == SettingCandidateReviewStatus.CONFIRMED) {
             return SettingCandidateConfirmResult.confirmed(
                     settingCandidateMapper.toReviewStatusResponse(candidate)
             );
         }
+        validateReviewMutationAllowed(work, List.of(candidateId));
         if (candidate.getReviewStatus() != SettingCandidateReviewStatus.PENDING_REVIEW) {
             candidate.confirm();
         }
@@ -434,7 +434,6 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
             }
         });
-        validateReviewMutationAllowed(work, decisions.keySet());
         List<SettingCandidate> candidates = SettingCandidateChronology.sorted(
                 settingCandidateRepository.findAllByIdsAndBatchForUpdate(
                         work.getId(), request.batchId(), decisions.keySet()
@@ -455,6 +454,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             }
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
         }
+        validateReviewMutationAllowed(work, decisions.keySet());
         validateCompletePendingGroup(work, request.batchId(), candidates, decisions.keySet());
         if (candidates.stream().anyMatch(candidate -> candidate.getMatchStatus()
                 == SettingCandidateMatchStatus.AMBIGUOUS)) {

@@ -398,12 +398,21 @@ class AutomaticAnalysisIntegrationTest {
         tx.executeWithoutResult(status -> {
             AnalysisJob job = jobs.findById(second.analysisJobId()).orElseThrow();
             var discovered = discovery(job, "에르웬", null, true);
-            if (!scenario.equals("empty") && !scenario.equals("past")) addStat(job, discovered.getProvisionalSubjectKey(), null, 36, CharacterFactOperation.ADD);
+            if (!List.of("empty", "past", "history", "remove").contains(scenario)) addStat(job, discovered.getProvisionalSubjectKey(), null, 36, CharacterFactOperation.ADD);
         });
         complete(second);
         Long owner = tx.execute(status -> entities.find(Work.class, run.workId()).getMember().getId());
         UUID character = tx.execute(status -> entities.createQuery("select c.id from WorkCharacter c where c.work.id = :work", UUID.class)
                 .setParameter("work", run.workId()).getSingleResult());
+        tx.executeWithoutResult(status -> {
+            if (scenario.equals("past")) ReflectionTestUtils.setField(candidates.findById(pending).orElseThrow(), "temporalScope", CharacterFactTemporalScope.PAST);
+            if (scenario.equals("history") || scenario.equals("remove")) {
+                var candidate = candidates.findById(pending).orElseThrow();
+                ReflectionTestUtils.setField(candidate, "temporalScope", CharacterFactTemporalScope.PRESENT);
+                ReflectionTestUtils.setField(candidate, "suggestedOperation", scenario.equals("history")
+                        ? CharacterFactOperation.HISTORY_ONLY : CharacterFactOperation.REMOVE);
+            }
+        });
         characterReview.updateSettingCandidateCharacterMatch(owner, run.workId(), pending,
                 new org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateCharacterMatchRequest(
                     org.monitoring.catchholebackend.domain.character.type.SettingCandidateCharacterMatchResolutionType.MATCH_EXISTING, character, null));
@@ -417,17 +426,18 @@ class AutomaticAnalysisIntegrationTest {
                 new org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessor().replace(entity, snapshot);
                 entities.createQuery("delete from CharacterSnapshotSource s where s.workCharacter.id = :id").setParameter("id", character).executeUpdate();
             }
-            if (scenario.equals("past")) ReflectionTestUtils.setField(candidates.findById(pending).orElseThrow(), "temporalScope", CharacterFactTemporalScope.PAST);
         });
         UUID batch = tx.execute(status -> jobs.findById(first.analysisJobId()).orElseThrow().getBatch().getId());
         if (group) {
             var request = new SettingCandidateGroupConfirmRequest(batch, List.of(new SettingCandidateGroupConfirmDecision(
                     pending, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, null, true)));
             assertThat(characterReview.confirmSettingCandidateGroup(owner, run.workId(), request).recomparisonRequired()).isFalse();
+            nextBatch(run.workId(), 3);
             assertThat(characterReview.confirmSettingCandidateGroup(owner, run.workId(), request).recomparisonRequired()).isFalse();
         } else {
             var request = new SettingCandidateConfirmRequest(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, null, true);
             assertThat(characterReview.confirmSettingCandidate(owner, run.workId(), pending, request).recomparisonRequired()).isFalse();
+            nextBatch(run.workId(), 3);
             assertThat(characterReview.confirmSettingCandidate(owner, run.workId(), pending, request).recomparisonRequired()).isFalse();
         }
         tx.executeWithoutResult(status -> {
@@ -439,7 +449,6 @@ class AutomaticAnalysisIntegrationTest {
             assertThat(entities.createQuery("select count(f) from CharacterFact f where f.settingCandidate.id = :candidate", Long.class)
                     .setParameter("candidate", pending).getSingleResult()).isEqualTo(1);
         });
-        nextBatch(run.workId(), 3);
         var third = claim();
         var values = input(third).path("characters").findValuesAsText("factValue");
         if (scenario.equals("empty")) assertThat(values).contains("35");
@@ -475,7 +484,7 @@ class AutomaticAnalysisIntegrationTest {
     }
 
     static Stream<Arguments> lateCharacterCases() {
-        return Stream.of("latest", "removed", "manual", "empty", "past")
+        return Stream.of("latest", "removed", "manual", "empty", "past", "history", "remove")
                 .flatMap(scenario -> Stream.of(Arguments.of(scenario, false), Arguments.of(scenario, true)));
     }
 
@@ -524,11 +533,13 @@ class AutomaticAnalysisIntegrationTest {
                     List.of(new org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateGroupConfirmRequest.Decision(
                             pending, WorldSettingOperation.ADD, WorldSettingCategory.RACE, "엘프", scope, name, "남부", true, "직접 확인")));
             assertThat(worldApplication.confirmCandidateGroup(owner, run.workId(), request).recomparisonRequired()).isFalse();
+            nextBatch(run.workId(), 3);
             assertThat(worldApplication.confirmCandidateGroup(owner, run.workId(), request).recomparisonRequired()).isFalse();
         } else {
             var request = new WorldSettingCandidateConfirmRequest(WorldSettingOperation.ADD, WorldSettingCategory.RACE,
                     "엘프", scope, name, "남부", true, "직접 확인");
             assertThat(worldApplication.confirmCandidate(owner, run.workId(), pending, request).recomparisonRequired()).isFalse();
+            nextBatch(run.workId(), 3);
             assertThat(worldApplication.confirmCandidate(owner, run.workId(), pending, request).recomparisonRequired()).isFalse();
         }
         boolean historical = !scenario.startsWith("new");
@@ -540,7 +551,6 @@ class AutomaticAnalysisIntegrationTest {
                     !historical ? "남부" : scenario.equals("removed") ? null : scenario.equals("manual") ? "작가가 고른 숲" : "북부");
             assertThat(jobs.findById(second.analysisJobId()).orElseThrow().getJournalStatus()).isEqualTo(AnalysisJournalStatus.SEALED);
         });
-        nextBatch(run.workId(), 3);
         String nextProperties = input(claim()).path("worldSettings").elements().next().path("propertiesJson").toString();
         if (historical) assertThat(nextProperties).doesNotContain("남부");
         else assertThat(nextProperties).contains("남부");

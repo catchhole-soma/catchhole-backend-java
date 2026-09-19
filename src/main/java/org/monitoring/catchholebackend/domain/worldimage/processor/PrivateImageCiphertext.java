@@ -24,6 +24,7 @@ public final class PrivateImageCiphertext {
     }
 
     public static void validateBase64(String value) {
+        if (value == null || value.isBlank()) throw invalid();
         try {
             validate(Base64.getDecoder().decode(value));
         } catch (IllegalArgumentException exception) {

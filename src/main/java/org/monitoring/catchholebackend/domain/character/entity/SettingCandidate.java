@@ -835,7 +835,7 @@ public class SettingCandidate extends BaseEntity {
 
     public void markRecomparisonRequired(String reason) {
         validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
-        clearComparisonProposal();
+        clearComparisonAfterReviewChange();
         comparisonStatus = CharacterFactComparisonStatus.RECOMPARISON_REQUIRED;
         comparisonErrorMessage = normalizeNullable(reason);
     }
@@ -935,7 +935,7 @@ public class SettingCandidate extends BaseEntity {
             comparisonStatus = CharacterFactComparisonStatus.NOT_REQUIRED;
             return;
         }
-        clearComparisonProposal();
+        clearComparisonAfterReviewChange();
         comparisonStatus = needsCharacterMatch()
                 ? CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH
                 : CharacterFactComparisonStatus.PENDING;
@@ -943,8 +943,23 @@ public class SettingCandidate extends BaseEntity {
 
     private void markWaitingForCharacterMatch() {
         if (!isCharacterDiscovery() && isPendingReview()) {
-            clearComparisonProposal();
+            clearComparisonAfterReviewChange();
             comparisonStatus = CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH;
+        }
+    }
+
+    private void clearComparisonAfterReviewChange() {
+        CharacterFactTemporalScope reviewedScope = temporalScope;
+        CharacterFactOperation reviewedOperation = suggestedOperation;
+        boolean completedOrdered = analysisJob != null && analysisJob.isOrderedProvisional()
+                && analysisJob.getStatus() == org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.SUCCEEDED;
+        clearComparisonProposal();
+        // 대상·표시값 편집은 과거 사실을 현재 상태로 바꾸는 선택이 아니다.
+        if (completedOrdered) {
+            temporalScope = reviewedScope;
+            if (reviewedOperation == CharacterFactOperation.HISTORY_ONLY || reviewedOperation == CharacterFactOperation.REMOVE) {
+                suggestedOperation = reviewedOperation;
+            }
         }
     }
 

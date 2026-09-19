@@ -515,7 +515,6 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             WorldSettingCandidateConfirmRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        validateReviewMutationAllowed(work, List.of(candidateId));
         WorldSettingCandidate candidate = getCandidateForUpdate(candidateId, work.getId());
         requireSingletonComparisonDecision(candidate);
 
@@ -535,6 +534,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                     worldSettingMapper.toCandidateResponse(candidate)
             );
         }
+        validateReviewMutationAllowed(work, List.of(candidateId));
         if (candidate.getReviewStatus() == WorldSettingReviewStatus.DISMISSED) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
         }
@@ -703,9 +703,6 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
     ) {
         Map<UUID, WorldSettingCandidateGroupConfirmRequest.Decision> decisionsById =
                 decisionsById(request.candidates());
-        if (!automatic) {
-            validateReviewMutationAllowed(work, decisionsById.keySet());
-        }
         List<WorldSettingCandidate> candidates = worldSettingCandidateRepository
                 .findAllByIdsAndBatchForUpdate(work.getId(), request.batchId(), decisionsById.keySet());
         validateRequestedCandidates(candidates, decisionsById.size());
@@ -744,6 +741,9 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                             appliedTarget
                     )
             );
+        }
+        if (!automatic) {
+            validateReviewMutationAllowed(work, decisionsById.keySet());
         }
         if (candidates.stream().anyMatch(candidate -> candidate.getReviewStatus()
                 != WorldSettingReviewStatus.PENDING_REVIEW)) {
