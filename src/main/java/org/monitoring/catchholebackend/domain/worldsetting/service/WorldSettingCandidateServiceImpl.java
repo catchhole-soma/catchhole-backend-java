@@ -682,8 +682,11 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             WorldSettingCandidateDismissRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        validateReviewMutationAllowed(work, List.of(candidateId));
         WorldSettingCandidate candidate = getCandidateForUpdate(candidateId, work.getId());
+        if (candidate.getReviewStatus() == WorldSettingReviewStatus.DISMISSED) {
+            return worldSettingMapper.toCandidateResponse(candidate);
+        }
+        validateReviewMutationAllowed(work, List.of(candidateId));
         requireSingletonComparisonDecision(candidate);
         candidate.dismiss(request.reviewNote(), work.getMember());
         worldSettingCandidateRepository.flush();
@@ -1003,12 +1006,16 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         if (candidateIds.size() != request.candidateIds().size()) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_SELECTION_INVALID);
         }
-        validateReviewMutationAllowed(work, candidateIds);
         List<WorldSettingCandidate> candidates = worldSettingCandidateRepository
                 .findAllByIdsAndBatchForUpdate(work.getId(), request.batchId(), candidateIds);
         validateRequestedCandidates(candidates, candidateIds.size());
         validateCompleteComparisonDecisionMembership(candidates, candidateIds);
         String selectedGroupKey = validateSameCandidateGroup(candidates);
+        if (candidates.stream().allMatch(candidate ->
+                candidate.getReviewStatus() == WorldSettingReviewStatus.DISMISSED)) {
+            return worldSettingMapper.toCandidateGroupActionResponse(selectedGroupKey, candidates, null);
+        }
+        validateReviewMutationAllowed(work, candidateIds);
         disableRootPropertyMoves(candidates);
         for (WorldSettingCandidate candidate : candidates) {
             candidate.dismiss(request.reviewNote(), work.getMember());

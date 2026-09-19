@@ -957,8 +957,11 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             UUID candidateId
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        validateReviewMutationAllowed(work, List.of(candidateId));
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
+        if (candidate.getReviewStatus() == SettingCandidateReviewStatus.DISMISSED) {
+            return settingCandidateMapper.toReviewStatusResponse(candidate);
+        }
+        validateReviewMutationAllowed(work, List.of(candidateId));
         candidate.recordUserModification();
         List<CharacterFactComparisonJobCoordinator.ScopeRef> previousScopes =
                 characterComparisonJobCoordinator.scopeRefs(List.of(candidate));

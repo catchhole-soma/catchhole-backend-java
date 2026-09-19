@@ -62,6 +62,7 @@ import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.service.SettingCandidateService;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateConfirmRequest;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDismissRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDecisionUpdateRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDecisionUpdateItem;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
@@ -351,6 +352,48 @@ class AutomaticAnalysisIntegrationTest {
         assertThat(reference.path("reason").asText()).contains("사용자", "수정 전 원문");
         assertThat(reference.path("evidenceSpans").toString()).contains("99");
         assertThat(input(third).path("characters")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("이미 제외한 후보의 재요청은 다음 순차 분석 중에도 같은 결과를 반환한다")
+    void repeatedDismissalRemainsIdempotentDuringLaterOrderedRun() {
+        Run run = run(2);
+        WorkerAnalysisJobPayload first = claim();
+        UUID dismissedCharacterId = tx.execute(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            SettingCandidate character = addUnresolvedReference(job);
+            return character.getId();
+        });
+        complete(first);
+        UUID dismissedWorldId = tx.execute(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            candidates.findById(dismissedCharacterId).orElseThrow().dismiss();
+            WorldSettingCandidate world = WorldSettingCandidate.create(
+                    job.getWork(), job.getEpisode(), job,
+                    WorldSettingCategory.RACE, "고블린", "전투 특징", "무리지어 공격한다.",
+                    JSON.arrayNode(), BigDecimal.ONE, null
+            );
+            entities.persist(world);
+            world.dismiss("첫 제외", job.getWork().getMember());
+            return world.getId();
+        });
+        WorkerAnalysisJobPayload second = claim();
+        Long owner = tx.execute(status -> entities.find(Work.class, run.workId()).getMember().getId());
+
+        assertThat(characterReview.dismissSettingCandidate(owner, run.workId(), dismissedCharacterId)
+                .reviewStatus()).isEqualTo(SettingCandidateReviewStatus.DISMISSED);
+        assertThat(worldApplication.dismissCandidate(owner, run.workId(), dismissedWorldId,
+                new WorldSettingCandidateDismissRequest("재시도")).reviewStatus())
+                .isEqualTo(WorldSettingReviewStatus.DISMISSED);
+
+        tx.executeWithoutResult(status -> {
+            assertThat(jobs.findById(second.analysisJobId()).orElseThrow().getStatus())
+                    .isEqualTo(AnalysisJobStatus.RUNNING);
+            assertThat(candidates.findById(dismissedCharacterId).orElseThrow().getReviewStatus())
+                    .isEqualTo(SettingCandidateReviewStatus.DISMISSED);
+            assertThat(entities.find(WorldSettingCandidate.class, dismissedWorldId).getReviewNote())
+                    .isEqualTo("첫 제외");
+        });
     }
 
     @Test
