@@ -57,7 +57,7 @@ public class WorldSettingAnalysisStateMapper {
         for (var property : properties.properties()) {
             ObjectNode source = (ObjectNode) state.path("provenanceByPath").path(pathKey(property.scopeName(), property.settingName()));
             source.put("reviewSource", "HUMAN");
-            candidates.stream().filter(candidate -> Objects.equals(candidate.getFinalScopeName(), property.scopeName())
+            candidates.stream().filter(candidate -> !candidate.isHistoryOnly()).filter(candidate -> Objects.equals(candidate.getFinalScopeName(), property.scopeName())
                     && Objects.equals(candidate.getFinalSettingName(), property.settingName())
                     && Objects.equals(candidate.getFinalValue(), property.value())).findFirst().ifPresent(candidate -> {
                         source.put("sourceEpisodeNo", candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getEpisodeNo());

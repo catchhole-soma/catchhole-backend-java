@@ -15,6 +15,7 @@ import org.monitoring.catchholebackend.domain.worldimage.entity.PrivateWorldImag
 import org.monitoring.catchholebackend.domain.worldimage.exception.WorldImageErrorCode;
 import org.monitoring.catchholebackend.domain.worldimage.mapper.PrivateWorldImageMapper;
 import org.monitoring.catchholebackend.domain.worldimage.processor.PrivateImageCiphertext;
+import org.monitoring.catchholebackend.domain.worldimage.processor.PrivateImageContent;
 import org.monitoring.catchholebackend.domain.worldimage.repository.PrivateImageVaultRepository;
 import org.monitoring.catchholebackend.domain.worldimage.repository.PrivateWorldImageRepository;
 import org.monitoring.catchholebackend.domain.worldimage.repository.WorldSettingImageRepository;
@@ -83,26 +84,37 @@ public class PrivateWorldImageServiceImpl implements PrivateWorldImageService {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PrivateWorldImageResponse upload(Long memberId, UUID workId, PrivateWorldImageUploadRequest request,
             MultipartFile image, MultipartFile thumbnail) {
-        PrivateImageCiphertext.validateBase64(request.encryptedMetadata());
-        byte[] encryptedImage = PrivateImageCiphertext.read(image, PrivateImageCiphertext.IMAGE_LIMIT);
-        byte[] encryptedThumbnail = PrivateImageCiphertext.read(thumbnail, PrivateImageCiphertext.THUMBNAIL_LIMIT);
+        transactionTemplate.executeWithoutResult(status -> works.getOwnedWork(workId, memberId));
+        boolean legacy = request.vaultId() != null;
+        if (legacy) {
+            if (request.name() != null) throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_INVALID);
+            PrivateImageCiphertext.validateBase64(request.encryptedMetadata());
+        } else if (request.encryptedMetadata() != null || request.name() == null || request.name().isBlank()) {
+            throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_INVALID);
+        }
+        byte[] encryptedImage = legacy ? PrivateImageCiphertext.read(image, PrivateImageCiphertext.IMAGE_LIMIT)
+                : PrivateImageContent.readPng(image, false);
+        byte[] encryptedThumbnail = legacy ? PrivateImageCiphertext.read(thumbnail, PrivateImageCiphertext.THUMBNAIL_LIMIT)
+                : PrivateImageContent.readPng(thumbnail, true);
         UUID attemptId = UUID.randomUUID();
         transactionTemplate.executeWithoutResult(status -> {
             var work = works.getOwnedWorkForUpdate(workId, memberId);
-            var vault = vaults.findByMemberId(memberId)
+            var vault = legacy ? vaults.findByMemberId(memberId)
                     .filter(value -> value.getId().equals(request.vaultId()))
-                    .orElseThrow(() -> new AppException(WorldImageErrorCode.PRIVATE_IMAGE_VAULT_REQUIRED));
+                    .orElseThrow(() -> new AppException(WorldImageErrorCode.PRIVATE_IMAGE_VAULT_REQUIRED)) : null;
             if (images.existsById(request.id())) throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_CONFLICT);
             if (images.countByWorkId(workId) >= 50) throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_LIMIT);
-            var reserved = PrivateWorldImage.create(request.id(), work, vault, request.encryptedMetadata(),
-                    encryptedImage.length, encryptedThumbnail.length);
+            var reserved = legacy ? PrivateWorldImage.create(request.id(), work, vault, request.encryptedMetadata(),
+                    encryptedImage.length, encryptedThumbnail.length)
+                    : PrivateWorldImage.createAccountImage(request.id(), work, request.name().trim(),
+                            encryptedImage.length, encryptedThumbnail.length);
             reserved.reserveUpload(attemptId);
             images.saveAndFlush(reserved);
         });
         var target = new CleanupTarget(workId, request.id(), attemptId);
         try {
-            storage.putBytes(PrivateWorldImagePaths.key(workId, request.id(), attemptId, false), encryptedImage, "application/octet-stream");
-            storage.putBytes(PrivateWorldImagePaths.key(workId, request.id(), attemptId, true), encryptedThumbnail, "application/octet-stream");
+            storage.putBytes(PrivateWorldImagePaths.key(workId, request.id(), attemptId, false), encryptedImage, legacy ? "application/octet-stream" : "image/png");
+            storage.putBytes(PrivateWorldImagePaths.key(workId, request.id(), attemptId, true), encryptedThumbnail, legacy ? "application/octet-stream" : "image/png");
             return transactionTemplate.execute(status -> {
                 works.getOwnedWorkForUpdate(workId, memberId);
                 var saved = images.findByIdForUpdate(request.id()).filter(value -> attemptId.equals(value.getStorageAttemptId()))

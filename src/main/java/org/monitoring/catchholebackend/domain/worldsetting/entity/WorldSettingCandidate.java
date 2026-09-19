@@ -302,6 +302,11 @@ public class WorldSettingCandidate extends BaseEntity {
         reviewedBy = null;
     }
 
+    @Column(name = "history_only", nullable = false)
+    private boolean historyOnly;
+
+    public void markHistoryOnly() { historyOnly = true; }
+
     @Column(name = "applied_world_setting_version")
     private Long appliedWorldSettingVersion;
 

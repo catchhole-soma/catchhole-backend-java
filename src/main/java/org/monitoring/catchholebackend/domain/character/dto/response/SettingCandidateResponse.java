@@ -168,6 +168,8 @@ public record SettingCandidateResponse(
         boolean automaticApplicationPending,
 
         @Schema(description = "후보 원본 분석의 입력 정책", nullable = true)
-        org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode analysisMode
+        org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode analysisMode,
+        @Schema(description = "현재 설정을 유지하고 원문 회차 이력에만 확정했는지 여부")
+        boolean historyOnly
 ) {
 }

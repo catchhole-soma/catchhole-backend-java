@@ -441,8 +441,27 @@ public class SettingCandidate extends BaseEntity {
 
     public void prepareUserEditedValue(CharacterFactType factType, String factKey, String value,
             JsonNode typedValue, CharacterFactOperation operation, long snapshotVersion) {
+        prepareUserEditedValue(factType, factKey, value, typedValue, operation, snapshotVersion, CharacterFactTemporalScope.PRESENT);
+    }
+
+    public void prepareUserEditedValue(CharacterFactType factType, String factKey, String value,
+            JsonNode typedValue, CharacterFactOperation operation, long snapshotVersion, CharacterFactTemporalScope reviewedScope) {
+        prepareReviewedValue(factType, factKey, value, typedValue, operation, snapshotVersion, reviewedScope, false);
+    }
+
+    /** 완료된 회차의 명시적 확정. 단순 확정을 값의 직접 수정으로 기록하지 않는다. */
+    public void prepareLateReviewedValue(CharacterFactType factType, String factKey, String value,
+            JsonNode typedValue, CharacterFactOperation operation, long snapshotVersion, CharacterFactTemporalScope reviewedScope) {
+        if (analysisJob == null || analysisJob.getStatus() != org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.SUCCEEDED) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        prepareReviewedValue(factType, factKey, value, typedValue, operation, snapshotVersion, reviewedScope, true);
+    }
+
+    private void prepareReviewedValue(CharacterFactType factType, String factKey, String value,
+            JsonNode typedValue, CharacterFactOperation operation, long snapshotVersion, CharacterFactTemporalScope reviewedScope, boolean lateReview) {
         validateReviewContentEditable();
-        if (analysisJob == null || !analysisJob.isOrderedProvisional() || !userModified
+        if (analysisJob == null || !analysisJob.isOrderedProvisional() || (!userModified && !lateReview)
                 || comparisonStatus == CharacterFactComparisonStatus.PROCESSING
                 || matchStatus == SettingCandidateMatchStatus.AMBIGUOUS
                 || operation != CharacterFactOperation.ADD && operation != CharacterFactOperation.UPDATE) {
@@ -456,10 +475,10 @@ public class SettingCandidate extends BaseEntity {
         proposedFactValue = value;
         proposedValueJson = typedValue == null ? null : typedValue.deepCopy();
         comparisonBaseSnapshotVersion = snapshotVersion;
-        temporalScope = CharacterFactTemporalScope.PRESENT;
-        comparisonReason = "사용자가 수정값 적용을 명시적으로 선택했습니다.";
+        temporalScope = reviewedScope == null ? CharacterFactTemporalScope.PRESENT : reviewedScope;
+        comparisonReason = userModified ? "사용자가 수정값 적용을 명시적으로 선택했습니다." : "사용자가 후보 값을 확인했습니다.";
         rawComparisonJson = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode()
-                .put("origin", "USER_EDIT");
+                .put("origin", userModified ? "USER_EDIT" : "USER_CONFIRM");
         comparedAt = LocalDateTime.now();
         comparisonStatus = CharacterFactComparisonStatus.COMPLETED;
     }

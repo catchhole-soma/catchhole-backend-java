@@ -32,6 +32,7 @@ public class CharacterAnalysisConfirmation {
     private final SettingCandidateRepository candidateRepository;
     private final CharacterSnapshotSourceRepository sourceRepository;
     private final CharacterSnapshotAccessor accessor;
+    private final org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository factRepository;
 
     public boolean hasCurrentContext(SettingCandidate candidate, List<SettingCandidate> earlierApplied) {
         if (candidate.isCharacterDiscovery()) {
@@ -115,6 +116,34 @@ public class CharacterAnalysisConfirmation {
                 .forEach(source -> sources.computeIfAbsent(new CharacterSnapshotSlot(
                         source.getFactType(), source.getFactKey()), ignored -> new ArrayList<>()).add(source.getSourceFact()));
         return accessor.read(character, sources);
+    }
+
+    /** 늦은 사용자 확정의 현재값 보호. 없는 현재값도 과거 적용 흔적이 있으면 복원하지 않는다. */
+    public boolean keepLateReviewInHistory(SettingCandidate candidate, CharacterFactType type, String key) {
+        UUID id = resolvedCharacterId(candidate);
+        if (id == null) return false;
+        WorkCharacter character = characterRepository.findByIdAndWorkIdForUpdate(id, candidate.getWork().getId()).orElse(null);
+        if (character == null || character.getStatus() != CharacterStatus.ACTIVE) throw new org.monitoring.catchholebackend.global.exception.AppException(
+                org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID);
+        var slot = new CharacterSnapshotSlot(type, key);
+        int episode = candidate.getEpisode() == null ? -1 : candidate.getEpisode().getEpisodeNo();
+        if (!accessor.read(character).containsKey(slot)) {
+            var history = factRepository.findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(id, type, key);
+            return history.stream().anyMatch(fact -> fact.getSettingCandidate() == null
+                    || fact.getSettingCandidate().getSuggestedOperation() != CharacterFactOperation.HISTORY_ONLY
+                    && fact.getSettingCandidate().getConfirmedApplicationMode()
+                        != org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+        }
+        var sources = sourceRepository.findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderBySourceOrderAsc(id, type, key);
+        if (sources.isEmpty() || episode < 1) return true;
+        return sources.stream().anyMatch(source -> {
+            var fact = source.getSourceFact();
+            var origin = fact.getSettingCandidate();
+            Integer number = fact.getEffectiveFromEpisodeNo();
+            if (number == null && fact.getSourceEpisode() != null) number = fact.getSourceEpisode().getEpisodeNo();
+            if (number == null && origin != null && origin.getEpisode() != null) number = origin.getEpisode().getEpisodeNo();
+            return origin == null || origin.isUserModified() || number == null || number >= episode;
+        });
     }
 
     private boolean sameTarget(SettingCandidate left, SettingCandidate right) {

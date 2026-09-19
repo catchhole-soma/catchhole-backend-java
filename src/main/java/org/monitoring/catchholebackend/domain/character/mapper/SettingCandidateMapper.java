@@ -120,7 +120,8 @@ public class SettingCandidateMapper {
                 candidate.isManualReviewAvailable(),
                 candidate.isPendingReview() ? candidate.getAutomaticReviewHoldReason() : null,
                 candidate.isAutomaticApplicationPending(),
-                analysisJob == null ? null : analysisJob.getAnalysisMode()
+                analysisJob == null ? null : analysisJob.getAnalysisMode(),
+                candidate.getConfirmedApplicationMode() == org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode.HISTORY_ONLY
         );
     }
 

@@ -92,6 +92,23 @@ public class WorldSetting extends BaseEntity {
     @Column(name = "properties_json", nullable = false, columnDefinition = "jsonb")
     private JsonNode propertiesJson;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "manually_edited_paths", nullable = false, columnDefinition = "jsonb")
+    private JsonNode manuallyEditedPaths = JsonNodeFactory.instance.arrayNode();
+
+    public void protectManualProperty(String scopeName, String settingName) {
+        String path = org.monitoring.catchholebackend.domain.worldsetting.mapper.WorldSettingAnalysisStateMapper.pathKey(scopeName == null ? null : WorldSettingNameNormalizer.duplicateKey(scopeName), WorldSettingNameNormalizer.duplicateKey(settingName));
+        if (!isManuallyEdited(scopeName, settingName)) {
+            ((com.fasterxml.jackson.databind.node.ArrayNode) manuallyEditedPaths).add(path);
+        }
+    }
+
+    public boolean isManuallyEdited(String scopeName, String settingName) {
+        String path = org.monitoring.catchholebackend.domain.worldsetting.mapper.WorldSettingAnalysisStateMapper.pathKey(scopeName == null ? null : WorldSettingNameNormalizer.duplicateKey(scopeName), WorldSettingNameNormalizer.duplicateKey(settingName));
+        for (JsonNode value : manuallyEditedPaths) if (path.equals(value.asText())) return true;
+        return false;
+    }
+
     @Column(name = "version", nullable = false)
     private long version;
 

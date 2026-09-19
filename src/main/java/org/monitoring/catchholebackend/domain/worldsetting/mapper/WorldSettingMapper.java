@@ -184,7 +184,8 @@ public class WorldSettingMapper {
                 candidate.isManualReviewAvailable(),
                 toComparisonDiagnostics(candidate.getComparisonDiagnostics()),
                 candidate.isPendingReview() ? candidate.getAutomaticReviewHoldReason() : null,
-                candidate.isAutomaticApplicationPending()
+                candidate.isAutomaticApplicationPending(),
+                candidate.isHistoryOnly()
         );
     }
 
@@ -360,7 +361,10 @@ public class WorldSettingMapper {
                 ))
                 .map(this::toCandidateEvidenceResponse)
                 .toList();
-        WorldSettingDetailResponse.CandidateEvidence latestEvidence = history.stream()
+        WorldSettingDetailResponse.CandidateEvidence latestEvidence = candidates.stream()
+                .filter(candidate -> !candidate.isHistoryOnly())
+                .filter(candidate -> isEvidenceForProperty(candidate, property, rootMoveAppliedVersion))
+                .map(this::toCandidateEvidenceResponse)
                 .findFirst()
                 .filter(evidence -> Objects.equals(evidence.value(), property.value()))
                 .orElse(null);

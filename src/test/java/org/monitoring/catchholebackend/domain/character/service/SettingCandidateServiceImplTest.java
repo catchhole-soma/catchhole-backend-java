@@ -1235,7 +1235,7 @@ class SettingCandidateServiceImplTest {
         assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
         if (ordered) {
             assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.RECOMPARISON_REQUIRED);
-            assertThat(candidate.getComparisonErrorMessage()).contains("새 분석이 필요");
+            assertThat(candidate.getComparisonErrorMessage()).contains("완료된 다른 회차는 유지");
             verifyNoInteractions(aiTokenService);
             verify(analysisJobRepository, never()).save(any());
         }
@@ -2289,7 +2289,8 @@ class SettingCandidateServiceImplTest {
                 false,
                 null,
                 false,
-                null
+                null,
+                false
         );
     }
 

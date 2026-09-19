@@ -120,6 +120,47 @@ class PrivateWorldImageIntegrationTest {
                 .content("{\"privateImageId\":" + (id == null ? "null" : "\"" + id + "\"") + ",\"version\":" + version + "}"));
     }
 
+    private byte[] png() throws Exception {
+        var output = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(2, 2, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", output);
+        return output.toByteArray();
+    }
+
+    private ResultActions uploadAccountImage(String auth, byte[] bytes) throws Exception {
+        return mvc.perform(multipart(base).file(new MockMultipartFile("metadata", "metadata.json", "application/json",
+                        ("{\"id\":\"" + imageId + "\",\"name\":\"내 그림.png\"}").getBytes(StandardCharsets.UTF_8)))
+                .file(new MockMultipartFile("image", "image.png", "image/png", bytes))
+                .file(new MockMultipartFile("thumbnail", "thumbnail.png", "image/png", bytes))
+                .header("Authorization", auth));
+    }
+
+    @Test
+    @DisplayName("별도 보관함이나 코드 없이 이미지를 저장하고 로그인 소유권으로 조회·선택한다")
+    void accountImageRoundtripWithoutVault() throws Exception {
+        byte[] png = png();
+        uploadAccountImage(token, png).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.vaultId").doesNotExist())
+                .andExpect(jsonPath("$.data.name").value("내 그림.png"));
+        assertThat(vaults.findByMemberId(ownerId)).isEmpty();
+        assertThat(images.findById(imageId).orElseThrow().getVault()).isNull();
+        when(storage.getBytes(PrivateWorldImagePaths.key(workId, imageId, attemptId(), false))).thenReturn(png);
+        mvc.perform(get(base + "/" + imageId + "/image").header("Authorization", token)).andExpect(status().isOk())
+                .andExpect(content().bytes(png)).andExpect(header().string("Cache-Control", "no-store, private"));
+        mvc.perform(get(base + "/" + imageId + "/image").header("Authorization", strangerToken)).andExpect(status().isNotFound());
+        select(imageId, 0).andExpect(status().isOk()).andExpect(jsonPath("$.data.source").value("PRIVATE"));
+        uploadAccountImage(token, png).andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("새 업로드도 타인 작품·위장 파일·잘못된 크기를 거절한다")
+    void accountImageRejectsForeignOwnerAndInvalidBytes() throws Exception {
+        uploadAccountImage(strangerToken, png()).andExpect(status().isNotFound());
+        uploadAccountImage(token, envelope).andExpect(status().isBadRequest());
+        uploadAccountImage(token, "<svg onload='alert(1)'/>".getBytes(StandardCharsets.UTF_8)).andExpect(status().isBadRequest());
+        uploadAccountImage(token, new byte[8 * 1024 * 1024 + 1]).andExpect(status().isBadRequest());
+        verifyNoInteractions(storage);
+    }
+
     @Test
     @DisplayName("키 없이 암호문만 저장하고 인증된 소유자에게 캐시 금지로 반환한다")
     void ciphertextRoundtrip() throws Exception {

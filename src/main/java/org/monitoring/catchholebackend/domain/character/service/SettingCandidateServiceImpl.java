@@ -58,6 +58,7 @@ import org.monitoring.catchholebackend.domain.character.repository.SettingCandid
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation;
@@ -224,7 +225,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             SettingCandidateUpdateRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        invalidateSelectedRuns(work, List.of(candidateId));
+        validateReviewMutationAllowed(work, List.of(candidateId));
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
         candidate.validateReviewContentEditable();
         validateComparisonNotProcessing(candidate);
@@ -278,7 +279,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         if (requestedIds.size() != request.candidateIds().size()) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
         }
-        invalidateSelectedRuns(work, requestedIds);
+        validateReviewMutationAllowed(work, requestedIds);
         List<SettingCandidate> candidates = settingCandidateRepository.findAllByIdsAndBatchForUpdate(
                 work.getId(), request.batchId(), requestedIds
         );
@@ -311,7 +312,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             SettingCandidateCharacterMatchRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        invalidateSelectedRuns(work, List.of(candidateId));
+        validateReviewMutationAllowed(work, List.of(candidateId));
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
         candidate.validateEditable();
         validateComparisonNotProcessing(candidate);
@@ -343,7 +344,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             SettingCandidateConfirmRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        invalidateSelectedRuns(work, List.of(candidateId));
+        validateReviewMutationAllowed(work, List.of(candidateId));
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
         if (candidate.getReviewStatus() == SettingCandidateReviewStatus.CONFIRMED) {
             return SettingCandidateConfirmResult.confirmed(
@@ -352,6 +353,11 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         }
         if (candidate.getReviewStatus() != SettingCandidateReviewStatus.PENDING_REVIEW) {
             candidate.confirm();
+        }
+
+        if (isCompletedOrderedReview(candidate)) {
+            confirmCompletedOrderedCandidate(candidate, request == null ? CharacterFactConfirmApplicationMode.APPLY_PROPOSAL : request.applicationMode());
+            return SettingCandidateConfirmResult.confirmed(settingCandidateMapper.toReviewStatusResponse(candidate));
         }
 
         if (prepareUnresolvedExistingCharacterForComparison(memberId, candidate, work)) {
@@ -428,7 +434,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
             }
         });
-        invalidateSelectedRuns(work, decisions.keySet());
+        validateReviewMutationAllowed(work, decisions.keySet());
         List<SettingCandidate> candidates = SettingCandidateChronology.sorted(
                 settingCandidateRepository.findAllByIdsAndBatchForUpdate(
                         work.getId(), request.batchId(), decisions.keySet()
@@ -453,6 +459,16 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         if (candidates.stream().anyMatch(candidate -> candidate.getMatchStatus()
                 == SettingCandidateMatchStatus.AMBIGUOUS)) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
+        }
+
+        if (candidates.stream().allMatch(this::isCompletedOrderedReview)) {
+            for (SettingCandidate candidate : candidates) {
+                if (candidate.getSuggestedOperation() == CharacterFactOperation.EXCLUDE) candidate.dismiss();
+                else confirmCompletedOrderedCandidate(candidate, decisions.get(candidate.getId()).applicationMode());
+            }
+            candidates.forEach(candidate -> candidate.recordGroupConfirmation(decisionHash));
+            return SettingCandidateGroupConfirmResult.confirmed(toGroupActionResponse(groupKey(candidates.getFirst()),
+                    candidates, characterSettingSchemaRepository.findAllActiveForWork(work.getId())));
         }
 
         // 같은 이름의 기존 캐릭터가 확인되면 모든 UNRESOLVED 행을 먼저 연결한다.
@@ -739,8 +755,42 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         settingCandidateRepository.flush();
     }
 
+    private boolean isCompletedOrderedReview(SettingCandidate candidate) {
+        var job = candidate.getAnalysisJob();
+        return job != null && job.isOrderedProvisional() && job.getStatus() == AnalysisJobStatus.SUCCEEDED;
+    }
+
+    private void confirmCompletedOrderedCandidate(SettingCandidate candidate, CharacterFactConfirmApplicationMode requested) {
+        var job = candidate.getAnalysisJob();
+        if (!job.hasCurrentSourceVersion()) throw new AppException(AnalysisJobErrorCode.ANALYSIS_RUN_STATE_CONFLICT);
+        if (candidate.isCharacterDiscovery()) {
+            if (candidate.confirm()) settingCandidatePromotionService.promote(candidate, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+            return;
+        }
+        // 보류 판단을 확정으로 위장하지 않는다. 사용자가 수정안을 저장했거나 정상 비교가 있어야 한다.
+        if (!candidate.isUserModified()) validateConfirmPolicy(candidate, requested == null
+                ? CharacterFactConfirmApplicationMode.APPLY_PROPOSAL : requested, null);
+        var schema = settingCandidateSchemaResolver.resolve(candidate.getAttributeName(), candidate.getValueType(),
+                characterSettingSchemaRepository.findAllActiveForWork(candidate.getWork().getId()));
+        String key = schema.factKey();
+        CharacterFactTemporalScope reviewedScope = candidate.getTemporalScope();
+        boolean historyOnly = requested == CharacterFactConfirmApplicationMode.HISTORY_ONLY
+                || reviewedScope != null && reviewedScope != CharacterFactTemporalScope.PRESENT
+                || candidate.getSuggestedOperation() == CharacterFactOperation.HISTORY_ONLY
+                || candidate.getSuggestedOperation() == CharacterFactOperation.REMOVE
+                || analysisConfirmation.keepLateReviewInHistory(candidate, schema.matchedSchema().getFactType(), key);
+        // 오래된 비교의 병합값·부수 삭제를 재사용하지 않고 작가가 확인한 이 후보의 값만 반영한다.
+        prepareUserEditedValue(candidate, reviewedScope, true);
+        if (candidate.confirm()) settingCandidatePromotionService.promote(candidate, historyOnly
+                ? CharacterFactConfirmApplicationMode.HISTORY_ONLY : CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+    }
+
     private void prepareUserEditedValue(SettingCandidate candidate) {
-        if (!isOrdered(candidate) || !candidate.isUserModified()) {
+        prepareUserEditedValue(candidate, CharacterFactTemporalScope.PRESENT, false);
+    }
+
+    private void prepareUserEditedValue(SettingCandidate candidate, CharacterFactTemporalScope reviewedScope, boolean lateReview) {
+        if (!isOrdered(candidate) || (!candidate.isUserModified() && !lateReview)) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
         if (candidate.isCharacterDiscovery()) {
@@ -765,7 +815,8 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         String key = schema.factKey();
         CharacterFactOperation operation = snapshot != null && snapshot.containsKey(new CharacterSnapshotSlot(factType, key))
                 ? CharacterFactOperation.UPDATE : CharacterFactOperation.ADD;
-        candidate.prepareUserEditedValue(factType, key, candidate.getAttributeValue(), typedValue, operation, version);
+        if (lateReview) candidate.prepareLateReviewedValue(factType, key, candidate.getAttributeValue(), typedValue, operation, version, reviewedScope);
+        else candidate.prepareUserEditedValue(factType, key, candidate.getAttributeValue(), typedValue, operation, version, reviewedScope);
     }
 
     private void requestRecomparisonAfterStale(SettingCandidate candidate) {
@@ -823,7 +874,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             UUID candidateId
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        invalidateSelectedRuns(work, List.of(candidateId));
+        validateReviewMutationAllowed(work, List.of(candidateId));
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
         candidate.recordUserModification();
         List<CharacterFactComparisonJobCoordinator.ScopeRef> previousScopes =
@@ -1041,14 +1092,12 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         }
     }
 
-    private void invalidateSelectedRuns(Work work, java.util.Collection<UUID> candidateIds) {
+    private void validateReviewMutationAllowed(Work work, java.util.Collection<UUID> candidateIds) {
         validateAutomaticApplicationNotPending(work, candidateIds);
-        Integer cutoff = settingCandidateRepository.findMutationSourceEpisodeNo(
-                work.getId(), candidateIds, SettingCandidateReviewStatus.PENDING_REVIEW);
-        if (cutoff != null) {
-            analysisRunStateService.invalidateRunsForWorkForUpdate(
-                    work.getId(), cutoff, "사용자가 설정 후보를 변경했습니다.");
+        if (analysisJobRepository.existsActiveOrderedReview(work.getId())) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_REVIEW_WAIT_REQUIRED);
         }
+        // 완료된 분석의 입력·결과는 보존한다. 후보 변경만으로 후속 분석을 취소하지 않는다.
     }
 
     private void validateAutomaticApplicationNotPending(Work work, java.util.Collection<UUID> candidateIds) {
@@ -1062,12 +1111,12 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
 
     private void enqueueComparisonJobIfNeeded(Long memberId, SettingCandidate candidate) {
         if (isOrdered(candidate)) {
-            // 사용자 수정·연결 경로는 누적 입력을 무효화하며 hidden Job을 만들지 않는다.
+            // 사용자 수정·연결은 완료된 입력을 보존하며 hidden Job을 만들지 않는다.
             // 따라서 자동 처리가 없는 상태를 PENDING으로 표시하지 않는다.
             if (!candidate.isCharacterDiscovery() && candidate.isPendingReview()
                     && (candidate.getComparisonStatus() == CharacterFactComparisonStatus.PENDING
                     || candidate.getComparisonStatus() == CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH)) {
-                candidate.markRecomparisonRequired("누적 분석의 내용 또는 캐릭터 연결이 변경되었습니다. 변경된 내용으로 새 분석이 필요합니다.");
+                candidate.markRecomparisonRequired("변경한 대상과 내용을 확인한 뒤 확정해 주세요. 완료된 다른 회차는 유지됩니다.");
             }
             return;
         }
