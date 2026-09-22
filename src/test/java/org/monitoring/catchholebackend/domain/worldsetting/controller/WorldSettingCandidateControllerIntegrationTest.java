@@ -1577,6 +1577,7 @@ class WorldSettingCandidateControllerIntegrationTest {
                 "특징",
                 "전투에 특화된 종족"
         ));
+        saveEarlierEvidence(target, null, "특징", "전투에 특화된 종족");
         WorldSettingCandidate habitat = candidate("바바리안", "서식지", "혹한 지역");
         WorldSettingCandidate trait = candidate("바바리안", "특징", "강인한 신체");
         candidateRepository.saveAllAndFlush(List.of(habitat, trait));
@@ -1687,7 +1688,7 @@ class WorldSettingCandidateControllerIntegrationTest {
         assertThat(applied.getVersion()).isEqualTo(1L);
         assertThat(applied.getPropertyValue("서식지")).isEqualTo("혹한 지역");
         assertThat(applied.getPropertyValue("특징")).isEqualTo("강인한 신체를 가진 전투 종족");
-        assertThat(candidateRepository.findAll())
+        assertThat(candidateRepository.findAllById(List.of(habitat.getId(), trait.getId())))
                 .extracting(WorldSettingCandidate::getAppliedWorldSettingVersion)
                 .containsOnly(1L);
         assertThat(comparisonDecisionRepository.count()).isEqualTo(2L);
@@ -1938,6 +1939,7 @@ class WorldSettingCandidateControllerIntegrationTest {
                 "서식지",
                 "온대 지역"
         ));
+        saveEarlierEvidence(target, null, "서식지", "온대 지역");
         WorldSettingCandidate candidate = candidate("바바리안", "서식지", "혹한 지역");
         candidate.startComparison();
         candidate.completeComparison(
@@ -2118,22 +2120,9 @@ class WorldSettingCandidateControllerIntegrationTest {
                 WorldSettingCategory.RACE,
                 "바바리안",
                 "서식지",
-                "초원"
+                "설원"
         ));
-        WorldSettingCandidate firstCandidate = candidate("바바리안", "서식지", "설원");
-        firstCandidate.startComparison();
-        firstCandidate.completeComparison(
-                target,
-                WorldSettingOperation.UPDATE,
-                "서식지",
-                "초원",
-                "설원",
-                "첫 번째 후보",
-                objectMapper.createObjectNode().put("operation", "UPDATE"),
-                LocalDateTime.now()
-        );
-        candidateRepository.save(firstCandidate);
-        confirm(firstCandidate, WorldSettingOperation.UPDATE, "설원");
+        saveEarlierEvidence(target, null, "서식지", "설원");
 
         WorldSettingCandidate secondCandidate = candidate("바바리안", "서식지", "사막");
         secondCandidate.startComparison();
@@ -2405,6 +2394,7 @@ class WorldSettingCandidateControllerIntegrationTest {
                 "광원",
                 "벽에 붙은 수정들이 광원 역할을 한다."
         ));
+        saveEarlierEvidence(target, "1층", "광원", "벽에 붙은 수정들이 광원 역할을 한다.");
         long initialVersion = target.getVersion();
         WorldSettingCandidate candidate = WorldSettingCandidate.create(
                 work,
@@ -2561,13 +2551,23 @@ class WorldSettingCandidateControllerIntegrationTest {
     private void verifyExplicitAuthorReview(WorldSettingOperation operation, WorldSettingComparisonReviewReason reason) throws Exception {
         ReflectionTestUtils.setField(episode, "contentHash", "a".repeat(64));
         episodeRepository.saveAndFlush(episode);
+        // 실행 방식과 원문 manifest는 INSERT 때 고정되므로 저장된 MANUAL Job을 변경하지 않는다.
+        analysisJobRepository.delete(analysisJob);
+        analysisJob = AnalysisJob.create(work, uploadBatch, episode, AnalysisJobType.SETTING_EXTRACTION);
         analysisJob.initializeOrderedRun(UUID.randomUUID(), 1, 0, null, new AnalysisStateJournal().emptyState());
-        analysisJobRepository.saveAndFlush(analysisJob);
-        long initialJobCount = analysisJobRepository.count();
+        ReflectionTestUtils.setField(analysisJob, "status", AnalysisJobStatus.SUCCEEDED);
+        ReflectionTestUtils.setField(analysisJob, "journalStatus",
+                org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.SEALED);
+        analysisJob = analysisJobRepository.saveAndFlush(analysisJob);
+        AnalysisJob persistedJob = analysisJobRepository.findById(analysisJob.getId()).orElseThrow();
+        assertThat(persistedJob.isOrderedProvisional()).isTrue();
+        assertThat(persistedJob.getSourceContentHash()).isEqualTo(episode.getContentHash());
         String before = "벽에 붙은 수정들이 광원 역할을 한다.";
         String proposed = "바깥에는 횃불들이 주변을 밝힌다.";
         WorldSetting target = worldSettingRepository.saveAndFlush(WorldSetting.create(
                 work, WorldSettingCategory.LOCATION, "미궁", "1층", "광원", before));
+        saveEarlierEvidence(target, "1층", "광원", before);
+        long initialJobCount = analysisJobRepository.count();
         long initialVersion = target.getVersion();
         WorldSettingCandidate candidate = WorldSettingCandidate.create(work, episode, analysisJob,
                 WorldSettingCategory.LOCATION, "미궁", "외부", "조명", proposed,
@@ -2635,6 +2635,28 @@ class WorldSettingCandidateControllerIntegrationTest {
         assertThat(confirmed.getScopeName()).isEqualTo("외부");
         assertThat(confirmed.getMatchedScopeName()).isEqualTo("1층");
         assertThat(analysisJobRepository.count()).isEqualTo(initialJobCount);
+    }
+
+    private AnalysisJob earlierAnalysisJob() {
+        Episode earlier = episodeRepository.findByWorkIdAndEpisodeNo(work.getId(), 1).orElseGet(() ->
+                episodeRepository.saveAndFlush(Episode.create(work, null, 1, "1화",
+                        "works/" + work.getId() + "/episodes/1.txt", "version-1", "hash-1", 100)));
+        return analysisJobRepository.saveAndFlush(AnalysisJob.create(
+                work, uploadBatch, earlier, AnalysisJobType.SETTING_EXTRACTION));
+    }
+
+    private void saveEarlierEvidence(WorldSetting target, String scopeName, String settingName, String value) {
+        AnalysisJob earlier = earlierAnalysisJob();
+        WorldSettingCandidate evidence = WorldSettingCandidate.create(work, earlier.getEpisode(), earlier,
+                target.getCategory(), target.getSubjectName(), scopeName, settingName, value,
+                objectMapper.createArrayNode().add(objectMapper.createObjectNode().put("quote", value)),
+                BigDecimal.ONE, null);
+        evidence.startComparison();
+        evidence.completeComparison(target, WorldSettingConsolidationStatus.SINGLE, WorldSettingOperation.ADD,
+                scopeName, settingName, null, value, "앞 회차의 확정 원문 근거", null, LocalDateTime.now().minusMinutes(1));
+        evidence.confirm(WorldSettingOperation.ADD, target.getCategory(), target.getSubjectName(), scopeName,
+                settingName, value, null, member, target);
+        candidateRepository.saveAndFlush(evidence);
     }
 
     private WorldSettingCandidate candidate(String subjectName, String settingName, String value) {
@@ -2743,10 +2765,11 @@ class WorldSettingCandidateControllerIntegrationTest {
                 "생명력",
                 lifeValue
         ));
+        AnalysisJob earlierJob = earlierAnalysisJob();
         WorldSettingCandidate historicalLife = WorldSettingCandidate.create(
                 work,
-                episode,
-                analysisJob,
+                earlierJob.getEpisode(),
+                earlierJob,
                 WorldSettingCategory.RACE,
                 "바바리안",
                 "생명력",

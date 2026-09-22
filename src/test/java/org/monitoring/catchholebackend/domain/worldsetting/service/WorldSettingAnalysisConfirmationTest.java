@@ -29,7 +29,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 @DisplayName("세계관 누적 분석 사용자 확정 검증")
 class WorldSettingAnalysisConfirmationTest {
     private final WorldSettingCandidateRepository repository = mock(WorldSettingCandidateRepository.class);
-    private final WorldSettingAnalysisConfirmation confirmation = new WorldSettingAnalysisConfirmation(repository);
+    private final WorldSettingAnalysisConfirmation confirmation = new WorldSettingAnalysisConfirmation(repository,
+            org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.service.AnalysisCandidateSourceGuard.class));
     private final Work work = Work.create(Member.register("writer@example.com", "pass", "01012345678", "작가"),
             "작품", WorkGenre.FANTASY, "설명");
     private final String subjectKey = "provisional-world:" + UUID.randomUUID();
