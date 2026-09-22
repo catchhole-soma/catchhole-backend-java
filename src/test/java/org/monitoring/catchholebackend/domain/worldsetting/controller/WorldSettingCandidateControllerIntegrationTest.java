@@ -21,12 +21,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.aitoken.entity.AiTokenAccount;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenAccountRepository;
@@ -563,6 +567,142 @@ class WorldSettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.content[0].worldSettingTokenInterruptedCandidateCount").value(0))
                 .andExpect(jsonPath("$.data.content[0].canResumeTokenInterruptedWorldSettingComparisons")
                         .value(false));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    @DisplayName("페이지·분류 밖에 일괄 재개 불가 후보가 있으면 후보 목록과 배치 목록도 재개 불가를 반환한다")
+    void mixedBatchCannotResumeWhenBlockedQuotaCandidateIsOutsidePageOrFilter(boolean ordered) throws Exception {
+        WorldSettingCandidate manualInterrupted = candidate("바바리안", "서식지", "혹한 지역");
+        manualInterrupted.interruptComparisonForTokenQuota("quota");
+        candidateRepository.saveAndFlush(manualInterrupted);
+
+        Episode laterEpisode = episodeRepository.saveAndFlush(Episode.create(work, null, 4, "4화",
+                "works/%s/episodes/4.txt".formatted(work.getId()), "v4", "a".repeat(64), 100));
+        AnalysisJob blockedSource = AnalysisJob.create(work, uploadBatch, laterEpisode,
+                AnalysisJobType.SETTING_EXTRACTION);
+        if (ordered) {
+            blockedSource.initializeOrderedRun(UUID.randomUUID(), 1, 0, null,
+                    new AnalysisStateJournal().emptyState());
+            blockedSource.fail(AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED, "quota");
+        } else {
+            blockedSource.configureReviewMode(AnalysisReviewMode.AUTOMATIC);
+        }
+        blockedSource = analysisJobRepository.saveAndFlush(blockedSource);
+        WorldSettingCandidate blocked = WorldSettingCandidate.create(work, laterEpisode, blockedSource,
+                WorldSettingCategory.LOCATION, "얼음 성채", "위치", "북부",
+                objectMapper.createArrayNode(), BigDecimal.ONE, objectMapper.createObjectNode());
+        blocked.interruptComparisonForTokenQuota("quota");
+        candidateRepository.saveAndFlush(blocked);
+
+        for (boolean filterByCategory : List.of(false, true)) {
+            var request = get("/api/v1/works/{workId}/world-setting-candidates", work.getId())
+                    .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                    .queryParam("batchId", uploadBatch.getId().toString())
+                    .queryParam("page", "0").queryParam("size", "1");
+            if (filterByCategory) request.queryParam("category", "RACE");
+            mockMvc.perform(request)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.tokenInterruptedComparisonCount").value(2))
+                    .andExpect(jsonPath("$.data.canResumeTokenInterruptedComparisons").value(false))
+                    .andExpect(jsonPath("$.data.groups.content.length()").value(1))
+                    .andExpect(jsonPath("$.data.groups.content[0].candidates[0].id")
+                            .value(manualInterrupted.getId().toString()));
+        }
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].worldSettingTokenInterruptedCandidateCount").value(2))
+                .andExpect(jsonPath("$.data.content[0].canResumeTokenInterruptedWorldSettingComparisons")
+                        .value(false));
+        mockMvc.perform(post("/api/v1/works/{workId}/world-setting-candidates/batches/{batchId}"
+                                + "/resume-token-interrupted", work.getId(), uploadBatch.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value(ordered
+                        ? "ANALYSIS_ORDERED_JOB_RETRY_REQUIRED" : "ANALYSIS_AUTOMATIC_APPLICATION_PENDING"));
+        assertThat(candidateRepository.findAllById(List.of(manualInterrupted.getId(), blocked.getId())))
+                .allMatch(WorldSettingCandidate::isTokenInterruptedComparison);
+        assertThat(analysisJobRepository.findAll())
+                .noneMatch(job -> job.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON);
+    }
+
+    @Test
+    @DisplayName("같은 묶음의 순차 후보가 토큰 중단 대상이 아니면 일반 후보의 일괄 재개를 막지 않는다")
+    void unrelatedOrderedCandidateDoesNotBlockManualQuotaResume() throws Exception {
+        WorldSettingCandidate manualInterrupted = candidate("바바리안", "서식지", "혹한 지역");
+        manualInterrupted.interruptComparisonForTokenQuota("quota");
+        candidateRepository.saveAndFlush(manualInterrupted);
+        Episode laterEpisode = episodeRepository.saveAndFlush(Episode.create(work, null, 4, "4화",
+                "works/%s/episodes/4.txt".formatted(work.getId()), "v4", "a".repeat(64), 100));
+        AnalysisJob orderedSource = AnalysisJob.create(work, uploadBatch, laterEpisode,
+                AnalysisJobType.SETTING_EXTRACTION);
+        orderedSource.initializeOrderedRun(UUID.randomUUID(), 1, 0, null,
+                new AnalysisStateJournal().emptyState());
+        ReflectionTestUtils.setField(orderedSource, "status", AnalysisJobStatus.SUCCEEDED);
+        ReflectionTestUtils.setField(orderedSource, "journalStatus", AnalysisJournalStatus.SEALED);
+        orderedSource = analysisJobRepository.saveAndFlush(orderedSource);
+        WorldSettingCandidate completed = WorldSettingCandidate.create(work, laterEpisode, orderedSource,
+                WorldSettingCategory.LOCATION, "얼음 성채", "위치", "북부",
+                objectMapper.createArrayNode(), BigDecimal.ONE, objectMapper.createObjectNode());
+        completed.startComparison();
+        completed.completeComparison(null, WorldSettingOperation.ADD, "위치", null, "북부", "새 설정",
+                objectMapper.createObjectNode(), LocalDateTime.now());
+        candidateRepository.saveAndFlush(completed);
+        mockMvc.perform(get("/api/v1/works/{workId}/world-setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString()).queryParam("category", "LOCATION"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.tokenInterruptedComparisonCount").value(1))
+                .andExpect(jsonPath("$.data.canResumeTokenInterruptedComparisons").value(true));
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].canResumeTokenInterruptedWorldSettingComparisons")
+                        .value(true));
+        mockMvc.perform(post("/api/v1/works/{workId}/world-setting-candidates/batches/{batchId}"
+                                + "/resume-token-interrupted", work.getId(), uploadBatch.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.resumedCandidateCount").value(1));
+        assertThat(candidateRepository.findById(completed.getId()).orElseThrow().getComparisonStatus())
+                .isEqualTo(WorldSettingComparisonStatus.COMPLETED);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"PENDING,PENDING", "RUNNING,PENDING", "FAILED,INCOMPLETE",
+            "SUCCEEDED,SEALED", "CANCELED,INVALIDATED"})
+    @DisplayName("후보 응답은 별도 재비교 상태와 구분되는 원본 분석 작업·누적 기록 상태를 제공한다")
+    void candidateResponseIncludesOriginalAnalysisStatus(
+            AnalysisJobStatus sourceStatus, AnalysisJournalStatus journalStatus
+    ) throws Exception {
+        ReflectionTestUtils.setField(episode, "contentHash", "a".repeat(64));
+        episodeRepository.saveAndFlush(episode);
+        analysisJobRepository.delete(analysisJob);
+        analysisJob = AnalysisJob.create(work, uploadBatch, episode, AnalysisJobType.SETTING_EXTRACTION);
+        analysisJob.initializeOrderedRun(UUID.randomUUID(), 1, 0, null, new AnalysisStateJournal().emptyState());
+        ReflectionTestUtils.setField(analysisJob, "status", sourceStatus);
+        ReflectionTestUtils.setField(analysisJob, "journalStatus", journalStatus);
+        analysisJob = analysisJobRepository.saveAndFlush(analysisJob);
+        WorldSettingCandidate pending = candidate("바바리안", "서식지", "혹한 지역");
+        candidateRepository.saveAndFlush(pending);
+
+        mockMvc.perform(get("/api/v1/works/{workId}/world-setting-candidates/{candidateId}",
+                                work.getId(), pending.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.comparisonStatus").value("PENDING"))
+                .andExpect(jsonPath("$.data.sourceAnalysisJobStatus").value(sourceStatus.name()))
+                .andExpect(jsonPath("$.data.sourceAnalysisJournalStatus").value(journalStatus.name()));
+        mockMvc.perform(get("/api/v1/works/{workId}/world-setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].sourceAnalysisJobStatus")
+                        .value(sourceStatus.name()))
+                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].sourceAnalysisJournalStatus")
+                        .value(journalStatus.name()));
     }
 
     @Test
