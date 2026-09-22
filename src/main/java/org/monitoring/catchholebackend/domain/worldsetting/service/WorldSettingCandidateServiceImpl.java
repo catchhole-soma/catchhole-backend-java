@@ -336,7 +336,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                 activeComparisonJobCount,
                 counts.getFailedComparisonCount(),
                 counts.getTokenInterruptedComparisonCount(),
-                counts.getTokenInterruptedComparisonCount() > 0,
+                counts.canResumeTokenInterruptedComparisons(),
                 counts.getRecomparisonRequiredCount(),
                 counts.getConflictCandidateCount(),
                 counts.getConfirmedCandidateCount(),
@@ -1191,9 +1191,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
 
     private void validateReviewMutationAllowed(Work work, java.util.Collection<UUID> candidateIds) {
         validateAutomaticApplicationNotPending(work, candidateIds);
-        if (analysisJobRepository.existsActiveOrderedReview(work.getId())) {
-            throw new AppException(AnalysisJobErrorCode.ANALYSIS_REVIEW_WAIT_REQUIRED);
-        }
+        analysisRunStateService.assertSettingMutationAllowed(work.getId());
         // 완료된 분석의 입력·결과는 보존한다. 후보 변경만으로 후속 분석을 취소하지 않는다.
     }
 

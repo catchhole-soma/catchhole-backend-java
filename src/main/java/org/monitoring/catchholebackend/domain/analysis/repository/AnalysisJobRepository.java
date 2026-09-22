@@ -385,15 +385,6 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
     );
     @Query("""
             select count(job) > 0 from AnalysisJob job
-            where job.work.id = :workId
-              and job.analysisMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL
-              and job.status in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING,
-                                 org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING)
-            """)
-    boolean existsActiveOrderedReview(@Param("workId") UUID workId);
-
-    @Query("""
-            select count(job) > 0 from AnalysisJob job
             left join job.episode episode
             where job.work.id = :workId
               and job.analysisMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL
