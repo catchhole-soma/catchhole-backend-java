@@ -21,6 +21,12 @@ import org.monitoring.catchholebackend.domain.character.type.SettingCandidateRev
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
+import org.monitoring.catchholebackend.domain.analysis.service.AnalysisCandidateSourceGuard;
+import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
+import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.stereotype.Component;
 
 /** 분석의 임시 입력을 사용자 확정 시점의 실제 설정과 선택된 선행 제안에 대조한다. */
@@ -33,6 +39,44 @@ public class CharacterAnalysisConfirmation {
     private final CharacterSnapshotSourceRepository sourceRepository;
     private final CharacterSnapshotAccessor accessor;
     private final org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository factRepository;
+    private final CharacterSettingSchemaRepository schemaRepository;
+    private final SettingCandidateSchemaResolver schemaResolver;
+    private final AnalysisCandidateSourceGuard sourceGuard;
+
+    public void assertReviewSourceCurrent(SettingCandidate candidate) {
+        sourceGuard.assertCurrent(candidate.getAnalysisJob(), candidate.getEpisode());
+    }
+
+    /** 비교 검증을 마친 수동 후보의 제안값은 유지하고, 현재값을 보호해야 할 때만 이력으로 저장한다. */
+    public boolean keepManualReviewInHistory(SettingCandidate candidate) {
+        if (candidate.isCharacterDiscovery()) return false;
+        var schema = schemaResolver.resolve(candidate.getAttributeName(), candidate.getValueType(),
+                schemaRepository.findAllActiveForWork(candidate.getWork().getId()));
+        String key = candidate.getResolvedCanonicalFactKey() == null || candidate.getResolvedCanonicalFactKey().isBlank()
+                ? schema.factKey() : candidate.getResolvedCanonicalFactKey().trim();
+        boolean historyOnly = keepReviewedFactInHistory(candidate, schema.matchedSchema().getFactType(), key);
+        JsonNode removals = candidate.getRemovedSnapshotEntriesJson();
+        if (removals == null || removals.isNull()) return historyOnly;
+        if (!removals.isArray()) throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_TARGET_INVALID);
+        for (JsonNode removed : removals) {
+            try {
+                CharacterFactType type = CharacterFactType.valueOf(removed.path("factType").asText());
+                String removedKey = removed.path("factKey").asText().trim();
+                if (type != CharacterFactType.STATUS || removedKey.isEmpty()) throw new IllegalArgumentException();
+                // MERGE/REMOVE의 부수 삭제도 후행 회차나 작가가 고른 현재값을 지우면 안 된다.
+                historyOnly |= keepLateReviewInHistory(candidate, type, removedKey);
+            } catch (IllegalArgumentException exception) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_TARGET_INVALID);
+            }
+        }
+        return historyOnly;
+    }
+
+    public boolean keepReviewedFactInHistory(SettingCandidate candidate, CharacterFactType type, String key) {
+        return candidate.getTemporalScope() != null && candidate.getTemporalScope() != CharacterFactTemporalScope.PRESENT
+                || candidate.getSuggestedOperation() == CharacterFactOperation.HISTORY_ONLY
+                || keepLateReviewInHistory(candidate, type, key);
+    }
 
     public boolean hasCurrentContext(SettingCandidate candidate, List<SettingCandidate> earlierApplied) {
         if (candidate.isCharacterDiscovery()) {

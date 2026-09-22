@@ -7,6 +7,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonReviewReason;
@@ -93,6 +95,12 @@ public record WorldSettingCandidateResponse(
         @Schema(description = "이 후보의 회차가 자동 분석·반영 중이므로 수동 변경을 기다려야 하는지 여부", requiredMode = Schema.RequiredMode.REQUIRED)
         boolean automaticApplicationPending,
         @Schema(description = "현재 설정을 유지하고 원문 회차 이력에만 확정했는지 여부")
-        boolean historyOnly
+        boolean historyOnly,
+        @Schema(description = "후보를 생성한 원본 회차 분석 작업의 상태. 별도 재비교 작업의 상태와 구분한다",
+                nullable = true, requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+        AnalysisJobStatus sourceAnalysisJobStatus,
+        @Schema(description = "후보를 생성한 원본 회차 분석의 누적 기록 상태. 일반 분석은 없을 수 있다",
+                nullable = true, requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+        AnalysisJournalStatus sourceAnalysisJournalStatus
 ) {
 }

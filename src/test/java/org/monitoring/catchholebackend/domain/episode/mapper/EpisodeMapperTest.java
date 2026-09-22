@@ -6,9 +6,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode;
+import org.monitoring.catchholebackend.domain.episode.type.EpisodeAnalysisStatus;
+import org.springframework.test.util.ReflectionTestUtils;
+import java.time.LocalDateTime;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeSummaryResponse;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
@@ -56,6 +63,29 @@ class EpisodeMapperTest {
     }
 
     private EpisodeSummaryResponse completedEpisodeResponse(String summaryJson) {
+        AnalysisJob job = completedJob(summaryJson);
+        return episodeMapper.toSummaryResponse(job.getEpisode(), null, job);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"INVALIDATED,true,REANALYSIS_REQUIRED", "INCOMPLETE,false,FAILED",
+            "SEALED,false,FAILED", "SEALED,true,COMPLETED"})
+    @DisplayName("원고 목록도 순차 분석의 무효화·저장 미완료를 완료로 표시하지 않는다")
+    void orderedEpisodeSummaryUsesJournalState(AnalysisJournalStatus journal, boolean applied,
+            EpisodeAnalysisStatus expected) {
+        AnalysisJob job = completedJob("{\"unresolvedFindingCount\":2}");
+        ReflectionTestUtils.setField(job, "analysisMode", AnalysisMode.ORDERED_PROVISIONAL);
+        ReflectionTestUtils.setField(job, "reviewMode", AnalysisReviewMode.AUTOMATIC);
+        ReflectionTestUtils.setField(job, "journalStatus", journal);
+        if (applied) ReflectionTestUtils.setField(job, "automaticAppliedAt", LocalDateTime.now());
+
+        EpisodeSummaryResponse response = episodeMapper.toSummaryResponse(job.getEpisode(), null, job);
+        assertThat(response.analysisStatus()).isEqualTo(expected);
+        if (expected != EpisodeAnalysisStatus.COMPLETED) assertThat(response.unresolvedFindingCount()).isNull();
+        assertThat(job.getStatus()).isEqualTo(org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.SUCCEEDED);
+    }
+
+    private AnalysisJob completedJob(String summaryJson) {
         Member member = Member.register(
                 "writer@example.com",
                 "encoded-password",
@@ -82,6 +112,6 @@ class EpisodeMapperTest {
         );
         analysisJob.succeed(summaryJson, 0, 0);
 
-        return episodeMapper.toSummaryResponse(episode, null, analysisJob);
+        return analysisJob;
     }
 }

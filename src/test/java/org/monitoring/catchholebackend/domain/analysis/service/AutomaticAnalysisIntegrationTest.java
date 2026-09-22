@@ -125,6 +125,7 @@ class AutomaticAnalysisIntegrationTest {
     @Autowired AnalysisJobRepository jobs;
     @Autowired SettingCandidateRepository candidates;
     @Autowired AnalysisRunStateService states;
+    @Autowired AnalysisJobService publicJobs;
     @Autowired CharacterAnalysisStateService characterStates;
     @Autowired SettingCandidateService characterReview;
     @Autowired AnalysisJobWorkerService worker;
@@ -136,6 +137,51 @@ class AutomaticAnalysisIntegrationTest {
 
     @BeforeEach
     void prepareTransactions() { tx = new TransactionTemplate(transactions); }
+
+    @Test
+    @DisplayName("3화 실패 뒤 1·2화와 완료 단계를 보존해 재개하고 5화까지 끝난 뒤에만 묶음 후보를 수정한다")
+    void resumesThirdEpisodeWithoutReanalyzingCompletedPrefix() {
+        Run run = run(5);
+        WorkerAnalysisJobPayload first = claim();
+        UUID candidateId = tx.execute(status -> addUnresolvedReference(jobs.findById(first.analysisJobId()).orElseThrow()).getId());
+        complete(first);
+        WorkerAnalysisJobPayload second = claim();
+        complete(second);
+        WorkerAnalysisJobPayload third = claim();
+        JsonNode frozenInput = input(third);
+        tx.executeWithoutResult(status -> jobs.findById(third.analysisJobId()).orElseThrow()
+                .updateCheckpointStage(AnalysisJobCheckpointStage.CHUNKS_READY));
+        worker.failAnalysisJob(third.analysisJobId(), third.leaseToken(),
+                new org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobFailRequest(
+                        AnalysisFailureCode.UNEXPECTED_ERROR, "저장 연결 일시 실패"));
+        Long owner = tx.execute(status -> entities.find(Work.class, run.workId()).getMember().getId());
+        assertThat(worker.claimAnalysisJob(request())).isEmpty();
+        assertThatThrownBy(() -> characterReview.updateSettingCandidate(owner, run.workId(), candidateId,
+                new SettingCandidateUpdateRequest("stats.mental", "77")))
+                .isInstanceOfSatisfying(AppException.class, error ->
+                        assertThat(error.getResultCode().getCode()).isEqualTo("ANALYSIS_REVIEW_WAIT_REQUIRED"));
+
+        var resumed = publicJobs.retryFailedAnalysisJob(owner, run.workId(), third.analysisJobId());
+        assertThat(resumed).singleElement().satisfies(job -> assertThat(job.id()).isEqualTo(third.analysisJobId()));
+        WorkerAnalysisJobPayload retry = claim();
+        assertThat(retry.analysisJobId()).isEqualTo(third.analysisJobId());
+        assertThat(input(retry)).isEqualTo(frozenInput);
+        tx.executeWithoutResult(status -> assertThat(jobs.findById(retry.analysisJobId()).orElseThrow().getCheckpointStage())
+                .isEqualTo(AnalysisJobCheckpointStage.CHUNKS_READY));
+        complete(retry);
+        complete(claim());
+        complete(claim());
+        assertThat(worker.claimAnalysisJob(request())).isEmpty();
+        characterReview.updateSettingCandidate(owner, run.workId(), candidateId,
+                new SettingCandidateUpdateRequest("stats.mental", "77"));
+        tx.executeWithoutResult(status -> {
+            assertThat(jobs.count()).isEqualTo(5);
+            assertThat(jobs.findAll()).allSatisfy(job -> {
+                assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.SUCCEEDED);
+                assertThat(job.getJournalStatus()).isEqualTo(AnalysisJournalStatus.SEALED);
+            });
+        });
+    }
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
@@ -162,11 +208,14 @@ class AutomaticAnalysisIntegrationTest {
             assertThat(entities.find(WorldSetting.class, settingId).getVersion()).isZero();
         });
         assertThat(input(first)).isEqualTo(originalInput);
-        worldSettings.updateWorldSettingIdentity(owner, run.workId(), settingId,
-                new WorldSettingIdentityUpdateRequest(WorldSettingCategory.RACE, "북부 바바리안", 0L));
+        assertThatThrownBy(() -> worldSettings.updateWorldSettingIdentity(owner, run.workId(), settingId,
+                new WorldSettingIdentityUpdateRequest(WorldSettingCategory.RACE, "북부 바바리안", 0L)))
+                .isInstanceOfSatisfying(AppException.class, error ->
+                        assertThat(error.getResultCode().getCode()).isEqualTo("ANALYSIS_REVIEW_WAIT_REQUIRED"));
         tx.executeWithoutResult(status -> {
-            assertThat(jobs.findById(first.analysisJobId()).orElseThrow().getJournalStatus()).isEqualTo(AnalysisJournalStatus.INVALIDATED);
-            assertThat(jobs.findById(run.jobs().get(1)).orElseThrow().getStatus()).isEqualTo(AnalysisJobStatus.CANCELED);
+            assertThat(jobs.findById(first.analysisJobId()).orElseThrow().getJournalStatus())
+                    .isEqualTo(completed ? AnalysisJournalStatus.SEALED : AnalysisJournalStatus.PENDING);
+            assertThat(jobs.findById(run.jobs().get(1)).orElseThrow().getStatus()).isEqualTo(AnalysisJobStatus.PENDING);
         });
     }
 
@@ -543,7 +592,7 @@ class AutomaticAnalysisIntegrationTest {
     }
 
     @Test
-    @DisplayName("작품 설정 변경으로 무효화된 회차의 손대지 않은 후보는 현재 설정으로 되살리지 않는다")
+    @DisplayName("기존에 무효화된 회차의 손대지 않은 후보는 현재 설정으로 되살리지 않는다")
     void invalidatedOrderedCandidatesRequireExplicitRecovery() {
         Run run = run(1, AnalysisReviewMode.MANUAL);
         var payload = claim();
@@ -562,8 +611,8 @@ class AutomaticAnalysisIntegrationTest {
             entities.persist(setting);
             return setting.getId();
         });
-        worldSettings.updateWorldSettingIdentity(owner, run.workId(), settingId,
-                new WorldSettingIdentityUpdateRequest(WorldSettingCategory.RACE, "북부 바바리안", 0L));
+        tx.executeWithoutResult(status -> states.invalidateRunsForEpisodeChangeForUpdate(
+                run.workId(), jobs.findById(payload.analysisJobId()).orElseThrow().getEpisode().getId(), 1, "기존 원문 변경으로 무효화된 기록"));
 
         UUID batch = tx.execute(status -> jobs.findById(payload.analysisJobId()).orElseThrow().getBatch().getId());
         var request = new SettingCandidateGroupConfirmRequest(batch, candidateIds.stream()
@@ -585,7 +634,7 @@ class AutomaticAnalysisIntegrationTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    @DisplayName("작품 설정 변경으로 무효화된 회차의 손대지 않은 세계관 후보는 다시 비교한다")
+    @DisplayName("기존에 무효화된 회차의 손대지 않은 세계관 후보는 다시 비교한다")
     void invalidatedOrderedWorldCandidatesRequireExplicitRecovery(boolean group) {
         Run run = run(1, AnalysisReviewMode.MANUAL);
         var payload = claim();
@@ -607,8 +656,8 @@ class AutomaticAnalysisIntegrationTest {
             entities.persist(setting);
             return setting.getId();
         });
-        worldSettings.updateWorldSettingIdentity(owner, run.workId(), settingId,
-                new WorldSettingIdentityUpdateRequest(WorldSettingCategory.RACE, "북부 바바리안", 0L));
+        tx.executeWithoutResult(status -> states.invalidateRunsForEpisodeChangeForUpdate(
+                run.workId(), jobs.findById(payload.analysisJobId()).orElseThrow().getEpisode().getId(), 1, "기존 원문 변경으로 무효화된 기록"));
 
         UUID batch = tx.execute(status -> jobs.findById(payload.analysisJobId()).orElseThrow().getBatch().getId());
         if (group) {
@@ -1115,7 +1164,8 @@ class AutomaticAnalysisIntegrationTest {
         });
         tx.executeWithoutResult(status -> {
             entities.lock(entities.find(Work.class, run.workId()), jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
-            states.purgeSourceEvidenceForWorkForUpdate(run.workId(), 1);
+            states.purgeSourceEvidenceForWorkForUpdate(run.workId(),
+                    jobs.findById(first.analysisJobId()).orElseThrow().getEpisode().getId(), 1);
         });
         tx.executeWithoutResult(status -> {
             AnalysisJob secondJob = jobs.findById(second.analysisJobId()).orElseThrow();
@@ -1124,6 +1174,80 @@ class AutomaticAnalysisIntegrationTest {
             assertThat(secondJob.getAutomaticInputState().path("references").size()).isZero();
             assertThat(jobs.findById(freshRunRoot).orElseThrow().getRunBaseState().toString()).doesNotContain("에르웬라고 말했다.");
         });
+    }
+
+    @Test
+    @DisplayName("앞 원문 파기 후에도 완료된 후행 후보는 최신값을 보호하며 추가 분석 없이 확정한다")
+    void reviewsCompletedSuccessorAfterEarlierSourcePurge() {
+        Run run = run(3);
+        var first = claim();
+        complete(first);
+        var second = claim();
+        List<UUID> pending = tx.execute(status -> {
+            AnalysisJob job = jobs.findById(second.analysisJobId()).orElseThrow();
+            UUID character = addUnresolvedReference(job).getId();
+            WorldSettingCandidate world = WorldSettingCandidate.create(job.getWork(), job.getEpisode(), job,
+                    WorldSettingCategory.RACE, "엘프", "서식지", "남부", JSON.arrayNode(), BigDecimal.ONE, null);
+            entities.persist(world);
+            String key = "provisional-world:" + world.getId();
+            world.resolveOrderedSubject(WorldSettingSubjectResolutionType.NEW, key, "엘프", JSON.arrayNode(), JSON.arrayNode().add(key));
+            WorldSettingComparisonBatch comparison = WorldSettingComparisonBatch.createOrdered(job.getWork(), job.getEpisode(), job,
+                    WorldSettingCategory.RACE, null, WorldSettingSubjectResolutionType.NEW, key, "엘프", JSON.arrayNode(), JSON.arrayNode().add(key), 1);
+            entities.persist(comparison);
+            world.startComparison(comparison, "C1");
+            comparison.recordContext(JSON.objectNode().putObject("targets").putObject(key));
+            world.failComparison(AnalysisFailureCode.LLM_RESPONSE_PARSE_ERROR, "직접 확인 필요");
+            comparison.fail(AnalysisFailureCode.LLM_RESPONSE_PARSE_ERROR, "직접 확인 필요");
+            return List.of(character, world.getId());
+        });
+        complete(second);
+        var third = claim();
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(third.analysisJobId()).orElseThrow();
+            var discovered = discovery(job, "에르웬", null, true);
+            addStat(job, discovered.getProvisionalSubjectKey(), null, 36, CharacterFactOperation.ADD);
+            addWorld(job);
+        });
+        complete(third);
+        Long owner = tx.execute(status -> entities.find(Work.class, run.workId()).getMember().getId());
+        UUID character = tx.execute(status -> entities.createQuery("select c.id from WorkCharacter c where c.work.id = :work", UUID.class)
+                .setParameter("work", run.workId()).getSingleResult());
+        tx.executeWithoutResult(status -> {
+            AnalysisJob changed = jobs.findById(first.analysisJobId()).orElseThrow();
+            entities.lock(changed.getWork(), jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+            states.invalidateRunsForEpisodeChangeForUpdate(run.workId(), changed.getEpisode().getId(), 1, "원문 교체");
+            changed.getEpisode().updateContent(1, "새 원문", "test/replaced-1", "v2", "d".repeat(64), 20);
+            states.purgeSourceEvidenceForWorkForUpdate(run.workId(), changed.getEpisode().getId(), 1);
+            entities.createQuery("update CharacterFactComparisonBatch b set b.analysisContextSnapshotJson = null where b.work.id = :work")
+                    .setParameter("work", run.workId()).executeUpdate();
+            entities.createQuery("update WorldSettingComparisonBatch b set b.contextSnapshotJson = null where b.work.id = :work")
+                    .setParameter("work", run.workId()).executeUpdate();
+        });
+        characterReview.updateSettingCandidateCharacterMatch(owner, run.workId(), pending.getFirst(),
+                new org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateCharacterMatchRequest(
+                        org.monitoring.catchholebackend.domain.character.type.SettingCandidateCharacterMatchResolutionType.MATCH_EXISTING, character, null));
+        characterReview.updateSettingCandidate(owner, run.workId(), pending.getFirst(), new SettingCandidateUpdateRequest("stats.mental", "35"));
+        assertThat(characterReview.confirmSettingCandidate(owner, run.workId(), pending.getFirst(),
+                new SettingCandidateConfirmRequest(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, null, true)).recomparisonRequired()).isFalse();
+        UUID batch = tx.execute(status -> jobs.findById(second.analysisJobId()).orElseThrow().getBatch().getId());
+        worldApplication.updateCandidateDecisions(owner, run.workId(), new WorldSettingCandidateDecisionUpdateRequest(batch,
+                List.of(new WorldSettingCandidateDecisionUpdateItem(pending.get(1), WorldSettingOperation.ADD,
+                        WorldSettingCategory.RACE, "엘프", null, "서식지", "남부", "직접 확인"))));
+        assertThat(worldApplication.confirmCandidate(owner, run.workId(), pending.get(1),
+                new WorldSettingCandidateConfirmRequest(WorldSettingOperation.ADD, WorldSettingCategory.RACE,
+                        "엘프", null, "서식지", "남부", true, "직접 확인")).recomparisonRequired()).isFalse();
+        tx.executeWithoutResult(status -> {
+            assertThat(candidates.findById(pending.getFirst()).orElseThrow().getConfirmedApplicationMode())
+                    .isEqualTo(CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+            assertThat(entities.find(WorldSettingCandidate.class, pending.get(1)).isHistoryOnly()).isTrue();
+            assertThat(jobs.count()).isEqualTo(3);
+            assertThat(jobs.findById(second.analysisJobId()).orElseThrow().isCompletedOrderedAnalysis()).isTrue();
+            assertThat(jobs.findById(third.analysisJobId()).orElseThrow().isCompletedOrderedAnalysis()).isTrue();
+        });
+        nextBatch(run.workId(), 4);
+        var current = input(claim());
+        assertThat(current.path("characters").findValuesAsText("factValue")).contains("36").doesNotContain("35");
+        assertThat(current.path("worldSettings").toString()).contains("북부").doesNotContain("남부");
     }
 
     @Test

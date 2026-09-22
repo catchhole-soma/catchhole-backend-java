@@ -2,7 +2,7 @@ package org.monitoring.catchholebackend.domain.worldsetting.repository;
 
 import java.util.UUID;
 
-public interface WorldSettingCandidateBatchReviewCounts {
+public interface WorldSettingCandidateBatchReviewCounts extends WorldSettingTokenInterruptedCounts {
 
     UUID getBatchId();
 
@@ -16,5 +16,4 @@ public interface WorldSettingCandidateBatchReviewCounts {
 
     long getProcessingComparisonCount();
 
-    long getTokenInterruptedComparisonCount();
 }

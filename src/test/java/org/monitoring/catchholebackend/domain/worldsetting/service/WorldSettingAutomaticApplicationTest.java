@@ -68,7 +68,8 @@ class WorldSettingAutomaticApplicationTest {
     private final WorldSettingCandidateServiceImpl service = new WorldSettingCandidateServiceImpl(
             mock(WorkRepository.class), runState, mock(UploadBatchRepository.class),
             mock(AnalysisJobRepository.class), settings, mock(org.monitoring.catchholebackend.domain.worldimage.service.AutomaticImageService.class), candidates, sources,
-            mock(WorldSettingMapper.class), mock(AiTokenService.class), new WorldSettingAnalysisConfirmation(candidates));
+            mock(WorldSettingMapper.class), mock(AiTokenService.class), new WorldSettingAnalysisConfirmation(candidates,
+                    mock(org.monitoring.catchholebackend.domain.analysis.service.AnalysisCandidateSourceGuard.class)));
     private final List<WorldSettingCandidate> rows = new ArrayList<>();
     private final List<WorldSettingComparisonDecisionSource> sourceRows = new ArrayList<>();
     private final Map<String, WorldSetting> actual = new LinkedHashMap<>();

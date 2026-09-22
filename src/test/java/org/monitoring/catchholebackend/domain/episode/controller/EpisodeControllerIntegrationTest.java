@@ -37,6 +37,10 @@ import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
@@ -953,6 +957,131 @@ class EpisodeControllerIntegrationTest {
                         && retained.iterator().next().equals(replaced.getContentS3Key()))
         );
         verify(objectStorage, never()).delete(anyString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"COMPLETE", "PENDING", "RUNNING", "FAILED", "INCOMPLETE", "APPLY_PENDING"})
+    @DisplayName("3화 교체와 원문 파기는 완료된 후행 회차를 보존하고 미완료 입력만 무효화한다")
+    void replacingEpisodePreservesCompletedSuccessorsThroughPurge(String successorState) throws Exception {
+        AnalysisJob before = orderedEpisodeForReplacement(work, null, 2, "COMPLETE");
+        AnalysisJob changed = orderedEpisodeForReplacement(work, null, 3, "COMPLETE");
+        AnalysisJob after = orderedEpisodeForReplacement(work, changed.getBatch(), 4, successorState);
+        AnalysisJob separateBatch = orderedEpisodeForReplacement(work, null, 5, "COMPLETE");
+        AnalysisJob other = orderedEpisodeForReplacement(otherWork, null, 4, "COMPLETE");
+        SettingCandidate removed = replacementCandidate(changed, false);
+        SettingCandidate confirmed = replacementCandidate(changed, true);
+        SettingCandidate retained = replacementCandidate(after, false);
+        long jobCount = analysisJobRepository.count();
+
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes/{episodeId}/file", work.getId(), changed.getEpisode().getId())
+                        .file(textFile("file", "changed.txt", "새로운 3화 원고"))
+                        .with(request -> { request.setMethod("PUT"); return request; })
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.analysisStatus").value("REANALYSIS_REQUIRED"));
+        // 커밋 후 파기까지 완료돼도 완료 결과가 다시 무효화되지 않는다.
+        episodeSourcePurgeProcessor.processPendingRequests();
+        assertThat(episodeSourcePurgeRequestRepository.count()).isZero();
+        assertThat(analysisJobRepository.count()).isEqualTo(jobCount);
+        assertThat(analysisJobRepository.findById(changed.getId()).orElseThrow().getJournalStatus())
+                .isEqualTo(AnalysisJournalStatus.INVALIDATED);
+        AnalysisJob retainedAfter = analysisJobRepository.findById(after.getId()).orElseThrow();
+        if (successorState.equals("COMPLETE")) {
+            assertThat(retainedAfter.isCompletedOrderedAnalysis()).isTrue();
+            assertThat(retainedAfter.getSummaryJson()).isEqualTo("{\"retained\":true}");
+        } else {
+            assertThat(retainedAfter.getJournalStatus()).isEqualTo(AnalysisJournalStatus.INVALIDATED);
+            if (successorState.equals("PENDING") || successorState.equals("RUNNING")) {
+                assertThat(retainedAfter.getStatus()).isEqualTo(AnalysisJobStatus.CANCELED);
+                assertThat(retainedAfter.getLeaseToken()).isNull();
+            }
+        }
+        assertThat(retainedAfter.getStateJournal().path("sourceEvidencePurged").asBoolean()).isTrue();
+        assertThat(retainedAfter.getStateJournal().toString()).doesNotContain("파기할 원문");
+        assertThat(analysisJobRepository.findById(separateBatch.getId()).orElseThrow().isCompletedOrderedAnalysis()).isTrue();
+        assertThat(analysisJobRepository.findById(before.getId()).orElseThrow().getStateJournal().toString()).contains("파기할 원문");
+        assertThat(analysisJobRepository.findById(other.getId()).orElseThrow().getStateJournal().toString()).contains("파기할 원문");
+        assertThat(settingCandidateRepository.existsById(removed.getId())).isFalse();
+        assertThat(settingCandidateRepository.existsById(confirmed.getId())).isTrue();
+        assertThat(settingCandidateRepository.existsById(retained.getId())).isTrue();
+        mockMvc.perform(get("/api/v1/works/{workId}/episodes", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[?(@.episodeNo == 4)].analysisStatus",
+                        org.hamcrest.Matchers.contains(successorState.equals("COMPLETE") ? "COMPLETED" : "REANALYSIS_REQUIRED")))
+                .andExpect(jsonPath("$.data[?(@.episodeNo == 5)].analysisStatus", org.hamcrest.Matchers.contains("COMPLETED")));
+    }
+
+    @Test
+    @DisplayName("5화를 1화로 이동해도 변경된 원문만 무효화하고 완료된 중간 회차를 보존한다")
+    void movingEpisodeEarlierInvalidatesByIdentityRatherThanThresholdEquality() throws Exception {
+        AnalysisJob changed = orderedEpisodeForReplacement(work, null, 5, "COMPLETE");
+        AnalysisJob retained = orderedEpisodeForReplacement(work, null, 3, "COMPLETE");
+        mockMvc.perform(patch("/api/v1/works/{workId}/episodes/{episodeId}", work.getId(), changed.getEpisode().getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"episodeNo\":1,\"title\":\"앞으로 이동\",\"content\":\"바뀐 원문\"}")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
+        episodeSourcePurgeProcessor.processPendingRequests();
+        assertThat(analysisJobRepository.findById(changed.getId()).orElseThrow().getJournalStatus())
+                .isEqualTo(AnalysisJournalStatus.INVALIDATED);
+        assertThat(analysisJobRepository.findById(retained.getId()).orElseThrow().isCompletedOrderedAnalysis()).isTrue();
+        assertThat(analysisJobRepository.count()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("앞 회차 삭제 후 원문 파기가 끝나도 뒤 회차 완료 상태와 후보가 유지된다")
+    void deletingEpisodePreservesCompletedSuccessor() throws Exception {
+        AnalysisJob removed = orderedEpisodeForReplacement(work, null, 1, "COMPLETE");
+        AnalysisJob retained = orderedEpisodeForReplacement(work, removed.getBatch(), 2, "COMPLETE");
+        SettingCandidate candidate = replacementCandidate(retained, false);
+        mockMvc.perform(delete("/api/v1/works/{workId}/episodes/{episodeId}", work.getId(), removed.getEpisode().getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
+        episodeSourcePurgeProcessor.processPendingRequests();
+        assertThat(episodeRepository.findById(removed.getEpisode().getId()).orElseThrow().getStatus()).isEqualTo(EpisodeStatus.ARCHIVED);
+        assertThat(analysisJobRepository.findById(retained.getId()).orElseThrow().isCompletedOrderedAnalysis()).isTrue();
+        assertThat(settingCandidateRepository.existsById(candidate.getId())).isTrue();
+        assertThat(analysisJobRepository.count()).isEqualTo(2);
+    }
+
+    private SettingCandidate replacementCandidate(AnalysisJob job, boolean confirmed) {
+        SettingCandidate candidate = SettingCandidate.create(job.getWork(), job.getEpisode(), null, job,
+                SettingEntityType.CHARACTER, "등장인물", "정신력", "35", SettingValueType.NUMBER,
+                null, JsonNodeFactory.instance.arrayNode().add("파기할 원문"), BigDecimal.ONE, null);
+        if (confirmed) candidate.confirm();
+        return settingCandidateRepository.save(candidate);
+    }
+
+    private AnalysisJob orderedEpisodeForReplacement(Work ownerWork, UploadBatch existingBatch, int number, String state) {
+        UploadBatch batch = existingBatch == null ? uploadBatchRepository.save(UploadBatch.create(
+                ownerWork, ownerWork.getMember(), UploadType.MULTI_EPISODE_MULTI_FILE, UploadSourceType.FILE)) : existingBatch;
+        UploadFile file = uploadFileRepository.save(UploadFile.create(batch, UploadFileRole.EPISODE,
+                number + ".txt", "text/plain", "s3://replacement/" + UUID.randomUUID(), 10));
+        Episode episode = Episode.create(ownerWork, file.getId(), number, number + "화",
+                "replacement/" + UUID.randomUUID(), "v1", "a".repeat(64), 10);
+        if (state.equals("RUNNING")) episode.updateStatus(EpisodeStatus.ANALYZING);
+        else if (state.equals("COMPLETE")) episode.markAnalyzed();
+        episode = episodeRepository.save(episode);
+        AnalysisJob job = AnalysisJob.create(ownerWork, batch, episode, AnalysisJobType.SETTING_EXTRACTION);
+        job.configureReviewMode(AnalysisReviewMode.AUTOMATIC);
+        var json = JsonNodeFactory.instance;
+        job.initializeOrderedRun(UUID.randomUUID(), 1, 0, null, json.objectNode());
+        var journal = json.objectNode().put("outputStateHash", "b".repeat(64));
+        var change = journal.putArray("changes").addObject();
+        change.putArray("path").add("references").add("ref");
+        change.putObject("value").put("quote", "파기할 원문");
+        job.replacePendingJournal(journal);
+        if (!state.equals("PENDING")) job.claim("test-only", "분석", LocalDateTime.now().plusMinutes(5));
+        if (state.equals("COMPLETE") || state.equals("APPLY_PENDING")) {
+            job.sealJournal();
+            if (state.equals("COMPLETE")) job.completeAutomaticApplication();
+            job.succeed("{\"retained\":true}", 1, 1);
+        } else if (state.equals("INCOMPLETE")) {
+            job.markJournalIncomplete();
+            job.succeed("{}", 1, 1);
+        } else if (state.equals("FAILED")) job.fail("실패 기록");
+        return analysisJobRepository.save(job);
     }
 
     @ParameterizedTest

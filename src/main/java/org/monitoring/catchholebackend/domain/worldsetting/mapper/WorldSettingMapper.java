@@ -185,7 +185,9 @@ public class WorldSettingMapper {
                 toComparisonDiagnostics(candidate.getComparisonDiagnostics()),
                 candidate.isPendingReview() ? candidate.getAutomaticReviewHoldReason() : null,
                 candidate.isAutomaticApplicationPending(),
-                candidate.isHistoryOnly()
+                candidate.isHistoryOnly(),
+                candidate.getAnalysisJob().getStatus(),
+                candidate.getAnalysisJob().getJournalStatus()
         );
     }
 
