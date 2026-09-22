@@ -351,6 +351,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                     settingCandidateMapper.toReviewStatusResponse(candidate)
             );
         }
+        analysisConfirmation.assertReviewSourceCurrent(candidate);
         validateReviewMutationAllowed(work, List.of(candidateId));
         if (candidate.getReviewStatus() != SettingCandidateReviewStatus.PENDING_REVIEW) {
             candidate.confirm();
@@ -429,7 +430,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         // 최초 PENDING_REVIEW -> CONFIRMED 전이만 true다. 동일 confirm 재시도는 false로 Fact 중복 생성을 막는다.
         boolean newlyConfirmed = candidate.confirm();
         if (newlyConfirmed) {
-            settingCandidatePromotionService.promote(candidate, applicationMode);
+            settingCandidatePromotionService.promote(candidate, protectedReviewMode(candidate, applicationMode));
         }
         return SettingCandidateConfirmResult.confirmed(settingCandidateMapper.toReviewStatusResponse(candidate));
     }
@@ -470,6 +471,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             }
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
         }
+        candidates.forEach(analysisConfirmation::assertReviewSourceCurrent);
         validateReviewMutationAllowed(work, decisions.keySet());
         validateCompletePendingGroup(work, request.batchId(), candidates, decisions.keySet());
         if (candidates.stream().anyMatch(candidate -> candidate.getMatchStatus()
@@ -601,6 +603,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             List<CharacterSettingSchema> schemas = characterSettingSchemaRepository.findAllActiveForWork(work.getId());
             validateComparisonRevision(candidates, request.comparisonRevision());
             validateGroupDecisionDependencies(candidates, decisions, schemas);
+            Map<UUID, SettingCandidateGroupConfirmDecision> protectedDecisions = protectReviewDecisions(candidates, decisions);
             candidates.stream()
                     .filter(candidate -> candidate.getSuggestedOperation() == CharacterFactOperation.EXCLUDE)
                     .forEach(SettingCandidate::dismiss);
@@ -608,7 +611,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                     .filter(candidate -> candidate.getSuggestedOperation() != CharacterFactOperation.EXCLUDE)
                     .map(candidate -> new SettingCandidateGroupPromotion(
                             candidate,
-                            decisions.get(candidate.getId()).applicationMode()
+                            protectedDecisions.get(candidate.getId()).applicationMode()
                     ))
                     .toList();
             List<SettingCandidate> earlierApplied = new ArrayList<>();
@@ -691,6 +694,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         List<CharacterSettingSchema> schemas = characterSettingSchemaRepository.findAllActiveForWork(work.getId());
         validateComparisonRevision(candidates, request.comparisonRevision());
         validateGroupDecisionDependencies(candidates, decisions, schemas);
+        Map<UUID, SettingCandidateGroupConfirmDecision> protectedDecisions = protectReviewDecisions(candidates, decisions);
 
         List<SettingCandidateGroupPromotion> promotions = new ArrayList<>();
         for (SettingCandidate candidate : candidates) {
@@ -701,7 +705,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             if (candidate.confirm()) {
                 promotions.add(new SettingCandidateGroupPromotion(
                         candidate,
-                        decisions.get(candidate.getId()).applicationMode()
+                        protectedDecisions.get(candidate.getId()).applicationMode()
                 ));
             }
         }
@@ -844,10 +848,8 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         String key = schema.factKey();
         CharacterFactTemporalScope reviewedScope = candidate.getTemporalScope();
         boolean historyOnly = requested == CharacterFactConfirmApplicationMode.HISTORY_ONLY
-                || reviewedScope != null && reviewedScope != CharacterFactTemporalScope.PRESENT
-                || candidate.getSuggestedOperation() == CharacterFactOperation.HISTORY_ONLY
                 || candidate.getSuggestedOperation() == CharacterFactOperation.REMOVE
-                || analysisConfirmation.keepLateReviewInHistory(candidate, schema.matchedSchema().getFactType(), key);
+                || analysisConfirmation.keepReviewedFactInHistory(candidate, schema.matchedSchema().getFactType(), key);
         // 오래된 비교의 병합값·부수 삭제를 재사용하지 않고 작가가 확인한 이 후보의 값만 반영한다.
         prepareUserEditedValue(candidate, reviewedScope, true);
         if (!candidate.confirm()) return null;
@@ -866,6 +868,47 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 ? schema.factKey()
                 : candidate.getResolvedCanonicalFactKey().trim();
         return new CharacterSnapshotSlot(schema.matchedSchema().getFactType(), key);
+    }
+
+    private CharacterFactConfirmApplicationMode protectedReviewMode(
+            SettingCandidate candidate, CharacterFactConfirmApplicationMode requested) {
+        return requested == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL && !isOrdered(candidate)
+                && analysisConfirmation.keepManualReviewInHistory(candidate)
+                ? CharacterFactConfirmApplicationMode.HISTORY_ONLY : requested;
+    }
+
+    private Map<UUID, SettingCandidateGroupConfirmDecision> protectReviewDecisions(
+            List<SettingCandidate> candidates, Map<UUID, SettingCandidateGroupConfirmDecision> decisions) {
+        Map<UUID, SettingCandidateGroupConfirmDecision> protectedDecisions = new LinkedHashMap<>();
+        Set<CharacterSnapshotSlot> suppressedSlots = new HashSet<>();
+        Set<UUID> automaticallyHistorical = new HashSet<>();
+        for (SettingCandidate candidate : candidates) {
+            var decision = decisions.get(candidate.getId());
+            if (candidate.getSuggestedOperation() == CharacterFactOperation.EXCLUDE) {
+                protectedDecisions.put(candidate.getId(), decision);
+                continue;
+            }
+            var mode = protectedReviewMode(candidate, decision.applicationMode());
+            if (!isOrdered(candidate) && mode == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+                    && (comparisonDependencyIds(candidate).stream().anyMatch(automaticallyHistorical::contains)
+                    || !suppressedSlots.isEmpty() && !candidate.isCharacterDiscovery()
+                    && suppressedSlots.contains(lateReviewSnapshotSlot(candidate)))) {
+                mode = CharacterFactConfirmApplicationMode.HISTORY_ONLY;
+            }
+            if (mode == CharacterFactConfirmApplicationMode.HISTORY_ONLY
+                    && decision.applicationMode() == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL) {
+                automaticallyHistorical.add(candidate.getId());
+                // 과거 사실 자체는 현재값의 선행 제안이 아니다. 독립적인 PRESENT 후보를 막지 않는다.
+                if (!candidate.isCharacterDiscovery()
+                        && candidate.getTemporalScope() == CharacterFactTemporalScope.PRESENT
+                        && changesCurrentSnapshot(candidate.getSuggestedOperation())) {
+                    suppressedSlots.add(lateReviewSnapshotSlot(candidate));
+                }
+            }
+            protectedDecisions.put(candidate.getId(), new SettingCandidateGroupConfirmDecision(
+                    candidate.getId(), mode, decision.baseSnapshotVersion(), decision.applyEditedValue()));
+        }
+        return protectedDecisions;
     }
 
     private void prepareUserEditedValue(SettingCandidate candidate) {

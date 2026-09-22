@@ -192,7 +192,7 @@ public class EpisodeSourcePurgeProcessor {
             uploadFileRepository.findById(previousSourceFileId).ifPresent(UploadFile::purgeStoredSource);
         }
         UUID episodeId = request.getEpisode().getId();
-        analysisRunStateService.purgeSourceEvidenceForWorkForUpdate(workId, request.getPreviousEpisodeNo());
+        analysisRunStateService.purgeSourceEvidenceForWorkForUpdate(workId, episodeId, request.getPreviousEpisodeNo());
         characterComparisonBatchRepository.purgeOrderedContextByWorkIdAndSourceEpisodeNo(
                 workId, request.getPreviousEpisodeNo());
         comparisonBatchRepository.purgeOrderedContextByWorkIdAndSourceEpisodeNo(

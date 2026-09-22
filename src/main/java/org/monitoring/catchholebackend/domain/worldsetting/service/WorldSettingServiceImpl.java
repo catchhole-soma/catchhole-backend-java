@@ -98,8 +98,7 @@ public class WorldSettingServiceImpl implements WorldSettingService {
             WorldSettingCreateRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        analysisRunStateService.invalidateRunsForWorkForUpdate(
-                work.getId(), null, "사용자가 확정 설정을 변경했습니다.");
+        analysisRunStateService.assertSettingMutationAllowed(work.getId());
         String normalizedSubjectName = WorldSettingNameNormalizer.duplicateKey(request.subjectName());
         if (worldSettingRepository.findByWorkIdAndCategoryAndNormalizedSubjectName(
                 work.getId(),
@@ -138,11 +137,11 @@ public class WorldSettingServiceImpl implements WorldSettingService {
         }
         long previousVersion = worldSetting.getVersion();
         worldSetting.changeIdentity(request.category(), request.subjectName());
-        worldImageService.clearMismatchedImage(worldSetting);
-        if (worldSetting.getVersion() != previousVersion) {
-            analysisRunStateService.invalidateRunsForWorkForUpdate(
-                    work.getId(), null, "사용자가 확정 설정을 변경했습니다.");
+        if (worldSetting.getVersion() == previousVersion) {
+            return toDetail(worldSetting);
         }
+        analysisRunStateService.assertSettingMutationAllowed(work.getId());
+        worldImageService.clearMismatchedImage(worldSetting);
         automaticImages.refreshWorldSettingImages(List.of(worldSetting));
         flushIdentityChange(worldSetting);
         return toDetail(worldSetting);
@@ -157,8 +156,7 @@ public class WorldSettingServiceImpl implements WorldSettingService {
             WorldSettingPropertyCreateRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        analysisRunStateService.invalidateRunsForWorkForUpdate(
-                work.getId(), null, "사용자가 확정 설정을 변경했습니다.");
+        analysisRunStateService.assertSettingMutationAllowed(work.getId());
         WorldSetting worldSetting = getWorldSettingForUpdate(worldSettingId, work.getId());
         worldSetting.validateVersion(request.version());
         worldSetting.addProperty(request.scopeName(), request.settingName(), request.settingValue());
@@ -176,10 +174,11 @@ public class WorldSettingServiceImpl implements WorldSettingService {
             WorldSettingPropertyUpdateRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        analysisRunStateService.invalidateRunsForWorkForUpdate(
-                work.getId(), null, "사용자가 확정 설정을 변경했습니다.");
         WorldSetting worldSetting = getWorldSettingForUpdate(worldSettingId, work.getId());
         worldSetting.validateVersion(request.version());
+        long previousVersion = worldSetting.getVersion();
+        boolean previouslyProtected = worldSetting.isManuallyEdited(request.currentScopeName(), request.currentSettingName())
+                && worldSetting.isManuallyEdited(request.scopeName(), request.settingName());
         worldSetting.updateProperty(
                 request.currentScopeName(),
                 request.currentSettingName(),
@@ -187,6 +186,10 @@ public class WorldSettingServiceImpl implements WorldSettingService {
                 request.settingName(),
                 request.settingValue()
         );
+        if (worldSetting.getVersion() == previousVersion && previouslyProtected) {
+            return toDetail(worldSetting);
+        }
+        analysisRunStateService.assertSettingMutationAllowed(work.getId());
         worldSetting.protectManualProperty(request.currentScopeName(), request.currentSettingName());
         worldSetting.protectManualProperty(request.scopeName(), request.settingName());
         worldSettingRepository.flush();

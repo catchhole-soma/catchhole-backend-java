@@ -162,6 +162,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
                 return false;
             }
             if (exception.getResultCode() != AnalysisJobErrorCode.ANALYSIS_RUN_STATE_CONFLICT
+                    && exception.getResultCode() != AnalysisJobErrorCode.ANALYSIS_FUTURE_HISTORY_CONFLICT
                     && exception.getResultCode() != AnalysisJobErrorCode.ANALYSIS_RUN_MODE_INVALID) {
                 throw exception;
             }
@@ -309,11 +310,24 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
     }
 
     @Override
+    public void assertSettingMutationAllowed(UUID workId) {
+        if (analysisJobRepository.existsUnfinishedOrderedAnalysis(workId)) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_REVIEW_WAIT_REQUIRED);
+        }
+    }
+
+    @Override
     @Transactional
-    public void invalidateRunsForWorkForUpdate(UUID workId, Integer sourceEpisodeNo, String reason) {
+    public void invalidateRunsForEpisodeChangeForUpdate(UUID workId, UUID episodeId, int firstAffectedEpisodeNo, String reason) {
         requireInvalidationReason(reason);
-        analysisJobRepository.findAffectedOrderedJobsForUpdate(workId, sourceEpisodeNo)
+        analysisJobRepository.findAffectedOrderedJobsForUpdate(workId, firstAffectedEpisodeNo).stream()
+                .filter(job -> !preservesCompletedSuccessor(job, episodeId))
                 .forEach(member -> invalidateMember(member, reason));
+    }
+
+    private boolean preservesCompletedSuccessor(AnalysisJob job, UUID changedEpisodeId) {
+        return job.getEpisode() != null && !job.getEpisode().getId().equals(changedEpisodeId)
+                && job.isCompletedOrderedAnalysis();
     }
 
     private void requireInvalidationReason(String reason) {
@@ -324,9 +338,11 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
 
     @Override
     @Transactional
-    public void purgeSourceEvidenceForWorkForUpdate(UUID workId, int sourceEpisodeNo) {
+    public void purgeSourceEvidenceForWorkForUpdate(UUID workId, UUID episodeId, int sourceEpisodeNo) {
         analysisJobRepository.findOrderedJobsForSourcePurgeForUpdate(workId, sourceEpisodeNo).forEach(job -> {
-            invalidateMember(job, "원문 근거가 파기되어 기존 누적 입력을 재사용할 수 없습니다.");
+            if (!preservesCompletedSuccessor(job, episodeId)) {
+                invalidateMember(job, "원문 근거가 파기되어 기존 누적 입력을 재사용할 수 없습니다.");
+            }
             job.purgeJournalSourceEvidence(journal.purgeSourceEvidence(job.getStateJournal()));
         });
     }
@@ -436,8 +452,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
         if (node.isObject()) {
             for (String key : List.of("sourceEpisodeNo", "latestSourceEpisodeNo")) {
                 if (node.path(key).isIntegralNumber() && node.path(key).asInt() >= firstEpisodeNo) {
-                    throw new AppException(AnalysisJobErrorCode.ANALYSIS_RUN_MODE_INVALID,
-                            "시작 회차 이후의 확정 설정이 있어 과거 상태를 안전하게 복원할 수 없습니다.");
+                    throw new AppException(AnalysisJobErrorCode.ANALYSIS_FUTURE_HISTORY_CONFLICT);
                 }
             }
         }
@@ -455,8 +470,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
         };
         for (Integer sourceEpisodeNo : latestSources) {
             if (sourceEpisodeNo != null && sourceEpisodeNo >= firstEpisodeNo) {
-                throw new AppException(AnalysisJobErrorCode.ANALYSIS_RUN_MODE_INVALID,
-                        "시작 회차 이후의 확정 이력이 있어 현재 설정으로 과거 분석을 시작할 수 없습니다.");
+                throw new AppException(AnalysisJobErrorCode.ANALYSIS_FUTURE_HISTORY_CONFLICT);
             }
         }
     }

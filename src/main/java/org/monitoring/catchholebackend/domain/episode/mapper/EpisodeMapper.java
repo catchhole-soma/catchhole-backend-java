@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeResponse;
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeSummaryResponse;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
@@ -90,6 +91,15 @@ public class EpisodeMapper {
     }
 
     private EpisodeAnalysisStatus resolveAnalysisStatus(Episode episode, AnalysisJob latestAnalysisJob) {
+        if (latestAnalysisJob != null && latestAnalysisJob.isOrderedProvisional()) {
+            if (latestAnalysisJob.getJournalStatus() == AnalysisJournalStatus.INVALIDATED) {
+                return EpisodeAnalysisStatus.REANALYSIS_REQUIRED;
+            }
+            if (latestAnalysisJob.getStatus() == AnalysisJobStatus.SUCCEEDED
+                    && !latestAnalysisJob.isCompletedOrderedAnalysis()) {
+                return EpisodeAnalysisStatus.FAILED;
+            }
+        }
         if (latestAnalysisJob != null
                 && (latestAnalysisJob.getStatus() == AnalysisJobStatus.PENDING
                 || latestAnalysisJob.getStatus() == AnalysisJobStatus.RUNNING)) {

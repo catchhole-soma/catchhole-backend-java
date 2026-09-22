@@ -123,6 +123,11 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         if (targetEpisodes.stream().anyMatch(targetEpisode -> hasActiveAnalysisJob(batch, targetEpisode))) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_ALREADY_IN_PROGRESS);
         }
+        // 생성 응답이 유실됐더라도 완료 checkpoint를 새 실행으로 덮어 재분석하지 않는다.
+        if (targetEpisodes.stream().anyMatch(targetEpisode ->
+                hasUnfinishedOrderedAnalysis(batch, targetEpisode, request.jobType()))) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_ORDERED_JOB_RETRY_REQUIRED);
+        }
         if (targetEpisodes.stream().anyMatch(targetEpisode ->
                 hasOutstandingTokenInterruptionRecovery(batch, targetEpisode, request.jobType()))) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
@@ -302,6 +307,12 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                     && job.getJournalStatus() == AnalysisJournalStatus.INCOMPLETE)) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
         }
+        if (analysisJobRepository.findFirstByEpisodeIdAndBatchIdAndJobTypeOrderByCreatedAtDescIdDesc(
+                        job.getEpisode() == null ? null : job.getEpisode().getId(),
+                        job.getBatch() == null ? null : job.getBatch().getId(), job.getJobType())
+                .filter(latest -> !latest.getId().equals(job.getId())).isPresent()) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_SUPERSEDED);
+        }
         // 무효화된 원문·사용자 변경은 같은 입력의 실패 재개로 바꾸지 않는다.
         analysisRunStateService.validateResume(job);
         assertNoSourcePurgeInProgress(List.of(job.getEpisode()));
@@ -473,6 +484,19 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
             AnalysisJobType jobType
     ) {
         return findLatestResumableTokenInterruption(batch, episode, jobType).isPresent();
+    }
+
+    private boolean hasUnfinishedOrderedAnalysis(UploadBatch batch, Episode episode, AnalysisJobType jobType) {
+        return analysisJobRepository.findFirstByEpisodeIdAndBatchIdAndJobTypeOrderByCreatedAtDescIdDesc(
+                        episode.getId(), batch.getId(), jobType)
+                .filter(AnalysisJob::isOrderedProvisional)
+                .filter(AnalysisJob::hasCurrentSourceVersion)
+                .filter(job -> job.getJournalStatus() == AnalysisJournalStatus.PENDING
+                        || job.getJournalStatus() == AnalysisJournalStatus.INCOMPLETE)
+                .filter(job -> job.getStatus() == AnalysisJobStatus.FAILED
+                        || job.getStatus() == AnalysisJobStatus.SUCCEEDED
+                            && job.getJournalStatus() == AnalysisJournalStatus.INCOMPLETE)
+                .isPresent();
     }
 
     private boolean hasOutstandingTokenInterruptionRecovery(

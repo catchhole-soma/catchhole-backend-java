@@ -335,6 +335,12 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             AnalysisJobType jobType
     );
 
+    Optional<AnalysisJob> findFirstByEpisodeIdAndBatchIdAndJobTypeOrderByCreatedAtDescIdDesc(
+            UUID episodeId,
+            UUID batchId,
+            AnalysisJobType jobType
+    );
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select analysisJob
@@ -385,5 +391,35 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
                                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING)
             """)
     boolean existsActiveOrderedReview(@Param("workId") UUID workId);
+
+    @Query("""
+            select count(job) > 0 from AnalysisJob job
+            left join job.episode episode
+            where job.work.id = :workId
+              and job.analysisMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL
+              and job.journalStatus <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.INVALIDATED
+              and (job.status in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING,
+                                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING)
+                   or (((job.status = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.FAILED
+                         and job.journalStatus in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.PENDING,
+                                                   org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.INCOMPLETE))
+                        or (job.status = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.SUCCEEDED
+                            and job.journalStatus = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.INCOMPLETE))
+                       and episode.status <> org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ARCHIVED
+                       and job.sourceEpisodeNo = episode.episodeNo
+                       and job.sourceContentHash = episode.contentHash
+                       and job.sourceContentS3Key = episode.contentS3Key
+                       and (job.sourceContentS3Version = episode.contentS3Version
+                            or (job.sourceContentS3Version is null and episode.contentS3Version is null))
+                       and not exists (
+                           select newer.id from AnalysisJob newer
+                           where newer.work.id = job.work.id and newer.episode.id = episode.id
+                             and (newer.batch.id = job.batch.id or (newer.batch is null and job.batch is null))
+                             and newer.jobType = job.jobType
+                             and (newer.createdAt > job.createdAt
+                                  or (newer.createdAt = job.createdAt and newer.id > job.id))
+                       )))
+            """)
+    boolean existsUnfinishedOrderedAnalysis(@Param("workId") UUID workId);
 
 }

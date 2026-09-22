@@ -212,7 +212,7 @@ public class EpisodeController {
     @Operation(
             operationId = "replaceEpisodeFile",
             summary = "회차 원문 파일 변경",
-            description = "회차 번호와 제목을 유지하고 새 TXT 또는 DOCX 원본으로 교체합니다. 자동 분석은 시작하지 않습니다."
+            description = "회차 번호와 제목을 유지하고 새 TXT 또는 DOCX 원본으로 교체합니다. 해당 회차는 재분석 필요로 표시하고 완료된 후행 분석은 보존합니다. 영향을 받는 미완료 순차 입력은 무효화하며 자동 분석은 시작하지 않습니다."
     )
     public CommonResponse<EpisodeSummaryResponse> replaceEpisodeFile(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
