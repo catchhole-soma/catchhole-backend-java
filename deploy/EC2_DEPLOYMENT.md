@@ -79,6 +79,8 @@ NVM-317 최초 전환은 기존 로컬 PostgreSQL 데이터를 Amazon RDS로 이
 
 - Caddy는 인터넷에서 TCP 80번과 443번 포트를 받는다.
 - Spring Backend의 TCP 8080번 포트는 호스트에 게시하지만, API 서버 보안 그룹은 Worker 서버 보안 그룹에서 시작된 요청만 허용한다.
+- 운영 Actuator는 컨테이너의 TCP 8081을 사용한다. 호스트 게시 주소는 기본 `127.0.0.1`이며, 모니터링 EC2를 연결할 때 API 서버 SG의 8081 인바운드를 모니터링 SG에만 허용한 후 `API_METRICS_BIND_ADDRESS`를 API EC2 사설 IPv4로 바꾼다. Worker에는 8081 접근을 허용하지 않는다. 상세 절차는 [운영 모니터링 배포](MONITORING_DEPLOYMENT.md)를 따른다.
+- 기존 API 포트의 `/actuator/health`는 전체 health group의 `/healthz`로 내부 전달해 유지한다. 공개 Caddy는 `/actuator/health`를 제외한 `/actuator` 경로를 404로 차단한다.
 - 서비스 간 연결은 Amazon RDS의 TCP 5432번 포트에 API 서버 SG와 Worker 서버 SG를 허용한다. 2026-09-10 실제 설정에는 운영 접근용 IPv4 `/32` 두 개가 추가로 허용되어 있고 RDS 공개 접근도 활성화되어 있다. SG 설명상 팀원 자택·SW 사무실 Wi-Fi에서 DB에 직접 접속하는 허용이며, SSM 접속을 위한 인바운드 규칙은 아니다. 현재 사용 여부·유지 기간은 확인 필요하며 이 현황 기록이 예외의 상시 허용을 결정한 것은 아니다. 원문 IP·리소스 식별자는 비공개 운영 기록에서 관리한다.
 - Redis는 Docker 네트워크 안에서만 접근하며 호스트 포트를 게시하지 않는다.
 
