@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.global.config.monitoring;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 import jakarta.servlet.DispatcherType;
 import java.net.URI;
@@ -12,6 +13,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.monitoring.catchholebackend.global.config.logging.RequestLoggingConfig;
 import org.monitoring.catchholebackend.global.config.security.SecurityConstant;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -22,6 +25,8 @@ import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
 import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
@@ -34,13 +39,14 @@ import org.springframework.test.context.ActiveProfiles;
         classes = ProductionMetricsIntegrationTest.TestApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
-                "spring.config.location=classpath:application-prod.yml",
+                "spring.config.location=classpath:application.yml,classpath:application-prod.yml",
                 "spring.docker.compose.enabled=false",
                 "management.server.port=0"
         }
 )
 @ActiveProfiles("prod")
 @AutoConfigureMetrics
+@ExtendWith(OutputCaptureExtension.class)
 @DisplayName("운영 메트릭 포트와 기존 health 경로 분리")
 class ProductionMetricsIntegrationTest {
 
@@ -104,6 +110,29 @@ class ProductionMetricsIntegrationTest {
         }
     }
 
+    @Test
+    @DisplayName("운영 API·관리 포트의 실제 HTTP 응답과 오류 로그에 같은 requestId를 남긴다")
+    void correlatesProductionHttpResponsesAndLogs(CapturedOutput output) throws Exception {
+        for (int port : new int[]{port("local.server.port"), port("local.management.port")}) {
+            HttpResponse<String> health = get(port, "/actuator/health");
+            assertThat(health.statusCode()).isEqualTo(200);
+            assertThat(health.headers().firstValue("X-Request-ID")).isPresent();
+        }
+        HttpResponse<String> healthz = get(port("local.server.port"), "/healthz");
+        String healthyId = healthz.headers().firstValue("X-Request-ID").orElseThrow();
+        dependencyDown.set(true);
+        HttpResponse<String> unhealthy = get(port("local.server.port"), "/actuator/health");
+        String errorId = unhealthy.headers().firstValue("X-Request-ID").orElseThrow();
+        assertThat(unhealthy.statusCode()).isEqualTo(503);
+        assertThat(errorId).isNotEqualTo(healthyId);
+        await().atMost(Duration.ofSeconds(3)).untilAsserted(() ->
+                assertThat(output.getOut().lines().filter(line ->
+                        line.contains("[requestId=" + errorId + "]") && line.contains("status=503")))
+                        .hasSize(1));
+        assertThat(output.getOut().lines().filter(line ->
+                line.contains("[requestId=" + healthyId + "]") && line.contains("HTTP 요청 완료"))).isEmpty();
+    }
+
     private int port(String property) {
         return environment.getRequiredProperty(property, Integer.class);
     }
@@ -122,7 +151,7 @@ class ProductionMetricsIntegrationTest {
             DataRedisAutoConfiguration.class,
             UserDetailsServiceAutoConfiguration.class
     })
-    @Import(ProductionHealthWebConfig.class)
+    @Import({ProductionHealthWebConfig.class, RequestLoggingConfig.class})
     static class TestApplication {
 
         @Bean
