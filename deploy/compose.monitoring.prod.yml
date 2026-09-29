@@ -1,0 +1,46 @@
+name: catchhole-monitoring-prod
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.13.3
+    restart: unless-stopped
+    logging:
+      driver: journald
+    ports:
+      - "127.0.0.1:9090:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-7d}
+      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-5GB}
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - type: bind
+        source: ${PROMETHEUS_TARGETS_FILE:-./monitoring/targets/catchhole-backend.json}
+        target: /etc/prometheus/targets/catchhole-backend.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - prometheus_data:/prometheus
+
+  grafana:
+    image: grafana/grafana:13.2.2
+    restart: unless-stopped
+    logging:
+      driver: journald
+    depends_on:
+      - prometheus
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?GRAFANA_ADMIN_USER is required}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+
+volumes:
+  prometheus_data:
+  grafana_data:

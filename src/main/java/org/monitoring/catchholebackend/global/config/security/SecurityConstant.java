@@ -46,8 +46,9 @@ public final class SecurityConstant {
             "/swagger-ui.html"
     };
 
-    // Actuator 모니터링 공개 경로
+    // 애플리케이션 인증이 불필요한 경로. 운영 메트릭은 별도 관리 포트와 보안 그룹으로 제한한다.
     public static final String[] ACTUATOR_URLS = {
+            "/healthz",
             "/actuator/health",
             "/actuator/prometheus"
     };
