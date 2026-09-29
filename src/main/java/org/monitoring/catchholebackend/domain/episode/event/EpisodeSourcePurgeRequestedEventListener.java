@@ -20,7 +20,7 @@ public class EpisodeSourcePurgeRequestedEventListener {
             processor.processRequest(event.requestId());
         } catch (RuntimeException exception) {
             // 요청 row는 이미 커밋되어 있으므로 스케줄러가 다시 처리한다.
-            log.error("커밋 직후 회차 원문 파기 시작 실패: requestId={}", event.requestId(), exception);
+            log.error("커밋 직후 회차 원문 파기 시작 실패: purgeRequestId={}", event.requestId(), exception);
         }
     }
 }

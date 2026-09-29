@@ -82,7 +82,7 @@ public class WorkPurgeProcessor {
                     uploadBatchIds == null ? List.of() : uploadBatchIds
             );
         } catch (RuntimeException exception) {
-            log.error("작품 영구 삭제 저장소 단계 실패: requestId={}", requestId, exception);
+            log.error("작품 영구 삭제 저장소 단계 실패: purgeRequestId={}", requestId, exception);
             markFailed(requestId, WorkErrorCode.WORK_PURGE_STORAGE_FAILED.getCode(), false);
             return;
         }
@@ -107,7 +107,7 @@ public class WorkPurgeProcessor {
                 metrics.recordCompleted(completed);
             }
         } catch (RuntimeException exception) {
-            log.error("작품 영구 삭제 DB 단계 실패: requestId={}", requestId, exception);
+            log.error("작품 영구 삭제 DB 단계 실패: purgeRequestId={}", requestId, exception);
             markDatabaseFailed(requestId);
         }
     }

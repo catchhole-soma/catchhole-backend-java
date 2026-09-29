@@ -1,0 +1,3 @@
+2026-09-29T15:56:26.746+09:00  INFO 7739 --- [CatchHole-Backend] [    Test worker] stLoggingIntegrationTest$ProbeController : 로컬 로그 검증 요청 처리: probeId=first
+2026-09-29T15:56:26.766+09:00  INFO 7739 --- [CatchHole-Backend] [    Test worker] stLoggingIntegrationTest$ProbeController : 로컬 로그 검증 요청 처리: probeId=second
+2026-09-29T15:54:42.728+09:00  WARN 6363 --- [CatchHole-Backend] [    Test worker] o.m.c.d.e.p.EpisodeSourcePurgeProcessor  : 회차 원문 일부 파기 실패: requestId=a5420f8f-95cb-4d8d-8596-9aaea24b5792, target=3, deleted=2, failed=1

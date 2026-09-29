@@ -224,6 +224,7 @@ org.monitoring.catchholebackend
     │   ├── auth
     │   ├── cors
     │   ├── jpa
+    │   ├── logging
     │   ├── memberwithdrawal
     │   ├── emaildelivery
 │   ├── emailverification
@@ -668,7 +669,17 @@ public class UserMapper {
 - 운영 로그의 사람이 읽는 문장은 한국어로 작성한다. `SOLAPI`, HTTP status, enum code 같은 기술 식별자는 그대로 사용할 수 있다.
 - 불필요한 추상화나 미래 대비용 확장 포인트를 만들지 않는다.
 - 주석은 복잡한 의도를 설명할 때만 짧게 작성한다.
+- HTTP 로그 연결은 `global.config.logging.RequestIdFilter`가 Security 앞에서 생성하는 UUID와 MDC `requestId`, 응답 `X-Request-ID`를 사용한다. 외부 ID는 채택하지 않으며 동기 REQUEST/ERROR 처리 후 자신이 소유한 MDC 키만 정리한다. 로그 패턴은 공통 YAML에서 관리한다.
+- API·관리 포트가 분리돼도 같은 정책을 적용하도록 `RequestLoggingConfig`를 관리 context의 `ManagementContextConfiguration.imports`에도 등록한다. 각 서버에서 한 번만 적용하며 정상 `/healthz`·`/actuator/health`·`/actuator/prometheus`는 완료 로그만 생략한다.
+- 삭제·탈퇴 로그의 업무 ID는 `purgeRequestId`·`withdrawalRequestId`로 표기한다. 기존 API 본문의 `requestId`와 DB 필드는 유지한다. HTTP 요청과 여러 재시도에 걸친 업무 작업을 혼동하지 않기 위함이며, 스케줄러·별도 스레드에는 HTTP ID를 임의 전파하지 않는다. 적용 범위와 조회 명령은 `docs/request-logging.md`를 따른다.
 - Entity에서 nullable 여부가 전역/작품 범위 같은 도메인 의미를 갖거나, JSON·정책 컬럼의 저장 목적이 이름만으로 명확하지 않으면 필드 위에 한국어 주석으로 의미와 필요한 예시를 남긴다.
+
+### Branch and Worktree
+
+- 작업을 시작하기 전에 기존 로컬·원격 브랜치와 최근 PR의 네이밍을 확인한다.
+- 브랜치는 `<type>/gh-<이슈번호>-<작업설명>`을 사용한다. Jira 작업은 기존처럼 `<type>/nvm-<번호>-<작업설명>`을 따른다. 예: `feat/gh-207-mdc-request-id`.
+- 브랜치 이름에 `codex/` 접두사를 붙이지 않는다.
+- 기존 저장소 폴더에서 브랜치를 전환해 작업하며, 별도 worktree를 기본으로 생성하지 않는다.
 
 ### Commit Convention
 
