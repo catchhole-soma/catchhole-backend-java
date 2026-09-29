@@ -48,3 +48,26 @@ cors:
 logging:
   level:
     root: INFO
+
+management:
+  server:
+    port: 8081
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: never
+      show-components: never
+      group:
+        deployment:
+          include: "*"
+          additional-path: server:/healthz
+  metrics:
+    tags:
+      application: catchhole-backend
+      environment: prod
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true

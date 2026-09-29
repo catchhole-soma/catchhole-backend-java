@@ -13,3 +13,16 @@ logging:
 
 sms:
   provider: ${SMS_PROVIDER:fake}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    tags:
+      application: catchhole-backend
+      environment: local
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
