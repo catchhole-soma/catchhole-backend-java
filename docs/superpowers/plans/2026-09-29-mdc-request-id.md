@@ -51,7 +51,7 @@
 
 ## Progress
 
-- 2026-09-29: codex/gh207-mdc-request-id 작업 트리에서 시작. 기본 앱 worktree 도구는 workspace 루트의 HEAD 부재로 실패하여 실제 backend 저장소에서 worktree를 생성함.
+- 2026-09-29: 작업 브랜치를 기존 네이밍에 맞춘 `feat/gh-207-mdc-request-id`로 정리하고, 작업 위치를 기존 `apps/CatchHole-Backend` 폴더로 통일했다. 브랜치 네이밍과 기존 폴더 우선 원칙은 `AGENTS.md`에 명시한다.
 
 - 완료: `./gradlew test bootJar --offline --console=plain` 성공. 1,257개 중 실패 0, 건너뜀 66. 신규 11개.
 - 완료: 전후 실제 로그 TXT/PNG 저장 및 시각 확인, 이슈 #207 본문에 첨부·구현 결과 반영. 운영 검증은 미완료로 유지.

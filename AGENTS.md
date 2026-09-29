@@ -674,6 +674,13 @@ public class UserMapper {
 - 삭제·탈퇴 로그의 업무 ID는 `purgeRequestId`·`withdrawalRequestId`로 표기한다. 기존 API 본문의 `requestId`와 DB 필드는 유지한다. HTTP 요청과 여러 재시도에 걸친 업무 작업을 혼동하지 않기 위함이며, 스케줄러·별도 스레드에는 HTTP ID를 임의 전파하지 않는다. 적용 범위와 조회 명령은 `docs/request-logging.md`를 따른다.
 - Entity에서 nullable 여부가 전역/작품 범위 같은 도메인 의미를 갖거나, JSON·정책 컬럼의 저장 목적이 이름만으로 명확하지 않으면 필드 위에 한국어 주석으로 의미와 필요한 예시를 남긴다.
 
+### Branch and Worktree
+
+- 작업을 시작하기 전에 기존 로컬·원격 브랜치와 최근 PR의 네이밍을 확인한다.
+- 브랜치는 `<type>/gh-<이슈번호>-<작업설명>`을 사용한다. Jira 작업은 기존처럼 `<type>/nvm-<번호>-<작업설명>`을 따른다. 예: `feat/gh-207-mdc-request-id`.
+- 브랜치 이름에 `codex/` 접두사를 붙이지 않는다.
+- 기존 저장소 폴더에서 브랜치를 전환해 작업하며, 별도 worktree를 기본으로 생성하지 않는다.
+
 ### Commit Convention
 
 커밋 메시지 형식:
