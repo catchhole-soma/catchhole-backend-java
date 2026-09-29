@@ -54,7 +54,7 @@ public class MemberWithdrawalProcessor {
         try {
             transactionTemplate.executeWithoutResult(status -> process(requestId));
         } catch (RuntimeException exception) {
-            log.error("회원 탈퇴 영구 파기 처리 실패: requestId={}", requestId, exception);
+            log.error("회원 탈퇴 영구 파기 처리 실패: withdrawalRequestId={}", requestId, exception);
             recordRetryableFailure(requestId);
         }
     }
@@ -80,7 +80,7 @@ public class MemberWithdrawalProcessor {
         MemberWorkPurgeProgress workProgress = workPurgeCoordinator.coordinateForWithdrawal(member.getId());
         if (workProgress.remainingWorkCount() > 0) {
             log.debug(
-                    "회원 탈퇴 작품 파기 대기: requestId={}, remainingWorks={}, created={}, retried={}",
+                    "회원 탈퇴 작품 파기 대기: withdrawalRequestId={}, remainingWorks={}, created={}, retried={}",
                     requestId,
                     workProgress.remainingWorkCount(),
                     workProgress.createdRequestCount(),
@@ -117,7 +117,7 @@ public class MemberWithdrawalProcessor {
                         );
                     }));
         } catch (RuntimeException exception) {
-            log.error("회원 탈퇴 재시도 상태 기록 실패: requestId={}", requestId, exception);
+            log.error("회원 탈퇴 재시도 상태 기록 실패: withdrawalRequestId={}", requestId, exception);
         }
     }
 }
