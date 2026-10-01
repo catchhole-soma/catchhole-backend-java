@@ -36,3 +36,7 @@ episode:
 world-image:
   cleanup:
     scheduling-enabled: false
+
+analysis:
+  metrics:
+    scheduling-enabled: false
