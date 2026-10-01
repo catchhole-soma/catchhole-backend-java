@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
@@ -51,6 +52,7 @@ import org.monitoring.catchholebackend.global.exception.AppException;
 
 @Getter
 @Entity
+@EntityListeners(org.monitoring.catchholebackend.domain.analysis.event.AnalysisMetricsEntityListener.class)
 @Table(
         name = "world_setting_candidates",
         indexes = {
@@ -226,6 +228,25 @@ public class WorldSettingCandidate extends BaseEntity {
     @Column(name = "compared_at")
     private LocalDateTime comparedAt;
 
+    // 첫 자동 비교 종료를 보존해 이후 사람의 수정·재비교가 원래 분석 시간을 바꾸지 않게 한다.
+    @Column(name = "comparison_terminal_at")
+    private LocalDateTime comparisonTerminalAt;
+    @Column(name = "comparison_terminal_outcome", length = 20)
+    private String comparisonTerminalOutcome;
+    @Column(name = "metrics_source_attempt_no", nullable = false)
+    private int metricsSourceAttemptNo;
+
+    private void captureComparisonAttempt() {
+        if (metricsSourceAttemptNo == 0 && analysisJob != null) metricsSourceAttemptNo = analysisJob.getMetricsAttemptNo();
+    }
+
+    public void captureComparisonMetrics() {
+        if (comparisonTerminalAt != null || comparisonStatus == null
+                || comparisonStatus.name().equals("PENDING") || comparisonStatus.name().equals("PROCESSING")) return;
+        comparisonTerminalAt = comparedAt == null ? LocalDateTime.now() : comparedAt;
+        comparisonTerminalOutcome = comparisonStatus.name().equals("FAILED") ? "failure" : "success";
+    }
+
     @Enumerated(EnumType.STRING)
     @Column(name = "comparison_status", nullable = false, length = 30)
     private WorldSettingComparisonStatus comparisonStatus;
@@ -326,6 +347,7 @@ public class WorldSettingCandidate extends BaseEntity {
         this.work = Objects.requireNonNull(work);
         this.sourceEpisode = Objects.requireNonNull(sourceEpisode);
         this.analysisJob = Objects.requireNonNull(analysisJob);
+        this.metricsSourceAttemptNo = analysisJob.getMetricsAttemptNo();
         this.category = Objects.requireNonNull(category);
         this.subjectName = requiredName(subjectName);
         this.scopeName = optionalName(scopeName);
@@ -412,6 +434,8 @@ public class WorldSettingCandidate extends BaseEntity {
         ((com.fasterxml.jackson.databind.node.ObjectNode) rawComparisonJson).put("origin", "USER_REJECTION");
         comparedAt = LocalDateTime.now();
         comparisonStatus = WorldSettingComparisonStatus.COMPLETED;
+        captureComparisonAttempt();
+        captureComparisonMetrics();
         comparisonErrorMessage = null;
         comparisonFailureCode = null;
         clearPreparationFailure();
@@ -426,6 +450,7 @@ public class WorldSettingCandidate extends BaseEntity {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
         comparisonStatus = WorldSettingComparisonStatus.PROCESSING;
+        captureComparisonAttempt();
         comparisonErrorMessage = null;
         comparisonFailureCode = null;
         clearPreparationFailure();
@@ -603,6 +628,8 @@ public class WorldSettingCandidate extends BaseEntity {
         this.rawComparisonJson = rawComparisonJson;
         this.comparedAt = Objects.requireNonNull(comparedAt);
         this.comparisonStatus = WorldSettingComparisonStatus.COMPLETED;
+        captureComparisonAttempt();
+        captureComparisonMetrics();
         this.comparisonErrorMessage = null;
         this.comparisonFailureCode = null;
         clearPreparationFailure();
@@ -679,6 +706,8 @@ public class WorldSettingCandidate extends BaseEntity {
         resolveOrderedSubject(WorldSettingSubjectResolutionType.FAILED, "failed:" + id, subjectName,
                 JsonNodeFactory.instance.arrayNode(), JsonNodeFactory.instance.arrayNode());
         comparisonStatus = WorldSettingComparisonStatus.FAILED;
+        captureComparisonAttempt();
+        captureComparisonMetrics();
         comparisonFailureCode = failureCode;
         comparisonErrorMessage = AutomaticReviewHoldReason.SUBJECT_RESOLUTION_FAILED.getMessage();
         preparationFailureStage = CandidatePreparationFailureStage.SUBJECT_RESOLUTION;
@@ -695,6 +724,8 @@ public class WorldSettingCandidate extends BaseEntity {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
         comparisonStatus = WorldSettingComparisonStatus.FAILED;
+        captureComparisonAttempt();
+        captureComparisonMetrics();
         comparisonFailureCode = AnalysisFailureCode.COMPARISON_VALIDATION_FAILED;
         comparisonErrorMessage = AutomaticReviewHoldReason.COMPARISON_INPUT_TOO_LARGE.getMessage();
         preparationFailureStage = CandidatePreparationFailureStage.COMPARISON_PREPARATION;
@@ -722,6 +753,8 @@ public class WorldSettingCandidate extends BaseEntity {
                 sourceReasonCode
         );
         comparisonStatus = WorldSettingComparisonStatus.FAILED;
+        captureComparisonAttempt();
+        captureComparisonMetrics();
         comparisonFailureCode = normalizedFailureCode;
         comparisonErrorMessage = normalizedErrorMessage;
         comparisonSourceErrorCode = normalizedSourceErrorCode;
@@ -745,6 +778,8 @@ public class WorldSettingCandidate extends BaseEntity {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
         comparisonStatus = WorldSettingComparisonStatus.FAILED;
+        captureComparisonAttempt();
+        captureComparisonMetrics();
         comparisonFailureCode = AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED;
         comparisonErrorMessage = requiredValue(errorMessage);
         comparisonSourceErrorCode = null;
@@ -786,6 +821,9 @@ public class WorldSettingCandidate extends BaseEntity {
         comparisonBatch = null;
         comparisonDecision = null;
         comparisonCandidateRef = null;
+        comparisonTerminalAt = null;
+        comparisonTerminalOutcome = null;
+        metricsSourceAttemptNo = analysisJob.getMetricsAttemptNo() + 1;
         comparisonStatus = WorldSettingComparisonStatus.PENDING;
         automaticReviewHoldReason = null;
         comparisonErrorMessage = null;
@@ -831,6 +869,8 @@ public class WorldSettingCandidate extends BaseEntity {
     public void markRecomparisonRequired(String reason) {
         validatePendingReview();
         comparisonStatus = WorldSettingComparisonStatus.RECOMPARISON_REQUIRED;
+        captureComparisonAttempt();
+        captureComparisonMetrics();
         comparisonFailureCode = null;
         clearPreparationFailure();
         comparisonDiagnostics = null;
