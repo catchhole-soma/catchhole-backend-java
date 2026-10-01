@@ -122,3 +122,12 @@
 - `AutomaticApplicationPendingIntegrationTest`에 단일/마지막 회차 실패·미완료의 캐릭터/세계관 수정·확정·제외 차단, 완료 후 허용, 무효화/대체된 실패 제외, 이미 처리한 제외 요청의 멱등 응답 등 9개 회귀를 추가했다.
 - `WorldSettingCandidateControllerIntegrationTest`에 필터·페이지 밖 순차/자동 반영 대기 후보가 포함된 사용량 중단 집계, 일반 후보만 재개 가능한 혼합 배치, 원본 분석 상태 응답 등 8개 회귀를 추가했다.
 - 별도 Vite(3108) → 실제 Spring Boot/H2(8083)에서 원본 RUNNING은 진행 안내, 순차 사용량 중단은 분석 목록 이동, 일반 사용량 중단은 남은 비교 재개를 표시함을 확인했다. 실패한 마지막 회차가 있는 작품의 후보 확정은 HTTP 409 `ANALYSIS_REVIEW_WAIT_REQUIRED`이며 후보 목록의 미확정 상태가 유지됐다. Worker/LLM은 실행하지 않았다.
+
+### 2026-10-01 머지 전 최신 main 호환성 확인
+
+- PR #204는 아직 미병합이다. PR 기준점 이후 main의 16개 커밋에는 #190 RDS 백업 문서, #208 Prometheus 모니터링, #210 MDC 요청 ID가 포함돼 있다. `53d42ee`를 PR 브랜치에 충돌 없이 통합했다.
+- 공통 변경 파일은 `AGENTS.md`와 `EpisodeSourcePurgeProcessor`이며, 후자는 로그 필드명을 `purgeRequestId`로 구분하는 변경이다. GH201의 완료된 후행 결과 보존과 미완료 입력 보호는 그대로 유지한다.
+- 최신 main을 통합한 전체 `test bootJar`: 1,429개 중 1,364개 실행 통과, 조건부 제외 65개, 실패·오류 0. 운영 메트릭 포트 격리, 기존 API 포트 health의 정상/503 상태, API·관리 포트 요청 ID, 복구·교체·확정 보호 회귀를 함께 검증했다. PostgreSQL/외부 환경 전용 제외 항목을 운영 검증으로 간주하지 않는다.
+- 공식 OpenAPI 스냅샷을 재생성해 Front SDK와 비교했고 추가 변경은 없었다. main의 CORS 변경은 기존 Authorization 노출에 X-Request-ID를 추가하며, 오류 응답 본문과 인증 계약은 유지된다.
+- main 대비 이 PR은 DB migration, 환경 변수, 운영 배포 파일, Worker·LLM 계약을 추가로 변경하지 않는다. 최신 main의 이미지 게시와 API EC2 배포는 GitHub Actions에서 성공한 상태다.
+- Backend #204 → 배포 health 확인 → Front #81 순으로 반영한다. 이 점검에서는 PR 머지·운영 배포·운영 데이터 변경을 실행하지 않았다. 저장소의 승인 리뷰 조건은 별도로 충족해야 한다.
