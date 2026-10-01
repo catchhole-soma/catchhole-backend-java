@@ -57,6 +57,12 @@ services:
         read_only: true
         bind:
           create_host_path: false
+      - type: bind
+        source: ${PROMETHEUS_WORKER_TARGETS_DIR:-./monitoring/targets/workers}
+        target: /etc/prometheus/worker-targets
+        read_only: true
+        bind:
+          create_host_path: false
       - prometheus_data:/prometheus
 
   grafana:

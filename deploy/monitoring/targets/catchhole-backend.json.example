@@ -1,5 +1,10 @@
 [
   {
-    "targets": ["replace-with-api-private-ip:8081"]
+    "targets": [
+      "replace-with-api-private-ip:8081"
+    ],
+    "labels": {
+      "environment": "prod"
+    }
   }
 ]

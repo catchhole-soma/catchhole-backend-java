@@ -5,6 +5,25 @@ global:
 scrape_configs:
   - job_name: catchhole-backend
     metrics_path: /actuator/prometheus
+    # 기존 targets에 label이 없어도 Prometheus가 생성하는 up을 환경별 조회할 수 있다.
+    relabel_configs:
+      - source_labels: [environment]
+        regex: '^$'
+        target_label: environment
+        replacement: prod
     file_sd_configs:
       - files:
           - /etc/prometheus/targets/catchhole-backend.json
+
+  - job_name: catchhole-worker
+    metrics_path: /metrics
+    honor_labels: true
+    relabel_configs:
+      - source_labels: [environment]
+        regex: '^$'
+        target_label: environment
+        replacement: prod
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/worker-targets/*.json
+        refresh_interval: 15s
