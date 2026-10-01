@@ -19,9 +19,11 @@ public class AnalysisMetricsSnapshotRepository {
     public List<Row> read() {
         List<Row> result = new ArrayList<>();
         String queue = "case when " + AnalysisJobEligibility.DOMAIN + " then 'eligible' else 'dependency_blocked' end";
+        // CASE를 다시 펼치면 서브쿼리 SQL 별칭이 달라져 PostgreSQL이 같은 그룹 식으로 인식하지 못한다.
+        // 선택 별칭으로 원래 CASE를 참조하여 중복 확장을 막는다.
         for (Object[] r : em.createQuery("select job.jobType, job.analysisMode, job.reviewMode, " + queue
-                + ", count(job), min(coalesce(job.pendingSince, job.createdAt)) from AnalysisJob job "
-                + "where job.status = 'PENDING' and job.work.lifecycleStatus = 'ACTIVE' group by job.jobType, job.analysisMode, job.reviewMode, " + queue, Object[].class).getResultList())
+                + " as queueState, count(job), min(coalesce(job.pendingSince, job.createdAt)) from AnalysisJob job "
+                + "where job.status = 'PENDING' and job.work.lifecycleStatus = 'ACTIVE' group by job.jobType, job.analysisMode, job.reviewMode, queueState", Object[].class).getResultList())
             result.add(new Row(new Labels((AnalysisJobType)r[0], (AnalysisMode)r[1], (AnalysisReviewMode)r[2]), (String)r[3], ((Number)r[4]).longValue(), (LocalDateTime)r[5]));
         for (Object[] r : em.createQuery("select job.jobType, job.analysisMode, job.reviewMode, count(job), min(job.startedAt) "
                 + "from AnalysisJob job where job.status = 'RUNNING' and job.work.lifecycleStatus = 'ACTIVE' "
