@@ -106,7 +106,8 @@ class ManualCharacterReviewHistoryIntegrationTest {
     }
 
     static Stream<Arguments> reviewCases() {
-        return Stream.of("later", "same", "manual", "edited-origin", "unknown-source", "removed", "empty", "earlier", "past")
+        return Stream.of("later", "same", "manual", "edited-origin", "unknown-source", "removed", "empty", "earlier", "past",
+                        "renumbered-source", "legacy-source")
                 .flatMap(scenario -> Stream.of(Arguments.of(scenario, false), Arguments.of(scenario, true)));
     }
 
@@ -350,14 +351,21 @@ class ManualCharacterReviewHistoryIntegrationTest {
             AnalysisJob job = job(work, batch, episode);
             if (!List.of("empty", "past", "unknown-source").contains(scenario)) {
                 Episode originEpisode = scenario.equals("same") ? episode : episode(work, scenario.equals("earlier") ? 2 : 5);
-                AnalysisJob originJob = job(work, batch, originEpisode);
+                AnalysisJob originJob = AnalysisJob.create(work, batch, originEpisode, AnalysisJobType.SETTING_EXTRACTION);
+                ReflectionTestUtils.setField(originJob, "status", AnalysisJobStatus.SUCCEEDED);
+                if (scenario.equals("legacy-source")) ReflectionTestUtils.setField(originJob, "sourceEpisodeNo", null);
+                entities.persist(originJob);
                 SettingCandidate origin = candidate(originJob, character, "stats.mental", CharacterFactOperation.ADD, CharacterFactTemporalScope.PRESENT);
                 if (scenario.equals("edited-origin")) origin.recordUserModification();
                 origin.confirm();
                 origin.recordConfirmedApplicationMode(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
                 CharacterFact fact = scenario.equals("manual") ? CharacterFact.createManual(character, CharacterFactType.STAT, "stats.mental", "36", JSON.objectNode().put("value", 36))
                         : CharacterFact.create(character, origin, CharacterFactType.STAT, "stats.mental", "36", "36", JSON.objectNode().put("value", 36),
-                        originEpisode, null, originJob, BigDecimal.ONE, originEpisode.getEpisodeNo());
+                        originEpisode, null, originJob, BigDecimal.ONE,
+                        List.of("renumbered-source", "legacy-source").contains(scenario) ? null : originEpisode.getEpisodeNo());
+                if (List.of("renumbered-source", "legacy-source").contains(scenario)) {
+                    ReflectionTestUtils.setField(originEpisode, "episodeNo", 2);
+                }
                 entities.persist(fact);
                 if (!scenario.equals("removed")) entities.persist(CharacterSnapshotSource.create(character, CharacterFactType.STAT, "stats.mental", fact, 0));
             }

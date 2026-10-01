@@ -18,10 +18,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
@@ -125,15 +128,45 @@ class WorldSettingConfirmedHistoryProtectionTest {
         verify(images, never()).refreshWorldSettingImages(any());
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     @DisplayName("앞 회차 확정 근거만 있는 경로는 현재값에 반영한다")
-    void appliesNewerEvidence() {
-        confirmed(5, null, "서식지", "북부");
+    void appliesNewerEvidence(boolean renumbered) {
+        var prior = confirmed(5, null, "서식지", "북부");
+        if (renumbered) ReflectionTestUtils.setField(prior.getSourceEpisode(), "episodeNo", 20);
         var row = candidate(10, null, "서식지", "남부", "북부", WorldSettingOperation.UPDATE);
         assertThat(service.confirmCandidate(1L, work.getId(), row.getId(), request(row)).recomparisonRequired()).isFalse();
         assertThat(row.isHistoryOnly()).isFalse();
         assertThat(current.getPropertyValue("서식지")).isEqualTo("남부");
         verify(images).refreshWorldSettingImages(List.of(current));
+    }
+
+    @ParameterizedTest(name = "{0}, group={1}")
+    @MethodSource("immutableSourceCases")
+    @DisplayName("회차 번호가 바뀐 후행 근거와 고정 번호가 없는 legacy는 현재값을 보호한다")
+    void preservesImmutableSourceOrder(String scenario, boolean group) {
+        var prior = confirmed(scenario.equals("renumbered") ? 20 : 5, null, "서식지", "북부");
+        var row = candidate(10, null, "서식지", "남부", "북부", WorldSettingOperation.UPDATE);
+        switch (scenario) {
+            case "renumbered" -> ReflectionTestUtils.setField(prior.getSourceEpisode(), "episodeNo", 5);
+            case "missing-number" -> ReflectionTestUtils.setField(prior.getAnalysisJob(), "sourceEpisodeNo", null);
+            case "missing-job" -> ReflectionTestUtils.setField(prior, "analysisJob", null);
+            case "incoming-number" -> ReflectionTestUtils.setField(row.getAnalysisJob(), "sourceEpisodeNo", null);
+            default -> throw new IllegalArgumentException(scenario);
+        }
+        if (group) service.confirmCandidateGroup(1L, work.getId(), group(row));
+        else service.confirmCandidate(1L, work.getId(), row.getId(), request(row));
+
+        assertThat(row.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.CONFIRMED);
+        assertThat(row.isHistoryOnly()).isTrue();
+        assertThat(current.getPropertyValue("서식지")).isEqualTo("북부");
+        assertThat(current.getVersion()).isZero();
+        verify(images, never()).refreshWorldSettingImages(any());
+    }
+
+    static Stream<Arguments> immutableSourceCases() {
+        return Stream.of("renumbered", "missing-number", "missing-job", "incoming-number")
+                .flatMap(scenario -> Stream.of(Arguments.of(scenario, false), Arguments.of(scenario, true)));
     }
 
     @Test
