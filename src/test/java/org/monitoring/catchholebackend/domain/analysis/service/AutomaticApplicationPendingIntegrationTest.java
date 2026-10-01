@@ -14,10 +14,13 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
@@ -73,6 +76,10 @@ class AutomaticApplicationPendingIntegrationTest {
     private String token;
 
     private void prepare(AnalysisReviewMode mode) {
+        prepare(mode, false);
+    }
+
+    private void prepare(AnalysisReviewMode mode, boolean singleEpisode) {
         owner = Member.register("pending-review@example.invalid", "test-only", "01012345678", "검증 작가");
         entities.persist(owner);
         work = Work.create(owner, "자동 반영 대기 검증", WorkGenre.FANTASY, "격리 테스트");
@@ -80,8 +87,8 @@ class AutomaticApplicationPendingIntegrationTest {
         batch = UploadBatch.create(work, owner, UploadType.MULTI_EPISODE_MULTI_FILE, UploadSourceType.FILE);
         entities.persist(batch);
         job = newJob(1, mode);
-        next = newJob(2, mode);
-        states.initializeRun(List.of(job, next));
+        next = singleEpisode ? null : newJob(2, mode);
+        states.initializeRun(singleEpisode ? List.of(job) : List.of(job, next));
         ReflectionTestUtils.setField(job, "status", AnalysisJobStatus.RUNNING);
         ReflectionTestUtils.setField(job, "inputStateHash", "b".repeat(64));
         ReflectionTestUtils.setField(job, "automaticInputState", JsonNodeFactory.instance.objectNode().put("fixed", true));
@@ -178,6 +185,111 @@ class AutomaticApplicationPendingIntegrationTest {
         assertThat(world.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.DISMISSED);
         assertThat(next.getJournalStatus()).isEqualTo(AnalysisJournalStatus.SEALED);
         assertThat(next.getStatus()).isEqualTo(AnalysisJobStatus.SUCCEEDED);
+    }
+
+    @ParameterizedTest
+    @MethodSource("resumableFinalEpisodes")
+    @DisplayName("단건 또는 마지막 회차가 재개를 기다리면 후보 편집·확정·제외를 막고 완료 뒤 검토를 허용한다")
+    void protectsReviewWhileLastEpisodeCanResume(boolean singleEpisode, AnalysisJobStatus failureStatus,
+                                                AnalysisJournalStatus journalStatus) throws Exception {
+        prepare(AnalysisReviewMode.AUTOMATIC, singleEpisode);
+        AnalysisJob interrupted = singleEpisode ? job : next;
+        if (!singleEpisode) markCompleted(job);
+        ReflectionTestUtils.setField(interrupted, "status", failureStatus);
+        ReflectionTestUtils.setField(interrupted, "journalStatus", journalStatus);
+        ReflectionTestUtils.setField(interrupted, "inputStateHash", "c".repeat(64));
+        ReflectionTestUtils.setField(interrupted, "automaticInputState",
+                JsonNodeFactory.instance.objectNode().put("fixedBeforeReview", true));
+        entities.flush();
+
+        for (String action : List.of("character-edit", "character-confirm", "character-dismiss",
+                "world-edit", "world-confirm", "world-dismiss")) {
+            mvc.perform(auth(mutation(action)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.error.code").value("ANALYSIS_REVIEW_WAIT_REQUIRED"));
+        }
+        assertThat(interrupted.getStatus()).isEqualTo(failureStatus);
+        assertThat(interrupted.getJournalStatus()).isEqualTo(journalStatus);
+        assertThat(interrupted.getInputStateHash()).isEqualTo("c".repeat(64));
+        assertThat(interrupted.getAutomaticInputState().path("fixedBeforeReview").asBoolean()).isTrue();
+        assertThat(character.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+        assertThat(world.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.PENDING_REVIEW);
+        assertThat(world.getFinalOperation()).isNull();
+
+        markCompleted(interrupted);
+        entities.flush();
+        for (String action : List.of("character-dismiss", "world-dismiss")) {
+            mvc.perform(auth(mutation(action))).andExpect(status().isOk());
+        }
+        assertThat(character.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.DISMISSED);
+        assertThat(world.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.DISMISSED);
+        assertThat(interrupted.getJournalStatus()).isEqualTo(AnalysisJournalStatus.SEALED);
+    }
+
+    private static Stream<Arguments> resumableFinalEpisodes() {
+        return Stream.of(true, false).flatMap(single -> Stream.of(
+                Arguments.of(single, AnalysisJobStatus.FAILED, AnalysisJournalStatus.PENDING),
+                Arguments.of(single, AnalysisJobStatus.FAILED, AnalysisJournalStatus.INCOMPLETE),
+                Arguments.of(single, AnalysisJobStatus.SUCCEEDED, AnalysisJournalStatus.INCOMPLETE)
+        ));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("무효화되거나 새 완료 기록으로 대체된 마지막 실패는 앞 회차 검토를 잠그지 않는다")
+    void obsoleteFailureDoesNotBlockReview(boolean superseded) throws Exception {
+        prepare(AnalysisReviewMode.AUTOMATIC);
+        markCompleted(job);
+        ReflectionTestUtils.setField(next, "status", AnalysisJobStatus.FAILED);
+        ReflectionTestUtils.setField(next, "journalStatus", AnalysisJournalStatus.INCOMPLETE);
+        if (superseded) {
+            AnalysisJob replacement = AnalysisJob.create(work, batch, next.getEpisode(), AnalysisJobType.SETTING_EXTRACTION);
+            ReflectionTestUtils.setField(replacement, "status", AnalysisJobStatus.SUCCEEDED);
+            entities.persist(replacement);
+            entities.flush();
+            entities.createNativeQuery("update analysis_jobs set created_at = :createdAt where id = :id")
+                    .setParameter("createdAt", LocalDateTime.of(2026, 1, 1, 0, 0))
+                    .setParameter("id", next.getId()).executeUpdate();
+            entities.createNativeQuery("update analysis_jobs set created_at = :createdAt where id = :id")
+                    .setParameter("createdAt", LocalDateTime.of(2026, 1, 2, 0, 0))
+                    .setParameter("id", replacement.getId()).executeUpdate();
+        } else {
+            ReflectionTestUtils.setField(next, "journalStatus", AnalysisJournalStatus.INVALIDATED);
+        }
+        entities.flush();
+
+        for (String action : List.of("character-dismiss", "world-dismiss")) {
+            mvc.perform(auth(mutation(action))).andExpect(status().isOk());
+        }
+        assertThat(character.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.DISMISSED);
+        assertThat(world.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.DISMISSED);
+        assertThat(next.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
+        assertThat(next.getJournalStatus()).isEqualTo(superseded
+                ? AnalysisJournalStatus.INCOMPLETE : AnalysisJournalStatus.INVALIDATED);
+    }
+
+    @Test
+    @DisplayName("이미 제외한 후보의 반복 요청은 이후 재개 대기 중에도 같은 결과를 반환한다")
+    void dismissedReviewRemainsIdempotentDuringLaterFailure() throws Exception {
+        prepare(AnalysisReviewMode.AUTOMATIC);
+        markCompleted(job);
+        markCompleted(next);
+        entities.flush();
+        for (String action : List.of("character-dismiss", "world-dismiss")) {
+            mvc.perform(auth(mutation(action))).andExpect(status().isOk());
+        }
+        ReflectionTestUtils.setField(next, "status", AnalysisJobStatus.FAILED);
+        ReflectionTestUtils.setField(next, "journalStatus", AnalysisJournalStatus.INCOMPLETE);
+        entities.flush();
+        for (String action : List.of("character-dismiss", "world-dismiss")) {
+            mvc.perform(auth(mutation(action))).andExpect(status().isOk());
+        }
+    }
+
+    private void markCompleted(AnalysisJob source) {
+        ReflectionTestUtils.setField(source, "status", AnalysisJobStatus.SUCCEEDED);
+        ReflectionTestUtils.setField(source, "journalStatus", AnalysisJournalStatus.SEALED);
+        ReflectionTestUtils.setField(source, "automaticAppliedAt", LocalDateTime.now());
     }
 
     private MockHttpServletRequestBuilder mutation(String action) throws Exception {

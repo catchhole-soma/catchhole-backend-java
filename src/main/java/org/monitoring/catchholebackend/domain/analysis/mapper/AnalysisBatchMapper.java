@@ -72,7 +72,7 @@ public class AnalysisBatchMapper {
                         ? 0
                         : worldSettingCandidateCounts.getTokenInterruptedComparisonCount(),
                 worldSettingCandidateCounts != null
-                        && worldSettingCandidateCounts.getTokenInterruptedComparisonCount() > 0,
+                        && worldSettingCandidateCounts.canResumeTokenInterruptedComparisons(),
                 jobGroups,
                 pageRow.getFirstRequestedAt(),
                 pageRow.getLastRequestedAt(),

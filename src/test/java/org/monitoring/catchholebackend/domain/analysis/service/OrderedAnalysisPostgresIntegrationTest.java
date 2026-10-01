@@ -229,7 +229,7 @@ class OrderedAnalysisPostgresIntegrationTest {
         });
         tx.executeWithoutResult(status -> {
             works.findByIdForUpdate(run.workId()).orElseThrow();
-            states.invalidateRunsForWorkForUpdate(run.workId(), 2, "2화 후보를 사용자가 반려했습니다.");
+            states.invalidateRunsForEpisodeChangeForUpdate(run.workId(), run.episodes().get(1), 2, "2화 원문이 변경되었습니다.");
         });
         tx.executeWithoutResult(status -> {
             assertThat(jobs.findById(first.analysisJobId()).orElseThrow().getJournalStatus())
@@ -289,7 +289,7 @@ class OrderedAnalysisPostgresIntegrationTest {
                 .getStateJournal().path("outputStateHash").asText());
         tx.executeWithoutResult(status -> {
             works.findByIdForUpdate(run.workId()).orElseThrow();
-            states.purgeSourceEvidenceForWorkForUpdate(run.workId(), 1);
+            states.purgeSourceEvidenceForWorkForUpdate(run.workId(), run.episodes().getFirst(), 1);
         });
         tx.executeWithoutResult(status -> {
             AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
@@ -314,7 +314,7 @@ class OrderedAnalysisPostgresIntegrationTest {
         tx.executeWithoutResult(status -> {
             works.findByIdForUpdate(run.workId()).orElseThrow();
             episodes.findById(run.episodes().getFirst()).orElseThrow().updateStatus(EpisodeStatus.ANALYZING);
-            states.invalidateRunsForWorkForUpdate(run.workId(), 1, "앞 회차 후보가 바뀌었습니다.");
+            states.invalidateRunsForEpisodeChangeForUpdate(run.workId(), run.episodes().getFirst(), 1, "앞 회차 원문이 바뀌었습니다.");
         });
         assertThat(jdbc.queryForObject("select status from ai_token_usages where request_id = ?", String.class, requestId))
                 .isEqualTo("RELEASED");

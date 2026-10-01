@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.worldsetting.service;
 
 import org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason;
+import org.monitoring.catchholebackend.domain.analysis.service.AnalysisCandidateSourceGuard;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -27,6 +28,11 @@ import org.springframework.stereotype.Component;
 public class WorldSettingAnalysisConfirmation {
 
     private final WorldSettingCandidateRepository repository;
+    private final AnalysisCandidateSourceGuard sourceGuard;
+
+    public void assertReviewSourceCurrent(WorldSettingCandidate candidate) {
+        sourceGuard.assertCurrent(candidate.getAnalysisJob(), candidate.getSourceEpisode());
+    }
 
     public Optional<List<WorldSetting.Property>> project(
             List<WorldSettingCandidate> candidates,

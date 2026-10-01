@@ -353,6 +353,12 @@ public class AnalysisJob extends BaseEntity {
         return reviewMode == AnalysisReviewMode.AUTOMATIC;
     }
 
+    public boolean isCompletedOrderedAnalysis() {
+        return isOrderedProvisional() && status == AnalysisJobStatus.SUCCEEDED
+                && journalStatus == AnalysisJournalStatus.SEALED
+                && (!isAutomaticReview() || automaticAppliedAt != null);
+    }
+
     public boolean isAutomaticApplicationPending() {
         return isAutomaticReview() && automaticAppliedAt == null
                 && (status == AnalysisJobStatus.PENDING || status == AnalysisJobStatus.RUNNING);
@@ -462,9 +468,10 @@ public class AnalysisJob extends BaseEntity {
     }
 
     public void purgeJournalSourceEvidence(JsonNode redacted) {
-        if (journalStatus != AnalysisJournalStatus.INVALIDATED) {
-            throw new IllegalStateException("원문 근거는 실행을 무효화한 뒤에만 파기할 수 있습니다.");
+        if (journalStatus != AnalysisJournalStatus.INVALIDATED && !isCompletedOrderedAnalysis()) {
+            throw new IllegalStateException("원문 근거는 무효화되었거나 분석·반영이 완료된 실행에서만 파기할 수 있습니다.");
         }
+        // 완료된 후행 결과는 보존한다. 파기 표시는 해당 입력의 재실행/replay를 계속 거절한다.
         stateJournal = redacted == null ? null : redacted.deepCopy();
         runBaseState = purgeCapturedEvidence(runBaseState);
         automaticInputState = purgeCapturedEvidence(automaticInputState);

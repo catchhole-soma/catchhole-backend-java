@@ -374,7 +374,8 @@ class AnalysisJobControllerIntegrationTest {
                                 {"jobType":"SETTING_EXTRACTION","batchId":"%s","episodeId":"%s"}
                                 """.formatted(uploadBatch.getId(), firstEpisode.getId())))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("ANALYSIS_RUN_MODE_INVALID"));
+                .andExpect(jsonPath("$.error.code").value("ANALYSIS_FUTURE_HISTORY_CONFLICT"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("원고 목록")));
         assertThat(analysisJobRepository.count()).isEqualTo(1);
 
         mockMvc.perform(post("/api/v1/works/{workId}/analysis-jobs", work.getId())

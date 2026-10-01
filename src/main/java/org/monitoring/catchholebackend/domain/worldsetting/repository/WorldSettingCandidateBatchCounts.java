@@ -1,6 +1,6 @@
 package org.monitoring.catchholebackend.domain.worldsetting.repository;
 
-public interface WorldSettingCandidateBatchCounts {
+public interface WorldSettingCandidateBatchCounts extends WorldSettingTokenInterruptedCounts {
 
     long getTotalCandidateCount();
 
@@ -13,8 +13,6 @@ public interface WorldSettingCandidateBatchCounts {
     long getProcessingComparisonCount();
 
     long getFailedComparisonCount();
-
-    long getTokenInterruptedComparisonCount();
 
     long getRecomparisonRequiredCount();
 

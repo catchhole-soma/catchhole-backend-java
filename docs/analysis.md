@@ -24,9 +24,17 @@ Analysis 도메인은 작품의 각 회차를 대상으로 하는 AI 분석 작�
 같은 작품의 extraction Job은 직렬화하고 다른 작품은 병렬로 처리한다.
 
 Job 응답의 optional `analysisRun`으로 run/generation/순서/journal 상태를 조회한다.
-처리 실패는 기존 retry API에서 같은 ordered Job과 완료 prefix를 보존해 재개하고, 사용자 변경으로
-INVALIDATED된 실행은 새 명시적 요청과 시작 기준 검증을 거친다. 상세 schema·실패·최종 확정 경계와
+처리 실패는 기존 retry API에서 같은 ordered Job과 완료 prefix를 보존해 재개한다. 같은 원문의 재개 가능한
+실패가 남아 있으면 새 생성 요청으로 checkpoint를 덮어쓰지 않고 `ANALYSIS_ORDERED_JOB_RETRY_REQUIRED`로 안내한다.
+원문 변경 또는 과거 정책으로 INVALIDATED된 실행은 새 명시적 요청과 시작 기준 검증을 거친다. 상세 schema·실패·최종 확정 경계와
 검증 결과는 [누적 분석 설계](ordered-provisional-analysis.md)에 정리한다.
+
+확정 설정 화면의 직접 수정은 완료된 분석 기록을 보존한다. 진행·대기 및 고정 입력으로 재개할 수 있는
+실패/불완전 순차 분석이 남아 있으면 의미 있는 수정을 `ANALYSIS_REVIEW_WAIT_REQUIRED`로 거절한다.
+정규화된 값과 수동 보호 상태 모두 같은 저장은 허용한다. 원문 교체·삭제는 해당 회차와 영향 이후 미완료 순차 입력만 무효화하고, 완료된 후행 결과와 확정 설정은 보존한다.
+이미 존재하는 무효화 기록을 일괄 복원하지 않는다. 미래 확정 이력으로 새 순차 분석을 시작할 수 없을 때는
+`ANALYSIS_FUTURE_HISTORY_CONFLICT`로 구분하고 원고 목록의 개별 직접 검토 분석으로 안내한다.
+세부 동작과 현재 제한은 [GH201 분석 복구 정책](gh201-analysis-recovery.md)을 따른다.
 
 ### 원문 저장
 
@@ -100,12 +108,13 @@ NVM-260의 `SETTING_EXTRACTION` Worker는 캐릭터 후보 저장 뒤 회차 원
 | `RUNNING` | 분석 진행 중 | Python AI Worker가 내부 claim API로 작업을 가져가면 `AnalysisJob.claim()`이 lease와 claim 횟수를 기록하며 전환합니다. |
 | `SUCCEEDED` | 분석 성공 | Worker가 완료 API를 호출하면 `AnalysisJob.succeed()`로 전환하고 결과 요약과 Backend token ledger 합계를 기록합니다. |
 | `FAILED` | 분석 실패 | Worker가 실패 API를 호출하거나, claim 후 분석 대상 회차가 없으면 `AnalysisJob.fail()`로 전환합니다. |
-| `CANCELED` | 작품 영구 삭제로 취소 | 삭제 요청이 활성 Job의 lease를 제거하고 예약 토큰을 반환합니다. 이후 Worker 쓰기는 거절됩니다. |
+| `CANCELED` | 작품 삭제 또는 순차 입력 무효화로 중단 | 활성 Job의 lease를 제거하고 미사용 예약 토큰을 정리합니다. 이후 Worker 쓰기는 거절됩니다. |
 
 `FAILED`의 원인은 `failureCode`로 구분합니다. 공개 응답은 코드에 대응하는 안전한 사용자 메시지를 제공하고, `errorMessage`의 내부 URL·예외 문자열은 반환하지 않습니다. 현재 코드는 `AI_TOKEN_QUOTA_EXHAUSTED`, `LLM_OUTPUT_TRUNCATED`, `LLM_NETWORK_ERROR`, `LLM_PROVIDER_ERROR`, `LLM_RESPONSE_PARSE_ERROR`, `COMPARISON_VALIDATION_FAILED`, `WORKER_LEASE_EXPIRED`, `UNEXPECTED_ERROR`입니다.
 
 현재 재시도 정책:
 
+- `ORDERED_PROVISIONAL`은 아래 기존 단일/과거 batch-wide 정책과 구분합니다. 재개 가능한 실패 또는 불완전 Job을 기존 retry API로 이어가며 같은 Job·run·입력·checkpoint·완료 prefix를 유지합니다. 같은 원문의 재개 가능한 ordered가 남아 있으면 AUTO/MANUAL 새 생성으로 우회할 수 없습니다.
 - 기존 `FAILED` 작업은 이력으로 유지합니다.
 - 회차별 `FAILED` Job은 연결된 `Episode`의 현재 상태가 이후 바뀌어도 같은 `jobType`으로 재시도합니다. 단, 현재 `ARCHIVED`인 회차는 재시도 대상에서 제외합니다.
 - `episode_id == null`인 과거 batch-wide `FAILED` Job은 대상 스냅샷 중 현재 `Episode.status == FAILED`인 회차만 재시도합니다.
@@ -118,13 +127,14 @@ NVM-260의 `SETTING_EXTRACTION` Worker는 캐릭터 후보 저장 뒤 회차 원
 정책 미확정 TODO:
 
 - 실패 처리 이력은 후속 모니터링 기능에서 별도 기록/조회합니다. `AnalysisJob.errorMessage`는 작업 상세 조회에 보여줄 마지막 실패 사유만 저장합니다.
-- 현재 `CANCELED`는 작품 영구 삭제 전용 시스템 상태입니다. 개별 사용자 취소 API가 필요하면 권한·과금·재시도 정책을 별도로 정의합니다.
+- `CANCELED`는 작품 삭제와 순차 입력 무효화 등 시스템 처리에 사용합니다. 개별 사용자 취소 API와 실패 이후 부분 검토는 현재 제공하지 않습니다. 도입하려면 권한·과금·재시도·후행 회차 정책을 별도로 정의합니다.
 
 상태 표시 기준:
 
-- 분석 작업 목록과 분석 작업 카드에서는 `AnalysisJob.status`를 상위 상태로 표시합니다.
+- 개별 Job의 `status`는 당시 실행 결과이며 순차 분석은 `analysisRun.journalStatus`와 함께 해석합니다. batch 집계는 `INVALIDATED`를 취소 상태로, `SUCCEEDED`여도 미완성 journal 또는 자동 반영 미완료면 실패 상태로 취급합니다.
 - 분석 작업 응답은 `AnalysisJob.status`, `currentStep`, token count, summary/error metadata와 대상 `episodes` 목록을 반환합니다.
 - 공개 회차 Job은 Worker claim/progress/complete/fail 처리와 함께 대상 `Episode.status`도 갱신합니다. 숨김 `WORLD_SETTING_COMPARISON` Job은 회차 상태를 변경하지 않습니다.
+- 원고 목록의 `analysisStatus`도 최신 ordered Job의 `INVALIDATED`를 `REANALYSIS_REQUIRED`로, 성공했지만 journal/자동 반영이 미완료인 Job을 `FAILED`로 표시합니다. `Episode.status=ANALYZED`만 보고 복구 경로를 감추지 않습니다.
 
 분석 목록의 배치 집계 기준:
 
@@ -495,7 +505,7 @@ GET /api/v1/works/{workId}/analysis-jobs/batches?page=0&size=10
 
 - `content` 한 항목은 업로드 배치 하나입니다.
 - `jobGroups`는 같은 배치에서 수행한 `SETTING_EXTRACTION`, `EPISODE_VALIDATION`을 각각 집계합니다.
-- 각 그룹은 성공·실패 건수와 별도로 작품 영구 삭제로 취소된 `canceledJobCount`를 제공합니다.
+- 각 그룹은 성공·실패 건수와 별도로 작품 삭제나 순차 입력 무효화 등으로 취소로 집계된 `canceledJobCount`를 제공합니다.
 - `currentAnalysisJobIds`는 진행·실패·완료 상세 화면에서 다시 조회할 최신 유효 Job ID입니다.
 - `totalCandidateCount`, `reviewedCandidateCount`, `pendingCandidateCount`는 배치에 연결된 캐릭터 설정 후보 검토 현황입니다.
 - `worldSettingTotalCandidateCount`, `worldSettingReviewedCandidateCount`, `worldSettingPendingCandidateCount`는 같은 배치의 세계관 설정 후보 검토 현황입니다. 배치 상태는 두 종류의 대기 후보를 합산해 `REVIEW_REQUIRED` 여부를 판정합니다.
@@ -503,8 +513,8 @@ GET /api/v1/works/{workId}/analysis-jobs/batches?page=0&size=10
 
 상태 판정 우선순위는 다음과 같습니다.
 
-1. 현재 유효 Job 중 `PENDING` 또는 `RUNNING`이 있으면 `IN_PROGRESS`
-2. 현재 유효 Job 중 작품 영구 삭제로 취소된 작업이 있으면 `CANCELED`
+1. 현재 유효 Job 중 실행 중이거나 선행 실패·취소에 막히지 않은 대기 Job이 있으면 `IN_PROGRESS`
+2. 현재 유효 Job 중 취소 또는 순차 입력 무효화된 작업이 있으면 `CANCELED`
 3. 모든 목적의 현재 Job이 실패했으면 `FAILED`
 4. 성공과 실패가 섞였으면 `PARTIALLY_FAILED`
 5. 실행이 끝났고 검토 대기 후보가 있으면 `REVIEW_REQUIRED`

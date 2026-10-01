@@ -125,7 +125,7 @@ public class EpisodeServiceImpl implements EpisodeService {
         Episode episode = getEpisodeInWork(episodeId, work);
         validateEpisodeNoForUpdate(work, episode, request.episodeNo());
         assertEpisodeIsNotAnalyzing(episode);
-        analysisRunStateService.invalidateRunsForWorkForUpdate(workId,
+        analysisRunStateService.invalidateRunsForEpisodeChangeForUpdate(workId, episodeId,
                 Math.min(episode.getEpisodeNo(), request.episodeNo()), "앞 회차의 원문 또는 회차 순서가 수정되었습니다.");
         UploadFile previousSourceFile = episode.getSourceFileId() == null
                 ? null
@@ -187,7 +187,7 @@ public class EpisodeServiceImpl implements EpisodeService {
         if (content.codePointCount(0, content.length()) > EpisodeFileParser.MAX_UPLOAD_CHARACTERS) {
             throw new AppException(UploadErrorCode.UPLOAD_CHARACTER_LIMIT_EXCEEDED);
         }
-        analysisRunStateService.invalidateRunsForWorkForUpdate(workId, episode.getEpisodeNo(),
+        analysisRunStateService.invalidateRunsForEpisodeChangeForUpdate(workId, episodeId, episode.getEpisodeNo(),
                 "앞 회차의 원문 파일이 교체되었습니다.");
         UploadFile previousSourceFile = episode.getSourceFileId() == null
                 ? null
@@ -238,7 +238,7 @@ public class EpisodeServiceImpl implements EpisodeService {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         Episode episode = getEpisodeInWork(episodeId, work);
         assertEpisodeIsNotAnalyzing(episode);
-        analysisRunStateService.invalidateRunsForWorkForUpdate(workId, episode.getEpisodeNo(),
+        analysisRunStateService.invalidateRunsForEpisodeChangeForUpdate(workId, episodeId, episode.getEpisodeNo(),
                 "앞 회차가 삭제되었습니다.");
         UploadFile sourceFile = episode.getSourceFileId() == null
                 ? null

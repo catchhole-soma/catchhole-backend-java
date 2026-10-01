@@ -55,12 +55,13 @@ public class AnalysisJobController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "분석 작업 생성 성공"),
-            @ApiResponse(responseCode = "400", description = "요청 값 검증 실패"),
+            @ApiResponse(responseCode = "400", description = "요청 값 검증 실패 또는 시작 회차 이후 확정 이력으로 자동 순차 분석 불가(ANALYSIS_FUTURE_HISTORY_CONFLICT)",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
             @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패"),
             @ApiResponse(responseCode = "404", description = "작품 또는 분석 대상 리소스를 찾을 수 없음"),
             @ApiResponse(
                     responseCode = "409",
-                    description = "AI 토큰 한도 소진 또는 같은 대상 분석 진행 중",
+                    description = "AI 토큰 한도 소진, 같은 대상 분석 진행 중 또는 기존 순차 분석 재개 필요(ANALYSIS_ORDERED_JOB_RETRY_REQUIRED)",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
             )
     })
@@ -171,7 +172,7 @@ public class AnalysisJobController {
     @Operation(
             operationId = "retryAnalysisJob",
             summary = "실패 회차 분석 재시도",
-            description = "기존 실패 작업은 유지하고 서버가 확인한 FAILED 회차만 새 분석 작업으로 생성합니다."
+            description = "순차 분석은 같은 Job·실행·입력·완료 단계를 보존해 실패 회차부터 재개합니다. 기존 일반 분석은 실패 회차만 재시도하며, 더 최근의 분석으로 대체된 순차 작업은 재개하지 않습니다."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "실패 회차 재시도 작업 생성 성공"),
@@ -179,7 +180,7 @@ public class AnalysisJobController {
             @ApiResponse(responseCode = "404", description = "작품, 분석 작업 또는 실패 회차를 찾을 수 없음"),
             @ApiResponse(
                     responseCode = "409",
-                    description = "AI 토큰 한도 소진, 실패 상태가 아니거나 같은 batch의 전체 작업이 진행 중",
+                    description = "AI 토큰 한도 소진, 재개 불가 상태, 같은 대상 작업 진행 중 또는 더 최근 분석으로 대체됨(ANALYSIS_JOB_SUPERSEDED)",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
             )
     })

@@ -22,6 +22,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
@@ -39,6 +40,7 @@ import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
@@ -275,6 +277,99 @@ class AnalysisJobOrderedRetryTest {
         verify(jobRepository, never()).save(any());
     }
 
+    @ParameterizedTest
+    @CsvSource({
+            "FAILED, PENDING, AUTOMATIC",
+            "FAILED, PENDING, MANUAL",
+            "FAILED, INCOMPLETE, AUTOMATIC",
+            "FAILED, INCOMPLETE, MANUAL",
+            "SUCCEEDED, INCOMPLETE, AUTOMATIC",
+            "SUCCEEDED, INCOMPLETE, MANUAL"
+    })
+    @DisplayName("생성 응답 유실 후 같은 원문을 다시 요청해도 기존 누적 작업과 완료 단계를 보존한다")
+    void rejectsNewAnalysisWhenSameSourceHasResumableOrderedJob(
+            AnalysisJobStatus previousStatus,
+            AnalysisJournalStatus previousJournalStatus,
+            AnalysisReviewMode requestedReviewMode
+    ) {
+        ReflectionTestUtils.setField(job, "reviewMode", AnalysisReviewMode.AUTOMATIC);
+        if (previousJournalStatus == AnalysisJournalStatus.INCOMPLETE) job.markJournalIncomplete();
+        if (previousStatus == AnalysisJobStatus.SUCCEEDED) job.succeed("{\"failedCount\":1}", 120, 40);
+        UUID batchId = bindCreateLookupWithLatestJob();
+        UUID originalRunId = job.getAnalysisRunId();
+        JsonNode originalJournal = job.getStateJournal().deepCopy();
+        JsonNode originalBase = job.getRunBaseState().deepCopy();
+
+        assertThatThrownBy(() -> service.createAnalysisJobs(MEMBER_ID, work.getId(),
+                new AnalysisJobCreateRequest(AnalysisJobType.SETTING_EXTRACTION, batchId,
+                        episode.getId(), null, requestedReviewMode)))
+                .isInstanceOfSatisfying(AppException.class, exception -> assertThat(exception.getResultCode())
+                        .isEqualTo(AnalysisJobErrorCode.ANALYSIS_ORDERED_JOB_RETRY_REQUIRED));
+
+        assertThat(job.getStatus()).isEqualTo(previousStatus);
+        assertThat(job.getJournalStatus()).isEqualTo(previousJournalStatus);
+        assertThat(job.getAnalysisRunId()).isEqualTo(originalRunId);
+        assertThat(job.getRunGeneration()).isEqualTo(1L);
+        assertThat(job.getRunSequence()).isZero();
+        assertThat(job.getStateJournal()).isEqualTo(originalJournal);
+        assertThat(job.getRunBaseState()).isEqualTo(originalBase);
+        assertThat(job.getInputStateHash()).isEqualTo("b".repeat(64));
+        assertThat(job.getCheckpointStage()).isEqualTo(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+        assertThat(job.getInputTokenCount()).isEqualTo(120);
+        assertThat(job.getOutputTokenCount()).isEqualTo(40);
+        verifyNoInteractions(characterRepository, worldRepository, tokenService, runStateService);
+        verify(jobRepository, never()).save(any());
+        verify(jobRepository, never()).saveAll(any());
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "INVALIDATED, AUTOMATIC",
+            "INVALIDATED, MANUAL",
+            "SOURCE_CHANGED, AUTOMATIC",
+            "SOURCE_CHANGED, MANUAL",
+            "COMPLETED, AUTOMATIC",
+            "COMPLETED, MANUAL"
+    })
+    @DisplayName("무효화·원문 변경·완료된 최신 작업은 동일 입력 실패 재개 제한과 구분한다")
+    void doesNotApplyResumeGuardToChangedOrCompletedAnalysis(
+            String previousState,
+            AnalysisReviewMode requestedReviewMode
+    ) {
+        ReflectionTestUtils.setField(job, "reviewMode", AnalysisReviewMode.AUTOMATIC);
+        switch (previousState) {
+            case "INVALIDATED" -> job.invalidateJournal("원문 변경으로 누적 입력이 무효화되었습니다.");
+            case "SOURCE_CHANGED" -> episode.updateContentStorage("source/11-new.txt", "v2", "c".repeat(64));
+            case "COMPLETED" -> {
+                job.succeed("{}", 120, 40);
+                ReflectionTestUtils.setField(job, "journalStatus", AnalysisJournalStatus.SEALED);
+                ReflectionTestUtils.setField(job, "automaticAppliedAt", LocalDateTime.now());
+            }
+            default -> throw new IllegalArgumentException(previousState);
+        }
+        UUID batchId = bindCreateLookupWithLatestJob();
+        AnalysisJobStatus previousStatus = job.getStatus();
+        AnalysisJournalStatus previousJournalStatus = job.getJournalStatus();
+
+        var result = service.createAnalysisJobs(MEMBER_ID, work.getId(),
+                new AnalysisJobCreateRequest(AnalysisJobType.SETTING_EXTRACTION, batchId,
+                        episode.getId(), null, requestedReviewMode));
+
+        assertThat(result).hasSize(1);
+        assertThat(job.getStatus()).isEqualTo(previousStatus);
+        assertThat(job.getJournalStatus()).isEqualTo(previousJournalStatus);
+        assertThat(job.getCheckpointStage()).isEqualTo(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+        verify(tokenService).ensureAnalysisCanStart(MEMBER_ID);
+        if (requestedReviewMode == AnalysisReviewMode.AUTOMATIC) {
+            // 실제 과거 상태 복원 검증은 기존 initializeRun 경계가 계속 담당한다.
+            verify(runStateService).initializeRun(any());
+            verify(jobRepository, never()).saveAll(any());
+        } else {
+            verify(jobRepository).saveAll(any());
+            verifyNoInteractions(runStateService);
+        }
+    }
+
     @Test
     @DisplayName("새 분석은 legacy 미검토 후보만 정리하고 이전 누적 실행 원본은 보존한다")
     void newAnalysisPreservesOrderedSourceCandidates() {
@@ -332,6 +427,41 @@ class AnalysisJobOrderedRetryTest {
         assertThat(job.getJournalStatus()).isEqualTo(AnalysisJournalStatus.INVALIDATED);
         verifyNoInteractions(characterRepository, worldRepository, tokenService,
                 org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("새 분석이 완료된 회차의 과거 실패·저장 미완료 작업은 뒤늦게 재개하지 않는다")
+    void rejectsSupersededOrderedRetryBeforeMutation(boolean incompleteSuccess) {
+        if (incompleteSuccess) {
+            job.markJournalIncomplete();
+            job.succeed("{\"failedCount\":1}", 120, 40);
+        }
+        bindRetryLookup();
+        AnalysisJob latest = AnalysisJob.create(work, null, episode, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(latest, "id", UUID.randomUUID());
+        latest.succeed("{}", 12, 4);
+        when(jobRepository.findFirstByEpisodeIdAndBatchIdAndJobTypeOrderByCreatedAtDescIdDesc(
+                episode.getId(), null, AnalysisJobType.SETTING_EXTRACTION)).thenReturn(Optional.of(latest));
+        AnalysisJobStatus previousStatus = job.getStatus();
+        AnalysisJournalStatus previousJournalStatus = job.getJournalStatus();
+        UUID previousRunId = job.getAnalysisRunId();
+        JsonNode previousJournal = job.getStateJournal().deepCopy();
+
+        assertThatThrownBy(() -> service.retryFailedAnalysisJob(MEMBER_ID, work.getId(), job.getId()))
+                .isInstanceOfSatisfying(AppException.class, exception -> assertThat(exception.getResultCode())
+                        .isEqualTo(AnalysisJobErrorCode.ANALYSIS_JOB_SUPERSEDED));
+
+        assertThat(job.getStatus()).isEqualTo(previousStatus);
+        assertThat(job.getJournalStatus()).isEqualTo(previousJournalStatus);
+        assertThat(job.getAnalysisRunId()).isEqualTo(previousRunId);
+        assertThat(job.getStateJournal()).isEqualTo(previousJournal);
+        assertThat(job.getCheckpointStage()).isEqualTo(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+        assertThat(job.getInputTokenCount()).isEqualTo(120);
+        assertThat(job.getOutputTokenCount()).isEqualTo(40);
+        assertThat(latest.getStatus()).isEqualTo(AnalysisJobStatus.SUCCEEDED);
+        verifyNoInteractions(runStateService, characterRepository, worldRepository, tokenService);
+        verify(jobRepository, never()).save(any());
     }
 
     @Test
@@ -421,5 +551,23 @@ class AnalysisJobOrderedRetryTest {
         when(workRepository.getOwnedWorkForUpdate(work.getId(), MEMBER_ID)).thenReturn(work);
         when(jobRepository.findByIdAndWorkId(job.getId(), work.getId())).thenReturn(Optional.of(job));
         when(jobRepository.findByIdForUpdate(job.getId())).thenReturn(Optional.of(job));
+    }
+
+    private UUID bindCreateLookupWithLatestJob() {
+        UploadBatch batch = mock(UploadBatch.class);
+        UploadFile file = mock(UploadFile.class);
+        UUID batchId = UUID.randomUUID();
+        when(batch.getId()).thenReturn(batchId);
+        when(file.getBatch()).thenReturn(batch);
+        ReflectionTestUtils.setField(job, "batch", batch);
+        when(workRepository.getOwnedWorkForUpdate(work.getId(), MEMBER_ID)).thenReturn(work);
+        when(batchRepository.findByIdAndWorkId(batchId, work.getId())).thenReturn(Optional.of(batch));
+        when(episodeRepository.findByIdAndWorkIdAndStatusNot(episode.getId(), work.getId(), EpisodeStatus.ARCHIVED))
+                .thenReturn(Optional.of(episode));
+        when(fileRepository.findById(episode.getSourceFileId())).thenReturn(Optional.of(file));
+        when(fileRepository.findAllByBatchIdOrderByCreatedAtAsc(batchId)).thenReturn(List.of(file));
+        when(jobRepository.findFirstByEpisodeIdAndBatchIdAndJobTypeOrderByCreatedAtDescIdDesc(
+                episode.getId(), batchId, AnalysisJobType.SETTING_EXTRACTION)).thenReturn(Optional.of(job));
+        return batchId;
     }
 }

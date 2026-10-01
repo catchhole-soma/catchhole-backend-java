@@ -127,6 +127,14 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
                        and candidate.comparisonFailureCode = :quotaFailureCode then 1 else 0 end), 0)
                        as tokenInterruptedComparisonCount,
                    coalesce(sum(case when candidate.reviewStatus = :pendingReview
+                       and candidate.comparisonStatus = :failedComparison
+                       and candidate.comparisonFailureCode = :quotaFailureCode
+                       and (analysisJob.analysisMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL
+                           or (analysisJob.reviewMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC
+                               and analysisJob.automaticAppliedAt is null
+                               and analysisJob.status in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING, org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING)))
+                       then 1 else 0 end), 0) as blockedTokenInterruptedComparisonCount,
+                   coalesce(sum(case when candidate.reviewStatus = :pendingReview
                        and candidate.comparisonStatus = :recomparisonRequired then 1 else 0 end), 0)
                        as recomparisonRequiredCount,
                    coalesce(sum(case when candidate.reviewStatus = :pendingReview
@@ -167,7 +175,15 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
                    coalesce(sum(case when candidate.reviewStatus = :pendingReview
                        and candidate.comparisonStatus = :failedComparison
                        and candidate.comparisonFailureCode = :quotaFailureCode then 1 else 0 end), 0)
-                       as tokenInterruptedComparisonCount
+                       as tokenInterruptedComparisonCount,
+                   coalesce(sum(case when candidate.reviewStatus = :pendingReview
+                       and candidate.comparisonStatus = :failedComparison
+                       and candidate.comparisonFailureCode = :quotaFailureCode
+                       and (analysisJob.analysisMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL
+                           or (analysisJob.reviewMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC
+                               and analysisJob.automaticAppliedAt is null
+                               and analysisJob.status in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING, org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING)))
+                       then 1 else 0 end), 0) as blockedTokenInterruptedComparisonCount
             from WorldSettingCandidate candidate
             join candidate.analysisJob analysisJob
             where candidate.work.id = :workId

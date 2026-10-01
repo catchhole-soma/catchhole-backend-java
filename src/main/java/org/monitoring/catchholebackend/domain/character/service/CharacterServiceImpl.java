@@ -152,8 +152,6 @@ public class CharacterServiceImpl implements CharacterService {
             CharacterUpdateRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        analysisRunStateService.invalidateRunsForWorkForUpdate(
-                work.getId(), null, "사용자가 확정 설정을 변경했습니다.");
         WorkCharacter character = getActiveCharacterForUpdate(work.getId(), characterId);
         String name = request.name().trim();
         if (workCharacterRepository.existsByWorkIdAndNameAndStatusAndIdNot(
@@ -177,10 +175,18 @@ public class CharacterServiceImpl implements CharacterService {
                 characterSnapshotSourceManager.findSourceFactsBySlot(character)
         );
         Map<CharacterSnapshotSlot, DesiredFact> desiredFacts = toDesiredFacts(request, schemas, snapshotEntries);
-        character.updateBasicInfo(name, normalizeNullableText(request.roleLabel()));
-        character.updateFirstAppearanceEpisodeId(
-                firstAppearanceEpisode == null ? null : firstAppearanceEpisode.getId()
-        );
+        String roleLabel = normalizeNullableText(request.roleLabel());
+        UUID firstAppearanceEpisodeId = firstAppearanceEpisode == null ? null : firstAppearanceEpisode.getId();
+        boolean changed = !Objects.equals(character.getName(), name)
+                || !Objects.equals(character.getRoleLabel(), roleLabel)
+                || !Objects.equals(character.getFirstAppearanceEpisodeId(), firstAppearanceEpisodeId)
+                || hasManualCorrections(snapshotEntries, desiredFacts);
+        if (!changed) {
+            return toDetailResponse(character, firstAppearanceEpisode, schemas);
+        }
+        analysisRunStateService.assertSettingMutationAllowed(work.getId());
+        character.updateBasicInfo(name, roleLabel);
+        character.updateFirstAppearanceEpisodeId(firstAppearanceEpisodeId);
 
         applyManualCorrections(character, snapshotEntries, desiredFacts);
         automaticImages.refreshCharacterImages(List.of(character));
@@ -191,8 +197,7 @@ public class CharacterServiceImpl implements CharacterService {
     @Transactional
     public CharacterArchiveResponse archiveCharacter(Long memberId, UUID workId, UUID characterId) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        analysisRunStateService.invalidateRunsForWorkForUpdate(
-                work.getId(), null, "사용자가 확정 설정을 변경했습니다.");
+        analysisRunStateService.assertSettingMutationAllowed(work.getId());
         WorkCharacter character = getActiveCharacterForUpdate(work.getId(), characterId);
         character.archive();
         return characterMapper.toArchiveResponse(character);
@@ -202,8 +207,7 @@ public class CharacterServiceImpl implements CharacterService {
     @Transactional
     public CharacterRestoreResponse restoreCharacter(Long memberId, UUID workId, UUID characterId) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        analysisRunStateService.invalidateRunsForWorkForUpdate(
-                work.getId(), null, "사용자가 확정 설정을 변경했습니다.");
+        analysisRunStateService.assertSettingMutationAllowed(work.getId());
         WorkCharacter character = getArchivedCharacterForUpdate(work.getId(), characterId);
         if (workCharacterRepository.existsByWorkIdAndNameAndStatusAndIdNot(
                 work.getId(),
@@ -736,6 +740,18 @@ public class CharacterServiceImpl implements CharacterService {
             return JsonNodeFactory.instance.booleanNode(false);
         }
         throw new AppException(CharacterErrorCode.CHARACTER_SETTING_VALUE_INVALID);
+    }
+
+    private boolean hasManualCorrections(
+            Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshotEntries,
+            Map<CharacterSnapshotSlot, DesiredFact> desiredFacts
+    ) {
+        return snapshotEntries.keySet().stream()
+                .anyMatch(slot -> slot.factType() != CharacterFactType.TIME && !desiredFacts.containsKey(slot))
+                || desiredFacts.entrySet().stream().anyMatch(entry -> {
+                    CharacterSnapshotEntry current = snapshotEntries.get(entry.getKey());
+                    return current == null || !isSameValue(current, entry.getValue());
+                });
     }
 
     /**
