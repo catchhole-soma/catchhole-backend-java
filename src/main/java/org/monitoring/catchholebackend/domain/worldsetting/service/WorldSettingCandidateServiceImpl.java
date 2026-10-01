@@ -1072,6 +1072,11 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                 && job.getReviewMode() == AnalysisReviewMode.MANUAL;
     }
 
+    private int capturedSourceEpisodeNo(WorldSettingCandidate candidate) {
+        AnalysisJob job = candidate.getAnalysisJob();
+        return job == null || job.getSourceEpisodeNo() == null ? -1 : job.getSourceEpisodeNo();
+    }
+
     /** 현재 경로를 만든 확정 근거가 더 앞선 회차임을 확인할 수 있을 때만 갱신한다. */
     private boolean shouldPreserveCurrentProperty(
             WorldSettingCandidate candidate, WorldSetting current, String scopeName, String settingName,
@@ -1086,15 +1091,18 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                 .filter(previous -> !previous.isHistoryOnly()
                         && sameLateReviewName(previous.getFinalScopeName(), scopeName)
                         && sameLateReviewName(previous.getFinalSettingName(), settingName)).toList();
-        int episode = candidate.getSourceEpisode() == null ? -1 : candidate.getSourceEpisode().getEpisodeNo();
+        // 회차 재정렬로 현재 Episode 번호가 바뀌어도 확정 근거의 원래 순서는 유지한다.
+        int episode = capturedSourceEpisodeNo(candidate);
         return current.isManuallyEdited(scopeName, settingName)
                 || current.hasPathConflict(scopeName, settingName)
                 || value == null && !prior.isEmpty()
                 || value == null && (operation == WorldSettingOperation.UPDATE || operation == WorldSettingOperation.MERGE)
                 || value != null && (episode < 1 || prior.isEmpty()
                     || prior.stream().noneMatch(previous -> Objects.equals(previous.getFinalValue(), value))
-                    || prior.stream().anyMatch(previous -> previous.getSourceEpisode() == null
-                        || previous.getSourceEpisode().getEpisodeNo() >= episode));
+                    || prior.stream().anyMatch(previous -> {
+                        int previousEpisode = capturedSourceEpisodeNo(previous);
+                        return previous.getSourceEpisode() == null || previousEpisode < 1 || previousEpisode >= episode;
+                    }));
     }
 
     private Set<UUID> confirmedHistoryOnlyCandidateIds(

@@ -170,7 +170,7 @@ public class CharacterAnalysisConfirmation {
         if (character == null || character.getStatus() != CharacterStatus.ACTIVE) throw new org.monitoring.catchholebackend.global.exception.AppException(
                 org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID);
         var slot = new CharacterSnapshotSlot(type, key);
-        int episode = candidate.getEpisode() == null ? -1 : candidate.getEpisode().getEpisodeNo();
+        Integer episode = candidate.getAnalysisJob() == null ? null : candidate.getAnalysisJob().getSourceEpisodeNo();
         if (!accessor.read(character).containsKey(slot)) {
             var history = factRepository.findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(id, type, key);
             return history.stream().anyMatch(fact -> fact.getSettingCandidate() == null
@@ -179,14 +179,16 @@ public class CharacterAnalysisConfirmation {
                         != org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode.HISTORY_ONLY);
         }
         var sources = sourceRepository.findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderBySourceOrderAsc(id, type, key);
-        if (sources.isEmpty() || episode < 1) return true;
+        if (sources.isEmpty() || episode == null || episode < 1) return true;
         return sources.stream().anyMatch(source -> {
             var fact = source.getSourceFact();
             var origin = fact.getSettingCandidate();
             Integer number = fact.getEffectiveFromEpisodeNo();
-            if (number == null && fact.getSourceEpisode() != null) number = fact.getSourceEpisode().getEpisodeNo();
-            if (number == null && origin != null && origin.getEpisode() != null) number = origin.getEpisode().getEpisodeNo();
-            return origin == null || origin.isUserModified() || number == null || number >= episode;
+            // 고정된 적용 회차가 없는 과거 근거도 현재 Episode의 변경 가능한 번호로 추정하지 않는다.
+            if (number == null && origin != null && origin.getAnalysisJob() != null) {
+                number = origin.getAnalysisJob().getSourceEpisodeNo();
+            }
+            return origin == null || origin.isUserModified() || number == null || number < 1 || number >= episode;
         });
     }
 
