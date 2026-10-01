@@ -811,4 +811,6 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 
 ## GH199 — 늦은 검토와 코드 없는 내 이미지
 
+현재값 보호의 회차 선후는 분석 시 고정한 `AnalysisJob.sourceEpisodeNo`로 판단한다. 캐릭터 근거에 이미 저장된 `CharacterFact.effectiveFromEpisodeNo`는 유지하되, 없으면 원본 Job의 고정 번호를 사용한다. 변경 가능한 `Episode.episodeNo`로 과거 근거를 추정하지 않으며 고정 번호가 없는 legacy는 출처 불명으로 현재값을 보호한다.
+
 `docs/gh199-late-review-and-private-images.md`를 따른다. 완료된 순차 후보와 개별 `MANUAL + CONFIRMED_ONLY` 후보 확정은 동일한 항목별 최신값·제거 기록·직접 수정 보호를 재사용하고 충돌은 이력에만 남긴다. 일반 비교의 버전·현재값·의존성·범위 이동 검증은 생략하지 않으며, 확정 직전 공통 `AnalysisCandidateSourceGuard`로 현재 원문과 파기 예약을 확인한다. 원문 manifest 없는 legacy는 보관·파기 검증을 유지하고 이미 완료한 동일 확정 요청은 기존 멱등 응답을 유지한다. 세계관의 `historyOnly` 후보를 현재값 근거로 재사용하지 않는다. 후보 변경만으로 후속 Job을 무효화하거나 LLM을 추가 호출하지 않는다. V67 계정 이미지/CHI1 호환과 V68 세계관 이력·수동 경로 표시를 유지한다. 기존 CHI1 문서 중 새 업로드에도 키를 요구하는 내용은 이 정책으로 대체한다.
