@@ -1,0 +1,14 @@
+[Unit]
+Description=Renew CatchHole monitoring TLS certificate and reload Nginx
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/catchhole-monitoring
+ExecStart=/bin/bash /opt/catchhole-monitoring/monitoring/renew-certificate.sh
+TimeoutStartSec=10min
+StandardOutput=journal
+StandardError=journal

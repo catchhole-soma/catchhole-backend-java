@@ -1,6 +1,42 @@
 name: catchhole-monitoring-prod
 
 services:
+  nginx:
+    image: nginx:1.30.5-alpine3.24
+    restart: unless-stopped
+    logging:
+      driver: journald
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - type: bind
+        source: ${MONITORING_NGINX_CONFIG:-./monitoring/nginx/bootstrap.conf}
+        target: /etc/nginx/conf.d/default.conf
+        read_only: true
+        bind:
+          create_host_path: false
+      - acme_webroot:/var/www/certbot:ro
+      - letsencrypt_data:/etc/letsencrypt:ro
+
+  certbot:
+    image: certbot/certbot:v5.8.0
+    profiles:
+      - maintenance
+    logging:
+      driver: journald
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    command:
+      - renew
+      - --cert-name
+      - monitoring.catchhole.com
+      - --non-interactive
+      - --no-random-sleep-on-renew
+    volumes:
+      - acme_webroot:/var/www/certbot
+      - letsencrypt_data:/etc/letsencrypt
+
   prometheus:
     image: prom/prometheus:v3.13.3
     restart: unless-stopped
@@ -37,6 +73,10 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_DOMAIN: monitoring.catchhole.com
+      GF_SERVER_ROOT_URL: https://monitoring.catchhole.com/
+      GF_SERVER_PROTOCOL: http
+      GF_SECURITY_COOKIE_SECURE: "true"
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_data:/var/lib/grafana
@@ -44,3 +84,5 @@ services:
 volumes:
   prometheus_data:
   grafana_data:
+  acme_webroot:
+  letsencrypt_data:
