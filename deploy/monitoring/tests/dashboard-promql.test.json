@@ -1,0 +1,153 @@
+{
+  "evaluation_interval": "1m",
+  "tests": [
+    {
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "catchhole_analysis_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\"}",
+          "values": "1x15"
+        },
+        {
+          "series": "catchhole_analysis_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"b\"}",
+          "values": "0x15"
+        },
+        {
+          "series": "catchhole_analysis_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\"}",
+          "values": "0+60x15"
+        },
+        {
+          "series": "catchhole_analysis_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"b\"}",
+          "values": "0+60x15"
+        },
+        {
+          "series": "catchhole_analysis_pending_jobs{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\",job_type=\"setting_extraction\",analysis_mode=\"confirmed_only\",review_mode=\"manual\",queue_state=\"eligible\"}",
+          "values": "5x15"
+        },
+        {
+          "series": "catchhole_analysis_pending_jobs{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\",job_type=\"setting_extraction\",analysis_mode=\"ordered_provisional\",review_mode=\"manual\",queue_state=\"eligible\"}",
+          "values": "4x15"
+        },
+        {
+          "series": "catchhole_analysis_pending_jobs{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"b\",job_type=\"setting_extraction\",analysis_mode=\"confirmed_only\",review_mode=\"manual\",queue_state=\"eligible\"}",
+          "values": "100x15"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "sum(sum by (job_type) (max by (job_type,analysis_mode,review_mode,queue_state) (catchhole_analysis_pending_jobs{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",queue_state=\"eligible\"} and on(instance) ((catchhole_analysis_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} == 1) and on(instance) (time() - catchhole_analysis_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} < 45)))))",
+          "eval_time": "15m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 9
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "catchhole_analysis_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\"}",
+          "values": "0x15"
+        },
+        {
+          "series": "catchhole_analysis_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\"}",
+          "values": "0+60x15"
+        },
+        {
+          "series": "catchhole_analysis_pending_jobs{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\",job_type=\"setting_extraction\",analysis_mode=\"confirmed_only\",review_mode=\"manual\",queue_state=\"eligible\"}",
+          "values": "5x15"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "sum(sum by (job_type) (max by (job_type,analysis_mode,review_mode,queue_state) (catchhole_analysis_pending_jobs{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",queue_state=\"eligible\"} and on(instance) ((catchhole_analysis_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} == 1) and on(instance) (time() - catchhole_analysis_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} < 45)))))",
+          "eval_time": "15m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "catchhole_analysis_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\"}",
+          "values": "1x15"
+        },
+        {
+          "series": "catchhole_analysis_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\"}",
+          "values": "0x15"
+        },
+        {
+          "series": "catchhole_analysis_pending_jobs{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\",job_type=\"setting_extraction\",analysis_mode=\"confirmed_only\",review_mode=\"manual\",queue_state=\"eligible\"}",
+          "values": "5x15"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "sum(sum by (job_type) (max by (job_type,analysis_mode,review_mode,queue_state) (catchhole_analysis_pending_jobs{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",queue_state=\"eligible\"} and on(instance) ((catchhole_analysis_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} == 1) and on(instance) (time() - catchhole_analysis_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} < 45)))))",
+          "eval_time": "15m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",outcome=\"success\"}",
+          "values": "0+8x15"
+        },
+        {
+          "series": "catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",outcome=\"partial_success\"}",
+          "values": "0+1x15"
+        },
+        {
+          "series": "catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",outcome=\"failure\"}",
+          "values": "0+1x15"
+        },
+        {
+          "series": "catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",outcome=\"canceled\"}",
+          "values": "0+90x15"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "100 * (sum(rate(catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",outcome=\"success\"}[5m])) or (0 * sum(rate(catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",outcome=~\"success|partial_success|failure\"}[5m])))) / sum(rate(catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",outcome=~\"success|partial_success|failure\"}[5m]))",
+          "eval_time": "15m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 80
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",outcome=\"success\"}",
+          "values": "0x15"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "(100 * (sum(rate(catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",outcome=\"success\"}[5m])) or (0 * sum(rate(catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",outcome=~\"success|partial_success|failure\"}[5m])))) / sum(rate(catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",outcome=~\"success|partial_success|failure\"}[5m]))) == bool (100 * (sum(rate(catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",outcome=\"success\"}[5m])) or (0 * sum(rate(catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",outcome=~\"success|partial_success|failure\"}[5m])))) / sum(rate(catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",outcome=~\"success|partial_success|failure\"}[5m])))",
+          "eval_time": "15m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "fuzzy_compare": true
+}

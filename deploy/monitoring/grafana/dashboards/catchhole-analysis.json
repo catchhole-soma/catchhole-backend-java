@@ -1,0 +1,2704 @@
+{
+  "id": null,
+  "uid": "catchhole-analysis",
+  "version": 0,
+  "title": "캐치홀 분석 · AI 상세",
+  "description": "회차 분석의 대기→실행→결과 준비→LLM 호출을 확인합니다. Java DB 상태와 Python 개별 프로세스 실행 지표를 함께 조회합니다.",
+  "tags": [
+    "catchhole",
+    "production"
+  ],
+  "schemaVersion": 42,
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "liveNow": false,
+  "preload": false,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "timepicker": {
+    "refresh_intervals": [
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "분석 접수 회차 수",
+      "description": "조회 기간의 회차별 접수 수입니다. 사용자 재시도 포함, 숨은 비교 Job 제외.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(catchhole_analysis_accepted_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}[$__range]))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "분석 완전 성공률",
+      "description": "최근 5분 완전 성공 / 성공·부분 성공·실패. 취소 제외. 결과 없음은 계산 불가.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "100 * (sum(rate(catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",outcome=\"success\"}[5m])) or (0 * sum(rate(catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",outcome=~\"success|partial_success|failure\"}[5m])))) / sum(rate(catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",outcome=~\"success|partial_success|failure\"}[5m]))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "분석 결과 준비 시간 p95",
+      "description": "접수부터 후속 비교까지 성공·부분 성공 회차의 전체 시간입니다. Worker 처리 시간 또는 provider 누적 시간과 다릅니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(catchhole_analysis_result_ready_seconds_bucket{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",outcome=~\"success|partial_success\"}[5m])))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "분석 상태 snapshot 정상",
+      "description": "DB 상태 조회 성공은 1, 조회 실패는 0입니다. 첫 조회 전도 0입니다. 이전 Gauge 값이 남아 있어도 정상으로 오인하지 않습니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max(catchhole_analysis_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"})",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "대기 작업 수",
+      "description": "eligible은 실행 가능, dependency_blocked는 선행 회차 또는 같은 작품의 실행 작업을 기다립니다. 모든 Job 종류 포함. API별 중복 DB 관측은 max로 제거합니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "실행 가능 · setting_extraction"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "실행 가능 · 설정집 추출"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "실행 가능 · character_fact_comparison"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "실행 가능 · 인물 설정 비교"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "실행 가능 · world_setting_comparison"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "실행 가능 · 세계관 설정 비교"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "실행 가능 · episode_validation"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "실행 가능 · 회차 검수"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "의존 대기 · setting_extraction"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "의존 대기 · 설정집 추출"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "의존 대기 · character_fact_comparison"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "의존 대기 · 인물 설정 비교"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "의존 대기 · world_setting_comparison"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "의존 대기 · 세계관 설정 비교"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "의존 대기 · episode_validation"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "의존 대기 · 회차 검수"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (job_type) (max by (job_type,analysis_mode,review_mode,queue_state) (catchhole_analysis_pending_jobs{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",queue_state=\"eligible\"} and on(instance) ((catchhole_analysis_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and on(instance) (time() - catchhole_analysis_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} < 45))))",
+          "legendFormat": "실행 가능 · {{job_type}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (job_type) (max by (job_type,analysis_mode,review_mode,queue_state) (catchhole_analysis_pending_jobs{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",queue_state=\"dependency_blocked\"} and on(instance) ((catchhole_analysis_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and on(instance) (time() - catchhole_analysis_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} < 45))))",
+          "legendFormat": "의존 대기 · {{job_type}}",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "가장 오래 기다린 시간",
+      "description": "현재 대기 중인 Job의 PENDING 전환 이후 시간입니다. lease 회수·사용자 재시도에서 새 대기 구간을 시작합니다. 대기 없음은 0입니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "실행 가능 · setting_extraction"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "실행 가능 · 설정집 추출"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "실행 가능 · character_fact_comparison"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "실행 가능 · 인물 설정 비교"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "실행 가능 · world_setting_comparison"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "실행 가능 · 세계관 설정 비교"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "실행 가능 · episode_validation"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "실행 가능 · 회차 검수"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "의존 대기 · setting_extraction"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "의존 대기 · 설정집 추출"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "의존 대기 · character_fact_comparison"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "의존 대기 · 인물 설정 비교"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "의존 대기 · world_setting_comparison"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "의존 대기 · 세계관 설정 비교"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "의존 대기 · episode_validation"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "의존 대기 · 회차 검수"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max by (job_type) (catchhole_analysis_oldest_pending_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",queue_state=\"eligible\"} and on(instance) ((catchhole_analysis_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and on(instance) (time() - catchhole_analysis_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} < 45)))",
+          "legendFormat": "실행 가능 · {{job_type}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max by (job_type) (catchhole_analysis_oldest_pending_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",queue_state=\"dependency_blocked\"} and on(instance) ((catchhole_analysis_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and on(instance) (time() - catchhole_analysis_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} < 45)))",
+          "legendFormat": "의존 대기 · {{job_type}}",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "실행 중 Job · DB 기준",
+      "description": "DB RUNNING snapshot입니다. Python active 값과 수집 시점/lease 회수 시차가 있을 수 있습니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "setting_extraction"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "설정집 추출"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "character_fact_comparison"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "인물 설정 비교"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "world_setting_comparison"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "세계관 설정 비교"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "episode_validation"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "회차 검수"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (job_type) (max by (job_type,analysis_mode,review_mode,queue_state) (catchhole_analysis_running_jobs{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} and on(instance) ((catchhole_analysis_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and on(instance) (time() - catchhole_analysis_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} < 45))))",
+          "legendFormat": "{{job_type}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Worker별 실행 중 Job",
+      "description": "Python 프로세스가 실제 process_claimed를 실행 중인 수입니다. 종류와 인스턴스 필터가 적용됩니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 12,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "catchhole_worker_jobs_active{job=\"catchhole-worker\",application=\"catchhole-ai\",environment=\"$environment\",worker_kind=~\"$worker_kind\",instance=~\"$worker_instance\"}",
+          "legendFormat": "{{worker_kind}} · {{instance}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "회차 분석 종료 결과",
+      "description": "조회 기간의 회차별 최종 결과입니다. 부분 성공은 실패 후보를 포함한 사용 가능한 결과이며, 사람의 검토 여부와 다릅니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",outcome=\"success\"}[$__range]))",
+          "legendFormat": "완전 성공",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",outcome=\"partial_success\"}[$__range]))",
+          "legendFormat": "부분 성공",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",outcome=\"failure\"}[$__range]))",
+          "legendFormat": "실패",
+          "range": true,
+          "instant": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",outcome=\"canceled\"}[$__range]))",
+          "legendFormat": "취소",
+          "range": true,
+          "instant": false,
+          "refId": "D"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "결과 준비 시간 · p50 / p95",
+      "description": "최근 5분 성공·부분 성공 결과가 준비된 회차의 사용자 대기 시간입니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 12,
+        "y": 21,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(catchhole_analysis_result_ready_seconds_bucket{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",outcome=~\"success|partial_success\"}[5m])))",
+          "legendFormat": "p95",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(catchhole_analysis_result_ready_seconds_bucket{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",outcome=~\"success|partial_success\"}[5m])))",
+          "legendFormat": "p50",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "claim 전 대기 시간 p95",
+      "description": "최근 5분 PENDING→RUNNING으로 전환된 Job의 해당 대기 구간 시간입니다. 의존 대기를 포함합니다. 사용자 결과 준비 전체 시간과 구분합니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "setting_extraction"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "설정집 추출"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "character_fact_comparison"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "인물 설정 비교"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "world_setting_comparison"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "세계관 설정 비교"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "episode_validation"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "회차 검수"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by(le,job_type) (rate(catchhole_analysis_claim_wait_seconds_bucket{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}[5m])))",
+          "legendFormat": "{{job_type}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "사용자 재시도와 lease 회수",
+      "description": "조회 기간의 명시적 사용자 재시도와 lease 복구 횟수입니다. lease 회수는 새 분석 접수로 세지 않습니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 12,
+        "y": 29,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(catchhole_analysis_retries_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}[$__range]))",
+          "legendFormat": "사용자 재시도",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by(action) (increase(catchhole_analysis_recoveries_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}[$__range]))",
+          "legendFormat": "lease 회수 · {{action}}",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Worker 실행 시도 시간 p95",
+      "description": "claim 반환 이후 Worker process 처리의 monotonic wall-clock입니다. 실패·취소도 포함하며 DB의 최종 회차 결과와 구분합니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 0,
+        "y": 37,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by(le,worker_kind) (rate(catchhole_worker_job_duration_seconds_bucket{job=\"catchhole-worker\",application=\"catchhole-ai\",environment=\"$environment\",worker_kind=~\"$worker_kind\",instance=~\"$worker_instance\"}[5m])))",
+          "legendFormat": "{{worker_kind}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Worker 실행 시도 결과",
+      "description": "조회 기간의 프로세스 실행 결과입니다. lease 상실·취소는 분석 최종 실패와 동일하지 않습니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 12,
+        "y": 37,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum (increase(catchhole_worker_job_attempts_total{job=\"catchhole-worker\",application=\"catchhole-ai\",environment=\"$environment\",worker_kind=~\"$worker_kind\",instance=~\"$worker_instance\",outcome=\"success\"}[$__range]))",
+          "legendFormat": "실행 성공",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum (increase(catchhole_worker_job_attempts_total{job=\"catchhole-worker\",application=\"catchhole-ai\",environment=\"$environment\",worker_kind=~\"$worker_kind\",instance=~\"$worker_instance\",outcome=\"failure\"}[$__range]))",
+          "legendFormat": "실행 실패",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum (increase(catchhole_worker_job_attempts_total{job=\"catchhole-worker\",application=\"catchhole-ai\",environment=\"$environment\",worker_kind=~\"$worker_kind\",instance=~\"$worker_instance\",outcome=\"canceled\"}[$__range]))",
+          "legendFormat": "실행 취소",
+          "range": true,
+          "instant": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum (increase(catchhole_worker_job_attempts_total{job=\"catchhole-worker\",application=\"catchhole-ai\",environment=\"$environment\",worker_kind=~\"$worker_kind\",instance=~\"$worker_instance\",outcome=\"lease_lost\"}[$__range]))",
+          "legendFormat": "실행 권한 상실",
+          "range": true,
+          "instant": false,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum (increase(catchhole_worker_job_attempts_total{job=\"catchhole-worker\",application=\"catchhole-ai\",environment=\"$environment\",worker_kind=~\"$worker_kind\",instance=~\"$worker_instance\",outcome=\"unknown\"}[$__range]))",
+          "legendFormat": "결과 확인 불가",
+          "range": true,
+          "instant": false,
+          "refId": "E"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "LLM 개별 호출 시간 p95",
+      "description": "delegate provider 호출 하나의 소요 시간입니다. 세마포어·토큰 예약/정산·재시도 대기 제외, 별도 SDK 내부 retry가 있으면 그 delegate 한 호출에 포함됩니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 0,
+        "y": 45,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by(le,purpose,model) (rate(catchhole_llm_call_duration_seconds_bucket{job=\"catchhole-worker\",application=\"catchhole-ai\",environment=\"$environment\",worker_kind=~\"$worker_kind\",instance=~\"$worker_instance\"}[5m])))",
+          "legendFormat": "{{purpose}} · {{model}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "LLM 호출 실패 원인",
+      "description": "조회 기간 provider 호출 실패를 고정 error_type으로 집계합니다. 자유 형식 예외 메시지를 사용하지 않습니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 12,
+        "y": 45,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by(error_type) (increase(catchhole_llm_calls_total{job=\"catchhole-worker\",application=\"catchhole-ai\",environment=\"$environment\",worker_kind=~\"$worker_kind\",instance=~\"$worker_instance\",outcome!=\"success\"}[$__range]))",
+          "legendFormat": "호출 오류 · {{error_type}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "LLM 호출·추가 재시도",
+      "description": "조회 기간의 실제 provider 호출과 429/5xx/timeout/network transport 추가 재시도입니다. schema/출력 절단의 바깥 재시도는 별도 호출로만 보입니다. quota 예약 거절은 호출이 아닙니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 0,
+        "y": 53,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(catchhole_llm_calls_total{job=\"catchhole-worker\",application=\"catchhole-ai\",environment=\"$environment\",worker_kind=~\"$worker_kind\",instance=~\"$worker_instance\"}[$__range]))",
+          "legendFormat": "provider 호출",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(catchhole_llm_retries_total{job=\"catchhole-worker\",application=\"catchhole-ai\",environment=\"$environment\",worker_kind=~\"$worker_kind\",instance=~\"$worker_instance\"}[$__range]))",
+          "legendFormat": "추가 재시도",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "마지막 Worker 처리 종료 경과",
+      "description": "각 프로세스의 마지막 Job 실행 종료 이후 시간입니다. timestamp 0은 아직 종료가 없는 상태이며 제외합니다. 유휴 때문에 길어질 수 있어 active·queue·up과 함께 확인합니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 12,
+        "y": 53,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "time() - (catchhole_worker_last_job_finished_timestamp_seconds{job=\"catchhole-worker\",application=\"catchhole-ai\",environment=\"$environment\",worker_kind=~\"$worker_kind\",instance=~\"$worker_instance\"} > 0)",
+          "legendFormat": "{{worker_kind}} · {{instance}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "Worker 수집 상태",
+      "description": "각 프로세스 /metrics의 up입니다. 1 정상, 0 수집 실패. target 목록에서 빠진 Worker는 series가 없어 overview 정상 수 7개와 비교해야 합니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 0,
+        "y": 61,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "up{job=\"catchhole-worker\",environment=\"$environment\",worker_kind=~\"$worker_kind\",instance=~\"$worker_instance\"}",
+          "legendFormat": "{{worker_kind}} · {{instance}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "분석 DB 상태 갱신 경과",
+      "description": "15초 주기 snapshot 마지막 성공 후 경과입니다. 45초 이상이면 다른 DB 상태 패널은 값을 숨깁니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 12,
+        "y": 61,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "time() - (catchhole_analysis_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0)",
+          "legendFormat": "{{instance}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    }
+  ],
+  "links": [
+    {
+      "title": "운영 현황",
+      "type": "link",
+      "url": "/d/catlfln?var-environment=$environment",
+      "icon": "dashboard",
+      "includeVars": true,
+      "keepTime": true,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    },
+    {
+      "title": "API · 서버 상세",
+      "type": "link",
+      "url": "/d/catchhole-api?var-environment=$environment",
+      "icon": "dashboard",
+      "includeVars": true,
+      "keepTime": true,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "환경",
+        "type": "custom",
+        "query": "prod,local",
+        "current": {
+          "text": "prod",
+          "value": "prod"
+        },
+        "options": [
+          {
+            "text": "prod",
+            "value": "prod",
+            "selected": true
+          },
+          {
+            "text": "local",
+            "value": "local",
+            "selected": false
+          }
+        ],
+        "includeAll": false,
+        "multi": false,
+        "hide": 0
+      },
+      {
+        "name": "worker_kind",
+        "label": "Worker 종류",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "catchhole-prometheus"
+        },
+        "definition": "label_values(up{job=\"catchhole-worker\",environment=\"$environment\"}, worker_kind)",
+        "query": {
+          "query": "label_values(up{job=\"catchhole-worker\",environment=\"$environment\"}, worker_kind)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "전체",
+          "value": "$__all"
+        },
+        "options": [],
+        "hide": 0
+      },
+      {
+        "name": "worker_instance",
+        "label": "Worker 인스턴스",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "catchhole-prometheus"
+        },
+        "definition": "label_values(up{job=\"catchhole-worker\",environment=\"$environment\",worker_kind=~\"$worker_kind\"}, instance)",
+        "query": {
+          "query": "label_values(up{job=\"catchhole-worker\",environment=\"$environment\",worker_kind=~\"$worker_kind\"}, instance)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "전체",
+          "value": "$__all"
+        },
+        "options": [],
+        "hide": 0
+      }
+    ]
+  }
+}
