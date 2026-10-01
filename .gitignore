@@ -79,3 +79,4 @@ docs/.obsidian/
 
 # Worker private scrape targets
 deploy/monitoring/targets/workers/*.json
+deploy/monitoring/targets/workers/*.json.next
