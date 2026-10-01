@@ -4,6 +4,7 @@ import jakarta.validation.ConstraintViolationException;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 import org.monitoring.catchholebackend.domain.upload.exception.UploadErrorCode;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
 import org.monitoring.catchholebackend.global.common.response.ErrorResponse;
@@ -21,6 +22,7 @@ import org.springframework.web.multipart.support.MissingServletRequestPartExcept
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
+@Slf4j
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(AppException.class)
@@ -101,7 +103,8 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<CommonResponse<Void>> handleException() {
+    public ResponseEntity<CommonResponse<Void>> handleException(Exception exception) {
+        log.error("예상하지 못한 오류가 발생했습니다.", exception);
         return buildErrorResponse(CommonErrorCode.COMMON_INTERNAL_SERVER_ERROR, List.of());
     }
 

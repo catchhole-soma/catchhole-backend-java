@@ -60,6 +60,25 @@
 - 운영 환경은 Caddy `reverse_proxy` 뒤에서 실행되므로 `application-prod.yml`에 `server.forward-headers-strategy: framework`를 둔다. Swagger/OpenAPI server URL과 보안/리다이렉트 처리가 외부 HTTPS scheme/host를 기준으로 동작하게 하기 위함이다.
 - **로컬 DB 접속 정보는 `compose.yaml` 단일 출처로 둔다.** `spring-boot-docker-compose` 의존성이 컨테이너에서 호스트/포트/사용자/비밀번호를 자동 추출해 `ServiceConnection` 빈으로 주입한다. yml에 `spring.datasource.*`를 중복 작성하지 않는다 (그림자 설정 방지).
 
+### Application Metrics
+
+- 기본 애플리케이션 지표는 Actuator와 `micrometer-registry-prometheus`로 제공한다. registry 버전은 Spring Boot의 의존성 관리에 맡긴다.
+- 메트릭 HTTP 노출은 `application-local.yml`과 `application-prod.yml` 각각의 `management.endpoints.web.exposure.include: health,prometheus`로 설정한다. 필요한 환경에서만 제공하도록 공통·test·e2e 프로파일로 노출 설정을 확장하지 않는다.
+- 공통 label은 두 환경 모두 `application=catchhole-backend`를 사용하고, `environment`는 local에서 `local`, prod에서 `prod`로 구분한다. 서로 다른 환경의 지표가 섞이지 않도록 각 프로파일에서 설정한다.
+- HTTP 응답 시간은 local·prod 모두 `management.metrics.distribution.percentiles-histogram.http.server.requests=true`로 histogram을 제공한다. API별 p95는 이후 Prometheus에서 bucket을 조회해 계산한다.
+- 운영 Actuator는 `management.server.port=8081`로 API·Worker의 8080과 분리한다. API Compose의 `API_METRICS_BIND_ADDRESS` 기본값은 `127.0.0.1`이며, 실제 모니터링 SG에만 8081을 허용한 뒤 API EC2 사설 IPv4로 바꾼다. 운영 메트릭은 애플리케이션 로그인 대신 사설망·SG로 제한하며, 같은 API 서버 관리자와 Docker 내부 네트워크는 신뢰 경계에 포함된다.
+- `global.config.monitoring.ProductionHealthWebConfig`는 prod에서 기존 8080의 `/actuator/health`를 전체 health group의 `/healthz`로 내부 전달한다. 관리 포트만 살아 있는 상황을 정상으로 오인하지 않도록 API 포트에서 실제 health를 확인하며 상태 코드·상세 정보 노출 여부는 Actuator가 결정한다.
+- Caddy는 `/actuator/health`를 제외한 `/actuator` 경로를 404로 차단한다. 자동 배포는 Caddyfile을 명시적으로 reload해 파일만 바뀌어도 접근 규칙을 반영한다. 기존 API·Worker 인증과 health 확인 경로는 유지한다.
+- 사용자·작품·Job ID, 원문, 비밀값과 실제 ID가 포함된 URL은 metric label에 넣지 않는다. HTTP 경로는 framework가 제공하는 route template을 사용한다.
+- 기본 API 대시보드의 HTTP 집계에서는 `/actuator.*`와 `/healthz`를 제외해 메트릭 수집·health 확인 요청을 사용자 트래픽에 섞지 않는다.
+- 로컬 Prometheus는 `compose.monitoring.yml`의 `catchhole-monitoring` 프로젝트로 관리한다. `-f compose.monitoring.yml`을 명시해 실행하며, Spring이 관리하는 기존 `compose.yaml`의 PostgreSQL·Redis와 실행 수명을 분리한다.
+- 수집 설정은 `monitoring/prometheus.yml`에서 관리한다. Docker Desktop의 `host.docker.internal:8080`을 통해 Mac에서 실행 중인 Spring의 `/actuator/prometheus`를 15초마다 수집하고, 수집 timeout은 5초로 둔다. `job` label은 `catchhole-backend`이며 초기 구성에는 지표 제외 규칙을 두지 않는다.
+- 로컬 Prometheus 이미지는 `prom/prometheus:v3.13.3`으로 고정하고, UI/API는 `127.0.0.1:9090`에만 공개한다. 데이터는 전용 `prometheus_data` named volume에 저장하고 보존 기간은 7일로 둔다.
+- 운영 모니터링은 `deploy/compose.monitoring.prod.yml`과 `deploy/monitoring/`에서 관리한다. Prometheus `v3.13.3`·Grafana `13.2.2`, 15초 수집·5초 timeout, 기본 7일·5GB TSDB 블록 보존 제한과 전용 영속 볼륨을 사용한다. WAL·head 등은 별도 여유 공간이 필요하므로 5GB를 전체 디스크 상한으로 해석하지 않는다.
+- 운영 수집 대상은 `deploy/monitoring/targets/catchhole-backend.json.example`을 실제 JSON으로 복사해 API 사설 IP:8081을 입력한다. Prometheus YAML의 환경변수 치환을 가정하지 않고 `file_sd_configs`로 읽는다. 실제 targets JSON과 `deploy/monitoring.env`는 커밋하지 않는다.
+- Grafana 데이터 소스 UID는 `catchhole-prometheus`, 주소는 같은 Compose 네트워크의 `http://prometheus:9090`으로 고정한다. 두 관리 UI는 호스트 localhost에만 바인딩하고 SSM 포트 포워딩으로 접속한다. Grafana 익명 접속·회원가입을 끄고 초기 관리자 비밀번호를 필수로 주입한다.
+- 운영 적용·접근 검증·영속 데이터 보존·업데이트·롤백은 `deploy/MONITORING_DEPLOYMENT.md`를 따른다. 설정 파일 작성과 실제 AWS SG 적용·배포 완료는 구분한다. #206의 분석 작업 계측은 이 수집 기반을 재사용한다.
+
 ### Database Migration
 
 - PostgreSQL schema 변경은 `src/main/resources/db/migration`의 Flyway SQL로 관리한다.
@@ -205,6 +224,7 @@ org.monitoring.catchholebackend
     │   ├── auth
     │   ├── cors
     │   ├── jpa
+    │   ├── logging
     │   ├── memberwithdrawal
     │   ├── emaildelivery
 │   ├── emailverification
@@ -652,7 +672,17 @@ public class UserMapper {
 - 운영 로그의 사람이 읽는 문장은 한국어로 작성한다. `SOLAPI`, HTTP status, enum code 같은 기술 식별자는 그대로 사용할 수 있다.
 - 불필요한 추상화나 미래 대비용 확장 포인트를 만들지 않는다.
 - 주석은 복잡한 의도를 설명할 때만 짧게 작성한다.
+- HTTP 로그 연결은 `global.config.logging.RequestIdFilter`가 Security 앞에서 생성하는 UUID와 MDC `requestId`, 응답 `X-Request-ID`를 사용한다. 외부 ID는 채택하지 않으며 동기 REQUEST/ERROR 처리 후 자신이 소유한 MDC 키만 정리한다. 로그 패턴은 공통 YAML에서 관리한다.
+- API·관리 포트가 분리돼도 같은 정책을 적용하도록 `RequestLoggingConfig`를 관리 context의 `ManagementContextConfiguration.imports`에도 등록한다. 각 서버에서 한 번만 적용하며 정상 `/healthz`·`/actuator/health`·`/actuator/prometheus`는 완료 로그만 생략한다.
+- 삭제·탈퇴 로그의 업무 ID는 `purgeRequestId`·`withdrawalRequestId`로 표기한다. 기존 API 본문의 `requestId`와 DB 필드는 유지한다. HTTP 요청과 여러 재시도에 걸친 업무 작업을 혼동하지 않기 위함이며, 스케줄러·별도 스레드에는 HTTP ID를 임의 전파하지 않는다. 적용 범위와 조회 명령은 `docs/request-logging.md`를 따른다.
 - Entity에서 nullable 여부가 전역/작품 범위 같은 도메인 의미를 갖거나, JSON·정책 컬럼의 저장 목적이 이름만으로 명확하지 않으면 필드 위에 한국어 주석으로 의미와 필요한 예시를 남긴다.
+
+### Branch and Worktree
+
+- 작업을 시작하기 전에 기존 로컬·원격 브랜치와 최근 PR의 네이밍을 확인한다.
+- 브랜치는 `<type>/gh-<이슈번호>-<작업설명>`을 사용한다. Jira 작업은 기존처럼 `<type>/nvm-<번호>-<작업설명>`을 따른다. 예: `feat/gh-207-mdc-request-id`.
+- 브랜치 이름에 `codex/` 접두사를 붙이지 않는다.
+- 기존 저장소 폴더에서 브랜치를 전환해 작업하며, 별도 worktree를 기본으로 생성하지 않는다.
 
 ### Commit Convention
 

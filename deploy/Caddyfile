@@ -1,4 +1,9 @@
 {$API_DOMAIN} {
 	encode zstd gzip
+	@privateActuator {
+		path /actuator /actuator/*
+		not path /actuator/health
+	}
+	respond @privateActuator 404
 	reverse_proxy backend:8080
 }

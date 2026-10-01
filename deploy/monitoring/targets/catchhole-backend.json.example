@@ -1,0 +1,5 @@
+[
+  {
+    "targets": ["replace-with-api-private-ip:8081"]
+  }
+]

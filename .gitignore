@@ -67,6 +67,8 @@ docs/.obsidian/
 ### Environment ###
 .env
 deploy/api.env
+deploy/monitoring.env
+deploy/monitoring/targets/catchhole-backend.json
 
 ### macOS ###
 .DS_Store

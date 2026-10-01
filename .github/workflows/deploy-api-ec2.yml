@@ -112,6 +112,8 @@ jobs:
           runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file api.env -f compose.api.prod.yml config --quiet"
           runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file api.env -f compose.api.prod.yml pull"
           runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file api.env -f compose.api.prod.yml up -d"
+          # Caddyfile만 바뀐 경우에도 실행 중인 Caddy에 접근 제한을 반영한다.
+          runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file api.env -f compose.api.prod.yml exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile"
           runuser -u "\$DEPLOY_USER" -- bash -lc "cd \"\$DEPLOY_PATH\" && docker compose --env-file api.env -f compose.api.prod.yml ps"
 
           for i in \$(seq 1 30); do

@@ -135,13 +135,13 @@ public class EpisodeSourcePurgeProcessor {
                     target.retainedContentKey()
             );
         } catch (RuntimeException exception) {
-            log.error("회차 원문 저장소 파기 실패: requestId={}", requestId, exception);
+            log.error("회차 원문 저장소 파기 실패: purgeRequestId={}", requestId, exception);
             markForRetry(requestId, STORAGE_ERROR);
             return false;
         }
         if (!storageResult.isComplete()) {
             log.warn(
-                    "회차 원문 일부 파기 실패: requestId={}, target={}, deleted={}, failed={}",
+                    "회차 원문 일부 파기 실패: purgeRequestId={}, target={}, deleted={}, failed={}",
                     requestId,
                     storageResult.targetCount(),
                     storageResult.deletedCount(),
@@ -159,7 +159,7 @@ public class EpisodeSourcePurgeProcessor {
             ));
             return true;
         } catch (RuntimeException exception) {
-            log.error("회차 원문 DB 정리 실패: requestId={}", requestId, exception);
+            log.error("회차 원문 DB 정리 실패: purgeRequestId={}", requestId, exception);
             markForRetry(requestId, DATABASE_ERROR);
             return false;
         }
@@ -210,7 +210,7 @@ public class EpisodeSourcePurgeProcessor {
                     .findByIdForUpdate(requestId)
                     .ifPresent(request -> request.retry(errorCode)));
         } catch (RuntimeException exception) {
-            log.error("회차 원문 파기 재시도 상태 저장 실패: requestId={}", requestId, exception);
+            log.error("회차 원문 파기 재시도 상태 저장 실패: purgeRequestId={}", requestId, exception);
         }
     }
 
