@@ -37,6 +37,8 @@ class AnalysisMetricsIntegrationTest {
     @Autowired MeterRegistry registry;
     @Autowired AnalysisMetricsSnapshotRepository snapshots;
     @Autowired AnalysisResultReadyTracker tracker;
+    @Autowired AnalysisJobWorkerService worker;
+    @Autowired AnalysisRunStateService states;
     @Autowired org.monitoring.catchholebackend.domain.analysis.processor.AnalysisMetricsReconciler reconciler;
     private TransactionTemplate tx;
 
@@ -155,6 +157,59 @@ class AnalysisMetricsIntegrationTest {
         });
         waitForResult(autoId);
         assertThat(count("catchhole.analysis.results", "partial_success") - before).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("자동 분석의 보류할 수 없는 비교 실패는 자동 반영 없이 부분 성공 결과를 한 번 기록한다")
+    void automaticIncompleteComparisonRecordsResultWithoutAutomaticApplication() {
+        double before = count("catchhole.analysis.results", "partial_success");
+        long beforeDuration = registry.find("catchhole.analysis.result.ready").tag("outcome", "partial_success")
+                .timers().stream().mapToLong(timer -> timer.count()).sum();
+        UUID id = tx.execute(status -> {
+            AnalysisJob job = source(5, true);
+            assertThat(states.prepareInput(job)).isTrue();
+            UUID lease = job.claim(null, null, LocalDateTime.now().plusMinutes(5));
+            SettingCandidate failed = candidate(job);
+            failed.failComparison(AnalysisFailureCode.UNEXPECTED_ERROR, "non-deferable comparison failure");
+            assertThat(failed.canDeferFailedComparison()).isFalse();
+            job.updateCheckpointStage(AnalysisJobCheckpointStage.WORLD_COMPARISONS_FINISHED);
+            worker.completeAnalysisJob(job.getId(), lease,
+                    new org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobCompleteRequest("{}", null, null));
+            assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.SUCCEEDED);
+            assertThat(job.getJournalStatus()).isEqualTo(AnalysisJournalStatus.INCOMPLETE);
+            assertThat(job.getAutomaticAppliedAt()).isNull();
+            return job.getId();
+        });
+        tracker.reconcile(id, 1);
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = em.find(AnalysisJob.class, id);
+            assertThat(job.getResultOutcome()).isEqualTo("partial_success");
+            assertThat(job.getResultReadyAt()).isEqualTo(job.getCompletedAt());
+        });
+        assertThat(count("catchhole.analysis.results", "partial_success") - before).isEqualTo(1);
+        assertThat(registry.find("catchhole.analysis.result.ready").tag("outcome", "partial_success")
+                .timers().stream().mapToLong(timer -> timer.count()).sum() - beforeDuration).isEqualTo(1);
+        tracker.reconcile(id, 1);
+        assertThat(count("catchhole.analysis.results", "partial_success") - before).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("봉인된 자동 분석의 성공은 자동 반영 완료를 기다린다")
+    void automaticSealedResultStillWaitsForAutomaticApplication() {
+        UUID id = tx.execute(status -> {
+            AnalysisJob job = source(5, true);
+            job.claim(null, null, LocalDateTime.now().plusMinutes(5));
+            job.replacePendingJournal(JsonNodeFactory.instance.objectNode().put("outputStateHash", "b".repeat(64)));
+            job.sealJournal();
+            job.succeed(null, 0, 0);
+            return job.getId();
+        });
+        tracker.reconcile(id, 1);
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = em.find(AnalysisJob.class, id);
+            assertThat(job.getResultReadyAt()).isNull();
+            assertThat(job.getResultOutcome()).isNull();
+        });
     }
 
     @Test
