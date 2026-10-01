@@ -22,7 +22,9 @@ public class AnalysisResultReadyTracker {
         AnalysisJob job = em.find(AnalysisJob.class, id, LockModeType.PESSIMISTIC_WRITE);
         if (job == null || job.getMetricsAttemptNo() != attempt || job.getAttemptRequestedAt() == null
                 || job.getResultReadyAt() != null || job.getStatus() != AnalysisJobStatus.SUCCEEDED) return;
-        if (job.isAutomaticReview() && job.getAutomaticAppliedAt() == null) return;
+        // INCOMPLETE 자동 분석은 반영을 건너뛰므로 종료된 비교 결과만 관측한다.
+        if (job.isAutomaticReview() && job.getAutomaticAppliedAt() == null
+                && job.getJournalStatus() != AnalysisJournalStatus.INCOMPLETE) return;
         LocalDateTime ready = job.getCompletedAt();
         boolean failure = false;
         for (String entity : List.of("SettingCandidate", "WorldSettingCandidate")) {
