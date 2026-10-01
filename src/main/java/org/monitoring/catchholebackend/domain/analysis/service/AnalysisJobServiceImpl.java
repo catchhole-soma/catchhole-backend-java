@@ -469,12 +469,14 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                             List.of(episode)
                     );
                     aiTokenService.ensureAnalysisCanStart(work.getMember().getId());
-                    return analysisJobRepository.save(AnalysisJob.create(
+                    AnalysisJob retry = AnalysisJob.create(
                             work,
                             failedJob.getBatch(),
                             episode,
                             failedJob.getJobType()
-                    ));
+                    );
+                    retry.markMetricsUserRetry();
+                    return analysisJobRepository.save(retry);
                 });
     }
 

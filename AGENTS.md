@@ -71,13 +71,24 @@
 - Caddy는 `/actuator/health`를 제외한 `/actuator` 경로를 404로 차단한다. 자동 배포는 Caddyfile을 명시적으로 reload해 파일만 바뀌어도 접근 규칙을 반영한다. 기존 API·Worker 인증과 health 확인 경로는 유지한다.
 - 사용자·작품·Job ID, 원문, 비밀값과 실제 ID가 포함된 URL은 metric label에 넣지 않는다. HTTP 경로는 framework가 제공하는 route template을 사용한다.
 - 기본 API 대시보드의 HTTP 집계에서는 `/actuator.*`와 `/healthz`를 제외해 메트릭 수집·health 확인 요청을 사용자 트래픽에 섞지 않는다.
+- 기본 운영 대시보드의 수동 가져오기용 JSON은 `deploy/monitoring/grafana/dashboards/catchhole-overview.json`에 보관한다. Grafana에서 단계별로 편집한 내용을 재시작 때 덮어쓰지 않도록 dashboard 자동 provisioning에는 연결하지 않는다. HTTP 요약은 최근 5분, 상단 Stat은 Instant query와 Last 계산을 사용하며 요청 없음의 NaN을 과거 유한값으로 대체하지 않는다. 적용·백업·가져오기는 같은 디렉터리의 `README.md`를 따른다.
 - 로컬 Prometheus는 `compose.monitoring.yml`의 `catchhole-monitoring` 프로젝트로 관리한다. `-f compose.monitoring.yml`을 명시해 실행하며, Spring이 관리하는 기존 `compose.yaml`의 PostgreSQL·Redis와 실행 수명을 분리한다.
 - 수집 설정은 `monitoring/prometheus.yml`에서 관리한다. Docker Desktop의 `host.docker.internal:8080`을 통해 Mac에서 실행 중인 Spring의 `/actuator/prometheus`를 15초마다 수집하고, 수집 timeout은 5초로 둔다. `job` label은 `catchhole-backend`이며 초기 구성에는 지표 제외 규칙을 두지 않는다.
 - 로컬 Prometheus 이미지는 `prom/prometheus:v3.13.3`으로 고정하고, UI/API는 `127.0.0.1:9090`에만 공개한다. 데이터는 전용 `prometheus_data` named volume에 저장하고 보존 기간은 7일로 둔다.
 - 운영 모니터링은 `deploy/compose.monitoring.prod.yml`과 `deploy/monitoring/`에서 관리한다. Prometheus `v3.13.3`·Grafana `13.2.2`, 15초 수집·5초 timeout, 기본 7일·5GB TSDB 블록 보존 제한과 전용 영속 볼륨을 사용한다. WAL·head 등은 별도 여유 공간이 필요하므로 5GB를 전체 디스크 상한으로 해석하지 않는다.
 - 운영 수집 대상은 `deploy/monitoring/targets/catchhole-backend.json.example`을 실제 JSON으로 복사해 API 사설 IP:8081을 입력한다. Prometheus YAML의 환경변수 치환을 가정하지 않고 `file_sd_configs`로 읽는다. 실제 targets JSON과 `deploy/monitoring.env`는 커밋하지 않는다.
-- Grafana 데이터 소스 UID는 `catchhole-prometheus`, 주소는 같은 Compose 네트워크의 `http://prometheus:9090`으로 고정한다. 두 관리 UI는 호스트 localhost에만 바인딩하고 SSM 포트 포워딩으로 접속한다. Grafana 익명 접속·회원가입을 끄고 초기 관리자 비밀번호를 필수로 주입한다.
+- CPU 패널은 Spring Boot JVM의 `process_cpu_usage`와 실행 환경 전체의 `system_cpu_usage`를 구분하며 모두 기존 Actuator 지표에 100을 곱한 최근 관측값이다. 현재 운영 컨테이너는 CPU quota·cpuset 제한 없이 EC2의 2 vCPU를 인식하므로 전체 패널은 현재 EC2 기준이고 CPU 1개 최대 사용은 약 50%, 2개는 약 100%다. Docker CPU 제한·cpuset·JVM CPU 설정을 바꾸면 `system_cpu_usage`가 컨테이너 기준이 될 수 있으므로 패널 설명을 다시 확인한다. 5분 평균이나 CloudWatch CPUUtilization과 정확히 같은 측정값으로 설명하지 않는다. 별도 exporter·9100 포트·새 Prometheus job은 사용하지 않는다.
+- Grafana 데이터 소스 UID는 `catchhole-prometheus`, 주소는 같은 Compose 네트워크의 `http://prometheus:9090`으로 고정한다. 팀원은 `https://monitoring.catchhole.com`에서 기존 Grafana 계정으로 로그인한다. 모니터링 EC2의 Nginx가 HTTPS를 종료하고 Docker 내부 `grafana:3000`으로 전달하며 API Caddy는 경유하지 않는다. 익명 접속·회원가입은 계속 끄고 초기 관리자 비밀번호를 필수로 주입한다.
+- 모니터링 EC2의 외부 진입은 인터넷 전체의 TCP 80·443으로 두고, 80은 ACME challenge와 HTTPS 이동에만 사용한다. Grafana 3000·Prometheus 9090은 호스트 localhost 바인딩을 유지하고 Actuator 8081은 API SG에서 모니터링 SG만 허용한다. 팀원에게 수동 SSM 터널을 요구하지 않으며 SSM은 서버 관리·Prometheus 직접 조회·복구에 사용한다.
+- Nginx `1.30.5-alpine3.24`·Certbot `v5.8.0`을 고정하고 `MONITORING_NGINX_CONFIG`로 bootstrap/HTTPS conf를 선택한다. 최초 발급 전에는 `--no-deps`로 bootstrap Nginx만 실행한다. DNS·80/443·인증서 준비 뒤 HTTPS conf로 Nginx를 `--force-recreate`하고 Grafana만 `--no-deps`로 재생성한 다음 Nginx를 검사·reload한다. single-file bind mount 교체와 재생성된 Grafana의 upstream 주소를 확실하게 반영하기 위한 순서이며 접속 전환으로 Prometheus를 재시작하지 않는다.
+- 인증서는 Certbot `maintenance` profile의 webroot 방식으로 발급하며 `ACME_EMAIL`은 최초 등록 연락처다. `acme_webroot`와 `/etc/letsencrypt` 전체를 보관하는 `letsencrypt_data` 볼륨을 공유하고 Nginx에서는 읽기 전용으로 마운트한다. `monitoring/renew-certificate.sh`와 `catchhole-monitoring-certbot` systemd service/timer로 하루 두 번 갱신을 시도하고 Certbot 성공 → Nginx 검사 성공 → reload 순서를 지킨다. 설정은 수동 배포하며 모니터링 CI 배포·새 알림 시스템은 추가하지 않는다.
+- HTTPS용 Grafana 외부 URL·secure cookie를 적용한 뒤 HTTP SSM 로그인으로 복구하려면 이전 Compose와 환경변수를 복원하고 Grafana만 재생성한다. 볼륨이나 이미지를 되돌리는 대신 접속 설정부터 복구하며 `catchhole-monitoring-prod` 프로젝트와 기존 데이터 볼륨을 보존한다.
 - 운영 적용·접근 검증·영속 데이터 보존·업데이트·롤백은 `deploy/MONITORING_DEPLOYMENT.md`를 따른다. 설정 파일 작성과 실제 AWS SG 적용·배포 완료는 구분한다. #206의 분석 작업 계측은 이 수집 기반을 재사용한다.
+
+- #206 분석 지표는 `domain.analysis.event`의 JPA 변경 snapshot/immutable event와 commit 후 meter 기록, `service.AnalysisResultReadyTracker`의 별도 트랜잭션에서 결과 준비를 기록한다. callback에서 새 SQL을 실행하거나 커밋 thread가 REQUIRES_NEW 연결을 동기로 기다리지 않도록 bounded 비동기 queue와 주기적 fallback을 사용한다.
+- AnalysisJob은 사용자 접수 세대/대기 구간/결과 준비 latch를, 양쪽 후보는 최초 비교 종료 시각·결과·원본 접수 세대를 보존한다. 같은 Job의 사용자 재시도는 새 접수, lease 회수는 같은 접수의 새 대기 구간이다. 후속 비교 완료와 부분 실패를 raw SUCCEEDED로 대신하지 않는다. metric 오류가 분석 정책을 바꾸지 않으며 event delivery는 감사 원장 수준 exactly-once를 보장하지 않는다.
+- `analysis.metrics.scheduling-enabled=true`, `fixed-delay-ms=15000`은 base YAML, test에서는 비활성이다. snapshot은 집계 SQL로 갱신하고 scrape는 캐시를 읽는다. 실패는 success=0/마지막 성공 시각 유지, 빈 대기 age=0이며 대시보드는 45초 이상 오래된 값을 정상 0으로 채우지 않는다. DB Gauge는 전체 label 조합별 max로 API 중복 제거 뒤 다른 mode/type을 sum한다.
+- Grafana JSON은 운영 현황 catlfln / API·서버 상세 catchhole-api / 분석·AI 상세 catchhole-analysis 3개다. 설명/CPU 기준/peak thread를 API 상세에 보존하고 Python Worker는 개별 /metrics를 file_sd로 수집한다. 기본 localhost→운영 사설 bind 및 모니터링 SG 적용, actual port target 생성·원자 교체는 각 배포 안내를 따른다. 지표 정의는 `docs/analysis-metrics.md`가 담당한다.
 
 ### Database Migration
 

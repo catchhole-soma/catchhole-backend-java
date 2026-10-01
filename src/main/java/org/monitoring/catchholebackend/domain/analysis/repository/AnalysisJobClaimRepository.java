@@ -22,28 +22,8 @@ public class AnalysisJobClaimRepository {
             job.status = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING
             and job.jobType in :jobTypes and job.analysisMode in :modes
             and (:supportsCharacterComparisonGroups = true or job.characterComparisonInputHash is null)
-            and job.work.lifecycleStatus = org.monitoring.catchholebackend.domain.work.type.WorkLifecycleStatus.ACTIVE
-            and (job.analysisMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.CONFIRMED_ONLY
-                or (job.journalStatus = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.PENDING
-                    and (job.runSequence = 0 or exists (
-                        select predecessor.id from AnalysisJob predecessor
-                        where predecessor.id = job.predecessorJobId
-                          and predecessor.analysisRunId = job.analysisRunId
-                          and predecessor.runGeneration = job.runGeneration
-                          and predecessor.work.id = job.work.id
-                          and predecessor.runSequence = job.runSequence - 1
-                          and predecessor.status = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.SUCCEEDED
-                          and predecessor.journalStatus = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.SEALED
-                          and (predecessor.reviewMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.MANUAL
-                               or predecessor.automaticAppliedAt is not null)
-                    ))))
-            and (job.jobType <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION
-                or not exists (
-                    select running.id from AnalysisJob running where running.work.id = job.work.id
-                      and running.jobType = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION
-                      and running.status = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING
-                ))
-            """;
+            and
+            """ + AnalysisJobEligibility.DOMAIN;
 
     public Optional<AnalysisJob> findClaimableJob(WorkerAnalysisJobClaimRequest request) {
         // 회차가 많이 대기한 한 작품이 다른 작품을 scan 한도 밖으로 밀지 않도록 작품 단위로 고른다.

@@ -102,6 +102,9 @@ ai-token:
   minimum-comparison-reservation: ${AI_TOKEN_MINIMUM_COMPARISON_RESERVATION:16256}
 
 analysis:
+  metrics:
+    scheduling-enabled: ${ANALYSIS_METRICS_SCHEDULING_ENABLED:true}
+    fixed-delay-ms: ${ANALYSIS_METRICS_FIXED_DELAY_MS:15000}
   character-fact-comparison:
     max-batch-candidates: ${CHARACTER_FACT_COMPARISON_MAX_BATCH_CANDIDATES:10}
     max-batch-input-characters: ${CHARACTER_FACT_COMPARISON_MAX_BATCH_INPUT_CHARACTERS:30000}

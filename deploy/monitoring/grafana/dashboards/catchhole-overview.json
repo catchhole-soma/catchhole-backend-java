@@ -1,0 +1,1310 @@
+{
+  "id": null,
+  "uid": "catlfln",
+  "version": 0,
+  "title": "캐치홀 운영 현황",
+  "description": "서비스 상태를 요약합니다. HTTP 접수와 실제 분석 결과 준비를 구분하며 API·서버 상세와 분석·AI 상세에서 원인을 확인합니다.",
+  "tags": [
+    "catchhole",
+    "production"
+  ],
+  "schemaVersion": 42,
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "liveNow": false,
+  "preload": false,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "timepicker": {
+    "refresh_intervals": [
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "초당 API 요청 수 (RPS)",
+      "description": "최근 5분 동안 처리한 API 요청 수를 초당 평균으로 표시합니다. 상태 확인(/healthz)과 Actuator 요청은 제외하며, 내부 API 요청은 포함합니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:요청/초",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",uri!~\"/actuator.*|/healthz\"}[5m]))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "API 서버 오류율 (5xx)",
+      "description": "최근 5분 전체 API 요청 중 HTTP 500~599 응답의 비율입니다. 4xx는 제외합니다. 상태 확인·Actuator 요청은 제외하고 내부 API 요청은 포함합니다. 5xx가 없으면 0%, 요청이 없으면 비율을 계산할 수 없습니다. 수집 지표가 없으면 데이터 없음으로 표시합니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "요청 없음"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "요청 없음"
+                }
+              }
+            }
+          ],
+          "max": 100
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "100 * (sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",uri!~\"/actuator.*|/healthz\",status=~\"5..\"}[5m])) or (0 * sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",uri!~\"/actuator.*|/healthz\"}[5m])))) / sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",uri!~\"/actuator.*|/healthz\"}[5m]))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "API 응답 시간 p95",
+      "description": "최근 5분 API 요청의 약 95%가 이 시간 이내에 응답했습니다. 전체 API 요청의 응답 시간 분포로 계산한 추정값입니다. 상태 확인·Actuator 요청은 제외하고 내부 API 요청은 포함합니다. 요청이 없으면 계산할 수 없습니다. 비동기 분석 작업의 완료 시간은 포함하지 않습니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 1,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "purple"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "요청 없음"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "요청 없음"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "1000 * histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",uri!~\"/actuator.*|/healthz\"}[5m])))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Spring Boot JVM CPU 사용률",
+      "description": "Spring Boot를 실행하는 Java(JVM) 프로세스의 최근 CPU 사용률입니다. 요청 처리뿐 아니라 GC·JIT 등 JVM 내부 작업을 포함하며 다른 프로세스는 포함하지 않습니다. 2026-10-01 실제 운영 컨테이너 확인: CPU quota·cpuset 제한 없음(cpu.max=max 100000, 허용 CPU 0-1), EC2와 JVM 모두 2 vCPU를 인식합니다. 현재 100%의 분모는 EC2의 2 vCPU 전체 용량입니다. CPU 1개를 계속 꽉 쓰면 약 50%, 2개를 모두 꽉 쓰면 약 100%입니다. Docker CPU 제한이나 JVM CPU 설정을 변경하면 분모가 달라질 수 있으므로 설명을 다시 확인합니다. JVM의 최근 관측값이며 5분 평균은 아닙니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          },
+          "mappings": [],
+          "max": 100
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "100 * process_cpu_usage{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "분석 접수 회차 수",
+      "description": "선택한 조회 기간에 접수한 회차 Job 수입니다. 요청 한 번의 여러 회차를 각각 세고 사용자 재시도는 새 접수로 셉니다. 프로세스 Counter 기반이며 감사 원장이 아닙니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(catchhole_analysis_accepted_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}[$__range]))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "분석 완전 성공률",
+      "description": "최근 5분 종료 결과 중 success / (success+partial_success+failure)입니다. 부분 성공은 완전 성공 분자에서 제외하고 취소는 분모에서도 제외합니다. 종료 결과가 없으면 계산 불가입니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 6,
+        "y": 5,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "100 * (sum(rate(catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",outcome=\"success\"}[5m])) or (0 * sum(rate(catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",outcome=~\"success|partial_success|failure\"}[5m])))) / sum(rate(catchhole_analysis_results_total{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",outcome=~\"success|partial_success|failure\"}[5m]))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "분석 결과 준비 시간 p95",
+      "description": "최근 5분 결과가 준비된 성공·부분 성공 회차의 접수부터 후속 비교 종료까지 전체 시간 p95입니다. 사람의 검토 시간은 제외합니다. 실패·취소는 포함하지 않습니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(catchhole_analysis_result_ready_seconds_bucket{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",outcome=~\"success|partial_success\"}[5m])))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 23,
+      "type": "stat",
+      "title": "실행 가능한 대기 작업",
+      "description": "완전한 기능을 지원하는 Worker가 실행 가능한 대기 Job 수입니다. 의존 회차·같은 작품 실행 대기는 제외합니다. DB 전체 snapshot을 API 인스턴스별 합산하지 않으며 snapshot 실패·45초 이상 갱신 없음은 데이터 없음입니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 18,
+        "y": 5,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(sum by (job_type) (max by (job_type,analysis_mode,review_mode,queue_state) (catchhole_analysis_pending_jobs{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",queue_state=\"eligible\"} and on(instance) ((catchhole_analysis_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and on(instance) (time() - catchhole_analysis_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} < 45)))))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "API 요청량 추이",
+      "description": "최근 5분 API 요청 RPS입니다. 상세 엔드포인트 지연·인프라는 API 상세 링크에서 확인합니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:요청/초",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",uri!~\"/actuator.*|/healthz\"}[5m]))",
+          "legendFormat": "초당 요청",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "분석 결과 준비 시간 추이",
+      "description": "사용자 결과가 준비된 성공·부분 성공 회차의 전체 시간 p95 추이입니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(catchhole_analysis_result_ready_seconds_bucket{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",outcome=~\"success|partial_success\"}[5m])))",
+          "legendFormat": "결과 준비 p95",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 26,
+      "type": "timeseries",
+      "title": "분석 대기와 실행",
+      "description": "DB의 실행 가능한 대기·의존 대기·실행 중 Job입니다. 오래된 DB snapshot은 표시하지 않습니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 12,
+        "y": 18,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(sum by (job_type) (max by (job_type,analysis_mode,review_mode,queue_state) (catchhole_analysis_pending_jobs{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",queue_state=\"eligible\"} and on(instance) ((catchhole_analysis_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and on(instance) (time() - catchhole_analysis_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} < 45)))))",
+          "legendFormat": "실행 가능 대기",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(sum by (job_type) (max by (job_type,analysis_mode,review_mode,queue_state) (catchhole_analysis_pending_jobs{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",queue_state=\"dependency_blocked\"} and on(instance) ((catchhole_analysis_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and on(instance) (time() - catchhole_analysis_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} < 45)))))",
+          "legendFormat": "의존 대기",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(sum by (job_type) (max by (job_type,analysis_mode,review_mode,queue_state) (catchhole_analysis_running_jobs{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} and on(instance) ((catchhole_analysis_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and on(instance) (time() - catchhole_analysis_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} < 45)))))",
+          "legendFormat": "실행 중",
+          "range": true,
+          "instant": false,
+          "refId": "C"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 27,
+      "type": "stat",
+      "title": "Worker 수집 정상 수",
+      "description": "up=1인 개별 Worker 수입니다. 현재 운영 기본 예상은 분석 5개+비교 2개=7개이며 이보다 적으면 누락 또는 수집 실패입니다. 유휴 Worker도 수집됩니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 8,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(up{job=\"catchhole-worker\",environment=\"$environment\"}) or vector(0)",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 28,
+      "type": "stat",
+      "title": "API 수집 정상 수",
+      "description": "up=1인 API 관리 endpoint 수입니다. 현재 운영 기본 예상은 1개입니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 8,
+        "y": 26,
+        "w": 8,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(up{job=\"catchhole-backend\",environment=\"$environment\"}) or vector(0)",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 29,
+      "type": "stat",
+      "title": "분석 상태 갱신 경과",
+      "description": "마지막 성공한 DB snapshot 이후 경과 시간입니다. 15초 주기이며 실패/정체 시 증가합니다. 초기 0 timestamp는 갱신 전 상태입니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 16,
+        "y": 26,
+        "w": 8,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "time() - max(catchhole_analysis_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0)",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    }
+  ],
+  "links": [
+    {
+      "title": "API · 서버 상세",
+      "type": "link",
+      "url": "/d/catchhole-api?var-environment=$environment",
+      "icon": "dashboard",
+      "includeVars": true,
+      "keepTime": true,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    },
+    {
+      "title": "분석 · AI 상세",
+      "type": "link",
+      "url": "/d/catchhole-analysis?var-environment=$environment",
+      "icon": "dashboard",
+      "includeVars": true,
+      "keepTime": true,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "환경",
+        "type": "custom",
+        "query": "prod,local",
+        "current": {
+          "text": "prod",
+          "value": "prod"
+        },
+        "options": [
+          {
+            "text": "prod",
+            "value": "prod",
+            "selected": true
+          },
+          {
+            "text": "local",
+            "value": "local",
+            "selected": false
+          }
+        ],
+        "includeAll": false,
+        "multi": false,
+        "hide": 0
+      }
+    ]
+  }
+}

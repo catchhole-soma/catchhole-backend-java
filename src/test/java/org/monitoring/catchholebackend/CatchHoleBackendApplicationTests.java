@@ -110,6 +110,12 @@ class CatchHoleBackendApplicationTests {
     private AnalysisJobClaimRepository analysisJobClaimRepository;
 
     @MockitoBean
+    private org.monitoring.catchholebackend.domain.analysis.repository.AnalysisMetricsSnapshotRepository analysisMetricsSnapshotRepository;
+
+    @MockitoBean
+    private org.monitoring.catchholebackend.domain.analysis.service.AnalysisResultReadyTracker analysisResultReadyTracker;
+
+    @MockitoBean
     private AiTokenAccountRepository aiTokenAccountRepository;
 
     @MockitoBean

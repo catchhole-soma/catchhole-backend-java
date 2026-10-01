@@ -1,0 +1,11 @@
+[Unit]
+Description=Check CatchHole monitoring TLS certificate twice daily
+
+[Timer]
+OnCalendar=*-*-* 03,15:00:00 Asia/Seoul
+RandomizedDelaySec=30m
+Persistent=true
+Unit=catchhole-monitoring-certbot.service
+
+[Install]
+WantedBy=timers.target

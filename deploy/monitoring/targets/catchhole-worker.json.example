@@ -1,0 +1,36 @@
+[
+  {
+    "targets": [
+      "replace-with-worker-private-ip:9102",
+      "replace-with-worker-private-ip:9103",
+      "replace-with-worker-private-ip:9104",
+      "replace-with-worker-private-ip:9105",
+      "replace-with-worker-private-ip:9106"
+    ],
+    "labels": {
+      "worker_kind": "analysis",
+      "environment": "prod",
+      "application": "catchhole-ai"
+    }
+  },
+  {
+    "targets": [
+      "replace-with-worker-private-ip:9107"
+    ],
+    "labels": {
+      "worker_kind": "character-comparison",
+      "environment": "prod",
+      "application": "catchhole-ai"
+    }
+  },
+  {
+    "targets": [
+      "replace-with-worker-private-ip:9108"
+    ],
+    "labels": {
+      "worker_kind": "world-comparison",
+      "environment": "prod",
+      "application": "catchhole-ai"
+    }
+  }
+]

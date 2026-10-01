@@ -4,6 +4,7 @@ import org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldR
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
@@ -45,6 +46,7 @@ import org.monitoring.catchholebackend.global.exception.AppException;
 
 @Getter
 @Entity
+@EntityListeners(org.monitoring.catchholebackend.domain.analysis.event.AnalysisMetricsEntityListener.class)
 @Table(
         name = "setting_candidates",
         indexes = {
@@ -231,6 +233,37 @@ public class SettingCandidate extends BaseEntity {
     @Column(name = "compared_at")
     private LocalDateTime comparedAt;
 
+    // 첫 자동 비교 종료를 보존해 이후 사람의 수정·재비교가 원래 분석 시간을 바꾸지 않게 한다.
+    @Column(name = "comparison_terminal_at")
+    private LocalDateTime comparisonTerminalAt;
+    @Column(name = "comparison_terminal_outcome", length = 20)
+    private String comparisonTerminalOutcome;
+    @Column(name = "metrics_source_attempt_no", nullable = false)
+    private int metricsSourceAttemptNo;
+
+    private void captureComparisonAttempt() {
+        if (metricsSourceAttemptNo == 0 && analysisJob != null) metricsSourceAttemptNo = analysisJob.getMetricsAttemptNo();
+    }
+
+    private void preserveInitialHumanWaitMetrics() {
+        if (comparisonTerminalAt != null || (comparisonStatus != CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH
+                && comparisonStatus != CharacterFactComparisonStatus.NOT_REQUIRED
+                && comparisonStatus != CharacterFactComparisonStatus.RECOMPARISON_REQUIRED)) return;
+        captureComparisonAttempt();
+        // Python이 넣은 초기 사람 대기는 측정 컬럼이 비어 있다. 이후 사용자 비교 시간을 원래 분석에 섞지 않는다.
+        LocalDateTime sourceCompleted = analysisJob == null ? null : analysisJob.getCompletedAt();
+        comparisonTerminalAt = comparedAt != null ? comparedAt : sourceCompleted != null ? sourceCompleted
+                : getCreatedAt() != null ? getCreatedAt() : LocalDateTime.now();
+        comparisonTerminalOutcome = "success";
+    }
+
+    public void captureComparisonMetrics() {
+        if (comparisonTerminalAt != null || comparisonStatus == null
+                || comparisonStatus.name().equals("PENDING") || comparisonStatus.name().equals("PROCESSING")) return;
+        comparisonTerminalAt = comparedAt == null ? LocalDateTime.now() : comparedAt;
+        comparisonTerminalOutcome = comparisonStatus.name().equals("FAILED") ? "failure" : "success";
+    }
+
     @Column(name = "comparison_error_message", columnDefinition = "text")
     private String comparisonErrorMessage;
 
@@ -306,6 +339,7 @@ public class SettingCandidate extends BaseEntity {
         this.episode = episode;
         this.sourceChunkId = sourceChunkId;
         this.analysisJob = analysisJob;
+        this.metricsSourceAttemptNo = analysisJob == null ? 0 : analysisJob.getMetricsAttemptNo();
         this.candidateKind = candidateKind;
         this.entityType = entityType;
         this.entityName = entityName;
@@ -467,6 +501,7 @@ public class SettingCandidate extends BaseEntity {
                 || operation != CharacterFactOperation.ADD && operation != CharacterFactOperation.UPDATE) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
+        preserveInitialHumanWaitMetrics();
         clearComparisonProposal();
         suggestedOperation = operation;
         comparisonTargetFactType = Objects.requireNonNull(factType);
@@ -481,6 +516,8 @@ public class SettingCandidate extends BaseEntity {
                 .put("origin", userModified ? "USER_EDIT" : "USER_CONFIRM");
         comparedAt = LocalDateTime.now();
         comparisonStatus = CharacterFactComparisonStatus.COMPLETED;
+        captureComparisonAttempt();
+        captureComparisonMetrics();
     }
 
     /** 새 누적 실행에서 정확히 같은 원문 주장의 이전 사용자 반려를 비교 전에 이어받는다. */
@@ -500,6 +537,8 @@ public class SettingCandidate extends BaseEntity {
         ((com.fasterxml.jackson.databind.node.ObjectNode) rawComparisonJson).put("origin", "USER_REJECTION");
         comparedAt = LocalDateTime.now();
         comparisonStatus = CharacterFactComparisonStatus.COMPLETED;
+        captureComparisonAttempt();
+        captureComparisonMetrics();
     }
 
     public void recordConfirmedApplicationMode(CharacterFactConfirmApplicationMode mode) {
@@ -511,6 +550,7 @@ public class SettingCandidate extends BaseEntity {
     }
 
     public boolean confirm() {
+        preserveInitialHumanWaitMetrics();
         boolean changed = transitionReviewStatus(SettingCandidateReviewStatus.CONFIRMED);
         if (changed) automaticReviewHoldReason = null;
         return changed;
@@ -521,6 +561,7 @@ public class SettingCandidate extends BaseEntity {
         if (comparisonStatus == CharacterFactComparisonStatus.PROCESSING) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
+        preserveInitialHumanWaitMetrics();
         boolean dismissed = transitionReviewStatus(SettingCandidateReviewStatus.DISMISSED);
         if (dismissed) {
             boolean preserveCompletedBatchMembership =
@@ -528,6 +569,8 @@ public class SettingCandidate extends BaseEntity {
                             && characterComparisonBatch != null;
             clearComparisonProposal(preserveCompletedBatchMembership);
             comparisonStatus = CharacterFactComparisonStatus.NOT_REQUIRED;
+            captureComparisonAttempt();
+            captureComparisonMetrics();
         }
         return dismissed;
     }
@@ -639,6 +682,7 @@ public class SettingCandidate extends BaseEntity {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
         comparisonStatus = CharacterFactComparisonStatus.PROCESSING;
+        captureComparisonAttempt();
         clearComparisonBatchAssignment();
         comparisonErrorMessage = null;
         comparisonFailureCode = null;
@@ -652,6 +696,8 @@ public class SettingCandidate extends BaseEntity {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
         }
         if (comparisonStatus == CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH) {
+            comparisonTerminalAt = null;
+            comparisonTerminalOutcome = null;
             comparisonStatus = CharacterFactComparisonStatus.PENDING;
         }
     }
@@ -692,6 +738,8 @@ public class SettingCandidate extends BaseEntity {
         }
         clearComparisonProposal();
         comparisonStatus = CharacterFactComparisonStatus.NOT_REQUIRED;
+        captureComparisonAttempt();
+        captureComparisonMetrics();
     }
 
     public void recordComparisonContext(long snapshotVersion, String contextHash) {
@@ -761,6 +809,8 @@ public class SettingCandidate extends BaseEntity {
         this.rawComparisonJson = rawComparisonJson;
         this.comparedAt = Objects.requireNonNull(comparedAt);
         this.comparisonStatus = CharacterFactComparisonStatus.COMPLETED;
+        captureComparisonAttempt();
+        captureComparisonMetrics();
         this.comparisonErrorMessage = null;
         this.comparisonFailureCode = null;
         this.preparationFailureStage = null;
@@ -807,6 +857,8 @@ public class SettingCandidate extends BaseEntity {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
         comparisonStatus = CharacterFactComparisonStatus.FAILED;
+        captureComparisonAttempt();
+        captureComparisonMetrics();
         comparisonFailureCode = AnalysisFailureCode.orUnexpected(failureCode);
         comparisonErrorMessage = Objects.requireNonNull(errorMessage).trim();
     }
@@ -817,6 +869,9 @@ public class SettingCandidate extends BaseEntity {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
         clearComparisonBatchAssignment();
+        comparisonTerminalAt = null;
+        comparisonTerminalOutcome = null;
+        metricsSourceAttemptNo = analysisJob.getMetricsAttemptNo() + 1;
         comparisonStatus = CharacterFactComparisonStatus.PENDING;
         comparisonErrorMessage = null;
         comparisonFailureCode = null;
@@ -837,11 +892,14 @@ public class SettingCandidate extends BaseEntity {
         validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
         clearComparisonAfterReviewChange();
         comparisonStatus = CharacterFactComparisonStatus.RECOMPARISON_REQUIRED;
+        captureComparisonAttempt();
+        captureComparisonMetrics();
         comparisonErrorMessage = normalizeNullable(reason);
     }
 
     public void requestComparison() {
         validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
+        preserveInitialHumanWaitMetrics();
         clearComparisonProposal();
         comparisonStatus = needsCharacterMatch()
                 ? CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH
@@ -931,8 +989,11 @@ public class SettingCandidate extends BaseEntity {
     }
 
     private void requestComparisonAfterCandidateChange() {
+        preserveInitialHumanWaitMetrics();
         if (isCharacterDiscovery() || !isPendingReview()) {
             comparisonStatus = CharacterFactComparisonStatus.NOT_REQUIRED;
+            captureComparisonAttempt();
+            captureComparisonMetrics();
             return;
         }
         clearComparisonAfterReviewChange();
@@ -945,10 +1006,13 @@ public class SettingCandidate extends BaseEntity {
         if (!isCharacterDiscovery() && isPendingReview()) {
             clearComparisonAfterReviewChange();
             comparisonStatus = CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH;
+            captureComparisonAttempt();
+            captureComparisonMetrics();
         }
     }
 
     private void clearComparisonAfterReviewChange() {
+        preserveInitialHumanWaitMetrics();
         CharacterFactTemporalScope reviewedScope = temporalScope;
         CharacterFactOperation reviewedOperation = suggestedOperation;
         boolean completedOrdered = analysisJob != null && analysisJob.isOrderedProvisional()

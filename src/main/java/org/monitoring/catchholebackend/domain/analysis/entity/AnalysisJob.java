@@ -3,6 +3,7 @@ package org.monitoring.catchholebackend.domain.analysis.entity;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
@@ -69,6 +70,7 @@ import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 @Getter
 @Entity
 @Table(name = "analysis_jobs")
+@EntityListeners(org.monitoring.catchholebackend.domain.analysis.event.AnalysisMetricsEntityListener.class)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class AnalysisJob extends BaseEntity {
 
@@ -276,12 +278,45 @@ public class AnalysisJob extends BaseEntity {
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
 
+    // 명시적 회차 접수와 lease 실행 시도를 구별한다. legacy row는 nullable/0으로 유지한다.
+    @Column(name = "attempt_requested_at")
+    private LocalDateTime attemptRequestedAt;
+    @Column(name = "pending_since")
+    private LocalDateTime pendingSince;
+    @Column(name = "metrics_attempt_no", nullable = false)
+    private int metricsAttemptNo;
+    @Column(name = "result_ready_at")
+    private LocalDateTime resultReadyAt;
+    @Column(name = "result_outcome", length = 20)
+    private String resultOutcome;
+    @Column(name = "metrics_user_retry", nullable = false)
+    private boolean metricsUserRetry;
+
+    public boolean isPublicEpisodeAnalysis() {
+        return jobType == AnalysisJobType.SETTING_EXTRACTION || jobType == AnalysisJobType.EPISODE_VALIDATION;
+    }
+
+    public void markMetricsUserRetry() { metricsUserRetry = true; }
+
+    public boolean recordResultReady(int attemptNo, LocalDateTime readyAt, String outcome) {
+        if (!isPublicEpisodeAnalysis() || attemptRequestedAt == null || attemptNo != metricsAttemptNo
+                || resultReadyAt != null) return false;
+        resultReadyAt = Objects.requireNonNull(readyAt);
+        resultOutcome = Objects.requireNonNull(outcome);
+        return true;
+    }
+
     private AnalysisJob(Work work, UploadBatch batch, Episode episode, AnalysisJobType jobType) {
         this.work = work;
         this.batch = batch;
         this.episode = episode;
         this.jobType = jobType;
         this.status = AnalysisJobStatus.PENDING;
+        this.pendingSince = LocalDateTime.now();
+        if (isPublicEpisodeAnalysis() && episode != null) {
+            this.attemptRequestedAt = pendingSince;
+            this.metricsAttemptNo = 1;
+        }
         if (episode != null) {
             this.targetEpisodes.add(episode);
             sourceEpisodeNo = episode.getEpisodeNo();
@@ -459,6 +494,7 @@ public class AnalysisJob extends BaseEntity {
         if (status == AnalysisJobStatus.PENDING || status == AnalysisJobStatus.RUNNING) {
             status = AnalysisJobStatus.CANCELED;
             completedAt = LocalDateTime.now();
+            recordResultReady(metricsAttemptNo, completedAt, "canceled");
             clearLease();
         }
     }
@@ -542,6 +578,7 @@ public class AnalysisJob extends BaseEntity {
 
     public void requeueExpiredLease() {
         this.status = AnalysisJobStatus.PENDING;
+        this.pendingSince = LocalDateTime.now();
         this.leaseToken = null;
         this.leaseExpiresAt = null;
         this.errorMessage = null;
@@ -560,6 +597,12 @@ public class AnalysisJob extends BaseEntity {
             throw new IllegalStateException("같은 입력에서 재개할 수 있는 누적 분석 실패가 아닙니다.");
         }
         this.status = AnalysisJobStatus.PENDING;
+        this.pendingSince = LocalDateTime.now();
+        this.attemptRequestedAt = pendingSince;
+        this.metricsAttemptNo++;
+        this.metricsUserRetry = true;
+        this.resultReadyAt = null;
+        this.resultOutcome = null;
         this.journalStatus = AnalysisJournalStatus.PENDING;
         this.currentStep = "실패한 누적 분석 재시도 대기";
         this.errorMessage = null;
@@ -619,6 +662,7 @@ public class AnalysisJob extends BaseEntity {
         this.inputTokenCount = inputTokenCount;
         this.outputTokenCount = outputTokenCount;
         this.completedAt = LocalDateTime.now();
+        recordResultReady(metricsAttemptNo, completedAt, "failure");
         clearLease();
     }
 
@@ -631,6 +675,7 @@ public class AnalysisJob extends BaseEntity {
         this.errorMessage = null;
         this.failureCode = null;
         this.completedAt = LocalDateTime.now();
+        recordResultReady(metricsAttemptNo, completedAt, "canceled");
         clearLease();
     }
 
