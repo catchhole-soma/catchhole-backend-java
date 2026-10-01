@@ -76,3 +76,6 @@ deploy/monitoring/targets/catchhole-backend.json
 
 ### Docs local workspace ###
 docs/.obsidian/
+
+# Worker private scrape targets
+deploy/monitoring/targets/workers/*.json
