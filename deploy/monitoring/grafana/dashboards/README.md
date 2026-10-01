@@ -1,35 +1,30 @@
-# 캐치홀 운영 현황 대시보드
+# 캐치홀 운영 대시보드
 
-[catchhole-overview.json](catchhole-overview.json)은 지표 패널 12개(상단 Stat 4개·주요 API p95 비교 그래프 1개·인프라 그래프 7개)의 수동 가져오기·복원용 스냅샷이다. `인프라 · EC2 및 Java 애플리케이션` 행 제목은 지표 패널 수에 포함하지 않는다. Grafana에서 단계적으로 패널을 수정하고 저장하며, 이 디렉터리에는 자동 dashboard provisioning을 적용하지 않는다. 파일이 GUI에서 저장한 후속 변경을 덮어쓰지 않도록 하기 위한 결정이다. 서버에 JSON을 복사하거나 Grafana를 재시작하는 것만으로 대시보드가 갱신되지는 않는다.
+운영 화면은 다음 세 JSON으로 관리한다. 수동 가져오기용이며 자동 dashboard provisioning은 사용하지 않는다. datasource UID는 `catchhole-prometheus`, 기본 최근 6시간/30초 새로고침, 브라우저 시간대다.
 
-- 대시보드 제목: `캐치홀 운영 현황`
-- 대시보드 UID: `catlfln`
-- 데이터 소스: `CatchHole Prometheus`, UID `catchhole-prometheus`
-- JVM·API·EC2 CPU 조회 라벨: `job="catchhole-backend"`, `application="catchhole-backend"`, `environment="prod"`
-- 기본 조회 범위: 최근 6시간, 자동 새로고침: 30초
-
-복원할 때는 현재 Grafana 대시보드 JSON을 먼저 내보내 보관한다. Grafana의 대시보드 가져오기에서 이 JSON을 선택하고 데이터 소스 UID가 일치하는지 확인한다. 같은 UID `catlfln`을 덮어쓰면 GUI에서 추가한 패널도 스냅샷 시점으로 돌아가므로 대상과 내용을 확인한 뒤 저장한다. 이후 구성을 보관하려면 최신 대시보드를 다시 내보내 스냅샷을 갱신한다.
-
-## 기본 패널과 조회 방식
-
-| 패널 | 조회·표시 방식 | 해석 |
+| JSON | UID | 목적 |
 | --- | --- | --- |
-| 초당 API 요청 수 (RPS) | Stat, instant, `rate(...[5m])` | 최근 5분의 초당 평균 처리 요청 수 |
-| API 서버 오류율 (5xx) | Stat, instant, 최근 5분 5xx 요청 수 / 전체 요청 수 × 100 | HTTP 500~599의 비율. 4xx는 오류 분자에 포함하지 않음 |
-| API 응답 시간 p95 | Stat, instant, 최근 5분 histogram bucket 합산 | API 요청 약 95%의 응답 시간이 이 값 이하인 것으로 추정 |
-| Spring Boot JVM CPU 사용률 | Stat, instant, `process_cpu_usage × 100` | Spring Boot JVM 프로세스의 최근 CPU 사용률. 5분 평균이나 EC2 전체 CPU 지표가 아님 |
-| 주요 API별 응답 시간 p95 | Time series, range, 단위 ms | 주요 API 5개의 최근 5분 p95를 한 그래프에서 비교 |
-| API 서버 EC2 전체 CPU 사용률 | Time series, range, `system_cpu_usage × 100` | JVM이 보고하는 실행 환경 전체 CPU 사용률. 현재 제한 없는 EC2 기준 |
-| Spring Boot JVM CPU 사용률 추이 | Time series, range | 인스턴스별 Spring Boot JVM 프로세스 CPU 사용률의 추이 |
-| JVM 힙 메모리 | Time series, range | 인스턴스별 힙 사용량과 최대한도의 추이 |
-| GC 정지 시간 | Time series, range, 단위 ms | 인스턴스별 최근 5분 GC 1회당 평균 정지 시간·계측 구간의 최대 정지 시간 |
-| DB 연결 풀 사용 현황 | Time series, range | 인스턴스·풀별 활성 연결, 유휴 연결, 최대 연결 수의 추이 |
-| JVM 스레드 수 | Time series, range | 인스턴스별 현재 전체·데몬·최대 동시 플랫폼 스레드 세 선. 데몬은 전체의 일부 |
-| DB 연결 대기 수 (Pending) | Time series, range | 인스턴스·풀별 DB 연결을 얻기 위해 기다리는 스레드 수 |
+| [catchhole-overview.json](catchhole-overview.json) | catlfln | HTTP·분석 핵심 요약과 수집 상태 |
+| [catchhole-api.json](catchhole-api.json) | catchhole-api | 주요 API 지연·EC2/JVM/Heap/GC/DB/Threads |
+| [catchhole-analysis.json](catchhole-analysis.json) | catchhole-analysis | 대기→실행→결과→LLM 원인 |
 
-상단 HTTP 세 패널은 `/actuator.*`와 `/healthz`를 제외하며 **내부 API 요청은 포함**한다. 주요 API 비교는 아래 다섯 경로만 조회한다. 모든 p95는 HTTP 응답 시간의 추정값이며, 요청을 접수한 뒤 진행되는 비동기 분석 작업의 완료 시간을 나타내지 않는다.
+모든 화면에 환경 필터와 시간 범위를 이어가는 화면 링크가 있다. API 상세는 API 인스턴스, 분석 상세는 Worker 종류/인스턴스를 선택한다. Worker 필터는 Python 패널에만 적용되며 DB·회차 결과는 전체 서비스 관측이다. DB Gauge는 API 인스턴스를 max로 중복 제거한 후 서로 다른 유형/모드를 합산한다. 세부 정의는 [분석 지표 문서](../../../../docs/analysis-metrics.md)를 따른다.
 
-Stat 네 패널은 `instant=true`, `range=false`로 현재 시점의 결과를 조회하고 reducer는 `last`를 사용한다. `lastNotNull`로 NaN·null을 건너뛰어 과거의 정상 값을 현재 값처럼 표시하지 않는다. API 비교와 인프라 그래프 총 여덟 개는 `range=true`, `instant=false`로 선택한 조회 범위의 이력을 표시한다. API p95 비교·GC·EC2 CPU의 범례도 `last`를 사용해 현재 계산 불가 상태를 과거의 유효 값으로 대체하지 않는다. 그 밖의 인프라 그래프 범례는 마지막 유효 값(`lastNotNull`)이므로 현재 상태를 보장하지 않는다.
+## 가져오기와 보존
+
+현재 GUI 대시보드 JSON을 먼저 export해 저장한다. API 상세와 분석 상세를 먼저 가져온 뒤 기존 UID catlfln의 overview를 덮어써 링크를 완성한다. 서버에 JSON을 복사하거나 Grafana를 재시작하는 것만으로 화면이 갱신되지는 않는다. 운영 Grafana 버전은 13.2.2이며 JSON schemaVersion은 기존 42를 유지한다.
+
+새 계측이 배포·수집되기 전에는 분석 패널이 데이터 없음일 수 있다. 배포된 모든 Worker의 `up`, Java snapshot success와 마지막 갱신 시각을 함께 확인한다. Worker 수집 정상 수는 현재 5개 분석+2개 비교=7개가 기준이다. scale을 바꾸면 이 설명과 수집 대상을 함께 갱신한다.
+
+## 결과 없음과 수집 장애
+
+Stat은 Instant/Last를 사용하고 과거 유효값으로 현재 NaN을 채우지 않는다. 분석 결과 준비 p95는 성공·부분 성공만, 완전 성공률은 success/(success+partial_success+failure)이며 취소 제외다. 최근 종료 결과가 없으면 계산 불가다. LLM 호출이 없는 유휴 구간의 p95도 계산 불가다.
+
+실행 가능한 대기와 의존 대기는 구분하고 빈 queue의 oldest age는 0이다. DB snapshot 실패 또는 45초 이상 갱신 없음은 queue를 정상 0으로 표시하지 않는다. Worker 마지막 종료 시각 0은 아직 처리 종료가 없다는 뜻이며, 유휴 때문에 종료 경과가 길어질 수 있어 queue/active/up과 함께 확인한다.
+
+HTTP 패널은 `/actuator.*`와 `/healthz`를 제외하고 내부 API 요청은 포함한다. 요청 없음의 0/0 오류율·p95는 계산 불가이며 RPS 0과 구분한다. API 상세의 GC 평균도 이벤트가 없으면 계산 불가다. 수집 자체가 없는 경우에는 up와 target 수부터 확인한다.
+
+92개 dashboard PromQL은 promtool3.13.3으로 문법을 확인했고, [쿼리 검증 fixture](../../tests/dashboard-promql.test.json)는 snapshot 실패·정체·중복 API 관측·다른 mode 합산·부분 성공/취소의 성공률 기준을 검증한다. JSON 변경 시 모든 target expr을 추출해 template 변수를 실제 값으로 치환한 후 promtool check rules를 다시 실행한다.
 
 ## JVM CPU와 EC2 CPU
 

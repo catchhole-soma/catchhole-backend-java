@@ -85,6 +85,11 @@
 - HTTPS용 Grafana 외부 URL·secure cookie를 적용한 뒤 HTTP SSM 로그인으로 복구하려면 이전 Compose와 환경변수를 복원하고 Grafana만 재생성한다. 볼륨이나 이미지를 되돌리는 대신 접속 설정부터 복구하며 `catchhole-monitoring-prod` 프로젝트와 기존 데이터 볼륨을 보존한다.
 - 운영 적용·접근 검증·영속 데이터 보존·업데이트·롤백은 `deploy/MONITORING_DEPLOYMENT.md`를 따른다. 설정 파일 작성과 실제 AWS SG 적용·배포 완료는 구분한다. #206의 분석 작업 계측은 이 수집 기반을 재사용한다.
 
+- #206 분석 지표는 `domain.analysis.event`의 JPA 변경 snapshot/immutable event와 commit 후 meter 기록, `service.AnalysisResultReadyTracker`의 별도 트랜잭션에서 결과 준비를 기록한다. callback에서 새 SQL을 실행하거나 커밋 thread가 REQUIRES_NEW 연결을 동기로 기다리지 않도록 bounded 비동기 queue와 주기적 fallback을 사용한다.
+- AnalysisJob은 사용자 접수 세대/대기 구간/결과 준비 latch를, 양쪽 후보는 최초 비교 종료 시각·결과·원본 접수 세대를 보존한다. 같은 Job의 사용자 재시도는 새 접수, lease 회수는 같은 접수의 새 대기 구간이다. 후속 비교 완료와 부분 실패를 raw SUCCEEDED로 대신하지 않는다. metric 오류가 분석 정책을 바꾸지 않으며 event delivery는 감사 원장 수준 exactly-once를 보장하지 않는다.
+- `analysis.metrics.scheduling-enabled=true`, `fixed-delay-ms=15000`은 base YAML, test에서는 비활성이다. snapshot은 집계 SQL로 갱신하고 scrape는 캐시를 읽는다. 실패는 success=0/마지막 성공 시각 유지, 빈 대기 age=0이며 대시보드는 45초 이상 오래된 값을 정상 0으로 채우지 않는다. DB Gauge는 전체 label 조합별 max로 API 중복 제거 뒤 다른 mode/type을 sum한다.
+- Grafana JSON은 운영 현황 catlfln / API·서버 상세 catchhole-api / 분석·AI 상세 catchhole-analysis 3개다. 설명/CPU 기준/peak thread를 API 상세에 보존하고 Python Worker는 개별 /metrics를 file_sd로 수집한다. 기본 localhost→운영 사설 bind 및 모니터링 SG 적용, actual port target 생성·원자 교체는 각 배포 안내를 따른다. 지표 정의는 `docs/analysis-metrics.md`가 담당한다.
+
 ### Database Migration
 
 - PostgreSQL schema 변경은 `src/main/resources/db/migration`의 Flyway SQL로 관리한다.

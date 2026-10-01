@@ -206,11 +206,11 @@ dry-run·oneshot 종료 결과·다음 실행 시각·인증서 만료일을 적
 - 15초 간격·5초 timeout과 기본 7일·5GB 보존 설정을 유지한다. **5GB는 전체 디스크 상한이 아니다.** WAL·head·Grafana·인증서·OS·journal 여유 공간을 확보한다.
 - `catchhole-monitoring-prod` 프로젝트와 `prometheus_data`·`grafana_data`를 유지한다. 인증서 계정·renewal 설정과 전체 인증서 이력은 `letsencrypt_data`에, challenge는 `acme_webroot`에 둔다. 운영 업데이트·롤백에 `down -v`를 사용하지 않는다.
 - Grafana 데이터 소스 UID `catchhole-prometheus`와 `http://prometheus:9090`은 파일 provisioning으로 관리한다. 대시보드 HTTP 집계에서는 `/actuator.*`·`/healthz`를 제외한다.
-- 지표 패널 12개(상단 Stat 4개·주요 API p95 비교 그래프 1개·인프라 그래프 7개)의 구성·지표 해석·수동 복원은 [대시보드 운영 안내](monitoring/grafana/dashboards/README.md)와 [JSON 스냅샷](monitoring/grafana/dashboards/catchhole-overview.json)을 참고한다. API 비교는 원고 업로드·분석 접수·분석 상태·세계관 후보·확정 인물 검색의 HTTP p95이며 비동기 작업 완료 시간과 구분한다. 인프라는 EC2 CPU·Spring Boot JVM CPU·힙·GC·DB 연결·스레드·DB Pending이며 행 제목은 지표 수에 포함하지 않는다. 대시보드 UID는 `catlfln`이며 GUI에서 단계적으로 수정한 구성이 덮어써지지 않도록 자동 dashboard provisioning은 사용하지 않는다.
+- 화면별 구성·지표 해석·수동 복원은 [대시보드 운영 안내](monitoring/grafana/dashboards/README.md)를 참고한다. [운영 현황](monitoring/grafana/dashboards/catchhole-overview.json)은 UID `catlfln`과 요약 지표를 유지하고, 기존 HTTP·인프라 지표 12개와 행 제목은 [API·서버 상세](monitoring/grafana/dashboards/catchhole-api.json)로 이동한다. API 비교는 원고 업로드·분석 접수·분석 상태·세계관 후보·확정 인물 검색의 HTTP p95이며 비동기 작업 완료 시간과 구분한다. 인프라는 EC2 CPU·Spring Boot JVM CPU·힙·GC·DB 연결·스레드·DB Pending이다. [분석·AI 상세](monitoring/grafana/dashboards/catchhole-analysis.json)는 DB 대기·결과 준비·Worker·LLM 지표를 제공한다. GUI에서 단계적으로 수정한 구성이 덮어써지지 않도록 자동 dashboard provisioning은 사용하지 않는다.
 - 초기 관리자 env는 새 DB의 계정을 만드는 용도다. 기존 영속 DB의 비밀번호는 env만 바꿔 갱신되지 않으며 Grafana의 비밀번호 변경 절차를 따른다.
 - 실제 env·targets JSON·인증서 개인키·ACME 계정은 커밋하지 않는다. 운영 컨테이너는 journald를 사용하고 기존 journal 보존 제한을 유지한다.
 - 설정 변경은 같은 검토 버전의 파일을 수동 반영하고 `config --quiet`로 검사한다. Nginx conf 파일 교체는 `up -d --no-deps --force-recreate nginx`로 마운트를 갱신하고 `nginx -t`·reload로 확인한다. 갱신 스크립트·unit을 바꾸면 `bash -n`, `systemd-analyze verify`, daemon-reload와 oneshot 검증을 수행한다.
-- targets JSON을 교체한 경우 해당 변경에 한해서 `up -d --no-deps --force-recreate prometheus`로 bind mount를 갱신한다. Grafana provisioning 변경은 해당 서비스만 재시작해 확인한다. 접속 설정만 바꾸는 배포에 이 재시작을 섞지 않는다.
+- API targets JSON의 single-file mount를 교체한 경우 해당 변경에 한해서 `up -d --no-deps --force-recreate prometheus`로 bind mount를 갱신한다. Worker targets의 directory mount 안에서 파일을 교체할 때는 재시작 없이 file_sd가 감지한다. Grafana provisioning 변경은 해당 서비스만 재시작해 확인한다. 접속 설정만 바꾸는 배포에 이 재시작을 섞지 않는다.
 
 ## 업데이트·롤백
 
@@ -220,3 +220,52 @@ dry-run·oneshot 종료 결과·다음 실행 시각·인증서 만료일을 적
 - 이미지를 업데이트하기 전에 기존 버전·설정과 영속 데이터의 복구 방법을 기록한다. Grafana DB migration 이후에는 단순 이미지 downgrade가 안전하다고 가정하지 말고 해당 버전의 복구 절차·백업을 사용한다.
 - 수집 접근을 닫으려면 API의 `API_METRICS_BIND_ADDRESS`를 `127.0.0.1`로 복원하고 backend를 재생성한 뒤 8081 SG 규칙을 회수한다. 기존 API 8080·health 경로는 유지된다.
 - API 애플리케이션을 변경 전 버전으로 롤백할 때는 해당 버전의 이미지·Compose·Caddyfile을 함께 복원하고 health를 확인한다. 모니터링 볼륨은 삭제하지 않는다.
+
+## GH206 — 분석 지표와 3개 화면 적용
+
+구현 버전은 Java main의 Flyway/API 배포 성공 뒤 AI main 이미지·Worker 배포 순서를 따른다. 운영 코드·migration을 SSM으로 직접 교체하지 않는다. Worker metrics는 처음 localhost이며 Java/AI 코드 준비와 테스트 완료 후 Worker SG의 TCP 9102–9108을 **모니터링 EC2 SG만** 허용하고 Worker `worker.env`의 `AI_WORKER_METRICS_BIND_ADDRESS`를 Worker EC2 사설 IPv4로 바꾼다. 인터넷 CIDR이나 0.0.0.0 host bind를 쓰지 않는다. Worker 컨테이너 내부 0.0.0.0:9102는 Docker publish의 host bind·SG와 구분한다.
+
+모니터링 파일은 다음처럼 준비한다. 기존 Compose 프로젝트/영속 볼륨과 Grafana JSON을 백업한다.
+
+```bash
+cd /opt/catchhole-monitoring
+mkdir -p monitoring/targets/workers
+# 생성한 파일을 workers 디렉터리로 복사한 뒤 JSON 문법/7개 target을 확인한다.
+python3 -m json.tool monitoring/targets/workers/catchhole-worker.json >/dev/null
+```
+
+targets는 AI 저장소 `deploy/generate_worker_targets.py`로 **Worker 서버에서 Docker의 실제 port mapping**을 읽어 생성한다. 기본 분석 5개/비교 각 1개가 모두 실행 중이며 host bind가 사설 IPv4인 경우에만 성공한다. 복제 컨테이너 이름·port 번호를 추정해 목록을 만들지 않는다. AI 배포 안내에 생성·원자 저장 방법을 기록했다. 주소·port range·scale 변경 또는 재생성 뒤 목록을 다시 생성·검토한다. Worker 서버의 생성 파일만 갱신해도 다른 EC2의 Prometheus 파일은 바뀌지 않으므로 서버 간 전달과 마지막 확인을 마친다.
+
+모니터링에 전달할 때 임시 파일로 복사·검사 후 같은 디렉터리에서 rename한다. **directory bind**이므로 Prometheus가 새 파일을 감지한다. 파일 생성 실패/Worker 부족 시 기존 파일을 빈 배열로 덮어쓰지 않는다. 사라진 endpoint가 `up=0`으로 남아 장애를 보여주도록 한다.
+
+```bash
+# 전달한 임시 파일을 먼저 검증한다.
+if python3 -m json.tool monitoring/targets/workers/catchhole-worker.json.next >/dev/null; then
+  mv monitoring/targets/workers/catchhole-worker.json.next monitoring/targets/workers/catchhole-worker.json
+fi
+```
+
+`PROMETHEUS_WORKER_TARGETS_DIR=./monitoring/targets/workers`를 monitoring.env에 추가하고 갱신된 Compose/config를 적용한다. 첫 적용은 새 directory mount 때문에 Prometheus만 재생성해야 한다. 기존 prometheus_data를 보존하고 `down -v`를 쓰지 않는다. 이후 **targets만** 바뀔 때는 file_sd가 감지하므로 Prometheus 재시작이 필요 없다.
+
+```bash
+docker compose --env-file monitoring.env -f compose.monitoring.prod.yml config --quiet
+docker compose --env-file monitoring.env -f compose.monitoring.prod.yml run --rm --no-deps --entrypoint promtool prometheus check config /etc/prometheus/prometheus.yml
+docker compose --env-file monitoring.env -f compose.monitoring.prod.yml up -d --no-deps --force-recreate prometheus
+```
+
+API/Worker scrape는 targets의 environment label이 없을 경우 prod를 기본값으로 넣어 Prometheus가 직접 생성하는 `up`도 환경별 조회할 수 있게 한다. custom metric의 environment label만으로는 up에 환경이 생기지 않는다.
+
+Grafana에서 현재 JSON을 백업한 뒤 API 상세 `catchhole-api`, 분석 상세 `catchhole-analysis`, 기존 overview `catlfln` 순으로 가져온다. 자세한 제목·지표·설명은 [대시보드 안내](monitoring/grafana/dashboards/README.md)를 따른다.
+
+확인할 PromQL:
+
+```promql
+up{job="catchhole-backend",environment="prod"}
+up{job="catchhole-worker",environment="prod"}
+catchhole_analysis_snapshot_success{environment="prod"}
+catchhole_worker_jobs_active{environment="prod"}
+```
+
+현재 기대값은 API target 1개와 Worker target 7개가 각각 up=1, DB snapshot success=1이다. Job이 없는 프로세스도 active=0 지표를 제공한다. 결과·LLM 지표는 아직 첫 작업이 없으면 생성되지 않을 수 있다. 유휴와 수집 실패를 구분하고 정상 분석 표본 발생 뒤 결과/시간/후속 비교를 대조한다. 운영 장애 주입이나 유료 부하 테스트는 이 검증에 포함하지 않는다.
+
+롤백은 이전 배포 SHA·Compose·bind 설정·targets·dashboard JSON을 복원한다. metrics 서버 오류는 Worker 분석 처리를 중단시키지 않는다. additive migration을 임의로 DROP하거나 적용된 Flyway SQL을 수정하지 않는다. 이전 버전은 추가 nullable/default 컬럼을 사용하지 않고 동작할 수 있는지 schema validate로 먼저 검증한다.
