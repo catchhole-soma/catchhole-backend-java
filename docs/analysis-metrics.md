@@ -13,6 +13,11 @@ Spring은 DB 상태와 사용자 결과 준비를, Python은 프로세스의 실
 | `catchhole_analysis_accepted_total` | Counter, 회차 | 새 접수 또는 사용자 재시도 |
 | `catchhole_analysis_results_total` | Counter, 회차 | success / partial_success / failure / canceled |
 | `catchhole_analysis_result_ready_seconds` | Histogram, 초 | 해당 접수부터 후속 비교가 끝나 결과가 준비될 때까지 |
+| `catchhole_analysis_last_completed_duration_seconds` | Gauge, 초 | 마지막 완료 작품 분석 요청의 전체 대상 회차 준비 시간 |
+| `catchhole_analysis_last_completed_timestamp_seconds` | Gauge, Unix 초 | 같은 작품 분석 요청의 마지막 회차 준비 완료 시각 |
+| `catchhole_analysis_last_completed_episodes` | Gauge, 회차 | 같은 요청의 대상 회차 수 |
+| `catchhole_analysis_last_completed_snapshot_success` | Gauge, 0/1 | 마지막 완료 요청 조회의 성공 여부 |
+| `catchhole_analysis_last_completed_snapshot_last_success_timestamp_seconds` | Gauge, Unix 초 | 마지막 완료 요청을 DB에서 정상 조회한 시각 |
 | `catchhole_analysis_pending_jobs` | Gauge, 작업 | eligible 실행 가능 / dependency_blocked 의존 대기 |
 | `catchhole_analysis_oldest_pending_seconds` | Gauge, 초 | 해당 대기 구간의 가장 오래된 대기 시간, 빈 대기는 0 |
 | `catchhole_analysis_running_jobs` | Gauge, 작업 | DB의 RUNNING 상태 |
@@ -34,6 +39,20 @@ Spring은 DB 상태와 사용자 결과 준비를, Python은 프로세스의 실
 ## 시간·결과 해석
 
 결과 준비는 추출 이후 실행 가능한 후속 비교가 끝나 사용자가 결과를 볼 수 있는 시점이며 사람의 확인/수정 대기는 제외한다. 자동 모드에서 일부 후보가 실패해도 Job은 SUCCEEDED일 수 있어 별도의 partial_success로 표시한다. 결과 준비 시간 p95는 **success와 partial_success**만 집계하며 실패·취소를 섞지 않는다.
+
+### 회차 p95와 마지막 작품 시간
+
+`회차 결과 준비 시간 p95 · 최근 5분`은 최근 5분 동안 준비된 회차별 시간의 분포다. 마지막 작품의 실제 시간과 다르며 최근 완료 회차가 없으면 계산 불가다. Counter와 Histogram은 유한한 enum/outcome/action 조합을 기동 시 0으로 등록해, 첫 사건 전에 수집한 0에서 증가량을 계산할 수 있게 한다. 기동 직후 첫 scrape 이전에 끝난 사건까지 rate/increase가 복원하는 것은 아니므로 Counter는 감사 원장을 대신하지 않는다.
+
+`마지막 완료 작품 분석 소요 시간`은 **한 번 요청한 모든 대상 회차**의 최초 접수부터 가장 늦은 결과 준비까지의 실제 시간이다. 대상 회차 전체가 `SUCCEEDED`이고 결과가 success 또는 partial_success여야 하며, 누적 실행은 journal 봉인과 필요한 자동 반영까지 완료되어야 한다. 일부 회차만 끝났거나 실행 저장이 미완료인 요청은 마지막 완료 값으로 바꾸지 않는다. 업로드와 사람의 검토 시간은 제외하고 사용자 재시도·lease 회수·대기는 포함한다. 개별 회차를 요청하면 해당 한 회차가 측정 단위다.
+
+같은 업로드 묶음의 독립 재분석을 합치지 않도록 공개 Job에 내부 `metrics_request_id`, 공통 `metrics_request_started_at`, 대상 수 `metrics_request_episode_count`를 저장한다. 같은 최초 요청을 복구하는 재시도는 이 값을 보존하고, 새 retry Job은 같은 회차의 이전 실패를 대신한다. 일부 대상 row가 사라져도 남은 회차만으로 전체 완료를 판단하지 않는다. ID는 metric label이나 대시보드에 넣지 않는다.
+
+완료 요청 하나를 DB의 완료 시각 순으로 선택해 15초마다 캐시에 저장한다. 완료 시각이 같으면 요청 ID로 결정적으로 정렬한다. Gauge는 5분이 지나도 유지되고 API 재시작 후 DB에서 복구한다. 최신 요청의 시간이 이전보다 짧아도 새 값으로 바뀐다. 대시보드는 API 인스턴스의 가장 큰 duration 대신, 정상·신선한 관측 중 최신 완료 시각에 해당하는 duration을 선택한다. 옆의 `마지막 작품 분석 완료 후 경과`는 같은 완료 시각부터 흐른 시간이며 분석 소요 시간이 아니다.
+
+최초 관측 전과 완료 기록 없는 정상 조회에서는 duration/회차 수가 NaN, 완료 시각은 0이다. 조회 실패는 이전 값을 보존하며 별도 snapshot success를 0으로 표시한다. 45초 이상 갱신이 없거나 조회가 실패하면 카드는 과거 값을 숨기고 `관측 없음`을 표시한다. 유휴 때문에 마지막 완료 시각이 오래된 것은 snapshot 갱신이 멈춘 것과 다르다.
+
+V70은 최초 접수 시각과 모든 구성 회차가 온전히 남은, 재시도 없는 기존 누적 run만 요청 묶음으로 복구한다. 과거 run 없는 다회차를 업로드 묶음이나 비슷한 시각으로 추정하지 않는다. 이 복구는 마지막 완료 Gauge를 위한 것이며 과거 사건을 Counter/Histogram에 재생하지 않는다.
 
 결과 준비 조회는 commit 뒤 별도 작업에서 실행하고, 밀리거나 실패한 조회는 15초 주기 작업에서 보완한다. 현재 시각 대신 저장된 실제 종료 시각으로 시간을 기록하므로 계측 작업의 대기가 분석 시간에 더해지지 않는다. 접수 트랜잭션이 별도의 DB 연결을 기다리지 않도록 큐 용량을 제한한다.
 
