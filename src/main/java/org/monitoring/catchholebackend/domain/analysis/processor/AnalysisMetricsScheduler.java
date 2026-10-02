@@ -5,6 +5,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisMetricsSnapshotRepository;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisLatestCompletedRequestRepository;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisMetrics;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisResultReadyTracker;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Component;
 @ConditionalOnProperty(name = "analysis.metrics.scheduling-enabled", havingValue = "true", matchIfMissing = true)
 public class AnalysisMetricsScheduler {
     private final AnalysisMetricsSnapshotRepository repository;
+    private final AnalysisLatestCompletedRequestRepository latestRequests;
     private final AnalysisMetrics metrics;
     private final AnalysisResultReadyTracker tracker;
     private final AnalysisMetricsReconciler reconciler;
@@ -25,6 +27,16 @@ public class AnalysisMetricsScheduler {
     public void refresh() {
         try { metrics.updateSnapshot(repository.read()); }
         catch (RuntimeException ex) { metrics.snapshotFailed(); log.warn("분석 상태 지표 조회에 실패했습니다."); }
+        try {
+            var latest = latestRequests.readLatest();
+            if (latest.isPresent()) {
+                var request = latest.get();
+                metrics.updateLastCompletedRequest(request.requestedAt(), request.completedAt(), request.episodeCount());
+            } else metrics.updateLastCompletedRequest(null, null, 0);
+        } catch (RuntimeException ex) {
+            metrics.lastCompletedSnapshotFailed();
+            log.warn("마지막 완료 작품 분석 지표 조회에 실패했습니다.");
+        }
         // 한 번에 최대 100개, 미완료 앞쪽이 뒷 회차 관측을 영구히 가리지 않도록 페이지를 순환한다.
         try {
             List<Object[]> pending = tracker.unresolved(offset);

@@ -3,6 +3,7 @@ package org.monitoring.catchholebackend.domain.analysis.service;
 import io.micrometer.core.instrument.*;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
@@ -21,6 +22,8 @@ public class AnalysisMetrics {
     private final MeterRegistry registry;
     private final Clock clock;
     private final AtomicReference<List<Row>> snapshot = new AtomicReference<>(List.of());
+    private final AtomicReference<LastCompletedSnapshot> lastCompleted = new AtomicReference<>(
+            new LastCompletedSnapshot(Double.NaN, 0, Double.NaN, 0, 0));
     private volatile double snapshotSuccess;
     private volatile double lastSuccess;
 
@@ -32,6 +35,11 @@ public class AnalysisMetrics {
         safe(() -> {
             Gauge.builder("catchhole.analysis.snapshot.success", this, m -> m.snapshotSuccess).register(registry);
             Gauge.builder("catchhole.analysis.snapshot.last.success.timestamp", this, m -> m.lastSuccess).baseUnit("seconds").register(registry);
+            Gauge.builder("catchhole.analysis.last.completed.duration", this, m -> m.lastCompleted.get().durationSeconds()).baseUnit("seconds").register(registry);
+            Gauge.builder("catchhole.analysis.last.completed.timestamp", this, m -> m.lastCompleted.get().completedTimestampSeconds()).baseUnit("seconds").register(registry);
+            Gauge.builder("catchhole.analysis.last.completed.episodes", this, m -> m.lastCompleted.get().episodes()).register(registry);
+            Gauge.builder("catchhole.analysis.last.completed.snapshot.success", this, m -> m.lastCompleted.get().success()).register(registry);
+            Gauge.builder("catchhole.analysis.last.completed.snapshot.last.success.timestamp", this, m -> m.lastCompleted.get().lastSuccessTimestampSeconds()).baseUnit("seconds").register(registry);
             for (AnalysisJobType type : AnalysisJobType.values()) for (AnalysisMode mode : AnalysisMode.values()) for (AnalysisReviewMode review : AnalysisReviewMode.values()) {
                 Labels labels = new Labels(type, mode, review);
                 Tags meterTags = tags(labels);
@@ -91,6 +99,21 @@ public class AnalysisMetrics {
         lastSuccess = clock.instant().getEpochSecond();
     }
     public void snapshotFailed() { snapshotSuccess = 0; }
+    public void updateLastCompletedRequest(LocalDateTime requestedAt, LocalDateTime completedAt, long episodeCount) {
+        double observedAt = clock.instant().getEpochSecond();
+        if (requestedAt == null || completedAt == null) {
+            lastCompleted.set(new LastCompletedSnapshot(Double.NaN, 0, Double.NaN, 1, observedAt));
+            return;
+        }
+        Duration duration = Duration.between(requestedAt, completedAt);
+        Instant completed = completedAt.atZone(clock.getZone()).toInstant();
+        lastCompleted.set(new LastCompletedSnapshot(duration.getSeconds() + duration.getNano() / 1_000_000_000.0,
+                completed.getEpochSecond() + completed.getNano() / 1_000_000_000.0, episodeCount, 1, observedAt));
+    }
+    public void lastCompletedSnapshotFailed() {
+        lastCompleted.updateAndGet(previous -> new LastCompletedSnapshot(previous.durationSeconds(),
+                previous.completedTimestampSeconds(), previous.episodes(), 0, previous.lastSuccessTimestampSeconds()));
+    }
     private double count(Labels labels, String queue) {
         return snapshot.get().stream().filter(r -> r.labels().equals(labels) && r.queueState().equals(queue)).mapToLong(Row::count).sum();
     }
@@ -103,6 +126,8 @@ public class AnalysisMetrics {
         return Tags.of("job_type", labels.jobType().name().toLowerCase(Locale.ROOT), "analysis_mode", labels.analysisMode().name().toLowerCase(Locale.ROOT),
                 "review_mode", labels.reviewMode().name().toLowerCase(Locale.ROOT));
     }
+    private record LastCompletedSnapshot(double durationSeconds, double completedTimestampSeconds, double episodes,
+                                         double success, double lastSuccessTimestampSeconds) { }
     static void safe(Runnable action) {
         try { action.run(); } catch (RuntimeException ex) { log.warn("분석 지표 기록에 실패했습니다."); }
     }

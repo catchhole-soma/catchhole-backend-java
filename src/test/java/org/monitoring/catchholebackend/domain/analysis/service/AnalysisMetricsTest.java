@@ -2,6 +2,7 @@ package org.monitoring.catchholebackend.domain.analysis.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.within;
 
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.config.MeterFilter;
@@ -24,6 +25,109 @@ import org.monitoring.catchholebackend.domain.analysis.type.*;
 @DisplayName("분석 지표의 수집 실패와 유휴 상태")
 class AnalysisMetricsTest {
     private static final Labels LABELS = new Labels(AnalysisJobType.SETTING_EXTRACTION, AnalysisMode.CONFIRMED_ONLY, AnalysisReviewMode.MANUAL);
+
+    @Test
+    @DisplayName("첫 작품 조회 전 소요 시간과 회차 수는 NaN이며 완료·조회 시각은 0이다")
+    void lastCompletedRequestExportsUnknownValuesBeforeItsFirstSnapshot() {
+        PrometheusMeterRegistry registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+        try {
+            AnalysisMetrics metrics = new AnalysisMetrics(registry);
+            assertThat(registry.get("catchhole.analysis.last.completed.duration").gauge().value()).isNaN();
+            assertThat(registry.get("catchhole.analysis.last.completed.episodes").gauge().value()).isNaN();
+            assertThat(registry.get("catchhole.analysis.last.completed.timestamp").gauge().value()).isZero();
+            assertThat(registry.get("catchhole.analysis.last.completed.snapshot.success").gauge().value()).isZero();
+            assertThat(registry.get("catchhole.analysis.last.completed.snapshot.last.success.timestamp").gauge().value()).isZero();
+            for (String name : List.of("duration", "timestamp", "episodes", "snapshot.success", "snapshot.last.success.timestamp"))
+                assertThat(registry.get("catchhole.analysis.last.completed." + name).gauge().getId().getTags()).isEmpty();
+            assertThat(registry.scrape()).contains(
+                    "# TYPE catchhole_analysis_last_completed_duration_seconds gauge",
+                    "# TYPE catchhole_analysis_last_completed_timestamp_seconds gauge",
+                    "# TYPE catchhole_analysis_last_completed_episodes gauge",
+                    "# TYPE catchhole_analysis_last_completed_snapshot_success gauge",
+                    "# TYPE catchhole_analysis_last_completed_snapshot_last_success_timestamp_seconds gauge");
+            java.lang.ref.Reference.reachabilityFence(metrics);
+        } finally { registry.close(); }
+    }
+
+    @Test
+    @DisplayName("완료된 작품이 없는 정상 조회는 소요 시간을 0으로 만들지 않는다")
+    void successfulEmptyLastCompletedSnapshotRetainsUnknownDuration() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        AdjustableClock clock = new AdjustableClock();
+        AnalysisMetrics metrics = new AnalysisMetrics(registry, clock);
+
+        metrics.updateLastCompletedRequest(null, null, 0);
+
+        assertThat(lastCompletedGauge(registry, "duration")).isNaN();
+        assertThat(lastCompletedGauge(registry, "episodes")).isNaN();
+        assertThat(lastCompletedGauge(registry, "timestamp")).isZero();
+        assertThat(lastCompletedGauge(registry, "snapshot.success")).isEqualTo(1);
+        assertThat(lastCompletedGauge(registry, "snapshot.last.success.timestamp")).isEqualTo(1790812800);
+    }
+
+    @Test
+    @DisplayName("마지막 작품의 159.877364초와 KST 완료 시각을 정밀도 손실 없이 노출한다")
+    void lastCompletedRequestPreservesSubsecondDurationAndUsesTheClockZone() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        Clock clock = Clock.fixed(Instant.parse("2026-10-02T02:30:00Z"), ZoneId.of("Asia/Seoul"));
+        AnalysisMetrics metrics = new AnalysisMetrics(registry, clock);
+
+        metrics.updateLastCompletedRequest(LocalDateTime.of(2026, 10, 2, 11, 20),
+                LocalDateTime.of(2026, 10, 2, 11, 22, 39, 877364000), 3);
+
+        assertThat(lastCompletedGauge(registry, "duration")).isCloseTo(159.877364, within(1e-9));
+        assertThat(lastCompletedGauge(registry, "timestamp")).isCloseTo(1790907759.877364, within(1e-6));
+        assertThat(lastCompletedGauge(registry, "episodes")).isEqualTo(3);
+        assertThat(lastCompletedGauge(registry, "snapshot.success")).isEqualTo(1);
+        assertThat(lastCompletedGauge(registry, "snapshot.last.success.timestamp")).isEqualTo(1790908200);
+    }
+
+    @Test
+    @DisplayName("마지막 작품 조회 실패는 이전 데이터와 성공 시각을 보존하고 복구 후 새 조회를 반영한다")
+    void lastCompletedSnapshotFailureRetainsThePreviousObservationUntilRecovery() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        AdjustableClock clock = new AdjustableClock();
+        AnalysisMetrics metrics = new AnalysisMetrics(registry, clock);
+        metrics.updateLastCompletedRequest(LocalDateTime.of(2026, 10, 1, 0, 0),
+                LocalDateTime.of(2026, 10, 1, 0, 2, 39, 877364000), 2);
+        clock.current = clock.current.plusSeconds(15);
+
+        metrics.lastCompletedSnapshotFailed();
+
+        assertThat(lastCompletedGauge(registry, "duration")).isCloseTo(159.877364, within(1e-9));
+        assertThat(lastCompletedGauge(registry, "timestamp")).isCloseTo(1790812959.877364, within(1e-6));
+        assertThat(lastCompletedGauge(registry, "episodes")).isEqualTo(2);
+        assertThat(lastCompletedGauge(registry, "snapshot.success")).isZero();
+        assertThat(lastCompletedGauge(registry, "snapshot.last.success.timestamp")).isEqualTo(1790812800);
+
+        metrics.updateLastCompletedRequest(LocalDateTime.of(2026, 10, 1, 0, 3),
+                LocalDateTime.of(2026, 10, 1, 0, 4), 1);
+
+        assertThat(lastCompletedGauge(registry, "duration")).isEqualTo(60);
+        assertThat(lastCompletedGauge(registry, "timestamp")).isEqualTo(1790813040);
+        assertThat(lastCompletedGauge(registry, "episodes")).isEqualTo(1);
+        assertThat(lastCompletedGauge(registry, "snapshot.success")).isEqualTo(1);
+        assertThat(lastCompletedGauge(registry, "snapshot.last.success.timestamp")).isEqualTo(1790812815);
+    }
+
+    @Test
+    @DisplayName("새 정상 조회에 완료 작품이 없으면 이전 작품 소요 시간을 지운다")
+    void emptyLastCompletedSnapshotClearsAPreviousCompletedRequest() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        AdjustableClock clock = new AdjustableClock();
+        AnalysisMetrics metrics = new AnalysisMetrics(registry, clock);
+        metrics.updateLastCompletedRequest(LocalDateTime.of(2026, 10, 1, 0, 0),
+                LocalDateTime.of(2026, 10, 1, 0, 1), 1);
+        clock.current = clock.current.plusSeconds(30);
+
+        metrics.updateLastCompletedRequest(null, null, 0);
+
+        assertThat(lastCompletedGauge(registry, "duration")).isNaN();
+        assertThat(lastCompletedGauge(registry, "episodes")).isNaN();
+        assertThat(lastCompletedGauge(registry, "timestamp")).isZero();
+        assertThat(lastCompletedGauge(registry, "snapshot.success")).isEqualTo(1);
+        assertThat(lastCompletedGauge(registry, "snapshot.last.success.timestamp")).isEqualTo(1790812830);
+    }
 
     @Test
     @DisplayName("첫 접수와 완료 전에 0인 시계열을 수집하고 첫 사건의 증가량을 보존한다")
@@ -94,6 +198,9 @@ class AnalysisMetricsTest {
         assertThatCode(() -> metrics.record(new AnalysisMetricsEvent("accepted", UUID.randomUUID(), 1, LABELS, null, null, null))).doesNotThrowAnyException();
     }
 
+    private double lastCompletedGauge(SimpleMeterRegistry registry, String name) {
+        return registry.get("catchhole.analysis.last.completed." + name).gauge().value();
+    }
     private double gauge(SimpleMeterRegistry registry, String name) {
         return registry.get(name).tags("job_type", "setting_extraction", "analysis_mode", "confirmed_only", "review_mode", "manual", "queue_state", "eligible").gauge().value();
     }
