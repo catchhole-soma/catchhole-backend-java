@@ -43,7 +43,7 @@ public final class SettingCandidateChronology {
     }
 
     public static List<SettingCandidate> sorted(List<SettingCandidate> candidates) {
-        List<SettingCandidate> chronological = new ArrayList<>(candidates.stream().sorted(COMPARATOR).toList());
+        List<SettingCandidate> chronological = new ArrayList<>(sourceSorted(candidates));
         // 비교 입력에 한 번 부여한 순서는 이후 문맥 재구성과 수동 확정에서도 불변이다.
         // 아직 배정되지 않은 후보의 원문상 위치는 유지하고 배정된 후보끼리만 그 순서를 복원한다.
         List<SettingCandidate> assigned = chronological.stream()
@@ -56,6 +56,11 @@ public final class SettingCandidateChronology {
             }
         }
         return List.copyOf(chronological);
+    }
+
+    /** 배치 배정·재시도에 영향받지 않는 원문 입력 순서다. */
+    public static List<SettingCandidate> sourceSorted(List<SettingCandidate> candidates) {
+        return candidates.stream().sorted(COMPARATOR).toList();
     }
 
     private static BigInteger assignedReferenceOrder(SettingCandidate candidate) {

@@ -138,7 +138,8 @@ class SettingCandidateServiceImplTest {
                 new CharacterSettingValueValidator(),
                 aiTokenService,
                 org.mockito.Mockito.mock(CharacterAnalysisConfirmation.class),
-                characterComparisonJobCoordinator
+                characterComparisonJobCoordinator,
+                org.mockito.Mockito.mock(jakarta.persistence.EntityManager.class)
         );
     }
 
@@ -191,6 +192,206 @@ class SettingCandidateServiceImplTest {
                 .isInstanceOf(AppException.class);
         assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
         verifyNoInteractions(aiTokenService, settingCandidatePromotionService);
+    }
+
+    @Test
+    @DisplayName("시점 판단을 저장하면 같은 원문 값이어도 선택한 현재값 방식이 남고 LLM을 다시 호출하지 않는다")
+    void explicitCurrentDecisionPersistsWithoutContentEdit() {
+        Work work = work(UUID.randomUUID());
+        SettingCandidate candidate = completedOrderedReviewCandidate(work);
+        LocalDateTime seen = candidate.getUpdatedAt();
+        stubReviewUpdate(work, candidate);
+
+        service.updateSettingCandidate(1L, work.getId(), candidate.getId(),
+                new SettingCandidateUpdateRequest("age", "17", CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, seen));
+
+        assertThat(candidate.isUserModified()).isTrue();
+        assertThat(candidate.getReviewedApplicationMode()).isEqualTo(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+        assertThat(candidate.getTemporalScope()).isEqualTo(CharacterFactTemporalScope.UNKNOWN);
+        assertThat(candidate.getReviewedSnapshotVersion()).isZero();
+        verifyNoInteractions(characterComparisonJobCoordinator, aiTokenService);
+    }
+
+    @Test
+    @DisplayName("다른 탭에서 후보가 바뀌었다면 이전 화면의 선택을 저장하지 않는다")
+    void explicitDecisionRejectsStaleCandidate() {
+        Work work = work(UUID.randomUUID());
+        SettingCandidate candidate = completedOrderedReviewCandidate(work);
+        when(workRepository.getOwnedWorkForUpdate(work.getId(), 1L)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidate.getId(), work.getId())).thenReturn(Optional.of(candidate));
+
+        assertThatThrownBy(() -> service.updateSettingCandidate(1L, work.getId(), candidate.getId(),
+                new SettingCandidateUpdateRequest("age", "17", CharacterFactConfirmApplicationMode.APPLY_PROPOSAL,
+                        candidate.getUpdatedAt().minusSeconds(1))))
+                .isInstanceOfSatisfying(AppException.class, error ->
+                        assertThat(error.getResultCode()).isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE));
+        assertThat(candidate.getReviewedApplicationMode()).isNull();
+        assertThat(candidate.isUserModified()).isFalse();
+    }
+
+    @Test
+    @DisplayName("대상 연결만 수정한 시점 미정 후보는 내용 선택 없이 현재값으로 확정할 수 없다")
+    void targetEditDoesNotAcknowledgeSemanticReview() {
+        Work work = work(UUID.randomUUID());
+        SettingCandidate candidate = completedOrderedReviewCandidate(work);
+        candidate.recordUserModification();
+        when(workRepository.getOwnedWorkForUpdate(work.getId(), 1L)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidate.getId(), work.getId())).thenReturn(Optional.of(candidate));
+
+        assertThatThrownBy(() -> service.confirmSettingCandidate(1L, work.getId(), candidate.getId(),
+                new SettingCandidateConfirmRequest(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, null, true)))
+                .isInstanceOfSatisfying(AppException.class, error ->
+                        assertThat(error.getResultCode()).isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_EDIT_APPLICATION_REQUIRED));
+        assertThat(candidate.isPendingReview()).isTrue();
+        verifyNoInteractions(settingCandidatePromotionService);
+    }
+
+    @Test
+    @DisplayName("이력 저장을 고른 초안은 확정 요청만 현재 반영으로 바꾸어 우회할 수 없다")
+    void confirmationMustUseSavedDecision() {
+        Work work = work(UUID.randomUUID());
+        SettingCandidate candidate = completedOrderedReviewCandidate(work);
+        candidate.recordReviewedApplicationMode(CharacterFactConfirmApplicationMode.HISTORY_ONLY, 0);
+        when(workRepository.getOwnedWorkForUpdate(work.getId(), 1L)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidate.getId(), work.getId())).thenReturn(Optional.of(candidate));
+
+        assertThatThrownBy(() -> service.confirmSettingCandidate(1L, work.getId(), candidate.getId(),
+                new SettingCandidateConfirmRequest(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, null, true, candidate.getUpdatedAt())))
+                .isInstanceOfSatisfying(AppException.class, error ->
+                        assertThat(error.getResultCode()).isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_EDIT_APPLICATION_REQUIRED));
+        assertThat(candidate.getTemporalScope()).isEqualTo(CharacterFactTemporalScope.UNKNOWN);
+        verifyNoInteractions(settingCandidatePromotionService);
+    }
+
+    @Test
+    @DisplayName("현재 반영 선택 이후 캐릭터 snapshot이 바뀌면 다시 확인하도록 확정을 거절한다")
+    void snapshotChangeAfterReviewRejectsConfirmation() {
+        Work work = work(UUID.randomUUID());
+        SettingCandidate candidate = completedOrderedReviewCandidate(work);
+        candidate.recordReviewedApplicationMode(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, 2);
+        when(workRepository.getOwnedWorkForUpdate(work.getId(), 1L)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidate.getId(), work.getId())).thenReturn(Optional.of(candidate));
+
+        assertThatThrownBy(() -> service.confirmSettingCandidate(1L, work.getId(), candidate.getId(),
+                new SettingCandidateConfirmRequest(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, null, true, candidate.getUpdatedAt())))
+                .isInstanceOfSatisfying(AppException.class, error ->
+                        assertThat(error.getResultCode()).isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE));
+        verifyNoInteractions(settingCandidatePromotionService);
+    }
+
+    @Test
+    @DisplayName("검토한 내용을 수정하면 이전 저장 방식과 확인한 snapshot을 해제한다")
+    void editingValueInvalidatesSavedDecision() {
+        SettingCandidate candidate = completedOrderedReviewCandidate(work(UUID.randomUUID()));
+        candidate.recordReviewedApplicationMode(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, 0);
+        candidate.updateReviewContent("age", "20", objectMapper.createObjectNode().put("value", 20));
+        assertThat(candidate.getReviewedApplicationMode()).isNull();
+        assertThat(candidate.getReviewedSnapshotVersion()).isNull();
+    }
+
+    @Test
+    @DisplayName("완료된 누적 후보의 값 수정과 선택 저장은 실제 Worker 없이 비교 대기를 끝낸다")
+    void explicitEditedDecisionDoesNotLeavePhantomProcessing() {
+        Work work = work(UUID.randomUUID());
+        SettingCandidate candidate = completedOrderedReviewCandidate(work);
+        stubReviewUpdate(work, candidate);
+        service.updateSettingCandidate(1L, work.getId(), candidate.getId(),
+                new SettingCandidateUpdateRequest("age", "19", CharacterFactConfirmApplicationMode.APPLY_PROPOSAL,
+                        candidate.getUpdatedAt()));
+        assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.NOT_REQUIRED);
+        assertThat(candidate.getReviewedApplicationMode()).isEqualTo(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+        assertThat(candidate.getAttributeValue()).isEqualTo("19");
+        verifyNoInteractions(characterComparisonJobCoordinator, aiTokenService);
+    }
+
+    @Test
+    @DisplayName("현재 실행이 완료되지 않은 후보에는 직접 결정으로 비교 대기를 해제하지 않는다")
+    void incompleteOrderedRunCannotRecordDecision() {
+        Work work = work(UUID.randomUUID());
+        SettingCandidate candidate = completedOrderedReviewCandidate(work);
+        ReflectionTestUtils.setField(candidate.getAnalysisJob(), "status",
+                org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING);
+        when(workRepository.getOwnedWorkForUpdate(work.getId(), 1L)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidate.getId(), work.getId())).thenReturn(Optional.of(candidate));
+        assertThatThrownBy(() -> service.updateSettingCandidate(1L, work.getId(), candidate.getId(),
+                new SettingCandidateUpdateRequest("age", "19", CharacterFactConfirmApplicationMode.APPLY_PROPOSAL,
+                        candidate.getUpdatedAt())))
+                .isInstanceOf(AppException.class);
+        assertThat(candidate.getReviewedApplicationMode()).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("대상만 불명확한 독립 추가는 연결 선택으로 준비되고 의미 보류는 추가 내용 판단을 유지한다")
+    void targetSelectionOnlyAcknowledgesSafeIndependentProposal(boolean semanticUncertainty) {
+        Work work = work(UUID.randomUUID());
+        SettingCandidate candidate = completedOrderedReviewCandidate(work);
+        ReflectionTestUtils.setField(candidate, "matchStatus", SettingCandidateMatchStatus.AMBIGUOUS);
+        if (!semanticUncertainty) {
+            ReflectionTestUtils.setField(candidate, "suggestedOperation", CharacterFactOperation.ADD);
+            ReflectionTestUtils.setField(candidate, "temporalScope", CharacterFactTemporalScope.PRESENT);
+            ReflectionTestUtils.setField(candidate, "proposedFactValue", candidate.getAttributeValue());
+        }
+        WorkCharacter target = character(work, UUID.randomUUID(), "아리아");
+        stubReviewUpdate(work, candidate);
+        when(workCharacterRepository.findByIdAndWorkIdForUpdate(target.getId(), work.getId())).thenReturn(Optional.of(target));
+        service.updateSettingCandidateCharacterMatch(1L, work.getId(), candidate.getId(),
+                new SettingCandidateCharacterMatchRequest(SettingCandidateCharacterMatchResolutionType.MATCH_EXISTING, target.getId(), null));
+        assertThat(candidate.isUserModified()).isTrue();
+        if (semanticUncertainty) {
+            assertThat(candidate.getReviewedApplicationMode()).isNull();
+        } else {
+            assertThat(candidate.getReviewedApplicationMode()).isEqualTo(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+            assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.NOT_REQUIRED);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("같은 대상을 다시 선택해도 AI 병합값과 원본 후보 값이 다르면 자동으로 검토 완료하지 않는다")
+    void sameTargetSelectionPreservesMergedProposalMeaning(boolean sameValue) {
+        Work work = work(UUID.randomUUID());
+        SettingCandidate candidate = completedOrderedReviewCandidate(work);
+        WorkCharacter target = character(work, UUID.randomUUID(), "아리아");
+        ReflectionTestUtils.setField(candidate, "matchedCharacterId", target.getId());
+        ReflectionTestUtils.setField(candidate, "matchStatus", SettingCandidateMatchStatus.MATCHED);
+        ReflectionTestUtils.setField(candidate, "suggestedOperation", CharacterFactOperation.MERGE);
+        ReflectionTestUtils.setField(candidate, "temporalScope", CharacterFactTemporalScope.PRESENT);
+        ReflectionTestUtils.setField(candidate, "proposedFactValue", sameValue ? candidate.getAttributeValue() : "기존 내용과 합친 값");
+        stubReviewUpdate(work, candidate);
+        when(workCharacterRepository.findByIdAndWorkIdForUpdate(target.getId(), work.getId())).thenReturn(Optional.of(target));
+        service.updateSettingCandidateCharacterMatch(1L, work.getId(), candidate.getId(),
+                new SettingCandidateCharacterMatchRequest(SettingCandidateCharacterMatchResolutionType.MATCH_EXISTING, target.getId(), null));
+        assertThat(candidate.getReviewedApplicationMode()).isEqualTo(sameValue
+                ? CharacterFactConfirmApplicationMode.APPLY_PROPOSAL : null);
+    }
+
+    private void stubReviewUpdate(Work work, SettingCandidate candidate) {
+        when(workRepository.getOwnedWorkForUpdate(work.getId(), 1L)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidate.getId(), work.getId())).thenReturn(Optional.of(candidate));
+        when(characterSettingSchemaRepository.findAllActiveForWork(work.getId()))
+                .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
+    }
+
+    private SettingCandidate completedOrderedReviewCandidate(Work work) {
+        SettingCandidate candidate = candidate(work, "아리아", "age", "17");
+        var episode = org.monitoring.catchholebackend.domain.episode.entity.Episode.create(work, null, 1, "1화", "source", "v1", "hash", 100);
+        AnalysisJob job = AnalysisJob.create(work, null, episode, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(job, "sourceEpisodeNo", 1);
+        ReflectionTestUtils.setField(job, "sourceContentHash", "hash");
+        ReflectionTestUtils.setField(job, "sourceContentS3Key", "source");
+        ReflectionTestUtils.setField(job, "sourceContentS3Version", "v1");
+        ReflectionTestUtils.setField(job, "analysisMode", org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL);
+        ReflectionTestUtils.setField(job, "status", org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.SUCCEEDED);
+        ReflectionTestUtils.setField(job, "journalStatus", org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.SEALED);
+        ReflectionTestUtils.setField(job, "automaticAppliedAt", LocalDateTime.now());
+        ReflectionTestUtils.setField(candidate, "analysisJob", job);
+        ReflectionTestUtils.setField(candidate, "id", UUID.randomUUID());
+        ReflectionTestUtils.setField(candidate, "updatedAt", LocalDateTime.now());
+        ReflectionTestUtils.setField(candidate, "comparisonStatus", CharacterFactComparisonStatus.COMPLETED);
+        ReflectionTestUtils.setField(candidate, "suggestedOperation", CharacterFactOperation.REVIEW_REQUIRED);
+        ReflectionTestUtils.setField(candidate, "temporalScope", CharacterFactTemporalScope.UNKNOWN);
+        return candidate;
     }
 
     @Test
@@ -2290,7 +2491,9 @@ class SettingCandidateServiceImplTest {
                 null,
                 false,
                 null,
-                false
+                false,
+                false,
+                null
         );
     }
 

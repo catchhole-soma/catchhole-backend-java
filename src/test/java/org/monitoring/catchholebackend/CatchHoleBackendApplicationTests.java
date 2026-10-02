@@ -192,6 +192,9 @@ class CatchHoleBackendApplicationTests {
     private CharacterTimelineQueryRepository characterTimelineQueryRepository;
 
     @MockitoBean
+    private jakarta.persistence.EntityManager entityManager;
+
+    @MockitoBean
     private JpaMetamodelMappingContext jpaMetamodelMappingContext;
 
     @MockitoBean

@@ -159,7 +159,7 @@ public record SettingCandidateResponse(
         @Schema(description = "수정 시각", example = "2026-06-14T10:29:00")
         LocalDateTime updatedAt,
 
-        @Schema(description = "자동 분석 뒤 보류된 후보를 작가가 직접 수정·확정할 수 있는지 여부",
+        @Schema(description = "자동 분석의 보류 후보 또는 완료된 수동 분석의 판단 보류·저장 초안을 직접 확인할 수 있는지 여부",
                 requiredMode = Schema.RequiredMode.NOT_REQUIRED)
         boolean manualReviewAvailable,
         @Schema(description = "비교 결과와 별도로 기록한 자동 반영 보류 사유. 과거 기록은 없을 수 있습니다", nullable = true, requiredMode = Schema.RequiredMode.NOT_REQUIRED)
@@ -170,6 +170,10 @@ public record SettingCandidateResponse(
         @Schema(description = "후보 원본 분석의 입력 정책", nullable = true)
         org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode analysisMode,
         @Schema(description = "현재 설정을 유지하고 원문 회차 이력에만 확정했는지 여부")
-        boolean historyOnly
+        boolean historyOnly,
+        @Schema(description = "후보 내용 또는 캐릭터 연결을 사용자가 수정했는지 여부. 내용 검토 완료와 같지 않습니다.")
+        boolean userModified,
+        @Schema(description = "작가가 확인해 저장한 방식. 연결/내용 변경 시 해제되며, null이면 명시적 내용 판단을 저장하지 않았습니다.", nullable = true)
+        org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode reviewedApplicationMode
 ) {
 }

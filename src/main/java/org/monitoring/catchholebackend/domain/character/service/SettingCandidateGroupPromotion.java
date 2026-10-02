@@ -5,6 +5,10 @@ import org.monitoring.catchholebackend.domain.character.type.CharacterFactConfir
 
 public record SettingCandidateGroupPromotion(
         SettingCandidate candidate,
-        CharacterFactConfirmApplicationMode applicationMode
+        CharacterFactConfirmApplicationMode applicationMode,
+        boolean acceptedFinalResult
 ) {
+    public SettingCandidateGroupPromotion(SettingCandidate candidate, CharacterFactConfirmApplicationMode applicationMode) {
+        this(candidate, applicationMode, false);
+    }
 }

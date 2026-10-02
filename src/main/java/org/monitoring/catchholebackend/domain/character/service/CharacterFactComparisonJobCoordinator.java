@@ -138,7 +138,9 @@ public class CharacterFactComparisonJobCoordinator {
 
     public String inputHash(List<SettingCandidate> candidates) {
         StringBuilder input = new StringBuilder();
-        for (SettingCandidate candidate : SettingCandidateChronology.sorted(candidates)) {
+        // 처리 중 배정된 FactType별 batch 순서와 재시도 초기화는 원본 입력 변경이 아니다.
+        // 첫 claim 이전 원문 순서를 유지해 기존 정상 Job의 hash와도 호환한다.
+        for (SettingCandidate candidate : SettingCandidateChronology.sourceSorted(candidates)) {
             appendScalar(input, candidate.getId());
             appendScalar(input, candidate.getMatchedCharacterId());
             appendScalar(input, SettingCandidateGroupNameNormalizer.toGroupKey(candidate.getEntityName()));
