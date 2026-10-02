@@ -4,7 +4,7 @@
 
 | JSON | UID | 목적 |
 | --- | --- | --- |
-| [catchhole-overview.json](catchhole-overview.json) | catlfln | HTTP·분석 핵심 요약과 수집 상태 |
+| [catchhole-overview.json](catchhole-overview.json) | catlfln | HTTP·서비스 이용·분석 핵심 요약과 수집 상태 |
 | [catchhole-api.json](catchhole-api.json) | catchhole-api | 주요 API 지연·EC2/JVM/Heap/GC/DB/Threads |
 | [catchhole-analysis.json](catchhole-analysis.json) | catchhole-analysis | 대기→실행→결과→LLM 원인 |
 
@@ -18,6 +18,10 @@
 
 ## 결과 없음과 수집 장애
 
+운영 현황의 `서비스 이용 현황`은 전체 회원 수, 최근 7일 분석 이용자 수, 최근 24시간 분석 요청 수·요청당 평균 회차 수를 표시한다. 1분마다 DB에서 갱신한 현재 값이므로 대시보드 시간 선택은 고정 7일·24시간 창을 바꾸지 않는다. 여러 회차의 최초 접수를 1건으로 세고 사용자 재시도와 내부 후속 비교는 요청 수에서 제외한다. 탈퇴·작품 삭제로 사라진 기록은 기간 집계에서도 제외된다. 정확한 정의·과거 기록 제한은 [서비스 이용 지표 문서](../../../../docs/service-usage-metrics.md)를 따른다.
+
+서비스 이용 Stat은 최신 정상 snapshot을 선택하고 같은 전체 label의 값을 연결한다. 조회 실패·180초 이상 갱신 없음은 `관측 없음`이다. 과거 원본 요청의 묶음 기록이 불완전하면 요청 수는 `기록 부족`, 평균은 `계산 불가`로 표시한다. 정상 조회에서 요청이 없으면 요청 수 0과 계산할 수 없는 평균을 구분한다. 기존 16개 운영 패널을 보존하고 HTTP 요약 아래에 네 개의 서비스 이용 Stat을 추가한다.
+
 Stat은 Instant/Last를 사용하고 과거 유효값으로 현재 NaN을 채우지 않는다. 분석 결과 준비 p95는 성공·부분 성공만, 완전 성공률은 success/(success+partial_success+failure)이며 취소 제외다. 최근 종료 결과가 없으면 계산 불가다. LLM 호출이 없는 유휴 구간의 p95도 계산 불가다.
 
 운영 현황과 분석 상세의 `회차 결과 준비 시간 p95 · 최근 5분`은 회차별 최근 통계다. 별도 `마지막 완료 작품 분석 소요 시간`은 한 요청의 모든 대상 회차가 준비된 실제 시간으로, 새 완료가 생길 때까지 유지하고 API 재시작 후 DB에서 복구한다. 옆의 `마지막 작품 분석 완료 후 경과`로 해당 값이 언제 완료된 요청인지 확인한다. 새 요청이 진행 중인 동안에는 이전 완료 값이 유지된다. 상세 범위·재시도·과거 기록 복구는 지표 문서를 따른다.
@@ -28,7 +32,7 @@ Stat은 Instant/Last를 사용하고 과거 유효값으로 현재 NaN을 채우
 
 HTTP 패널은 `/actuator.*`와 `/healthz`를 제외하고 내부 API 요청은 포함한다. 요청 없음의 0/0 오류율·p95는 계산 불가이며 RPS 0과 구분한다. API 상세의 GC 평균도 이벤트가 없으면 계산 불가다. 수집 자체가 없는 경우에는 up와 target 수부터 확인한다.
 
-현재 세 JSON의 74개 dashboard PromQL은 promtool 3.13.3으로 문법을 확인했고, [쿼리 검증 fixture](../../tests/dashboard-promql.test.json)의 11개 시나리오는 snapshot 실패·정체·중복 API 관측·다른 mode 합산·부분 성공/취소의 성공률, 첫 완료의 0 기준값, 마지막 완료 선택과 5분 이후 유지·label 변경을 검증한다. JSON 변경 시 모든 target expr을 추출해 template 변수를 실제 값으로 치환한 후 promtool check rules를 다시 실행한다.
+현재 세 JSON의 78개 dashboard PromQL은 promtool 3.13.3으로 문법을 확인했고, [쿼리 검증 fixture](../../tests/dashboard-promql.test.json)의 17개 시나리오는 snapshot 실패·정체·중복 API 관측·다른 mode 합산·부분 성공/취소의 성공률, 첫 완료의 0 기준값, 마지막 완료 선택과 5분 이후 유지·label 변경, 서비스 이용 snapshot의 최신 값 선택·빈 집계·불완전 이력을 검증한다. JSON 변경 시 모든 target expr을 추출해 template 변수를 실제 값으로 치환한 후 promtool check rules를 다시 실행한다.
 
 ## JVM CPU와 EC2 CPU
 
