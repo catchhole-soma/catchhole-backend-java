@@ -20,11 +20,15 @@
 
 Stat은 Instant/Last를 사용하고 과거 유효값으로 현재 NaN을 채우지 않는다. 분석 결과 준비 p95는 성공·부분 성공만, 완전 성공률은 success/(success+partial_success+failure)이며 취소 제외다. 최근 종료 결과가 없으면 계산 불가다. LLM 호출이 없는 유휴 구간의 p95도 계산 불가다.
 
+운영 현황과 분석 상세의 `회차 결과 준비 시간 p95 · 최근 5분`은 회차별 최근 통계다. 별도 `마지막 완료 작품 분석 소요 시간`은 한 요청의 모든 대상 회차가 준비된 실제 시간으로, 새 완료가 생길 때까지 유지하고 API 재시작 후 DB에서 복구한다. 옆의 `마지막 작품 분석 완료 후 경과`로 해당 값이 언제 완료된 요청인지 확인한다. 새 요청이 진행 중인 동안에는 이전 완료 값이 유지된다. 상세 범위·재시도·과거 기록 복구는 지표 문서를 따른다.
+
+새 마지막 완료 카드는 전용 DB snapshot이 정상이고 45초 미만으로 신선할 때만 표시한다. 완료 기록이 없거나 조회가 실패·정체되면 `관측 없음`이며 0초로 채우지 않는다. 여러 API 인스턴스가 있으면 최신 완료 timestamp를 먼저 고르고 같은 label의 duration을 연결한다. 가장 큰 duration을 고르면 가장 최근 작품과 가장 오래 걸린 작품을 혼동한다. 기존 카드를 보존하고 분석 Stat 영역을 3개씩 2줄로 배치한다.
+
 실행 가능한 대기와 의존 대기는 구분하고 빈 queue의 oldest age는 0이다. DB snapshot 실패 또는 45초 이상 갱신 없음은 queue를 정상 0으로 표시하지 않는다. Worker 마지막 종료 시각 0은 아직 처리 종료가 없다는 뜻이며, 유휴 때문에 종료 경과가 길어질 수 있어 queue/active/up과 함께 확인한다.
 
 HTTP 패널은 `/actuator.*`와 `/healthz`를 제외하고 내부 API 요청은 포함한다. 요청 없음의 0/0 오류율·p95는 계산 불가이며 RPS 0과 구분한다. API 상세의 GC 평균도 이벤트가 없으면 계산 불가다. 수집 자체가 없는 경우에는 up와 target 수부터 확인한다.
 
-92개 dashboard PromQL은 promtool3.13.3으로 문법을 확인했고, [쿼리 검증 fixture](../../tests/dashboard-promql.test.json)는 snapshot 실패·정체·중복 API 관측·다른 mode 합산·부분 성공/취소의 성공률 기준을 검증한다. JSON 변경 시 모든 target expr을 추출해 template 변수를 실제 값으로 치환한 후 promtool check rules를 다시 실행한다.
+현재 세 JSON의 74개 dashboard PromQL은 promtool 3.13.3으로 문법을 확인했고, [쿼리 검증 fixture](../../tests/dashboard-promql.test.json)의 11개 시나리오는 snapshot 실패·정체·중복 API 관측·다른 mode 합산·부분 성공/취소의 성공률, 첫 완료의 0 기준값, 마지막 완료 선택과 5분 이후 유지·label 변경을 검증한다. JSON 변경 시 모든 target expr을 추출해 template 변수를 실제 값으로 치환한 후 promtool check rules를 다시 실행한다.
 
 ## JVM CPU와 EC2 CPU
 

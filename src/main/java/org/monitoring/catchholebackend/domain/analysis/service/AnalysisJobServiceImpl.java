@@ -140,11 +140,14 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 targetEpisodes
         );
         aiTokenService.ensureAnalysisCanStart(memberId);
+        UUID metricsRequestId = UUID.randomUUID();
+        LocalDateTime metricsRequestedAt = LocalDateTime.now();
         List<AnalysisJob> analysisJobs = targetEpisodes.stream()
                 .sorted(Comparator.comparing(Episode::getEpisodeNo))
                 .map(targetEpisode -> {
                     AnalysisJob job = AnalysisJob.create(work, batch, targetEpisode, request.jobType());
                     job.configureReviewMode(reviewMode);
+                    job.configureMetricsRequest(metricsRequestId, metricsRequestedAt, targetEpisodes.size());
                     return job;
                 })
                 .toList();
@@ -476,6 +479,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                             failedJob.getJobType()
                     );
                     retry.markMetricsUserRetry();
+                    retry.inheritMetricsRequest(failedJob);
                     return analysisJobRepository.save(retry);
                 });
     }

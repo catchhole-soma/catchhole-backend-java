@@ -292,11 +292,37 @@ public class AnalysisJob extends BaseEntity {
     @Column(name = "metrics_user_retry", nullable = false)
     private boolean metricsUserRetry;
 
+    // 한 사용자 요청의 전체 대상 회차를 묶는다. 과거 독립 요청을 추정할 수 없는 row는 null이다.
+    @Column(name = "metrics_request_id")
+    private UUID metricsRequestId;
+    @Column(name = "metrics_request_started_at")
+    private LocalDateTime metricsRequestStartedAt;
+    // 일부 회차가 사라져도 남은 회차만으로 전체 완료를 판단하지 않는다.
+    @Column(name = "metrics_request_episode_count")
+    private Integer metricsRequestEpisodeCount;
+
     public boolean isPublicEpisodeAnalysis() {
         return jobType == AnalysisJobType.SETTING_EXTRACTION || jobType == AnalysisJobType.EPISODE_VALIDATION;
     }
 
     public void markMetricsUserRetry() { metricsUserRetry = true; }
+
+    public void configureMetricsRequest(UUID requestId, LocalDateTime requestedAt, int episodeCount) {
+        if (!isPublicEpisodeAnalysis() || episode == null || status != AnalysisJobStatus.PENDING
+                || startedAt != null || episodeCount < 1) {
+            throw new IllegalStateException("분석 시작 전 공개 회차 요청에만 계측 묶음을 지정할 수 있습니다.");
+        }
+        metricsRequestId = Objects.requireNonNull(requestId);
+        metricsRequestStartedAt = Objects.requireNonNull(requestedAt);
+        metricsRequestEpisodeCount = episodeCount;
+    }
+
+    public void inheritMetricsRequest(AnalysisJob source) {
+        if (source.getMetricsRequestId() != null) {
+            configureMetricsRequest(source.getMetricsRequestId(), source.getMetricsRequestStartedAt(),
+                    source.getMetricsRequestEpisodeCount());
+        }
+    }
 
     public boolean recordResultReady(int attemptNo, LocalDateTime readyAt, String outcome) {
         if (!isPublicEpisodeAnalysis() || attemptRequestedAt == null || attemptNo != metricsAttemptNo
@@ -316,6 +342,9 @@ public class AnalysisJob extends BaseEntity {
         if (isPublicEpisodeAnalysis() && episode != null) {
             this.attemptRequestedAt = pendingSince;
             this.metricsAttemptNo = 1;
+            this.metricsRequestId = UUID.randomUUID();
+            this.metricsRequestStartedAt = pendingSince;
+            this.metricsRequestEpisodeCount = 1;
         }
         if (episode != null) {
             this.targetEpisodes.add(episode);
