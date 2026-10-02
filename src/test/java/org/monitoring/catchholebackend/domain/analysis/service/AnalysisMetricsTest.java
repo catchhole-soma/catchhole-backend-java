@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.config.MeterFilter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.prometheusmetrics.PrometheusConfig;
+import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -22,6 +24,41 @@ import org.monitoring.catchholebackend.domain.analysis.type.*;
 @DisplayName("분석 지표의 수집 실패와 유휴 상태")
 class AnalysisMetricsTest {
     private static final Labels LABELS = new Labels(AnalysisJobType.SETTING_EXTRACTION, AnalysisMode.CONFIRMED_ONLY, AnalysisReviewMode.MANUAL);
+
+    @Test
+    @DisplayName("첫 접수와 완료 전에 0인 시계열을 수집하고 첫 사건의 증가량을 보존한다")
+    void firstEventHasAnExportedZeroBaselineForEveryBoundedLabelCombination() {
+        PrometheusMeterRegistry registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+        try {
+            AnalysisMetrics metrics = new AnalysisMetrics(registry);
+            for (AnalysisJobType type : List.of(AnalysisJobType.SETTING_EXTRACTION, AnalysisJobType.EPISODE_VALIDATION)) {
+                for (AnalysisMode mode : AnalysisMode.values()) for (AnalysisReviewMode review : AnalysisReviewMode.values()) {
+                    Labels labels = new Labels(type, mode, review);
+                    String[] tags = {"job_type", type.name().toLowerCase(java.util.Locale.ROOT),
+                            "analysis_mode", mode.name().toLowerCase(java.util.Locale.ROOT),
+                            "review_mode", review.name().toLowerCase(java.util.Locale.ROOT)};
+                    assertThat(registry.find("catchhole.analysis.accepted").tags(tags).counter()).isNotNull();
+                    assertThat(registry.get("catchhole.analysis.accepted").tags(tags).counter().count()).isZero();
+                    for (String outcome : List.of("success", "partial_success", "failure", "canceled")) {
+                        assertThat(registry.find("catchhole.analysis.results").tags(tags).tag("outcome", outcome).counter()).isNotNull();
+                        assertThat(registry.get("catchhole.analysis.results").tags(tags).tag("outcome", outcome).counter().count()).isZero();
+                        assertThat(registry.find("catchhole.analysis.result.ready").tags(tags).tag("outcome", outcome).timer()).isNotNull();
+                        assertThat(registry.get("catchhole.analysis.result.ready").tags(tags).tag("outcome", outcome).timer().count()).isZero();
+                    }
+                    String before = registry.scrape();
+                    assertThat(before).contains("catchhole_analysis_result_ready_seconds_bucket");
+                    LocalDateTime start = LocalDateTime.of(2026, 10, 2, 0, 0);
+                    metrics.record(new AnalysisMetricsEvent("accepted", UUID.randomUUID(), 1, labels, null, start, null));
+                    metrics.record(new AnalysisMetricsEvent("result", UUID.randomUUID(), 1, labels, start, start.plusSeconds(160), "success"));
+                    assertThat(registry.get("catchhole.analysis.accepted").tags(tags).counter().count()).isEqualTo(1);
+                    assertThat(registry.get("catchhole.analysis.results").tags(tags).tag("outcome", "success").counter().count()).isEqualTo(1);
+                    assertThat(registry.get("catchhole.analysis.result.ready").tags(tags).tag("outcome", "success").timer().count()).isEqualTo(1);
+                    assertThat(registry.get("catchhole.analysis.result.ready").tags(tags).tag("outcome", "success").timer()
+                            .totalTime(java.util.concurrent.TimeUnit.SECONDS)).isEqualTo(160);
+                }
+            }
+        } finally { registry.close(); }
+    }
 
     @Test
     @DisplayName("빈 큐는 0이며 조회 실패는 마지막 관측과 진행하는 대기 시간을 보존한다")
@@ -46,13 +83,14 @@ class AnalysisMetricsTest {
     }
 
     @Test
-    @DisplayName("registry 실패는 커밋 후 지표 콜백 밖으로 전파하지 않는다")
+    @DisplayName("registry 실패는 초기 지표 등록과 커밋 후 콜백 밖으로 전파하지 않는다")
     void registryFailureDoesNotEscapeCommittedMetricCallback() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        AnalysisMetrics metrics = new AnalysisMetrics(registry);
         registry.config().meterFilter(new MeterFilter() {
             @Override public Meter.Id map(Meter.Id id) { throw new IllegalStateException("registry unavailable"); }
         });
+        assertThatCode(() -> new AnalysisMetrics(registry)).doesNotThrowAnyException();
+        AnalysisMetrics metrics = new AnalysisMetrics(registry);
         assertThatCode(() -> metrics.record(new AnalysisMetricsEvent("accepted", UUID.randomUUID(), 1, LABELS, null, null, null))).doesNotThrowAnyException();
     }
 

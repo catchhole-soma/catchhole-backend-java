@@ -34,6 +34,20 @@ public class AnalysisMetrics {
             Gauge.builder("catchhole.analysis.snapshot.last.success.timestamp", this, m -> m.lastSuccess).baseUnit("seconds").register(registry);
             for (AnalysisJobType type : AnalysisJobType.values()) for (AnalysisMode mode : AnalysisMode.values()) for (AnalysisReviewMode review : AnalysisReviewMode.values()) {
                 Labels labels = new Labels(type, mode, review);
+                Tags meterTags = tags(labels);
+                // 첫 사건 전에 0을 노출해야 Prometheus가 첫 증가량도 관측할 수 있다.
+                timer("catchhole.analysis.claim.wait", meterTags);
+                for (String action : List.of("requeued", "failed"))
+                    registry.counter("catchhole.analysis.recoveries", meterTags.and("action", action));
+                if (type == AnalysisJobType.SETTING_EXTRACTION || type == AnalysisJobType.EPISODE_VALIDATION) {
+                    registry.counter("catchhole.analysis.accepted", meterTags);
+                    registry.counter("catchhole.analysis.retries", meterTags);
+                    for (String outcome : List.of("success", "partial_success", "failure", "canceled")) {
+                        Tags outcomes = meterTags.and("outcome", outcome);
+                        registry.counter("catchhole.analysis.results", outcomes);
+                        timer("catchhole.analysis.result.ready", outcomes);
+                    }
+                }
                 for (String queue : List.of("eligible", "dependency_blocked")) {
                     Tags tags = tags(labels).and("queue_state", queue);
                     Gauge.builder("catchhole.analysis.pending.jobs", this, m -> m.count(labels, queue)).tags(tags).register(registry);
@@ -63,10 +77,13 @@ public class AnalysisMetrics {
     }
     private void timer(String name, Tags tags, LocalDateTime from, LocalDateTime at) {
         if (from == null || at == null) return;
-        Timer.builder(name).tags(tags).publishPercentileHistogram().maximumExpectedValue(Duration.ofHours(6))
+        timer(name, tags).record(Duration.between(from, at).isNegative() ? Duration.ZERO : Duration.between(from, at));
+    }
+    private Timer timer(String name, Tags tags) {
+        return Timer.builder(name).tags(tags).publishPercentileHistogram().maximumExpectedValue(Duration.ofHours(6))
                 .serviceLevelObjectives(Duration.ofSeconds(1), Duration.ofSeconds(5), Duration.ofSeconds(15),
                         Duration.ofSeconds(30), Duration.ofMinutes(1), Duration.ofMinutes(5), Duration.ofMinutes(15), Duration.ofHours(1))
-                .register(registry).record(Duration.between(from, at).isNegative() ? Duration.ZERO : Duration.between(from, at));
+                .register(registry);
     }
     public void updateSnapshot(List<Row> rows) {
         snapshot.set(List.copyOf(rows));
