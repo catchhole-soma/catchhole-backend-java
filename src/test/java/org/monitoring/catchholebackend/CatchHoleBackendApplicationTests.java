@@ -45,6 +45,7 @@ import org.springframework.transaction.support.TransactionTemplate;
         "work.purge.scheduling-enabled=false",
         "member.withdrawal.scheduling-enabled=false",
         "episode.source-purge.scheduling-enabled=false",
+        "service-usage.metrics.scheduling-enabled=false",
         "spring.autoconfigure.exclude="
                 + "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration,"
                 + "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration"
@@ -114,6 +115,9 @@ class CatchHoleBackendApplicationTests {
 
     @MockitoBean
     private org.monitoring.catchholebackend.domain.analysis.repository.AnalysisLatestCompletedRequestRepository analysisLatestCompletedRequestRepository;
+
+    @MockitoBean
+    private org.monitoring.catchholebackend.global.monitoring.ServiceUsageSnapshotRepository serviceUsageSnapshotRepository;
 
     @MockitoBean
     private org.monitoring.catchholebackend.domain.analysis.service.AnalysisResultReadyTracker analysisResultReadyTracker;
