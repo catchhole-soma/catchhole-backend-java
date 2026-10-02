@@ -40,3 +40,7 @@ world-image:
 analysis:
   metrics:
     scheduling-enabled: false
+
+service-usage:
+  metrics:
+    scheduling-enabled: false
