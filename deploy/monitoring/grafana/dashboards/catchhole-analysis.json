@@ -62,7 +62,7 @@
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 6,
+        "w": 8,
         "h": 5
       },
       "fieldConfig": {
@@ -132,7 +132,7 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "분석 완전 성공률",
+      "title": "분석 완전 성공률 · 최근 5분",
       "description": "최근 5분 완전 성공 / 성공·부분 성공·실패. 취소 제외. 결과 없음은 계산 불가.",
       "datasource": {
         "type": "prometheus",
@@ -140,9 +140,9 @@
       },
       "pluginVersion": "13.2.2",
       "gridPos": {
-        "x": 6,
+        "x": 8,
         "y": 0,
-        "w": 6,
+        "w": 8,
         "h": 5
       },
       "fieldConfig": {
@@ -212,17 +212,17 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "분석 결과 준비 시간 p95",
-      "description": "접수부터 후속 비교까지 성공·부분 성공 회차의 전체 시간입니다. Worker 처리 시간 또는 provider 누적 시간과 다릅니다.",
+      "title": "회차 결과 준비 시간 p95 · 최근 5분",
+      "description": "최근 5분 동안 결과가 준비된 성공·부분 성공 회차의 접수부터 후속 비교·자동 반영까지 시간의 p95입니다. 회차별 통계이며 마지막 작품 전체 시간과 다릅니다. 업로드와 사람의 검토는 제외합니다. 최근 완료가 없으면 계산 불가입니다.",
       "datasource": {
         "type": "prometheus",
         "uid": "catchhole-prometheus"
       },
       "pluginVersion": "13.2.2",
       "gridPos": {
-        "x": 12,
+        "x": 16,
         "y": 0,
-        "w": 6,
+        "w": 8,
         "h": 5
       },
       "fieldConfig": {
@@ -290,6 +290,166 @@
       }
     },
     {
+      "id": 21,
+      "type": "stat",
+      "title": "마지막 완료 작품 분석 소요 시간",
+      "description": "가장 최근에 완료된 작품 분석 요청의 모든 대상 회차가 준비될 때까지 걸린 실제 시간입니다. 최초 접수부터 마지막 회차의 후속 비교·자동 반영 종료까지 측정하며 재시도 대기는 포함하고 업로드·사람 검토는 제외합니다. 성공·부분 성공 요청만 표시합니다. 5분이 지나도 유지하고 서버 재시작 후 DB에서 복구합니다. 완료 기록 없음 또는 DB 조회 실패·45초 이상 갱신 없음은 관측 없음으로 표시합니다. 작품명·작품 ID는 노출하지 않습니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 8,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "관측 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max(catchhole_analysis_last_completed_duration_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} and topk(1, (catchhole_analysis_last_completed_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0) and (catchhole_analysis_last_completed_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and ((time() - catchhole_analysis_last_completed_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) < 45)))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "마지막 작품 분석 완료 후 경과",
+      "description": "같은 마지막 완료 작품 분석 요청이 끝난 후 경과한 시간입니다. 분석 소요 시간이 아니며 새 완료가 없으면 계속 증가합니다. 마지막 작품 분석 소요 시간과 같은 DB 관측을 선택합니다. 완료 기록 없음 또는 DB 조회 실패·45초 이상 갱신 없음은 관측 없음입니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 8,
+        "y": 5,
+        "w": 8,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "관측 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "time() - max(topk(1, (catchhole_analysis_last_completed_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0) and (catchhole_analysis_last_completed_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and ((time() - catchhole_analysis_last_completed_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) < 45)))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
       "id": 4,
       "type": "stat",
       "title": "분석 상태 snapshot 정상",
@@ -300,9 +460,9 @@
       },
       "pluginVersion": "13.2.2",
       "gridPos": {
-        "x": 18,
-        "y": 0,
-        "w": 6,
+        "x": 16,
+        "y": 5,
+        "w": 8,
         "h": 5
       },
       "fieldConfig": {
@@ -381,7 +541,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 5,
+        "y": 10,
         "w": 12,
         "h": 8
       },
@@ -602,7 +762,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 12,
-        "y": 5,
+        "y": 10,
         "w": 12,
         "h": 8
       },
@@ -823,7 +983,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 13,
+        "y": 18,
         "w": 12,
         "h": 8
       },
@@ -984,7 +1144,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 12,
-        "y": 13,
+        "y": 18,
         "w": 12,
         "h": 8
       },
@@ -1096,7 +1256,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 21,
+        "y": 26,
         "w": 12,
         "h": 8
       },
@@ -1244,7 +1404,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 12,
-        "y": 21,
+        "y": 26,
         "w": 12,
         "h": 8
       },
@@ -1368,7 +1528,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 29,
+        "y": 34,
         "w": 12,
         "h": 8
       },
@@ -1529,7 +1689,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 12,
-        "y": 29,
+        "y": 34,
         "w": 12,
         "h": 8
       },
@@ -1653,7 +1813,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 37,
+        "y": 42,
         "w": 12,
         "h": 8
       },
@@ -1765,7 +1925,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 12,
-        "y": 37,
+        "y": 42,
         "w": 12,
         "h": 8
       },
@@ -1925,7 +2085,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 45,
+        "y": 50,
         "w": 12,
         "h": 8
       },
@@ -2037,7 +2197,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 12,
-        "y": 45,
+        "y": 50,
         "w": 12,
         "h": 8
       },
@@ -2149,7 +2309,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 53,
+        "y": 58,
         "w": 12,
         "h": 8
       },
@@ -2273,7 +2433,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 12,
-        "y": 53,
+        "y": 58,
         "w": 12,
         "h": 8
       },
@@ -2385,7 +2545,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 61,
+        "y": 66,
         "w": 12,
         "h": 8
       },
@@ -2497,7 +2657,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 12,
-        "y": 61,
+        "y": 66,
         "w": 12,
         "h": 8
       },
