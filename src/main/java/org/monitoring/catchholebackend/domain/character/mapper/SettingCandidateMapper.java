@@ -121,7 +121,9 @@ public class SettingCandidateMapper {
                 candidate.isPendingReview() ? candidate.getAutomaticReviewHoldReason() : null,
                 candidate.isAutomaticApplicationPending(),
                 analysisJob == null ? null : analysisJob.getAnalysisMode(),
-                candidate.getConfirmedApplicationMode() == org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode.HISTORY_ONLY
+                candidate.getConfirmedApplicationMode() == org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode.HISTORY_ONLY,
+                candidate.isUserModified(),
+                candidate.getReviewedApplicationMode()
         );
     }
 

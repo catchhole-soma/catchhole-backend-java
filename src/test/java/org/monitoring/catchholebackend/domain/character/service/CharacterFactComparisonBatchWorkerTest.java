@@ -1363,6 +1363,47 @@ class CharacterFactComparisonBatchWorkerTest {
     }
 
     @Test
+    @DisplayName("원문에서 섞인 FactType 그룹은 배치 배정 뒤에도 문맥 조회와 완료를 이어간다")
+    void interleavedFactTypesKeepTheOriginalJobInputThroughoutComparison() {
+        when(schemaRepository.findAllActiveForWork(work.getId()))
+                .thenReturn(List.of(statusSchema(), profileSchema()));
+        SettingCandidate injury = candidate("status.새부상", "부상", 10);
+        SettingCandidate species = candidate("profile.species", "인간", 20);
+        SettingCandidate bleeding = candidate("status.새출혈", "출혈", 30);
+        // 이 회귀는 Job coordinator의 실제 hash 검증도 통과해야 한다.
+        when(comparisonJobCoordinator.inputHash(any())).thenCallRealMethod();
+        when(comparisonJobCoordinator.hasCurrentInput(any(), any())).thenCallRealMethod();
+        analysisJob = AnalysisJob.createCharacterFactComparison(
+                injury, comparisonJobCoordinator.inputHash(candidates));
+        analysisJobId = UUID.randomUUID();
+        ReflectionTestUtils.setField(analysisJob, "id", analysisJobId);
+        when(analysisJobLeaseService.getRunningAnalysisJobForUpdate(analysisJobId, leaseToken))
+                .thenReturn(analysisJob);
+        when(comparisonJobCoordinator.lockScopeCandidates(analysisJob)).thenReturn(candidates);
+        when(batchRepository.findByIdAndAnalysisJobIdForUpdate(any(UUID.class), eq(analysisJobId)))
+                .thenAnswer(invocation -> Optional.ofNullable(batches.get(invocation.getArgument(0))));
+
+        var first = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
+        var firstContext = worker.getContext(analysisJobId, first.comparisonBatchId(), leaseToken);
+        assertThat(first.canonicalFactType()).isEqualTo(CharacterFactType.STATUS);
+        worker.complete(analysisJobId, first.comparisonBatchId(), leaseToken,
+                new WorkerCharacterFactComparisonBatchCompleteRequest(firstContext.contextToken(),
+                        List.of(add("C1", "status.새부상", "부상"), add("C2", "status.새출혈", "출혈")),
+                        List.of(), Map.of()));
+
+        var second = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
+        var secondContext = worker.getContext(analysisJobId, second.comparisonBatchId(), leaseToken);
+        assertThat(second.canonicalFactType()).isEqualTo(CharacterFactType.PROFILE);
+        worker.complete(analysisJobId, second.comparisonBatchId(), leaseToken,
+                new WorkerCharacterFactComparisonBatchCompleteRequest(secondContext.contextToken(),
+                        List.of(add("C1", "profile.species", "인간")), List.of(), Map.of()));
+
+        assertThat(List.of(injury, species, bleeding)).allSatisfy(candidate ->
+                assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.COMPLETED));
+        assertThat(worker.claimNext(analysisJobId, leaseToken)).isEmpty();
+    }
+
+    @Test
     @DisplayName("동명 캐릭터 ID와 같은 캐릭터의 서로 다른 FactType을 별도 묶음으로 claim한다")
     void separatesSameNameCharactersAndFactTypes() {
         WorkCharacter namesake = WorkCharacter.create(

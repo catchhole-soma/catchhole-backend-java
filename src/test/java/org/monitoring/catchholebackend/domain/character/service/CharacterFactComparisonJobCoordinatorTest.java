@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -27,8 +28,11 @@ import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpoin
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterFactComparisonBatch;
+import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateChronology;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
@@ -153,6 +157,99 @@ class CharacterFactComparisonJobCoordinatorTest {
                 .put("name", "눈 색깔"));
 
         assertThat(coordinator.inputHash(List.of(candidate))).isEqualTo(firstHash);
+    }
+
+    @Test
+    @DisplayName("FactType별 배치 배정과 재시도 초기화는 원본 그룹 입력 hash를 바꾸지 않는다")
+    void inputHashSurvivesInterleavedBatchAssignmentsAndRetryReset() {
+        AnalysisJob source = sourceJob();
+        SettingCandidate first = candidate(source, "수아", "status.부상", true);
+        SettingCandidate middle = candidate(source, "수아", "profile.species", false);
+        SettingCandidate last = candidate(source, "수아", "status.출혈", false);
+        ReflectionTestUtils.setField(last, "evidenceSpans", objectMapper.createArrayNode()
+                .add(objectMapper.createObjectNode().put("startOffset", 30)));
+        List<SettingCandidate> group = List.of(last, middle, first);
+        String originalHash = coordinator.inputHash(group);
+        AnalysisJob comparisonJob = AnalysisJob.createCharacterFactComparison(first, originalHash);
+
+        CharacterFactComparisonBatch statuses = comparisonBatch(source, CharacterFactType.STATUS, 2, 0);
+        first.startComparison(statuses, "C1");
+        last.startComparison(statuses, "C2");
+        middle.startComparison(comparisonBatch(source, CharacterFactType.PROFILE, 1, 1), "C1");
+
+        // 실제 비교·확정은 이미 부여한 배치 순서를 유지하지만 그룹 입력 집합은 동일하다.
+        assertThat(SettingCandidateChronology.sorted(group)).containsExactly(first, last, middle);
+        assertThat(coordinator.hasCurrentInput(comparisonJob, group)).isTrue();
+        group.forEach(SettingCandidate::requestComparison);
+        assertThat(SettingCandidateChronology.sorted(group)).containsExactly(first, middle, last);
+        assertThat(coordinator.hasCurrentInput(comparisonJob, group)).isTrue();
+    }
+
+    @Test
+    @DisplayName("재시도 Job은 기존 배치 배정 초기화 뒤에도 같은 입력을 참조한다")
+    void retriedJobKeepsCurrentInputAfterClearingPreviousAssignments() {
+        when(batch.getId()).thenReturn(batchId);
+        AnalysisJob source = sourceJob();
+        SettingCandidate first = candidate(source, "수아", "status.부상", true);
+        SettingCandidate middle = candidate(source, "수아", "profile.species", false);
+        SettingCandidate last = candidate(source, "수아", "status.출혈", false);
+        ReflectionTestUtils.setField(last, "evidenceSpans", objectMapper.createArrayNode()
+                .add(objectMapper.createObjectNode().put("startOffset", 30)));
+        List<SettingCandidate> group = List.of(first, middle, last);
+        CharacterFactComparisonBatch statuses = comparisonBatch(source, CharacterFactType.STATUS, 2, 0);
+        first.startComparison(statuses, "C1");
+        last.startComparison(statuses, "C2");
+        middle.startComparison(comparisonBatch(source, CharacterFactType.PROFILE, 1, 1), "C1");
+        // 개별 재시도/수정은 seed를 먼저 초기화하고 coordinator가 나머지 그룹을 초기화한다.
+        first.requestComparison();
+        when(settingCandidateRepository.findAllPendingInBatchForUpdate(
+                work.getId(), batchId, SettingCandidateReviewStatus.PENDING_REVIEW)).thenReturn(group);
+        when(analysisJobRepository.findAllActiveComparisonJobs(
+                batchId, AnalysisJobType.CHARACTER_FACT_COMPARISON,
+                List.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING))).thenReturn(List.of());
+
+        coordinator.enqueueIfNeeded(1L, first);
+
+        ArgumentCaptor<AnalysisJob> captor = ArgumentCaptor.forClass(AnalysisJob.class);
+        verify(analysisJobRepository).save(captor.capture());
+        assertThat(group).allSatisfy(candidate -> {
+            assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PENDING);
+            assertThat(candidate.getCharacterComparisonBatch()).isNull();
+        });
+        assertThat(coordinator.hasCurrentInput(captor.getValue(), group)).isTrue();
+    }
+
+    @Test
+    @DisplayName("실제 값·연결 대상·후보 집합 변경은 기존 그룹 입력 hash를 무효화한다")
+    void actualInputChangesStillInvalidateTheJob() {
+        SettingCandidate candidate = candidate(sourceJob(), "수아", "status.부상", true);
+        String originalHash = coordinator.inputHash(List.of(candidate));
+        AnalysisJob job = AnalysisJob.createCharacterFactComparison(candidate, originalHash);
+        var originalValue = candidate.getValueJson();
+        ReflectionTestUtils.setField(candidate, "valueJson", objectMapper.createObjectNode().put("active", false));
+        assertThat(coordinator.hasCurrentInput(job, List.of(candidate))).isFalse();
+        ReflectionTestUtils.setField(candidate, "valueJson", originalValue);
+        ReflectionTestUtils.setField(candidate, "matchedCharacterId", UUID.randomUUID());
+        assertThat(coordinator.hasCurrentInput(job, List.of(candidate))).isFalse();
+        ReflectionTestUtils.setField(candidate, "matchedCharacterId", null);
+        var originalEvidence = candidate.getEvidenceSpans();
+        ReflectionTestUtils.setField(candidate, "evidenceSpans", objectMapper.createArrayNode()
+                .add(objectMapper.createObjectNode().put("startOffset", 100)));
+        assertThat(coordinator.hasCurrentInput(job, List.of(candidate))).isFalse();
+        ReflectionTestUtils.setField(candidate, "evidenceSpans", originalEvidence);
+        assertThat(coordinator.hasCurrentInput(job, List.of())).isFalse();
+        assertThat(coordinator.hasCurrentInput(job, List.of(candidate,
+                candidate(sourceJob(), "수아", "status.출혈", false)))).isFalse();
+        assertThat(coordinator.hasCurrentInput(job, List.of(candidate))).isTrue();
+    }
+
+    private CharacterFactComparisonBatch comparisonBatch(
+            AnalysisJob source, CharacterFactType type, int count, int second) {
+        CharacterFactComparisonBatch comparison = CharacterFactComparisonBatch.create(
+                work, null, source, null, type, count, 0);
+        ReflectionTestUtils.setField(comparison, "id", UUID.randomUUID());
+        ReflectionTestUtils.setField(comparison, "createdAt", LocalDateTime.of(2026, 10, 2, 0, 0, second));
+        return comparison;
     }
 
     @Test

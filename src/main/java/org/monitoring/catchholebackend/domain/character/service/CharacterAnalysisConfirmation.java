@@ -188,7 +188,7 @@ public class CharacterAnalysisConfirmation {
             if (number == null && origin != null && origin.getAnalysisJob() != null) {
                 number = origin.getAnalysisJob().getSourceEpisodeNo();
             }
-            return origin == null || origin.isUserModified() || number == null || number < 1 || number >= episode;
+            return origin == null || origin.hasUserEditedContent() || number == null || number < 1 || number >= episode;
         });
     }
 

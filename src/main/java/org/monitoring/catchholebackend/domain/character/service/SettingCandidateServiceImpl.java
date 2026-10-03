@@ -99,6 +99,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
     private final AiTokenService aiTokenService;
     private final CharacterAnalysisConfirmation analysisConfirmation;
     private final CharacterFactComparisonJobCoordinator characterComparisonJobCoordinator;
+    private final jakarta.persistence.EntityManager entityManager;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
@@ -230,6 +231,19 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
         candidate.validateReviewContentEditable();
         validateComparisonNotProcessing(candidate);
+        if (request.reviewedApplicationMode() != null) {
+            validateExplicitReviewRequest(candidate, request);
+        }
+        boolean manualFinalReview = isSingleJobManualReviewGroup(candidate);
+        if (candidate.isCompletedManualReview()) {
+            validateCandidateReviewTimestamp(candidate, request.expectedUpdatedAt());
+            analysisConfirmation.assertReviewSourceCurrent(candidate);
+            if (candidate.getComparisonStatus() == CharacterFactComparisonStatus.FAILED
+                    && !candidate.canDeferFailedComparison()) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+            }
+        }
+        CharacterFactConfirmApplicationMode previousReviewMode = candidate.getReviewedApplicationMode();
         List<CharacterSettingSchema> schemas =
                 characterSettingSchemaRepository.findAllActiveForWork(candidate.getWork().getId());
 
@@ -260,9 +274,20 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 schemaMatch.matchedSchema().getFactType(),
                 schemaMatch.matchedSchema().getValueType()
         );
-        if (reviewContent.updateRequired()) {
+        if (request.reviewedApplicationMode() != null || manualFinalReview && reviewContent.updateRequired()
+                && candidate.getMatchStatus() != SettingCandidateMatchStatus.AMBIGUOUS
+                && !isUnknownCharacterName(candidate.getEntityName())) {
+            var mode = request.reviewedApplicationMode() != null ? request.reviewedApplicationMode()
+                    : previousReviewMode != null ? previousReviewMode : CharacterFactConfirmApplicationMode.APPLY_PROPOSAL;
+            candidate.recordReviewedApplicationMode(mode, currentSnapshotVersion(candidate));
+        }
+        if (reviewContent.updateRequired() && !manualFinalReview) {
             enqueueComparisonJobIfNeeded(memberId, candidate);
         }
+        // JSON 숫자의 Java/DB 노드 타입 차이로 commit 때 다시 dirty가 되는 것을 막고,
+        // 낙관적 검증에 쓰는 응답 updatedAt을 실제 저장된 초안과 일치시킨다.
+        settingCandidateRepository.flush();
+        entityManager.refresh(candidate);
         return toResponse(candidate, schemas);
     }
 
@@ -330,6 +355,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         );
         enqueueComparisonJobIfNeeded(memberId, candidate);
         enqueuePreviousScopes(memberId, previousScopes, List.of(candidate));
+        settingCandidateRepository.flush();
 
         List<CharacterSettingSchema> schemas =
                 characterSettingSchemaRepository.findAllActiveForWork(candidate.getWork().getId());
@@ -362,7 +388,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 ? CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
                 : request.applicationMode();
         boolean applyEditedValue = request != null && Boolean.TRUE.equals(request.applyEditedValue());
-        validateEditedApplicationSelection(candidate, applyEditedValue);
+        validateEditedApplicationSelection(candidate, applyEditedValue, request == null ? null : request.expectedUpdatedAt());
 
         if (isCompletedOrderedReview(candidate)) {
             SettingCandidateGroupPromotion promotion = prepareCompletedOrderedCandidate(
@@ -480,8 +506,13 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         }
         candidates.forEach(candidate -> validateEditedApplicationSelection(
                 candidate,
-                Boolean.TRUE.equals(decisions.get(candidate.getId()).applyEditedValue())
+                Boolean.TRUE.equals(decisions.get(candidate.getId()).applyEditedValue()),
+                decisions.get(candidate.getId()).expectedUpdatedAt()
         ));
+
+        if (Boolean.TRUE.equals(request.acceptDisplayedResults())) {
+            return confirmDisplayedManualResults(work, candidates, decisions, decisionHash);
+        }
 
         if (candidates.stream().allMatch(this::isCompletedOrderedReview)) {
             List<SettingCandidateGroupPromotion> promotions = new ArrayList<>();
@@ -716,6 +747,80 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         );
     }
 
+    /** 같은 회차의 화면에 남은 최종 결과를 원자적으로 승인한다. AI 입력 hash는 사용자 결정의 버전이 아니다. */
+    private SettingCandidateGroupConfirmResult confirmDisplayedManualResults(
+            Work work, List<SettingCandidate> candidates,
+            Map<UUID, SettingCandidateGroupConfirmDecision> decisions, String decisionHash) {
+        if (candidates.stream().anyMatch(candidate -> !candidate.isCompletedManualReview())
+                || candidates.stream().map(candidate -> candidate.getAnalysisJob().getId()).distinct().count() != 1) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
+        }
+        var representative = candidates.getFirst();
+        boolean newCharacter = representative.getMatchStatus() == SettingCandidateMatchStatus.UNRESOLVED;
+        if (newCharacter && (isUnknownCharacterName(representative.getEntityName())
+                || existsCharacterByGroupName(work.getId(), representative.getEntityName()))) {
+            // 검토 중 다른 요청이 만든 동명 인물에 조용히 연결하지 않는다.
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
+        }
+        Set<UUID> sourceIds = settingCandidateRepository
+                .findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(representative.getAnalysisJob().getId())
+                .stream().map(SettingCandidate::getId).collect(java.util.stream.Collectors.toSet());
+        List<SettingCandidateGroupPromotion> promotions = new ArrayList<>();
+        List<SettingCandidate> exclusions = new ArrayList<>();
+        for (SettingCandidate candidate : candidates) {
+            var decision = decisions.get(candidate.getId());
+            validateCandidateReviewTimestamp(candidate, decision.expectedUpdatedAt());
+            validateComparisonNotProcessing(candidate);
+            if (!sourceIds.containsAll(comparisonDependencyIds(candidate))) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_GROUP_DECISION_DEPENDENCY_CONFLICT);
+            }
+            if (candidate.getReviewedApplicationMode() != null) {
+                if (!Boolean.TRUE.equals(decision.applyEditedValue())
+                        || candidate.getReviewedApplicationMode() != decision.applicationMode()) {
+                    throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_EDIT_APPLICATION_REQUIRED);
+                }
+                if (decision.applicationMode() == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+                        && !Objects.equals(candidate.getReviewedSnapshotVersion(), currentSnapshotVersion(candidate))) {
+                    throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE);
+                }
+                prepareUserEditedValue(candidate, decision.applicationMode() == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+                        ? CharacterFactTemporalScope.PRESENT : candidate.getTemporalScope(), false);
+            } else if (Boolean.TRUE.equals(decision.applyEditedValue())) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_EDIT_APPLICATION_REQUIRED);
+            } else if (!candidate.isCharacterDiscovery()
+                    && candidate.getSuggestedOperation() != CharacterFactOperation.EXCLUDE
+                    && decision.applicationMode() == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL) {
+                if (!Objects.equals(decision.baseSnapshotVersion(), candidate.getComparisonBaseSnapshotVersion())
+                        || !Objects.equals(candidate.getComparisonBaseSnapshotVersion(), currentSnapshotVersion(candidate))) {
+                    throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE);
+                }
+            }
+            if (candidate.getSuggestedOperation() == CharacterFactOperation.EXCLUDE) {
+                if (!candidate.isComparisonCompleted()) {
+                    throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_NOT_READY);
+                }
+                exclusions.add(candidate);
+                continue;
+            }
+            validateConfirmPolicy(candidate, decision.applicationMode(), null);
+            // 같은 회차에서 제외·이력으로 바꾼 선행 후보의 AI 의존성을 다시 실행하지 않는다.
+            // 외부의 후행 회차·직접 수정·삭제 이력 보호는 후보별로 계속 적용한다.
+            promotions.add(new SettingCandidateGroupPromotion(candidate,
+                    protectedReviewMode(candidate, decision.applicationMode()), true));
+        }
+        exclusions.forEach(SettingCandidate::dismiss);
+        if (!promotions.isEmpty()) {
+            if (newCharacter) settingCandidatePromotionService.promoteNewCharacterGroup(promotions);
+            else {
+                promotions.forEach(promotion -> promotion.candidate().confirm());
+                settingCandidatePromotionService.promoteGroup(promotions);
+            }
+        }
+        candidates.forEach(candidate -> candidate.recordGroupConfirmation(decisionHash));
+        return SettingCandidateGroupConfirmResult.confirmed(toGroupActionResponse(groupKey(representative), candidates,
+                characterSettingSchemaRepository.findAllActiveForWork(work.getId())));
+    }
+
     @Override
     public String applicationDomain() { return "characters"; }
 
@@ -821,7 +926,42 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 && job.getJournalStatus() != AnalysisJournalStatus.SEALED;
     }
 
-    private void validateEditedApplicationSelection(SettingCandidate candidate, boolean applyEditedValue) {
+    private void validateExplicitReviewRequest(SettingCandidate candidate, SettingCandidateUpdateRequest request) {
+        validateCandidateReviewTimestamp(candidate, request.expectedUpdatedAt());
+        if (candidate.getAnalysisJob() == null
+                || !candidate.getAnalysisJob().isCompletedOrderedAnalysis() && !candidate.isCompletedManualReview()
+                || candidate.getMatchStatus() == SettingCandidateMatchStatus.AMBIGUOUS
+                || isUnknownCharacterName(candidate.getEntityName())
+                || candidate.getComparisonStatus() == CharacterFactComparisonStatus.FAILED
+                    && !candidate.canDeferFailedComparison()) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        analysisConfirmation.assertReviewSourceCurrent(candidate);
+    }
+
+    private long currentSnapshotVersion(SettingCandidate candidate) {
+        UUID characterId = analysisConfirmation.resolvedCharacterId(candidate);
+        if (characterId == null) return 0L;
+        return workCharacterRepository.findByIdAndWorkIdForUpdate(characterId, candidate.getWork().getId())
+                .filter(character -> character.getStatus() == CharacterStatus.ACTIVE)
+                .orElseThrow(() -> new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID))
+                .getSnapshotVersion();
+    }
+
+    private void validateCandidateReviewTimestamp(SettingCandidate candidate, java.time.LocalDateTime expectedUpdatedAt) {
+        // PostgreSQL timestamp(6)과 flush 직후 Java 응답의 나노초 표현을 같은 저장 정밀도로 비교한다.
+        if (expectedUpdatedAt == null || candidate.getUpdatedAt() == null
+                || !expectedUpdatedAt.plusNanos(500).truncatedTo(java.time.temporal.ChronoUnit.MICROS)
+                        .equals(candidate.getUpdatedAt().plusNanos(500).truncatedTo(java.time.temporal.ChronoUnit.MICROS))) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE);
+        }
+    }
+
+    private void validateEditedApplicationSelection(SettingCandidate candidate, boolean applyEditedValue,
+            java.time.LocalDateTime expectedUpdatedAt) {
+        if (isCompletedOrderedReview(candidate) && candidate.getReviewedApplicationMode() != null) {
+            validateCandidateReviewTimestamp(candidate, expectedUpdatedAt);
+        }
         if (isOrdered(candidate) && !candidate.isCharacterDiscovery()
                 && candidate.isUserModified() && !applyEditedValue) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_EDIT_APPLICATION_REQUIRED);
@@ -840,16 +980,31 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                     ? new SettingCandidateGroupPromotion(candidate, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL)
                     : null;
         }
-        // 보류 판단을 확정으로 위장하지 않는다. 사용자가 수정안을 저장했거나 정상 비교가 있어야 한다.
+        if (candidate.isUserModified()) {
+            if (candidate.getReviewedApplicationMode() == null
+                    || candidate.getReviewedApplicationMode() != requested) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_EDIT_APPLICATION_REQUIRED);
+            }
+            if (requested == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+                    && !Objects.equals(candidate.getReviewedSnapshotVersion(), currentSnapshotVersion(candidate))) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE);
+            }
+        }
+        // 대상 연결만으로 내용/시점 보류를 승인하지 않는다. 저장된 명시적 선택 또는 정상 비교가 필요하다.
         if (!candidate.isUserModified()) validateConfirmPolicy(candidate, requested == null
                 ? CharacterFactConfirmApplicationMode.APPLY_PROPOSAL : requested, null);
         var schema = settingCandidateSchemaResolver.resolve(candidate.getAttributeName(), candidate.getValueType(),
                 characterSettingSchemaRepository.findAllActiveForWork(candidate.getWork().getId()));
         String key = schema.factKey();
-        CharacterFactTemporalScope reviewedScope = candidate.getTemporalScope();
+        boolean explicitCurrent = candidate.getReviewedApplicationMode() == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL;
+        // 초안 저장 중에는 AI가 판단한 시점을 보존하고, 최종 확정에서만 작가의 현재값 선택을 적용한다.
+        CharacterFactTemporalScope reviewedScope = explicitCurrent
+                ? CharacterFactTemporalScope.PRESENT : candidate.getTemporalScope();
         boolean historyOnly = requested == CharacterFactConfirmApplicationMode.HISTORY_ONLY
                 || candidate.getSuggestedOperation() == CharacterFactOperation.REMOVE
-                || analysisConfirmation.keepReviewedFactInHistory(candidate, schema.matchedSchema().getFactType(), key);
+                || (explicitCurrent
+                    ? analysisConfirmation.keepLateReviewInHistory(candidate, schema.matchedSchema().getFactType(), key)
+                    : analysisConfirmation.keepReviewedFactInHistory(candidate, schema.matchedSchema().getFactType(), key));
         // 오래된 비교의 병합값·부수 삭제를 재사용하지 않고 작가가 확인한 이 후보의 값만 반영한다.
         prepareUserEditedValue(candidate, reviewedScope, true);
         if (!candidate.confirm()) return null;
@@ -906,7 +1061,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 }
             }
             protectedDecisions.put(candidate.getId(), new SettingCandidateGroupConfirmDecision(
-                    candidate.getId(), mode, decision.baseSnapshotVersion(), decision.applyEditedValue()));
+                    candidate.getId(), mode, decision.baseSnapshotVersion(), decision.applyEditedValue(), decision.expectedUpdatedAt()));
         }
         return protectedDecisions;
     }
@@ -916,7 +1071,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
     }
 
     private void prepareUserEditedValue(SettingCandidate candidate, CharacterFactTemporalScope reviewedScope, boolean lateReview) {
-        if (!isOrdered(candidate) || (!candidate.isUserModified() && !lateReview)) {
+        if (!isOrdered(candidate) && !candidate.isCompletedManualReview() || (!candidate.isUserModified() && !lateReview)) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
         if (candidate.isCharacterDiscovery()) {
@@ -1006,11 +1161,27 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         }
         validateReviewMutationAllowed(work, List.of(candidateId));
         candidate.recordUserModification();
+        boolean manualFinalReview = isSingleJobManualReviewGroup(candidate);
         List<CharacterFactComparisonJobCoordinator.ScopeRef> previousScopes =
                 characterComparisonJobCoordinator.scopeRefs(List.of(candidate));
         candidate.dismiss();
-        characterComparisonJobCoordinator.enqueueScopes(memberId, previousScopes);
+        if (!manualFinalReview) {
+            characterComparisonJobCoordinator.enqueueScopes(memberId, previousScopes);
+        }
         return settingCandidateMapper.toReviewStatusResponse(candidate);
+    }
+
+    private boolean isSingleJobManualReviewGroup(SettingCandidate candidate) {
+        if (!candidate.isCompletedManualReview()) return false;
+        String selectedGroupKey = groupKey(candidate);
+        UUID sourceJobId = candidate.getAnalysisJob().getId();
+        // 확정과 같은 그룹 경계로 판단한다. 제외 전 확인해야 마지막 타 회차 후보도 재비교를 예약한다.
+        return settingCandidateRepository.findReviewCandidates(
+                        candidate.getWork().getId(), candidate.getAnalysisJob().getBatch().getId(),
+                        SettingCandidateReviewStatus.PENDING_REVIEW,
+                        EnumSet.allOf(SettingCandidateMatchStatus.class))
+                .stream().filter(sibling -> groupKey(sibling).equals(selectedGroupKey))
+                .allMatch(sibling -> Objects.equals(sourceJobId, sibling.getAnalysisJob().getId()));
     }
 
     private boolean prepareUnresolvedExistingCharacterForComparison(
@@ -1172,13 +1343,15 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         StringBuilder canonical = new StringBuilder()
                 .append(request.batchId()).append('|')
                 .append(request.comparisonRevision()).append('\n');
+        if (Boolean.TRUE.equals(request.acceptDisplayedResults())) canonical.append("DISPLAYED_FINAL_RESULTS\n");
         request.candidates().stream()
                 .sorted(Comparator.comparing(SettingCandidateGroupConfirmDecision::candidateId))
                 .forEach(decision -> canonical
                         .append(decision.candidateId()).append('|')
                         .append(decision.applicationMode()).append('|')
                         .append(decision.baseSnapshotVersion()).append('|')
-                        .append(Boolean.TRUE.equals(decision.applyEditedValue())).append('\n'));
+                        .append(Boolean.TRUE.equals(decision.applyEditedValue()))
+                        .append(decision.expectedUpdatedAt() == null ? "" : "|" + decision.expectedUpdatedAt()).append('\n'));
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(canonical.toString().getBytes(StandardCharsets.UTF_8)));
@@ -1274,6 +1447,30 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             UUID matchedCharacterId,
             String requestedEntityName
     ) {
+        Map<UUID, CharacterFactConfirmApplicationMode> safeTargetOnlyDecisions = new HashMap<>();
+        for (SettingCandidate candidate : candidates) {
+            if (!candidate.isCharacterDiscovery() && isCompletedOrderedReview(candidate)
+                    && candidate.isComparisonCompleted()
+                    && candidate.getTemporalScope() != null
+                    && candidate.getTemporalScope() != CharacterFactTemporalScope.UNKNOWN
+                    && candidate.getSuggestedOperation() != CharacterFactOperation.REVIEW_REQUIRED
+                    && candidate.getSuggestedOperation() != CharacterFactOperation.REMOVE
+                    && candidate.getSuggestedOperation() != CharacterFactOperation.EXCLUDE
+                    && !candidate.hasComparisonDependencies()) {
+                // 같은 대상을 다시 골라도 AI 병합 문장을 원본 후보 값으로 바꾸면 의미가 달라진다.
+                boolean sameValue = Objects.equals(candidate.getAttributeValue(), candidate.getProposedFactValue());
+                boolean sameTarget = resolution == org.monitoring.catchholebackend.domain.character.type.SettingCandidateCharacterMatchResolutionType.MATCH_EXISTING
+                        && Objects.equals(candidate.getMatchedCharacterId(), matchedCharacterId);
+                boolean independentAdd = candidate.getSuggestedOperation() == CharacterFactOperation.ADD;
+                if (sameValue && (sameTarget || independentAdd)) {
+                    safeTargetOnlyDecisions.put(candidate.getId(),
+                            candidate.getTemporalScope() == CharacterFactTemporalScope.PRESENT
+                                    && candidate.getSuggestedOperation() != CharacterFactOperation.HISTORY_ONLY
+                                    ? CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+                                    : CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+                }
+            }
+        }
         switch (resolution) {
             case MATCH_EXISTING -> {
                 if (matchedCharacterId == null) {
@@ -1297,7 +1494,13 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 candidates.forEach(candidate -> candidate.markAsNewCharacter(entityName));
             }
         }
-        candidates.forEach(SettingCandidate::recordUserModification);
+        candidates.forEach(candidate -> {
+            candidate.recordUserModification();
+            CharacterFactConfirmApplicationMode safeDecision = safeTargetOnlyDecisions.get(candidate.getId());
+            if (safeDecision != null) {
+                candidate.recordReviewedApplicationMode(safeDecision, currentSnapshotVersion(candidate));
+            }
+        });
     }
 
     private void validateCompletePendingGroup(

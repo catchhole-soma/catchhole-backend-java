@@ -195,6 +195,72 @@ class SettingCandidateControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("직접 고른 저장 방식을 재조회해 복원하고 응답 시각으로 선택 변경을 이어갈 수 있다")
+    void persistsExplicitDecisionAndAcceptsResponseTimestamp() throws Exception {
+        analysisJobRepository.delete(analysisJob);
+        analysisJob = AnalysisJob.create(work, uploadBatch, episode, AnalysisJobType.SETTING_EXTRACTION);
+        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "analysisMode",
+                org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL);
+        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "status",
+                org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.SUCCEEDED);
+        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "journalStatus",
+                org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.SEALED);
+        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "automaticAppliedAt", LocalDateTime.now());
+        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "sourceEpisodeNo", episode.getEpisodeNo());
+        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "sourceContentHash", episode.getContentHash());
+        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "sourceContentS3Key", episode.getContentS3Key());
+        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "sourceContentS3Version", episode.getContentS3Version());
+        analysisJob = analysisJobRepository.saveAndFlush(analysisJob);
+        WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "아리아"));
+        SettingCandidate candidate = candidate(work, episode, analysisJob, "아리아", "age", "17");
+        candidate.matchExistingCharacter(character);
+        org.springframework.test.util.ReflectionTestUtils.setField(candidate, "comparisonStatus",
+                org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus.COMPLETED);
+        org.springframework.test.util.ReflectionTestUtils.setField(candidate, "suggestedOperation", CharacterFactOperation.REVIEW_REQUIRED);
+        org.springframework.test.util.ReflectionTestUtils.setField(candidate, "temporalScope", CharacterFactTemporalScope.UNKNOWN);
+        candidate = settingCandidateRepository.saveAndFlush(candidate);
+        candidate = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
+        String firstTimestamp = candidate.getUpdatedAt().toString();
+        var first = mockMvc.perform(patch("/api/v1/works/{workId}/setting-candidates/{candidateId}", work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of("attributeName", "age", "attributeValue", "17",
+                                "reviewedApplicationMode", "HISTORY_ONLY", "expectedUpdatedAt", firstTimestamp))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.userModified").value(true))
+                .andExpect(jsonPath("$.data.reviewedApplicationMode").value("HISTORY_ONLY"))
+                .andExpect(jsonPath("$.data.temporalScope").value("UNKNOWN"))
+                .andReturn();
+        String savedTimestamp = objectMapper.readTree(first.getResponse().getContentAsString()).path("data").path("updatedAt").asText();
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates/{candidateId}", work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)).queryParam("batchId", uploadBatch.getId().toString()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.reviewedApplicationMode").value("HISTORY_ONLY"));
+        mockMvc.perform(patch("/api/v1/works/{workId}/setting-candidates/{candidateId}", work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of("attributeName", "age", "attributeValue", "17",
+                                "reviewedApplicationMode", "APPLY_PROPOSAL", "expectedUpdatedAt", savedTimestamp))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.reviewedApplicationMode").value("APPLY_PROPOSAL"))
+                .andExpect(jsonPath("$.data.temporalScope").value("UNKNOWN"));
+        mockMvc.perform(patch("/api/v1/works/{workId}/setting-candidates/{candidateId}", work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of("attributeName", "age", "attributeValue", "19"))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.reviewedApplicationMode").doesNotExist());
+        assertThat(settingCandidateRepository.findById(candidate.getId()).orElseThrow().getReviewedApplicationMode()).isNull();
+        String editedAt = settingCandidateRepository.findById(candidate.getId()).orElseThrow().getUpdatedAt().toString();
+        var reviewed = mockMvc.perform(patch("/api/v1/works/{workId}/setting-candidates/{candidateId}", work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of("attributeName", "age", "attributeValue", "19",
+                                "reviewedApplicationMode", "APPLY_PROPOSAL", "expectedUpdatedAt", editedAt))))
+                .andExpect(status().isOk()).andReturn();
+        String reviewedAt = objectMapper.readTree(reviewed.getResponse().getContentAsString()).path("data").path("updatedAt").asText();
+        mockMvc.perform(post("/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm", work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of("applicationMode", "APPLY_PROPOSAL",
+                                "applyEditedValue", true, "expectedUpdatedAt", reviewedAt))))
+                .andExpect(status().isOk());
+        assertThat(workCharacterRepository.findById(character.getId()).orElseThrow().getCurrentAge()).isEqualTo(19);
+    }
+
+    @Test
     @DisplayName("설정 후보 목록을 응답한다")
     void getSettingCandidatesReturnsCandidatesForAuthenticatedWork() throws Exception {
         SettingCandidate candidate = settingCandidateRepository.save(candidate(

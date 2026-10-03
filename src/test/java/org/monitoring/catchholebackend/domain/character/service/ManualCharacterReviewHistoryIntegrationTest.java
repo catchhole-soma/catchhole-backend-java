@@ -86,7 +86,7 @@ class ManualCharacterReviewHistoryIntegrationTest {
     @DisplayName("단건과 그룹 모두 후행·동일 회차·수동·삭제·과거 설정을 이력으로 보존한다")
     void protectsCurrentSettingForManualReview(String scenario, boolean group) {
         Fixture fixture = fixture(scenario);
-        boolean historyOnly = !List.of("empty", "earlier").contains(scenario);
+        boolean historyOnly = !List.of("empty", "earlier", "linked-earlier").contains(scenario);
         confirm(fixture, group, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
         confirm(fixture, group, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
 
@@ -107,7 +107,7 @@ class ManualCharacterReviewHistoryIntegrationTest {
 
     static Stream<Arguments> reviewCases() {
         return Stream.of("later", "same", "manual", "edited-origin", "unknown-source", "removed", "empty", "earlier", "past",
-                        "renumbered-source", "legacy-source")
+                        "renumbered-source", "legacy-source", "linked-earlier", "edited-earlier", "legacy-edited-earlier")
                 .flatMap(scenario -> Stream.of(Arguments.of(scenario, false), Arguments.of(scenario, true)));
     }
 
@@ -283,9 +283,10 @@ class ManualCharacterReviewHistoryIntegrationTest {
             var snapshot = accessor.read(character);
             snapshot.put(wound, accessor.entry(CharacterFactType.STATUS, wound.factKey(), "부상", JSON.objectNode().put("name", "부상").put("active", true)));
             accessor.replace(character, snapshot, false, false);
-            Episode originEpisode = episode(character.getWork(), scenario.equals("earlier") ? 2 : 5);
+            Episode originEpisode = episode(character.getWork(), List.of("earlier", "linked-earlier", "edited-earlier", "legacy-edited-earlier").contains(scenario) ? 2 : 5);
             AnalysisJob originJob = job(character.getWork(), pending.getAnalysisJob().getBatch(), originEpisode);
             SettingCandidate origin = candidate(originJob, character, "stats.strength", CharacterFactOperation.ADD, CharacterFactTemporalScope.PRESENT);
+            recordOriginEdit(scenario, origin);
             origin.confirm();
             origin.recordConfirmedApplicationMode(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
             CharacterFact fact = CharacterFact.create(character, origin, CharacterFactType.STATUS, wound.factKey(), "부상", "부상",
@@ -311,15 +312,43 @@ class ManualCharacterReviewHistoryIntegrationTest {
         confirm(fixture, group, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
         tx.executeWithoutResult(status -> {
             assertThat(accessor.read(entities.find(WorkCharacter.class, fixture.character()))
-                    .containsKey(new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.부상"))).isEqualTo(scenario.equals("later"));
-            assertThat(entities.find(SettingCandidate.class, fixture.candidate()).getConfirmedApplicationMode()).isEqualTo(scenario.equals("later")
+                    .containsKey(new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.부상"))).isEqualTo(!List.of("earlier", "linked-earlier").contains(scenario));
+            assertThat(entities.find(SettingCandidate.class, fixture.candidate()).getConfirmedApplicationMode()).isEqualTo(!List.of("earlier", "linked-earlier").contains(scenario)
                     ? CharacterFactConfirmApplicationMode.HISTORY_ONLY : CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
         });
     }
 
     static Stream<Arguments> removalCases() {
-        return Stream.of("earlier", "later").flatMap(scenario -> Stream.of("REMOVE", "ADD_WITH_REMOVAL")
+        return Stream.of("earlier", "later", "linked-earlier", "edited-earlier", "legacy-edited-earlier").flatMap(scenario -> Stream.of("REMOVE", "ADD_WITH_REMOVAL")
                 .flatMap(operation -> Stream.of(Arguments.of(scenario, operation, false), Arguments.of(scenario, operation, true))));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"later", "same", "manual", "edited-origin", "unknown-source", "removed", "empty", "earlier", "past",
+            "linked-earlier", "edited-earlier", "legacy-edited-earlier"})
+    @DisplayName("최종 결과 승인 경로도 후행·수동·삭제 현재값 보호를 유지한다")
+    void displayedFinalResultsKeepCurrentProtection(String scenario) {
+        Fixture f = fixture(scenario);
+        var candidate = review.getSettingCandidate(f.member(), f.work(), f.batch(), f.candidate());
+        var request = new SettingCandidateGroupConfirmRequest(f.batch(), null, List.of(new SettingCandidateGroupConfirmDecision(
+                f.candidate(), CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, candidate.comparisonBaseSnapshotVersion(), false, candidate.updatedAt())), true);
+        assertThat(review.confirmSettingCandidateGroup(f.member(), f.work(), request).recomparisonRequired()).isFalse();
+        tx.executeWithoutResult(status -> assertThat(entities.find(SettingCandidate.class, f.candidate()).getConfirmedApplicationMode())
+                .isEqualTo(List.of("empty", "earlier", "linked-earlier").contains(scenario)
+                        ? CharacterFactConfirmApplicationMode.APPLY_PROPOSAL : CharacterFactConfirmApplicationMode.HISTORY_ONLY));
+    }
+
+    private void recordOriginEdit(String scenario, SettingCandidate origin) {
+        if (scenario.equals("edited-origin") || scenario.equals("edited-earlier")) {
+            origin.updateReviewContent(origin.getAttributeName(), "36", JSON.objectNode().put("value", 36));
+        } else if (scenario.equals("linked-earlier")) {
+            // 인물 선택 서비스가 기록하는 검토 변경이며 설정 내용은 수정하지 않았다.
+            origin.recordUserModification();
+        } else if (scenario.equals("legacy-edited-earlier")) {
+            ReflectionTestUtils.setField(origin, "userContentModified", null);
+            ReflectionTestUtils.setField(origin, "userModified", true);
+            origin.recordUserModification();
+        }
     }
 
     private void confirm(Fixture fixture, boolean group, CharacterFactConfirmApplicationMode mode) {
@@ -350,13 +379,13 @@ class ManualCharacterReviewHistoryIntegrationTest {
             Episode episode = episode(work, 3);
             AnalysisJob job = job(work, batch, episode);
             if (!List.of("empty", "past", "unknown-source").contains(scenario)) {
-                Episode originEpisode = scenario.equals("same") ? episode : episode(work, scenario.equals("earlier") ? 2 : 5);
+                Episode originEpisode = scenario.equals("same") ? episode : episode(work, List.of("earlier", "linked-earlier", "edited-earlier", "legacy-edited-earlier").contains(scenario) ? 2 : 5);
                 AnalysisJob originJob = AnalysisJob.create(work, batch, originEpisode, AnalysisJobType.SETTING_EXTRACTION);
                 ReflectionTestUtils.setField(originJob, "status", AnalysisJobStatus.SUCCEEDED);
                 if (scenario.equals("legacy-source")) ReflectionTestUtils.setField(originJob, "sourceEpisodeNo", null);
                 entities.persist(originJob);
                 SettingCandidate origin = candidate(originJob, character, "stats.mental", CharacterFactOperation.ADD, CharacterFactTemporalScope.PRESENT);
-                if (scenario.equals("edited-origin")) origin.recordUserModification();
+                recordOriginEdit(scenario, origin);
                 origin.confirm();
                 origin.recordConfirmedApplicationMode(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
                 CharacterFact fact = scenario.equals("manual") ? CharacterFact.createManual(character, CharacterFactType.STAT, "stats.mental", "36", JSON.objectNode().put("value", 36))

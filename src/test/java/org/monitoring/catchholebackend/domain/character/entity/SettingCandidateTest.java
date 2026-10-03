@@ -83,6 +83,54 @@ class SettingCandidateTest {
         assertThat(candidate.getCandidateKind()).isEqualTo(SettingCandidateKind.SETTING);
         assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
         assertThat(candidate.isPendingReview()).isTrue();
+        assertThat(candidate.getUserContentModified()).isFalse();
+    }
+
+    @Test
+    @DisplayName("대상 연결과 확인만 한 후보는 내용 수동 수정으로 보호하지 않는다")
+    void identityReviewDoesNotPinTheContent() {
+        Work work = work();
+        SettingCandidate candidate = candidate(work, "age", "17");
+        candidate.matchExistingCharacter(character(work, "이안"));
+        candidate.recordUserModification();
+        assertThat(candidate.isUserModified()).isTrue();
+        assertThat(candidate.hasUserEditedContent()).isFalse();
+    }
+
+    @Test
+    @DisplayName("내용을 수정한 뒤 다시 연결하거나 재비교해도 내용 보호는 유지한다")
+    void actualContentEditSurvivesRelinkingAndRetry() {
+        Work work = work();
+        SettingCandidate candidate = candidate(work, "age", "17");
+        candidate.updateReviewContent("age", "18", objectMapper.createObjectNode().put("value", 18));
+        candidate.matchExistingCharacter(character(work, "이안"));
+        candidate.recordUserModification();
+        candidate.requestComparison();
+        assertThat(candidate.hasUserEditedContent()).isTrue();
+    }
+
+    @Test
+    @DisplayName("내용 수정 기록이 없는 기존 후보는 기존 사용자 수정 보호를 유지한다")
+    void legacyNullPreservesTheExistingProtection() {
+        SettingCandidate candidate = candidate("age", "17");
+        ReflectionTestUtils.setField(candidate, "userContentModified", null);
+        ReflectionTestUtils.setField(candidate, "userModified", true);
+        assertThat(candidate.hasUserEditedContent()).isTrue();
+        candidate.recordUserModification();
+        assertThat(candidate.getUserContentModified()).isNull();
+        assertThat(candidate.hasUserEditedContent()).isTrue();
+    }
+
+    @Test
+    @DisplayName("아직 수정하지 않은 기존 후보의 첫 연결은 내용 수정 보호를 만들지 않는다")
+    void firstReviewOfUntouchedLegacyCandidateIsNotAContentEdit() {
+        SettingCandidate candidate = candidate("age", "17");
+        ReflectionTestUtils.setField(candidate, "userContentModified", null);
+        assertThat(candidate.hasUserEditedContent()).isFalse();
+        candidate.recordUserModification();
+        assertThat(candidate.isUserModified()).isTrue();
+        assertThat(candidate.getUserContentModified()).isFalse();
+        assertThat(candidate.hasUserEditedContent()).isFalse();
     }
 
     @Test

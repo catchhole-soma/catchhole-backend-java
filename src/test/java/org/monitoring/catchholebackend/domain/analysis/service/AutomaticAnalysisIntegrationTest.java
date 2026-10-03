@@ -520,25 +520,30 @@ class AutomaticAnalysisIntegrationTest {
                 entities.createQuery("delete from CharacterSnapshotSource s where s.workCharacter.id = :id").setParameter("id", character).executeUpdate();
             }
         });
+        CharacterFactConfirmApplicationMode selectedMode = List.of("past", "history", "remove").contains(scenario)
+                ? CharacterFactConfirmApplicationMode.HISTORY_ONLY : CharacterFactConfirmApplicationMode.APPLY_PROPOSAL;
+        LocalDateTime beforeReview = tx.execute(status -> candidates.findById(pending).orElseThrow().getUpdatedAt());
+        var reviewed = characterReview.updateSettingCandidate(owner, run.workId(), pending,
+                new SettingCandidateUpdateRequest("stats.mental", "35", selectedMode, beforeReview));
         UUID batch = tx.execute(status -> jobs.findById(first.analysisJobId()).orElseThrow().getBatch().getId());
         if (group) {
             var omitted = new SettingCandidateGroupConfirmRequest(batch, List.of(new SettingCandidateGroupConfirmDecision(
-                    pending, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, null, false)));
+                    pending, selectedMode, null, false, reviewed.updatedAt())));
             assertThatThrownBy(() -> characterReview.confirmSettingCandidateGroup(owner, run.workId(), omitted))
                     .isInstanceOfSatisfying(AppException.class, error -> assertThat(error.getResultCode())
                             .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_EDIT_APPLICATION_REQUIRED));
             var request = new SettingCandidateGroupConfirmRequest(batch, List.of(new SettingCandidateGroupConfirmDecision(
-                    pending, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, null, true)));
+                    pending, selectedMode, null, true, reviewed.updatedAt())));
             assertThat(characterReview.confirmSettingCandidateGroup(owner, run.workId(), request).recomparisonRequired()).isFalse();
             nextBatch(run.workId(), 3);
             assertThat(characterReview.confirmSettingCandidateGroup(owner, run.workId(), request).recomparisonRequired()).isFalse();
         } else {
             var omitted = new SettingCandidateConfirmRequest(
-                    CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, null, false);
+                    selectedMode, null, false, reviewed.updatedAt());
             assertThatThrownBy(() -> characterReview.confirmSettingCandidate(owner, run.workId(), pending, omitted))
                     .isInstanceOfSatisfying(AppException.class, error -> assertThat(error.getResultCode())
                             .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_EDIT_APPLICATION_REQUIRED));
-            var request = new SettingCandidateConfirmRequest(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, null, true);
+            var request = new SettingCandidateConfirmRequest(selectedMode, null, true, reviewed.updatedAt());
             assertThat(characterReview.confirmSettingCandidate(owner, run.workId(), pending, request).recomparisonRequired()).isFalse();
             nextBatch(run.workId(), 3);
             assertThat(characterReview.confirmSettingCandidate(owner, run.workId(), pending, request).recomparisonRequired()).isFalse();
@@ -1226,9 +1231,14 @@ class AutomaticAnalysisIntegrationTest {
         characterReview.updateSettingCandidateCharacterMatch(owner, run.workId(), pending.getFirst(),
                 new org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateCharacterMatchRequest(
                         org.monitoring.catchholebackend.domain.character.type.SettingCandidateCharacterMatchResolutionType.MATCH_EXISTING, character, null));
-        characterReview.updateSettingCandidate(owner, run.workId(), pending.getFirst(), new SettingCandidateUpdateRequest("stats.mental", "35"));
+        LocalDateTime beforeReview = tx.execute(status -> candidates.findById(pending.getFirst()).orElseThrow().getUpdatedAt());
+        var reviewed = characterReview.updateSettingCandidate(owner, run.workId(), pending.getFirst(),
+                new SettingCandidateUpdateRequest("stats.mental", "35", CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, beforeReview));
+        LocalDateTime savedReviewedAt = tx.execute(status -> candidates.findById(pending.getFirst()).orElseThrow().getUpdatedAt());
+        assertThat(reviewed.updatedAt().plusNanos(500).truncatedTo(java.time.temporal.ChronoUnit.MICROS))
+                .isEqualTo(savedReviewedAt.plusNanos(500).truncatedTo(java.time.temporal.ChronoUnit.MICROS));
         assertThat(characterReview.confirmSettingCandidate(owner, run.workId(), pending.getFirst(),
-                new SettingCandidateConfirmRequest(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, null, true)).recomparisonRequired()).isFalse();
+                new SettingCandidateConfirmRequest(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, null, true, reviewed.updatedAt())).recomparisonRequired()).isFalse();
         UUID batch = tx.execute(status -> jobs.findById(second.analysisJobId()).orElseThrow().getBatch().getId());
         worldApplication.updateCandidateDecisions(owner, run.workId(), new WorldSettingCandidateDecisionUpdateRequest(batch,
                 List.of(new WorldSettingCandidateDecisionUpdateItem(pending.get(1), WorldSettingOperation.ADD,
@@ -1393,7 +1403,9 @@ class AutomaticAnalysisIntegrationTest {
         complete(first);
         Long ownerId = tx.execute(status -> entities.find(Work.class, run.workId()).getMember().getId());
         assertThat(tx.<Boolean>execute(status -> candidates.findById(failedId).orElseThrow().isManualReviewAvailable())).isTrue();
-        characterReview.updateSettingCandidate(ownerId, run.workId(), failedId, new SettingCandidateUpdateRequest("stats.mental", "99"));
+        LocalDateTime beforeReview = tx.execute(status -> candidates.findById(failedId).orElseThrow().getUpdatedAt());
+        var reviewed = characterReview.updateSettingCandidate(ownerId, run.workId(), failedId,
+                new SettingCandidateUpdateRequest("stats.mental", "99", CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, beforeReview));
         UUID batchId = tx.execute(status -> jobs.findById(first.analysisJobId()).orElseThrow().getBatch().getId());
         tx.executeWithoutResult(status -> {
             WorkCharacter character = entities.createQuery("select c from WorkCharacter c where c.work.id = :id", WorkCharacter.class)
@@ -1403,11 +1415,11 @@ class AutomaticAnalysisIntegrationTest {
         if (groupConfirm) {
             var result = characterReview.confirmSettingCandidateGroup(ownerId, run.workId(),
                     new SettingCandidateGroupConfirmRequest(batchId, List.of(new SettingCandidateGroupConfirmDecision(
-                            failedId, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, 0L, true))));
+                            failedId, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, 0L, true, reviewed.updatedAt()))));
             assertThat(result.recomparisonRequired()).isFalse();
         } else {
             var result = characterReview.confirmSettingCandidate(ownerId, run.workId(), failedId,
-                    new SettingCandidateConfirmRequest(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, 0L, true));
+                    new SettingCandidateConfirmRequest(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, 0L, true, reviewed.updatedAt()));
             assertThat(result.recomparisonRequired()).isFalse();
         }
         tx.executeWithoutResult(status -> {

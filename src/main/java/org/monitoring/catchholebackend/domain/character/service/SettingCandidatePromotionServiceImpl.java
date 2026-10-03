@@ -72,7 +72,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             SettingCandidate candidate,
             CharacterFactConfirmApplicationMode applicationMode
     ) {
-        automaticImages.refreshCharacterImages(List.of(promote(candidate, applicationMode, new HashSet<>(), Map.of(), new LinkedHashMap<>())));
+        automaticImages.refreshCharacterImages(List.of(promote(candidate, applicationMode, new HashSet<>(), Map.of(), new LinkedHashMap<>(), false)));
     }
 
     @Override
@@ -87,7 +87,8 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                 promotion.applicationMode(),
                 versionedCharacterIds,
                 initialSnapshotVersions,
-                promotedSubjects
+                promotedSubjects,
+                promotion.acceptedFinalResult()
         )).toList();
         automaticImages.refreshCharacterImages(affected);
     }
@@ -97,7 +98,8 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             CharacterFactConfirmApplicationMode applicationMode,
             Set<UUID> versionedCharacterIds,
             Map<UUID, Long> initialSnapshotVersions,
-            Map<String, WorkCharacter> promotedSubjects
+            Map<String, WorkCharacter> promotedSubjects,
+            boolean acceptedFinalResult
     ) {
         candidate.recordConfirmedApplicationMode(applicationMode);
         if (candidate.isCharacterDiscovery()) {
@@ -128,7 +130,8 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                 schemaMatch,
                 resolved,
                 versionedCharacterIds,
-                removalSnapshotVersion
+                removalSnapshotVersion,
+                acceptedFinalResult
         );
         return resolved.character();
     }
@@ -203,7 +206,8 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                         resolveSchema(candidate),
                         orderedProposal ? new ResolvedCharacter(character, false) : resolved,
                         versionedCharacterIds,
-                        initialSnapshotVersion
+                        initialSnapshotVersion,
+                        promotion.acceptedFinalResult()
                 );
             }
         }
@@ -252,7 +256,8 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             SettingCandidateSchemaMatch schemaMatch,
             ResolvedCharacter resolved,
             Set<UUID> versionedCharacterIds,
-            long removalSnapshotVersion
+            long removalSnapshotVersion,
+            boolean acceptedFinalResult
     ) {
         WorkCharacter character = resolved.character();
         boolean historyOnly = applicationMode == CharacterFactConfirmApplicationMode.HISTORY_ONLY
@@ -260,7 +265,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshot = historyOnly ? Map.of() : snapshotAccessor.read(
                 character, snapshotSourceManager.findSourceFactsBySlot(character));
         PromotionPlan plan = preparePromotion(candidate, applicationMode, schemaMatch, resolved,
-                snapshot, removalSnapshotVersion);
+                snapshot, removalSnapshotVersion, acceptedFinalResult);
         updateFirstAppearance(character, candidate.getEpisode());
         CharacterFact newFact = characterFactRepository.saveAndFlush(promotionMapper.toCharacterFact(
                 candidate, character, plan.slot().factType(), plan.slot().factKey(), plan.candidateValue()));
@@ -284,6 +289,13 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             CharacterFactConfirmApplicationMode applicationMode, SettingCandidateSchemaMatch schemaMatch,
             ResolvedCharacter resolved, Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshot,
             long removalSnapshotVersion) {
+        return preparePromotion(candidate, applicationMode, schemaMatch, resolved, snapshot, removalSnapshotVersion, false);
+    }
+
+    private PromotionPlan preparePromotion(SettingCandidate candidate,
+            CharacterFactConfirmApplicationMode applicationMode, SettingCandidateSchemaMatch schemaMatch,
+            ResolvedCharacter resolved, Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshot,
+            long removalSnapshotVersion, boolean acceptedFinalResult) {
         CharacterFactType factType = schemaMatch.matchedSchema().getFactType();
         String factKey = candidate.getResolvedCanonicalFactKey() == null
                 || candidate.getResolvedCanonicalFactKey().isBlank()
@@ -303,12 +315,12 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         }
         if (operation == CharacterFactOperation.REMOVE) {
             return new PromotionPlan(operation, slot, normalized, null, null,
-                    resolveRemovalSlotsForPromotion(candidate, snapshot, slot), false);
+                    resolveRemovalSlotsForPromotion(candidate, snapshot, slot, acceptedFinalResult), false);
         }
         validateComparedTarget(candidate, slot);
         String proposedText = candidate.getProposedFactValue();
         valueValidator.validateProposal(proposed, proposedText, factType, schemaMatch.matchedSchema().getValueType());
-        List<CharacterSnapshotSlot> removals = parseRemovedSlots(candidate.getRemovedSnapshotEntriesJson(), snapshot, slot);
+        List<CharacterSnapshotSlot> removals = parseRemovedSlots(candidate.getRemovedSnapshotEntriesJson(), snapshot, slot, acceptedFinalResult);
         return new PromotionPlan(operation, slot, normalized, proposed, proposedText, removals, false);
     }
 
@@ -476,7 +488,8 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
     private List<CharacterSnapshotSlot> parseRemovedSlots(
             JsonNode removedEntriesJson,
             Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshot,
-            CharacterSnapshotSlot targetSlot
+            CharacterSnapshotSlot targetSlot,
+            boolean acceptedFinalResult
     ) {
         if (removedEntriesJson == null || removedEntriesJson.isNull()) {
             return List.of();
@@ -495,7 +508,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                 if (slot.factKey().isEmpty()
                         || slot.factType() != CharacterFactType.STATUS
                         || slot.equals(targetSlot)
-                        || !snapshot.containsKey(slot)
+                        || !acceptedFinalResult && !snapshot.containsKey(slot)
                         || !distinct.add(slot)) {
                     throw new IllegalArgumentException();
                 }
@@ -510,7 +523,8 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
     private List<CharacterSnapshotSlot> resolveRemovalSlotsForPromotion(
             SettingCandidate candidate,
             Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshot,
-            CharacterSnapshotSlot canonicalSlot
+            CharacterSnapshotSlot canonicalSlot,
+            boolean acceptedFinalResult
     ) {
         if (canonicalSlot.factType() != CharacterFactType.STATUS) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
@@ -536,10 +550,11 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         removedSlots.addAll(parseRemovedSlots(
                 candidate.getRemovedSnapshotEntriesJson(),
                 snapshot,
-                null
+                null,
+                acceptedFinalResult
         ));
         if (removedSlots.isEmpty()
-                || removedSlots.stream().anyMatch(slot -> !snapshot.containsKey(slot))) {
+                || !acceptedFinalResult && removedSlots.stream().anyMatch(slot -> !snapshot.containsKey(slot))) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_OPERATION_INVALID);
         }
         return List.copyOf(removedSlots);

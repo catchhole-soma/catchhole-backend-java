@@ -283,6 +283,19 @@ public class SettingCandidate extends BaseEntity {
     @Column(name = "user_modified", nullable = false)
     private boolean userModified;
 
+    // 연결/검토 선택과 내용 수정을 구분한다. 구버전의 NULL은 기존 userModified 보호를 유지한다.
+    @Column(name = "user_content_modified")
+    private Boolean userContentModified;
+
+    // 캐릭터 연결 여부와 별도로 작가가 확인한 값의 저장 방식을 보존한다.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "reviewed_application_mode", length = 30)
+    private CharacterFactConfirmApplicationMode reviewedApplicationMode;
+
+    // 선택 뒤 현재 설정이 바뀌면 같은 선택을 조용히 다른 값 위에 적용하지 않는다. 신규 대상은 0이다.
+    @Column(name = "reviewed_snapshot_version")
+    private Long reviewedSnapshotVersion;
+
     @Column(name = "reviewed_automatically", nullable = false)
     private boolean reviewedAutomatically;
 
@@ -302,10 +315,21 @@ public class SettingCandidate extends BaseEntity {
     }
 
     public boolean isManualReviewAvailable() {
+        if (isCompletedManualReview() && isPendingReview() && analysisJob.hasCurrentSourceVersion()) {
+            return reviewedApplicationMode != null
+                    || comparisonStatus == CharacterFactComparisonStatus.COMPLETED
+                        && suggestedOperation == CharacterFactOperation.REVIEW_REQUIRED;
+        }
         return isPendingReview() && analysisJob != null && analysisJob.isAutomaticReview()
-                && analysisJob.getAutomaticAppliedAt() != null
+                && analysisJob.isCompletedOrderedAnalysis() && analysisJob.hasCurrentSourceVersion()
                 && comparisonStatus != CharacterFactComparisonStatus.PENDING
-                && comparisonStatus != CharacterFactComparisonStatus.PROCESSING;
+                && comparisonStatus != CharacterFactComparisonStatus.PROCESSING
+                && (comparisonStatus != CharacterFactComparisonStatus.FAILED || canDeferFailedComparison());
+    }
+
+    public boolean isCompletedManualReview() {
+        return analysisJob != null && !analysisJob.isOrderedProvisional() && !analysisJob.isAutomaticReview()
+                && analysisJob.getStatus() == org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.SUCCEEDED;
     }
 
     public boolean isAutomaticApplicationPending() {
@@ -354,6 +378,7 @@ public class SettingCandidate extends BaseEntity {
         this.confidence = confidence;
         this.reviewStatus = SettingCandidateReviewStatus.PENDING_REVIEW;
         this.rawAiResultJson = rawAiResultJson;
+        this.userContentModified = false;
         this.comparisonStatus = initialComparisonStatus(candidateKind, this.matchStatus, matchedCharacterId, analysisJob);
     }
 
@@ -468,9 +493,38 @@ public class SettingCandidate extends BaseEntity {
 
     public void recordUserModification() {
         if (reviewStatus == SettingCandidateReviewStatus.PENDING_REVIEW) {
+            // 이전에도 수정된 후보(NULL/true)는 추정하지 않는다. 처음 연결하는 미수정 후보만 구분한다.
+            if (userContentModified == null && !userModified) userContentModified = false;
             userModified = true;
             automaticReviewHoldReason = null;
         }
+    }
+
+    public boolean hasUserEditedContent() {
+        return userContentModified == null ? userModified : userContentModified;
+    }
+
+    public void recordReviewedApplicationMode(CharacterFactConfirmApplicationMode mode, long snapshotVersion) {
+        validateReviewContentEditable();
+        if (analysisJob == null || !analysisJob.isCompletedOrderedAnalysis() && !isCompletedManualReview()
+                || comparisonStatus == CharacterFactComparisonStatus.PROCESSING
+                || matchStatus == SettingCandidateMatchStatus.AMBIGUOUS) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
+        }
+        recordUserModification();
+        reviewedApplicationMode = Objects.requireNonNull(mode);
+        reviewedSnapshotVersion = snapshotVersion;
+        // 완료된 누적 분석의 수동 초안에는 비교 Worker를 다시 예약하지 않는다.
+        // 편집으로 무효화한 PENDING을 진행 중으로 표시하지 않되 기존 성공/실패 근거는 보존한다.
+        if (comparisonStatus == CharacterFactComparisonStatus.PENDING
+                || comparisonStatus == CharacterFactComparisonStatus.WAITING_FOR_CHARACTER_MATCH) {
+            comparisonStatus = CharacterFactComparisonStatus.NOT_REQUIRED;
+        }
+    }
+
+    private void clearReviewedApplicationMode() {
+        reviewedApplicationMode = null;
+        reviewedSnapshotVersion = null;
     }
 
     public void prepareUserEditedValue(CharacterFactType factType, String factKey, String value,
@@ -495,7 +549,7 @@ public class SettingCandidate extends BaseEntity {
     private void prepareReviewedValue(CharacterFactType factType, String factKey, String value,
             JsonNode typedValue, CharacterFactOperation operation, long snapshotVersion, CharacterFactTemporalScope reviewedScope, boolean lateReview) {
         validateReviewContentEditable();
-        if (analysisJob == null || !analysisJob.isOrderedProvisional() || (!userModified && !lateReview)
+        if (analysisJob == null || !analysisJob.isOrderedProvisional() && !isCompletedManualReview() || (!userModified && !lateReview)
                 || comparisonStatus == CharacterFactComparisonStatus.PROCESSING
                 || matchStatus == SettingCandidateMatchStatus.AMBIGUOUS
                 || operation != CharacterFactOperation.ADD && operation != CharacterFactOperation.UPDATE) {
@@ -586,6 +640,7 @@ public class SettingCandidate extends BaseEntity {
         this.attributeValue = attributeValue;
         this.valueJson = valueJson;
         userModified = true;
+        userContentModified = true;
         automaticReviewHoldReason = null;
         requestComparisonAfterCandidateChange();
     }
@@ -898,6 +953,7 @@ public class SettingCandidate extends BaseEntity {
     }
 
     public void requestComparison() {
+        clearReviewedApplicationMode();
         validatePendingReview(CharacterErrorCode.SETTING_CANDIDATE_NOT_EDITABLE);
         preserveInitialHumanWaitMetrics();
         clearComparisonProposal();
@@ -989,6 +1045,7 @@ public class SettingCandidate extends BaseEntity {
     }
 
     private void requestComparisonAfterCandidateChange() {
+        clearReviewedApplicationMode();
         preserveInitialHumanWaitMetrics();
         if (isCharacterDiscovery() || !isPendingReview()) {
             comparisonStatus = CharacterFactComparisonStatus.NOT_REQUIRED;
@@ -1012,6 +1069,7 @@ public class SettingCandidate extends BaseEntity {
     }
 
     private void clearComparisonAfterReviewChange() {
+        clearReviewedApplicationMode();
         preserveInitialHumanWaitMetrics();
         CharacterFactTemporalScope reviewedScope = temporalScope;
         CharacterFactOperation reviewedOperation = suggestedOperation;
