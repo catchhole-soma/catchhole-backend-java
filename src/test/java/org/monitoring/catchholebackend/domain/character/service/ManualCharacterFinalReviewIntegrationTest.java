@@ -112,6 +112,66 @@ class ManualCharacterFinalReviewIntegrationTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
+    @DisplayName("여러 원본 Job의 구형 수동 그룹은 수정한 값으로 공통 비교를 다시 예약한다")
+    void recomputesLegacyCrossJobGroupAfterEdit(boolean newCharacter) {
+        Fixture f = fixture(newCharacter);
+        moveToNextEpisodeJob(f, f.third());
+        review.updateSettingCandidate(f.member(), f.work(), f.first(),
+                new SettingCandidateUpdateRequest("profile.affiliation", "수정한 소속", null, get(f, f.first()).updatedAt()));
+        var edited = get(f, f.first());
+        assertThat(edited.attributeValue()).isEqualTo("수정한 소속");
+        assertThat(edited.reviewedApplicationMode()).isNull();
+        assertThat(edited.comparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PENDING);
+        verify(coordinator).enqueueIfNeeded(org.mockito.ArgumentMatchers.eq(f.member()),
+                org.mockito.ArgumentMatchers.argThat(candidate -> candidate.getId().equals(f.first())));
+        assertThatThrownBy(() -> review.confirmSettingCandidateGroup(f.member(), f.work(),
+                request(f, List.of(f.first(), f.second(), f.third())))).isInstanceOf(AppException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("마지막 타 회차 후보를 제외해도 제외 전 그룹을 기준으로 재비교한다")
+    void recomputesLegacyGroupBeforeExcludingLastOtherJob(boolean newCharacter) {
+        Fixture f = fixture(newCharacter);
+        moveToNextEpisodeJob(f, f.third());
+        review.dismissSettingCandidate(f.member(), f.work(), f.third());
+        assertThat(get(f, f.third()).reviewStatus()).isEqualTo(SettingCandidateReviewStatus.DISMISSED);
+        verify(coordinator).enqueueScopes(org.mockito.ArgumentMatchers.eq(f.member()), any());
+    }
+
+    @Test
+    @DisplayName("같은 배치라도 다른 인물의 타 회차 후보는 단일 회차 검토를 방해하지 않는다")
+    void unrelatedCharacterDoesNotInvalidateSingleJobReview() {
+        Fixture f = fixture(false);
+        tx.executeWithoutResult(status -> {
+            var source = entities.find(AnalysisJob.class, f.job());
+            var character = WorkCharacter.create(source.getWork(), "다른 인물", null, null, null, null, null, null, null, null, null);
+            entities.persist(character);
+            candidate(job(source.getWork(), source.getBatch(), episode(source.getWork(), 7)), character,
+                    "profile.title", "길잡이", "길잡이");
+        });
+        review.updateSettingCandidate(f.member(), f.work(), f.first(),
+                new SettingCandidateUpdateRequest("profile.affiliation", "새 소속", null, get(f, f.first()).updatedAt()));
+        assertThat(get(f, f.first()).reviewedApplicationMode()).isEqualTo(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+        noComparison();
+    }
+
+    private void moveToNextEpisodeJob(Fixture f, UUID candidateId) {
+        tx.executeWithoutResult(status -> {
+            var candidate = entities.find(SettingCandidate.class, candidateId);
+            var source = candidate.getAnalysisJob();
+            var nextEpisode = episode(source.getWork(), 7);
+            var nextJob = job(source.getWork(), source.getBatch(), nextEpisode);
+            entities.flush();
+            // 원본 연결은 updatable=false이므로 구형 fixture의 다른 Job 연결을 DB에 직접 구성한다.
+            entities.createNativeQuery("update setting_candidates set analysis_job_id = :job, episode_id = :episode where id = :id")
+                    .setParameter("job", nextJob.getId()).setParameter("episode", nextEpisode.getId())
+                    .setParameter("id", candidateId).executeUpdate();
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     @DisplayName("선행 후보를 제외하거나 이력으로 남겨도 화면의 병합 최종 문장을 그대로 반영한다")
     void respectsFinalMergeAfterDependencyChoice(boolean history) {
         Fixture f = fixture(false);

@@ -234,8 +234,8 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         if (request.reviewedApplicationMode() != null) {
             validateExplicitReviewRequest(candidate, request);
         }
-        boolean manualFinalReview = candidate.isCompletedManualReview();
-        if (manualFinalReview) {
+        boolean manualFinalReview = isSingleJobManualReviewGroup(candidate);
+        if (candidate.isCompletedManualReview()) {
             validateCandidateReviewTimestamp(candidate, request.expectedUpdatedAt());
             analysisConfirmation.assertReviewSourceCurrent(candidate);
             if (candidate.getComparisonStatus() == CharacterFactComparisonStatus.FAILED
@@ -1161,13 +1161,27 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         }
         validateReviewMutationAllowed(work, List.of(candidateId));
         candidate.recordUserModification();
+        boolean manualFinalReview = isSingleJobManualReviewGroup(candidate);
         List<CharacterFactComparisonJobCoordinator.ScopeRef> previousScopes =
                 characterComparisonJobCoordinator.scopeRefs(List.of(candidate));
         candidate.dismiss();
-        if (!candidate.isCompletedManualReview()) {
+        if (!manualFinalReview) {
             characterComparisonJobCoordinator.enqueueScopes(memberId, previousScopes);
         }
         return settingCandidateMapper.toReviewStatusResponse(candidate);
+    }
+
+    private boolean isSingleJobManualReviewGroup(SettingCandidate candidate) {
+        if (!candidate.isCompletedManualReview()) return false;
+        String selectedGroupKey = groupKey(candidate);
+        UUID sourceJobId = candidate.getAnalysisJob().getId();
+        // 확정과 같은 그룹 경계로 판단한다. 제외 전 확인해야 마지막 타 회차 후보도 재비교를 예약한다.
+        return settingCandidateRepository.findReviewCandidates(
+                        candidate.getWork().getId(), candidate.getAnalysisJob().getBatch().getId(),
+                        SettingCandidateReviewStatus.PENDING_REVIEW,
+                        EnumSet.allOf(SettingCandidateMatchStatus.class))
+                .stream().filter(sibling -> groupKey(sibling).equals(selectedGroupKey))
+                .allMatch(sibling -> Objects.equals(sourceJobId, sibling.getAnalysisJob().getId()));
     }
 
     private boolean prepareUnresolvedExistingCharacterForComparison(
