@@ -49,7 +49,7 @@ sequenceDiagram
     Controller->>Service: detectEpisodes(memberId, workId, detectionRequest, sourceEpisodeFiles)
     Service->>Service: getOwnedWork(workId, memberId)
     Service->>Parser: source 파일과 단일 회차 감지 힌트 parse
-    Parser->>Reader: TXT/DOCX 검증 및 readText(sourceFile)
+    Parser->>Reader: TXT/DOCX/HWP/HWPX 검증 및 readText(sourceFile)
     Reader-->>Parser: sourceText
     Parser-->>Service: detectedEpisodeFiles
     Service-->>Controller: EpisodeDetectionResponse
@@ -61,7 +61,7 @@ sequenceDiagram
     Service->>Service: getOwnedWork(workId, memberId)
     Service->>Processor: processEpisodeUpload(work, uploadRequest, sourceEpisodeFiles, attachedSettingBookFile)
     Processor->>Parser: source 파일 재파싱
-    Parser->>Reader: TXT/DOCX 검증 및 readText(sourceFile)
+    Parser->>Reader: TXT/DOCX/HWP/HWPX 검증 및 readText(sourceFile)
     Reader-->>Parser: sourceText
     Parser-->>Processor: detectedEpisodeFiles
     Processor->>Processor: episodeConfirmations 검증 및 적용

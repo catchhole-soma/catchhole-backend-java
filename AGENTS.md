@@ -370,7 +370,7 @@ domain/<domain>
 #### Episode / Upload Domain Policy
 
 - 다회차 업로드는 선행 단일 분석 없이 새 작품부터 두 방식 모두 허용한다. `/episodes/upload-policy`는 호환을 위해 `requiredSingleEpisodeCount=0`, `multiEpisodeUploadEnabled=true`를 반환하고, 현재 원문의 서로 다른 단일 업로드 분석 성공 회차 수와 캐릭터·세계관 검토 대기 수·분량 상한을 계속 제공한다. 검토 대기 후보는 안내에만 사용하고 업로드를 막지 않는다. 초기 여러 회차를 바로 분석할 수 있게 선행 완료 조건과 환경별 임시 해제 설정을 제거했다.
-- 단일·다회차 원고는 한 요청의 텍스트 합계 250,000 Unicode code point까지 허용한다. TXT/DOCX에서 추출한 공백·제목을 포함하고 설정집은 제외한다. 분량 검사는 S3 저장 전에 수행한다. 감지 응답의 `totalUploadCharacters`는 이 제한용 합계이며 기존 공백 제외 `totalCharCount`와 구분한다.
+- 단일·다회차 원고는 한 요청의 텍스트 합계 250,000 Unicode code point까지 허용한다. TXT/DOCX/HWP/HWPX에서 추출한 공백·제목을 포함하고 설정집은 제외한다. 분량 검사는 S3 저장 전에 수행한다. 감지 응답의 `totalUploadCharacters`는 이 제한용 합계이며 기존 공백 제외 `totalCharCount`와 구분한다.
 
 - 회차 원문 전문은 DB에 저장하지 않고 S3에 저장한다. DB에는 `content_s3_key`, `content_s3_version`, `content_hash`, `char_count`, `content_updated_at`만 둔다.
 - 회차 원문 key는 `works/{workId}/episodes/{episodeNo}/{UUID}/{episodeNo}.txt`로 매 저장본을 고유하게 만든다. 보관된 회차 번호를 재사용해도 기존 원문을 덮어쓰지 않으면서 S3에서 회차 번호를 식별하기 위함이다.
@@ -381,13 +381,13 @@ domain/<domain>
 - 회차 삭제는 `ARCHIVED` tombstone과 `episode_source_purge_requests`를 먼저 같은 트랜잭션으로 커밋한 뒤 S3 원문·업로드 원본의 모든 version과 delete marker, `episode_chunks`, 검토 전 캐릭터·세계관 후보를 파기한다. 실패 요청은 스케줄러가 재시도한다. Episode 식별자와 이미 확정한 캐릭터·세계관 설정은 유지하되, 확정·무시 후보의 원문 인용과 raw AI payload는 비워 파기된 근거를 다시 노출하지 않는다. 다회차 단일 파일의 한 회차를 삭제하면 공유 업로드 원본 전체를 파기하고 `UploadFile.storageUrl`을 비우되 형제 회차의 분리 원문은 유지한다. 활성 목록, 최신 회차 번호 계산과 회차 번호 중복 검사는 `ARCHIVED` 회차를 제외한다.
 - 회차 파일 교체는 새 원문을 먼저 저장한 뒤 새 content key를 제외한 기존 회차 prefix와 이전 업로드 원본을 완전 파기하고, 삭제와 같은 파생 데이터 정리를 수행한다. 자동 재분석이나 확정 설정 재계산은 하지 않으며 사용자가 경고를 확인한 뒤 해당 회차의 `SETTING_EXTRACTION`을 별도로 요청한다.
 - 회차 제목은 사용자 확정값 또는 원문의 명시적 회차 제목 행에서만 가져온다. 감지하지 못하면 `null`로 두며 원본 파일명을 제목으로 대체하지 않는다.
-- 회차 원고와 설정집 원본은 TXT·DOCX만 허용하고, 명시적으로 첨부한 빈 파일과 파일당 10MB 초과를 서버에서도 거절한다. multipart 요청 전체 제한은 25MB로 둔다. DOCX는 실제 압축 해제량을 누적해 20MB를 초과하거나 본문 탐색 중 ZIP 엔트리가 256개를 초과하면 거절해 압축 폭탄이 서버 자원을 고갈시키지 않게 한다.
-- 설정집은 업로드 원본과 화면 조회·수정용 텍스트를 분리한다. `upload_files.storage_url`에는 최초 TXT/DOCX 원본을 불변으로 보존하고, `content_storage_url`에는 추출한 현재 텍스트의 `works/{workId}/setting-books/{settingBookId}/{normalizedOriginalBasename}.txt` 고정 key를 둔다. 편집본 파일명은 원본 경로·확장자를 제거하고 Unicode NFC로 정규화해 S3에서 작품과 파일을 식별할 수 있게 한다. TXT와 DOCX 모두 텍스트 편집을 허용하되 수정은 같은 key를 PUT하고 원본 MIME·크기를 바꾸지 않는다. S3 Versioning이 활성화된 환경의 과거 version 보관 기한은 Lifecycle 정책으로 제한한다.
+- 회차 원고와 설정집 원본은 TXT·DOCX·HWP·HWPX를 허용하고, 명시적으로 첨부한 빈 파일과 파일당 10MB 초과를 서버에서도 거절한다. multipart 요청 전체 제한은 25MB로 둔다. DOCX는 실제 압축 해제량을 누적해 20MB를 초과하거나 본문 탐색 중 ZIP 엔트리가 256개를 초과하면 거절해 압축 폭탄이 서버 자원을 고갈시키지 않게 한다.
+- 설정집은 업로드 원본과 화면 조회·수정용 텍스트를 분리한다. `upload_files.storage_url`에는 최초 TXT/DOCX/HWP/HWPX 원본을 불변으로 보존하고, `content_storage_url`에는 추출한 현재 텍스트의 `works/{workId}/setting-books/{settingBookId}/{normalizedOriginalBasename}.txt` 고정 key를 둔다. 편집본 파일명은 원본 경로·확장자를 제거하고 Unicode NFC로 정규화해 S3에서 작품과 파일을 식별할 수 있게 한다. 지원하는 모든 형식에서 텍스트 편집을 허용하되 수정은 같은 key를 PUT하고 원본 MIME·크기를 바꾸지 않는다. S3 Versioning이 활성화된 환경의 과거 version 보관 기한은 Lifecycle 정책으로 제한한다.
 - 회차 파일 처리 단계는 `source`(요청 원본) → `detected`(`DetectedEpisode*`) → `confirmation`(사용자 확정 입력) → `finalized`(`FinalizedEpisode*`) → `created`/`saved`(영속화 결과) 용어와 타입으로 구분한다. 서로 다른 단계의 값을 `episodes`, `parsed`처럼 같은 이름이나 타입으로 뭉뚱그리지 않는다.
 - 회차 API의 업로드 방식은 공용 `UploadType`이 아니라 `EpisodeUploadType`의 세 값만 노출한다. 사전 감지는 `EpisodeDetectionRequest`, 최종 저장은 `EpisodeUploadRequest`로 DTO를 분리하고 multipart JSON part는 `metadata`로 통일한다.
 - 최종 업로드에서 `SINGLE_EPISODE`는 `singleEpisodeNo`가 필수이며 `episodeConfirmations`를 보내지 않는다. 두 다회차 방식은 단일 회차 전용 필드를 보내지 않고, 필수 `episodeConfirmations`의 각 `detectionOrder`를 감지 결과와 일치시킨다.
 - GH219 여러 파일 업로드의 확정 목록은 화면에서 회차 번호순으로 재정렬될 수 있다. `detectionOrder`로 원본 파일·본문에 연결하고 파일 선택 순서의 회차 번호 오름차순을 강제하지 않는다. 단일 파일의 본문 순서 검증과 두 방식의 감지 식별자 누락·중복·범위 및 회차 번호 중복 검증은 유지한다.
-- `TextDocumentReader`는 TXT·DOCX 형식/크기/빈 파일 검증과 텍스트 추출을, `EpisodeFileParser`는 원본 파일과 단일 회차 감지 힌트에서 회차 경계·번호·제목·본문을 `DetectedEpisode*`로 만드는 일을 담당한다. confirmation은 parser에 전달하지 않으며, 사용자 확정 번호·제목 적용과 `FinalizedEpisode*` 조립은 `EpisodeUploadProcessor`가 담당한다.
+- `TextDocumentReader`는 TXT·DOCX·HWP·HWPX 형식/크기/빈 파일 검증과 텍스트 추출을, `EpisodeFileParser`는 원본 파일과 단일 회차 감지 힌트에서 회차 경계·번호·제목·본문을 `DetectedEpisode*`로 만드는 일을 담당한다. confirmation은 parser에 전달하지 않으며, 사용자 확정 번호·제목 적용과 `FinalizedEpisode*` 조립은 `EpisodeUploadProcessor`가 담당한다.
 - 회차 원본 `UploadFile`은 `markEpisodesParsed(episodeStartNo, episodeEndNo, episodeCount)`로 최종 생성 범위와 파싱 완료를 함께 기록하고, 회차 범위가 없는 설정집은 `markParsed()`만 사용한다. API 응답도 `episodeStartNo`/`episodeEndNo`/`episodeCount`로 노출한다.
 - 회차 조회, 수정, 삭제, 업로드는 모두 먼저 작품 소유권을 확인한다.
 - Worker의 회차 처리 상태 변경은 단계별 엔드포인트를 나누지 않고, progress 요청의 `episodeStatus`로 명시적으로 전달한다. 자유 형식 표시 문구인 `currentStep`에서 상태를 추론하지 않는다.
@@ -839,3 +839,11 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 ### GH219 명시적 최종 확정
 
 작가가 저장한 현재 반영 선택은 캐릭터 snapshot 버전 변경만으로 거절하거나 최신·수동 수정·삭제 기록 때문에 이력으로 바꾸지 않는다. 완료된 순차 후보와 MANUAL + CONFIRMED_ONLY의 명시적 최종 확정에서 적용하며 AI 자동 반영과 구형 비교 검증은 유지한다. 수정 초안은 확정 시점의 최신 snapshot에 선택 항목만 적용하고 부수 삭제는 재사용하지 않는다. 종료 상태(active=false)는 해당 STATUS 제거로 반영한다. 최종 결과 승인 그룹은 표시된 제안과 부수 변경을 적용한다. 같은 항목에 여러 현재 반영은 CURRENT_SELECTION_CONFLICT로 원자적으로 거절해 작가가 하나를 선택하게 한다. 후보 expectedUpdatedAt·선택 모드·원문 버전·작품 소유권·실행 잠금·스키마·멱등성 검증은 유지한다. 이는 위 GH199/GH215의 명시적 최종 확정에 대한 snapshot 버전/이력 보호 우선 규칙을 대체한다.
+
+
+### Hangul uploads (GH224)
+
+- 공통 `upload/parser/TextDocumentReader`와 `DocumentFormat`이 TXT/DOCX/HWP/HWPX 지원과 MIME을 결정한다. 다회차 여러 파일에 TXT 전용 제한을 다시 추가하지 않는다.
+- Apache POI `poi:5.5.1`은 HWP의 OLE 컨테이너만 연다. HWP 본문 레코드와 HWPX ZIP/StAX는 `DocumentReadLimits`의 실제 읽기량·개수·깊이 제한 안에서 읽는다. 그림·스크립트·전체 서식 객체를 생성하는 파서로 대체하지 않는다.
+- 표 셀은 탭, 행/문단은 줄바꿈, 글상자는 연결된 문단 뒤에 한 번 배치한다. 머리말·꼬리말·각주·미주·숨은 설명은 제외한다. 상세 계약과 미지원 형식은 `docs/hangul-upload.md`를 따른다.
+- 개인 원고와 추출 결과는 저장소/테스트 fixture에 넣지 않는다. `scripts/upload-fixtures/`의 합성 자료만 사용한다. hwplib/hwpxlib는 fixture 생성과 로컬 대조에만 사용하며 운영 의존성이 아니다.

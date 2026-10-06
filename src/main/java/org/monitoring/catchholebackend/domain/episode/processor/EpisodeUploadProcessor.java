@@ -25,6 +25,7 @@ import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
 import org.monitoring.catchholebackend.domain.upload.exception.UploadErrorCode;
 import org.monitoring.catchholebackend.domain.upload.mapper.UploadMapper;
+import org.monitoring.catchholebackend.domain.upload.parser.DocumentFormat;
 import org.monitoring.catchholebackend.domain.upload.parser.TextDocumentReader;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
@@ -304,7 +305,7 @@ public class EpisodeUploadProcessor {
                 uploadBatch.getId(),
                 resolveOriginalFilename(finalizedEpisodeFile.sourceFile()),
                 readBytes(finalizedEpisodeFile.sourceFile()),
-                finalizedEpisodeFile.sourceFile().getContentType()
+                DocumentFormat.fromFilename(finalizedEpisodeFile.sourceFile().getOriginalFilename()).mimeType()
         );
 
         UploadFile savedSourceFile = uploadFileRepository.save(buildUploadFile(
@@ -341,7 +342,7 @@ public class EpisodeUploadProcessor {
                 uploadBatch.getId(),
                 resolveOriginalFilename(attachedSettingBookFile),
                 readBytes(attachedSettingBookFile),
-                attachedSettingBookFile.getContentType()
+                DocumentFormat.fromFilename(attachedSettingBookFile.getOriginalFilename()).mimeType()
         );
         UploadFile savedSettingBookFile = uploadFileRepository.save(buildUploadFile(
                 uploadBatch,
@@ -387,7 +388,7 @@ public class EpisodeUploadProcessor {
                 uploadBatch,
                 fileRole,
                 resolveOriginalFilename(sourceFile),
-                sourceFile.getContentType(),
+                DocumentFormat.fromFilename(sourceFile.getOriginalFilename()).mimeType(),
                 objectStorageService.toStorageUrl(storageKey),
                 sourceFile.getSize()
         );
