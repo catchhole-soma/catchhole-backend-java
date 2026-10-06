@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.episode.controller;
 
+import static org.mockito.ArgumentMatchers.contains;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
@@ -20,6 +21,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import jakarta.persistence.EntityManagerFactory;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
@@ -81,6 +83,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+@DisplayName("회차 업로드와 원고 관리 API 통합 테스트")
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -180,6 +183,86 @@ class EpisodeControllerIntegrationTest {
                 .thenAnswer(invocation -> new StoredObject(invocation.getArgument(0), "test-version"));
         when(objectStorage.purgePrefixesExcluding(any(), any()))
                 .thenReturn(new ObjectStoragePurgeResult(2, 2, 0));
+    }
+
+    @Test
+    @DisplayName("혼합 한글 원고의 확정 순서가 달라도 원본 연결과 한글 설정집을 유지한다")
+    void uploadsMixedHangulFilesAndSettingBook() throws Exception {
+        var first = hangulFile("episodeFiles", "episode-1.hwp");
+        var second = hangulFile("episodeFiles", "episode-2.hwpx");
+        var settings = hangulFile("settingBookFile", "episode-1.hwpx");
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes/detect", work.getId())
+                        .file(metadataPart("{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\"}"))
+                        .file(second).file(first).header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.detectedEpisodes[0].episodeNo").value(2))
+                .andExpect(jsonPath("$.data.detectedEpisodes[0].sourceFileIndex").value(0))
+                .andExpect(jsonPath("$.data.detectedEpisodes[1].episodeNo").value(1));
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(metadataPart("""
+                                {"uploadType":"MULTI_EPISODE_MULTI_FILE","episodeConfirmations":[
+                                {"detectionOrder":1,"episodeNo":1,"title":"첫 편지"},
+                                {"detectionOrder":0,"episodeNo":2,"title":"재회"}]}
+                                """)).file(second).file(first).file(settings)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.createdEpisodes[*].episodeNo").value(org.hamcrest.Matchers.containsInAnyOrder(1, 2)));
+        for (Episode episode : episodeRepository.findAll()) {
+            UploadFile original = uploadFileRepository.findById(episode.getSourceFileId()).orElseThrow();
+            String expected = episode.getEpisodeNo() == 1 ? "episode-1.hwp" : "episode-2.hwpx";
+            assertThat(original.getOriginalFilename()).isEqualTo(expected);
+            assertThat(original.getMimeType()).isEqualTo(episode.getEpisodeNo() == 1 ? "application/x-hwp" : "application/hwp+zip");
+            verify(objectStorage).putText(eq(episode.getContentS3Key()), contains(episode.getEpisodeNo() == 1 ? "서윤은 성문" : "도윤은 오래된"));
+        }
+        assertThat(uploadFileRepository.findAll()).anySatisfy(file -> {
+            assertThat(file.getFileRole()).isEqualTo(UploadFileRole.SETTING_BOOK);
+            assertThat(file.getMimeType()).isEqualTo("application/hwp+zip");
+            assertThat(file.getContentStorageUrl()).endsWith(".txt");
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"hwp", "hwpx"})
+    @DisplayName("한글 원고 교체에서 기존 회차 식별자는 유지하고 새 원본 MIME과 추출 본문을 저장한다")
+    void replacesEpisodeWithHangul(String extension) throws Exception {
+        Episode episode = episodeRepository.save(Episode.create(work, null, 7, "유지할 제목", "old/content.txt", "v1", "old", 10));
+        var replacement = hangulFile("file", "episode-1." + extension);
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes/{id}/file", work.getId(), episode.getId())
+                        .file(replacement).with(request -> { request.setMethod("PUT"); return request; })
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.episodeNo").value(7))
+                .andExpect(jsonPath("$.data.title").value("유지할 제목"));
+        Episode saved = episodeRepository.findById(episode.getId()).orElseThrow();
+        UploadFile source = uploadFileRepository.findById(saved.getSourceFileId()).orElseThrow();
+        assertThat(source.getMimeType()).isEqualTo(extension.equals("hwp") ? "application/x-hwp" : "application/hwp+zip");
+        verify(objectStorage).putText(eq(saved.getContentS3Key()), contains("서윤은 성문 앞에서 편지를 읽었다."));
+        verify(objectStorage).putBytes(anyString(), eq(replacement.getBytes()), eq(source.getMimeType()));
+    }
+
+    @Test
+    @DisplayName("손상된 한글 파일이 섞이면 회차·업로드 행과 원본 객체를 저장하지 않는다")
+    void invalidHangulDoesNotWrite() throws Exception {
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(metadataPart("""
+                                {"uploadType":"MULTI_EPISODE_MULTI_FILE","episodeConfirmations":[
+                                {"detectionOrder":0,"episodeNo":1,"title":"첫 회차"},
+                                {"detectionOrder":1,"episodeNo":2,"title":"두 번째"}]}
+                                """))
+                        .file(hangulFile("episodeFiles", "episode-1.hwp"))
+                        .file(new MockMultipartFile("episodeFiles", "2화.hwpx", "application/hwp+zip", new byte[]{1, 2, 3}))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("UPLOAD_DOCUMENT_INVALID"));
+        assertThat(episodeRepository.count()).isZero();
+        assertThat(uploadFileRepository.count()).isZero();
+        assertThat(uploadBatchRepository.count()).isZero();
+        verify(objectStorage, never()).putBytes(anyString(), any(), any());
+        verify(objectStorage, never()).putText(anyString(), anyString());
+    }
+
+    private MockMultipartFile hangulFile(String part, String name) throws IOException {
+        try (var input = getClass().getResourceAsStream("/upload/" + name)) {
+            return new MockMultipartFile(part, name, "application/octet-stream", input.readAllBytes());
+        }
     }
 
     @Test
