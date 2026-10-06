@@ -96,7 +96,7 @@ sequenceDiagram
     end
 ```
 
-Parser는 원본 파일과 단일 회차 감지 힌트를 `DetectedEpisode*`로 변환하며 `episodeConfirmations`를 받지 않습니다. 다회차 confirmation의 필수 여부·개수·`detectionOrder`·회차 번호 오름차순 검증과 `DetectedEpisode* + confirmation → FinalizedEpisode*` 조립은 Processor 책임입니다. 따라서 감지 API와 최종 업로드 API가 같은 파일을 다시 파싱하더라도 사용자가 확정한 번호·제목이 parser 결과로 덮어써지지 않습니다.
+Parser는 원본 파일과 단일 회차 감지 힌트를 `DetectedEpisode*`로 변환하며 `episodeConfirmations`를 받지 않습니다. 다회차 confirmation의 필수 여부·개수·`detectionOrder` 검증과 `DetectedEpisode* + confirmation → FinalizedEpisode*` 조립은 Processor 책임입니다. 여러 파일은 확정 목록을 `detectionOrder`로 연결하므로 파일 선택·화면 표시 순서와 회차 번호순이 달라도 허용하며, 단일 파일만 원문 순서의 회차 번호 오름차순을 검증합니다. 두 방식 모두 회차 번호 중복을 거절합니다. 따라서 감지 API와 최종 업로드 API가 같은 파일을 다시 파싱하더라도 사용자가 확정한 번호·제목이 parser 결과로 덮어써지지 않습니다.
 
 ## 업로드 유형별 파싱
 

@@ -386,6 +386,7 @@ domain/<domain>
 - 회차 파일 처리 단계는 `source`(요청 원본) → `detected`(`DetectedEpisode*`) → `confirmation`(사용자 확정 입력) → `finalized`(`FinalizedEpisode*`) → `created`/`saved`(영속화 결과) 용어와 타입으로 구분한다. 서로 다른 단계의 값을 `episodes`, `parsed`처럼 같은 이름이나 타입으로 뭉뚱그리지 않는다.
 - 회차 API의 업로드 방식은 공용 `UploadType`이 아니라 `EpisodeUploadType`의 세 값만 노출한다. 사전 감지는 `EpisodeDetectionRequest`, 최종 저장은 `EpisodeUploadRequest`로 DTO를 분리하고 multipart JSON part는 `metadata`로 통일한다.
 - 최종 업로드에서 `SINGLE_EPISODE`는 `singleEpisodeNo`가 필수이며 `episodeConfirmations`를 보내지 않는다. 두 다회차 방식은 단일 회차 전용 필드를 보내지 않고, 필수 `episodeConfirmations`의 각 `detectionOrder`를 감지 결과와 일치시킨다.
+- GH219 여러 파일 업로드의 확정 목록은 화면에서 회차 번호순으로 재정렬될 수 있다. `detectionOrder`로 원본 파일·본문에 연결하고 파일 선택 순서의 회차 번호 오름차순을 강제하지 않는다. 단일 파일의 본문 순서 검증과 두 방식의 감지 식별자 누락·중복·범위 및 회차 번호 중복 검증은 유지한다.
 - `TextDocumentReader`는 TXT·DOCX 형식/크기/빈 파일 검증과 텍스트 추출을, `EpisodeFileParser`는 원본 파일과 단일 회차 감지 힌트에서 회차 경계·번호·제목·본문을 `DetectedEpisode*`로 만드는 일을 담당한다. confirmation은 parser에 전달하지 않으며, 사용자 확정 번호·제목 적용과 `FinalizedEpisode*` 조립은 `EpisodeUploadProcessor`가 담당한다.
 - 회차 원본 `UploadFile`은 `markEpisodesParsed(episodeStartNo, episodeEndNo, episodeCount)`로 최종 생성 범위와 파싱 완료를 함께 기록하고, 회차 범위가 없는 설정집은 `markParsed()`만 사용한다. API 응답도 `episodeStartNo`/`episodeEndNo`/`episodeCount`로 노출한다.
 - 회차 조회, 수정, 삭제, 업로드는 모두 먼저 작품 소유권을 확인한다.
@@ -834,3 +835,7 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 캐릭터 현재값의 직접 수정 보호는 V73 `user_content_modified`로 판단한다. `user_modified`는 대상 연결·검토 선택도 포함하므로 자동 처리/검토 안전장치에는 계속 사용하되, 그것만으로 과거 회차의 값을 영구 고정하지 않는다. 새 Java 후보와 새 Python INSERT는 내용 수정 여부를 false로 시작하고 `updateReviewContent`에서 true를 기록하며 연결·재시도·검토 선택은 이 값을 지우지 않는다. V73 이전 행의 NULL은 기존 `user_modified`를 그대로 보호 기준으로 사용하고 확정 데이터는 소급 재적용하지 않는다.
 
 - GH215 `acceptDisplayedResults=true` 그룹 확정은 완료된 동일 원본 Job의 `MANUAL + CONFIRMED_ONLY` 후보에만 허용한다. 전체 미확정 그룹과 후보별 `expectedUpdatedAt`, 저장 초안의 모드·버전, 현재값 snapshot, 원문·동시 실행·schema·실제 대상 및 후행 현재값 보호를 검사한다. 그룹 내부 수정·제외로 달라진 AI 입력 hash/revision이나 선행 후보 제외·이력 선택 때문에 재비교하지 않는다. 남은 제안의 최종 문장을 그대로 승인하며, 다른 후보에서 제외된 문장을 자동으로 빼지 않는다. 최종 상태에서 이미 없는 STATUS 제거는 no-op으로 처리하되 제거 타입·키·중복 검증은 유지한다. 동명 캐릭터의 동시 생성은 조용히 재연결하지 않고 충돌로 거절한다. 자동 반영·연결 변경·회차 간 비교 계약을 이 플래그로 우회하지 않는다.
+
+### GH219 명시적 최종 확정
+
+작가가 저장한 현재 반영 선택은 캐릭터 snapshot 버전 변경만으로 거절하거나 최신·수동 수정·삭제 기록 때문에 이력으로 바꾸지 않는다. 완료된 순차 후보와 MANUAL + CONFIRMED_ONLY의 명시적 최종 확정에서 적용하며 AI 자동 반영과 구형 비교 검증은 유지한다. 수정 초안은 확정 시점의 최신 snapshot에 선택 항목만 적용하고 부수 삭제는 재사용하지 않는다. 종료 상태(active=false)는 해당 STATUS 제거로 반영한다. 최종 결과 승인 그룹은 표시된 제안과 부수 변경을 적용한다. 같은 항목에 여러 현재 반영은 CURRENT_SELECTION_CONFLICT로 원자적으로 거절해 작가가 하나를 선택하게 한다. 후보 expectedUpdatedAt·선택 모드·원문 버전·작품 소유권·실행 잠금·스키마·멱등성 검증은 유지한다. 이는 위 GH199/GH215의 명시적 최종 확정에 대한 snapshot 버전/이력 보호 우선 규칙을 대체한다.
