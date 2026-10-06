@@ -181,6 +181,7 @@ class AnalysisMetricsIntegrationTest {
             return job.getId();
         });
         tracker.reconcile(id, 1);
+        waitForResult(id);
         tx.executeWithoutResult(status -> {
             AnalysisJob job = em.find(AnalysisJob.class, id);
             assertThat(job.getResultOutcome()).isEqualTo("partial_success");
@@ -448,11 +449,28 @@ class AnalysisMetricsIntegrationTest {
         long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
         while (System.nanoTime() < deadline) {
             Boolean ready = tx.execute(status -> em.find(AnalysisJob.class, id).getResultReadyAt() != null);
-            if (Boolean.TRUE.equals(ready)) return;
+            if (Boolean.TRUE.equals(ready)) {
+                waitForCommittedMetrics();
+                return;
+            }
             try { Thread.sleep(10); }
             catch (InterruptedException ex) { Thread.currentThread().interrupt(); throw new IllegalStateException(ex); }
         }
         throw new AssertionError("committed source result did not settle");
+    }
+
+    private void waitForCommittedMetrics() {
+        // DB 커밋이 보인 뒤에도 AFTER_COMMIT의 counter/timer 기록은 진행 중일 수 있다.
+        // 단일 관측 executor의 다음 작업까지 기다려 콜백 완료 후 지표를 검증한다.
+        var executor = (java.util.concurrent.ThreadPoolExecutor) org.springframework.test.util.ReflectionTestUtils.getField(reconciler, "executor");
+        try {
+            executor.submit(() -> {}).get(5, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("interrupted while waiting for committed metrics", ex);
+        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException ex) {
+            throw new AssertionError("committed metrics callbacks did not finish", ex);
+        }
     }
 
     private void finishConcurrentCandidate(UUID id, java.util.concurrent.CountDownLatch bothWritten) {
