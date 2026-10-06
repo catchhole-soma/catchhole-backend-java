@@ -85,7 +85,8 @@ class SettingCandidateMapperTest {
                 candidate,
                 false,
                 null,
-                SettingCandidateValueValidation.valid()
+                SettingCandidateValueValidation.valid(),
+                "나이"
         );
 
         assertThat(response.id()).isEqualTo(candidateId);
@@ -100,6 +101,7 @@ class SettingCandidateMapperTest {
         assertThat(response.matchedCharacterId()).isNull();
         assertThat(response.matchStatus()).isEqualTo(SettingCandidateMatchStatus.UNRESOLVED);
         assertThat(response.attributeName()).isEqualTo("age");
+        assertThat(response.attributeDisplayName()).isEqualTo("나이");
         assertThat(response.attributeNameEditable()).isFalse();
         assertThat(response.attributeNamePrefix()).isNull();
         assertThat(response.attributeValue()).isEqualTo("17");
@@ -139,7 +141,8 @@ class SettingCandidateMapperTest {
                 null,
                 SettingCandidateValueValidation.invalid(
                         CharacterErrorCode.SETTING_CANDIDATE_VALUE_FORMAT_INVALID
-                )
+                ),
+                null
         );
         SettingCandidateResponse unrepairable = mapper.toResponse(
                 candidate,
@@ -147,7 +150,8 @@ class SettingCandidateMapperTest {
                 null,
                 SettingCandidateValueValidation.unrepairableInvalid(
                         CharacterErrorCode.SETTING_CANDIDATE_SCHEMA_NOT_MATCHED
-                )
+                ),
+                null
         );
 
         assertThat(repairable.valueValidation().repairable()).isTrue();
@@ -178,7 +182,8 @@ class SettingCandidateMapperTest {
                 candidate,
                 false,
                 null,
-                SettingCandidateValueValidation.valid()
+                SettingCandidateValueValidation.valid(),
+                null
         );
 
         assertThat(response.valueJson()).isEqualTo(Map.of("value", 17));
@@ -209,7 +214,8 @@ class SettingCandidateMapperTest {
                 candidate,
                 false,
                 null,
-                SettingCandidateValueValidation.notApplicable()
+                SettingCandidateValueValidation.notApplicable(),
+                null
         );
 
         assertThat(response.candidateKind()).isEqualTo(SettingCandidateKind.CHARACTER_DISCOVERY);
@@ -252,7 +258,8 @@ class SettingCandidateMapperTest {
                 candidate,
                 true,
                 "status.",
-                SettingCandidateValueValidation.valid()
+                SettingCandidateValueValidation.valid(),
+                null
         );
 
         assertThat(response.entityName()).isEqualTo("아이나르");
@@ -295,7 +302,8 @@ class SettingCandidateMapperTest {
                 candidate,
                 false,
                 null,
-                SettingCandidateValueValidation.valid()
+                SettingCandidateValueValidation.valid(),
+                null
         );
 
         assertThat(response.comparisonFailureCode()).isEqualTo(AnalysisFailureCode.LLM_PROVIDER_ERROR);
@@ -328,7 +336,8 @@ class SettingCandidateMapperTest {
                 candidate,
                 false,
                 null,
-                SettingCandidateValueValidation.valid()
+                SettingCandidateValueValidation.valid(),
+                null
         );
 
         assertThat(response.workId()).isEqualTo(work.getId());
@@ -447,7 +456,8 @@ class SettingCandidateMapperTest {
                 candidate,
                 true,
                 "status.",
-                SettingCandidateValueValidation.valid()
+                SettingCandidateValueValidation.valid(),
+                null
         );
 
         assertThat(response.snapshotChanges())
@@ -488,7 +498,13 @@ class SettingCandidateMapperTest {
         context.putObject("slots").set("STAT:" + key, entry);
         when(batch.getAnalysisContextSnapshotJson()).thenReturn(context);
 
-        var response = mapper.toReviewListResponse(candidate, false, null, SettingCandidateValueValidation.valid());
+        var response = mapper.toReviewListResponse(
+                candidate,
+                false,
+                null,
+                SettingCandidateValueValidation.valid(),
+                null
+        );
         assertThat(response.snapshotChanges()).hasSize(1);
         assertThat(response.snapshotChanges().getFirst().beforeFactValue()).isEqualTo(before);
         assertThat(response.snapshotChanges().getFirst().proposedFactValue()).isEqualTo(after);
@@ -497,10 +513,22 @@ class SettingCandidateMapperTest {
         var raw = objectMapper.createObjectNode();
         raw.putArray("backendComparisonBefore").add(entry.deepCopy().put("factValue", "99"));
         when(candidate.getRawComparisonJson()).thenReturn(raw);
-        assertThat(mapper.toResponse(candidate, false, null, SettingCandidateValueValidation.valid())
+        assertThat(mapper.toResponse(
+                candidate,
+                false,
+                null,
+                SettingCandidateValueValidation.valid(),
+                null
+        )
                 .snapshotChanges().getFirst().beforeFactValue()).isEqualTo("99");
         raw.putArray("backendComparisonBefore");
-        assertThat(mapper.toResponse(candidate, false, null, SettingCandidateValueValidation.valid())
+        assertThat(mapper.toResponse(
+                candidate,
+                false,
+                null,
+                SettingCandidateValueValidation.valid(),
+                null
+        )
                 .snapshotChanges().getFirst().beforeFactValue()).isNull();
     }
 
