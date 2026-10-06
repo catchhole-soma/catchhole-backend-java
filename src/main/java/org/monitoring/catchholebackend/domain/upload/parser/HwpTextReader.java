@@ -70,7 +70,19 @@ final class HwpTextReader {
                 if (section.isEmpty() || section.getFirst().tag != PARA_HEADER) {
                     throw DocumentReadLimits.invalid();
                 }
-                render(section, output);
+                // 본문 문단 목록 뒤의 LIST_HEADER/MEMO_LIST는 바탕쪽·메모이며 본문이 아니다.
+                for (Record paragraph : section) {
+                    if (paragraph.tag != PARA_HEADER) {
+                        break;
+                    }
+                    if (paragraph.data.remaining() < 4) {
+                        throw DocumentReadLimits.invalid();
+                    }
+                    render(List.of(paragraph), output);
+                    if ((paragraph.data.getInt(0) & 0x80000000) != 0) {
+                        break;
+                    }
+                }
             }
             return DocumentReadLimits.withoutFinalNewline(output.toString());
         } catch (AppException exception) {
