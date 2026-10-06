@@ -21,6 +21,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
@@ -192,6 +193,45 @@ class SettingCandidateControllerIntegrationTest {
                 "나이"
         ));
         accessToken = jwtTokenProvider.generateAccessToken(member);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "profile.hometown, 출신지, false",
+            "profile.고향, 출신지, false",
+            "profile.hometown, 작품 속 출신지, true"
+    })
+    @DisplayName("신규 전역·작품 스키마의 표시명을 후보 목록과 상세에 제공하고 내부 키를 보존한다")
+    void returnsRegisteredDisplayNameWithoutChangingAttributeName(
+            String attributeName, String displayName, boolean workSpecific
+    ) throws Exception {
+        characterSettingSchemaRepository.save(CharacterSettingSchema.create(
+                workSpecific ? work : null, "profile.hometown", null, displayName,
+                CharacterFactType.PROFILE, SettingValueType.STRING,
+                CharacterSettingValueSemantics.BASE_VALUE, CharacterSettingMergePolicy.REPLACE,
+                objectMapper.createArrayNode().add("고향"), CharacterSettingSchemaSource.SYSTEM_SEED, true
+        ));
+        SettingCandidate candidate = settingCandidateRepository.save(SettingCandidate.create(
+                work, episode, UUID.randomUUID(), analysisJob, SettingEntityType.CHARACTER,
+                "아리아", attributeName, "북부", SettingValueType.STRING,
+                objectMapper.createObjectNode().put("value", "북부"), evidenceSpans(),
+                new BigDecimal("0.9000"), rawAiResultJson("북부")
+        ));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].attributeDisplayName").value(displayName))
+                .andExpect(jsonPath("$.data.candidates.content[0].attributeDisplayName").value(displayName))
+                .andExpect(jsonPath("$.data.candidates.content[0].attributeName").value(attributeName));
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates/{candidateId}", work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.attributeDisplayName").value(displayName))
+                .andExpect(jsonPath("$.data.attributeName").value(attributeName))
+                .andExpect(jsonPath("$.data.attributeNameEditable").value(false));
     }
 
     @Test
@@ -829,6 +869,23 @@ class SettingCandidateControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("캐릭터 발견 후보에는 설정 표시명을 붙이지 않는다")
+    void getCharacterDiscoveryOmitsAttributeDisplayName() throws Exception {
+        SettingCandidate candidate = settingCandidateRepository.save(SettingCandidate.createCharacterDiscovery(
+                work, episode, UUID.randomUUID(), analysisJob, "아리아", "아리아", null,
+                SettingCandidateMatchStatus.UNRESOLVED, evidenceSpans(),
+                new BigDecimal("0.9000"), objectMapper.createObjectNode()
+        ));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates/{candidateId}", work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("batchId", uploadBatch.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidateKind").value("CHARACTER_DISCOVERY"))
+                .andExpect(jsonPath("$.data.attributeDisplayName").doesNotExist());
+    }
+
+    @Test
     @DisplayName("활성 schema로 해석할 수 없는 후보 상세도 읽기 전용 설정명으로 응답한다")
     void getSettingCandidateReturnsConservativeEditMetadataWhenSchemaDoesNotMatch() throws Exception {
         SettingCandidate candidate = settingCandidateRepository.save(candidate(
@@ -846,6 +903,7 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.id").value(candidate.getId().toString()))
                 .andExpect(jsonPath("$.data.attributeName").value("unknown.attribute"))
+                .andExpect(jsonPath("$.data.attributeDisplayName").doesNotExist())
                 .andExpect(jsonPath("$.data.attributeNameEditable").value(false))
                 .andExpect(jsonPath("$.data.attributeNamePrefix").doesNotExist());
     }
@@ -990,6 +1048,7 @@ class SettingCandidateControllerIntegrationTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.attributeName").value("skill.화염_검술"))
+                .andExpect(jsonPath("$.data.attributeDisplayName").value("화염 검술"))
                 .andExpect(jsonPath("$.data.attributeNameEditable").value(true))
                 .andExpect(jsonPath("$.data.attributeNamePrefix").value("skill."))
                 .andExpect(jsonPath("$.data.attributeValue").value("Lv.5"))
@@ -1044,6 +1103,7 @@ class SettingCandidateControllerIntegrationTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.attributeName").value("skill.화염_검술"))
+                .andExpect(jsonPath("$.data.attributeDisplayName").value("화염 검술"))
                 .andExpect(jsonPath("$.data.attributeNameEditable").value(true))
                 .andExpect(jsonPath("$.data.attributeNamePrefix").value("skill."))
                 .andExpect(jsonPath("$.data.attributeValue").value("주력기"))

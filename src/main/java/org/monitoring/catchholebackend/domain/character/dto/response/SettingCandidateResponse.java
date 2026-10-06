@@ -59,6 +59,10 @@ public record SettingCandidateResponse(
         @Schema(description = "설정 속성명. 캐릭터 발견 후보는 null입니다.", example = "level", nullable = true)
         String attributeName,
 
+        @Schema(description = "현재 활성 스키마 기준 화면 표시명. 캐릭터 발견 또는 스키마 해석 불가 후보는 null입니다.",
+                example = "출신지", nullable = true)
+        String attributeDisplayName,
+
         @Schema(
                 description = "현재 활성 schema 기준 설정 속성명 편집 가능 여부",
                 example = "false",
