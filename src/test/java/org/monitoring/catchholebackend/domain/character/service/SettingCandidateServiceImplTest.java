@@ -264,19 +264,19 @@ class SettingCandidateServiceImplTest {
     }
 
     @Test
-    @DisplayName("현재 반영 선택 이후 캐릭터 snapshot이 바뀌면 다시 확인하도록 확정을 거절한다")
-    void snapshotChangeAfterReviewRejectsConfirmation() {
+    @DisplayName("현재 반영 선택 이후 snapshot 버전이 달라도 선택한 값을 확정한다")
+    void snapshotChangeAfterReviewAcceptsFinalDecision() {
         Work work = work(UUID.randomUUID());
         SettingCandidate candidate = completedOrderedReviewCandidate(work);
         candidate.recordReviewedApplicationMode(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, 2);
-        when(workRepository.getOwnedWorkForUpdate(work.getId(), 1L)).thenReturn(work);
-        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidate.getId(), work.getId())).thenReturn(Optional.of(candidate));
+        stubReviewUpdate(work, candidate);
 
-        assertThatThrownBy(() -> service.confirmSettingCandidate(1L, work.getId(), candidate.getId(),
-                new SettingCandidateConfirmRequest(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, null, true, candidate.getUpdatedAt())))
-                .isInstanceOfSatisfying(AppException.class, error ->
-                        assertThat(error.getResultCode()).isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE));
-        verifyNoInteractions(settingCandidatePromotionService);
+        service.confirmSettingCandidate(1L, work.getId(), candidate.getId(),
+                new SettingCandidateConfirmRequest(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, null, true, candidate.getUpdatedAt()));
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.CONFIRMED);
+        assertThat(candidate.getComparisonBaseSnapshotVersion()).isZero();
+        verify(settingCandidatePromotionService).promoteGroup(List.of(new SettingCandidateGroupPromotion(
+                candidate, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, true)));
     }
 
     @Test

@@ -147,6 +147,8 @@ Parts
 
 회차 API의 `uploadType`은 `EpisodeUploadType`의 세 값만 허용합니다. 단일 회차 최종 업로드는 `singleEpisodeNo`가 필수이고 `episodeConfirmations`를 보내면 거절합니다. 두 다회차 방식에서는 단일 회차 전용 필드를 보내지 않으며, `episodeConfirmations`가 필수이고 사전 감지 응답의 `detectedEpisodes`와 개수·`detectionOrder`가 일치해야 합니다.
 
+여러 파일 업로드는 `episodeConfirmations`의 배열 순서와 관계없이 `detectionOrder`로 원본 파일·본문을 연결합니다. 파일 선택 순서가 14화→13화여도 13화→14화로 정렬한 확정 목록을 전송할 수 있습니다. 감지 식별자는 전체가 중복 없이 존재해야 하고, 확정 회차 번호 중복은 거절합니다. 단일 파일 다회차는 원문 내 감지 순서와 확정 번호의 오름차순을 유지해야 합니다. 실제 분석 Job은 확정 회차 번호순으로 실행합니다.
+
 회차 원고와 선택 설정집은 파일당 10MB, multipart 요청 전체는 25MB까지 허용합니다. `settingBookFile` part를 생략하는 것은 허용하지만, part를 명시적으로 보내고 내용이 비어 있으면 `UPLOAD_FILE_EMPTY`로 거절합니다.
 
 서버는 최종 업로드에서도 원본 파일을 다시 파싱해 `DetectedEpisode*`를 만들고, `EpisodeUploadProcessor.processEpisodeUpload(...)`이 감지된 본문 경계에는 손대지 않은 채 사용자가 확정한 번호와 제목을 적용해 `FinalizedEpisode*`를 만듭니다. 저장 응답의 영속화된 회차 목록 필드는 `createdEpisodes`입니다. 함께 반환되는 업로드 파일 범위는 `files[].episodeStartNo`, `episodeEndNo`, `episodeCount`로 표시합니다.

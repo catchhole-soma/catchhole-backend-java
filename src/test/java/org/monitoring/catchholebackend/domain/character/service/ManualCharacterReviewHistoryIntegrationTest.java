@@ -326,16 +326,15 @@ class ManualCharacterReviewHistoryIntegrationTest {
     @ParameterizedTest
     @ValueSource(strings = {"later", "same", "manual", "edited-origin", "unknown-source", "removed", "empty", "earlier", "past",
             "linked-earlier", "edited-earlier", "legacy-edited-earlier"})
-    @DisplayName("최종 결과 승인 경로도 후행·수동·삭제 현재값 보호를 유지한다")
-    void displayedFinalResultsKeepCurrentProtection(String scenario) {
+    @DisplayName("최종 결과 승인 경로는 후행·수동·삭제 이력이 있어도 작가의 현재 반영 선택을 적용한다")
+    void displayedFinalResultsRespectAuthorDecision(String scenario) {
         Fixture f = fixture(scenario);
         var candidate = review.getSettingCandidate(f.member(), f.work(), f.batch(), f.candidate());
         var request = new SettingCandidateGroupConfirmRequest(f.batch(), null, List.of(new SettingCandidateGroupConfirmDecision(
                 f.candidate(), CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, candidate.comparisonBaseSnapshotVersion(), false, candidate.updatedAt())), true);
         assertThat(review.confirmSettingCandidateGroup(f.member(), f.work(), request).recomparisonRequired()).isFalse();
         tx.executeWithoutResult(status -> assertThat(entities.find(SettingCandidate.class, f.candidate()).getConfirmedApplicationMode())
-                .isEqualTo(List.of("empty", "earlier", "linked-earlier").contains(scenario)
-                        ? CharacterFactConfirmApplicationMode.APPLY_PROPOSAL : CharacterFactConfirmApplicationMode.HISTORY_ONLY));
+                .isEqualTo(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL));
     }
 
     private void recordOriginEdit(String scenario, SettingCandidate origin) {

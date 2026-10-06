@@ -389,6 +389,14 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 : request.applicationMode();
         boolean applyEditedValue = request != null && Boolean.TRUE.equals(request.applyEditedValue());
         validateEditedApplicationSelection(candidate, applyEditedValue, request == null ? null : request.expectedUpdatedAt());
+        if (applyEditedValue && candidate.isCompletedManualReview()) {
+            // 캐릭터 snapshot 변경 허용과 후보 자체의 동시 수정 검증은 별개다.
+            validateCandidateReviewTimestamp(candidate, request.expectedUpdatedAt());
+            if (candidate.getReviewedApplicationMode() == null
+                    || candidate.getReviewedApplicationMode() != applicationMode) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_EDIT_APPLICATION_REQUIRED);
+            }
+        }
 
         if (isCompletedOrderedReview(candidate)) {
             SettingCandidateGroupPromotion promotion = prepareCompletedOrderedCandidate(
@@ -397,7 +405,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                     applyEditedValue
             );
             if (promotion != null) {
-                settingCandidatePromotionService.promote(promotion.candidate(), promotion.applicationMode());
+                settingCandidatePromotionService.promoteGroup(List.of(promotion));
             }
             return SettingCandidateConfirmResult.confirmed(settingCandidateMapper.toReviewStatusResponse(candidate));
         }
@@ -456,7 +464,12 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         // 최초 PENDING_REVIEW -> CONFIRMED 전이만 true다. 동일 confirm 재시도는 false로 Fact 중복 생성을 막는다.
         boolean newlyConfirmed = candidate.confirm();
         if (newlyConfirmed) {
-            settingCandidatePromotionService.promote(candidate, protectedReviewMode(candidate, applicationMode));
+            if (applyEditedValue && candidate.isCompletedManualReview()) {
+                settingCandidatePromotionService.promoteGroup(List.of(
+                        new SettingCandidateGroupPromotion(candidate, applicationMode, true)));
+            } else {
+                settingCandidatePromotionService.promote(candidate, protectedReviewMode(candidate, applicationMode));
+            }
         }
         return SettingCandidateConfirmResult.confirmed(settingCandidateMapper.toReviewStatusResponse(candidate));
     }
@@ -530,10 +543,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                             && promotion.applicationMode() == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
                             && !candidate.isCharacterDiscovery()
                             && !projectedCurrentSlots.add(lateReviewSnapshotSlot(candidate))) {
-                        promotion = new SettingCandidateGroupPromotion(
-                                candidate,
-                                CharacterFactConfirmApplicationMode.HISTORY_ONLY
-                        );
+                        throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CURRENT_SELECTION_CONFLICT);
                     }
                     if (promotion != null) promotions.add(promotion);
                 }
@@ -779,10 +789,6 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                         || candidate.getReviewedApplicationMode() != decision.applicationMode()) {
                     throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_EDIT_APPLICATION_REQUIRED);
                 }
-                if (decision.applicationMode() == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
-                        && !Objects.equals(candidate.getReviewedSnapshotVersion(), currentSnapshotVersion(candidate))) {
-                    throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE);
-                }
                 prepareUserEditedValue(candidate, decision.applicationMode() == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
                         ? CharacterFactTemporalScope.PRESENT : candidate.getTemporalScope(), false);
             } else if (Boolean.TRUE.equals(decision.applyEditedValue())) {
@@ -790,8 +796,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             } else if (!candidate.isCharacterDiscovery()
                     && candidate.getSuggestedOperation() != CharacterFactOperation.EXCLUDE
                     && decision.applicationMode() == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL) {
-                if (!Objects.equals(decision.baseSnapshotVersion(), candidate.getComparisonBaseSnapshotVersion())
-                        || !Objects.equals(candidate.getComparisonBaseSnapshotVersion(), currentSnapshotVersion(candidate))) {
+                if (!Objects.equals(decision.baseSnapshotVersion(), candidate.getComparisonBaseSnapshotVersion())) {
                     throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE);
                 }
             }
@@ -804,10 +809,10 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             }
             validateConfirmPolicy(candidate, decision.applicationMode(), null);
             // 같은 회차에서 제외·이력으로 바꾼 선행 후보의 AI 의존성을 다시 실행하지 않는다.
-            // 외부의 후행 회차·직접 수정·삭제 이력 보호는 후보별로 계속 적용한다.
-            promotions.add(new SettingCandidateGroupPromotion(candidate,
-                    protectedReviewMode(candidate, decision.applicationMode()), true));
+            // 최종 승인 시점의 선택을 최신 snapshot에 반영한다. 후보·원문 동시 수정 검증은 유지한다.
+            promotions.add(new SettingCandidateGroupPromotion(candidate, decision.applicationMode(), true));
         }
+        validateDistinctCurrentSelections(promotions);
         exclusions.forEach(SettingCandidate::dismiss);
         if (!promotions.isEmpty()) {
             if (newCharacter) settingCandidatePromotionService.promoteNewCharacterGroup(promotions);
@@ -985,10 +990,6 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                     || candidate.getReviewedApplicationMode() != requested) {
                 throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_EDIT_APPLICATION_REQUIRED);
             }
-            if (requested == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
-                    && !Objects.equals(candidate.getReviewedSnapshotVersion(), currentSnapshotVersion(candidate))) {
-                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE);
-            }
         }
         // 대상 연결만으로 내용/시점 보류를 승인하지 않는다. 저장된 명시적 선택 또는 정상 비교가 필요하다.
         if (!candidate.isUserModified()) validateConfirmPolicy(candidate, requested == null
@@ -1001,15 +1002,24 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         CharacterFactTemporalScope reviewedScope = explicitCurrent
                 ? CharacterFactTemporalScope.PRESENT : candidate.getTemporalScope();
         boolean historyOnly = requested == CharacterFactConfirmApplicationMode.HISTORY_ONLY
-                || candidate.getSuggestedOperation() == CharacterFactOperation.REMOVE
-                || (explicitCurrent
-                    ? analysisConfirmation.keepLateReviewInHistory(candidate, schema.matchedSchema().getFactType(), key)
-                    : analysisConfirmation.keepReviewedFactInHistory(candidate, schema.matchedSchema().getFactType(), key));
+                || !explicitCurrent && (candidate.getSuggestedOperation() == CharacterFactOperation.REMOVE
+                    || analysisConfirmation.keepReviewedFactInHistory(candidate, schema.matchedSchema().getFactType(), key));
         // 오래된 비교의 병합값·부수 삭제를 재사용하지 않고 작가가 확인한 이 후보의 값만 반영한다.
         prepareUserEditedValue(candidate, reviewedScope, true);
         if (!candidate.confirm()) return null;
         return new SettingCandidateGroupPromotion(candidate, historyOnly
-                ? CharacterFactConfirmApplicationMode.HISTORY_ONLY : CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+                ? CharacterFactConfirmApplicationMode.HISTORY_ONLY : CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, explicitCurrent);
+    }
+
+    private void validateDistinctCurrentSelections(List<SettingCandidateGroupPromotion> promotions) {
+        Set<CharacterSnapshotSlot> slots = new HashSet<>();
+        for (var promotion : promotions) {
+            if (promotion.applicationMode() == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+                    && !promotion.candidate().isCharacterDiscovery()
+                    && !slots.add(lateReviewSnapshotSlot(promotion.candidate()))) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CURRENT_SELECTION_CONFLICT);
+            }
+        }
     }
 
     private CharacterSnapshotSlot lateReviewSnapshotSlot(SettingCandidate candidate) {
@@ -1027,7 +1037,8 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
 
     private CharacterFactConfirmApplicationMode protectedReviewMode(
             SettingCandidate candidate, CharacterFactConfirmApplicationMode requested) {
-        return requested == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL && !isOrdered(candidate)
+        return requested == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+                && candidate.getReviewedApplicationMode() != CharacterFactConfirmApplicationMode.APPLY_PROPOSAL && !isOrdered(candidate)
                 && analysisConfirmation.keepManualReviewInHistory(candidate)
                 ? CharacterFactConfirmApplicationMode.HISTORY_ONLY : requested;
     }
@@ -1096,6 +1107,10 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         String key = schema.factKey();
         CharacterFactOperation operation = snapshot != null && snapshot.containsKey(new CharacterSnapshotSlot(factType, key))
                 ? CharacterFactOperation.UPDATE : CharacterFactOperation.ADD;
+        if (factType == CharacterFactType.STATUS && typedValue != null
+                && typedValue.path("active").isBoolean() && !typedValue.path("active").booleanValue()) {
+            operation = CharacterFactOperation.REMOVE;
+        }
         if (lateReview) candidate.prepareLateReviewedValue(factType, key, candidate.getAttributeValue(), typedValue, operation, version, reviewedScope);
         else candidate.prepareUserEditedValue(factType, key, candidate.getAttributeValue(), typedValue, operation, version, reviewedScope);
     }

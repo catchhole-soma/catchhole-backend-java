@@ -305,7 +305,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                 schemaMatch.matchedSchema().getValueType());
         CharacterFactOperation operation = candidate.getSuggestedOperation();
         validatePromotionPolicy(candidate, resolved, operation, applicationMode);
-        validateRemovalSnapshotVersion(candidate, operation, applicationMode, removalSnapshotVersion);
+        if (!acceptedFinalResult) validateRemovalSnapshotVersion(candidate, operation, applicationMode, removalSnapshotVersion);
         JsonNode proposed = candidate.getProposedValueJson();
         validateActiveStatusPromotion(candidate, factType, operation, applicationMode, proposed);
         CharacterSnapshotSlot slot = new CharacterSnapshotSlot(factType, factKey);
@@ -418,7 +418,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             Map<UUID, Long> initialSnapshotVersions
     ) {
         for (SettingCandidateGroupPromotion promotion : promotions) {
-            if (promotion.applicationMode() == CharacterFactConfirmApplicationMode.HISTORY_ONLY) {
+            if (promotion.applicationMode() == CharacterFactConfirmApplicationMode.HISTORY_ONLY || promotion.acceptedFinalResult()) {
                 continue;
             }
             SettingCandidate candidate = promotion.candidate();
