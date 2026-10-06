@@ -389,6 +389,14 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 : request.applicationMode();
         boolean applyEditedValue = request != null && Boolean.TRUE.equals(request.applyEditedValue());
         validateEditedApplicationSelection(candidate, applyEditedValue, request == null ? null : request.expectedUpdatedAt());
+        if (applyEditedValue && candidate.isCompletedManualReview()) {
+            // 캐릭터 snapshot 변경 허용과 후보 자체의 동시 수정 검증은 별개다.
+            validateCandidateReviewTimestamp(candidate, request.expectedUpdatedAt());
+            if (candidate.getReviewedApplicationMode() == null
+                    || candidate.getReviewedApplicationMode() != applicationMode) {
+                throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_EDIT_APPLICATION_REQUIRED);
+            }
+        }
 
         if (isCompletedOrderedReview(candidate)) {
             SettingCandidateGroupPromotion promotion = prepareCompletedOrderedCandidate(
