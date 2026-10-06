@@ -1602,7 +1602,8 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 candidate,
                 metadata.attributeNameEditable(),
                 metadata.attributeNamePrefix(),
-                metadata.valueValidation()
+                metadata.valueValidation(),
+                metadata.attributeDisplayName()
         );
     }
 
@@ -1615,7 +1616,8 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 candidate,
                 metadata.attributeNameEditable(),
                 metadata.attributeNamePrefix(),
-                metadata.valueValidation()
+                metadata.valueValidation(),
+                metadata.attributeDisplayName()
         );
     }
 
@@ -1728,19 +1730,22 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                             match.matchedSchema().getValueType()
                     );
             if (!isPatternMatch(match)) {
-                return new CandidateResponseMetadata(false, null, valueValidation);
+                return new CandidateResponseMetadata(false, null, valueValidation,
+                        match.matchedSchema().getDisplayName().trim());
             }
             return new CandidateResponseMetadata(
                     true,
                     dynamicPatternPrefix(match.matchedSchema()),
-                    valueValidation
+                    valueValidation,
+                    dynamicDisplayName(match.matchedSchema(), match.factKey())
             );
         } catch (AppException exception) {
             if (exception.getResultCode() instanceof CharacterErrorCode errorCode) {
                 return new CandidateResponseMetadata(
                         false,
                         null,
-                        SettingCandidateValueValidation.unrepairableInvalid(errorCode)
+                        SettingCandidateValueValidation.unrepairableInvalid(errorCode),
+                        null
                 );
             }
             throw exception;
@@ -1931,13 +1936,15 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
     private record CandidateResponseMetadata(
             boolean attributeNameEditable,
             String attributeNamePrefix,
-            SettingCandidateValueValidation valueValidation
+            SettingCandidateValueValidation valueValidation,
+            String attributeDisplayName
     ) {
         private static final CandidateResponseMetadata NOT_APPLICABLE =
                 new CandidateResponseMetadata(
                         false,
                         null,
-                        SettingCandidateValueValidation.notApplicable()
+                        SettingCandidateValueValidation.notApplicable(),
+                        null
                 );
     }
 }

@@ -475,6 +475,7 @@ domain/<domain>
 - `CHARACTER_DISCOVERY` 후보는 설정 콘텐츠가 없으므로 일반 설정명·표시값 수정 API에서 거절하고, 캐릭터 연결 해소와 확정/무시만 허용한다.
 - 설정 후보 MVP 내용 수정은 사용자용 설정명과 표시값만 받으며, 캐릭터 연결 API와 내용 수정 API는 서로의 필드를 변경하지 않는다.
 - 후보 응답의 설정명 편집 가능 여부와 prefix는 현재 작품의 활성 schema를 동일 resolver로 해석한 `attributeNameEditable`, `attributeNamePrefix`로 제공한다. exact/alias는 잠그고 pattern만 열며, 해석 불가 후보 조회는 실패시키지 않고 이름 편집을 잠근다.
+- 후보의 화면 설정명은 활성 schema로 해석한 `attributeDisplayName`으로 제공한다. exact/alias는 registry의 `displayName`, pattern은 구체 suffix를 사용하고 발견·해석 불가 후보는 null로 둔다. 새 schema를 추가할 때 프론트 번역 목록을 함께 고쳐야 하는 의존성을 없애기 위함이며 저장·수정용 `attributeName`은 유지한다.
 - 이름과 값이 실질적으로 바뀌지 않은 후보와 캐릭터 연결만 바뀐 후보는 기존 AI `valueJson`을 그대로 유지한다. 동적 suffix 공백과 표시값 앞뒤 공백의 저장 문자열 정규화는 rich JSON을 축소하지 않고 적용한다.
 - `SettingValueType.JSON` 복합 후보의 이름 또는 값이 실제로 바뀌면 기존 prefix를 유지하고 suffix와 `valueJson.name`을 동기화한 뒤, 현재 후보 `valueJson`을 name-only object로 의도적으로 교체한다. 타입 계약이 없는 숨은 속성은 merge·추측·보존하지 않는다.
 - 후보 내용 수정은 `valueType`, `evidenceSpans`, `rawAiResultJson`을 변경하지 않는다. `rawAiResultJson`은 최초 AI payload 보관용이며 confirm 시 수정 전 구조화 값을 복원하는 source로 사용하지 않는다.

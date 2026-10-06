@@ -48,9 +48,10 @@ public class SettingCandidateMapper {
             SettingCandidate candidate,
             boolean attributeNameEditable,
             String attributeNamePrefix,
-            SettingCandidateValueValidation valueValidation
+            SettingCandidateValueValidation valueValidation,
+            String attributeDisplayName
     ) {
-        return toResponse(candidate, attributeNameEditable, attributeNamePrefix, valueValidation, true);
+        return toResponse(candidate, attributeNameEditable, attributeNamePrefix, valueValidation, attributeDisplayName, true);
     }
 
     /** 목록에서는 화면에 사용하지 않는 원본 AI payload를 제외해 응답 직렬화와 브라우저 파싱 비용을 줄인다. */
@@ -58,9 +59,10 @@ public class SettingCandidateMapper {
             SettingCandidate candidate,
             boolean attributeNameEditable,
             String attributeNamePrefix,
-            SettingCandidateValueValidation valueValidation
+            SettingCandidateValueValidation valueValidation,
+            String attributeDisplayName
     ) {
-        return toResponse(candidate, attributeNameEditable, attributeNamePrefix, valueValidation, false);
+        return toResponse(candidate, attributeNameEditable, attributeNamePrefix, valueValidation, attributeDisplayName, false);
     }
 
     private SettingCandidateResponse toResponse(
@@ -68,6 +70,7 @@ public class SettingCandidateMapper {
             boolean attributeNameEditable,
             String attributeNamePrefix,
             SettingCandidateValueValidation valueValidation,
+            String attributeDisplayName,
             boolean includeRawAiResult
     ) {
         Episode episode = candidate.getEpisode();
@@ -87,6 +90,7 @@ public class SettingCandidateMapper {
                 candidate.getMatchedCharacterId(),
                 candidate.getMatchStatus(),
                 candidate.getAttributeName(),
+                attributeDisplayName,
                 attributeNameEditable,
                 attributeNamePrefix,
                 candidate.getAttributeValue(),
