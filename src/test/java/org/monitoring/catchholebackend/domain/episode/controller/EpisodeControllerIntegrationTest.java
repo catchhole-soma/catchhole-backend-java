@@ -593,6 +593,70 @@ class EpisodeControllerIntegrationTest {
                 .andExpect(jsonPath("$.error.details", hasSize(0)));
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("여러 파일의 역순 선택과 표시 재정렬 뒤에도 확정 번호·제목·본문·파일의 연결을 보존한다")
+    void uploadMultipleFilesPreservesSourceMappingAfterSorting(boolean sortedDisplay) throws Exception {
+        String first = "{\"detectionOrder\":0,\"episodeNo\":14,\"title\":\"수정한 14화\"}";
+        String second = "{\"detectionOrder\":1,\"episodeNo\":13,\"title\":\"수정한 13화\"}";
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(metadataPart("{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\",\"episodeConfirmations\":["
+                                + (sortedDisplay ? second + "," + first : first + "," + second) + "]}"))
+                        .file(textFile("episodeFiles", "14화.txt", "14화 원래 제목\n열넷 본문"))
+                        .file(textFile("episodeFiles", "13화.txt", "13화 원래 제목\n열셋 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.createdEpisodes", hasSize(2)));
+
+        var episodes = episodeRepository.findAllByWorkIdAndStatusNotOrderByEpisodeNoDesc(work.getId(), EpisodeStatus.ARCHIVED);
+        assertThat(episodes).extracting(Episode::getEpisodeNo).containsExactly(14, 13);
+        for (Episode episode : episodes) {
+            int number = episode.getEpisodeNo();
+            assertThat(episode.getTitle()).isEqualTo("수정한 " + number + "화");
+            assertThat(uploadFileRepository.findById(episode.getSourceFileId()).orElseThrow().getOriginalFilename())
+                    .isEqualTo(number + "화.txt");
+            verify(objectStorage).putText(eq(episode.getContentS3Key()),
+                    eq(number + "화 원래 제목\n" + (number == 14 ? "열넷 본문" : "열셋 본문")));
+        }
+        assertThat(workRepository.findById(work.getId()).orElseThrow().getLatestEpisodeNo()).isEqualTo(14);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"detectionOrder\":0,\"episodeNo\":13},{\"detectionOrder\":0,\"episodeNo\":14}",
+            "{\"detectionOrder\":0,\"episodeNo\":13},{\"detectionOrder\":2,\"episodeNo\":14}",
+            "{\"detectionOrder\":0,\"episodeNo\":13}"
+    })
+    @DisplayName("여러 파일 재정렬 허용 후에도 중복·누락·범위 밖 감지 식별자를 거절한다")
+    void uploadMultipleFilesRejectsInvalidSourceMapping(String confirmations) throws Exception {
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(metadataPart("{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\",\"episodeConfirmations\":[" + confirmations + "]}"))
+                        .file(textFile("episodeFiles", "14화.txt", "14화 원래 제목\n열넷 본문"))
+                        .file(textFile("episodeFiles", "13화.txt", "13화 원래 제목\n열셋 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("UPLOAD_EPISODE_CONFIRMATION_INVALID"));
+        assertThat(episodeRepository.count()).isZero();
+        verify(objectStorage, never()).putText(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("여러 파일을 재정렬해도 확정 회차 번호 중복은 저장 전에 거절한다")
+    void uploadMultipleFilesRejectsDuplicateNumbersAfterSorting() throws Exception {
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(metadataPart("""
+                                {"uploadType":"MULTI_EPISODE_MULTI_FILE","episodeConfirmations":[
+                                  {"detectionOrder":1,"episodeNo":13},{"detectionOrder":0,"episodeNo":13}]}
+                                """))
+                        .file(textFile("episodeFiles", "14화.txt", "14화 원래 제목\n열넷 본문"))
+                        .file(textFile("episodeFiles", "13화.txt", "13화 원래 제목\n열셋 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("EPISODE_UPLOAD_DUPLICATED"));
+        assertThat(episodeRepository.count()).isZero();
+        verify(objectStorage, never()).putText(anyString(), anyString());
+    }
+
     @Test
     void getEpisodesReturnsAuthenticatedWorkEpisodes() throws Exception {
         episodeRepository.save(Episode.create(work, null, 1, "1화", "works/test/episodes/1.txt", "v1", "hash1", 10));

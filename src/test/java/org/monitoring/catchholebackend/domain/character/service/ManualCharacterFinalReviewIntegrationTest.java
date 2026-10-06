@@ -203,8 +203,8 @@ class ManualCharacterFinalReviewIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"snapshot", "candidate", "source", "running", "other-episode", "foreign-dependency"})
-    @DisplayName("외부 설정·후보·원고·진행 상태·다른 회차가 바뀌면 원자적으로 거절하고 AI를 예약하지 않는다")
+    @ValueSource(strings = {"candidate", "source", "running", "other-episode", "foreign-dependency"})
+    @DisplayName("후보·원고·진행 상태·다른 회차가 바뀌면 원자적으로 거절하고 AI를 예약하지 않는다")
     void preservesExternalGuards(String scenario) {
         Fixture f = fixture(false);
         var request = request(f, List.of(f.first(), f.second(), f.third()));
@@ -212,7 +212,6 @@ class ManualCharacterFinalReviewIntegrationTest {
             var candidate = entities.find(SettingCandidate.class, f.first());
             var job = candidate.getAnalysisJob();
             switch (scenario) {
-                case "snapshot" -> entities.createNativeQuery("update characters set snapshot_version = 1 where id = :id").setParameter("id", f.character()).executeUpdate();
                 case "candidate" -> candidate.recordUserModification();
                 case "source" -> entities.createNativeQuery("update episodes set content_hash = :hash where id = :id").setParameter("hash", "b".repeat(64)).setParameter("id", candidate.getEpisode().getId()).executeUpdate();
                 case "running" -> entities.createNativeQuery("update analysis_jobs set status = 'RUNNING' where id = :id").setParameter("id", job.getId()).executeUpdate();
@@ -309,6 +308,150 @@ class ManualCharacterFinalReviewIntegrationTest {
             assertThat(snapshot.containsKey(new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.recovered"))).isEqualTo(!pureRemove);
         });
         noComparison();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("저장한 현재·이력 선택은 다른 설정의 수정과 삭제 뒤에도 확정하고 관련 없는 변경을 보존한다")
+    void finalChoicesSurviveSnapshotChanges(boolean ordered) {
+        Fixture f = fixture(false);
+        if (ordered) makeOrdered(f);
+        review.dismissSettingCandidate(f.member(), f.work(), f.third());
+        var first = get(f, f.first());
+        review.updateSettingCandidate(f.member(), f.work(), f.first(), new SettingCandidateUpdateRequest(
+                first.attributeName(), first.attributeValue(), CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, first.updatedAt()));
+        var second = get(f, f.second());
+        review.updateSettingCandidate(f.member(), f.work(), f.second(), new SettingCandidateUpdateRequest(
+                second.attributeName(), second.attributeValue(), CharacterFactConfirmApplicationMode.HISTORY_ONLY, second.updatedAt()));
+        var request = request(f, List.of(f.first(), f.second()));
+        if (ordered) request = new SettingCandidateGroupConfirmRequest(f.batch(), null, request.candidates(), false);
+        clearInvocations(coordinator, comparisons);
+        tx.executeWithoutResult(status -> {
+            var character = entities.find(WorkCharacter.class, f.character());
+            var snapshot = snapshots.read(character);
+            snapshot.put(new CharacterSnapshotSlot(CharacterFactType.PROFILE, "profile.title"),
+                    snapshots.entry(CharacterFactType.PROFILE, "profile.title", "작가가 직접 수정한 직함", JSON.objectNode().put("value", "작가가 직접 수정한 직함")));
+            // profile.affiliation은 이미 삭제된 상태다. 명시적으로 고른 항목만 복원한다.
+            snapshots.replace(character, snapshot, true);
+        });
+        assertThat(review.confirmSettingCandidateGroup(f.member(), f.work(), request).recomparisonRequired()).isFalse();
+        assertThat(review.confirmSettingCandidateGroup(f.member(), f.work(), request).recomparisonRequired()).isFalse();
+        tx.executeWithoutResult(status -> {
+            var character = entities.find(WorkCharacter.class, f.character());
+            var snapshot = snapshots.read(character);
+            assertThat(snapshot.get(new CharacterSnapshotSlot(CharacterFactType.PROFILE, "profile.affiliation")).factValue()).isEqualTo("기사단");
+            assertThat(snapshot.get(new CharacterSnapshotSlot(CharacterFactType.PROFILE, "profile.title")).factValue()).isEqualTo("작가가 직접 수정한 직함");
+            assertThat(snapshot).doesNotContainKey(new CharacterSnapshotSlot(CharacterFactType.PROFILE, "profile.duty"));
+            assertThat(character.getSnapshotVersion()).isEqualTo(2);
+            assertThat(entities.find(SettingCandidate.class, f.second()).getConfirmedApplicationMode()).isEqualTo(CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+        });
+        noComparison();
+    }
+
+    @Test
+    @DisplayName("표시된 최종 제안도 캐릭터 버전만 달라졌다면 관련 없는 설정을 보존하며 확정한다")
+    void unchangedDisplayedResultsAcceptNewSnapshotVersion() {
+        Fixture f = fixture(false);
+        var request = request(f, List.of(f.first(), f.second(), f.third()));
+        tx.executeWithoutResult(status -> entities.createNativeQuery("update characters set snapshot_version = 1 where id = :id").setParameter("id", f.character()).executeUpdate());
+        assertThat(review.confirmSettingCandidateGroup(f.member(), f.work(), request).recomparisonRequired()).isFalse();
+        tx.executeWithoutResult(status -> assertThat(snapshots.read(entities.find(WorkCharacter.class, f.character()))).hasSize(3));
+        noComparison();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("같은 항목을 두 번 현재 반영하면 원자적으로 거절하고 하나를 이력으로 선택한 뒤 확정한다")
+    void conflictingCurrentSelectionsRequireAuthorChoice(boolean ordered) {
+        Fixture f = fixture(false);
+        if (ordered) makeOrdered(f);
+        tx.executeWithoutResult(status -> ReflectionTestUtils.setField(entities.find(SettingCandidate.class, f.second()), "attributeName", "profile.affiliation"));
+        review.dismissSettingCandidate(f.member(), f.work(), f.third());
+        for (var id : List.of(f.first(), f.second())) {
+            var c = get(f, id);
+            review.updateSettingCandidate(f.member(), f.work(), id, new SettingCandidateUpdateRequest(c.attributeName(), c.attributeValue(), CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, c.updatedAt()));
+        }
+        var original = request(f, List.of(f.first(), f.second()));
+        clearInvocations(coordinator, comparisons);
+        var conflict = new SettingCandidateGroupConfirmRequest(f.batch(), null, original.candidates(), !ordered);
+        assertThatThrownBy(() -> review.confirmSettingCandidateGroup(f.member(), f.work(), conflict))
+                .isInstanceOfSatisfying(AppException.class, error -> assertThat(error.getResultCode())
+                        .isEqualTo(org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode.SETTING_CANDIDATE_CURRENT_SELECTION_CONFLICT));
+        assertThat(get(f, f.first()).reviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+        var c = get(f, f.second());
+        review.updateSettingCandidate(f.member(), f.work(), f.second(), new SettingCandidateUpdateRequest(c.attributeName(), c.attributeValue(), CharacterFactConfirmApplicationMode.HISTORY_ONLY, c.updatedAt()));
+        var fixed = request(f, List.of(f.first(), f.second()));
+        assertThat(review.confirmSettingCandidateGroup(f.member(), f.work(), new SettingCandidateGroupConfirmRequest(f.batch(), null, fixed.candidates(), !ordered)).recomparisonRequired()).isFalse();
+        noComparison();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("단건 확정도 캐릭터 버전 변경 뒤 저장한 현재 반영 선택을 존중한다")
+    void singleFinalChoiceSurvivesSnapshotChange(boolean ordered) {
+        Fixture f = fixture(false);
+        if (ordered) makeOrdered(f);
+        var c = get(f, f.first());
+        review.updateSettingCandidate(f.member(), f.work(), f.first(), new SettingCandidateUpdateRequest(
+                c.attributeName(), c.attributeValue(), CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, c.updatedAt()));
+        var saved = get(f, f.first());
+        tx.executeWithoutResult(status -> entities.createNativeQuery("update characters set snapshot_version = 2 where id = :id").setParameter("id", f.character()).executeUpdate());
+        var request = new org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateConfirmRequest(
+                CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, saved.comparisonBaseSnapshotVersion(), true, saved.updatedAt());
+        assertThat(review.confirmSettingCandidate(f.member(), f.work(), f.first(), request).recomparisonRequired()).isFalse();
+        assertThat(review.confirmSettingCandidate(f.member(), f.work(), f.first(), request).recomparisonRequired()).isFalse();
+        tx.executeWithoutResult(status -> {
+            var character = entities.find(WorkCharacter.class, f.character());
+            assertThat(snapshots.read(character).get(new CharacterSnapshotSlot(CharacterFactType.PROFILE, "profile.affiliation")).factValue()).isEqualTo("기사단");
+            assertThat(character.getSnapshotVersion()).isEqualTo(3);
+        });
+        noComparison();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("종료 상태의 명시적 현재 반영은 최신 snapshot에서 해당 상태만 제거한다")
+    void finalInactiveStatusRemovesOnlySelectedState(boolean ordered) {
+        Fixture f = fixture(false);
+        if (ordered) makeOrdered(f);
+        tx.executeWithoutResult(status -> {
+            var c = entities.find(SettingCandidate.class, f.first());
+            entities.persist(CharacterSettingSchema.create(c.getWork(), "status.wound", null, "부상", CharacterFactType.STATUS,
+                    SettingValueType.JSON, CharacterSettingValueSemantics.BASE_VALUE, CharacterSettingMergePolicy.UPSERT_BY_NAME,
+                    JSON.arrayNode(), CharacterSettingSchemaSource.SYSTEM_SEED, true));
+            ReflectionTestUtils.setField(c, "attributeName", "status.wound");
+            ReflectionTestUtils.setField(c, "attributeValue", "부상이 나았다");
+            ReflectionTestUtils.setField(c, "valueType", SettingValueType.JSON);
+            ReflectionTestUtils.setField(c, "valueJson", JSON.objectNode().put("name", "부상").put("active", false));
+        });
+        var c = get(f, f.first());
+        review.updateSettingCandidate(f.member(), f.work(), f.first(), new SettingCandidateUpdateRequest(
+                c.attributeName(), c.attributeValue(), CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, c.updatedAt()));
+        var saved = get(f, f.first());
+        tx.executeWithoutResult(status -> {
+            var character = entities.find(WorkCharacter.class, f.character());
+            var snapshot = snapshots.read(character);
+            for (String key : List.of("status.wound", "status.poison")) snapshot.put(new CharacterSnapshotSlot(CharacterFactType.STATUS, key),
+                    snapshots.entry(CharacterFactType.STATUS, key, key, JSON.objectNode().put("name", key).put("active", true)));
+            snapshots.replace(character, snapshot, true);
+        });
+        var request = new org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateConfirmRequest(
+                CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, saved.comparisonBaseSnapshotVersion(), true, saved.updatedAt());
+        assertThat(review.confirmSettingCandidate(f.member(), f.work(), f.first(), request).recomparisonRequired()).isFalse();
+        tx.executeWithoutResult(status -> {
+            var snapshot = snapshots.read(entities.find(WorkCharacter.class, f.character()));
+            assertThat(snapshot).doesNotContainKey(new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.wound"))
+                    .containsKey(new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.poison"));
+            assertThat(entities.find(SettingCandidate.class, f.first()).getSuggestedOperation()).isEqualTo(CharacterFactOperation.REMOVE);
+        });
+        noComparison();
+    }
+
+    private void makeOrdered(Fixture f) {
+        tx.executeWithoutResult(status -> entities.createNativeQuery(
+                "update analysis_jobs set analysis_mode = 'ORDERED_PROVISIONAL', journal_status = 'SEALED', automatic_applied_at = CURRENT_TIMESTAMP where id = :id")
+                .setParameter("id", f.job()).executeUpdate());
+        assertThat(get(f, f.first()).analysisMode()).isEqualTo(org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL);
     }
 
     private org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse get(Fixture f, UUID id) {

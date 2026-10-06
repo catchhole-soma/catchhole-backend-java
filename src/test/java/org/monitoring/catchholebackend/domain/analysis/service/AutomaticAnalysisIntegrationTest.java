@@ -481,8 +481,8 @@ class AutomaticAnalysisIntegrationTest {
 
     @ParameterizedTest
     @MethodSource("lateCharacterCases")
-    @DisplayName("캐릭터 늦은 확정은 최신값·제거·수동값·과거 상태를 보호하고 빈 항목만 추가한다")
-    void lateCharacterConfirmationKeepsLaterFactAndFinishedRun(String scenario, boolean group) {
+    @DisplayName("캐릭터 늦은 확정은 작가의 현재·이력 선택을 반영하고 완료된 후행 분석을 유지한다")
+    void lateCharacterConfirmationRespectsChoiceAndKeepsFinishedRun(String scenario, boolean group) {
         Run run = run(2);
         var first = claim();
         UUID pending = tx.execute(status -> addUnresolvedReference(jobs.findById(first.analysisJobId()).orElseThrow()).getId());
@@ -549,8 +549,7 @@ class AutomaticAnalysisIntegrationTest {
             assertThat(characterReview.confirmSettingCandidate(owner, run.workId(), pending, request).recomparisonRequired()).isFalse();
         }
         tx.executeWithoutResult(status -> {
-            assertThat(candidates.findById(pending).orElseThrow().getConfirmedApplicationMode()).isEqualTo(scenario.equals("empty")
-                    ? CharacterFactConfirmApplicationMode.APPLY_PROPOSAL : CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+            assertThat(candidates.findById(pending).orElseThrow().getConfirmedApplicationMode()).isEqualTo(selectedMode);
             if (scenario.equals("past")) assertThat(candidates.findById(pending).orElseThrow().getTemporalScope()).isEqualTo(CharacterFactTemporalScope.PAST);
             assertThat(jobs.findById(second.analysisJobId()).orElseThrow().getJournalStatus()).isEqualTo(AnalysisJournalStatus.SEALED);
             assertThat(jobs.findById(second.analysisJobId()).orElseThrow().getStatus()).isEqualTo(AnalysisJobStatus.SUCCEEDED);
@@ -559,11 +558,9 @@ class AutomaticAnalysisIntegrationTest {
         });
         var third = claim();
         var values = input(third).path("characters").findValuesAsText("factValue");
-        if (scenario.equals("empty")) assertThat(values).contains("35");
-        else { assertThat(values).doesNotContain("35");
-            if (scenario.equals("latest")) assertThat(values).contains("36");
-            if (scenario.equals("manual")) assertThat(values).contains("88");
-        }
+        if (selectedMode == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL) {
+            assertThat(values).contains("35").doesNotContain("36", "88");
+        } else assertThat(values).doesNotContain("35");
     }
 
     @Test
@@ -738,7 +735,7 @@ class AutomaticAnalysisIntegrationTest {
     }
 
     @Test
-    @DisplayName("완료된 회차의 같은 캐릭터 항목을 묶어 확정하면 앞 후보만 현재값이 되고 뒤 후보는 이력에 남는다")
+    @DisplayName("같은 캐릭터 항목의 묶음 확정은 현재값 하나를 선택한 뒤에만 성공한다")
     void lateCharacterGroupProjectsEarlierSlotDecisions() {
         Run run = run(1, AnalysisReviewMode.MANUAL);
         var payload = claim();
@@ -759,8 +756,13 @@ class AutomaticAnalysisIntegrationTest {
                         id, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, null, false))
                 .toList());
 
-        assertThat(characterReview.confirmSettingCandidateGroup(owner, run.workId(), request).recomparisonRequired())
-                .isFalse();
+        assertThatThrownBy(() -> characterReview.confirmSettingCandidateGroup(owner, run.workId(), request))
+                .isInstanceOfSatisfying(AppException.class, error -> assertThat(error.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_CURRENT_SELECTION_CONFLICT));
+        var chosen = new SettingCandidateGroupConfirmRequest(batch, candidateIds.stream()
+                .map(id -> new SettingCandidateGroupConfirmDecision(id, id.equals(candidateIds.get(2))
+                        ? CharacterFactConfirmApplicationMode.HISTORY_ONLY : CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, null, false)).toList());
+        assertThat(characterReview.confirmSettingCandidateGroup(owner, run.workId(), chosen).recomparisonRequired()).isFalse();
 
         tx.executeWithoutResult(status -> {
             WorkCharacter character = entities.createQuery(
@@ -1182,7 +1184,7 @@ class AutomaticAnalysisIntegrationTest {
     }
 
     @Test
-    @DisplayName("앞 원문 파기 후에도 완료된 후행 후보는 최신값을 보호하며 추가 분석 없이 확정한다")
+    @DisplayName("앞 원문 파기 후에도 완료된 후행 후보는 작가 선택으로 확정하고 세계관의 최신값 보호를 유지한다")
     void reviewsCompletedSuccessorAfterEarlierSourcePurge() {
         Run run = run(3);
         var first = claim();
@@ -1248,7 +1250,7 @@ class AutomaticAnalysisIntegrationTest {
                         "엘프", null, "서식지", "남부", true, "직접 확인")).recomparisonRequired()).isFalse();
         tx.executeWithoutResult(status -> {
             assertThat(candidates.findById(pending.getFirst()).orElseThrow().getConfirmedApplicationMode())
-                    .isEqualTo(CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+                    .isEqualTo(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
             assertThat(entities.find(WorldSettingCandidate.class, pending.get(1)).isHistoryOnly()).isTrue();
             assertThat(jobs.count()).isEqualTo(3);
             assertThat(jobs.findById(second.analysisJobId()).orElseThrow().isCompletedOrderedAnalysis()).isTrue();
@@ -1256,7 +1258,7 @@ class AutomaticAnalysisIntegrationTest {
         });
         nextBatch(run.workId(), 4);
         var current = input(claim());
-        assertThat(current.path("characters").findValuesAsText("factValue")).contains("36").doesNotContain("35");
+        assertThat(current.path("characters").findValuesAsText("factValue")).contains("35").doesNotContain("36");
         assertThat(current.path("worldSettings").toString()).contains("북부").doesNotContain("남부");
     }
 
