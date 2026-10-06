@@ -409,6 +409,79 @@ class ManualCharacterFinalReviewIntegrationTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"stale-mode", "stale-value", "missing-timestamp", "apply-after-history", "history-after-apply", "rematch-only"})
+    @DisplayName("수동 단건 최종 확정은 최신 후보 시각과 저장한 선택이 모두 일치해야 한다")
+    void manualSingleFinalChoiceRequiresSavedDecision(String scenario) {
+        Fixture f = fixture(false);
+        var original = get(f, f.first());
+        if (scenario.equals("rematch-only")) {
+            review.updateSettingCandidateCharacterMatch(f.member(), f.work(), f.first(),
+                    new SettingCandidateCharacterMatchRequest(SettingCandidateCharacterMatchResolutionType.MATCH_EXISTING,
+                            f.character(), null));
+            assertThat(get(f, f.first()).userModified()).isTrue();
+            assertThat(get(f, f.first()).reviewedApplicationMode()).isNull();
+        } else {
+            review.updateSettingCandidate(f.member(), f.work(), f.first(), new SettingCandidateUpdateRequest(
+                    original.attributeName(), original.attributeValue(),
+                    scenario.equals("apply-after-history") ? CharacterFactConfirmApplicationMode.HISTORY_ONLY
+                            : CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, original.updatedAt()));
+        }
+        var saved = get(f, f.first());
+        if (scenario.equals("stale-mode") || scenario.equals("stale-value")) {
+            review.updateSettingCandidate(f.member(), f.work(), f.first(), new SettingCandidateUpdateRequest(
+                    saved.attributeName(), scenario.equals("stale-value") ? "새로 수정한 소속" : saved.attributeValue(),
+                    scenario.equals("stale-mode") ? CharacterFactConfirmApplicationMode.HISTORY_ONLY
+                            : CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, saved.updatedAt()));
+            assertThat(get(f, f.first()).updatedAt()).isNotEqualTo(saved.updatedAt());
+        }
+        var latest = get(f, f.first());
+        var requestedMode = scenario.equals("history-after-apply") ? CharacterFactConfirmApplicationMode.HISTORY_ONLY
+                : CharacterFactConfirmApplicationMode.APPLY_PROPOSAL;
+        var request = new SettingCandidateConfirmRequest(requestedMode, saved.comparisonBaseSnapshotVersion(), true,
+                scenario.equals("missing-timestamp") ? null : saved.updatedAt());
+        var expectedError = scenario.startsWith("stale-") || scenario.equals("missing-timestamp")
+                ? CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE
+                : CharacterErrorCode.SETTING_CANDIDATE_EDIT_APPLICATION_REQUIRED;
+        clearInvocations(coordinator, comparisons);
+        assertThatThrownBy(() -> review.confirmSettingCandidate(f.member(), f.work(), f.first(), request))
+                .isInstanceOfSatisfying(AppException.class, error -> assertThat(error.getResultCode()).isEqualTo(expectedError));
+        var unchanged = get(f, f.first());
+        assertThat(unchanged.reviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+        assertThat(unchanged.updatedAt()).isEqualTo(latest.updatedAt());
+        assertThat(unchanged.reviewedApplicationMode()).isEqualTo(latest.reviewedApplicationMode());
+        tx.executeWithoutResult(status -> {
+            var character = entities.find(WorkCharacter.class, f.character());
+            assertThat(snapshots.read(character)).isEmpty();
+            assertThat(character.getSnapshotVersion()).isZero();
+            assertThat(entities.createQuery("select count(f) from CharacterFact f where f.settingCandidate.id = :candidate", Long.class)
+                    .setParameter("candidate", f.first()).getSingleResult()).isZero();
+        });
+        noComparison();
+    }
+
+    @Test
+    @DisplayName("최신 저장 시각과 일치하는 수동 단건 이력 선택은 현재 설정을 바꾸지 않고 멱등 확정한다")
+    void manualSingleSavedHistoryChoiceRemainsHistory() {
+        Fixture f = fixture(false);
+        var c = get(f, f.first());
+        review.updateSettingCandidate(f.member(), f.work(), f.first(), new SettingCandidateUpdateRequest(
+                c.attributeName(), c.attributeValue(), CharacterFactConfirmApplicationMode.HISTORY_ONLY, c.updatedAt()));
+        var saved = get(f, f.first());
+        var request = new SettingCandidateConfirmRequest(CharacterFactConfirmApplicationMode.HISTORY_ONLY,
+                saved.comparisonBaseSnapshotVersion(), true, saved.updatedAt());
+        assertThat(review.confirmSettingCandidate(f.member(), f.work(), f.first(), request).recomparisonRequired()).isFalse();
+        assertThat(review.confirmSettingCandidate(f.member(), f.work(), f.first(), request).recomparisonRequired()).isFalse();
+        tx.executeWithoutResult(status -> {
+            assertThat(snapshots.read(entities.find(WorkCharacter.class, f.character()))).isEmpty();
+            assertThat(entities.find(SettingCandidate.class, f.first()).getConfirmedApplicationMode())
+                    .isEqualTo(CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+            assertThat(entities.createQuery("select count(f) from CharacterFact f where f.settingCandidate.id = :candidate", Long.class)
+                    .setParameter("candidate", f.first()).getSingleResult()).isEqualTo(1);
+        });
+        noComparison();
+    }
+
+    @ParameterizedTest
     @ValueSource(booleans = {false, true})
     @DisplayName("종료 상태의 명시적 현재 반영은 최신 snapshot에서 해당 상태만 제거한다")
     void finalInactiveStatusRemovesOnlySelectedState(boolean ordered) {
