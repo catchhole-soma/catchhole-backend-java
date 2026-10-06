@@ -91,6 +91,16 @@ class HangulDocumentReaderTest {
     }
 
     @Test
+    @DisplayName("HWP 본문 뒤의 확장 바탕쪽·메모 문단을 분석 본문에 섞지 않는다")
+    void excludesTrailingMasterPagesAndMemos() throws IOException {
+        for (int tag : List.of(72, 93)) {
+            byte[] section = join(paragraph(0, "제 1화 시작\n본문"), record(tag, 0, new byte[34]),
+                    paragraph(0, "제 99화 부가 내용"));
+            assertThat(reader.readText("auxiliary.hwp", hwp(1, section))).isEqualTo("제 1화 시작\n본문");
+        }
+    }
+
+    @Test
     @DisplayName("HWPX는 문단 뒤에 글상자를 한 번 넣고 표·탭을 보존하며 부가 텍스트는 제외한다")
     void readsHwpxStructure() throws IOException {
         String body = """
