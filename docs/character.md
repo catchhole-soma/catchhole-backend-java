@@ -84,6 +84,7 @@ AI 결과는 바로 확정 설정으로 보지 않습니다. 사용자가 검토
 - MVP 일반 후보 수정 API는 사용자에게 노출한 `attributeName`, `attributeValue`만 받습니다. 캐릭터 이름과 연결 상태는 단건 내용 수정이 아니라 캐릭터 연결 해소 API 또는 그룹 일괄 연결 API로 변경합니다. `valueType`, 중첩 JSON 속성, 원문 근거는 클라이언트가 보내거나 직접 편집하지 않습니다.
 - 고정 exact/alias schema에 매칭된 후보는 설정명을 바꿀 수 없습니다. 동적 `.*` pattern 후보만 기존 prefix를 유지한 채 suffix를 바꿀 수 있습니다.
 - 후보 응답의 `attributeNameEditable`, `attributeNamePrefix`는 현재 작품의 활성 schema를 같은 resolver로 해석한 서버 권위 편집 계약입니다. exact/alias는 `false/null`, pattern은 `true/<pattern prefix>`이며, 미매칭·타입 불일치·모호한 기존 후보는 조회를 막지 않고 `false/null`로 내려 안전하게 이름 편집만 잠급니다.
+- 후보 목록·상세·수정 응답의 `attributeDisplayName`은 같은 활성 schema 해석 결과로 계산하는 화면용 설정명입니다. exact/alias는 DB의 `display_name`, pattern은 개별 key suffix의 `_`를 공백으로 바꾼 이름을 사용합니다. 캐릭터 발견·미매칭·타입 불일치·모호한 후보는 `null`이며, 저장용 `attributeName`이나 후보 데이터를 표시명으로 덮어쓰지 않습니다.
 - 동적 suffix는 앞뒤 공백을 제거하고 내부 공백을 `_`로 정규화합니다. `skill.월광 참`은 `attributeName = skill.월광_참`으로 저장하며 사용자용 JSON 이름은 `월광 참`으로 맞춥니다.
 - 새 동적 suffix가 공백 또는 `_`만으로 구성되면 거절합니다. 다만 Worker나 기존 데이터에 이미 이런 suffix가 저장된 pattern 후보는 편집 가능 상태로 응답하고, 사용자가 유효한 suffix로 교정하는 요청은 허용합니다.
 - 정규화한 설정명과 표시값이 모두 기존과 의미상 같으면 AI가 만든 기존 `valueJson`을 그대로 유지합니다. 다만 동적 key의 공백→`_`, 표시값 앞뒤 공백 제거처럼 저장 문자열의 정규화만 필요한 경우에는 JSON을 축소하지 않고 해당 문자열만 갱신합니다.
