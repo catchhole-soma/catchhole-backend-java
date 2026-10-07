@@ -56,6 +56,8 @@ Apache POI 5.5.1(Apache-2.0)의 POIFS로 HWP OLE 컨테이너를 연다. 본문 
 
 `src/test/resources/upload`의 소설 문장은 테스트를 위해 직접 작성했다. `scripts/upload-fixtures/CreateHangulFixtures.java`는 hwplib 1.1.11 / hwpxlib 1.0.9로 기본 문서와 HWP 여러 구역 문서를 만든다. `create_hwpx.py`가 HWPX의 기본 서식/패키지 정보를 유지하며 합성 문단을 넣는다. 파서 테스트는 별도 생성기로 만든 이 바이너리를 읽고, 구조/오류 테스트는 공개 형식에 맞춘 최소 컨테이너를 따로 구성한다. 개인 제공 문서/그 추출 원문은 포함하지 않는다.
 
+`table-rows.hwp`와 `table-rows-uncompressed.hwp`는 위 생성기가 hwplib의 표/셀 모델과 writer로 만든 4행·9셀 문서이며 2열/3열 병합을 포함한다. 테스트 파서와 같은 레코드 조립 코드를 재사용하지 않는다. 생성 시 hwplib로 다시 읽어 행·병합 정보를 확인하고, 회귀 테스트는 최종 텍스트의 탭·줄바꿈을 정확히 비교한다. 셀 `LIST_HEADER`는 문단 수 4바이트 + 속성 4바이트 뒤에 열(오프셋 8), 행(10), 열 병합 수(12), 행 병합 수(14)가 온다([hwplib reader](https://github.com/neolord0/hwplib/blob/main/src/main/java/kr/dogfoot/hwplib/reader/bodytext/paragraph/control/tbl/ForCell.java), [writer](https://github.com/neolord0/hwplib/blob/main/src/main/java/kr/dogfoot/hwplib/writer/bodytext/paragraph/control/tbl/ForCell.java)). 행 위치를 8로 바꾸면 독립 fixture의 두 회귀 테스트가 실패하는 것을 확인했다.
+
 ```sh
 # Maven Central에서 받은 fixture 생성용 jar 두 개의 경로를 지정한다.
 FIXTURE_LIBS=/path/to/hwplib-1.1.11.jar:/path/to/hwpxlib-1.0.9.jar

@@ -218,6 +218,8 @@ final class HwpTextReader {
                 if (record.data.remaining() < 16) {
                     throw DocumentReadLimits.invalid();
                 }
+                // 셀 LIST_HEADER는 문단 수 4 + 속성 4바이트 뒤에 열(8), 행(10)이 온다.
+                // hwplib 생성 표와 실제 문서로 대조했으며 8을 읽으면 열 번호가 된다.
                 int row = Short.toUnsignedInt(record.data.getShort(10));
                 if (previousRow != -1) {
                     output.append(previousRow == row ? '\t' : '\n');
