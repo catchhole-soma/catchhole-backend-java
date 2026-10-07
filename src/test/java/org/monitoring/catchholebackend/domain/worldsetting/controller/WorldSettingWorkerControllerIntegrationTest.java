@@ -21,6 +21,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
@@ -400,8 +402,8 @@ class WorldSettingWorkerControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("범위 없는 동명 후보는 concrete 비교를 거절하고 범위 확인 필요로 완료한다")
-    void completesUnscopedSameNameCandidateAsScopeReviewRequired() throws Exception {
+    @DisplayName("실제 저장 경로 변경은 거절하고 명시적 범위 확인 판단은 그대로 완료한다")
+    void rejectsChangedStoredPathAndPreservesExplicitScopeReview() throws Exception {
         WorldSetting target = worldSettingRepository.saveAndFlush(WorldSetting.create(
                 work,
                 WorldSettingCategory.LOCATION,
@@ -453,7 +455,7 @@ class WorldSettingWorkerControllerIntegrationTest {
                   "matchedPropertyName": "광원",
                   "consolidationStatus": "SINGLE",
                   "suggestedOperation": "UPDATE",
-                  "proposedScopeName": "1층",
+                  "proposedScopeName": "다른 경로",
                   "proposedSettingName": "광원",
                   "proposedValue": "벽과 천장의 수정들이 주변을 밝힌다.",
                   "comparisonReason": "기존 광원을 갱신한다.",
@@ -474,57 +476,6 @@ class WorldSettingWorkerControllerIntegrationTest {
                 .andExpect(jsonPath("$.error.code").value("WORLD_SETTING_COMPARISON_TARGET_INVALID"))
                 .andExpect(jsonPath("$.error.context.reasonCode")
                         .value("PROPOSED_PATH_MISMATCH"));
-
-        String rootAddPayload = """
-                {
-                  "targetWorldSettingId": "%s",
-                  "consolidationStatus": "SINGLE",
-                  "suggestedOperation": "ADD",
-                  "proposedSettingName": "광원",
-                  "proposedValue": "벽과 천장의 수정들이 주변을 밝힌다.",
-                  "comparisonReason": "루트 광원 설정을 추가한다.",
-                  "exactTargetWorldSettingId": "%s",
-                  "contextVersions": [{"worldSettingId": "%s", "version": %d}]
-                }
-                """.formatted(target.getId(), target.getId(), target.getId(), initialVersion);
-        mockMvc.perform(post(
-                                "/api/internal/v1/analysis-jobs/{analysisJobId}/world-setting-candidates/{candidateId}/comparison-complete",
-                                analysisJob.getId(),
-                                candidateId
-                        )
-                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
-                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(rootAddPayload))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("WORLD_SETTING_COMPARISON_TARGET_INVALID"))
-                .andExpect(jsonPath("$.error.context.reasonCode")
-                        .value("SCOPE_REVIEW_REQUIRED"));
-
-        String targetlessRootAddPayload = """
-                {
-                  "consolidationStatus": "SINGLE",
-                  "suggestedOperation": "ADD",
-                  "proposedSettingName": "광원",
-                  "proposedValue": "벽과 천장의 수정들이 주변을 밝힌다.",
-                  "comparisonReason": "루트 광원 설정을 추가한다.",
-                  "exactTargetWorldSettingId": "%s",
-                  "contextVersions": [{"worldSettingId": "%s", "version": %d}]
-                }
-                """.formatted(target.getId(), target.getId(), initialVersion);
-        mockMvc.perform(post(
-                                "/api/internal/v1/analysis-jobs/{analysisJobId}/world-setting-candidates/{candidateId}/comparison-complete",
-                                analysisJob.getId(),
-                                candidateId
-                        )
-                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
-                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(targetlessRootAddPayload))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("WORLD_SETTING_COMPARISON_TARGET_INVALID"))
-                .andExpect(jsonPath("$.error.context.reasonCode")
-                        .value("SCOPE_REVIEW_REQUIRED"));
 
         mockMvc.perform(post(
                                 "/api/internal/v1/analysis-jobs/{analysisJobId}/world-setting-candidates/{candidateId}/comparison-complete",
@@ -3131,6 +3082,189 @@ class WorldSettingWorkerControllerIntegrationTest {
         assertThat(savedReview.getComparisonReviewReason().name()).isEqualTo("GENERAL_UNCERTAINTY");
         assertThat(savedReview.getReviewStatus().name()).isEqualTo("PENDING_REVIEW");
         assertThat(candidateRepository.findById(normal.getId()).orElseThrow().getSuggestedOperation().name()).isEqualTo("ADD");
+    }
+
+    @Test
+    @DisplayName("직접 검토의 정상 병합과 실패를 원자 저장하고 실패만 재비교해 정상 출처를 유지한다")
+    void manualPartialCompletionRetainsMergedSuccessAndRetriesOnlyFailedCandidate() throws Exception {
+        var fixture = preparePartialBatch();
+        String completion = objectMapper.writeValueAsString(fixture.completion());
+        for (int i = 0; i < 2; i++) {
+            mockMvc.perform(post("/api/internal/v1/analysis-jobs/{jobId}/world-setting-comparison-batches/{batchId}/complete",
+                            analysisJob.getId(), fixture.batchId())
+                    .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                    .header(WORKER_LEASE_TOKEN_HEADER, leaseToken).contentType(MediaType.APPLICATION_JSON).content(completion))
+                    .andExpect(status().isOk());
+        }
+        var first = candidateRepository.findById(fixture.ids().get(0)).orElseThrow();
+        var second = candidateRepository.findById(fixture.ids().get(1)).orElseThrow();
+        var failed = candidateRepository.findById(fixture.ids().get(2)).orElseThrow();
+        assertThat(first.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.COMPLETED);
+        assertThat(second.getComparisonDecision().getId()).isEqualTo(first.getComparisonDecision().getId());
+        assertThat(first.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.PENDING_REVIEW);
+        assertThat(failed.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.FAILED);
+        assertThat(failed.getComparisonDiagnostics().size()).isEqualTo(1);
+        assertThat(worldSettingRepository.count()).isZero();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from world_setting_comparison_decision_sources where comparison_batch_id = ?",
+                Long.class, fixture.batchId())).isEqualTo(2);
+        failed.requestRecomparison();
+        candidateRepository.saveAndFlush(failed);
+        assertThat(candidateRepository.findById(fixture.ids().get(2)).orElseThrow().getComparisonStatus())
+                .isEqualTo(WorldSettingComparisonStatus.PENDING);
+        assertThat(candidateRepository.findById(fixture.ids().get(0)).orElseThrow().getComparisonDecision().getId())
+                .isEqualTo(first.getComparisonDecision().getId());
+        mockMvc.perform(post("/api/internal/v1/analysis-jobs/{jobId}/world-setting-comparison-batches/{batchId}/complete",
+                        analysisJob.getId(), fixture.batchId())
+                .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                .header(WORKER_LEASE_TOKEN_HEADER, leaseToken).contentType(MediaType.APPLICATION_JSON)
+                .content(completion.replace("비교 실패", "다른 실패"))).andExpect(status().isConflict());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"missing", "duplicate", "unknown", "quota", "lease", "diagnostic"})
+    @DisplayName("직접 검토의 부분 완료도 출처 누락·중복·없는 출처와 전체 실행 오류를 거절한다")
+    void standardPartialCompletionRejectsUnsafeCoverageAndGlobalFailures(String invalidCase) throws Exception {
+        var fixture = preparePartialBatch();
+        var body = objectMapper.valueToTree(fixture.completion());
+        var failure = (com.fasterxml.jackson.databind.node.ObjectNode) body.path("failures").path(0);
+        if (invalidCase.equals("missing")) ((com.fasterxml.jackson.databind.node.ObjectNode) body).putArray("failures");
+        if (invalidCase.equals("duplicate")) failure.putArray("sourceCandidateRefs").add("C1");
+        if (invalidCase.equals("unknown")) failure.putArray("sourceCandidateRefs").add("C99");
+        if (invalidCase.equals("quota")) failure.put("failureCode", "AI_TOKEN_QUOTA_EXHAUSTED");
+        if (invalidCase.equals("lease")) failure.put("failureCode", "WORKER_LEASE_EXPIRED");
+        if (invalidCase.equals("diagnostic")) ((com.fasterxml.jackson.databind.node.ObjectNode) body.path("diagnostics").path(0))
+                .putArray("candidateRefs").add("C99");
+        mockMvc.perform(post("/api/internal/v1/analysis-jobs/{jobId}/world-setting-comparison-batches/{batchId}/complete",
+                        analysisJob.getId(), fixture.batchId())
+                .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                .header(WORKER_LEASE_TOKEN_HEADER, leaseToken).contentType(MediaType.APPLICATION_JSON).content(body.toString()))
+                .andExpect(status().isBadRequest());
+        assertThat(candidateRepository.findAll()).allSatisfy(candidate ->
+                assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.PROCESSING));
+        assertThat(comparisonDecisionRepository.count()).isZero();
+    }
+
+    @Test
+    @DisplayName("직접 검토의 모든 출처가 비교 실패해도 정상 검토로 위장하지 않고 각각 실패로 완료한다")
+    void standardAllFailuresCompleteWithExactCoverage() throws Exception {
+        var fixture = preparePartialBatch();
+        var body = objectMapper.valueToTree(fixture.completion());
+        ((com.fasterxml.jackson.databind.node.ObjectNode) body).putArray("decisions");
+        ((com.fasterxml.jackson.databind.node.ObjectNode) body.path("failures").path(0)).putArray("sourceCandidateRefs")
+                .add("C1").add("C2").add("C3");
+        mockMvc.perform(post("/api/internal/v1/analysis-jobs/{jobId}/world-setting-comparison-batches/{batchId}/complete",
+                        analysisJob.getId(), fixture.batchId())
+                .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                .header(WORKER_LEASE_TOKEN_HEADER, leaseToken).contentType(MediaType.APPLICATION_JSON).content(body.toString()))
+                .andExpect(status().isOk());
+        assertThat(candidateRepository.findAll()).allSatisfy(candidate ->
+                assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.FAILED));
+        assertThat(comparisonDecisionRepository.count()).isZero();
+        assertThat(worldSettingRepository.count()).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"UPDATE", "MERGE", "EXCLUDE"})
+    @DisplayName("확정 설정 단건 비교도 원본 범위와 다른 실제 기존 경로를 유지한다")
+    void standardSemanticComparisonPreservesActualStoredPath(String operation) throws Exception {
+        var target = worldSettingRepository.saveAndFlush(WorldSetting.create(work, WorldSettingCategory.LOCATION,
+                "서고", "출입 규칙", "인증 조건", "인증 문장을 아는 자만 입장하며 방문 기록을 남긴다"));
+        var candidate = candidateRepository.saveAndFlush(WorldSettingCandidate.create(work, episode, analysisJob,
+                WorldSettingCategory.LOCATION, "서고", null, "서고 출입", "인증 문장을 아는 자만 입장한다",
+                objectMapper.valueToTree(List.of(Map.of("quote", "인증 문장을 아는 자만 입장한다"))), BigDecimal.ONE, null));
+        claimSingleCandidate();
+        Map<String, Object> body = new LinkedHashMap<>(singleCompletion(target, operation, "인증 조건"));
+        body.put("matchedScopeName", "출입 규칙");
+        body.put("matchedPropertyName", "인증 조건");
+        body.put("proposedScopeName", "출입 규칙");
+        body.put("comparisonReason", "같은 출입 조건을 설명하므로 실제 기존 경로에서 비교합니다");
+        completeSingleCandidate(candidate.getId(), body).andExpect(status().isOk());
+        var saved = candidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(saved.getMatchedScopeName()).isEqualTo("출입 규칙");
+        assertThat(saved.getMatchedPropertyName()).isEqualTo("인증 조건");
+        assertThat(saved.getBeforeValue()).isEqualTo("인증 문장을 아는 자만 입장하며 방문 기록을 남긴다");
+        assertThat(saved.getExtractedValue()).isEqualTo("인증 문장을 아는 자만 입장한다");
+        assertThat(saved.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.PENDING_REVIEW);
+        assertThat(worldSettingRepository.findById(target.getId()).orElseThrow().getPropertiesJson())
+                .isEqualTo(target.getPropertiesJson());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"scoped-existing", "same-root-path"})
+    @DisplayName("별도 적용 범위의 root 추가는 허용하고 실제 동일 저장 경로 중복은 거절한다")
+    void rootAddUsesSemanticChoiceAndActualPathCollision(String kind) throws Exception {
+        var target = worldSettingRepository.saveAndFlush(WorldSetting.create(work, WorldSettingCategory.LOCATION,
+                "서고", kind.equals("scoped-existing") ? "1층" : null, "광원", "1층에는 천장의 수정이 빛을 낸다"));
+        var candidate = candidateRepository.saveAndFlush(WorldSettingCandidate.create(work, episode, analysisJob,
+                WorldSettingCategory.LOCATION, "서고", null, "광원", "모든 층의 주된 광원은 자연광이다",
+                objectMapper.valueToTree(List.of(Map.of("quote", "모든 층의 주된 광원은 자연광이다"))), BigDecimal.ONE, null));
+        claimSingleCandidate();
+        var result = completeSingleCandidate(candidate.getId(), singleCompletion(target, "ADD", "광원"));
+        if (kind.equals("same-root-path")) {
+            result.andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.context.reasonCode").value("PROPOSED_PATH_CONFLICT"));
+            assertThat(candidateRepository.findById(candidate.getId()).orElseThrow().getComparisonStatus())
+                    .isEqualTo(WorldSettingComparisonStatus.PROCESSING);
+        } else {
+            result.andExpect(status().isOk());
+            var saved = candidateRepository.findById(candidate.getId()).orElseThrow();
+            assertThat(saved.getSuggestedOperation()).isEqualTo(WorldSettingSuggestedOperation.ADD);
+            assertThat(saved.getProposedScopeName()).isNull();
+            assertThat(saved.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.PENDING_REVIEW);
+        }
+        assertThat(worldSettingRepository.findById(target.getId()).orElseThrow().getPropertiesJson())
+                .isEqualTo(target.getPropertiesJson());
+    }
+
+    private Map<String, Object> singleCompletion(WorldSetting target, String operation, String property) {
+        return Map.of("targetWorldSettingId", target.getId(), "exactTargetWorldSettingId", target.getId(),
+                "contextVersions", List.of(Map.of("worldSettingId", target.getId(), "version", target.getVersion())),
+                "consolidationStatus", "SINGLE", "suggestedOperation", operation, "proposedSettingName", property,
+                "proposedValue", "모든 층의 주된 광원은 자연광이다", "comparisonReason", "모든 층의 설명과 특정 층의 설명은 적용 범위가 다릅니다");
+    }
+
+    private void claimSingleCandidate() throws Exception {
+        analysisJob.updateCheckpointStage(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+        analysisJobRepository.saveAndFlush(analysisJob);
+        mockMvc.perform(post("/api/internal/v1/analysis-jobs/{jobId}/world-setting-comparisons/claim-next", analysisJob.getId())
+                .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY).header(WORKER_LEASE_TOKEN_HEADER, leaseToken))
+                .andExpect(status().isOk());
+    }
+
+    private org.springframework.test.web.servlet.ResultActions completeSingleCandidate(UUID candidateId, Map<String, Object> body) throws Exception {
+        return mockMvc.perform(post("/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates/{candidateId}/comparison-complete", analysisJob.getId(), candidateId)
+                .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY).header(WORKER_LEASE_TOKEN_HEADER, leaseToken)
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(body)));
+    }
+
+    private record PartialBatchFixture(UUID batchId, List<UUID> ids, Map<String, Object> completion) {}
+
+    private PartialBatchFixture preparePartialBatch() throws Exception {
+        List<Map<String, Object>> inputs = new ArrayList<>();
+        for (String name : List.of("생명력", "근력", "교육")) inputs.add(Map.of("category", "RACE", "subjectName", "설인",
+                "settingName", name, "extractedValue", name + "의 원문", "evidenceSpans", List.of(Map.of("quote", name + "의 원문")),
+                "extractionConfidence", 0.95));
+        var published = mockMvc.perform(put("/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates", analysisJob.getId())
+                .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY).header(WORKER_LEASE_TOKEN_HEADER, leaseToken)
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(Map.of("candidates", inputs))))
+                .andExpect(status().isOk()).andReturn();
+        List<UUID> ids = new ArrayList<>();
+        for (var row : objectMapper.readTree(published.getResponse().getContentAsString()).path("data"))
+            ids.add(UUID.fromString(row.path("candidateId").asText()));
+        resolveSubjects(Map.of(ids.get(0), List.of(), ids.get(1), List.of(), ids.get(2), List.of()));
+        var claimed = mockMvc.perform(post("/api/internal/v1/analysis-jobs/{jobId}/world-setting-comparison-batches/claim-next", analysisJob.getId())
+                .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY).header(WORKER_LEASE_TOKEN_HEADER, leaseToken))
+                .andExpect(status().isOk()).andReturn();
+        UUID batchId = UUID.fromString(objectMapper.readTree(claimed.getResponse().getContentAsString()).at("/data/comparisonBatchId").asText());
+        mockMvc.perform(post("/api/internal/v1/analysis-jobs/{jobId}/world-setting-comparison-batches/{batchId}/context", analysisJob.getId(), batchId)
+                .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY).header(WORKER_LEASE_TOKEN_HEADER, leaseToken)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"targetWorldSettingIds\":[]}"))
+                .andExpect(status().isOk());
+        Map<String, Object> decision = Map.of("decisionRef", "D1", "sourceCandidateRefs", List.of("C1", "C2"),
+                "canonicalSubjectName", "설인", "consolidationStatus", "MERGED", "suggestedOperation", "ADD",
+                "proposedSettingName", "신체 역량", "proposedValue", "생명력과 근력을 함께 기록한다", "comparisonReason", "서로 보완하는 설명입니다");
+        return new PartialBatchFixture(batchId, ids, Map.of("contextVersions", List.of(), "decisions", List.of(decision),
+                "failures", List.of(Map.of("sourceCandidateRefs", List.of("C3"), "failureCode", "COMPARISON_VALIDATION_FAILED", "errorMessage", "비교 실패")),
+                "diagnostics", List.of(Map.of("attempt", 1, "rule", "RESPONSE_SCHEMA_INVALID", "candidateRefs", List.of(), "selectedProperties", List.of()))));
     }
 
     private JsonNode resolveSubjects(Map<UUID, List<UUID>> targetsByCandidate)

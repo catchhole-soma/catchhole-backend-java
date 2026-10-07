@@ -32,7 +32,7 @@ public record WorkerWorldSettingComparisonBatchCompleteRequest(
         Map<String, Object> rawComparisonJson,
         @Pattern(regexp = "[0-9a-f]{64}") String contextToken,
         @Valid @Size(max = 20)
-        @Schema(description = "자동 누적 분석에서만 허용하는 후보별 실패. 설정안과 함께 전체 후보를 중복 없이 덮어야 합니다.")
+        @Schema(description = "수동 직접 검토·자동 누적 비교에서 허용하는 후보별 실패. 설정안과 함께 전체 후보를 중복 없이 정확히 한 번 덮어야 합니다.")
         List<@NotNull Failure> failures,
         @Valid @Size(max = 30) List<@NotNull WorldSettingComparisonDiagnostic> diagnostics
 ) {

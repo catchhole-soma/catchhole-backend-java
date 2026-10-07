@@ -287,6 +287,38 @@ class OrderedWorldSettingWorkerTest {
         verifyNoInteractions(decisions, sources, settings);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"EXCLUDE", "MERGE", "UPDATE"})
+    @DisplayName("정리용 범위가 다른 의미 비교는 실제 기존 경로와 이전값 및 원문을 보존한다")
+    void semanticMatchAcrossOrganizationalScopesUsesActualStoredPath(String operationName) {
+        configureScopedCandidateAndTarget("생태");
+        ReflectionTestUtils.setField(candidate, "scopeName", "특성");
+        ReflectionTestUtils.setField(batch, "rawScopeName", "특성");
+        ReflectionTestUtils.setField(candidate, "settingName", "분포");
+        var properties = (ObjectNode) state.get().path("worldSettings").path(key).path("propertiesJson").path("생태");
+        properties.put("서식지", "북부 설원에서만 살며 추위를 견딘다");
+        String sourceValue = candidate.getExtractedValue();
+        var context = worker.getContext(job, batch.getId(), new WorkerWorldSettingComparisonBatchContextRequest(List.of(), List.of(key)));
+        var operation = WorldSettingSuggestedOperation.valueOf(operationName);
+        var request = new WorkerWorldSettingComparisonBatchCompleteRequest(List.of(new ContextVersion(null, 1, key)),
+                List.of(new Decision("D1", List.of("C1"), "설인", null, "생태", "서식지", List.of(),
+                        WorldSettingConsolidationStatus.SINGLE, operation, null, "생태", "서식지",
+                        "북부 설원에서만 살며 추위를 견딘다", "같은 설인의 북부 서식 조건을 설명합니다.", Map.of(), key)),
+                Map.of(), context.contextToken());
+
+        worker.completeBatch(job, batch.getId(), request);
+
+        assertThat(candidate.getSuggestedOperation()).isEqualTo(operation);
+        assertThat(candidate.getMatchedScopeName()).isEqualTo("생태");
+        assertThat(candidate.getMatchedPropertyName()).isEqualTo("서식지");
+        assertThat(candidate.getBeforeValue()).isEqualTo("북부 설원에서만 살며 추위를 견딘다");
+        assertThat(candidate.getExtractedValue()).isEqualTo(sourceValue);
+        if (operation == WorldSettingSuggestedOperation.EXCLUDE) {
+            assertThat(state.get().path("worldSettings").path(key).path("propertiesJson").path("생태").path("서식지").asText())
+                    .isEqualTo("북부 설원에서만 살며 추위를 견딘다");
+        }
+    }
+
     private void configureScopedCandidateAndTarget(String matchedScope) {
         ReflectionTestUtils.setField(candidate, "scopeName", "외부");
         ReflectionTestUtils.setField(batch, "rawScopeName", "외부");
@@ -344,10 +376,11 @@ class OrderedWorldSettingWorkerTest {
         assertThat(state.get().path("worldSettings").path(key).path("version").asInt()).isEqualTo(1);
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(strings = {"AUTOMATIC", "MANUAL"})
     @DisplayName("정상 결정과 독립 실패를 함께 저장하고 재시도해도 값·실패 참고를 중복 적용하지 않는다")
-    void mixedCompletionPersistsSuccessfulDecisionAndFailureDiagnosticsAtomically() {
-        ReflectionTestUtils.setField(job, "reviewMode", AnalysisReviewMode.AUTOMATIC);
+    void mixedCompletionPersistsSuccessfulDecisionAndFailureDiagnosticsAtomically(String mode) {
+        ReflectionTestUtils.setField(job, "reviewMode", AnalysisReviewMode.valueOf(mode));
         var failed = addSecondCandidate();
         var context = worker.getContext(job, batch.getId(), new WorkerWorldSettingComparisonBatchContextRequest(List.of(), List.of(key)));
         var diagnostic = new WorldSettingComparisonDiagnostic(2, "PROPOSED_PATH_MISMATCH", List.of("C2"),
@@ -369,16 +402,16 @@ class OrderedWorldSettingWorkerTest {
         assertThat(failed.getComparisonDiagnostics().path(1).path("selectedProperties").path(0).path("propertyName").asText()).isEqualTo("서식지");
         assertThat(batch.getStatus()).isEqualTo(WorldSettingComparisonBatchStatus.COMPLETED);
         assertThat(state.get().path("worldSettings").path(key).path("propertiesJson").path("서식지").asText()).isEqualTo("북부의 설원");
-        assertThat(state.get().path("references").size()).isEqualTo(1);
-        assertThat(state.get().path("references").elements().next().path("sourceCandidateIds").path(0).asText()).isEqualTo(failed.getId().toString());
+        assertThat(state.get().path("references").size()).isEqualTo(mode.equals("AUTOMATIC") ? 1 : 0);
+        if (mode.equals("AUTOMATIC")) assertThat(state.get().path("references").elements().next().path("sourceCandidateIds").path(0).asText()).isEqualTo(failed.getId().toString());
         verify(decisions, times(1)).saveAndFlush(any());
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"manual", "missing-coverage", "duplicate-coverage", "unknown-source", "unknown-diagnostic-source", "unknown-diagnostic-target", "unknown-diagnostic-property", "non-candidate-failure"})
-    @DisplayName("부분 완료는 자동 모드·정확한 coverage·고정 입력의 진단만 허용하고 오류 시 쓰지 않는다")
+    @ValueSource(strings = {"missing-coverage", "duplicate-coverage", "unknown-source", "unknown-diagnostic-source", "unknown-diagnostic-target", "unknown-diagnostic-property", "non-candidate-failure"})
+    @DisplayName("부분 완료는 정확한 출처 coverage·고정 입력의 진단만 허용하고 오류 시 쓰지 않는다")
     void rejectsUnsafeMixedCompletionBeforeWriting(String invalidCase) {
-        if (!invalidCase.equals("manual")) ReflectionTestUtils.setField(job, "reviewMode", AnalysisReviewMode.AUTOMATIC);
+        ReflectionTestUtils.setField(job, "reviewMode", AnalysisReviewMode.AUTOMATIC);
         var failed = addSecondCandidate();
         var context = worker.getContext(job, batch.getId(), new WorkerWorldSettingComparisonBatchContextRequest(List.of(), List.of(key)));
         var success = request(context.contextToken(), WorldSettingConsolidationStatus.SINGLE);
@@ -412,10 +445,11 @@ class OrderedWorldSettingWorkerTest {
         return second;
     }
 
-    @Test
-    @DisplayName("전체 후보가 독립 실패한 자동 묶음도 정확한 coverage로 종료하고 실패 참고만 보존한다")
-    void allFailuresCompleteWithoutAnyProjectedPropertyWrite() {
-        ReflectionTestUtils.setField(job, "reviewMode", AnalysisReviewMode.AUTOMATIC);
+    @ParameterizedTest
+    @ValueSource(strings = {"AUTOMATIC", "MANUAL"})
+    @DisplayName("모든 출처가 실패해도 정확한 coverage로 완료하고 수동 재시도 출처는 참고에 중복 등록하지 않는다")
+    void allFailuresCompleteWithoutAnyProjectedPropertyWrite(String mode) {
+        ReflectionTestUtils.setField(job, "reviewMode", AnalysisReviewMode.valueOf(mode));
         var context = worker.getContext(job, batch.getId(), new WorkerWorldSettingComparisonBatchContextRequest(List.of(), List.of(key)));
         var before = state.get().path("worldSettings").deepCopy();
         worker.completeBatch(job, batch.getId(), new WorkerWorldSettingComparisonBatchCompleteRequest(
@@ -425,7 +459,7 @@ class OrderedWorldSettingWorkerTest {
         assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.FAILED);
         assertThat(candidate.canDeferFailedComparison()).isTrue();
         assertThat(batch.getStatus()).isEqualTo(WorldSettingComparisonBatchStatus.COMPLETED);
-        assertThat(state.get().path("references").size()).isEqualTo(1);
+        assertThat(state.get().path("references").size()).isEqualTo(mode.equals("AUTOMATIC") ? 1 : 0);
         assertThat(state.get().path("worldSettings")).isEqualTo(before);
         verifyNoInteractions(decisions, settings);
     }
