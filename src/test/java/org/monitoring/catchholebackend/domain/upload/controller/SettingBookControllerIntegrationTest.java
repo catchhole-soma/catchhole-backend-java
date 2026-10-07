@@ -22,6 +22,10 @@ import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.api.DisplayName;
+import org.monitoring.catchholebackend.domain.upload.parser.DocumentFormat;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
@@ -46,6 +50,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+@DisplayName("설정집 저장·편집 API 통합 테스트")
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -99,6 +104,41 @@ class SettingBookControllerIntegrationTest {
     @AfterEach
     void tearDown() {
         clearDatabase();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"hwp", "hwpx"})
+    @DisplayName("한글 설정집의 원본과 MIME을 보존하고 추출 본문만 편집한다")
+    void hangulSettingBookPreservesOriginalAndEditsText(String extension) throws Exception {
+        byte[] bytes;
+        try (var input = getClass().getResourceAsStream("/upload/episode-1." + extension)) {
+            bytes = input.readAllBytes();
+        }
+        String filename = "세계관." + extension;
+        String mimeType = DocumentFormat.fromFilename(filename).mimeType();
+        mockMvc.perform(multipart("/api/v1/works/{workId}/setting-books", work.getId())
+                        .file(new MockMultipartFile("file", filename, "application/octet-stream", bytes))
+                        .header(HttpHeaders.AUTHORIZATION, bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.mimeType").value(mimeType));
+        UploadFile saved = uploadFileRepository.findAll().getFirst();
+        String originalKey = saved.getStorageUrl().substring(5);
+        assertThat(storedObjects.get(originalKey)).isEqualTo(bytes);
+        assertThat(saved.getContentStorageUrl()).endsWith("/세계관.txt");
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-books/{id}", work.getId(), saved.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content").value("제 1화 새벽의 편지\n서윤은 성문 앞에서 편지를 읽었다."));
+        mockMvc.perform(patch("/api/v1/works/{workId}/setting-books/{id}", work.getId(), saved.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer()).contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("content", "수정한 설정집 본문"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.mimeType").value(mimeType));
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-books/{id}", work.getId(), saved.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content").value("수정한 설정집 본문"));
+        assertThat(storedObjects.get(originalKey)).isEqualTo(bytes);
     }
 
     @Test

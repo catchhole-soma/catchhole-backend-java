@@ -268,21 +268,18 @@ class EpisodeFileParserTest {
     }
 
     @Test
-    @DisplayName("다회차 여러 파일 업로드는 DOCX를 거부한다")
-    void parseMultiEpisodeMultiFileRejectsDocx() throws IOException {
+    @DisplayName("다회차 여러 파일 업로드는 DOCX와 TXT 혼합을 지원한다")
+    void parseMultiEpisodeMultiFileAcceptsDocx() throws IOException {
         MockMultipartFile docx = docxFile("제 1화.docx", """
                 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
                   <w:body><w:p><w:r><w:t>첫 본문</w:t></w:r></w:p></w:body>
                 </w:document>
                 """);
 
-        assertThatThrownBy(() -> parseEpisodeFiles(
+        assertThat(parseEpisodeFiles(
                 EpisodeUploadType.MULTI_EPISODE_MULTI_FILE,
                 List.of(docx, textFile("제 2화.txt", "둘째 본문"))
-        ))
-                .isInstanceOfSatisfying(AppException.class, exception ->
-                        assertThat(exception.getResultCode())
-                                .isEqualTo(UploadErrorCode.UPLOAD_MULTI_FILE_TYPE_NOT_SUPPORTED));
+        )).extracting(file -> file.detectedEpisodes().getFirst().episodeNo()).containsExactly(1, 2);
     }
 
     @Test

@@ -29,7 +29,7 @@ public record SettingBookResponse(
         )
         long fileSize,
         @Schema(
-                description = "TXT 또는 DOCX에서 변환한 텍스트 원문",
+                description = "TXT, DOCX, HWP 또는 HWPX에서 변환한 텍스트 원문",
                 requiredMode = Schema.RequiredMode.REQUIRED
         )
         String content,

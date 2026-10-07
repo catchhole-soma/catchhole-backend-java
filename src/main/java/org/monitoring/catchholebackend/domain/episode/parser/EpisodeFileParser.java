@@ -2,7 +2,6 @@ package org.monitoring.catchholebackend.domain.episode.parser;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -45,9 +44,6 @@ public class EpisodeFileParser {
     ) {
         validateModeSpecificMetadata(uploadType, singleEpisodeNo, singleEpisodeTitle);
         validateSourceFileCount(uploadType, sourceEpisodeFiles);
-        if (uploadType == EpisodeUploadType.MULTI_EPISODE_MULTI_FILE) {
-            validateOneEpisodePerFileFormats(sourceEpisodeFiles);
-        }
         List<SourceDocument> sourceDocuments = readWithinCharacterLimit(sourceEpisodeFiles);
         return switch (uploadType) {
             case SINGLE_EPISODE -> parseSingleEpisodeFile(
@@ -204,15 +200,6 @@ public class EpisodeFileParser {
         if (uploadType != EpisodeUploadType.SINGLE_EPISODE
                 && (singleEpisodeNo != null || singleEpisodeTitle != null)) {
             throw new AppException(UploadErrorCode.UPLOAD_SINGLE_EPISODE_METADATA_NOT_ALLOWED);
-        }
-    }
-
-    private void validateOneEpisodePerFileFormats(List<MultipartFile> sourceEpisodeFiles) {
-        if (sourceEpisodeFiles.stream()
-                .map(this::resolveOriginalFilename)
-                .map(filename -> filename.toLowerCase(Locale.ROOT))
-                .anyMatch(filename -> !filename.endsWith(".txt"))) {
-            throw new AppException(UploadErrorCode.UPLOAD_MULTI_FILE_TYPE_NOT_SUPPORTED);
         }
     }
 

@@ -60,7 +60,7 @@ public class SettingBookController {
     @Operation(
             operationId = "uploadSettingBook",
             summary = "설정집 원본 단독 업로드",
-            description = "TXT 또는 DOCX 원본 한 개를 새 설정집으로 추가합니다. 같은 파일명도 새 항목으로 누적합니다.",
+            description = "TXT, DOCX, HWP 또는 HWPX 원본 한 개를 새 설정집으로 추가합니다. 같은 파일명도 새 항목으로 누적합니다.",
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true)
     )
     @ApiResponses({

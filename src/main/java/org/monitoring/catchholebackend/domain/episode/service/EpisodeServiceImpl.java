@@ -41,6 +41,7 @@ import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
 import org.monitoring.catchholebackend.domain.upload.exception.UploadErrorCode;
 import org.monitoring.catchholebackend.domain.upload.mapper.UploadMapper;
+import org.monitoring.catchholebackend.domain.upload.parser.DocumentFormat;
 import org.monitoring.catchholebackend.domain.upload.parser.TextDocumentReader;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
@@ -200,13 +201,14 @@ public class EpisodeServiceImpl implements EpisodeService {
         List<String> replacementObjectKeys = new ArrayList<>();
         replacementStorageCompensator.registerRollbackCompensation(replacementObjectKeys);
         StoredObject storedOriginal = objectStorageService.putUploadFile(
-                batch.getId(), resolveOriginalFilename(file), readBytes(file), file.getContentType());
+                batch.getId(), resolveOriginalFilename(file), readBytes(file),
+                DocumentFormat.fromFilename(file.getOriginalFilename()).mimeType());
         replacementObjectKeys.add(storedOriginal.key());
         UploadFile sourceFile = uploadFileRepository.save(uploadMapper.toEntity(
                 batch,
                 UploadFileRole.EPISODE,
                 resolveOriginalFilename(file),
-                file.getContentType(),
+                DocumentFormat.fromFilename(file.getOriginalFilename()).mimeType(),
                 objectStorageService.toStorageUrl(storedOriginal.key()),
                 file.getSize()
         ));

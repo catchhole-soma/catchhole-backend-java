@@ -32,6 +32,7 @@ dependencies {
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
     implementation platform('software.amazon.awssdk:bom:2.25.64')
     implementation 'software.amazon.awssdk:s3'
+    implementation 'org.apache.poi:poi:5.5.1'
     compileOnly 'org.projectlombok:lombok'
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
     developmentOnly 'org.springframework.boot:spring-boot-docker-compose'
