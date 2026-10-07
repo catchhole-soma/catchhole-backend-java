@@ -90,6 +90,14 @@ class HangulDocumentReaderTest {
                 .isEqualTo("한\t글");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"table-rows.hwp", "table-rows-uncompressed.hwp"})
+    @DisplayName("별도 라이브러리로 쓴 HWP 표의 네 행과 병합 셀을 탭·줄바꿈으로 보존한다")
+    void preservesIndependentlyWrittenTableRows(String filename) throws IOException {
+        assertThat(reader.readText(fixture(filename)))
+                .isEqualTo("관계표\n이름\t관계\t소속\n서윤\t자매\t북쪽\n도윤\t아군\n합류");
+    }
+
     @Test
     @DisplayName("HWP 본문 뒤의 확장 바탕쪽·메모 문단을 분석 본문에 섞지 않는다")
     void excludesTrailingMasterPagesAndMemos() throws IOException {
