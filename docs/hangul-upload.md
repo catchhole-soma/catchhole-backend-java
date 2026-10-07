@@ -8,6 +8,7 @@ TXT(UTF-8), DOCX에 일반 HWP 5.x 및 HWPX를 추가한다. 한 회차, 한 파
 - 표의 셀 사이에는 탭, 행 사이에는 줄바꿈을 넣는다. 여러 문단인 셀의 내부 줄바꿈도 보존한다. 병합 셀 내용을 복제하거나 화면 너비를 공백으로 재현하지 않는다.
 - 표·글상자·도형 안 텍스트와 캡션은 연결된 문단 뒤에 문서 저장 순서대로 한 번 넣는다. 페이지상의 x/y 좌표나 다단 조판의 시각적 읽기 순서를 재구성하지 않는다.
 - HWP는 `BodyText/Section0…N` 순서, HWPX는 `Contents/content.hpf`의 manifest/spine 순서로 모든 구역을 읽는다. ZIP 엔트리 순서나 미리보기 `PrvText`를 본문으로 사용하지 않는다.
+- HWPX의 구역·문단 요소는 Hancom HWPML 2011 및 OWPML 2021/2024 네임스페이스를 허용 목록으로 판별한다. 접두사나 태그 이름만으로 다른 XML을 본문으로 해석하지 않으며, 명시적인 `hyphen` 요소는 `-`로 보존한다. 네임스페이스별 문단·표·글상자 추출과 부가 텍스트 제외를 합성 문서로 검증한다.
 - 머리말·꼬리말·바탕쪽·각주·미주·숨은 설명은 제외한다. 반복된 회차 제목이나 각주가 회차 경계로 인식되는 일을 방지한다.
 - 그림/미리보기/OLE 첨부/스크립트의 내용을 읽거나 실행하지 않는다. 그림 주변의 본문은 포함한다. OCR, 수식의 시각적 표현, 자동 번호/글머리표의 서식 재구성은 지원하지 않는다.
 - HWP 3.x, 암호 문서, 배포용 HWP, DRM/인증서로 보호된 HWP는 이번 지원 범위 밖이다. 일반 HWP 5 또는 HWPX로 다시 저장하도록 안내하며 잠금 해제를 시도하지 않는다.
@@ -64,6 +65,6 @@ python3 scripts/upload-fixtures/create_hwpx.py src/test/resources/upload
 ./gradlew test --tests '*HangulDocumentReaderTest' --tests '*EpisodeFileParserTest' --tests '*EpisodeControllerIntegrationTest' --tests '*SettingBookControllerIntegrationTest'
 ```
 
-참고: [한컴 공개 포맷 안내](https://www.hancom.com/etc/hwpDownload.do), [Apache POI](https://poi.apache.org/), [hwplib](https://github.com/neolord0/hwplib), [hwpxlib](https://github.com/neolord0/hwpxlib).
+참고: [한컴 공개 포맷 안내](https://www.hancom.com/etc/hwpDownload.do), [한컴의 HWPX 구역·문단 스키마와 인라인 요소 설명](https://tech.hancom.com/python-hwpx-parsing-2/), [KS X 6101](https://standard.go.kr/KSCI/standardIntro/getStandardSearchView.do?ksNo=KSX6101&menuId=503&tmprKsNo=KSX6101&topMenuId=502), [Apache POI](https://poi.apache.org/), [hwplib](https://github.com/neolord0/hwplib), [hwpxlib](https://github.com/neolord0/hwpxlib).
 
 로컬 검증에서 제공된 HWP의 본문/표 문단 46개가 별도 라이브러리 기준과 같은 순서로 일치했다(표 2개·셀 9개, 머리말 컨트롤 2개 제외). 이는 해당 문서의 텍스트 대조 결과이며 모든 한글 서식의 호환성을 보장하지 않는다. 실제 API/DB/로컬 파일 저장소 검증은 합성 원고만 사용했으며 단일/한 파일 여러 회차/혼합 여러 파일, 설정집 조회·편집·재조회, 원고 교체를 통과했다.

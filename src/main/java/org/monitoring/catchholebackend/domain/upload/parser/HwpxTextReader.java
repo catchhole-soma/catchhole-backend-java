@@ -20,8 +20,16 @@ import org.monitoring.catchholebackend.domain.upload.exception.UploadErrorCode;
 import org.monitoring.catchholebackend.global.exception.AppException;
 
 final class HwpxTextReader {
-    private static final String PARAGRAPH_NS = "http://www.hancom.co.kr/hwpml/2011/paragraph";
-    private static final String SECTION_NS = "http://www.hancom.co.kr/hwpml/2011/section";
+    private static final Set<String> PARAGRAPH_NAMESPACES = Set.of(
+            "http://www.hancom.co.kr/hwpml/2011/paragraph",
+            "http://www.owpml.org/owpml/2021/paragraph",
+            "http://www.owpml.org/owpml/2024/paragraph"
+    );
+    private static final Set<String> SECTION_NAMESPACES = Set.of(
+            "http://www.hancom.co.kr/hwpml/2011/section",
+            "http://www.owpml.org/owpml/2021/section",
+            "http://www.owpml.org/owpml/2024/section"
+    );
     private static final String OPF_NS = "http://www.idpf.org/2007/opf/";
     private static final Set<String> OMITTED = Set.of("secPr", "header", "footer", "footNote", "endNote", "hiddenComment");
 
@@ -61,7 +69,7 @@ final class HwpxTextReader {
                 throw DocumentReadLimits.invalid();
             }
             Node section = xml(required(parts, path));
-            if (!section.is(SECTION_NS, "sec")) {
+            if (!section.is(SECTION_NAMESPACES, "sec")) {
                 throw DocumentReadLimits.invalid();
             }
             render(section, output);
@@ -163,26 +171,26 @@ final class HwpxTextReader {
         if (omitted(node)) {
             return;
         }
-        if (node.is(PARAGRAPH_NS, "p")) {
+        if (node.is(PARAGRAPH_NAMESPACES, "p")) {
             List<Node> blocks = new ArrayList<>();
             inline(node, output, blocks, false);
             output.append('\n');
             for (Node block : blocks) {
                 render(block, output);
             }
-        } else if (node.is(PARAGRAPH_NS, "tbl")) {
+        } else if (node.is(PARAGRAPH_NAMESPACES, "tbl")) {
             for (Node child : node.children) {
-                if (child.is(PARAGRAPH_NS, "caption")) {
+                if (child.is(PARAGRAPH_NAMESPACES, "caption")) {
                     render(child, output);
                 }
             }
             for (Node row : node.children) {
-                if (!row.is(PARAGRAPH_NS, "tr")) {
+                if (!row.is(PARAGRAPH_NAMESPACES, "tr")) {
                     continue;
                 }
                 boolean first = true;
                 for (Node cell : row.children) {
-                    if (!cell.is(PARAGRAPH_NS, "tc")) {
+                    if (!cell.is(PARAGRAPH_NAMESPACES, "tc")) {
                         continue;
                     }
                     if (!first) {
@@ -209,27 +217,29 @@ final class HwpxTextReader {
         if (omitted(node)) {
             return;
         }
-        if (node.is(PARAGRAPH_NS, "tbl") || node.is(PARAGRAPH_NS, "subList")) {
+        if (node.is(PARAGRAPH_NAMESPACES, "tbl") || node.is(PARAGRAPH_NAMESPACES, "subList")) {
             blocks.add(node);
             return;
         }
         if (inText && node.text != null) {
             output.append(node.text);
-        } else if (node.is(PARAGRAPH_NS, "lineBreak")) {
+        } else if (node.is(PARAGRAPH_NAMESPACES, "lineBreak")) {
             output.append('\n');
-        } else if (node.is(PARAGRAPH_NS, "tab")) {
+        } else if (node.is(PARAGRAPH_NAMESPACES, "tab")) {
             output.append('\t');
-        } else if (node.is(PARAGRAPH_NS, "nbSpace") || node.is(PARAGRAPH_NS, "fwSpace")) {
+        } else if (node.is(PARAGRAPH_NAMESPACES, "hyphen")) {
+            output.append('-');
+        } else if (node.is(PARAGRAPH_NAMESPACES, "nbSpace") || node.is(PARAGRAPH_NAMESPACES, "fwSpace")) {
             output.append(' ');
         } else {
             for (Node child : node.children) {
-                inline(child, output, blocks, inText || node.is(PARAGRAPH_NS, "t"));
+                inline(child, output, blocks, inText || node.is(PARAGRAPH_NAMESPACES, "t"));
             }
         }
     }
 
     private boolean omitted(Node node) {
-        return PARAGRAPH_NS.equals(node.namespace) && OMITTED.contains(node.name);
+        return node.namespace != null && PARAGRAPH_NAMESPACES.contains(node.namespace) && OMITTED.contains(node.name);
     }
 
     private boolean hasElement(Node node, String name) {
@@ -262,6 +272,10 @@ final class HwpxTextReader {
 
         boolean is(String namespace, String name) {
             return namespace.equals(this.namespace) && name.equals(this.name);
+        }
+
+        boolean is(Set<String> namespaces, String name) {
+            return namespace != null && namespaces.contains(namespace) && name.equals(this.name);
         }
     }
 }
