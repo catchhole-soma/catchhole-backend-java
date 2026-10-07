@@ -22,7 +22,7 @@ public record CharacterSettingUpdateRequest(
         @NotNull(message = "캐릭터 설정 값 타입은 필수입니다.")
         SettingValueType valueType,
 
-        @Schema(description = "스킬, 아이템, 상태 등 복합 설정의 세부 속성")
+        @Schema(description = "스킬, 소지품, 상태 등 복합 설정의 세부 속성")
         @NotNull(message = "세부 속성 목록은 필수입니다.")
         List<@NotNull(message = "세부 속성 항목은 null일 수 없습니다.") @Valid CharacterSettingPropertyRequest> properties
 ) {

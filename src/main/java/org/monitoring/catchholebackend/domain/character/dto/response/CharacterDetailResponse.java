@@ -56,7 +56,7 @@ public record CharacterDetailResponse(
         @Schema(description = "스킬 현재 설정")
         List<CharacterSettingResponse> skills,
 
-        @Schema(description = "아이템 현재 설정")
+        @Schema(description = "소지품 현재 설정")
         List<CharacterSettingResponse> items,
 
         @Schema(description = "상태 현재 설정")

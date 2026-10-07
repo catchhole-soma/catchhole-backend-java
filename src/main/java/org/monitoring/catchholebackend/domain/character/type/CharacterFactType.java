@@ -11,7 +11,7 @@ public enum CharacterFactType {
     LEVEL("레벨"),
     STAT("스탯"),
     SKILL("스킬"),
-    ITEM("아이템"),
+    ITEM("소지품"),
     STATUS("상태"),
     TIME("시간");
 
