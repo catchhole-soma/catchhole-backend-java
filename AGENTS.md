@@ -847,3 +847,5 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - Apache POI `poi:5.5.1`은 HWP의 OLE 컨테이너만 연다. HWP 본문 레코드와 HWPX ZIP/StAX는 `DocumentReadLimits`의 실제 읽기량·개수·깊이 제한 안에서 읽는다. 그림·스크립트·전체 서식 객체를 생성하는 파서로 대체하지 않는다.
 - 표 셀은 탭, 행/문단은 줄바꿈, 글상자는 연결된 문단 뒤에 한 번 배치한다. 머리말·꼬리말·각주·미주·숨은 설명은 제외한다. 상세 계약과 미지원 형식은 `docs/hangul-upload.md`를 따른다.
 - 개인 원고와 추출 결과는 저장소/테스트 fixture에 넣지 않는다. `scripts/upload-fixtures/`의 합성 자료만 사용한다. hwplib/hwpxlib는 fixture 생성과 로컬 대조에만 사용하며 운영 의존성이 아니다.
+
+- GH223은 모든 장르에서 스탯을 유지하고 소유물 표시명만 소지품으로 바꾼다. API의 기본 SKILL 표시명과 AI 입력 스키마는 스킬을 유지하며, 장르별 스킬 제목은 Front 표시 규칙이다. V74는 이전 기본값인 전역 SYSTEM_SEED의 items.item만 갱신한다. 저장 키·자료형·작가별 표시명·세계관 IMPORTANT_ITEM·추출 프롬프트는 유지한다.

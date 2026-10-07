@@ -19,7 +19,7 @@ public record CharacterFactSearchResponse(
         )
         CharacterFactType factType,
 
-        @Schema(description = "설정 유형 한글 표시명", example = "아이템")
+        @Schema(description = "설정 유형 한글 표시명", example = "소지품")
         String factTypeLabel,
 
         @Schema(description = "사용자용 설정명", example = "체력 물약")
