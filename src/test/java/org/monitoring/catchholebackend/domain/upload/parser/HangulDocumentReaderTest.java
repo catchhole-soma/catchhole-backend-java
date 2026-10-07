@@ -31,7 +31,7 @@ import org.springframework.mock.web.MockMultipartFile;
 class HangulDocumentReaderTest {
     private final TextDocumentReader reader = new TextDocumentReader();
     private final EpisodeFileParser parser = new EpisodeFileParser(reader);
-    private static final String HP = "http://www.hancom.co.kr/hwpml/2011/paragraph";
+    private static final String LEGACY_HWPML_NS = "http://www.hancom.co.kr/hwpml/2011";
     private static final String OPF = "http://www.idpf.org/2007/opf/";
 
     @ParameterizedTest
@@ -100,20 +100,58 @@ class HangulDocumentReaderTest {
         }
     }
 
-    @Test
-    @DisplayName("HWPX는 문단 뒤에 글상자를 한 번 넣고 표·탭을 보존하며 부가 텍스트는 제외한다")
-    void readsHwpxStructure() throws IOException {
+    @ParameterizedTest
+    @ValueSource(strings = {"http://www.hancom.co.kr/hwpml/2011", "http://www.owpml.org/owpml/2021", "http://www.owpml.org/owpml/2024"})
+    @DisplayName("HWPX의 지원 규격마다 문단·글상자·표·탭을 보존하고 부가 텍스트는 제외한다")
+    void readsHwpxStructure(String namespaceBase) throws IOException {
         String body = """
                 <hp:p><hp:run><hp:t>  앞<hp:tab/>뒤<hp:lineBreak/>다음  </hp:t>
                 <hp:header><hp:subList><hp:p><hp:run><hp:t>제 99화 머리말</hp:t></hp:run></hp:p></hp:subList></hp:header>
                 <hp:footNote><hp:subList><hp:p><hp:run><hp:t>각주</hp:t></hp:run></hp:p></hp:subList></hp:footNote>
+                <hp:footer><hp:subList><hp:p><hp:run><hp:t>꼬리말</hp:t></hp:run></hp:p></hp:subList></hp:footer>
+                <hp:endNote><hp:subList><hp:p><hp:run><hp:t>미주</hp:t></hp:run></hp:p></hp:subList></hp:endNote>
+                <hp:hiddenComment><hp:subList><hp:p><hp:run><hp:t>숨은 설명</hp:t></hp:run></hp:p></hp:subList></hp:hiddenComment>
+                <hp:secPr><hp:subList><hp:p><hp:run><hp:t>구역 속성</hp:t></hp:run></hp:p></hp:subList></hp:secPr>
                 <hp:rect><hp:drawText><hp:subList><hp:p><hp:run><hp:t>글상자</hp:t></hp:run></hp:p></hp:subList></hp:drawText></hp:rect>
                 <hp:pic/><hp:t> 끝</hp:t></hp:run></hp:p>
                 <hp:p><hp:run><hp:tbl><hp:tr><hp:tc><hp:subList><hp:p><hp:run><hp:t>이름</hp:t></hp:run></hp:p></hp:subList></hp:tc>
                 <hp:tc><hp:subList><hp:p><hp:run><hp:t>서윤</hp:t></hp:run></hp:p></hp:subList></hp:tc></hp:tr></hp:tbl></hp:run></hp:p>
                 """;
-        assertThat(reader.readTextPreservingWhitespace(multipart("structure.hwpx", hwpx(body))))
+        var parts = parts(body);
+        parts.put("Contents/section0.xml", section(body, namespaceBase));
+        assertThat(reader.readTextPreservingWhitespace(multipart("structure.hwpx", zip(parts))))
                 .isEqualTo("  앞\t뒤\n다음   끝\n글상자\n\n이름\t서윤");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"http://www.hancom.co.kr/hwpml/2011", "http://www.owpml.org/owpml/2021", "http://www.owpml.org/owpml/2024"})
+    @DisplayName("HWPX의 명시적 하이픈을 보존하고 다른 네임스페이스의 같은 이름은 해석하지 않는다")
+    void preservesHwpxInlineHyphens(String namespaceBase) throws IOException {
+        String body = p("well<hp:hyphen/>known<hp:tab/>장<hp:hyphen/>미<hp:lineBreak/>원래-표기")
+                + p("앞<other:hyphen xmlns:other='urn:other'/>뒤");
+        var parts = parts(body);
+        parts.put("Contents/section0.xml", section(body, namespaceBase));
+
+        assertThat(reader.readText("hyphens.hwpx", zip(parts))).isEqualTo("well-known\t장-미\n원래-표기\n앞뒤");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"http://www.owpml.org/owpml/2099", "http://example.com/owpml/2024", "http://www.owpml.org/owpml/2024/extra"})
+    @DisplayName("지원하지 않는 구역 네임스페이스는 이름이 같아도 거부한다")
+    void rejectsUnknownHwpxSectionNamespace(String namespaceBase) throws IOException {
+        var parts = parts(p("본문"));
+        parts.put("Contents/section0.xml", section(p("본문"), namespaceBase));
+
+        rejects("unknown.hwpx", zip(parts), UploadErrorCode.UPLOAD_DOCUMENT_INVALID);
+    }
+
+    @Test
+    @DisplayName("네임스페이스가 없는 구역은 파서 내부 오류 대신 손상 문서로 거부한다")
+    void rejectsHwpxSectionWithoutNamespace() throws IOException {
+        var parts = parts(p("본문"));
+        parts.put("Contents/section0.xml", "<sec><p><run><t>본문</t></run></p></sec>".getBytes(StandardCharsets.UTF_8));
+
+        rejects("unqualified.hwpx", zip(parts), UploadErrorCode.UPLOAD_DOCUMENT_INVALID);
     }
 
     @Test
@@ -271,7 +309,10 @@ class HangulDocumentReaderTest {
 
     private static String p(String text) { return "<hp:p><hp:run><hp:t>" + text + "</hp:t></hp:run></hp:p>"; }
     private static byte[] section(String body) {
-        return ("<hs:sec xmlns:hs='http://www.hancom.co.kr/hwpml/2011/section' xmlns:hp='" + HP + "'>" + body + "</hs:sec>")
+        return section(body, LEGACY_HWPML_NS);
+    }
+    private static byte[] section(String body, String namespaceBase) {
+        return ("<hs:sec xmlns:hs='" + namespaceBase + "/section' xmlns:hp='" + namespaceBase + "/paragraph'>" + body + "</hs:sec>")
                 .getBytes(StandardCharsets.UTF_8);
     }
     private static Map<String, byte[]> parts(String body) {
