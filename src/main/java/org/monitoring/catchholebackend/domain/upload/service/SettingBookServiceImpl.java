@@ -3,7 +3,6 @@ package org.monitoring.catchholebackend.domain.upload.service;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.upload.dto.request.SettingBookUpdateRequest;
@@ -13,6 +12,7 @@ import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
 import org.monitoring.catchholebackend.domain.upload.exception.UploadErrorCode;
 import org.monitoring.catchholebackend.domain.upload.mapper.UploadMapper;
+import org.monitoring.catchholebackend.domain.upload.parser.DocumentFormat;
 import org.monitoring.catchholebackend.domain.upload.parser.TextDocumentReader;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
@@ -36,8 +36,6 @@ public class SettingBookServiceImpl implements SettingBookService {
 
     private static final long MAX_SETTING_BOOK_SIZE = 10L * 1024 * 1024;
     private static final String TEXT_MIME_TYPE = "text/plain; charset=UTF-8";
-    private static final String DOCX_MIME_TYPE =
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
     private final WorkRepository workRepository;
     private final UploadBatchRepository uploadBatchRepository;
@@ -182,9 +180,7 @@ public class SettingBookServiceImpl implements SettingBookService {
     }
 
     private String resolveMimeType(String originalFilename) {
-        return originalFilename.toLowerCase(Locale.ROOT).endsWith(".docx")
-                ? DOCX_MIME_TYPE
-                : TEXT_MIME_TYPE;
+        return DocumentFormat.fromFilename(originalFilename).mimeType();
     }
 
     private String resolveResponseMimeType(UploadFile uploadFile) {

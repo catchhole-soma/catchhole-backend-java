@@ -147,6 +147,8 @@ Parts
 
 회차 API의 `uploadType`은 `EpisodeUploadType`의 세 값만 허용합니다. 단일 회차 최종 업로드는 `singleEpisodeNo`가 필수이고 `episodeConfirmations`를 보내면 거절합니다. 두 다회차 방식에서는 단일 회차 전용 필드를 보내지 않으며, `episodeConfirmations`가 필수이고 사전 감지 응답의 `detectedEpisodes`와 개수·`detectionOrder`가 일치해야 합니다.
 
+여러 파일 업로드는 `episodeConfirmations`의 배열 순서와 관계없이 `detectionOrder`로 원본 파일·본문을 연결합니다. 파일 선택 순서가 14화→13화여도 13화→14화로 정렬한 확정 목록을 전송할 수 있습니다. 감지 식별자는 전체가 중복 없이 존재해야 하고, 확정 회차 번호 중복은 거절합니다. 단일 파일 다회차는 원문 내 감지 순서와 확정 번호의 오름차순을 유지해야 합니다. 실제 분석 Job은 확정 회차 번호순으로 실행합니다.
+
 회차 원고와 선택 설정집은 파일당 10MB, multipart 요청 전체는 25MB까지 허용합니다. `settingBookFile` part를 생략하는 것은 허용하지만, part를 명시적으로 보내고 내용이 비어 있으면 `UPLOAD_FILE_EMPTY`로 거절합니다.
 
 서버는 최종 업로드에서도 원본 파일을 다시 파싱해 `DetectedEpisode*`를 만들고, `EpisodeUploadProcessor.processEpisodeUpload(...)`이 감지된 본문 경계에는 손대지 않은 채 사용자가 확정한 번호와 제목을 적용해 `FinalizedEpisode*`를 만듭니다. 저장 응답의 영속화된 회차 목록 필드는 `createdEpisodes`입니다. 함께 반환되는 업로드 파일 범위는 `files[].episodeStartNo`, `episodeEndNo`, `episodeCount`로 표시합니다.
@@ -175,7 +177,7 @@ Parts
 }
 ```
 
-이 API는 영구 저장하지 않습니다. `TextDocumentReader`가 TXT·DOCX를 검증하고 텍스트를 추출한 뒤, `EpisodeFileParser`가 회차 경계와 메타데이터를 `DetectedEpisode*`로 변환해 반환합니다. 단일 회차에서는 선택적인 `singleEpisodeNo`와 `singleEpisodeTitle`을 감지 힌트로 사용할 수 있습니다.
+이 API는 영구 저장하지 않습니다. `TextDocumentReader`가 TXT·DOCX·HWP·HWPX를 검증하고 텍스트를 추출한 뒤, `EpisodeFileParser`가 회차 경계와 메타데이터를 `DetectedEpisode*`로 변환해 반환합니다. 단일 회차에서는 선택적인 `singleEpisodeNo`와 `singleEpisodeTitle`을 감지 힌트로 사용할 수 있습니다.
 
 ```json
 {
@@ -269,7 +271,7 @@ PUT /api/v1/works/{workId}/episodes/{episodeId}/file
 Content-Type: multipart/form-data
 ```
 
-`file` part로 TXT 또는 DOCX 한 개를 받습니다. 별도 `metadata` 동의 part는 사용하지 않습니다. 분석 중인 회차는 변경할 수 없습니다. 새 `UploadBatch`와 `UploadFile`, 새 회차 원문을 저장한 뒤 새 content key를 제외한 기존 회차 S3 prefix의 모든 version·delete marker와 이전 업로드 원본을 파기하고 이전 `UploadFile.storage_url`을 비웁니다. 다회차 단일 파일에서 파생된 회차라면 공유 업로드 원본 전체가 삭제되지만 형제 회차의 분리 원문은 유지됩니다. 이어서 기존 `episode_chunks`와 검토 전 캐릭터·세계관 후보를 삭제하고, 확정·무시 후보에서는 원문 표현·인용·비교 사유와 raw AI payload를 제거합니다. 회차 번호·제목·ID와 이미 확정한 캐릭터·세계관 설정은 유지하고 원문 메타데이터, `content_updated_at`, `source_file_id`를 새 파일 기준으로 바꾸며 상태는 `UPLOADED`로 돌아갑니다. 자동 재분석이나 후속 회차 재계산은 시작하지 않습니다.
+`file` part로 TXT, DOCX, HWP 또는 HWPX 한 개를 받습니다. 별도 `metadata` 동의 part는 사용하지 않습니다. 분석 중인 회차는 변경할 수 없습니다. 새 `UploadBatch`와 `UploadFile`, 새 회차 원문을 저장한 뒤 새 content key를 제외한 기존 회차 S3 prefix의 모든 version·delete marker와 이전 업로드 원본을 파기하고 이전 `UploadFile.storage_url`을 비웁니다. 다회차 단일 파일에서 파생된 회차라면 공유 업로드 원본 전체가 삭제되지만 형제 회차의 분리 원문은 유지됩니다. 이어서 기존 `episode_chunks`와 검토 전 캐릭터·세계관 후보를 삭제하고, 확정·무시 후보에서는 원문 표현·인용·비교 사유와 raw AI payload를 제거합니다. 회차 번호·제목·ID와 이미 확정한 캐릭터·세계관 설정은 유지하고 원문 메타데이터, `content_updated_at`, `source_file_id`를 새 파일 기준으로 바꾸며 상태는 `UPLOADED`로 돌아갑니다. 자동 재분석이나 후속 회차 재계산은 시작하지 않습니다.
 
 사용자가 재분석을 요청하면 새 원문으로 이 회차의 `SETTING_EXTRACTION`만 실행합니다. 이후 회차에서 축적된 현재 설정을 비교 문맥으로 사용할 수 있어 중복되거나 시간 순서가 맞지 않는 후보가 생길 수 있으며, 후보 확정 전에는 기존 설정 DB를 자동 변경하지 않습니다.
 

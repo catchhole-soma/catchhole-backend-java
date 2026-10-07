@@ -3,8 +3,8 @@ package org.monitoring.catchholebackend.domain.upload.parser;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.Locale;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import javax.xml.stream.XMLInputFactory;
@@ -31,7 +31,7 @@ public class TextDocumentReader {
         return readText(sourceFile, false);
     }
 
-    /** 회차 업로드 분량 검사에서는 DOCX 본문 앞뒤의 원고 공백도 빠뜨리지 않는다. */
+    /** 회차 업로드 분량 검사에서는 문서 본문 앞뒤의 원고 공백도 빠뜨리지 않는다. */
     public String readTextPreservingWhitespace(MultipartFile sourceFile) {
         return readText(sourceFile, true);
     }
@@ -52,15 +52,26 @@ public class TextDocumentReader {
     private String readText(String originalFilename, byte[] fileBytes, boolean preserveWhitespace) {
         validateTextDocument(originalFilename, fileBytes);
         try {
-            String content = originalFilename.toLowerCase(Locale.ROOT).endsWith(".docx")
-                    ? readDocxText(fileBytes, preserveWhitespace)
-                    : stripUtf8Bom(new String(fileBytes, StandardCharsets.UTF_8));
+            DocumentFormat format = DocumentFormat.fromFilename(originalFilename);
+            String content = switch (format) {
+                case DOCX -> readDocxText(fileBytes, preserveWhitespace);
+                case HWP -> new HwpTextReader().read(fileBytes);
+                case HWPX -> new HwpxTextReader().read(fileBytes);
+                case TXT -> stripUtf8Bom(StandardCharsets.UTF_8.newDecoder()
+                        .decode(ByteBuffer.wrap(fileBytes)).toString());
+            };
+            if (!preserveWhitespace && (format == DocumentFormat.HWP || format == DocumentFormat.HWPX)) {
+                content = content.strip();
+            }
+            if (!StandardCharsets.UTF_8.newEncoder().canEncode(content)) {
+                throw DocumentReadLimits.invalid();
+            }
             if (!StringUtils.hasText(content)) {
                 throw new AppException(UploadErrorCode.UPLOAD_FILE_EMPTY);
             }
             return content;
         } catch (XMLStreamException | IOException exception) {
-            throw new AppException(UploadErrorCode.UPLOAD_FILE_READ_FAILED, exception);
+            throw new AppException(UploadErrorCode.UPLOAD_DOCUMENT_INVALID, exception);
         }
     }
 
@@ -82,10 +93,7 @@ public class TextDocumentReader {
         if (fileSize > MAX_FILE_SIZE) {
             throw new AppException(UploadErrorCode.UPLOAD_FILE_TOO_LARGE);
         }
-        String normalizedFilename = originalFilename.toLowerCase(Locale.ROOT);
-        if (!normalizedFilename.endsWith(".txt") && !normalizedFilename.endsWith(".docx")) {
-            throw new AppException(UploadErrorCode.UPLOAD_FILE_TYPE_NOT_SUPPORTED);
-        }
+        DocumentFormat.fromFilename(originalFilename);
     }
 
     private String readDocxText(byte[] fileBytes, boolean preserveWhitespace) throws IOException, XMLStreamException {

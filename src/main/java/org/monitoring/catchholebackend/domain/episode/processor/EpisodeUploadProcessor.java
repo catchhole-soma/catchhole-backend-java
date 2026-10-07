@@ -2,6 +2,7 @@ package org.monitoring.catchholebackend.domain.episode.processor;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -24,6 +25,7 @@ import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
 import org.monitoring.catchholebackend.domain.upload.exception.UploadErrorCode;
 import org.monitoring.catchholebackend.domain.upload.mapper.UploadMapper;
+import org.monitoring.catchholebackend.domain.upload.parser.DocumentFormat;
 import org.monitoring.catchholebackend.domain.upload.parser.TextDocumentReader;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
@@ -154,7 +156,7 @@ public class EpisodeUploadProcessor {
                     ))
                     .toList();
         }
-        return applyEpisodeConfirmations(detectedEpisodeFiles, episodeConfirmations);
+        return applyEpisodeConfirmations(uploadType, detectedEpisodeFiles, episodeConfirmations);
     }
 
     private FinalizedEpisode toFinalizedEpisode(DetectedEpisode detectedEpisode) {
@@ -166,6 +168,7 @@ public class EpisodeUploadProcessor {
     }
 
     private List<FinalizedEpisodeFile> applyEpisodeConfirmations(
+            EpisodeUploadType uploadType,
             List<DetectedEpisodeFile> detectedEpisodeFiles,
             List<EpisodeUploadConfirmationRequest> episodeConfirmations
     ) {
@@ -176,15 +179,22 @@ public class EpisodeUploadProcessor {
             throw new AppException(UploadErrorCode.UPLOAD_EPISODE_CONFIRMATION_INVALID);
         }
 
+        boolean multipleFiles = uploadType == EpisodeUploadType.MULTI_EPISODE_MULTI_FILE;
+        // 화면 정렬 순서와 무관하게 감지 당시의 파일/본문에 확정값을 연결한다.
+        List<EpisodeUploadConfirmationRequest> confirmationsInSourceOrder = multipleFiles
+                ? episodeConfirmations.stream()
+                        .sorted(Comparator.comparingInt(EpisodeUploadConfirmationRequest::detectionOrder))
+                        .toList()
+                : episodeConfirmations;
         int detectionOrder = 0;
         int previousEpisodeNo = 0;
         List<FinalizedEpisodeFile> finalizedEpisodeFiles = new ArrayList<>();
         for (DetectedEpisodeFile detectedEpisodeFile : detectedEpisodeFiles) {
             List<FinalizedEpisode> finalizedEpisodes = new ArrayList<>();
             for (DetectedEpisode detectedEpisode : detectedEpisodeFile.detectedEpisodes()) {
-                EpisodeUploadConfirmationRequest confirmation = episodeConfirmations.get(detectionOrder);
+                EpisodeUploadConfirmationRequest confirmation = confirmationsInSourceOrder.get(detectionOrder);
                 if (confirmation.detectionOrder() != detectionOrder
-                        || confirmation.episodeNo() <= previousEpisodeNo) {
+                        || (!multipleFiles && confirmation.episodeNo() <= previousEpisodeNo)) {
                     throw new AppException(UploadErrorCode.UPLOAD_EPISODE_CONFIRMATION_INVALID);
                 }
                 finalizedEpisodes.add(new FinalizedEpisode(
@@ -295,7 +305,7 @@ public class EpisodeUploadProcessor {
                 uploadBatch.getId(),
                 resolveOriginalFilename(finalizedEpisodeFile.sourceFile()),
                 readBytes(finalizedEpisodeFile.sourceFile()),
-                finalizedEpisodeFile.sourceFile().getContentType()
+                DocumentFormat.fromFilename(finalizedEpisodeFile.sourceFile().getOriginalFilename()).mimeType()
         );
 
         UploadFile savedSourceFile = uploadFileRepository.save(buildUploadFile(
@@ -332,7 +342,7 @@ public class EpisodeUploadProcessor {
                 uploadBatch.getId(),
                 resolveOriginalFilename(attachedSettingBookFile),
                 readBytes(attachedSettingBookFile),
-                attachedSettingBookFile.getContentType()
+                DocumentFormat.fromFilename(attachedSettingBookFile.getOriginalFilename()).mimeType()
         );
         UploadFile savedSettingBookFile = uploadFileRepository.save(buildUploadFile(
                 uploadBatch,
@@ -378,7 +388,7 @@ public class EpisodeUploadProcessor {
                 uploadBatch,
                 fileRole,
                 resolveOriginalFilename(sourceFile),
-                sourceFile.getContentType(),
+                DocumentFormat.fromFilename(sourceFile.getOriginalFilename()).mimeType(),
                 objectStorageService.toStorageUrl(storageKey),
                 sourceFile.getSize()
         );

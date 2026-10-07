@@ -44,9 +44,9 @@ public record CharacterUpdateRequest(
         @NotNull(message = "스킬 설정 목록은 필수입니다.")
         List<@NotNull(message = "스킬 설정 항목은 null일 수 없습니다.") @Valid CharacterSettingUpdateRequest> skills,
 
-        @Schema(description = "아이템 현재 설정 전체")
-        @NotNull(message = "아이템 설정 목록은 필수입니다.")
-        List<@NotNull(message = "아이템 설정 항목은 null일 수 없습니다.") @Valid CharacterSettingUpdateRequest> items,
+        @Schema(description = "소지품 현재 설정 전체")
+        @NotNull(message = "소지품 설정 목록은 필수입니다.")
+        List<@NotNull(message = "소지품 설정 항목은 null일 수 없습니다.") @Valid CharacterSettingUpdateRequest> items,
 
         @Schema(description = "상태 현재 설정 전체")
         @NotNull(message = "상태 설정 목록은 필수입니다.")

@@ -552,7 +552,8 @@ public class SettingCandidate extends BaseEntity {
         if (analysisJob == null || !analysisJob.isOrderedProvisional() && !isCompletedManualReview() || (!userModified && !lateReview)
                 || comparisonStatus == CharacterFactComparisonStatus.PROCESSING
                 || matchStatus == SettingCandidateMatchStatus.AMBIGUOUS
-                || operation != CharacterFactOperation.ADD && operation != CharacterFactOperation.UPDATE) {
+                || operation != CharacterFactOperation.ADD && operation != CharacterFactOperation.UPDATE
+                    && !(factType == CharacterFactType.STATUS && operation == CharacterFactOperation.REMOVE)) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
         preserveInitialHumanWaitMetrics();
