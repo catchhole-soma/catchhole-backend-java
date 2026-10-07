@@ -124,19 +124,19 @@ MVP의 후보 출처는 회차 원문만 지원하므로 `source_type`, `source_
 | `UPDATE` | 기존 설정 속성을 새로운 사실로 교체 |
 | `MERGE` | 기존 사실과 신규 사실을 종합한 제안값으로 교체 |
 | `EXCLUDE` | 지속 가능한 세계관 설정이 아니거나 반영할 필요가 없어 제외 |
-| `REVIEW_REQUIRED` | 후보 범위가 없지만 다른 범위의 동명 속성과 관련될 수 있어 사용자가 범위를 결정해야 함 |
+| `REVIEW_REQUIRED` | 주체·적용 범위·내용을 확정할 수 없어 사용자의 직접 확인이 필요함 |
 
-`scope_name=NULL` 후보와 같은 이름의 속성이 특정 scope 아래에만 있으면 기존 scope를
-자동 상속하지 않습니다. Worker는 기존 경로를 `matched_scope_name + matched_property_name`에
-보존하고 `REVIEW_REQUIRED + SCOPE_UNRESOLVED`로 비교를 완료합니다. 후보는
-`PENDING_REVIEW + COMPLETED`로 남으며 이 결과만으로 `WorldSetting`, property, version을
-변경하지 않습니다. 사용자가 기존 scoped 경로의 `UPDATE/MERGE`, root `ADD`, 또는
-`EXCLUDE` 중 concrete 결정을 저장한 뒤에만 확정할 수 있습니다.
+`scope_name=NULL`이나 동명만으로 `REVIEW_REQUIRED`를 강제하지 않습니다. 같은 canonical
+분류·주체에서 범위·설정명이 정리용 경로만 다르고 전체 기존 설명·원문 근거의 적용 대상과
+조건이 같으면 `EXCLUDE/MERGE/UPDATE`로 비교를 완료할 수 있습니다. 지역·시점·조건·부분집합·
+불확실성이 다르면 자동 동등 취급하지 않습니다. 명시적인 `REVIEW_REQUIRED + SCOPE_UNRESOLVED`는
+실제 기존 경로와 원본 제안 경로·값을 각각 보존하고 `PENDING_REVIEW + COMPLETED`로 남습니다.
+검토 판단만으로 `WorldSetting`, property, version을 변경하지 않습니다.
 
-`ADD`, `UPDATE`, `MERGE`, `EXCLUDE`의 실제 비교 경로 검증은 완화하지 않습니다.
-특히 `UPDATE/MERGE`와 기존 속성을 참조하는 `EXCLUDE`는 후보의 추출 scope와 기존 속성
-scope가 같아야 합니다. 후보와 같은 root 경로가 이미 있으면 그 경로를 우선 비교하며
-scope 미확정으로 처리하지 않습니다.
+원본 scope·이름·값·근거는 변경하지 않고 실제 target와 `matched_scope_name + matched_property_name`
+전체 경로의 존재를 검증합니다. `UPDATE/MERGE`의 proposed 저장 경로는 선택한 실제 기존 경로와
+일치해야 합니다. `EXCLUDE`는 기존 전체 값을 beforeValue로 보존하고 저장값을 쓰지 않습니다.
+root `ADD`는 범위 없는 동명이라는 이유만으로 거절하지 않으며 실제 전체 경로·tree 충돌은 거절합니다.
 
 `UPDATE`와 `MERGE`는 DB에서 모두 해당 설정명 한 개를 최종값으로 교체합니다. 두 enum은 2차 LLM의 판단 의미와 검토 기록을 구분하기 위해 유지하며, Backend가 문자열을 임의로 합성하지 않습니다.
 
