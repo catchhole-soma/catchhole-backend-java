@@ -343,7 +343,6 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
         }
         Map<String, WorldSettingCandidate> byRef = new LinkedHashMap<>();
         group.forEach(candidate -> byRef.put(candidate.getComparisonCandidateRef(), candidate));
-        if (!request.failures().isEmpty() && !job.isAutomaticReview()) throw invalid();
         Set<String> covered = new HashSet<>();
         for (var decision : request.decisions()) {
             for (String ref : decision.sourceCandidateRefs()) {
@@ -452,7 +451,7 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
                 var candidate = byRef.get(ref);
                 candidate.failComparison(failure.failureCode(), failure.errorMessage());
                 candidate.recordComparisonDiagnostics(candidateDiagnostics.get(ref));
-                changes.add(failedComparisonReference(candidate));
+                if (job.isAutomaticReview()) changes.add(failedComparisonReference(candidate));
             }
         }
         if (!consumed.equals(byRef.keySet())) {
@@ -522,8 +521,7 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
         if (operation == WorldSettingSuggestedOperation.UPDATE || operation == WorldSettingSuggestedOperation.MERGE) {
             var matched = property.path(input.matchedScopeName(), input.matchedPropertyName());
             if (matched == null || !sameName(matched.scopeName(), input.proposedScopeName())
-                    || !sameName(matched.settingName(), input.proposedSettingName())
-                    || source.stream().anyMatch(candidate -> !sameName(candidate.getScopeName(), matched.scopeName()))) {
+                    || !sameName(matched.settingName(), input.proposedSettingName())) {
                 throw invalid();
             }
         } else if (operation == WorldSettingSuggestedOperation.ADD) {
@@ -544,8 +542,7 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
             }
         } else if (operation == WorldSettingSuggestedOperation.EXCLUDE) {
             if (input.matchedPropertyName() != null
-                    && (property.path(input.matchedScopeName(), input.matchedPropertyName()) == null
-                    || source.stream().anyMatch(candidate -> !sameName(candidate.getScopeName(), input.matchedScopeName())))
+                    && property.path(input.matchedScopeName(), input.matchedPropertyName()) == null
                     || input.matchedPropertyName() == null && input.matchedScopeName() != null) {
                 throw invalid();
             }

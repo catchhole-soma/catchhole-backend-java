@@ -653,7 +653,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
             orderedWorker.completeBatch(analysisJob, comparisonBatchId, request);
             return;
         }
-        if (request.decisions().isEmpty() || !request.failures().isEmpty() || !request.diagnostics().isEmpty()) {
+        if (request.decisions().isEmpty() && request.failures().isEmpty()) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
         }
         String requestHash = completionHash(request);
@@ -680,7 +680,8 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 request
         );
         Map<WorkerWorldSettingComparisonBatchCompleteRequest.Decision, List<WorldSettingCandidate>>
-                sourcesByDecision = validateBatchSourceCoverage(candidates, request.decisions());
+                sourcesByDecision = validateBatchSourceCoverage(candidates, request.decisions(), request.failures());
+        Map<String, JsonNode> candidateDiagnostics = validatedCompletionDiagnostics(candidates, contextTargets, request);
 
         List<WorldSettingComparisonDecision> decisions = new ArrayList<>();
         Map<String, WorldSettingComparisonDecision> decisionsByRef = new LinkedHashMap<>();
@@ -759,6 +760,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
             for (int index = 0; index < sourceCandidates.size(); index++) {
                 WorldSettingCandidate candidate = sourceCandidates.get(index);
                 candidate.completeComparison(decision, comparedAt);
+                candidate.recordComparisonDiagnostics(candidateDiagnostics.get(candidate.getComparisonCandidateRef()));
                 sources.add(WorldSettingComparisonDecisionSource.create(
                         batch,
                         decision,
@@ -766,6 +768,15 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                         candidate.getComparisonCandidateRef(),
                         index
                 ));
+            }
+        }
+        Map<String, WorldSettingCandidate> candidatesByRef = new LinkedHashMap<>();
+        candidates.forEach(candidate -> candidatesByRef.put(candidate.getComparisonCandidateRef(), candidate));
+        for (var failure : request.failures()) {
+            for (String ref : failure.sourceCandidateRefs()) {
+                var candidate = candidatesByRef.get(ref);
+                candidate.failComparison(failure.failureCode(), failure.errorMessage());
+                candidate.recordComparisonDiagnostics(candidateDiagnostics.get(ref));
             }
         }
         comparisonSourceRepository.saveAll(sources);
@@ -971,7 +982,6 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                     request.matchedPropertyName()
             );
             if (storedPath == null
-                    || !sameName(storedPath.scopeName(), candidate.getScopeName())
                     || !sameName(storedPath.scopeName(), request.proposedScopeName())
                     || !sameName(storedPath.settingName(), request.proposedSettingName())) {
                 throw invalidComparisonTarget(
@@ -985,12 +995,6 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                     || !isBlank(request.matchedScopeName())) {
                 throw invalidComparisonTarget(
                         WorldSettingComparisonValidationReason.ADD_MATCHED_PATH_FORBIDDEN
-                );
-            }
-            if (requiresScopeReviewForRootAdd(candidate, target, request)
-                    || requiresScopeReviewForRootAdd(candidate, exactTarget, request)) {
-                throw invalidComparisonTarget(
-                        WorldSettingComparisonValidationReason.SCOPE_REVIEW_REQUIRED
                 );
             }
             if (target != null && (target.hasProperty(
@@ -1014,7 +1018,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                             request.matchedScopeName(),
                             request.matchedPropertyName()
                     );
-            if (storedPath == null || !sameName(storedPath.scopeName(), candidate.getScopeName())) {
+            if (storedPath == null) {
                 throw invalidComparisonTarget(
                         WorldSettingComparisonValidationReason.EXCLUDE_MATCHED_PATH_INVALID
                 );
@@ -1025,20 +1029,6 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                     WorldSettingComparisonValidationReason.EXCLUDE_MATCHED_SCOPE_WITHOUT_PROPERTY
             );
         }
-    }
-
-    private boolean requiresScopeReviewForRootAdd(
-            WorldSettingCandidate candidate,
-            WorldSetting target,
-            WorkerWorldSettingComparisonCompleteRequest request
-    ) {
-        return target != null
-                && candidate.getScopeName() == null
-                && isBlank(request.proposedScopeName())
-                && sameName(request.proposedSettingName(), candidate.getSettingName())
-                && target.getProperties().stream().anyMatch(property ->
-                property.scopeName() != null
-                        && sameName(property.settingName(), candidate.getSettingName()));
     }
 
     private void validateGeneralUncertaintyReview(
@@ -1099,8 +1089,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 request.matchedPropertyName()
         );
         if (storedPath == null
-                || storedPath.scopeName() == null
-                || !sameName(storedPath.settingName(), candidate.getSettingName())) {
+                || storedPath.scopeName() == null) {
             throw invalidComparisonTarget(
                     WorldSettingComparisonValidationReason.SCOPE_REVIEW_MATCHED_PATH_INVALID
             );
@@ -1819,7 +1808,8 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
     private Map<WorkerWorldSettingComparisonBatchCompleteRequest.Decision,
             List<WorldSettingCandidate>> validateBatchSourceCoverage(
             List<WorldSettingCandidate> candidates,
-            List<WorkerWorldSettingComparisonBatchCompleteRequest.Decision> decisions
+            List<WorkerWorldSettingComparisonBatchCompleteRequest.Decision> decisions,
+            List<WorkerWorldSettingComparisonBatchCompleteRequest.Failure> failures
     ) {
         Map<String, WorldSettingCandidate> candidatesByRef = new LinkedHashMap<>();
         candidates.forEach(candidate -> candidatesByRef.put(
@@ -1856,10 +1846,52 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
             )));
             result.put(decision, sources);
         }
+        for (var failure : failures) {
+            if (failure.failureCode() == null || !failure.failureCode().isCandidateComparisonFailure()
+                    || failure.sourceCandidateRefs().isEmpty() || failure.errorMessage() == null
+                    || failure.errorMessage().isBlank() || failure.errorMessage().length() > 1000) {
+                throw new AppException(WorldSettingErrorCode.WORLD_SETTING_INPUT_INVALID);
+            }
+            for (String ref : failure.sourceCandidateRefs()) {
+                if (!candidatesByRef.containsKey(ref)) {
+                    throw invalidComparisonTarget(WorldSettingComparisonValidationReason.BATCH_SOURCE_REF_UNKNOWN);
+                }
+                if (!seenCandidateRefs.add(ref)) {
+                    throw invalidComparisonTarget(WorldSettingComparisonValidationReason.BATCH_SOURCE_REF_DUPLICATED);
+                }
+            }
+        }
         if (seenCandidateRefs.size() != candidatesByRef.size()) {
             throw invalidComparisonTarget(
                     WorldSettingComparisonValidationReason.BATCH_SOURCE_COVERAGE_INVALID
             );
+        }
+        return result;
+    }
+
+    private Map<String, JsonNode> validatedCompletionDiagnostics(List<WorldSettingCandidate> candidates,
+            Map<UUID, WorldSetting> targets, WorkerWorldSettingComparisonBatchCompleteRequest request) {
+        Set<String> refs = candidates.stream().map(WorldSettingCandidate::getComparisonCandidateRef)
+                .collect(java.util.stream.Collectors.toSet());
+        ObjectNode targetSnapshot = JsonNodeFactory.instance.objectNode();
+        targets.forEach((id, target) -> targetSnapshot.putObject("world:" + id).set("propertiesJson", target.getPropertiesJson()));
+        JsonNode common = WorldSettingComparisonDiagnostics.validate(request.diagnostics(), refs, targetSnapshot);
+        Map<String, JsonNode> failuresByRef = new LinkedHashMap<>();
+        for (var failure : request.failures()) {
+            JsonNode diagnostic = WorldSettingComparisonDiagnostics.validate(failure.diagnostics(),
+                    new HashSet<>(failure.sourceCandidateRefs()), targetSnapshot);
+            failure.sourceCandidateRefs().forEach(ref -> failuresByRef.put(ref, diagnostic));
+        }
+        Map<String, JsonNode> result = new LinkedHashMap<>();
+        for (String ref : refs) {
+            Set<JsonNode> distinct = new java.util.LinkedHashSet<>();
+            WorldSettingComparisonDiagnostics.forCandidate(common, ref).forEach(distinct::add);
+            WorldSettingComparisonDiagnostics.forCandidate(
+                    failuresByRef.getOrDefault(ref, JsonNodeFactory.instance.arrayNode()), ref).forEach(distinct::add);
+            List<JsonNode> sorted = distinct.stream().sorted(Comparator.comparingInt(row -> row.path("attempt").asInt())).toList();
+            ArrayNode diagnostic = JsonNodeFactory.instance.arrayNode();
+            sorted.stream().skip(Math.max(0, sorted.size() - 30)).forEach(row -> diagnostic.add(row.deepCopy()));
+            result.put(ref, diagnostic);
         }
         return result;
     }
@@ -1976,9 +2008,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
             );
             if (storedPath == null
                     || !sameName(storedPath.scopeName(), request.proposedScopeName())
-                    || !sameName(storedPath.settingName(), request.proposedSettingName())
-                    || sources.stream().anyMatch(source ->
-                    !sameName(source.getScopeName(), storedPath.scopeName()))) {
+                    || !sameName(storedPath.settingName(), request.proposedSettingName())) {
                 throw invalidComparisonTarget(
                         WorldSettingComparisonValidationReason.PROPOSED_PATH_MISMATCH
                 );
@@ -2020,8 +2050,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                             request.matchedScopeName(),
                             request.matchedPropertyName()
                     );
-            if (storedPath == null || sources.stream().anyMatch(source ->
-                    !sameName(source.getScopeName(), storedPath.scopeName()))) {
+            if (storedPath == null) {
                 throw invalidComparisonTarget(
                         WorldSettingComparisonValidationReason.EXCLUDE_MATCHED_PATH_INVALID
                 );
@@ -2346,7 +2375,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
         );
         if (storedPath == null
                 || storedPath.scopeName() == null
-                || sources.stream().anyMatch(source ->
+                || sources.size() > 1 && sources.stream().anyMatch(source ->
                 !sameName(source.getSettingName(), storedPath.settingName()))
                 || !isBlank(request.proposedScopeName())
                 || !sources.stream().allMatch(source ->
