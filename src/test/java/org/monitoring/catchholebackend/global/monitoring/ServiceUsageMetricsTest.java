@@ -26,13 +26,16 @@ class ServiceUsageMetricsTest {
 
             assertThat(registry.scrape()).contains(
                     "catchhole_service_members NaN",
+                    "catchhole_service_works NaN",
+                    "catchhole_service_episodes NaN",
+                    "catchhole_service_feedback_pending_requests NaN",
                     "catchhole_service_analysis_users_7d NaN",
                     "catchhole_service_analysis_requests_24h NaN",
                     "catchhole_service_analysis_request_episodes_average_24h NaN",
                     "catchhole_service_usage_snapshot_success 0.0",
                     "catchhole_service_usage_snapshot_last_success_timestamp_seconds 0.0",
                     "catchhole_service_usage_requests_24h_complete 0.0");
-            assertThat(registry.getMeters()).hasSize(7);
+            assertThat(registry.getMeters()).hasSize(10);
             registry.getMeters().forEach(meter -> assertThat(meter.getId().getTags()).isEmpty());
             Reference.reachabilityFence(metrics);
         } finally { registry.close(); }
@@ -45,10 +48,13 @@ class ServiceUsageMetricsTest {
         try {
             ServiceUsageMetrics metrics = new ServiceUsageMetrics(registry, new AdjustableClock());
 
-            metrics.updateSnapshot(new Snapshot(0, 0, 0, Double.NaN, true));
+            metrics.updateSnapshot(new Snapshot(0, 0, 0, Double.NaN, true, 0, 0, 0));
 
             assertThat(registry.scrape()).contains(
                     "catchhole_service_members 0.0",
+                    "catchhole_service_works 0.0",
+                    "catchhole_service_episodes 0.0",
+                    "catchhole_service_feedback_pending_requests 0.0",
                     "catchhole_service_analysis_users_7d 0.0",
                     "catchhole_service_analysis_requests_24h 0.0",
                     "catchhole_service_analysis_request_episodes_average_24h NaN",
@@ -66,10 +72,13 @@ class ServiceUsageMetricsTest {
         try {
             ServiceUsageMetrics metrics = new ServiceUsageMetrics(registry, new AdjustableClock());
 
-            metrics.updateSnapshot(new Snapshot(120, 10, 30, 8.5, true));
+            metrics.updateSnapshot(new Snapshot(120, 10, 30, 8.5, true, 40, 80, 3));
 
             assertThat(registry.scrape()).contains(
                     "catchhole_service_members 120.0",
+                    "catchhole_service_works 40.0",
+                    "catchhole_service_episodes 80.0",
+                    "catchhole_service_feedback_pending_requests 3.0",
                     "catchhole_service_analysis_users_7d 10.0",
                     "catchhole_service_analysis_requests_24h 30.0",
                     "catchhole_service_analysis_request_episodes_average_24h 8.5",
@@ -86,12 +95,15 @@ class ServiceUsageMetricsTest {
         PrometheusMeterRegistry registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
         try {
             ServiceUsageMetrics metrics = new ServiceUsageMetrics(registry, new AdjustableClock());
-            metrics.updateSnapshot(new Snapshot(119, 8, 29, 7, true));
+            metrics.updateSnapshot(new Snapshot(119, 8, 29, 7, true, 39, 79, 2));
 
-            metrics.updateSnapshot(new Snapshot(120, 10, 30, 8.5, false));
+            metrics.updateSnapshot(new Snapshot(120, 10, 30, 8.5, false, 40, 80, 3));
 
             assertThat(registry.scrape()).contains(
                     "catchhole_service_members 120.0",
+                    "catchhole_service_works 40.0",
+                    "catchhole_service_episodes 80.0",
+                    "catchhole_service_feedback_pending_requests 3.0",
                     "catchhole_service_analysis_users_7d 10.0",
                     "catchhole_service_analysis_requests_24h NaN",
                     "catchhole_service_analysis_request_episodes_average_24h NaN",
@@ -108,13 +120,16 @@ class ServiceUsageMetricsTest {
         try {
             AdjustableClock clock = new AdjustableClock();
             ServiceUsageMetrics metrics = new ServiceUsageMetrics(registry, clock);
-            metrics.updateSnapshot(new Snapshot(120, 10, 30, 8.5, true));
+            metrics.updateSnapshot(new Snapshot(120, 10, 30, 8.5, true, 40, 80, 3));
             clock.current = clock.current.plusSeconds(60);
 
             metrics.snapshotFailed();
 
             assertThat(registry.scrape()).contains(
                     "catchhole_service_members 120.0",
+                    "catchhole_service_works 40.0",
+                    "catchhole_service_episodes 80.0",
+                    "catchhole_service_feedback_pending_requests 3.0",
                     "catchhole_service_analysis_users_7d 10.0",
                     "catchhole_service_analysis_requests_24h 30.0",
                     "catchhole_service_analysis_request_episodes_average_24h 8.5",
@@ -122,10 +137,13 @@ class ServiceUsageMetricsTest {
                     "catchhole_service_usage_snapshot_last_success_timestamp_seconds 1.7909082E9",
                     "catchhole_service_usage_requests_24h_complete 1.0");
 
-            metrics.updateSnapshot(new Snapshot(121, 11, 31, 8, true));
+            metrics.updateSnapshot(new Snapshot(121, 11, 31, 8, true, 39, 79, 2));
 
             assertThat(registry.scrape()).contains(
                     "catchhole_service_members 121.0",
+                    "catchhole_service_works 39.0",
+                    "catchhole_service_episodes 79.0",
+                    "catchhole_service_feedback_pending_requests 2.0",
                     "catchhole_service_analysis_users_7d 11.0",
                     "catchhole_service_analysis_requests_24h 31.0",
                     "catchhole_service_analysis_request_episodes_average_24h 8.0",
@@ -146,7 +164,7 @@ class ServiceUsageMetricsTest {
 
             assertThatCode(() -> {
                 ServiceUsageMetrics metrics = new ServiceUsageMetrics(registry, new AdjustableClock());
-                metrics.updateSnapshot(new Snapshot(120, 10, 30, 8.5, true));
+                metrics.updateSnapshot(new Snapshot(120, 10, 30, 8.5, true, 40, 80, 3));
                 metrics.snapshotFailed();
             }).doesNotThrowAnyException();
         } finally { registry.close(); }

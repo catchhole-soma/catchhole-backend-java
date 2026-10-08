@@ -10,7 +10,11 @@ import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode;
+import org.monitoring.catchholebackend.domain.aitoken.entity.AiTokenExtensionRequest;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenQuotaExtensionContext;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
+import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
+import org.monitoring.catchholebackend.domain.feedback.entity.Feedback;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.type.MemberStatus;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
@@ -31,6 +35,58 @@ class ServiceUsageSnapshotRepositoryIntegrationTest {
     private final LocalDateTime asOf = LocalDateTime.of(2026, 10, 2, 12, 0);
     private int nextMember;
     private int nextEpisode;
+
+    @Test
+    @DisplayName("현재 작품과 회차는 삭제 중 작품과 보관 회차와 탈퇴 계정을 제외한다")
+    void countsCurrentWorksAndEpisodesWithoutArchivedOrPurgingContent() {
+        Member active = member("content-active", MemberStatus.ACTIVE);
+        Work activeWork = work(active);
+        episode(activeWork);
+        Episode failed = episode(activeWork);
+        ReflectionTestUtils.setField(failed, "status", EpisodeStatus.FAILED);
+        episode(activeWork).archive();
+        work(member("content-suspended", MemberStatus.SUSPENDED));
+        Work purgingWork = work(active);
+        purgingWork.startPurging();
+        episode(purgingWork);
+        episode(work(member("content-purging", MemberStatus.PURGING)));
+        episode(work(member("content-deleted", MemberStatus.DELETED)));
+        em.flush();
+
+        var snapshot = repository.read(asOf);
+        assertThat(snapshot.works()).isEqualTo(2);
+        assertThat(snapshot.episodes()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("처리 대기는 두 출처의 토큰 요청을 세고 지급과 반려와 탈퇴 요청은 제외한다")
+    void countsOnlyPendingTokenFeedbackRequestsAcrossBothSources() {
+        Member active = member("feedback-active", MemberStatus.ACTIVE);
+        AiTokenExtensionRequest reward = AiTokenExtensionRequest.requestGeneralFeedbackReward(active, "일반 의견 보상 요청");
+        em.persist(reward);
+        em.persist(Feedback.create(active, "보상 요청과 연결된 의견", "/dashboard", reward.getId()));
+        em.persist(Feedback.create(active, "보상 요청이 없는 추가 의견", "/dashboard", null));
+        em.persist(AiTokenExtensionRequest.request(member("feedback-suspended", MemberStatus.SUSPENDED),
+                "사용량 소진 의견", AiTokenQuotaExtensionContext.REQUEST_BLOCKED));
+        AiTokenExtensionRequest approved = AiTokenExtensionRequest.requestGeneralFeedbackReward(member("feedback-approved", MemberStatus.ACTIVE), "지급 완료 의견");
+        approved.approve(active.getId(), 100, asOf);
+        em.persist(approved);
+        AiTokenExtensionRequest rejected = AiTokenExtensionRequest.request(active, "미지급 완료 의견",
+                AiTokenQuotaExtensionContext.ANALYSIS_FAILED);
+        rejected.reject(active.getId(), "처리 완료", asOf);
+        em.persist(rejected);
+        em.persist(AiTokenExtensionRequest.requestGeneralFeedbackReward(
+                member("feedback-purging", MemberStatus.PURGING), "탈퇴 중 의견"));
+        em.persist(AiTokenExtensionRequest.requestGeneralFeedbackReward(
+                member("feedback-deleted", MemberStatus.DELETED), "탈퇴 완료 의견"));
+        em.flush();
+
+        assertThat(repository.read(asOf).pendingFeedbackRequests()).isEqualTo(2);
+
+        reward.approve(active.getId(), 100, asOf);
+        em.flush();
+        assertThat(repository.read(asOf).pendingFeedbackRequests()).isEqualTo(1);
+    }
 
     @Test
     @DisplayName("이용 정지 계정은 회원으로 세고 탈퇴 중과 탈퇴 계정은 제외한다")
@@ -276,6 +332,13 @@ class ServiceUsageSnapshotRepositoryIntegrationTest {
         Work work = Work.create(member, "service usage", WorkGenre.FANTASY, "description");
         em.persist(work);
         return work;
+    }
+
+    private Episode episode(Work work) {
+        Episode episode = Episode.create(work, null, ++nextEpisode, "episode", "source/" + nextEpisode,
+                "v1", "a".repeat(64), 100);
+        em.persist(episode);
+        return episode;
     }
 
     private AnalysisJob request(Work work, LocalDateTime requestedAt, int count) {

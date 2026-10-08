@@ -26,13 +26,16 @@ class ServiceUsageMetricsSchedulerTest {
             ServiceUsageMetrics metrics = new ServiceUsageMetrics(registry, clock);
             ServiceUsageSnapshotRepository repository = mock(ServiceUsageSnapshotRepository.class);
             when(repository.read(LocalDateTime.of(2026, 10, 2, 11, 30)))
-                    .thenReturn(new Snapshot(120, 10, 30, 8.5, true));
+                    .thenReturn(new Snapshot(120, 10, 30, 8.5, true, 40, 80, 3));
             ServiceUsageMetricsScheduler scheduler = new ServiceUsageMetricsScheduler(repository, metrics, clock);
 
             scheduler.refresh();
 
             assertThat(registry.scrape()).contains(
                     "catchhole_service_members 120.0",
+                    "catchhole_service_works 40.0",
+                    "catchhole_service_episodes 80.0",
+                    "catchhole_service_feedback_pending_requests 3.0",
                     "catchhole_service_analysis_users_7d 10.0",
                     "catchhole_service_analysis_requests_24h 30.0",
                     "catchhole_service_analysis_request_episodes_average_24h 8.5",
@@ -51,11 +54,11 @@ class ServiceUsageMetricsSchedulerTest {
             ServiceUsageMetrics metrics = new ServiceUsageMetrics(registry, clock);
             ServiceUsageSnapshotRepository repository = mock(ServiceUsageSnapshotRepository.class);
             when(repository.read(LocalDateTime.of(2026, 10, 2, 11, 30)))
-                    .thenReturn(new Snapshot(120, 10, 30, 8.5, true));
+                    .thenReturn(new Snapshot(120, 10, 30, 8.5, true, 40, 80, 3));
             when(repository.read(LocalDateTime.of(2026, 10, 2, 11, 31)))
                     .thenThrow(new IllegalStateException("database unavailable"));
             when(repository.read(LocalDateTime.of(2026, 10, 2, 11, 32)))
-                    .thenReturn(new Snapshot(121, 11, 31, 8, true));
+                    .thenReturn(new Snapshot(121, 11, 31, 8, true, 39, 79, 2));
             ServiceUsageMetricsScheduler scheduler = new ServiceUsageMetricsScheduler(repository, metrics, clock);
             scheduler.refresh();
             clock.current = clock.current.plusSeconds(60);
@@ -64,6 +67,9 @@ class ServiceUsageMetricsSchedulerTest {
 
             assertThat(registry.scrape()).contains(
                     "catchhole_service_members 120.0",
+                    "catchhole_service_works 40.0",
+                    "catchhole_service_episodes 80.0",
+                    "catchhole_service_feedback_pending_requests 3.0",
                     "catchhole_service_analysis_users_7d 10.0",
                     "catchhole_service_analysis_requests_24h 30.0",
                     "catchhole_service_analysis_request_episodes_average_24h 8.5",
@@ -75,6 +81,9 @@ class ServiceUsageMetricsSchedulerTest {
 
             assertThat(registry.scrape()).contains(
                     "catchhole_service_members 121.0",
+                    "catchhole_service_works 39.0",
+                    "catchhole_service_episodes 79.0",
+                    "catchhole_service_feedback_pending_requests 2.0",
                     "catchhole_service_analysis_users_7d 11.0",
                     "catchhole_service_analysis_requests_24h 31.0",
                     "catchhole_service_analysis_request_episodes_average_24h 8.0",
@@ -100,6 +109,9 @@ class ServiceUsageMetricsSchedulerTest {
 
             assertThat(registry.scrape()).contains(
                     "catchhole_service_members NaN",
+                    "catchhole_service_works NaN",
+                    "catchhole_service_episodes NaN",
+                    "catchhole_service_feedback_pending_requests NaN",
                     "catchhole_service_analysis_users_7d NaN",
                     "catchhole_service_analysis_requests_24h NaN",
                     "catchhole_service_analysis_request_episodes_average_24h NaN",

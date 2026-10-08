@@ -1,15 +1,20 @@
 # 서비스 이용 현황 지표
 
-운영 현황 대시보드의 `서비스 이용 현황`은 서버 상태와 함께 서비스 사용 규모를 확인하는 네 개의 현재 집계다. 기존 Actuator·Prometheus 수집을 재사용하며 공개 API나 별도 수집 포트를 추가하지 않는다.
+운영 현황 대시보드의 `서비스 이용 현황`은 서버 상태와 함께 서비스 사용 규모를 확인하는 일곱 개의 현재 집계다. 기존 Actuator·Prometheus 수집을 재사용하며 공개 API나 별도 수집 포트를 추가하지 않는다.
 
 ## 화면에 표시하는 값
 
 | 화면 이름 | Prometheus 이름 | 집계 기준 |
 | --- | --- | --- |
+| 처리 대기 피드백 | `catchhole_service_feedback_pending_requests` | `ai_token_extension_requests.status=PENDING`인 일반 피드백 보상·사용량 소진 요청 수. `ACTIVE`, `SUSPENDED` 회원만 포함한다. |
+| 등록 작품 수 | `catchhole_service_works` | `ACTIVE` 작품과 `ACTIVE`, `SUSPENDED` 소유자. 회차가 없는 작품도 포함한다. |
+| 등록 회차 수 | `catchhole_service_episodes` | 위 작품의 `ARCHIVED`가 아닌 회차 수. 분석 성공 여부와 관계없이 등록된 회차를 포함한다. |
 | 전체 회원 수 | `catchhole_service_members` | `ACTIVE`, `SUSPENDED` 회원 수. 탈퇴 처리 중인 `PURGING`과 탈퇴 완료 회원은 제외한다. |
 | 분석 이용자 수 · 최근 7일 | `catchhole_service_analysis_users_7d` | 최근 7일에 설정 추출·회차 검증을 요청하거나 사용자 재시도한 서로 다른 회원 수. |
 | 분석 요청 수 · 최근 24시간 | `catchhole_service_analysis_requests_24h` | 최근 24시간에 처음 접수한 사용자 요청 묶음 수. 여러 회차를 함께 요청하면 1건이다. |
 | 요청당 평균 회차 수 · 최근 24시간 | `catchhole_service_analysis_request_episodes_average_24h` | 위 요청들의 대상 회차 수를 요청별로 한 번씩 합산한 값 ÷ 요청 수. |
+
+처리 대기 피드백은 관리자의 토큰 지급 검토 목록과 같은 요청 단위다. `APPROVED`(지급)·`REJECTED`(미지급)는 제외한다. `feedbacks`에 저장된 일반 의견 전체의 미열람 개수와는 다르며, 보상 요청에 연결되지 않은 추가 의견은 이 수에 포함하지 않는다. 기존 지급 상태와 일반 의견 저장 규약은 변경하지 않는다. 작품·회차 수는 현재 등록된 개수로, 삭제 중 작품과 탈퇴 처리 중·완료 회원의 데이터를 제외한다. 보관 회차는 제외하되 업로드·분석 진행·실패 상태는 모두 포함한다.
 
 분석 집계는 현재 `ACTIVE` 작품과 탈퇴하지 않은 회원의 `SETTING_EXTRACTION`, `EPISODE_VALIDATION` Job을 대상으로 한다. 접수된 요청은 대기·실행·성공·실패·취소 등 처리 결과와 관계없이 포함하고 내부 후속 비교는 제외한다. 분석 이용자는 요청 묶음 정보가 없는 과거 기록도 조회한다. Job 생성 시각 또는 사용자 접수·재시도 시각이 기간에 들어오면 활동으로 세고, lease 회수는 사용자 활동으로 추가하지 않는다.
 
@@ -23,13 +28,13 @@
 
 V70에서 ordered run ID를 요청 ID로 복원한 과거 기록은 이후 사용자 재시도가 발생하면 최초 접수와 재시도 시각을 구분할 수 없을 수 있다. 이런 묶음 역시 보수적으로 불완전으로 처리한다. 새 계측의 별도 요청 UUID를 가진 ordered 재시도는 최초 요청을 유지한다.
 
-정상 조회여도 이력이 불완전하면 요청 수와 평균을 `NaN`으로 내보낸다. 화면에서 요청 수는 `기록 부족`, 평균은 `계산 불가`로 표시하며, 회원 수와 분석 이용자 수는 계속 표시한다. 완전한 조회에서 요청이 0건이면 요청 수는 0, 평균은 `NaN`이다. 0회차 평균으로 표시하지 않는다.
+정상 조회여도 이력이 불완전하면 요청 수와 평균을 `NaN`으로 내보낸다. 화면에서 요청 수는 `기록 부족`, 평균은 `계산 불가`로 표시하며, 회원·작품·회차·처리 대기 피드백 수와 분석 이용자 수는 계속 표시한다. 완전한 조회에서 요청이 0건이면 요청 수는 0, 평균은 `NaN`이다. 0회차 평균으로 표시하지 않는다.
 
 이 지표는 현재 남아 있는 계정·작품·분석 기록을 조회한다. 회원 탈퇴나 작품 삭제로 기록이 사라지면 최근 이용자·요청 수 역시 줄어들 수 있다. 보존되는 매출·사용량 원장이나 누적 가입자 수가 아니며, 장기 사업 지표가 필요하면 삭제와 무관한 별도 집계 기록을 설계해야 한다.
 
 ## 수집과 신선도
 
-`global.monitoring.ServiceUsageMetricsScheduler`가 읽기 전용 DB 조회로 캐시를 갱신한다. 기본 주기는 60초이고 SQL timeout은 5초다. `/actuator/prometheus` scrape는 캐시를 읽으며 DB를 조회하지 않는다. 갱신 시 네 값과 정상 여부를 하나의 immutable snapshot으로 교체한다. 회원·작품·Job ID, 이메일·이름은 metric label에 넣지 않는다.
+`global.monitoring.ServiceUsageMetricsScheduler`가 읽기 전용 DB 조회로 캐시를 갱신한다. 기본 주기는 60초이고 SQL timeout은 5초다. `/actuator/prometheus` scrape는 캐시를 읽으며 DB를 조회하지 않는다. 갱신 시 일곱 값과 정상 여부를 하나의 immutable snapshot으로 교체한다. 회원·작품·Job ID, 이메일·이름은 metric label에 넣지 않는다.
 
 | 진단 지표 | 의미 |
 | --- | --- |
