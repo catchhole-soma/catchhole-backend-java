@@ -13,6 +13,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.aitoken.entity.AiTokenExtensionRequest;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenQuotaExtensionContext;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.type.MemberStatus;
@@ -83,6 +85,9 @@ class ServiceUsageSnapshotPostgresIntegrationTest {
         assertThat(Integer.parseInt(flyway.info().current().getVersion().getVersion())).isGreaterThanOrEqualTo(71);
         var snapshot = repository.read(asOf);
         assertThat(snapshot.members()).isEqualTo(2);
+        assertThat(snapshot.works()).isEqualTo(2);
+        assertThat(snapshot.episodes()).isEqualTo(9);
+        assertThat(snapshot.pendingFeedbackRequests()).isZero();
         assertThat(snapshot.analysisUsers7d()).isEqualTo(2);
         assertThat(snapshot.requests24h()).isEqualTo(2);
         assertThat(snapshot.averageEpisodes24h()).isEqualTo(4.0);
@@ -151,6 +156,40 @@ class ServiceUsageSnapshotPostgresIntegrationTest {
         assertThat(snapshot.analysisUsers7d()).isEqualTo(1);
         assertThat(snapshot.requests24h()).isZero();
         assertThat(snapshot.requestHistoryComplete()).isFalse();
+    }
+
+    @Test
+    @DisplayName("실제 PostgreSQL에서 보관 회차와 삭제 중 작품과 처리 완료 피드백을 제외한다")
+    void countsCurrentContentAndPendingFeedbackOnPostgres() {
+        Work active = work("inv-active", MemberStatus.ACTIVE);
+        AnalysisJob retained = request(active, asOf.minusDays(8), 1);
+        request(active, asOf.minusDays(8), 1).getEpisode().archive();
+        Work suspended = work("inv-suspended", MemberStatus.SUSPENDED);
+        request(suspended, asOf.minusDays(8), 1);
+        Work purging = work("inv-purging-work", MemberStatus.ACTIVE);
+        purging.startPurging();
+        request(purging, asOf.minusDays(8), 1);
+        Work withdrawing = work("inv-withdrawing", MemberStatus.PURGING);
+        request(withdrawing, asOf.minusDays(8), 1);
+        AiTokenExtensionRequest reward = AiTokenExtensionRequest.requestGeneralFeedbackReward(
+                active.getMember(), "검토 대기 일반 피드백");
+        em.persist(reward);
+        em.persist(AiTokenExtensionRequest.request(suspended.getMember(), "사용량 소진 의견".repeat(5),
+                AiTokenQuotaExtensionContext.REQUEST_BLOCKED));
+        em.persist(AiTokenExtensionRequest.requestGeneralFeedbackReward(withdrawing.getMember(), "탈퇴 처리 중인 계정의 일반 의견입니다."));
+        em.flush();
+
+        var snapshot = repository.read(asOf);
+        assertThat(snapshot.works()).isEqualTo(2);
+        assertThat(snapshot.episodes()).isEqualTo(2);
+        assertThat(snapshot.pendingFeedbackRequests()).isEqualTo(2);
+
+        reward.approve(active.getMember().getId(), 100, asOf);
+        retained.getEpisode().archive();
+        em.flush();
+        snapshot = repository.read(asOf);
+        assertThat(snapshot.episodes()).isEqualTo(1);
+        assertThat(snapshot.pendingFeedbackRequests()).isEqualTo(1);
     }
 
     private Work work(String suffix, MemberStatus status) {
