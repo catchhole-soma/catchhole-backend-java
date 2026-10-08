@@ -12,7 +12,8 @@ public class ServiceUsageSnapshotRepository {
     private final EntityManager em;
 
     public record Snapshot(long members, long analysisUsers7d, long requests24h,
-            double averageEpisodes24h, boolean requestHistoryComplete) {}
+            double averageEpisodes24h, boolean requestHistoryComplete,
+            long works, long episodes, long pendingFeedbackRequests) {}
 
     @Transactional(readOnly = true)
     public Snapshot read(LocalDateTime asOf) {
@@ -92,7 +93,14 @@ public class ServiceUsageSnapshotRepository {
                                      or metrics_request_episode_count is null or metrics_request_episode_count <= 0))
                             or (analysis_mode = 'ORDERED_PROVISIONAL'
                                 and metrics_user_retry = true and metrics_attempt_no = 1)
-                     ))
+                     )),
+                    (select count(*) from active_owners),
+                    (select count(*) from episodes episode
+                     join active_owners owner on owner.work_id = episode.work_id
+                     where episode.status <> 'ARCHIVED'),
+                    (select count(*) from ai_token_extension_requests request
+                     join members member on member.id = request.member_id
+                     where request.status = 'PENDING' and member.status in ('ACTIVE', 'SUSPENDED'))
                 """)
                 .setParameter("week_start", asOf.minusDays(7))
                 .setParameter("day_start", asOf.minusDays(1))
@@ -101,6 +109,7 @@ public class ServiceUsageSnapshotRepository {
                 .getSingleResult();
         return new Snapshot(((Number) row[0]).longValue(), ((Number) row[1]).longValue(),
                 ((Number) row[2]).longValue(), row[3] == null ? Double.NaN : ((Number) row[3]).doubleValue(),
-                (Boolean) row[4]);
+                (Boolean) row[4], ((Number) row[5]).longValue(), ((Number) row[6]).longValue(),
+                ((Number) row[7]).longValue());
     }
 }

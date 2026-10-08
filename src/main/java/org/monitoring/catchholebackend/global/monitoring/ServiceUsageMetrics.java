@@ -14,7 +14,8 @@ import org.springframework.stereotype.Component;
 public class ServiceUsageMetrics {
     private final Clock clock;
     private final AtomicReference<CachedSnapshot> snapshot = new AtomicReference<>(
-            new CachedSnapshot(Double.NaN, Double.NaN, Double.NaN, Double.NaN, 0, 0, 0));
+            new CachedSnapshot(Double.NaN, Double.NaN, Double.NaN, Double.NaN, 0, 0, 0,
+                    Double.NaN, Double.NaN, Double.NaN));
 
     @Autowired
     public ServiceUsageMetrics(MeterRegistry registry) {
@@ -25,6 +26,10 @@ public class ServiceUsageMetrics {
         this.clock = clock;
         try {
             Gauge.builder("catchhole.service.members", this, m -> m.snapshot.get().members()).register(registry);
+            Gauge.builder("catchhole.service.works", this, m -> m.snapshot.get().works()).register(registry);
+            Gauge.builder("catchhole.service.episodes", this, m -> m.snapshot.get().episodes()).register(registry);
+            Gauge.builder("catchhole.service.feedback.pending.requests", this,
+                    m -> m.snapshot.get().pendingFeedbackRequests()).register(registry);
             Gauge.builder("catchhole.service.analysis.users.7d", this, m -> m.snapshot.get().analysisUsers7d()).register(registry);
             Gauge.builder("catchhole.service.analysis.requests.24h", this, m -> m.snapshot.get().requests24h()).register(registry);
             Gauge.builder("catchhole.service.analysis.request.episodes.average.24h", this,
@@ -44,16 +49,18 @@ public class ServiceUsageMetrics {
         snapshot.set(new CachedSnapshot(values.members(), values.analysisUsers7d(),
                 complete ? values.requests24h() : Double.NaN,
                 complete ? values.averageEpisodes24h() : Double.NaN,
-                1, clock.instant().getEpochSecond(), complete ? 1 : 0));
+                1, clock.instant().getEpochSecond(), complete ? 1 : 0,
+                values.works(), values.episodes(), values.pendingFeedbackRequests()));
     }
 
     public void snapshotFailed() {
         snapshot.updateAndGet(previous -> new CachedSnapshot(previous.members(), previous.analysisUsers7d(),
                 previous.requests24h(), previous.averageEpisodes24h(), 0,
-                previous.lastSuccessTimestampSeconds(), previous.requests24hComplete()));
+                previous.lastSuccessTimestampSeconds(), previous.requests24hComplete(),
+                previous.works(), previous.episodes(), previous.pendingFeedbackRequests()));
     }
 
     private record CachedSnapshot(double members, double analysisUsers7d, double requests24h,
             double averageEpisodes24h, double success, double lastSuccessTimestampSeconds,
-            double requests24hComplete) {}
+            double requests24hComplete, double works, double episodes, double pendingFeedbackRequests) {}
 }
