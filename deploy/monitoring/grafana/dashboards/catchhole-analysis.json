@@ -2189,7 +2189,7 @@
       "id": 16,
       "type": "timeseries",
       "title": "LLM 호출 실패 원인",
-      "description": "조회 기간 provider 호출 실패를 고정 error_type으로 집계합니다. 자유 형식 예외 메시지를 사용하지 않습니다.",
+      "description": "조회 기간 외부 LLM 호출 실패를 고정 error_type으로 집계합니다. HTTP 400(요청 오류)·401(인증)·403(권한)·429(요청 제한 또는 사용 한도)·기타 4xx와 5xx를 구분하고 408은 timeout으로 표시합니다. 캐치홀 API의 4xx 응답과는 별도입니다. 자유 형식 예외 메시지를 label에 넣지 않습니다. 새 분류는 Worker 배포 후 호출부터 적용되며 과거 other는 재분류하지 않습니다.",
       "datasource": {
         "type": "prometheus",
         "uid": "catchhole-prometheus"
