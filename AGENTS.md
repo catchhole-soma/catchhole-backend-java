@@ -71,6 +71,7 @@
 - Caddy는 `/actuator/health`를 제외한 `/actuator` 경로를 404로 차단한다. 자동 배포는 Caddyfile을 명시적으로 reload해 파일만 바뀌어도 접근 규칙을 반영한다. 기존 API·Worker 인증과 health 확인 경로는 유지한다.
 - 사용자·작품·Job ID, 원문, 비밀값과 실제 ID가 포함된 URL은 metric label에 넣지 않는다. HTTP 경로는 framework가 제공하는 route template을 사용한다.
 - 기본 API 대시보드의 HTTP 집계에서는 `/actuator.*`와 `/healthz`를 제외해 메트릭 수집·health 확인 요청을 사용자 트래픽에 섞지 않는다.
+- API 4xx 응답률은 기존 5xx 서버 오류율과 분리한다. 4xx에는 검증·인증·권한·충돌 등 정상적인 요청 거절도 포함되므로 서버 장애율로 합치지 않는다. 상태 코드·메서드·route template별 선택 기간 증가량을 상세에 제공하고, 외부 LLM의 HTTP 오류는 분석 지표에서 별도로 조회한다. 요청 없음과 수집 없음은 정상 0%로 채우지 않는다.
 - 기본 운영 대시보드의 수동 가져오기용 JSON은 `deploy/monitoring/grafana/dashboards/catchhole-overview.json`에 보관한다. Grafana에서 단계별로 편집한 내용을 재시작 때 덮어쓰지 않도록 dashboard 자동 provisioning에는 연결하지 않는다. HTTP 요약은 최근 5분, 상단 Stat은 Instant query와 Last 계산을 사용하며 요청 없음의 NaN을 과거 유한값으로 대체하지 않는다. 적용·백업·가져오기는 같은 디렉터리의 `README.md`를 따른다.
 - 로컬 Prometheus는 `compose.monitoring.yml`의 `catchhole-monitoring` 프로젝트로 관리한다. `-f compose.monitoring.yml`을 명시해 실행하며, Spring이 관리하는 기존 `compose.yaml`의 PostgreSQL·Redis와 실행 수명을 분리한다.
 - 수집 설정은 `monitoring/prometheus.yml`에서 관리한다. Docker Desktop의 `host.docker.internal:8080`을 통해 Mac에서 실행 중인 Spring의 `/actuator/prometheus`를 15초마다 수집하고, 수집 timeout은 5초로 둔다. `job` label은 `catchhole-backend`이며 초기 구성에는 지표 제외 규칙을 두지 않는다.

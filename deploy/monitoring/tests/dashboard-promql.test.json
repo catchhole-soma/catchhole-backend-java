@@ -1162,6 +1162,231 @@
           ]
         }
       ]
+    },
+    {
+      "name": "HTTP 4xx rate excludes 5xx health local and unrelated jobs and honors API instance",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\",status=\"200\",uri=\"/api/v1/works/{workId}/analysis-jobs/{analysisJobId}\",method=\"GET\"}",
+          "values": "0+6x15"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\",status=\"400\",uri=\"/api/v1/works/{workId}/episodes\",method=\"POST\"}",
+          "values": "0+2x15"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\",status=\"401\",uri=\"/api/v1/works/{workId}/analysis-jobs/{analysisJobId}\",method=\"GET\"}",
+          "values": "0+1x15"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\",status=\"500\",uri=\"/api/v1/works/{workId}/analysis-jobs/{analysisJobId}\",method=\"GET\"}",
+          "values": "0+1x15"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"b\",status=\"200\",uri=\"/api/v1/works/{workId}/analysis-jobs/{analysisJobId}\",method=\"GET\"}",
+          "values": "0+2x15"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"b\",status=\"403\",uri=\"/api/v1/works/{workId}/analysis-jobs/{analysisJobId}\",method=\"GET\"}",
+          "values": "0+8x15"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\",status=\"400\",uri=\"/actuator/prometheus\",method=\"GET\"}",
+          "values": "0+1000x15"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\",status=\"401\",uri=\"/healthz\",method=\"GET\"}",
+          "values": "0+1000x15"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"local\",instance=\"a\",status=\"403\",uri=\"/api/v1/works/{workId}/analysis-jobs/{analysisJobId}\",method=\"GET\"}",
+          "values": "0+1000x15"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"unrelated\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\",status=\"404\",uri=\"/api/v1/works/{workId}/analysis-jobs/{analysisJobId}\",method=\"GET\"}",
+          "values": "0+1000x15"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "100 * (sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",uri!~\"/actuator.*|/healthz\",status=~\"4..\"}[5m])) or (0 * sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",uri!~\"/actuator.*|/healthz\"}[5m])))) / sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",uri!~\"/actuator.*|/healthz\"}[5m]))",
+          "eval_time": "15m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 55
+            }
+          ]
+        },
+        {
+          "expr": "100 * (sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=~\"a\",uri!~\"/actuator.*|/healthz\",status=~\"4..\"}[5m])) or (0 * sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=~\"a\",uri!~\"/actuator.*|/healthz\"}[5m])))) / sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=~\"a\",uri!~\"/actuator.*|/healthz\"}[5m]))",
+          "eval_time": "15m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 30
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "HTTP 4xx status and route counts retain status method and template without zero rows",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\",status=\"200\",uri=\"/api/v1/works/{workId}/analysis-jobs/{analysisJobId}\",method=\"GET\"}",
+          "values": "0+6x15"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\",status=\"400\",uri=\"/api/v1/works/{workId}/episodes\",method=\"POST\"}",
+          "values": "0+2x15"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\",status=\"401\",uri=\"/api/v1/works/{workId}/analysis-jobs/{analysisJobId}\",method=\"GET\"}",
+          "values": "0+1x15"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\",status=\"500\",uri=\"/api/v1/works/{workId}/analysis-jobs/{analysisJobId}\",method=\"GET\"}",
+          "values": "0+1x15"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"b\",status=\"200\",uri=\"/api/v1/works/{workId}/analysis-jobs/{analysisJobId}\",method=\"GET\"}",
+          "values": "0+2x15"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"b\",status=\"403\",uri=\"/api/v1/works/{workId}/analysis-jobs/{analysisJobId}\",method=\"GET\"}",
+          "values": "0+8x15"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\",status=\"400\",uri=\"/actuator/prometheus\",method=\"GET\"}",
+          "values": "0+1000x15"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\",status=\"401\",uri=\"/healthz\",method=\"GET\"}",
+          "values": "0+1000x15"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"local\",instance=\"a\",status=\"403\",uri=\"/api/v1/works/{workId}/analysis-jobs/{analysisJobId}\",method=\"GET\"}",
+          "values": "0+1000x15"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"unrelated\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\",status=\"404\",uri=\"/api/v1/works/{workId}/analysis-jobs/{analysisJobId}\",method=\"GET\"}",
+          "values": "0+1000x15"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "sum by(status) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=~\"a\",uri!~\"/actuator.*|/healthz\",status=~\"4..\"}[15m]))",
+          "eval_time": "15m",
+          "exp_samples": [
+            {
+              "labels": "{status=\"400\"}",
+              "value": 30
+            },
+            {
+              "labels": "{status=\"401\"}",
+              "value": 15
+            }
+          ]
+        },
+        {
+          "expr": "sum by(status,method,uri) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=~\"a\",uri!~\"/actuator.*|/healthz\",status=~\"4..\"}[15m])) > 0",
+          "eval_time": "15m",
+          "exp_samples": [
+            {
+              "labels": "{method=\"POST\",status=\"400\",uri=\"/api/v1/works/{workId}/episodes\"}",
+              "value": 30
+            },
+            {
+              "labels": "{method=\"GET\",status=\"401\",uri=\"/api/v1/works/{workId}/analysis-jobs/{analysisJobId}\"}",
+              "value": 15
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "HTTP traffic without 4xx is zero rate",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\",status=\"200\",uri=\"/api/v1/works/{workId}/analysis-jobs/{analysisJobId}\",method=\"GET\"}",
+          "values": "0+5x15"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "100 * (sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",uri!~\"/actuator.*|/healthz\",status=~\"4..\"}[5m])) or (0 * sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",uri!~\"/actuator.*|/healthz\"}[5m])))) / sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",uri!~\"/actuator.*|/healthz\"}[5m]))",
+          "eval_time": "15m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 0
+            }
+          ]
+        },
+        {
+          "expr": "100 * (sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=~\"a\",uri!~\"/actuator.*|/healthz\",status=~\"4..\"}[5m])) or (0 * sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=~\"a\",uri!~\"/actuator.*|/healthz\"}[5m])))) / sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=~\"a\",uri!~\"/actuator.*|/healthz\"}[5m]))",
+          "eval_time": "15m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "HTTP no requests keeps 4xx rate NaN",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"a\",status=\"200\",uri=\"/api/v1/works/{workId}/analysis-jobs/{analysisJobId}\",method=\"GET\"}",
+          "values": "0x15"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "(100 * (sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",uri!~\"/actuator.*|/healthz\",status=~\"4..\"}[5m])) or (0 * sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",uri!~\"/actuator.*|/healthz\"}[5m])))) / sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",uri!~\"/actuator.*|/healthz\"}[5m]))) == bool (100 * (sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",uri!~\"/actuator.*|/healthz\",status=~\"4..\"}[5m])) or (0 * sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",uri!~\"/actuator.*|/healthz\"}[5m])))) / sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",uri!~\"/actuator.*|/healthz\"}[5m])))",
+          "eval_time": "15m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 0
+            }
+          ]
+        },
+        {
+          "expr": "(100 * (sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=~\"a\",uri!~\"/actuator.*|/healthz\",status=~\"4..\"}[5m])) or (0 * sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=~\"a\",uri!~\"/actuator.*|/healthz\"}[5m])))) / sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=~\"a\",uri!~\"/actuator.*|/healthz\"}[5m]))) == bool (100 * (sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=~\"a\",uri!~\"/actuator.*|/healthz\",status=~\"4..\"}[5m])) or (0 * sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=~\"a\",uri!~\"/actuator.*|/healthz\"}[5m])))) / sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=~\"a\",uri!~\"/actuator.*|/healthz\"}[5m])))",
+          "eval_time": "15m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "HTTP missing metrics does not manufacture zero 4xx rates",
+      "interval": "1m",
+      "input_series": [],
+      "promql_expr_test": [
+        {
+          "expr": "100 * (sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",uri!~\"/actuator.*|/healthz\",status=~\"4..\"}[5m])) or (0 * sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",uri!~\"/actuator.*|/healthz\"}[5m])))) / sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",uri!~\"/actuator.*|/healthz\"}[5m]))",
+          "eval_time": "15m",
+          "exp_samples": []
+        },
+        {
+          "expr": "100 * (sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=~\"a\",uri!~\"/actuator.*|/healthz\",status=~\"4..\"}[5m])) or (0 * sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=~\"a\",uri!~\"/actuator.*|/healthz\"}[5m])))) / sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=~\"a\",uri!~\"/actuator.*|/healthz\"}[5m]))",
+          "eval_time": "15m",
+          "exp_samples": []
+        }
+      ]
     }
   ],
   "fuzzy_compare": true

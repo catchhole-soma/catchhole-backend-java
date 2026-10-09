@@ -62,7 +62,7 @@
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 6,
+        "w": 4,
         "h": 5
       },
       "fieldConfig": {
@@ -111,6 +111,87 @@
       }
     },
     {
+      "id": 41,
+      "type": "stat",
+      "title": "API 4xx 응답률",
+      "description": "최근 5분 전체 API 요청 중 HTTP 400~499 응답 비율입니다. 입력 검증·인증·권한·충돌·요청 제한 응답을 포함하며 5xx 서버 오류율과 구분합니다. 상태 확인·Actuator 요청은 제외하고 내부 API 요청은 포함합니다. 요청은 있지만 4xx가 없으면 0%, 요청이 없으면 요청 없음, 수집 지표가 없으면 데이터 없음입니다. 외부 LLM의 4xx는 분석 · AI 상세에서 확인합니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 5,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "요청 없음"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "요청 없음"
+                }
+              }
+            }
+          ],
+          "max": 100
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "100 * (sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",uri!~\"/actuator.*|/healthz\",status=~\"4..\"}[5m])) or (0 * sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",uri!~\"/actuator.*|/healthz\"}[5m])))) / sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",uri!~\"/actuator.*|/healthz\"}[5m]))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
       "id": 3,
       "type": "stat",
       "title": "API 서버 오류율 (5xx)",
@@ -121,9 +202,9 @@
       },
       "pluginVersion": "13.2.2",
       "gridPos": {
-        "x": 6,
+        "x": 9,
         "y": 0,
-        "w": 6,
+        "w": 5,
         "h": 5
       },
       "fieldConfig": {
@@ -202,9 +283,9 @@
       },
       "pluginVersion": "13.2.2",
       "gridPos": {
-        "x": 12,
+        "x": 14,
         "y": 0,
-        "w": 6,
+        "w": 5,
         "h": 5
       },
       "fieldConfig": {
@@ -282,9 +363,9 @@
       },
       "pluginVersion": "13.2.2",
       "gridPos": {
-        "x": 18,
+        "x": 19,
         "y": 0,
-        "w": 6,
+        "w": 5,
         "h": 5
       },
       "fieldConfig": {
