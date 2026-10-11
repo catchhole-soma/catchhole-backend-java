@@ -526,13 +526,18 @@ class SettingCandidateServiceImplTest {
     }
 
     @Test
-    @DisplayName("후보 그룹은 페이지를 자른 뒤 현재 snapshot 응답으로 변환한다")
+    @DisplayName("연결된 미상 후보는 실제 이름 기준으로 정렬한 뒤 요청 페이지만 변환한다")
     void getSettingCandidatesMapsOnlyRequestedGroupPage() {
         Long memberId = 1L;
         UUID workId = UUID.randomUUID();
         UUID batchId = UUID.randomUUID();
         Work work = work(workId);
         SettingCandidate firstGroupCandidate = candidate(work, "아리아", "age", "17");
+        WorkCharacter linkedCharacter = character(work, UUID.randomUUID(), "아리아");
+        firstGroupCandidate.matchExistingCharacter(linkedCharacter);
+        ReflectionTestUtils.setField(firstGroupCandidate, "entityName", "미상");
+        ReflectionTestUtils.setField(firstGroupCandidate, "matchedCharacter", linkedCharacter);
+        SettingCandidate unknownCandidate = candidate(work, "미상", "age", "18");
         SettingCandidate secondGroupCandidate = candidate(work, "비요른", "level", "3");
         SettingCandidateBatchCounts counts = org.mockito.Mockito.mock(SettingCandidateBatchCounts.class);
         AnalysisJobEpisodeRange episodeRange = org.mockito.Mockito.mock(AnalysisJobEpisodeRange.class);
@@ -544,8 +549,8 @@ class SettingCandidateServiceImplTest {
                 workId,
                 batchId,
                 SettingCandidateReviewStatus.PENDING_REVIEW,
-                Set.of(SettingCandidateMatchStatus.AMBIGUOUS)
-        )).thenReturn(List.of(firstGroupCandidate, secondGroupCandidate));
+                java.util.EnumSet.allOf(SettingCandidateMatchStatus.class)
+        )).thenReturn(List.of(unknownCandidate, firstGroupCandidate, secondGroupCandidate));
         when(settingCandidateRepository.countReviewSummary(
                 workId,
                 batchId,
@@ -558,7 +563,7 @@ class SettingCandidateServiceImplTest {
         when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of());
         SettingCandidateResponse firstResponse = response(workId);
         when(settingCandidateMapper.toReviewListResponse(
-                eq(firstGroupCandidate),
+                any(SettingCandidate.class),
                 eq(false),
                 eq(null),
                 eq(SettingCandidateValueValidation.unrepairableInvalid(
@@ -573,7 +578,7 @@ class SettingCandidateServiceImplTest {
                 workId,
                 batchId,
                 SettingCandidateReviewStatus.PENDING_REVIEW,
-                Set.of(SettingCandidateMatchStatus.AMBIGUOUS),
+                Set.of(),
                 0,
                 1,
                 false
