@@ -156,7 +156,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 // 이름을 파악하지 못한 후보는 먼저 볼 수 있는 실제 캐릭터 그룹을 가리지 않도록 마지막에 둔다.
                 // Stream.sorted는 stable sort이므로 나머지 그룹의 기존 회차·생성순은 그대로 유지된다.
                 .sorted(Comparator.comparing(entry -> isUnknownCharacterName(
-                        entry.getValue().getFirst().getEntityName()
+                        entry.getValue().getFirst().getDisplayEntityName()
                 )))
                 .toList();
         int fromIndex = (int) Math.min((long) page * size, orderedGroups.size());
