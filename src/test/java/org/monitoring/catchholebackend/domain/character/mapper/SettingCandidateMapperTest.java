@@ -51,6 +51,36 @@ class SettingCandidateMapperTest {
     );
 
     @Test
+    @DisplayName("연결된 대상 이름은 목록과 상세에 표시하되 추출 이름과 원문 표현은 보존한다")
+    void displaysMatchedCharacterNameWithoutChangingExtraction() {
+        Work work = work(UUID.randomUUID());
+        WorkCharacter character = WorkCharacter.create(work, "아리아", null, null, null, null, null, null, null, null, null);
+        UUID characterId = UUID.randomUUID();
+        ReflectionTestUtils.setField(character, "id", characterId);
+        SettingCandidate candidate = SettingCandidate.create(work, null, null, null, SettingEntityType.CHARACTER,
+                "미상", "나", characterId, SettingCandidateMatchStatus.MATCHED, "age", "17", SettingValueType.NUMBER,
+                objectMapper.createObjectNode().put("value", 17), objectMapper.createArrayNode(),
+                new BigDecimal("0.9"), objectMapper.createObjectNode());
+        ReflectionTestUtils.setField(candidate, "matchedCharacter", character);
+
+        var detail = mapper.toResponse(candidate, false, null, SettingCandidateValueValidation.valid(), "나이");
+        var row = mapper.toReviewListResponse(candidate, false, null, SettingCandidateValueValidation.valid(), "나이");
+        assertThat(detail.entityName()).isEqualTo("아리아");
+        assertThat(row.entityName()).isEqualTo("아리아");
+        assertThat(row.rawEntityMention()).isEqualTo("나");
+        assertThat(candidate.getEntityName()).isEqualTo("미상");
+
+        WorkCharacter other = WorkCharacter.create(work, "베른", null, null, null, null, null, null, null, null, null);
+        ReflectionTestUtils.setField(other, "id", UUID.randomUUID());
+        candidate.matchExistingCharacter(other);
+        assertThat(mapper.toResponse(candidate, false, null, SettingCandidateValueValidation.valid(), "나이").entityName())
+                .isEqualTo("베른");
+        candidate.markAsNewCharacter("새 인물");
+        assertThat(mapper.toResponse(candidate, false, null, SettingCandidateValueValidation.valid(), "나이").entityName())
+                .isEqualTo("새 인물");
+    }
+
+    @Test
     @DisplayName("설정 후보 Entity를 응답 DTO로 변환한다")
     void toResponseMapsSettingCandidate() {
         UUID workId = UUID.randomUUID();

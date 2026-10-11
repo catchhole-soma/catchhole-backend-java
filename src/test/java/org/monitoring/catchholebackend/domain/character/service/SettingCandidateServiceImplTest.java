@@ -213,6 +213,41 @@ class SettingCandidateServiceImplTest {
     }
 
     @Test
+    @DisplayName("기존 인물에 연결된 후보는 추출 이름이 미상이어도 직접 검토를 저장한다")
+    void explicitDecisionAcceptsLinkedUnknownName() {
+        Work work = work(UUID.randomUUID());
+        SettingCandidate candidate = completedOrderedReviewCandidate(work);
+        ReflectionTestUtils.setField(candidate, "entityName", "미상");
+        ReflectionTestUtils.setField(candidate, "matchedCharacterId", UUID.randomUUID());
+        stubReviewUpdate(work, candidate);
+
+        service.updateSettingCandidate(1L, work.getId(), candidate.getId(),
+                new SettingCandidateUpdateRequest("age", "17", CharacterFactConfirmApplicationMode.HISTORY_ONLY,
+                        candidate.getUpdatedAt()));
+
+        assertThat(candidate.getReviewedApplicationMode()).isEqualTo(CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+        assertThat(candidate.getEntityName()).isEqualTo("미상");
+    }
+
+    @Test
+    @DisplayName("연결되지 않은 미상 후보는 직접 검토 선택으로 대상 확인을 우회하지 않는다")
+    void explicitDecisionRejectsUnlinkedUnknownName() {
+        Work work = work(UUID.randomUUID());
+        SettingCandidate candidate = completedOrderedReviewCandidate(work);
+        ReflectionTestUtils.setField(candidate, "entityName", "미상");
+        when(workRepository.getOwnedWorkForUpdate(work.getId(), 1L)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidate.getId(), work.getId()))
+                .thenReturn(Optional.of(candidate));
+
+        assertThatThrownBy(() -> service.updateSettingCandidate(1L, work.getId(), candidate.getId(),
+                new SettingCandidateUpdateRequest("age", "17", CharacterFactConfirmApplicationMode.HISTORY_ONLY,
+                        candidate.getUpdatedAt())))
+                .isInstanceOfSatisfying(AppException.class, error -> assertThat(error.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT));
+        assertThat(candidate.getReviewedApplicationMode()).isNull();
+    }
+
+    @Test
     @DisplayName("다른 탭에서 후보가 바뀌었다면 이전 화면의 선택을 저장하지 않는다")
     void explicitDecisionRejectsStaleCandidate() {
         Work work = work(UUID.randomUUID());
@@ -578,6 +613,10 @@ class SettingCandidateServiceImplTest {
         SettingCandidate second = candidate(work, "왕녀", "age", "18");
         first.matchExistingCharacter(character);
         second.matchExistingCharacter(character);
+        ReflectionTestUtils.setField(first, "entityName", "미상");
+        ReflectionTestUtils.setField(first, "matchedCharacter", character);
+        ReflectionTestUtils.setField(second, "entityName", "왕녀");
+        ReflectionTestUtils.setField(second, "matchedCharacter", character);
         SettingCandidateBatchCounts counts = org.mockito.Mockito.mock(SettingCandidateBatchCounts.class);
         AnalysisJobEpisodeRange episodeRange = org.mockito.Mockito.mock(AnalysisJobEpisodeRange.class);
         when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
@@ -627,6 +666,9 @@ class SettingCandidateServiceImplTest {
         );
 
         assertThat(result.groups().content()).singleElement().satisfies(group -> {
+            assertThat(group.entityName()).isEqualTo("아리아");
+            assertThat(first.getEntityName()).isEqualTo("미상");
+            assertThat(second.getEntityName()).isEqualTo("왕녀");
             assertThat(group.groupKey()).isEqualTo("existing:" + character.getId());
             assertThat(group.candidateCount()).isEqualTo(2);
         });
