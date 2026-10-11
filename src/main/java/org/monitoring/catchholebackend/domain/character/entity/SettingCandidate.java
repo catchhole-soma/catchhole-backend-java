@@ -314,6 +314,13 @@ public class SettingCandidate extends BaseEntity {
         if (isPendingReview()) automaticReviewHoldReason = Objects.requireNonNull(reason);
     }
 
+    /** 화면의 대상 이름은 실제 연결을 따르고, 추출 이름은 비교 입력으로 보존한다. */
+    public String getDisplayEntityName() {
+        return matchedCharacterId != null && matchedCharacter != null
+                && matchedCharacterId.equals(matchedCharacter.getId())
+                ? matchedCharacter.getName() : entityName;
+    }
+
     public boolean isManualReviewAvailable() {
         if (isCompletedManualReview() && isPendingReview() && analysisJob.hasCurrentSourceVersion()) {
             return reviewedApplicationMode != null

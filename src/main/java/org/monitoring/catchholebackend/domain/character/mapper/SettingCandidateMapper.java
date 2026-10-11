@@ -85,7 +85,7 @@ public class SettingCandidateMapper {
                 analysisJob == null ? null : analysisJob.getId(),
                 candidate.getCandidateKind(),
                 candidate.getEntityType(),
-                candidate.getEntityName(),
+                candidate.getDisplayEntityName(),
                 candidate.getRawEntityMention(),
                 candidate.getMatchedCharacterId(),
                 candidate.getMatchStatus(),

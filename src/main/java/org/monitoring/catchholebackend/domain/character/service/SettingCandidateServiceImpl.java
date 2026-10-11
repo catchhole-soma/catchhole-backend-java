@@ -276,7 +276,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         );
         if (request.reviewedApplicationMode() != null || manualFinalReview && reviewContent.updateRequired()
                 && candidate.getMatchStatus() != SettingCandidateMatchStatus.AMBIGUOUS
-                && !isUnknownCharacterName(candidate.getEntityName())) {
+                && (candidate.getMatchedCharacterId() != null || !isUnknownCharacterName(candidate.getEntityName()))) {
             var mode = request.reviewedApplicationMode() != null ? request.reviewedApplicationMode()
                     : previousReviewMode != null ? previousReviewMode : CharacterFactConfirmApplicationMode.APPLY_PROPOSAL;
             candidate.recordReviewedApplicationMode(mode, currentSnapshotVersion(candidate));
@@ -936,7 +936,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         if (candidate.getAnalysisJob() == null
                 || !candidate.getAnalysisJob().isCompletedOrderedAnalysis() && !candidate.isCompletedManualReview()
                 || candidate.getMatchStatus() == SettingCandidateMatchStatus.AMBIGUOUS
-                || isUnknownCharacterName(candidate.getEntityName())
+                || candidate.getMatchedCharacterId() == null && isUnknownCharacterName(candidate.getEntityName())
                 || candidate.getComparisonStatus() == CharacterFactComparisonStatus.FAILED
                     && !candidate.canDeferFailedComparison()) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
@@ -1653,7 +1653,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 .toList();
         return new SettingCandidateGroupResponse(
                 groupKey,
-                SettingCandidateGroupNameNormalizer.toDisplayName(candidates.getFirst().getEntityName()),
+                SettingCandidateGroupNameNormalizer.toDisplayName(candidates.getFirst().getDisplayEntityName()),
                 candidates.size(),
                 evidenceEpisodeNos,
                 responses
@@ -1667,7 +1667,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
     ) {
         return new SettingCandidateGroupActionResponse(
                 groupKey,
-                SettingCandidateGroupNameNormalizer.toDisplayName(candidates.getFirst().getEntityName()),
+                SettingCandidateGroupNameNormalizer.toDisplayName(candidates.getFirst().getDisplayEntityName()),
                 candidates.stream().map(candidate -> toResponse(candidate, schemas)).toList()
         );
     }
