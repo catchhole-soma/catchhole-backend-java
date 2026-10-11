@@ -156,7 +156,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 // 이름을 파악하지 못한 후보는 먼저 볼 수 있는 실제 캐릭터 그룹을 가리지 않도록 마지막에 둔다.
                 // Stream.sorted는 stable sort이므로 나머지 그룹의 기존 회차·생성순은 그대로 유지된다.
                 .sorted(Comparator.comparing(entry -> isUnknownCharacterName(
-                        entry.getValue().getFirst().getEntityName()
+                        entry.getValue().getFirst().getDisplayEntityName()
                 )))
                 .toList();
         int fromIndex = (int) Math.min((long) page * size, orderedGroups.size());
@@ -276,7 +276,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         );
         if (request.reviewedApplicationMode() != null || manualFinalReview && reviewContent.updateRequired()
                 && candidate.getMatchStatus() != SettingCandidateMatchStatus.AMBIGUOUS
-                && !isUnknownCharacterName(candidate.getEntityName())) {
+                && (candidate.getMatchedCharacterId() != null || !isUnknownCharacterName(candidate.getEntityName()))) {
             var mode = request.reviewedApplicationMode() != null ? request.reviewedApplicationMode()
                     : previousReviewMode != null ? previousReviewMode : CharacterFactConfirmApplicationMode.APPLY_PROPOSAL;
             candidate.recordReviewedApplicationMode(mode, currentSnapshotVersion(candidate));
@@ -936,7 +936,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         if (candidate.getAnalysisJob() == null
                 || !candidate.getAnalysisJob().isCompletedOrderedAnalysis() && !candidate.isCompletedManualReview()
                 || candidate.getMatchStatus() == SettingCandidateMatchStatus.AMBIGUOUS
-                || isUnknownCharacterName(candidate.getEntityName())
+                || candidate.getMatchedCharacterId() == null && isUnknownCharacterName(candidate.getEntityName())
                 || candidate.getComparisonStatus() == CharacterFactComparisonStatus.FAILED
                     && !candidate.canDeferFailedComparison()) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
@@ -1653,7 +1653,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 .toList();
         return new SettingCandidateGroupResponse(
                 groupKey,
-                SettingCandidateGroupNameNormalizer.toDisplayName(candidates.getFirst().getEntityName()),
+                SettingCandidateGroupNameNormalizer.toDisplayName(candidates.getFirst().getDisplayEntityName()),
                 candidates.size(),
                 evidenceEpisodeNos,
                 responses
@@ -1667,7 +1667,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
     ) {
         return new SettingCandidateGroupActionResponse(
                 groupKey,
-                SettingCandidateGroupNameNormalizer.toDisplayName(candidates.getFirst().getEntityName()),
+                SettingCandidateGroupNameNormalizer.toDisplayName(candidates.getFirst().getDisplayEntityName()),
                 candidates.stream().map(candidate -> toResponse(candidate, schemas)).toList()
         );
     }

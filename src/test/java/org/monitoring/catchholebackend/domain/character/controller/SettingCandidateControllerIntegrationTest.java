@@ -409,6 +409,10 @@ class SettingCandidateControllerIntegrationTest {
     @DisplayName("같은 이름의 모든 대기 후보를 선택한 기존 캐릭터에 일괄 연결한다")
     void updateSettingCandidateGroupCharacterMatchConnectsEveryPendingCandidate() throws Exception {
         WorkCharacter character = workCharacterRepository.save(character(work, "나은"));
+        WorkCharacter otherTarget = workCharacterRepository.save(character(work, "수아"));
+        SettingCandidate outsideGroup = candidate(work, episode, analysisJob, "수아", "age", "19");
+        outsideGroup.matchExistingCharacter(otherTarget);
+        settingCandidateRepository.saveAndFlush(outsideGroup);
         SettingCandidate age = settingCandidateRepository.save(
                 candidate(work, episode, analysisJob, "수아", "age", "18")
         );
@@ -441,6 +445,10 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.candidates[*].matchStatus")
                         .value(containsInAnyOrder("MATCHED", "MATCHED")));
 
+        SettingCandidate unchanged = settingCandidateRepository.findById(outsideGroup.getId()).orElseThrow();
+        assertThat(unchanged.getMatchedCharacterId()).isEqualTo(otherTarget.getId());
+        assertThat(unchanged.getEntityName()).isEqualTo("수아");
+        assertThat(unchanged.isUserModified()).isFalse();
         assertThat(settingCandidateRepository.findAllById(List.of(age.getId(), level.getId())))
                 .allSatisfy(candidate -> {
                     assertThat(candidate.getEntityName()).isEqualTo("나은");
@@ -1149,6 +1157,44 @@ class SettingCandidateControllerIntegrationTest {
         assertThat(saved.getAttributeName()).isEqualTo("age");
         assertThat(saved.getAttributeValue()).isEqualTo("17");
         assertThat(saved.getValueJson()).isEqualTo(valueJson("17"));
+    }
+
+    @Test
+    @DisplayName("단건 연결 변경은 한 후보만 다른 묶음으로 이동시키고 형제 후보는 유지한다")
+    void singleCharacterMatchMovesOnlySelectedCandidate() throws Exception {
+        WorkCharacter source = workCharacterRepository.save(character(work, "아리아"));
+        WorkCharacter target = workCharacterRepository.save(character(work, "베른"));
+        SettingCandidate selected = candidate(work, episode, analysisJob, "아리아", "age", "17");
+        SettingCandidate sibling = candidate(work, episode, analysisJob, "아리아", "age", "18");
+        selected.matchExistingCharacter(source);
+        sibling.matchExistingCharacter(source);
+        org.springframework.test.util.ReflectionTestUtils.setField(selected, "entityName", "미상");
+        org.springframework.test.util.ReflectionTestUtils.setField(sibling, "entityName", "미상");
+        settingCandidateRepository.saveAllAndFlush(List.of(selected, sibling));
+
+        mockMvc.perform(patch("/api/v1/works/{workId}/setting-candidates/{candidateId}/character-match",
+                        work.getId(), selected.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of(
+                                "resolutionType", "MATCH_EXISTING", "matchedCharacterId", target.getId()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.entityName").value("베른"))
+                .andExpect(jsonPath("$.data.matchedCharacterId").value(target.getId().toString()));
+
+        SettingCandidate savedSibling = settingCandidateRepository.findById(sibling.getId()).orElseThrow();
+        assertThat(savedSibling.getMatchedCharacterId()).isEqualTo(source.getId());
+        assertThat(savedSibling.getEntityName()).isEqualTo("미상");
+        assertThat(savedSibling.isUserModified()).isFalse();
+        assertThat(settingCandidateRepository.findById(selected.getId()).orElseThrow().getMatchedCharacterId())
+                .isEqualTo(target.getId());
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates", work.getId())
+                        .param("batchId", uploadBatch.getId().toString())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groups.content.length()").value(2))
+                .andExpect(jsonPath("$.data.groups.content[*].candidateCount").value(containsInAnyOrder(1, 1)))
+                .andExpect(jsonPath("$.data.groups.content[*].entityName").value(containsInAnyOrder("아리아", "베른")));
     }
 
     @Test
