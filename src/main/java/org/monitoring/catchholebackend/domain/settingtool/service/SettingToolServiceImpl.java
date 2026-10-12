@@ -1,0 +1,275 @@
+package org.monitoring.catchholebackend.domain.settingtool.service;
+
+import jakarta.validation.Validator;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
+import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
+import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingDisplayNameResolver;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessor;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSlot;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterSnapshotSourceRepository;
+import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode;
+import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
+import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
+import org.monitoring.catchholebackend.domain.settingtool.dto.SettingToolQuery;
+import org.monitoring.catchholebackend.domain.settingtool.dto.SettingToolResponse;
+import org.monitoring.catchholebackend.domain.settingtool.dto.SettingToolResponse.EvidenceStatus;
+import org.monitoring.catchholebackend.domain.settingtool.dto.SettingToolResponse.Item;
+import org.monitoring.catchholebackend.domain.settingtool.mapper.SettingToolMapper;
+import org.monitoring.catchholebackend.domain.settingtool.processor.SettingEvidenceReader;
+import org.monitoring.catchholebackend.domain.settingtool.processor.WorldSettingToolSources;
+import org.monitoring.catchholebackend.domain.settingtool.processor.WorldSettingToolSources.Path;
+import org.monitoring.catchholebackend.domain.settingtool.repository.SettingToolRepository;
+import org.monitoring.catchholebackend.domain.settingtool.type.SettingTool;
+import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingRepository;
+import org.monitoring.catchholebackend.global.common.response.PageResponse;
+import org.monitoring.catchholebackend.global.exception.AppException;
+import org.monitoring.catchholebackend.global.exception.CommonErrorCode;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
+public class SettingToolServiceImpl implements SettingToolService {
+    private final WorkRepository works;
+    private final MemberRepository members;
+    private final WorkCharacterRepository characters;
+    private final WorldSettingRepository worlds;
+    private final CharacterSnapshotSourceRepository snapshotSourceRepository;
+    private final CharacterSettingSchemaRepository schemas;
+    private final CharacterSnapshotAccessor snapshots;
+    private final CharacterSettingDisplayNameResolver displayNames;
+    private final SettingToolRepository repository;
+    private final SettingToolMapper mapper;
+    private final WorldSettingToolSources worldSources;
+    private final SettingEvidenceReader evidenceReader;
+    private final Validator validator;
+
+    @Override
+    public SettingToolResponse querySettings(Long memberId, UUID workId, SettingToolQuery request) {
+        validate(request);
+        if (memberId == null || !members.findById(memberId).map(member -> member.isActive()).orElse(false)) {
+            throw new AppException(CommonErrorCode.AUTH_UNAUTHORIZED);
+        }
+        works.getOwnedWork(workId, memberId).requireActive();
+        // 현재 설정과 source를 여러 SQL로 읽는 동안 version이 달라지면 혼합 응답 대신 재조회를 요구한다.
+        WorkCharacter character = switch (request.tool()) {
+            case CHARACTER_CURRENT, CHARACTER_HISTORY -> character(workId, request.targetId());
+            case CHARACTER_EVIDENCE -> repository.fact(workId, request.targetId()).orElseThrow(this::notFound).getWorkCharacter();
+            default -> null;
+        };
+        WorldSetting world = switch (request.tool()) {
+            case WORLD_CURRENT, WORLD_HISTORY -> world(workId, request.targetId());
+            case WORLD_EVIDENCE -> repository.worldEvidence(workId, request.targetId()).orElseThrow(this::notFound).getTargetWorldSetting();
+            default -> null;
+        };
+        SettingToolResponse result = switch (request.tool()) {
+            case FIND_CHARACTERS -> response(request, repository.characters(workId, request).map(mapper::toCharacterResponse), List.of());
+            case FIND_WORLD_SETTINGS -> response(request, repository.worlds(workId, request).map(mapper::toWorldResponse), List.of());
+            case CHARACTER_CURRENT -> characterCurrent(workId, request);
+            case CHARACTER_HISTORY -> characterHistory(workId, request);
+            case WORLD_CURRENT -> worldCurrent(workId, request);
+            case WORLD_HISTORY -> worldHistory(workId, request);
+            case CHARACTER_EVIDENCE -> characterEvidence(workId, request);
+            case WORLD_EVIDENCE -> worldEvidence(workId, request);
+        };
+        if (character != null) repository.assertCharacterUnchanged(character);
+        if (world != null) repository.assertWorldUnchanged(world);
+        return result;
+    }
+
+    private SettingToolResponse characterCurrent(UUID workId, SettingToolQuery request) {
+        var character = character(workId, request.targetId());
+        var selected = snapshots.read(character).keySet().stream()
+                .filter(slot -> request.settingKey() == null || request.settingKey().equals(slot.factKey()))
+                .sorted(Comparator.comparing((CharacterSnapshotSlot slot) -> slot.factType().name()).thenComparing(CharacterSnapshotSlot::factKey)).toList();
+        var pageSlots = slice(selected, request);
+        var sources = new HashMap<CharacterSnapshotSlot, List<CharacterFact>>();
+        for (var source : repository.snapshotSources(character.getId(), pageSlots)) {
+            var slot = new CharacterSnapshotSlot(source.getFactType(), source.getFactKey());
+            var fact = source.getSourceFact();
+            if (fact.getFactType() == slot.factType() && fact.getFactKey().equals(slot.factKey())
+                    && validSource(character, fact) && !historyOnly(fact)) {
+                sources.computeIfAbsent(slot, ignored -> new ArrayList<>()).add(fact);
+            }
+        }
+        var current = snapshots.read(character, sources);
+        var activeSchemas = schemas.findAllActiveForWork(workId);
+        var items = pageSlots.stream().map(slot -> mapper.toCharacterCurrentResponse(character, current.get(slot),
+                displayNames.resolve(slot.factType(), slot.factKey(), current.get(slot).valueJson(), activeSchemas),
+                sources.getOrDefault(slot, List.of()))).toList();
+        return response(request, page(items, selected.size(), request), List.of());
+    }
+
+    private SettingToolResponse characterHistory(UUID workId, SettingToolQuery request) {
+        var character = character(workId, request.targetId());
+        var facts = repository.facts(workId, request);
+        var current = currentFactIds(character, facts.getContent());
+        var activeSchemas = schemas.findAllActiveForWork(workId);
+        return response(request, facts.map(fact -> mapper.toFactResponse(fact,
+                displayNames.resolve(fact.getFactType(), fact.getFactKey(), fact.getValueJson(), activeSchemas), current.contains(fact.getId()), null)),
+                List.of("HISTORY_IS_NOT_A_STATE_SNAPSHOT"));
+    }
+
+    private SettingToolResponse characterEvidence(UUID workId, SettingToolQuery request) {
+        var fact = repository.fact(workId, request.targetId()).orElseThrow(this::notFound);
+        if (!validSource(fact.getWorkCharacter(), fact)) throw notFound();
+        var candidate = fact.getSettingCandidate();
+        var episode = fact.getSourceEpisode() != null ? fact.getSourceEpisode() : candidate == null ? null : candidate.getEpisode();
+        var job = candidate == null ? fact.getExtractedByJob() : candidate.getAnalysisJob();
+        if (fact.getExtractedByJob() != null && job != null && !fact.getExtractedByJob().getId().equals(job.getId())) throw notFound();
+        if (candidate != null && candidate.getSourceChunkId() != null && fact.getSourceChunkId() != null
+                && !candidate.getSourceChunkId().equals(fact.getSourceChunkId())) throw notFound();
+        var evidence = evidenceReader.read(workId, candidate == null ? null : candidate.getId(),
+                candidate != null && candidate.getSourceChunkId() != null ? candidate.getSourceChunkId() : fact.getSourceChunkId(), episode, job,
+                candidate == null ? null : candidate.getSourceContentS3Key(), candidate == null ? null : candidate.getEvidenceSpans(), request);
+        var item = mapper.toFactResponse(fact, displayNames.resolve(fact.getFactType(), fact.getFactKey(), fact.getValueJson(), schemas.findAllActiveForWork(workId)),
+                currentFactIds(fact.getWorkCharacter(), List.of(fact)).contains(fact.getId()), evidence);
+        return response(request, page(List.of(item), 1, request), List.of());
+    }
+
+    private SettingToolResponse worldCurrent(UUID workId, SettingToolQuery request) {
+        var world = world(workId, request.targetId());
+        var candidates = repository.worldSources(workId, world.getId());
+        boolean truncated = candidates.size() > 500;
+        var sources = worldSources.resolve(world, candidates.stream().limit(500).toList());
+        var properties = world.getProperties().stream()
+                .filter(property -> request.settingKey() == null || request.settingKey().equals(property.settingName())
+                        && Objects.equals(request.scopeName(), property.scopeName()))
+                .sorted(Comparator.comparing(WorldSetting.Property::scopeName, Comparator.nullsFirst(String::compareTo))
+                        .thenComparing(WorldSetting.Property::settingName)).toList();
+        var items = slice(properties, request).stream().map(property -> mapper.toWorldCurrentResponse(world, property,
+                sources.getOrDefault(new Path(property.scopeName(), property.settingName()), List.of()), truncated)).toList();
+        return response(request, page(items, properties.size(), request), truncated ? List.of("WORLD_SOURCE_SCAN_LIMIT") : List.of());
+    }
+
+    private SettingToolResponse worldHistory(UUID workId, SettingToolQuery request) {
+        var world = world(workId, request.targetId());
+        var candidates = repository.worldSources(workId, world.getId());
+        var currentIds = worldCurrentIds(world, candidates);
+        return response(request, repository.worldHistory(workId, request).map(candidate -> mapper.toWorldHistoryResponse(candidate,
+                currentIds.contains(candidate.getId()) ? true : candidates.size() > 500 && !candidate.isHistoryOnly() ? null : false, null)), candidates.size() > 500
+                ? List.of("HISTORY_IS_NOT_A_STATE_SNAPSHOT", "WORLD_SOURCE_SCAN_LIMIT") : List.of("HISTORY_IS_NOT_A_STATE_SNAPSHOT"));
+    }
+
+    private SettingToolResponse worldEvidence(UUID workId, SettingToolQuery request) {
+        var candidate = repository.worldEvidence(workId, request.targetId()).orElseThrow(this::notFound);
+        var evidence = evidenceReader.read(workId, candidate.getId(), null, candidate.getSourceEpisode(), candidate.getAnalysisJob(),
+                null, candidate.getEvidenceSpans(), request);
+        var world = candidate.getTargetWorldSetting();
+        var candidates = repository.worldSources(workId, world.getId());
+        var item = mapper.toWorldHistoryResponse(candidate, worldCurrentIds(world, candidates).contains(candidate.getId()) ? true
+                : candidates.size() > 500 && !candidate.isHistoryOnly() ? null : false, evidence);
+        return response(request, page(List.of(item), 1, request), candidates.size() > 500
+                ? List.of("WORLD_SOURCE_SCAN_LIMIT") : List.of());
+    }
+
+    private Set<UUID> worldCurrentIds(WorldSetting world, List<WorldSettingCandidate> candidates) {
+        var ids = new HashSet<UUID>();
+        worldSources.resolve(world, candidates.stream().limit(500).toList()).values()
+                .forEach(references -> references.forEach(reference -> ids.add(reference.targetId())));
+        return ids;
+    }
+
+    private Set<UUID> currentFactIds(WorkCharacter character, List<CharacterFact> facts) {
+        if (facts.isEmpty()) return Set.of();
+        var slots = snapshots.read(character).keySet();
+        var byId = new HashMap<UUID, CharacterFact>();
+        facts.forEach(fact -> byId.put(fact.getId(), fact));
+        var result = new HashSet<UUID>();
+        for (var source : snapshotSourceRepository.findAllBySourceFactIdIn(byId.keySet())) {
+            var fact = byId.get(source.getSourceFact().getId());
+            if (source.getWorkCharacter().getId().equals(character.getId()) && validSource(character, fact) && !historyOnly(fact)
+                    && source.getFactType() == fact.getFactType() && source.getFactKey().equals(fact.getFactKey())
+                    && slots.contains(new CharacterSnapshotSlot(source.getFactType(), source.getFactKey()))) result.add(fact.getId());
+        }
+        return result;
+    }
+
+    private boolean validSource(WorkCharacter character, CharacterFact fact) {
+        if (!character.getId().equals(fact.getWorkCharacter().getId())) return false;
+        UUID workId = character.getWork().getId();
+        var candidate = fact.getSettingCandidate();
+        var episode = fact.getSourceEpisode() != null ? fact.getSourceEpisode() : candidate == null ? null : candidate.getEpisode();
+        var factJob = fact.getExtractedByJob();
+        var candidateJob = candidate == null ? null : candidate.getAnalysisJob();
+        if (!sameSourceJob(workId, episode, factJob) || !sameSourceJob(workId, episode, candidateJob)
+                || factJob != null && candidateJob != null && !factJob.getId().equals(candidateJob.getId())) return false;
+        return (fact.getSourceEpisode() == null || workId.equals(fact.getSourceEpisode().getWork().getId()))
+                && (candidate == null || workId.equals(candidate.getWork().getId())
+                    && candidate.getReviewStatus() == SettingCandidateReviewStatus.CONFIRMED
+                    && candidate.getProvisionalSubjectKey() == null
+                    && (candidate.getMatchedCharacterId() == null || character.getId().equals(candidate.getMatchedCharacterId()))
+                    && (candidate.getEpisode() == null || workId.equals(candidate.getEpisode().getWork().getId()))
+                    && (candidate.getEpisode() == null || fact.getSourceEpisode() == null
+                        || candidate.getEpisode().getId().equals(fact.getSourceEpisode().getId())));
+    }
+
+    private boolean sameSourceJob(UUID workId, org.monitoring.catchholebackend.domain.episode.entity.Episode episode,
+                                  org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob job) {
+        return job == null || workId.equals(job.getWork().getId())
+                && (job.getEpisode() == null || episode != null && job.getEpisode().getId().equals(episode.getId()));
+    }
+
+    private boolean historyOnly(CharacterFact fact) {
+        return fact.getSettingCandidate() != null && fact.getSettingCandidate().getConfirmedApplicationMode() == CharacterFactConfirmApplicationMode.HISTORY_ONLY;
+    }
+    private WorkCharacter character(UUID workId, UUID id) { return characters.findByIdAndWorkIdAndStatus(id, workId, CharacterStatus.ACTIVE).orElseThrow(this::notFound); }
+    private WorldSetting world(UUID workId, UUID id) { return worlds.findByIdAndWorkId(id, workId).orElseThrow(this::notFound); }
+    private AppException notFound() { return new AppException(CommonErrorCode.RESOURCE_NOT_FOUND); }
+
+    private void validate(SettingToolQuery request) {
+        if (request == null || !validator.validate(request).isEmpty()) throw new AppException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
+        boolean find = request.tool() == SettingTool.FIND_CHARACTERS || request.tool() == SettingTool.FIND_WORLD_SETTINGS;
+        boolean evidence = request.tool() == SettingTool.CHARACTER_EVIDENCE || request.tool() == SettingTool.WORLD_EVIDENCE;
+        boolean current = request.tool() == SettingTool.CHARACTER_CURRENT || request.tool() == SettingTool.WORLD_CURRENT;
+        boolean world = request.tool() == SettingTool.WORLD_CURRENT || request.tool() == SettingTool.WORLD_HISTORY;
+        if (find != (request.targetId() == null) || !find && request.query() != null
+                || (find || evidence) && request.settingKey() != null
+                || request.scopeName() != null && (!world || request.settingKey() == null)
+                || (current || find) && (request.episodeFrom() != null || request.episodeTo() != null)
+                || request.episodeFrom() != null && request.episodeTo() != null && request.episodeFrom() > request.episodeTo()
+                || evidence && request.page() != 0
+                || request.settingKey() != null && request.settingKey().isBlank()
+                || request.scopeName() != null && request.scopeName().isBlank()) {
+            throw new AppException(CommonErrorCode.REQUEST_INVALID_ARGUMENT);
+        }
+    }
+
+    private <T> List<T> slice(List<T> items, SettingToolQuery request) {
+        int start = Math.min(items.size(), request.page() * request.size());
+        return items.subList(start, Math.min(items.size(), start + request.size()));
+    }
+    private Page<Item> page(List<Item> items, int total, SettingToolQuery request) { return new PageImpl<>(items, PageRequest.of(request.page(), request.size()), total); }
+    private SettingToolResponse response(SettingToolQuery request, Page<Item> page, List<String> extra) {
+        var limitations = new LinkedHashSet<String>();
+        limitations.add("SETTING_BOOK_UNSUPPORTED");
+        limitations.addAll(extra);
+        boolean partial = extra.contains("WORLD_SOURCE_SCAN_LIMIT");
+        for (var item : page.getContent()) {
+            if (item.valueTruncated()) { limitations.add("VALUE_LIMIT"); partial = true; }
+            if (item.sourcesTruncated()) { limitations.add("SOURCE_REFERENCE_LIMIT"); partial = true; }
+            if (item.evidence() != null && (item.evidence().truncated() || item.evidence().status() != EvidenceStatus.AVAILABLE)) partial = true;
+        }
+        return new SettingToolResponse(1, request.tool(), PageResponse.from(page, page.getContent()), partial, List.copyOf(limitations));
+    }
+}

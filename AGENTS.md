@@ -138,6 +138,14 @@
 ```text
 org.monitoring.catchholebackend
 ├── domain
+│   ├── settingtool
+│   │   ├── controller
+│   │   ├── dto
+│   │   ├── mapper
+│   │   ├── processor
+│   │   ├── repository
+│   │   ├── service
+│   │   └── type
 │   ├── analysis
 │   │   ├── controller
 │   │   ├── dto
@@ -251,6 +259,8 @@ org.monitoring.catchholebackend
 ### Domain Package
 
 도메인 단위로 패키지를 나누고, 그 안은 레이어드 구조를 따른다.
+
+- `settingtool`은 챗봇·오류 리포트가 공유할 읽기 전용 조회 계약이다. 현재값은 기존 snapshot/세계관 속성 계산을 재사용하고 출처 회차 필터를 과거 전체 상태 복원으로 해석하지 않는다. 모델 입력에서 회원·작품 범위를 받지 않으며 내부 API의 회원 헤더는 신뢰 서버만 구성한다. 별도 조회 로직이 확정/수동/파기 정책을 우회하지 않도록 계약과 Java/Python fixture는 `docs/setting-tools-v1.md`를 기준으로 함께 갱신한다.
 
 ### Legal Documents
 

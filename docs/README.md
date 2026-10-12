@@ -8,6 +8,7 @@
 
 | 문서 | 내용 |
 | --- | --- |
+| [Setting Tools v1](setting-tools-v1.md) | GH236 현재 설정·확정 이력·직접 원문 근거의 제한된 조회 도구, 인증·상한·Java/Python 계약 |
 | [ERD](erd.md) | 현재 Flyway schema와 JPA Entity 기준 테이블, 관계, 주요 제약 |
 | [Database Migration](database-migration.md) | Flyway schema 관리 규칙, V1·V2 검증 및 최초 운영 전환 절차 |
 | [AI Token Usage](ai-token-usage.md) | AI 요청별 토큰 예약·정산, 사용자 한도와 운영 지급 정책 |
