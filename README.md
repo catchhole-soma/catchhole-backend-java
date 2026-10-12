@@ -84,3 +84,5 @@ Spring Security가 포함되어 있어 초기 실행 시 기본 로그인 화면
 DB schema 작성 규칙과 최초 운영 전환 절차는 [Database Migration](docs/database-migration.md)을 참고합니다.
 
 휴대폰 인증 API, Fake/SOLAPI provider와 Redis 정책은 [Auth Domain](docs/auth.md)을 참고합니다. 로컬은 `SMS_PROVIDER`가 없거나 `fake`이면 인증번호 `123456`을 사용하고, `solapi`이면 실제 SMS를 발송합니다. test/e2e는 항상 Fake provider를 사용하며 운영에서는 SOLAPI 설정이 필수입니다.
+
+- [채팅 실행·인증·사용량 계약 v1](docs/chat-execution-v1.md) — #237, 기본 비활성; 자연어 orchestration은 #238.

@@ -259,8 +259,12 @@ public class AiTokenServiceImpl implements AiTokenService {
                 request.analysisJobId(),
                 leaseToken
         );
+        if (request.purpose().name().startsWith("CHAT_") || request.purpose() == org.monitoring.catchholebackend.domain.aitoken.type.AiTokenPurpose.OPERATIONAL_BACKFILL) {
+            throw new AppException(AiTokenErrorCode.AI_TOKEN_USAGE_INVALID);
+        }
         AiTokenUsage existing = usageRepository.findByRequestId(request.requestId()).orElse(null);
         if (existing != null) {
+            if (existing.getChatRun() != null) throw new AppException(AiTokenErrorCode.AI_TOKEN_RESERVATION_CONFLICT);
             return aiTokenMapper.toResponse(existing);
         }
         AiTokenAccount account = getOrCreateAccount(analysisJob.getWork().getMember().getId());

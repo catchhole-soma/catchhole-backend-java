@@ -21,6 +21,7 @@ import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenPurpose;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageStatus;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.chat.entity.ChatRun;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
@@ -46,10 +47,15 @@ public class AiTokenUsage extends BaseEntity {
     @JoinColumn(name = "work_id", nullable = false, foreignKey = @ForeignKey(name = "fk_ai_token_usages_work"))
     private Work work;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(fetch = FetchType.LAZY)
     @OnDelete(action = OnDeleteAction.CASCADE)
-    @JoinColumn(name = "analysis_job_id", nullable = false, foreignKey = @ForeignKey(name = "fk_ai_token_usages_analysis_job"))
+    @JoinColumn(name = "analysis_job_id", foreignKey = @ForeignKey(name = "fk_ai_token_usages_analysis_job"))
     private AnalysisJob analysisJob;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @OnDelete(action = OnDeleteAction.CASCADE)
+    @JoinColumn(name = "chat_run_id")
+    private ChatRun chatRun;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 50)
@@ -97,6 +103,44 @@ public class AiTokenUsage extends BaseEntity {
     public static AiTokenUsage reserve(UUID requestId, AnalysisJob job, AiTokenPurpose purpose,
                                        int attempt, String modelName, long reservedTokens) {
         return new AiTokenUsage(requestId, job, purpose, attempt, modelName, reservedTokens);
+    }
+
+    public static AiTokenUsage reserveChat(UUID id, ChatRun run, AiTokenPurpose purpose,
+                                          String model, long tokens) {
+        var usage = new AiTokenUsage();
+        usage.requestId = id;
+        usage.chatRun = run;
+        usage.work = run.getWork();
+        usage.member = run.getWork().getMember();
+        usage.purpose = purpose;
+        usage.attempt = Math.max(1, run.getGeneration());
+        usage.modelName = model;
+        usage.reservedTokens = tokens;
+        usage.status = AiTokenUsageStatus.RESERVED;
+        return usage;
+    }
+
+    // UNKNOWN releases the hold without claiming zero usage; a late measured report may settle it.
+    public void markChatUnknown() {
+        assertReserved();
+        this.status = AiTokenUsageStatus.UNKNOWN;
+        this.outcome = AiTokenUsageOutcome.USAGE_UNAVAILABLE;
+    }
+
+    public long settleChat(long input, long cached, long output, AiTokenUsageOutcome outcome) {
+        if (chatRun == null || (status != AiTokenUsageStatus.RESERVED && status != AiTokenUsageStatus.UNKNOWN)) {
+            throw new AppException(AiTokenErrorCode.AI_TOKEN_RESERVATION_CONFLICT);
+        }
+        if (input < 0 || cached < 0 || output < 0 || cached > input || input > Long.MAX_VALUE - output
+                || (outcome != AiTokenUsageOutcome.SUCCESS && outcome != AiTokenUsageOutcome.FAILURE)) {
+            throw new AppException(AiTokenErrorCode.AI_TOKEN_USAGE_INVALID);
+        }
+        this.inputTokens = input;
+        this.cachedInputTokens = cached;
+        this.outputTokens = output;
+        this.outcome = outcome;
+        this.status = AiTokenUsageStatus.SETTLED;
+        return input + output;
     }
 
     public long settle(long inputTokens, long cachedInputTokens, long outputTokens,

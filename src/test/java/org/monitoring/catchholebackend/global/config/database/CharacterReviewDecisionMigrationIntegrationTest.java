@@ -61,10 +61,10 @@ class CharacterReviewDecisionMigrationIntegrationTest {
     @Autowired PlatformTransactionManager transactions;
 
     @Test
-    @DisplayName("V1부터 V74까지 적용하고 이전 후보 기본값과 검토 방식·버전의 일관성 제약을 검증한다")
+    @DisplayName("전체 migration 적용 후 검토 방식·버전의 일관성 제약과 필수 migration을 검증한다")
     void validatesMigrationAndReviewBasisConstraints() {
-        assertThat(jdbc.queryForObject("SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1", String.class))
-                .isEqualTo("74");
+        assertThat(jdbc.queryForList("SELECT version FROM flyway_schema_history WHERE success=true", String.class))
+                .contains("72", "73", "74", "75");
         UUID id = new TransactionTemplate(transactions).execute(status -> {
             Member member = Member.register("gh215@example.invalid", "test-only", null, "검증 작가");
             entities.persist(member);
