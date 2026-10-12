@@ -182,6 +182,15 @@ org.monitoring.catchholebackend
 │   │   ├── repository
 │   │   ├── service
 │   │   └── type
+│   ├── chat
+│   │   ├── controller
+│   │   ├── dto
+│   │   ├── entity
+│   │   ├── exception
+│   │   ├── mapper
+│   │   ├── repository
+│   │   ├── service
+│   │   └── type
 │   ├── feedback
 │   │   ├── controller
 │   │   ├── dto
@@ -242,6 +251,7 @@ org.monitoring.catchholebackend
     ├── config
     │   ├── ai
     │   ├── auth
+    │   ├── chat
     │   ├── cors
     │   ├── jpa
     │   ├── logging
