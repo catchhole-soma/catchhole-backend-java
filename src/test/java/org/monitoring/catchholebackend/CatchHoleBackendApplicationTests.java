@@ -192,6 +192,9 @@ class CatchHoleBackendApplicationTests {
     private CharacterTimelineQueryRepository characterTimelineQueryRepository;
 
     @MockitoBean
+    private org.monitoring.catchholebackend.domain.settingtool.repository.SettingToolChunkRepository settingToolChunkRepository;
+
+    @MockitoBean
     private jakarta.persistence.EntityManager entityManager;
 
     @MockitoBean
