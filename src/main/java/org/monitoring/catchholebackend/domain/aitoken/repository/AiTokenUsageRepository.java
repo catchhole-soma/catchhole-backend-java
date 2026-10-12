@@ -12,6 +12,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface AiTokenUsageRepository extends JpaRepository<AiTokenUsage, UUID> {
+    List<AiTokenUsage> findAllByChatRunId(UUID chatRunId);
+    long countByChatRunIsNotNullAndStatus(AiTokenUsageStatus status);
+
 
     @Query("select usage.analysisJob.id from AiTokenUsage usage where usage.requestId = :requestId")
     Optional<UUID> findAnalysisJobIdByRequestId(@Param("requestId") UUID requestId);

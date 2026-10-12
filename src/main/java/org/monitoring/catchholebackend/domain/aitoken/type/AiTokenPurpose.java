@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.aitoken.type;
 
 public enum AiTokenPurpose {
+    CHAT_INTERPRETATION, CHAT_ANSWER, CHAT_QUERY_EMBEDDING, OPERATIONAL_BACKFILL,
     SETTING_EXTRACTION,
     SUBJECT_RESOLUTION,
     CHUNK_EMBEDDING,

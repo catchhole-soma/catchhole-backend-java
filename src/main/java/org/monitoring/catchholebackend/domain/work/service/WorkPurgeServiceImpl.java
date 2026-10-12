@@ -37,6 +37,7 @@ public class WorkPurgeServiceImpl implements WorkPurgeService, MemberWorkPurgeCo
     private final AiTokenService aiTokenService;
     private final WorkPurgeMapper purgeMapper;
     private final WorkPurgeProperties properties;
+    private final org.monitoring.catchholebackend.domain.chat.service.ChatServiceImpl chatService;
 
     @Override
     @Transactional
@@ -84,6 +85,7 @@ public class WorkPurgeServiceImpl implements WorkPurgeService, MemberWorkPurgeCo
         }
 
         work.startPurging();
+        chatService.invalidateWork(workId);
         List<AnalysisJob> activeJobs = analysisJobRepository.findAllActiveByWorkIdForUpdate(
                 workId,
                 ACTIVE_JOB_STATUSES

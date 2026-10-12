@@ -861,3 +861,13 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 개인 원고와 추출 결과는 저장소/테스트 fixture에 넣지 않는다. `scripts/upload-fixtures/`의 합성 자료만 사용한다. hwplib/hwpxlib는 fixture 생성과 로컬 대조에만 사용하며 운영 의존성이 아니다.
 
 - GH223은 모든 장르에서 스탯을 유지하고 소유물 표시명만 소지품으로 바꾼다. API의 기본 SKILL 표시명과 AI 입력 스키마는 스킬을 유지하며, 장르별 스킬 제목은 Front 표시 규칙이다. V74는 이전 기본값인 전역 SYSTEM_SEED의 items.item만 갱신한다. 저장 키·자료형·작가별 표시명·세계관 IMPORTANT_ITEM·추출 프롬프트는 유지한다.
+
+### 채팅 실행 v1 (#237)
+
+- 계약은 `docs/chat-execution-v1.md`, 양쪽 공통 fixture는 `docs/contracts/chat-execution-v1.json`이다. 질문/시도/provider 호출의 ID를 구분한다.
+- Spring `domain/chat/{controller,dto,entity,exception,mapper,repository,service,type}`와 `global/config/chat`은 실행·권한·원장을 담당한다. 내부 wire DTO는 버전 경계를 함께 검토하도록 `ChatContract`에 record로 모으고 OpenAPI 이름은 `Chat*V1`으로 고정한다.
+- Python `app/chatbot/{http_app,client,runtime,outbox,providers}.py`와 `app/schemas/chat_execution.py`는 독립 HTTP 진입점이다. 기존 Worker replica/lease loop에 HTTP listener를 추가하지 않는다.
+- `CHAT_ENABLED=false` 기본. 공통 Spring YAML의 CHAT_* 설정은 local/prod 모두 환경변수로 지정한다. FastAPI 별도 Compose는 명시적으로만 배포한다. 기능 flag를 꺼도 기존 예약 복구는 계속한다.
+- 채팅은 실행에 묶인 tools route를 사용하며 member/work를 LLM 인자에서 받지 않는다. provider SDK 재시도도 실제 호출마다 `Execution.call()` 예약 경계 안에 있어야 한다.
+- UNKNOWN은 사용량 0이 아니다. 원문 변경/삭제 시 저장 답변 자체도 무효화한다. 후속 대화 저장소가 생기면 같은 파기 계약을 연결한다.
+- 이 변경은 모델/프롬프트/기존 분석 결과에 영향을 주지 않는다. 테스트 stub은 tests/support 전용이며 운영 handler로 사용하지 않는다.

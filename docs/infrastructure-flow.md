@@ -501,3 +501,7 @@ SQS 같은 외부 queue는 다음 조건이 실제로 발생할 때 검토합니
 - `../CatchHole-AI/.github/workflows/deploy-worker-ec2.yml`
 - `docs/analysis-workflow.md`
 - `docs/database-migration.md`
+
+## 챗봇 실행 경로 준비 (#237, 미배포)
+
+채팅은 기존 분석/해소 Worker와 별도 FastAPI 프로세스·Compose로 실행할 수 있게 구현했다. Spring이 실행을 저장하고 즉시 HTTP로 전달하며, 정산·시간 초과 복구만 주기적으로 수행한다. 운영 구성은 아직 위 As-Is 그대로이며 `CHAT_ENABLED=false`가 기본이다. 실제 LLM orchestration은 #238이다. 같은 EC2의 자원 경합은 미측정이므로 별도 서버 필요 여부는 배포 부하 검증 후 결정한다. 설정·범위·배포 순서·롤백은 [채팅 실행 v1](chat-execution-v1.md)을 따른다.
