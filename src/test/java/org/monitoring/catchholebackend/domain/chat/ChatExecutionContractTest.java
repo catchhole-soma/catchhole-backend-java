@@ -30,6 +30,8 @@ class ChatExecutionContractTest {
                         "call",
                         CallView.class,
                         "finish",
+                        Finish.class,
+                        "executionLimitFinish",
                         Finish.class);
         for (var entry : types.entrySet())
             assertThat(

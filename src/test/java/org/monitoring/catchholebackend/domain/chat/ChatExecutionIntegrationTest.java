@@ -343,7 +343,7 @@ class ChatExecutionIntegrationTest {
 
     @Test
     @DisplayName("예약량 부족이면 호출 권한을 주지 않고 기존 예약도 유지한다")
-    void quota() {
+    void quota() throws Exception {
         var a = start();
         tx.executeWithoutResult(
                 s -> {
@@ -352,8 +352,54 @@ class ChatExecutionIntegrationTest {
                 });
         assertThatThrownBy(() -> reserve(a, UUID.randomUUID(), 100))
                 .isInstanceOf(AppException.class);
+        mvc.perform(
+                        post("/api/internal/v1/chat-runs/" + a.view.attemptId() + "/calls")
+                                .header("X-Internal-Api-Key", "chat-test-key")
+                                .header("X-Chat-Capability", a.token)
+                                .header("X-Chat-Runner", a.runner)
+                                .contentType("application/json")
+                                .content("""
+                                        {"callId":"%s","purpose":"CHAT_ANSWER","model":"test-model","reservedTokens":100}
+                                        """.formatted(UUID.randomUUID())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("AI_TOKEN_QUOTA_EXHAUSTED"));
         int count = tx.execute(s -> usages.findAllByChatRunId(a.view.attemptId()).size());
         assertThat(count).isZero();
+    }
+
+    @Test
+    @DisplayName("실행 예산 한도는 잔액 부족과 다른 코드로 거절하고 실패 결과를 보존한다")
+    void executionLimitFailureIsSeparateFromAccountQuota() throws Exception {
+        var a = start();
+        long[] before = balance();
+        long overBudget = service.context(a.view.attemptId(), a.token, a.runner).tokenBudget() + 1;
+        String url = "/api/internal/v1/chat-runs/" + a.view.attemptId();
+        mvc.perform(
+                        post(url + "/calls")
+                                .header("X-Internal-Api-Key", "chat-test-key")
+                                .header("X-Chat-Capability", a.token)
+                                .header("X-Chat-Runner", a.runner)
+                                .contentType("application/json")
+                                .content("""
+                                        {"callId":"%s","purpose":"CHAT_ANSWER","model":"test-model","reservedTokens":%d}
+                                        """.formatted(UUID.randomUUID(), overBudget)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error.code").value("CHAT_LIMIT_EXCEEDED"));
+        mvc.perform(
+                        post(url + "/finish")
+                                .header("X-Internal-Api-Key", "chat-test-key")
+                                .header("X-Chat-Capability", a.token)
+                                .header("X-Chat-Runner", a.runner)
+                                .contentType("application/json")
+                                .content("{\"result\":null,\"failure\":\"EXECUTION_LIMIT_EXCEEDED\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.state").value("FAILED"));
+        mvc.perform(
+                        get("/api/v1/works/" + work + "/chat-questions/" + a.view.questionId())
+                                .header("Authorization", "Bearer " + jwt))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.failure").value("EXECUTION_LIMIT_EXCEEDED"));
+        assertThat(balance()).containsExactly(before);
     }
 
     @Test
