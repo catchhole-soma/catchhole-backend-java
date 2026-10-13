@@ -89,6 +89,16 @@ public class InternalChatController {
         return CommonResponse.success(result);
     }
 
+    @PostMapping("/{id}/retrieval-sources")
+    @Operation(operationId = "verifyChatRetrievalSources", summary = "실행에 고정된 범위로 현재 원문 검색 인용을 검증하고 사용 허가")
+    public CommonResponse<RetrievalSources> retrievalSources(
+            @PathVariable UUID id,
+            @RequestHeader(value = "X-Chat-Capability", required = false) String token,
+            @RequestHeader(value = "X-Chat-Runner", required = false) UUID runner,
+            @Valid @RequestBody RetrievalSourcesRequest request) {
+        return CommonResponse.success(access.retrievalSources(id, token, runner, request));
+    }
+
     @PostMapping("/operations/{id}")
     @Operation(
             operationId = "createOperationalAiRun",

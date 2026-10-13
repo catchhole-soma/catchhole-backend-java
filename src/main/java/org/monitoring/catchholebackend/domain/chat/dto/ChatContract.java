@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.chat.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import jakarta.validation.Valid;
@@ -53,7 +54,35 @@ public final class ChatContract {
             @NotNull Outcome outcome,
             @NotBlank @Size(max = 16000) String text,
             @NotNull @Size(max = 50) List<@Valid Reference> sources,
-            @NotNull @Size(max = 20) List<@NotBlank @Size(max = 200) String> limitations) {}
+            @NotNull @Size(max = 20) List<@NotBlank @Size(max = 200) String> limitations,
+            @JsonInclude(JsonInclude.Include.NON_EMPTY)
+            @Size(max = 12) List<@NotNull @Valid RetrievalReference> retrievalSources) {
+        public Result {
+            retrievalSources = retrievalSources == null ? List.of() : List.copyOf(retrievalSources);
+        }
+
+        public Result(Outcome outcome, String text, List<Reference> sources, List<String> limitations) {
+            this(outcome, text, sources, limitations, List.of());
+        }
+    }
+
+    @Schema(name = "ChatRetrievalReferenceV1", description = "현재 원문에서 검증한 검색 인용. 위치는 Unicode code point의 0-based 반열린 구간입니다.")
+    public record RetrievalReference(
+            @NotNull UUID chunkId,
+            @NotNull UUID episodeId,
+            @Min(1) int sourceEpisodeNo,
+            @NotBlank @Pattern(regexp = "[a-f0-9]{64}") String sourceHash,
+            @Size(max = 100) String sourceVersion,
+            @NotBlank @Size(max = 8000) String quote,
+            @Min(0) int startOffset,
+            @Min(1) int endOffset) {}
+
+    @Schema(name = "ChatRetrievalSourcesRequestV1", description = "실행에 고정된 범위에서 최대 12개 검색 인용을 검증합니다. 인용은 각각 4000 code point 이하입니다.")
+    public record RetrievalSourcesRequest(
+            @NotNull @Size(min = 1, max = 12) List<@NotNull @Valid RetrievalReference> sources) {}
+
+    @Schema(name = "ChatRetrievalSourcesV1", description = "검증하고 해당 실행에 사용을 허용한 검색 인용입니다.")
+    public record RetrievalSources(int schemaVersion, List<RetrievalReference> sources) {}
 
     @Schema(name = "ChatFinishV1", description = "결과 또는 실패 중 정확히 하나를 보고")
     public record Finish(@Valid Result result, Failure failure) {}
