@@ -35,6 +35,7 @@ import java.util.concurrent.*;
         properties = {
             "chat.enabled=true",
             "work.purge.worker-drain=0s",
+            "member.withdrawal.retry-delay=0s",
             "chat.capability-secret=chat-test-secret-with-more-than-32-characters",
             "chat.python-url=http://127.0.0.1:1",
             "chat.max-active-per-member=3",
@@ -64,6 +65,16 @@ class ChatSessionIntegrationTest {
 
     @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
     @MockitoBean org.monitoring.catchholebackend.global.storage.ObjectStorage storage;
+    @Autowired org.monitoring.catchholebackend.domain.episode.service.EpisodeService episodeService;
+
+    @Autowired
+    org.monitoring.catchholebackend.domain.member.service.MemberWithdrawalService withdrawal;
+
+    @Autowired
+    org.monitoring.catchholebackend.domain.member.service.MemberWithdrawalProcessor
+            withdrawalProcessor;
+
+    @Autowired org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
     Long member;
     UUID work;
     String jwt;
@@ -392,7 +403,7 @@ class ChatSessionIntegrationTest {
         finish(v, "답변");
         jdbc.execute(
                 "CREATE TABLE IF NOT EXISTS episode_chunks (id UUID PRIMARY KEY, episode_id UUID"
-                    + " NOT NULL)");
+                        + " NOT NULL)");
         org.mockito.Mockito.when(
                         storage.purgePrefixes(org.mockito.ArgumentMatchers.anyCollection()))
                 .thenReturn(
@@ -419,5 +430,72 @@ class ChatSessionIntegrationTest {
         assertThat(sessionRepository.findById(id)).isEmpty();
         assertThat(questions.findById(v.questionId())).isEmpty();
         assertThat(runs.findById(v.attemptId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("실제 회차 삭제 이벤트는 저장 답변과 후속 문맥을 함께 차단한다")
+    void episodeDeletionRevokesConversation() {
+        var id = session();
+        var v = submit(id, "원문 질문");
+        finish(v, "파기할 원문 답변");
+        var episode =
+                tx.execute(
+                        s -> {
+                            var e =
+                                    org.monitoring.catchholebackend.domain.episode.entity.Episode
+                                            .create(
+                                                    em.find(Work.class, work),
+                                                    null,
+                                                    1,
+                                                    "제목",
+                                                    "synthetic/source.txt",
+                                                    "v1",
+                                                    "a".repeat(64),
+                                                    10);
+                            em.persist(e);
+                            return e.getId();
+                        });
+        episodeService.deleteEpisode(member, work, episode);
+        assertThatThrownBy(() -> sessions.listMessages(member, work, id, 0, 20))
+                .isInstanceOf(AppException.class);
+        assertThat(questions.findById(v.questionId()).orElseThrow().getQuestion()).isNull();
+        assertThat(runs.findById(v.attemptId()).orElseThrow().getResultJson()).isNull();
+        assertThatThrownBy(() -> submit(id, "후속 질문")).isInstanceOf(AppException.class);
+    }
+
+    @Test
+    @DisplayName("회원 탈퇴는 즉시 대화 접근을 막고 작품 파기 후 세션 행까지 제거한다")
+    void withdrawalRemovesConversation() {
+        var id = session();
+        var v = submit(id, "질문");
+        finish(v, "답변");
+        tx.executeWithoutResult(
+                s ->
+                        ReflectionTestUtils.setField(
+                                em.find(Member.class, member),
+                                "passwordHash",
+                                passwordEncoder.encode("test-password")));
+        jdbc.execute(
+                "CREATE TABLE IF NOT EXISTS episode_chunks (id UUID PRIMARY KEY, episode_id UUID"
+                    + " NOT NULL)");
+        org.mockito.Mockito.when(
+                        storage.purgePrefixes(org.mockito.ArgumentMatchers.anyCollection()))
+                .thenReturn(
+                        new org.monitoring.catchholebackend.global.storage.ObjectStoragePurgeResult(
+                                1, 1, 0));
+        withdrawal.requestWithdrawal(
+                member,
+                new org.monitoring.catchholebackend.domain.member.dto.request
+                        .MemberWithdrawalCreateRequest("test-password", "회원 탈퇴"));
+        assertThatThrownBy(() -> sessions.listMessages(member, work, id, 0, 20))
+                .isInstanceOf(AppException.class);
+        withdrawalProcessor.processPendingRequests();
+        purgeProcessor.processPendingRequests();
+        withdrawalProcessor.processPendingRequests();
+        assertThat(sessionRepository.findById(id)).isEmpty();
+        assertThat(questions.findById(v.questionId())).isEmpty();
+        assertThat(runs.findById(v.attemptId())).isEmpty();
+        Member remaining = tx.execute(s -> em.find(Member.class, member));
+        assertThat(remaining).isNull();
     }
 }
