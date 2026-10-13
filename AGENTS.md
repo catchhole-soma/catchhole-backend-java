@@ -882,3 +882,8 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 실행 한도는 `EXECUTION_LIMIT_EXCEEDED`, 계정 잔액 부족은 `QUOTA_EXHAUSTED`로 구분한다. HTTP 429만으로 잔액 부족을 추정하지 않는다. 실패 안내와 재시도 판단에서 계정 상태와 실행 제한을 혼동하지 않기 위함이다.
 - UNKNOWN은 사용량 0이 아니다. 원문 변경/삭제 시 저장 답변 자체도 무효화한다. 후속 대화 저장소가 생기면 같은 파기 계약을 연결한다.
 - 이 변경은 모델/프롬프트/기존 분석 결과에 영향을 주지 않는다. 테스트 stub은 tests/support 전용이며 운영 handler로 사용하지 않는다.
+
+### RDB 단일 질의응답 연계 (#238)
+
+- `docs/chat-qa-v1.md`는 Python과 동일한 단일 질문 처리·응답·사례 문서다. 질문 분류와 관련 행 선택은 Python이 맡고 Java의 현재값·권한·조회·실행 DTO를 재사용한다. 모델은 SQL·회원/작품 ID·임의 인용을 생성하지 않는다.
+- `ChatQaHttpEndToEndTest`는 `GH238_AI_CHECKOUT`으로 지정한 Python checkout의 실제 QA handler와 Spring의 조회·인증·원장·결과 저장을 HTTP로 연결한다. provider 응답과 S3 공급은 합성 대역이고 API key를 사용한 모델 품질 측정은 아니다. 환경변수가 없으면 skip되므로 일반 CI 통과와 실제 HTTP 검증을 구분한다.
