@@ -897,3 +897,11 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 검색용 `retrieval_sources`/`retrieval_chunks`를 기존 분석 `episode_chunks`와 분리한다. 회차/작품 purge에서 검색 텍스트·벡터·manifest도 삭제하며, 파기 요청이 남으면 물리 데이터가 있어도 `retrieval_current_chunks`에서 제외한다.
 - 운영 실행기는 기존 OPERATIONAL_BACKFILL 원장과 RETRIEVAL_INDEX_SERVICE_PAID_V1 정책을 사용해 사용자 토큰을 예약·차감하지 않는다. provider 호출 전·저장 전 원문 검증은 기존 Work row 잠금과 직렬화한다. Java V76/파기 코드 배포 후 AI를 배포한다.
 - #240의 모든 검색 경로는 현재 출처 일치/보관·파기/서버 작품·회차 범위와 policy/model/version을 재검증한다. 원문 회차 번호를 사건 시점으로 해석하지 않으며 설정집·과거 원문은 지원 전 준비 완료로 집계하지 않는다.
+
+### RDB·원문 결합 답변 (#240)
+
+- 양쪽 공통 계약/fixture는 `docs/chat-hybrid-retrieval-v1.md`와 `docs/contracts/chat-hybrid-v1.json`이다. 기존 SettingTool enum에 검색 청크를 가장하지 않고 `ChatContract.RetrievalReference`/`Result.retrievalSources`로 출처 종류를 구분한다. 빈 새 목록은 구형 JSON과 호환되도록 생략한다.
+- 실행별 `retrieval-sources` route는 기존 내부 key·capability·runner와 Work 잠금, 도구 상한을 사용한다. `ChatRetrievalSources`는 회원/작품/회차/manifest/파기·정책과 실제 원문 SHA256·Unicode code point 위치를 확인한다. 전체 인용 필드 hash의 receipt가 있어야 finish에 사용할 수 있고 완료 직전 다시 현재 원문을 대조한다.
+- 키워드/인접 조회의 미임베딩 텍스트는 허용한다. 실제 벡터가 있으면 model `text-embedding-3-small`, policy `cl100k-800-100-boundary-v1`, `CHAT_RETRIEVAL_EMBEDDING_VERSION`(기본 v1)을 맞춘다. 새 설정은 base YAML과 API Compose에서 local/prod 모두 환경변수로 지정한다. 이번 단계에는 새 Flyway migration이 없다.
+- `CHAT_SCOPE_INVALID`는 사용할 수 없는 범위/인용, `CHAT_SOURCE_UNAVAILABLE`는 저장소 장애다. 원문 조회 실패를 정상 빈 근거로 바꾸지 않는다. getText는 원문 전체를 읽은 뒤 250,000 code point를 검사하며 S3 응답 VersionId·전송 중 크기 제한은 제공하지 않는다는 한계를 문서에 유지한다.
+- `ChatRetrievalSourcesPostgresIntegrationTest`는 실제 PostgreSQL/Flyway 및 인용·파기 경계를 검사한다. `GH240_AI_CHECKOUT`을 명시하면 Python `tests/support/chat_retrieval_http_client.py`와 실제 HTTP로 start→인용 등록→finish를 검증한다. 합성 원고/S3 대역이며 실제 모델 품질이나 운영 배포 검증이 아니다.
