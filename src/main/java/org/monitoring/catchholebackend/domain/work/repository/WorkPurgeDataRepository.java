@@ -40,6 +40,11 @@ public class WorkPurgeDataRepository {
                 where analysis_job_id in (select id from analysis_jobs where work_id = ?)
                 """, workId);
         deletedCount += update("delete from ai_token_usages where work_id = ?", workId);
+        deletedCount += update("""
+                delete from retrieval_chunks where episode_id in
+                (select episode_id from retrieval_sources where work_id = ?)
+                """, workId);
+        deletedCount += update("delete from retrieval_sources where work_id = ?", workId);
         deletedCount += update("delete from chat_runs where work_id = ?", workId);
         deletedCount += update("delete from chat_questions where work_id = ?", workId);
         deletedCount += update("delete from analysis_jobs where work_id = ?", workId);

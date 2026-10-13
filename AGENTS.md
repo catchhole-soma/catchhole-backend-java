@@ -170,6 +170,8 @@ org.monitoring.catchholebackend
 │   │   ├── repository
 │   │   ├── service
 │   │   └── type
+│   ├── retrieval
+│   │   └── entity
 │   ├── character
 │   │   ├── controller
 │   │   ├── dto
@@ -805,6 +807,7 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 
 ### GitHub Issue Templates
 
+- 챗봇 검토·사용 중 새로 확인한 조회/답변/비용 한계는 [#247](https://github.com/catchhole-soma/catchhole-backend-java/issues/247)에 재현 조건·현재/기대 동작·검증 상태·관련 PR을 누적한다. 미검증 우려와 확인된 문제를 구분하고, 개별 개선 PR로 누적 이슈 전체를 자동 종료하지 않는다.
 - GitHub Issue는 `.github/ISSUE_TEMPLATE/` 아래의 Issue Form을 사용한다.
 - 버그는 `bug_report.yml`, 기능 요청은 `feature_request.yml`, 일반 작업/문서는 `task.yml`을 사용한다.
 - 빈 이슈 생성을 막기 위해 `config.yml`의 `blank_issues_enabled: false`를 유지한다.
@@ -887,3 +890,10 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 
 - `docs/chat-qa-v1.md`는 Python과 동일한 단일 질문 처리·응답·사례 문서다. 질문 분류와 관련 행 선택은 Python이 맡고 Java의 현재값·권한·조회·실행 DTO를 재사용한다. 모델은 SQL·회원/작품 ID·임의 인용을 생성하지 않는다.
 - `ChatQaHttpEndToEndTest`는 `GH238_AI_CHECKOUT`으로 지정한 Python checkout의 실제 QA handler와 Spring의 조회·인증·원장·결과 저장을 HTTP로 연결한다. provider 응답과 S3 공급은 합성 대역이고 API key를 사용한 모델 품질 측정은 아니다. 환경변수가 없으면 skip되므로 일반 CI 통과와 실제 HTTP 검증을 구분한다.
+
+### 원문 검색 준비 (#239)
+
+- `domain/retrieval/entity`는 Python이 준비하는 검색 manifest/청크의 생명주기 매핑이다. V76 schema와 Python 매핑, 공통 `docs/retrieval-index-v1.md`를 함께 검증한다. vector 필드/생성은 Python/pgvector가 소유한다.
+- 검색용 `retrieval_sources`/`retrieval_chunks`를 기존 분석 `episode_chunks`와 분리한다. 회차/작품 purge에서 검색 텍스트·벡터·manifest도 삭제하며, 파기 요청이 남으면 물리 데이터가 있어도 `retrieval_current_chunks`에서 제외한다.
+- 운영 실행기는 기존 OPERATIONAL_BACKFILL 원장과 RETRIEVAL_INDEX_SERVICE_PAID_V1 정책을 사용해 사용자 토큰을 예약·차감하지 않는다. provider 호출 전·저장 전 원문 검증은 기존 Work row 잠금과 직렬화한다. Java V76/파기 코드 배포 후 AI를 배포한다.
+- #240의 모든 검색 경로는 현재 출처 일치/보관·파기/서버 작품·회차 범위와 policy/model/version을 재검증한다. 원문 회차 번호를 사건 시점으로 해석하지 않으며 설정집·과거 원문은 지원 전 준비 완료로 집계하지 않는다.
