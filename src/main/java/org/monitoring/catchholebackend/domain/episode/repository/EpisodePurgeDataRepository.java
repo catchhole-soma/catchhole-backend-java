@@ -12,6 +12,8 @@ public class EpisodePurgeDataRepository {
     private final JdbcTemplate jdbcTemplate;
 
     public int deleteChunks(UUID episodeId) {
-        return jdbcTemplate.update("delete from episode_chunks where episode_id = ?", episodeId);
+        int deleted = jdbcTemplate.update("delete from retrieval_chunks where episode_id = ?", episodeId);
+        deleted += jdbcTemplate.update("delete from retrieval_sources where episode_id = ?", episodeId);
+        return deleted + jdbcTemplate.update("delete from episode_chunks where episode_id = ?", episodeId);
     }
 }
