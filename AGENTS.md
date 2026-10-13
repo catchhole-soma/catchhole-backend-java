@@ -170,6 +170,8 @@ org.monitoring.catchholebackend
 │   │   ├── repository
 │   │   ├── service
 │   │   └── type
+│   ├── retrieval
+│   │   └── entity
 │   ├── character
 │   │   ├── controller
 │   │   ├── dto
