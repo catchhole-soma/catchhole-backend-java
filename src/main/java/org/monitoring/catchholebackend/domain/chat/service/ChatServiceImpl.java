@@ -44,6 +44,7 @@ public class ChatServiceImpl implements ChatService {
     private final ChatProperties properties;
     private final ChatCapability capability;
     private final ChatMapper mapper;
+    private final ChatRetrievalSources retrieval;
     private final ApplicationEventPublisher events;
 
     public record Ready(UUID attemptId) {}
@@ -152,6 +153,10 @@ public class ChatServiceImpl implements ChatService {
                         || ref.targetId() == null
                         || !receipts.contains(ref.tool() + ":" + ref.targetId()))
                     throw new AppException(CHAT_SCOPE_INVALID);
+            for (var ref : request.result().retrievalSources())
+                if (!receipts.contains(retrieval.receipt(ref))) throw new AppException(CHAT_SCOPE_INVALID);
+            retrieval.validate(run, request.result().retrievalSources());
+            running(run, runner);
         }
         run.finish(
                 request.result() == null ? null : mapper.encode(request.result()),

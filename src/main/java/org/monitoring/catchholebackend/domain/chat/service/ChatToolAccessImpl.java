@@ -5,6 +5,7 @@ import static org.monitoring.catchholebackend.domain.chat.exception.ChatErrorCod
 import lombok.RequiredArgsConstructor;
 
 import org.monitoring.catchholebackend.domain.chat.mapper.ChatMapper;
+import org.monitoring.catchholebackend.domain.chat.dto.ChatContract.*;
 import org.monitoring.catchholebackend.domain.settingtool.dto.*;
 import org.monitoring.catchholebackend.domain.settingtool.type.SettingTool;
 import org.monitoring.catchholebackend.global.config.chat.ChatProperties;
@@ -20,6 +21,23 @@ public class ChatToolAccessImpl implements ChatToolAccess {
     private final ChatServiceImpl executions;
     private final ChatProperties properties;
     private final ChatMapper mapper;
+    private final ChatRetrievalSources retrieval;
+
+    @Transactional
+    public RetrievalSources retrievalSources(UUID id, String token, UUID runner, RetrievalSourcesRequest request) {
+        var r = executions.authorized(id, token);
+        executions.running(r, runner);
+        if (r.operational()) throw new AppException(CHAT_SCOPE_INVALID);
+        if (r.getToolCount() >= properties.maxToolCalls()) throw new AppException(CHAT_LIMIT_EXCEEDED);
+        if (request == null || request.sources() == null || request.sources().isEmpty())
+            throw new AppException(CHAT_SCOPE_INVALID);
+        retrieval.validate(r, request.sources());
+        executions.running(r, runner);
+        var receipts = mapper.receipts(r.getReceiptJson());
+        request.sources().forEach(source -> receipts.add(retrieval.receipt(source)));
+        r.recordTool(mapper.encode(receipts));
+        return new RetrievalSources(1, List.copyOf(request.sources()));
+    }
 
     @Transactional
     public Access begin(UUID id, String token, UUID runner, SettingToolQuery q) {

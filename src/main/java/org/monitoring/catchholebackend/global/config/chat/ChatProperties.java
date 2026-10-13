@@ -18,8 +18,10 @@ public record ChatProperties(
         int maxToolCalls,
         long attemptTokenBudget,
         Duration executionTimeout,
-        Duration usageGrace) {
+        Duration usageGrace,
+        String retrievalEmbeddingVersion) {
     public ChatProperties {
+        if (retrievalEmbeddingVersion == null) retrievalEmbeddingVersion = "v1";
         if (maxBodyBytes == 0) maxBodyBytes = 131072;
         if (dispatchThreads == 0) dispatchThreads = 2;
         if (dispatchQueueCapacity == 0) dispatchQueueCapacity = 32;
@@ -45,7 +47,9 @@ public record ChatProperties(
                 || executionTimeout.isNegative()
                 || executionTimeout.isZero()
                 || usageGrace.isNegative()
-                || usageGrace.isZero()) throw new IllegalArgumentException("채팅 제한 설정이 올바르지 않습니다.");
+                || usageGrace.isZero()
+                || retrievalEmbeddingVersion.isBlank()
+                || retrievalEmbeddingVersion.length() > 50) throw new IllegalArgumentException("채팅 제한 설정이 올바르지 않습니다.");
         if (enabled
                 && (capabilitySecret == null
                         || capabilitySecret.length() < 32
