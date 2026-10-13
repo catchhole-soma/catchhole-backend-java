@@ -34,6 +34,7 @@ import java.util.*;
 public class ChatServiceImpl implements ChatService {
     private static final List<ChatState> ACTIVE =
             List.of(ChatState.QUEUED, ChatState.RUNNING, ChatState.SETTLEMENT_PENDING);
+    private final ChatSessionService sessions;
     private final ChatQuestionRepository questions;
     private final ChatRunRepository runs;
     private final WorkRepository works;
@@ -64,11 +65,13 @@ public class ChatServiceImpl implements ChatService {
         var existing = questions.findByMemberIdAndWorkIdAndIdempotencyKey(member, work, key);
         if (existing.isPresent()) {
             if (!existing.get().getInputHash().equals(hash)) throw new AppException(CHAT_CONFLICT);
+            sessions.requireOpen(existing.get());
             return view(runs.findById(existing.get().getCurrentAttemptId()).orElseThrow());
         }
         capacity(member);
         tokenService.getUsage(member);
         var q = ChatQuestion.create(owned, key, hash, request);
+        sessions.attachQuestion(q, request.sessionId());
         var run = newRun(owned, q, properties.attemptTokenBudget(), null, null);
         questions.save(q);
         runs.save(run);
@@ -106,8 +109,10 @@ public class ChatServiceImpl implements ChatService {
                 || (current.getState() != ChatState.FAILED
                         && current.getState() != ChatState.TIMED_OUT))
             throw new AppException(CHAT_CONFLICT);
+        sessions.requireIdle(q);
         capacity(member);
         var next = newRun(q.getWork(), q, properties.attemptTokenBudget(), null, null);
+        sessions.touchAfterAnswer(q);
         runs.save(next);
         events.publishEvent(new Ready(next.getId()));
         return view(next);
@@ -121,7 +126,7 @@ public class ChatServiceImpl implements ChatService {
         if (run.getState() == ChatState.QUEUED && Instant.now().isBefore(run.getDeadline()))
             run.start(runner);
         running(run, runner);
-        return mapper.toContext(run, properties);
+        return sessions.addConversation(mapper.toContext(run, properties), run.getQuestion());
     }
 
     @Override
@@ -129,7 +134,7 @@ public class ChatServiceImpl implements ChatService {
     public Context context(UUID id, String token, UUID runner) {
         var run = authorized(id, token);
         running(run, runner);
-        return mapper.toContext(run, properties);
+        return sessions.addConversation(mapper.toContext(run, properties), run.getQuestion());
     }
 
     @Override
@@ -138,6 +143,7 @@ public class ChatServiceImpl implements ChatService {
         var run = authorized(id, token);
         activeWork(run);
         owner(run, runner);
+        sessions.requireOpen(run.getQuestion());
         if ((request.result() == null) == (request.failure() == null))
             throw new AppException(REQUEST_VALIDATION_FAILED);
         String hash = capability.hash(mapper.encode(request));
@@ -154,7 +160,8 @@ public class ChatServiceImpl implements ChatService {
                         || !receipts.contains(ref.tool() + ":" + ref.targetId()))
                     throw new AppException(CHAT_SCOPE_INVALID);
             for (var ref : request.result().retrievalSources())
-                if (!receipts.contains(retrieval.receipt(ref))) throw new AppException(CHAT_SCOPE_INVALID);
+                if (!receipts.contains(retrieval.receipt(ref)))
+                    throw new AppException(CHAT_SCOPE_INVALID);
             retrieval.validate(run, request.result().retrievalSources());
             running(run, runner);
         }
@@ -163,6 +170,7 @@ public class ChatServiceImpl implements ChatService {
                 hash,
                 request.failure(),
                 pending(run));
+        sessions.touchAfterAnswer(run.getQuestion());
         return view(run);
     }
 
@@ -297,6 +305,7 @@ public class ChatServiceImpl implements ChatService {
     @Transactional
     public void invalidateWork(UUID workId) {
         works.findByIdForUpdate(workId).orElseThrow(() -> new AppException(CHAT_NOT_FOUND));
+        sessions.closeWorkSessions(workId);
         for (var r : runs.findAllByWorkId(workId)) {
             for (var u : usages.findAllByChatRunId(r.getId()))
                 if (u.getStatus() == AiTokenUsageStatus.RESERVED) {
@@ -339,6 +348,7 @@ public class ChatServiceImpl implements ChatService {
         if (r.getState() != ChatState.QUEUED || !Instant.now().isBefore(r.getDeadline()))
             throw new AppException(CHAT_CONFLICT);
         activeWork(r);
+        sessions.requireOpen(r.getQuestion());
         return dispatchOf(r);
     }
 
@@ -360,6 +370,11 @@ public class ChatServiceImpl implements ChatService {
         // Re-read after acquiring Work: a competing transaction may have changed this managed
         // entity.
         entityManager.refresh(r);
+        if (r.getQuestion() != null) {
+            entityManager.refresh(r.getQuestion());
+            if (r.getQuestion().getSession() != null)
+                entityManager.refresh(r.getQuestion().getSession());
+        }
         return r;
     }
 
@@ -367,6 +382,7 @@ public class ChatServiceImpl implements ChatService {
 
     void running(ChatRun r, UUID runner) {
         activeWork(r);
+        sessions.requireOpen(r.getQuestion());
         owner(r, runner);
         if (r.getState() != ChatState.RUNNING
                 || !Instant.now().isBefore(r.getDeadline())
@@ -399,9 +415,12 @@ public class ChatServiceImpl implements ChatService {
     private ChatQuestion ownedQuestion(Long member, UUID work, UUID question) {
         var w = works.getOwnedWorkForUpdate(work, member);
         w.getMember().validateActive();
-        return questions
-                .findByIdAndMemberIdAndWorkId(question, member, work)
-                .orElseThrow(() -> new AppException(CHAT_NOT_FOUND));
+        var q =
+                questions
+                        .findByIdAndMemberIdAndWorkId(question, member, work)
+                        .orElseThrow(() -> new AppException(CHAT_NOT_FOUND));
+        sessions.requireOpen(q);
+        return q;
     }
 
     private ChatRun newRun(Work w, ChatQuestion q, long budget, String actor, String policy) {

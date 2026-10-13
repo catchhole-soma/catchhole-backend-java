@@ -47,6 +47,7 @@ public class WorkPurgeDataRepository {
         deletedCount += update("delete from retrieval_sources where work_id = ?", workId);
         deletedCount += update("delete from chat_runs where work_id = ?", workId);
         deletedCount += update("delete from chat_questions where work_id = ?", workId);
+        deletedCount += update("delete from chat_sessions where work_id = ?", workId);
         deletedCount += update("delete from analysis_jobs where work_id = ?", workId);
         deletedCount += update("delete from world_settings where work_id = ?", workId);
         deletedCount += update("delete from character_setting_schemas where work_id = ?", workId);

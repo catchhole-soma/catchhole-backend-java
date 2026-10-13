@@ -9,6 +9,9 @@ import org.springframework.http.HttpStatus;
 @Getter
 @RequiredArgsConstructor
 public enum ChatErrorCode implements ResultCode {
+    CHAT_SESSION_CLOSED(HttpStatus.GONE, "대화가 종료되었거나 만료되었습니다. 새 대화를 시작해 주세요."),
+    CHAT_SESSION_BUSY(HttpStatus.CONFLICT, "앞선 답변을 기다린 뒤 질문해 주세요."),
+    CHAT_SESSION_LIMIT(HttpStatus.CONFLICT, "대화 한도에 도달했습니다. 새 대화를 시작하거나 다른 대화를 종료해 주세요."),
     CHAT_DISABLED(HttpStatus.SERVICE_UNAVAILABLE, "채팅 실행이 아직 활성화되지 않았습니다."),
     CHAT_CONFLICT(HttpStatus.CONFLICT, "실행 상태 또는 멱등성 입력이 일치하지 않습니다."),
     CHAT_SCOPE_INVALID(HttpStatus.FORBIDDEN, "허용된 채팅 실행 범위를 벗어났습니다."),

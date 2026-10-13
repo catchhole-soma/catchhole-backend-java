@@ -43,6 +43,21 @@ public class ChatQuestion {
     @Column(length = 4000)
     private String question;
 
+    // 단일 질문 API의 기존 행은 대화에 속하지 않는다.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "session_id")
+    @OnDelete(action = OnDeleteAction.CASCADE)
+    private ChatSession session;
+
+    private Long sequenceNo;
+    private java.time.Instant submittedAt;
+
+    public void attachSession(ChatSession value, long sequence, java.time.Instant now) {
+        session = value;
+        sequenceNo = sequence;
+        submittedAt = now;
+    }
+
     private Integer episodeFrom;
     private Integer episodeTo;
 

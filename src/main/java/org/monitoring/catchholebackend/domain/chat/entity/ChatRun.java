@@ -154,6 +154,15 @@ public class ChatRun {
         if (state == ChatState.QUEUED || state == ChatState.RUNNING) state = ChatState.TIMED_OUT;
     }
 
+    public void eraseConversation(boolean pending) {
+        resultJson = null;
+        receiptJson = null;
+        if (state == ChatState.QUEUED || state == ChatState.RUNNING) {
+            failure = Failure.INTERRUPTED;
+            state = pending ? ChatState.SETTLEMENT_PENDING : ChatState.FAILED;
+        }
+    }
+
     public void invalidate() {
         state = ChatState.INVALIDATED;
         resultJson = null;

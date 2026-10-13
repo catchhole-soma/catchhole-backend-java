@@ -85,6 +85,28 @@ public class ChatMapper {
                 r.operational());
     }
 
+    public org.monitoring.catchholebackend.domain.chat.dto.ChatSessionContract.Session session(
+            org.monitoring.catchholebackend.domain.chat.entity.ChatSession s) {
+        return new org.monitoring.catchholebackend.domain.chat.dto.ChatSessionContract.Session(
+                s.getId(),
+                s.getWork().getId(),
+                s.getCreatedAt(),
+                s.getExpiresAt(),
+                s.getNextSequence() - 1);
+    }
+
+    public org.monitoring.catchholebackend.domain.chat.dto.ChatSessionContract.Message message(
+            org.monitoring.catchholebackend.domain.chat.entity.ChatQuestion q,
+            ChatRun run,
+            List<AiTokenUsage> calls) {
+        return new org.monitoring.catchholebackend.domain.chat.dto.ChatSessionContract.Message(
+                q.getId(),
+                q.getSequenceNo(),
+                q.getSubmittedAt(),
+                q.getQuestion(),
+                view(run, calls));
+    }
+
     public Dispatch toDispatch(ChatRun run, String capability) {
         return new Dispatch(1, run.getId(), capability, run.getDeadline());
     }

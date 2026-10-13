@@ -11,6 +11,11 @@ import java.util.*;
 public interface ChatRunRepository extends JpaRepository<ChatRun, UUID> {
     List<ChatRun> findAllByWorkId(UUID workId);
 
+    List<ChatRun> findAllByQuestionSessionId(UUID sessionId);
+
+    boolean existsByQuestionSessionIdAndStateInAndDeadlineAfter(
+            UUID session, Collection<ChatState> states, Instant now);
+
     long countByQuestionIsNotNullAndState(ChatState state);
 
     long countByWorkMemberIdAndQuestionIsNotNullAndStateIn(

@@ -905,3 +905,12 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 키워드/인접 조회의 미임베딩 텍스트는 허용한다. 실제 벡터가 있으면 model `text-embedding-3-small`, policy `cl100k-800-100-boundary-v1`, `CHAT_RETRIEVAL_EMBEDDING_VERSION`(기본 v1)을 맞춘다. 새 설정은 base YAML과 API Compose에서 local/prod 모두 환경변수로 지정한다. 이번 단계에는 새 Flyway migration이 없다.
 - `CHAT_SCOPE_INVALID`는 사용할 수 없는 범위/인용, `CHAT_SOURCE_UNAVAILABLE`는 저장소 장애다. 원문 조회 실패를 정상 빈 근거로 바꾸지 않는다. getText는 원문 전체를 읽은 뒤 250,000 code point를 검사하며 S3 응답 VersionId·전송 중 크기 제한은 제공하지 않는다는 한계를 문서에 유지한다.
 - `ChatRetrievalSourcesPostgresIntegrationTest`는 실제 PostgreSQL/Flyway 및 인용·파기 경계를 검사한다. `GH240_AI_CHECKOUT`을 명시하면 Python `tests/support/chat_retrieval_http_client.py`와 실제 HTTP로 start→인용 등록→finish를 검증한다. 합성 원고/S3 대역이며 실제 모델 품질이나 운영 배포 검증이 아니다.
+
+
+## 일회성 작품 대화 (#241)
+
+- `docs/chat-sessions-v1.md`를 Java/AI/Front에 동기화한다. 명시적 종료 또는 마지막 질문/답변 후 2시간 만료이며 읽기/탭 닫힘은 TTL을 바꾸지 않는다.
+- 세션 종료는 본문·인용 삭제와 새 호출/게시 차단을 소유하고 기존 실행 원장의 늦은 정산은 유지한다. 원문 무효화와 작품/회원 파기에 같은 경계를 적용한다.
+- 과거 대화는 지칭 해석용 비신뢰 문맥이다. 최대 6턴/답변 1,000/전체 8,000 UTF-16 단위와 생략 안내를 유지하고 이번 요청의 RDB·근거를 다시 조회한다. 사용자 입력의 세션/작품 ID를 권한으로 신뢰하지 않는다.
+- Front는 생성 SDK를 사용하고 본문을 URL/localStorage/sessionStorage에 저장하지 않는다. 인증 세대·작품·세션 캐시 분리와 이탈 후 늦은 응답 폐기를 유지한다.
+- 합성 모델 출력 기반 로컬 연결 테스트와 실제 모델 품질 측정을 구분한다. 기존 기능 플래그는 기본 OFF, 운영 활성화/백필은 별도다.
