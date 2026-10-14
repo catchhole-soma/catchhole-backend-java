@@ -13,8 +13,11 @@ public interface ChatRunRepository extends JpaRepository<ChatRun, UUID> {
 
     List<ChatRun> findAllByQuestionSessionId(UUID sessionId);
 
-    boolean existsByQuestionSessionIdAndStateInAndDeadlineAfter(
-            UUID session, Collection<ChatState> states, Instant now);
+    @Query(
+            "select (count(r) > 0) from ChatRun r where r.question.session.id = :session and"
+                + " ((r.state in :states and r.deadline > :now) or r.state ="
+                + " org.monitoring.catchholebackend.domain.chat.type.ChatState.SETTLEMENT_PENDING)")
+    boolean existsBlockingSessionRun(UUID session, Collection<ChatState> states, Instant now);
 
     long countByQuestionIsNotNullAndState(ChatState state);
 

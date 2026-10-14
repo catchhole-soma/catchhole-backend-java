@@ -224,8 +224,8 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     }
 
     private void idle(ChatSession s) {
-        if (runs.existsByQuestionSessionIdAndStateInAndDeadlineAfter(
-                s.getId(), IN_FLIGHT, Instant.now())) throw new AppException(CHAT_SESSION_BUSY);
+        if (runs.existsBlockingSessionRun(s.getId(), IN_FLIGHT, Instant.now()))
+            throw new AppException(CHAT_SESSION_BUSY);
     }
 
     private PageRequest page(int page, int size) {
