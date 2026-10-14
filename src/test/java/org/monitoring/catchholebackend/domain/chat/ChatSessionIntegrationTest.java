@@ -7,12 +7,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import jakarta.persistence.EntityManager;
 
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.monitoring.catchholebackend.domain.aitoken.repository.*;
 import org.monitoring.catchholebackend.domain.aitoken.type.*;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.chat.dto.ChatContract.*;
 import org.monitoring.catchholebackend.domain.chat.repository.*;
 import org.monitoring.catchholebackend.domain.chat.service.*;
+import org.monitoring.catchholebackend.domain.chat.type.ChatState;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.settingtool.dto.*;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
@@ -148,6 +151,84 @@ class ChatSessionIntegrationTest {
         assertThatThrownBy(() -> submit(id, "두번째 질문"))
                 .isInstanceOf(AppException.class)
                 .hasMessageContaining("앞선 답변");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    @DisplayName("정산 대기는 실행 기한 이후에도 새 질문·재시도를 막고 정산 완료 후 허용한다")
+    void settlementBlocksUntilReported(boolean expired, boolean retry) {
+        var id = session();
+        var failed = submit(id, "실패할 이전 질문");
+        var prior = service.dispatch(failed.attemptId());
+        var priorRunner = UUID.randomUUID();
+        service.start(failed.attemptId(), prior.capability(), priorRunner);
+        service.finish(
+                failed.attemptId(),
+                prior.capability(),
+                priorRunner,
+                new Finish(null, Failure.PROVIDER_FAILURE));
+
+        var pending = submit(id, "정산을 기다리는 질문");
+        var dispatch = service.dispatch(pending.attemptId());
+        var runner = UUID.randomUUID();
+        var call = UUID.randomUUID();
+        service.start(pending.attemptId(), dispatch.capability(), runner);
+        service.reserve(
+                pending.attemptId(),
+                dispatch.capability(),
+                runner,
+                new Reserve(call, AiTokenPurpose.CHAT_ANSWER, "fake", 100));
+        service.finish(
+                pending.attemptId(),
+                dispatch.capability(),
+                runner,
+                new Finish(new Result(Outcome.ANSWER, "답변", List.of(), List.of()), null));
+        if (expired) {
+            tx.executeWithoutResult(
+                    s ->
+                            ReflectionTestUtils.setField(
+                                    runs.findById(pending.attemptId()).orElseThrow(),
+                                    "deadline",
+                                    Instant.now().minusSeconds(1)));
+        }
+        assertThat(runs.findById(pending.attemptId()).orElseThrow().getState())
+                .isEqualTo(ChatState.SETTLEMENT_PENDING);
+        java.util.function.Supplier<View> next =
+                () ->
+                        retry
+                                ? service.retry(
+                                        member,
+                                        work,
+                                        failed.questionId(),
+                                        new Retry(failed.attemptId()))
+                                : submit(id, "다음 질문");
+        assertThatThrownBy(next::get)
+                .isInstanceOf(AppException.class)
+                .hasMessageContaining("앞선 답변");
+
+        service.report(
+                pending.attemptId(),
+                dispatch.capability(),
+                runner,
+                call,
+                new Usage(ReportKind.SETTLE, 20L, 0L, 5L, AiTokenUsageOutcome.SUCCESS));
+        assertThat(runs.findById(pending.attemptId()).orElseThrow().getState())
+                .isEqualTo(ChatState.SUCCEEDED);
+        assertThat(next.get().state()).isEqualTo(ChatState.QUEUED);
+    }
+
+    @Test
+    @DisplayName("실행 기한을 넘긴 대기 질문은 새 질문 접수를 막지 않는다")
+    void expiredQueuedQuestionDoesNotBlock() {
+        var id = session();
+        var expired = submit(id, "기한을 넘긴 질문");
+        tx.executeWithoutResult(
+                s ->
+                        ReflectionTestUtils.setField(
+                                runs.findById(expired.attemptId()).orElseThrow(),
+                                "deadline",
+                                Instant.now().minusSeconds(1)));
+        assertThat(submit(id, "다음 질문").state()).isEqualTo(ChatState.QUEUED);
     }
 
     @Test
@@ -477,7 +558,7 @@ class ChatSessionIntegrationTest {
                                 passwordEncoder.encode("test-password")));
         jdbc.execute(
                 "CREATE TABLE IF NOT EXISTS episode_chunks (id UUID PRIMARY KEY, episode_id UUID"
-                    + " NOT NULL)");
+                        + " NOT NULL)");
         org.mockito.Mockito.when(
                         storage.purgePrefixes(org.mockito.ArgumentMatchers.anyCollection()))
                 .thenReturn(
