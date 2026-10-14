@@ -55,6 +55,11 @@ public class ChatToolAccessImpl implements ChatToolAccess {
                                 SettingTool.CHARACTER_EVIDENCE,
                                 SettingTool.WORLD_EVIDENCE)
                         .contains(q.tool());
+        // Unranged field catalogs also serve current-value lookup. Only explicitly
+        // ranged, subject-specific catalogs use the execution's source boundary.
+        filtered |= q.targetId() != null
+                && (q.tool() == SettingTool.CHARACTER_FIELDS || q.tool() == SettingTool.WORLD_FIELDS)
+                && (from != null || to != null);
         if (filtered) {
             if (question.getEpisodeFrom() != null) {
                 if (from != null && from < question.getEpisodeFrom())
@@ -81,7 +86,9 @@ public class ChatToolAccessImpl implements ChatToolAccess {
                         from,
                         to,
                         q.page(),
-                        q.size()));
+                        q.size(),
+                        q.factType(),
+                        q.valueEquals()));
     }
 
     @Transactional

@@ -29,6 +29,7 @@ import org.monitoring.catchholebackend.domain.settingtool.dto.SettingToolRespons
 import org.monitoring.catchholebackend.domain.settingtool.dto.SettingToolResponse.Item;
 import org.monitoring.catchholebackend.domain.settingtool.mapper.SettingToolMapper;
 import org.monitoring.catchholebackend.domain.settingtool.processor.SettingEvidenceReader;
+import org.monitoring.catchholebackend.domain.settingtool.processor.SettingToolScalarValue;
 import org.monitoring.catchholebackend.domain.settingtool.processor.WorldSettingToolSources;
 import org.monitoring.catchholebackend.domain.settingtool.processor.WorldSettingToolSources.Path;
 import org.monitoring.catchholebackend.domain.settingtool.repository.SettingToolRepository;
@@ -74,21 +75,24 @@ public class SettingToolServiceImpl implements SettingToolService {
         // 현재 설정과 source를 여러 SQL로 읽는 동안 version이 달라지면 혼합 응답 대신 재조회를 요구한다.
         WorkCharacter character = switch (request.tool()) {
             case CHARACTER_CURRENT, CHARACTER_HISTORY -> character(workId, request.targetId());
+            case CHARACTER_FIELDS -> request.targetId() == null ? null : character(workId, request.targetId());
             case CHARACTER_EVIDENCE -> repository.fact(workId, request.targetId()).orElseThrow(this::notFound).getWorkCharacter();
             default -> null;
         };
         WorldSetting world = switch (request.tool()) {
-            case WORLD_CURRENT, WORLD_HISTORY -> world(workId, request.targetId());
+            case WORLD_CURRENT, WORLD_HISTORY, WORLD_FIELDS -> world(workId, request.targetId());
             case WORLD_EVIDENCE -> repository.worldEvidence(workId, request.targetId()).orElseThrow(this::notFound).getTargetWorldSetting();
             default -> null;
         };
         SettingToolResponse result = switch (request.tool()) {
-            case FIND_CHARACTERS -> response(request, repository.characters(workId, request).map(mapper::toCharacterResponse), List.of());
+            case FIND_CHARACTERS -> findCharacters(workId, request);
             case FIND_WORLD_SETTINGS -> response(request, repository.worlds(workId, request).map(mapper::toWorldResponse), List.of());
             case CHARACTER_CURRENT -> characterCurrent(workId, request);
             case CHARACTER_HISTORY -> characterHistory(workId, request);
+            case CHARACTER_FIELDS -> characterFields(workId, request);
             case WORLD_CURRENT -> worldCurrent(workId, request);
             case WORLD_HISTORY -> worldHistory(workId, request);
+            case WORLD_FIELDS -> worldFields(workId, request);
             case CHARACTER_EVIDENCE -> characterEvidence(workId, request);
             case WORLD_EVIDENCE -> worldEvidence(workId, request);
         };
@@ -97,9 +101,60 @@ public class SettingToolServiceImpl implements SettingToolService {
         return result;
     }
 
+    private SettingToolResponse findCharacters(UUID workId, SettingToolQuery request) {
+        if (request.valueEquals() == null) {
+            return response(request, repository.characters(workId, request).map(mapper::toCharacterResponse), List.of());
+        }
+        var candidates = repository.charactersForCurrentLookup(workId, request.query());
+        var slot = new CharacterSnapshotSlot(request.factType(), request.settingKey());
+        var matches = candidates.stream().filter(character ->
+                SettingToolScalarValue.matches(snapshots.read(character).get(slot), request.valueEquals())).toList();
+        var result = response(request, page(slice(matches, request).stream().map(mapper::toCharacterResponse).toList(),
+                matches.size(), request), List.of());
+        repository.assertCharactersUnchanged(candidates);
+        return result;
+    }
+
+    private SettingToolResponse characterFields(UUID workId, SettingToolQuery request) {
+        boolean workWide = request.targetId() == null;
+        var subjects = workWide ? repository.charactersForCurrentLookup(workId, null)
+                : List.of(character(workId, request.targetId()));
+        var slots = new HashSet<CharacterSnapshotSlot>();
+        if (request.episodeFrom() == null && request.episodeTo() == null) {
+            subjects.forEach(subject -> slots.addAll(snapshots.read(subject).keySet()));
+        }
+        if (!workWide) slots.addAll(repository.characterHistoryFields(workId, request));
+        var activeSchemas = schemas.findAllActiveForWork(workId);
+        var selected = slots.stream().filter(slot -> request.factType() == null || request.factType() == slot.factType())
+                .sorted(Comparator.comparing((CharacterSnapshotSlot slot) -> slot.factType().name())
+                        .thenComparing(CharacterSnapshotSlot::factKey)).toList();
+        UUID subjectId = workWide ? workId : subjects.getFirst().getId();
+        String subjectName = workWide ? "작품의 인물 설정" : subjects.getFirst().getName();
+        Long version = workWide ? null : subjects.getFirst().getSnapshotVersion();
+        var items = slice(selected, request).stream().map(slot -> mapper.toFieldResponse(subjectId, subjectName,
+                slot.factType().name(), null, slot.factKey(), displayNames.resolve(slot.factType(), slot.factKey(), null, activeSchemas),
+                version)).toList();
+        if (workWide) repository.assertCharactersUnchanged(subjects);
+        return response(request, page(items, selected.size(), request), List.of());
+    }
+
+    private SettingToolResponse worldFields(UUID workId, SettingToolQuery request) {
+        var world = world(workId, request.targetId());
+        var paths = new HashSet<>(repository.worldHistoryFields(workId, request));
+        if (request.episodeFrom() == null && request.episodeTo() == null) {
+            world.getProperties().forEach(property -> paths.add(new Path(property.scopeName(), property.settingName())));
+        }
+        var selected = paths.stream().sorted(Comparator.comparing(Path::scope, Comparator.nullsFirst(String::compareTo))
+                .thenComparing(Path::key)).toList();
+        var items = slice(selected, request).stream().map(path -> mapper.toFieldResponse(world.getId(), world.getSubjectName(),
+                world.getCategory().name(), path.scope(), path.key(), path.key(), world.getVersion())).toList();
+        return response(request, page(items, selected.size(), request), List.of());
+    }
+
     private SettingToolResponse characterCurrent(UUID workId, SettingToolQuery request) {
         var character = character(workId, request.targetId());
         var selected = snapshots.read(character).keySet().stream()
+                .filter(slot -> request.factType() == null || request.factType() == slot.factType())
                 .filter(slot -> request.settingKey() == null || request.settingKey().equals(slot.factKey()))
                 .sorted(Comparator.comparing((CharacterSnapshotSlot slot) -> slot.factType().name()).thenComparing(CharacterSnapshotSlot::factKey)).toList();
         var pageSlots = slice(selected, request);
@@ -243,14 +298,24 @@ public class SettingToolServiceImpl implements SettingToolService {
         boolean evidence = request.tool() == SettingTool.CHARACTER_EVIDENCE || request.tool() == SettingTool.WORLD_EVIDENCE;
         boolean current = request.tool() == SettingTool.CHARACTER_CURRENT || request.tool() == SettingTool.WORLD_CURRENT;
         boolean world = request.tool() == SettingTool.WORLD_CURRENT || request.tool() == SettingTool.WORLD_HISTORY;
-        if (find != (request.targetId() == null) || !find && request.query() != null
-                || (find || evidence) && request.settingKey() != null
+        boolean characterFields = request.tool() == SettingTool.CHARACTER_FIELDS;
+        boolean fields = characterFields || request.tool() == SettingTool.WORLD_FIELDS;
+        boolean condition = request.tool() == SettingTool.FIND_CHARACTERS && request.valueEquals() != null;
+        if ((!characterFields && find != (request.targetId() == null)) || !find && request.query() != null
+                || ((find && !condition) || evidence || fields) && request.settingKey() != null
                 || request.scopeName() != null && (!world || request.settingKey() == null)
-                || (current || find) && (request.episodeFrom() != null || request.episodeTo() != null)
+                || (current || find || characterFields && request.targetId() == null)
+                    && (request.episodeFrom() != null || request.episodeTo() != null)
                 || request.episodeFrom() != null && request.episodeTo() != null && request.episodeFrom() > request.episodeTo()
                 || evidence && request.page() != 0
                 || request.settingKey() != null && request.settingKey().isBlank()
-                || request.scopeName() != null && request.scopeName().isBlank()) {
+                || request.scopeName() != null && request.scopeName().isBlank()
+                || request.valueEquals() != null && (!condition || request.valueEquals().isBlank()
+                    || request.settingKey() == null || request.factType() == null)) {
+            throw new AppException(CommonErrorCode.REQUEST_INVALID_ARGUMENT);
+        }
+        if (request.factType() != null && request.tool() != SettingTool.CHARACTER_CURRENT
+                && request.tool() != SettingTool.CHARACTER_HISTORY && !characterFields && !condition) {
             throw new AppException(CommonErrorCode.REQUEST_INVALID_ARGUMENT);
         }
     }

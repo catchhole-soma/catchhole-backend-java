@@ -13,7 +13,9 @@ import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshotSource;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSlot;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.settingtool.dto.SettingToolQuery;
+import org.monitoring.catchholebackend.domain.settingtool.processor.WorldSettingToolSources.Path;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
 import org.monitoring.catchholebackend.global.exception.AppException;
@@ -87,6 +89,60 @@ public class SettingToolRepository {
         return page(WorkCharacter.class, "c", from, from, "lower(c.name), c.id", params, request);
     }
 
+    /** Snapshot의 기존 scalar 해석을 재사용하기 위한 전체 활성 목록. 조건 적용 이전에 페이지로 자르지 않는다. */
+    public List<WorkCharacter> charactersForCurrentLookup(UUID workId, String nameQuery) {
+        String hql = "select c from WorkCharacter c where c.work.id = :workId and c.status = 'ACTIVE'";
+        boolean named = nameQuery != null && !nameQuery.isBlank();
+        if (named) hql += " and lower(c.name) like :query escape '!'";
+        var query = entityManager.createQuery(hql + " order by lower(c.name), c.id", WorkCharacter.class)
+                .setParameter("workId", workId);
+        if (named) query.setParameter("query", like(nameQuery));
+        return query.getResultList();
+    }
+
+    public void assertCharactersUnchanged(List<WorkCharacter> characters) {
+        // 한 번에 너무 많은 IN 변수를 만들지 않고 대상별 N+1 version 조회도 피한다.
+        for (int offset = 0; offset < characters.size(); offset += 500) {
+            var batch = characters.subList(offset, Math.min(offset + 500, characters.size()));
+            var versions = new HashMap<UUID, Long>();
+            entityManager.createQuery("""
+                    select c.id, c.snapshotVersion from WorkCharacter c where c.id in :ids
+                    and c.status = 'ACTIVE' and c.work.lifecycleStatus = 'ACTIVE'
+                    """, Object[].class).setParameter("ids", batch.stream().map(WorkCharacter::getId).toList())
+                    .getResultList().forEach(row -> versions.put((UUID) row[0], (Long) row[1]));
+            for (var character : batch) {
+                if (!Long.valueOf(character.getSnapshotVersion()).equals(versions.get(character.getId()))) {
+                    throw new AppException(CommonErrorCode.CONFLICT);
+                }
+            }
+        }
+    }
+
+    public List<CharacterSnapshotSlot> characterHistoryFields(UUID workId, SettingToolQuery request) {
+        var params = params(workId);
+        params.put("targetId", request.targetId());
+        String from = FACT_FROM + " and c.id = :targetId";
+        if (request.factType() != null) {
+            from += " and f.factType = :factType";
+            params.put("factType", request.factType());
+        }
+        from += range("coalesce(aj.sourceEpisodeNo, fj.sourceEpisodeNo, e.episodeNo, ce.episodeNo)", request, params);
+        var query = entityManager.createQuery("select distinct f.factType, f.factKey " + from, Object[].class);
+        params.forEach(query::setParameter);
+        return query.getResultList().stream().map(row -> new CharacterSnapshotSlot(
+                (CharacterFactType) row[0], (String) row[1])).toList();
+    }
+
+    public List<Path> worldHistoryFields(UUID workId, SettingToolQuery request) {
+        var params = params(workId);
+        params.put("targetId", request.targetId());
+        String from = WORLD_FROM + " and w.id = :targetId"
+                + range("coalesce(aj.sourceEpisodeNo, e.episodeNo)", request, params);
+        var query = entityManager.createQuery("select distinct c.finalScopeName, c.finalSettingName " + from, Object[].class);
+        params.forEach(query::setParameter);
+        return query.getResultList().stream().map(row -> new Path((String) row[0], (String) row[1])).toList();
+    }
+
     public Page<WorldSetting> worlds(UUID workId, SettingToolQuery request) {
         var params = params(workId);
         String from = "from WorldSetting w where w.work.id = :workId";
@@ -101,6 +157,10 @@ public class SettingToolRepository {
         var params = params(workId);
         params.put("targetId", request.targetId());
         String from = FACT_FROM + " and c.id = :targetId";
+        if (request.factType() != null) {
+            from += " and f.factType = :factType";
+            params.put("factType", request.factType());
+        }
         if (request.settingKey() != null) {
             from += " and f.factKey = :key";
             params.put("key", request.settingKey());

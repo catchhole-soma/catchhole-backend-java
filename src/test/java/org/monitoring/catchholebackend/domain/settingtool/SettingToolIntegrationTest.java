@@ -194,6 +194,16 @@ class SettingToolIntegrationTest {
         }
     }
 
+    @Test @DisplayName("값 없는 설정 경로 메타데이터의 실제 HTTP 응답은 공통 계약 fixture와 일치한다")
+    void matchesFieldMetadataContract() throws Exception {
+        fact("10", true);
+        var actual = postQuery(work, request(SettingTool.CHARACTER_FIELDS, character.getId()), 200);
+        String normalized = actual.toString().replace(character.getId().toString(), "00000000-0000-0000-0000-000000000002");
+        try (var fixture = getClass().getResourceAsStream("/contracts/setting-tool-fields-v1.json")) {
+            assertThat(json.readTree(normalized)).isEqualTo(json.readTree(fixture));
+        }
+    }
+
     @Test @DisplayName("청크 ID는 실제 존재와 같은 회차 소속을 검증하며 타 작품 청크는 거절한다")
     void validatesLooseChunkReference() throws Exception {
         var fact = fact("10", true);
@@ -294,6 +304,167 @@ class SettingToolIntegrationTest {
         var result = postQuery(work, request(SettingTool.FIND_CHARACTERS, null), 200);
         assertThat(result.at("/items/totalElements").asInt()).isEqualTo(1);
         assertThat(result.at("/items/content/0/subjectName").asText()).isEqualTo("아리아");
+    }
+
+    @Test @DisplayName("설정 유형과 저장 경로는 페이지 제한 전에 적용해 많은 다른 설정 뒤의 값과 전체 이력을 조회한다")
+    void filtersTypeAndKeyBeforePagination() throws Exception {
+        var entries = new LinkedHashMap<CharacterSnapshotSlot, CharacterSnapshotEntry>();
+        for (int i = 0; i < 65; i++) {
+            String key = "item.도구" + i;
+            entries.put(new CharacterSnapshotSlot(CharacterFactType.ITEM, key),
+                    snapshots.entry(CharacterFactType.ITEM, key, "도구" + i, nodes.textNode("도구" + i)));
+            save(CharacterFact.createManual(character, CharacterFactType.ITEM, key, "도구" + i, null));
+        }
+        var levelSlot = new CharacterSnapshotSlot(CharacterFactType.LEVEL, "level");
+        entries.put(levelSlot, snapshots.entry(CharacterFactType.LEVEL, "level", "8", nodes.numberNode(8)));
+        var statSlot = new CharacterSnapshotSlot(CharacterFactType.STAT, "stats.resolve");
+        entries.put(statSlot, snapshots.entry(CharacterFactType.STAT, statSlot.factKey(), "31", nodes.numberNode(31)));
+        snapshots.replace(character, entries);
+        for (int i = 1; i <= 6; i++) {
+            save(CharacterFact.createManual(character, CharacterFactType.LEVEL, "level", String.valueOf(i), nodes.numberNode(i)));
+        }
+        var current = new SettingToolQuery(SettingTool.CHARACTER_CURRENT, character.getId(), null, null, null,
+                null, null, 0, 20, CharacterFactType.LEVEL);
+        var currentData = postQuery(work, current, 200);
+        assertThat(currentData.at("/items/totalElements").asInt()).isEqualTo(1);
+        assertThat(currentData.at("/items/content/0/value").asText()).isEqualTo("8");
+        var history = new SettingToolQuery(SettingTool.CHARACTER_HISTORY, character.getId(), null, "level", null,
+                null, null, 0, 4, CharacterFactType.LEVEL);
+        var first = postQuery(work, history, 200);
+        assertThat(first.at("/items/totalElements").asInt()).isEqualTo(6);
+        assertThat(first.at("/items/hasNext").asBoolean()).isTrue();
+        assertThat(first.at("/items/content")).hasSize(4);
+        var second = postQuery(work, new SettingToolQuery(SettingTool.CHARACTER_HISTORY, character.getId(), null,
+                "level", null, null, null, 1, 4, CharacterFactType.LEVEL), 200);
+        assertThat(second.at("/items/content")).hasSize(2);
+        assertThat(second.at("/items/hasNext").asBoolean()).isFalse();
+        var mismatch = postQuery(work, new SettingToolQuery(SettingTool.CHARACTER_CURRENT, character.getId(), null,
+                statSlot.factKey(), null, null, null, 0, 20, CharacterFactType.LEVEL), 200);
+        assertThat(mismatch.at("/items/content")).isEmpty();
+        verifyNoInteractions(storage);
+    }
+
+    @Test @DisplayName("인물 설정 유형은 세계관·근거 도구에 적용할 수 없다")
+    void rejectsFactTypeOutsideCharacterSettings() throws Exception {
+        var world = save(WorldSetting.create(work, WorldSettingCategory.POWER_SYSTEM, "주문", null, "소모량", "10"));
+        postQuery(work, new SettingToolQuery(SettingTool.WORLD_CURRENT, world.getId(), null, null, null,
+                null, null, 0, 20, CharacterFactType.STAT), 400);
+        postQuery(work, new SettingToolQuery(SettingTool.CHARACTER_EVIDENCE, UUID.randomUUID(), null, null, null,
+                null, null, 0, 20, CharacterFactType.STAT), 400);
+    }
+
+    @Test @DisplayName("설정 경로 탐색은 값 없이 현재와 삭제된 확정 이력을 합치고 미확정·타 작품 경로는 제외한다")
+    void discoversObservedFieldsWithoutValuesOrUnconfirmedPaths() throws Exception {
+        fact("과거 확정값", true).getSettingCandidate()
+                .recordConfirmedApplicationMode(CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+        var pending = fact("미확정 비밀값", false);
+        ReflectionTestUtils.setField(pending, "factKey", "stats.pending");
+        var foreignEpisode = save(Episode.create(otherWork, null, 1, "다른 회차", "foreign-key", null, null, 10));
+        var foreignCandidate = save(SettingCandidate.create(otherWork, foreignEpisode, null, null, SettingEntityType.CHARACTER,
+                character.getName(), "stats.foreign", "다른 작품 비밀값", SettingValueType.STRING, null, null, BigDecimal.ONE, null));
+        foreignCandidate.confirm();
+        save(CharacterFact.create(character, foreignCandidate, CharacterFactType.STAT, "stats.foreign", "다른 작품 비밀값",
+                "비밀값", null, foreignEpisode, null, null, BigDecimal.ONE, 1));
+        var currentSlot = new CharacterSnapshotSlot(CharacterFactType.SKILL, "skill.비행");
+        snapshots.replace(character, Map.of(currentSlot, snapshots.entry(currentSlot.factType(), currentSlot.factKey(),
+                "현재 비행 설명", nodes.objectNode().put("name", "비행"))));
+        var response = postQuery(work, request(SettingTool.CHARACTER_FIELDS, character.getId()), 200);
+        assertThat(response.at("/items/totalElements").asInt()).isEqualTo(2);
+        assertThat(response.at("/items/content")).allSatisfy(row -> {
+            assertThat(row.path("kind").asText()).isEqualTo("FIELD");
+            assertThat(row.path("value").isNull()).isTrue();
+            assertThat(row.path("structuredValueJson").isNull()).isTrue();
+            assertThat(row.path("sources")).isEmpty();
+            assertThat(row.path("evidence").isNull()).isTrue();
+        });
+        assertThat(response.toString()).doesNotContain("stats.pending", "stats.foreign", "현재 비행 설명", "과거 확정값");
+        var ranged = new SettingToolQuery(SettingTool.CHARACTER_FIELDS, character.getId(), null, null, null, 1, 1, 0, 20);
+        assertThat(postQuery(work, ranged, 200).at("/items/content")).hasSize(1);
+        assertThat(postQuery(work, ranged, 200).at("/items/content/0/settingKey").asText()).isEqualTo("stats.mana");
+        var workFields = postQuery(work, request(SettingTool.CHARACTER_FIELDS, null), 200);
+        assertThat(workFields.at("/items/content")).hasSize(1);
+        assertThat(workFields.at("/items/content/0/subjectId").asText()).isEqualTo(work.getId().toString());
+        character.archive();
+        assertThat(postQuery(work, request(SettingTool.CHARACTER_FIELDS, null), 200).at("/items/content")).isEmpty();
+        postQuery(work, request(SettingTool.CHARACTER_FIELDS, character.getId()), 404);
+        postQuery(otherWork, request(SettingTool.CHARACTER_FIELDS, null), 404);
+        verifyNoInteractions(storage);
+    }
+
+    @Test @DisplayName("세계관 설정 경로 탐색은 동명 scope를 구별하고 삭제된 경로와 회차 범위를 보존한다")
+    void discoversWorldFieldsWithoutCollapsingScopes() throws Exception {
+        var world = save(WorldSetting.create(work, WorldSettingCategory.POWER_SYSTEM, "술법", "기본", "소모 마력", "10"));
+        world.addProperty("고급", "소모 마력", "50");
+        worldCandidate(world, "옛 체계", "7", true, WorldSettingOperation.ADD);
+        var response = postQuery(work, request(SettingTool.WORLD_FIELDS, world.getId()), 200);
+        assertThat(response.at("/items/content")).hasSize(3);
+        assertThat(response.at("/items/content")).allSatisfy(row -> {
+            assertThat(row.path("kind").asText()).isEqualTo("FIELD");
+            assertThat(row.path("value").isNull()).isTrue();
+            assertThat(row.path("settingKey").asText()).isEqualTo("소모 마력");
+        });
+        var ranged = new SettingToolQuery(SettingTool.WORLD_FIELDS, world.getId(), null, null, null, 1, 1, 0, 20);
+        var fields = postQuery(work, ranged, 200).at("/items/content");
+        assertThat(fields).hasSize(1);
+        assertThat(fields.get(0).path("scopeName").asText()).isEqualTo("옛 체계");
+        postQuery(work, request(SettingTool.WORLD_FIELDS, null), 400);
+        verifyNoInteractions(storage);
+    }
+
+    @Test @DisplayName("인물 조건 검색은 현재 scalar 값을 기준으로 필터 후 페이지를 나누고 이름·유형·작품 경계를 유지한다")
+    void findsCharactersByCurrentScalarBeforePagination() throws Exception {
+        for (int i = 0; i < 45; i++) {
+            save(WorkCharacter.create(work, "가먼저" + i, null, null, null,
+                    nodes.objectNode().put("profile.소속", "해안단"), null, null, null, null, null));
+        }
+        var affiliation = new CharacterSnapshotSlot(CharacterFactType.PROFILE, "profile.소속");
+        snapshots.replace(character, Map.of(affiliation,
+                snapshots.entry(affiliation.factType(), affiliation.factKey(), "산악단 일원", nodes.textNode("산악단"))));
+        save(CharacterFact.createManual(character, CharacterFactType.PROFILE, affiliation.factKey(), "해안단", nodes.textNode("해안단")));
+        var second = save(WorkCharacter.create(work, "하린", null, null, null,
+                nodes.objectNode().set(affiliation.factKey(), nodes.objectNode().put("value", "산악단")),
+                null, null, null, null, null));
+        var archived = save(WorkCharacter.create(work, "보관 인물", null, null, null,
+                nodes.objectNode().put(affiliation.factKey(), "산악단"), null, null, null, null, null));
+        archived.archive();
+        save(WorkCharacter.create(otherWork, "다른 작품", null, null, null,
+                nodes.objectNode().put(affiliation.factKey(), "산악단"), null, null, null, null, null));
+        var query = new SettingToolQuery(SettingTool.FIND_CHARACTERS, null, null, affiliation.factKey(), null,
+                null, null, 0, 1, affiliation.factType(), " 산악단 ");
+        var firstPage = postQuery(work, query, 200);
+        assertThat(firstPage.at("/items/totalElements").asInt()).isEqualTo(2);
+        assertThat(firstPage.at("/items/hasNext").asBoolean()).isTrue();
+        var pageTwo = postQuery(work, new SettingToolQuery(SettingTool.FIND_CHARACTERS, null, null, affiliation.factKey(),
+                null, null, null, 1, 1, affiliation.factType(), "산악단"), 200);
+        // H2와 PostgreSQL의 한글 collation 순서는 다를 수 있지만 페이지 간 누락/중복은 없어야 한다.
+        assertThat(List.of(firstPage.at("/items/content/0/subjectId").asText(), pageTwo.at("/items/content/0/subjectId").asText()))
+                .containsExactlyInAnyOrder(character.getId().toString(), second.getId().toString());
+        assertThat(pageTwo.at("/items/hasNext").asBoolean()).isFalse();
+        var byName = postQuery(work, new SettingToolQuery(SettingTool.FIND_CHARACTERS, null, "하린", affiliation.factKey(),
+                null, null, null, 0, 20, affiliation.factType(), "산악단"), 200);
+        assertThat(byName.at("/items/totalElements").asInt()).isEqualTo(1);
+        var wrongType = postQuery(work, new SettingToolQuery(SettingTool.FIND_CHARACTERS, null, null, affiliation.factKey(),
+                null, null, null, 0, 20, CharacterFactType.STAT, "산악단"), 200);
+        assertThat(wrongType.at("/items/content")).isEmpty();
+        snapshots.replace(character, Map.of());
+        assertThat(postQuery(work, query, 200).at("/items/totalElements").asInt()).isEqualTo(1);
+        verifyNoInteractions(storage);
+    }
+
+    @Test @DisplayName("조건 검색과 설정 경로 탐색의 불완전하거나 금지된 인자 조합을 거절한다")
+    void rejectsIncompleteLookupConditions() throws Exception {
+        postQuery(work, new SettingToolQuery(SettingTool.FIND_CHARACTERS, null, null, null, null,
+                null, null, 0, 20, CharacterFactType.PROFILE, "숲"), 400);
+        postQuery(work, new SettingToolQuery(SettingTool.FIND_CHARACTERS, null, null, "profile.home", null,
+                null, null, 0, 20, null, "숲"), 400);
+        postQuery(work, new SettingToolQuery(SettingTool.CHARACTER_CURRENT, character.getId(), null, "profile.home", null,
+                null, null, 0, 20, CharacterFactType.PROFILE, "숲"), 400);
+        postQuery(work, new SettingToolQuery(SettingTool.CHARACTER_FIELDS, null, null, null, null,
+                1, 2, 0, 20), 400);
+        postQuery(work, new SettingToolQuery(SettingTool.CHARACTER_FIELDS, character.getId(), null, "profile.home", null,
+                null, null, 0, 20), 400);
+        postQuery(work, new SettingToolQuery(SettingTool.FIND_WORLD_SETTINGS, null, null, null, null,
+                null, null, 0, 20, CharacterFactType.PROFILE), 400);
     }
 
     @Test @DisplayName("현재 출처가 20개를 넘으면 표시값은 최신을 유지하고 잘림을 명시한다")

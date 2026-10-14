@@ -27,6 +27,12 @@ public class SettingToolMapper {
                 character.getName(), null, null, null, null, null, character.getSnapshotVersion(), null, Origin.UNKNOWN, null, null, List.of(), null);
     }
 
+    public Item toFieldResponse(UUID subjectId, String subjectName, String category, String scope, String key,
+                                String displayName, Long version) {
+        return item("FIELD", null, subjectId, subjectName, category, scope, key, displayName,
+                null, null, null, null, null, version, null, Origin.UNKNOWN, null, null, List.of(), null);
+    }
+
     public Item toWorldResponse(WorldSetting world) {
         return item("WORLD_SETTING", world.getId(), world.getId(), world.getSubjectName(), world.getCategory().name(),
                 null, null, world.getSubjectName(), null, null, null, null, null, world.getVersion(), null, Origin.UNKNOWN, null, null, List.of(), null);

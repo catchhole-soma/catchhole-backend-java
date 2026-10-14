@@ -5,20 +5,34 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import jakarta.persistence.EntityManager;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 
 import org.junit.jupiter.api.*;
 import org.monitoring.catchholebackend.domain.aitoken.repository.*;
 import org.monitoring.catchholebackend.domain.aitoken.type.*;
+import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
+import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessor;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSlot;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.chat.dto.ChatContract.*;
 import org.monitoring.catchholebackend.domain.chat.repository.*;
 import org.monitoring.catchholebackend.domain.chat.service.*;
 import org.monitoring.catchholebackend.domain.chat.type.ChatState;
+import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.settingtool.dto.*;
 import org.monitoring.catchholebackend.domain.settingtool.type.SettingTool;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingConsolidationStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -27,9 +41,11 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.*;
+import java.math.BigDecimal;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -55,6 +71,7 @@ class ChatExecutionIntegrationTest {
     @Autowired TransactionTemplate tx;
     @Autowired JwtTokenProvider tokens;
     @Autowired MockMvc mvc;
+    @Autowired CharacterSnapshotAccessor snapshots;
     @MockitoBean ChatDispatcher dispatcher;
     Long member;
     UUID work;
@@ -536,6 +553,148 @@ class ChatExecutionIntegrationTest {
                                         r.runner,
                                         new Finish(result, null)))
                 .isInstanceOf(AppException.class);
+    }
+
+    record LookupFixture(UUID character, UUID world) {}
+
+    LookupFixture lookupFixture() {
+        return tx.execute(status -> {
+            var w = em.find(Work.class, work);
+            var m = em.find(Member.class, member);
+            var nodes = JsonNodeFactory.instance;
+            var character = WorkCharacter.create(w, "세린", null, null, null, null, null, null, null, null, null);
+            em.persist(character);
+            var level = new CharacterSnapshotSlot(CharacterFactType.LEVEL, "level");
+            var sameKeyStat = new CharacterSnapshotSlot(CharacterFactType.STAT, "level");
+            var race = new CharacterSnapshotSlot(CharacterFactType.PROFILE, "profile.race");
+            var skill = new CharacterSnapshotSlot(CharacterFactType.SKILL, "skill.current");
+            snapshots.replace(character, Map.of(
+                    level, snapshots.entry(level.factType(), level.factKey(), "7", nodes.numberNode(7)),
+                    sameKeyStat, snapshots.entry(sameKeyStat.factType(), sameKeyStat.factKey(), "99", nodes.numberNode(99)),
+                    race, snapshots.entry(race.factType(), race.factKey(), "바바리안 전사", nodes.textNode("바바리안")),
+                    skill, snapshots.entry(skill.factType(), skill.factKey(), "현재 능력", nodes.textNode("현재 능력"))));
+            var other = WorkCharacter.create(w, "다른 인물", null, null, null, null, null, null, null, null, null);
+            em.persist(other);
+            snapshots.replace(other, Map.of(race, snapshots.entry(race.factType(), race.factKey(), "엘프", nodes.textNode("엘프"))));
+            var world = WorldSetting.create(w, WorldSettingCategory.POWER_SYSTEM, "술법", null, "current", "현재값");
+            em.persist(world);
+            for (int number : List.of(1, 3, 6)) {
+                var episode = Episode.create(w, null, number, number + "화", "chat-lookup-" + number, null, null, 10);
+                em.persist(episode);
+                em.persist(CharacterFact.create(character, null, CharacterFactType.SKILL, "skill.episode" + number,
+                        "과거 능력", "과거 능력", nodes.textNode("과거 능력"), episode, null, null, null, number));
+                if (number == 3) {
+                    for (var type : List.of(CharacterFactType.LEVEL, CharacterFactType.STAT)) {
+                        em.persist(CharacterFact.create(character, null, type, "level", "5", "5",
+                                nodes.numberNode(5), episode, null, null, null, number));
+                    }
+                }
+                var key = "episode" + number;
+                var job = AnalysisJob.create(w, null, episode, AnalysisJobType.SETTING_EXTRACTION);
+                em.persist(job);
+                var candidate = WorldSettingCandidate.create(w, episode, job, world.getCategory(), world.getSubjectName(),
+                        null, key, "과거값", nodes.arrayNode().add(nodes.objectNode().put("quote", "과거값")), BigDecimal.ONE, null);
+                em.persist(candidate);
+                candidate.startComparison();
+                candidate.completeComparison(world, WorldSettingConsolidationStatus.SINGLE, WorldSettingOperation.ADD,
+                        null, key, null, "과거값", "비교 완료", null, LocalDateTime.now());
+                candidate.markHistoryOnly();
+                candidate.confirm(WorldSettingOperation.ADD, world.getCategory(), world.getSubjectName(), null,
+                        key, "과거값", null, m, world);
+            }
+            return new LookupFixture(character.getId(), world.getId());
+        });
+    }
+
+    ResultActions queryTool(Running r, String body) throws Exception {
+        return mvc.perform(post("/api/internal/v1/chat-runs/" + r.view.attemptId() + "/tools")
+                .header("X-Internal-Api-Key", "chat-test-key")
+                .header("X-Chat-Capability", r.token)
+                .header("X-Chat-Runner", r.runner)
+                .contentType("application/json").content(body));
+    }
+
+    @Test
+    @DisplayName("실행별 도구 HTTP 경로는 현재값과 이력의 유형·key 필터를 페이지 전에 보존한다")
+    void scopedToolEndpointPreservesFactType() throws Exception {
+        var fixture = lookupFixture();
+        var r = start();
+        for (var tool : List.of("CHARACTER_CURRENT", "CHARACTER_HISTORY")) {
+            queryTool(r, """
+                    {"tool":"%s","targetId":"%s","factType":"LEVEL","settingKey":"level","page":0,"size":1}
+                    """.formatted(tool, fixture.character()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.items.totalElements").value(1))
+                    .andExpect(jsonPath("$.data.items.hasNext").value(false))
+                    .andExpect(jsonPath("$.data.items.content[0].category").value("LEVEL"));
+        }
+    }
+
+    @Test
+    @DisplayName("실행별 도구 HTTP 경로는 현재 scalar 조건과 이름의 AND 검색을 보존한다")
+    void scopedToolEndpointPreservesValueCondition() throws Exception {
+        var fixture = lookupFixture();
+        var r = start();
+        queryTool(r, """
+                {"tool":"FIND_CHARACTERS","factType":"PROFILE","settingKey":"profile.race","valueEquals":"바바리안","page":0,"size":1}
+                """)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.totalElements").value(1))
+                .andExpect(jsonPath("$.data.items.content[0].subjectId").value(fixture.character().toString()));
+        queryTool(r, """
+                {"tool":"FIND_CHARACTERS","query":"다른","factType":"PROFILE","settingKey":"profile.race","valueEquals":"바바리안","page":0,"size":20}
+                """)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.totalElements").value(0));
+    }
+
+    @Test
+    @DisplayName("실행별 대상 metadata의 명시 회차 범위는 좁힐 수 있고 반대쪽 경계는 실행에서 채운다")
+    void scopedFieldEndpointClampsExplicitRange() throws Exception {
+        var fixture = lookupFixture();
+        var r = start();
+        for (var tool : List.of("CHARACTER_FIELDS", "WORLD_FIELDS")) {
+            UUID target = tool.equals("CHARACTER_FIELDS") ? fixture.character() : fixture.world();
+            String type = tool.equals("CHARACTER_FIELDS") ? ",\"factType\":\"SKILL\"" : "";
+            for (var range : List.of("\"episodeFrom\":3", "\"episodeTo\":3", "\"episodeFrom\":3,\"episodeTo\":3")) {
+                queryTool(r, """
+                        {"tool":"%s","targetId":"%s",%s%s,"page":0,"size":20}
+                        """.formatted(tool, target, range, type))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.data.items.totalElements").value(1))
+                        .andExpect(jsonPath("$.data.items.content[0].settingKey").value(
+                                tool.equals("CHARACTER_FIELDS") ? "skill.episode3" : "episode3"));
+            }
+            for (var range : List.of("\"episodeFrom\":1", "\"episodeTo\":6")) {
+                queryTool(r, """
+                        {"tool":"%s","targetId":"%s",%s%s,"page":0,"size":20}
+                        """.formatted(tool, target, range, type))
+                        .andExpect(status().isForbidden())
+                        .andExpect(jsonPath("$.error.code").value("CHAT_SCOPE_INVALID"));
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("회차 없는 metadata는 실행 회차가 있어도 현재값 탐색 의미를 유지한다")
+    void scopedFieldEndpointKeepsUnrangedCurrentCatalog() throws Exception {
+        var fixture = lookupFixture();
+        var r = start();
+        queryTool(r, """
+                {"tool":"CHARACTER_FIELDS","targetId":"%s","factType":"SKILL","page":0,"size":20}
+                """.formatted(fixture.character()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.items.totalElements").value(4));
+        queryTool(r, """
+                {"tool":"WORLD_FIELDS","targetId":"%s","page":0,"size":20}
+                """.formatted(fixture.world()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.items.totalElements").value(4));
+        queryTool(r, """
+                {"tool":"CHARACTER_FIELDS","factType":"SKILL","page":0,"size":20}
+                """)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.totalElements").value(1))
+                .andExpect(jsonPath("$.data.items.content[0].settingKey").value("skill.current"))
+                .andExpect(jsonPath("$.data.items.content[0].subjectId").value(work.toString()));
     }
 
     @Test
