@@ -6,7 +6,8 @@ Spring이 소유권과 설정의 의미를 결정하고 Python은 이 읽기 전
 
 | 자료 | v1 기준 | 주의 |
 | --- | --- | --- |
-| 인물 탐색 | 활성 인물의 현재 이름, 대소문자 무시 부분 일치 | 별칭·동명이인 자동 해소 없음. 여러 후보면 후속 질문/해소 필요 |
+| 인물 탐색 | 활성 인물의 현재 이름 부분 일치, 선택한 실제 설정 경로의 현재 scalar 값 정확 일치 | 이름과 설정 조건은 AND. 별칭·동명이인 자동 해소 없음 |
+| 설정 경로 탐색 | 실제 현재 snapshot/속성과 허용된 확정 이력에서 유형·저장 key·scope만 조회 | 값·근거 없이 동적 항목 선택에 사용. 미확정 후보와 schema의 미사용 key는 포함하지 않음 |
 | 인물 현재값 | `WorkCharacter` snapshot + `CharacterSnapshotSource` | 최신 Fact로 재구성하지 않음. 기존 `CharacterSnapshotAccessor`와 표시명 resolver 재사용 |
 | 인물 이력 | 확정 후보의 Fact와 후보 없는 수동/레거시 Fact | 현재 기여 여부와 확정 application mode를 구분. 모든 편집 이벤트의 감사 로그는 아님 |
 | 세계관 현재값 | `WorldSetting` 실제 properties/version | `category + subjectId + scopeName + settingKey` 전체 경로 사용 |
@@ -39,10 +40,12 @@ Spring이 소유권과 설정의 의미를 결정하고 Python은 이 읽기 전
 
 | tool | targetId | 허용 선택 인자 |
 | --- | --- | --- |
-| `FIND_CHARACTERS` | 사용하지 않음 | query(최대 100자), page, size |
+| `FIND_CHARACTERS` | 사용하지 않음 | query(최대 100자), factType + settingKey + valueEquals(함께 사용), page, size |
+| `CHARACTER_FIELDS` | 생략 시 작품의 활성 인물 전체, 있으면 해당 활성 인물 | factType, episodeFrom/To(대상 인물이 있을 때만), page, size |
+| `WORLD_FIELDS` | 세계관 UUID | episodeFrom, episodeTo, page, size |
 | `FIND_WORLD_SETTINGS` | 사용하지 않음 | query(주체명, 최대 100자), page, size |
-| `CHARACTER_CURRENT` | 활성 인물 UUID | settingKey(정확한 저장 key), page, size |
-| `CHARACTER_HISTORY` | 활성 인물 UUID | settingKey, episodeFrom, episodeTo, page, size |
+| `CHARACTER_CURRENT` | 활성 인물 UUID | factType, settingKey(정확한 저장 key), page, size |
+| `CHARACTER_HISTORY` | 활성 인물 UUID | factType, settingKey, episodeFrom, episodeTo, page, size |
 | `WORLD_CURRENT` | 세계관 UUID | settingKey, scopeName, page, size |
 | `WORLD_HISTORY` | 세계관 UUID | settingKey, scopeName, episodeFrom, episodeTo, page, size |
 | `CHARACTER_EVIDENCE` | Fact UUID | episodeFrom, episodeTo, size; page는 0 |
@@ -52,13 +55,28 @@ Spring이 소유권과 설정의 의미를 결정하고 Python은 이 읽기 전
 
 회차는 1 이상이며 양끝을 포함한다. `episodeFrom > episodeTo`, 현재값+회차 범위, 탐색+targetId 등 허용하지 않는 조합은 400이다. 범위는 분석 manifest의 **출처 회차**에 적용하고 레거시는 연결 회차 번호를 사용한다. 사건 발생 시점(`effectiveFromEpisodeNo`)·검토 시각과 같다고 해석하지 않는다. `query`의 `%`, `_`, `!`는 SQL wildcard가 아니라 문자로 검색한다.
 
+## 실제 설정 경로 선택과 인물 조건 검색 (#247)
+
+질문에서 해석한 인물 설정 유형(`PROFILE`, `AGE`, `LEVEL`, `STAT`, `SKILL`, `ITEM`, `STATUS`, `TIME`)은 `factType`으로 전달한다. 현재값·이력에서 `factType`과 `settingKey`를 모두 쓰면 AND로 적용하고 **필터 이후** 페이지를 나눈다. 전체 설정 앞쪽 일부를 읽어 모델이 뒤쪽 항목의 존재를 추측하는 방식으로 사용하지 않는다. 특정 유형 전체를 묻는 경우 유형 필터만, 개별 동적 항목을 묻는 경우 실제 경로 탐색 후 저장 key를 사용한다.
+
+- `CHARACTER_FIELDS`에 대상 인물이 있으면 현재 snapshot과 허용된 확정/수동/레거시 이력의 `(factType, settingKey)`를 중복 제거한다. 현재에서 삭제되거나 `HISTORY_ONLY`인 항목도 이력 경로로 찾을 수 있다. 회차 범위가 있으면 해당 범위의 이력만 제공한다.
+- 대상 인물이 없는 `CHARACTER_FIELDS`는 **작품의 활성 인물 현재 경로만** 합친다. 이 경우 FIELD의 `subjectId`는 인물 ID가 아닌 서버가 인증한 **작품 ID**, `subjectName`은 `작품의 인물 설정`, `settingVersion`은 null이다. 인물 조건 검색의 경로 후보이며 다른 조회의 인물 targetId로 사용할 수 없다. 회차 범위는 거절한다.
+- `WORLD_FIELDS`는 대상 세계관의 실제 현재 속성과 허용된 확정 이력의 `(scopeName, settingKey)`를 합친다. 동명 속성도 scope가 다르면 별개이며 회차 범위가 있으면 해당 이력만 반환한다.
+- `FIELD`의 값·JSON·직접 근거·현재 기여 판단은 null/빈 목록이다. 메타데이터만으로 현재값이나 원문 근거를 주장할 수 없다. 후속 모델은 서버가 제공한 경로 후보의 참조를 선택하고, 오케스트레이터가 그 후보의 저장 key/type/scope를 재사용한다. 임의 key 생성은 모델 계약에서 허용하지 않는다.
+
+`FIND_CHARACTERS` 조건은 `factType`, `settingKey`, `valueEquals` 세 필드를 함께 요구하며 `valueEquals`는 최대 200자다. 이름 `query`가 있으면 이름과 조건을 모두 만족해야 한다. `CharacterSnapshotAccessor`로 현재 snapshot을 해석하고 scalar 또는 object의 `value`/`name` 대표값을 앞뒤 공백 제거·Unicode NFC·대소문자 무시로 정확히 비교한다. 서술문의 부분 일치, 유사어 확장, 다중 조건, 숫자 범위 비교는 제공하지 않는다. 저장된 대표값이 없으면 설명용 factValue나 오래된 Fact로 대신 판단하지 않는다. 수동 수정·삭제·보관·타 작품 범위를 기존 snapshot/권한 정책과 같이 적용한다.
+
+현재 조건 검색은 snapshot 포맷 해석을 SQL에서 중복 구현하지 않기 위해 작품의 활성 인물을 전체 조회한 뒤 필터와 결과 pagination을 적용한다. 따라서 조건 결과의 `totalElements`는 정확한 일치 수이고, 임의 scan 상한 때문에 뒤쪽 인물이 누락되지는 않는다. **DB 조회·JSON 해석 비용과 메모리는 작품의 활성 인물 수에 비례한다.** 작품 전체 경로 탐색도 같은 비용 특성이 있다. 전용 검색 인덱스·SQL 최적화와 운영 부하 측정은 미실시이며, 대규모 작품에 대해 검증된 처리량으로 설명하지 않는다. 읽은 인물들의 활성 상태·snapshot version은 응답 전에 묶음 재확인한다.
+
+개별 경로 탐색도 `items.hasNext`가 true이면 다음 페이지를 읽어야 한다. 필터된 결과를 모두 읽었는지와 LLM 문맥에 모두 넣었는지는 별개이며, 호출자가 경로/결과 페이지를 중단한 경우 부분 확인 상태를 보존해야 한다. 원문·설정집·특정 시점 전체 상태의 지원 범위는 이 확장으로 달라지지 않는다.
+
 ## 응답 필드와 불완전성
 
 응답 data의 `schemaVersion=1`, `tool`, `items`, `partial`, `limitations`는 항상 반환한다. Item은 kind별 공통 record이며 사용하지 않는 필드도 null로 직렬화한다.
 
 | 필드 | 의미 / null 허용 |
 | --- | --- |
-| kind | `CHARACTER`, `WORLD_SETTING`, `CURRENT`, `HISTORY`, `EVIDENCE` |
+| kind | `CHARACTER`, `WORLD_SETTING`, `FIELD`, `CURRENT`, `HISTORY`, `EVIDENCE` |
 | id | 탐색 대상/Fact/세계관 후보 ID. 현재 slot은 독립 row ID가 없어 null |
 | subjectId, subjectName | 실제 인물/세계관 대상의 ID와 현재 표시명 |
 | category | 인물 FactType 또는 세계관 category; 인물 탐색은 null |
@@ -102,13 +120,13 @@ offset은 **전체 회차 본문 기준 Unicode code point**, 0-based `[startOff
 ## 정렬과 상한
 
 - 인물 탐색: 소문자 이름, UUID. 세계관 탐색: category, 소문자 주체명, UUID.
-- 인물 현재 slot: FactType 이름, settingKey. 세계관 현재 속성: scope(null 먼저), settingKey.
+- 인물 현재 slot/경로: FactType 이름, settingKey. 세계관 현재 속성/경로: scope(null 먼저), settingKey.
 - 인물 이력: 출처 회차(null 마지막), 생성 시각, UUID. 세계관 이력: 출처 회차, 검토 시각, 생성 시각, UUID.
 - 현재 인물 provenance: 선택한 페이지의 slot마다 마지막 21개만 DB 조회. 마지막 Fact의 레거시 표시값을 유지하고 최신 순 20개를 반환한다. 잘리면 `SOURCE_REFERENCE_LIMIT`.
 - 현재 세계관 provenance: 검토 시각/생성 시각/UUID 역순으로 501행을 읽어 500행 cap 여부를 판단. cap이면 `WORLD_SOURCE_SCAN_LIMIT`, partial=true. 근거 연결 목록도 20개 상한이다. 알 수 없는 현재 기여 여부를 false로 단정하지 않는다.
 - 표시값 최대 2,000 code point. 초과하면 잘라 반환하고 `VALUE_LIMIT`. 구조화 JSON은 중간에서 자르지 않고 생략한다.
 - 직접 인용 최대 5개, 각 1,000 code point. 잘리면 evidence.truncated=true와 partial=true. 인용을 자를 때 끝 offset도 함께 조정한다.
-- 이력·탐색은 DB pagination, to-one fetch join, 현재 provenance는 slot별 제한 bulk 조회를 사용한다. 목록에서 S3를 읽지 않는다. RDB 현재 snapshot JSON 한 건을 읽는 비용은 기존 모델과 같다.
+- 이력·이름 탐색은 DB pagination, to-one fetch join, 현재 provenance는 slot별 제한 bulk 조회를 사용한다. 현재값 조건 탐색은 위 전체 snapshot 조회 후 필터/pagination 규칙을 사용한다. 목록에서 S3를 읽지 않는다. RDB 현재 snapshot JSON 한 건을 읽는 비용은 기존 모델과 같다.
 
 실패 HTTP: 400 입력/조합 오류, 401 인증/활성 회원 실패, 404 접근할 수 없는 대상, 409 파기 중 작품/조회 중 상태 변경. 예상하지 못한 서버/DB 오류는 기존 500 정책이다. 원문 저장소 장애는 유효한 설정값을 살려 200 + STORAGE_UNAVAILABLE로 반환한다.
 
@@ -158,3 +176,9 @@ finally:
 ## 채팅 실행 연결 (#237)
 
 실행 인증·토큰 원장·FastAPI 경로는 [채팅 실행 v1](chat-execution-v1.md)을 따른다. 채팅에서는 실행 capability/runner에 고정된 `/api/internal/v1/chat-runs/{id}/tools`를 사용한다. 자연어 도구 선택은 #238이다.
+
+## 2026-10-14 FIELD 계약 fixture
+
+추가 FIELD/조건 조회 계약은 Java `src/test/resources/contracts/setting-tool-fields-v1.json`과 Python `tests/fixtures/setting-tool-fields-v1.json`을 함께 검증한다. [질문 해석부터 답변까지의 연결](chat-query-quality-v1.md)을 참고한다.
+
+실행별 인증 어댑터는 factType/valueEquals를 보존한다. 대상 FIELD에 출처 회차가 하나라도 명시되면 실행 범위보다 넓힐 수 없고 생략한 반대쪽 경계는 실행 범위로 채운다. 회차 없는 FIELD는 현재 조회를 위한 catalog 의미를 유지하며 회차 필터를 자동 주입하지 않는다.
