@@ -407,7 +407,7 @@ class SettingToolIntegrationTest {
         var fields = postQuery(work, ranged, 200).at("/items/content");
         assertThat(fields).hasSize(1);
         assertThat(fields.get(0).path("scopeName").asText()).isEqualTo("옛 체계");
-        postQuery(work, request(SettingTool.WORLD_FIELDS, null), 400);
+        assertThat(postQuery(work, request(SettingTool.WORLD_FIELDS, null), 200).at("/items/content")).hasSize(2);
         verifyNoInteractions(storage);
     }
 
@@ -532,6 +532,186 @@ class SettingToolIntegrationTest {
                 .isEqualTo("LEGACY_UNVERIFIED");
         var manual = save(CharacterFact.createManual(character, CharacterFactType.STAT, "stats.manual", "30", null));
         assertEvidence(manual, "NO_SOURCE");
+    }
+
+    @Test @DisplayName("작품 현재 설정은 구조화된 상태를 보존하고 값 없는 인물과 페이지 완전성을 구별한다")
+    void collectionPreservesStructuredValuesAndMissingSubjects() throws Exception {
+        var inactive = new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.기력_저하");
+        var recovery = new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.회복");
+        var detail = nodes.objectNode().put("name", "기력 저하").put("active", false).put("description", "회복 뒤 종료된 상태");
+        snapshots.replace(character, Map.of(
+                inactive, snapshots.entry(inactive.factType(), inactive.factKey(), "기력 저하가 종료됨", detail),
+                recovery, snapshots.entry(recovery.factType(), recovery.factKey(), "현재 회복 중", nodes.objectNode().put("name", "회복").put("active", true))));
+        var second = save(WorkCharacter.create(work, "새 인물", null, null, null, null, null, null, null, null, null));
+        snapshots.replace(second, Map.of(recovery, snapshots.entry(recovery.factType(), recovery.factKey(), "상태 설명", nodes.textNode("회복"))));
+        save(WorkCharacter.create(work, "상태 미등록", null, null, null, null, null, null, null, null, null));
+        var archived = save(WorkCharacter.create(work, "보관 인물", null, null, null, null, null, null, null, null, null));
+        archived.archive();
+        save(WorkCharacter.create(otherWork, "다른 작품", null, null, null, null, null, null, null, null, null));
+        var first = postQuery(work, collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.STATUS, null, null, null, 0, 2, null), 200);
+        assertThat(first.at("/collection/population").asText()).isEqualTo("ACTIVE_REGISTERED_CHARACTERS");
+        assertThat(first.at("/collection/subjectCount").asInt()).isEqualTo(3);
+        assertThat(first.at("/collection/subjectsWithValues").asInt()).isEqualTo(2);
+        assertThat(first.at("/collection/recordCount").asInt()).isEqualTo(3);
+        assertThat(first.at("/items/totalElements").asInt()).isEqualTo(3);
+        assertThat(first.at("/items/hasNext").asBoolean()).isTrue();
+        String readToken = first.at("/collection/readToken").asText();
+        assertThat(readToken).matches("[0-9a-f]{64}");
+        var next = postQuery(work, collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.STATUS, null, null, null, 1, 2, readToken), 200);
+        assertThat(next.at("/items/content")).hasSize(1);
+        assertThat(next.at("/items/hasNext").asBoolean()).isFalse();
+        assertThat(next.path("collection")).isEqualTo(first.path("collection"));
+        var all = new ArrayList<JsonNode>();
+        first.at("/items/content").forEach(all::add);
+        next.at("/items/content").forEach(all::add);
+        assertThat(all).allMatch(row -> "CURRENT".equals(row.path("kind").asText()));
+        assertThat(all).extracting(row -> row.path("subjectId").asText()).containsOnly(character.getId().toString(), second.getId().toString());
+        var restored = all.stream().filter(row -> inactive.factKey().equals(row.path("settingKey").asText())).findFirst().orElseThrow();
+        assertThat(json.readTree(restored.path("structuredValueJson").asText())).isEqualTo(detail);
+        // 완료 직전 page 0 재검증은 페이지 크기가 달라도 같은 모집단을 확인한다.
+        assertThat(postQuery(work, collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.STATUS, null, null, null, 0, 1, readToken), 200)
+                .at("/collection/readToken").asText()).isEqualTo(readToken);
+        verifyNoInteractions(storage);
+    }
+
+    @Test @DisplayName("작품 현재 설정의 유형·key 필터는 페이지 전에 적용하고 직접 근거 매핑을 재사용한다")
+    void collectionReusesCurrentMappingAndFiltersBeforePaging() throws Exception {
+        var fact = fact("10", true);
+        snapshot("10", List.of(fact));
+        var entries = new HashMap<>(snapshots.read(character));
+        for (int i = 0; i < 55; i++) {
+            var slot = new CharacterSnapshotSlot(CharacterFactType.SKILL, "skill." + i);
+            entries.put(slot, snapshots.entry(slot.factType(), slot.factKey(), "설명", nodes.textNode("설명")));
+        }
+        snapshots.replace(character, entries);
+        var response = postQuery(work, collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.STAT, SLOT.factKey(), null, null, 0, 1, null), 200);
+        var current = postQuery(work, new SettingToolQuery(SettingTool.CHARACTER_CURRENT, character.getId(), null, SLOT.factKey(), null,
+                null, null, 0, 1, CharacterFactType.STAT), 200);
+        assertThat(response.at("/items/content")).isEqualTo(current.at("/items/content"));
+        assertThat(response.at("/items/totalElements").asInt()).isEqualTo(1);
+        assertThat(response.at("/items/hasNext").asBoolean()).isFalse();
+        assertThat(response.at("/items/content/0/sources/0/targetId").asText()).isEqualTo(fact.getId().toString());
+        assertThat(current.has("collection")).isFalse();
+        verifyNoInteractions(storage);
+    }
+
+    @Test @DisplayName("빈 작품 설정도 모집단의 정보 부족을 보존하고 잘린 구조화 값은 partial이다")
+    void collectionEmptyAndTruncatedValuesRemainExplicit() throws Exception {
+        var query = collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.STATUS, null, null, null, 0, 20, null);
+        var empty = postQuery(work, query, 200);
+        assertThat(empty.at("/items/content")).isEmpty();
+        assertThat(empty.at("/collection/subjectCount").asInt()).isEqualTo(1);
+        assertThat(empty.at("/collection/subjectsWithValues").asInt()).isZero();
+        assertThat(empty.path("partial").asBoolean()).isFalse();
+        var slot = new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.복합");
+        snapshots.replace(character, Map.of(slot, snapshots.entry(slot.factType(), slot.factKey(), "표시값", nodes.objectNode().put("description", "가".repeat(2100)))));
+        var limited = postQuery(work, query, 200);
+        assertThat(limited.path("partial").asBoolean()).isTrue();
+        assertThat(limited.at("/items/content/0/valueTruncated").asBoolean()).isTrue();
+        assertThat(limited.at("/items/content/0/structuredValueJson").isNull()).isTrue();
+        assertThat(limited.path("limitations")).anyMatch(code -> "VALUE_LIMIT".equals(code.asText()));
+    }
+
+    @Test @DisplayName("조회 토큰은 현재값 변경·인물 추가·보관과 필터 변경을 감지한다")
+    void collectionTokenRejectsChangedValuesPopulationAndFilters() throws Exception {
+        snapshot("10", List.of());
+        var query = collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.STAT, null, null, null, 0, 1, null);
+        String first = postQuery(work, query, 200).at("/collection/readToken").asText();
+        snapshot("20", List.of());
+        postQuery(work, collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.STAT, null, null, null, 0, 1, first), 409);
+        String second = postQuery(work, query, 200).at("/collection/readToken").asText();
+        var added = save(WorkCharacter.create(work, "나중 인물", null, null, null, null, null, null, null, null, null));
+        postQuery(work, collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.STAT, null, null, null, 1, 1, second), 409);
+        String third = postQuery(work, query, 200).at("/collection/readToken").asText();
+        added.archive();
+        postQuery(work, collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.STAT, null, null, null, 0, 1, third), 409);
+        String fourth = postQuery(work, query, 200).at("/collection/readToken").asText();
+        postQuery(work, collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.SKILL, null, null, null, 0, 1, fourth), 409);
+        postQuery(work, collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.STAT, SLOT.factKey(), null, null, 0, 1, fourth), 409);
+    }
+
+    @Test @DisplayName("조회 토큰은 같은 회원의 다른 작품·이름·표시 schema 변경에도 재사용하지 못한다")
+    void collectionTokenBindsWorkNamesAndSchema() throws Exception {
+        snapshot("10", List.of());
+        var query = collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.STAT, null, null, null, 0, 20, null);
+        String first = postQuery(work, query, 200).at("/collection/readToken").asText();
+        var owned = save(Work.create(member, "다른 소유 작품", WorkGenre.FANTASY, "설명"));
+        postQuery(owned, collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.STAT, null, null, null, 0, 20, first), 409);
+        ReflectionTestUtils.setField(character, "name", "바뀐 이름");
+        postQuery(work, collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.STAT, null, null, null, 0, 20, first), 409);
+        String second = postQuery(work, query, 200).at("/collection/readToken").asText();
+        save(CharacterSettingSchema.create(work, "stats.mana", null, "마력", CharacterFactType.STAT,
+                SettingValueType.STRING, CharacterSettingValueSemantics.BASE_VALUE, CharacterSettingMergePolicy.REPLACE,
+                nodes.arrayNode(), CharacterSettingSchemaSource.SYSTEM_SEED, true));
+        postQuery(work, collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.STAT, null, null, null, 0, 20, second), 409);
+        assertThat(postQuery(work, query, 200).at("/items/content/0/displayName").asText()).isEqualTo("마력");
+    }
+
+    @Test @DisplayName("작품 collection의 실제 HTTP 응답은 공유 계약 fixture와 일치한다")
+    void matchesCollectionContractFixture() throws Exception {
+        snapshot("10", List.of());
+        var actual = postQuery(work, collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.STAT, null, null, null, 0, 20, null), 200);
+        String normalized = actual.toString().replace(character.getId().toString(), "00000000-0000-0000-0000-000000000002")
+                .replace(actual.at("/collection/readToken").asText(), "0".repeat(64));
+        try (var fixture = getClass().getResourceAsStream("/contracts/setting-tool-collection-v1.json")) {
+            assertThat(json.readTree(normalized)).isEqualTo(json.readTree(fixture));
+        }
+    }
+
+    @Test @DisplayName("세계관 분류별 목록·현재값·작품 경로는 같은 모집단과 서로 다른 scope를 유지한다")
+    void worldCollectionsAndFieldsPreserveCategoryAndPaths() throws Exception {
+        var race = save(WorldSetting.create(work, WorldSettingCategory.RACE, "숲 종족", null, "수명", "100"));
+        race.addProperty("특수", "수명", "200");
+        var otherRace = save(WorldSetting.create(work, WorldSettingCategory.RACE, "산 종족", null, "서식지", "산"));
+        save(WorldSetting.create(work, WorldSettingCategory.MONSTER, "숲 괴물", null, "수명", "300"));
+        save(WorldSetting.create(otherWork, WorldSettingCategory.RACE, "타 작품 종족", null, "수명", "400"));
+        var list = postQuery(work, new SettingToolQuery(SettingTool.FIND_WORLD_SETTINGS, null, null, null, null, null, null,
+                0, 1, null, null, WorldSettingCategory.RACE, null), 200);
+        assertThat(list.at("/items/totalElements").asInt()).isEqualTo(2);
+        assertThat(list.at("/items/content/0/category").asText()).isEqualTo("RACE");
+        var root = postQuery(work, collection(SettingTool.WORLD_CURRENT_COLLECTION, null, "수명", null, WorldSettingCategory.RACE, 0, 20, null), 200);
+        assertThat(root.at("/collection/population").asText()).isEqualTo("REGISTERED_WORLD_SETTINGS");
+        assertThat(root.at("/collection/subjectCount").asInt()).isEqualTo(2);
+        assertThat(root.at("/collection/subjectsWithValues").asInt()).isEqualTo(1);
+        assertThat(root.at("/items/content")).hasSize(1);
+        assertThat(root.at("/items/content/0/value").asText()).isEqualTo("100");
+        var scoped = postQuery(work, collection(SettingTool.WORLD_CURRENT_COLLECTION, null, "수명", "특수", WorldSettingCategory.RACE, 0, 20, null), 200);
+        assertThat(scoped.at("/items/content/0/value").asText()).isEqualTo("200");
+        var fields = postQuery(work, new SettingToolQuery(SettingTool.WORLD_FIELDS, null, null, null, null, null, null,
+                0, 20, null, null, WorldSettingCategory.RACE, null), 200);
+        assertThat(fields.at("/items/content")).hasSize(3).allSatisfy(row -> {
+            assertThat(row.path("subjectId").asText()).isEqualTo(work.getId().toString());
+            assertThat(row.path("category").asText()).isEqualTo("RACE");
+            assertThat(row.path("settingVersion").isNull()).isTrue();
+            assertThat(row.path("value").isNull()).isTrue();
+        });
+        String before = root.at("/collection/readToken").asText();
+        postQuery(work, collection(SettingTool.WORLD_CURRENT_COLLECTION, null, "수명", null, WorldSettingCategory.MONSTER, 0, 20, before), 409);
+        otherRace.applyProperty(null, "서식지", "산맥");
+        postQuery(work, collection(SettingTool.WORLD_CURRENT_COLLECTION, null, "수명", null, WorldSettingCategory.RACE, 0, 20, before), 409);
+        verifyNoInteractions(storage);
+    }
+
+    @Test @DisplayName("작품 collection은 권한과 token·대상·범위·필터 조합을 검증한다")
+    void collectionRejectsInvalidScopeAndArguments() throws Exception {
+        var valid = collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.STATUS, null, null, null, 0, 20, null);
+        postQuery(otherWork, valid, 404);
+        mvc.perform(post(url(work)).contentType("application/json").content(json.writeValueAsString(valid))).andExpect(status().isUnauthorized());
+        postQuery(work, collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.STATUS, null, null, null, 1, 20, null), 400);
+        postQuery(work, collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.STATUS, null, null, null, 0, 20, "bad-token"), 400);
+        postQuery(work, collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.STATUS, null, null, WorldSettingCategory.RACE, 0, 20, null), 400);
+        postQuery(work, collection(SettingTool.WORLD_CURRENT_COLLECTION, CharacterFactType.STATUS, null, null, null, 0, 20, null), 400);
+        postQuery(work, collection(SettingTool.WORLD_CURRENT_COLLECTION, null, null, "범위", null, 0, 20, null), 400);
+        postQuery(work, new SettingToolQuery(SettingTool.CHARACTER_CURRENT_COLLECTION, character.getId(), null, null, null, null, null, 0, 20), 400);
+        postQuery(work, new SettingToolQuery(SettingTool.CHARACTER_CURRENT_COLLECTION, null, "이름", null, null, null, null, 0, 20), 400);
+        postQuery(work, new SettingToolQuery(SettingTool.CHARACTER_CURRENT_COLLECTION, null, null, null, null, 1, 5, 0, 20), 400);
+        postQuery(work, new SettingToolQuery(SettingTool.WORLD_FIELDS, null, null, null, null, 1, 5, 0, 20), 400);
+        postQuery(work, new SettingToolQuery(SettingTool.FIND_CHARACTERS, null, null, null, null, null, null, 0, 20, null, null, null, "a".repeat(64)), 400);
+    }
+
+    private SettingToolQuery collection(SettingTool tool, CharacterFactType type, String key, String scope,
+                                        WorldSettingCategory category, int page, int size, String token) {
+        return new SettingToolQuery(tool, null, null, key, scope, null, null, page, size, type, null, category, token);
     }
 
     private <T> T save(T entity) { em.persist(entity); return entity; }

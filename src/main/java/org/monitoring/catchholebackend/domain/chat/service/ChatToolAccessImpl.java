@@ -88,7 +88,9 @@ public class ChatToolAccessImpl implements ChatToolAccess {
                         q.page(),
                         q.size(),
                         q.factType(),
-                        q.valueEquals()));
+                        q.valueEquals(),
+                        q.worldCategory(),
+                        q.readToken()));
     }
 
     @Transactional

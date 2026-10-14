@@ -1,6 +1,8 @@
 package org.monitoring.catchholebackend.domain.chat;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.doAnswer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -25,6 +27,7 @@ import org.monitoring.catchholebackend.domain.chat.type.ChatState;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.settingtool.dto.*;
+import org.monitoring.catchholebackend.domain.settingtool.mapper.SettingToolMapper;
 import org.monitoring.catchholebackend.domain.settingtool.type.SettingTool;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
@@ -39,6 +42,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -72,6 +76,7 @@ class ChatExecutionIntegrationTest {
     @Autowired JwtTokenProvider tokens;
     @Autowired MockMvc mvc;
     @Autowired CharacterSnapshotAccessor snapshots;
+    @MockitoSpyBean SettingToolMapper settingMapper;
     @MockitoBean ChatDispatcher dispatcher;
     Long member;
     UUID work;
@@ -695,6 +700,60 @@ class ChatExecutionIntegrationTest {
                 .andExpect(jsonPath("$.data.items.totalElements").value(1))
                 .andExpect(jsonPath("$.data.items.content[0].settingKey").value("skill.current"))
                 .andExpect(jsonPath("$.data.items.content[0].subjectId").value(work.toString()));
+    }
+
+    @Test
+    @DisplayName("실행별 collection은 필터·모집단·조회 토큰을 보존하고 마지막 재확인에서 변경을 거절한다")
+    void collectionEndpointPreservesFiltersAndReadToken() throws Exception {
+        lookupFixture();
+        tx.executeWithoutResult(status -> em.persist(WorldSetting.create(em.find(Work.class, work),
+                WorldSettingCategory.RACE, "산 종족", null, "서식지", "산")));
+        var r = start();
+        String body = """
+                {"tool":"WORLD_CURRENT_COLLECTION","worldCategory":"RACE","page":0,"size":1}
+                """;
+        String first = queryTool(r, body).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.collection.subjectCount").value(1))
+                .andExpect(jsonPath("$.data.items.content[0].category").value("RACE"))
+                .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        String token = new com.fasterxml.jackson.databind.ObjectMapper().readTree(first).at("/data/collection/readToken").asText();
+        queryTool(r, """
+                {"tool":"WORLD_CURRENT_COLLECTION","worldCategory":"RACE","readToken":"%s","page":1,"size":1}
+                """.formatted(token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.items.totalElements").value(1));
+        tx.executeWithoutResult(status -> em.persist(WorldSetting.create(em.find(Work.class, work),
+                WorldSettingCategory.RACE, "숲 종족", null, "서식지", "숲")));
+        queryTool(r, """
+                {"tool":"WORLD_CURRENT_COLLECTION","worldCategory":"RACE","readToken":"%s","page":0,"size":1}
+                """.formatted(token))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("CONFLICT"));
+    }
+
+    @Test
+    @DisplayName("collection 응답을 만드는 도중 다른 트랜잭션이 모집단을 바꾸면 혼합 결과를 반환하지 않는다")
+    void collectionDetectsConcurrentPopulationChangeDuringRead() throws Exception {
+        lookupFixture();
+        var r = start();
+        var changed = new java.util.concurrent.atomic.AtomicBoolean();
+        var pool = Executors.newSingleThreadExecutor();
+        try {
+            doAnswer(invocation -> {
+                var result = invocation.callRealMethod();
+                if (changed.compareAndSet(false, true)) {
+                    pool.submit(() -> tx.executeWithoutResult(status -> em.persist(WorkCharacter.create(
+                            em.find(Work.class, work), "조회 중 추가", null, null, null, null, null, null, null, null, null))))
+                            .get(10, TimeUnit.SECONDS);
+                }
+                return result;
+            }).when(settingMapper).toCharacterCurrentResponse(any(), any(), anyString(), anyList());
+            queryTool(r, """
+                    {"tool":"CHARACTER_CURRENT_COLLECTION","factType":"SKILL","page":0,"size":20}
+                    """)
+                    .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("CONFLICT"));
+            assertThat(changed).isTrue();
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test

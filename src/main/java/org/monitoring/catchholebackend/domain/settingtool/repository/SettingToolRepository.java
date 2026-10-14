@@ -18,6 +18,7 @@ import org.monitoring.catchholebackend.domain.settingtool.dto.SettingToolQuery;
 import org.monitoring.catchholebackend.domain.settingtool.processor.WorldSettingToolSources.Path;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.monitoring.catchholebackend.global.exception.CommonErrorCode;
 import org.springframework.data.domain.Page;
@@ -100,6 +101,45 @@ public class SettingToolRepository {
         return query.getResultList();
     }
 
+    public List<WorldSetting> worldsForCurrentLookup(UUID workId, WorldSettingCategory category) {
+        var query = entityManager.createQuery("select w from WorldSetting w where w.work.id = :workId"
+                + (category == null ? "" : " and w.category = :category") + " order by w.id", WorldSetting.class)
+                .setParameter("workId", workId);
+        if (category != null) query.setParameter("category", category);
+        return query.getResultList();
+    }
+
+    /** scalar 재조회로 1차 캐시 밖에서 추가·보관·이름 변경·snapshot 갱신을 함께 확인한다. */
+    public List<Object[]> characterCollectionState(UUID workId) {
+        return entityManager.createQuery("""
+                select c.id, c.name, c.snapshotVersion from WorkCharacter c
+                where c.work.id = :workId and c.status = 'ACTIVE' order by c.id
+                """, Object[].class).setParameter("workId", workId).getResultList();
+    }
+
+    public List<Object[]> worldCollectionState(UUID workId, WorldSettingCategory category) {
+        var query = entityManager.createQuery("""
+                select w.id, w.subjectName, w.category, w.version from WorldSetting w
+                where w.work.id = :workId
+                """ + (category == null ? "" : " and w.category = :category") + " order by w.id", Object[].class)
+                .setParameter("workId", workId);
+        if (category != null) query.setParameter("category", category);
+        return query.getResultList();
+    }
+
+    public List<Object[]> characterSchemaState(UUID workId) {
+        return entityManager.createQuery("""
+                select s.id, s.schemaKey, s.attributePattern, s.displayName, s.factType, s.aliasesJson
+                from CharacterSettingSchema s
+                where s.enabled = true and (s.work is null or s.work.id = :workId) order by s.id
+                """, Object[].class).setParameter("workId", workId).getResultList();
+    }
+
+    public void assertWorkActive(UUID workId) {
+        if (entityManager.createQuery("select count(w) from Work w where w.id = :id and w.lifecycleStatus = 'ACTIVE'", Long.class)
+                .setParameter("id", workId).getSingleResult() != 1L) throw new AppException(CommonErrorCode.CONFLICT);
+    }
+
     public void assertCharactersUnchanged(List<WorkCharacter> characters) {
         // 한 번에 너무 많은 IN 변수를 만들지 않고 대상별 N+1 version 조회도 피한다.
         for (int offset = 0; offset < characters.size(); offset += 500) {
@@ -149,6 +189,10 @@ public class SettingToolRepository {
         if (request.query() != null && !request.query().isBlank()) {
             from += " and lower(w.subjectName) like :query escape '!'";
             params.put("query", like(request.query()));
+        }
+        if (request.worldCategory() != null) {
+            from += " and w.category = :category";
+            params.put("category", request.worldCategory());
         }
         return page(WorldSetting.class, "w", from, from, "w.category, lower(w.subjectName), w.id", params, request);
     }
