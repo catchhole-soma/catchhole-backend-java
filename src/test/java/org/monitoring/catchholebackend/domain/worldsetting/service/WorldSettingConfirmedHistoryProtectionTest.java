@@ -72,9 +72,10 @@ class WorldSettingConfirmedHistoryProtectionTest {
     private final WorldSettingMapper mapper = mock(WorldSettingMapper.class);
     private final EpisodeSourcePurgeRequestRepository purges = mock(EpisodeSourcePurgeRequestRepository.class);
     private final WorldSettingCandidateServiceImpl service = new WorldSettingCandidateServiceImpl(
-            works, mock(AnalysisRunStateService.class), uploads, mock(AnalysisJobRepository.class), settings,
+            works, mock(org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope.class), mock(AnalysisRunStateService.class), uploads, mock(AnalysisJobRepository.class), settings,
             images, candidates, sources, mapper, mock(AiTokenService.class),
-            new WorldSettingAnalysisConfirmation(candidates, new AnalysisCandidateSourceGuard(purges)));
+            new WorldSettingAnalysisConfirmation(candidates, new AnalysisCandidateSourceGuard(purges, mock(AnalysisJobRepository.class))),
+            mock(org.monitoring.catchholebackend.domain.analysis.processor.SettingBookAutomaticEvidenceValidator.class));
     private final List<WorldSettingCandidate> rows = new ArrayList<>();
     private final List<WorldSettingCandidate> history = new ArrayList<>();
     private Work work;

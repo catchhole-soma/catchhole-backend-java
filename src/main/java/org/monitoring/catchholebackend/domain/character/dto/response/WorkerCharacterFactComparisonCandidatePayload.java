@@ -26,8 +26,22 @@ public record WorkerCharacterFactComparisonCandidatePayload(
         UUID matchedCharacterId,
         String matchedCharacterName,
         CharacterFactType canonicalFactType,
-        String canonicalFactKey
+        String canonicalFactKey,
+        @io.swagger.v3.oas.annotations.media.Schema(nullable = true) org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse source,
+        Object narrativeTime
 ) {
+    public WorkerCharacterFactComparisonCandidatePayload(UUID candidateId, UUID workId, UUID sourceEpisodeId, String entityName, String attributeName, String attributeValue, SettingValueType valueType, Object valueJson, List<EvidenceSpan> evidenceSpans, BigDecimal confidence, UUID matchedCharacterId, String matchedCharacterName, CharacterFactType canonicalFactType, String canonicalFactKey) {
+        this(candidateId, workId, sourceEpisodeId, entityName, attributeName, attributeValue, valueType, valueJson, evidenceSpans, confidence, matchedCharacterId, matchedCharacterName, canonicalFactType, canonicalFactKey, null, null);
+    }
+
+
+    public WorkerCharacterFactComparisonCandidatePayload(UUID candidateId, UUID workId, UUID sourceEpisodeId, String entityName, String attributeName,
+            String attributeValue, SettingValueType valueType, Object valueJson, List<EvidenceSpan> evidenceSpans, BigDecimal confidence,
+            UUID matchedCharacterId, String matchedCharacterName, CharacterFactType canonicalFactType, String canonicalFactKey,
+            org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse source) {
+        this(candidateId, workId, sourceEpisodeId, entityName, attributeName, attributeValue, valueType, valueJson, evidenceSpans,
+                confidence, matchedCharacterId, matchedCharacterName, canonicalFactType, canonicalFactKey, source, null);
+    }
 
     public record EvidenceSpan(
             @Schema(nullable = true)

@@ -190,6 +190,50 @@ class SettingCandidatePromotionServiceTest {
     }
 
     @Test
+    @DisplayName("한 그룹의 Job A→B→A 시점 선택은 마지막 A 관측까지 한 번에 확정한다")
+    void finalizesInterleavedJobsAcrossOneWholeCharacterGroup() {
+        WorkCharacter character = workCharacterRepository.saveAndFlush(workCharacter("아리아"));
+        Episode firstEpisode = episode(1);
+        Episode secondEpisode = episode(2);
+        var jobA = analysisJobRepository.saveAndFlush(org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.create(
+                work, null, firstEpisode, org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION));
+        var jobB = analysisJobRepository.saveAndFlush(org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.create(
+                work, null, secondEpisode, org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION));
+        java.util.ArrayList<SettingCandidateGroupPromotion> promotions = new java.util.ArrayList<>();
+        JsonNode previous = null;
+        for (int index = 1; index <= 3; index++) {
+            var job = index == 2 ? jobB : jobA;
+            var candidate = settingCandidateRepository.saveAndFlush(SettingCandidate.create(
+                    work, index == 2 ? secondEpisode : firstEpisode, UUID.randomUUID(), job,
+                    SettingEntityType.CHARACTER, character.getName(), character.getName(), character.getId(),
+                    SettingCandidateMatchStatus.MATCHED, "age", "17", SettingValueType.NUMBER, valueJson("17"),
+                    objectMapper.createArrayNode(), BigDecimal.ONE, objectMapper.createObjectNode()));
+            candidate.startComparison();
+            candidate.recordComparisonContext(character.getSnapshotVersion(), "group-time");
+            var selected = objectMapper.createObjectNode().put("description", "T" + index)
+                    .put("sourceCandidateId", candidate.getId().toString());
+            selected.putArray("evidenceSpans");
+            var marker = objectMapper.createObjectNode().put("advance", true);
+            marker.set("expectedCurrent", previous == null ? objectMapper.nullNode() : previous.deepCopy());
+            marker.set("selected", selected);
+            candidate.completeComparison(CharacterFactOperation.HISTORY_ONLY, null, null, null, null,
+                    objectMapper.createArrayNode(), CharacterFactTemporalScope.PRESENT, "현재 관측을 이력으로 저장",
+                    objectMapper.createObjectNode().set("validatedNarrativeTime", marker), java.time.LocalDateTime.of(2026,10,13,12,0));
+            candidate.confirm();
+            promotions.add(new SettingCandidateGroupPromotion(candidate, CharacterFactConfirmApplicationMode.HISTORY_ONLY));
+            previous = selected;
+        }
+        settingCandidateRepository.flush();
+
+        promotionService.promoteGroup(promotions);
+
+        assertThat(character.getCurrentNarrativeTime()).isNotNull();
+        assertThat(character.getCurrentNarrativeTime().path("description").asText()).isEqualTo("T3");
+        assertThat(character.getSnapshotVersion()).isEqualTo(1);
+        assertThat(characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId())).hasSize(3);
+    }
+
+    @Test
     @DisplayName("누적 임시 대상을 확정할 때 한 실제 캐릭터에 순서대로 최종 제안값만 반영한다")
     void promotesOrderedProvisionalGroupWithoutRawValueFallback() {
         Episode firstEpisode = episode(1);

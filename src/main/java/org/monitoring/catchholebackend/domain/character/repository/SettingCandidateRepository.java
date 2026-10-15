@@ -129,6 +129,8 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
                     left join candidate.episode episode
                     where candidate.work.id = :workId
                       and analysisJob.batch.id = :batchId
+              and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
+                or analysisJob.id = :sourceAnalysisJobId)
                       and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
                       and candidate.matchStatus in :matchStatuses
                     order by episode.episodeNo asc, candidate.createdAt asc, candidate.id asc
@@ -139,6 +141,8 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
                     join candidate.analysisJob analysisJob
                     where candidate.work.id = :workId
                       and analysisJob.batch.id = :batchId
+              and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
+                or analysisJob.id = :sourceAnalysisJobId)
                       and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
                       and candidate.matchStatus in :matchStatuses
                     """
@@ -148,8 +152,13 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             @Param("batchId") UUID batchId,
             @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus,
             @Param("matchStatuses") Collection<SettingCandidateMatchStatus> matchStatuses,
-            Pageable pageable
+            Pageable pageable,
+            @Param("sourceAnalysisJobId") UUID sourceAnalysisJobId
     );
+
+    default Page<SettingCandidate> findReviewPage(UUID workId, UUID batchId, SettingCandidateReviewStatus reviewStatus, Collection<SettingCandidateMatchStatus> matchStatuses, Pageable pageable) {
+        return findReviewPage(workId, batchId, reviewStatus, matchStatuses, pageable, null);
+    }
 
     @EntityGraph(attributePaths = {"work", "episode", "analysisJob", "matchedCharacter"})
     @Query("""
@@ -159,6 +168,8 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             left join candidate.episode episode
             where candidate.work.id = :workId
               and analysisJob.batch.id = :batchId
+              and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
+                or analysisJob.id = :sourceAnalysisJobId)
               and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
               and candidate.matchStatus in :matchStatuses
             order by episode.episodeNo asc, candidate.createdAt asc, candidate.id asc
@@ -167,8 +178,13 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             @Param("workId") UUID workId,
             @Param("batchId") UUID batchId,
             @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus,
-            @Param("matchStatuses") Collection<SettingCandidateMatchStatus> matchStatuses
+            @Param("matchStatuses") Collection<SettingCandidateMatchStatus> matchStatuses,
+            @Param("sourceAnalysisJobId") UUID sourceAnalysisJobId
     );
+
+    default List<SettingCandidate> findReviewCandidates(UUID workId, UUID batchId, SettingCandidateReviewStatus reviewStatus, Collection<SettingCandidateMatchStatus> matchStatuses) {
+        return findReviewCandidates(workId, batchId, reviewStatus, matchStatuses, null);
+    }
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @EntityGraph(attributePaths = {"work", "episode", "analysisJob", "analysisJob.batch", "matchedCharacter"})
@@ -179,14 +195,21 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             left join candidate.episode episode
             where candidate.work.id = :workId
               and analysisJob.batch.id = :batchId
+              and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
+                or analysisJob.id = :sourceAnalysisJobId)
               and candidate.reviewStatus = :reviewStatus
             order by episode.episodeNo asc, candidate.createdAt asc, candidate.id asc
             """)
     List<SettingCandidate> findAllPendingInBatchForUpdate(
             @Param("workId") UUID workId,
             @Param("batchId") UUID batchId,
-            @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus
+            @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus,
+            @Param("sourceAnalysisJobId") UUID sourceAnalysisJobId
     );
+
+    default List<SettingCandidate> findAllPendingInBatchForUpdate(UUID workId, UUID batchId, SettingCandidateReviewStatus reviewStatus) {
+        return findAllPendingInBatchForUpdate(workId, batchId, reviewStatus, null);
+    }
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @EntityGraph(attributePaths = {"work", "episode", "analysisJob", "matchedCharacter"})
@@ -197,14 +220,21 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             left join candidate.episode episode
             where candidate.work.id = :workId
               and analysisJob.batch.id = :batchId
+              and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
+                or analysisJob.id = :sourceAnalysisJobId)
               and candidate.id in :candidateIds
             order by episode.episodeNo asc, candidate.createdAt asc, candidate.id asc
             """)
     List<SettingCandidate> findAllByIdsAndBatchForUpdate(
             @Param("workId") UUID workId,
             @Param("batchId") UUID batchId,
-            @Param("candidateIds") Collection<UUID> candidateIds
+            @Param("candidateIds") Collection<UUID> candidateIds,
+            @Param("sourceAnalysisJobId") UUID sourceAnalysisJobId
     );
+
+    default List<SettingCandidate> findAllByIdsAndBatchForUpdate(UUID workId, UUID batchId, Collection<UUID> candidateIds) {
+        return findAllByIdsAndBatchForUpdate(workId, batchId, candidateIds, null);
+    }
 
     @Query("""
             select count(candidate) as totalCandidateCount,
@@ -245,14 +275,21 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             join candidate.analysisJob analysisJob
             where candidate.work.id = :workId
               and analysisJob.batch.id = :batchId
+              and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
+                or analysisJob.id = :sourceAnalysisJobId)
             """)
     SettingCandidateBatchCounts countReviewSummary(
             @Param("workId") UUID workId,
             @Param("batchId") UUID batchId,
             @Param("pendingStatus") SettingCandidateReviewStatus pendingStatus,
             @Param("matchRequiredStatus") SettingCandidateMatchStatus matchRequiredStatus,
-            @Param("attentionComparisonStatuses") Collection<CharacterFactComparisonStatus> attentionComparisonStatuses
+            @Param("attentionComparisonStatuses") Collection<CharacterFactComparisonStatus> attentionComparisonStatuses,
+            @Param("sourceAnalysisJobId") UUID sourceAnalysisJobId
     );
+
+    default SettingCandidateBatchCounts countReviewSummary(UUID workId, UUID batchId, SettingCandidateReviewStatus pendingStatus, SettingCandidateMatchStatus matchRequiredStatus, Collection<CharacterFactComparisonStatus> attentionComparisonStatuses) {
+        return countReviewSummary(workId, batchId, pendingStatus, matchRequiredStatus, attentionComparisonStatuses, null);
+    }
 
     @Query("""
             select analysisJob.batch.id as batchId,
@@ -269,6 +306,7 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             join candidate.analysisJob analysisJob
             where candidate.work.id = :workId
               and analysisJob.batch.id in :batchIds
+              and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE
             group by analysisJob.batch.id
             """)
     List<SettingCandidateBatchReviewCounts> countReviewSummaryByBatchIds(
@@ -447,6 +485,8 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             left join candidate.episode episode
             where candidate.work.id = :workId
               and analysisJob.batch.id = :batchId
+              and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
+                or analysisJob.id = :sourceAnalysisJobId)
               and candidate.matchedCharacterId = :characterId
               and candidate.reviewStatus = :reviewStatus
               and candidate.attributeName is not null
@@ -456,8 +496,13 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             @Param("workId") UUID workId,
             @Param("batchId") UUID batchId,
             @Param("characterId") UUID characterId,
-            @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus
+            @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus,
+            @Param("sourceAnalysisJobId") UUID sourceAnalysisJobId
     );
+
+    default List<SettingCandidate> findPendingComparisonChronology(UUID workId, UUID batchId, UUID characterId, SettingCandidateReviewStatus reviewStatus) {
+        return findPendingComparisonChronology(workId, batchId, characterId, reviewStatus, null);
+    }
 
     @Query("""
             select candidate

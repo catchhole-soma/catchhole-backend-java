@@ -24,24 +24,68 @@ public record WorkerAnalysisJobClaimRequest(
         @Schema(description = "지원하는 분석 입력 정책. 구 Worker의 생략 요청은 CONFIRMED_ONLY만 허용합니다.", nullable = true)
         Set<AnalysisMode> supportedAnalysisModes,
         @Schema(description = "신규 캐릭터 그룹 비교 Job 지원 여부", nullable = true)
-        Boolean supportsCharacterComparisonGroups
+        Boolean supportsCharacterComparisonGroups,
+        @Schema(description = "지원 원문 종류. 생략하면 EPISODE만 처리합니다.", nullable = true)
+        Set<org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind> supportedSourceKinds,
+        @Schema(description = "설정집 불변 기준 시점 해석 지원 여부. 생략하면 설정집을 claim하지 않습니다.", nullable = true)
+        Boolean supportsSettingBookReferenceTime,
+        @Schema(description = "claim 전용 전체 고정 CURRENT 문맥 지원. true인 누적 모드에만 전달합니다.", nullable = true)
+        Boolean supportsSemanticCurrentContext,
+        @Schema(description = "고정 원문 근거와 같은 인물의 전체 CURRENT 비교 문맥 지원. true인 Worker만 누적 작업을 claim합니다.", nullable = true)
+        Boolean supportsFrozenComparisonEvidence
 ) {
+    public WorkerAnalysisJobClaimRequest(String modelName, String currentStep, Set<AnalysisJobType> allowedJobTypes,
+            Set<AnalysisMode> supportedAnalysisModes, Boolean supportsCharacterComparisonGroups,
+            Set<org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind> supportedSourceKinds,
+            Boolean supportsSettingBookReferenceTime, Boolean supportsSemanticCurrentContext) {
+        this(modelName, currentStep, allowedJobTypes, supportedAnalysisModes, supportsCharacterComparisonGroups,
+                supportedSourceKinds, supportsSettingBookReferenceTime, supportsSemanticCurrentContext, null);
+    }
+    public WorkerAnalysisJobClaimRequest(String modelName, String currentStep, Set<AnalysisJobType> allowedJobTypes,
+            Set<AnalysisMode> supportedAnalysisModes, Boolean supportsCharacterComparisonGroups,
+            Set<org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind> supportedSourceKinds,
+            Boolean supportsSettingBookReferenceTime) {
+        this(modelName, currentStep, allowedJobTypes, supportedAnalysisModes, supportsCharacterComparisonGroups,
+                supportedSourceKinds, supportsSettingBookReferenceTime, null);
+    }
     public WorkerAnalysisJobClaimRequest(String modelName, String currentStep, Set<AnalysisJobType> allowedJobTypes) {
-        this(modelName, currentStep, allowedJobTypes, null, null);
+        this(modelName, currentStep, allowedJobTypes, null, null, null, null);
     }
 
     public WorkerAnalysisJobClaimRequest(String modelName, String currentStep,
             Set<AnalysisJobType> allowedJobTypes, Set<AnalysisMode> supportedAnalysisModes) {
-        this(modelName, currentStep, allowedJobTypes, supportedAnalysisModes, null);
+        this(modelName, currentStep, allowedJobTypes, supportedAnalysisModes, null, null, null);
     }
 
     public WorkerAnalysisJobClaimRequest(String modelName, String currentStep,
             Set<AnalysisJobType> allowedJobTypes, Boolean supportsCharacterComparisonGroups) {
-        this(modelName, currentStep, allowedJobTypes, null, supportsCharacterComparisonGroups);
+        this(modelName, currentStep, allowedJobTypes, null, supportsCharacterComparisonGroups, null, null);
     }
 
+    public WorkerAnalysisJobClaimRequest(String modelName, String currentStep, Set<AnalysisJobType> allowedJobTypes,
+            Set<AnalysisMode> supportedAnalysisModes, Boolean supportsCharacterComparisonGroups) {
+        this(modelName, currentStep, allowedJobTypes, supportedAnalysisModes, supportsCharacterComparisonGroups, null, null);
+    }
+    public WorkerAnalysisJobClaimRequest(String modelName, String currentStep, Set<AnalysisJobType> allowedJobTypes,
+            Set<AnalysisMode> supportedAnalysisModes, Boolean supportsCharacterComparisonGroups,
+            Set<org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind> supportedSourceKinds) {
+        this(modelName, currentStep, allowedJobTypes, supportedAnalysisModes, supportsCharacterComparisonGroups, supportedSourceKinds, null);
+    }
+    public Set<org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind> effectiveSupportedSourceKinds() {
+        if (supportedSourceKinds == null || supportedSourceKinds.isEmpty()) {
+            return Set.of(org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE);
+        }
+        java.util.EnumSet<org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind> kinds =
+                java.util.EnumSet.copyOf(supportedSourceKinds);
+        if (!Boolean.TRUE.equals(supportsSettingBookReferenceTime)) {
+            kinds.remove(org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.SETTING_BOOK);
+        }
+        return Set.copyOf(kinds);
+    }
     public Set<AnalysisMode> effectiveSupportedAnalysisModes() {
-        return supportedAnalysisModes == null || supportedAnalysisModes.isEmpty()
-                ? Set.of(AnalysisMode.CONFIRMED_ONLY) : Set.copyOf(supportedAnalysisModes);
+        java.util.EnumSet<AnalysisMode> modes = supportedAnalysisModes == null || supportedAnalysisModes.isEmpty()
+                ? java.util.EnumSet.of(AnalysisMode.CONFIRMED_ONLY) : java.util.EnumSet.copyOf(supportedAnalysisModes);
+        if (!Boolean.TRUE.equals(supportsFrozenComparisonEvidence)) modes.remove(AnalysisMode.ORDERED_PROVISIONAL);
+        return Set.copyOf(modes);
     }
 }

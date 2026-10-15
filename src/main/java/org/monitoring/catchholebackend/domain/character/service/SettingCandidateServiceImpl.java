@@ -85,6 +85,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         org.monitoring.catchholebackend.domain.analysis.service.AnalysisAutomaticApplicationContributor {
 
     private final WorkRepository workRepository;
+    private final org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope reviewSources;
     private final AnalysisRunStateService analysisRunStateService;
     private final UploadBatchRepository uploadBatchRepository;
     private final AnalysisJobRepository analysisJobRepository;
@@ -100,7 +101,14 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
     private final CharacterAnalysisConfirmation analysisConfirmation;
     private final CharacterFactComparisonJobCoordinator characterComparisonJobCoordinator;
     private final jakarta.persistence.EntityManager entityManager;
+    private final org.monitoring.catchholebackend.domain.character.processor.SettingBookIdentityValidator bookIdentityValidator;
+    private final org.monitoring.catchholebackend.domain.analysis.processor.SettingBookAutomaticEvidenceValidator bookEvidenceValidator;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Override
+    public SettingCandidateListResponse getSettingCandidates(Long memberId, UUID workId, UUID batchId, SettingCandidateReviewStatus reviewStatus, Set<SettingCandidateMatchStatus> matchStatuses, int page, int size, boolean includeLegacyCandidates) {
+        return getSettingCandidates(memberId, workId, batchId, reviewStatus, matchStatuses, page, size, includeLegacyCandidates, null);
+    }
 
     @Override
     public SettingCandidateListResponse getSettingCandidates(
@@ -111,22 +119,28 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             Set<SettingCandidateMatchStatus> matchStatuses,
             int page,
             int size,
-            boolean includeLegacyCandidates
+            boolean includeLegacyCandidates,
+            UUID sourceAnalysisJobId
     ) {
         Work work = workRepository.getOwnedWork(workId, memberId);
+        reviewSources.validate(work, batchId, sourceAnalysisJobId, false);
         uploadBatchRepository.findByIdAndWorkId(batchId, work.getId())
                 .orElseThrow(() -> new AppException(CharacterErrorCode.SETTING_CANDIDATE_BATCH_NOT_FOUND));
 
-        List<SettingCandidate> candidates = settingCandidateRepository.findReviewCandidates(
+        List<SettingCandidate> candidates = (sourceAnalysisJobId == null ? settingCandidateRepository.findReviewCandidates(work.getId(), batchId, reviewStatus, matchStatuses == null || matchStatuses.isEmpty()
+                        ? EnumSet.allOf(SettingCandidateMatchStatus.class)
+                        : EnumSet.copyOf(matchStatuses)) : settingCandidateRepository.findReviewCandidates(
                 work.getId(),
                 batchId,
                 reviewStatus,
                 matchStatuses == null || matchStatuses.isEmpty()
                         ? EnumSet.allOf(SettingCandidateMatchStatus.class)
                         : EnumSet.copyOf(matchStatuses)
-        );
+        , sourceAnalysisJobId));
         Page<SettingCandidate> candidatePage = includeLegacyCandidates
-                ? settingCandidateRepository.findReviewPage(
+                ? (sourceAnalysisJobId == null ? settingCandidateRepository.findReviewPage(work.getId(), batchId, reviewStatus, matchStatuses == null || matchStatuses.isEmpty()
+                                ? EnumSet.allOf(SettingCandidateMatchStatus.class)
+                                : EnumSet.copyOf(matchStatuses), PageRequest.of(page, size)) : settingCandidateRepository.findReviewPage(
                         work.getId(),
                         batchId,
                         reviewStatus,
@@ -134,17 +148,17 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                                 ? EnumSet.allOf(SettingCandidateMatchStatus.class)
                                 : EnumSet.copyOf(matchStatuses),
                         PageRequest.of(page, size)
-                )
+                , sourceAnalysisJobId))
                 : null;
-        SettingCandidateBatchCounts counts = settingCandidateRepository.countReviewSummary(
+        SettingCandidateBatchCounts counts = (sourceAnalysisJobId == null ? settingCandidateRepository.countReviewSummary(work.getId(), batchId, SettingCandidateReviewStatus.PENDING_REVIEW, SettingCandidateMatchStatus.AMBIGUOUS, EnumSet.of(CharacterFactComparisonStatus.FAILED, CharacterFactComparisonStatus.RECOMPARISON_REQUIRED)) : settingCandidateRepository.countReviewSummary(
                 work.getId(),
                 batchId,
                 SettingCandidateReviewStatus.PENDING_REVIEW,
                 SettingCandidateMatchStatus.AMBIGUOUS,
                 EnumSet.of(CharacterFactComparisonStatus.FAILED, CharacterFactComparisonStatus.RECOMPARISON_REQUIRED)
-        );
+        , sourceAnalysisJobId));
         AnalysisJobEpisodeRange episodeRange =
-                analysisJobRepository.findEpisodeRangeByWorkIdAndBatchId(work.getId(), batchId);
+                reviewSources.episodeRange(work, batchId, sourceAnalysisJobId);
         List<CharacterSettingSchema> schemas =
                 characterSettingSchemaRepository.findAllActiveForWork(work.getId());
 
@@ -203,13 +217,21 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
     }
 
     @Override
+    public SettingCandidateResponse getSettingCandidate(Long memberId, UUID workId, UUID batchId, UUID candidateId) {
+        return getSettingCandidate(memberId, workId, batchId, candidateId, null);
+    }
+
+    @Override
     public SettingCandidateResponse getSettingCandidate(
             Long memberId,
             UUID workId,
             UUID batchId,
-            UUID candidateId
+            UUID candidateId,
+            UUID sourceAnalysisJobId
     ) {
         Work work = workRepository.getOwnedWork(workId, memberId);
+        reviewSources.validate(work, batchId, sourceAnalysisJobId, false);
+        reviewSources.assertCharacter(work, batchId, sourceAnalysisJobId, candidateId, false);
         SettingCandidate candidate = settingCandidateRepository
                 .findByIdAndWorkIdAndAnalysisJobBatchId(candidateId, work.getId(), batchId)
                 .orElseThrow(() -> new AppException(CharacterErrorCode.SETTING_CANDIDATE_NOT_FOUND));
@@ -220,13 +242,22 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
 
     @Override
     @Transactional
+    public SettingCandidateResponse updateSettingCandidate(Long memberId, UUID workId, UUID candidateId, SettingCandidateUpdateRequest request) {
+        return updateSettingCandidate(memberId, workId, candidateId, request, null);
+    }
+
+    @Override
+    @Transactional
     public SettingCandidateResponse updateSettingCandidate(
             Long memberId,
             UUID workId,
             UUID candidateId,
-            SettingCandidateUpdateRequest request
+            SettingCandidateUpdateRequest request,
+            UUID sourceAnalysisJobId
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        reviewSources.validate(work, null, sourceAnalysisJobId, true);
+        reviewSources.assertCharacter(work, null, sourceAnalysisJobId, candidateId, true);
         validateReviewMutationAllowed(work, List.of(candidateId));
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
         candidate.validateReviewContentEditable();
@@ -293,12 +324,20 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
 
     @Override
     @Transactional
+    public SettingCandidateGroupActionResponse updateSettingCandidateGroupCharacterMatch(Long memberId, UUID workId, SettingCandidateGroupCharacterMatchRequest request) {
+        return updateSettingCandidateGroupCharacterMatch(memberId, workId, request, null);
+    }
+
+    @Override
+    @Transactional
     public SettingCandidateGroupActionResponse updateSettingCandidateGroupCharacterMatch(
             Long memberId,
             UUID workId,
-            SettingCandidateGroupCharacterMatchRequest request
+            SettingCandidateGroupCharacterMatchRequest request,
+            UUID sourceAnalysisJobId
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        reviewSources.validate(work, request.batchId(), sourceAnalysisJobId, true);
         uploadBatchRepository.findByIdAndWorkId(request.batchId(), work.getId())
                 .orElseThrow(() -> new AppException(CharacterErrorCode.SETTING_CANDIDATE_BATCH_NOT_FOUND));
         Set<UUID> requestedIds = Set.copyOf(request.candidateIds());
@@ -306,10 +345,10 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
         }
         validateReviewMutationAllowed(work, requestedIds);
-        List<SettingCandidate> candidates = settingCandidateRepository.findAllByIdsAndBatchForUpdate(
+        List<SettingCandidate> candidates = (sourceAnalysisJobId == null ? settingCandidateRepository.findAllByIdsAndBatchForUpdate(work.getId(), request.batchId(), requestedIds) : settingCandidateRepository.findAllByIdsAndBatchForUpdate(
                 work.getId(), request.batchId(), requestedIds
-        );
-        validateCompletePendingGroup(work, request.batchId(), candidates, requestedIds);
+        , sourceAnalysisJobId));
+        validateCompletePendingGroup(work, request.batchId(), candidates, requestedIds, sourceAnalysisJobId);
         candidates.forEach(candidate -> {
             validateComparisonNotProcessing(candidate);
         });
@@ -331,13 +370,22 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
 
     @Override
     @Transactional
+    public SettingCandidateResponse updateSettingCandidateCharacterMatch(Long memberId, UUID workId, UUID candidateId, SettingCandidateCharacterMatchRequest request) {
+        return updateSettingCandidateCharacterMatch(memberId, workId, candidateId, request, null);
+    }
+
+    @Override
+    @Transactional
     public SettingCandidateResponse updateSettingCandidateCharacterMatch(
             Long memberId,
             UUID workId,
             UUID candidateId,
-            SettingCandidateCharacterMatchRequest request
+            SettingCandidateCharacterMatchRequest request,
+            UUID sourceAnalysisJobId
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        reviewSources.validate(work, null, sourceAnalysisJobId, true);
+        reviewSources.assertCharacter(work, null, sourceAnalysisJobId, candidateId, true);
         validateReviewMutationAllowed(work, List.of(candidateId));
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
         candidate.validateEditable();
@@ -364,13 +412,22 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
 
     @Override
     @Transactional
+    public SettingCandidateConfirmResult confirmSettingCandidate(Long memberId, UUID workId, UUID candidateId, SettingCandidateConfirmRequest request) {
+        return confirmSettingCandidate(memberId, workId, candidateId, request, null);
+    }
+
+    @Override
+    @Transactional
     public SettingCandidateConfirmResult confirmSettingCandidate(
             Long memberId,
             UUID workId,
             UUID candidateId,
-            SettingCandidateConfirmRequest request
+            SettingCandidateConfirmRequest request,
+            UUID sourceAnalysisJobId
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        reviewSources.validate(work, null, sourceAnalysisJobId, true);
+        reviewSources.assertCharacter(work, null, sourceAnalysisJobId, candidateId, true);
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
         if (candidate.getReviewStatus() == SettingCandidateReviewStatus.CONFIRMED) {
             return SettingCandidateConfirmResult.confirmed(
@@ -398,14 +455,18 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             }
         }
 
+        boolean applyToCurrent = request != null && Boolean.TRUE.equals(request.applyToCurrent());
+        validateCurrentApplication(candidate, applicationMode, applyToCurrent,
+                request == null ? null : request.baseSnapshotVersion(), request == null ? null : request.expectedUpdatedAt(), applyEditedValue);
         if (isCompletedOrderedReview(candidate)) {
             SettingCandidateGroupPromotion promotion = prepareCompletedOrderedCandidate(
                     candidate,
                     applicationMode,
-                    applyEditedValue
+                    applyEditedValue, applyToCurrent
             );
             if (promotion != null) {
                 settingCandidatePromotionService.promoteGroup(List.of(promotion));
+                if (applyToCurrent) protectExplicitCurrentSlot(candidate);
             }
             return SettingCandidateConfirmResult.confirmed(settingCandidateMapper.toReviewStatusResponse(candidate));
         }
@@ -476,12 +537,20 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
 
     @Override
     @Transactional
+    public SettingCandidateGroupConfirmResult confirmSettingCandidateGroup(Long memberId, UUID workId, SettingCandidateGroupConfirmRequest request) {
+        return confirmSettingCandidateGroup(memberId, workId, request, null);
+    }
+
+    @Override
+    @Transactional
     public SettingCandidateGroupConfirmResult confirmSettingCandidateGroup(
             Long memberId,
             UUID workId,
-            SettingCandidateGroupConfirmRequest request
+            SettingCandidateGroupConfirmRequest request,
+            UUID sourceAnalysisJobId
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        reviewSources.validate(work, request.batchId(), sourceAnalysisJobId, true);
         uploadBatchRepository.findByIdAndWorkId(request.batchId(), work.getId())
                 .orElseThrow(() -> new AppException(CharacterErrorCode.SETTING_CANDIDATE_BATCH_NOT_FOUND));
         Map<UUID, SettingCandidateGroupConfirmDecision> decisions = new LinkedHashMap<>();
@@ -491,9 +560,9 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             }
         });
         List<SettingCandidate> candidates = SettingCandidateChronology.sorted(
-                settingCandidateRepository.findAllByIdsAndBatchForUpdate(
+                (sourceAnalysisJobId == null ? settingCandidateRepository.findAllByIdsAndBatchForUpdate(work.getId(), request.batchId(), decisions.keySet()) : settingCandidateRepository.findAllByIdsAndBatchForUpdate(
                         work.getId(), request.batchId(), decisions.keySet()
-                )
+                , sourceAnalysisJobId))
         );
         String decisionHash = groupDecisionHash(request);
         if (candidates.size() == decisions.size()
@@ -512,7 +581,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         }
         candidates.forEach(analysisConfirmation::assertReviewSourceCurrent);
         validateReviewMutationAllowed(work, decisions.keySet());
-        validateCompletePendingGroup(work, request.batchId(), candidates, decisions.keySet());
+        validateCompletePendingGroup(work, request.batchId(), candidates, decisions.keySet(), sourceAnalysisJobId);
         if (candidates.stream().anyMatch(candidate -> candidate.getMatchStatus()
                 == SettingCandidateMatchStatus.AMBIGUOUS)) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
@@ -522,6 +591,13 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 Boolean.TRUE.equals(decisions.get(candidate.getId()).applyEditedValue()),
                 decisions.get(candidate.getId()).expectedUpdatedAt()
         ));
+
+        // 그룹의 모든 실제 version·후보 timestamp를 어떤 후보도 확정하기 전에 검사한다.
+        candidates.forEach(candidate -> {
+            var decision = decisions.get(candidate.getId());
+            validateCurrentApplication(candidate, decision.applicationMode(), Boolean.TRUE.equals(decision.applyToCurrent()),
+                    decision.baseSnapshotVersion(), decision.expectedUpdatedAt(), Boolean.TRUE.equals(decision.applyEditedValue()));
+        });
 
         if (Boolean.TRUE.equals(request.acceptDisplayedResults())) {
             return confirmDisplayedManualResults(work, candidates, decisions, decisionHash);
@@ -537,7 +613,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                     SettingCandidateGroupPromotion promotion = prepareCompletedOrderedCandidate(
                             candidate,
                             decision.applicationMode(),
-                            Boolean.TRUE.equals(decision.applyEditedValue())
+                            Boolean.TRUE.equals(decision.applyEditedValue()), Boolean.TRUE.equals(decision.applyToCurrent())
                     );
                     if (promotion != null
                             && promotion.applicationMode() == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
@@ -549,6 +625,10 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 }
             }
             settingCandidatePromotionService.promoteGroup(promotions);
+            settingCandidatePromotionService.finalizeNarrativeTimes(candidates.stream().map(SettingCandidate::getAnalysisJob)
+                    .filter(Objects::nonNull).distinct().toList());
+            candidates.stream().filter(candidate -> Boolean.TRUE.equals(decisions.get(candidate.getId()).applyToCurrent()))
+                    .forEach(this::protectExplicitCurrentSlot);
             candidates.forEach(candidate -> candidate.recordGroupConfirmation(decisionHash));
             return SettingCandidateGroupConfirmResult.confirmed(toGroupActionResponse(groupKey(candidates.getFirst()),
                     candidates, characterSettingSchemaRepository.findAllActiveForWork(work.getId())));
@@ -751,6 +831,8 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             }
         }
         settingCandidatePromotionService.promoteGroup(promotions);
+        settingCandidatePromotionService.finalizeNarrativeTimes(candidates.stream().map(SettingCandidate::getAnalysisJob)
+                .filter(Objects::nonNull).distinct().toList());
         candidates.forEach(candidate -> candidate.recordGroupConfirmation(decisionHash));
         return SettingCandidateGroupConfirmResult.confirmed(
                 toGroupActionResponse(groupKey(candidates.getFirst()), candidates, schemas)
@@ -819,6 +901,8 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             else {
                 promotions.forEach(promotion -> promotion.candidate().confirm());
                 settingCandidatePromotionService.promoteGroup(promotions);
+                settingCandidatePromotionService.finalizeNarrativeTimes(candidates.stream().map(SettingCandidate::getAnalysisJob)
+                        .filter(Objects::nonNull).distinct().toList());
             }
         }
         candidates.forEach(candidate -> candidate.recordGroupConfirmation(decisionHash));
@@ -835,6 +919,9 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         if (!job.isAutomaticReview()) return;
         List<SettingCandidate> candidates = SettingCandidateChronology.sorted(
                 settingCandidateRepository.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(job.getId()));
+        var identities = job.isSettingBookSource() ? bookIdentityValidator.validate(job, candidates)
+                : org.monitoring.catchholebackend.domain.character.processor.SettingBookIdentityValidator.ValidatedIdentities.empty();
+        String frozenContent = job.isSettingBookSource() && !candidates.isEmpty() ? bookEvidenceValidator.frozenContent(job) : null;
         List<SettingCandidate> accepted = new ArrayList<>();
         Set<UUID> acceptedIds = new HashSet<>();
         Set<String> blockedSubjects = new HashSet<>();
@@ -843,21 +930,44 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             if (!discovery.isCharacterDiscovery() || discovery.getProvisionalSubjectKey() == null) continue;
             String subject = discovery.getProvisionalSubjectKey();
             if (!discovery.isPendingReview() || discovery.isUserModified()
+                    || job.isSettingBookSource() && !bookEvidenceValidator.matches(frozenContent, discovery.getEvidenceSpans())
                     || isUnknownCharacterName(discovery.getEntityName())
                     || discovery.getMatchStatus() == SettingCandidateMatchStatus.AMBIGUOUS
                     || analysisConfirmation.resolvedCharacterId(discovery) == null
-                    && existsCharacterByGroupName(job.getWork().getId(), discovery.getEntityName())) {
+                    && existsCharacterByGroupName(job.getWork().getId(), discovery.getEntityName()) && !identities.permits(discovery)) {
                 blockedSubjects.add(subject);
             }
             newNames.computeIfAbsent(groupKey(discovery.getEntityName()), ignored -> new HashSet<>()).add(subject);
         }
-        newNames.values().stream().filter(subjects -> subjects.size() > 1).forEach(blockedSubjects::addAll);
+        newNames.values().stream().filter(subjects -> subjects.size() > 1).forEach(subjects -> subjects.stream()
+                .filter(subject -> candidates.stream().noneMatch(candidate -> candidate.isCharacterDiscovery()
+                        && subject.equals(candidate.getProvisionalSubjectKey()) && identities.permits(candidate)))
+                .forEach(blockedSubjects::add));
         List<SettingCandidate> applicationOrder = new ArrayList<>();
         candidates.stream().filter(SettingCandidate::isCharacterDiscovery).forEach(applicationOrder::add);
         candidates.stream().filter(candidate -> !candidate.isCharacterDiscovery()).forEach(applicationOrder::add);
         for (SettingCandidate candidate : applicationOrder) {
-            if (!candidate.isPendingReview() || candidate.isUserModified()
-                    || isUnknownCharacterName(candidate.getEntityName())) continue;
+            if (!candidate.isPendingReview() || isUnknownCharacterName(candidate.getEntityName())) continue;
+            if (candidate.getAutomaticReviewHoldReason() != null) {
+                if (candidate.getAutomaticReviewHoldReason() != AutomaticReviewHoldReason.REVIEW_REQUIRED
+                        && !candidate.isCharacterDiscovery() && comparisonDependencyIds(candidate).stream()
+                            .anyMatch(id -> !acceptedIds.contains(id) && !analysisConfirmation.isDependencyConfirmed(candidate, id))) {
+                    candidate.recordAutomaticReviewHold(AutomaticReviewHoldReason.DEPENDENCY_CONFIRMATION_REQUIRED);
+                }
+                continue;
+            }
+            if (candidate.isUserModified()) {
+                if (identities.requiresProof(candidate)) candidate.recordAutomaticReviewHold(AutomaticReviewHoldReason.SUBJECT_CONFIRMATION_REQUIRED);
+                continue;
+            }
+            if (identities.requiresProof(candidate) && !identities.permits(candidate)) {
+                candidate.recordAutomaticReviewHold(AutomaticReviewHoldReason.SUBJECT_CONFIRMATION_REQUIRED);
+                continue;
+            }
+            if (job.isSettingBookSource() && !bookEvidenceValidator.matches(frozenContent, candidate.getEvidenceSpans())) {
+                candidate.recordAutomaticReviewHold(AutomaticReviewHoldReason.REVIEW_REQUIRED);
+                continue;
+            }
             String subject = candidate.getProvisionalSubjectKey();
             if (candidate.getMatchStatus() == SettingCandidateMatchStatus.AMBIGUOUS
                     || candidate.getMatchedCharacterId() == null && subject == null) continue;
@@ -887,6 +997,11 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                     candidate.recordAutomaticReviewHold(dependencyMissing ? AutomaticReviewHoldReason.DEPENDENCY_CONFIRMATION_REQUIRED : AutomaticReviewHoldReason.CURRENT_SETTING_CHANGED);
                     continue;
                 }
+                var protection = analysisConfirmation.automaticHold(candidate);
+                if (protection != null) {
+                    candidate.recordAutomaticReviewHold(protection);
+                    continue;
+                }
                 if (candidate.getSuggestedOperation() == CharacterFactOperation.EXCLUDE) {
                     candidate.dismiss();
                     candidate.markAutomaticallyReviewed();
@@ -914,7 +1029,9 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             if (candidate.confirm()) promotions.add(new SettingCandidateGroupPromotion(
                     candidate, CharacterFactConfirmApplicationMode.APPLY_PROPOSAL));
         }
-        settingCandidatePromotionService.promoteGroup(promotions);
+        if (identities.parentRefs().isEmpty()) settingCandidatePromotionService.promoteGroup(promotions);
+        else settingCandidatePromotionService.promoteAutomaticGroup(promotions, identities);
+        settingCandidatePromotionService.finalizeNarrativeTimes(job);
         accepted.forEach(SettingCandidate::markAutomaticallyReviewed);
         settingCandidateRepository.flush();
     }
@@ -962,6 +1079,35 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         }
     }
 
+    private void validateCurrentApplication(SettingCandidate candidate, CharacterFactConfirmApplicationMode mode,
+            boolean applyToCurrent, Long expectedVersion, java.time.LocalDateTime expectedUpdatedAt, boolean applyEditedValue) {
+        if (!applyToCurrent) return;
+        if (!candidate.getAnalysisJob().isSettingBookSource() || !isCompletedOrderedReview(candidate)
+                || candidate.isAutomaticApplicationPending() || !candidate.isPendingReview() || candidate.isCharacterDiscovery()
+                || mode != CharacterFactConfirmApplicationMode.APPLY_PROPOSAL || analysisConfirmation.resolvedCharacterId(candidate) == null
+                || candidate.getSuggestedOperation() == CharacterFactOperation.REMOVE || candidate.getSuggestedOperation() == CharacterFactOperation.EXCLUDE) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
+        }
+        analysisConfirmation.assertReviewSourceCurrent(candidate);
+        validateCandidateReviewTimestamp(candidate, expectedUpdatedAt);
+        if (expectedVersion == null || expectedVersion != currentSnapshotVersion(candidate)) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE);
+        }
+        if (org.monitoring.catchholebackend.domain.analysis.processor.SettingBookTemporalPolicy.requiresReview(
+                org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(
+                        candidate.getAnalysisJob(), candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope()), List.of(), false)
+                && !(applyEditedValue && candidate.getReviewedApplicationMode() == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL)) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_EDIT_APPLICATION_REQUIRED);
+        }
+    }
+
+    private void protectExplicitCurrentSlot(SettingCandidate candidate) {
+        var slot = lateReviewSnapshotSlot(candidate);
+        var id = analysisConfirmation.resolvedCharacterId(candidate);
+        workCharacterRepository.findByIdAndWorkIdForUpdate(id, candidate.getWork().getId()).orElseThrow(() ->
+                new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID)).protectManualSlot(slot.factType(), slot.factKey());
+    }
+
     private void validateEditedApplicationSelection(SettingCandidate candidate, boolean applyEditedValue,
             java.time.LocalDateTime expectedUpdatedAt) {
         if (isCompletedOrderedReview(candidate) && candidate.getReviewedApplicationMode() != null) {
@@ -976,7 +1122,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
     private SettingCandidateGroupPromotion prepareCompletedOrderedCandidate(
             SettingCandidate candidate,
             CharacterFactConfirmApplicationMode requested,
-            boolean applyEditedValue
+            boolean applyEditedValue, boolean applyToCurrent
     ) {
         var job = candidate.getAnalysisJob();
         if (!job.hasCurrentSourceVersion()) throw new AppException(AnalysisJobErrorCode.ANALYSIS_RUN_STATE_CONFLICT);
@@ -991,24 +1137,36 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_EDIT_APPLICATION_REQUIRED);
             }
         }
+        if (job.isSettingBookSource() && candidate.isUserModified()
+                && requested == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL
+                && !Objects.equals(candidate.getReviewedSnapshotVersion(), currentSnapshotVersion(candidate))) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE);
+        }
         // 대상 연결만으로 내용/시점 보류를 승인하지 않는다. 저장된 명시적 선택 또는 정상 비교가 필요하다.
-        if (!candidate.isUserModified()) validateConfirmPolicy(candidate, requested == null
+        if (!candidate.isUserModified() && !applyToCurrent) validateConfirmPolicy(candidate, requested == null
                 ? CharacterFactConfirmApplicationMode.APPLY_PROPOSAL : requested, null);
         var schema = settingCandidateSchemaResolver.resolve(candidate.getAttributeName(), candidate.getValueType(),
                 characterSettingSchemaRepository.findAllActiveForWork(candidate.getWork().getId()));
         String key = schema.factKey();
-        boolean explicitCurrent = candidate.getReviewedApplicationMode() == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL;
+        boolean explicitCurrent = applyToCurrent || candidate.getReviewedApplicationMode() == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL;
         // 초안 저장 중에는 AI가 판단한 시점을 보존하고, 최종 확정에서만 작가의 현재값 선택을 적용한다.
         CharacterFactTemporalScope reviewedScope = explicitCurrent
                 ? CharacterFactTemporalScope.PRESENT : candidate.getTemporalScope();
         boolean historyOnly = requested == CharacterFactConfirmApplicationMode.HISTORY_ONLY
-                || !explicitCurrent && (candidate.getSuggestedOperation() == CharacterFactOperation.REMOVE
-                    || analysisConfirmation.keepReviewedFactInHistory(candidate, schema.matchedSchema().getFactType(), key));
+                || candidate.getSuggestedOperation() == CharacterFactOperation.REMOVE
+                    && (job.isSettingBookSource() || !explicitCurrent)
+                || !explicitCurrent && org.monitoring.catchholebackend.domain.analysis.processor.SettingBookTemporalPolicy.requiresReview(
+                    org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(
+                        job, candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope()), List.of(), false)
+                || !applyToCurrent && (!explicitCurrent || job.isSettingBookSource()) && (explicitCurrent
+                    ? analysisConfirmation.keepLateReviewInHistory(candidate, schema.matchedSchema().getFactType(), key)
+                    : analysisConfirmation.keepReviewedFactInHistory(candidate, schema.matchedSchema().getFactType(), key));
         // 오래된 비교의 병합값·부수 삭제를 재사용하지 않고 작가가 확인한 이 후보의 값만 반영한다.
         prepareUserEditedValue(candidate, reviewedScope, true);
         if (!candidate.confirm()) return null;
         return new SettingCandidateGroupPromotion(candidate, historyOnly
-                ? CharacterFactConfirmApplicationMode.HISTORY_ONLY : CharacterFactConfirmApplicationMode.APPLY_PROPOSAL, explicitCurrent);
+                ? CharacterFactConfirmApplicationMode.HISTORY_ONLY : CharacterFactConfirmApplicationMode.APPLY_PROPOSAL,
+                explicitCurrent && !job.isSettingBookSource());
     }
 
     private void validateDistinctCurrentSelections(List<SettingCandidateGroupPromotion> promotions) {
@@ -1072,7 +1230,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 }
             }
             protectedDecisions.put(candidate.getId(), new SettingCandidateGroupConfirmDecision(
-                    candidate.getId(), mode, decision.baseSnapshotVersion(), decision.applyEditedValue(), decision.expectedUpdatedAt()));
+                    candidate.getId(), mode, decision.baseSnapshotVersion(), decision.applyEditedValue(), decision.expectedUpdatedAt(), decision.applyToCurrent()));
         }
         return protectedDecisions;
     }
@@ -1135,7 +1293,17 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
     @Override
     @Transactional
     public SettingCandidateResponse retryComparison(Long memberId, UUID workId, UUID candidateId) {
+        return retryComparison(memberId, workId, candidateId, null);
+    }
+
+    @Override
+    @Transactional
+    public SettingCandidateResponse retryComparison(Long memberId, UUID workId, UUID candidateId,
+            UUID sourceAnalysisJobId
+    ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        reviewSources.validate(work, null, sourceAnalysisJobId, true);
+        reviewSources.assertCharacter(work, null, sourceAnalysisJobId, candidateId, true);
         validateAutomaticApplicationNotPending(work, List.of(candidateId));
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
         if (isOrdered(candidate)) {
@@ -1164,12 +1332,21 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
 
     @Override
     @Transactional
+    public SettingCandidateReviewStatusResponse dismissSettingCandidate(Long memberId, UUID workId, UUID candidateId) {
+        return dismissSettingCandidate(memberId, workId, candidateId, null);
+    }
+
+    @Override
+    @Transactional
     public SettingCandidateReviewStatusResponse dismissSettingCandidate(
             Long memberId,
             UUID workId,
-            UUID candidateId
+            UUID candidateId,
+            UUID sourceAnalysisJobId
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        reviewSources.validate(work, null, sourceAnalysisJobId, true);
+        reviewSources.assertCharacter(work, null, sourceAnalysisJobId, candidateId, true);
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
         if (candidate.getReviewStatus() == SettingCandidateReviewStatus.DISMISSED) {
             return settingCandidateMapper.toReviewStatusResponse(candidate);
@@ -1179,7 +1356,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         boolean manualFinalReview = isSingleJobManualReviewGroup(candidate);
         List<CharacterFactComparisonJobCoordinator.ScopeRef> previousScopes =
                 characterComparisonJobCoordinator.scopeRefs(List.of(candidate));
-        candidate.dismiss();
+        candidate.dismissByUser();
         if (!manualFinalReview) {
             characterComparisonJobCoordinator.enqueueScopes(memberId, previousScopes);
         }
@@ -1194,7 +1371,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         return settingCandidateRepository.findReviewCandidates(
                         candidate.getWork().getId(), candidate.getAnalysisJob().getBatch().getId(),
                         SettingCandidateReviewStatus.PENDING_REVIEW,
-                        EnumSet.allOf(SettingCandidateMatchStatus.class))
+                        EnumSet.allOf(SettingCandidateMatchStatus.class), candidate.getAnalysisJob().isSettingBookSource() ? sourceJobId : null)
                 .stream().filter(sibling -> groupKey(sibling).equals(selectedGroupKey))
                 .allMatch(sibling -> Objects.equals(sourceJobId, sibling.getAnalysisJob().getId()));
     }
@@ -1365,7 +1542,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                         .append(decision.candidateId()).append('|')
                         .append(decision.applicationMode()).append('|')
                         .append(decision.baseSnapshotVersion()).append('|')
-                        .append(Boolean.TRUE.equals(decision.applyEditedValue()))
+                        .append(Boolean.TRUE.equals(decision.applyEditedValue())).append("|").append(Boolean.TRUE.equals(decision.applyToCurrent()))
                         .append(decision.expectedUpdatedAt() == null ? "" : "|" + decision.expectedUpdatedAt()).append('\n'));
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
@@ -1523,7 +1700,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             UUID batchId,
             List<SettingCandidate> candidates,
             Set<UUID> requestedIds
-    ) {
+    , UUID sourceAnalysisJobId) {
         if (candidates.size() != requestedIds.size()
                 || candidates.stream().anyMatch(candidate -> !candidate.isPendingReview())) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
@@ -1535,12 +1712,12 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                     throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
                 })
                 .orElseThrow(() -> new AppException(CharacterErrorCode.SETTING_CANDIDATE_NOT_FOUND));
-        Set<UUID> pendingGroupIds = settingCandidateRepository.findReviewCandidates(
+        Set<UUID> pendingGroupIds = (sourceAnalysisJobId == null ? settingCandidateRepository.findReviewCandidates(work.getId(), batchId, SettingCandidateReviewStatus.PENDING_REVIEW, EnumSet.allOf(SettingCandidateMatchStatus.class)) : settingCandidateRepository.findReviewCandidates(
                         work.getId(),
                         batchId,
                         SettingCandidateReviewStatus.PENDING_REVIEW,
                         EnumSet.allOf(SettingCandidateMatchStatus.class)
-                ).stream()
+                , sourceAnalysisJobId)).stream()
                 .filter(candidate -> groupKey(candidate).equals(selectedGroupKey))
                 .map(SettingCandidate::getId)
                 .collect(java.util.stream.Collectors.toSet());
@@ -1684,14 +1861,6 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
 
     /** 후보 그룹과 동일한 대소문자·공백 정규화 규칙으로 기존 캐릭터를 찾는다. */
     private Optional<WorkCharacter> findActiveCharacterByGroupName(UUID workId, String entityName) {
-        Optional<WorkCharacter> exactMatch = workCharacterRepository.findByWorkIdAndNameAndStatus(
-                workId,
-                SettingCandidateGroupNameNormalizer.toDisplayName(entityName),
-                CharacterStatus.ACTIVE
-        );
-        if (exactMatch.isPresent()) {
-            return exactMatch;
-        }
         List<WorkCharacter> normalizedMatches = workCharacterRepository
                 .findAllByWorkIdAndStatusOrderByCreatedAtDesc(
                         workId,

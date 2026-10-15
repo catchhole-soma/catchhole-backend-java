@@ -154,7 +154,7 @@ public class CharacterServiceImpl implements CharacterService {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         WorkCharacter character = getActiveCharacterForUpdate(work.getId(), characterId);
         String name = request.name().trim();
-        if (workCharacterRepository.existsByWorkIdAndNameAndStatusAndIdNot(
+        if (!Objects.equals(character.getName(), name) && workCharacterRepository.existsByWorkIdAndNameAndStatusAndIdNot(
                 work.getId(),
                 name,
                 CharacterStatus.ACTIVE,
@@ -770,6 +770,7 @@ public class CharacterServiceImpl implements CharacterService {
                 .filter(slot -> !desiredFacts.containsKey(slot))
                 .toList();
         for (CharacterSnapshotSlot removedSlot : removedSlots) {
+            character.protectManualSlot(removedSlot.factType(), removedSlot.factKey());
             snapshotEntries.remove(removedSlot);
             characterSnapshotSourceManager.removeSources(character, removedSlot);
             provenanceChanged = true;
@@ -779,6 +780,7 @@ public class CharacterServiceImpl implements CharacterService {
             CharacterSnapshotEntry currentEntry = snapshotEntries.get(entry.getKey());
             DesiredFact desiredFact = entry.getValue();
             if (currentEntry == null || !isSameValue(currentEntry, desiredFact)) {
+                character.protectManualSlot(entry.getKey().factType(), entry.getKey().factKey());
                 CharacterFact manualFact = characterMapper.toManualFact(
                         character,
                         desiredFact.factType(),

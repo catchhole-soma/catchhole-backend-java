@@ -55,7 +55,8 @@ public class SettingCandidatePromotionMapper {
                 candidate.getSourceChunkId(),
                 candidate.getAnalysisJob(),
                 candidate.getConfidence(),
-                candidate.getEpisode() == null ? null : candidate.getEpisode().getEpisodeNo()
+                candidate.getAnalysisJob() != null && candidate.getAnalysisJob().isSettingBookSource()
+                        ? candidate.getEffectiveFromEpisodeNo() : candidate.getEpisode() == null ? null : candidate.getEpisode().getEpisodeNo()
         );
     }
 

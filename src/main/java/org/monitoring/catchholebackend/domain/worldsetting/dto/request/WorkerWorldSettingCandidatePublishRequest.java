@@ -47,9 +47,16 @@ public record WorkerWorldSettingCandidatePublishRequest(
             @NotNull(message = "추출 신뢰도는 필수입니다.")
             BigDecimal extractionConfidence,
 
-            Map<String, Object> rawExtractionJson
+            Map<String, Object> rawExtractionJson,
+            @Schema(description = "설정집 본문의 설정 시점. 생략 시 UNKNOWN, 회차 생략 시 PRESENT입니다.", nullable = true)
+            org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope temporalScope,
+            @jakarta.validation.constraints.Positive @Schema(nullable = true) Integer effectiveFromEpisodeNo
     ) {
 
+        public Candidate(WorldSettingCategory category, String subjectName, String scopeName, String settingName, String extractedValue,
+                List<EvidenceSpan> evidenceSpans, BigDecimal extractionConfidence, Map<String, Object> rawExtractionJson) {
+            this(category, subjectName, scopeName, settingName, extractedValue, evidenceSpans, extractionConfidence, rawExtractionJson, null, null);
+        }
         public Candidate(
                 WorldSettingCategory category,
                 String subjectName,
@@ -67,7 +74,7 @@ public record WorkerWorldSettingCandidatePublishRequest(
                     extractedValue,
                     evidenceSpans,
                     extractionConfidence,
-                    rawExtractionJson
+                    rawExtractionJson, null, null
             );
         }
 

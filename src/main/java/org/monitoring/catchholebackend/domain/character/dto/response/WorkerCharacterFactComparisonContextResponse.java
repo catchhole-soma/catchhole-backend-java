@@ -11,8 +11,21 @@ public record WorkerCharacterFactComparisonContextResponse(
         WorkerCharacterFactComparisonCandidatePayload candidate,
         List<SnapshotEntry> snapshotEntries,
         List<PriorCandidate> priorCandidates,
-        String contextToken
+        String contextToken,
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY)
+        List<WorkerCharacterProtectedSlotPayload> protectedSlots,
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        WorkerCharacterAdvisoryCurrentContextPayload advisoryCurrentContext
 ) {
+    public WorkerCharacterFactComparisonContextResponse(WorkerCharacterFactComparisonCandidatePayload candidate,
+            List<SnapshotEntry> snapshotEntries, List<PriorCandidate> priorCandidates, String contextToken,
+            List<WorkerCharacterProtectedSlotPayload> protectedSlots) {
+        this(candidate, snapshotEntries, priorCandidates, contextToken, protectedSlots, null);
+    }
+    public WorkerCharacterFactComparisonContextResponse(WorkerCharacterFactComparisonCandidatePayload candidate,
+            List<SnapshotEntry> snapshotEntries, List<PriorCandidate> priorCandidates, String contextToken) {
+        this(candidate, snapshotEntries, priorCandidates, contextToken, List.of());
+    }
 
     @Schema(name = "WorkerCharacterCurrentSnapshotEntry")
     public record SnapshotEntry(
@@ -21,8 +34,13 @@ public record WorkerCharacterFactComparisonContextResponse(
             @Schema(nullable = true)
             String factValue,
             @Schema(nullable = true, implementation = JsonNode.class)
-            Object valueJson
+            Object valueJson,
+            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+            org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisProvenancePayload provenance
     ) {
+        public SnapshotEntry(CharacterFactType factType, String factKey, String factValue, Object valueJson) {
+            this(factType, factKey, factValue, valueJson, null);
+        }
     }
 
     /**
@@ -45,7 +63,12 @@ public record WorkerCharacterFactComparisonContextResponse(
             @Schema(nullable = true)
             String proposedFactValue,
             @Schema(nullable = true, implementation = JsonNode.class)
-            Object proposedValueJson
-    ) {
+            Object proposedValueJson,
+        @io.swagger.v3.oas.annotations.media.Schema(nullable = true) org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse source
+) {
+    public PriorCandidate(Integer sourceEpisodeNo, String attributeName, String attributeValue, Object valueJson, List<WorkerCharacterFactComparisonCandidatePayload.EvidenceSpan> evidenceSpans, CharacterFactComparisonStatus comparisonStatus, CharacterFactOperation suggestedOperation, String proposedFactValue, Object proposedValueJson) {
+        this(sourceEpisodeNo, attributeName, attributeValue, valueJson, evidenceSpans, comparisonStatus, suggestedOperation, proposedFactValue, proposedValueJson, null);
+    }
+
     }
 }

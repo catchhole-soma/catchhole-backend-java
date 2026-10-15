@@ -40,6 +40,23 @@ import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 )
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class WorkCharacter extends BaseEntity {
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    @Column(name = "manually_edited_slots", nullable = false, columnDefinition = "jsonb")
+    private com.fasterxml.jackson.databind.JsonNode manuallyEditedSlots = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.arrayNode();
+
+    public boolean isManuallyEditedSlot(org.monitoring.catchholebackend.domain.character.type.CharacterFactType type, String key) {
+        for (var slot : manuallyEditedSlots) {
+            if (type.name().equals(slot.path("factType").asText()) && key.trim().equals(slot.path("factKey").asText())) return true;
+        }
+        return false;
+    }
+
+    public void protectManualSlot(org.monitoring.catchholebackend.domain.character.type.CharacterFactType type, String key) {
+        if (!isManuallyEditedSlot(type, key)) {
+            ((com.fasterxml.jackson.databind.node.ArrayNode) manuallyEditedSlots).addObject()
+                    .put("factType", type.name()).put("factKey", key.trim());
+        }
+    }
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -98,6 +115,17 @@ public class WorkCharacter extends BaseEntity {
     // 현재 snapshot이 실제로 바뀔 때만 증가하며 비교 문맥의 관측용 버전으로 사용한다.
     @Column(name = "snapshot_version", nullable = false)
     private long snapshotVersion;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "current_narrative_time", columnDefinition = "jsonb")
+    private JsonNode currentNarrativeTime;
+
+    public boolean updateCurrentNarrativeTime(JsonNode time, boolean incrementVersion) {
+        if (java.util.Objects.equals(currentNarrativeTime, time)) return false;
+        currentNarrativeTime = time == null ? null : time.deepCopy();
+        if (incrementVersion) snapshotVersion++;
+        return true;
+    }
 
     @Column(name = "first_appearance_episode_id")
     private UUID firstAppearanceEpisodeId;

@@ -12,12 +12,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -2282,6 +2284,148 @@ class CharacterControllerIntegrationTest {
                             .isEqualTo(JsonNodeFactory.instance.objectNode().put("name", "생존 감각"));
                     assertThat(savedFact.getSettingCandidate()).isNull();
                 });
+    }
+
+    @Test
+    @DisplayName("실제 JSON 펜 DTO의 공개 전체 PATCH는 표시값을 수정하고 변경 슬롯만 서버 정책으로 정규화한다")
+    void updateCharacterUsesActualDriverJsonPenDisplayValueContract() throws Exception {
+        try (var connection = jdbcTemplate.getDataSource().getConnection()) {
+            assertThat(connection.getMetaData().getURL()).startsWith("jdbc:h2:mem:");
+        }
+        System.out.println("GH221 mutation driver public contract DB target: H2 in-memory");
+        ObjectMapper json = new ObjectMapper();
+        JsonNode actualBefore;
+        String driverRequest;
+        try (var input = getClass().getResourceAsStream("/gh221/continuation-json-pen-before.json")) {
+            actualBefore = json.readTree(input);
+        }
+        try (var input = getClass().getResourceAsStream("/gh221/continuation-json-pen-patch.json")) {
+            driverRequest = new String(input.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        }
+        characterSettingSchemaRepository.saveAll(List.of(
+                settingSchema("profile.attribute", "profile.*", "프로필", CharacterFactType.PROFILE, SettingValueType.STRING),
+                settingSchema("profile.occupation", null, "직업", CharacterFactType.PROFILE, SettingValueType.STRING),
+                settingSchema("profile.affiliation", null, "소속", CharacterFactType.PROFILE, SettingValueType.STRING),
+                settingSchema("items.item", "item.*", "아이템", CharacterFactType.ITEM, SettingValueType.JSON),
+                settingSchema("statuses.status", "status.*", "상태", CharacterFactType.STATUS, SettingValueType.JSON)
+        ));
+        WorkCharacter character = workCharacterRepository.saveAndFlush(WorkCharacter.create(
+                work, "한서린", null, 28, null, null, null, null, null, null, firstEpisode.getId()
+        ));
+        Map<CharacterSnapshotSlot, CharacterFact> originalFacts = new LinkedHashMap<>();
+        CharacterFact age = currentFact(character, CharacterFactType.AGE, "age", "28",
+                JsonNodeFactory.instance.objectNode().put("value", 28));
+        originalFacts.put(new CharacterSnapshotSlot(CharacterFactType.AGE, "age"), age);
+        Map<String, CharacterFactType> collections = new LinkedHashMap<>();
+        collections.put("profile", CharacterFactType.PROFILE);
+        collections.put("stats", CharacterFactType.STAT);
+        collections.put("skills", CharacterFactType.SKILL);
+        collections.put("items", CharacterFactType.ITEM);
+        collections.put("statuses", CharacterFactType.STATUS);
+        for (var collection : collections.entrySet()) {
+            for (JsonNode row : actualBefore.get(collection.getKey())) {
+                CharacterFact fact = currentFact(character, collection.getValue(), row.get("key").asText(),
+                        row.get("value").asText(), driverFixtureValueJson(json, row));
+                originalFacts.put(new CharacterSnapshotSlot(collection.getValue(), row.get("key").asText()), fact);
+            }
+        }
+        CharacterSnapshotSlot penSlot = new CharacterSnapshotSlot(CharacterFactType.ITEM, "item.청동_펜");
+        CharacterFact originalPen = originalFacts.get(penSlot);
+        JsonNode before = json.readTree(mockMvc.perform(get(
+                        "/api/v1/works/{workId}/characters/{characterId}", work.getId(), character.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).get("data");
+
+        // name 속성만 변경해도 표시값이 같으면 기존 Fact와 rich JSON이 그대로 유지된다.
+        ObjectNode propertyOnly = (ObjectNode) json.readTree(driverRequest);
+        ObjectNode propertyPen = (ObjectNode) driverFixtureSetting(propertyOnly, "items", "item.청동_펜");
+        propertyPen.put("value", "청동 펜");
+        ((ObjectNode) propertyPen.get("properties").get(0)).put("value", "흑연필");
+        JsonNode propertyResponse = json.readTree(mockMvc.perform(patch(
+                        "/api/v1/works/{workId}/characters/{characterId}", work.getId(), character.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(propertyOnly)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).get("data");
+        assertThat(driverFixtureSetting(propertyResponse, "items", "item.청동_펜"))
+                .isEqualTo(driverFixtureSetting(before, "items", "item.청동_펜"));
+        assertThat(characterFactRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId()))
+                .hasSize(originalFacts.size());
+
+        String patchEnvelope = mockMvc.perform(patch(
+                        "/api/v1/works/{workId}/characters/{characterId}", work.getId(), character.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON).content(driverRequest))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        JsonNode response = json.readTree(patchEnvelope).get("data");
+        JsonNode pen = driverFixtureSetting(response, "items", "item.청동_펜");
+        assertThat(pen.get("value").asText()).isEqualTo("흑연필");
+        assertThat(pen.get("valueType").asText()).isEqualTo("JSON");
+        assertThat(pen.get("displayName").asText()).isEqualTo("청동 펜");
+        assertThat(pen.get("properties").size()).isEqualTo(1);
+        assertThat(pen.get("properties").get(0).get("key").asText()).isEqualTo("name");
+        assertThat(pen.get("properties").get(0).get("value").asText()).isEqualTo("청동 펜");
+        assertThat(pen.get("characterFactId").asText()).isNotEqualTo(originalPen.getId().toString());
+        assertThat(contributesToCurrentSnapshot(originalPen)).isFalse();
+        assertThat(characterFactRepository.findById(originalPen.getId()).orElseThrow().getValueJson())
+                .isEqualTo(JsonNodeFactory.instance.objectNode().put("name", "청동 펜").put("type", "필기 도구"));
+        WorkCharacter reloaded = workCharacterRepository.findById(character.getId()).orElseThrow();
+        assertThat(snapshotValue(reloaded, CharacterFactType.ITEM, "item.청동_펜"))
+                .isEqualTo(JsonNodeFactory.instance.objectNode().put("name", "청동 펜"));
+        for (var entry : originalFacts.entrySet()) {
+            if (!entry.getKey().equals(penSlot)) {
+                assertThat(contributesToCurrentSnapshot(entry.getValue())).isTrue();
+                assertThat(snapshotValue(reloaded, entry.getKey().factType(), entry.getKey().factKey()))
+                        .isEqualTo(entry.getValue().getValueJson());
+            }
+        }
+        for (var collection : collections.entrySet()) {
+            for (JsonNode row : before.get(collection.getKey())) {
+                if (!row.get("key").asText().equals("item.청동_펜")) {
+                    assertThat(driverFixtureSetting(response, collection.getKey(), row.get("key").asText())).isEqualTo(row);
+                }
+            }
+        }
+        assertThat(response.get("name").asText()).isEqualTo("한서린");
+        assertThat(response.get("roleLabel").isNull()).isTrue();
+        assertThat(response.get("currentAge").asInt()).isEqualTo(28);
+        assertThat(response.get("firstAppearanceEpisode").get("episodeNo").asInt()).isEqualTo(1);
+        JsonNode after = json.readTree(mockMvc.perform(get(
+                        "/api/v1/works/{workId}/characters/{characterId}", work.getId(), character.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).get("data");
+        assertThat(after).isEqualTo(response);
+        String exportDirectory = System.getenv("GH221_EXPORT_DIR");
+        if (exportDirectory != null) {
+            var directory = java.nio.file.Path.of(exportDirectory, "continuation-mutations-v2-fixtures");
+            java.nio.file.Files.createDirectories(directory);
+            java.nio.file.Files.writeString(directory.resolve("backend-h2-before.json"), before.toPrettyString());
+            java.nio.file.Files.writeString(directory.resolve("backend-h2-property-only-response.json"), propertyResponse.toPrettyString());
+            java.nio.file.Files.writeString(directory.resolve("backend-h2-patch-envelope.json"), patchEnvelope);
+            java.nio.file.Files.writeString(directory.resolve("backend-h2-after.json"), after.toPrettyString());
+            java.nio.file.Files.writeString(directory.resolve("backend-h2-driver-request.json"), driverRequest);
+        }
+    }
+
+    private JsonNode driverFixtureValueJson(ObjectMapper json, JsonNode row) throws Exception {
+        if (row.get("valueType").asText().equals("STRING") && row.get("properties").isEmpty()) {
+            return JsonNodeFactory.instance.textNode(row.get("value").asText());
+        }
+        ObjectNode valueJson = JsonNodeFactory.instance.objectNode();
+        for (JsonNode property : row.get("properties")) {
+            valueJson.set(property.get("key").asText(), property.get("valueType").asText().equals("STRING")
+                    ? JsonNodeFactory.instance.textNode(property.get("value").asText())
+                    : json.readTree(property.get("value").asText()));
+        }
+        return valueJson;
+    }
+
+    private JsonNode driverFixtureSetting(JsonNode detail, String collection, String key) {
+        for (JsonNode row : detail.get(collection)) {
+            if (row.get("key").asText().equals(key)) {
+                return row;
+            }
+        }
+        throw new AssertionError("Fixture current slot missing: " + key);
     }
 
     @Test

@@ -22,12 +22,10 @@ public record WorkerCharacterFactComparisonBatchCompleteRequest(
 
         @Valid
         @NotNull
-        @Size(max = 20)
         List<@NotNull @Valid Decision> decisions,
 
         @Valid
         @NotNull
-        @Size(max = 20)
         List<@NotNull @Valid Failure> failures,
 
         @Schema(nullable = true)
@@ -53,11 +51,9 @@ public record WorkerCharacterFactComparisonBatchCompleteRequest(
             String targetSnapshotRef,
 
             @NotNull
-            @Size(max = 30)
             List<@Pattern(regexp = "[PQ][1-9][0-9]*") String> removedSnapshotRefs,
 
             @NotNull
-            @Size(max = 20)
             List<@Pattern(regexp = "C[1-9][0-9]*") String> dependencyCandidateRefs,
 
             @Schema(nullable = true)
@@ -74,8 +70,27 @@ public record WorkerCharacterFactComparisonBatchCompleteRequest(
             String comparisonReason,
 
             @Schema(nullable = true)
-            Map<String, Object> rawComparisonJson
+            Map<String, Object> rawComparisonJson,
+            @jakarta.validation.constraints.Positive @Schema(nullable = true, description = "설정집 본문의 효력 시작 회차") Integer effectiveFromEpisodeNo,
+            @Schema(defaultValue = "false", description = "후보의 검증된 referenceTime을 대표 시점으로 선택합니다. 누락/null은 false입니다.")
+            Boolean advanceCurrentNarrativeTime
     ) {
+        public Decision {
+            advanceCurrentNarrativeTime = Boolean.TRUE.equals(advanceCurrentNarrativeTime);
+        }
+        public Decision(String candidateRef, CharacterFactOperation operation, String resolvedCanonicalFactKey, String targetSnapshotRef,
+                List<String> removedSnapshotRefs, List<String> dependencyCandidateRefs, String proposedFactValue, Object proposedValueJson,
+                CharacterFactTemporalScope temporalScope, String comparisonReason, Map<String, Object> rawComparisonJson) {
+            this(candidateRef, operation, resolvedCanonicalFactKey, targetSnapshotRef, removedSnapshotRefs, dependencyCandidateRefs,
+                    proposedFactValue, proposedValueJson, temporalScope, comparisonReason, rawComparisonJson, null, false);
+        }
+        public Decision(String candidateRef, CharacterFactOperation operation, String resolvedCanonicalFactKey, String targetSnapshotRef,
+                List<String> removedSnapshotRefs, List<String> dependencyCandidateRefs, String proposedFactValue, Object proposedValueJson,
+                CharacterFactTemporalScope temporalScope, String comparisonReason, Map<String,Object> rawComparisonJson, Integer effectiveFromEpisodeNo) {
+            this(candidateRef, operation, resolvedCanonicalFactKey, targetSnapshotRef, removedSnapshotRefs, dependencyCandidateRefs,
+                    proposedFactValue, proposedValueJson, temporalScope, comparisonReason, rawComparisonJson, effectiveFromEpisodeNo, false);
+        }
+
     }
 
     @Schema(name = "WorkerCharacterFactComparisonBatchFailure")

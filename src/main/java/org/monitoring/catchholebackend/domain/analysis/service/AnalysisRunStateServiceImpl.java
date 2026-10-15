@@ -44,11 +44,11 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
             throw conflict();
         }
         AnalysisJob first = jobs.getFirst();
-        if (first.getEpisode() == null) {
+        if (first.getEpisode() == null && !first.isSettingBookSource() || first.isSettingBookSource() && jobs.size() != 1) {
             throw conflict();
         }
         // 현재 slot에서 사라진 REMOVE와 인물 발견도 미래 시점의 확정 이력이다.
-        assertNoFutureConfirmedHistory(first.getWork().getId(), first.getEpisode().getEpisodeNo());
+        if (!first.isSettingBookSource()) assertNoFutureConfirmedHistory(first.getWork().getId(), first.getEpisode().getEpisodeNo());
         ObjectNode base = journal.emptyState();
         Set<String> domains = new HashSet<>();
         for (AnalysisStateSource source : stateSources) {
@@ -66,21 +66,24 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
             // 한 도메인의 확정 설정을 빈 상태로 오인해 실행을 시작하지 않는다.
             throw conflict();
         }
-        assertNoFutureSource(base.path("characters"), first.getEpisode().getEpisodeNo());
-        assertNoFutureSource(base.path("worldSettings"), first.getEpisode().getEpisodeNo());
+        if (!first.isSettingBookSource()) {
+            assertNoFutureSource(base.path("characters"), first.getEpisode().getEpisodeNo());
+            assertNoFutureSource(base.path("worldSettings"), first.getEpisode().getEpisodeNo());
+        }
         UUID runId = UUID.randomUUID();
         UUID predecessor = null;
         int previousEpisodeNo = -1;
         for (int index = 0; index < jobs.size(); index++) {
             AnalysisJob job = jobs.get(index);
             if (!Objects.equals(job.getWork().getId(), first.getWork().getId())
-                    || job.getEpisode() == null || job.getEpisode().getEpisodeNo() <= previousEpisodeNo) {
+                    || job.getSourceKind() != first.getSourceKind()
+                    || !job.isSettingBookSource() && (job.getEpisode() == null || job.getEpisode().getEpisodeNo() <= previousEpisodeNo)) {
                 throw conflict();
             }
             job.initializeOrderedRun(runId, 1, index, predecessor, index == 0 ? base : null);
             analysisJobRepository.save(job);
             predecessor = job.getId();
-            previousEpisodeNo = job.getEpisode().getEpisodeNo();
+            if (!job.isSettingBookSource()) previousEpisodeNo = job.getEpisode().getEpisodeNo();
         }
     }
 
@@ -148,9 +151,13 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
     }
 
     @Override
-    @Transactional
+    @Transactional(noRollbackFor = org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException.class)
     public boolean prepareInput(AnalysisJob job) {
         if (!job.isOrderedProvisional()) {
+            if (job.isSettingBookSource() && !job.hasCurrentSourceVersion()) {
+                invalidateMember(job, "설정집 원문 버전이 변경되어 비교를 다시 준비해야 합니다.");
+                return false;
+            }
             return true;
         }
         // 예상한 stale은 트랜잭션 경계 밖으로 던지지 않아 무효화가 rollback되지 않게 한다.
@@ -177,7 +184,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
         }
         if (job.isAutomaticReview() && job.getAutomaticInputState() == null) {
             automaticPredecessors(job);
-            assertNoFutureConfirmedHistory(job.getWork().getId(), job.getSourceEpisodeNo());
+            if (!job.isSettingBookSource()) assertNoFutureConfirmedHistory(job.getWork().getId(), job.getSourceEpisodeNo());
             ObjectNode input = journal.emptyState();
             Set<String> domains = new HashSet<>();
             for (AnalysisStateSource source : stateSources) {
@@ -187,9 +194,15 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
                 input.set(source.domain(), captured.deepCopy());
             }
             if (!domains.containsAll(List.of("characters", "worldSettings"))) throw conflict();
-            assertNoFutureSource(input.path("characters"), job.getSourceEpisodeNo());
-            assertNoFutureSource(input.path("worldSettings"), job.getSourceEpisodeNo());
+            if (!job.isSettingBookSource()) {
+                assertNoFutureSource(input.path("characters"), job.getSourceEpisodeNo());
+                assertNoFutureSource(input.path("worldSettings"), job.getSourceEpisodeNo());
+            }
             ((ObjectNode) input.path("references")).setAll(pendingReferenceSource.capture(job));
+            if (job.isSettingBookSource()) {
+                ObjectNode manifest = ((ObjectNode) input.path("references")).putObject("setting-book-input");
+                org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSourceMetadata.put(manifest, job);
+            }
             job.captureAutomaticInput(input);
         }
         String hash = journal.hash(getInputState(job));
@@ -206,9 +219,8 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
 
     @Override
     public void assertValidInput(AnalysisJob job) {
-        if (!job.isOrderedProvisional()) {
-            return;
-        }
+        if (job.isSettingBookSource() && !job.hasCurrentSourceVersion()) throw conflict();
+        if (!job.isOrderedProvisional()) return;
         if (job.getJournalStatus() != AnalysisJournalStatus.PENDING || !job.hasCurrentSourceVersion()
                 || job.getInputStateHash() == null
                 || !job.getInputStateHash().equals(journal.hash(getInputState(job)))) {
@@ -325,6 +337,15 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
                 .forEach(member -> invalidateMember(member, reason));
     }
 
+    @Override
+    @Transactional
+    public void invalidateRunsForSettingBookChangeForUpdate(UUID workId, UUID bookId, String reason) {
+        requireInvalidationReason(reason);
+        analysisJobRepository.findAllByWorkIdAndSourceSettingBookIdOrderByCreatedAtDescIdDesc(workId, bookId)
+                .stream().filter(job -> !(job.isOrderedProvisional() ? job.isCompletedOrderedAnalysis()
+                        : job.getStatus() == AnalysisJobStatus.SUCCEEDED)).forEach(job -> invalidateMember(job, reason));
+    }
+
     private boolean preservesCompletedSuccessor(AnalysisJob job, UUID changedEpisodeId) {
         return job.getEpisode() != null && !job.getEpisode().getId().equals(changedEpisodeId)
                 && job.isCompletedOrderedAnalysis();
@@ -350,7 +371,8 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
     private void invalidateMember(AnalysisJob job, String reason) {
         boolean running = job.getStatus() == AnalysisJobStatus.RUNNING;
         boolean canceled = running || job.getStatus() == AnalysisJobStatus.PENDING;
-        job.invalidateJournal(reason);
+        if (job.isOrderedProvisional()) job.invalidateJournal(reason);
+        else if (job.isSettingBookSource()) job.cancelForSourceChange(reason);
         if (running && job.getEpisode() != null && job.getEpisode().getStatus() != EpisodeStatus.ARCHIVED) {
             job.getEpisode().markFailed();
         }
@@ -378,7 +400,9 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
             if (!member.isAutomaticReview() || !Objects.equals(member.getWork().getId(), job.getWork().getId())
                     || !Objects.equals(member.getRunSequence(), sequence)
                     || !Objects.equals(member.getPredecessorJobId(), previousId)
-                    || !member.hasCurrentSourceVersion() || member.getSourceEpisodeNo() <= previousEpisode) throw conflict();
+                    || !member.hasCurrentSourceVersion() || member.getSourceKind() != job.getSourceKind()
+                    || member.isSettingBookSource() && (chain.size() != 1 || sequence != 0)
+                    || !member.isSettingBookSource() && member.getSourceEpisodeNo() <= previousEpisode) throw conflict();
             if (member.getId().equals(job.getId())) return List.copyOf(predecessors);
             if (sequence >= job.getRunSequence()) throw conflict();
             if (member.getStatus() != AnalysisJobStatus.SUCCEEDED
@@ -388,7 +412,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
             }
             predecessors.add(member);
             previousId = member.getId();
-            previousEpisode = member.getSourceEpisodeNo();
+            if (!member.isSettingBookSource()) previousEpisode = member.getSourceEpisodeNo();
             sequence++;
         }
         throw conflict();
@@ -408,7 +432,15 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
         record.put("workId", job.getWork().getId().toString());
         record.put("generation", job.getRunGeneration());
         record.put("sequence", job.getRunSequence());
-        record.put("episodeNo", job.getEpisode().getEpisodeNo());
+        record.put("episodeNo", job.getSourceEpisodeNo());
+        if (job.isSettingBookSource()) {
+            record.put("sourceKind", job.getSourceKind().name());
+            record.put("sourceSettingBookId", job.getSourceSettingBook().getId().toString());
+            record.put("sourceSettingBookRevisionId", job.getSourceSettingBookRevision().getId().toString());
+            record.put("sourceSettingBookRevisionNo", job.getSourceSettingBookRevision().getRevisionNo());
+            record.put("sourceReferenceTimeKind", job.getSourceSettingBookRevision().getReferenceTimeKind().name());
+            record.put("sourceReferenceEpisodeNo", job.getSourceSettingBookRevision().getReferenceEpisodeNo());
+        }
         record.put("jobId", job.getId().toString());
         record.put("inputStateHash", job.getInputStateHash());
         record.putNull("outputStateHash");
@@ -424,12 +456,26 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
                 || !record.path("workId").asText().equals(job.getWork().getId().toString())
                 || record.path("generation").asLong(-1) != job.getRunGeneration()
                 || record.path("sequence").asInt(-1) != job.getRunSequence()
-                || record.path("episodeNo").asInt(-1) != job.getEpisode().getEpisodeNo()
+                || !matchesEnvelopeSource(record, job)
                 || !record.path("jobId").asText().equals(job.getId().toString())
                 || !record.path("inputStateHash").asText().equals(job.getInputStateHash())) {
             throw conflict();
         }
         return record;
+    }
+
+    private boolean matchesEnvelopeSource(JsonNode record, AnalysisJob job) {
+        if (!job.isSettingBookSource()) return record.path("episodeNo").isIntegralNumber()
+                && record.path("episodeNo").asInt() == job.getSourceEpisodeNo()
+                && "EPISODE".equals(record.path("sourceKind").asText("EPISODE"));
+        return "SETTING_BOOK".equals(record.path("sourceKind").asText()) && record.path("episodeNo").isNull()
+                && job.getSourceSettingBook().getId().toString().equals(record.path("sourceSettingBookId").asText())
+                && job.getSourceSettingBookRevision().getId().toString().equals(record.path("sourceSettingBookRevisionId").asText())
+                && job.getSourceSettingBookRevision().getRevisionNo() == record.path("sourceSettingBookRevisionNo").asInt(-1)
+                && job.getSourceSettingBookRevision().getReferenceTimeKind().name()
+                    .equals(record.path("sourceReferenceTimeKind").asText("UNSPECIFIED"))
+                && java.util.Objects.equals(job.getSourceSettingBookRevision().getReferenceEpisodeNo(),
+                    record.path("sourceReferenceEpisodeNo").isIntegralNumber() ? record.path("sourceReferenceEpisodeNo").asInt() : null);
     }
 
     private List<AnalysisStateChange> readChanges(JsonNode record) {

@@ -32,7 +32,9 @@ import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 @Component
+@lombok.RequiredArgsConstructor
 public class WorldSettingMapper {
+    private final org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope reviewSources;
 
     public WorldSetting toEntity(Work work, WorldSettingCreateRequest request) {
         return WorldSetting.create(
@@ -120,8 +122,8 @@ public class WorldSettingMapper {
         return new WorldSettingCandidateResponse(
                 candidate.getId(),
                 candidate.getWork().getId(),
-                candidate.getSourceEpisode().getId(),
-                candidate.getSourceEpisode().getEpisodeNo(),
+                (candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getId()),
+                (candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getEpisodeNo()),
                 candidate.getAnalysisJob().getId(),
                 candidate.getAnalysisJob().getAnalysisMode(),
                 candidate.getComparisonBatch() == null
@@ -181,14 +183,26 @@ public class WorldSettingMapper {
                 candidate.getAppliedWorldSettingVersion(),
                 candidate.getCreatedAt(),
                 candidate.getUpdatedAt(),
-                candidate.isManualReviewAvailable(),
+                candidate.isManualReviewAvailable() && (!candidate.getAnalysisJob().isSettingBookSource() || reviewSources.isActionable(candidate.getAnalysisJob())),
                 toComparisonDiagnostics(candidate.getComparisonDiagnostics()),
                 candidate.isPendingReview() ? candidate.getAutomaticReviewHoldReason() : null,
                 candidate.isAutomaticApplicationPending(),
                 candidate.isHistoryOnly(),
                 candidate.getAnalysisJob().getStatus(),
-                candidate.getAnalysisJob().getJournalStatus()
-        );
+                candidate.getAnalysisJob().getJournalStatus(), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(candidate.getAnalysisJob()), targetWorldSetting == null ? null : targetWorldSetting.getVersion(),
+                targetWorldSetting != null && candidate.getAnalysisJob().isSettingBookSource() && candidate.getAnalysisJob().isCompletedOrderedAnalysis()
+                        && candidate.getEffectiveCategory() == targetWorldSetting.getCategory()
+                        && WorldSettingNameNormalizer.duplicateKey(candidate.getEffectiveSubjectName())
+                            .equals(WorldSettingNameNormalizer.duplicateKey(targetWorldSetting.getSubjectName()))
+                        && !candidate.isAutomaticApplicationPending() && candidate.isPendingReview() && candidate.isManualReviewAvailable()
+                        && candidate.getSuggestedOperation() != org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation.EXCLUDE
+                        && candidate.getFinalOperation() != org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation.EXCLUDE
+                        && reviewSources.isActionable(candidate.getAnalysisJob())
+                        && (!org.monitoring.catchholebackend.domain.analysis.processor.SettingBookTemporalPolicy.requiresReview(
+                            org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(
+                                candidate.getAnalysisJob(), candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope()), java.util.List.of(), false)
+                            || candidate.hasManualReviewDecision()),
+                candidate.getTemporalScope(), candidate.getEffectiveFromEpisodeNo());
     }
 
     private List<WorldSettingComparisonDiagnostic> toComparisonDiagnostics(JsonNode value) {
@@ -253,7 +267,7 @@ public class WorldSettingMapper {
                 operationCount(candidates, WorldSettingSuggestedOperation.EXCLUDE),
                 operationCount(candidates, WorldSettingSuggestedOperation.REVIEW_REQUIRED),
                 candidates.stream()
-                        .map(candidate -> candidate.getSourceEpisode().getEpisodeNo())
+                        .map(candidate -> (candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getEpisodeNo()))
                         .filter(Objects::nonNull)
                         .distinct()
                         .sorted()
@@ -437,11 +451,10 @@ public class WorldSettingMapper {
                 candidate.getId(),
                 candidate.getFinalOperation(),
                 candidate.getFinalValue(),
-                candidate.getSourceEpisode().getId(),
-                candidate.getSourceEpisode().getEpisodeNo(),
+                (candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getId()),
+                (candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getEpisodeNo()),
                 toEvidenceSpans(candidate.getEvidenceSpans()),
-                candidate.getReviewedAt()
-        );
+                candidate.getReviewedAt(), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(candidate.getAnalysisJob()));
     }
 
     private List<WorldSettingEvidenceSpanResponse> toEvidenceSpans(JsonNode value) {

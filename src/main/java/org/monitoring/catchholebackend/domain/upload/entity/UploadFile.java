@@ -78,6 +78,19 @@ public class UploadFile extends BaseEntity {
     @Column(name = "content_storage_url", length = 512)
     private String contentStorageUrl;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "current_setting_book_revision_id")
+    private SettingBookRevision currentSettingBookRevision;
+
+    public void linkCurrentRevision(SettingBookRevision revision) {
+        if (fileRole != UploadFileRole.SETTING_BOOK || revision.getSettingBook() != this
+                && !java.util.Objects.equals(revision.getSettingBook().getId(), id)) {
+            throw new IllegalArgumentException("다른 설정집의 원문 버전을 연결할 수 없습니다.");
+        }
+        currentSettingBookRevision = revision;
+        contentStorageUrl = "s3://" + revision.getContentS3Key();
+    }
+
     // 원본 업로드 파일의 크기(byte 단위)
     @Column(name = "file_size", nullable = false)
     private long fileSize;

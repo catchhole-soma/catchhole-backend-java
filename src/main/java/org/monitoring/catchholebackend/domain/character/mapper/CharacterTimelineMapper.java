@@ -54,8 +54,7 @@ public class CharacterTimelineMapper {
                         : CharacterTimelineSourceType.EPISODE,
                 sourceEpisode == null ? null : sourceEpisode.getId(),
                 sourceEpisode == null ? null : sourceEpisode.getEpisodeNo(),
-                characterFactSourceResolver.hasEvidence(fact)
-        );
+                characterFactSourceResolver.hasEvidence(fact), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(fact.getExtractedByJob()));
     }
 
     public List<CharacterTimelineFactFacetResponse> toFactFacetResponses(

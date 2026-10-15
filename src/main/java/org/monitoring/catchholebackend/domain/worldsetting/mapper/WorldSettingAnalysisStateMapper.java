@@ -29,6 +29,15 @@ public class WorldSettingAnalysisStateMapper {
         state.put("normalizedSubjectName", setting.getNormalizedSubjectName());
         state.put("version", setting.getVersion());
         state.set("propertiesJson", setting.getPropertiesJson().deepCopy());
+        var protectedPaths = state.putArray("protectedPaths");
+        for (var path : setting.getManuallyEditedPaths()) {
+            try {
+                var parts = objectMapper.readTree(path.asText());
+                protectedPaths.addObject().put("scopeName", parts.path(0).isNull() ? null : parts.path(0).asText()).put("settingName", parts.path(1).asText());
+            } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
+                throw new IllegalStateException("수동 세계관 경로 표지가 올바르지 않습니다.", exception);
+            }
+        }
         ObjectNode provenance = state.putObject("provenanceByPath");
         for (WorldSetting.Property property : setting.getProperties()) {
             ObjectNode source = provenance.putObject(pathKey(property.scopeName(), property.settingName()));
@@ -52,18 +61,31 @@ public class WorldSettingAnalysisStateMapper {
         identity.putArray("sourceCandidateIds");
         identity.put("reviewSource", !candidates.isEmpty()
                 && candidates.stream().allMatch(candidate -> candidate.isReviewedAutomatically()) ? "AUTOMATIC" : "HUMAN");
+        candidates.stream().findFirst().ifPresent(candidate -> org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSourceMetadata.put(identity, candidate.getAnalysisJob()));
         var properties = new org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingPropertyView(
                 state.path("propertiesJson"));
         for (var property : properties.properties()) {
             ObjectNode source = (ObjectNode) state.path("provenanceByPath").path(pathKey(property.scopeName(), property.settingName()));
-            source.put("reviewSource", "HUMAN");
-            candidates.stream().filter(candidate -> !candidate.isHistoryOnly()).filter(candidate -> Objects.equals(candidate.getFinalScopeName(), property.scopeName())
-                    && Objects.equals(candidate.getFinalSettingName(), property.settingName())
-                    && Objects.equals(candidate.getFinalValue(), property.value())).findFirst().ifPresent(candidate -> {
-                        source.put("sourceEpisodeNo", candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getEpisodeNo());
-                        source.putArray("sourceCandidateIds").add(candidate.getId().toString());
-                        source.put("reviewSource", candidate.isReviewedAutomatically() ? "AUTOMATIC" : "HUMAN");
-                    });
+            var currentSources = org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingCurrentSources.forProperty(
+                    candidates, property.scopeName(), property.settingName(), property.value());
+            source.put("reviewSource", !currentSources.isEmpty() && currentSources.stream().allMatch(row -> row.isReviewedAutomatically()) ? "AUTOMATIC" : "HUMAN");
+            source.put("currentValueProtected", protectedPaths(state).stream().anyMatch(path -> org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingCurrentSources.samePath(
+                    path.scopeName(), path.settingName(), property.scopeName(), property.settingName())));
+            var times = source.putArray("currentSourceTimes");
+            if (currentSources.isEmpty()) times.add(org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.toJson(
+                    org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(null, null, null)));
+            var ids = source.putArray("sourceCandidateIds");
+            for (var candidate : currentSources) {
+                times.add(org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.toJson(
+                        org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(candidate.getAnalysisJob(), candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope())));
+                ids.add(candidate.getId().toString());
+            }
+            if (!currentSources.isEmpty()) {
+                var candidate = currentSources.getLast();
+                source.put("sourceEpisodeNo", candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getEpisodeNo());
+                source.put("effectiveFromEpisodeNo", candidate.getEffectiveFromEpisodeNo());
+                org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSourceMetadata.put(source, candidate.getAnalysisJob());
+            }
         }
     }
 
@@ -71,7 +93,7 @@ public class WorldSettingAnalysisStateMapper {
             toSubject(com.fasterxml.jackson.databind.JsonNode state) {
         return new org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingSubjectPageResponse.Subject(
                 actualId(state), state.path("subjectName").asText(), provisionalKey(state),
-                java.util.List.of(), toJsonValue(state.path("provenance")), identityEvidence(state));
+                java.util.List.of(), toJsonValue(state.path("provenance")), identityEvidence(state), protectedPaths(state));
     }
 
     public org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingComparisonContextResponse.Target
@@ -83,7 +105,16 @@ public class WorldSettingAnalysisStateMapper {
                 new org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingPropertyResponse(
                         property.scopeName(), property.settingName(), property.value(),
                         toJsonValue(state.path("provenanceByPath").path(pathKey(property.scopeName(), property.settingName())))))
-                        .toList(), state.path("version").asLong(), provisionalKey(state));
+                        .toList(), state.path("version").asLong(), provisionalKey(state), protectedPaths(state));
+    }
+
+    public java.util.List<org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingProtectedPathPayload> protectedPaths(com.fasterxml.jackson.databind.JsonNode state) {
+        java.util.List<org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingProtectedPathPayload> result = new java.util.ArrayList<>();
+        for (var path : state.path("protectedPaths")) {
+            result.add(new org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingProtectedPathPayload(
+                    path.path("scopeName").isNull() ? null : path.path("scopeName").asText(), path.path("settingName").asText()));
+        }
+        return java.util.List.copyOf(result);
     }
 
     private java.util.List<org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingCandidatePayload.EvidenceSpan>

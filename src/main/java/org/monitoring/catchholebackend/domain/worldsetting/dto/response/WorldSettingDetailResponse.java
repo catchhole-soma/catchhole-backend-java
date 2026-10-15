@@ -41,7 +41,12 @@ public record WorldSettingDetailResponse(
             UUID sourceEpisodeId,
             Integer sourceEpisodeNo,
             List<WorldSettingEvidenceSpanResponse> evidenceSpans,
-            LocalDateTime reviewedAt
-    ) {
+            LocalDateTime reviewedAt,
+        @io.swagger.v3.oas.annotations.media.Schema(nullable = true) org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse source
+) {
+    public CandidateEvidence(UUID candidateId, WorldSettingOperation operation, String value, UUID sourceEpisodeId, Integer sourceEpisodeNo, List<WorldSettingEvidenceSpanResponse> evidenceSpans, LocalDateTime reviewedAt) {
+        this(candidateId, operation, value, sourceEpisodeId, sourceEpisodeNo, evidenceSpans, reviewedAt, null);
+    }
+
     }
 }

@@ -85,7 +85,7 @@ class AnalysisHumanRejectionPolicyTest {
         when(characters.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(nextJob.getId()))
                 .thenReturn(List.of(extractedAgain));
         CharacterAnalysisStateService service = new CharacterAnalysisStateService(
-                states, characters, new CharacterAnalysisStateMapper(), policy);
+                states, characters, new CharacterAnalysisStateMapper(), policy, mock(org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.class));
 
         service.prepareProvisionalCandidates(nextJob);
 

@@ -101,7 +101,8 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
         reference.put("domain", domain);
         reference.put("fingerprint", journal.hash(descriptor));
         reference.put("rejectedCandidateId", id.toString());
-        reference.put("rejectedEpisodeId", source.getEpisode().getId().toString());
+        reference.put("rejectedEpisodeId", source.getEpisode() == null ? null : source.getEpisode().getId().toString());
+        org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSourceMetadata.put(reference, source);
         reference.put("rejectedEpisodeNo", source.getSourceEpisodeNo());
         reference.put("rejectedSourceHash", source.getSourceContentHash());
     }
@@ -112,8 +113,7 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
         }
         ObjectNode result = source(candidate.getAnalysisJob(), candidate.getEvidenceSpans());
         JsonNode identity = characterIdentity(candidate);
-        if (result == null || identity == null || candidate.getEpisode() == null
-                || !candidate.getEpisode().getId().equals(candidate.getAnalysisJob().getEpisode().getId())) {
+        if (result == null || identity == null || !sameSource(candidate.getAnalysisJob(), candidate.getEpisode(), candidate.getSourceSettingBook(), candidate.getSourceSettingBookRevision())) {
             return Optional.empty();
         }
         result.set("identity", identity);
@@ -127,8 +127,7 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
     private Optional<ObjectNode> discoveryDescriptor(SettingCandidate candidate) {
         ObjectNode result = source(candidate.getAnalysisJob(), candidate.getEvidenceSpans());
         JsonNode raw = candidate.getRawAiResultJson();
-        if (result == null || candidate.getEpisode() == null
-                || !candidate.getEpisode().getId().equals(candidate.getAnalysisJob().getEpisode().getId())
+        if (result == null || !sameSource(candidate.getAnalysisJob(), candidate.getEpisode(), candidate.getSourceSettingBook(), candidate.getSourceSettingBookRevision())
                 || raw == null || !raw.isObject()
                 || !"CHARACTER_DISCOVERY".equals(raw.path("candidate_kind").asText())
                 || !"CHARACTER".equals(raw.path("entity_type").asText())
@@ -171,8 +170,7 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
     private Optional<ObjectNode> worldDescriptor(WorldSettingCandidate candidate) {
         ObjectNode result = source(candidate.getAnalysisJob(), candidate.getEvidenceSpans());
         JsonNode identity = worldIdentity(candidate);
-        if (result == null || identity == null || candidate.getSourceEpisode() == null
-                || !candidate.getSourceEpisode().getId().equals(candidate.getAnalysisJob().getEpisode().getId())) {
+        if (result == null || identity == null || !sameSource(candidate.getAnalysisJob(), candidate.getSourceEpisode(), candidate.getSourceSettingBook(), candidate.getSourceSettingBookRevision())) {
             return Optional.empty();
         }
         result.set("identity", identity);
@@ -218,10 +216,23 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
         }
     }
 
+    private boolean sameSource(AnalysisJob job, org.monitoring.catchholebackend.domain.episode.entity.Episode episode,
+            org.monitoring.catchholebackend.domain.upload.entity.UploadFile book,
+            org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision revision) {
+        if (job == null) return false;
+        if (job.isSettingBookSource()) return episode == null && book != null && revision != null
+                && book.getId().equals(job.getSourceSettingBook().getId())
+                && revision.getId().equals(job.getSourceSettingBookRevision().getId())
+                && revision.getSettingBook().getId().equals(book.getId())
+                && book.getBatch().getWork().getId().equals(job.getWork().getId());
+        return episode != null && job.getEpisode() != null && episode.getId().equals(job.getEpisode().getId());
+    }
+
     private ObjectNode source(AnalysisJob job, JsonNode evidence) {
         // 과거 legacy Job의 현재 Episode hash를 빌려서 불변 출처처럼 취급하지 않는다.
-        if (job == null || !job.isOrderedProvisional() || job.getEpisode() == null
-                || job.getEpisode().getId() == null || job.getSourceEpisodeNo() == null
+        if (job == null || !job.isOrderedProvisional()
+                || (job.isSettingBookSource() ? job.getSourceSettingBook() == null || job.getSourceSettingBookRevision() == null
+                    : job.getEpisode() == null || job.getEpisode().getId() == null || job.getSourceEpisodeNo() == null)
                 || job.getSourceContentHash() == null || evidence == null || !evidence.isArray() || evidence.isEmpty()) {
             return null;
         }
@@ -242,8 +253,16 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
         }
         spans.sort(Comparator.comparing(journal::canonicalJson));
         ObjectNode result = JsonNodeFactory.instance.objectNode();
-        result.put("episodeId", job.getEpisode().getId().toString());
-        result.put("episodeNo", job.getSourceEpisodeNo());
+        if (job.isSettingBookSource()) {
+            // Identity/content/evidence survive a repeated extraction; attempts and revision UUIDs are history metadata.
+            result.put("sourceKind", "SETTING_BOOK");
+            result.put("settingBookId", job.getSourceSettingBook().getId().toString());
+            result.put("referenceTimeKind", job.getSourceSettingBookRevision().getReferenceTimeKind().name());
+            result.put("referenceEpisodeNo", job.getSourceSettingBookRevision().getReferenceEpisodeNo());
+        } else {
+            result.put("episodeId", job.getEpisode().getId().toString());
+            result.put("episodeNo", job.getSourceEpisodeNo());
+        }
         result.put("contentHash", job.getSourceContentHash());
         ArrayNode normalized = result.putArray("evidence");
         spans.forEach(normalized::add);

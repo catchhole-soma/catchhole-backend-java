@@ -63,13 +63,7 @@ public interface EpisodeService {
      * 회차 본문은 S3에 저장하고 DB에는 S3 key/version/hash/글자 수 메타데이터를 남긴다.
      * 설정집 파일이 함께 전달되면 같은 batch 안에서 설정집 UploadFile로 추적한다.
      */
-    EpisodeUploadResponse uploadEpisodes(
-            Long memberId,
-            UUID workId,
-            EpisodeUploadRequest uploadRequest,
-            List<MultipartFile> sourceEpisodeFiles,
-            MultipartFile attachedSettingBookFile
-    );
+    EpisodeUploadResponse uploadEpisodes(Long memberId, UUID workId, EpisodeUploadRequest uploadRequest, List<MultipartFile> sourceEpisodeFiles);
 
     /**
      * 영구 저장 없이 업로드 파일을 읽어 명시적인 회차 제목 행과 회차 메타데이터를 감지한다.

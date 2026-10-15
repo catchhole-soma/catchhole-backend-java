@@ -13,6 +13,22 @@ import org.springframework.stereotype.Component;
 public class CharacterFactComparisonWorkerMapper {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final CharacterAdvisoryCurrentContextMapper advisoryMapper = new CharacterAdvisoryCurrentContextMapper();
+
+    public org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterAdvisoryCurrentContextPayload toAdvisoryCurrentContext(
+            org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob job, JsonNode state,
+            java.util.UUID actualCharacterId, String provisionalSubjectKey) {
+        return advisoryMapper.toResponse(job, state, actualCharacterId, provisionalSubjectKey);
+    }
+
+    public org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterAdvisoryCurrentContextPayload toAdvisoryCurrentContext(
+            org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob job, JsonNode state,
+            java.util.UUID actualCharacterId, String provisionalSubjectKey, CharacterFactType factType) {
+        com.fasterxml.jackson.databind.node.ObjectNode selected = state.deepCopy();
+        var history = selected.putArray("historyFacts");
+        for (JsonNode fact : state.path("historyFacts")) if (factType.name().equals(fact.path("factType").asText())) history.add(fact.deepCopy());
+        return advisoryMapper.toResponse(job, selected, actualCharacterId, provisionalSubjectKey);
+    }
 
     public WorkerCharacterFactComparisonCandidatePayload toCandidatePayload(
             SettingCandidate candidate,
@@ -34,8 +50,7 @@ public class CharacterFactComparisonWorkerMapper {
                 candidate.getMatchedCharacterId(),
                 matchedCharacterName,
                 canonicalFactType,
-                canonicalFactKey
-        );
+                canonicalFactKey, org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(candidate.getAnalysisJob()), toJsonValue(candidate.getNarrativeTime()));
     }
 
     public JsonNode toJsonNode(Object value) {

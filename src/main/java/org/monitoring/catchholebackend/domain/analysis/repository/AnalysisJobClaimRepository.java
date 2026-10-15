@@ -20,17 +20,21 @@ public class AnalysisJobClaimRepository {
 
     private static final String ELIGIBLE = """
             job.status = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING
-            and job.jobType in :jobTypes and job.analysisMode in :modes
+            and job.jobType in :jobTypes and job.analysisMode in :modes and job.sourceKind in :sourceKinds
             and (:supportsCharacterComparisonGroups = true or job.characterComparisonInputHash is null)
             and
             """ + AnalysisJobEligibility.DOMAIN;
 
     public Optional<AnalysisJob> findClaimableJob(WorkerAnalysisJobClaimRequest request) {
+        if (request.effectiveSupportedAnalysisModes().isEmpty() || request.effectiveSupportedSourceKinds().isEmpty()) {
+            return Optional.empty();
+        }
         // 회차가 많이 대기한 한 작품이 다른 작품을 scan 한도 밖으로 밀지 않도록 작품 단위로 고른다.
         List<UUID> workIds = entityManager.createQuery("select job.work.id from AnalysisJob job where "
                         + ELIGIBLE + " group by job.work.id order by min(job.createdAt), job.work.id", UUID.class)
                 .setParameter("jobTypes", request.allowedJobTypes())
                 .setParameter("modes", request.effectiveSupportedAnalysisModes())
+                .setParameter("sourceKinds", request.effectiveSupportedSourceKinds())
                 .setParameter("supportsCharacterComparisonGroups", Boolean.TRUE.equals(request.supportsCharacterComparisonGroups()))
                 .setMaxResults(100)
                 .getResultList();
@@ -49,6 +53,7 @@ public class AnalysisJobClaimRepository {
                             AnalysisJob.class)
                     .setParameter("jobTypes", request.allowedJobTypes())
                     .setParameter("modes", request.effectiveSupportedAnalysisModes())
+                .setParameter("sourceKinds", request.effectiveSupportedSourceKinds())
                 .setParameter("supportsCharacterComparisonGroups", Boolean.TRUE.equals(request.supportsCharacterComparisonGroups()))
                     .setParameter("workId", workId)
                     .setLockMode(LockModeType.PESSIMISTIC_WRITE)

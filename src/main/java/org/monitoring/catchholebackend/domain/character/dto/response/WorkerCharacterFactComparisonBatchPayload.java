@@ -21,15 +21,20 @@ public record WorkerCharacterFactComparisonBatchPayload(
         List<Candidate> candidates,
         @JsonInclude(JsonInclude.Include.NON_NULL) String provisionalSubjectKey,
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisContextPayload analysisContext
+        org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisContextPayload analysisContext,
+        @io.swagger.v3.oas.annotations.media.Schema(nullable = true) org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse source
 ) {
+    public WorkerCharacterFactComparisonBatchPayload(UUID comparisonBatchId, UUID workId, UUID sourceEpisodeId, String characterRef, String matchedCharacterName, CharacterFactType canonicalFactType, List<Candidate> candidates, String provisionalSubjectKey, org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisContextPayload analysisContext) {
+        this(comparisonBatchId, workId, sourceEpisodeId, characterRef, matchedCharacterName, canonicalFactType, candidates, provisionalSubjectKey, analysisContext, null);
+    }
+
 
     public WorkerCharacterFactComparisonBatchPayload(
             UUID comparisonBatchId, UUID workId, UUID sourceEpisodeId, String characterRef,
             String matchedCharacterName, CharacterFactType canonicalFactType, List<Candidate> candidates
     ) {
         this(comparisonBatchId, workId, sourceEpisodeId, characterRef, matchedCharacterName,
-                canonicalFactType, candidates, null, null);
+                canonicalFactType, candidates, null, null, null);
     }
 
     public record Candidate(
@@ -43,7 +48,17 @@ public record WorkerCharacterFactComparisonBatchPayload(
             SettingValueType valueType,
             @Schema(nullable = true, implementation = JsonNode.class) Object valueJson,
             List<WorkerCharacterFactComparisonCandidatePayload.EvidenceSpan> evidenceSpans,
-            @Schema(nullable = true) BigDecimal confidence
-    ) {
+            @Schema(nullable = true) BigDecimal confidence,
+        @io.swagger.v3.oas.annotations.media.Schema(nullable = true) org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse source,
+            @Schema(nullable = true) Object narrativeTime
+) {
+    public Candidate(String candidateRef, String projectedSnapshotRef, Integer sourceEpisodeNo, String rawFactKey, String initialCanonicalFactKey, CharacterFactCanonicalKeyResolution canonicalKeyResolution, String attributeValue, SettingValueType valueType, Object valueJson, List<WorkerCharacterFactComparisonCandidatePayload.EvidenceSpan> evidenceSpans, BigDecimal confidence) {
+        this(candidateRef, projectedSnapshotRef, sourceEpisodeNo, rawFactKey, initialCanonicalFactKey, canonicalKeyResolution, attributeValue, valueType, valueJson, evidenceSpans, confidence, null, null);
+    }
+
+    public Candidate(String candidateRef, String projectedSnapshotRef, Integer sourceEpisodeNo, String rawFactKey, String initialCanonicalFactKey, CharacterFactCanonicalKeyResolution canonicalKeyResolution, String attributeValue, SettingValueType valueType, Object valueJson, List<WorkerCharacterFactComparisonCandidatePayload.EvidenceSpan> evidenceSpans, BigDecimal confidence, org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse source) {
+        this(candidateRef, projectedSnapshotRef, sourceEpisodeNo, rawFactKey, initialCanonicalFactKey, canonicalKeyResolution, attributeValue, valueType, valueJson, evidenceSpans, confidence, source, null);
+    }
+
     }
 }

@@ -11,5 +11,10 @@ public record WorkerAnalysisReferencePayload(
         String settingName, String value, List<CharacterFactEvidenceSpanResponse> evidenceSpans,
         @JsonInclude(JsonInclude.Include.NON_NULL) String scopeName,
         @JsonInclude(JsonInclude.Include.NON_NULL) String matchedScopeName,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String matchedPropertyName
-) {}
+        @JsonInclude(JsonInclude.Include.NON_NULL) String matchedPropertyName,
+        @io.swagger.v3.oas.annotations.media.Schema(nullable = true) org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse source
+) {
+    public WorkerAnalysisReferencePayload(String domain, String subjectName, Integer sourceEpisodeNo, String reason, String settingName, String value, List<CharacterFactEvidenceSpanResponse> evidenceSpans, String scopeName, String matchedScopeName, String matchedPropertyName) {
+        this(domain, subjectName, sourceEpisodeNo, reason, settingName, value, evidenceSpans, scopeName, matchedScopeName, matchedPropertyName, null);
+    }
+}

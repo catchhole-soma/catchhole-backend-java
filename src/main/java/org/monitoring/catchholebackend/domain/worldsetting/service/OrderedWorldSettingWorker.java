@@ -98,7 +98,7 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
         reference.put("scopeName", candidate.getScopeName());
         reference.put("settingName", candidate.getSettingName());
         reference.put("value", candidate.getExtractedValue());
-        reference.put("sourceEpisodeNo", candidate.getSourceEpisode().getEpisodeNo());
+        reference.put("sourceEpisodeNo", (candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getEpisodeNo()));
         reference.putArray("sourceCandidateIds").add(candidate.getId().toString());
         if (candidate.getEvidenceSpans() != null) {
             reference.set("evidenceSpans", candidate.getEvidenceSpans().deepCopy());
@@ -126,9 +126,9 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
         return new WorkerWorldSettingSubjectResolutionPendingResponse(pendingCandidates(job).stream()
                 .filter(candidate -> !candidate.hasSubjectResolution())
                 .map(candidate -> new WorkerWorldSettingSubjectResolutionPendingResponse.Candidate(
-                        candidate.getId(), candidate.getSourceEpisode().getId(), candidate.getCategory(),
+                        candidate.getId(), (candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getId()), candidate.getCategory(),
                         candidate.getSubjectName(), mapper.toResponse(candidate).evidenceSpans(),
-                        candidate.getSourceEpisode().getEpisodeNo())).toList(),
+                        (candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getEpisodeNo()), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(candidate.getAnalysisJob()), mapper.toRawExtraction(candidate.getRawExtractionJson()))).toList(),
                 contextMapper.toResponse(job));
     }
 
@@ -224,7 +224,7 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
                 throw invalid();
             }
             List<WorldSettingCandidate> group = candidates.findComparisonBatchCandidatesForUpdate(job.getId(),
-                    first.getSourceEpisode().getId(), first.getCategory(), first.getCanonicalSubjectKey(),
+                    (first.getSourceEpisode() == null ? null : first.getSourceEpisode().getId()), first.getCategory(), first.getCanonicalSubjectKey(),
                     WorldSettingReviewStatus.PENDING_REVIEW, WorldSettingComparisonStatus.PENDING).stream()
                     .filter(candidate -> sameName(first.getScopeName(), candidate.getScopeName()))
                     .sorted(org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingCandidateChronology.comparator())
@@ -259,11 +259,11 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
                 continue;
             }
             return Optional.of(new WorkerWorldSettingComparisonBatchPayload(batch.getId(), job.getWork().getId(),
-                    batch.getSourceEpisode().getId(), batch.getCategory(), batch.getSubjectResolutionType(),
+                    (batch.getSourceEpisode() == null ? null : batch.getSourceEpisode().getId()), batch.getCategory(), batch.getSubjectResolutionType(),
                     batch.getCanonicalSubjectKey(), batch.getCanonicalSubjectName(),
                     mapper.toUuidList(batch.getResolvedTargetWorldSettingIds()), batch.getRawScopeName(),
                     mapper.toComparisonBatchCandidates(group), stringList(batch.getResolvedProvisionalSubjectKeys()),
-                    contextMapper.toResponse(job)));
+                    contextMapper.toResponse(job), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(batch.getAnalysisJob())));
         }
     }
 
@@ -441,7 +441,7 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
                         candidate.getComparisonCandidateRef(), index));
             }
             List<AnalysisStateChange> decisionChanges = decisionChanges(job, batch, decisionSources, decision, input,
-                    targetRef, projected.path("worldSettings").path(targetRef));
+                    targetRef, projected);
             changes.addAll(decisionChanges);
             projected = (ObjectNode) journal.apply(projected, decisionChanges);
         }
@@ -479,6 +479,28 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
             throw invalid();
         }
         if (operation == WorldSettingSuggestedOperation.REVIEW_REQUIRED) {
+            if (input.consolidationStatus() == WorldSettingConsolidationStatus.CONFLICT
+                    && input.comparisonReviewReason() == WorldSettingComparisonReviewReason.GENERAL_UNCERTAINTY) {
+                var matched = property.path(input.matchedScopeName(), input.matchedPropertyName());
+                if (source.size() != 1 || matched == null
+                        || !sameName(matched.scopeName(), input.proposedScopeName())
+                        || !sameName(matched.settingName(), input.proposedSettingName())
+                        || !sameName(source.getFirst().getScopeName(), matched.scopeName())
+                        || source.getFirst().getTemporalScope() != org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope.PRESENT
+                        || source.getFirst().getAnalysisJob().isSettingBookSource()
+                            && !org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingExtractionAssertion.isAsserted(source.getFirst().getRawExtractionJson())
+                        || org.monitoring.catchholebackend.domain.analysis.processor.SettingBookTemporalPolicy.requiresReview(
+                                org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(source.getFirst().getAnalysisJob(),
+                                        source.getFirst().getEffectiveFromEpisodeNo(), source.getFirst().getTemporalScope()), List.of(), false)) {
+                    throw invalid();
+                }
+                var times = org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.fromJson(
+                        target.path("provenanceByPath").path(WorldSettingAnalysisStateMapper.pathKey(matched.scopeName(), matched.settingName())).path("currentSourceTimes"));
+                if (times.isEmpty() || times.stream().anyMatch(time -> time.temporalScope() != org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope.PRESENT)) {
+                    throw invalid();
+                }
+                return;
+            }
             if (input.comparisonReviewReason() == WorldSettingComparisonReviewReason.GENERAL_UNCERTAINTY) {
                 if (source.size() != 1
                         || !sameName(source.getFirst().getScopeName(), input.proposedScopeName())
@@ -553,10 +575,108 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
 
     private List<AnalysisStateChange> decisionChanges(AnalysisJob job, WorldSettingComparisonBatch batch,
             List<WorldSettingCandidate> source, WorldSettingComparisonDecision decision,
-            WorkerWorldSettingComparisonBatchCompleteRequest.Decision input, String targetRef, JsonNode target) {
+            WorkerWorldSettingComparisonBatchCompleteRequest.Decision input, String targetRef, JsonNode projected) {
+        JsonNode target = projected.path("worldSettings").path(targetRef);
         String prefix = "world-decision:" + batch.getId() + ":" + input.decisionRef();
         List<UUID> sourceIds = source.stream().map(WorldSettingCandidate::getId).toList();
-        if (!isApplied(input)) {
+        var hold = job.isAutomaticReview() && job.isSettingBookSource() && source.stream().anyMatch(candidate ->
+                !org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingExtractionAssertion.isAsserted(candidate.getRawExtractionJson()))
+                ? org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason.REVIEW_REQUIRED
+                : source.stream().anyMatch(candidate -> org.monitoring.catchholebackend.domain.analysis.processor.SettingBookTemporalPolicy.requiresReview(
+                org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(
+                        candidate.getAnalysisJob(), candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope()), List.of(), false))
+                ? org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason.SETTING_TIME_CONFIRMATION_REQUIRED
+                : isApplied(input) ? projectedHold(source, decision, input, target) : null;
+        if (job.isAutomaticReview() && isApplied(input)) {
+            for (JsonNode reference : projected.path("references")) {
+                if (targetRef.equals(reference.path("targetRef").asText())
+                        && "CONFLICT".equals(reference.path("consolidationStatus").asText())
+                        && (reference.path("comparisonReviewReason").isMissingNode()
+                            || "GENERAL_UNCERTAINTY".equals(reference.path("comparisonReviewReason").asText()))
+                        && "REVIEW_REQUIRED".equals(reference.path("automaticReviewHoldReason").asText())
+                        && org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingCurrentSources.samePath(
+                                reference.path("scopeName").isNull() ? null : reference.path("scopeName").asText(), reference.path("settingName").asText(),
+                                input.proposedScopeName(), input.proposedSettingName())) {
+                    hold = org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason.DEPENDENCY_CONFIRMATION_REQUIRED;
+                }
+            }
+        }
+        if (!isApplied(input) || hold != null) {
+            var heldReason = hold;
+            if (heldReason != null) source.forEach(candidate -> candidate.recordAutomaticReviewHold(heldReason));
+            if (job.isAutomaticReview() && hold == null && input.consolidationStatus() == WorldSettingConsolidationStatus.CONFLICT
+                    && (input.comparisonReviewReason() == null
+                        || input.suggestedOperation() == WorldSettingSuggestedOperation.REVIEW_REQUIRED
+                            && input.comparisonReviewReason() == WorldSettingComparisonReviewReason.GENERAL_UNCERTAINTY)
+                    && source.stream().allMatch(candidate -> candidate.getTemporalScope() == org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope.PRESENT
+                        && (!candidate.getAnalysisJob().isSettingBookSource()
+                            || org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingExtractionAssertion.isAsserted(candidate.getRawExtractionJson())))) {
+                List<UUID> heldIds = new ArrayList<>(sourceIds);
+                source.forEach(candidate -> candidate.recordAutomaticReviewHold(
+                        org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason.REVIEW_REQUIRED));
+                var view = new WorldSettingPropertyView(target.path("propertiesJson"));
+                var path = view.path(input.proposedScopeName(), input.proposedSettingName());
+                if (path != null) {
+                    var affected = new LinkedHashMap<String, String[]>();
+                    affected.put(WorldSettingAnalysisStateMapper.pathKey(normalized(path.scopeName()), normalized(path.settingName())), new String[]{path.scopeName(), path.settingName()});
+                    for (int index = 0; index < affected.size(); index++) {
+                        String[] names = new ArrayList<>(affected.values()).get(index);
+                        var currentPath = view.path(names[0], names[1]);
+                        if (currentPath == null) continue;
+                        String key = WorldSettingAnalysisStateMapper.pathKey(currentPath.scopeName(), currentPath.settingName());
+                        for (JsonNode id : target.path("provenanceByPath").path(key).path("sourceCandidateIds")) {
+                            UUID candidateId = UUID.fromString(id.asText());
+                            if (heldIds.contains(candidateId)) continue;
+                            WorldSettingCandidate prior = candidates.findByIdAndWorkIdForUpdate(candidateId, job.getWork().getId()).orElseThrow(this::invalid);
+                            var comparison = prior.getComparisonDecision();
+                            if (prior.getAnalysisJob() == null || !prior.getAnalysisJob().getId().equals(job.getId())
+                                    || !targetRef.equals(prior.getCanonicalSubjectKey()) || comparison == null) continue;
+                            boolean writesPath = org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingCurrentSources.samePath(
+                                    prior.getProposedScopeName(), prior.getProposedSettingName(), currentPath.scopeName(), currentPath.settingName())
+                                    || !comparison.isRootPropertyMovesDisabled() && comparison.getExistingRootPropertyMoveSnapshots().stream().anyMatch(move ->
+                                        org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingCurrentSources.samePath(
+                                                comparison.getProposedScopeName(), move.settingName(), currentPath.scopeName(), currentPath.settingName()));
+                            if (!writesPath) continue;
+                            prior.recordAutomaticReviewHold(index == 0 ? org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason.REVIEW_REQUIRED
+                                    : org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason.DEPENDENCY_CONFIRMATION_REQUIRED);
+                            heldIds.add(candidateId);
+                            affected.putIfAbsent(WorldSettingAnalysisStateMapper.pathKey(normalized(comparison.getProposedScopeName()), normalized(comparison.getProposedSettingName())),
+                                    new String[]{comparison.getProposedScopeName(), comparison.getProposedSettingName()});
+                            if (!comparison.isRootPropertyMovesDisabled()) for (var move : comparison.getExistingRootPropertyMoveSnapshots()) {
+                                affected.putIfAbsent(WorldSettingAnalysisStateMapper.pathKey(null, normalized(move.settingName())), new String[]{null, move.settingName()});
+                                affected.putIfAbsent(WorldSettingAnalysisStateMapper.pathKey(normalized(comparison.getProposedScopeName()), normalized(move.settingName())), new String[]{comparison.getProposedScopeName(), move.settingName()});
+                            }
+                        }
+                    }
+                    JsonNode baseline = stateService.getInputState(job).path("worldSettings").path(targetRef);
+                    ObjectNode restored = target.deepCopy();
+                    ObjectNode properties = restored.path("propertiesJson").deepCopy();
+                    var original = new WorldSettingPropertyView(baseline.has("propertiesJson") ? baseline.path("propertiesJson") : JsonNodeFactory.instance.objectNode());
+                    for (String[] names : affected.values()) {
+                        var currentPath = view.path(names[0], names[1]);
+                        if (currentPath != null) {
+                            if (currentPath.scopeName() == null) properties.remove(currentPath.settingName());
+                            else {
+                                ObjectNode scope = (ObjectNode) properties.path(currentPath.scopeName()); scope.remove(currentPath.settingName());
+                                if (scope.isEmpty()) properties.remove(currentPath.scopeName());
+                            }
+                            restored.withObject("provenanceByPath").remove(WorldSettingAnalysisStateMapper.pathKey(currentPath.scopeName(), currentPath.settingName()));
+                        }
+                        var originalPath = original.path(names[0], names[1]);
+                        if (originalPath != null) {
+                            var restoredView = new WorldSettingPropertyView(properties);
+                            restoredView.upsert(originalPath.scopeName(), originalPath.settingName(), original.value(names[0], names[1]));
+                            properties = (ObjectNode) restoredView.toJson();
+                            String originalKey = WorldSettingAnalysisStateMapper.pathKey(originalPath.scopeName(), originalPath.settingName());
+                            restored.withObject("provenanceByPath").set(originalKey, baseline.path("provenanceByPath").path(originalKey).deepCopy());
+                        }
+                    }
+                    restored.set("propertiesJson", properties);
+                    restored.put("version", restored.path("version").asLong() + 1);
+                    return List.of(new AnalysisStateChange(prefix + ":restore-path", List.of("worldSettings", targetRef), restored, false,
+                                    "REVIEW_REQUIRED", heldIds), referenceChange(prefix, targetRef, source, decision));
+                }
+            }
             return List.of(referenceChange(prefix, targetRef, source, decision));
         }
         ObjectNode updated = target.deepCopy();
@@ -568,18 +688,83 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
         updated.set("propertiesJson", view.toJson());
         updated.put("version", updated.path("version").asLong() + 1);
         ObjectNode provenance = provenance(source.getFirst());
-        provenance.set("sourceCandidateIds", mapper.toJsonNode(sourceIds));
+        var lineage = new LinkedHashSet<UUID>();
+        var priorPath = new WorldSettingPropertyView(target.path("propertiesJson")).path(input.proposedScopeName(), input.proposedSettingName());
+        if (priorPath != null) target.path("provenanceByPath").path(WorldSettingAnalysisStateMapper.pathKey(priorPath.scopeName(), priorPath.settingName()))
+                .path("sourceCandidateIds").forEach(id -> lineage.add(UUID.fromString(id.asText())));
+        lineage.addAll(sourceIds);
+        provenance.set("sourceCandidateIds", mapper.toJsonNode(lineage));
+        var sourceTimes = provenance.putArray("currentSourceTimes");
+        if (input.suggestedOperation() == WorldSettingSuggestedOperation.MERGE) {
+            var oldPath = view.path(input.proposedScopeName(), input.proposedSettingName());
+            var previous = target.path("provenanceByPath").path(WorldSettingAnalysisStateMapper.pathKey(oldPath.scopeName(), oldPath.settingName())).path("currentSourceTimes");
+            if (previous.isArray()) previous.forEach(time -> sourceTimes.add(time.deepCopy()));
+        }
+        for (var candidate : source) sourceTimes.add(org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.toJson(
+                org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(candidate.getAnalysisJob(), candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope())));
+        provenance.put("currentValueProtected", false);
         var writtenPath = view.path(input.proposedScopeName(), input.proposedSettingName());
         updated.withObject("provenanceByPath").set(WorldSettingAnalysisStateMapper.pathKey(
                 writtenPath.scopeName(), writtenPath.settingName()), provenance);
         for (var move : decision.getExistingRootPropertyMoveSnapshots()) {
-            updated.withObject("provenanceByPath").remove(WorldSettingAnalysisStateMapper.pathKey(null, move.settingName()));
+            var originalPath = new WorldSettingPropertyView(target.path("propertiesJson")).path(null, move.settingName());
+            String originalKey = WorldSettingAnalysisStateMapper.pathKey(originalPath.scopeName(), originalPath.settingName());
+            JsonNode originalProvenance = target.path("provenanceByPath").path(originalKey);
+            updated.withObject("provenanceByPath").remove(originalKey);
             var movedPath = view.path(input.proposedScopeName(), move.settingName());
+            ObjectNode movedProvenance = originalProvenance.deepCopy();
+            var movedIds = new LinkedHashSet<UUID>();
+            originalProvenance.path("sourceCandidateIds").forEach(id -> movedIds.add(UUID.fromString(id.asText())));
+            movedIds.addAll(sourceIds);
+            movedProvenance.set("sourceCandidateIds", mapper.toJsonNode(movedIds));
             updated.withObject("provenanceByPath").set(WorldSettingAnalysisStateMapper.pathKey(
-                    movedPath.scopeName(), movedPath.settingName()), provenance.deepCopy());
+                    movedPath.scopeName(), movedPath.settingName()), movedProvenance);
         }
         return List.of(new AnalysisStateChange(prefix, List.of("worldSettings", targetRef), updated, false,
                 input.suggestedOperation().name(), sourceIds));
+    }
+
+    private org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason projectedHold(
+            List<WorldSettingCandidate> source, WorldSettingComparisonDecision decision,
+            WorkerWorldSettingComparisonBatchCompleteRequest.Decision input, JsonNode target) {
+        WorldSettingPropertyView view = new WorldSettingPropertyView(target.path("propertiesJson"));
+        var affected = new LinkedHashMap<String, String[]>();
+        affected.put("destination", new String[] {input.proposedScopeName(), input.proposedSettingName()});
+        if (input.matchedPropertyName() != null && !org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingCurrentSources.samePath(
+                input.matchedScopeName(), input.matchedPropertyName(), input.proposedScopeName(), input.proposedSettingName())) {
+            affected.put("source", new String[] {input.matchedScopeName(), input.matchedPropertyName()});
+        }
+        for (var move : decision.getExistingRootPropertyMoveSnapshots()) {
+            affected.put("root:"+move.settingName(), new String[] {null, move.settingName()});
+            affected.put("moved:"+move.settingName(), new String[] {input.proposedScopeName(), move.settingName()});
+        }
+        for (var candidate : source) {
+            var incoming = org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(candidate.getAnalysisJob(), candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope());
+            if (org.monitoring.catchholebackend.domain.analysis.processor.SettingBookTemporalPolicy.requiresReview(incoming, List.of(), false)) {
+                return org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason.SETTING_TIME_CONFIRMATION_REQUIRED;
+            }
+            for (var affectedPath : affected.entrySet()) {
+                var path = affectedPath.getValue();
+                var property = view.path(path[0], path[1]);
+                boolean changes = !affectedPath.getKey().equals("destination") || !Objects.equals(view.value(path[0], path[1]), input.proposedValue());
+                changes |= candidate.getAnalysisJob().isAutomaticReview() && input.suggestedOperation() == WorldSettingSuggestedOperation.MERGE;
+                if (!changes) continue;
+                boolean protectedPath = stateMapper.protectedPaths(target).stream().anyMatch(marker ->
+                        org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingCurrentSources.samePath(marker.scopeName(), marker.settingName(), path[0], path[1]));
+                JsonNode provenance = property == null ? JsonNodeFactory.instance.objectNode() : target.path("provenanceByPath").path(WorldSettingAnalysisStateMapper.pathKey(property.scopeName(), property.settingName()));
+                if (candidate.getAnalysisJob().isSettingBookSource() && (protectedPath || provenance.path("currentValueProtected").asBoolean())) {
+                    return org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason.HUMAN_CURRENT_SETTING_PROTECTED;
+                }
+                if (property != null && org.monitoring.catchholebackend.domain.analysis.processor.SettingBookTemporalPolicy.requiresReview(incoming,
+                        org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.fromJson(provenance.path("currentSourceTimes")),
+                        !candidate.getAnalysisJob().isAutomaticReview() || !affectedPath.getKey().equals("destination")
+                                || input.suggestedOperation() != WorldSettingSuggestedOperation.MERGE,
+                        candidate.getAnalysisJob().isAutomaticReview() && affectedPath.getKey().equals("destination"))) {
+                    return org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason.SETTING_TIME_CONFIRMATION_REQUIRED;
+                }
+            }
+        }
+        return null;
     }
 
     private AnalysisStateChange referenceChange(String eventId, String targetRef,
@@ -596,6 +781,11 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
         reference.put("consolidationStatus", decision.getConsolidationStatus().name());
         reference.put("operation", decision.getSuggestedOperation().name());
         reference.put("reason", decision.getComparisonReason());
+        if (decision.getConsolidationStatus() == WorldSettingConsolidationStatus.CONFLICT) {
+            reference.put("matchedScopeName", decision.getMatchedScopeName());
+            reference.put("matchedPropertyName", decision.getMatchedPropertyName());
+            reference.put("beforeValue", decision.getBeforeValue());
+        }
         if (decision.getComparisonReviewReason() == WorldSettingComparisonReviewReason.SCOPE_MISMATCH
                 || decision.getComparisonReviewReason() == WorldSettingComparisonReviewReason.SCOPE_UNRESOLVED) {
             reference.put("comparisonReviewReason", decision.getComparisonReviewReason().name());
@@ -603,7 +793,8 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
             reference.put("matchedPropertyName", decision.getMatchedPropertyName());
             reference.put("beforeValue", decision.getBeforeValue());
         }
-        if (decision.getComparisonReviewReason() == WorldSettingComparisonReviewReason.GENERAL_UNCERTAINTY) {
+        if (decision.getComparisonReviewReason() == WorldSettingComparisonReviewReason.GENERAL_UNCERTAINTY
+                && decision.getConsolidationStatus() != WorldSettingConsolidationStatus.CONFLICT) {
             // 대상 선택도 아직 검토 대상이므로 원본 주체·값을 참고로 보존한다.
             WorldSettingCandidate original = source.getFirst();
             reference.put("comparisonReviewReason", decision.getComparisonReviewReason().name());
@@ -618,7 +809,10 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
                 reference.set("evidenceSpans", original.getEvidenceSpans().deepCopy());
             }
         }
-        reference.put("sourceEpisodeNo", source.getFirst().getSourceEpisode().getEpisodeNo());
+        reference.put("sourceEpisodeNo", (source.getFirst().getSourceEpisode() == null ? null : source.getFirst().getSourceEpisode().getEpisodeNo()));
+        if (source.getFirst().getAutomaticReviewHoldReason() != null) reference.put("automaticReviewHoldReason", source.getFirst().getAutomaticReviewHoldReason().name());
+        reference.put("effectiveFromEpisodeNo", source.getFirst().getEffectiveFromEpisodeNo());
+        reference.put("temporalScope", source.getFirst().getTemporalScope().name());
         reference.set("sourceValues", mapper.toJsonNode(source.stream().map(WorldSettingCandidate::getExtractedValue).toList()));
         List<UUID> ids = source.stream().map(WorldSettingCandidate::getId).toList();
         reference.set("sourceCandidateIds", mapper.toJsonNode(ids));
@@ -798,8 +992,10 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
     private ObjectNode provenance(WorldSettingCandidate source) {
         ObjectNode node = JsonNodeFactory.instance.objectNode();
         node.put("confirmationStatus", "PROVISIONAL");
-        node.put("sourceEpisodeNo", source.getSourceEpisode().getEpisodeNo());
+        node.put("sourceEpisodeNo", (source.getSourceEpisode() == null ? null : source.getSourceEpisode().getEpisodeNo()));
+        org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSourceMetadata.put(node, source.getAnalysisJob());
         node.putArray("sourceCandidateIds").add(source.getId().toString());
+        node.put("effectiveFromEpisodeNo", source.getEffectiveFromEpisodeNo());
         return node;
     }
 

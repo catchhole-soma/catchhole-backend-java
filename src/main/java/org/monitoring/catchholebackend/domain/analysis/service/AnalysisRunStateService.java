@@ -31,5 +31,7 @@ public interface AnalysisRunStateService {
     // 작품 잠금을 먼저 획득하고 후보·정식 설정을 잠그기 전에 호출한다.
     void invalidateRunsForEpisodeChangeForUpdate(UUID workId, UUID episodeId, int firstAffectedEpisodeNo, String reason);
 
+    void invalidateRunsForSettingBookChangeForUpdate(UUID workId, UUID settingBookId, String reason);
+
     void purgeSourceEvidenceForWorkForUpdate(UUID workId, UUID episodeId, int sourceEpisodeNo);
 }

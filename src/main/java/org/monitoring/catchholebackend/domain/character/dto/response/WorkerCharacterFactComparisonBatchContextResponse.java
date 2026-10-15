@@ -20,9 +20,29 @@ public record WorkerCharacterFactComparisonBatchContextResponse(
         String contextToken,
         @JsonInclude(JsonInclude.Include.NON_NULL) String provisionalSubjectKey,
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisContextPayload analysisContext
+        org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisContextPayload analysisContext,
+        @JsonInclude(JsonInclude.Include.NON_EMPTY) List<WorkerCharacterProtectedSlotPayload> protectedSlots,
+        @JsonInclude(JsonInclude.Include.NON_NULL) WorkerCharacterAdvisoryCurrentContextPayload advisoryCurrentContext
 ) {
 
+    public WorkerCharacterFactComparisonBatchContextResponse(UUID comparisonBatchId, String characterRef, String matchedCharacterName,
+            CharacterFactType canonicalFactType, long baseSnapshotVersion,
+            List<WorkerCharacterFactComparisonBatchPayload.Candidate> candidates, List<SnapshotEntry> snapshotEntries,
+            String contextToken, String provisionalSubjectKey,
+            org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisContextPayload analysisContext,
+            List<WorkerCharacterProtectedSlotPayload> protectedSlots) {
+        this(comparisonBatchId, characterRef, matchedCharacterName, canonicalFactType, baseSnapshotVersion,
+                candidates, snapshotEntries, contextToken, provisionalSubjectKey, analysisContext, protectedSlots, null);
+    }
+
+    public WorkerCharacterFactComparisonBatchContextResponse(UUID comparisonBatchId, String characterRef, String matchedCharacterName,
+            CharacterFactType canonicalFactType, long baseSnapshotVersion,
+            List<WorkerCharacterFactComparisonBatchPayload.Candidate> candidates, List<SnapshotEntry> snapshotEntries,
+            String contextToken, String provisionalSubjectKey,
+            org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisContextPayload analysisContext) {
+        this(comparisonBatchId, characterRef, matchedCharacterName, canonicalFactType, baseSnapshotVersion,
+                candidates, snapshotEntries, contextToken, provisionalSubjectKey, analysisContext, List.of());
+    }
     public WorkerCharacterFactComparisonBatchContextResponse(
             UUID comparisonBatchId, String characterRef, String matchedCharacterName,
             CharacterFactType canonicalFactType, long baseSnapshotVersion,
@@ -30,7 +50,7 @@ public record WorkerCharacterFactComparisonBatchContextResponse(
             List<SnapshotEntry> snapshotEntries, String contextToken
     ) {
         this(comparisonBatchId, characterRef, matchedCharacterName, canonicalFactType,
-                baseSnapshotVersion, candidates, snapshotEntries, contextToken, null, null);
+                baseSnapshotVersion, candidates, snapshotEntries, contextToken, null, null, List.of());
     }
 
     public record SnapshotEntry(
@@ -55,9 +75,31 @@ public record WorkerCharacterFactComparisonBatchContextResponse(
     }
 
     public record Provenance(String confirmationStatus, Integer sourceEpisodeNo,
-            @JsonInclude(JsonInclude.Include.NON_NULL) String reviewSource) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) String reviewSource,
+        @Schema(nullable = true) org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind sourceKind,
+        @Schema(nullable = true) java.util.UUID sourceSettingBookId,
+        @Schema(nullable = true) String sourceSettingBookName,
+        @Schema(nullable = true) java.util.UUID sourceSettingBookRevisionId,
+        @Schema(nullable = true) Integer sourceSettingBookRevisionNo,
+        @Schema(nullable = true) String sourceHash,
+        @JsonInclude(JsonInclude.Include.NON_NULL) org.monitoring.catchholebackend.domain.upload.type.SettingBookReferenceTimeKind sourceReferenceTimeKind,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Integer sourceReferenceEpisodeNo,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Integer effectiveFromEpisodeNo,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean currentValueProtected,
+        @JsonInclude(JsonInclude.Include.NON_EMPTY) List<org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisCurrentSourceTimePayload> currentSourceTimes
+) {
+    public Provenance(String confirmationStatus, Integer sourceEpisodeNo, String reviewSource,
+            org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind sourceKind, UUID sourceSettingBookId,
+            String sourceSettingBookName, UUID sourceSettingBookRevisionId, Integer sourceSettingBookRevisionNo, String sourceHash) {
+        this(confirmationStatus, sourceEpisodeNo, reviewSource, sourceKind, sourceSettingBookId, sourceSettingBookName,
+                sourceSettingBookRevisionId, sourceSettingBookRevisionNo, sourceHash, null, null, null, null, List.of());
+    }
+    public Provenance(String confirmationStatus, Integer sourceEpisodeNo, String reviewSource) {
+        this(confirmationStatus, sourceEpisodeNo, reviewSource, null, null, null, null, null, null);
+    }
+
         public Provenance(String confirmationStatus, Integer sourceEpisodeNo) {
-            this(confirmationStatus, sourceEpisodeNo, null);
+            this(confirmationStatus, sourceEpisodeNo, null, null, null, null, null, null, null);
         }
     }
 }

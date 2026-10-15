@@ -72,6 +72,25 @@ import org.monitoring.catchholebackend.global.exception.AppException;
 )
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class WorldSettingCandidate extends BaseEntity {
+    @Enumerated(EnumType.STRING)
+    @Column(name = "temporal_scope", length = 30)
+    private org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope temporalScope;
+    @Column(name = "effective_from_episode_no")
+    private Integer effectiveFromEpisodeNo;
+
+    public org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope getTemporalScope() {
+        return temporalScope != null ? temporalScope : analysisJob != null && analysisJob.isSettingBookSource()
+                ? org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope.UNKNOWN
+                : org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope.PRESENT;
+    }
+
+    public void recordTemporalScope(org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope scope, Integer number) {
+        if (number != null && number < 1) throw new IllegalArgumentException("효력 회차는 양수여야 합니다.");
+        temporalScope = scope == null ? analysisJob != null && analysisJob.isSettingBookSource()
+                ? org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope.UNKNOWN
+                : org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope.PRESENT : scope;
+        effectiveFromEpisodeNo = number;
+    }
 
     private static final int NAME_MAX_LENGTH = 100;
 
@@ -90,14 +109,25 @@ public class WorldSettingCandidate extends BaseEntity {
     )
     private Work work;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(
             name = "source_episode_id",
-            nullable = false,
             updatable = false,
             foreignKey = @ForeignKey(name = "fk_world_setting_candidates_source_episode")
     )
     private Episode sourceEpisode;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source_kind", nullable = false, length = 20, updatable = false)
+    private org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "source_setting_book_id", updatable = false)
+    private org.monitoring.catchholebackend.domain.upload.entity.UploadFile sourceSettingBook;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "source_setting_book_revision_id", updatable = false)
+    private org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision sourceSettingBookRevision;
+
+
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(
@@ -345,7 +375,13 @@ public class WorldSettingCandidate extends BaseEntity {
             JsonNode rawExtractionJson
     ) {
         this.work = Objects.requireNonNull(work);
-        this.sourceEpisode = Objects.requireNonNull(sourceEpisode);
+        this.sourceEpisode = sourceEpisode;
+        if (analysisJob.isSettingBookSource()) {
+            if (sourceEpisode != null) throw new IllegalArgumentException("설정집 후보에 회차를 연결할 수 없습니다.");
+            this.sourceKind = analysisJob.getSourceKind();
+            this.sourceSettingBook = analysisJob.getSourceSettingBook();
+            this.sourceSettingBookRevision = analysisJob.getSourceSettingBookRevision();
+        } else { Objects.requireNonNull(sourceEpisode); }
         this.analysisJob = Objects.requireNonNull(analysisJob);
         this.metricsSourceAttemptNo = analysisJob.getMetricsAttemptNo();
         this.category = Objects.requireNonNull(category);

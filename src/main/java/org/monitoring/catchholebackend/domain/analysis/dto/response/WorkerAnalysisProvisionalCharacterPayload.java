@@ -10,10 +10,20 @@ public record WorkerAnalysisProvisionalCharacterPayload(
         @Schema(description = "실행에서 검증한 임시 대상 참조") String provisionalSubjectKey,
         @Schema(description = "원문에서 발견된 이름") String name,
         @Schema(description = "검증한 별칭") List<String> aliases,
-        @Schema(description = "발견 출처 회차") int sourceEpisodeNo,
+        @Schema(description = "발견 출처 회차") Integer sourceEpisodeNo,
         @Schema(description = "출처를 보존한 활성 상태") List<WorkerAnalysisKnownCharacterPayload.ActiveStatus> activeStatuses,
         @JsonInclude(JsonInclude.Include.NON_EMPTY)
         @Schema(description = "동명이인 구분을 위해 발견 당시 보존한 원문 근거")
-        List<CharacterFactEvidenceSpanResponse> identityEvidence
+        List<CharacterFactEvidenceSpanResponse> identityEvidence,
+        @io.swagger.v3.oas.annotations.media.Schema(nullable = true) org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse source,
+        Object currentNarrativeTime
 ) {
+    public WorkerAnalysisProvisionalCharacterPayload(String provisionalSubjectKey, String name, List<String> aliases, Integer sourceEpisodeNo, List<WorkerAnalysisKnownCharacterPayload.ActiveStatus> activeStatuses, List<CharacterFactEvidenceSpanResponse> identityEvidence) {
+        this(provisionalSubjectKey, name, aliases, sourceEpisodeNo, activeStatuses, identityEvidence, null, null);
+    }
+    public WorkerAnalysisProvisionalCharacterPayload(String provisionalSubjectKey, String name, List<String> aliases, Integer sourceEpisodeNo,
+            List<WorkerAnalysisKnownCharacterPayload.ActiveStatus> activeStatuses, List<CharacterFactEvidenceSpanResponse> identityEvidence,
+            org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse source) {
+        this(provisionalSubjectKey, name, aliases, sourceEpisodeNo, activeStatuses, identityEvidence, source, null);
+    }
 }

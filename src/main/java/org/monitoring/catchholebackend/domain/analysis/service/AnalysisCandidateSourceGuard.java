@@ -15,8 +15,19 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class AnalysisCandidateSourceGuard {
     private final EpisodeSourcePurgeRequestRepository purgeRequests;
+    private final org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository jobs;
 
     public void assertCurrent(AnalysisJob job, Episode sourceEpisode) {
+        if (job != null && job.isSettingBookSource()) {
+            if (sourceEpisode != null || !job.hasCurrentSourceVersion()) {
+                throw new AppException(AnalysisJobErrorCode.ANALYSIS_RUN_STATE_CONFLICT);
+            }
+            var latest=jobs.findFirstBySourceSettingBookIdAndJobTypeOrderByCreatedAtDescIdDesc(job.getSourceSettingBook().getId(),
+                    org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION).orElseThrow(
+                    () -> new AppException(AnalysisJobErrorCode.ANALYSIS_RUN_STATE_CONFLICT));
+            if (!latest.getId().equals(job.getId())) throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_SUPERSEDED);
+            return;
+        }
         Episode episode = sourceEpisode != null ? sourceEpisode : job == null ? null : job.getEpisode();
         if (episode == null) return;
         if (episode.getStatus() == EpisodeStatus.ARCHIVED

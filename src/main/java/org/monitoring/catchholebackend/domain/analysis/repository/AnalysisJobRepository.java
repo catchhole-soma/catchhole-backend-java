@@ -18,6 +18,11 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> {
+    List<AnalysisJob> findAllByWorkIdAndSourceSettingBookIdOrderByCreatedAtDescIdDesc(UUID workId, UUID sourceSettingBookId);
+    List<AnalysisJob> findAllByWorkIdAndSourceKindAndJobTypeOrderByCreatedAtDescIdDesc(UUID workId,
+            org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind sourceKind, AnalysisJobType jobType);
+    Optional<AnalysisJob> findFirstBySourceSettingBookIdAndJobTypeOrderByCreatedAtDescIdDesc(UUID bookId, AnalysisJobType jobType);
+
 
     boolean existsByWork_Member_Id(Long memberId);
 
@@ -231,6 +236,7 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             from AnalysisJob analysisJob
             where analysisJob.work.id = :workId
               and analysisJob.batch.id in :batchIds
+              and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE
               and analysisJob.jobType = :jobType
               and analysisJob.status in :statuses
             group by analysisJob.batch.id
@@ -298,16 +304,11 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
 
     boolean existsByBatchIdAndStatusIn(UUID batchId, Collection<AnalysisJobStatus> statuses);
 
-    boolean existsByBatchIdAndEpisodeIsNullAndStatusIn(
-            UUID batchId,
-            Collection<AnalysisJobStatus> statuses
-    );
+    @Query("select count(job) > 0 from AnalysisJob job where job.batch.id = :batchId and job.episode is null and job.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE and job.status in :statuses")
+    boolean existsByBatchIdAndEpisodeIsNullAndStatusIn(@Param("batchId") UUID batchId, @Param("statuses") Collection<AnalysisJobStatus> statuses);
 
-    boolean existsByBatchIdAndEpisodeIsNullAndJobTypeNotInAndStatusIn(
-            UUID batchId,
-            Collection<AnalysisJobType> excludedJobTypes,
-            Collection<AnalysisJobStatus> statuses
-    );
+    @Query("select count(job) > 0 from AnalysisJob job where job.batch.id = :batchId and job.episode is null and job.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE and job.status in :statuses and job.jobType not in :excludedJobTypes")
+    boolean existsByBatchIdAndEpisodeIsNullAndJobTypeNotInAndStatusIn(@Param("batchId") UUID batchId, @Param("excludedJobTypes") Collection<AnalysisJobType> excludedJobTypes, @Param("statuses") Collection<AnalysisJobStatus> statuses);
 
     boolean existsByEpisodeIdAndBatchIdAndStatusIn(
             UUID episodeId,

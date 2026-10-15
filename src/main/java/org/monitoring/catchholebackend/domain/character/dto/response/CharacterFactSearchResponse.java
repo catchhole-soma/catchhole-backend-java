@@ -59,6 +59,11 @@ public record CharacterFactSearchResponse(
         Integer sourceEpisodeNo,
 
         @Schema(description = "설정 적용 시작 회차 번호", example = "12", nullable = true)
-        Integer effectiveFromEpisodeNo
+        Integer effectiveFromEpisodeNo,
+        @io.swagger.v3.oas.annotations.media.Schema(nullable = true) org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse source
 ) {
+    public CharacterFactSearchResponse(UUID characterFactId, CharacterFactType factType, String factTypeLabel, String displayName, String factValue, boolean isCurrent, boolean contributesToCurrentSnapshot, UUID characterId, String characterName, UUID sourceEpisodeId, Integer sourceEpisodeNo, Integer effectiveFromEpisodeNo) {
+        this(characterFactId, factType, factTypeLabel, displayName, factValue, isCurrent, contributesToCurrentSnapshot, characterId, characterName, sourceEpisodeId, sourceEpisodeNo, effectiveFromEpisodeNo, null);
+    }
+
 }

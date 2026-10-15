@@ -1,0 +1,539 @@
+{
+  "id": "5b6205f4-dea4-4182-8974-e58c17ccfa68",
+  "name": "한서린",
+  "roleLabel": null,
+  "currentAge": 28,
+  "currentAgeFact": {
+    "characterFactId": "9e109efb-51bc-4750-85ec-b6befe11aced",
+    "sourceEpisodeId": null,
+    "sourceEpisodeNo": null,
+    "hasEvidence": true,
+    "source": {
+      "sourceKind": "SETTING_BOOK",
+      "episodeId": null,
+      "episodeNo": null,
+      "settingBookId": "8ea7169b-761d-4721-b271-fe8d8645a4fb",
+      "settingBookName": "01-base-book.txt",
+      "revisionId": "b2eb48a5-8aaa-42bc-82a3-a64e4ddf2ca7",
+      "revisionNo": 1,
+      "contentHash": "41a3a9a766fce1ad5c50ebcbb8286a2803de3fe754229f01a64d0b7a7662d7f3",
+      "referenceTimeKind": "WORK_START"
+    }
+  },
+  "currentAgeSourceFacts": [
+    {
+      "characterFactId": "9e109efb-51bc-4750-85ec-b6befe11aced",
+      "sourceEpisodeId": null,
+      "sourceEpisodeNo": null,
+      "hasEvidence": true,
+      "source": {
+        "sourceKind": "SETTING_BOOK",
+        "episodeId": null,
+        "episodeNo": null,
+        "settingBookId": "8ea7169b-761d-4721-b271-fe8d8645a4fb",
+        "settingBookName": "01-base-book.txt",
+        "revisionId": "b2eb48a5-8aaa-42bc-82a3-a64e4ddf2ca7",
+        "revisionNo": 1,
+        "contentHash": "41a3a9a766fce1ad5c50ebcbb8286a2803de3fe754229f01a64d0b7a7662d7f3",
+        "referenceTimeKind": "WORK_START"
+      }
+    }
+  ],
+  "currentLevel": null,
+  "currentLevelFact": null,
+  "currentLevelSourceFacts": [],
+  "firstAppearanceEpisode": {
+    "id": "b7ddd2f3-a8f4-4227-9150-d4b9e7333488",
+    "episodeNo": 1
+  },
+  "profile": [
+    {
+      "characterFactId": "94fdf6f1-460d-4a1a-b22d-871768ffb6e5",
+      "key": "profile.키",
+      "displayName": "키",
+      "attributeNameEditable": true,
+      "attributeNamePrefix": "profile.",
+      "displayNameEditable": true,
+      "value": "168cm",
+      "valueType": "STRING",
+      "properties": [],
+      "hasEvidence": true,
+      "sourceFacts": [
+        {
+          "characterFactId": "94fdf6f1-460d-4a1a-b22d-871768ffb6e5",
+          "sourceEpisodeId": null,
+          "sourceEpisodeNo": null,
+          "hasEvidence": true,
+          "source": {
+            "sourceKind": "SETTING_BOOK",
+            "episodeId": null,
+            "episodeNo": null,
+            "settingBookId": "8ea7169b-761d-4721-b271-fe8d8645a4fb",
+            "settingBookName": "01-base-book.txt",
+            "revisionId": "b2eb48a5-8aaa-42bc-82a3-a64e4ddf2ca7",
+            "revisionNo": 1,
+            "contentHash": "41a3a9a766fce1ad5c50ebcbb8286a2803de3fe754229f01a64d0b7a7662d7f3",
+            "referenceTimeKind": "WORK_START"
+          }
+        }
+      ]
+    },
+    {
+      "characterFactId": "30a877c3-36a7-4303-9035-4e7afe7b61fb",
+      "key": "profile.gender",
+      "displayName": "성별",
+      "attributeNameEditable": false,
+      "attributeNamePrefix": null,
+      "displayNameEditable": false,
+      "value": "여성",
+      "valueType": "STRING",
+      "properties": [],
+      "hasEvidence": true,
+      "sourceFacts": [
+        {
+          "characterFactId": "30a877c3-36a7-4303-9035-4e7afe7b61fb",
+          "sourceEpisodeId": null,
+          "sourceEpisodeNo": null,
+          "hasEvidence": true,
+          "source": {
+            "sourceKind": "SETTING_BOOK",
+            "episodeId": null,
+            "episodeNo": null,
+            "settingBookId": "8ea7169b-761d-4721-b271-fe8d8645a4fb",
+            "settingBookName": "01-base-book.txt",
+            "revisionId": "b2eb48a5-8aaa-42bc-82a3-a64e4ddf2ca7",
+            "revisionNo": 1,
+            "contentHash": "41a3a9a766fce1ad5c50ebcbb8286a2803de3fe754229f01a64d0b7a7662d7f3",
+            "referenceTimeKind": "WORK_START"
+          }
+        }
+      ]
+    },
+    {
+      "characterFactId": "30e1848d-3e51-4d63-823d-5dd48766e8d1",
+      "key": "profile.관계",
+      "displayName": "관계",
+      "attributeNameEditable": true,
+      "attributeNamePrefix": "profile.",
+      "displayNameEditable": true,
+      "value": "류도윤과 업무 협력, 친족 아님",
+      "valueType": "STRING",
+      "properties": [],
+      "hasEvidence": true,
+      "sourceFacts": [
+        {
+          "characterFactId": "30e1848d-3e51-4d63-823d-5dd48766e8d1",
+          "sourceEpisodeId": null,
+          "sourceEpisodeNo": null,
+          "hasEvidence": true,
+          "source": {
+            "sourceKind": "SETTING_BOOK",
+            "episodeId": null,
+            "episodeNo": null,
+            "settingBookId": "8ea7169b-761d-4721-b271-fe8d8645a4fb",
+            "settingBookName": "01-base-book.txt",
+            "revisionId": "b2eb48a5-8aaa-42bc-82a3-a64e4ddf2ca7",
+            "revisionNo": 1,
+            "contentHash": "41a3a9a766fce1ad5c50ebcbb8286a2803de3fe754229f01a64d0b7a7662d7f3",
+            "referenceTimeKind": "WORK_START"
+          }
+        }
+      ]
+    },
+    {
+      "characterFactId": "e708192a-a01a-4647-84a4-877084b9f56a",
+      "key": "profile.별칭",
+      "displayName": "별칭",
+      "attributeNameEditable": true,
+      "attributeNamePrefix": "profile.",
+      "displayNameEditable": true,
+      "value": "은등",
+      "valueType": "STRING",
+      "properties": [],
+      "hasEvidence": true,
+      "sourceFacts": [
+        {
+          "characterFactId": "e708192a-a01a-4647-84a4-877084b9f56a",
+          "sourceEpisodeId": null,
+          "sourceEpisodeNo": null,
+          "hasEvidence": true,
+          "source": {
+            "sourceKind": "SETTING_BOOK",
+            "episodeId": null,
+            "episodeNo": null,
+            "settingBookId": "8ea7169b-761d-4721-b271-fe8d8645a4fb",
+            "settingBookName": "01-base-book.txt",
+            "revisionId": "b2eb48a5-8aaa-42bc-82a3-a64e4ddf2ca7",
+            "revisionNo": 1,
+            "contentHash": "41a3a9a766fce1ad5c50ebcbb8286a2803de3fe754229f01a64d0b7a7662d7f3",
+            "referenceTimeKind": "WORK_START"
+          }
+        }
+      ]
+    },
+    {
+      "characterFactId": "5adbc1b4-61c4-44eb-aad3-e67650fd3ce0",
+      "key": "profile.성격",
+      "displayName": "성격",
+      "attributeNameEditable": true,
+      "attributeNamePrefix": "profile.",
+      "displayNameEditable": true,
+      "value": "꼼꼼함, 의심이 나면 원장을 대조함",
+      "valueType": "STRING",
+      "properties": [],
+      "hasEvidence": true,
+      "sourceFacts": [
+        {
+          "characterFactId": "5adbc1b4-61c4-44eb-aad3-e67650fd3ce0",
+          "sourceEpisodeId": null,
+          "sourceEpisodeNo": null,
+          "hasEvidence": true,
+          "source": {
+            "sourceKind": "SETTING_BOOK",
+            "episodeId": null,
+            "episodeNo": null,
+            "settingBookId": "8ea7169b-761d-4721-b271-fe8d8645a4fb",
+            "settingBookName": "01-base-book.txt",
+            "revisionId": "b2eb48a5-8aaa-42bc-82a3-a64e4ddf2ca7",
+            "revisionNo": 1,
+            "contentHash": "41a3a9a766fce1ad5c50ebcbb8286a2803de3fe754229f01a64d0b7a7662d7f3",
+            "referenceTimeKind": "WORK_START"
+          }
+        }
+      ]
+    },
+    {
+      "characterFactId": "03011c61-d8dd-4345-a7bd-faee9da2bac2",
+      "key": "profile.occupation",
+      "displayName": "직업",
+      "attributeNameEditable": false,
+      "attributeNamePrefix": null,
+      "displayNameEditable": false,
+      "value": "항만 기록관",
+      "valueType": "STRING",
+      "properties": [],
+      "hasEvidence": true,
+      "sourceFacts": [
+        {
+          "characterFactId": "03011c61-d8dd-4345-a7bd-faee9da2bac2",
+          "sourceEpisodeId": null,
+          "sourceEpisodeNo": null,
+          "hasEvidence": true,
+          "source": {
+            "sourceKind": "SETTING_BOOK",
+            "episodeId": null,
+            "episodeNo": null,
+            "settingBookId": "8ea7169b-761d-4721-b271-fe8d8645a4fb",
+            "settingBookName": "01-base-book.txt",
+            "revisionId": "b2eb48a5-8aaa-42bc-82a3-a64e4ddf2ca7",
+            "revisionNo": 1,
+            "contentHash": "41a3a9a766fce1ad5c50ebcbb8286a2803de3fe754229f01a64d0b7a7662d7f3",
+            "referenceTimeKind": "WORK_START"
+          }
+        }
+      ]
+    },
+    {
+      "characterFactId": "717f8dfa-a44d-49ad-ab50-a714869a2587",
+      "key": "profile.affiliation",
+      "displayName": "소속",
+      "attributeNameEditable": false,
+      "attributeNamePrefix": null,
+      "displayNameEditable": false,
+      "value": "항만청 기록실",
+      "valueType": "STRING",
+      "properties": [],
+      "hasEvidence": true,
+      "sourceFacts": [
+        {
+          "characterFactId": "717f8dfa-a44d-49ad-ab50-a714869a2587",
+          "sourceEpisodeId": null,
+          "sourceEpisodeNo": null,
+          "hasEvidence": true,
+          "source": {
+            "sourceKind": "SETTING_BOOK",
+            "episodeId": null,
+            "episodeNo": null,
+            "settingBookId": "8ea7169b-761d-4721-b271-fe8d8645a4fb",
+            "settingBookName": "01-base-book.txt",
+            "revisionId": "b2eb48a5-8aaa-42bc-82a3-a64e4ddf2ca7",
+            "revisionNo": 1,
+            "contentHash": "41a3a9a766fce1ad5c50ebcbb8286a2803de3fe754229f01a64d0b7a7662d7f3",
+            "referenceTimeKind": "WORK_START"
+          }
+        }
+      ]
+    },
+    {
+      "characterFactId": "bae637c3-c774-4e84-83da-264f75e0c688",
+      "key": "profile.오른손_감각",
+      "displayName": "오른손 감각",
+      "attributeNameEditable": true,
+      "attributeNamePrefix": "profile.",
+      "displayNameEditable": true,
+      "value": "정상",
+      "valueType": "STRING",
+      "properties": [],
+      "hasEvidence": true,
+      "sourceFacts": [
+        {
+          "characterFactId": "bae637c3-c774-4e84-83da-264f75e0c688",
+          "sourceEpisodeId": null,
+          "sourceEpisodeNo": null,
+          "hasEvidence": true,
+          "source": {
+            "sourceKind": "SETTING_BOOK",
+            "episodeId": null,
+            "episodeNo": null,
+            "settingBookId": "8ea7169b-761d-4721-b271-fe8d8645a4fb",
+            "settingBookName": "01-base-book.txt",
+            "revisionId": "b2eb48a5-8aaa-42bc-82a3-a64e4ddf2ca7",
+            "revisionNo": 1,
+            "contentHash": "41a3a9a766fce1ad5c50ebcbb8286a2803de3fe754229f01a64d0b7a7662d7f3",
+            "referenceTimeKind": "WORK_START"
+          }
+        }
+      ]
+    }
+  ],
+  "stats": [],
+  "skills": [
+    {
+      "characterFactId": "61b908e1-4877-4222-883f-b212197f4653",
+      "key": "skill.장부_대조",
+      "displayName": "장부 대조",
+      "attributeNameEditable": true,
+      "attributeNamePrefix": "skill.",
+      "displayNameEditable": true,
+      "value": "장부 대조",
+      "valueType": "JSON",
+      "properties": [
+        {
+          "key": "name",
+          "displayName": "이름",
+          "value": "장부 대조",
+          "valueType": "STRING"
+        }
+      ],
+      "hasEvidence": true,
+      "sourceFacts": [
+        {
+          "characterFactId": "61b908e1-4877-4222-883f-b212197f4653",
+          "sourceEpisodeId": null,
+          "sourceEpisodeNo": null,
+          "hasEvidence": true,
+          "source": {
+            "sourceKind": "SETTING_BOOK",
+            "episodeId": null,
+            "episodeNo": null,
+            "settingBookId": "8ea7169b-761d-4721-b271-fe8d8645a4fb",
+            "settingBookName": "01-base-book.txt",
+            "revisionId": "b2eb48a5-8aaa-42bc-82a3-a64e4ddf2ca7",
+            "revisionNo": 1,
+            "contentHash": "41a3a9a766fce1ad5c50ebcbb8286a2803de3fe754229f01a64d0b7a7662d7f3",
+            "referenceTimeKind": "WORK_START"
+          }
+        }
+      ]
+    }
+  ],
+  "items": [
+    {
+      "characterFactId": "2cfde67d-d84a-47a0-8e46-66820738e64e",
+      "key": "item.잔향등",
+      "displayName": "잔향등",
+      "attributeNameEditable": true,
+      "attributeNamePrefix": "item.",
+      "displayNameEditable": true,
+      "value": "기록실 창고에서 잠시 빌려 사용한 잔향등",
+      "valueType": "JSON",
+      "properties": [
+        {
+          "key": "name",
+          "displayName": "이름",
+          "value": "잔향등",
+          "valueType": "STRING"
+        },
+        {
+          "key": "borrowed",
+          "displayName": "borrowed",
+          "value": "true",
+          "valueType": "BOOLEAN"
+        }
+      ],
+      "hasEvidence": true,
+      "sourceFacts": [
+        {
+          "characterFactId": "2cfde67d-d84a-47a0-8e46-66820738e64e",
+          "sourceEpisodeId": "b7ddd2f3-a8f4-4227-9150-d4b9e7333488",
+          "sourceEpisodeNo": 1,
+          "hasEvidence": true,
+          "source": {
+            "sourceKind": "EPISODE",
+            "episodeId": "b7ddd2f3-a8f4-4227-9150-d4b9e7333488",
+            "episodeNo": 1,
+            "settingBookId": null,
+            "settingBookName": null,
+            "revisionId": null,
+            "revisionNo": null,
+            "contentHash": "4a1a7e4cea39e1e47460b0c248905ef23a1e024a24f4def996ab869816779fb2"
+          }
+        }
+      ]
+    },
+    {
+      "characterFactId": "283a8ce7-755c-4977-a27e-74f68bb9d4e6",
+      "key": "item.청동_펜",
+      "displayName": "청동 펜",
+      "attributeNameEditable": true,
+      "attributeNamePrefix": "item.",
+      "displayNameEditable": true,
+      "value": "청동 펜",
+      "valueType": "JSON",
+      "properties": [
+        {
+          "key": "name",
+          "displayName": "이름",
+          "value": "청동 펜",
+          "valueType": "STRING"
+        },
+        {
+          "key": "type",
+          "displayName": "type",
+          "value": "필기 도구",
+          "valueType": "STRING"
+        }
+      ],
+      "hasEvidence": true,
+      "sourceFacts": [
+        {
+          "characterFactId": "283a8ce7-755c-4977-a27e-74f68bb9d4e6",
+          "sourceEpisodeId": null,
+          "sourceEpisodeNo": null,
+          "hasEvidence": true,
+          "source": {
+            "sourceKind": "SETTING_BOOK",
+            "episodeId": null,
+            "episodeNo": null,
+            "settingBookId": "8ea7169b-761d-4721-b271-fe8d8645a4fb",
+            "settingBookName": "01-base-book.txt",
+            "revisionId": "b2eb48a5-8aaa-42bc-82a3-a64e4ddf2ca7",
+            "revisionNo": 1,
+            "contentHash": "41a3a9a766fce1ad5c50ebcbb8286a2803de3fe754229f01a64d0b7a7662d7f3",
+            "referenceTimeKind": "WORK_START"
+          }
+        }
+      ]
+    }
+  ],
+  "statuses": [
+    {
+      "characterFactId": "62add26c-e3f7-41c0-94b8-58a555eabb41",
+      "key": "status.오른손_화상",
+      "displayName": "오른손 화상",
+      "attributeNameEditable": true,
+      "attributeNamePrefix": "status.",
+      "displayNameEditable": true,
+      "value": "응급처치 후에도 오른손으로 펜을 잡지 못하는 화상",
+      "valueType": "JSON",
+      "properties": [
+        {
+          "key": "name",
+          "displayName": "이름",
+          "value": "오른손 화상",
+          "valueType": "STRING"
+        },
+        {
+          "key": "active",
+          "displayName": "활성 여부",
+          "value": "true",
+          "valueType": "BOOLEAN"
+        },
+        {
+          "key": "description",
+          "displayName": "설명",
+          "value": "응급처치 후에도 오른손으로 펜을 잡지 못함",
+          "valueType": "STRING"
+        }
+      ],
+      "hasEvidence": true,
+      "sourceFacts": [
+        {
+          "characterFactId": "62add26c-e3f7-41c0-94b8-58a555eabb41",
+          "sourceEpisodeId": "b7ddd2f3-a8f4-4227-9150-d4b9e7333488",
+          "sourceEpisodeNo": 1,
+          "hasEvidence": true,
+          "source": {
+            "sourceKind": "EPISODE",
+            "episodeId": "b7ddd2f3-a8f4-4227-9150-d4b9e7333488",
+            "episodeNo": 1,
+            "settingBookId": null,
+            "settingBookName": null,
+            "revisionId": null,
+            "revisionNo": null,
+            "contentHash": "4a1a7e4cea39e1e47460b0c248905ef23a1e024a24f4def996ab869816779fb2"
+          }
+        }
+      ]
+    },
+    {
+      "characterFactId": "b38f6cd7-1e4a-408a-bf50-f2aa6e63c436",
+      "key": "status.오른손_감각_둔화",
+      "displayName": "오른손 감각 둔화",
+      "attributeNameEditable": true,
+      "attributeNamePrefix": "status.",
+      "displayNameEditable": true,
+      "value": "오른손 감각이 둔해져 아직 정상으로 돌아오지 않음",
+      "valueType": "JSON",
+      "properties": [
+        {
+          "key": "name",
+          "displayName": "이름",
+          "value": "오른손 감각 둔화",
+          "valueType": "STRING"
+        },
+        {
+          "key": "active",
+          "displayName": "활성 여부",
+          "value": "true",
+          "valueType": "BOOLEAN"
+        },
+        {
+          "key": "description",
+          "displayName": "설명",
+          "value": "감각이 둔해져 아직 정상으로 돌아오지 않음",
+          "valueType": "STRING"
+        }
+      ],
+      "hasEvidence": true,
+      "sourceFacts": [
+        {
+          "characterFactId": "b38f6cd7-1e4a-408a-bf50-f2aa6e63c436",
+          "sourceEpisodeId": "b7ddd2f3-a8f4-4227-9150-d4b9e7333488",
+          "sourceEpisodeNo": 1,
+          "hasEvidence": true,
+          "source": {
+            "sourceKind": "EPISODE",
+            "episodeId": "b7ddd2f3-a8f4-4227-9150-d4b9e7333488",
+            "episodeNo": 1,
+            "settingBookId": null,
+            "settingBookName": null,
+            "revisionId": null,
+            "revisionNo": null,
+            "contentHash": "4a1a7e4cea39e1e47460b0c248905ef23a1e024a24f4def996ab869816779fb2"
+          }
+        }
+      ]
+    }
+  ],
+  "image": {
+    "catalogId": null,
+    "name": null,
+    "thumbnailUrl": null,
+    "imageUrl": null,
+    "source": "AUTO",
+    "version": 0,
+    "privateImageId": null,
+    "vaultId": null
+  }
+}

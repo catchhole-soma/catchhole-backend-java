@@ -16,10 +16,14 @@ public record WorkerWorldSettingComparisonContextResponse(
             String subjectName,
             List<WorldSettingPropertyResponse> properties,
             long version,
-            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String provisionalSubjectKey
+            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String provisionalSubjectKey,
+            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY) List<WorkerWorldSettingProtectedPathPayload> protectedPaths
     ) {
+        public Target(UUID worldSettingId, String subjectName, List<WorldSettingPropertyResponse> properties, long version, String provisionalSubjectKey) {
+            this(worldSettingId, subjectName, properties, version, provisionalSubjectKey, List.of());
+        }
         public Target(UUID worldSettingId, String subjectName, List<WorldSettingPropertyResponse> properties, long version) {
-            this(worldSettingId, subjectName, properties, version, null);
+            this(worldSettingId, subjectName, properties, version, null, List.of());
         }
     }
 }

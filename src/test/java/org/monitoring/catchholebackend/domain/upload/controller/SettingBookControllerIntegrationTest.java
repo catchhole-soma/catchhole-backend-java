@@ -131,7 +131,7 @@ class SettingBookControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.content").value("제 1화 새벽의 편지\n서윤은 성문 앞에서 편지를 읽었다."));
         mockMvc.perform(patch("/api/v1/works/{workId}/setting-books/{id}", work.getId(), saved.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer()).contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("content", "수정한 설정집 본문"))))
+                        .content(objectMapper.writeValueAsString(Map.of("content", "수정한 설정집 본문", "expectedRevisionNo", 1))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.mimeType").value(mimeType));
         mockMvc.perform(get("/api/v1/works/{workId}/setting-books/{id}", work.getId(), saved.getId())
@@ -154,8 +154,8 @@ class SettingBookControllerIntegrationTest {
         String contentStorageUrl = firstSettingBook.getContentStorageUrl();
         long originalFileSize = firstSettingBook.getFileSize();
         assertThat(contentStorageUrl)
-                .isEqualTo("s3://works/" + work.getId() + "/setting-books/"
-                        + settingBookId + "/작품설정.txt");
+                .startsWith("s3://works/" + work.getId() + "/setting-books/" + settingBookId + "/")
+                .endsWith("/작품설정.txt");
 
         upload("작품설정.txt").andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.originalFilename").value("작품설정.txt"));
@@ -182,7 +182,7 @@ class SettingBookControllerIntegrationTest {
                 )
                         .header(HttpHeaders.AUTHORIZATION, bearer())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("content", updatedContent))))
+                        .content(objectMapper.writeValueAsString(Map.of("content", updatedContent, "expectedRevisionNo", 1))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content").value(updatedContent))
                 .andExpect(jsonPath("$.data.mimeType").value("text/plain; charset=UTF-8"))
@@ -190,14 +190,16 @@ class SettingBookControllerIntegrationTest {
 
         UploadFile updatedSettingBook = uploadFileRepository.findById(firstSettingBook.getId()).orElseThrow();
         assertThat(updatedSettingBook.getStorageUrl()).isEqualTo(originalStorageUrl);
-        assertThat(updatedSettingBook.getContentStorageUrl()).isEqualTo(contentStorageUrl);
+        assertThat(updatedSettingBook.getContentStorageUrl()).isNotEqualTo(contentStorageUrl);
         assertThat(updatedSettingBook.getFileSize()).isEqualTo(originalFileSize);
-        assertThat(storedObjects).hasSize(storedObjectCountBeforeEdits);
+        assertThat(storedObjects).hasSize(storedObjectCountBeforeEdits + 1);
         assertThat(storedObjects).containsKeys(
                 originalStorageUrl.substring("s3://".length()),
                 contentStorageUrl.substring("s3://".length())
         );
         assertThat(storedObjects.get(contentStorageUrl.substring("s3://".length())))
+                .isEqualTo("설정 본문".getBytes(StandardCharsets.UTF_8));
+        assertThat(storedObjects.get(updatedSettingBook.getContentStorageUrl().substring("s3://".length())))
                 .isEqualTo(updatedContent.getBytes(StandardCharsets.UTF_8));
 
         String latestContent = "두 번째로 수정한 원문";
@@ -208,7 +210,7 @@ class SettingBookControllerIntegrationTest {
                 )
                         .header(HttpHeaders.AUTHORIZATION, bearer())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("content", latestContent))))
+                        .content(objectMapper.writeValueAsString(Map.of("content", latestContent, "expectedRevisionNo", 2))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content").value(latestContent))
                 .andExpect(jsonPath("$.data.fileSize").value(originalFileSize));
@@ -216,9 +218,12 @@ class SettingBookControllerIntegrationTest {
         UploadFile twiceUpdatedSettingBook =
                 uploadFileRepository.findById(firstSettingBook.getId()).orElseThrow();
         assertThat(twiceUpdatedSettingBook.getStorageUrl()).isEqualTo(originalStorageUrl);
-        assertThat(twiceUpdatedSettingBook.getContentStorageUrl()).isEqualTo(contentStorageUrl);
-        assertThat(storedObjects).hasSize(storedObjectCountBeforeEdits);
+        assertThat(twiceUpdatedSettingBook.getContentStorageUrl()).isNotEqualTo(contentStorageUrl)
+                .isNotEqualTo(updatedSettingBook.getContentStorageUrl());
+        assertThat(storedObjects).hasSize(storedObjectCountBeforeEdits + 2);
         assertThat(storedObjects.get(contentStorageUrl.substring("s3://".length())))
+                .isEqualTo("설정 본문".getBytes(StandardCharsets.UTF_8));
+        assertThat(storedObjects.get(twiceUpdatedSettingBook.getContentStorageUrl().substring("s3://".length())))
                 .isEqualTo(latestContent.getBytes(StandardCharsets.UTF_8));
 
         mockMvc.perform(get("/api/v1/works/{workId}/setting-books/{settingBookId}", work.getId(), settingBookId)
@@ -278,7 +283,7 @@ class SettingBookControllerIntegrationTest {
     }
 
     @Test
-    void docxOriginalIsPreservedWhileEditableTextUsesReadableStableKey() throws Exception {
+    void docxOriginalAndAnalyzedTextArePreservedInImmutableReadableRevisionKeys() throws Exception {
         String decomposedFilename =
                 Normalizer.normalize("세계관", Normalizer.Form.NFD) + ".docx";
         MockMultipartFile docx = docxFile(
@@ -301,8 +306,8 @@ class SettingBookControllerIntegrationTest {
         String contentStorageUrl = settingBook.getContentStorageUrl();
         long originalFileSize = settingBook.getFileSize();
         assertThat(contentStorageUrl)
-                .isEqualTo("s3://works/" + work.getId() + "/setting-books/"
-                        + settingBook.getId() + "/세계관.txt");
+                .startsWith("s3://works/" + work.getId() + "/setting-books/" + settingBook.getId() + "/")
+                .endsWith("/세계관.txt");
         byte[] originalBytes =
                 storedObjects.get(originalStorageUrl.substring("s3://".length())).clone();
         int storedObjectCountBeforeEdit = storedObjects.size();
@@ -323,7 +328,7 @@ class SettingBookControllerIntegrationTest {
                 )
                         .header(HttpHeaders.AUTHORIZATION, bearer())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("content", editedContent))))
+                        .content(objectMapper.writeValueAsString(Map.of("content", editedContent, "expectedRevisionNo", 1))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.mimeType")
                         .value("application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
@@ -332,11 +337,13 @@ class SettingBookControllerIntegrationTest {
         UploadFile editedSettingBook =
                 uploadFileRepository.findById(settingBook.getId()).orElseThrow();
         assertThat(editedSettingBook.getStorageUrl()).isEqualTo(originalStorageUrl);
-        assertThat(editedSettingBook.getContentStorageUrl()).isEqualTo(contentStorageUrl);
-        assertThat(storedObjects).hasSize(storedObjectCountBeforeEdit);
+        assertThat(editedSettingBook.getContentStorageUrl()).isNotEqualTo(contentStorageUrl);
+        assertThat(storedObjects).hasSize(storedObjectCountBeforeEdit + 1);
         assertThat(storedObjects.get(originalStorageUrl.substring("s3://".length())))
                 .isEqualTo(originalBytes);
         assertThat(storedObjects.get(contentStorageUrl.substring("s3://".length())))
+                .isEqualTo("DOCX 설정 원문".getBytes(StandardCharsets.UTF_8));
+        assertThat(storedObjects.get(editedSettingBook.getContentStorageUrl().substring("s3://".length())))
                 .isEqualTo(editedContent.getBytes(StandardCharsets.UTF_8));
 
         mockMvc.perform(get(
@@ -382,6 +389,8 @@ class SettingBookControllerIntegrationTest {
     private void clearDatabase() {
         analysisJobRepository.deleteAll();
         episodeRepository.deleteAll();
+        jdbcTemplate.update("update upload_files set current_setting_book_revision_id=null");
+        jdbcTemplate.update("delete from setting_book_revisions");
         uploadFileRepository.deleteAll();
         uploadBatchRepository.deleteAll();
         workRepository.deleteAll();

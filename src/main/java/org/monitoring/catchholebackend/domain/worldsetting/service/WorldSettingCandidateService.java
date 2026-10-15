@@ -28,9 +28,23 @@ public interface WorldSettingCandidateService {
             int size
     );
 
+    WorldSettingCandidateListResponse getCandidates(
+            Long memberId,
+            UUID workId,
+            UUID batchId,
+            WorldSettingReviewStatus reviewStatus,
+            WorldSettingCategory category,
+            WorldSettingSuggestedOperation operation,
+            int page,
+            int size, UUID sourceAnalysisJobId);
+
     WorldSettingCandidateResponse getCandidate(Long memberId, UUID workId, UUID batchId, UUID candidateId);
 
+    WorldSettingCandidateResponse getCandidate(Long memberId, UUID workId, UUID batchId, UUID candidateId, UUID sourceAnalysisJobId);
+
     WorldSettingCandidateResponse retryComparison(Long memberId, UUID workId, UUID candidateId);
+
+    WorldSettingCandidateResponse retryComparison(Long memberId, UUID workId, UUID candidateId, UUID sourceAnalysisJobId);
 
     WorldSettingTokenInterruptedResumeResponse resumeTokenInterruptedComparisons(
             Long memberId,
@@ -38,11 +52,21 @@ public interface WorldSettingCandidateService {
             UUID batchId
     );
 
+    WorldSettingTokenInterruptedResumeResponse resumeTokenInterruptedComparisons(
+            Long memberId,
+            UUID workId,
+            UUID batchId, UUID sourceAnalysisJobId);
+
     WorldSettingCandidateDecisionUpdateResponse updateCandidateDecisions(
             Long memberId,
             UUID workId,
             WorldSettingCandidateDecisionUpdateRequest request
     );
+
+    WorldSettingCandidateDecisionUpdateResponse updateCandidateDecisions(
+            Long memberId,
+            UUID workId,
+            WorldSettingCandidateDecisionUpdateRequest request, UUID sourceAnalysisJobId);
 
     WorldSettingCandidateConfirmResult confirmCandidate(
             Long memberId,
@@ -51,6 +75,12 @@ public interface WorldSettingCandidateService {
             WorldSettingCandidateConfirmRequest request
     );
 
+    WorldSettingCandidateConfirmResult confirmCandidate(
+            Long memberId,
+            UUID workId,
+            UUID candidateId,
+            WorldSettingCandidateConfirmRequest request, UUID sourceAnalysisJobId);
+
     WorldSettingCandidateResponse dismissCandidate(
             Long memberId,
             UUID workId,
@@ -58,15 +88,31 @@ public interface WorldSettingCandidateService {
             WorldSettingCandidateDismissRequest request
     );
 
+    WorldSettingCandidateResponse dismissCandidate(
+            Long memberId,
+            UUID workId,
+            UUID candidateId,
+            WorldSettingCandidateDismissRequest request, UUID sourceAnalysisJobId);
+
     WorldSettingCandidateGroupConfirmResult confirmCandidateGroup(
             Long memberId,
             UUID workId,
             WorldSettingCandidateGroupConfirmRequest request
     );
 
+    WorldSettingCandidateGroupConfirmResult confirmCandidateGroup(
+            Long memberId,
+            UUID workId,
+            WorldSettingCandidateGroupConfirmRequest request, UUID sourceAnalysisJobId);
+
     WorldSettingCandidateGroupActionResponse dismissCandidateGroup(
             Long memberId,
             UUID workId,
             WorldSettingCandidateGroupDismissRequest request
     );
+
+    WorldSettingCandidateGroupActionResponse dismissCandidateGroup(
+            Long memberId,
+            UUID workId,
+            WorldSettingCandidateGroupDismissRequest request, UUID sourceAnalysisJobId);
 }
