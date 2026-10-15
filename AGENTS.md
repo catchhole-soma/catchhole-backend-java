@@ -925,3 +925,13 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - `CHARACTER_CURRENT_COLLECTION`/`WORLD_CURRENT_COLLECTION`은 작품의 등록 대상 현재 설정을 필터 후 페이지로 제공한다. 응답 `collection`은 모집단 대상 수·설정이 있는 대상 수·설정 행 수를 구분한다. 값 누락을 의미 조건 불일치로 처리하지 않으며 STATUS의 생존·부활 등을 Java가 추정하지 않는다.
 - COLLECTION 후속 페이지는 `readToken`을 요구하고 page 0 최종 재확인에도 적용한다. 작품·도구·필터·대상 집합/이름/version·표시 schema를 묶고 요청 전후 scalar 재조회로 변경을 감지한다. token은 권한이나 저장된 과거 snapshot이 아니며 기존 인증·현재값·직접 근거 검증을 유지한다. 기존 도구의 응답에는 collection 필드를 생략하고 공통 fixture를 별도로 추가한다.
 - 작품 범위 `WORLD_FIELDS`는 현재 경로만 category/scope/key별로 합친다. 세계관 목록·현재 COLLECTION·작품 FIELD의 `worldCategory`는 동일 분류를 뜻한다. 전체 설정 scan 비용과 FIND 기존 페이지의 snapshot 비보장 범위는 계약에 명시한다.
+
+### OPT-31 후속 대화·조회 규칙 — 2026-10-15 현재
+
+- 현재 프롬프트는 QA plan v7·hybrid plan v8/answer v9이다. OPT-31 초기 답변 v8 뒤 관련 맥락·검증 실패 복구를 추가했다. 앞선 말투 보완 당시 v6/v7 기록은 보존하되 현재 동작은 이 규칙과 공통 `docs/chat-query-quality-v1.md`를 따른다. [#247 OPT-31](https://github.com/catchhole-soma/catchhole-backend-java/issues/247) 후속 실제 모델 검증은 77dc74e의 6건, 최종 제품은 표현만 보완한 265fc68로 구분하며 이전 실행을 새 구현의 통과 기록으로 사용하지 않는다. 최종 Python 2,853 passed/54 skipped/기존 warning 1이며 실제 ANSWER에는 PARTIAL이 포함되어 정답률로 집계하지 않는다.
+- 인사·감사·챗봇 도움말만 있는 요청은 planner의 GREETING/THANKS/HELP와 비어 있는 조회 필드를 검증한 뒤 고정 존댓말을 기존 ANSWER로 반환한다. 문자열 감지로 사실 질문을 가로채지 않는다. CONVERSATION_LIMIT는 내부 모델에 유지하고 공개 결과에는 CLARIFICATION에서만 표시하며 실제 데이터/원문 오류는 숨기지 않는다.
+- sourceFallback은 허용 계획과 조회 지점의 typed gap, 정상 INSUFFICIENT_EVIDENCE, 명시한 대상, 완전한 조회와 남은 예산을 모두 확인한 뒤 같은 실행의 원문 경로를 재사용한다. 현재값/명시적 부정의 정상 답변, collection·집계·명확화·부분/절단·자료 변경/원문 오류·실행 실패는 자동 전환하지 않는다. 세계관 전체 이름의 완전한 빈 조회에서만 공백으로 구분된 해당 분류 표시어를 한 번 제거해 같은 분류로 재조회한다. 기존 후보·권한·분류·범위를 우회하지 않는다.
+- 계획 복구는 requestedParts의 주체·대상·전후·인과 범위와 최초 획득 조건을 유지하고 schema 필드 경로·고정 규칙만 재전달한다. 형식/계약/JSON/출력 절단을 구분하며 최초 포함 두 번과 기존 예약·정산을 유지한다. 원시 질문·원문·모델 응답·거절값·비밀값·임의 예외 본문을 진단 로그에 저장하지 않고, 구조 복구 성공을 의미적 정답으로 간주하지 않는다.
+- 일반 claim의 relatedFacets는 관련 원문 맥락이며 요구 충족이 아니다. 미답 요구는 missingFacets와 PARTIAL로 남기고 정확한 supports.quote·참조/위치·최종 인용 검사를 유지한다. hybrid.answer의 ResponseValidationFailure만 미검증 문장을 버린 NONE으로 복구해 남은 검색이나 검증된 PARTIAL을 보존한다. 전송/provider·출력 절단 복구·권한/조회 실패는 숨기지 않으며 계획·등록 답변의 실패 경계와 전체 실행 상한은 유지한다.
+- hybrid plan v8은 최초 습득 항목의 HISTORY와 현재 보유 목록의 CURRENT를 구분하고 실제 최초 획득은 원문 PROCESS로 확인하도록 지시한다. 최초 등록/사용 기록을 실제 최초로 단정하지 않는다. 일반 원문 경로의 직접 근거 조회는 `3 * max_rounds + 2 + collection 검사 수`의 도구 여유를 남기며 기본 두 라운드는 검사 수 외 8회분이다. 전체 상한을 늘리거나 키워드·벡터 실행을 보장하지 않는다. 후속 실제 검증에서 HISTORY+PROCESS와 키워드·벡터 두 라운드까지 확인했지만 최초 획득의 입증은 미확인으로 남았다. 상세 호출량·중간 실패와 SHA별 범위는 공통 품질 문서에 보존한다.
+- 실제 77dc74e 검증 6건에는 자연 발생한 모델 응답 검증 실패가 없었다. related 맥락 경로의 실제 확인과 typed 검증 실패 복구의 합성 회귀를 구분한다. 최종 265fc68는 같은 프롬프트·검색·검증에 안내 표현만 보완했으며 전체 자동 테스트·로컬 기동으로 확인했고 실제 모델을 다시 호출하지 않았다.
