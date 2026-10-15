@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.analysis.mapper;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -15,6 +16,7 @@ import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalys
 import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisKnownCharacterPayload;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisProvenancePayload;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisProvisionalCharacterPayload;
+import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerSemanticCurrentContextPayload;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
@@ -31,6 +33,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class AnalysisJobWorkerMapper {
 
+    private final ObjectMapper objectMapper = new ObjectMapper();
     private final CharacterSnapshotAccessor snapshotAccessor;
     private final AnalysisRunContextMapper analysisRunContextMapper;
     private final CharacterFactEvidenceMapper characterFactEvidenceMapper;
@@ -52,6 +55,19 @@ public class AnalysisJobWorkerMapper {
             List<WorkCharacter> knownCharacters,
             List<CharacterSnapshotSource> activeStatusSources,
             JsonNode orderedInputState
+    ) {
+        return toResponse(analysisJob, episode, characterSettingSchemas, knownCharacters, activeStatusSources,
+                orderedInputState, null);
+    }
+
+    public WorkerAnalysisJobPayload toResponse(
+            AnalysisJob analysisJob,
+            Episode episode,
+            List<CharacterSettingSchema> characterSettingSchemas,
+            List<WorkCharacter> knownCharacters,
+            List<CharacterSnapshotSource> activeStatusSources,
+            JsonNode orderedInputState,
+            WorkerSemanticCurrentContextPayload semanticCurrentContext
     ) {
         if (analysisJob.isOrderedProvisional() && (orderedInputState == null || !orderedInputState.isObject())) {
             throw new IllegalArgumentException("누적 모드의 고정 입력 상태가 필요합니다.");
@@ -89,7 +105,17 @@ public class AnalysisJobWorkerMapper {
                 analysisJob.isOrderedProvisional() ? analysisJob.getAnalysisMode() : null,
                 analysisRunContextMapper.toResponse(analysisJob),
                 analysisJob.isOrderedProvisional() ? toProvisionalCharacters(orderedInputState) : List.of(),
-                analysisJob.isAutomaticReview() ? analysisJob.getReviewMode() : null
+                analysisJob.isAutomaticReview() ? analysisJob.getReviewMode() : null,
+                analysisJob.getSourceKind(), analysisJob.isSettingBookSource()
+                    ? new org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisSettingBookPayload(
+                        analysisJob.getSourceSettingBook().getId(), analysisJob.getSourceSettingBook().getOriginalFilename(),
+                        analysisJob.getSourceSettingBookRevision().getId(), analysisJob.getSourceSettingBookRevision().getRevisionNo(),
+                        analysisJob.getSourceContentS3Key(), analysisJob.getSourceContentS3Version(), analysisJob.getSourceContentHash(),
+                        analysisJob.getSourceSettingBookRevision().getCharCount(),
+                        analysisJob.getSourceSettingBookRevision().getReferenceTimeKind(),
+                        analysisJob.getSourceSettingBookRevision().getReferenceEpisodeNo()) : null,
+                semanticCurrentContext,
+                analysisJob.isOrderedProvisional() ? new WorkerAnalysisJobPayload.ComparisonEvidenceContract(1) : null
         );
     }
 
@@ -101,7 +127,9 @@ public class AnalysisJobWorkerMapper {
                         character.path("name").asText(), toOrderedActiveStatuses(character),
                         toProvenance(character.path("provenance"), "CONFIRMED"),
                         toAliases(character.path("aliases")),
-                        characterFactEvidenceMapper.toEvidenceSpans(character.path("identityEvidence"))));
+                        characterFactEvidenceMapper.toEvidenceSpans(character.path("identityEvidence")),
+                        org.monitoring.catchholebackend.domain.character.mapper.CharacterAnalysisStateMapper.protectedSlots(character),
+                        objectMapper.convertValue(org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.value(character.path("currentNarrativeTime")), Object.class)));
             }
         }
         return List.copyOf(result);
@@ -113,8 +141,9 @@ public class AnalysisJobWorkerMapper {
             if (character.path("provisionalSubjectKey").isTextual()) {
                 result.add(new WorkerAnalysisProvisionalCharacterPayload(character.path("provisionalSubjectKey").asText(),
                         character.path("name").asText(), toAliases(character.path("aliases")),
-                        character.path("provenance").path("sourceEpisodeNo").asInt(), toOrderedActiveStatuses(character),
-                        characterFactEvidenceMapper.toEvidenceSpans(character.path("identityEvidence"))));
+                        character.path("provenance").path("sourceEpisodeNo").isIntegralNumber() ? character.path("provenance").path("sourceEpisodeNo").asInt() : null, toOrderedActiveStatuses(character),
+                        characterFactEvidenceMapper.toEvidenceSpans(character.path("identityEvidence")), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.fromProvenance(character.path("provenance")),
+                        objectMapper.convertValue(org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.value(character.path("currentNarrativeTime")), Object.class)));
             }
         }
         return List.copyOf(result);
@@ -157,12 +186,10 @@ public class AnalysisJobWorkerMapper {
     }
 
     private WorkerAnalysisProvenancePayload toProvenance(JsonNode source, String fallbackStatus) {
-        List<UUID> ids = new ArrayList<>();
-        source.path("sourceCandidateIds").forEach(id -> ids.add(UUID.fromString(id.asText())));
-        return new WorkerAnalysisProvenancePayload(source.path("confirmationStatus").asText(fallbackStatus),
-                source.path("sourceEpisodeNo").isIntegralNumber() ? source.path("sourceEpisodeNo").asInt() : null,
-                List.copyOf(ids), source.path("reviewSource").isTextual() ? source.path("reviewSource").asText() : null);
+        return AnalysisProvenanceMapper.from(source, fallbackStatus);
     }
+
+    private UUID uuidSource(JsonNode node, String field) { return node.path(field).isTextual() ? UUID.fromString(node.path(field).asText()) : null; }
 
     private WorkerAnalysisKnownCharacterPayload toKnownCharacterResponse(
             WorkCharacter character,
@@ -179,7 +206,8 @@ public class AnalysisJobWorkerMapper {
                                 entry.slot().factKey(),
                                 entry.factValue()
                         ))
-                        .toList()
+                        .toList(), null, List.of(), List.of(),
+                org.monitoring.catchholebackend.domain.character.mapper.CharacterAnalysisStateMapper.protectedSlots(character), objectMapper.convertValue(character.getCurrentNarrativeTime(), Object.class)
         );
     }
 

@@ -40,9 +40,16 @@ public record WorldSettingCandidateConfirmRequest(
 
         @Size(max = 1000)
         @Schema(description = "선택 검토 메모", nullable = true)
-        String reviewNote
+        String reviewNote,
+        @Schema(description = "기존 실제 대상의 선택 경로만 현재값으로 명시 반영합니다. 새 대상에는 사용하지 않습니다.") Boolean applyToCurrent,
+        @Schema(description = "변경 전 실제 세계관 대상 version. applyToCurrent=true이면 필수입니다.", nullable = true) Long expectedWorldSettingVersion,
+        @Schema(description = "확인한 후보 updatedAt. applyToCurrent=true이면 필수입니다.", nullable = true) java.time.LocalDateTime expectedUpdatedAt
 ) {
 
+    public WorldSettingCandidateConfirmRequest(WorldSettingOperation operation, WorldSettingCategory category, String subjectName,
+            String scopeName, String settingName, String value, Boolean conflictResolved, String reviewNote) {
+        this(operation, category, subjectName, scopeName, settingName, value, conflictResolved, reviewNote, null, null, null);
+    }
     public WorldSettingCandidateConfirmRequest(
             WorldSettingOperation operation,
             WorldSettingCategory category,
@@ -52,6 +59,6 @@ public record WorldSettingCandidateConfirmRequest(
             Boolean conflictResolved,
             String reviewNote
     ) {
-        this(operation, category, subjectName, null, settingName, value, conflictResolved, reviewNote);
+        this(operation, category, subjectName, null, settingName, value, conflictResolved, reviewNote, null, null, null);
     }
 }

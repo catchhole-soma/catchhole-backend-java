@@ -13,6 +13,10 @@ public interface SettingBookService {
 
     SettingBookSummaryResponse uploadSettingBook(Long memberId, UUID workId, MultipartFile file);
 
+    SettingBookSummaryResponse uploadSettingBook(Long memberId, UUID workId, MultipartFile file,
+            org.monitoring.catchholebackend.domain.upload.type.SettingBookReferenceTimeKind referenceTimeKind,
+            Integer referenceEpisodeNo);
+
     SettingBookResponse getSettingBook(Long memberId, UUID workId, UUID settingBookId);
 
     SettingBookResponse updateSettingBook(
@@ -21,6 +25,11 @@ public interface SettingBookService {
             UUID settingBookId,
             SettingBookUpdateRequest request
     );
+
+    org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobResponse analyzeSettingBook(Long memberId, UUID workId, UUID settingBookId);
+
+    org.monitoring.catchholebackend.domain.upload.dto.response.SettingBookRevisionResponse getSettingBookRevision(
+            Long memberId, UUID workId, UUID settingBookId, UUID revisionId);
 
     void deleteSettingBook(Long memberId, UUID workId, UUID settingBookId);
 }

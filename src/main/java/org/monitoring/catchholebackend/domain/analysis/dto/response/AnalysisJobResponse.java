@@ -80,6 +80,7 @@ public record AnalysisJobResponse(
         AnalysisRunResponse analysisRun,
 
         @Schema(description = "설정 반영 방식") AnalysisReviewMode reviewMode,
-        @Schema(description = "캐릭터·세계관 자동 반영 완료 시각", nullable = true) LocalDateTime automaticAppliedAt
+        @Schema(description = "캐릭터·세계관 자동 반영 완료 시각", nullable = true) LocalDateTime automaticAppliedAt,
+        AnalysisSourceResponse source
 ) {
 }

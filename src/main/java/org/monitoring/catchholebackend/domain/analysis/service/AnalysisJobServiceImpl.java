@@ -310,16 +310,18 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                     && job.getJournalStatus() == AnalysisJournalStatus.INCOMPLETE)) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
         }
-        if (analysisJobRepository.findFirstByEpisodeIdAndBatchIdAndJobTypeOrderByCreatedAtDescIdDesc(
+        if ((job.isSettingBookSource() ? analysisJobRepository.findFirstBySourceSettingBookIdAndJobTypeOrderByCreatedAtDescIdDesc(
+                        job.getSourceSettingBook().getId(), job.getJobType())
+                : analysisJobRepository.findFirstByEpisodeIdAndBatchIdAndJobTypeOrderByCreatedAtDescIdDesc(
                         job.getEpisode() == null ? null : job.getEpisode().getId(),
-                        job.getBatch() == null ? null : job.getBatch().getId(), job.getJobType())
+                        job.getBatch() == null ? null : job.getBatch().getId(), job.getJobType()))
                 .filter(latest -> !latest.getId().equals(job.getId())).isPresent()) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_SUPERSEDED);
         }
         // 무효화된 원문·사용자 변경은 같은 입력의 실패 재개로 바꾸지 않는다.
         analysisRunStateService.validateResume(job);
-        assertNoSourcePurgeInProgress(List.of(job.getEpisode()));
-        if (analysisJobRepository.existsActiveByEpisodeTarget(
+        if (!job.isSettingBookSource()) assertNoSourcePurgeInProgress(List.of(job.getEpisode()));
+        if (!job.isSettingBookSource() && analysisJobRepository.existsActiveByEpisodeTarget(
                 job.getEpisode().getId(), Set.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING))) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_ALREADY_IN_PROGRESS);
         }
@@ -741,8 +743,14 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 AnalysisJobType.class
         );
         Map<AnalysisJobType, AnalysisJob> targetlessJobs = new EnumMap<>(AnalysisJobType.class);
+        Map<AnalysisJobType, LinkedHashMap<UUID, AnalysisJob>> jobsByBook = new EnumMap<>(AnalysisJobType.class);
 
         for (AnalysisJob job : jobs) {
+            if (job.isSettingBookSource()) {
+                jobsByBook.computeIfAbsent(job.getJobType(), ignored -> new LinkedHashMap<>())
+                        .putIfAbsent(job.getSourceSettingBook().getId(), job);
+                continue;
+            }
             List<Episode> targetEpisodes = getTargetEpisodes(job);
             if (targetEpisodes.isEmpty()) {
                 targetlessJobs.putIfAbsent(job.getJobType(), job);
@@ -758,8 +766,11 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         Map<AnalysisJobType, List<AnalysisJob>> result = new EnumMap<>(AnalysisJobType.class);
         for (AnalysisJobType jobType : AnalysisJobType.values()) {
             LinkedHashMap<UUID, AnalysisJob> latestJobs = jobsByEpisode.get(jobType);
-            if (latestJobs != null && !latestJobs.isEmpty()) {
-                result.put(jobType, new ArrayList<>(latestJobs.values()));
+            List<AnalysisJob> current = new ArrayList<>();
+            if (latestJobs != null) current.addAll(latestJobs.values());
+            if (jobsByBook.containsKey(jobType)) current.addAll(jobsByBook.get(jobType).values());
+            if (!current.isEmpty()) {
+                result.put(jobType, current);
                 continue;
             }
             AnalysisJob targetlessJob = targetlessJobs.get(jobType);

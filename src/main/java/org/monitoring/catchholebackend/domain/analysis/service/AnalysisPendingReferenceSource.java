@@ -36,6 +36,16 @@ public class AnalysisPendingReferenceSource {
 
     public ObjectNode capture(AnalysisJob current) {
         ObjectNode references = JsonNodeFactory.instance.objectNode();
+        Set<UUID> seenBooks=new HashSet<>();
+        for (AnalysisJob earlier : jobs.findAllByWorkIdAndSourceKindAndJobTypeOrderByCreatedAtDescIdDesc(current.getWork().getId(),
+                org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.SETTING_BOOK, AnalysisJobType.SETTING_EXTRACTION)) {
+            UUID bookId=earlier.getSourceSettingBook().getId();
+            // A newer attempt replaces pending references even when it analyzes the same revision.
+            if (!seenBooks.add(bookId) || current.isSettingBookSource() && bookId.equals(current.getSourceSettingBook().getId())
+                    || !hasCurrentSource(earlier) || !earlier.isCompletedOrderedAnalysis()) continue;
+            captureCharacters(references,earlier,true);
+            captureWorlds(references,earlier,true);
+        }
         if (current.getSourceEpisodeNo() == null || current.getSourceEpisodeNo() < 1) return references;
         Set<UUID> seenEpisodes = new HashSet<>();
         // 최신 분석이 무효/실패했을 때 오래된 분석으로 돌아가 참고하지 않는다.
@@ -62,7 +72,7 @@ public class AnalysisPendingReferenceSource {
         for (var candidate : characterCandidates.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(earlier.getId())) {
             if (candidate.getReviewStatus() != SettingCandidateReviewStatus.PENDING_REVIEW
                     || !validAnalysis && !candidate.isUserModified()
-                    || !sameSource(earlier, candidate.getWork().getId(), candidate.getEpisode())
+                    || !sameSource(earlier, candidate.getWork().getId(), candidate.getEpisode(),candidate.getSourceSettingBook(),candidate.getSourceSettingBookRevision())
                     || candidate.getSourceContentS3Key() != null
                         && !Objects.equals(candidate.getSourceContentS3Key(), earlier.getSourceContentS3Key())
                     || !hasEvidence(candidate.getEvidenceSpans())
@@ -74,7 +84,7 @@ public class AnalysisPendingReferenceSource {
                     || candidate.getComparisonStatus() == CharacterFactComparisonStatus.PENDING) continue;
             String subjectName = candidate.isUserModified() && candidate.getMatchedCharacter() != null
                     ? candidate.getMatchedCharacter().getName() : candidate.getEntityName();
-            ObjectNode value = reference("characters", subjectName, earlier.getSourceEpisodeNo(),
+            ObjectNode value = reference("characters", subjectName, earlier,
                     candidate.getAttributeName(), candidate.getAttributeValue(), candidate.getEvidenceSpans(),
                     candidate.isUserModified());
             references.set("pending-character:" + candidate.getId(), value);
@@ -89,12 +99,12 @@ public class AnalysisPendingReferenceSource {
                     || !validAnalysis && !edited
                     || edited && (!hasText(candidate.getFinalSubjectName()) || !hasText(candidate.getFinalSettingName())
                         || !hasText(candidate.getFinalValue()))
-                    || !sameSource(earlier, candidate.getWork().getId(), candidate.getSourceEpisode())
+                    || !sameSource(earlier, candidate.getWork().getId(), candidate.getSourceEpisode(),candidate.getSourceSettingBook(),candidate.getSourceSettingBookRevision())
                     || !hasEvidence(candidate.getEvidenceSpans())
                     || candidate.getComparisonStatus() == WorldSettingComparisonStatus.PROCESSING
                     || candidate.getComparisonStatus() == WorldSettingComparisonStatus.PENDING) continue;
             ObjectNode value = reference("worldSettings",
-                    edited ? candidate.getFinalSubjectName() : candidate.getSubjectName(), earlier.getSourceEpisodeNo(),
+                    edited ? candidate.getFinalSubjectName() : candidate.getSubjectName(), earlier,
                     edited ? candidate.getFinalSettingName() : candidate.getSettingName(),
                     edited ? candidate.getFinalValue() : candidate.getExtractedValue(), candidate.getEvidenceSpans(), edited);
             value.put("scopeName", edited ? candidate.getFinalScopeName() : candidate.getScopeName());
@@ -118,6 +128,7 @@ public class AnalysisPendingReferenceSource {
     }
 
     private boolean hasCurrentSource(AnalysisJob job) {
+        if (job.isSettingBookSource()) return job.hasCurrentSourceVersion();
         Episode episode = job.getEpisode();
         // CONFIRMED_ONLY도 명시적으로 검사한다. 그 모드의 hasCurrentSourceVersion은 항상 true다.
         return episode.getStatus() != EpisodeStatus.ARCHIVED
@@ -129,8 +140,14 @@ public class AnalysisPendingReferenceSource {
                 && Objects.equals(job.getSourceContentS3Version(), episode.getContentS3Version());
     }
 
-    private boolean sameSource(AnalysisJob job, UUID workId, Episode episode) {
-        return Objects.equals(job.getWork().getId(), workId) && episode != null
+    private boolean sameSource(AnalysisJob job, UUID workId, Episode episode,
+            org.monitoring.catchholebackend.domain.upload.entity.UploadFile book,
+            org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision revision) {
+        if (!Objects.equals(job.getWork().getId(),workId)) return false;
+        if (job.isSettingBookSource()) return episode == null && book != null && revision != null
+                && book.getId().equals(job.getSourceSettingBook().getId())
+                && revision.getId().equals(job.getSourceSettingBookRevision().getId());
+        return episode != null
                 && Objects.equals(job.getEpisode().getId(), episode.getId());
     }
 
@@ -144,15 +161,16 @@ public class AnalysisPendingReferenceSource {
 
     private boolean hasText(String value) { return value != null && !value.isBlank(); }
 
-    private ObjectNode reference(String domain, String subject, Integer episode, String setting, String value,
+    private ObjectNode reference(String domain, String subject, AnalysisJob source, String setting, String value,
             JsonNode evidence, boolean edited) {
         ObjectNode reference = JsonNodeFactory.instance.objectNode();
         reference.put("domain", domain);
         reference.put("subjectName", subject);
-        reference.put("sourceEpisodeNo", episode);
+        org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSourceMetadata.put(reference, source);
         reference.put("confirmationStatus", "UNCONFIRMED");
         reference.put("reason", edited
                 ? "사용자가 내용을 수정했지만 아직 작품 설정에 반영하지 않은 참고 정보입니다. 인용은 수정 전 원문의 근거입니다."
+                : source.isSettingBookSource() ? "설정집에서 추출했지만 아직 작품 설정에 반영하지 않은 참고 정보입니다."
                 : "앞 회차에서 추출했지만 아직 작품 설정에 반영하지 않은 참고 정보입니다.");
         reference.put("settingName", setting);
         reference.put("value", value);

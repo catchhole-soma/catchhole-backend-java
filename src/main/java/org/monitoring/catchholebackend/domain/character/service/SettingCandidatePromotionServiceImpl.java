@@ -27,6 +27,7 @@ import org.monitoring.catchholebackend.domain.character.processor.CharacterSnaps
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaMatch;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateGroupNameNormalizer;
+import org.monitoring.catchholebackend.domain.character.processor.SettingBookIdentityValidator.ValidatedIdentities;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
@@ -72,12 +73,27 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             SettingCandidate candidate,
             CharacterFactConfirmApplicationMode applicationMode
     ) {
-        automaticImages.refreshCharacterImages(List.of(promote(candidate, applicationMode, new HashSet<>(), Map.of(), new LinkedHashMap<>(), false)));
+        automaticImages.refreshCharacterImages(List.of(promote(candidate, applicationMode, new HashSet<>(), Map.of(), new LinkedHashMap<>(), false, ValidatedIdentities.empty())));
+        if (candidate.getAnalysisJob() != null) finalizeNarrativeTimes(candidate.getAnalysisJob());
     }
 
     @Override
     @Transactional
     public void promoteGroup(List<SettingCandidateGroupPromotion> promotions) {
+        promoteGroup(promotions, ValidatedIdentities.empty());
+    }
+
+    @Override
+    @Transactional
+    public void promoteAutomaticGroup(List<SettingCandidateGroupPromotion> promotions, ValidatedIdentities identities) {
+        if (promotions.stream().anyMatch(promotion -> promotion.candidate().getAnalysisJob() == null
+                || !promotion.candidate().getAnalysisJob().isAutomaticReview() || !promotion.candidate().getAnalysisJob().isSettingBookSource())) {
+            throw new IllegalArgumentException("설정집 자동 승격에만 동일명 검증 결과를 사용할 수 있습니다.");
+        }
+        promoteGroup(promotions, identities);
+    }
+
+    private void promoteGroup(List<SettingCandidateGroupPromotion> promotions, ValidatedIdentities identities) {
         Set<UUID> versionedCharacterIds = new HashSet<>();
         Map<UUID, Long> initialSnapshotVersions = captureInitialSnapshotVersions(promotions);
         validateGroupRemovalSnapshotVersions(promotions, initialSnapshotVersions);
@@ -88,9 +104,82 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                 versionedCharacterIds,
                 initialSnapshotVersions,
                 promotedSubjects,
-                promotion.acceptedFinalResult()
+                promotion.acceptedFinalResult(),
+                identities
         )).toList();
         automaticImages.refreshCharacterImages(affected);
+        finalizeNarrativeTimes(promotions.stream().map(promotion -> promotion.candidate().getAnalysisJob())
+                .filter(Objects::nonNull).distinct().toList(), versionedCharacterIds);
+    }
+
+    @Override
+    public void finalizeNarrativeTimes(org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob job) {
+        finalizeNarrativeTimes(job, new HashSet<>());
+    }
+
+    @Override
+    public void finalizeNarrativeTimes(List<org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob> jobs) {
+        finalizeNarrativeTimes(jobs, new HashSet<>());
+    }
+
+    private void finalizeNarrativeTimes(List<org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob> jobs, Set<UUID> versioned) {
+        List<SettingCandidate> nonordered = new ArrayList<>();
+        for (var job : jobs.stream().distinct().toList()) {
+            if (job.isOrderedProvisional()) finalizeNarrativeTimes(job, versioned);
+            else nonordered.addAll(settingCandidateRepository.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(job.getId()));
+        }
+        replayApprovedNarrativeSelections(nonordered, versioned);
+    }
+
+    private void finalizeNarrativeTimes(org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob job, Set<UUID> versioned) {
+        Map<UUID, SettingCandidate> candidates = new LinkedHashMap<>();
+        settingCandidateRepository.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(job.getId()).forEach(candidate -> candidates.put(candidate.getId(), candidate));
+        if (!job.isOrderedProvisional()) {
+            replayApprovedNarrativeSelections(new ArrayList<>(candidates.values()), versioned);
+            return;
+        }
+        JsonNode journal = job.getStateJournal();
+        if (journal == null) return; // Legacy/manual fixtures have no ordered time selections to replay.
+        for (JsonNode change : journal.path("changes")) {
+            if (!"currentNarrativeTime".equals(change.path("path").path(2).asText())) continue;
+            JsonNode time = change.path("value");
+            if (!time.path("sourceCandidateId").isTextual()) continue;
+            SettingCandidate candidate = candidates.get(UUID.fromString(time.path("sourceCandidateId").asText()));
+            if (candidate != null) applyNarrativeSelection(candidate, versioned);
+        }
+    }
+
+    private void replayApprovedNarrativeSelections(List<SettingCandidate> candidates, Set<UUID> versioned) {
+        Map<UUID, List<SettingCandidate>> byCharacter = new LinkedHashMap<>();
+        for (SettingCandidate candidate : candidates) {
+            if (!hasApprovedNarrativeSelection(candidate)) continue;
+            UUID owner = analysisConfirmation.resolvedCharacterId(candidate);
+            if (owner != null) byCharacter.computeIfAbsent(owner, ignored -> new ArrayList<>()).add(candidate);
+        }
+        for (var entry : byCharacter.entrySet()) {
+            WorkCharacter character = workCharacterRepository.findByIdAndWorkIdForUpdate(entry.getKey(), entry.getValue().getFirst().getWork().getId()).orElseThrow(() ->
+                    new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID));
+            for (SettingCandidate source : org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.replaySelections(
+                    entry.getValue(), character.getCurrentNarrativeTime())) applyNarrativeSelection(source, versioned);
+        }
+    }
+
+    private boolean hasApprovedNarrativeSelection(SettingCandidate candidate) {
+        return candidate.getAutomaticReviewHoldReason() == null && candidate.getRawComparisonJson() != null
+                && candidate.getRawComparisonJson().path("validatedNarrativeTime").path("advance").asBoolean()
+                && candidate.getRawComparisonJson().path("validatedNarrativeTime").path("selected").isObject()
+                && (candidate.getReviewStatus() == SettingCandidateReviewStatus.CONFIRMED
+                || candidate.getReviewStatus() == SettingCandidateReviewStatus.DISMISSED);
+    }
+
+    private void applyNarrativeSelection(SettingCandidate candidate, Set<UUID> versioned) {
+        if (!hasApprovedNarrativeSelection(candidate)) return;
+        UUID owner = analysisConfirmation.resolvedCharacterId(candidate);
+        if (owner == null) return;
+        WorkCharacter character = workCharacterRepository.findByIdAndWorkIdForUpdate(owner, candidate.getWork().getId()).orElseThrow(() ->
+                new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID));
+        JsonNode selected = org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.selected(candidate, character.getCurrentNarrativeTime());
+        if (selected != null) character.updateCurrentNarrativeTime(selected, versioned.add(character.getId()));
     }
 
     private WorkCharacter promote(
@@ -99,11 +188,12 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             Set<UUID> versionedCharacterIds,
             Map<UUID, Long> initialSnapshotVersions,
             Map<String, WorkCharacter> promotedSubjects,
-            boolean acceptedFinalResult
+            boolean acceptedFinalResult,
+            ValidatedIdentities identities
     ) {
         candidate.recordConfirmedApplicationMode(applicationMode);
         if (candidate.isCharacterDiscovery()) {
-            ResolvedCharacter resolved = resolveCharacterForPromotion(candidate, promotedSubjects);
+            ResolvedCharacter resolved = resolveCharacterForPromotion(candidate, promotedSubjects, identities);
             updateFirstAppearance(resolved.character(), candidate.getEpisode());
             return resolved.character();
         }
@@ -119,7 +209,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                 schemaMatch.matchedSchema().getFactType(),
                 applicationMode
         );
-        ResolvedCharacter resolved = resolveCharacterForPromotion(candidate, promotedSubjects);
+        ResolvedCharacter resolved = resolveCharacterForPromotion(candidate, promotedSubjects, identities);
         long removalSnapshotVersion = initialSnapshotVersions.getOrDefault(
                 resolved.character().getId(),
                 resolved.character().getSnapshotVersion()
@@ -212,6 +302,8 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             }
         }
         automaticImages.refreshCharacterImages(List.of(character));
+        finalizeNarrativeTimes(promotions.stream().map(promotion -> promotion.candidate().getAnalysisJob())
+                .filter(Objects::nonNull).distinct().toList(), versionedCharacterIds);
         // 현재 묶음 밖에도 같은 이름의 미검토 후보가 있다면 새 캐릭터에 연결하고 재비교를 예약한다.
         matchPendingUnresolvedSiblings(workId, characterName, character, true);
     }
@@ -569,7 +661,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
     }
 
     private ResolvedCharacter resolveCharacterForPromotion(SettingCandidate candidate,
-            Map<String, WorkCharacter> promotedSubjects) {
+            Map<String, WorkCharacter> promotedSubjects, ValidatedIdentities identities) {
         if (usesOrderedCharacterResolution(candidate)) {
             String subjectKey = candidate.getProvisionalSubjectKey() != null ? candidate.getProvisionalSubjectKey()
                     : "user-created:" + SettingCandidateGroupNameNormalizer.toGroupKey(candidate.getEntityName());
@@ -583,7 +675,11 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                 } else {
                     String name = promotionMapper.toCharacterName(candidate);
                     if (existsCharacterByGroupName(candidate.getWork().getId(), name)) {
-                        throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
+                        List<WorkCharacter> collisions = workCharacterRepository.findAllByWorkIdOrderByCreatedAtDesc(candidate.getWork().getId()).stream()
+                                .filter(existing -> SettingCandidateGroupNameNormalizer.belongsToSameGroup(existing.getName(), name)).toList();
+                        if (collisions.isEmpty() || !identities.allowsCreatedSiblings(candidate, collisions, promotedSubjects)) {
+                            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED);
+                        }
                     }
                     character = workCharacterRepository.save(promotionMapper.toWorkCharacter(candidate));
                 }
@@ -677,14 +773,6 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
     }
 
     private Optional<WorkCharacter> findActiveCharacterByGroupName(UUID workId, String entityName) {
-        Optional<WorkCharacter> exactMatch = workCharacterRepository.findByWorkIdAndNameAndStatus(
-                workId,
-                SettingCandidateGroupNameNormalizer.toDisplayName(entityName),
-                CharacterStatus.ACTIVE
-        );
-        if (exactMatch.isPresent()) {
-            return exactMatch;
-        }
         List<WorkCharacter> normalizedMatches = workCharacterRepository
                 .findAllByWorkIdAndStatusOrderByCreatedAtDesc(
                         workId,

@@ -83,6 +83,8 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
     private final CharacterFactComparisonDecisionValidator decisionValidator;
     private final CharacterFactComparisonWorkerMapper workerMapper;
     private final CharacterFactComparisonBatchWorker batchWorker;
+    private final CharacterAnalysisStateSource analysisStateSource;
+    private final CharacterAnalysisStateService analysisStateService;
     // 이 프로젝트는 전역 ObjectMapper bean을 강제하지 않으므로 비교 문맥 hash/JSON 변환 전용 mapper를 둔다.
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
@@ -216,7 +218,9 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
                 ),
                 context.entries(),
                 context.priorCandidates(),
-                context.contextToken()
+                context.contextToken(),
+                org.monitoring.catchholebackend.domain.character.mapper.CharacterAnalysisStateMapper.protectedSlots(character),
+                context.advisoryCurrentContext()
         );
     }
 
@@ -308,7 +312,17 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
                 objectMapper.valueToTree(request.rawComparisonJson()),
                 LocalDateTime.now()
         );
-        if (request.operation() == CharacterFactOperation.EXCLUDE) {
+        if (analysisJob.isSettingBookSource()) candidate.recordEffectiveFromEpisodeNo(request.effectiveFromEpisodeNo());
+        if (!candidate.isAutomaticPastHistoryOnly()
+                && org.monitoring.catchholebackend.domain.analysis.processor.SettingBookTemporalPolicy.requiresReview(
+                org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(
+                        analysisJob, candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope()), List.of(), false)) {
+            candidate.recordAutomaticReviewHold(org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason.SETTING_TIME_CONFIRMATION_REQUIRED);
+        }
+        analysisStateService.recordNarrativeTimeSelection(candidate, request.advanceCurrentNarrativeTime(), character.getCurrentNarrativeTime());
+        if (candidate.getAutomaticReviewHoldReason() == null && request.operation() == CharacterFactOperation.EXCLUDE) {
+            JsonNode selectedTime = org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.selected(candidate, character.getCurrentNarrativeTime());
+            if (selectedTime != null) character.updateCurrentNarrativeTime(selectedTime, true);
             candidate.dismiss();
         }
     }
@@ -410,16 +424,21 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
                         entry.slot().factType(),
                         entry.slot().factKey(),
                         entry.factValue(),
-                        workerMapper.toJsonValue(entry.valueJson())
+                        workerMapper.toJsonValue(entry.valueJson()),
+                        org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisProvenanceMapper.from(
+                                org.monitoring.catchholebackend.domain.character.mapper.CharacterAnalysisStateMapper.currentProvenance(
+                                        character, entry, sourceFactsBySlot.getOrDefault(entry.slot(), List.of())), "CONFIRMED")
                 ))
                 .toList();
         List<WorkerCharacterFactComparisonContextResponse.PriorCandidate> priorCandidates =
                 findPriorCandidates(candidate, character, target);
-        return new ContextSnapshot(
-                responseEntries,
-                priorCandidates,
-                fingerprint(candidate, character, target, selected, sourceIdsBySlot, priorCandidates)
-        );
+        var advisory = workerMapper.toAdvisoryCurrentContext(candidate.getAnalysisJob(), analysisStateSource.captureCharacter(character),
+                character.getId(), null, target.factType());
+        Map<String,Object> frozen = new LinkedHashMap<>();
+        frozen.put("existingContextToken", fingerprint(candidate, character, target, selected, sourceIdsBySlot, priorCandidates));
+        frozen.put("narrativeTime", candidate.getNarrativeTime());
+        frozen.put("advisoryCurrentContext", advisory);
+        return new ContextSnapshot(responseEntries, priorCandidates, sha256(frozen), advisory);
     }
 
     private List<WorkerCharacterFactComparisonContextResponse.PriorCandidate> findPriorCandidates(
@@ -431,12 +450,12 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
             return List.of();
         }
         List<SettingCandidate> chronology = new ArrayList<>(
-                settingCandidateRepository.findPendingComparisonChronology(
+                (candidate.getAnalysisJob().isSettingBookSource() ? settingCandidateRepository.findPendingComparisonChronology(candidate.getWork().getId(), candidate.getAnalysisJob().getBatch().getId(), character.getId(), SettingCandidateReviewStatus.PENDING_REVIEW, candidate.getAnalysisJob().getId()) : settingCandidateRepository.findPendingComparisonChronology(
                         candidate.getWork().getId(),
                         candidate.getAnalysisJob().getBatch().getId(),
                         character.getId(),
                         SettingCandidateReviewStatus.PENDING_REVIEW
-                )
+                ))
         );
         chronology = SettingCandidateChronology.sorted(chronology);
 
@@ -473,7 +492,7 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
                 candidate.getSuggestedOperation(),
                 candidate.getProposedFactValue(),
                 workerMapper.toJsonValue(candidate.getProposedValueJson())
-        );
+        , org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(candidate.getAnalysisJob()));
     }
 
     private LocalDateTime latestSourceCreatedAt(
@@ -632,6 +651,9 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
                 || request.operation() != CharacterFactOperation.EXCLUDE) {
             return false;
         }
+        boolean advanced = candidate.getRawComparisonJson() != null
+                && candidate.getRawComparisonJson().path("validatedNarrativeTime").path("advance").asBoolean();
+        if (advanced != request.advanceCurrentNarrativeTime()) throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE);
         if (request.targetFactType() != null || !isBlank(request.targetFactKey())) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_TARGET_INVALID);
         }
@@ -733,8 +755,13 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
                 .map(entry -> toHashEntry(entry, sourceIdsBySlot))
                 .toList());
         canonical.put("priorCandidates", priorCandidates);
+        canonical.put("protectedSlots", org.monitoring.catchholebackend.domain.character.mapper.CharacterAnalysisStateMapper.protectedSlots(character));
+        return sha256(canonical);
+    }
+
+    private String sha256(Object value) {
         try {
-            byte[] bytes = objectMapper.writeValueAsBytes(canonical);
+            byte[] bytes = objectMapper.writeValueAsBytes(value);
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
         } catch (JsonProcessingException | NoSuchAlgorithmException exception) {
             throw new IllegalStateException("캐릭터 설정 비교 문맥 hash를 생성할 수 없습니다.", exception);
@@ -783,7 +810,8 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
     private record ContextSnapshot(
             List<WorkerCharacterFactComparisonContextResponse.SnapshotEntry> entries,
             List<WorkerCharacterFactComparisonContextResponse.PriorCandidate> priorCandidates,
-            String contextToken
+            String contextToken,
+            org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterAdvisoryCurrentContextPayload advisoryCurrentContext
     ) {
     }
 }

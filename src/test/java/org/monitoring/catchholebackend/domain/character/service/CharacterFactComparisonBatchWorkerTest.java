@@ -97,6 +97,7 @@ class CharacterFactComparisonBatchWorkerTest {
     @Mock
     private CharacterFactComparisonJobCoordinator comparisonJobCoordinator;
 
+    @Mock private CharacterAnalysisStateSource analysisStateSource;
     private CharacterFactComparisonBatchWorker worker;
     private Work work;
     private WorkCharacter character;
@@ -121,11 +122,14 @@ class CharacterFactComparisonBatchWorkerTest {
                 valueValidator,
                 new CharacterFactComparisonDecisionValidator(valueValidator),
                 new CharacterFactComparisonWorkerMapper(),
-                analysisStateService,
+                analysisStateService, analysisStateSource,
                 new org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisRunContextMapper(new org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper(new org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver())),
                 comparisonJobCoordinator
         );
 
+        when(analysisStateSource.captureCharacter(any(WorkCharacter.class))).thenAnswer(invocation ->
+                new org.monitoring.catchholebackend.domain.character.mapper.CharacterAnalysisStateMapper()
+                        .toState(invocation.getArgument(0), Map.of(), Map.of()));
         Member member = Member.register("batch-worker@example.com", "password", "01012345678", "작가");
         work = Work.create(member, "묶음 비교 작품", WorkGenre.FANTASY, "테스트");
         ReflectionTestUtils.setField(work, "id", UUID.randomUUID());
@@ -213,6 +217,40 @@ class CharacterFactComparisonBatchWorkerTest {
     }
 
     @Test
+    void batchNarrativeTimeSurvivesConfirmedClaimAndContext() throws Exception {
+        assertBatchNarrativeTime(false);
+    }
+
+    @Test
+    void batchNarrativeTimeSurvivesOrderedClaimAndContext() throws Exception {
+        assertBatchNarrativeTime(true);
+    }
+
+    private void assertBatchNarrativeTime(boolean ordered) throws Exception {
+        if (ordered) orderedState(0);
+        SettingCandidate timed = candidate("status.부상", "부상", 10);
+        JsonNode time = objectMapper.readTree("""
+                {"factTime":{"description":"장마 전","evidenceSpans":[{"quote":"장마 전","startOffset":0,"endOffset":4,"sourceChunkId":"10000000-0000-4000-8000-000000000002"}]},
+                 "referenceTime":{"description":"치료 뒤","evidenceSpans":[{"quote":"치료 뒤","startOffset":5,"endOffset":9,"sourceChunkId":"10000000-0000-4000-8000-000000000002"}]}}
+                """);
+        timed.recordNarrativeTime(time);
+        candidate("status.출혈", "출혈", 20); // Existing candidates may have no located time.
+        var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
+        var context = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken);
+        String output = System.getenv("BATCH_TIME_FIX_OUTPUT");
+        for (var entry : Map.<String, JsonNode>of("claim", objectMapper.valueToTree(claim),
+                "context", objectMapper.valueToTree(context)).entrySet()) {
+            if (output != null) {
+                java.nio.file.Path file = java.nio.file.Path.of(output, (ordered ? "ordered-" : "confirmed-") + entry.getKey() + ".json");
+                java.nio.file.Files.writeString(file, entry.getValue().toString());
+            }
+            assertThat(entry.getValue().path("candidates").get(0).path("narrativeTime"))
+                    .as("%s candidate time", entry.getKey()).isEqualTo(time);
+            assertThat(entry.getValue().path("candidates").get(1).path("narrativeTime").isNull()).isTrue();
+        }
+    }
+
+    @Test
     @DisplayName("누적 비교는 실제 DB에 없는 앞 회차 상태를 동일 문맥에서 제거한다")
     void orderedCompletionUsesFrozenProvisionalState() {
         ObjectNode state = orderedState(1);
@@ -235,6 +273,94 @@ class CharacterFactComparisonBatchWorkerTest {
         assertThat(state.path("slots")).hasSize(1);
         org.mockito.Mockito.verify(analysisStateService).recordDecision(eq(analysisJob), eq(candidate),
                 any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("STATUS snapshot이 비어도 같은 인물 PROFILE 회복과 BOOK 시점이 frozen advisory에 있고 token에 결속된다")
+    void orderedContextIncludesCrossTypeFrozenCurrentAndTokenBindsIt() {
+        ObjectNode state = orderedState(0);
+        ObjectNode profile = state.withObject("slots").putObject("PROFILE:profile.오른손_감각");
+        profile.put("factType", "PROFILE").put("factKey", "profile.오른손_감각").put("factValue", "정상");
+        profile.set("valueJson", value("정상"));
+        ObjectNode provenance = profile.putObject("provenance").put("confirmationStatus", "CONFIRMED");
+        provenance.putArray("sourceCandidateIds");
+        provenance.putArray("currentSourceTimes").addObject().put("sourceKind", "SETTING_BOOK")
+                .putNull("sourceEpisodeNo").put("referenceTimeKind", "EPISODE").put("referenceEpisodeNo", 3)
+                .putNull("effectiveFromEpisodeNo").put("temporalScope", "PRESENT");
+        candidate("status.오른발_부상", "과거 화상", 10);
+        var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
+        var context = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken);
+        assertThat(context.snapshotEntries()).isEmpty();
+        var json = objectMapper.valueToTree(context).path("advisoryCurrentContext");
+        assertThat(json.path("complete").asBoolean()).isTrue();
+        assertThat(json.path("characterId").asText()).isEqualTo(character.getId().toString());
+        assertThat(json.path("captureVersion").asInt()).isZero();
+        assertThat(json.path("currentSlots")).hasSize(1);
+        assertThat(json.path("currentSlots").get(0).path("factType").asText()).isEqualTo("PROFILE");
+        assertThat(json.path("currentSlots").get(0).path("factValue").asText()).isEqualTo("정상");
+        assertThat(json.path("currentSlots").get(0).path("currentSourceTimes").get(0).path("referenceEpisodeNo").asInt()).isEqualTo(3);
+        assertThat(json.path("currentSlots").get(0).path("supportingSources").get(0).path("unavailableReason").asText())
+                .isEqualTo("LEGACY_INPUT_WITHOUT_FROZEN_EVIDENCE");
+        profile.put("factValue", "작가가 바꾼 현재값");
+        var changed = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken);
+        assertThat(changed.contextToken()).isNotEqualTo(context.contextToken());
+        assertThatThrownBy(() -> worker.complete(analysisJobId, claim.comparisonBatchId(), leaseToken,
+                new WorkerCharacterFactComparisonBatchCompleteRequest(context.contextToken(), List.of(), List.of(), Map.of())))
+                .isInstanceOf(AppException.class);
+    }
+
+    @Test
+    @DisplayName("frozen advisory는 같은 이름이어도 다른 실제 인물의 CURRENT를 허용하지 않는다")
+    void orderedAdvisoryRejectsAnotherOwner() {
+        ObjectNode state = orderedState(0);
+        state.put("actualCharacterId", UUID.randomUUID().toString());
+        candidate("status.화상", "화상", 10);
+        var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
+        assertThatThrownBy(() -> worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken))
+                .isInstanceOf(org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException.class);
+    }
+
+    @Test
+    @DisplayName("새 capture의 근거 배열이 소실된 CURRENT를 legacy로 낮추지 않는다")
+    void orderedAdvisoryRejectsIncompleteNewCapture() {
+        ObjectNode state = orderedState(1);
+        state.put("currentSupportingEvidenceVersion", 1);
+        candidate("status.화상", "화상", 10);
+        var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
+        assertThatThrownBy(() -> worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken))
+                .isInstanceOf(org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException.class);
+    }
+
+    @Test
+    @DisplayName("읽기 전용 CURRENT는 빈 scalar와 null JSON·TIME도 있는 그대로 전달한다")
+    void orderedAdvisoryPreservesEmptyAndNullValues() {
+        ObjectNode state = orderedState(0);
+        ObjectNode profile = state.withObject("slots").putObject("PROFILE:profile.비고");
+        profile.put("factType", "PROFILE").put("factKey", "profile.비고").put("factValue", "").putNull("valueJson");
+        profile.putObject("provenance").putArray("sourceCandidateIds");
+        ObjectNode time = state.withObject("slots").putObject("TIME:time.시점");
+        time.put("factType", "TIME").put("factKey", "time.시점").putNull("factValue").putNull("valueJson");
+        time.putObject("provenance").putArray("sourceCandidateIds");
+        candidate("status.화상", "화상", 10);
+        var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
+        var current = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken).advisoryCurrentContext().currentSlots();
+        assertThat(current).hasSize(2);
+        assertThat(current.get(0).factValue()).isEmpty();
+        assertThat(current.get(0).valueJson()).isNull();
+        assertThat(current.get(1).factType()).isEqualTo(CharacterFactType.TIME);
+        assertThat(current.get(1).factValue()).isNull();
+        assertThat(current.get(1).valueJson()).isNull();
+    }
+
+    @Test
+    @DisplayName("captureVersion 큰 정수는 1로 wrap하여 승인하지 않는다")
+    void orderedAdvisoryRejectsOverflowedCaptureVersion() {
+        ObjectNode state = orderedState(0);
+        state.put("currentSupportingEvidenceVersion", 4294967297L);
+        candidate("status.화상", "화상", 10);
+        var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
+        assertThatThrownBy(() -> worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken))
+                .isInstanceOf(org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException.class);
     }
 
     @Test
@@ -622,11 +748,9 @@ class CharacterFactComparisonBatchWorkerTest {
     }
 
     @Test
-    @DisplayName("앞 bounded 묶음이 만든 slot 부재도 다음 묶음 ADD 의존성으로 이어진다")
+    @DisplayName("앞 묶음이 만든 slot 부재도 뒤에 도착한 후보의 ADD 의존성으로 이어진다")
     void boundedPriorRemovalCarriesAbsenceDependencyToNextBatch() {
-        ReflectionTestUtils.setField(worker, "maxBatchCandidates", 1);
         SettingCandidate removal = candidate("status.오른발_부상", "오른발 부상이 회복됨", 10);
-        SettingCandidate recreation = candidate("status.오른발_부상", "오른발을 다시 다침", 20);
 
         WorkerCharacterFactComparisonBatchPayload firstClaim = worker.claimNext(
                 analysisJobId,
@@ -653,6 +777,8 @@ class CharacterFactComparisonBatchWorkerTest {
                         Map.of("fixture", "bounded-remove")
                 )
         );
+
+        SettingCandidate recreation = candidate("status.오른발_부상", "오른발을 다시 다침", 20);
 
         WorkerCharacterFactComparisonBatchPayload secondClaim = worker.claimNext(
                 analysisJobId,
@@ -936,70 +1062,34 @@ class CharacterFactComparisonBatchWorkerTest {
     }
 
     @Test
-    @DisplayName("후보 수 제한으로 나뉜 묶음은 다음 claim에서 빠짐없이 이어진다")
-    void boundedSplitDoesNotLoseCandidates() {
-        ReflectionTestUtils.setField(worker, "maxBatchCandidates", 2);
-        for (int index = 1; index <= 5; index++) {
+    @DisplayName("후보 25개는 전체 문맥과 원문 순서를 유지한 하나의 논리 묶음으로 claim한다")
+    void fullGroupClaimHasNoCountOrCharacterCap() {
+        ObjectNode state = orderedState(1);
+        ObjectNode slot = (ObjectNode) state.path("slots").path("STATUS:status.앞회차_0");
+        String existing = "기".repeat(40_000);
+        slot.put("factValue", existing);
+        slot.set("valueJson", value(existing));
+        for (int index = 1; index <= 25; index++) {
             candidate("status.상태_" + index, "상태 " + index, index * 10);
         }
-        WorkerCharacterFactComparisonFailRequest failure = new WorkerCharacterFactComparisonFailRequest(
-                AnalysisFailureCode.COMPARISON_VALIDATION_FAILED,
-                "split fixture"
-        );
+        var originalEvidence = candidates.stream().map(row -> row.getEvidenceSpans().deepCopy()).toList();
+        var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
+        var context = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken);
 
-        List<Integer> batchSizes = new ArrayList<>();
-        for (int index = 0; index < 3; index++) {
-            WorkerCharacterFactComparisonBatchPayload claim = worker.claimNext(
-                    analysisJobId,
-                    leaseToken
-            ).orElseThrow();
-            batchSizes.add(claim.candidates().size());
-            worker.fail(analysisJobId, claim.comparisonBatchId(), leaseToken, failure);
-        }
-
-        assertThat(batchSizes).containsExactly(2, 2, 1);
-        assertThat(candidates).allMatch(candidate ->
-                candidate.getComparisonStatus() == CharacterFactComparisonStatus.FAILED);
+        assertThat(claim.candidates()).hasSize(25);
+        assertThat(claim.candidates()).extracting(WorkerCharacterFactComparisonBatchPayload.Candidate::rawFactKey)
+                .containsExactlyElementsOf(candidates.stream().map(SettingCandidate::getAttributeName).toList());
+        assertThat(context.candidates()).hasSize(25);
+        assertThat(context.snapshotEntries().getFirst().factValue()).isEqualTo(existing);
+        assertThat(candidates).allMatch(row -> row.getComparisonStatus() == CharacterFactComparisonStatus.PROCESSING);
+        assertThat(candidates.stream().map(SettingCandidate::getEvidenceSpans).toList()).isEqualTo(originalEvidence);
+        assertThat(batches).hasSize(1);
+        var decisions = java.util.stream.IntStream.rangeClosed(1, 25)
+                .mapToObj(index -> historyOnly("C" + index, "status.상태_" + index)).toList();
+        worker.complete(analysisJobId, claim.comparisonBatchId(), leaseToken,
+                new WorkerCharacterFactComparisonBatchCompleteRequest(context.contextToken(), decisions, List.of(), Map.of()));
+        assertThat(candidates).allMatch(row -> row.getComparisonStatus() == CharacterFactComparisonStatus.COMPLETED);
         assertThat(worker.claimNext(analysisJobId, leaseToken)).isEmpty();
-    }
-
-    @Test
-    @DisplayName("입력 문자 상한을 혼자 넘는 후보는 provider 전달 없이 typed failure로 종료한다")
-    void oversizedSingletonFailsBeforeBatchClaim() {
-        ReflectionTestUtils.setField(worker, "maxBatchInputCharacters", 1);
-        SettingCandidate oversized = candidate("status.초장문", "아주 긴 상태 설명", 10);
-
-        assertThat(worker.claimNext(analysisJobId, leaseToken)).isEmpty();
-        assertThat(oversized.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.FAILED);
-        assertThat(oversized.getComparisonFailureCode())
-                .isEqualTo(AnalysisFailureCode.COMPARISON_VALIDATION_FAILED);
-        assertThat(oversized.getComparisonErrorMessage())
-                .isEqualTo("character_batch_input_limit_exceeded");
-        assertThat(batches).isEmpty();
-    }
-
-    @Test
-    @DisplayName("누적 claim은 첫 입력 상한 실패 뒤 정상 후보를 실행하지 않고 오류로 중단한다")
-    void orderedOversizedFirstCandidateStopsBeforeLaterCandidates() {
-        orderedState(1);
-        ReflectionTestUtils.setField(worker, "maxBatchInputCharacters", 1000);
-        SettingCandidate oversized = candidate("status.초장문", "긴 상태 ".repeat(1000), 10);
-        SettingCandidate later = candidate("status.후속", "후속 상태", 20);
-
-        assertThatThrownBy(() -> worker.claimNext(analysisJobId, leaseToken))
-                .isInstanceOf(OrderedCharacterComparisonClaimException.class);
-
-        assertThat(oversized.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.FAILED);
-        assertThat(oversized.getComparisonFailureCode()).isEqualTo(AnalysisFailureCode.COMPARISON_VALIDATION_FAILED);
-        assertThat(later.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PENDING);
-        assertThat(batches).isEmpty();
-
-        // 명시적 재시도 전 후보는 그대로 보존하며, 한도를 해결한 재개는 원래 순서를 따른다.
-        oversized.retryFailedOrderedComparison();
-        ReflectionTestUtils.setField(worker, "maxBatchInputCharacters", 100000);
-        WorkerCharacterFactComparisonBatchPayload resumed = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
-        assertThat(resumed.candidates()).extracting(WorkerCharacterFactComparisonBatchPayload.Candidate::rawFactKey)
-                .containsExactly("status.초장문", "status.후속");
     }
 
     @Test
@@ -1025,40 +1115,22 @@ class CharacterFactComparisonBatchWorkerTest {
     }
 
     @Test
-    @DisplayName("자동 누적 분석은 혼자 너무 큰 후보만 보류하고 뒤의 정상 후보를 비교한다")
-    void automaticOrderedOversizedSingletonDoesNotBlockLaterCandidate() {
-        orderedState(1);
+    @DisplayName("긴 후보와 필수 기존 문맥은 Java에서 보류하거나 자르지 않고 AI에 함께 전달한다")
+    void largeCandidateAndMandatoryContextAreDelegatedWithoutTrimming() {
+        ObjectNode state = orderedState(1);
+        JsonNode originalState = state.deepCopy();
         ReflectionTestUtils.setField(analysisJob, "reviewMode",
                 org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC);
-        ReflectionTestUtils.setField(worker, "maxBatchInputCharacters", 10000);
         SettingCandidate oversized = candidate("status.초장문", "긴 상태 ".repeat(10000), 10);
         SettingCandidate later = candidate("status.후속", "뒤 상태", 20);
-
         var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
-
+        var context = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken);
         assertThat(claim.candidates()).extracting(WorkerCharacterFactComparisonBatchPayload.Candidate::rawFactKey)
-                .containsExactly(later.getAttributeName());
-        assertThat(oversized.canDeferFailedComparison()).isTrue();
-        assertThat(oversized.getAutomaticReviewHoldReason()).isEqualTo(
-                org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason.COMPARISON_INPUT_TOO_LARGE);
-    }
-
-    @Test
-    @DisplayName("자동 누적 분석은 기존 문맥 자체가 너무 커도 후보를 보류하고 작업을 마칠 수 있다")
-    void automaticOrderedOversizedContextIsExplicitlyDeferred() {
-        orderedState(1);
-        ReflectionTestUtils.setField(analysisJob, "reviewMode",
-                org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC);
-        ReflectionTestUtils.setField(worker, "maxBatchInputCharacters", 300);
-        SettingCandidate candidate = candidate("status.후속", "뒤 상태", 20);
-
-        assertThat(worker.claimNext(analysisJobId, leaseToken)).isEmpty();
-
-        assertThat(candidate.canDeferFailedComparison()).isTrue();
-        assertThat(candidate.getPreparationFailureStage()).isEqualTo(
-                org.monitoring.catchholebackend.domain.analysis.type.CandidatePreparationFailureStage.COMPARISON_PREPARATION);
-        assertThat(batches).hasSize(1);
-        assertThat(candidate.getCharacterComparisonBatch().getAnalysisContextSnapshotJson()).isNull();
+                .containsExactly(oversized.getAttributeName(), later.getAttributeName());
+        assertThat(context.candidates().getFirst().attributeValue()).isEqualTo(oversized.getAttributeValue());
+        assertThat(oversized.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PROCESSING);
+        assertThat(oversized.getAutomaticReviewHoldReason()).isNull();
+        assertThat(state).isEqualTo(originalState);
     }
 
     @Test

@@ -107,7 +107,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 leaseToken
         );
         if (analysisJob.getJobType() != AnalysisJobType.SETTING_EXTRACTION
-                || analysisJob.getEpisode() == null) {
+                || analysisJob.getEpisode() == null && !analysisJob.isSettingBookSource()) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_WORKER_JOB_INVALID);
         }
         if (!analysisJob.hasReachedCheckpoint(
@@ -259,7 +259,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
             List<WorldSettingCandidate> candidates = orderedGroupCandidates(
                     worldSettingCandidateRepository.findComparisonBatchCandidatesForUpdate(
                             analysisJobId,
-                            first.getSourceEpisode().getId(),
+                            (first.getSourceEpisode() == null ? null : first.getSourceEpisode().getId()),
                             first.getCategory(),
                             first.getCanonicalSubjectKey(),
                             WorldSettingReviewStatus.PENDING_REVIEW,
@@ -506,7 +506,9 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 worldSettingWorkerMapper.toComparisonBatchCandidates(candidates),
                 exactTargets,
                 targets.stream()
-                        .map(worldSettingWorkerMapper::toComparisonTargetResponse)
+                        .map(setting -> worldSettingWorkerMapper.toComparisonTargetResponse(setting,
+                                worldSettingCandidateRepository.findAllByTargetWorldSettingIdAndReviewStatusOrderByReviewedAtDescCreatedAtDescIdDesc(
+                                        setting.getId(), WorldSettingReviewStatus.CONFIRMED)))
                         .toList()
         );
     }
@@ -583,7 +585,9 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 worldSettingWorkerMapper.toResponse(candidate),
                 exactTargetId,
                 targets.stream()
-                        .map(worldSettingWorkerMapper::toComparisonTargetResponse)
+                        .map(setting -> worldSettingWorkerMapper.toComparisonTargetResponse(setting,
+                                worldSettingCandidateRepository.findAllByTargetWorldSettingIdAndReviewStatusOrderByReviewedAtDescCreatedAtDescIdDesc(
+                                        setting.getId(), WorldSettingReviewStatus.CONFIRMED)))
                         .toList()
         );
     }
@@ -1392,8 +1396,9 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
             validateCandidateOwnership(analysisJob, candidate);
             if (!candidate.isPendingReview()
                     || candidate.getComparisonStatus() != WorldSettingComparisonStatus.PENDING
-                    || !candidate.getSourceEpisode().getId().equals(
-                    first.getSourceEpisode().getId()
+                    || !Objects.equals(
+                    candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getId(),
+                    first.getSourceEpisode() == null ? null : first.getSourceEpisode().getId()
             )
                     || candidate.getCategory() != first.getCategory()
                     || !Objects.equals(

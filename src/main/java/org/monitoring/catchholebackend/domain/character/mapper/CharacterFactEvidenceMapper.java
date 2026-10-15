@@ -28,8 +28,7 @@ public class CharacterFactEvidenceMapper {
                 candidate == null ? null : candidate.getId(),
                 toEpisodeResponse(episode),
                 content,
-                toEvidenceSpans(candidate == null ? null : candidate.getEvidenceSpans())
-        );
+                toEvidenceSpans(candidate == null ? null : candidate.getEvidenceSpans()), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(fact.getExtractedByJob()));
     }
 
     private CharacterFactEvidenceEpisodeResponse toEpisodeResponse(Episode episode) {

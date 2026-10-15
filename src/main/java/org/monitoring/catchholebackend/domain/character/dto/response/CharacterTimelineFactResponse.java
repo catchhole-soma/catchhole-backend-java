@@ -35,6 +35,11 @@ public record CharacterTimelineFactResponse(
         Integer sourceEpisodeNo,
 
         @Schema(description = "저장된 원문 인용문 존재 여부", example = "true")
-        boolean hasEvidence
+        boolean hasEvidence,
+        @io.swagger.v3.oas.annotations.media.Schema(nullable = true) org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse source
 ) {
+    public CharacterTimelineFactResponse(UUID characterFactId, CharacterFactType factType, String factKey, String factTypeLabel, String displayName, String factValue, CharacterTimelineSourceType sourceType, UUID sourceEpisodeId, Integer sourceEpisodeNo, boolean hasEvidence) {
+        this(characterFactId, factType, factKey, factTypeLabel, displayName, factValue, sourceType, sourceEpisodeId, sourceEpisodeNo, hasEvidence, null);
+    }
+
 }

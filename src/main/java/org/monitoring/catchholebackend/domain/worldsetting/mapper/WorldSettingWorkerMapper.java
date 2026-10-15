@@ -3,6 +3,7 @@ package org.monitoring.catchholebackend.domain.worldsetting.mapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.StreamSupport;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
@@ -30,7 +31,7 @@ public class WorldSettingWorkerMapper {
             AnalysisJob analysisJob,
             WorkerWorldSettingCandidatePublishRequest.Candidate request
     ) {
-        return WorldSettingCandidate.create(
+        WorldSettingCandidate candidate = WorldSettingCandidate.create(
                 analysisJob.getWork(),
                 analysisJob.getEpisode(),
                 analysisJob,
@@ -43,50 +44,41 @@ public class WorldSettingWorkerMapper {
                 request.extractionConfidence(),
                 toJsonNode(request.rawExtractionJson())
         );
+        candidate.recordTemporalScope(request.temporalScope(), request.effectiveFromEpisodeNo());
+        return candidate;
     }
 
     public WorkerWorldSettingCandidatePayload toResponse(WorldSettingCandidate candidate) {
         return new WorkerWorldSettingCandidatePayload(
                 candidate.getId(),
                 candidate.getWork().getId(),
-                candidate.getSourceEpisode().getId(),
+                (candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getId()),
                 candidate.getCategory(),
                 candidate.getSubjectName(),
                 candidate.getScopeName(),
                 candidate.getSettingName(),
                 candidate.getExtractedValue(),
                 toEvidenceSpans(candidate.getEvidenceSpans()),
-                candidate.getExtractionConfidence()
-        );
+                candidate.getExtractionConfidence(), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(candidate.getAnalysisJob()), candidate.getTemporalScope(), candidate.getEffectiveFromEpisodeNo(), toRawExtraction(candidate.getRawExtractionJson()));
     }
 
     public WorkerWorldSettingSubjectPageResponse.Subject toSubjectResponse(WorldSetting worldSetting) {
-        return new WorkerWorldSettingSubjectPageResponse.Subject(
-                worldSetting.getId(),
-                worldSetting.getSubjectName()
-        );
+        var stateMapper = new WorldSettingAnalysisStateMapper();
+        return stateMapper.toSubject(stateMapper.toState(worldSetting));
     }
 
-    public WorkerWorldSettingComparisonContextResponse.Target toComparisonTargetResponse(
-            WorldSetting worldSetting
-    ) {
-        return new WorkerWorldSettingComparisonContextResponse.Target(
-                worldSetting.getId(),
-                worldSetting.getSubjectName(),
-                worldSetting.getProperties().stream()
-                        .map(property -> new WorldSettingPropertyResponse(
-                                property.scopeName(),
-                                property.settingName(),
-                                property.value()
-                        ))
-                        .toList(),
-                worldSetting.getVersion()
-        );
+    public WorkerWorldSettingComparisonContextResponse.Target toComparisonTargetResponse(WorldSetting worldSetting) {
+        return toComparisonTargetResponse(worldSetting, List.of());
     }
 
-    public List<WorkerWorldSettingCandidatePayload> toResponseList(
-            List<WorldSettingCandidate> candidates
-    ) {
+    public WorkerWorldSettingComparisonContextResponse.Target toComparisonTargetResponse(WorldSetting worldSetting, List<WorldSettingCandidate> confirmedSources) {
+        var stateMapper = new WorldSettingAnalysisStateMapper();
+        var state = stateMapper.toState(worldSetting);
+        stateMapper.addConfirmedProvenance(state, confirmedSources);
+        return stateMapper.toTarget(state);
+    }
+
+    public List<WorkerWorldSettingCandidatePayload> toResponseList(List<WorldSettingCandidate> candidates) {
         return candidates.stream().map(this::toResponse).toList();
     }
 
@@ -97,15 +89,14 @@ public class WorldSettingWorkerMapper {
         return new WorkerWorldSettingComparisonBatchPayload(
                 batch.getId(),
                 batch.getWork().getId(),
-                batch.getSourceEpisode().getId(),
+                (batch.getSourceEpisode() == null ? null : batch.getSourceEpisode().getId()),
                 batch.getCategory(),
                 batch.getSubjectResolutionType(),
                 batch.getCanonicalSubjectKey(),
                 batch.getCanonicalSubjectName(),
                 toUuidList(batch.getResolvedTargetWorldSettingIds()),
                 batch.getRawScopeName(),
-                candidates.stream().map(this::toComparisonBatchCandidate).toList()
-        );
+                candidates.stream().map(this::toComparisonBatchCandidate).toList(), null, null, org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(batch.getAnalysisJob()));
     }
 
     public WorkerWorldSettingSubjectResolutionPendingResponse
@@ -115,10 +106,9 @@ public class WorldSettingWorkerMapper {
                         .map(candidate ->
                                 new WorkerWorldSettingSubjectResolutionPendingResponse.Candidate(
                                         candidate.getId(),
-                                        candidate.getSourceEpisode().getId(),
+                                        (candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getId()),
                                         candidate.getCategory(),
-                                        candidate.getSubjectName()
-                                ))
+                                        candidate.getSubjectName(), null, null, org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(candidate.getAnalysisJob()), toRawExtraction(candidate.getRawExtractionJson())))
                         .toList()
         );
     }
@@ -157,7 +147,12 @@ public class WorldSettingWorkerMapper {
                 candidate.getExtractedValue(),
                 toEvidenceSpans(candidate.getEvidenceSpans()),
                 candidate.getExtractionConfidence()
-        );
+        , org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(candidate.getAnalysisJob()), candidate.getTemporalScope(), candidate.getEffectiveFromEpisodeNo(), toRawExtraction(candidate.getRawExtractionJson()));
+    }
+
+    public Map<String, Object> toRawExtraction(JsonNode value) {
+        return value == null || !value.isObject() ? null
+                : objectMapper.convertValue(value, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
     }
 
     public JsonNode toJsonNode(Object value) {

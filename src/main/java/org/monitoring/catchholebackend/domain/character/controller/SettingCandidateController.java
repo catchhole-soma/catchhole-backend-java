@@ -129,8 +129,9 @@ public class SettingCandidateController {
                     example = "false"
             )
             @RequestParam(defaultValue = "true")
-            boolean includeLegacyCandidates
-    ) {
+            boolean includeLegacyCandidates,
+            @Parameter(description = "원본 SETTING_EXTRACTION 분석 작업 ID. 생략 시 회차 후보만 조회/검토하며, 구형 설정집 분석 이력은 읽기 전용입니다.")
+            @RequestParam(required = false) UUID sourceAnalysisJobId) {
         return CommonResponse.success(
                 settingCandidateService.getSettingCandidates(
                         member.memberId(),
@@ -141,7 +142,7 @@ public class SettingCandidateController {
                         page,
                         size,
                         includeLegacyCandidates
-                )
+                , sourceAnalysisJobId)
         );
     }
 
@@ -185,10 +186,11 @@ public class SettingCandidateController {
                     description = "조회할 설정 후보 ID. setting_candidates.id 값을 사용합니다.",
                     example = "0198a3f0-0000-7000-8000-000000000301"
             )
-            @PathVariable UUID candidateId
-    ) {
+            @PathVariable UUID candidateId,
+            @Parameter(description = "원본 SETTING_EXTRACTION 분석 작업 ID. 생략 시 회차 후보만 조회/검토하며, 구형 설정집 분석 이력은 읽기 전용입니다.")
+            @RequestParam(required = false) UUID sourceAnalysisJobId) {
         return CommonResponse.success(
-                settingCandidateService.getSettingCandidate(member.memberId(), workId, batchId, candidateId)
+                settingCandidateService.getSettingCandidate(member.memberId(), workId, batchId, candidateId, sourceAnalysisJobId)
         );
     }
 
@@ -232,11 +234,12 @@ public class SettingCandidateController {
                     example = "0198a3f0-0000-7000-8000-000000000301"
             )
             @PathVariable UUID candidateId,
-            @Valid @RequestBody SettingCandidateUpdateRequest request
-    ) {
+            @Valid @RequestBody SettingCandidateUpdateRequest request,
+            @Parameter(description = "원본 SETTING_EXTRACTION 분석 작업 ID. 생략 시 회차 후보만 조회/검토하며, 구형 설정집 분석 이력은 읽기 전용입니다.")
+            @RequestParam(required = false) UUID sourceAnalysisJobId) {
         return CommonResponse.success(
                 "설정 후보가 수정되었습니다.",
-                settingCandidateService.updateSettingCandidate(member.memberId(), workId, candidateId, request)
+                settingCandidateService.updateSettingCandidate(member.memberId(), workId, candidateId, request, sourceAnalysisJobId)
         );
     }
 
@@ -255,11 +258,12 @@ public class SettingCandidateController {
     public CommonResponse<SettingCandidateGroupActionResponse> updateSettingCandidateGroupCharacterMatch(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,
-            @Valid @RequestBody SettingCandidateGroupCharacterMatchRequest request
-    ) {
+            @Valid @RequestBody SettingCandidateGroupCharacterMatchRequest request,
+            @Parameter(description = "원본 SETTING_EXTRACTION 분석 작업 ID. 생략 시 회차 후보만 조회/검토하며, 구형 설정집 분석 이력은 읽기 전용입니다.")
+            @RequestParam(required = false) UUID sourceAnalysisJobId) {
         return CommonResponse.success(
                 "캐릭터 설정 후보 그룹 연결이 수정되었습니다.",
-                settingCandidateService.updateSettingCandidateGroupCharacterMatch(member.memberId(), workId, request)
+                settingCandidateService.updateSettingCandidateGroupCharacterMatch(member.memberId(), workId, request, sourceAnalysisJobId)
         );
     }
 
@@ -304,8 +308,9 @@ public class SettingCandidateController {
                     example = "0198a3f0-0000-7000-8000-000000000301"
             )
             @PathVariable UUID candidateId,
-            @Valid @RequestBody SettingCandidateCharacterMatchRequest request
-    ) {
+            @Valid @RequestBody SettingCandidateCharacterMatchRequest request,
+            @Parameter(description = "원본 SETTING_EXTRACTION 분석 작업 ID. 생략 시 회차 후보만 조회/검토하며, 구형 설정집 분석 이력은 읽기 전용입니다.")
+            @RequestParam(required = false) UUID sourceAnalysisJobId) {
         return CommonResponse.success(
                 "설정 후보 캐릭터 연결이 수정되었습니다.",
                 settingCandidateService.updateSettingCandidateCharacterMatch(
@@ -313,7 +318,7 @@ public class SettingCandidateController {
                         workId,
                         candidateId,
                         request
-                )
+                , sourceAnalysisJobId)
         );
     }
 
@@ -361,14 +366,15 @@ public class SettingCandidateController {
                     example = "0198a3f0-0000-7000-8000-000000000301"
             )
             @PathVariable UUID candidateId,
-            @Valid @RequestBody(required = false) SettingCandidateConfirmRequest request
-    ) {
+            @Valid @RequestBody(required = false) SettingCandidateConfirmRequest request,
+            @Parameter(description = "원본 SETTING_EXTRACTION 분석 작업 ID. 생략 시 회차 후보만 조회/검토하며, 구형 설정집 분석 이력은 읽기 전용입니다.")
+            @RequestParam(required = false) UUID sourceAnalysisJobId) {
         SettingCandidateConfirmResult result = settingCandidateService.confirmSettingCandidate(
                 member.memberId(),
                 workId,
                 candidateId,
                 request
-        );
+        , sourceAnalysisJobId);
         if (result.recomparisonRequired()) {
             // 서비스 트랜잭션에서 기존 캐릭터 연결과 재비교 Job을 커밋한 뒤 클라이언트에 재시도를 알린다.
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_NOT_READY);
@@ -395,11 +401,12 @@ public class SettingCandidateController {
     public CommonResponse<SettingCandidateGroupActionResponse> confirmSettingCandidateGroup(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,
-            @Valid @RequestBody SettingCandidateGroupConfirmRequest request
-    ) {
+            @Valid @RequestBody SettingCandidateGroupConfirmRequest request,
+            @Parameter(description = "원본 SETTING_EXTRACTION 분석 작업 ID. 생략 시 회차 후보만 조회/검토하며, 구형 설정집 분석 이력은 읽기 전용입니다.")
+            @RequestParam(required = false) UUID sourceAnalysisJobId) {
         SettingCandidateGroupConfirmResult result = settingCandidateService.confirmSettingCandidateGroup(
                 member.memberId(), workId, request
-        );
+        , sourceAnalysisJobId);
         if (result.recomparisonRequired()) {
             throw new AppException(
                     CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_NOT_READY,
@@ -424,11 +431,12 @@ public class SettingCandidateController {
     public CommonResponse<SettingCandidateResponse> retrySettingCandidateComparison(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,
-            @PathVariable UUID candidateId
-    ) {
+            @PathVariable UUID candidateId,
+            @Parameter(description = "원본 SETTING_EXTRACTION 분석 작업 ID. 생략 시 회차 후보만 조회/검토하며, 구형 설정집 분석 이력은 읽기 전용입니다.")
+            @RequestParam(required = false) UUID sourceAnalysisJobId) {
         return CommonResponse.success(
                 "캐릭터 설정 후보 재비교를 요청했습니다.",
-                settingCandidateService.retryComparison(member.memberId(), workId, candidateId)
+                settingCandidateService.retryComparison(member.memberId(), workId, candidateId, sourceAnalysisJobId)
         );
     }
 
@@ -471,11 +479,12 @@ public class SettingCandidateController {
                     description = "무시할 설정 후보 ID. setting_candidates.id 값을 사용합니다.",
                     example = "0198a3f0-0000-7000-8000-000000000304"
             )
-            @PathVariable UUID candidateId
-    ) {
+            @PathVariable UUID candidateId,
+            @Parameter(description = "원본 SETTING_EXTRACTION 분석 작업 ID. 생략 시 회차 후보만 조회/검토하며, 구형 설정집 분석 이력은 읽기 전용입니다.")
+            @RequestParam(required = false) UUID sourceAnalysisJobId) {
         return CommonResponse.success(
                 "설정 후보가 무시되었습니다.",
-                settingCandidateService.dismissSettingCandidate(member.memberId(), workId, candidateId)
+                settingCandidateService.dismissSettingCandidate(member.memberId(), workId, candidateId, sourceAnalysisJobId)
         );
     }
 }

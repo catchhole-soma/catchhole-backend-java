@@ -42,6 +42,8 @@ public enum UploadErrorCode implements ResultCode {
     ),
     UPLOAD_SETTING_BOOK_DUPLICATED(HttpStatus.CONFLICT, "같은 이름의 설정집이 이미 업로드되어 있습니다."),
     UPLOAD_SETTING_BOOK_NOT_FOUND(HttpStatus.NOT_FOUND, "설정집 원본을 찾을 수 없습니다."),
+    UPLOAD_SETTING_BOOK_REVISION_CONFLICT(HttpStatus.CONFLICT, "다른 창에서 설정집이 변경되었습니다. 작성 중인 내용을 보관한 뒤 최신 원문을 다시 확인해주세요."),
+    UPLOAD_SETTING_BOOK_REFERENCE_INVALID(HttpStatus.BAD_REQUEST, "설정집 기준 시점을 확인해주세요. 특정 회차는 1 이상의 번호가 필요합니다."),
     UPLOAD_FILE_PARSE_FAILED(HttpStatus.BAD_REQUEST, "업로드 파일을 회차로 분리할 수 없습니다."),
     UPLOAD_DOCUMENT_PASSWORD_PROTECTED(HttpStatus.BAD_REQUEST, "암호가 설정된 문서입니다. 암호를 해제한 파일을 업로드해 주세요."),
     UPLOAD_DOCUMENT_VERSION_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "지원하지 않는 한글 문서 형식입니다. 일반 HWP 5 또는 HWPX로 다시 저장해 주세요."),

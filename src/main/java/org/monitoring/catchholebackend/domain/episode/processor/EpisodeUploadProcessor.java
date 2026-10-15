@@ -60,12 +60,7 @@ public class EpisodeUploadProcessor {
      * 업로드 타입에 맞게 파일을 파싱하고, 회차 번호 중복을 검증한 뒤 UploadBatch와 UploadFile 추적 정보를 만든다.
      * 파싱된 회차 본문은 S3에 저장하고 Episode에는 저장소 key/version/hash/글자 수 메타데이터만 남긴다.
      */
-    public EpisodeUploadResponse processEpisodeUpload(
-            Work work,
-            EpisodeUploadRequest uploadRequest,
-            List<MultipartFile> sourceEpisodeFiles,
-            MultipartFile attachedSettingBookFile
-    ) {
+    public EpisodeUploadResponse processEpisodeUpload(Work work, EpisodeUploadRequest uploadRequest, List<MultipartFile> sourceEpisodeFiles) {
         // TODO: 현재 동기 업로드는 예외 시 트랜잭션 rollback으로 batch도 함께 사라질 수 있다. 모니터링 이력 기록이 필요하면 batch 선커밋/별도 트랜잭션/비동기 처리 중 어떤 방식이 맞을지 후속으로 검토한다.
         validateUploadRequest(uploadRequest);
         List<DetectedEpisodeFile> detectedEpisodeFiles = episodeFileParser.parseEpisodeFiles(
@@ -80,11 +75,6 @@ public class EpisodeUploadProcessor {
                 uploadRequest.episodeConfirmations()
         );
         validateEpisodeNumberAvailability(work, finalizedEpisodeFiles);
-        String attachedSettingBookContent = null;
-        if (isAttached(attachedSettingBookFile)) {
-            attachedSettingBookContent = textDocumentReader.readText(attachedSettingBookFile);
-            validateSettingBookFilenameAvailable(work, attachedSettingBookFile);
-        }
 
         UploadBatch uploadBatch = uploadBatchRepository.save(
                 UploadBatch.create(
@@ -96,7 +86,7 @@ public class EpisodeUploadProcessor {
         );
         uploadBatch.startProcessing();
 
-        uploadBatch.updateFileCount(countSourceFiles(sourceEpisodeFiles, attachedSettingBookFile));
+        uploadBatch.updateFileCount(sourceEpisodeFiles.size());
 
         List<Episode> savedEpisodes = new ArrayList<>();
         for (FinalizedEpisodeFile finalizedEpisodeFile : finalizedEpisodeFiles) {
@@ -104,10 +94,6 @@ public class EpisodeUploadProcessor {
         }
         updateLatestEpisodeNo(work, savedEpisodes);
 
-        if (isAttached(attachedSettingBookFile)) {
-            saveAttachedSettingBookFile(
-                    uploadBatch, attachedSettingBookFile, attachedSettingBookContent);
-        }
 
         uploadBatch.complete();
         List<UploadFile> savedUploadFiles =
@@ -213,18 +199,7 @@ public class EpisodeUploadProcessor {
         return finalizedEpisodeFiles;
     }
 
-    private void validateSettingBookFilenameAvailable(
-            Work work,
-            MultipartFile attachedSettingBookFile
-    ) {
-        if (uploadFileRepository.existsByBatchWorkIdAndFileRoleAndOriginalFilenameAndArchivedAtIsNull(
-                work.getId(),
-                UploadFileRole.SETTING_BOOK,
-                resolveOriginalFilename(attachedSettingBookFile)
-        )) {
-            throw new AppException(UploadErrorCode.UPLOAD_SETTING_BOOK_DUPLICATED);
-        }
-    }
+
 
     /**
      * 업로드 요청 안의 회차 번호 중복과 같은 작품에 이미 존재하는 회차 번호를 함께 검증한다.
@@ -330,39 +305,6 @@ public class EpisodeUploadProcessor {
     }
 
     /**
-     * 설정집 파일을 업로드 batch에 포함된 보조 파일로 저장하고 UploadFile로 추적한다.
-     * 설정집은 회차 범위가 없으므로 감지된 시작/끝 회차와 회차 개수는 비워둔다.
-     */
-    private void saveAttachedSettingBookFile(
-            UploadBatch uploadBatch,
-            MultipartFile attachedSettingBookFile,
-            String content
-    ) {
-        StoredObject storedSettingBookFile = objectStorageService.putUploadFile(
-                uploadBatch.getId(),
-                resolveOriginalFilename(attachedSettingBookFile),
-                readBytes(attachedSettingBookFile),
-                DocumentFormat.fromFilename(attachedSettingBookFile.getOriginalFilename()).mimeType()
-        );
-        UploadFile savedSettingBookFile = uploadFileRepository.save(buildUploadFile(
-                uploadBatch,
-                UploadFileRole.SETTING_BOOK,
-                attachedSettingBookFile,
-                storedSettingBookFile.key()
-        ));
-        StoredObject storedContent =
-                objectStorageService.putSettingBookContent(
-                        uploadBatch.getWork().getId(),
-                        savedSettingBookFile.getId(),
-                        savedSettingBookFile.getOriginalFilename(),
-                        content
-                );
-        savedSettingBookFile.linkEditableContent(
-                objectStorageService.toStorageUrl(storedContent.key()));
-        savedSettingBookFile.markParsed();
-    }
-
-    /**
      * 파싱된 회차 본문을 S3에 먼저 저장한 뒤, 저장소 메타데이터를 포함한 Episode 엔티티를 조립한다.
      */
     private Episode createEpisodeWithStoredContent(
@@ -414,12 +356,7 @@ public class EpisodeUploadProcessor {
         };
     }
 
-    private int countSourceFiles(
-            List<MultipartFile> sourceEpisodeFiles,
-            MultipartFile attachedSettingBookFile
-    ) {
-        return sourceEpisodeFiles.size() + (isAttached(attachedSettingBookFile) ? 1 : 0);
-    }
+
 
     private byte[] readBytes(MultipartFile file) {
         try {
@@ -437,7 +374,5 @@ public class EpisodeUploadProcessor {
         return StringUtils.hasText(title) ? title.trim() : null;
     }
 
-    private boolean isAttached(MultipartFile file) {
-        return file != null;
-    }
+
 }

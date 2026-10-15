@@ -328,6 +328,49 @@ class MemberWithdrawalIntegrationTest {
         assertThat(replacement.getId()).isNotEqualTo(member.getId());
     }
 
+    @Test
+    @DisplayName("설정집만 있는 회원의 탈퇴도 모든 불변 버전·청크·분석과 저장 객체를 정리한다")
+    void withdrawalPurgesEveryBookRevisionAndChunkThroughThePublicUploadFlow() throws Exception {
+        var objects=new java.util.HashMap<String,byte[]>();
+        when(objectStorage.putBytes(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.any(byte[].class),org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(call -> {String key=call.getArgument(0);objects.put(key,call.getArgument(1));return new org.monitoring.catchholebackend.global.storage.StoredObject(key,"synthetic-v1");});
+        when(objectStorage.putText(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(call -> {String key=call.getArgument(0);objects.put(key,call.<String>getArgument(1).getBytes(java.nio.charset.StandardCharsets.UTF_8));return new org.monitoring.catchholebackend.global.storage.StoredObject(key,"synthetic-v1");});
+        when(objectStorage.getBytes(org.mockito.ArgumentMatchers.anyString())).thenAnswer(call -> objects.get(call.getArgument(0)));
+        when(objectStorage.purgePrefixes(org.mockito.ArgumentMatchers.anyCollection())).thenAnswer(call -> {
+            java.util.Collection<String> prefixes=call.getArgument(0);int before=objects.size();
+            objects.keySet().removeIf(key -> prefixes.stream().anyMatch(key::startsWith));int deleted=before-objects.size();
+            return new ObjectStoragePurgeResult(deleted,deleted,0);
+        });
+        Work work=workRepository.save(Work.create(member,"탈퇴 설정집",WorkGenre.FANTASY,null));
+        var mapper=new com.fasterxml.jackson.databind.ObjectMapper();
+        String uploaded=mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart("/api/v1/works/{workId}/setting-books",work.getId())
+                .file(new org.springframework.mock.web.MockMultipartFile("file","설정.txt",MediaType.TEXT_PLAIN_VALUE,"하린은 기사다.".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .header(HttpHeaders.AUTHORIZATION,bearer(accessToken))).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        var book=mapper.readTree(uploaded).path("data");UUID bookId=UUID.fromString(book.path("id").asText());
+        UUID revisionId=UUID.fromString(book.path("revisionId").asText());UUID originId=UUID.fromString(book.path("latestAnalysisJob").path("id").asText());
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/api/v1/works/{workId}/setting-books/{id}",work.getId(),bookId)
+                .header(HttpHeaders.AUTHORIZATION,bearer(accessToken)).contentType(MediaType.APPLICATION_JSON).content("{\"content\":\"하린은 마법사다.\",\"expectedRevisionNo\":1}"))
+                .andExpect(status().isOk());
+        assertThat(jdbcTemplate.queryForObject("select count(*) from analysis_jobs where work_id=?",Integer.class,work.getId())).isEqualTo(1);
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/works/{workId}/setting-books/{id}/analysis-jobs",work.getId(),bookId)
+                .header(HttpHeaders.AUTHORIZATION,bearer(accessToken))).andExpect(status().isOk());
+        jdbcTemplate.update("insert into setting_book_chunks(id,analysis_job_id,setting_book_revision_id,chunk_index,chunk_text,start_offset,end_offset,paragraph_start_index,paragraph_end_index,created_at,updated_at) values(?,?,?,0,?,0,9,0,0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",UUID.randomUUID(),originId,revisionId,"하린은 기사다.");
+        assertThat(jdbcTemplate.queryForObject("select count(*) from setting_book_revisions where setting_book_id=?",Integer.class,bookId)).isEqualTo(2);
+        assertThat(objects).hasSize(3);
+        mockMvc.perform(delete("/api/v1/members/me").header(HttpHeaders.AUTHORIZATION,bearer(accessToken)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"currentPassword\":\"password123\",\"confirmation\":\"회원 탈퇴\"}"))
+                .andExpect(status().isAccepted());
+        withdrawalProcessor.processPendingRequests();workPurgeProcessor.processPendingRequests();withdrawalProcessor.processPendingRequests();
+        assertThat(memberRepository.findById(member.getId())).isEmpty();
+        assertThat(workRepository.findById(work.getId())).isEmpty();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from setting_book_revisions where setting_book_id=?",Integer.class,bookId)).isZero();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from setting_book_chunks where analysis_job_id=?",Integer.class,originId)).isZero();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from analysis_jobs where work_id=?",Integer.class,work.getId())).isZero();
+        assertThat(objects).isEmpty();
+        assertThat(withdrawalRequestRepository.findByMemberId(member.getId())).get().extracting(MemberWithdrawalRequest::getStatus).isEqualTo(MemberWithdrawalStatus.COMPLETED);
+    }
+
     private String bearer(String token) {
         return "Bearer " + token;
     }

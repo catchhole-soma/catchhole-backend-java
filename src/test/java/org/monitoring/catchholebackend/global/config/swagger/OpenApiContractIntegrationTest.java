@@ -26,6 +26,27 @@ class OpenApiContractIntegrationTest {
     private MockMvc mockMvc;
 
     @Test
+    @DisplayName("claim 전용 CURRENT는 optional object이며 nullable 필드와 모든 JSON 값을 정확히 문서화한다")
+    void semanticCurrentClaimSchemaPreservesCompleteNullableValues() throws Exception {
+        var result = mockMvc.perform(get("/v3/api-docs")).andExpect(status().isOk()).andReturn();
+        var schemas = new com.fasterxml.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString())
+                .path("components").path("schemas");
+        var claim = schemas.path("WorkerAnalysisJobPayload");
+        var context = claim.path("properties").path("semanticCurrentContext");
+        org.assertj.core.api.Assertions.assertThat(context.path("$ref").asText()).endsWith("WorkerSemanticCurrentContextPayload");
+        org.assertj.core.api.Assertions.assertThat(context.has("type")).isFalse();
+        org.assertj.core.api.Assertions.assertThat(claim.path("required")).doesNotContain(new com.fasterxml.jackson.databind.node.TextNode("semanticCurrentContext"));
+        org.assertj.core.api.Assertions.assertThat(schemas.path("WorkerAnalysisContextPayload").path("properties").has("semanticCurrentContext")).isFalse();
+        var slot = schemas.path("WorkerSemanticCurrentSlotPayload");
+        org.assertj.core.api.Assertions.assertThat(slot.path("required")).contains(new com.fasterxml.jackson.databind.node.TextNode("factValue"), new com.fasterxml.jackson.databind.node.TextNode("valueJson"));
+        org.assertj.core.api.Assertions.assertThat(slot.path("properties").path("valueJson").path("type"))
+                .containsExactlyInAnyOrderElementsOf(java.util.List.of("object", "array", "string", "number", "boolean", "null")
+                        .stream().map(com.fasterxml.jackson.databind.node.TextNode::new).toList());
+        org.assertj.core.api.Assertions.assertThat(schemas.path("WorkerSemanticCurrentContextPayload").path("required"))
+                .contains(new com.fasterxml.jackson.databind.node.TextNode("complete"), new com.fasterxml.jackson.databind.node.TextNode("characters"), new com.fasterxml.jackson.databind.node.TextNode("worldSubjects"));
+    }
+
+    @Test
     @DisplayName("캐릭터 후보 전체 확인 필요 수는 기존 연결 필요 수와 함께 필수 int64로 문서화한다")
     void characterCandidateAttentionCountIsRequiredAndPreservesLegacyCount() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))
@@ -89,7 +110,8 @@ class OpenApiContractIntegrationTest {
                 .andExpect(jsonPath(base + "['properties']['automaticReviewHoldReason']['enum']")
                         .value(containsInAnyOrder("SUBJECT_CONFIRMATION_REQUIRED", "DEPENDENCY_CONFIRMATION_REQUIRED",
                                 "CURRENT_SETTING_CHANGED", "SETTING_VALUE_CONFIRMATION_REQUIRED",
-                                "SETTING_LOCATION_CONFLICT", "REVIEW_REQUIRED", "SUBJECT_RESOLUTION_FAILED", "COMPARISON_INPUT_TOO_LARGE")))
+                                "SETTING_LOCATION_CONFLICT", "REVIEW_REQUIRED", "SUBJECT_RESOLUTION_FAILED", "COMPARISON_INPUT_TOO_LARGE",
+                                "HUMAN_CURRENT_SETTING_PROTECTED", "SETTING_TIME_CONFIRMATION_REQUIRED")))
                 .andExpect(jsonPath(base + "['properties']['comparisonStatus']").exists())
                 .andExpect(jsonPath(base + "['properties']['comparisonReason']").exists())
                 .andExpect(jsonPath(base + "['properties']['comparisonFailureCode']").exists());
@@ -295,7 +317,8 @@ class OpenApiContractIntegrationTest {
                                 "matchStatuses",
                                 "page",
                                 "size",
-                                "includeLegacyCandidates"
+                                "includeLegacyCandidates",
+                                "sourceAnalysisJobId"
                         )))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates']['get']['parameters'][1]['required']")
                         .value(true))
@@ -347,7 +370,7 @@ class OpenApiContractIntegrationTest {
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}']['get']['operationId']")
                         .value("getSettingCandidate"))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}']['get']['parameters'][*]['name']")
-                        .value(containsInAnyOrder("workId", "batchId", "candidateId")))
+                        .value(containsInAnyOrder("workId", "batchId", "candidateId", "sourceAnalysisJobId")))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}']['get']['responses']['400']['content']['application/json']['schema']['$ref']")
                         .value("#/components/schemas/CommonErrorResponse"))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/setting-candidates/{candidateId}']['get']['responses']['401']['content']['application/json']['schema']['$ref']")

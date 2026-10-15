@@ -47,7 +47,8 @@ class SettingCandidateMapperTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final SettingCandidateMapper mapper = new SettingCandidateMapper(
             new CharacterSnapshotAccessor(),
-            mock(CharacterSnapshotSourceManager.class)
+            mock(CharacterSnapshotSourceManager.class),
+            mock(org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope.class)
     );
 
     @Test
@@ -479,7 +480,8 @@ class SettingCandidateMapperTest {
         when(sourceManager.findSourceFactsBySlot(character)).thenReturn(Map.of());
         SettingCandidateMapper previewMapper = new SettingCandidateMapper(
                 new CharacterSnapshotAccessor(),
-                sourceManager
+                sourceManager,
+                mock(org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope.class)
         );
 
         SettingCandidateResponse response = previewMapper.toResponse(

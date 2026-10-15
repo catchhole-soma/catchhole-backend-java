@@ -85,6 +85,8 @@ class CharacterFactComparisonWorkerServiceImplTest {
     @Mock
     private CharacterFactComparisonBatchWorker batchWorker;
 
+    @Mock private CharacterAnalysisStateSource analysisStateSource;
+    @Mock private CharacterAnalysisStateService analysisStateService;
     private CharacterFactComparisonWorkerServiceImpl service;
     private Work work;
     private WorkCharacter character;
@@ -106,8 +108,11 @@ class CharacterFactComparisonWorkerServiceImplTest {
                 valueValidator,
                 new CharacterFactComparisonDecisionValidator(valueValidator),
                 new CharacterFactComparisonWorkerMapper(),
-                batchWorker
+                batchWorker, analysisStateSource, analysisStateService
         );
+        org.mockito.Mockito.lenient().when(analysisStateSource.captureCharacter(any(WorkCharacter.class))).thenAnswer(invocation ->
+                new org.monitoring.catchholebackend.domain.character.mapper.CharacterAnalysisStateMapper()
+                        .toState(invocation.getArgument(0), java.util.Map.of(), java.util.Map.of()));
         Member member = Member.register("worker@example.com", "password", "01012345678", "작가");
         work = Work.create(member, "비교 작품", WorkGenre.FANTASY, "테스트");
         ReflectionTestUtils.setField(work, "id", UUID.randomUUID());
@@ -135,6 +140,25 @@ class CharacterFactComparisonWorkerServiceImplTest {
         lenient().when(snapshotSourceRepository.findAllByWorkCharacterIdOrderByFactTypeAscFactKeyAscSourceOrderAsc(
                 character.getId()
         )).thenReturn(List.of());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void automaticPastHistoryCompletionDoesNotAcquireTemporalHold(boolean book) {
+        analysisJob.configureReviewMode(org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC);
+        ReflectionTestUtils.setField(analysisJob, "sourceKind", book
+                ? org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.SETTING_BOOK
+                : org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE);
+        if (book) CharacterPastHistoryAutomaticHoldTest.attachBook(analysisJob, work);
+        SettingCandidate candidate = prepareCandidate("level", "1", SettingValueType.NUMBER, value(1),
+                schema("level", null, CharacterFactType.LEVEL, SettingValueType.NUMBER));
+        WorkerCharacterFactComparisonContextResponse context = claimAndGetContext(candidate);
+        service.completeCharacterFactComparison(analysisJobId, candidate.getId(), leaseToken,
+                completeRequest(CharacterFactOperation.HISTORY_ONLY, null, null, null, List.of(),
+                        CharacterFactTemporalScope.PAST, context.contextToken()));
+        assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.COMPLETED);
+        assertThat(candidate.getAutomaticReviewHoldReason()).isNull();
+        assertThat(candidate.isAutomaticPastHistoryOnly()).isTrue();
     }
 
     @Test

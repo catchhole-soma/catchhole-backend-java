@@ -60,10 +60,9 @@ public class WorldSettingComparisonBatch extends BaseEntity {
     )
     private Work work;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(
             name = "source_episode_id",
-            nullable = false,
             updatable = false,
             foreignKey = @ForeignKey(name = "fk_world_setting_comparison_batches_episode")
     )
@@ -221,7 +220,7 @@ public class WorldSettingComparisonBatch extends BaseEntity {
         }
         WorldSettingComparisonBatch batch = new WorldSettingComparisonBatch();
         batch.work = Objects.requireNonNull(work);
-        batch.sourceEpisode = Objects.requireNonNull(episode);
+        batch.sourceEpisode = job.isSettingBookSource() ? episode : Objects.requireNonNull(episode);
         batch.analysisJob = job;
         batch.category = Objects.requireNonNull(category);
         batch.rawScopeName = scope;

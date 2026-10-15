@@ -156,6 +156,8 @@ class EpisodeControllerIntegrationTest {
         analysisJobRepository.deleteAll();
         episodeSourcePurgeRequestRepository.deleteAll();
         episodeRepository.deleteAll();
+        jdbcTemplate.update("update upload_files set current_setting_book_revision_id=null");
+        jdbcTemplate.update("delete from setting_book_revisions");
         uploadFileRepository.deleteAll();
         uploadBatchRepository.deleteAll();
         workRepository.deleteAll();
@@ -190,7 +192,7 @@ class EpisodeControllerIntegrationTest {
     void uploadsMixedHangulFilesAndSettingBook() throws Exception {
         var first = hangulFile("episodeFiles", "episode-1.hwp");
         var second = hangulFile("episodeFiles", "episode-2.hwpx");
-        var settings = hangulFile("settingBookFile", "episode-1.hwpx");
+        var settings = hangulFile("file", "episode-1.hwpx");
         mockMvc.perform(multipart("/api/v1/works/{workId}/episodes/detect", work.getId())
                         .file(metadataPart("{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\"}"))
                         .file(second).file(first).header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
@@ -203,10 +205,13 @@ class EpisodeControllerIntegrationTest {
                                 {"uploadType":"MULTI_EPISODE_MULTI_FILE","episodeConfirmations":[
                                 {"detectionOrder":1,"episodeNo":1,"title":"첫 편지"},
                                 {"detectionOrder":0,"episodeNo":2,"title":"재회"}]}
-                                """)).file(second).file(first).file(settings)
+                                """)).file(second).file(first)
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.createdEpisodes[*].episodeNo").value(org.hamcrest.Matchers.containsInAnyOrder(1, 2)));
+        mockMvc.perform(multipart("/api/v1/works/{workId}/setting-books", work.getId())
+                        .file(settings).header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
         for (Episode episode : episodeRepository.findAll()) {
             UploadFile original = uploadFileRepository.findById(episode.getSourceFileId()).orElseThrow();
             String expected = episode.getEpisodeNo() == 1 ? "episode-1.hwp" : "episode-2.hwpx";
@@ -328,8 +333,8 @@ class EpisodeControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("명시적으로 첨부한 빈 설정집 파일을 누락된 part로 취급하지 않고 거절한다")
-    void uploadEpisodesRejectsExplicitEmptySettingBook() throws Exception {
+    @DisplayName("삭제된 동시 업로드 part는 회차 업로드에 영향을 주거나 설정집을 만들지 않는다")
+    void uploadEpisodesIgnoresRemovedEmptySettingBookPart() throws Exception {
         MockMultipartFile emptySettingBook = new MockMultipartFile(
                 "settingBookFile",
                 "empty-setting.txt",
@@ -347,11 +352,12 @@ class EpisodeControllerIntegrationTest {
                         .file(textFile("episodeFiles", "episode-1.txt", "첫 문장입니다."))
                         .file(emptySettingBook)
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("UPLOAD_FILE_EMPTY"));
+                .andExpect(status().isOk());
 
-        assertThat(episodeRepository.count()).isZero();
-        assertThat(uploadBatchRepository.count()).isZero();
+        assertThat(episodeRepository.count()).isEqualTo(1);
+        assertThat(uploadBatchRepository.count()).isEqualTo(1);
+        assertThat(uploadFileRepository.findAll()).allMatch(file -> file.getFileRole() == UploadFileRole.EPISODE);
+        verify(objectStorage, never()).putBytes(org.mockito.ArgumentMatchers.contains("/setting-books/"), any(), any());
     }
 
     @Test

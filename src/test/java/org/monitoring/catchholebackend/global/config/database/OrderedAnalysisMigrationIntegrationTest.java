@@ -43,7 +43,7 @@ class OrderedAnalysisMigrationIntegrationTest {
                     """);
         }
         Flyway upgraded = Flyway.configure().dataSource(url, "gh180", "gh180-test-only")
-                .locations("classpath:db/migration").load();
+                .locations("classpath:db/migration").target("54").load();
         assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(11);
         upgraded.validate();
         assertThat(upgraded.info().current().getVersion().toString()).isEqualTo("54");

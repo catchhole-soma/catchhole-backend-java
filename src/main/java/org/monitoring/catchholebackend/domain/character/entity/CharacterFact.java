@@ -84,6 +84,12 @@ public class CharacterFact extends BaseEntity {
     @Column(name = "value_json", columnDefinition = "jsonb")
     private JsonNode valueJson;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "narrative_time", columnDefinition = "jsonb")
+    private JsonNode narrativeTime;
+
+    public void purgeNarrativeTime() { narrativeTime = org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.purgeEvidence(narrativeTime); }
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(
             name = "source_episode_id",
@@ -126,6 +132,8 @@ public class CharacterFact extends BaseEntity {
     ) {
         this.workCharacter = workCharacter;
         this.settingCandidate = settingCandidate;
+        this.narrativeTime = settingCandidate == null || settingCandidate.getNarrativeTime() == null
+                ? null : settingCandidate.getNarrativeTime().deepCopy();
         this.factType = factType;
         this.factKey = factKey;
         this.factValue = factValue;

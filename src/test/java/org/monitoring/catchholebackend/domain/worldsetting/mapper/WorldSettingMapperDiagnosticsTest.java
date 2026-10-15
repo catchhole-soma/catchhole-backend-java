@@ -30,7 +30,7 @@ class WorldSettingMapperDiagnosticsTest {
                  {"attempt":3,"rule":"TEST_RULE","candidateRefs":[],"selectedProperties":[],
                   "stage":"FUTURE_STAGE","phase":null}]
                 """));
-        var diagnostics = new WorldSettingMapper().toCandidateResponse(candidate).comparisonDiagnostics();
+        var diagnostics = new WorldSettingMapper(org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope.class)).toCandidateResponse(candidate).comparisonDiagnostics();
         assertThat(diagnostics).hasSize(3);
         assertThat(diagnostics.getFirst().stage()).isEqualTo(WorldSettingComparisonDiagnostic.Stage.DECISION_VALIDATION);
         assertThat(diagnostics.getFirst().phase()).isEqualTo(WorldSettingComparisonDiagnostic.Phase.RECOVERY);

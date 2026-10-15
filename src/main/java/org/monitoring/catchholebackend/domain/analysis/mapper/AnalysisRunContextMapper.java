@@ -18,7 +18,9 @@ public class AnalysisRunContextMapper {
     public WorkerAnalysisContextPayload toResponse(AnalysisJob job) {
         return !job.isOrderedProvisional() ? null : new WorkerAnalysisContextPayload(job.getAnalysisRunId(),
                 job.getRunGeneration(), job.getInputStateHash(), job.getSourceContentHash(), AnalysisStateJournal.FORMAT_VERSION,
-                references(job.getAutomaticInputState()));
+                references(job.getAutomaticInputState()),
+                job.isSettingBookSource() ? job.getSourceSettingBookRevision().getReferenceTimeKind() : null,
+                job.isSettingBookSource() ? job.getSourceSettingBookRevision().getReferenceEpisodeNo() : null);
     }
 
     private List<WorkerAnalysisReferencePayload> references(JsonNode input) {
@@ -34,7 +36,8 @@ public class AnalysisRunContextMapper {
             JsonNode reference = references.path(referenceId);
             // 사용자 거절 정책의 내부 식별자/본문은 이 공용 참고 DTO로 노출하지 않는다.
             if (!reference.hasNonNull("reason") || !reference.has("subjectName")
-                    || !reference.path("sourceEpisodeNo").isIntegralNumber() || reference.path("sourceEpisodeNo").asInt() < 1
+                    || !("SETTING_BOOK".equals(reference.path("sourceKind").asText()) && reference.hasNonNull("sourceSettingBookId"))
+                        && (!reference.path("sourceEpisodeNo").isIntegralNumber() || reference.path("sourceEpisodeNo").asInt() < 1)
                     || !List.of("characters", "worldSettings").contains(reference.path("domain").asText())) continue;
             result.add(new WorkerAnalysisReferencePayload(reference.path("domain").asText(),
                     nullableText(reference, "subjectName"), reference.path("sourceEpisodeNo").isIntegralNumber()
@@ -42,7 +45,7 @@ public class AnalysisRunContextMapper {
                     nullableText(reference, "settingName"), nullableText(reference, "value"),
                     evidenceMapper.toEvidenceSpans(reference.get("evidenceSpans")),
                     nullableText(reference, "scopeName"), nullableText(reference, "matchedScopeName"),
-                    nullableText(reference, "matchedPropertyName")));
+                    nullableText(reference, "matchedPropertyName"), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.fromProvenance(reference)));
         }
         return List.copyOf(result);
     }

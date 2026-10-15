@@ -1,0 +1,154 @@
+{
+  "name": "한서린",
+  "roleLabel": null,
+  "currentAge": 28,
+  "currentLevel": null,
+  "firstAppearanceEpisodeNo": 1,
+  "profile": [
+    {
+      "key": "profile.키",
+      "value": "168cm",
+      "valueType": "STRING",
+      "properties": []
+    },
+    {
+      "key": "profile.gender",
+      "value": "여성",
+      "valueType": "STRING",
+      "properties": []
+    },
+    {
+      "key": "profile.관계",
+      "value": "류도윤과 업무 협력, 친족 아님",
+      "valueType": "STRING",
+      "properties": []
+    },
+    {
+      "key": "profile.별칭",
+      "value": "은등",
+      "valueType": "STRING",
+      "properties": []
+    },
+    {
+      "key": "profile.성격",
+      "value": "꼼꼼함, 의심이 나면 원장을 대조함",
+      "valueType": "STRING",
+      "properties": []
+    },
+    {
+      "key": "profile.occupation",
+      "value": "항만 기록관",
+      "valueType": "STRING",
+      "properties": []
+    },
+    {
+      "key": "profile.affiliation",
+      "value": "항만청 기록실",
+      "valueType": "STRING",
+      "properties": []
+    },
+    {
+      "key": "profile.오른손_감각",
+      "value": "정상",
+      "valueType": "STRING",
+      "properties": []
+    }
+  ],
+  "stats": [],
+  "skills": [
+    {
+      "key": "skill.장부_대조",
+      "value": "장부 대조",
+      "valueType": "JSON",
+      "properties": [
+        {
+          "key": "name",
+          "value": "장부 대조",
+          "valueType": "STRING"
+        }
+      ]
+    }
+  ],
+  "items": [
+    {
+      "key": "item.잔향등",
+      "value": "기록실 창고에서 잠시 빌려 사용한 잔향등",
+      "valueType": "JSON",
+      "properties": [
+        {
+          "key": "name",
+          "value": "잔향등",
+          "valueType": "STRING"
+        },
+        {
+          "key": "borrowed",
+          "value": "true",
+          "valueType": "BOOLEAN"
+        }
+      ]
+    },
+    {
+      "key": "item.청동_펜",
+      "value": "흑연필",
+      "valueType": "JSON",
+      "properties": [
+        {
+          "key": "name",
+          "value": "청동 펜",
+          "valueType": "STRING"
+        },
+        {
+          "key": "type",
+          "value": "필기 도구",
+          "valueType": "STRING"
+        }
+      ]
+    }
+  ],
+  "statuses": [
+    {
+      "key": "status.오른손_화상",
+      "value": "응급처치 후에도 오른손으로 펜을 잡지 못하는 화상",
+      "valueType": "JSON",
+      "properties": [
+        {
+          "key": "name",
+          "value": "오른손 화상",
+          "valueType": "STRING"
+        },
+        {
+          "key": "active",
+          "value": "true",
+          "valueType": "BOOLEAN"
+        },
+        {
+          "key": "description",
+          "value": "응급처치 후에도 오른손으로 펜을 잡지 못함",
+          "valueType": "STRING"
+        }
+      ]
+    },
+    {
+      "key": "status.오른손_감각_둔화",
+      "value": "오른손 감각이 둔해져 아직 정상으로 돌아오지 않음",
+      "valueType": "JSON",
+      "properties": [
+        {
+          "key": "name",
+          "value": "오른손 감각 둔화",
+          "valueType": "STRING"
+        },
+        {
+          "key": "active",
+          "value": "true",
+          "valueType": "BOOLEAN"
+        },
+        {
+          "key": "description",
+          "value": "감각이 둔해져 아직 정상으로 돌아오지 않음",
+          "valueType": "STRING"
+        }
+      ]
+    }
+  ]
+}

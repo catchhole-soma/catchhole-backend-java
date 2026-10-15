@@ -58,7 +58,7 @@ class AutomaticComparisonFailureJournalTest {
     private final ObjectNode stateJournal = JsonNodeFactory.instance.objectNode();
     private final List<AnalysisStateChange> changes = new ArrayList<>();
     private final CharacterAnalysisStateService characterService = new CharacterAnalysisStateService(
-            states, characters, new CharacterAnalysisStateMapper(), rejections);
+            states, characters, new CharacterAnalysisStateMapper(), rejections, mock(org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.class));
     private final OrderedWorldSettingWorker worldService = new OrderedWorldSettingWorker(states, journal,
             mock(AnalysisRunContextMapper.class), worlds, mock(WorldSettingComparisonBatchRepository.class),
             mock(WorldSettingComparisonDecisionRepository.class), mock(WorldSettingComparisonDecisionSourceRepository.class),

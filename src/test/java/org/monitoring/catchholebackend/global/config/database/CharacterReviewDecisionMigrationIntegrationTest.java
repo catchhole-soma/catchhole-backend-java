@@ -65,6 +65,7 @@ class CharacterReviewDecisionMigrationIntegrationTest {
     void validatesMigrationAndReviewBasisConstraints() {
         assertThat(jdbc.queryForList("SELECT version FROM flyway_schema_history WHERE success=true", String.class))
                 .contains("72", "73", "74", "75");
+
         UUID id = new TransactionTemplate(transactions).execute(status -> {
             Member member = Member.register("gh215@example.invalid", "test-only", null, "검증 작가");
             entities.persist(member);

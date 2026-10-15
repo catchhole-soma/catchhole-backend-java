@@ -67,10 +67,12 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             select candidate
             from WorldSettingCandidate candidate
             join candidate.analysisJob analysisJob
-            join candidate.sourceEpisode sourceEpisode
+            left join candidate.sourceEpisode sourceEpisode
             left join candidate.targetWorldSetting targetWorldSetting
             where candidate.work.id = :workId
               and analysisJob.batch.id = :batchId
+              and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
+                or analysisJob.id = :sourceAnalysisJobId)
               and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
               and (:category is null
                   or (candidate.finalCategory is not null and candidate.finalCategory = :category)
@@ -90,8 +92,13 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             @Param("reviewStatus") WorldSettingReviewStatus reviewStatus,
             @Param("category") WorldSettingCategory category,
             @Param("suggestedOperation") WorldSettingSuggestedOperation suggestedOperation,
-            @Param("finalOperation") WorldSettingOperation finalOperation
+            @Param("finalOperation") WorldSettingOperation finalOperation,
+            @Param("sourceAnalysisJobId") UUID sourceAnalysisJobId
     );
+
+    default List<WorldSettingCandidate> findReviewList(UUID workId, UUID batchId, WorldSettingReviewStatus reviewStatus, WorldSettingCategory category, WorldSettingSuggestedOperation suggestedOperation, WorldSettingOperation finalOperation) {
+        return findReviewList(workId, batchId, reviewStatus, category, suggestedOperation, finalOperation, null);
+    }
 
     @Query("""
             select count(candidate) as totalCandidateCount,
@@ -145,6 +152,8 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             join candidate.analysisJob analysisJob
             where candidate.work.id = :workId
               and analysisJob.batch.id = :batchId
+              and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
+                or analysisJob.id = :sourceAnalysisJobId)
             """)
     WorldSettingCandidateBatchCounts countReviewSummary(
             @Param("workId") UUID workId,
@@ -156,8 +165,13 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             @Param("quotaFailureCode") AnalysisFailureCode quotaFailureCode,
             @Param("recomparisonRequired") WorldSettingComparisonStatus recomparisonRequired,
             @Param("completedComparison") WorldSettingComparisonStatus completedComparison,
-            @Param("conflictConsolidation") WorldSettingConsolidationStatus conflictConsolidation
+            @Param("conflictConsolidation") WorldSettingConsolidationStatus conflictConsolidation,
+            @Param("sourceAnalysisJobId") UUID sourceAnalysisJobId
     );
+
+    default WorldSettingCandidateBatchCounts countReviewSummary(UUID workId, UUID batchId, WorldSettingReviewStatus pendingReview, WorldSettingComparisonStatus pendingComparison, WorldSettingComparisonStatus processingComparison, WorldSettingComparisonStatus failedComparison, AnalysisFailureCode quotaFailureCode, WorldSettingComparisonStatus recomparisonRequired, WorldSettingComparisonStatus completedComparison, WorldSettingConsolidationStatus conflictConsolidation) {
+        return countReviewSummary(workId, batchId, pendingReview, pendingComparison, processingComparison, failedComparison, quotaFailureCode, recomparisonRequired, completedComparison, conflictConsolidation, null);
+    }
 
     @Query("""
             select analysisJob.batch.id as batchId,
@@ -188,6 +202,7 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             join candidate.analysisJob analysisJob
             where candidate.work.id = :workId
               and analysisJob.batch.id in :batchIds
+              and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE
             group by analysisJob.batch.id
             """)
     List<WorldSettingCandidateBatchReviewCounts> countReviewSummaryByBatchIds(
@@ -208,6 +223,8 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             join candidate.analysisJob analysisJob
             where candidate.work.id = :workId
               and analysisJob.batch.id = :batchId
+              and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
+                or analysisJob.id = :sourceAnalysisJobId)
               and candidate.reviewStatus = :pendingReview
               and candidate.comparisonStatus = :failedComparison
               and candidate.comparisonFailureCode = :quotaFailureCode
@@ -218,8 +235,13 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             @Param("batchId") UUID batchId,
             @Param("pendingReview") WorldSettingReviewStatus pendingReview,
             @Param("failedComparison") WorldSettingComparisonStatus failedComparison,
-            @Param("quotaFailureCode") AnalysisFailureCode quotaFailureCode
+            @Param("quotaFailureCode") AnalysisFailureCode quotaFailureCode,
+            @Param("sourceAnalysisJobId") UUID sourceAnalysisJobId
     );
+
+    default List<WorldSettingCandidate> findTokenInterruptedByBatchForUpdate(UUID workId, UUID batchId, WorldSettingReviewStatus pendingReview, WorldSettingComparisonStatus failedComparison, AnalysisFailureCode quotaFailureCode) {
+        return findTokenInterruptedByBatchForUpdate(workId, batchId, pendingReview, failedComparison, quotaFailureCode, null);
+    }
 
     @EntityGraph(attributePaths = {"sourceEpisode", "reviewedBy", "comparisonDecision"})
     List<WorldSettingCandidate> findAllByTargetWorldSettingIdAndReviewStatusOrderByReviewedAtDescCreatedAtDescIdDesc(
@@ -246,14 +268,21 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             from WorldSettingCandidate candidate
             where candidate.work.id = :workId
               and candidate.analysisJob.batch.id = :batchId
+              and ((:sourceAnalysisJobId is null and candidate.analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
+                or candidate.analysisJob.id = :sourceAnalysisJobId)
               and candidate.id in :candidateIds
             order by candidate.id asc
             """)
     List<WorldSettingCandidate> findAllByIdsAndBatchForUpdate(
             @Param("workId") UUID workId,
             @Param("batchId") UUID batchId,
-            @Param("candidateIds") Collection<UUID> candidateIds
+            @Param("candidateIds") Collection<UUID> candidateIds,
+            @Param("sourceAnalysisJobId") UUID sourceAnalysisJobId
     );
+
+    default List<WorldSettingCandidate> findAllByIdsAndBatchForUpdate(UUID workId, UUID batchId, Collection<UUID> candidateIds) {
+        return findAllByIdsAndBatchForUpdate(workId, batchId, candidateIds, null);
+    }
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @EntityGraph(attributePaths = {"sourceEpisode", "analysisJob", "targetWorldSetting", "reviewedBy"})
@@ -262,14 +291,21 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             from WorldSettingCandidate candidate
             where candidate.work.id = :workId
               and candidate.analysisJob.batch.id = :batchId
+              and ((:sourceAnalysisJobId is null and candidate.analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
+                or candidate.analysisJob.id = :sourceAnalysisJobId)
               and candidate.reviewStatus = :reviewStatus
             order by candidate.id asc
             """)
     List<WorldSettingCandidate> findAllByBatchAndReviewStatusForUpdate(
             @Param("workId") UUID workId,
             @Param("batchId") UUID batchId,
-            @Param("reviewStatus") WorldSettingReviewStatus reviewStatus
+            @Param("reviewStatus") WorldSettingReviewStatus reviewStatus,
+            @Param("sourceAnalysisJobId") UUID sourceAnalysisJobId
     );
+
+    default List<WorldSettingCandidate> findAllByBatchAndReviewStatusForUpdate(UUID workId, UUID batchId, WorldSettingReviewStatus reviewStatus) {
+        return findAllByBatchAndReviewStatusForUpdate(workId, batchId, reviewStatus, null);
+    }
 
     List<WorldSettingCandidate> findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(UUID analysisJobId);
 
@@ -298,7 +334,11 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             select candidate
             from WorldSettingCandidate candidate
             where candidate.analysisJob.id = :analysisJobId
-              and candidate.sourceEpisode.id = :sourceEpisodeId
+              and (candidate.sourceEpisode.id = :sourceEpisodeId
+                   or (:sourceEpisodeId is null and candidate.sourceEpisode is null
+                       and candidate.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.SETTING_BOOK
+                       and candidate.sourceSettingBook = candidate.analysisJob.sourceSettingBook
+                       and candidate.sourceSettingBookRevision = candidate.analysisJob.sourceSettingBookRevision))
               and candidate.category = :category
               and candidate.canonicalSubjectKey = :canonicalSubjectKey
               and candidate.reviewStatus = :reviewStatus

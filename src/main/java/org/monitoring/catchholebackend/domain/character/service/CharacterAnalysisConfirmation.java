@@ -28,6 +28,9 @@ import org.monitoring.catchholebackend.domain.analysis.service.AnalysisCandidate
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.stereotype.Component;
+import org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason;
+import org.monitoring.catchholebackend.domain.analysis.processor.SettingBookTemporalPolicy;
+import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper;
 
 /** 분석의 임시 입력을 사용자 확정 시점의 실제 설정과 선택된 선행 제안에 대조한다. */
 @Component
@@ -76,6 +79,69 @@ public class CharacterAnalysisConfirmation {
         return candidate.getTemporalScope() != null && candidate.getTemporalScope() != CharacterFactTemporalScope.PRESENT
                 || candidate.getSuggestedOperation() == CharacterFactOperation.HISTORY_ONLY
                 || keepLateReviewInHistory(candidate, type, key);
+    }
+
+    public AutomaticReviewHoldReason automaticHold(SettingCandidate candidate) {
+        if (candidate.isCharacterDiscovery()) return null;
+        boolean pastHistoryOnly = candidate.isAutomaticPastHistoryOnly();
+        var incoming = AnalysisCurrentSourceTimeMapper.from(candidate.getAnalysisJob(), candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope());
+        if (!pastHistoryOnly && SettingBookTemporalPolicy.requiresReview(incoming, List.of(), false)) return AutomaticReviewHoldReason.SETTING_TIME_CONFIRMATION_REQUIRED;
+        if (candidate.getSuggestedOperation() == CharacterFactOperation.EXCLUDE) return null;
+        UUID id = resolvedCharacterId(candidate);
+        if (id == null) return null;
+        WorkCharacter character = characterRepository.findByIdAndWorkIdForUpdate(id, candidate.getWork().getId()).orElse(null);
+        if (character == null || character.getStatus() != CharacterStatus.ACTIVE) return AutomaticReviewHoldReason.SUBJECT_CONFIRMATION_REQUIRED;
+        var schema = schemaResolver.resolve(candidate.getAttributeName(), candidate.getValueType(), schemaRepository.findAllActiveForWork(candidate.getWork().getId()));
+        if (pastHistoryOnly) return null;
+        String key = candidate.getResolvedCanonicalFactKey() == null ? schema.factKey() : candidate.getResolvedCanonicalFactKey().trim();
+        var destination = new CharacterSnapshotSlot(schema.matchedSchema().getFactType(), key);
+        java.util.Set<CharacterSnapshotSlot> affected = new java.util.LinkedHashSet<>(); affected.add(destination);
+        if (candidate.getComparisonTargetFactType() != null && candidate.getComparisonTargetFactKey() != null) {
+            affected.add(new CharacterSnapshotSlot(candidate.getComparisonTargetFactType(), candidate.getComparisonTargetFactKey().trim()));
+        }
+        if (candidate.getRemovedSnapshotEntriesJson() != null) candidate.getRemovedSnapshotEntriesJson().forEach(value -> affected.add(
+                new CharacterSnapshotSlot(CharacterFactType.valueOf(value.path("factType").asText()), value.path("factKey").asText().trim())));
+        for (var slot : affected) {
+            boolean removing = !slot.equals(destination) || candidate.getSuggestedOperation() == CharacterFactOperation.REMOVE;
+            var reason = slotHold(candidate, character, slot, removing, true);
+            if (reason != null) return reason;
+        }
+        return null;
+    }
+
+    private AutomaticReviewHoldReason slotHold(SettingCandidate candidate, WorkCharacter character, CharacterSnapshotSlot slot, boolean removing) {
+        return slotHold(candidate, character, slot, removing, false);
+    }
+
+    private AutomaticReviewHoldReason slotHold(SettingCandidate candidate, WorkCharacter character, CharacterSnapshotSlot slot, boolean removing, boolean automaticDecision) {
+        var current = accessor.read(character).get(slot);
+        boolean changing = removing || current == null || !Objects.equals(current.valueJson(), candidate.getProposedValueJson());
+        changing |= automaticDecision && candidate.getSuggestedOperation() == CharacterFactOperation.MERGE;
+        if (!changing) return null;
+        boolean book = candidate.getAnalysisJob() != null && candidate.getAnalysisJob().isSettingBookSource();
+        var sources = sourceRepository.findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderBySourceOrderAsc(character.getId(), slot.factType(), slot.factKey());
+        if (book && (character.isManuallyEditedSlot(slot.factType(), slot.factKey()) || sources.stream().anyMatch(source ->
+                source.getSourceFact().getSettingCandidate() == null || source.getSourceFact().getSettingCandidate().hasUserEditedContent()))) {
+            return AutomaticReviewHoldReason.HUMAN_CURRENT_SETTING_PROTECTED;
+        }
+        if (current == null) {
+            if (book && !factRepository.findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(
+                    character.getId(), slot.factType(), slot.factKey()).stream().filter(fact -> fact.getSettingCandidate() == null
+                    || fact.getSettingCandidate().getSuggestedOperation() != CharacterFactOperation.HISTORY_ONLY
+                    && fact.getSettingCandidate().getConfirmedApplicationMode() != org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode.HISTORY_ONLY).toList().isEmpty()) {
+                return AutomaticReviewHoldReason.SETTING_TIME_CONFIRMATION_REQUIRED;
+            }
+            return null;
+        }
+        var times = sources.stream().map(source -> {
+            var fact = source.getSourceFact(); var origin = fact.getSettingCandidate();
+            return AnalysisCurrentSourceTimeMapper.from(origin == null ? null : origin.getAnalysisJob(), fact.getEffectiveFromEpisodeNo(),
+                    origin == null ? CharacterFactTemporalScope.UNKNOWN : origin.getTemporalScope());
+        }).toList();
+        boolean replacement = removing || candidate.getSuggestedOperation() != CharacterFactOperation.MERGE;
+        return SettingBookTemporalPolicy.requiresReview(AnalysisCurrentSourceTimeMapper.from(candidate.getAnalysisJob(), candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope()), times,
+                !automaticDecision || replacement, automaticDecision)
+                ? AutomaticReviewHoldReason.SETTING_TIME_CONFIRMATION_REQUIRED : null;
     }
 
     public boolean hasCurrentContext(SettingCandidate candidate, List<SettingCandidate> earlierApplied) {
@@ -170,6 +236,7 @@ public class CharacterAnalysisConfirmation {
         if (character == null || character.getStatus() != CharacterStatus.ACTIVE) throw new org.monitoring.catchholebackend.global.exception.AppException(
                 org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID);
         var slot = new CharacterSnapshotSlot(type, key);
+        if (character.isManuallyEditedSlot(type, key)) return true;
         Integer episode = candidate.getAnalysisJob() == null ? null : candidate.getAnalysisJob().getSourceEpisodeNo();
         if (!accessor.read(character).containsKey(slot)) {
             var history = factRepository.findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(id, type, key);
@@ -179,7 +246,13 @@ public class CharacterAnalysisConfirmation {
                         != org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode.HISTORY_ONLY);
         }
         var sources = sourceRepository.findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderBySourceOrderAsc(id, type, key);
-        if (sources.isEmpty() || episode == null || episode < 1) return true;
+        boolean incomingBook = candidate.getAnalysisJob() != null && candidate.getAnalysisJob().isSettingBookSource();
+        if (incomingBook || sources.stream().anyMatch(source -> source.getSourceFact().getSettingCandidate() != null
+                && source.getSourceFact().getSettingCandidate().getAnalysisJob() != null
+                && source.getSourceFact().getSettingCandidate().getAnalysisJob().isSettingBookSource())) {
+            return slotHold(candidate, character, slot, false) != null;
+        }
+        if (sources.isEmpty() || !incomingBook && (episode == null || episode < 1)) return true;
         return sources.stream().anyMatch(source -> {
             var fact = source.getSourceFact();
             var origin = fact.getSettingCandidate();
@@ -188,7 +261,11 @@ public class CharacterAnalysisConfirmation {
             if (number == null && origin != null && origin.getAnalysisJob() != null) {
                 number = origin.getAnalysisJob().getSourceEpisodeNo();
             }
-            return origin == null || origin.hasUserEditedContent() || number == null || number < 1 || number >= episode;
+            if (origin == null || origin.hasUserEditedContent()) return true;
+            boolean knownBook = origin.getAnalysisJob() != null && origin.getAnalysisJob().isSettingBookSource();
+            if (knownBook) return false;
+            if (number == null || number < 1) return true;
+            return !incomingBook && number >= episode;
         });
     }
 

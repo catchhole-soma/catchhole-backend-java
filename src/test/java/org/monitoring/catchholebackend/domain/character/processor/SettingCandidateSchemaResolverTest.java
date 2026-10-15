@@ -8,6 +8,8 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
@@ -245,6 +247,51 @@ class SettingCandidateSchemaResolverTest {
 
         assertThat(match.matchedSchema()).isSameAs(alias);
         assertThat(match.factKey()).isEqualTo("stats.strength");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "profile.직책, profile.직책, PATTERN",
+            "profile.감각, profile.감각, PATTERN",
+            "profile.왼손_온도감각, profile.왼손_온도감각, PATTERN",
+            "profile.직업, profile.occupation, ALIAS",
+            "occupation, profile.occupation, ALIAS",
+            "profile.occupation, profile.occupation, EXACT"
+    })
+    @DisplayName("동적 프로필 원키를 보존하고 등록된 직업 exact·alias를 먼저 적용한다")
+    void resolvePreservesDynamicProfileKeysAndOccupationPrecedence(
+            String attributeName,
+            String expectedFactKey,
+            CharacterFactCanonicalKeyResolution expectedResolution
+    ) {
+        CharacterSettingSchema profile = schema(
+                "profile.attribute",
+                "profile.*",
+                CharacterFactType.PROFILE,
+                SettingValueType.STRING
+        );
+        CharacterSettingSchema occupation = schema(
+                "profile.occupation",
+                null,
+                CharacterFactType.PROFILE,
+                SettingValueType.STRING,
+                "직업", "occupation", "job"
+        );
+
+        for (List<CharacterSettingSchema> schemas : List.of(
+                List.of(profile, occupation), List.of(occupation, profile)
+        )) {
+            SettingCandidateSchemaMatch match = resolver.resolve(
+                    attributeName, SettingValueType.STRING, schemas
+            );
+
+            assertThat(match.factKey()).isEqualTo(expectedFactKey);
+            assertThat(match.canonicalKeyResolution()).isEqualTo(expectedResolution);
+            assertThat(match.matchedSchema()).isSameAs(
+                    expectedResolution == CharacterFactCanonicalKeyResolution.PATTERN
+                            ? profile : occupation
+            );
+        }
     }
 
     @Test

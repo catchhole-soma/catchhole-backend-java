@@ -253,20 +253,9 @@ public class EpisodeServiceImpl implements EpisodeService {
 
     @Override
     @Transactional
-    public EpisodeUploadResponse uploadEpisodes(
-            Long memberId,
-            UUID workId,
-            EpisodeUploadRequest uploadRequest,
-            List<MultipartFile> sourceEpisodeFiles,
-            MultipartFile attachedSettingBookFile
-    ) {
+    public EpisodeUploadResponse uploadEpisodes(Long memberId, UUID workId, EpisodeUploadRequest uploadRequest, List<MultipartFile> sourceEpisodeFiles) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        return episodeUploadProcessor.processEpisodeUpload(
-                work,
-                uploadRequest,
-                sourceEpisodeFiles,
-                attachedSettingBookFile
-        );
+        return episodeUploadProcessor.processEpisodeUpload(work, uploadRequest, sourceEpisodeFiles);
     }
 
     @Override

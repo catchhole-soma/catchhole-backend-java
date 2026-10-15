@@ -51,7 +51,7 @@ class CharacterDiscoveryRejectionTest {
     private final AnalysisRunStateService states = mock(AnalysisRunStateService.class);
     private final AtomicReference<JsonNode> projected = new AtomicReference<>();
     private final CharacterAnalysisStateService service = new CharacterAnalysisStateService(
-            states, candidates, new CharacterAnalysisStateMapper(), policy);
+            states, candidates, new CharacterAnalysisStateMapper(), policy, mock(org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.class));
     private Work work;
     private Episode episode;
     private AnalysisJob priorJob;

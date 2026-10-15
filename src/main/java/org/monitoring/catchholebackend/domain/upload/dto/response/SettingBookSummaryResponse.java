@@ -27,6 +27,24 @@ public record SettingBookSummaryResponse(
         )
         long fileSize,
         @Schema(description = "업로드 시각", requiredMode = Schema.RequiredMode.REQUIRED)
-        LocalDateTime uploadedAt
+        LocalDateTime uploadedAt,
+        UUID batchId,
+        @Schema(nullable = true) UUID revisionId,
+        @Schema(nullable = true) Integer revisionNo,
+        @Schema(nullable = true) String contentHash,
+        @Schema(nullable = true) Integer charCount,
+        @Schema(nullable = true) org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobResponse latestAnalysisJob,
+        @Schema(nullable = true) org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus analysisStatus,
+        boolean contentChangedSinceAnalysis,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) org.monitoring.catchholebackend.domain.upload.type.SettingBookReferenceTimeKind referenceTimeKind,
+        @Schema(nullable = true) Integer referenceEpisodeNo
 ) {
+    public SettingBookSummaryResponse(UUID id, String originalFilename, String mimeType, long fileSize,
+            LocalDateTime uploadedAt, UUID batchId, UUID revisionId, Integer revisionNo, String contentHash,
+            Integer charCount, org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobResponse latestAnalysisJob,
+            org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus analysisStatus, boolean contentChangedSinceAnalysis) {
+        this(id, originalFilename, mimeType, fileSize, uploadedAt, batchId, revisionId, revisionNo, contentHash, charCount,
+                latestAnalysisJob, analysisStatus, contentChangedSinceAnalysis,
+                org.monitoring.catchholebackend.domain.upload.type.SettingBookReferenceTimeKind.UNSPECIFIED, null);
+    }
 }

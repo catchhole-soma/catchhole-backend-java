@@ -17,6 +17,16 @@ public interface SettingCandidatePromotionService {
      */
     void promoteGroup(List<SettingCandidateGroupPromotion> promotions);
 
+    /** Apply confirmed representative selections in validated journal order, including semantic duplicates. */
+    void finalizeNarrativeTimes(org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob job);
+
+    /** Replay a final character group's choices together when their original jobs interleave. */
+    void finalizeNarrativeTimes(List<org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob> jobs);
+
+    /** 고정 원문 검증을 마친 설정집 동일명 그룹만 현재 실행에서 별도 생성한다. */
+    void promoteAutomaticGroup(List<SettingCandidateGroupPromotion> promotions,
+            org.monitoring.catchholebackend.domain.character.processor.SettingBookIdentityValidator.ValidatedIdentities identities);
+
     /** 실제 쓰기와 같은 규칙으로 자동 반영 후보를 선행 채택 결과 위에서 검증한다. */
     void validateAutomaticPromotion(SettingCandidate candidate, List<SettingCandidate> earlierAccepted);
 

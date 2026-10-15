@@ -35,13 +35,16 @@ public class SettingCandidateMapper {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final CharacterSnapshotAccessor snapshotAccessor;
     private final CharacterSnapshotSourceManager snapshotSourceManager;
+    private final org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope reviewSources;
 
     public SettingCandidateMapper(
             CharacterSnapshotAccessor snapshotAccessor,
-            CharacterSnapshotSourceManager snapshotSourceManager
+            CharacterSnapshotSourceManager snapshotSourceManager,
+            org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope reviewSources
     ) {
         this.snapshotAccessor = snapshotAccessor;
         this.snapshotSourceManager = snapshotSourceManager;
+        this.reviewSources = reviewSources;
     }
 
     public SettingCandidateResponse toResponse(
@@ -76,6 +79,9 @@ public class SettingCandidateMapper {
         Episode episode = candidate.getEpisode();
         AnalysisJob analysisJob = candidate.getAnalysisJob();
 
+        WorkCharacter current = candidate.getMatchedCharacter();
+        if (current == null && candidate.getCharacterComparisonBatch() != null) current = candidate.getCharacterComparisonBatch().getMatchedCharacter();
+        Long currentVersion = current == null ? null : current.getSnapshotVersion();
         return new SettingCandidateResponse(
                 candidate.getId(),
                 candidate.getWork().getId(),
@@ -121,14 +127,23 @@ public class SettingCandidateMapper {
                         .getCharacterComparisonInputHash(),
                 candidate.getCreatedAt(),
                 candidate.getUpdatedAt(),
-                candidate.isManualReviewAvailable(),
+                candidate.isManualReviewAvailable() && (!analysisJob.isSettingBookSource() || reviewSources.isActionable(analysisJob)),
                 candidate.isPendingReview() ? candidate.getAutomaticReviewHoldReason() : null,
                 candidate.isAutomaticApplicationPending(),
                 analysisJob == null ? null : analysisJob.getAnalysisMode(),
                 candidate.getConfirmedApplicationMode() == org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode.HISTORY_ONLY,
                 candidate.isUserModified(),
-                candidate.getReviewedApplicationMode()
-        );
+                candidate.getReviewedApplicationMode(), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(candidate.getAnalysisJob()), currentVersion,
+                currentVersion != null && analysisJob != null && analysisJob.isSettingBookSource() && analysisJob.isCompletedOrderedAnalysis()
+                        && !candidate.isAutomaticApplicationPending() && candidate.isPendingReview() && !candidate.isCharacterDiscovery()
+                        && candidate.getSuggestedOperation() != org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation.REMOVE
+                        && candidate.getSuggestedOperation() != org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation.EXCLUDE
+                        && candidate.isManualReviewAvailable() && reviewSources.isActionable(analysisJob)
+                        && (!org.monitoring.catchholebackend.domain.analysis.processor.SettingBookTemporalPolicy.requiresReview(
+                            org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(
+                                analysisJob, candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope()), java.util.List.of(), false)
+                            || candidate.getReviewedApplicationMode() == org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode.APPLY_PROPOSAL),
+                candidate.getEffectiveFromEpisodeNo());
     }
 
     private String publicComparisonErrorMessage(SettingCandidate candidate) {
