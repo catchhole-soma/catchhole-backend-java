@@ -919,6 +919,7 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 
 ### 챗봇 설정 경로·조건 조회 개선 (#247)
 
+- 챗봇이 새로 작성하는 설명·목록·조건 explanation은 존댓말(~습니다/~요)을 사용한다. AI의 공통 `ANSWER_STYLE_INSTRUCTIONS`는 hybrid answer v7·등록 설명/현재 조건/이력 조건 v2에 적용하고 계획 v6은 유지한다. 사용자·이전 대화 등 자료의 반말을 따르지 않는다. 말투 변경으로 저장값·정확한 인용·AI의 supports.quote를 바꾸지 않으며 정규식 말투 변환이나 추가 모델 호출을 하지 않는다. 검색·정산·인용 검증 계약은 유지하고 공통 문서에서 이전 실행 기록과 새 말투 검증을 구분한다.
 - `CHARACTER_FIELDS`/`WORLD_FIELDS`는 실제 현재/허용 이력의 값 없는 경로 메타데이터다. 모델은 관측된 경로 ref를 고르고 오케스트레이터가 저장 key/type/scope를 재사용한다. `factType`·key는 pagination 전에 필터하며 문맥 예산으로 조회 완전성을 대신 판단하지 않는다.
 - `FIND_CHARACTERS`의 현재 scalar 조건 검색은 `CharacterSnapshotAccessor`를 재사용해 수동/레거시 형식을 일치시킨다. 조건 전에 활성 인물을 잘라 거짓 전체 결과를 반환하지 않으며 전체 scan 비용은 `docs/setting-tools-v1.md`에 명시한다. 조건 실패를 과거 Fact나 부분 문자열로 확장하지 않는다.
 - `CHARACTER_CURRENT_COLLECTION`/`WORLD_CURRENT_COLLECTION`은 작품의 등록 대상 현재 설정을 필터 후 페이지로 제공한다. 응답 `collection`은 모집단 대상 수·설정이 있는 대상 수·설정 행 수를 구분한다. 값 누락을 의미 조건 불일치로 처리하지 않으며 STATUS의 생존·부활 등을 Java가 추정하지 않는다.
