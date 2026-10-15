@@ -390,11 +390,11 @@ class ChatExecutionIntegrationTest {
     }
 
     @Test
-    @DisplayName("확장된 입력의 여섯 텍스트 호출과 임베딩을 예약하되 실측만 차감하고 누적 상한은 유지한다")
+    @DisplayName("절단 재시도 출력까지 포함한 여섯 텍스트 호출과 임베딩을 예약하되 실측만 차감한다")
     void expandedContextReservationsKeepMeasuredSettlementAndAttemptLimit() {
         var r = start();
         assertThat(service.context(r.view.attemptId(), r.token, r.runner).tokenBudget())
-                .isEqualTo(208000);
+                .isEqualTo(240000);
         for (int i = 0; i < 6; i++) {
             var call = UUID.randomUUID();
             service.reserve(
@@ -405,8 +405,8 @@ class ChatExecutionIntegrationTest {
                             call,
                             i == 0 ? AiTokenPurpose.CHAT_INTERPRETATION : AiTokenPurpose.CHAT_ANSWER,
                             "test-model",
-                            32000 + 1500));
-            assertThat(balance()).containsExactly(i * 25L, 33500);
+                            32000 + 6000));
+            assertThat(balance()).containsExactly(i * 25L, 38000);
             settle(r, call);
         }
         var embedding = UUID.randomUUID();
@@ -426,10 +426,10 @@ class ChatExecutionIntegrationTest {
         tx.executeWithoutResult(status -> {
             var run = runs.findById(r.view.attemptId()).orElseThrow();
             assertThat(run.getCallCount()).isEqualTo(7);
-            assertThat(run.getAllocatedTokens()).isEqualTo(205256);
+            assertThat(run.getAllocatedTokens()).isEqualTo(232256);
         });
         // Settlement frees account reservations but does not refill the attempt's safety budget.
-        assertThatThrownBy(() -> reserve(r, UUID.randomUUID(), 2745))
+        assertThatThrownBy(() -> reserve(r, UUID.randomUUID(), 7745))
                 .isInstanceOfSatisfying(AppException.class, error ->
                         assertThat(error.getResultCode()).isEqualTo(
                                 org.monitoring.catchholebackend.domain.chat.exception.ChatErrorCode.CHAT_LIMIT_EXCEEDED));

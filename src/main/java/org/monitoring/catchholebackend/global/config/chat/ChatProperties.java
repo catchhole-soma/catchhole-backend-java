@@ -29,7 +29,7 @@ public record ChatProperties(
         if (maxActivePerMember == 0) maxActivePerMember = 3;
         if (maxCalls == 0) maxCalls = 8;
         if (maxToolCalls == 0) maxToolCalls = 20;
-        if (attemptTokenBudget == 0) attemptTokenBudget = 208000;
+        if (attemptTokenBudget == 0) attemptTokenBudget = 240000;
         if (executionTimeout == null) executionTimeout = Duration.ofSeconds(120);
         if (usageGrace == null) usageGrace = Duration.ofMinutes(10);
         if (maxBodyBytes < 512
