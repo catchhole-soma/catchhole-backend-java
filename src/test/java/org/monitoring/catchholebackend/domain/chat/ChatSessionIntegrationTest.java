@@ -147,7 +147,9 @@ class ChatSessionIntegrationTest {
     @DisplayName("진행 중 질문이 있으면 다른 탭의 새 질문을 거절한다")
     void serialQuestions() {
         var id = session();
+        assertThat(sessions.getSession(member, work, id).busy()).isFalse();
         submit(id, "첫 질문");
+        assertThat(sessions.getSession(member, work, id).busy()).isTrue();
         assertThatThrownBy(() -> submit(id, "두번째 질문"))
                 .isInstanceOf(AppException.class)
                 .hasMessageContaining("앞선 답변");
@@ -193,6 +195,7 @@ class ChatSessionIntegrationTest {
         }
         assertThat(runs.findById(pending.attemptId()).orElseThrow().getState())
                 .isEqualTo(ChatState.SETTLEMENT_PENDING);
+        assertThat(sessions.getSession(member, work, id).busy()).isTrue();
         java.util.function.Supplier<View> next =
                 () ->
                         retry
@@ -214,6 +217,7 @@ class ChatSessionIntegrationTest {
                 new Usage(ReportKind.SETTLE, 20L, 0L, 5L, AiTokenUsageOutcome.SUCCESS));
         assertThat(runs.findById(pending.attemptId()).orElseThrow().getState())
                 .isEqualTo(ChatState.SUCCEEDED);
+        assertThat(sessions.getSession(member, work, id).busy()).isFalse();
         assertThat(next.get().state()).isEqualTo(ChatState.QUEUED);
     }
 
@@ -228,7 +232,36 @@ class ChatSessionIntegrationTest {
                                 runs.findById(expired.attemptId()).orElseThrow(),
                                 "deadline",
                                 Instant.now().minusSeconds(1)));
+        assertThat(sessions.getSession(member, work, id).busy()).isFalse();
         assertThat(submit(id, "다음 질문").state()).isEqualTo(ChatState.QUEUED);
+    }
+
+    @Test
+    @DisplayName("이전 페이지 질문을 재시도해도 세션 전체 실행 상태를 상세와 목록에서 알 수 있다")
+    void sessionBusyIncludesRetryOutsideTheDisplayedPage() throws Exception {
+        var id = session();
+        var original = submit(id, "다시 확인할 첫 질문");
+        var dispatch = service.dispatch(original.attemptId());
+        var runner = UUID.randomUUID();
+        service.start(original.attemptId(), dispatch.capability(), runner);
+        service.finish(original.attemptId(), dispatch.capability(), runner,
+                new Finish(null, Failure.PROVIDER_FAILURE));
+        for (int i = 0; i < 20; i++) finish(submit(id, "후속 질문 " + i), "완료한 답변");
+
+        var retried = service.retry(member, work, original.questionId(), new Retry(original.attemptId()));
+        assertThat(sessions.listMessages(member, work, id, 1, 20).content())
+                .allSatisfy(message -> assertThat(message.execution().state()).isEqualTo(ChatState.SUCCEEDED));
+        assertThat(sessions.getSession(member, work, id).busy()).isTrue();
+        assertThat(sessions.listSessions(member, work, 0, 20).content())
+                .singleElement().satisfies(session -> assertThat(session.busy()).isTrue());
+        mvc.perform(get("/api/v1/works/{workId}/chat-sessions/{sessionId}", work, id)
+                        .header("Authorization", "Bearer " + jwt))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.busy").value(true));
+
+        finish(retried, "재시도한 답변");
+        assertThat(sessions.getSession(member, work, id).busy()).isFalse();
+        assertThat(sessions.listSessions(member, work, 0, 20).content())
+                .singleElement().satisfies(session -> assertThat(session.busy()).isFalse());
     }
 
     @Test

@@ -15,7 +15,15 @@ public final class ChatSessionContract {
 
     @Schema(name = "ChatSessionV1", description = "활성 일회성 대화. 마지막 질문·답변부터 2시간 뒤 만료됩니다.")
     public record Session(
-            UUID id, UUID workId, LocalDateTime createdAt, Instant expiresAt, long questionCount) {}
+            UUID id,
+            UUID workId,
+            LocalDateTime createdAt,
+            Instant expiresAt,
+            long questionCount,
+            @Schema(
+                            requiredMode = Schema.RequiredMode.REQUIRED,
+                            description = "메시지 페이지와 무관하게 새 질문·재시도를 막는 실행이 있는지 나타냅니다. 정산 대기도 포함합니다.")
+                    boolean busy) {}
 
     @Schema(name = "ChatMessageV1", description = "순서가 고정된 질문과 최신 실행 답변 한 쌍. 본문이 무효화되면 null입니다.")
     public record Message(

@@ -55,18 +55,19 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         var previous = sessions.findByWorkIdAndCreationKey(work, requestId);
         if (previous.isPresent()) {
             open(previous.get());
-            return mapper.session(previous.get());
+            return mapper.session(previous.get(), busy(previous.get()));
         }
         if (sessions.countByWorkMemberIdAndClosedAtIsNullAndExpiresAtAfter(member, Instant.now())
                 >= 20) throw new AppException(CHAT_SESSION_LIMIT);
         return mapper.session(
-                sessions.save(ChatSession.create(owned, requestId, Instant.now(), TTL)));
+                sessions.save(ChatSession.create(owned, requestId, Instant.now(), TTL)), false);
     }
 
     @Override
     @Transactional
     public Session getSession(Long member, UUID work, UUID session) {
-        return mapper.session(owned(member, work, session, true));
+        var found = owned(member, work, session, true);
+        return mapper.session(found, busy(found));
     }
 
     @Override
@@ -76,7 +77,17 @@ public class ChatSessionServiceImpl implements ChatSessionService {
         var found =
                 sessions.findByWorkIdAndClosedAtIsNullAndExpiresAtAfterOrderByCreatedAtAscIdAsc(
                         work, Instant.now(), page(page, size));
-        return PageResponse.from(found, found.map(mapper::session).getContent());
+        Set<UUID> busyIds =
+                found.isEmpty()
+                        ? Set.of()
+                        : new HashSet<>(
+                                runs.findBlockingSessionIds(
+                                        found.stream().map(ChatSession::getId).toList(),
+                                        IN_FLIGHT,
+                                        Instant.now()));
+        return PageResponse.from(
+                found,
+                found.map(s -> mapper.session(s, busyIds.contains(s.getId()))).getContent());
     }
 
     @Override
@@ -224,8 +235,11 @@ public class ChatSessionServiceImpl implements ChatSessionService {
     }
 
     private void idle(ChatSession s) {
-        if (runs.existsBlockingSessionRun(s.getId(), IN_FLIGHT, Instant.now()))
-            throw new AppException(CHAT_SESSION_BUSY);
+        if (busy(s)) throw new AppException(CHAT_SESSION_BUSY);
+    }
+
+    private boolean busy(ChatSession s) {
+        return !runs.findBlockingSessionIds(List.of(s.getId()), IN_FLIGHT, Instant.now()).isEmpty();
     }
 
     private PageRequest page(int page, int size) {
