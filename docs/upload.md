@@ -4,7 +4,7 @@
 
 Upload 도메인은 회차 업로드 요청의 batch와 개별 파일 메타데이터를 추적합니다.
 
-회차 업로드는 `EpisodeController`와 `EpisodeUploadProcessor`가 처리합니다. 설정집 원본은 회차 업로드의 선택 첨부로도 받을 수 있고, `SettingBookController`를 통해 독립적으로 업로드·조회·원문 수정·soft delete할 수도 있습니다.
+회차 업로드는 `EpisodeController`와 `EpisodeUploadProcessor`가 처리합니다. 설정집 원본은 별도 `/api/v1/works/{workId}/setting-books` API에서 `SettingBookController`가 업로드·조회·원문 수정·soft delete를 처리합니다. 회차 업로드는 설정집 첨부를 받지 않습니다.
 
 ## 핵심 결정
 
@@ -23,7 +23,7 @@ batch에는 작품, 회원, 업로드 방식, 파일 개수, 전체 처리 상�
 
 원본 파일 자체는 S3에 저장하고, DB에는 `storage_url`, 원본 파일명, mime type, size, 파싱 결과를 저장합니다. 회차 삭제·수정·교체로 원본 객체를 파기한 뒤에는 존재하지 않는 위치를 노출하지 않도록 `storage_url`을 `null`로 비웁니다.
 
-TXT·DOCX·HWP·HWPX 원본은 파일당 10MB까지 허용하고 multipart 요청 전체는 25MB로 제한합니다. DOCX는 `word/document.xml` 이전 엔트리를 포함한 실제 압축 해제량을 누적해 20MB를 초과하거나 본문 탐색 중 ZIP 엔트리가 256개를 초과하면 `UPLOAD_FILE_TOO_LARGE`로 거절합니다. 선택 part를 생략하는 것과 명시적으로 빈 파일을 첨부하는 것을 구분하며, 빈 파일은 `UPLOAD_FILE_EMPTY`로 거절합니다. multipart 파일의 원본 파일명은 필수이며, 누락되거나 공백이면 서버가 확장자를 추정하지 않고 `UPLOAD_FILE_TYPE_NOT_SUPPORTED`로 거절합니다.
+TXT·DOCX·HWP·HWPX 원본은 파일당 10MB까지 허용하고 multipart 요청 전체는 25MB로 제한합니다. DOCX는 `word/document.xml` 이전 엔트리를 포함한 실제 압축 해제량을 누적해 20MB를 초과하거나 본문 탐색 중 ZIP 엔트리가 256개를 초과하면 `UPLOAD_FILE_TOO_LARGE`로 거절합니다. 빈 파일은 `UPLOAD_FILE_EMPTY`로 거절합니다. multipart 파일의 원본 파일명은 필수이며, 누락되거나 공백이면 서버가 확장자를 추정하지 않고 `UPLOAD_FILE_TYPE_NOT_SUPPORTED`로 거절합니다.
 
 ## 상태 모델
 
@@ -47,7 +47,7 @@ TXT·DOCX·HWP·HWPX 원본은 파일당 10MB까지 허용하고 multipart 요�
 | --- | --- | --- |
 | `PENDING` | batch 생성 직후 | `UploadBatch.create()`로 생성될 때 기본값으로 설정됩니다. 현재 회차 업로드 흐름에서는 파일 파싱과 중복 회차 검증을 통과한 뒤 batch row가 저장됩니다. |
 | `PROCESSING` | 파싱/저장 처리 중 | `EpisodeUploadProcessor`가 batch를 저장한 직후 `UploadBatch.startProcessing()`으로 전환합니다. |
-| `COMPLETED` | 처리 완료 | 업로드 원본 파일, 회차 원문, `Episode`, 선택 설정집 파일 저장이 끝난 뒤 `UploadBatch.complete()`로 전환합니다. |
+| `COMPLETED` | 처리 완료 | 해당 업로드의 원본 파일과, 회차 업로드인 경우 회차 원문·`Episode` 저장이 끝난 뒤 `UploadBatch.complete()`로 전환합니다. |
 | `FAILED` | 처리 실패 | `UploadBatch.fail()` 상태입니다. 현재 동기 업로드 흐름에서는 예외 발생 시 같은 트랜잭션이 rollback되어 `FAILED`가 영속화되지 않을 수 있습니다. |
 
 정책 미확정 TODO:
@@ -99,7 +99,8 @@ TXT·DOCX·HWP·HWPX 원본은 파일당 10MB까지 허용하고 multipart 요�
 | `original_filename` | 원본 파일명 |
 | `mime_type` | MIME type |
 | `storage_url` | 원본 파일 S3 위치. 회차 원본 파기 후에는 `null` |
-| `content_storage_url` | 설정집에서 추출한 현재 편집용 텍스트 S3 위치. 회차 원본은 null |
+| `content_storage_url` | 설정집의 현재 revision 텍스트 S3 위치. 회차 원본은 null |
+| `current_setting_book_revision_id` | 현재 불변 설정집 revision 포인터 |
 | `file_size` | 파일 크기 |
 | `detected_episode_start_no` | 최종 생성한 시작 회차 번호. API/Java 이름은 `episodeStartNo` |
 | `detected_episode_end_no` | 최종 생성한 마지막 회차 번호. API/Java 이름은 `episodeEndNo` |
@@ -121,13 +122,13 @@ TXT·DOCX·HWP·HWPX 원본은 파일당 10MB까지 허용하고 multipart 요�
 upload-batches/{batchId}/{randomUUID}-{originalFilename}
 ```
 
-설정집의 조회·수정용 텍스트는 원본과 분리해 다음 고정 key로 저장합니다.
+설정집의 조회·수정용 텍스트는 원본과 분리해 revision마다 새 key로 저장합니다.
 
 ```text
-works/{workId}/setting-books/{settingBookId}/{normalizedOriginalBasename}.txt
+works/{workId}/setting-books/{settingBookId}/{nonce}/{normalizedOriginalBasename}.txt
 ```
 
-편집본 파일명은 원본 파일명의 경로와 확장자를 제거하고 Unicode NFC로 정규화한 뒤 `.txt`를 붙입니다. 설정집 수정은 같은 key를 PUT해 현재 텍스트만 교체하며, 업로드 원본 key와 원본 MIME·크기는 바꾸지 않습니다.
+편집본 파일명은 원본 파일명의 경로와 확장자를 제거하고 Unicode NFC로 정규화한 뒤 `.txt`를 붙입니다. 본문 또는 기준 시점 변경은 새 `setting_book_revisions` 행과 저장 객체를 만들고 현재 revision 포인터를 갱신합니다. revision에는 key/version/hash/Unicode code point 분량과 기준 시점을 보존합니다. 업로드 원본 key와 원본 MIME·크기는 바꾸지 않습니다.
 
 응답에는 현재 `ObjectStorageService.toStorageUrl()`을 통해 `s3://{key}` 형태로 내려갑니다.
 
@@ -194,12 +195,16 @@ source
 | 메서드·경로 | 동작 |
 | --- | --- |
 | `GET /api/v1/works/{workId}/setting-books` | `archived_at IS NULL`인 원본을 최근 업로드 순으로 조회 |
-| `POST /api/v1/works/{workId}/setting-books` | TXT, DOCX, HWP 또는 HWPX 원본 한 개를 별도 `SETTING_BOOK` batch로 저장 |
-| `GET /api/v1/works/{workId}/setting-books/{settingBookId}` | 편집용 현재 텍스트와 원본 MIME·크기 메타데이터를 반환 |
-| `PATCH /api/v1/works/{workId}/setting-books/{settingBookId}` | 작품·설정집·원본 파일명 기반의 고정 key에 전체 원문을 PUT |
-| `DELETE /api/v1/works/{workId}/setting-books/{settingBookId}` | `archived_at`만 기록하는 soft delete |
+| `POST /api/v1/works/{workId}/setting-books` | TXT, DOCX, HWP 또는 HWPX 원본 한 개를 별도 `SETTING_BOOK` batch와 최초 revision으로 저장하고 자동 설정 추출 Job 하나를 생성 |
+| `GET /api/v1/works/{workId}/setting-books/{settingBookId}` | 편집용 현재 텍스트·revision·기준 시점과 원본 MIME·크기 메타데이터를 반환 |
+| `GET /api/v1/works/{workId}/setting-books/{settingBookId}/revisions/{revisionId}` | 분석 당시 불변 revision 원문과 출처를 반환 |
+| `PATCH /api/v1/works/{workId}/setting-books/{settingBookId}` | 편집 시작 시 `expectedRevisionNo`를 검사한 뒤 변경된 본문·기준 시점을 새 revision으로 저장 |
+| `POST /api/v1/works/{workId}/setting-books/{settingBookId}/analysis-jobs` | 최신 저장 revision으로 설정집 분석 요청 |
+| `DELETE /api/v1/works/{workId}/setting-books/{settingBookId}` | 관련 미완료 실행을 무효화하고 `archived_at`을 기록하는 soft delete |
 
-같은 원본 파일명도 덮어쓰지 않고 매 업로드마다 새 설정집 항목과 고유 원본 객체로 누적합니다. 각 설정집은 업로드 원본과 추출된 편집용 UTF-8 텍스트를 분리하며, 모든 지원 형식에서 화면에서는 편집용 텍스트를 수정합니다. DOCX·HWP·HWPX 바이너리 원본은 변경하지 않습니다. 수정할 때는 동일한 `works/{workId}/setting-books/{settingBookId}/{normalizedOriginalBasename}.txt` key를 교체하므로 수정 횟수만큼 새 key가 생기지 않습니다. 원본 파일명, MIME 타입, 파일 크기와 최초 업로드 시각은 목록 표시값으로 유지합니다. soft delete한 DB row와 저장 객체는 물리 삭제하지 않습니다. 설정집 업로드와 수정은 분석 작업을 생성하지 않습니다.
+같은 원본 파일명도 덮어쓰지 않고 매 업로드마다 새 설정집 항목과 고유 원본 객체로 누적합니다. 각 설정집은 업로드 원본과 추출된 편집용 UTF-8 텍스트를 분리하며, 모든 지원 형식에서 화면에서는 편집용 텍스트를 수정합니다. DOCX·HWP·HWPX 바이너리 원본은 변경하지 않습니다. 변경 저장은 불변 revision과 새 key를 만들며, 분석 근거는 현재 편집본 대신 분석 당시 revision을 참조합니다. 본문과 기준 시점이 모두 같으면 새 revision이나 저장 객체를 만들지 않습니다. 원본 파일명, MIME 타입, 파일 크기와 최초 업로드 시각은 목록 표시값으로 유지합니다. soft delete한 DB row와 저장 객체는 물리 삭제하지 않습니다. 최초 업로드는 `AUTOMATIC + ORDERED_PROVISIONAL` 설정 추출 Job 하나를 생성합니다. 편집 저장은 분석을 생성하지 않으며 본문 또는 기준 시점 변경으로 미완료 실행을 무효화합니다. 분석 POST는 본문을 받지 않고 최신 저장 revision을 사용합니다.
+
+PATCH의 `expectedRevisionNo`는 편집 시작 시 읽은 번호가 필수이며, revision 없는 구형 설정집만 0을 사용합니다. 현재 번호와 다르면 동일 내용 저장도 `UPLOAD_SETTING_BOOK_REVISION_CONFLICT` 409로 거절합니다. `referenceTimeKind`는 `UNSPECIFIED|WORK_START|EPISODE`이며 EPISODE의 `referenceEpisodeNo`는 실제 등록 여부와 무관한 양수 N화 종료 시점입니다. PATCH에서 기준 시점을 생략하면 기존 값을 유지합니다.
 
 운영 S3 버킷에 Versioning이 활성화되어 있다면 동일 key PUT도 과거 version을 보관합니다. 작품 영구 삭제는 현재 version만 가리는 delete가 아니라 작품·배치 prefix의 모든 version과 delete marker를 명시적으로 삭제합니다.
 
@@ -212,4 +217,4 @@ source
 
 ## 한글 문서 지원 (GH224)
 
-모든 업로드 모드, 별도/동반 설정집과 회차 원고 교체에서 암호 없는 일반 HWP 5.x와 HWPX를 지원합니다. 추출 정책, 제한, 오류, fixture 재생성 방법은 [hangul-upload.md](hangul-upload.md)를 따릅니다. 원본 형식의 MIME은 클라이언트가 보낸 Content-Type 대신 `DocumentFormat`으로 결정합니다. 분석에는 추출한 UTF-8 본문만 전달하며 파일 변환에 AI나 외부 변환 API를 사용하지 않습니다.
+모든 회차 업로드 모드, 별도 설정집 업로드와 회차 원고 교체에서 암호 없는 일반 HWP 5.x와 HWPX를 지원합니다. 추출 정책, 제한, 오류, fixture 재생성 방법은 [hangul-upload.md](hangul-upload.md)를 따릅니다. 원본 형식의 MIME은 클라이언트가 보낸 Content-Type 대신 `DocumentFormat`으로 결정합니다. 분석에는 추출한 UTF-8 본문만 전달하며 파일 변환에 AI나 외부 변환 API를 사용하지 않습니다.
