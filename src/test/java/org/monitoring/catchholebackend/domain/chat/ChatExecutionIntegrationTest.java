@@ -390,6 +390,53 @@ class ChatExecutionIntegrationTest {
     }
 
     @Test
+    @DisplayName("확장된 입력의 여섯 텍스트 호출과 임베딩을 예약하되 실측만 차감하고 누적 상한은 유지한다")
+    void expandedContextReservationsKeepMeasuredSettlementAndAttemptLimit() {
+        var r = start();
+        assertThat(service.context(r.view.attemptId(), r.token, r.runner).tokenBudget())
+                .isEqualTo(208000);
+        for (int i = 0; i < 6; i++) {
+            var call = UUID.randomUUID();
+            service.reserve(
+                    r.view.attemptId(),
+                    r.token,
+                    r.runner,
+                    new Reserve(
+                            call,
+                            i == 0 ? AiTokenPurpose.CHAT_INTERPRETATION : AiTokenPurpose.CHAT_ANSWER,
+                            "test-model",
+                            32000 + 1500));
+            assertThat(balance()).containsExactly(i * 25L, 33500);
+            settle(r, call);
+        }
+        var embedding = UUID.randomUUID();
+        service.reserve(
+                r.view.attemptId(),
+                r.token,
+                r.runner,
+                new Reserve(embedding, AiTokenPurpose.CHAT_QUERY_EMBEDDING, "test-embedding", 4000 + 256));
+        assertThat(balance()).containsExactly(150, 4256);
+        service.report(
+                r.view.attemptId(),
+                r.token,
+                r.runner,
+                embedding,
+                new Usage(ReportKind.SETTLE, 10L, 0L, 0L, AiTokenUsageOutcome.SUCCESS));
+        assertThat(balance()).containsExactly(160, 0);
+        tx.executeWithoutResult(status -> {
+            var run = runs.findById(r.view.attemptId()).orElseThrow();
+            assertThat(run.getCallCount()).isEqualTo(7);
+            assertThat(run.getAllocatedTokens()).isEqualTo(205256);
+        });
+        // Settlement frees account reservations but does not refill the attempt's safety budget.
+        assertThatThrownBy(() -> reserve(r, UUID.randomUUID(), 2745))
+                .isInstanceOfSatisfying(AppException.class, error ->
+                        assertThat(error.getResultCode()).isEqualTo(
+                                org.monitoring.catchholebackend.domain.chat.exception.ChatErrorCode.CHAT_LIMIT_EXCEEDED));
+        assertThat(balance()).containsExactly(160, 0);
+    }
+
+    @Test
     @DisplayName("실행 예산 한도는 잔액 부족과 다른 코드로 거절하고 실패 결과를 보존한다")
     void executionLimitFailureIsSeparateFromAccountQuota() throws Exception {
         var a = start();
