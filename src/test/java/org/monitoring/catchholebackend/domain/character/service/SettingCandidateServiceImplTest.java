@@ -119,12 +119,13 @@ class SettingCandidateServiceImplTest {
     private CharacterFactComparisonJobCoordinator characterComparisonJobCoordinator;
 
     @Mock private org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService aiTokenService;
+    @Mock private org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope reviewSources;
     private SettingCandidateServiceImpl service;
 
     @BeforeEach
     void setUp() {
         service = new SettingCandidateServiceImpl(
-                workRepository,
+                workRepository, reviewSources,
                 org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService.class),
                 uploadBatchRepository,
                 analysisJobRepository,
@@ -139,8 +140,27 @@ class SettingCandidateServiceImplTest {
                 aiTokenService,
                 org.mockito.Mockito.mock(CharacterAnalysisConfirmation.class),
                 characterComparisonJobCoordinator,
-                org.mockito.Mockito.mock(jakarta.persistence.EntityManager.class)
+                org.mockito.Mockito.mock(jakarta.persistence.EntityManager.class),
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.processor.SettingBookIdentityValidator.class),
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.processor.SettingBookAutomaticEvidenceValidator.class)
         );
+    }
+
+    @Test
+    void automaticPastHistoryDoesNotConfirmUserModifiedCandidate() {
+        Work work = work(UUID.randomUUID());
+        SettingCandidate candidate = completedOrderedReviewCandidate(work);
+        AnalysisJob job = candidate.getAnalysisJob();
+        ReflectionTestUtils.setField(job, "reviewMode", org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC);
+        ReflectionTestUtils.setField(candidate, "suggestedOperation", CharacterFactOperation.HISTORY_ONLY);
+        ReflectionTestUtils.setField(candidate, "temporalScope", CharacterFactTemporalScope.PAST);
+        ReflectionTestUtils.setField(candidate, "userModified", true);
+        when(settingCandidateRepository.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(job.getId())).thenReturn(List.of(candidate));
+        service.applyAutomatically(job);
+        assertThat(candidate.isAutomaticPastHistoryOnly()).isTrue();
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+        verify(settingCandidatePromotionService).promoteGroup(List.of());
+        verify(settingCandidatePromotionService, never()).promote(eq(candidate), any());
     }
 
     @Test
@@ -470,7 +490,7 @@ class SettingCandidateServiceImplTest {
         when(counts.getPendingCandidateCount()).thenReturn(3L);
         when(counts.getMatchRequiredCandidateCount()).thenReturn(2L);
         when(counts.getAttentionRequiredCandidateCount()).thenReturn(3L);
-        when(analysisJobRepository.findEpisodeRangeByWorkIdAndBatchId(workId, batchId))
+        when(reviewSources.episodeRange(work, batchId, null))
                 .thenReturn(episodeRange);
         when(episodeRange.getEpisodeStartNo()).thenReturn(1);
         when(episodeRange.getEpisodeEndNo()).thenReturn(5);
@@ -558,7 +578,7 @@ class SettingCandidateServiceImplTest {
                 SettingCandidateMatchStatus.AMBIGUOUS,
                 Set.of(CharacterFactComparisonStatus.FAILED, CharacterFactComparisonStatus.RECOMPARISON_REQUIRED)
         )).thenReturn(counts);
-        when(analysisJobRepository.findEpisodeRangeByWorkIdAndBatchId(workId, batchId))
+        when(reviewSources.episodeRange(work, batchId, null))
                 .thenReturn(episodeRange);
         when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of());
         SettingCandidateResponse firstResponse = response(workId);
@@ -640,7 +660,7 @@ class SettingCandidateServiceImplTest {
                 SettingCandidateMatchStatus.AMBIGUOUS,
                 Set.of(CharacterFactComparisonStatus.FAILED, CharacterFactComparisonStatus.RECOMPARISON_REQUIRED)
         )).thenReturn(counts);
-        when(analysisJobRepository.findEpisodeRangeByWorkIdAndBatchId(workId, batchId))
+        when(reviewSources.episodeRange(work, batchId, null))
                 .thenReturn(episodeRange);
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
@@ -1762,11 +1782,6 @@ class SettingCandidateServiceImplTest {
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId))
                 .thenReturn(Optional.of(candidate));
-        when(workCharacterRepository.findByWorkIdAndNameAndStatus(
-                workId,
-                "alice smith",
-                CharacterStatus.ACTIVE
-        )).thenReturn(Optional.empty());
         when(workCharacterRepository.findAllByWorkIdAndStatusOrderByCreatedAtDesc(
                 workId,
                 CharacterStatus.ACTIVE
@@ -1806,11 +1821,6 @@ class SettingCandidateServiceImplTest {
         when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
         when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId))
                 .thenReturn(Optional.of(candidate));
-        when(workCharacterRepository.findByWorkIdAndNameAndStatus(
-                workId,
-                "alice smith",
-                CharacterStatus.ACTIVE
-        )).thenReturn(Optional.empty());
         when(workCharacterRepository.findAllByWorkIdAndStatusOrderByCreatedAtDesc(
                 workId,
                 CharacterStatus.ACTIVE
@@ -2033,6 +2043,34 @@ class SettingCandidateServiceImplTest {
                         ));
 
         verifyNoInteractions(characterComparisonJobCoordinator);
+    }
+
+    @Test
+    @DisplayName("사용자 반려는 모델 중복 제외의 대표 시점 선택을 이후 확정에 남기지 않는다")
+    void userDismissClearsTimeSelectionFromSemanticExclude() {
+        Long memberId = 1L;
+        UUID workId = UUID.randomUUID();
+        UUID candidateId = UUID.randomUUID();
+        Work work = work(workId);
+        SettingCandidate candidate = candidate(work, "아리아", "age", "17");
+        ReflectionTestUtils.setField(candidate, "comparisonStatus", CharacterFactComparisonStatus.COMPLETED);
+        ReflectionTestUtils.setField(candidate, "suggestedOperation", CharacterFactOperation.EXCLUDE);
+        ReflectionTestUtils.setField(candidate, "temporalScope", CharacterFactTemporalScope.PRESENT);
+        var selected = objectMapper.createObjectNode().put("description", "장마 첫날");
+        var marker = objectMapper.createObjectNode().put("advance", true);
+        marker.putNull("expectedCurrent"); marker.set("selected", selected);
+        ReflectionTestUtils.setField(candidate, "rawComparisonJson",
+                objectMapper.createObjectNode().set("validatedNarrativeTime", marker));
+        when(workRepository.getOwnedWorkForUpdate(workId, memberId)).thenReturn(work);
+        when(settingCandidateRepository.findByIdAndWorkIdForUpdate(candidateId, workId)).thenReturn(Optional.of(candidate));
+        when(settingCandidateMapper.toReviewStatusResponse(candidate)).thenReturn(reviewStatusResponse(candidateId, SettingCandidateReviewStatus.DISMISSED));
+
+        service.dismissSettingCandidate(memberId, workId, candidateId);
+
+        assertThat(candidate.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.DISMISSED);
+        assertThat(candidate.getRawComparisonJson() == null
+                || !candidate.getRawComparisonJson().has("validatedNarrativeTime")).isTrue();
+        assertThat(org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.selected(candidate, null)).isNull();
     }
 
     @Test

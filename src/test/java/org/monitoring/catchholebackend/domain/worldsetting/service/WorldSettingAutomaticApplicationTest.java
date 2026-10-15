@@ -66,10 +66,11 @@ class WorldSettingAutomaticApplicationTest {
     private final WorldSettingRepository settings = mock(WorldSettingRepository.class);
     private final AnalysisRunStateService runState = mock(AnalysisRunStateService.class);
     private final WorldSettingCandidateServiceImpl service = new WorldSettingCandidateServiceImpl(
-            mock(WorkRepository.class), runState, mock(UploadBatchRepository.class),
+            mock(WorkRepository.class), mock(org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope.class), runState, mock(UploadBatchRepository.class),
             mock(AnalysisJobRepository.class), settings, mock(org.monitoring.catchholebackend.domain.worldimage.service.AutomaticImageService.class), candidates, sources,
             mock(WorldSettingMapper.class), mock(AiTokenService.class), new WorldSettingAnalysisConfirmation(candidates,
-                    mock(org.monitoring.catchholebackend.domain.analysis.service.AnalysisCandidateSourceGuard.class)));
+                    mock(org.monitoring.catchholebackend.domain.analysis.service.AnalysisCandidateSourceGuard.class)),
+            mock(org.monitoring.catchholebackend.domain.analysis.processor.SettingBookAutomaticEvidenceValidator.class));
     private final List<WorldSettingCandidate> rows = new ArrayList<>();
     private final List<WorldSettingComparisonDecisionSource> sourceRows = new ArrayList<>();
     private final Map<String, WorldSetting> actual = new LinkedHashMap<>();
@@ -442,6 +443,17 @@ class WorldSettingAutomaticApplicationTest {
     @DisplayName("변경보다 앞선 제외는 뒤의 제안값이 아니라 제외 시점의 실제값과 비교한다")
     void exclusionBeforeChangeUsesItsOwnChronologicalState() {
         WorldSetting target = existing("설인", "서식지", "북부");
+        var priorEpisode = Episode.create(work, null, 10, "10화", "local/prior-source", "v1", "b".repeat(64), 100);
+        var priorJob = AnalysisJob.create(work, null, priorEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        var prior = WorldSettingCandidate.create(work, priorEpisode, priorJob, WorldSettingCategory.RACE,
+                "설인", "서식지", "북부", json.arrayNode(), BigDecimal.ONE, null);
+        ReflectionTestUtils.setField(prior, "id", UUID.randomUUID());
+        prior.startComparison();
+        prior.completeComparison(target, WorldSettingConsolidationStatus.SINGLE, WorldSettingOperation.ADD,
+                null, "서식지", null, "북부", "기존 적용 근거", json.objectNode(), LocalDateTime.now());
+        prior.confirm(WorldSettingOperation.ADD, WorldSettingCategory.RACE, "설인", "서식지", "북부", null, work.getMember(), target);
+        when(candidates.findAllByTargetWorldSettingIdAndReviewStatusOrderByReviewedAtDescCreatedAtDescIdDesc(
+                target.getId(), WorldSettingReviewStatus.CONFIRMED)).thenReturn(List.of(prior));
         var excluded = candidate("설인", "서식지", "북부", "북부",
                 WorldSettingSuggestedOperation.EXCLUDE, null, target);
         var changed = candidate("설인", "서식지", "남부", "북부",
@@ -585,7 +597,7 @@ class WorldSettingAutomaticApplicationTest {
     @DisplayName("제외가 없는 자동 최종 저장도 원문보다 비교 순서를 먼저 따라 이동 후 변경을 반영한다")
     void finalAutomaticProjectionUsesComparisonOrderWithoutExclusion() {
         WorldSetting target = existing("설인", "서식지", "북부");
-        rootMoveThenUpdate(target);
+        var moved = rootMoveThenUpdate(target);
 
         service.applyAutomatically(job);
 
@@ -593,6 +605,30 @@ class WorldSettingAutomaticApplicationTest {
                 assertThat(row.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.CONFIRMED));
         assertThat(target.getPropertyValue("생태", "서식지")).isEqualTo("남부");
         assertThat(target.getVersion()).isEqualTo(1);
+        ReflectionTestUtils.setField(moved.getFirst(), "reviewedAt", LocalDateTime.of(2026, 10, 7, 0, 0, 1));
+        ReflectionTestUtils.setField(moved.getLast(), "reviewedAt", LocalDateTime.of(2026, 10, 7, 0, 0, 0));
+        assertThat(org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingCurrentSources.forProperty(
+                moved, "생태", "서식지", "남부")).containsExactly(moved.getLast());
+    }
+
+    @Test
+    @DisplayName("같은 실제 version의 root 이동 후 MERGE도 비교 순서로 원래 값의 전체 출처를 보존한다")
+    void currentLineageFollowsRootMoveThenMergeWithinOneAppliedVersion() {
+        WorldSetting target = existing("설인", "서식지", "북부");
+        var root = candidate("설인","서식지","북부",null,WorldSettingSuggestedOperation.ADD,null,target);
+        root.confirm(org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation.ADD,
+                WorldSettingCategory.RACE,"설인",null,"서식지","북부",null,work.getMember(),target);
+        var moved = rootMoveThenUpdate(target);
+        ReflectionTestUtils.setField(moved.getLast(),"suggestedOperation",WorldSettingSuggestedOperation.MERGE);
+        ReflectionTestUtils.setField(moved.getLast().getComparisonDecision(),"suggestedOperation",WorldSettingSuggestedOperation.MERGE);
+        service.applyAutomatically(job);
+        assertThat(moved).allSatisfy(row -> assertThat(row.isReviewedAutomatically()).isTrue());
+        assertThat(target.getPropertyValue("생태","서식지")).isEqualTo("남부");
+        assertThat(target.getVersion()).isEqualTo(1);
+        ReflectionTestUtils.setField(moved.getFirst(),"reviewedAt",LocalDateTime.of(2026,10,7,0,0,1));
+        ReflectionTestUtils.setField(moved.getLast(),"reviewedAt",LocalDateTime.of(2026,10,7,0,0,0));
+        assertThat(org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingCurrentSources.forProperty(
+                List.of(root,moved.getFirst(),moved.getLast()),"생태","서식지","남부")).containsExactly(root,moved.getLast());
     }
 
     @Test

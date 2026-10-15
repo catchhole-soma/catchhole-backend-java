@@ -329,6 +329,7 @@ class AnalysisPendingReferenceSourceTest {
         when(episode.getContentS3Key()).thenReturn("test/" + number);
         when(episode.getContentS3Version()).thenReturn("v1");
         var job = mock(AnalysisJob.class);
+        when(job.getSourceKind()).thenReturn(org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE);
         when(job.getId()).thenReturn(UUID.randomUUID());
         when(job.getWork()).thenReturn(work);
         when(job.getEpisode()).thenReturn(episode);

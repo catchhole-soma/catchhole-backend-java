@@ -120,6 +120,13 @@ import org.springframework.transaction.support.TransactionTemplate;
 @DisplayName("회차별 자동 반영과 다음 회차 문맥의 실제 저장 경계")
 class AutomaticAnalysisIntegrationTest {
     private static final JsonNodeFactory JSON = JsonNodeFactory.instance;
+    private static final String SOURCE = String.join("\n",
+            "에르웬이 등장했다.", "에르웬의 본명은 에르웬 미샤다.",
+            "에르웬라고 말했다.", "에르웬 미샤라고 말했다.", "비요른라고 말했다.", "데이비스라고 말했다.", " 에르웬 라고 말했다.",
+            "stats.mental 수치는 35였다.", "stats.mental 수치는 36였다.", "stats.mental 수치는 50였다.",
+            "stats.strength 수치는 25였다.", "정신 수치는 99였다.", "비요른의 정신 99", "에르웬의 정신 35",
+            "데이비스는 기절했지만 치료 후 깨어났다.", "파기할 보류 근거",
+            "엘프는 북부에 산다.", "해당 종족의 수명을 알 수 없다.", "엘프의 수명을 알 수 없다.", "미궁 원문 근거");
     @Autowired EntityManager entities;
     @Autowired PlatformTransactionManager transactions;
     @Autowired AnalysisJobRepository jobs;
@@ -133,10 +140,32 @@ class AutomaticAnalysisIntegrationTest {
     @Autowired WorldSettingService worldSettings;
     @Autowired CharacterFactComparisonWorkerService characterWorker;
     @MockitoSpyBean WorldSettingCandidateServiceImpl worldApplication;
+    @org.springframework.test.context.bean.override.mockito.MockitoBean
+    org.monitoring.catchholebackend.global.storage.ObjectStorageService storage;
     private TransactionTemplate tx;
 
     @BeforeEach
-    void prepareTransactions() { tx = new TransactionTemplate(transactions); }
+    void prepareTransactions() {
+        tx = new TransactionTemplate(transactions);
+        org.mockito.Mockito.when(storage.getText(org.mockito.ArgumentMatchers.startsWith("automatic-test/"))).thenReturn(SOURCE);
+        org.mockito.Mockito.when(storage.contentHash(org.mockito.ArgumentMatchers.anyString())).thenCallRealMethod();
+    }
+
+    private static List<String> currentFactValues(JsonNode input) {
+        List<String> values = new ArrayList<>();
+        input.path("characters").forEach(character -> character.path("slots").forEach(slot -> {
+            if (slot.path("factValue").isTextual()) values.add(slot.path("factValue").asText());
+        }));
+        return values;
+    }
+
+    private static com.fasterxml.jackson.databind.node.ArrayNode evidence(String quote) {
+        int start = SOURCE.indexOf(quote);
+        if (start < 0) throw new IllegalArgumentException("Missing fixture quote: " + quote);
+        return JSON.arrayNode().add(JSON.objectNode().put("quote", quote)
+                .put("startOffset", SOURCE.codePointCount(0, start))
+                .put("endOffset", SOURCE.codePointCount(0, start + quote.length())));
+    }
 
     @Test
     @DisplayName("3화 실패 뒤 1·2화와 완료 단계를 보존해 재개하고 5화까지 끝난 뒤에만 묶음 후보를 수정한다")
@@ -275,10 +304,8 @@ class AutomaticAnalysisIntegrationTest {
             SettingCandidate anchor = discovery(job, "에르웬", null, true);
             SettingCandidate alias = SettingCandidate.createCharacterDiscovery(job.getWork(), job.getEpisode(), null, job,
                     "에르웬 미샤", "에르웬", null, SettingCandidateMatchStatus.MATCHED,
-                    JSON.arrayNode().add(JSON.objectNode().put("quote", "에르웬의 본명은 에르웬 미샤다.")
-                            .put("startOffset", 20).put("endOffset", 39)), BigDecimal.ONE, null);
-            ReflectionTestUtils.setField(anchor, "evidenceSpans", JSON.arrayNode().add(JSON.objectNode()
-                    .put("quote", "에르웬이 등장했다.").put("startOffset", 0).put("endOffset", 10)));
+                    evidence("에르웬의 본명은 에르웬 미샤다."), BigDecimal.ONE, null);
+            ReflectionTestUtils.setField(anchor, "evidenceSpans", evidence("에르웬이 등장했다."));
             ReflectionTestUtils.setField(alias, "provisionalSubjectKey", anchor.getProvisionalSubjectKey());
             entities.persist(alias);
             addStat(job, anchor.getProvisionalSubjectKey(), null, 35, CharacterFactOperation.ADD);
@@ -320,7 +347,7 @@ class AutomaticAnalysisIntegrationTest {
             AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
             SettingCandidate candidate = SettingCandidate.create(job.getWork(), job.getEpisode(), null, job,
                     SettingEntityType.CHARACTER, "미상", "stats.mental", "99", SettingValueType.NUMBER,
-                    JSON.objectNode().put("value", 99), JSON.arrayNode().add(JSON.objectNode().put("quote", "정신 수치는 99였다.")), BigDecimal.ONE, null);
+                    JSON.objectNode().put("value", 99), evidence("정신 수치는 99였다."), BigDecimal.ONE, null);
             entities.persist(candidate);
             return candidate.getId();
         });
@@ -358,7 +385,7 @@ class AutomaticAnalysisIntegrationTest {
         assertThat(input.path("references").path("pending-character:" + pending).path("value").asText()).isEqualTo("99");
         assertThat(input.path("characters").elements().next().path("slots").path("STAT:stats.mental").path("factValue").asText())
                 .isEqualTo("35");
-        assertThat(input.path("characters").findValuesAsText("factValue")).doesNotContain("99");
+        assertThat(currentFactValues(input)).doesNotContain("99");
         tx.executeWithoutResult(status -> {
             assertThat(candidates.findById(pending).orElseThrow().getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
             assertThat(entities.createQuery("select count(f) from CharacterFact f", Long.class).getSingleResult()).isEqualTo(1L);
@@ -470,7 +497,7 @@ class AutomaticAnalysisIntegrationTest {
             UploadBatch batch = UploadBatch.create(work, work.getMember(), UploadType.SINGLE_EPISODE, UploadSourceType.FILE);
             entities.persist(batch);
             Episode episode = Episode.create(work, null, episodeNumber, "다음 원고", "automatic-test/" + episodeNumber,
-                    "v1", "a".repeat(64), 10);
+                    "v1", storage.contentHash(SOURCE), SOURCE.codePointCount(0, SOURCE.length()));
             entities.persist(episode);
             AnalysisJob job = AnalysisJob.create(work, batch, episode, AnalysisJobType.SETTING_EXTRACTION);
             job.configureReviewMode(AnalysisReviewMode.AUTOMATIC);
@@ -557,10 +584,11 @@ class AutomaticAnalysisIntegrationTest {
                     .setParameter("candidate", pending).getSingleResult()).isEqualTo(1);
         });
         var third = claim();
-        var values = input(third).path("characters").findValuesAsText("factValue");
+        var values = currentFactValues(input(third));
         if (selectedMode == CharacterFactConfirmApplicationMode.APPLY_PROPOSAL) {
             assertThat(values).contains("35").doesNotContain("36", "88");
         } else assertThat(values).doesNotContain("35");
+
     }
 
     @Test
@@ -934,7 +962,7 @@ class AutomaticAnalysisIntegrationTest {
     private SettingCandidate addUnresolvedReference(AnalysisJob job) {
         SettingCandidate candidate = SettingCandidate.create(job.getWork(), job.getEpisode(), null, job,
                 SettingEntityType.CHARACTER, "미상", "stats.mental", "99", SettingValueType.NUMBER,
-                JSON.objectNode().put("value", 99), JSON.arrayNode().add(JSON.objectNode().put("quote", "정신 수치는 99였다.")),
+                JSON.objectNode().put("value", 99), evidence("정신 수치는 99였다."),
                 BigDecimal.ONE, null);
         entities.persist(candidate);
         return candidate;
@@ -1041,7 +1069,7 @@ class AutomaticAnalysisIntegrationTest {
             SettingCandidate candidate = SettingCandidate.create(job.getWork(), job.getEpisode(), null, job,
                     SettingEntityType.CHARACTER, "데이비스", "데이비스", null, SettingCandidateMatchStatus.UNRESOLVED,
                     "status.기절", "기절했다가 회복함", SettingValueType.JSON, value,
-                    JSON.arrayNode().add(JSON.objectNode().put("quote", "데이비스는 기절했지만 치료 후 깨어났다.")),
+                    evidence("데이비스는 기절했지만 치료 후 깨어났다."),
                     BigDecimal.ONE, null);
             ReflectionTestUtils.setField(candidate, "provisionalSubjectKey", discovered.getProvisionalSubjectKey());
             entities.persist(candidate);
@@ -1155,7 +1183,7 @@ class AutomaticAnalysisIntegrationTest {
             discovery(job, "에르웬", null, true);
             SettingCandidate pending = SettingCandidate.create(job.getWork(), job.getEpisode(), null, job,
                     SettingEntityType.CHARACTER, "미상", "stats.mental", "99", SettingValueType.NUMBER,
-                    JSON.objectNode().put("value", 99), JSON.arrayNode().add(JSON.objectNode().put("quote", "파기할 보류 근거")), BigDecimal.ONE, null);
+                    JSON.objectNode().put("value", 99), evidence("파기할 보류 근거"), BigDecimal.ONE, null);
             entities.persist(pending);
         });
         complete(first);
@@ -1258,7 +1286,8 @@ class AutomaticAnalysisIntegrationTest {
         });
         nextBatch(run.workId(), 4);
         var current = input(claim());
-        assertThat(current.path("characters").findValuesAsText("factValue")).contains("35").doesNotContain("36");
+        assertThat(currentFactValues(current)).contains("35").doesNotContain("36");
+
         assertThat(current.path("worldSettings").toString()).contains("북부").doesNotContain("남부");
     }
 
@@ -1274,14 +1303,14 @@ class AutomaticAnalysisIntegrationTest {
             addWorld(job);
             SettingCandidate failedCharacter = SettingCandidate.create(job.getWork(), job.getEpisode(), null, job,
                     SettingEntityType.CHARACTER, "에르웬", "stats.mental", "99", SettingValueType.NUMBER,
-                    JSON.objectNode().put("value", 99), JSON.arrayNode().add(JSON.objectNode().put("quote", "정신 수치는 99였다.")), BigDecimal.ONE, null);
+                    JSON.objectNode().put("value", 99), evidence("정신 수치는 99였다."), BigDecimal.ONE, null);
             ReflectionTestUtils.setField(failedCharacter, "provisionalSubjectKey", discovery.getProvisionalSubjectKey());
             entities.persist(failedCharacter);
             entities.flush();
             characterStates.prepareProvisionalCandidates(job);
             failPreparedCharacterComparison(job, failedCharacter, "개별 비교 해석 실패");
             WorldSettingCandidate failedWorld = WorldSettingCandidate.create(job.getWork(), job.getEpisode(), job,
-                    WorldSettingCategory.RACE, "판단 실패 종족", "수명", "미확인 값", JSON.arrayNode().add(JSON.objectNode().put("quote", "해당 종족의 수명을 알 수 없다.")), BigDecimal.ONE, null);
+                    WorldSettingCategory.RACE, "판단 실패 종족", "수명", "미확인 값", evidence("해당 종족의 수명을 알 수 없다."), BigDecimal.ONE, null);
             entities.persist(failedWorld);
             String key = "provisional-world:" + failedWorld.getId();
             failedWorld.resolveOrderedSubject(WorldSettingSubjectResolutionType.NEW, key, "판단 실패 종족", JSON.arrayNode(), JSON.arrayNode().add(key));
@@ -1322,9 +1351,9 @@ class AutomaticAnalysisIntegrationTest {
         List<UUID> ids = tx.execute(status -> {
             AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
             var good = WorldSettingCandidate.create(job.getWork(), job.getEpisode(), job, WorldSettingCategory.RACE,
-                    "엘프", "서식지", "북부", JSON.arrayNode(), BigDecimal.ONE, null);
+                    "엘프", "서식지", "북부", evidence("엘프는 북부에 산다."), BigDecimal.ONE, null);
             var failed = WorldSettingCandidate.create(job.getWork(), job.getEpisode(), job, WorldSettingCategory.RACE,
-                    "엘프", "수명", "미확인 수명", JSON.arrayNode().add(JSON.objectNode().put("quote", "엘프의 수명을 알 수 없다.")), BigDecimal.ONE, null);
+                    "엘프", "수명", "미확인 수명", evidence("엘프의 수명을 알 수 없다."), BigDecimal.ONE, null);
             entities.persist(good);
             entities.persist(failed);
             entities.flush();
@@ -1371,7 +1400,7 @@ class AutomaticAnalysisIntegrationTest {
             assertThat(failed.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.FAILED);
             assertThat(failed.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.PENDING_REVIEW);
             assertThat(failed.getComparisonDiagnostics().size()).isEqualTo(2);
-            var response = new org.monitoring.catchholebackend.domain.worldsetting.mapper.WorldSettingMapper().toCandidateResponse(failed);
+            var response = new org.monitoring.catchholebackend.domain.worldsetting.mapper.WorldSettingMapper(org.mockito.Mockito.mock(CandidateReviewSourceScope.class)).toCandidateResponse(failed);
             assertThat(response.comparisonDiagnostics()).hasSize(2);
             assertThat(response.comparisonDiagnostics().getLast().rule()).isEqualTo("PROPOSED_PATH_MISMATCH");
             assertThat(jobs.findById(first.analysisJobId()).orElseThrow().getJournalStatus()).isEqualTo(AnalysisJournalStatus.SEALED);
@@ -1394,7 +1423,7 @@ class AutomaticAnalysisIntegrationTest {
             addStat(job, discovery.getProvisionalSubjectKey(), null, 35, CharacterFactOperation.ADD);
             SettingCandidate failed = SettingCandidate.create(job.getWork(), job.getEpisode(), null, job,
                     SettingEntityType.CHARACTER, "에르웬", "stats.mental", "99", SettingValueType.NUMBER,
-                    JSON.objectNode().put("value", 99), JSON.arrayNode().add(JSON.objectNode().put("quote", "정신 수치는 99였다.")), BigDecimal.ONE, null);
+                    JSON.objectNode().put("value", 99), evidence("정신 수치는 99였다."), BigDecimal.ONE, null);
             ReflectionTestUtils.setField(failed, "provisionalSubjectKey", discovery.getProvisionalSubjectKey());
             entities.persist(failed);
             entities.flush();
@@ -1676,7 +1705,7 @@ class AutomaticAnalysisIntegrationTest {
                 WorldSettingCandidate candidate = WorldSettingCandidate.create(job.getWork(), job.getEpisode(), job,
                         WorldSettingCategory.RACE, failed ? "미궁" : "엘프", failed ? "설정" + index : "서식지",
                         failed ? "미확인 값" + index : "북부",
-                        JSON.arrayNode().add(JSON.objectNode().put("quote", failed ? "미궁 원문 근거" : "엘프는 북부에 산다.")), BigDecimal.ONE, null);
+                        evidence(failed ? "미궁 원문 근거" : "엘프는 북부에 산다."), BigDecimal.ONE, null);
                 entities.persist(candidate);
                 entities.flush();
                 ReflectionTestUtils.setField(candidate, "createdAt", start.plusSeconds(index));
@@ -1727,7 +1756,7 @@ class AutomaticAnalysisIntegrationTest {
                 int value = index == 0 ? 99 : 35;
                 SettingCandidate candidate = SettingCandidate.create(job.getWork(), job.getEpisode(), null, job,
                         SettingEntityType.CHARACTER, name, "stats.mental", String.valueOf(value), SettingValueType.NUMBER,
-                        JSON.objectNode().put("value", value), JSON.arrayNode().add(JSON.objectNode().put("quote", name + "의 정신 " + value)), BigDecimal.ONE, null);
+                        JSON.objectNode().put("value", value), evidence(name + "의 정신 " + value), BigDecimal.ONE, null);
                 ReflectionTestUtils.setField(candidate, "provisionalSubjectKey", discovered.getProvisionalSubjectKey());
                 entities.persist(candidate);
                 entities.flush();
@@ -1766,7 +1795,7 @@ class AutomaticAnalysisIntegrationTest {
             entities.persist(batch);
             List<AnalysisJob> created = new ArrayList<>();
             for (int number = 1; number <= count; number++) {
-                Episode episode = Episode.create(work, null, number, "원고", "automatic-test/" + number, "v1", "a".repeat(64), 10);
+                Episode episode = Episode.create(work, null, number, "원고", "automatic-test/" + number, "v1", storage.contentHash(SOURCE), SOURCE.codePointCount(0, SOURCE.length()));
                 entities.persist(episode);
                 AnalysisJob job = AnalysisJob.create(work, batch, episode, AnalysisJobType.SETTING_EXTRACTION);
                 job.configureReviewMode(mode);
@@ -1780,7 +1809,7 @@ class AutomaticAnalysisIntegrationTest {
     private SettingCandidate discovery(AnalysisJob job, String name, UUID actualId, boolean provisional) {
         SettingCandidate candidate = SettingCandidate.createCharacterDiscovery(job.getWork(), job.getEpisode(), null, job,
                 name, name, actualId, actualId == null ? SettingCandidateMatchStatus.UNRESOLVED : SettingCandidateMatchStatus.MATCHED,
-                JSON.arrayNode().add(JSON.objectNode().put("quote", name + "라고 말했다.")), BigDecimal.ONE, null);
+                evidence(name + "라고 말했다."), BigDecimal.ONE, null);
         entities.persist(candidate);
         if (provisional) ReflectionTestUtils.setField(candidate, "provisionalSubjectKey", CharacterAnalysisStateMapper.provisionalRef(candidate.getId()));
         entities.flush();
@@ -1798,7 +1827,7 @@ class AutomaticAnalysisIntegrationTest {
                 SettingEntityType.CHARACTER, "에르웬", "에르웬", actualId,
                 actualId == null ? SettingCandidateMatchStatus.UNRESOLVED : SettingCandidateMatchStatus.MATCHED,
                 factKey, String.valueOf(value), SettingValueType.NUMBER, JSON.objectNode().put("value", value),
-                JSON.arrayNode().add(JSON.objectNode().put("quote", factKey + " 수치는 " + value + "였다.")), BigDecimal.ONE, null);
+                evidence(factKey + " 수치는 " + value + "였다."), BigDecimal.ONE, null);
         if (provisional != null) ReflectionTestUtils.setField(candidate, "provisionalSubjectKey", provisional);
         entities.persist(candidate);
         entities.flush();
@@ -1854,7 +1883,7 @@ class AutomaticAnalysisIntegrationTest {
 
     private WorkerAnalysisJobPayload claim() { return worker.claimAnalysisJob(request()).orElseThrow(); }
     private WorkerAnalysisJobClaimRequest request() {
-        return new WorkerAnalysisJobClaimRequest("test-only", "검증", Set.of(AnalysisJobType.SETTING_EXTRACTION), Set.of(AnalysisMode.ORDERED_PROVISIONAL));
+        return new WorkerAnalysisJobClaimRequest("test-only", "검증", Set.of(AnalysisJobType.SETTING_EXTRACTION), Set.of(AnalysisMode.ORDERED_PROVISIONAL), null, null, null, null, true);
     }
     private JsonNode input(WorkerAnalysisJobPayload payload) {
         return tx.execute(status -> states.getInputState(jobs.findById(payload.analysisJobId()).orElseThrow()).deepCopy());

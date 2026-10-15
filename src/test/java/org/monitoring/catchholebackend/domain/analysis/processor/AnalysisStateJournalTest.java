@@ -96,6 +96,29 @@ class AnalysisStateJournalTest {
     }
 
     @Test
+    @DisplayName("원문 파기는 대표 시점과 Fact 시점의 복사 인용도 지우고 설정값을 보존한다")
+    void purgesNarrativeTimeEvidenceFromCharacterAndSlotChanges() throws Exception {
+        JsonNode original = mapper.readTree("""
+                {"outputStateHash":"audit-hash","changes":[
+                  {"path":["characters","one"],"value":{
+                    "currentNarrativeTime":{"description":"장마 첫날","sourceCandidateId":"candidate-1",
+                      "evidenceSpans":[{"quote":"지울 시간 인용","startOffset":3,"endOffset":11}]},
+                    "slots":{"STATUS:status.흉터":{"factValue":"흉터","valueJson":{"active":true},
+                      "supportingSources":[{"narrativeTime":{"factTime":{"description":"208년 사고",
+                        "evidenceSpans":[{"quote":"지울 사고 인용","startOffset":0,"endOffset":8}]}}}]}}}},
+                  {"path":["characters","one","currentNarrativeTime"],"value":{
+                    "description":"장마 첫날","evidenceSpans":[{"quote":"지울 시간 인용"}]}}
+                ]}
+                """);
+        JsonNode redacted = journal.purgeSourceEvidence(original);
+        assertThat(redacted.toString()).doesNotContain("지울 시간 인용", "지울 사고 인용");
+        assertThat(redacted.at("/changes/0/value/slots/STATUS:status.흉터/factValue").asText()).isEqualTo("흉터");
+        assertThat(redacted.path("outputStateHash").asText()).isEqualTo("audit-hash");
+        assertThat(original.toString()).contains("지울 시간 인용");
+        assertThat(journal.purgeSourceEvidence(redacted)).isEqualTo(redacted);
+    }
+
+    @Test
     @DisplayName("원문 파기는 복사된 근거만 지우며 설정값과 당시 hash를 보존한다")
     void purgesCopiedEvidenceWithoutChangingDomainValues() throws Exception {
         JsonNode original = mapper.readTree("""

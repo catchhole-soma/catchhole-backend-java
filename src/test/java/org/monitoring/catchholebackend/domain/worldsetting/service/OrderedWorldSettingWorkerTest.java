@@ -103,7 +103,9 @@ class OrderedWorldSettingWorkerTest {
         target.put("version", 1);
         target.putObject("propertiesJson").put("서식지", "북부");
         target.putObject("provenanceByPath").putObject(WorldSettingAnalysisStateMapper.pathKey(null, "서식지"))
-                .put("confirmationStatus", "PROVISIONAL").put("sourceEpisodeNo", 1);
+                .put("confirmationStatus", "PROVISIONAL").put("sourceEpisodeNo", 1)
+                .putArray("currentSourceTimes").addObject().put("sourceKind", "EPISODE")
+                .put("sourceEpisodeNo", 1).put("temporalScope", "PRESENT");
         state.set(initial);
         when(stateService.getProjectedState(job)).thenAnswer(invocation -> state.get().deepCopy());
         doAnswer(invocation -> {
@@ -327,7 +329,9 @@ class OrderedWorldSettingWorkerTest {
         if (matchedScope == null) properties.put("서식지", "북부");
         else properties.putObject(matchedScope).put("서식지", "북부");
         target.putObject("provenanceByPath").putObject(WorldSettingAnalysisStateMapper.pathKey(matchedScope, "서식지"))
-                .put("confirmationStatus", "PROVISIONAL").put("sourceEpisodeNo", 1);
+                .put("confirmationStatus", "PROVISIONAL").put("sourceEpisodeNo", 1)
+                .putArray("currentSourceTimes").addObject().put("sourceKind", "EPISODE")
+                .put("sourceEpisodeNo", 1).put("temporalScope", "PRESENT");
     }
 
     @Test

@@ -57,6 +57,9 @@ class CatchHoleBackendApplicationTests {
     private org.monitoring.catchholebackend.domain.chat.service.ChatServiceImpl chatService;
 
     @MockitoBean
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
+    @MockitoBean
     private AuthService authService;
 
     @MockitoBean
@@ -94,6 +97,9 @@ class CatchHoleBackendApplicationTests {
 
     @MockitoBean
     private UploadFileRepository uploadFileRepository;
+
+    @MockitoBean
+    private org.monitoring.catchholebackend.domain.upload.repository.SettingBookRevisionRepository settingBookRevisionRepository;
 
     @MockitoBean
     private WorkPurgeRequestRepository workPurgeRequestRepository;
