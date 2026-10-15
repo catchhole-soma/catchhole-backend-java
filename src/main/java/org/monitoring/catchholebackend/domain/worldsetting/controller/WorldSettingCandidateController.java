@@ -83,11 +83,12 @@ public class WorldSettingCandidateController {
             @RequestParam(required = false) WorldSettingCategory category,
             @RequestParam(required = false) WorldSettingSuggestedOperation operation,
             @RequestParam(defaultValue = "0") @Min(0) int page,
-            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
-    ) {
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,
+            @Parameter(description = "원본 SETTING_EXTRACTION 분석 작업 ID. 생략 시 회차 후보만 조회/검토하며, 구형 설정집 분석 이력은 읽기 전용입니다.")
+            @RequestParam(required = false) UUID sourceAnalysisJobId) {
         return CommonResponse.success(candidateService.getCandidates(
                 member.memberId(), workId, batchId, reviewStatus, category, operation, page, size
-        ));
+        , sourceAnalysisJobId));
     }
 
     @GetMapping("/{candidateId}")
@@ -103,11 +104,12 @@ public class WorldSettingCandidateController {
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,
             @PathVariable UUID candidateId,
-            @RequestParam UUID batchId
-    ) {
+            @RequestParam UUID batchId,
+            @Parameter(description = "원본 SETTING_EXTRACTION 분석 작업 ID. 생략 시 회차 후보만 조회/검토하며, 구형 설정집 분석 이력은 읽기 전용입니다.")
+            @RequestParam(required = false) UUID sourceAnalysisJobId) {
         return CommonResponse.success(candidateService.getCandidate(
                 member.memberId(), workId, batchId, candidateId
-        ));
+        , sourceAnalysisJobId));
     }
 
     @PatchMapping(value = "/decisions", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -128,11 +130,12 @@ public class WorldSettingCandidateController {
     public CommonResponse<WorldSettingCandidateDecisionUpdateResponse> updateWorldSettingCandidateDecisions(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,
-            @Valid @RequestBody WorldSettingCandidateDecisionUpdateRequest request
-    ) {
+            @Valid @RequestBody WorldSettingCandidateDecisionUpdateRequest request,
+            @Parameter(description = "원본 SETTING_EXTRACTION 분석 작업 ID. 생략 시 회차 후보만 조회/검토하며, 구형 설정집 분석 이력은 읽기 전용입니다.")
+            @RequestParam(required = false) UUID sourceAnalysisJobId) {
         return CommonResponse.success(
                 "세계관 설정 후보 수정안이 저장되었습니다.",
-                candidateService.updateCandidateDecisions(member.memberId(), workId, request)
+                candidateService.updateCandidateDecisions(member.memberId(), workId, request, sourceAnalysisJobId)
         );
     }
 
@@ -154,11 +157,12 @@ public class WorldSettingCandidateController {
     public CommonResponse<WorldSettingCandidateResponse> retryWorldSettingCandidateComparison(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,
-            @PathVariable UUID candidateId
-    ) {
+            @PathVariable UUID candidateId,
+            @Parameter(description = "원본 SETTING_EXTRACTION 분석 작업 ID. 생략 시 회차 후보만 조회/검토하며, 구형 설정집 분석 이력은 읽기 전용입니다.")
+            @RequestParam(required = false) UUID sourceAnalysisJobId) {
         return CommonResponse.success(
                 "세계관 설정 후보가 재비교 대기 상태로 전환되었습니다.",
-                candidateService.retryComparison(member.memberId(), workId, candidateId)
+                candidateService.retryComparison(member.memberId(), workId, candidateId, sourceAnalysisJobId)
         );
     }
 
@@ -181,11 +185,12 @@ public class WorldSettingCandidateController {
             resumeTokenInterruptedWorldSettingComparisons(
                     @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
                     @PathVariable UUID workId,
-                    @PathVariable UUID batchId
-            ) {
+                    @PathVariable UUID batchId,
+            @Parameter(description = "원본 SETTING_EXTRACTION 분석 작업 ID. 생략 시 회차 후보만 조회/검토하며, 구형 설정집 분석 이력은 읽기 전용입니다.")
+            @RequestParam(required = false) UUID sourceAnalysisJobId) {
         return CommonResponse.success(
                 "토큰 부족으로 중단된 세계관 비교를 재개했습니다.",
-                candidateService.resumeTokenInterruptedComparisons(member.memberId(), workId, batchId)
+                candidateService.resumeTokenInterruptedComparisons(member.memberId(), workId, batchId, sourceAnalysisJobId)
         );
     }
 
@@ -207,13 +212,14 @@ public class WorldSettingCandidateController {
     public CommonResponse<WorldSettingCandidateGroupActionResponse> confirmWorldSettingCandidateGroup(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,
-            @Valid @RequestBody WorldSettingCandidateGroupConfirmRequest request
-    ) {
+            @Valid @RequestBody WorldSettingCandidateGroupConfirmRequest request,
+            @Parameter(description = "원본 SETTING_EXTRACTION 분석 작업 ID. 생략 시 회차 후보만 조회/검토하며, 구형 설정집 분석 이력은 읽기 전용입니다.")
+            @RequestParam(required = false) UUID sourceAnalysisJobId) {
         WorldSettingCandidateGroupConfirmResult result = candidateService.confirmCandidateGroup(
                 member.memberId(),
                 workId,
                 request
-        );
+        , sourceAnalysisJobId);
         if (result.recomparisonRequired()) {
             throw new AppException(
                     WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_RECOMPARISON_REQUIRED,
@@ -249,11 +255,12 @@ public class WorldSettingCandidateController {
     public CommonResponse<WorldSettingCandidateGroupActionResponse> dismissWorldSettingCandidateGroup(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,
-            @Valid @RequestBody WorldSettingCandidateGroupDismissRequest request
-    ) {
+            @Valid @RequestBody WorldSettingCandidateGroupDismissRequest request,
+            @Parameter(description = "원본 SETTING_EXTRACTION 분석 작업 ID. 생략 시 회차 후보만 조회/검토하며, 구형 설정집 분석 이력은 읽기 전용입니다.")
+            @RequestParam(required = false) UUID sourceAnalysisJobId) {
         return CommonResponse.success(
                 "세계관 설정 후보 그룹이 제외되었습니다.",
-                candidateService.dismissCandidateGroup(member.memberId(), workId, request)
+                candidateService.dismissCandidateGroup(member.memberId(), workId, request, sourceAnalysisJobId)
         );
     }
 
@@ -276,11 +283,12 @@ public class WorldSettingCandidateController {
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,
             @PathVariable UUID candidateId,
-            @Valid @RequestBody WorldSettingCandidateConfirmRequest request
-    ) {
+            @Valid @RequestBody WorldSettingCandidateConfirmRequest request,
+            @Parameter(description = "원본 SETTING_EXTRACTION 분석 작업 ID. 생략 시 회차 후보만 조회/검토하며, 구형 설정집 분석 이력은 읽기 전용입니다.")
+            @RequestParam(required = false) UUID sourceAnalysisJobId) {
         WorldSettingCandidateConfirmResult result = candidateService.confirmCandidate(
                 member.memberId(), workId, candidateId, request
-        );
+        , sourceAnalysisJobId);
         if (result.recomparisonRequired()) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_RECOMPARISON_REQUIRED);
         }
@@ -303,11 +311,12 @@ public class WorldSettingCandidateController {
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,
             @PathVariable UUID candidateId,
-            @Valid @RequestBody WorldSettingCandidateDismissRequest request
-    ) {
+            @Valid @RequestBody WorldSettingCandidateDismissRequest request,
+            @Parameter(description = "원본 SETTING_EXTRACTION 분석 작업 ID. 생략 시 회차 후보만 조회/검토하며, 구형 설정집 분석 이력은 읽기 전용입니다.")
+            @RequestParam(required = false) UUID sourceAnalysisJobId) {
         return CommonResponse.success(
                 "세계관 설정 후보가 제외되었습니다.",
-                candidateService.dismissCandidate(member.memberId(), workId, candidateId, request)
+                candidateService.dismissCandidate(member.memberId(), workId, candidateId, request, sourceAnalysisJobId)
         );
     }
 }

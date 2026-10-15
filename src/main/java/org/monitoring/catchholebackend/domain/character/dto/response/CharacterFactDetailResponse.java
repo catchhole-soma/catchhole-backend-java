@@ -76,6 +76,11 @@ public record CharacterFactDetailResponse(
                 description = "SettingCandidate evidenceSpans에 저장된 인용문 목록",
                 example = "[\"아리아는 체력 물약을 마셨다.\"]"
         )
-        List<String> evidenceQuotes
+        List<String> evidenceQuotes,
+        @io.swagger.v3.oas.annotations.media.Schema(nullable = true) org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse source
 ) {
+    public CharacterFactDetailResponse(UUID characterFactId, CharacterFactType factType, String factTypeLabel, String factKey, String displayName, String factValue, boolean isCurrent, boolean contributesToCurrentSnapshot, Integer effectiveFromEpisodeNo, UUID characterId, String characterName, UUID sourceCandidateId, UUID sourceEpisodeId, Integer sourceEpisodeNo, List<String> evidenceQuotes) {
+        this(characterFactId, factType, factTypeLabel, factKey, displayName, factValue, isCurrent, contributesToCurrentSnapshot, effectiveFromEpisodeNo, characterId, characterName, sourceCandidateId, sourceEpisodeId, sourceEpisodeNo, evidenceQuotes, null);
+    }
+
 }

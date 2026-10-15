@@ -38,32 +38,62 @@ public class CharacterAnalysisStateMapper {
             Map<CharacterSnapshotSlot, List<CharacterFact>> sourceFacts
     ) {
         ObjectNode state = identity(character.getName(), character.getSnapshotVersion());
+        state.set("currentNarrativeTime", copy(character.getCurrentNarrativeTime()));
         state.put("actualCharacterId", character.getId().toString());
         state.putNull("provisionalSubjectKey");
+        state.set("protectedSlots", character.getManuallyEditedSlots().deepCopy());
         ObjectNode slots = state.withObject("slots");
         entries.values().stream()
                 .sorted(Comparator.comparing(entry -> slotKey(entry.slot())))
                 .forEach(entry -> {
                     List<CharacterFact> sources = sourceFacts.getOrDefault(entry.slot(), List.of());
-                    Integer episodeNo = sources.stream()
-                            .map(CharacterFact::getSourceEpisode)
-                            .filter(Objects::nonNull)
-                            .map(episode -> episode.getEpisodeNo())
-                            .max(Integer::compareTo)
-                            .orElse(null);
-                    List<UUID> sourceIds = sources.stream()
-                            .map(CharacterFact::getSettingCandidate)
-                            .filter(Objects::nonNull)
-                            .map(candidate -> candidate.getId())
-                            .distinct()
-                            .toList();
-                    ObjectNode slot = toSlot(entry, "CONFIRMED", episodeNo, sourceIds);
-                    ((ObjectNode) slot.path("provenance")).put("reviewSource", !sources.isEmpty()
-                            && sources.stream().allMatch(fact -> fact.getSettingCandidate() != null
-                            && fact.getSettingCandidate().isReviewedAutomatically()) ? "AUTOMATIC" : "HUMAN");
+                    ObjectNode slot = toSlot(entry, "CONFIRMED", null, List.of());
+                    slot.set("provenance", currentProvenance(character, entry, sources));
                     slots.set(slotKey(entry.slot()), slot);
                 });
         return state;
+    }
+
+    public static ObjectNode currentProvenance(WorkCharacter character, CharacterSnapshotEntry entry, List<CharacterFact> sources) {
+        Integer episodeNo = sources.stream().map(CharacterFact::getSourceEpisode).filter(Objects::nonNull)
+                .map(episode -> episode.getEpisodeNo()).max(Integer::compareTo).orElse(null);
+        ObjectNode source = provenance("CONFIRMED", episodeNo, sources.stream().map(CharacterFact::getSettingCandidate)
+                .filter(Objects::nonNull).map(SettingCandidate::getId).distinct().toList());
+        source.put("reviewSource", !sources.isEmpty() && sources.stream().allMatch(fact -> fact.getSettingCandidate() != null
+                && fact.getSettingCandidate().isReviewedAutomatically()) ? "AUTOMATIC" : "HUMAN");
+        boolean protectedValue = character.isManuallyEditedSlot(entry.slot().factType(), entry.slot().factKey())
+                || sources.stream().anyMatch(fact -> fact.getSettingCandidate() == null || fact.getSettingCandidate().hasUserEditedContent());
+        source.put("currentValueProtected", protectedValue);
+        ArrayNode times = source.putArray("currentSourceTimes");
+        if (sources.isEmpty()) times.add(org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.toJson(
+                org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(null, null, null)));
+        for (CharacterFact fact : sources) {
+            times.add(org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.toJson(
+                    org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(fact.getExtractedByJob(),
+                            fact.getEffectiveFromEpisodeNo(), fact.getSettingCandidate() == null ? null : fact.getSettingCandidate().getTemporalScope())));
+        }
+        sources.stream().map(CharacterFact::getSettingCandidate).filter(Objects::nonNull)
+                .max(Comparator.comparing(SettingCandidate::getCreatedAt, Comparator.nullsFirst(Comparator.naturalOrder())))
+                .ifPresent(candidate -> {
+                    org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSourceMetadata.put(source, candidate.getAnalysisJob());
+                    source.put("effectiveFromEpisodeNo", candidate.getEffectiveFromEpisodeNo());
+                });
+        return source;
+    }
+
+    public static List<org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterProtectedSlotPayload> protectedSlots(JsonNode state) {
+        List<org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterProtectedSlotPayload> result = new java.util.ArrayList<>();
+        for (JsonNode slot : state.path("protectedSlots")) {
+            result.add(new org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterProtectedSlotPayload(
+                    org.monitoring.catchholebackend.domain.character.type.CharacterFactType.valueOf(slot.path("factType").asText()), slot.path("factKey").asText()));
+        }
+        return List.copyOf(result);
+    }
+
+    public static List<org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterProtectedSlotPayload> protectedSlots(WorkCharacter character) {
+        ObjectNode state = JsonNodeFactory.instance.objectNode();
+        if (character != null) state.set("protectedSlots", character.getManuallyEditedSlots());
+        return protectedSlots(state);
     }
 
     public void addConfirmedIdentity(ObjectNode state, List<SettingCandidate> discoveries) {
@@ -77,12 +107,22 @@ public class CharacterAnalysisStateMapper {
                 .filter(JsonNode::isArray).forEach(spans -> spans.forEach(span -> {
                     if (seen.add(span)) evidence.add(span.deepCopy());
                 }));
+        // 이름 인용만 추출됐어도 검증 후 자동 승격한 별도 프로필은 후속 실제 인물 연결의 근거로 남긴다.
+        discoveries.stream().filter(SettingCandidate::isReviewedAutomatically)
+                .filter(candidate -> candidate.getAnalysisJob() != null && candidate.getAnalysisJob().isSettingBookSource())
+                .map(SettingCandidate::getRawAiResultJson).filter(Objects::nonNull)
+                .map(raw -> raw.path("setting_book_identity_proof")).filter(JsonNode::isObject)
+                .forEach(proof -> proof.path("members").forEach(member -> {
+                    JsonNode span = member.path("profileEvidence");
+                    if (member.path("targetRef").equals(proof.path("parentTargetRef")) && span.isObject() && seen.add(span)) evidence.add(span.deepCopy());
+                }));
         Integer episode = discoveries.stream().map(SettingCandidate::getEpisode).filter(Objects::nonNull)
                 .map(source -> source.getEpisodeNo()).max(Integer::compareTo).orElse(null);
         ObjectNode source = provenance("CONFIRMED", episode,
                 discoveries.stream().map(SettingCandidate::getId).toList());
         source.put("reviewSource", !discoveries.isEmpty()
                 && discoveries.stream().allMatch(SettingCandidate::isReviewedAutomatically) ? "AUTOMATIC" : "HUMAN");
+        discoveries.stream().findFirst().ifPresent(candidate -> org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSourceMetadata.put(source, candidate.getAnalysisJob()));
         state.set("provenance", source);
     }
 
@@ -109,17 +149,27 @@ public class CharacterAnalysisStateMapper {
         return slot;
     }
 
+    public ObjectNode toSlot(CharacterSnapshotEntry entry, String status, Integer episode, List<UUID> ids,
+            org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob job) {
+        ObjectNode node = toSlot(entry, status, episode, ids);
+        org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSourceMetadata.put((ObjectNode) node.path("provenance"), job);
+        return node;
+    }
+
     private ObjectNode identity(String name, long version) {
         ObjectNode state = JsonNodeFactory.instance.objectNode();
         state.put("name", Objects.requireNonNull(name));
         state.putArray("aliases");
+        state.putArray("protectedSlots");
         state.put("snapshotVersion", version);
+        state.putNull("currentNarrativeTime");
+        state.putArray("historyFacts");
         state.putObject("slots");
         state.putObject("absences");
         return state;
     }
 
-    private ObjectNode provenance(String status, Integer episodeNo, List<UUID> sourceIds) {
+    private static ObjectNode provenance(String status, Integer episodeNo, List<UUID> sourceIds) {
         ObjectNode provenance = JsonNodeFactory.instance.objectNode();
         provenance.put("confirmationStatus", status);
         provenance.put("sourceEpisodeNo", episodeNo);

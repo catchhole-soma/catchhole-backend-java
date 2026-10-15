@@ -87,7 +87,7 @@ public class AnalysisStateJournal {
         if (record == null) {
             return null;
         }
-        ObjectNode redacted = record.deepCopy();
+        ObjectNode redacted = (ObjectNode) org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.purgeEvidence(record);
         for (JsonNode change : redacted.path("changes")) {
             JsonNode path = change.path("path");
             JsonNode value = change.path("value");

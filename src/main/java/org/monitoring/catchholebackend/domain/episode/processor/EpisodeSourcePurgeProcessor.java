@@ -197,6 +197,7 @@ public class EpisodeSourcePurgeProcessor {
                 workId, request.getPreviousEpisodeNo());
         comparisonBatchRepository.purgeOrderedContextByWorkIdAndSourceEpisodeNo(
                 workId, request.getPreviousEpisodeNo());
+        purgeDataRepository.purgeNarrativeTimeEvidence(episodeId);
         purgeCharacterCandidates(episodeId);
         purgeWorldSettingCandidates(episodeId);
         purgeDataRepository.deleteChunks(episodeId);

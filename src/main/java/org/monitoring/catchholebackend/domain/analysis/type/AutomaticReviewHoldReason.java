@@ -2,6 +2,8 @@ package org.monitoring.catchholebackend.domain.analysis.type;
 
 /** AI 비교 결과와 구분하여 기록하는 자동 반영 보류 사유다. */
 public enum AutomaticReviewHoldReason {
+    HUMAN_CURRENT_SETTING_PROTECTED("직접 수정한 현재값을 유지했습니다. 제안을 현재 설정에 반영할지 확인해 주세요."),
+    SETTING_TIME_CONFIRMATION_REQUIRED("설정의 시점을 확정할 수 없습니다. 현재값과 원문 시점을 확인해 주세요."),
     SUBJECT_RESOLUTION_FAILED("대상 연결을 완료하지 못했습니다. 원문을 보고 누구에 대한 설정인지 확인해 주세요."),
     COMPARISON_INPUT_TOO_LARGE("비교할 내용이 많아 이 설정은 직접 확인이 필요합니다. 다른 설정의 분석은 계속됩니다."),
     SUBJECT_CONFIRMATION_REQUIRED("이 설정들이 같은 대상을 설명하는지 확인해 주세요."),

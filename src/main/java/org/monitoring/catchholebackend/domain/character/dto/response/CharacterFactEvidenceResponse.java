@@ -22,6 +22,11 @@ public record CharacterFactEvidenceResponse(
         String content,
 
         @Schema(description = "원문 근거 범위 목록", requiredMode = Schema.RequiredMode.REQUIRED)
-        List<CharacterFactEvidenceSpanResponse> evidenceSpans
+        List<CharacterFactEvidenceSpanResponse> evidenceSpans,
+        @io.swagger.v3.oas.annotations.media.Schema(nullable = true) org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse source
 ) {
+    public CharacterFactEvidenceResponse(UUID characterFactId, UUID sourceCandidateId, CharacterFactEvidenceEpisodeResponse episode, String content, List<CharacterFactEvidenceSpanResponse> evidenceSpans) {
+        this(characterFactId, sourceCandidateId, episode, content, evidenceSpans, null);
+    }
+
 }

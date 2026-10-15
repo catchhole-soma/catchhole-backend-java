@@ -21,14 +21,26 @@ public record WorkerAnalysisKnownCharacterPayload(
         @Schema(description = "누적 모드의 출처. 기존 단일 회차에서는 생략합니다.", nullable = true)
         WorkerAnalysisProvenancePayload provenance,
         @JsonInclude(JsonInclude.Include.NON_EMPTY) List<String> aliases,
-        @JsonInclude(JsonInclude.Include.NON_EMPTY) List<CharacterFactEvidenceSpanResponse> identityEvidence
+        @JsonInclude(JsonInclude.Include.NON_EMPTY) List<CharacterFactEvidenceSpanResponse> identityEvidence,
+        @JsonInclude(JsonInclude.Include.NON_EMPTY)
+        List<org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterProtectedSlotPayload> protectedSlots,
+        Object currentNarrativeTime
 ) {
+    public WorkerAnalysisKnownCharacterPayload(UUID characterId, String name, List<ActiveStatus> activeStatuses,
+            WorkerAnalysisProvenancePayload provenance, List<String> aliases, List<CharacterFactEvidenceSpanResponse> identityEvidence,
+            List<org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterProtectedSlotPayload> protectedSlots) {
+        this(characterId, name, activeStatuses, provenance, aliases, identityEvidence, protectedSlots, null);
+    }
+    public WorkerAnalysisKnownCharacterPayload(UUID characterId, String name, List<ActiveStatus> activeStatuses,
+            WorkerAnalysisProvenancePayload provenance, List<String> aliases, List<CharacterFactEvidenceSpanResponse> identityEvidence) {
+        this(characterId, name, activeStatuses, provenance, aliases, identityEvidence, List.of());
+    }
     public WorkerAnalysisKnownCharacterPayload(UUID characterId, String name, List<ActiveStatus> activeStatuses) {
-        this(characterId, name, activeStatuses, null, List.of(), List.of());
+        this(characterId, name, activeStatuses, null, List.of(), List.of(), List.of());
     }
     public WorkerAnalysisKnownCharacterPayload(UUID characterId, String name, List<ActiveStatus> activeStatuses,
             WorkerAnalysisProvenancePayload provenance) {
-        this(characterId, name, activeStatuses, provenance, List.of(), List.of());
+        this(characterId, name, activeStatuses, provenance, List.of(), List.of(), List.of());
     }
 
     @Schema(name = "WorkerAnalysisActiveCharacterStatusPayload", description = "1차 추출 문맥용 활성 캐릭터 STATUS")

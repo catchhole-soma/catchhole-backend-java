@@ -23,6 +23,11 @@ public record CharacterFactReferenceResponse(
                 example = "true",
                 requiredMode = Schema.RequiredMode.REQUIRED
         )
-        boolean hasEvidence
+        boolean hasEvidence,
+        @io.swagger.v3.oas.annotations.media.Schema(nullable = true) org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse source
 ) {
+    public CharacterFactReferenceResponse(UUID characterFactId, UUID sourceEpisodeId, Integer sourceEpisodeNo, boolean hasEvidence) {
+        this(characterFactId, sourceEpisodeId, sourceEpisodeNo, hasEvidence, null);
+    }
+
 }

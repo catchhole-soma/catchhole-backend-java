@@ -10,7 +10,7 @@ public final class WorldSettingCandidateChronology {
     }
 
     public static Comparator<WorldSettingCandidate> comparator() {
-        return Comparator.comparing((WorldSettingCandidate candidate) -> candidate.getSourceEpisode().getEpisodeNo())
+        return Comparator.comparing((WorldSettingCandidate candidate) -> candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getEpisodeNo(), Comparator.nullsLast(Comparator.naturalOrder()))
                 .thenComparingInt(WorldSettingCandidateChronology::firstEvidenceOffset)
                 .thenComparing(WorldSettingCandidate::getCreatedAt, Comparator.nullsFirst(Comparator.naturalOrder()))
                 .thenComparing(WorldSettingCandidate::getId);

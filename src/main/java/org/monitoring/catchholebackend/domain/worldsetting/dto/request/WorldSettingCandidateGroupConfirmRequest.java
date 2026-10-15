@@ -29,9 +29,16 @@ public record WorldSettingCandidateGroupConfirmRequest(
             @NotBlank String value,
             @Schema(description = "서로 다른 추출 내용을 사용자가 최종값으로 정리했는지 여부", nullable = true)
             Boolean conflictResolved,
-            String reviewNote
+            String reviewNote,
+        @Schema(description = "기존 실제 대상의 선택 경로만 현재값으로 명시 반영합니다. 새 대상에는 사용하지 않습니다.") Boolean applyToCurrent,
+        @Schema(description = "변경 전 실제 세계관 대상 version. applyToCurrent=true이면 필수입니다.", nullable = true) Long expectedWorldSettingVersion,
+        @Schema(description = "확인한 후보 updatedAt. applyToCurrent=true이면 필수입니다.", nullable = true) java.time.LocalDateTime expectedUpdatedAt
     ) {
 
+        public Decision(UUID candidateId, WorldSettingOperation operation, WorldSettingCategory category, String subjectName,
+                String scopeName, String settingName, String value, Boolean conflictResolved, String reviewNote) {
+            this(candidateId, operation, category, subjectName, scopeName, settingName, value, conflictResolved, reviewNote, null, null, null);
+        }
         public Decision(
                 UUID candidateId,
                 WorldSettingOperation operation,
@@ -51,7 +58,7 @@ public record WorldSettingCandidateGroupConfirmRequest(
                     settingName,
                     value,
                     conflictResolved,
-                    reviewNote
+                    reviewNote, null, null, null
             );
         }
     }

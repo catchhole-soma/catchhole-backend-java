@@ -40,8 +40,7 @@ public class CharacterFactMapper {
                 fact.getWorkCharacter().getName(),
                 sourceEpisode == null ? null : sourceEpisode.getId(),
                 sourceEpisode == null ? null : sourceEpisode.getEpisodeNo(),
-                fact.getEffectiveFromEpisodeNo()
-        );
+                fact.getEffectiveFromEpisodeNo(), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(fact.getExtractedByJob()));
     }
 
     public CharacterFactDetailResponse toDetailResponse(
@@ -67,8 +66,7 @@ public class CharacterFactMapper {
                 candidate == null ? null : candidate.getId(),
                 sourceEpisode == null ? null : sourceEpisode.getId(),
                 sourceEpisode == null ? null : sourceEpisode.getEpisodeNo(),
-                extractEvidenceQuotes(candidate)
-        );
+                extractEvidenceQuotes(candidate), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(fact.getExtractedByJob()));
     }
 
     private String resolveDisplayName(

@@ -79,6 +79,16 @@ public class SettingCandidate extends BaseEntity {
     )
     private Episode episode;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source_kind", nullable = false, length = 20, updatable = false)
+    private org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "source_setting_book_id", updatable = false)
+    private org.monitoring.catchholebackend.domain.upload.entity.UploadFile sourceSettingBook;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "source_setting_book_revision_id", updatable = false)
+    private org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision sourceSettingBookRevision;
+
     // 청킹 엔티티가 생기기 전까지 원문 근거 청크 UUID만 보관합니다.
     @Column(name = "source_chunk_id")
     private UUID sourceChunkId;
@@ -166,6 +176,14 @@ public class SettingCandidate extends BaseEntity {
     @Column(name = "evidence_spans", columnDefinition = "jsonb")
     private JsonNode evidenceSpans;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "narrative_time", columnDefinition = "jsonb")
+    private JsonNode narrativeTime;
+
+    public void recordNarrativeTime(JsonNode time) {
+        narrativeTime = time == null ? null : time.deepCopy();
+    }
+
     @Column(name = "confidence", precision = 5, scale = 4)
     private BigDecimal confidence;
 
@@ -189,6 +207,20 @@ public class SettingCandidate extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "temporal_scope", length = 30)
     private CharacterFactTemporalScope temporalScope;
+    @Column(name = "effective_from_episode_no")
+    private Integer effectiveFromEpisodeNo;
+
+    public void recordNarrativeTimeSelection(JsonNode marker) {
+        com.fasterxml.jackson.databind.node.ObjectNode result = rawComparisonJson != null && rawComparisonJson.isObject()
+                ? rawComparisonJson.deepCopy() : com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
+        result.set("validatedNarrativeTime", marker.deepCopy());
+        rawComparisonJson = result;
+    }
+
+    public void recordEffectiveFromEpisodeNo(Integer number) {
+        if (number != null && number < 1) throw new IllegalArgumentException("효력 회차는 양수여야 합니다.");
+        effectiveFromEpisodeNo = number;
+    }
 
     @Enumerated(EnumType.STRING)
     @Column(name = "comparison_target_fact_type", length = 30)
@@ -370,6 +402,13 @@ public class SettingCandidate extends BaseEntity {
         this.episode = episode;
         this.sourceChunkId = sourceChunkId;
         this.analysisJob = analysisJob;
+        if (analysisJob != null && analysisJob.isSettingBookSource()) {
+            if (episode != null) throw new IllegalArgumentException("설정집 후보에 회차를 연결할 수 없습니다.");
+            this.sourceKind = analysisJob.getSourceKind();
+            this.sourceSettingBook = analysisJob.getSourceSettingBook();
+            this.sourceSettingBookRevision = analysisJob.getSourceSettingBookRevision();
+            this.sourceContentS3Key = analysisJob.getSourceContentS3Key();
+        }
         this.metricsSourceAttemptNo = analysisJob == null ? 0 : analysisJob.getMetricsAttemptNo();
         this.candidateKind = candidateKind;
         this.entityType = entityType;
@@ -618,6 +657,14 @@ public class SettingCandidate extends BaseEntity {
         return changed;
     }
 
+    /** Explicit rejection does not approve the model's observation-time selection. */
+    public boolean dismissByUser() {
+        if (rawComparisonJson != null && rawComparisonJson.isObject()) {
+            ((com.fasterxml.jackson.databind.node.ObjectNode) rawComparisonJson).remove("validatedNarrativeTime");
+        }
+        return dismiss();
+    }
+
     public boolean dismiss() {
         // Worker가 비교 결과를 쓰는 도중 사용자 무시가 끼어들면 마지막 flush가 제안을 되살릴 수 있다.
         if (comparisonStatus == CharacterFactComparisonStatus.PROCESSING) {
@@ -629,7 +676,10 @@ public class SettingCandidate extends BaseEntity {
             boolean preserveCompletedBatchMembership =
                     comparisonStatus == CharacterFactComparisonStatus.COMPLETED
                             && characterComparisonBatch != null;
+            JsonNode semanticTime = suggestedOperation == CharacterFactOperation.EXCLUDE && rawComparisonJson != null
+                    && rawComparisonJson.path("validatedNarrativeTime").path("advance").asBoolean() ? rawComparisonJson.deepCopy() : null;
             clearComparisonProposal(preserveCompletedBatchMembership);
+            if (semanticTime != null) rawComparisonJson = semanticTime;
             comparisonStatus = CharacterFactComparisonStatus.NOT_REQUIRED;
             captureComparisonAttempt();
             captureComparisonMetrics();
@@ -974,6 +1024,12 @@ public class SettingCandidate extends BaseEntity {
         return comparisonStatus == CharacterFactComparisonStatus.COMPLETED;
     }
 
+    public boolean isAutomaticPastHistoryOnly() {
+        return analysisJob != null && analysisJob.isAutomaticReview() && isComparisonCompleted()
+                && suggestedOperation == CharacterFactOperation.HISTORY_ONLY
+                && temporalScope == CharacterFactTemporalScope.PAST;
+    }
+
     public void recordGroupConfirmation(String decisionHash) {
         if (reviewStatus == SettingCandidateReviewStatus.PENDING_REVIEW) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
@@ -995,6 +1051,7 @@ public class SettingCandidate extends BaseEntity {
         this.sourceContentS3Key = null;
         this.rawEntityMention = null;
         this.evidenceSpans = null;
+        this.narrativeTime = org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.purgeEvidence(narrativeTime);
         this.rawAiResultJson = null;
         this.comparisonReason = null;
         this.rawComparisonJson = null;

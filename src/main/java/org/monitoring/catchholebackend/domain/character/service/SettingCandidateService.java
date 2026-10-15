@@ -35,10 +35,22 @@ public interface SettingCandidateService {
             boolean includeLegacyCandidates
     );
 
+    SettingCandidateListResponse getSettingCandidates(
+            Long memberId,
+            UUID workId,
+            UUID batchId,
+            SettingCandidateReviewStatus reviewStatus,
+            Set<SettingCandidateMatchStatus> matchStatuses,
+            int page,
+            int size,
+            boolean includeLegacyCandidates, UUID sourceAnalysisJobId);
+
     /**
      * 작품 소유권과 업로드 묶음·설정 후보 소속을 확인한 뒤 단건 후보 정보를 조회한다.
      */
     SettingCandidateResponse getSettingCandidate(Long memberId, UUID workId, UUID batchId, UUID candidateId);
+
+    SettingCandidateResponse getSettingCandidate(Long memberId, UUID workId, UUID batchId, UUID candidateId, UUID sourceAnalysisJobId);
 
     /**
      * 작품 소유권과 설정 후보 소속을 확인한 뒤 사용자가 검토할 후보 내용을 수정한다.
@@ -51,12 +63,23 @@ public interface SettingCandidateService {
             SettingCandidateUpdateRequest request
     );
 
+    SettingCandidateResponse updateSettingCandidate(
+            Long memberId,
+            UUID workId,
+            UUID candidateId,
+            SettingCandidateUpdateRequest request, UUID sourceAnalysisJobId);
+
     /** 같은 이름의 대기 후보 전체를 하나의 기존 또는 신규 캐릭터로 연결한다. */
     SettingCandidateGroupActionResponse updateSettingCandidateGroupCharacterMatch(
             Long memberId,
             UUID workId,
             SettingCandidateGroupCharacterMatchRequest request
     );
+
+    SettingCandidateGroupActionResponse updateSettingCandidateGroupCharacterMatch(
+            Long memberId,
+            UUID workId,
+            SettingCandidateGroupCharacterMatchRequest request, UUID sourceAnalysisJobId);
 
     /**
      * 작품 소유권과 설정 후보 소속을 확인한 뒤 후보의 캐릭터 연결 상태를 해소한다.
@@ -68,6 +91,12 @@ public interface SettingCandidateService {
             UUID candidateId,
             SettingCandidateCharacterMatchRequest request
     );
+
+    SettingCandidateResponse updateSettingCandidateCharacterMatch(
+            Long memberId,
+            UUID workId,
+            UUID candidateId,
+            SettingCandidateCharacterMatchRequest request, UUID sourceAnalysisJobId);
 
     /**
      * 작품 소유권과 설정 후보 소속을 확인한 뒤 후보를 확정 상태로 전환한다.
@@ -81,6 +110,12 @@ public interface SettingCandidateService {
             SettingCandidateConfirmRequest request
     );
 
+    SettingCandidateConfirmResult confirmSettingCandidate(
+            Long memberId,
+            UUID workId,
+            UUID candidateId,
+            SettingCandidateConfirmRequest request, UUID sourceAnalysisJobId);
+
     /** 같은 이름의 후보를 한 트랜잭션으로 검증하고 모두 확정한다. */
     SettingCandidateGroupConfirmResult confirmSettingCandidateGroup(
             Long memberId,
@@ -88,8 +123,15 @@ public interface SettingCandidateService {
             SettingCandidateGroupConfirmRequest request
     );
 
+    SettingCandidateGroupConfirmResult confirmSettingCandidateGroup(
+            Long memberId,
+            UUID workId,
+            SettingCandidateGroupConfirmRequest request, UUID sourceAnalysisJobId);
+
     /** 실패·무효화된 비교를 같은 후보 기준의 숨김 Job으로 멱등 재요청한다. */
     SettingCandidateResponse retryComparison(Long memberId, UUID workId, UUID candidateId);
+
+    SettingCandidateResponse retryComparison(Long memberId, UUID workId, UUID candidateId, UUID sourceAnalysisJobId);
 
     /**
      * 작품 소유권과 설정 후보 소속을 확인한 뒤 후보를 무시 상태로 전환한다.
@@ -97,4 +139,6 @@ public interface SettingCandidateService {
      * 무시 처리에서는 확정 데이터 반영을 수행하지 않는다.
      */
     SettingCandidateReviewStatusResponse dismissSettingCandidate(Long memberId, UUID workId, UUID candidateId);
+
+    SettingCandidateReviewStatusResponse dismissSettingCandidate(Long memberId, UUID workId, UUID candidateId, UUID sourceAnalysisJobId);
 }

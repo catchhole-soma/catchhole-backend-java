@@ -66,6 +66,17 @@ public class ObjectStorageService {
         );
     }
 
+    /** 설정집 저장본은 고유 key로 보존하여 versioning이 없어도 분석 입력이 불변이다. */
+    public StoredTextObject putSettingBookRevision(UUID workId, UUID bookId, String filename, String content) {
+        String readableKey = buildSettingBookContentKey(workId, bookId, filename);
+        int boundary = readableKey.lastIndexOf('/');
+        StoredObject stored = objectStorage.putText(readableKey.substring(0, boundary + 1)
+                + UUID.randomUUID() + "/" + readableKey.substring(boundary + 1), content);
+        return new StoredTextObject(stored.key(), stored.versionId(), sha256(content), countNonWhitespaceCharacters(content));
+    }
+
+    public String contentHash(String content) { return sha256(content); }
+
     public String getText(String key) {
         return objectStorage.getText(key);
     }

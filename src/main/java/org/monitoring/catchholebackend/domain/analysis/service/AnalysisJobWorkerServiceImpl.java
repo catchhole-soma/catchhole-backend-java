@@ -16,6 +16,7 @@ import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalys
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisJobWorkerMapper;
+import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSemanticCurrentContextMapper;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobClaimRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
@@ -80,6 +81,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     private final CharacterSnapshotSourceRepository characterSnapshotSourceRepository;
     private final CharacterSettingSchemaRepository characterSettingSchemaRepository;
     private final AnalysisJobWorkerMapper analysisJobWorkerMapper;
+    private final AnalysisSemanticCurrentContextMapper semanticCurrentContextMapper;
     private final AiTokenService aiTokenService;
     private final WorldSettingComparisonBatchRepository worldSettingComparisonBatchRepository;
     private final CharacterFactComparisonBatchRepository characterFactComparisonBatchRepository;
@@ -98,14 +100,22 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         }
 
         AnalysisJob analysisJob = claimed.get();
-        if (analysisJob.isOrderedProvisional() && !analysisRunStateService.prepareInput(analysisJob)) {
+        try {
+            if (!analysisRunStateService.prepareInput(analysisJob)) return Optional.empty();
+        } catch (org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException exception) {
+            // Only a deterministic captured-evidence error reaches this path. Source/run conflicts
+            // and storage failures retain their existing invalidation/retry behavior.
+            analysisJob.claim(request.modelName(), request.currentStep(), now.plus(LEASE_DURATION));
+            finishFailure(analysisJob, new WorkerAnalysisJobFailRequest(AnalysisFailureCode.UNEXPECTED_ERROR, exception.getMessage()));
+            analysisJob.markJournalIncomplete();
+            aiTokenService.releaseReservedForAnalysisJob(analysisJob.getId(), AiTokenUsageOutcome.USAGE_UNAVAILABLE);
             return Optional.empty();
         }
         analysisJob.claim(request.modelName(), request.currentStep(), now.plus(LEASE_DURATION));
 
         boolean hiddenComparison = isHiddenComparisonJob(analysisJob);
         List<Episode> targetEpisodes = findTargetEpisodes(analysisJob);
-        if (!hiddenComparison && targetEpisodes.isEmpty()) {
+        if (!hiddenComparison && !analysisJob.isSettingBookSource() && targetEpisodes.isEmpty()) {
             analysisJob.fail(NO_TARGET_EPISODES_MESSAGE);
             return Optional.empty();
         }
@@ -114,7 +124,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             return Optional.empty();
         }
         Episode targetEpisode = targetEpisodes.isEmpty() ? null : targetEpisodes.getFirst();
-        if (!hiddenComparison) {
+        if (!hiddenComparison && targetEpisode != null) {
             targetEpisode.markChunking();
         }
 
@@ -135,13 +145,30 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                         knownCharacters.stream().map(WorkCharacter::getId).toList(),
                         CharacterFactType.STATUS
                 );
+        // known/provisional identities와 semantic 값은 같은 frozen input object에서 파생한다.
+        var input = analysisJob.isOrderedProvisional() ? analysisRunStateService.getInputState(analysisJob) : null;
+        org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerSemanticCurrentContextPayload semantic = null;
+        if (analysisJob.isOrderedProvisional() && Boolean.TRUE.equals(request.supportsSemanticCurrentContext())) {
+            try {
+                semantic = semanticCurrentContextMapper.toResponse(analysisJob, input);
+            } catch (AnalysisSemanticCurrentContextMapper.InvalidCarrierException exception) {
+                // deterministic 초과/손상 작업이 대기열을 계속 막지 않게 기존 실패 경로로 마감한다.
+                // Source/run/hash/lease conflict는 이 catch에 포함하지 않는다.
+                failAnalysisJob(analysisJob.getId(), analysisJob.getLeaseToken(),
+                        new WorkerAnalysisJobFailRequest(AnalysisFailureCode.UNEXPECTED_ERROR, exception.getMessage()));
+                analysisJob.markJournalIncomplete();
+                aiTokenService.releaseReservedForAnalysisJob(analysisJob.getId(), AiTokenUsageOutcome.USAGE_UNAVAILABLE);
+                return Optional.empty();
+            }
+        }
         return Optional.of(analysisJobWorkerMapper.toResponse(
                 analysisJob,
                 targetEpisode,
                 characterSettingSchemas,
                 knownCharacters,
                 activeStatusSources,
-                analysisJob.isOrderedProvisional() ? analysisRunStateService.getInputState(analysisJob) : null
+                input,
+                semantic
         ));
     }
 
@@ -170,7 +197,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 && analysisJob.hasHandedOffCharacterComparisons()) {
             characterComparisonJobCoordinator.handoffIfInputComplete(analysisJob);
         }
-        if (isHiddenComparisonJob(analysisJob)) {
+        if (isHiddenComparisonJob(analysisJob) || analysisJob.isSettingBookSource()) {
             return;
         }
         if (request.episodeStatus() == null) {
@@ -241,6 +268,10 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 analysisJobId,
                 leaseToken
         );
+        finishFailure(analysisJob, request);
+    }
+
+    private void finishFailure(AnalysisJob analysisJob, WorkerAnalysisJobFailRequest request) {
         AnalysisFailureCode failureCode = AnalysisFailureCode.orUnexpected(request.failureCode());
         boolean resumableTokenInterruption = !analysisJob.isOrderedProvisional()
                 && failureCode == AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED
@@ -266,7 +297,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         if (!isHiddenComparisonJob(analysisJob) && !resumableTokenInterruption) {
             markTargetEpisodesFailed(analysisJob);
         }
-        long[] totals = aiTokenService.getAnalysisJobTokenTotals(analysisJobId);
+        long[] totals = aiTokenService.getAnalysisJobTokenTotals(analysisJob.getId());
         analysisJob.fail(
                 failureCode,
                 request.errorMessage(),

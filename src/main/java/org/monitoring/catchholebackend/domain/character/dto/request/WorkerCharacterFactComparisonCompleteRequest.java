@@ -47,8 +47,29 @@ public record WorkerCharacterFactComparisonCompleteRequest(
         String contextToken,
 
         @Schema(nullable = true)
-        Map<String, Object> rawComparisonJson
+        Map<String, Object> rawComparisonJson,
+        @jakarta.validation.constraints.Positive @Schema(nullable = true, description = "설정집 본문의 효력 시작 회차") Integer effectiveFromEpisodeNo,
+        @Schema(defaultValue = "false", description = "후보의 검증된 referenceTime을 대표 시점으로 선택합니다. 누락/null은 false입니다.")
+        Boolean advanceCurrentNarrativeTime
 ) {
+    public WorkerCharacterFactComparisonCompleteRequest {
+        advanceCurrentNarrativeTime = Boolean.TRUE.equals(advanceCurrentNarrativeTime);
+    }
+
+    public WorkerCharacterFactComparisonCompleteRequest(CharacterFactOperation operation, CharacterFactType targetFactType, String targetFactKey,
+            String proposedFactValue, Object proposedValueJson, List<SnapshotEntry> removedSnapshotEntries,
+            CharacterFactTemporalScope temporalScope, String comparisonReason, String contextToken, Map<String, Object> rawComparisonJson) {
+        this(operation, targetFactType, targetFactKey, proposedFactValue, proposedValueJson, removedSnapshotEntries,
+                temporalScope, comparisonReason, contextToken, rawComparisonJson, null, false);
+    }
+
+    public WorkerCharacterFactComparisonCompleteRequest(CharacterFactOperation operation, CharacterFactType targetFactType, String targetFactKey,
+            String proposedFactValue, Object proposedValueJson, List<SnapshotEntry> removedSnapshotEntries,
+            CharacterFactTemporalScope temporalScope, String comparisonReason, String contextToken, Map<String,Object> rawComparisonJson,
+            Integer effectiveFromEpisodeNo) {
+        this(operation, targetFactType, targetFactKey, proposedFactValue, proposedValueJson, removedSnapshotEntries, temporalScope,
+                comparisonReason, contextToken, rawComparisonJson, effectiveFromEpisodeNo, false);
+    }
 
     @Schema(name = "WorkerCharacterRemovedSnapshotEntry")
     public record SnapshotEntry(

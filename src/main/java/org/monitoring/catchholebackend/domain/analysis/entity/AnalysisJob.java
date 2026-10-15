@@ -105,6 +105,18 @@ public class AnalysisJob extends BaseEntity {
     )
     private Episode episode;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source_kind", nullable = false, length = 20, updatable = false)
+    private org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "source_setting_book_id", updatable = false)
+    private org.monitoring.catchholebackend.domain.upload.entity.UploadFile sourceSettingBook;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "source_setting_book_revision_id", updatable = false)
+    private org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision sourceSettingBookRevision;
+
+    public boolean isSettingBookSource() { return sourceKind == org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.SETTING_BOOK; }
+
     // WORLD_SETTING_COMPARISON Job이 다시 비교할 후보. 일반 회차 분석 Job에서는 null이다.
     @ManyToOne(fetch = FetchType.LAZY)
     @OnDelete(action = OnDeleteAction.SET_NULL)
@@ -364,6 +376,39 @@ public class AnalysisJob extends BaseEntity {
         return new AnalysisJob(work, batch, episode, jobType);
     }
 
+    public static AnalysisJob createSettingBook(Work work, org.monitoring.catchholebackend.domain.upload.entity.UploadFile book,
+            org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision revision) {
+        if (!Objects.equals(book.getBatch().getWork().getId(), work.getId())
+                || !Objects.equals(revision.getSettingBook().getId(), book.getId()) || book.getArchivedAt() != null) {
+            throw new IllegalArgumentException("설정집 분석 출처가 일치하지 않습니다.");
+        }
+        AnalysisJob job = new AnalysisJob(work, book.getBatch(), null, AnalysisJobType.SETTING_EXTRACTION);
+        job.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.SETTING_BOOK;
+        job.sourceSettingBook = book;
+        job.sourceSettingBookRevision = revision;
+        job.sourceContentHash = revision.getContentHash();
+        job.sourceContentS3Key = revision.getContentS3Key();
+        job.sourceContentS3Version = revision.getContentS3Version();
+        job.configureReviewMode(AnalysisReviewMode.AUTOMATIC);
+        job.attemptRequestedAt = job.pendingSince;
+        job.metricsAttemptNo = 1;
+        job.metricsRequestId = UUID.randomUUID();
+        job.metricsRequestStartedAt = job.pendingSince;
+        job.metricsRequestEpisodeCount = 1;
+        return job;
+    }
+
+    private void inheritBookSource(AnalysisJob source) {
+        if (source != null && source.isSettingBookSource()) {
+            sourceKind = source.sourceKind;
+            sourceSettingBook = source.sourceSettingBook;
+            sourceSettingBookRevision = source.sourceSettingBookRevision;
+            sourceContentHash = source.sourceContentHash;
+            sourceContentS3Key = source.sourceContentS3Key;
+            sourceContentS3Version = source.sourceContentS3Version;
+        }
+    }
+
     public static AnalysisJob createWorldSettingComparison(WorldSettingCandidate candidate) {
         AnalysisJob analysisJob = new AnalysisJob(
                 candidate.getWork(),
@@ -372,6 +417,7 @@ public class AnalysisJob extends BaseEntity {
                 AnalysisJobType.WORLD_SETTING_COMPARISON
         );
         analysisJob.worldSettingCandidate = candidate;
+        analysisJob.inheritBookSource(candidate.getAnalysisJob());
         return analysisJob;
     }
 
@@ -388,6 +434,7 @@ public class AnalysisJob extends BaseEntity {
                 AnalysisJobType.CHARACTER_FACT_COMPARISON
         );
         analysisJob.settingCandidate = candidate;
+        analysisJob.inheritBookSource(sourceJob);
         analysisJob.characterComparisonInputHash = inputHash;
         return analysisJob;
     }
@@ -454,12 +501,13 @@ public class AnalysisJob extends BaseEntity {
     }
 
     public void initializeOrderedRun(UUID runId, long generation, int sequence, UUID predecessorId, JsonNode base) {
-        if (status != AnalysisJobStatus.PENDING || analysisRunId != null || episode == null
+        if (status != AnalysisJobStatus.PENDING || analysisRunId != null || (episode == null && !isSettingBookSource())
                 || jobType != AnalysisJobType.SETTING_EXTRACTION || runId == null || generation < 1
                 || sequence < 0 || (sequence == 0) != (predecessorId == null)
                 || (sequence == 0) != (base != null && base.isObject())
-                || episode.getContentHash() == null || !episode.getContentHash().matches("[0-9a-f]{64}")
-                || episode.getContentS3Key() == null) {
+                || sourceContentHash == null || !sourceContentHash.matches("[0-9a-f]{64}")
+                || sourceContentS3Key == null
+                || (isSettingBookSource() && (sequence != 0 || predecessorId != null || !isAutomaticReview() || !hasCurrentSourceVersion()))) {
             throw new IllegalArgumentException("누적 실행의 대상·순서·시작 상태·원문 버전이 올바르지 않습니다.");
         }
         analysisMode = AnalysisMode.ORDERED_PROVISIONAL;
@@ -468,14 +516,24 @@ public class AnalysisJob extends BaseEntity {
         runSequence = sequence;
         predecessorJobId = predecessorId;
         runBaseState = base == null ? null : base.deepCopy();
-        sourceEpisodeNo = episode.getEpisodeNo();
-        sourceContentHash = episode.getContentHash();
-        sourceContentS3Key = episode.getContentS3Key();
-        sourceContentS3Version = episode.getContentS3Version();
+        if (episode != null) {
+            sourceEpisodeNo = episode.getEpisodeNo();
+            sourceContentHash = episode.getContentHash();
+            sourceContentS3Key = episode.getContentS3Key();
+            sourceContentS3Version = episode.getContentS3Version();
+        }
         journalStatus = AnalysisJournalStatus.PENDING;
     }
 
     public boolean hasCurrentSourceVersion() {
+        if (isSettingBookSource()) {
+            return sourceSettingBook != null && sourceSettingBookRevision != null && sourceSettingBook.getArchivedAt() == null
+                    && sourceSettingBook.getCurrentSettingBookRevision() != null
+                    && Objects.equals(sourceSettingBookRevision.getId(), sourceSettingBook.getCurrentSettingBookRevision().getId())
+                    && Objects.equals(sourceContentHash, sourceSettingBookRevision.getContentHash())
+                    && Objects.equals(sourceContentS3Key, sourceSettingBookRevision.getContentS3Key())
+                    && Objects.equals(sourceContentS3Version, sourceSettingBookRevision.getContentS3Version());
+        }
         return !isOrderedProvisional() || (episode != null
                 && Objects.equals(sourceEpisodeNo, episode.getEpisodeNo())
                 && episode.getStatus() != org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ARCHIVED
@@ -544,7 +602,7 @@ public class AnalysisJob extends BaseEntity {
 
     private JsonNode purgeCapturedEvidence(JsonNode captured) {
         if (captured == null) return null;
-        com.fasterxml.jackson.databind.node.ObjectNode redacted = captured.deepCopy();
+        com.fasterxml.jackson.databind.node.ObjectNode redacted = (com.fasterxml.jackson.databind.node.ObjectNode) org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.purgeEvidence(captured);
         for (String domain : List.of("characters", "worldSettings")) {
             redacted.path(domain).forEach(target -> {
                 if (target.isObject()) ((com.fasterxml.jackson.databind.node.ObjectNode) target).remove("identityEvidence");
@@ -692,6 +750,16 @@ public class AnalysisJob extends BaseEntity {
         this.outputTokenCount = outputTokenCount;
         this.completedAt = LocalDateTime.now();
         recordResultReady(metricsAttemptNo, completedAt, "failure");
+        clearLease();
+    }
+
+    /** Source edits/archive cancel comparison-only jobs without introducing ordered-journal fields. */
+    public void cancelForSourceChange(String reason) {
+        if (status != AnalysisJobStatus.PENDING && status != AnalysisJobStatus.RUNNING) return;
+        status = AnalysisJobStatus.CANCELED;
+        currentStep = reason;
+        completedAt = LocalDateTime.now();
+        recordResultReady(metricsAttemptNo, completedAt, "canceled");
         clearLease();
     }
 

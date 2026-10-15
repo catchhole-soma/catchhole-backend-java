@@ -96,8 +96,7 @@ public class EpisodeController {
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal memberPrincipal,
             @PathVariable UUID workId,
             @Valid @RequestPart("metadata") EpisodeUploadRequest uploadRequest,
-            @RequestPart("episodeFiles") List<MultipartFile> sourceEpisodeFiles,
-            @RequestPart(value = "settingBookFile", required = false) MultipartFile attachedSettingBookFile
+            @RequestPart("episodeFiles") List<MultipartFile> sourceEpisodeFiles
     ) {
         return CommonResponse.success(
                 "회차 원고가 업로드되었습니다.",
@@ -105,8 +104,7 @@ public class EpisodeController {
                         memberPrincipal.memberId(),
                         workId,
                         uploadRequest,
-                        sourceEpisodeFiles,
-                        attachedSettingBookFile
+                        sourceEpisodeFiles
                 )
         );
     }

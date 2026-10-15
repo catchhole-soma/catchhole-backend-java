@@ -50,7 +50,8 @@ public class AnalysisJobMapper {
                 analysisJob.isOrderedProvisional() ? new AnalysisRunResponse(analysisJob.getAnalysisMode(),
                         analysisJob.getAnalysisRunId(), analysisJob.getRunGeneration(), analysisJob.getRunSequence(),
                         analysisJob.getPredecessorJobId(), analysisJob.getJournalStatus(), analysisJob.getJournalInvalidationReason()) : null,
-                analysisJob.getReviewMode(), analysisJob.getAutomaticAppliedAt()
+                analysisJob.getReviewMode(), analysisJob.getAutomaticAppliedAt(),
+                org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(analysisJob)
         );
     }
 

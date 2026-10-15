@@ -21,6 +21,9 @@ import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSetti
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.stereotype.Component;
+import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper;
+import org.monitoring.catchholebackend.domain.analysis.processor.SettingBookTemporalPolicy;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 
 /** 사용자 선택을 실제 대상과 순차 적용해 전체 검증한 뒤 한 번에 반영할 최종값을 만든다. */
 @Component
@@ -32,6 +35,56 @@ public class WorldSettingAnalysisConfirmation {
 
     public void assertReviewSourceCurrent(WorldSettingCandidate candidate) {
         sourceGuard.assertCurrent(candidate.getAnalysisJob(), candidate.getSourceEpisode());
+    }
+
+    public AutomaticReviewHoldReason automaticHold(WorldSettingCandidate candidate, WorldSetting actual) {
+        if (candidate.getAnalysisJob().isSettingBookSource()
+                && !org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingExtractionAssertion.isAsserted(candidate.getRawExtractionJson())) {
+            return AutomaticReviewHoldReason.REVIEW_REQUIRED;
+        }
+        var incoming = AnalysisCurrentSourceTimeMapper.from(candidate.getAnalysisJob(), candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope());
+        if (SettingBookTemporalPolicy.requiresReview(incoming, List.of(), false)) return AutomaticReviewHoldReason.SETTING_TIME_CONFIRMATION_REQUIRED;
+        if (candidate.getSuggestedOperation() == org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation.EXCLUDE) return null;
+        if (actual == null) return null;
+        java.util.Map<String, String[]> affected = new java.util.LinkedHashMap<>();
+        String scope = candidate.getProposedScopeName(); String key = candidate.getProposedSettingName();
+        if (key == null) key = candidate.getSettingName();
+        affected.put("destination", new String[]{scope, key});
+        var comparison = candidate.getComparisonDecision();
+        if (candidate.getMatchedPropertyName() != null && (!Objects.equals(candidate.getMatchedScopeName(), scope)
+                || !Objects.equals(candidate.getMatchedPropertyName(), key))) affected.put("source", new String[]{candidate.getMatchedScopeName(), candidate.getMatchedPropertyName()});
+        if (comparison != null && !comparison.isRootPropertyMovesDisabled()) {
+            for (var move : comparison.getExistingRootPropertyMoveSnapshots()) {
+                affected.put("root:"+move.settingName(), new String[]{null, move.settingName()});
+                affected.put("moved:"+move.settingName(), new String[]{scope, move.settingName()});
+            }
+        }
+        for (var path : affected.entrySet()) {
+            String[] names = path.getValue(); String value = actual.getPropertyValue(names[0], names[1]);
+            boolean changing = !path.getKey().equals("destination") || !Objects.equals(value, candidate.getProposedValue());
+            changing |= candidate.getSuggestedOperation() == org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation.MERGE;
+            if (!changing) continue;
+            if (candidate.getAnalysisJob().isSettingBookSource() && actual.isManuallyEdited(names[0], names[1])) return AutomaticReviewHoldReason.HUMAN_CURRENT_SETTING_PROTECTED;
+            var history = repository.findAllByTargetWorldSettingIdAndReviewStatusOrderByReviewedAtDescCreatedAtDescIdDesc(actual.getId(), WorldSettingReviewStatus.CONFIRMED);
+            var prior = history.stream()
+                    .filter(row -> !row.isHistoryOnly() && samePath(row.getFinalScopeName(), row.getFinalSettingName(), names[0], names[1])).toList();
+            if (value == null) {
+                if (candidate.getAnalysisJob().isSettingBookSource() && !prior.isEmpty()) return AutomaticReviewHoldReason.SETTING_TIME_CONFIRMATION_REQUIRED;
+                continue;
+            }
+            var matching = org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingCurrentSources.forProperty(history, names[0], names[1], value);
+            var times = matching.stream().map(row -> AnalysisCurrentSourceTimeMapper.from(row.getAnalysisJob(), row.getEffectiveFromEpisodeNo(), row.getTemporalScope())).toList();
+            boolean destination = path.getKey().equals("destination");
+            if (SettingBookTemporalPolicy.requiresReview(incoming, times,
+                    !destination || candidate.getSuggestedOperation() != org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation.MERGE,
+                    destination)) return AutomaticReviewHoldReason.SETTING_TIME_CONFIRMATION_REQUIRED;
+        }
+        return null;
+    }
+
+    private boolean samePath(String aScope, String aName, String bScope, String bName) {
+        return Objects.equals(org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingNameNormalizer.duplicateKey(aScope), org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingNameNormalizer.duplicateKey(bScope))
+                && Objects.equals(org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingNameNormalizer.duplicateKey(aName), org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingNameNormalizer.duplicateKey(bName));
     }
 
     public Optional<List<WorldSetting.Property>> project(

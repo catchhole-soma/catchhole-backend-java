@@ -13,9 +13,16 @@ public record WorkerAnalysisContextPayload(
         @Schema(description = "원문 SHA-256") String sourceHash,
         @Schema(description = "상태·기록 계약 버전") int formatVersion,
         @JsonInclude(JsonInclude.Include.NON_EMPTY)
-        @Schema(description = "같은 작품의 앞 회차에서 아직 반영하지 않은 참고 내용. 이전 업로드 묶음도 포함하며 확정 사실이나 연결 가능한 대상은 아닙니다.") List<WorkerAnalysisReferencePayload> unresolvedReferences
+        @Schema(description = "같은 작품의 앞 회차에서 아직 반영하지 않은 참고 내용. 이전 업로드 묶음도 포함하며 확정 사실이나 연결 가능한 대상은 아닙니다.") List<WorkerAnalysisReferencePayload> unresolvedReferences,
+        @JsonInclude(JsonInclude.Include.NON_NULL) @Schema(nullable = true)
+        org.monitoring.catchholebackend.domain.upload.type.SettingBookReferenceTimeKind referenceTimeKind,
+        @JsonInclude(JsonInclude.Include.NON_NULL) @Schema(nullable = true) Integer referenceEpisodeNo
 ) {
+    public WorkerAnalysisContextPayload(UUID runId, long generation, String inputStateHash, String sourceHash,
+            int formatVersion, List<WorkerAnalysisReferencePayload> unresolvedReferences) {
+        this(runId, generation, inputStateHash, sourceHash, formatVersion, unresolvedReferences, null, null);
+    }
     public WorkerAnalysisContextPayload(UUID runId, long generation, String inputStateHash, String sourceHash, int formatVersion) {
-        this(runId, generation, inputStateHash, sourceHash, formatVersion, List.of());
+        this(runId, generation, inputStateHash, sourceHash, formatVersion, List.of(), null, null);
     }
 }

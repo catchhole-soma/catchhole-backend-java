@@ -47,6 +47,10 @@ public class WorkPurgeDataRepository {
         deletedCount += update("delete from retrieval_sources where work_id = ?", workId);
         deletedCount += update("delete from chat_runs where work_id = ?", workId);
         deletedCount += update("delete from chat_questions where work_id = ?", workId);
+        deletedCount += update("""
+                delete from setting_book_chunks
+                where analysis_job_id in (select id from analysis_jobs where work_id = ?)
+                """, workId);
         deletedCount += update("delete from analysis_jobs where work_id = ?", workId);
         deletedCount += update("delete from world_settings where work_id = ?", workId);
         deletedCount += update("delete from character_setting_schemas where work_id = ?", workId);
@@ -57,6 +61,17 @@ public class WorkPurgeDataRepository {
                 where episode_id in (select id from episodes where work_id = ?)
                 """, workId);
         deletedCount += update("delete from episodes where work_id = ?", workId);
+        // Revisions reference their book while the book points at its current revision. Break that cycle after sources/jobs.
+        update("""
+                update upload_files set current_setting_book_revision_id = null
+                where batch_id in (select id from upload_batches where work_id = ?)
+                """, workId);
+        deletedCount += update("""
+                delete from setting_book_revisions
+                where setting_book_id in (
+                    select id from upload_files where batch_id in (select id from upload_batches where work_id = ?)
+                )
+                """, workId);
         deletedCount += update("""
                 delete from upload_files
                 where batch_id in (select id from upload_batches where work_id = ?)
