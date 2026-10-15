@@ -883,6 +883,7 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - `CHAT_ENABLED=false` 기본. 공통 Spring YAML의 CHAT_* 설정은 local/prod 모두 환경변수로 지정한다. FastAPI 별도 Compose는 명시적으로만 배포한다. 기능 flag를 꺼도 기존 예약 복구는 계속한다.
 - 채팅은 실행에 묶인 tools route를 사용하며 member/work를 LLM 인자에서 받지 않는다. provider SDK 재시도도 실제 호출마다 `Execution.call()` 예약 경계 안에 있어야 한다.
 - 실행 한도는 `EXECUTION_LIMIT_EXCEEDED`, 계정 잔액 부족은 `QUOTA_EXHAUSTED`로 구분한다. HTTP 429만으로 잔액 부족을 추정하지 않는다. 실패 안내와 재시도 판단에서 계정 상태와 실행 제한을 혼동하지 않기 위함이다.
+- `CHAT_ATTEMPT_TOKEN_BUDGET` 기본값 240,000은 Python 해석 출력 1,500·답변 3,000·출력 절단 복구 최대 6,000과 동기화한다. 최초 호출과 schema/참조 오류·절단 복구는 목적별 최대 두 시도를 공유하며 각 호출을 새로 예약·정산한다. 누적 예약 상한을 실제 소비나 모델별 사용자 할인으로 해석하지 않는다.
 - UNKNOWN은 사용량 0이 아니다. 원문 변경/삭제 시 저장 답변 자체도 무효화한다. 후속 대화 저장소가 생기면 같은 파기 계약을 연결한다.
 - 이 변경은 모델/프롬프트/기존 분석 결과에 영향을 주지 않는다. 테스트 stub은 tests/support 전용이며 운영 handler로 사용하지 않는다.
 
