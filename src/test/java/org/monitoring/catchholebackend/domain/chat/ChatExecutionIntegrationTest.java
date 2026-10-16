@@ -1,35 +1,55 @@
 package org.monitoring.catchholebackend.domain.chat;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.doAnswer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import jakarta.persistence.EntityManager;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 
 import org.junit.jupiter.api.*;
 import org.monitoring.catchholebackend.domain.aitoken.repository.*;
 import org.monitoring.catchholebackend.domain.aitoken.type.*;
+import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
+import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
+import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessor;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSlot;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.chat.dto.ChatContract.*;
 import org.monitoring.catchholebackend.domain.chat.repository.*;
 import org.monitoring.catchholebackend.domain.chat.service.*;
 import org.monitoring.catchholebackend.domain.chat.type.ChatState;
+import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.settingtool.dto.*;
+import org.monitoring.catchholebackend.domain.settingtool.mapper.SettingToolMapper;
 import org.monitoring.catchholebackend.domain.settingtool.type.SettingTool;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingConsolidationStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.*;
+import java.math.BigDecimal;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -55,6 +75,8 @@ class ChatExecutionIntegrationTest {
     @Autowired TransactionTemplate tx;
     @Autowired JwtTokenProvider tokens;
     @Autowired MockMvc mvc;
+    @Autowired CharacterSnapshotAccessor snapshots;
+    @MockitoSpyBean SettingToolMapper settingMapper;
     @MockitoBean ChatDispatcher dispatcher;
     Long member;
     UUID work;
@@ -368,6 +390,53 @@ class ChatExecutionIntegrationTest {
     }
 
     @Test
+    @DisplayName("절단 재시도 출력까지 포함한 여섯 텍스트 호출과 임베딩을 예약하되 실측만 차감한다")
+    void expandedContextReservationsKeepMeasuredSettlementAndAttemptLimit() {
+        var r = start();
+        assertThat(service.context(r.view.attemptId(), r.token, r.runner).tokenBudget())
+                .isEqualTo(240000);
+        for (int i = 0; i < 6; i++) {
+            var call = UUID.randomUUID();
+            service.reserve(
+                    r.view.attemptId(),
+                    r.token,
+                    r.runner,
+                    new Reserve(
+                            call,
+                            i == 0 ? AiTokenPurpose.CHAT_INTERPRETATION : AiTokenPurpose.CHAT_ANSWER,
+                            "test-model",
+                            32000 + 6000));
+            assertThat(balance()).containsExactly(i * 25L, 38000);
+            settle(r, call);
+        }
+        var embedding = UUID.randomUUID();
+        service.reserve(
+                r.view.attemptId(),
+                r.token,
+                r.runner,
+                new Reserve(embedding, AiTokenPurpose.CHAT_QUERY_EMBEDDING, "test-embedding", 4000 + 256));
+        assertThat(balance()).containsExactly(150, 4256);
+        service.report(
+                r.view.attemptId(),
+                r.token,
+                r.runner,
+                embedding,
+                new Usage(ReportKind.SETTLE, 10L, 0L, 0L, AiTokenUsageOutcome.SUCCESS));
+        assertThat(balance()).containsExactly(160, 0);
+        tx.executeWithoutResult(status -> {
+            var run = runs.findById(r.view.attemptId()).orElseThrow();
+            assertThat(run.getCallCount()).isEqualTo(7);
+            assertThat(run.getAllocatedTokens()).isEqualTo(232256);
+        });
+        // Settlement frees account reservations but does not refill the attempt's safety budget.
+        assertThatThrownBy(() -> reserve(r, UUID.randomUUID(), 7745))
+                .isInstanceOfSatisfying(AppException.class, error ->
+                        assertThat(error.getResultCode()).isEqualTo(
+                                org.monitoring.catchholebackend.domain.chat.exception.ChatErrorCode.CHAT_LIMIT_EXCEEDED));
+        assertThat(balance()).containsExactly(160, 0);
+    }
+
+    @Test
     @DisplayName("실행 예산 한도는 잔액 부족과 다른 코드로 거절하고 실패 결과를 보존한다")
     void executionLimitFailureIsSeparateFromAccountQuota() throws Exception {
         var a = start();
@@ -536,6 +605,202 @@ class ChatExecutionIntegrationTest {
                                         r.runner,
                                         new Finish(result, null)))
                 .isInstanceOf(AppException.class);
+    }
+
+    record LookupFixture(UUID character, UUID world) {}
+
+    LookupFixture lookupFixture() {
+        return tx.execute(status -> {
+            var w = em.find(Work.class, work);
+            var m = em.find(Member.class, member);
+            var nodes = JsonNodeFactory.instance;
+            var character = WorkCharacter.create(w, "세린", null, null, null, null, null, null, null, null, null);
+            em.persist(character);
+            var level = new CharacterSnapshotSlot(CharacterFactType.LEVEL, "level");
+            var sameKeyStat = new CharacterSnapshotSlot(CharacterFactType.STAT, "level");
+            var race = new CharacterSnapshotSlot(CharacterFactType.PROFILE, "profile.race");
+            var skill = new CharacterSnapshotSlot(CharacterFactType.SKILL, "skill.current");
+            snapshots.replace(character, Map.of(
+                    level, snapshots.entry(level.factType(), level.factKey(), "7", nodes.numberNode(7)),
+                    sameKeyStat, snapshots.entry(sameKeyStat.factType(), sameKeyStat.factKey(), "99", nodes.numberNode(99)),
+                    race, snapshots.entry(race.factType(), race.factKey(), "바바리안 전사", nodes.textNode("바바리안")),
+                    skill, snapshots.entry(skill.factType(), skill.factKey(), "현재 능력", nodes.textNode("현재 능력"))));
+            var other = WorkCharacter.create(w, "다른 인물", null, null, null, null, null, null, null, null, null);
+            em.persist(other);
+            snapshots.replace(other, Map.of(race, snapshots.entry(race.factType(), race.factKey(), "엘프", nodes.textNode("엘프"))));
+            var world = WorldSetting.create(w, WorldSettingCategory.POWER_SYSTEM, "술법", null, "current", "현재값");
+            em.persist(world);
+            for (int number : List.of(1, 3, 6)) {
+                var episode = Episode.create(w, null, number, number + "화", "chat-lookup-" + number, null, null, 10);
+                em.persist(episode);
+                em.persist(CharacterFact.create(character, null, CharacterFactType.SKILL, "skill.episode" + number,
+                        "과거 능력", "과거 능력", nodes.textNode("과거 능력"), episode, null, null, null, number));
+                if (number == 3) {
+                    for (var type : List.of(CharacterFactType.LEVEL, CharacterFactType.STAT)) {
+                        em.persist(CharacterFact.create(character, null, type, "level", "5", "5",
+                                nodes.numberNode(5), episode, null, null, null, number));
+                    }
+                }
+                var key = "episode" + number;
+                var job = AnalysisJob.create(w, null, episode, AnalysisJobType.SETTING_EXTRACTION);
+                em.persist(job);
+                var candidate = WorldSettingCandidate.create(w, episode, job, world.getCategory(), world.getSubjectName(),
+                        null, key, "과거값", nodes.arrayNode().add(nodes.objectNode().put("quote", "과거값")), BigDecimal.ONE, null);
+                em.persist(candidate);
+                candidate.startComparison();
+                candidate.completeComparison(world, WorldSettingConsolidationStatus.SINGLE, WorldSettingOperation.ADD,
+                        null, key, null, "과거값", "비교 완료", null, LocalDateTime.now());
+                candidate.markHistoryOnly();
+                candidate.confirm(WorldSettingOperation.ADD, world.getCategory(), world.getSubjectName(), null,
+                        key, "과거값", null, m, world);
+            }
+            return new LookupFixture(character.getId(), world.getId());
+        });
+    }
+
+    ResultActions queryTool(Running r, String body) throws Exception {
+        return mvc.perform(post("/api/internal/v1/chat-runs/" + r.view.attemptId() + "/tools")
+                .header("X-Internal-Api-Key", "chat-test-key")
+                .header("X-Chat-Capability", r.token)
+                .header("X-Chat-Runner", r.runner)
+                .contentType("application/json").content(body));
+    }
+
+    @Test
+    @DisplayName("실행별 도구 HTTP 경로는 현재값과 이력의 유형·key 필터를 페이지 전에 보존한다")
+    void scopedToolEndpointPreservesFactType() throws Exception {
+        var fixture = lookupFixture();
+        var r = start();
+        for (var tool : List.of("CHARACTER_CURRENT", "CHARACTER_HISTORY")) {
+            queryTool(r, """
+                    {"tool":"%s","targetId":"%s","factType":"LEVEL","settingKey":"level","page":0,"size":1}
+                    """.formatted(tool, fixture.character()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.items.totalElements").value(1))
+                    .andExpect(jsonPath("$.data.items.hasNext").value(false))
+                    .andExpect(jsonPath("$.data.items.content[0].category").value("LEVEL"));
+        }
+    }
+
+    @Test
+    @DisplayName("실행별 도구 HTTP 경로는 현재 scalar 조건과 이름의 AND 검색을 보존한다")
+    void scopedToolEndpointPreservesValueCondition() throws Exception {
+        var fixture = lookupFixture();
+        var r = start();
+        queryTool(r, """
+                {"tool":"FIND_CHARACTERS","factType":"PROFILE","settingKey":"profile.race","valueEquals":"바바리안","page":0,"size":1}
+                """)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.totalElements").value(1))
+                .andExpect(jsonPath("$.data.items.content[0].subjectId").value(fixture.character().toString()));
+        queryTool(r, """
+                {"tool":"FIND_CHARACTERS","query":"다른","factType":"PROFILE","settingKey":"profile.race","valueEquals":"바바리안","page":0,"size":20}
+                """)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.totalElements").value(0));
+    }
+
+    @Test
+    @DisplayName("실행별 대상 metadata의 명시 회차 범위는 좁힐 수 있고 반대쪽 경계는 실행에서 채운다")
+    void scopedFieldEndpointClampsExplicitRange() throws Exception {
+        var fixture = lookupFixture();
+        var r = start();
+        for (var tool : List.of("CHARACTER_FIELDS", "WORLD_FIELDS")) {
+            UUID target = tool.equals("CHARACTER_FIELDS") ? fixture.character() : fixture.world();
+            String type = tool.equals("CHARACTER_FIELDS") ? ",\"factType\":\"SKILL\"" : "";
+            for (var range : List.of("\"episodeFrom\":3", "\"episodeTo\":3", "\"episodeFrom\":3,\"episodeTo\":3")) {
+                queryTool(r, """
+                        {"tool":"%s","targetId":"%s",%s%s,"page":0,"size":20}
+                        """.formatted(tool, target, range, type))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.data.items.totalElements").value(1))
+                        .andExpect(jsonPath("$.data.items.content[0].settingKey").value(
+                                tool.equals("CHARACTER_FIELDS") ? "skill.episode3" : "episode3"));
+            }
+            for (var range : List.of("\"episodeFrom\":1", "\"episodeTo\":6")) {
+                queryTool(r, """
+                        {"tool":"%s","targetId":"%s",%s%s,"page":0,"size":20}
+                        """.formatted(tool, target, range, type))
+                        .andExpect(status().isForbidden())
+                        .andExpect(jsonPath("$.error.code").value("CHAT_SCOPE_INVALID"));
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("회차 없는 metadata는 실행 회차가 있어도 현재값 탐색 의미를 유지한다")
+    void scopedFieldEndpointKeepsUnrangedCurrentCatalog() throws Exception {
+        var fixture = lookupFixture();
+        var r = start();
+        queryTool(r, """
+                {"tool":"CHARACTER_FIELDS","targetId":"%s","factType":"SKILL","page":0,"size":20}
+                """.formatted(fixture.character()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.items.totalElements").value(4));
+        queryTool(r, """
+                {"tool":"WORLD_FIELDS","targetId":"%s","page":0,"size":20}
+                """.formatted(fixture.world()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.items.totalElements").value(4));
+        queryTool(r, """
+                {"tool":"CHARACTER_FIELDS","factType":"SKILL","page":0,"size":20}
+                """)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.totalElements").value(1))
+                .andExpect(jsonPath("$.data.items.content[0].settingKey").value("skill.current"))
+                .andExpect(jsonPath("$.data.items.content[0].subjectId").value(work.toString()));
+    }
+
+    @Test
+    @DisplayName("실행별 collection은 필터·모집단·조회 토큰을 보존하고 마지막 재확인에서 변경을 거절한다")
+    void collectionEndpointPreservesFiltersAndReadToken() throws Exception {
+        lookupFixture();
+        tx.executeWithoutResult(status -> em.persist(WorldSetting.create(em.find(Work.class, work),
+                WorldSettingCategory.RACE, "산 종족", null, "서식지", "산")));
+        var r = start();
+        String body = """
+                {"tool":"WORLD_CURRENT_COLLECTION","worldCategory":"RACE","page":0,"size":1}
+                """;
+        String first = queryTool(r, body).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.collection.subjectCount").value(1))
+                .andExpect(jsonPath("$.data.items.content[0].category").value("RACE"))
+                .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        String token = new com.fasterxml.jackson.databind.ObjectMapper().readTree(first).at("/data/collection/readToken").asText();
+        queryTool(r, """
+                {"tool":"WORLD_CURRENT_COLLECTION","worldCategory":"RACE","readToken":"%s","page":1,"size":1}
+                """.formatted(token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.items.totalElements").value(1));
+        tx.executeWithoutResult(status -> em.persist(WorldSetting.create(em.find(Work.class, work),
+                WorldSettingCategory.RACE, "숲 종족", null, "서식지", "숲")));
+        queryTool(r, """
+                {"tool":"WORLD_CURRENT_COLLECTION","worldCategory":"RACE","readToken":"%s","page":0,"size":1}
+                """.formatted(token))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("CONFLICT"));
+    }
+
+    @Test
+    @DisplayName("collection 응답을 만드는 도중 다른 트랜잭션이 모집단을 바꾸면 혼합 결과를 반환하지 않는다")
+    void collectionDetectsConcurrentPopulationChangeDuringRead() throws Exception {
+        lookupFixture();
+        var r = start();
+        var changed = new java.util.concurrent.atomic.AtomicBoolean();
+        var pool = Executors.newSingleThreadExecutor();
+        try {
+            doAnswer(invocation -> {
+                var result = invocation.callRealMethod();
+                if (changed.compareAndSet(false, true)) {
+                    pool.submit(() -> tx.executeWithoutResult(status -> em.persist(WorkCharacter.create(
+                            em.find(Work.class, work), "조회 중 추가", null, null, null, null, null, null, null, null, null))))
+                            .get(10, TimeUnit.SECONDS);
+                }
+                return result;
+            }).when(settingMapper).toCharacterCurrentResponse(any(), any(), anyString(), anyList());
+            queryTool(r, """
+                    {"tool":"CHARACTER_CURRENT_COLLECTION","factType":"SKILL","page":0,"size":20}
+                    """)
+                    .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("CONFLICT"));
+            assertThat(changed).isTrue();
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test

@@ -11,6 +11,16 @@ import java.util.*;
 public interface ChatRunRepository extends JpaRepository<ChatRun, UUID> {
     List<ChatRun> findAllByWorkId(UUID workId);
 
+    List<ChatRun> findAllByQuestionSessionId(UUID sessionId);
+
+    @Query(
+            "select distinct r.question.session.id from ChatRun r"
+                + " where r.question.session.id in :sessions and"
+                + " ((r.state in :states and r.deadline > :now) or r.state ="
+                + " org.monitoring.catchholebackend.domain.chat.type.ChatState.SETTLEMENT_PENDING)")
+    List<UUID> findBlockingSessionIds(
+            Collection<UUID> sessions, Collection<ChatState> states, Instant now);
+
     long countByQuestionIsNotNullAndState(ChatState state);
 
     long countByWorkMemberIdAndQuestionIsNotNullAndStateIn(

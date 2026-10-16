@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.settingtool.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.List;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.settingtool.type.SettingTool;
@@ -9,8 +10,22 @@ import org.monitoring.catchholebackend.global.common.response.PageResponse;
 @Schema(name = "SettingToolResponseV1", description = "설정 조회 계약 v1. partial과 limitations를 확인한 뒤 완전성을 판단합니다.")
 public record SettingToolResponse(
         int schemaVersion, SettingTool tool, PageResponse<Item> items,
-        boolean partial, List<String> limitations
+        boolean partial, List<String> limitations,
+        @JsonInclude(JsonInclude.Include.NON_NULL) CollectionMetadata collection
 ) {
+    public SettingToolResponse(int schemaVersion, SettingTool tool, PageResponse<Item> items,
+                               boolean partial, List<String> limitations) {
+        this(schemaVersion, tool, items, partial, limitations, null);
+    }
+
+    @Schema(name = "SettingToolCollectionV1", description = "작품 범위 현재 설정 모집단과 변경 감지. 작품 원문의 완전한 사실 목록을 뜻하지 않습니다.")
+    public record CollectionMetadata(
+            @Schema(description = "ACTIVE_REGISTERED_CHARACTERS 또는 REGISTERED_WORLD_SETTINGS") String population,
+            @Schema(description = "대상 인물·세계관 수. worldCategory가 있으면 그 분류만 포함합니다.") long subjectCount,
+            @Schema(description = "선택한 필터에 맞는 현재 설정 행이 있는 대상 수. 값이 없거나 판단 불가능할 수 있습니다.") long subjectsWithValues,
+            @Schema(description = "필터 후 전체 현재 설정 행 수. 대상 수와 다릅니다.") long recordCount,
+            @Schema(description = "도구·작품·필터·모집단의 변경 감지값. 권한 토큰이나 과거 snapshot 식별자가 아닙니다.") String readToken
+    ) {}
     public enum Origin { CONFIRMED_ANALYSIS, USER_INPUT, UNKNOWN }
     public enum EvidenceStatus {
         AVAILABLE, LEGACY_UNVERIFIED, NO_SOURCE, SOURCE_MISSING, SOURCE_PURGED,

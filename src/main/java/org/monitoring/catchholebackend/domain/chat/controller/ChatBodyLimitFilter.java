@@ -15,7 +15,7 @@ public class ChatBodyLimitFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
         return !path.startsWith("/api/internal/v1/chat-runs")
-                && !path.matches("/api/v1/works/[^/]+/chat-questions.*");
+                && !path.matches("/api/v1/works/[^/]+/(chat-questions|chat-sessions).*");
     }
 
     @Override

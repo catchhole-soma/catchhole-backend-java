@@ -47,3 +47,5 @@ service-usage:
 
 chat:
   metrics-enabled: false
+  session-cleanup:
+    scheduling-enabled: false

@@ -52,7 +52,7 @@ class SettingBookMainMigrationPostgresIntegrationTest extends SettingBookAnalysi
             statement.executeUpdate("INSERT INTO chat_questions(id,member_id,work_id,idempotency_key,input_hash,question,generation,current_attempt_id) VALUES ('" + question + "',1,'" + work + "','main-upgrade','" + "a".repeat(64) + "','보존할 질문',1,'" + java.util.UUID.randomUUID() + "')");
         }
         var upgraded = org.flywaydb.core.Flyway.configure().dataSource(isolatedUrl, "gh180", "gh180-test-only")
-                .locations("classpath:db/migration").load();
+                .locations("classpath:db/migration").target("79").load();
         assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(3);
         upgraded.validate();
         assertThat(upgraded.info().current().getVersion().toString()).isEqualTo("79");

@@ -57,6 +57,9 @@ class CatchHoleBackendApplicationTests {
     private org.monitoring.catchholebackend.domain.chat.service.ChatServiceImpl chatService;
 
     @MockitoBean
+    private org.monitoring.catchholebackend.domain.chat.service.ChatSessionService chatSessionService;
+
+    @MockitoBean
     private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     @MockitoBean

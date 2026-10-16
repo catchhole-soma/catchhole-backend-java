@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.chat.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import jakarta.validation.Valid;
@@ -44,7 +45,14 @@ public final class ChatContract {
     public record Submit(
             @NotBlank @Size(max = 4000) String question,
             @Min(1) Integer episodeFrom,
-            @Min(1) Integer episodeTo) {}
+            @Min(1) Integer episodeTo,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+                    @Schema(description = "일회성 대화 ID. 생략하면 기존 단일 질문으로 접수합니다.")
+                    UUID sessionId) {
+        public Submit(String question, Integer episodeFrom, Integer episodeTo) {
+            this(question, episodeFrom, episodeTo, null);
+        }
+    }
 
     @Schema(name = "ChatRetryV1", description = "실패한 시도 ID에 대한 멱등 재시도")
     public record Retry(@NotNull UUID previousAttemptId) {}
@@ -55,18 +63,21 @@ public final class ChatContract {
             @NotBlank @Size(max = 16000) String text,
             @NotNull @Size(max = 50) List<@Valid Reference> sources,
             @NotNull @Size(max = 20) List<@NotBlank @Size(max = 200) String> limitations,
-            @JsonInclude(JsonInclude.Include.NON_EMPTY)
-            @Size(max = 12) List<@NotNull @Valid RetrievalReference> retrievalSources) {
+            @JsonInclude(JsonInclude.Include.NON_EMPTY) @Size(max = 12)
+                    List<@NotNull @Valid RetrievalReference> retrievalSources) {
         public Result {
             retrievalSources = retrievalSources == null ? List.of() : List.copyOf(retrievalSources);
         }
 
-        public Result(Outcome outcome, String text, List<Reference> sources, List<String> limitations) {
+        public Result(
+                Outcome outcome, String text, List<Reference> sources, List<String> limitations) {
             this(outcome, text, sources, limitations, List.of());
         }
     }
 
-    @Schema(name = "ChatRetrievalReferenceV1", description = "현재 원문에서 검증한 검색 인용. 위치는 Unicode code point의 0-based 반열린 구간입니다.")
+    @Schema(
+            name = "ChatRetrievalReferenceV1",
+            description = "현재 원문에서 검증한 검색 인용. 위치는 Unicode code point의 0-based 반열린 구간입니다.")
     public record RetrievalReference(
             @NotNull UUID chunkId,
             @NotNull UUID episodeId,
@@ -77,7 +88,9 @@ public final class ChatContract {
             @Min(0) int startOffset,
             @Min(1) int endOffset) {}
 
-    @Schema(name = "ChatRetrievalSourcesRequestV1", description = "실행에 고정된 범위에서 최대 12개 검색 인용을 검증합니다. 인용은 각각 4000 code point 이하입니다.")
+    @Schema(
+            name = "ChatRetrievalSourcesRequestV1",
+            description = "실행에 고정된 범위에서 최대 12개 검색 인용을 검증합니다. 인용은 각각 4000 code point 이하입니다.")
     public record RetrievalSourcesRequest(
             @NotNull @Size(min = 1, max = 12) List<@NotNull @Valid RetrievalReference> sources) {}
 
@@ -120,7 +133,68 @@ public final class ChatContract {
             long tokenBudget,
             int maxCalls,
             int maxToolCalls,
-            boolean operational) {}
+            boolean operational,
+            @JsonInclude(JsonInclude.Include.NON_EMPTY) List<ConversationTurn> conversation,
+            @JsonInclude(JsonInclude.Include.NON_DEFAULT) Boolean conversationTruncated) {
+        public Context {
+            conversation = conversation == null ? List.of() : List.copyOf(conversation);
+            conversationTruncated = Boolean.TRUE.equals(conversationTruncated);
+        }
+
+        public Context(
+                int schemaVersion,
+                UUID questionId,
+                UUID attemptId,
+                UUID workId,
+                Long memberId,
+                String question,
+                Integer episodeFrom,
+                Integer episodeTo,
+                Instant deadline,
+                long tokenBudget,
+                int maxCalls,
+                int maxToolCalls,
+                boolean operational) {
+            this(
+                    schemaVersion,
+                    questionId,
+                    attemptId,
+                    workId,
+                    memberId,
+                    question,
+                    episodeFrom,
+                    episodeTo,
+                    deadline,
+                    tokenBudget,
+                    maxCalls,
+                    maxToolCalls,
+                    operational,
+                    List.of(),
+                    false);
+        }
+
+        public Context withConversation(List<ConversationTurn> turns, boolean truncated) {
+            return new Context(
+                    schemaVersion,
+                    questionId,
+                    attemptId,
+                    workId,
+                    memberId,
+                    question,
+                    episodeFrom,
+                    episodeTo,
+                    deadline,
+                    tokenBudget,
+                    maxCalls,
+                    maxToolCalls,
+                    operational,
+                    turns,
+                    truncated);
+        }
+    }
+
+    @Schema(name = "ChatConversationTurnV1", description = "대상 해석 전용 이전 대화. 작품 사실의 근거로 사용하지 않습니다.")
+    public record ConversationTurn(String question, String answer) {}
 
     @Schema(name = "ChatReserveV1", description = "provider 단일 호출 전 최대량 예약")
     public record Reserve(
