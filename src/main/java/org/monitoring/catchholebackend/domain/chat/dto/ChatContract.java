@@ -220,6 +220,15 @@ public final class ChatContract {
             Long cachedInputTokens,
             Long outputTokens) {}
 
+    @Schema(name = "ChatOperationalReadinessV1", description = "인증된 운영 백필 접수 설정 점검. DB·provider 호출이나 실행 생성은 하지 않습니다.")
+    public record OperationalReadiness(
+            @Schema(description = "새 운영 백필 접수 활성화 여부", example = "true")
+                    boolean operationsEnabled,
+            @Schema(description = "공개 사용자 채팅 활성화 여부. 운영 백필과 독립적입니다.", example = "false")
+                    boolean publicChatEnabled,
+            @Schema(description = "32자 이상의 별도 실행 인증 비밀값 설정 여부. 원문은 반환하지 않습니다.", example = "true")
+                    boolean capabilityConfigured) {}
+
     @Schema(name = "ChatOperationV1", description = "운영 백필의 작품·작업자·비과금 정책·예약 예산")
     public record Operation(
             @NotNull UUID workId,

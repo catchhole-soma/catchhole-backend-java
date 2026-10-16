@@ -22,6 +22,7 @@ import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
@@ -273,7 +274,6 @@ public class ChatServiceImpl implements ChatService {
     @Override
     @Transactional
     public Dispatch operation(UUID id, Operation request) {
-        enabled();
         var work =
                 works.findByIdForUpdate(request.workId())
                         .orElseThrow(() -> new AppException(CHAT_NOT_FOUND));
@@ -290,11 +290,19 @@ public class ChatServiceImpl implements ChatService {
                 throw new AppException(CHAT_CONFLICT);
             return dispatchOf(r);
         }
+        operationsEnabled();
         // Administrative bounded attribution only. No indexing or user-account debit occurs here.
         var r = newRun(work, null, request.tokenBudget(), request.actor(), request.policy());
         r.useOperationId(id);
         runs.save(r);
         return dispatchOf(r);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public OperationalReadiness operationalReadiness() {
+        return new OperationalReadiness(
+                properties.operationsEnabled(), properties.enabled(), properties.capabilityConfigured());
     }
 
     @Transactional
@@ -449,6 +457,10 @@ public class ChatServiceImpl implements ChatService {
 
     private void enabled() {
         if (!properties.enabled()) throw new AppException(CHAT_DISABLED);
+    }
+
+    private void operationsEnabled() {
+        if (!properties.operationsEnabled()) throw new AppException(CHAT_DISABLED);
     }
 
     private void validate(Submit r) {

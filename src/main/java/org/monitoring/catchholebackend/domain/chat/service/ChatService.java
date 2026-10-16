@@ -22,4 +22,6 @@ public interface ChatService {
     CallView report(UUID id, String token, UUID runner, UUID call, Usage request);
 
     Dispatch operation(UUID id, Operation request);
+
+    OperationalReadiness operationalReadiness();
 }
