@@ -44,7 +44,10 @@ class AiTokenWeightMigrationIntegrationTest {
                         + ":"
                         + POSTGRES.getMappedPort(5432)
                         + "/token_weight";
-        flyway(url, "81").migrate();
+        var baseline = flyway(url, "82");
+        baseline.migrate();
+        var existingMigrations = java.util.Arrays.stream(baseline.info().applied())
+                .map(info -> info.getVersion() + ":" + info.getChecksum()).toList();
         UUID workerPending = UUID.randomUUID();
         UUID workerSettled = UUID.randomUUID();
         UUID workerReleased = UUID.randomUUID();
@@ -67,10 +70,13 @@ class AiTokenWeightMigrationIntegrationTest {
             insertLegacyUsage(connection, serviceUnknown, null, SERVICE_RUN, "UNKNOWN", 901, null, null);
         }
 
-        var migration = flyway(url, "82");
-        migration.migrate();
+        var migration = flyway(url, "83");
+        assertThat(migration.migrate().migrationsExecuted).isEqualTo(1);
         migration.validate();
-        assertThat(migration.info().current().getVersion().toString()).isEqualTo("82");
+        assertThat(migration.info().current().getVersion().toString()).isEqualTo("83");
+        assertThat(java.util.Arrays.stream(migration.info().applied()).limit(existingMigrations.size())
+                .map(info -> info.getVersion() + ":" + info.getChecksum()).toList())
+                .isEqualTo(existingMigrations);
         try (var connection = connect(url)) {
             assertAccountUnchanged(connection);
             assertUsage(connection, workerPending, "LEGACY_RAW_V1", 101, "101", null, null, null);

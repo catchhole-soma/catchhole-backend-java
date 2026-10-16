@@ -38,11 +38,11 @@ cached input은 input token의 일부이므로 관측 컬럼으로 별도 기록
 - 사용자/관리자 계정 응답의 `grantedTokens/usedTokens/reservedTokens/remainingTokens`는 환산 단위의 JSON number로 소수 2자리까지 가능합니다. OpenAPI도 number입니다. 내부 reserve/ChatCallView의 `reservedTokens`는 raw 정수이며 필드 추가나 계약 변경이 없습니다. Python 클라이언트와 Front의 TypeScript number 타입은 그대로 사용할 수 있습니다.
 - UNKNOWN grace 만료는 저장된 환산 예약량만 반환합니다. 이후 늦은 실측 정산은 저장된 정책으로 차감하되 예약을 다시 해제하지 않습니다. 요청 ID 멱등성·lease 취소·원문 파기·세션 종료 경계는 기존과 같습니다.
 
-### V82 적용과 기존 데이터
+### V83 적용과 기존 데이터
 
-V82는 기존 계정과 지급 이력의 수치를 바꾸지 않습니다. 기존 일반 사용량은 Luna 이름이어도 `LEGACY_RAW_V1`, 분모 1로 기록하고 과거 정산을 할인하지 않습니다. 기존 RESERVED/UNKNOWN도 같은 정책을 유지하므로 배포 뒤 정산·해제 금액이 어긋나지 않습니다. 기존 운영 백필은 사용자 예약·차감 0으로 구분합니다. `AI_TOKEN_DEFAULT_GRANT`는 변경하지 않습니다.
+V83은 기존 계정과 지급 이력의 수치를 바꾸지 않습니다. 기존 일반 사용량은 Luna 이름이어도 `LEGACY_RAW_V1`, 분모 1로 기록하고 과거 정산을 할인하지 않습니다. 기존 RESERVED/UNKNOWN도 같은 정책을 유지하므로 배포 뒤 정산·해제 금액이 어긋나지 않습니다. 기존 운영 백필은 사용자 예약·차감 0으로 구분합니다. `AI_TOKEN_DEFAULT_GRANT`는 변경하지 않습니다.
 
-계정 컬럼을 소수형으로 바꾸므로 **구 Java writer와 새 Java writer를 동시에 운영하지 않습니다.** 구 Java를 중지한 뒤 V82가 적용되는 새 Java를 시작합니다. Python의 기존 예약 ID를 포함한 정산 재시도는 새 Java에서 처리할 수 있습니다. 새 청구 컬럼에는 잘못된 0을 기본값으로 넣지 않아 구 Java의 신규 원장 INSERT는 거절됩니다. V82 적용 뒤에는 정수 매핑의 구 Java로 이미지만 되돌리면 안 됩니다. 정책을 되돌릴 때도 소수 원장과 저장된 예약 정책을 읽는 수정본으로 전진 배포합니다.
+계정 컬럼을 소수형으로 바꾸므로 **구 Java writer와 새 Java writer를 동시에 운영하지 않습니다.** 구 Java를 중지한 뒤 V83가 적용되는 새 Java를 시작합니다. Python의 기존 예약 ID를 포함한 정산 재시도는 새 Java에서 처리할 수 있습니다. 새 청구 컬럼에는 잘못된 0을 기본값으로 넣지 않아 구 Java의 신규 원장 INSERT는 거절됩니다. V83 적용 뒤에는 정수 매핑의 구 Java로 이미지만 되돌리면 안 됩니다. 정책을 되돌릴 때도 소수 원장과 저장된 예약 정책을 읽는 수정본으로 전진 배포합니다.
 
 환산 사용량 조회 예시(실제 provider 합계와 분리):
 

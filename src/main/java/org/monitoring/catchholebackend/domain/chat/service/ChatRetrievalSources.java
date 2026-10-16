@@ -22,7 +22,7 @@ import org.springframework.stereotype.Component;
 public class ChatRetrievalSources {
     private static final String POLICY = "cl100k-800-100-boundary-v1";
     private static final String MODEL = "text-embedding-3-small";
-    private static final int MAX_SOURCE_CODE_POINTS = 250000;
+    private static final int MAX_SOURCE_UTF8_BYTES = 2_000_000;
     private final EntityManager entityManager;
     private final ObjectStorageService storage;
     private final ChatProperties properties;
@@ -83,7 +83,7 @@ public class ChatRetrievalSources {
         } catch (RuntimeException exception) {
             throw new AppException(CHAT_SOURCE_UNAVAILABLE);
         }
-        if (text == null || text.codePointCount(0, text.length()) > MAX_SOURCE_CODE_POINTS
+        if (text == null || text.getBytes(StandardCharsets.UTF_8).length > MAX_SOURCE_UTF8_BYTES
                 || !sha256(text).equals(chunk.sourceHash()))
             throw new AppException(CHAT_SCOPE_INVALID);
         return text;

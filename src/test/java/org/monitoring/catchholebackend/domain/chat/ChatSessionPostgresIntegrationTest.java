@@ -13,7 +13,7 @@ import org.testcontainers.junit.jupiter.*;
 import org.testcontainers.utility.DockerImageName;
 
 @Testcontainers(disabledWithoutDocker = true)
-@DisplayName("PostgreSQL V81 전체 마이그레이션과 일회성 대화 계약")
+@DisplayName("PostgreSQL 전체 마이그레이션과 일회성 대화 계약")
 class ChatSessionPostgresIntegrationTest extends ChatSessionIntegrationTest {
     @Container
     static final GenericContainer<?> POSTGRES =
@@ -44,7 +44,7 @@ class ChatSessionPostgresIntegrationTest extends ChatSessionIntegrationTest {
     }
 
     @Test
-    @DisplayName("main V79 질문과 V80 대화를 보존하며 V81 순번 제약을 적용한다")
+    @DisplayName("main V79 질문과 V80 대화를 보존하며 V81 순번·V82 인물 범위를 적용한다")
     void upgradesMainSchemaWithoutChangingExistingQuestions() throws Exception {
         String schema = "session_upgrade_" + java.util.UUID.randomUUID().toString().replace("-", "");
         String url = "jdbc:postgresql://" + POSTGRES.getHost() + ":"
@@ -83,15 +83,22 @@ class ChatSessionPostgresIntegrationTest extends ChatSessionIntegrationTest {
         }
         var upgraded = org.flywaydb.core.Flyway.configure()
                 .dataSource(isolatedUrl, "chat_test", "test-only")
-                .locations("classpath:db/migration").target("81").load();
-        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(1);
+                .locations("classpath:db/migration").target("82").load();
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(2);
         upgraded.validate();
-        assertThat(upgraded.info().current().getVersion().toString()).isEqualTo("81");
+        assertThat(upgraded.info().current().getVersion().toString()).isEqualTo("82");
         assertThat(java.util.Arrays.stream(upgraded.info().applied()).limit(baseline.size())
                 .map(info -> info.getVersion() + ":" + info.getChecksum()).toList()).isEqualTo(baseline);
         assertThat(java.util.Arrays.stream(upgraded.info().applied())
                 .filter(info -> "80".equals(info.getVersion().toString())).findFirst().orElseThrow()
                 .getChecksum().toString()).isEqualTo(sessionChecksum);
+        try (var connection = java.sql.DriverManager.getConnection(isolatedUrl, "chat_test", "test-only");
+                var statement = connection.createStatement();
+                var result = statement.executeQuery("SELECT is_nullable FROM information_schema.columns WHERE table_schema='"
+                        + schema + "' AND table_name='character_fact_comparison_batches' AND column_name='canonical_fact_type'")) {
+            assertThat(result.next()).isTrue();
+            assertThat(result.getString("is_nullable")).isEqualTo("YES");
+        }
         try (var connection = java.sql.DriverManager.getConnection(isolatedUrl, "chat_test", "test-only");
                 var statement = connection.createStatement();
                 var result = statement.executeQuery("SELECT question,session_id,sequence_no,submitted_at FROM chat_questions WHERE id='" + question + "'")) {

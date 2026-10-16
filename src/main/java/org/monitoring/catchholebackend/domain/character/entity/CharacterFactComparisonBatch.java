@@ -31,7 +31,7 @@ import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 
-/** 동일 분석 Job·캐릭터·FactType 후보를 Worker 호출 한 번으로 처리하는 묶음이다. */
+/** 동일 분석 Job·캐릭터 후보를 한 번에 비교한다. 타입이 있는 과거 묶음은 기존 범위를 유지한다. */
 @Getter
 @Entity
 @Table(
@@ -90,8 +90,9 @@ public class CharacterFactComparisonBatch extends BaseEntity {
     @Column(name = "provisional_subject_key", updatable = false, length = 160)
     private String provisionalSubjectKey;
 
+    /** null은 인물 전체 범위이며, 값이 있는 과거 묶음은 해당 유형만 비교한다. */
     @Enumerated(EnumType.STRING)
-    @Column(name = "canonical_fact_type", nullable = false, updatable = false, length = 30)
+    @Column(name = "canonical_fact_type", updatable = false, length = 30)
     private CharacterFactType canonicalFactType;
 
     @Enumerated(EnumType.STRING)
@@ -142,7 +143,7 @@ public class CharacterFactComparisonBatch extends BaseEntity {
         this.sourceEpisode = sourceEpisode;
         this.analysisJob = Objects.requireNonNull(analysisJob);
         this.matchedCharacter = matchedCharacter;
-        this.canonicalFactType = Objects.requireNonNull(canonicalFactType);
+        this.canonicalFactType = canonicalFactType;
         this.candidateCount = candidateCount;
         this.baseSnapshotVersion = baseSnapshotVersion;
         this.status = CharacterFactComparisonBatchStatus.PROCESSING;
@@ -162,10 +163,18 @@ public class CharacterFactComparisonBatch extends BaseEntity {
                 sourceEpisode,
                 analysisJob,
                 matchedCharacter,
-                canonicalFactType,
+                Objects.requireNonNull(canonicalFactType),
                 candidateCount,
                 baseSnapshotVersion
         );
+    }
+
+    public static CharacterFactComparisonBatch createForPerson(
+            Work work, Episode sourceEpisode, AnalysisJob analysisJob, WorkCharacter matchedCharacter,
+            int candidateCount, long baseSnapshotVersion
+    ) {
+        return new CharacterFactComparisonBatch(work, sourceEpisode, analysisJob, matchedCharacter,
+                null, candidateCount, baseSnapshotVersion);
     }
 
     public void recordContext(long baseSnapshotVersion, String contextHash) {
@@ -189,6 +198,21 @@ public class CharacterFactComparisonBatch extends BaseEntity {
             Work work, Episode sourceEpisode, AnalysisJob analysisJob, String provisionalSubjectKey,
             CharacterFactType factType, int candidateCount
     ) {
+        return createProvisionalBatch(work, sourceEpisode, analysisJob, provisionalSubjectKey,
+                Objects.requireNonNull(factType), candidateCount);
+    }
+
+    public static CharacterFactComparisonBatch createProvisionalForPerson(
+            Work work, Episode sourceEpisode, AnalysisJob analysisJob, String provisionalSubjectKey,
+            int candidateCount
+    ) {
+        return createProvisionalBatch(work, sourceEpisode, analysisJob, provisionalSubjectKey, null, candidateCount);
+    }
+
+    private static CharacterFactComparisonBatch createProvisionalBatch(
+            Work work, Episode sourceEpisode, AnalysisJob analysisJob, String provisionalSubjectKey,
+            CharacterFactType factType, int candidateCount
+    ) {
         if (!analysisJob.isOrderedProvisional() || provisionalSubjectKey == null
                 || !provisionalSubjectKey.startsWith("provisional-character:") || candidateCount < 1) {
             throw new IllegalArgumentException("누적 분석의 임시 캐릭터 비교 대상이 올바르지 않습니다.");
@@ -198,7 +222,7 @@ public class CharacterFactComparisonBatch extends BaseEntity {
         batch.sourceEpisode = sourceEpisode;
         batch.analysisJob = analysisJob;
         batch.provisionalSubjectKey = provisionalSubjectKey;
-        batch.canonicalFactType = Objects.requireNonNull(factType);
+        batch.canonicalFactType = factType;
         batch.candidateCount = candidateCount;
         batch.baseSnapshotVersion = 0;
         batch.status = CharacterFactComparisonBatchStatus.PROCESSING;

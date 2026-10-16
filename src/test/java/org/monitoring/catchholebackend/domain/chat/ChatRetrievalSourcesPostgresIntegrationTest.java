@@ -14,6 +14,7 @@ import java.util.*;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.chat.dto.ChatContract.*;
 import org.monitoring.catchholebackend.domain.chat.exception.ChatErrorCode;
@@ -42,7 +43,7 @@ import org.testcontainers.junit.jupiter.*;
 import org.testcontainers.utility.DockerImageName;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-        "spring.config.import=", "chat.enabled=true", "chat.python-url=http://127.0.0.1:1",
+        "spring.config.import=", "chat.enabled=true", "chat.operations-enabled=true", "chat.python-url=http://127.0.0.1:1",
         "chat.capability-secret=chat-test-secret-with-more-than-32-characters",
         "chat.retrieval-embedding-version=gh240-test", "internal.api-key=chat-test-key"
 })
@@ -160,6 +161,80 @@ class ChatRetrievalSourcesPostgresIntegrationTest {
         assertThat(result.state()).isEqualTo(ChatState.SUCCEEDED);
         assertThat(result.result().retrievalSources()).containsExactly(ref());
         verify(storage, times(2)).getText(key);
+    }
+
+    @Test
+    @DisplayName("25만 자를 넘는 기존 한글 원문도 CRLF·보조 평면 문자의 원래 위치를 인용한다")
+    void legacyLargeUnicodeCitationRoundTrip() {
+        String quote = "아리아😀\r\n반지를 버렸다.";
+        String passage = "앞 문맥\r\n" + quote + "\r\n뒷 문맥";
+        String original = "가".repeat(250_001) + "\r\n😀" + passage;
+        assertThat(original.codePointCount(0, original.length())).isGreaterThan(250_000);
+        assertThat(original.getBytes(StandardCharsets.UTF_8).length).isLessThan(2_000_000);
+        var source = replaceOriginal(original, passage, quote);
+        var r = start(2, 5);
+
+        assertThat(register(r, source).sources()).containsExactly(source);
+        var result = finish(r, source);
+        assertThat(result.state()).isEqualTo(ChatState.SUCCEEDED);
+        assertThat(result.result().retrievalSources()).containsExactly(source);
+        verify(storage, times(2)).getText(key);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"가,1999999", "가,2000000", "가,2000001", "😀,2000000", "😀,2000001"})
+    @DisplayName("기존 원문은 UTF-8 200만 바이트 경계까지 허용하고 다중바이트 초과는 거절한다")
+    void sourceByteLimitUsesUtf8Bytes(String unit, int bytes) {
+        String quote = "아리아😀\r\n반지를 버렸다.";
+        String passage = "앞\r\n" + quote + "\r\n뒤";
+        int padding = bytes - passage.getBytes(StandardCharsets.UTF_8).length;
+        int unitBytes = unit.getBytes(StandardCharsets.UTF_8).length;
+        String original = unit.repeat(padding / unitBytes) + "a".repeat(padding % unitBytes) + passage;
+        assertThat(original.getBytes(StandardCharsets.UTF_8)).hasSize(bytes);
+        var source = replaceOriginal(original, passage, quote);
+        var r = start(null, null);
+
+        if (bytes <= 2_000_000) {
+            assertThat(register(r, source).sources()).containsExactly(source);
+            assertThat(finish(r, source).state()).isEqualTo(ChatState.SUCCEEDED);
+        } else {
+            assertScope(() -> register(r, source));
+            assertThat(runs.findById(r.id()).orElseThrow().getReceiptJson()).isEqualTo("[]");
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"content", "newline"})
+    @DisplayName("큰 기존 원문도 본문 또는 CRLF가 바뀌면 원래 SHA256과 달라 완료를 거절한다")
+    void legacySourceStillRequiresExactHash(String change) {
+        String quote = "아리아😀\r\n반지를 버렸다.";
+        String passage = "앞\r\n" + quote + "\r\n뒤";
+        String original = "가".repeat(250_001) + "\r\n😀" + passage;
+        var source = replaceOriginal(original, passage, quote);
+        var r = start(null, null);
+        register(r, source);
+        // The content variant preserves every citation offset and changes only an uncited character.
+        when(storage.getText(key)).thenReturn("content".equals(change)
+                ? "나" + original.substring(1) : original.replace("\r\n", "\n"));
+
+        assertScope(() -> finish(r, source));
+        assertThat(runs.findById(r.id()).orElseThrow().getResultJson()).isNull();
+    }
+
+    RetrievalReference replaceOriginal(String original, String passage, String quote) {
+        int start = original.codePointCount(0, original.indexOf(passage));
+        int end = start + passage.codePointCount(0, passage.length());
+        int quoteStart = start + passage.codePointCount(0, passage.indexOf(quote));
+        String sourceHash = hash(original);
+        jdbc.update("UPDATE episodes SET content_hash=?,char_count=? WHERE id=?", sourceHash,
+                original.codePoints().filter(c -> !Character.isWhitespace(c)).count(), episode);
+        jdbc.update("UPDATE retrieval_sources SET source_hash=? WHERE episode_id=?", sourceHash, episode);
+        jdbc.update("""
+                UPDATE retrieval_chunks SET chunk_text=?,start_offset=?,end_offset=?,chunk_hash=? WHERE id=?
+                """, passage, start, end, hash(passage), chunk);
+        when(storage.getText(key)).thenReturn(original);
+        return new RetrievalReference(chunk, episode, 3, sourceHash, "source-v1", quote, quoteStart,
+                quoteStart + quote.codePointCount(0, quote.length()));
     }
 
     @Test

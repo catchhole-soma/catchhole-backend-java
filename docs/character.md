@@ -221,7 +221,7 @@ confirm 데이터 계약 위반으로 보고 거절할 조합:
 - 2차 비교는 후보 원문 근거와 `temporalScope=PRESENT/PAST/HYPOTHETICAL/UNKNOWN`을 사용해 snapshot 반영 가능성을 제한합니다. 회상·가정·불확실 서술은 자동 현재값 반영을 차단합니다.
 - 후보와 Fact의 nullable `narrativeTime`은 `factTime`과 `referenceTime`을 각각 `{description,evidenceSpans:[{quote,startOffset,endOffset,sourceChunkId}]}`로 보존합니다. 검증할 위치가 없는 point와 기존 행은 null이며 회차/생성 시각으로 보충하지 않습니다.
 - 캐릭터의 nullable `currentNarrativeTime`은 `{description,evidenceSpans,sourceCandidateId}`입니다. 기존 비교 결정의 `advanceCurrentNarrativeTime`(기본 false)이 후보의 검증된 referenceTime을 선택하고 기존 확정·hold 검증을 통과해야 갱신합니다. PRESENT REMOVE·중복 EXCLUDE·HISTORY_ONLY도 가능하며 시간만 변경되어도 version/hash와 ordered journal/projection을 갱신합니다.
-- 비교의 `advisoryCurrentContext`는 대표 시점, current source별 시점·근거, 동일 캐릭터·FactType 전체 키의 noncurrent/REMOVE 이력을 고정합니다. 현재 상태가 비어도 회복과 종료 전 사실을 읽으며 이력은 수정·삭제 target이 아닙니다. Python까지 같은 자료를 전달하고 모델에는 로컬 참조만 제공합니다.
+- 비교의 `advisoryCurrentContext`는 대표 시점, current source별 시점·근거, 동일 캐릭터의 비교 범위에 해당하는 noncurrent/REMOVE 이력을 고정합니다. 인물 전체 묶음은 모든 FactType의 이력을 포함하고 기존 유형별 묶음은 해당 유형을 유지합니다. 현재 상태가 비어도 회복과 종료 전 사실을 읽으며 이력은 수정·삭제 target이 아닙니다. Python까지 같은 자료를 전달하고 모델에는 로컬 참조만 제공합니다.
 - 1차의 독립 `time_context`는 같은 호출에서 추출·검증한 뒤 후속 청크가 T* 참조로 선택합니다. 원래 청크와 offset을 유지하며 시간 문맥만 있고 설정 후보가 없으면 대표 시점을 갱신하지 않습니다. 원문 파기는 새 시점 인용과 고정 복사본에도 적용합니다.
 - `timelineOrder`, `effectiveAt`, `isFlashback`과 시간 엔진·타임라인 재정렬은 후속 범위입니다.
 
@@ -820,21 +820,25 @@ flowchart TD
     M --> O
 ```
 
-#### 같은 캐릭터·FactType 묶음 비교
+#### 같은 인물의 모든 FactType 묶음 비교
 
-신규 Worker는 같은 `analysisJob + matchedCharacterId + canonicalFactType` 후보를 회차·원문 offset·생성 시각·ID 순으로 최대 10건(기본값)씩 묶습니다. `entityName` 표기만으로 묶지 않으므로 이름 표현이 달라도 같은 캐릭터 ID면 함께 처리하고, 이름이 같아도 ID가 다르면 섞지 않습니다. 같은 캐릭터라도 `PROFILE`과 `STATUS`처럼 FactType이 다르면 별도 묶음입니다. 캐릭터 발견 후보와 아직 연결되지 않은 후보는 비교 대상이 아닙니다. 기존 단건 endpoint와 hidden 재비교 Job은 호환을 위해 유지하며, hidden Job은 연결 후보 하나만 singleton 묶음으로 처리합니다.
+`X-Character-Comparison-Person-Batches: true`를 광고한 Worker의 claim은 같은 `analysisJob + matchedCharacterId` 또는 누적 모드의 동일 `provisionalSubjectKey`에 속한 모든 FactType 후보를 원문 순서로 한 논리 묶음에 담습니다. 이름 표현이 달라도 같은 캐릭터 ID면 함께 처리하고, 이름이 같아도 ID가 다르면 섞지 않습니다. Java는 후보 수·문자 수로 묶음을 자르지 않습니다. AI Worker가 전체 prompt의 정확한 입력 토큰 수를 확인해 입력 256,000·출력 상한 128,000토큰 범위에서 분할을 담당합니다.
+
+새 batch/context의 `canonicalFactType=null`은 인물 전체 범위입니다. 각 candidate의 `canonicalFactType`은 필수 비교 유형으로 사용하며 snapshot과 noncurrent/REMOVE 이력도 모든 유형을 제공합니다. 인물 묶음에는 기존 30개 snapshot 한도를 적용하지 않습니다. 동일 인물의 진행 중 묶음이 있으면 다른 유형의 후보가 생겨도 중복 claim하지 않습니다.
+
+헤더가 없거나 false인 구 Worker에는 기존 유형별 묶음을 생성합니다. 이미 저장된 타입 값, 참조 순서와 문맥 hash 계산은 보존합니다. 기존 단건 endpoint와 연결 후보 하나를 처리하는 hidden 단건 재비교는 유지하고, 그룹 입력 hash가 있는 hidden Job은 해당 인물 범위를 함께 비교합니다. 배포 순서와 롤백 제약은 [V82 migration 안내](database-migration.md#v82-인물-전체-캐릭터-비교-묶음)를 따릅니다.
 
 묶음 요청의 참조는 실행 안에서만 유효합니다.
 
 - `C1..Cn`: 원문 순서의 후보입니다.
-- `P1..Pn`: 묶음 시작 시점의 persisted snapshot 또는 앞서 완료된 bounded 묶음의 projected 결과입니다.
+- `P1..Pn`: 묶음 시작 시점의 persisted snapshot 또는 앞서 완료된 묶음의 projected 결과입니다.
 - `Q1..Qn`: 현재 묶음의 각 후보가 만드는 임시 projected snapshot입니다.
 
 Worker는 후보를 차례대로 비교하므로 앞 후보의 `Q`를 뒤 후보가 `UPDATE/MERGE` 대상으로 삼거나, `P/Q`를 함께 제거할 수 있습니다. 예를 들어 생명력 5% 후보가 만든 `Q3`을 다음 생명력 2% 후보가 갱신하고, 뒤의 회복 후보가 기존 부상 `P`와 당일 출혈·생명력 `Q`를 한 번에 종료할 수 있습니다. 이 projection은 비교 문맥일 뿐 사용자 확정 전 실제 snapshot을 바꾸지 않습니다.
 
 exact/alias schema key는 Backend가 정한 canonical key로 고정합니다. 이름이 유동적인 `STATUS`의 `status.*` pattern 후보만 2차 비교가 기존 의미상 같은 canonical key로 해소할 수 있고, 최종 `resolved_canonical_fact_key`를 promotion에서도 사용합니다. 완료 요청은 모든 `C`를 decision 또는 typed failure로 정확히 한 번 덮어야 하며, 누락·중복·미래 ref·오래된 context·잘못된 key 또는 operation이 하나라도 있으면 묶음 전체를 변경 없이 거절합니다.
 
-bounded split의 다음 묶음은 앞서 `COMPLETED`된 decision을 원문 순서로 다시 projection합니다. 이때 `dependency_candidate_ids`는 `Q`를 읽거나 제거한 선행 후보를 서버 내부 UUID로 복원해 저장합니다. 제거되어 현재값이 없는 slot도 batch-local 부재 provenance를 유지하므로, 뒤 후보가 같은 slot을 다시 `ADD`하면 마지막 제거 후보와 그 전이 의존성을 함께 계승합니다. 새 값이 들어오면 부재 provenance는 해당 값의 의존성으로 흡수되고, 이 메모리 projection은 별도 DB·Worker 필드를 만들지 않습니다. 단건 `APPLY_PROPOSAL`은 의존 후보가 있으면 거절하며, 그룹 확정은 의존 후보가 더 앞에 있고 함께 `APPLY_PROPOSAL`되는 경우만 원자적으로 허용합니다. 정상 매칭 경로는 후보 표시 이름도 canonical 캐릭터명으로 통일합니다. legacy 이름 불일치로 선행 의존 후보가 다른 검수 그룹에 있다면 먼저 선행 그룹을 확정하고, snapshot version이 바뀐 뒤 후행 그룹을 재비교해야 합니다. `HISTORY_ONLY + PRESENT`는 당일의 일회성 사건을 이력에만 남기는 유효한 조합입니다.
+후속 묶음은 앞서 `COMPLETED`된 decision을 원문 순서로 다시 projection합니다. 이때 `dependency_candidate_ids`는 `Q`를 읽거나 제거한 선행 후보를 서버 내부 UUID로 복원해 저장합니다. 제거되어 현재값이 없는 slot도 batch-local 부재 provenance를 유지하므로, 뒤 후보가 같은 slot을 다시 `ADD`하면 마지막 제거 후보와 그 전이 의존성을 함께 계승합니다. 새 값이 들어오면 부재 provenance는 해당 값의 의존성으로 흡수되고, 이 메모리 projection은 별도 DB·Worker 필드를 만들지 않습니다. 같은 key라도 다른 FactType의 P/Q를 UPDATE·MERGE 대상으로 사용할 수 없으며, 완료·확정·보류 복원은 후보의 실제 유형으로 검증합니다. 단건 `APPLY_PROPOSAL`은 의존 후보가 있으면 거절하며, 그룹 확정은 의존 후보가 더 앞에 있고 함께 `APPLY_PROPOSAL`되는 경우만 원자적으로 허용합니다. 정상 매칭 경로는 후보 표시 이름도 canonical 캐릭터명으로 통일합니다. legacy 이름 불일치로 선행 의존 후보가 다른 검수 그룹에 있다면 먼저 선행 그룹을 확정하고, snapshot version이 바뀐 뒤 후행 그룹을 재비교해야 합니다. `HISTORY_ONLY + PRESENT`는 당일의 일회성 사건을 이력에만 남기는 유효한 조합입니다.
 
 검수용 후보 응답은 `resolvedCanonicalFactKey`를 별도로 제공합니다. `comparisonTargetFactKey`가 없는 `REMOVE`·`HISTORY_ONLY`도 2차가 어떤 canonical key로 해소했는지 확인할 수 있고, `ADD`·`UPDATE`·`MERGE`에서는 실제 promotion key와 함께 교차 검증할 수 있습니다.
 

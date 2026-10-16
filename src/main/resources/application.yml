@@ -134,6 +134,7 @@ world-image:
 # Disabled until a real handler (#238) is deployed. No automatic worker topology change.
 chat:
   enabled: ${CHAT_ENABLED:false}
+  operations-enabled: ${CHAT_OPERATIONS_ENABLED:false}
   python-url: ${CHAT_PYTHON_URL:}
   capability-secret: ${CHAT_CAPABILITY_SECRET:}
   max-body-bytes: ${CHAT_MAX_BODY_BYTES:131072}

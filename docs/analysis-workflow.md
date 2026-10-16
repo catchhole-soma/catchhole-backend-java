@@ -111,7 +111,18 @@ flowchart LR
 
 현재 운영 기본값은 `SETTING_EXTRACTION` Worker 5개 × 프로세스당 동시 Job 10개 = 최대 50개입니다. 한 Job 안의 청크는 순차 처리하며, 50개 Job 부하 테스트가 기준에 미달하면 Worker 5개는 유지하고 프로세스당 Job과 LLM 요청을 5개로 낮춰 최대 25개로 되돌립니다. `ai-character-comparison-worker`와 `ai-world-comparison-worker`는 Job·LLM 동시성을 각각 1로 고정합니다. 따라서 50은 설정 추출 Job 용량이고 provider 계정 전체에 걸친 분산 동시 요청 상한은 아닙니다.
 
-LLM은 역할별로 분리합니다. 캐릭터 Fact·세계관 후보의 1차 추출은 `LLM_EXTRACTION_MODEL=gpt-5.6-terra`, 캐릭터·세계관 주체 해소는 `LLM_SUBJECT_RESOLUTION_MODEL=gpt-5.6-luna`, 세계관 비교와 재비교는 `LLM_COMPARISON_MODEL=gpt-5.6-luna`를 사용합니다. 세 값이 비어 있을 때만 `LLM_MODEL`로 fallback하며 프롬프트·Responses API·구조화 응답 계약은 동일하게 유지합니다.
+LLM은 역할별로 분리합니다. 아래는 **2026-10-16 실행 중인 운영 컨테이너에서 확인한 적용값**이며, 저장소의 Compose/예제 기본값과 구분합니다.
+
+| 역할 | 환경변수 | 확인한 운영 모델 |
+| --- | --- | --- |
+| 캐릭터 Fact·세계관 후보 추출 | `LLM_EXTRACTION_MODEL` | `gpt-6.1-sol` |
+| 캐릭터·세계관 주체 해소 | `LLM_SUBJECT_RESOLUTION_MODEL` | `gpt-6-luna` |
+| 캐릭터·세계관 비교·재비교 | `LLM_COMPARISON_MODEL` | `gpt-6.1-sol` |
+| 챗봇 | `CHAT_QA_MODEL` | `gpt-6-luna` |
+
+Worker 설정은 `/opt/catchhole/worker.env`, 챗봇 설정은 `/opt/catchhole/chatbot.env`에서 주입합니다. 각 Worker 모델 값이 비어 있을 때만 `LLM_MODEL`로 fallback하며, 확인 당시 fallback은 `gpt-5.6-terra`였습니다. 챗봇은 별도의 `CHAT_QA_MODEL`을 사용합니다. 추론 강도와 출력 상한은 실행 컨테이너의 적용값을 별도로 확인하며, 위 표가 해당 값까지 검증했다는 뜻은 아닙니다.
+
+#252의 할인 정책은 역할명이 아니라 실제 호출 모델을 기준으로 합니다. 신규 `gpt-6-luna` 호출은 사용자 차감량을 1/20로 환산하고, `gpt-6.1-sol` 등 다른 모델은 기존 1배를 유지합니다. 과거 원장은 예약 당시 정책을 유지합니다. 상세는 [AI 사용량 정책](ai-token-usage.md#모델별-사용자-차감-252)을 따릅니다.
 
 종료 신호를 받은 Worker는 신규 claim을 중단하고 내부 180초 동안 실행 중 Job과 heartbeat를 유지합니다. Compose는 210초의 `stop_grace_period`를 제공하며, 끝내지 못한 Job은 heartbeat 중단 뒤 5분 lease가 만료되면 checkpoint부터 회수됩니다. 한 Job의 실패나 취소는 다른 Job Task로 전파하지 않습니다.
 

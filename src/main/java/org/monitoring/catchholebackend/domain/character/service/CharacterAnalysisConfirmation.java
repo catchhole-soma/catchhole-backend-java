@@ -170,14 +170,14 @@ public class CharacterAnalysisConfirmation {
         CharacterFactType factType = batch.getCanonicalFactType();
         Map<CharacterSnapshotSlot, CharacterSnapshotEntry> expected = new LinkedHashMap<>();
         for (JsonNode entry : batch.getAnalysisContextSnapshotJson().path("slots")) {
-            if (factType.name().equals(entry.path("factType").asText())) {
-                CharacterSnapshotEntry snapshot = accessor.entry(factType, entry.path("factKey").asText(),
+            if (factType == null || factType.name().equals(entry.path("factType").asText())) {
+                CharacterSnapshotEntry snapshot = accessor.entry(CharacterFactType.valueOf(entry.path("factType").asText()), entry.path("factKey").asText(),
                         entry.path("factValue").isNull() ? null : entry.path("factValue").asText(),
                         entry.path("valueJson").isNull() ? null : entry.path("valueJson"));
                 expected.put(snapshot.slot(), snapshot);
             }
         }
-        actual.entrySet().removeIf(entry -> entry.getKey().factType() != factType);
+        if (factType != null) actual.entrySet().removeIf(entry -> entry.getKey().factType() != factType);
         if (!actual.keySet().equals(expected.keySet())) {
             return false;
         }

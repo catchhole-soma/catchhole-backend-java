@@ -2,7 +2,9 @@ package org.monitoring.catchholebackend.domain.chat;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mockStatic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -10,6 +12,8 @@ import jakarta.persistence.EntityManager;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.monitoring.catchholebackend.domain.aitoken.repository.*;
 import org.monitoring.catchholebackend.domain.aitoken.type.*;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
@@ -56,6 +60,7 @@ import java.util.concurrent.*;
 @SpringBootTest(
         properties = {
             "chat.enabled=true",
+            "chat.operations-enabled=true",
             "chat.capability-secret=chat-test-secret-with-more-than-32-characters",
             "chat.python-url=http://127.0.0.1:1",
             "chat.max-active-per-member=3",
@@ -141,6 +146,40 @@ class ChatExecutionIntegrationTest {
                 r.runner,
                 call,
                 new Usage(ReportKind.SETTLE, 20L, 10L, 5L, AiTokenUsageOutcome.SUCCESS));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "2035-10-16T08:36:05.609359940Z, 2035-10-16T08:38:05.609359Z",
+        "2035-10-16T08:36:05.999999999Z, 2035-10-16T08:38:05.999999Z"
+    })
+    @DisplayName("첫 운영 Dispatch와 커밋 후 시작·재전송 응답은 같은 마이크로초 기한을 유지한다")
+    void operationDeadlineSurvivesDatabaseRoundTrip(String current, String canonical) throws Exception {
+        var now = Instant.parse(current);
+        var expected = Instant.parse(canonical);
+        var id = UUID.randomUUID();
+        var request = new Operation(work, "precision-test", "test-policy", 1000);
+        Dispatch initial;
+        try (var clock = mockStatic(Instant.class, CALLS_REAL_METHODS)) {
+            clock.when(Instant::now).thenReturn(now);
+            initial = service.operation(id, request);
+        }
+
+        // operation has committed; each following call loads a new persistence context.
+        var stored = runs.findById(id).orElseThrow();
+        assertThat(stored.getDeadline()).isEqualTo(initial.deadline());
+        assertThat(initial.deadline()).isEqualTo(expected);
+        assertThat(stored.getUsageDeadline()).isEqualTo(expected.plusSeconds(600));
+        assertThat(service.operation(id, request)).isEqualTo(initial);
+        assertThat(service.dispatch(id)).isEqualTo(initial);
+        var runner = UUID.randomUUID();
+        mvc.perform(post("/api/internal/v1/chat-runs/{id}/start", id)
+                        .header("X-Internal-Api-Key", "chat-test-key")
+                        .header("X-Chat-Capability", initial.capability())
+                        .header("X-Chat-Runner", runner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.deadline").value(canonical));
+        assertThat(service.context(id, initial.capability(), runner).deadline()).isEqualTo(expected);
     }
 
     Finish answer() {

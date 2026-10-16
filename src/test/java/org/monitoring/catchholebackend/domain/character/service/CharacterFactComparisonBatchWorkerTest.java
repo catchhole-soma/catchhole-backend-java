@@ -166,10 +166,9 @@ class CharacterFactComparisonBatchWorkerTest {
         when(snapshotSourceRepository.findAllByWorkCharacterIdOrderByFactTypeAscFactKeyAscSourceOrderAsc(
                 character.getId()
         )).thenReturn(List.of());
-        when(batchRepository.existsByAnalysisJobIdAndMatchedCharacterIdAndCanonicalFactTypeAndStatus(
+        when(batchRepository.existsByAnalysisJobIdAndMatchedCharacterIdAndStatus(
                 eq(analysisJobId),
                 eq(character.getId()),
-                eq(CharacterFactType.STATUS),
                 eq(CharacterFactComparisonBatchStatus.PROCESSING)
         )).thenAnswer(invocation -> batches.values().stream()
                 .anyMatch(CharacterFactComparisonBatch::isProcessing));
@@ -290,7 +289,8 @@ class CharacterFactComparisonBatchWorkerTest {
         candidate("status.오른발_부상", "과거 화상", 10);
         var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
         var context = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken);
-        assertThat(context.snapshotEntries()).isEmpty();
+        assertThat(context.snapshotEntries()).extracting(WorkerCharacterFactComparisonBatchContextResponse.SnapshotEntry::factType)
+                .containsExactly(CharacterFactType.PROFILE);
         var json = objectMapper.valueToTree(context).path("advisoryCurrentContext");
         assertThat(json.path("complete").asBoolean()).isTrue();
         assertThat(json.path("characterId").asText()).isEqualTo(character.getId().toString());
@@ -372,6 +372,158 @@ class CharacterFactComparisonBatchWorkerTest {
         var context = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken);
         assertThat(context.snapshotEntries()).hasSize(35);
         assertThat(context.snapshotEntries()).allSatisfy(entry -> assertThat(entry.provenance()).isNotNull());
+    }
+
+    @Test
+    @DisplayName("인물 묶음은 모든 타입의 현재 설정을 30개 제한 없이 제공한다")
+    void personContextPreservesAllTypesWithoutLegacyCap() {
+        ObjectNode statuses = objectMapper.createObjectNode();
+        for (int index = 0; index < 35; index++) statuses.set("status." + index, value("상태 " + index));
+        ObjectNode profile = objectMapper.createObjectNode().set("profile.species", value("인간"));
+        character.replaceCurrentSnapshots(null, null, profile, null, null, null, statuses);
+        candidate("status.회복", "회복", 10);
+
+        var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
+        var context = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken);
+
+        assertThat(context.canonicalFactType()).isNull();
+        assertThat(context.snapshotEntries()).hasSize(36);
+        assertThat(context.snapshotEntries()).extracting(WorkerCharacterFactComparisonBatchContextResponse.SnapshotEntry::factType)
+                .contains(CharacterFactType.PROFILE, CharacterFactType.STATUS);
+    }
+
+    @Test
+    @DisplayName("누적 인물 묶음은 서로 다른 타입의 앞 회차 설정과 현재 Q 참조를 함께 검증한다")
+    void orderedPersonBatchCompletesMixedTypesAndProjectedDependencies() throws Exception {
+        ObjectNode state = orderedState(1);
+        ObjectNode profile = state.withObject("slots").putObject("PROFILE:profile.species");
+        profile.put("factType", "PROFILE").put("factKey", "profile.species").put("factValue", "인간");
+        profile.set("valueJson", value("인간"));
+        profile.putObject("provenance").put("confirmationStatus", "PROVISIONAL").put("sourceEpisodeNo", 1).putArray("sourceCandidateIds");
+        when(schemaRepository.findAllActiveForWork(work.getId())).thenReturn(List.of(statusSchema(), profileSchema()));
+        SettingCandidate injury = candidate("status.앞회차_0", "회복", 10);
+        SettingCandidate species = candidate("profile.species", "엘프", 20);
+        SettingCandidate laterSpecies = candidate("profile.species", "하이엘프", 30);
+
+        var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
+        var context = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken);
+        assertThat(claim.candidates()).hasSize(3);
+        assertThat(context.snapshotEntries()).hasSize(2);
+        exportPersonBatch("ordered", claim, context);
+        worker.complete(analysisJobId, claim.comparisonBatchId(), leaseToken,
+                new WorkerCharacterFactComparisonBatchCompleteRequest(context.contextToken(), List.of(
+                        remove("C1", "status.앞회차_0", List.of(snapshotRef(context, "status.앞회차_0")), List.of()),
+                        update("C2", "profile.species", snapshotRef(context, "profile.species"), List.of(), "엘프"),
+                        update("C3", "profile.species", "Q2", List.of("C2"), "하이엘프")), List.of(), Map.of()));
+
+        assertThat(List.of(injury, species, laterSpecies)).allSatisfy(candidate ->
+                assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.COMPLETED));
+        assertThat(laterSpecies.getComparisonDependencyCandidateIds()).extracting(JsonNode::asText)
+                .containsExactly(species.getId().toString());
+        assertThat(laterSpecies.getComparisonTargetFactType()).isEqualTo(CharacterFactType.PROFILE);
+        assertThat(state.path("slots").path("PROFILE:profile.species").path("factValue").asText()).isEqualTo("인간");
+    }
+
+    @Test
+    @DisplayName("같은 키여도 다른 타입의 P 참조는 완료를 원자적으로 거절한다")
+    void rejectsPersistedReferenceToSameKeyOfAnotherType() {
+        ObjectNode profile = objectMapper.createObjectNode().set("status.부상", value("프로필 부상"));
+        character.replaceCurrentSnapshots(null, null, profile, null, null, null, character.getStatusesJson());
+        SettingCandidate injury = candidate("status.부상", "회복", 10);
+        var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
+        var context = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken);
+        assertThat(context.snapshotEntries()).anyMatch(entry -> entry.factType() == CharacterFactType.PROFILE);
+        String profileRef = context.snapshotEntries().stream().filter(entry -> entry.factType() == CharacterFactType.PROFILE)
+                .findFirst().orElseThrow().snapshotRef();
+
+        assertThatThrownBy(() -> worker.complete(analysisJobId, claim.comparisonBatchId(), leaseToken,
+                new WorkerCharacterFactComparisonBatchCompleteRequest(context.contextToken(),
+                        List.of(update("C1", "status.부상", profileRef, List.of(), "회복")), List.of(), Map.of())))
+                .isInstanceOfSatisfying(AppException.class, exception -> assertThat(exception.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_TARGET_INVALID));
+        assertThat(injury.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PROCESSING);
+    }
+
+    @Test
+    @DisplayName("같은 키여도 다른 타입의 Q 참조는 정상 앞 후보까지 저장하지 않는다")
+    void rejectsProjectedReferenceOfAnotherTypeAtomically() {
+        CharacterSettingSchema profileSchema = profileSchema();
+        ReflectionTestUtils.setField(profileSchema, "schemaKey", "status.shared");
+        ReflectionTestUtils.setField(profileSchema, "aliasesJson", objectMapper.createArrayNode().add("종족"));
+        when(schemaRepository.findAllActiveForWork(work.getId())).thenReturn(List.of(statusSchema(), profileSchema));
+        SettingCandidate profile = candidate("종족", "인간", 10);
+        SettingCandidate status = candidate("status.부상", "부상", 20);
+        var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
+        var context = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken);
+        assertThat(claim.candidates()).hasSize(2);
+
+        assertThatThrownBy(() -> worker.complete(analysisJobId, claim.comparisonBatchId(), leaseToken,
+                new WorkerCharacterFactComparisonBatchCompleteRequest(context.contextToken(), List.of(
+                        add("C1", "status.shared", "인간"), update("C2", "status.shared", "Q1", List.of("C1"), "부상")),
+                        List.of(), Map.of())))
+                .isInstanceOfSatisfying(AppException.class, exception -> assertThat(exception.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_TARGET_INVALID));
+        assertThat(List.of(profile, status)).allSatisfy(candidate -> {
+            assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PROCESSING);
+            assertThat(candidate.getSuggestedOperation()).isNull();
+        });
+        worker.complete(analysisJobId, claim.comparisonBatchId(), leaseToken,
+                new WorkerCharacterFactComparisonBatchCompleteRequest(context.contextToken(), List.of(
+                        add("C1", "status.shared", "인간"), add("C2", "status.shared", "부상")), List.of(), Map.of()));
+        assertThat(profile.getComparisonTargetFactType()).isEqualTo(CharacterFactType.PROFILE);
+        assertThat(status.getComparisonTargetFactType()).isEqualTo(CharacterFactType.STATUS);
+        assertThat(status.getComparisonDependencyCandidateIds()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("임시 인물도 여러 타입을 하나의 고정 입력으로 비교한다")
+    void provisionalPersonBatchIncludesEveryTypeAndKeepsFrozenIdentity() {
+        ObjectNode state = orderedState(1);
+        String provisionalKey = "provisional-character:" + UUID.randomUUID();
+        state.putNull("actualCharacterId").put("provisionalSubjectKey", provisionalKey);
+        when(schemaRepository.findAllActiveForWork(work.getId())).thenReturn(List.of(statusSchema(), profileSchema()));
+        SettingCandidate status = candidate("status.앞회차_0", "회복", 10);
+        SettingCandidate profile = candidate("profile.species", "인간", 20);
+        for (SettingCandidate candidate : candidates) {
+            ReflectionTestUtils.setField(candidate, "matchedCharacterId", null);
+            ReflectionTestUtils.setField(candidate, "provisionalSubjectKey", provisionalKey);
+        }
+        when(candidateRepository.findProvisionalComparisonGroupForUpdate(analysisJobId, provisionalKey,
+                SettingCandidateReviewStatus.PENDING_REVIEW, CharacterFactComparisonStatus.PENDING)).thenAnswer(call -> pendingCandidates());
+        when(analysisStateService.getTarget(analysisJob, null, provisionalKey)).thenAnswer(call -> state.deepCopy());
+        when(batchRepository.existsByAnalysisJobIdAndProvisionalSubjectKeyAndStatus(analysisJobId, provisionalKey,
+                CharacterFactComparisonBatchStatus.PROCESSING)).thenAnswer(call -> batches.values().stream().anyMatch(CharacterFactComparisonBatch::isProcessing));
+
+        var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
+        var context = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken);
+        assertThat(claim.canonicalFactType()).isNull();
+        assertThat(claim.provisionalSubjectKey()).isEqualTo(provisionalKey);
+        assertThat(context.advisoryCurrentContext().provisionalSubjectKey()).isEqualTo(provisionalKey);
+        worker.complete(analysisJobId, claim.comparisonBatchId(), leaseToken,
+                new WorkerCharacterFactComparisonBatchCompleteRequest(context.contextToken(), List.of(
+                        remove("C1", "status.앞회차_0", List.of(snapshotRef(context, "status.앞회차_0")), List.of()),
+                        add("C2", "profile.species", "인간")), List.of(), Map.of()));
+        assertThat(List.of(status, profile)).allSatisfy(candidate ->
+                assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.COMPLETED));
+        assertThat(batches.get(claim.comparisonBatchId()).getAnalysisContextSnapshotJson()).isEqualTo(state);
+    }
+
+    @Test
+    @DisplayName("인물 묶음 문맥은 같은 canonical key의 후보 타입 변경도 stale로 감지한다")
+    void contextTokenBindsEachCandidateActualType() {
+        SettingCandidate candidate = candidate("status.새부상", "부상", 10);
+        var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
+        var context = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken);
+        CharacterSettingSchema changedSchema = statusSchema();
+        ReflectionTestUtils.setField(changedSchema, "factType", CharacterFactType.PROFILE);
+        when(schemaRepository.findAllActiveForWork(work.getId())).thenReturn(List.of(changedSchema));
+
+        assertThatThrownBy(() -> worker.complete(analysisJobId, claim.comparisonBatchId(), leaseToken,
+                new WorkerCharacterFactComparisonBatchCompleteRequest(context.contextToken(),
+                        List.of(add("C1", "status.새부상", "부상")), List.of(), Map.of())))
+                .isInstanceOfSatisfying(AppException.class, exception -> assertThat(exception.getResultCode())
+                        .isEqualTo(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE));
+        assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PROCESSING);
     }
 
     @Test
@@ -589,7 +741,7 @@ class CharacterFactComparisonBatchWorkerTest {
                 .containsExactly("C1", "C2", "C3", "C4", "C5");
         assertThat(firstContext.snapshotEntries())
                 .extracting(WorkerCharacterFactComparisonBatchContextResponse.SnapshotEntry::factKey)
-                .containsExactly("status.오른발_부상", "status.마비독");
+                .containsExactly("status.마비독", "status.오른발_부상");
 
         worker.complete(
                 analysisJobId,
@@ -598,7 +750,7 @@ class CharacterFactComparisonBatchWorkerTest {
                 new WorkerCharacterFactComparisonBatchCompleteRequest(
                         firstContext.contextToken(),
                         List.of(
-                                update("C1", "status.오른발_부상", "P1", List.of(), "오른발이 완전히 망가짐"),
+                                update("C1", "status.오른발_부상", snapshotRef(firstContext, "status.오른발_부상"), List.of(), "오른발이 완전히 망가짐"),
                                 add("C2", "status.출혈", "출혈이 지속됨"),
                                 add("C3", "status.생명력", "생명력 5% 미만"),
                                 update(
@@ -611,7 +763,7 @@ class CharacterFactComparisonBatchWorkerTest {
                                 remove(
                                         "C5",
                                         "status.회복",
-                                        List.of("Q1", "P2", "Q2", "Q4"),
+                                        List.of("Q1", snapshotRef(firstContext, "status.마비독"), "Q2", "Q4"),
                                         List.of("C1", "C2", "C3", "C4")
                                 )
                         ),
@@ -1248,19 +1400,18 @@ class CharacterFactComparisonBatchWorkerTest {
         profile.set("profile.species", value("바바리안"));
         character.replaceCurrentSnapshots(null, null, profile, null, null, null, character.getStatusesJson());
         SettingCandidate species = candidate("profile.species", "바바리안", 10);
-        WorkerCharacterFactComparisonBatchPayload claim = worker.claimNext(
-                analysisJobId,
-                leaseToken
-        ).orElseThrow();
+        CharacterFactComparisonBatch legacy = batchRepository.saveAndFlush(CharacterFactComparisonBatch.create(
+                work, null, analysisJob, character, CharacterFactType.PROFILE, 1, character.getSnapshotVersion()));
+        species.startComparison(legacy, "C1");
         WorkerCharacterFactComparisonBatchContextResponse context = worker.getContext(
                 analysisJobId,
-                claim.comparisonBatchId(),
+                legacy.getId(),
                 leaseToken
         );
 
         worker.complete(
                 analysisJobId,
-                claim.comparisonBatchId(),
+                legacy.getId(),
                 leaseToken,
                 new WorkerCharacterFactComparisonBatchCompleteRequest(
                         context.contextToken(),
@@ -1311,15 +1462,13 @@ class CharacterFactComparisonBatchWorkerTest {
         when(snapshotSourceRepository.findAllByWorkCharacterIdOrderByFactTypeAscFactKeyAscSourceOrderAsc(
                 character.getId()
         )).thenReturn(sources);
-        candidate("status.회복", "회복됨", 10);
-
-        WorkerCharacterFactComparisonBatchPayload claim = worker.claimNext(
-                analysisJobId,
-                leaseToken
-        ).orElseThrow();
+        SettingCandidate recovery = candidate("status.회복", "회복됨", 10);
+        CharacterFactComparisonBatch legacy = batchRepository.saveAndFlush(CharacterFactComparisonBatch.create(
+                work, null, analysisJob, character, CharacterFactType.STATUS, 1, character.getSnapshotVersion()));
+        recovery.startComparison(legacy, "C1");
         WorkerCharacterFactComparisonBatchContextResponse context = worker.getContext(
                 analysisJobId,
-                claim.comparisonBatchId(),
+                legacy.getId(),
                 leaseToken
         );
 
@@ -1435,8 +1584,8 @@ class CharacterFactComparisonBatchWorkerTest {
     }
 
     @Test
-    @DisplayName("원문에서 섞인 FactType 그룹은 배치 배정 뒤에도 문맥 조회와 완료를 이어간다")
-    void interleavedFactTypesKeepTheOriginalJobInputThroughoutComparison() {
+    @DisplayName("숨김 그룹은 원문 순서의 모든 FactType을 한 번에 비교하며 입력 hash를 보존한다")
+    void interleavedFactTypesKeepTheOriginalJobInputThroughoutComparison() throws Exception {
         when(schemaRepository.findAllActiveForWork(work.getId()))
                 .thenReturn(List.of(statusSchema(), profileSchema()));
         SettingCandidate injury = candidate("status.새부상", "부상", 10);
@@ -1457,18 +1606,20 @@ class CharacterFactComparisonBatchWorkerTest {
 
         var first = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
         var firstContext = worker.getContext(analysisJobId, first.comparisonBatchId(), leaseToken);
-        assertThat(first.canonicalFactType()).isEqualTo(CharacterFactType.STATUS);
+        assertThat(first.canonicalFactType()).isNull();
+        assertThat(first.candidates()).extracting(WorkerCharacterFactComparisonBatchPayload.Candidate::rawFactKey)
+                .containsExactly("status.새부상", "profile.species", "status.새출혈");
+        assertThat(objectMapper.valueToTree(first).path("candidates"))
+                .extracting(value -> value.path("canonicalFactType").asText())
+                .containsExactly("STATUS", "PROFILE", "STATUS");
+        assertThat(objectMapper.valueToTree(firstContext).path("candidates"))
+                .isEqualTo(objectMapper.valueToTree(first).path("candidates"));
+        exportPersonBatch("confirmed", first, firstContext);
         worker.complete(analysisJobId, first.comparisonBatchId(), leaseToken,
                 new WorkerCharacterFactComparisonBatchCompleteRequest(firstContext.contextToken(),
-                        List.of(add("C1", "status.새부상", "부상"), add("C2", "status.새출혈", "출혈")),
+                        List.of(add("C1", "status.새부상", "부상"), add("C2", "profile.species", "인간"),
+                                add("C3", "status.새출혈", "출혈")),
                         List.of(), Map.of()));
-
-        var second = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
-        var secondContext = worker.getContext(analysisJobId, second.comparisonBatchId(), leaseToken);
-        assertThat(second.canonicalFactType()).isEqualTo(CharacterFactType.PROFILE);
-        worker.complete(analysisJobId, second.comparisonBatchId(), leaseToken,
-                new WorkerCharacterFactComparisonBatchCompleteRequest(secondContext.contextToken(),
-                        List.of(add("C1", "profile.species", "인간")), List.of(), Map.of()));
 
         assertThat(List.of(injury, species, bleeding)).allSatisfy(candidate ->
                 assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.COMPLETED));
@@ -1476,8 +1627,8 @@ class CharacterFactComparisonBatchWorkerTest {
     }
 
     @Test
-    @DisplayName("동명 캐릭터 ID와 같은 캐릭터의 서로 다른 FactType을 별도 묶음으로 claim한다")
-    void separatesSameNameCharactersAndFactTypes() {
+    @DisplayName("동명 캐릭터 ID는 분리하고 같은 인물의 서로 다른 FactType은 한 묶음으로 claim한다")
+    void separatesSameNameCharactersAndCombinesFactTypes() {
         WorkCharacter namesake = WorkCharacter.create(
                 work,
                 character.getName(),
@@ -1523,29 +1674,23 @@ class CharacterFactComparisonBatchWorkerTest {
                 analysisJobId,
                 leaseToken
         ).orElseThrow();
-        assertThat(first.canonicalFactType()).isEqualTo(CharacterFactType.STATUS);
-        assertThat(first.candidates()).hasSize(1);
+        assertThat(first.canonicalFactType()).isNull();
+        assertThat(first.candidates()).hasSize(2);
         assertThat(firstStatus.getCharacterComparisonBatch().getId()).isEqualTo(first.comparisonBatchId());
         assertThat(namesakeStatus.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PENDING);
-        assertThat(firstProfile.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PENDING);
+        assertThat(firstProfile.getCharacterComparisonBatch().getId()).isEqualTo(first.comparisonBatchId());
         worker.fail(analysisJobId, first.comparisonBatchId(), leaseToken, failure);
 
         WorkerCharacterFactComparisonBatchPayload second = worker.claimNext(
                 analysisJobId,
                 leaseToken
         ).orElseThrow();
-        assertThat(second.canonicalFactType()).isEqualTo(CharacterFactType.STATUS);
+        assertThat(second.canonicalFactType()).isNull();
         assertThat(second.candidates()).hasSize(1);
         assertThat(namesakeStatus.getCharacterComparisonBatch().getId()).isEqualTo(second.comparisonBatchId());
         worker.fail(analysisJobId, second.comparisonBatchId(), leaseToken, failure);
 
-        WorkerCharacterFactComparisonBatchPayload third = worker.claimNext(
-                analysisJobId,
-                leaseToken
-        ).orElseThrow();
-        assertThat(third.canonicalFactType()).isEqualTo(CharacterFactType.PROFILE);
-        assertThat(third.candidates()).hasSize(1);
-        assertThat(firstProfile.getCharacterComparisonBatch().getId()).isEqualTo(third.comparisonBatchId());
+        assertThat(worker.claimNext(analysisJobId, leaseToken)).isEmpty();
     }
 
     @Test
@@ -1565,6 +1710,54 @@ class CharacterFactComparisonBatchWorkerTest {
                 .isEqualTo(claim.comparisonBatchId());
         assertThat(alternateName.getCharacterComparisonBatch().getId())
                 .isEqualTo(claim.comparisonBatchId());
+    }
+
+    @Test
+    @DisplayName("인물 묶음 지원이 없는 Worker는 기존 타입별 배치를 차례로 claim한다")
+    void legacyWorkerClaimsTypedBatchesAndBlocksUntilCurrentPersonBatchEnds() {
+        when(schemaRepository.findAllActiveForWork(work.getId())).thenReturn(List.of(statusSchema(), profileSchema()));
+        SettingCandidate status = candidate("status.새부상", "부상", 10);
+        SettingCandidate profile = candidate("profile.species", "인간", 20);
+        var first = claimWithCapability(false).orElseThrow();
+        assertThat(first.canonicalFactType()).isEqualTo(CharacterFactType.STATUS);
+        assertThat(first.candidates()).hasSize(1);
+        assertThat(claimWithCapability(true)).isEmpty();
+        assertThat(profile.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PENDING);
+        var context = worker.getContext(analysisJobId, first.comparisonBatchId(), leaseToken);
+        worker.complete(analysisJobId, first.comparisonBatchId(), leaseToken,
+                new WorkerCharacterFactComparisonBatchCompleteRequest(context.contextToken(),
+                        List.of(add("C1", "status.새부상", "부상")), List.of(), Map.of()));
+        var second = claimWithCapability(false).orElseThrow();
+        assertThat(second.canonicalFactType()).isEqualTo(CharacterFactType.PROFILE);
+        assertThat(second.candidates()).hasSize(1);
+        assertThat(status.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.COMPLETED);
+    }
+
+    @Test
+    @DisplayName("동일 인물의 진행 중 배치는 새 타입 후보가 와도 중복 claim하지 않는다")
+    void processingPersonBatchBlocksLaterCandidatesAcrossTypes() {
+        when(schemaRepository.findAllActiveForWork(work.getId())).thenReturn(List.of(statusSchema(), profileSchema()));
+        candidate("status.새부상", "부상", 10);
+        var first = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
+        SettingCandidate profile = candidate("profile.species", "인간", 20);
+        assertThat(worker.claimNext(analysisJobId, leaseToken)).isEmpty();
+        assertThat(claimWithCapability(false)).isEmpty();
+        assertThat(batches.get(first.comparisonBatchId()).isProcessing()).isTrue();
+        assertThat(profile.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PENDING);
+    }
+
+    private Optional<WorkerCharacterFactComparisonBatchPayload> claimWithCapability(boolean personBatches) {
+        return worker.claimNext(analysisJobId, leaseToken, personBatches);
+    }
+
+    private void exportPersonBatch(String prefix, WorkerCharacterFactComparisonBatchPayload claim,
+            WorkerCharacterFactComparisonBatchContextResponse context) throws Exception {
+        String output = System.getenv("GH251_CHARACTER_BATCH_OUTPUT");
+        if (output == null) return;
+        java.nio.file.Path directory = java.nio.file.Path.of(output);
+        java.nio.file.Files.createDirectories(directory);
+        java.nio.file.Files.writeString(directory.resolve(prefix + "-claim.json"), objectMapper.writeValueAsString(claim));
+        java.nio.file.Files.writeString(directory.resolve(prefix + "-context.json"), objectMapper.writeValueAsString(context));
     }
 
     private List<SettingCandidate> pendingCandidates() {

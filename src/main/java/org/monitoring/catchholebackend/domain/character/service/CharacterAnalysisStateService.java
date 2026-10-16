@@ -258,7 +258,7 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
                         && Objects.equals(prior.getMatchedCharacterId(), candidate.getMatchedCharacterId())
                         && Objects.equals(prior.getProvisionalSubjectKey(), candidate.getProvisionalSubjectKey())
                         && prior.getCharacterComparisonBatch() != null
-                        && prior.getCharacterComparisonBatch().getCanonicalFactType() == proposed.slot().factType()
+                        && comparisonFactType(prior) == proposed.slot().factType()
                         && Objects.equals(prior.getResolvedCanonicalFactKey(), proposed.slot().factKey())) {
                     prior.recordAutomaticReviewHold(hold); heldIds.add(id);
                     if (prior.getRemovedSnapshotEntriesJson() != null) prior.getRemovedSnapshotEntriesJson().forEach(removed ->
@@ -366,6 +366,15 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
                     false, operation.name(), sources));
         }
         runStateService.appendValidatedChanges(job, job.getInputStateHash(), changes);
+    }
+
+    private org.monitoring.catchholebackend.domain.character.type.CharacterFactType comparisonFactType(SettingCandidate candidate) {
+        var legacyType = candidate.getCharacterComparisonBatch().getCanonicalFactType();
+        if (legacyType != null) return legacyType;
+        // Every projected upsert stores its validated slot type; REMOVE is restricted to STATUS.
+        return candidate.getSuggestedOperation() == CharacterFactOperation.REMOVE
+                ? org.monitoring.catchholebackend.domain.character.type.CharacterFactType.STATUS
+                : candidate.getComparisonTargetFactType();
     }
 
     /** Rebuild only temporal observations and history; unrelated slot restoration keeps its existing policy. */
