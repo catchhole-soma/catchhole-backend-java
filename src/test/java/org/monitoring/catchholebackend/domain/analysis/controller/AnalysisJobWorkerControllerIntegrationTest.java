@@ -1170,6 +1170,64 @@ class AnalysisJobWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("Luna HTTP 원장은 raw 21을 유지하고 계정·JSON에는 1.05 차감량을 보존한다")
+    void lunaChargePersistsFractionsWithoutChangingRawWireOrJobTotals() throws Exception {
+        AnalysisJob job = runningJob();
+        UUID requestId = UUID.randomUUID();
+        mockMvc.perform(post("/api/internal/v1/ai-token-usages/reserve")
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, job.getLeaseToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"requestId":"%s","analysisJobId":"%s","purpose":"SUBJECT_RESOLUTION",
+                                 "attempt":1,"modelName":"gpt-6-luna","reservedTokens":21}
+                                """.formatted(requestId, job.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.reservedTokens").value(21));
+        assertThat(aiTokenUsageRepository.findById(requestId).orElseThrow().getReservedCharge())
+                .isEqualByComparingTo("1.05");
+        String accessToken = jwtTokenProvider.generateAccessToken(member);
+        var held = mockMvc.perform(get("/api/v1/ai-token-usages/me")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+                .andExpect(status().isOk()).andReturn();
+        JsonNode heldUsage = objectMapper.readTree(held.getResponse().getContentAsString()).path("data");
+        assertThat(heldUsage.path("reservedTokens").isNumber()).isTrue();
+        assertThat(heldUsage.path("reservedTokens").decimalValue()).isEqualByComparingTo("1.05");
+
+        for (int retry = 0; retry < 2; retry++) {
+            mockMvc.perform(post("/api/internal/v1/ai-token-usages/{requestId}/settle", requestId)
+                            .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"inputTokens":20,"cachedInputTokens":10,"outputTokens":1,"outcome":"SUCCESS"}
+                                    """))
+                    .andExpect(status().isOk());
+        }
+        var usage = aiTokenUsageRepository.findById(requestId).orElseThrow();
+        assertThat(usage.getInputTokens()).isEqualTo(20);
+        assertThat(usage.getCachedInputTokens()).isEqualTo(10);
+        assertThat(usage.getOutputTokens()).isEqualTo(1);
+        assertThat(usage.getChargedTokens()).isEqualByComparingTo("1.05");
+        var actual = mockMvc.perform(get("/api/v1/ai-token-usages/me")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+                .andExpect(status().isOk()).andReturn();
+        JsonNode response = objectMapper.readTree(actual.getResponse().getContentAsString()).path("data");
+        assertThat(response.path("usedTokens").isNumber()).isTrue();
+        assertThat(response.path("usedTokens").decimalValue()).isEqualByComparingTo("1.05");
+        assertThat(response.path("remainingTokens").decimalValue()).isEqualByComparingTo("1999998.95");
+        assertThat(response.path("reservedTokens").decimalValue()).isZero();
+        mockMvc.perform(post("/api/internal/v1/analysis-jobs/{analysisJobId}/complete", job.getId())
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, job.getLeaseToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"summaryJson\":\"{}\"}"))
+                .andExpect(status().isOk());
+        var completed = analysisJobRepository.findById(job.getId()).orElseThrow();
+        assertThat(completed.getInputTokenCount()).isEqualTo(20);
+        assertThat(completed.getOutputTokenCount()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("작업 종료와 정산 순서가 뒤바뀌어도 최종 토큰 합계를 동기화한다")
     void lateSettlementSynchronizesCompletedJobTotals() throws Exception {
         AnalysisJob analysisJob = runningJob();

@@ -83,7 +83,7 @@ class ChatSessionPostgresIntegrationTest extends ChatSessionIntegrationTest {
         }
         var upgraded = org.flywaydb.core.Flyway.configure()
                 .dataSource(isolatedUrl, "chat_test", "test-only")
-                .locations("classpath:db/migration").load();
+                .locations("classpath:db/migration").target("81").load();
         assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(1);
         upgraded.validate();
         assertThat(upgraded.info().current().getVersion().toString()).isEqualTo("81");
