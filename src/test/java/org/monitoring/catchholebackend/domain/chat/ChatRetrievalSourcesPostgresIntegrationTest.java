@@ -42,7 +42,7 @@ import org.testcontainers.junit.jupiter.*;
 import org.testcontainers.utility.DockerImageName;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-        "spring.config.import=", "chat.enabled=true", "chat.python-url=http://127.0.0.1:1",
+        "spring.config.import=", "chat.enabled=true", "chat.operations-enabled=true", "chat.python-url=http://127.0.0.1:1",
         "chat.capability-secret=chat-test-secret-with-more-than-32-characters",
         "chat.retrieval-embedding-version=gh240-test", "internal.api-key=chat-test-key"
 })
