@@ -897,7 +897,9 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 계약은 `docs/chat-execution-v1.md`, 양쪽 공통 fixture는 `docs/contracts/chat-execution-v1.json`이다. 질문/시도/provider 호출의 ID를 구분한다.
 - Spring `domain/chat/{controller,dto,entity,exception,mapper,repository,service,type}`와 `global/config/chat`은 실행·권한·원장을 담당한다. 내부 wire DTO는 버전 경계를 함께 검토하도록 `ChatContract`에 record로 모으고 OpenAPI 이름은 `Chat*V1`으로 고정한다.
 - Python `app/chatbot/{http_app,client,runtime,outbox,providers}.py`와 `app/schemas/chat_execution.py`는 독립 HTTP 진입점이다. 기존 Worker replica/lease loop에 HTTP listener를 추가하지 않는다.
-- `CHAT_ENABLED=false` 기본. 공통 Spring YAML의 CHAT_* 설정은 local/prod 모두 환경변수로 지정한다. FastAPI 별도 Compose는 명시적으로만 배포한다. 기능 flag를 꺼도 기존 예약 복구는 계속한다.
+- `CHAT_ENABLED=false` 기본. 공통 Spring YAML의 CHAT_* 설정은 local/prod 모두 환경변수로 지정한다. FastAPI는 별도 Compose로 격리하며 #258 이후 검증된 동일 publish SHA의 AI 배포에 연결한다. 기능 flag를 꺼도 기존 예약 복구는 계속한다.
+- `CHAT_OPERATIONS_ENABLED=false`는 새 서비스 부담 운영 백필 접수만 제어하며 공개 `CHAT_ENABLED`와 독립적이다. 공개 채팅을 닫은 초기 백필을 위해 어느 게이트든 켜면 별도 32자 이상·공백이 아닌 `CHAT_CAPABILITY_SECRET`을 검증하고, `CHAT_PYTHON_URL`은 공개 채팅을 켤 때만 요구한다. 기존 운영 ID의 동일 입력 재전송·실행·정산·복구는 게이트를 꺼도 허용하므로 drain 동안 secret을 보존한다.
+- 내부 키를 요구하는 `GET /api/internal/v1/chat-runs/operations/readiness`는 DB·provider 호출 없이 `operationsEnabled`, `publicChatEnabled`, `capabilityConfigured`만 반환한다. HTTP 200은 인증·조회 성공이며 기능 활성화 보장이 아니다. 배포·백필 사전 점검은 필요한 boolean을 명시적으로 검사한다. 실행 생성으로 연결을 시험하지 않기 위한 경로다.
 - 채팅은 실행에 묶인 tools route를 사용하며 member/work를 LLM 인자에서 받지 않는다. provider SDK 재시도도 실제 호출마다 `Execution.call()` 예약 경계 안에 있어야 한다.
 - 실행 한도는 `EXECUTION_LIMIT_EXCEEDED`, 계정 잔액 부족은 `QUOTA_EXHAUSTED`로 구분한다. HTTP 429만으로 잔액 부족을 추정하지 않는다. 실패 안내와 재시도 판단에서 계정 상태와 실행 제한을 혼동하지 않기 위함이다.
 - `CHAT_ATTEMPT_TOKEN_BUDGET` 기본값 240,000은 Python 해석 출력 1,500·답변 3,000·출력 절단 복구 최대 6,000과 동기화한다. 최초 호출과 schema/참조 오류·절단 복구는 목적별 최대 두 시도를 공유하며 각 호출을 새로 예약·정산한다. 누적 예약 상한을 실제 소비나 모델별 사용자 할인으로 해석하지 않는다.
