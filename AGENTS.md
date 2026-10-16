@@ -924,7 +924,7 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 양쪽 공통 계약/fixture는 `docs/chat-hybrid-retrieval-v1.md`와 `docs/contracts/chat-hybrid-v1.json`이다. 기존 SettingTool enum에 검색 청크를 가장하지 않고 `ChatContract.RetrievalReference`/`Result.retrievalSources`로 출처 종류를 구분한다. 빈 새 목록은 구형 JSON과 호환되도록 생략한다.
 - 실행별 `retrieval-sources` route는 기존 내부 key·capability·runner와 Work 잠금, 도구 상한을 사용한다. `ChatRetrievalSources`는 회원/작품/회차/manifest/파기·정책과 실제 원문 SHA256·Unicode code point 위치를 확인한다. 전체 인용 필드 hash의 receipt가 있어야 finish에 사용할 수 있고 완료 직전 다시 현재 원문을 대조한다.
 - 키워드/인접 조회의 미임베딩 텍스트는 허용한다. 실제 벡터가 있으면 model `text-embedding-3-small`, policy `cl100k-800-100-boundary-v1`, `CHAT_RETRIEVAL_EMBEDDING_VERSION`(기본 v1)을 맞춘다. 새 설정은 base YAML과 API Compose에서 local/prod 모두 환경변수로 지정한다. 이번 단계에는 새 Flyway migration이 없다.
-- `CHAT_SCOPE_INVALID`는 사용할 수 없는 범위/인용, `CHAT_SOURCE_UNAVAILABLE`는 저장소 장애다. 원문 조회 실패를 정상 빈 근거로 바꾸지 않는다. getText는 원문 전체를 읽은 뒤 250,000 code point를 검사하며 S3 응답 VersionId·전송 중 크기 제한은 제공하지 않는다는 한계를 문서에 유지한다.
+- `CHAT_SCOPE_INVALID`는 사용할 수 없는 범위/인용, `CHAT_SOURCE_UNAVAILABLE`는 저장소 장애다. 원문 조회 실패를 정상 빈 근거로 바꾸지 않는다. getText는 원문 전체를 읽은 뒤 Python 색인과 같은 UTF-8 2,000,000 byte 상한을 검사한다. 기존 저장 원고의 읽기 지원을 신규 업로드·수정 제한과 분리하며, S3 응답 VersionId·전송 중 크기 제한은 제공하지 않는다는 한계를 문서에 유지한다.
 - `ChatRetrievalSourcesPostgresIntegrationTest`는 실제 PostgreSQL/Flyway 및 인용·파기 경계를 검사한다. `GH240_AI_CHECKOUT`을 명시하면 Python `tests/support/chat_retrieval_http_client.py`와 실제 HTTP로 start→인용 등록→finish를 검증한다. 합성 원고/S3 대역이며 실제 모델 품질이나 운영 배포 검증이 아니다.
 
 
