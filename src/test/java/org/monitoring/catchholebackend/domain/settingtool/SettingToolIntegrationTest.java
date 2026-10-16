@@ -18,6 +18,8 @@ import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.*;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
@@ -30,6 +32,7 @@ import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.settingtool.dto.*;
 import org.monitoring.catchholebackend.domain.settingtool.service.SettingToolService;
 import org.monitoring.catchholebackend.domain.settingtool.repository.SettingToolRepository;
+import org.monitoring.catchholebackend.domain.settingtool.processor.WorldSettingToolSources;
 import org.monitoring.catchholebackend.domain.settingtool.type.SettingTool;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
@@ -44,6 +47,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,6 +65,7 @@ class SettingToolIntegrationTest {
     @Autowired JwtTokenProvider tokens;
     @Autowired SettingToolService tools;
     @Autowired SettingToolRepository repository;
+    @MockitoSpyBean WorldSettingToolSources worldSources;
     @Autowired CharacterSnapshotAccessor snapshots;
     @Autowired CharacterSnapshotSourceManager sources;
     @MockitoBean ObjectStorageService storage;
@@ -707,6 +712,99 @@ class SettingToolIntegrationTest {
                 .isInstanceOfSatisfying(AppException.class,
                         error -> assertThat(error.getResultCode()).isEqualTo(CommonErrorCode.CONFLICT));
         repository.assertWorldUnchanged(current);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = WorldSettingOperation.class, names = {"UPDATE", "MERGE"})
+    @DisplayName("동일값 후보 확정은 현재 근거를 교체·추가하고 이전 collection 토큰을 거절한다")
+    void collectionTokenDetectsSameValueConfirmedSources(WorldSettingOperation operation) throws Exception {
+        var world = save(WorldSetting.create(work, WorldSettingCategory.POWER_SYSTEM, "마법", "일반", "소모 마력", "10"));
+        var base = worldCandidate(world, "일반", "10", false, WorldSettingOperation.ADD);
+        var query = collection(SettingTool.WORLD_CURRENT_COLLECTION, null, "소모 마력", "일반",
+                WorldSettingCategory.POWER_SYSTEM, 0, 1, null);
+        String before = postQuery(work, query, 200).at("/collection/readToken").asText();
+        long version = world.getVersion();
+        assertThat(world.applyProperty("일반", "소모 마력", "10")).isFalse();
+        var added = worldCandidate(world, "일반", "10", false, operation);
+        em.flush();
+
+        assertThat(world.getVersion()).isEqualTo(version);
+        assertThat(world.isManuallyEdited("일반", "소모 마력")).isFalse();
+        for (int page : List.of(0, 1)) {
+            postQuery(work, collection(SettingTool.WORLD_CURRENT_COLLECTION, null, "소모 마력", "일반",
+                    WorldSettingCategory.POWER_SYSTEM, page, 1, before), 409);
+        }
+        var fresh = postQuery(work, query, 200);
+        String after = fresh.at("/collection/readToken").asText();
+        assertThat(after).isNotEqualTo(before);
+        assertThat(fresh.at("/items/content/0/value").asText()).isEqualTo("10");
+        var current = run(SettingTool.WORLD_CURRENT, world.getId()).items().content().getFirst();
+        assertThat(current.origin().name()).isEqualTo("CONFIRMED_ANALYSIS");
+        var expected = operation == WorldSettingOperation.MERGE
+                ? List.of(added.getId(), base.getId()) : List.of(added.getId());
+        assertThat(current.sources()).extracting(ref -> ref.targetId()).containsExactlyElementsOf(expected);
+        assertThat(run(SettingTool.WORLD_EVIDENCE, base.getId()).items().content().getFirst().contributesToCurrent())
+                .isEqualTo(operation == WorldSettingOperation.MERGE);
+        postQuery(work, collection(SettingTool.WORLD_CURRENT_COLLECTION, null, "소모 마력", "일반",
+                WorldSettingCategory.POWER_SYSTEM, 0, 1, after), 200);
+        assertThat(postQuery(work, query, 200).at("/collection/readToken").asText()).isEqualTo(after);
+    }
+
+    @Test @DisplayName("출처 없는 현재값에 첫 근거가 생기거나 이력 전용으로 바뀌면 collection 토큰이 달라진다")
+    void collectionTokenDetectsSourceAvailabilityAndHistoryOnly() throws Exception {
+        var world = save(WorldSetting.create(work, WorldSettingCategory.POWER_SYSTEM, "마법", "일반", "소모 마력", "10"));
+        var query = collection(SettingTool.WORLD_CURRENT_COLLECTION, null, null, null,
+                WorldSettingCategory.POWER_SYSTEM, 0, 20, null);
+        var before = postQuery(work, query, 200);
+        assertThat(before.at("/items/content/0/origin").asText()).isEqualTo("UNKNOWN");
+        var source = worldCandidate(world, "일반", "10", false, WorldSettingOperation.UPDATE);
+        var confirmed = postQuery(work, query, 200);
+        assertThat(confirmed.at("/collection/readToken").asText()).isNotEqualTo(before.at("/collection/readToken").asText());
+        assertThat(confirmed.at("/items/content/0/origin").asText()).isEqualTo("CONFIRMED_ANALYSIS");
+        source.markHistoryOnly();
+        em.flush();
+        postQuery(work, collection(SettingTool.WORLD_CURRENT_COLLECTION, null, null, null,
+                WorldSettingCategory.POWER_SYSTEM, 0, 20, confirmed.at("/collection/readToken").asText()), 409);
+        var historyOnly = postQuery(work, query, 200);
+        assertThat(historyOnly.at("/items/content/0/sources")).isEmpty();
+        assertThat(world.getVersion()).isZero();
+    }
+
+    @Test @DisplayName("미확정·다른 작품·다른 분류의 후보는 현재 collection 토큰을 무효화하지 않는다")
+    void collectionSourceStateRespectsEligiblePopulation() throws Exception {
+        var world = save(WorldSetting.create(work, WorldSettingCategory.POWER_SYSTEM, "마법", "일반", "소모 마력", "10"));
+        var query = collection(SettingTool.WORLD_CURRENT_COLLECTION, null, null, null,
+                WorldSettingCategory.POWER_SYSTEM, 0, 20, null);
+        String before = postQuery(work, query, 200).at("/collection/readToken").asText();
+        var pending = save(WorldSettingCandidate.create(work, episode, job, world.getCategory(), world.getSubjectName(), "일반",
+                "소모 마력", "10", nodes.arrayNode().add(nodes.objectNode().put("quote", "마력은 10이다.")), BigDecimal.ONE, null));
+        pending.startComparison();
+        pending.completeComparison(world, WorldSettingConsolidationStatus.SINGLE, WorldSettingOperation.UPDATE,
+                "일반", "소모 마력", "10", "10", "비교 완료", null, LocalDateTime.now());
+        var otherCategory = save(WorldSetting.create(work, WorldSettingCategory.MONSTER, "다른 분류", "일반", "소모 마력", "10"));
+        worldCandidate(otherCategory, "일반", "10", false, WorldSettingOperation.UPDATE);
+        var otherTarget = save(WorldSetting.create(otherWork, WorldSettingCategory.POWER_SYSTEM, "다른 작품", "일반", "소모 마력", "10"));
+        // 기존 조회 계약처럼 work·target·episode가 엇갈린 후보도 포함시키지 않는다.
+        worldCandidate(otherTarget, "일반", "10", false, WorldSettingOperation.UPDATE);
+        em.flush();
+        assertThat(postQuery(work, query, 200).at("/collection/readToken").asText()).isEqualTo(before);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = WorldSettingOperation.class, names = {"UPDATE", "MERGE"})
+    @DisplayName("단건 응답 조립 중 동일값 근거가 확정되면 변경 전후를 섞지 않고 409로 거절한다")
+    void singleWorldReadRejectsConcurrentSourceConfirmation(WorldSettingOperation operation) throws Exception {
+        var world = save(WorldSetting.create(work, WorldSettingCategory.POWER_SYSTEM, "마법", "일반", "소모 마력", "10"));
+        worldCandidate(world, "일반", "10", false, WorldSettingOperation.ADD);
+        doAnswer(invocation -> {
+            Object result = invocation.callRealMethod();
+            assertThat(world.applyProperty("일반", "소모 마력", "10")).isFalse();
+            worldCandidate(world, "일반", "10", false, operation);
+            em.flush();
+            return result;
+        }).when(worldSources).resolve(eq(world), anyList());
+        postQuery(work, new SettingToolQuery(SettingTool.WORLD_CURRENT, world.getId(), null,
+                null, null, null, null, 0, 20), 409);
     }
 
     @Test @DisplayName("작품 collection의 실제 HTTP 응답은 공유 계약 fixture와 일치한다")
