@@ -172,6 +172,18 @@ org.monitoring.catchholebackend
 │   │   └── type
 │   ├── retrieval
 │   │   └── entity
+│   ├── relationship
+│   │   ├── controller
+│   │   ├── dto
+│   │   │   ├── request
+│   │   │   └── response
+│   │   ├── entity
+│   │   ├── exception
+│   │   ├── mapper
+│   │   ├── processor
+│   │   ├── repository
+│   │   ├── service
+│   │   └── type
 │   ├── character
 │   │   ├── controller
 │   │   ├── dto
@@ -564,6 +576,16 @@ domain/<domain>
 - 검토 상태는 `SettingCandidate`에만 둔다. `WorkCharacter`와 `CharacterFact`는 사용자가 후보를 승인한 뒤 저장되는 대표 설정과 설정 이력이므로 별도 review status를 두지 않는다.
 - 작품마다 구조가 달라지는 프로필, 스탯, 스킬, 아이템, 상태 상세값과 AI 원본 응답, 근거 span은 `JsonNode` + Hibernate JSON 매핑으로 JSONB 컬럼에 저장한다. 이 구조는 장르별 설정 차이를 수용하면서도 자주 조회하는 핵심 값은 일반 컬럼으로 유지하기 위한 선택이다.
 - `setting_candidates.source_chunk_id`는 청킹 Entity가 생기기 전까지 FK 없는 UUID로 저장한다. `ManuscriptChunk` 구현 이후 실제 FK 제약 여부를 다시 결정한다.
+
+#### Family Relationship Domain Policy (#259)
+
+- 가족 관계는 `domain/relationship`에 둔다. 기존 추출 프롬프트·SettingCandidate 생성 책임은 유지하며, 현재 PROFILE 슬롯과 sourceFacts 양쪽에 존재하는 Fact만 관계 입력으로 사용한다. HISTORY_ONLY 이력으로 현재 관계를 복원하지 않는다.
+- 관계·검토 후보·Fact 근거 연결을 분리한다. 원문은 복사하지 않고 기존 Fact evidence API를 사용한다. 원문 파기는 현재 설정의 무효화나 서사상 관계 종료를 뜻하지 않는다.
+- 부모/자녀는 PARENT_OF로 방향을 정규화하고 배우자/형제는 UUID 문자열 순 대칭으로 저장한다. 유형·세부 유형·명시 시점이 다른 관계는 합치지 않으며, 미상 부모·상대 감정·정확한 시점을 추론하지 않는다.
+- 관계 쓰기는 Work 잠금 안에서 sourceToken·expectedVersion을 검증한다. requestId/hash로 재전송을 처리하고 관계 정정은 이전 row를 철회한 뒤 새 근거로 대체 확정하여 과거 명제를 보존한다.
+- 관계 조회는 현재 슬롯 및 보관 상태를 다시 계산한다. 복수의 독립 근거 중 하나라도 유효하면 유지하고, 마지막 근거 소실은 REVIEW_REQUIRED다. 보관/복구로 생긴 부모 순환도 검토로 표시하며 확정 시 순환 검사는 이 간선을 포함한다.
+- 관계 응답의 current와 hasEvidence는 별개다. 현재 설정에서 빠진 활성 캐릭터의 Fact도 원문이 보존되면 근거를 열 수 있어야 한다. 작품/회원 영구 삭제는 관계 evidence→candidate→relationship을 Fact보다 먼저 정리한다.
+- API·후속 AI/가계도 계약 및 검증은 `docs/family-relationships-v1.md`, 공유 fixture는 `docs/contracts/family-relationships-v1.json`을 따른다.
 
 #### World Setting Domain Policy
 

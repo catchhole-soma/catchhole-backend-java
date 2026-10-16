@@ -1031,3 +1031,7 @@ flowchart TD
 - AI Worker 시간 메타데이터가 정해진 뒤 `episodeNo` 기준 current/snapshot 계산을 작중 시간 기준으로 확장
 - NVM-229에서 JSON entry 내부 deep merge, 삭제·비활성 표현과 미지원 merge policy 결정
 - 신규 회차 검수에서 구조화 조회와 벡터 검색을 함께 사용하는 흐름 연결
+
+## 현재 프로필과 가족 관계 (#259)
+
+가족 관계는 현재 PROFILE snapshot과 `character_snapshot_sources`의 교집합을 별도 `relationship` 도메인에서 읽습니다. Fact 이력만 있는 값은 자동으로 현재 관계를 만들지 않습니다. 기존 추출과 설정 승격은 변경하지 않으며, 관계 후보 검토·방향 정규화·근거 재검증 API는 [가족 관계 v1](family-relationships-v1.md)을 따릅니다.
