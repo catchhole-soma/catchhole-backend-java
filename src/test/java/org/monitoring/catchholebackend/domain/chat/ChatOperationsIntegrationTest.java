@@ -222,8 +222,8 @@ class ChatOperationsIntegrationTest {
     private void assertBalanceUnchanged() {
         tx.executeWithoutResult(status -> {
             var account = accounts.findByMemberId(member).orElseThrow();
-            assertThat(account.getUsedTokens()).isEqualTo(10);
-            assertThat(account.getReservedTokens()).isEqualTo(15);
+            assertThat(account.getUsedTokens()).isEqualByComparingTo("10");
+            assertThat(account.getReservedTokens()).isEqualByComparingTo("15");
         });
     }
 
