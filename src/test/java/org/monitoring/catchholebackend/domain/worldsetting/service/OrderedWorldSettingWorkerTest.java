@@ -719,4 +719,58 @@ class OrderedWorldSettingWorkerTest {
                         WorldSettingSuggestedOperation.MERGE, null, null, "서식지", "북부의 설원", "앞 회차 내용을 구체화",
                         Map.of(), key)), Map.of(), token);
     }
+
+    @Test
+    @DisplayName("서로 다른 대상의 문맥을 먼저 읽어도 앞 묶음 완료가 뒤 묶음 토큰을 무효화하지 않는다")
+    void completesIndependentPrefetchedContextsWithoutRetokening() {
+        String otherKey = "provisional-world:" + UUID.randomUUID();
+        ObjectNode otherTarget = state.get().path("worldSettings").path(key).deepCopy();
+        otherTarget.put("provisionalSubjectKey", otherKey);
+        ((ObjectNode) state.get().path("worldSettings")).set(otherKey, otherTarget);
+        var otherCandidate = pendingCandidate("서식지", "북부의 설원", false);
+        otherCandidate.resolveOrderedSubject(WorldSettingSubjectResolutionType.EXISTING, otherKey, "설인",
+                mapper.toJsonNode(List.of()), mapper.toJsonNode(List.of(otherKey)));
+        var otherBatch = WorldSettingComparisonBatch.createOrdered(job.getWork(), candidate.getSourceEpisode(), job,
+                WorldSettingCategory.RACE, null, WorldSettingSubjectResolutionType.EXISTING, otherKey, "설인",
+                mapper.toJsonNode(List.of()), mapper.toJsonNode(List.of(otherKey)), 1);
+        ReflectionTestUtils.setField(otherBatch, "id", UUID.randomUUID());
+        otherCandidate.startComparison(otherBatch, "C1");
+        when(batches.findByIdAndWorkIdForUpdate(otherBatch.getId(), job.getWork().getId())).thenReturn(Optional.of(otherBatch));
+        when(candidates.findAllByComparisonBatchIdOrderByCreatedAtAscIdAsc(otherBatch.getId())).thenReturn(List.of(otherCandidate));
+        var firstContext = worker.getContext(job, batch.getId(), new WorkerWorldSettingComparisonBatchContextRequest(List.of(), List.of(key)));
+        var secondContext = worker.getContext(job, otherBatch.getId(), new WorkerWorldSettingComparisonBatchContextRequest(List.of(), List.of(otherKey)));
+
+        worker.completeBatch(job, batch.getId(), request(firstContext.contextToken(), WorldSettingConsolidationStatus.SINGLE));
+        var secondRequest = new WorkerWorldSettingComparisonBatchCompleteRequest(
+                List.of(new ContextVersion(null, 1, otherKey)),
+                List.of(new Decision("D1", List.of("C1"), "설인", null, null, "서식지", List.of(),
+                        WorldSettingConsolidationStatus.SINGLE, WorldSettingSuggestedOperation.MERGE, null,
+                        null, "서식지", "북부의 설원", "기존 서식지 설명을 보완한다.", Map.of(), otherKey)),
+                Map.of(), secondContext.contextToken());
+        worker.completeBatch(job, otherBatch.getId(), secondRequest);
+        worker.completeBatch(job, otherBatch.getId(), secondRequest);
+
+        assertThat(candidate.getBeforeValue()).isEqualTo("북부");
+        assertThat(otherCandidate.getBeforeValue()).isEqualTo("북부");
+        assertThat(otherCandidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.COMPLETED);
+        assertThat(state.get().path("worldSettings").path(key).path("propertiesJson").path("서식지").asText()).isEqualTo("북부의 설원");
+        assertThat(state.get().path("worldSettings").path(otherKey).path("propertiesJson").path("서식지").asText()).isEqualTo("북부의 설원");
+        verify(decisions, times(2)).saveAndFlush(any());
+    }
+
+    @Test
+    @DisplayName("다른 대상의 뒤 묶음도 그 대상 문맥이 변경되면 이전 토큰으로 완료하지 못한다")
+    void rejectsChangedPrefetchedTargetWithoutWritingDecision() {
+        var context = worker.getContext(job, batch.getId(), new WorkerWorldSettingComparisonBatchContextRequest(List.of(), List.of(key)));
+        ((ObjectNode) state.get().path("worldSettings").path(key).path("propertiesJson")).put("서식지", "남부");
+
+        assertThatThrownBy(() -> worker.completeBatch(job, batch.getId(), request(context.contextToken(), WorldSettingConsolidationStatus.SINGLE)))
+                .isInstanceOf(AppException.class);
+
+        verify(decisions, never()).saveAndFlush(any());
+        assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.PROCESSING);
+        var fresh = worker.getContext(job, batch.getId(), new WorkerWorldSettingComparisonBatchContextRequest(List.of(), List.of(key)));
+        assertThat(fresh.contextToken()).isNotEqualTo(context.contextToken());
+        assertThat(fresh.targets().getFirst().properties().getFirst().value()).isEqualTo("남부");
+    }
 }
