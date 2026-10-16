@@ -11,6 +11,7 @@ import org.monitoring.catchholebackend.domain.chat.type.ChatState;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 @Getter
@@ -93,8 +94,9 @@ public class ChatRun {
         r.id = UUID.randomUUID();
         r.work = work;
         r.question = question;
-        r.deadline = deadline;
-        r.usageDeadline = usageDeadline;
+        // 첫 응답과 DB 재조회가 같은 값을 쓰도록 PostgreSQL의 마이크로초 정밀도로 고정한다.
+        r.deadline = deadline.truncatedTo(ChronoUnit.MICROS);
+        r.usageDeadline = usageDeadline.truncatedTo(ChronoUnit.MICROS);
         r.tokenBudget = budget;
         r.actor = actor;
         r.policy = policy;
