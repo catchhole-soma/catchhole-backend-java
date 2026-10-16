@@ -1,5 +1,7 @@
 package org.monitoring.catchholebackend.domain.aitoken.mapper;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.Optional;
 import org.monitoring.catchholebackend.domain.aitoken.dto.response.AiTokenExtensionAdminResponse;
 import org.monitoring.catchholebackend.domain.aitoken.dto.response.AiTokenExtensionPendingResponse;
@@ -19,18 +21,19 @@ public class AiTokenMapper {
             long defaultGrant,
             String contactEmail
     ) {
-        long remaining = account.remainingTokens();
-        long percentBasis = defaultGrant > 0 ? defaultGrant : account.getGrantedTokens();
-        double percent = percentBasis == 0
+        BigDecimal remaining = account.remainingTokens();
+        BigDecimal percentBasis = defaultGrant > 0 ? BigDecimal.valueOf(defaultGrant) : account.getGrantedTokens();
+        double percent = percentBasis.signum() == 0
                 ? 0
-                : Math.round((Math.min(remaining, percentBasis) * 10000.0) / percentBasis) / 100.0;
+                : remaining.min(percentBasis).multiply(BigDecimal.valueOf(100))
+                        .divide(percentBasis, 2, RoundingMode.HALF_UP).doubleValue();
         return new AiTokenUsageResponse(
                 account.getGrantedTokens(),
                 account.getUsedTokens(),
                 account.getReservedTokens(),
                 remaining,
                 percent,
-                remaining == 0,
+                remaining.signum() == 0,
                 contactEmail
         );
     }

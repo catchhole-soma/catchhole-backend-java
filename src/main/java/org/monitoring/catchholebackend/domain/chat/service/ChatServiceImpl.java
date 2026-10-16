@@ -24,6 +24,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
@@ -203,16 +204,16 @@ public class ChatServiceImpl implements ChatService {
                 || run.getCallCount() >= properties.maxCalls()
                 || request.reservedTokens() > run.getTokenBudget() - run.getAllocatedTokens())
             throw new AppException(CHAT_LIMIT_EXCEEDED);
-        if (!run.operational()) account(run).reserve(request.reservedTokens());
+        var usage =
+                AiTokenUsage.reserveChat(
+                        request.callId(),
+                        run,
+                        request.purpose(),
+                        request.model(),
+                        request.reservedTokens());
+        if (!run.operational()) account(run).reserve(usage.getReservedCharge());
         run.allocate(request.reservedTokens());
-        return mapper.call(
-                usages.save(
-                        AiTokenUsage.reserveChat(
-                                request.callId(),
-                                run,
-                                request.purpose(),
-                                request.model(),
-                                request.reservedTokens())));
+        return mapper.call(usages.save(usage));
     }
 
     @Override
@@ -239,15 +240,16 @@ public class ChatServiceImpl implements ChatService {
                         || u.getOutcome() != request.outcome())
                     throw new AppException(CHAT_CONFLICT);
             } else {
-                long held =
-                        u.getStatus() == AiTokenUsageStatus.RESERVED ? u.getReservedTokens() : 0;
-                long total =
-                        u.settleChat(
-                                request.inputTokens(),
-                                request.cachedInputTokens(),
-                                request.outputTokens(),
-                                request.outcome());
-                if (!run.operational()) account(run).settle(held, total);
+                BigDecimal held =
+                        u.getStatus() == AiTokenUsageStatus.RESERVED
+                                ? u.getReservedCharge()
+                                : BigDecimal.ZERO;
+                u.settleChat(
+                        request.inputTokens(),
+                        request.cachedInputTokens(),
+                        request.outputTokens(),
+                        request.outcome());
+                if (!run.operational()) account(run).settle(held, u.getChargedTokens());
             }
         } else {
             if (request.inputTokens() != null
@@ -256,7 +258,7 @@ public class ChatServiceImpl implements ChatService {
                     || request.outcome() != null) throw new AppException(REQUEST_VALIDATION_FAILED);
             if (request.kind() == ReportKind.RELEASE) {
                 if (u.getStatus() == AiTokenUsageStatus.RESERVED) {
-                    if (!run.operational()) account(run).release(u.getReservedTokens());
+                    if (!run.operational()) account(run).release(u.getReservedCharge());
                     u.release(AiTokenUsageOutcome.USAGE_UNAVAILABLE);
                 } else if (u.getStatus() != AiTokenUsageStatus.RELEASED)
                     throw new AppException(CHAT_CONFLICT);
@@ -309,7 +311,7 @@ public class ChatServiceImpl implements ChatService {
         for (var r : runs.findAllByWorkId(workId)) {
             for (var u : usages.findAllByChatRunId(r.getId()))
                 if (u.getStatus() == AiTokenUsageStatus.RESERVED) {
-                    if (!r.operational()) account(r).release(u.getReservedTokens());
+                    if (!r.operational()) account(r).release(u.getReservedCharge());
                     u.markChatUnknown();
                 }
             r.invalidate();
@@ -405,7 +407,7 @@ public class ChatServiceImpl implements ChatService {
         if (!Instant.now().isBefore(r.getUsageDeadline())) {
             for (var u : usages.findAllByChatRunId(r.getId()))
                 if (u.getStatus() == AiTokenUsageStatus.RESERVED) {
-                    if (!r.operational()) account(r).release(u.getReservedTokens());
+                    if (!r.operational()) account(r).release(u.getReservedCharge());
                     u.markChatUnknown();
                 }
             if (!pending(r)) r.settlementComplete();
