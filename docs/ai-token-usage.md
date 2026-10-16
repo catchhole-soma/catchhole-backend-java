@@ -9,7 +9,7 @@ AI 요청별 실제 토큰 사용량을 관측하면서, 결제 기능이 없는
 - 지급량과 사용량은 누적되며 월 단위로 자동 초기화하지 않습니다.
 - 잔여량은 `granted - used - reserved`입니다.
 - 사용자용 `remainingPercent`는 누적 지급량이 아니라 현재 `AI_TOKEN_DEFAULT_GRANT`를 100% 기준으로 계산하고 최대 100%로 제한합니다. 따라서 한도를 모두 쓴 뒤 기본 지급량과 같은 양을 추가 지급받으면 누적 지급·사용 원장은 유지하면서 화면은 100%로 복구됩니다.
-- 분석 생성·재시도는 잔여량이 최소 첫 추출 예약량(`AI_TOKEN_MINIMUM_ANALYSIS_RESERVATION`, 기본 `6256`)보다 적으면, 세계관 비교 시작·일괄 재개는 최소 첫 비교 예약량(`AI_TOKEN_MINIMUM_COMPARISON_RESERVATION`, 기본 `16256`)보다 적으면 `AI_TOKEN_QUOTA_EXHAUSTED` 409로 거절합니다.
+- 분석 생성·재시도와 비교 시작·재개 시점에는 Worker가 사용할 실제 모델이 아직 정해지지 않습니다. 따라서 raw 최소 예약량(분석 기본 `6256`, 비교 기본 `128256`)을 지원 모델의 최저 차감 비율인 1/20로 환산한 하한만 확인합니다. 각각 `312.8`, `6412.8`보다 잔액이 적으면 `AI_TOKEN_QUOTA_EXHAUSTED` 409로 거절합니다. 이 빠른 검사를 통과해도 Sol 호출이나 긴 입력을 예약할 잔액이 부족할 수 있으며, 실제 모델과 예상량이 확정된 호출 직전 예약이 최종 판단입니다.
 - 실제로 실행되는 각 LLM·임베딩 호출 직전에는 예상 최대량을 예약하므로 동시 분석이 한도를 중복 소비하지 못합니다. 임베딩 feature flag가 꺼진 경우에는 임베딩 예약도 만들지 않습니다.
 - provider가 사용량을 반환하면 실제 input/output을 정산하고 사용하지 않은 예약량은 즉시 반환합니다.
 - provider를 호출하기 전에 실패했거나 사용량을 알 수 없는 실패는 예약을 해제합니다.
@@ -18,7 +18,42 @@ AI 요청별 실제 토큰 사용량을 관측하면서, 결제 기능이 없는
 - 사용량 부족 추가 요청은 `QUOTA_EXHAUSTION`, 일반 의견 보상 요청은 `GENERAL_FEEDBACK_REWARD` 출처로 구분합니다. 전자는 기존 세 가지 한도 안내 컨텍스트만, 후자는 `GENERAL_FEEDBACK` 컨텍스트만 사용합니다.
 - 일반 의견은 유효한 요청마다 `feedbacks`에 새 행으로 저장합니다. 보상 요청은 회원당 전체 상태를 통틀어 한 번만 생성하며, 이미 다른 요청이 `PENDING`이면 의견만 저장하고 자동 대기열이나 사후 backfill은 만들지 않습니다.
 
-cached input은 input token의 일부이므로 관측 컬럼으로 별도 기록하되 사용량 합계에 다시 더하지 않습니다. 실제 차감량은 `input_tokens + output_tokens`입니다.
+cached input은 input token의 일부이므로 관측 컬럼으로 별도 기록하되 합계에 다시 더하지 않습니다. provider 실제 사용량은 항상 `input_tokens + output_tokens`이며, 사용자 차감량과 구분합니다.
+
+### 모델별 사용자 차감 (#252)
+
+| 예약 당시 실제 모델 | 사용자 예약·차감 비율 |
+| --- | --- |
+| 정확히 `gpt-6-luna` | raw 토큰의 1/20 |
+| `gpt-6.1-sol` 및 나머지 모델·임베딩 | raw 토큰의 1배 |
+| 서비스 부담 운영 백필 | 0 (기존 사용자 차감 제외 유지) |
+
+정책은 Spring의 `AiTokenChargePolicy`가 소유합니다. 이름에 `luna`가 들어있다는 이유로 할인하지 않으며 purpose나 사용자 입력으로 요율을 선택하지 않습니다. Python은 실제 호출 모델명과 provider raw 사용량을 전송합니다. 입력·출력·cached input 간 별도 요율은 없습니다.
+
+- 신규 예약은 `MODEL_WEIGHTED_V1`과 `charge_denominator`를 저장합니다. 정산·해제는 이 저장 정책과 `reserved_charge`를 사용하며 당시 전역 정책을 다시 조회하지 않습니다.
+- 계정 지급·사용·예약량과 `reserved_charge`, `charged_tokens`는 `numeric(22,2)`입니다. 1 raw Luna 토큰은 정확히 `0.05`이며 호출마다 버림·올림하지 않습니다. 1토큰 호출 20번과 20토큰 호출 1번의 차감량은 같습니다.
+- 예: Sol 20,000 + Luna 20,000 → 실제 40,000 토큰, 사용자 차감 21,000. Luna 20,000을 예약한 뒤 실제 12,001을 쓰면 사용자 예약 1,000을 해제하고 600.05를 차감합니다.
+- `ai_token_usages.reserved_tokens/input_tokens/cached_input_tokens/output_tokens`, 분석 Job 합계, provider 계측, 챗봇 `allocatedTokens/tokenBudget`은 raw 정수입니다. 할인으로 문맥·호출·실행 예산을 20배 늘리지 않습니다.
+- `charged_tokens`는 SETTLED에서만 실측 환산값을 갖습니다. 미정산·해제·UNKNOWN은 NULL이며 사용량 미확인을 0으로 기록하지 않습니다. 서비스 부담 백필은 `SERVICE_PAID_V1`과 0 예약·정산을 기록하고 raw 측정값은 보존합니다.
+- 사용자/관리자 계정 응답의 `grantedTokens/usedTokens/reservedTokens/remainingTokens`는 환산 단위의 JSON number로 소수 2자리까지 가능합니다. OpenAPI도 number입니다. 내부 reserve/ChatCallView의 `reservedTokens`는 raw 정수이며 필드 추가나 계약 변경이 없습니다. Python 클라이언트와 Front의 TypeScript number 타입은 그대로 사용할 수 있습니다.
+- UNKNOWN grace 만료는 저장된 환산 예약량만 반환합니다. 이후 늦은 실측 정산은 저장된 정책으로 차감하되 예약을 다시 해제하지 않습니다. 요청 ID 멱등성·lease 취소·원문 파기·세션 종료 경계는 기존과 같습니다.
+
+### V82 적용과 기존 데이터
+
+V82는 기존 계정과 지급 이력의 수치를 바꾸지 않습니다. 기존 일반 사용량은 Luna 이름이어도 `LEGACY_RAW_V1`, 분모 1로 기록하고 과거 정산을 할인하지 않습니다. 기존 RESERVED/UNKNOWN도 같은 정책을 유지하므로 배포 뒤 정산·해제 금액이 어긋나지 않습니다. 기존 운영 백필은 사용자 예약·차감 0으로 구분합니다. `AI_TOKEN_DEFAULT_GRANT`는 변경하지 않습니다.
+
+계정 컬럼을 소수형으로 바꾸므로 **구 Java writer와 새 Java writer를 동시에 운영하지 않습니다.** 구 Java를 중지한 뒤 V82가 적용되는 새 Java를 시작합니다. Python의 기존 예약 ID를 포함한 정산 재시도는 새 Java에서 처리할 수 있습니다. 새 청구 컬럼에는 잘못된 0을 기본값으로 넣지 않아 구 Java의 신규 원장 INSERT는 거절됩니다. V82 적용 뒤에는 정수 매핑의 구 Java로 이미지만 되돌리면 안 됩니다. 정책을 되돌릴 때도 소수 원장과 저장된 예약 정책을 읽는 수정본으로 전진 배포합니다.
+
+환산 사용량 조회 예시(실제 provider 합계와 분리):
+
+```sql
+SELECT member_id, SUM(input_tokens + output_tokens) AS raw_tokens,
+       SUM(charged_tokens) AS member_charge
+FROM ai_token_usages
+WHERE status = 'SETTLED'
+GROUP BY member_id;
+```
+
 
 ## 데이터 구조
 
@@ -49,25 +84,25 @@ sequenceDiagram
     participant AI as AI Provider
 
     FE->>BE: 분석 생성 또는 재시도
-    BE->>BE: 최소 첫 LLM 예약 가능량 확인
+    BE->>BE: 모델 미확정 최소 차감 하한 확인
     BE-->>FE: analysisJob 생성
     Worker->>BE: job claim
     loop AI 호출마다
         Worker->>BE: reserve(requestId, purpose, attempt, model, 예상량, leaseToken)
-        BE->>BE: 회원 계정 잠금 후 원자적 예약
+        BE->>BE: 모델별 정책 동결 + 회원 계정 잠금 후 환산 예약
         BE-->>Worker: RESERVED
         Worker->>AI: LLM 또는 embedding 요청
         alt 사용량 확인 가능
             AI-->>Worker: 결과 + input/cached/output
             Worker->>BE: settle(requestId, 실제 사용량, outcome)
-            BE->>BE: 실제량 차감 + 나머지 예약 반환
+            BE->>BE: 저장 정책으로 실측량 환산 차감 + 예약 반환
         else provider 호출 전 또는 사용량 확인 불가
             Worker->>BE: release(requestId, USAGE_UNAVAILABLE)
             BE->>BE: 예약 전액 반환
         end
     end
     Worker->>BE: complete/fail
-    BE->>BE: SETTLED 요청 합계로 analysisJob 토큰 수 확정
+    BE->>BE: SETTLED raw 합계로 analysisJob 토큰 수 확정
 ```
 
 `attempt`는 같은 분석 작업·목적 안의 호출 순번이며 schema 검증 재시도도 각각 별도 순번으로 남습니다.
@@ -76,7 +111,7 @@ sequenceDiagram
 
 ## 분석 중 토큰 부족과 복구
 
-최소 예약 검사는 실행 불가능한 작업을 일찍 막기 위한 빠른 검사입니다. 여러 Job이 동시에 실행될 때의 최종 권한은 각 provider 호출 직전 계정 행을 잠그는 `reserve`가 가집니다.
+최소 예약 검사는 지원 모델 중 가장 저렴한 예약조차 불가능한 작업을 일찍 막는 하한 검사입니다. 작업 접수 때 실제 모델을 알 수 없으므로 Sol 기준 잔액을 요구해 Luna 실행을 막지 않습니다. 여러 Job이 동시에 실행될 때의 최종 권한은 각 provider 호출 직전 계정 행을 잠그는 `reserve`가 가집니다.
 
 `SETTING_EXTRACTION`이 `WORLD_CANDIDATES_PUBLISHED` checkpoint 이후 예약 409를 만나면 Worker는 같은 Job의 다음 후보를 claim하지 않고 `AI_TOKEN_QUOTA_EXHAUSTED`로 실패 보고합니다. Backend는 이미 완료된 1차 캐릭터·세계관 추출과 완료 비교를 보존하고, 남은 `PENDING`·`PROCESSING` 세계관 후보만 typed 부분 중단으로 표시합니다. Job은 원인을 추적하기 위해 `FAILED`지만 대상 회차와 보존 산출물은 분석 완료 상태를 유지합니다.
 
@@ -167,8 +202,8 @@ POST /api/internal/v1/ai-token-usages/{requestId}/release
 | --- | --- | --- |
 | `AI_TOKEN_DEFAULT_GRANT` | `2000000` | 신규 계정 최초 지급과 추가 사용량 요청 승인에 공통으로 사용할 지급량 |
 | `AI_TOKEN_CONTACT_EMAIL` | `aicatchhole@gmail.com` | 한도 소진 안내에 표시할 피드백 연락처 |
-| `AI_TOKEN_MINIMUM_ANALYSIS_RESERVATION` | `6256` | 캐릭터 추출 상한 6,000 + 입력 최소 여유 256. 분석 생성·재시도 전 요구 |
-| `AI_TOKEN_MINIMUM_COMPARISON_RESERVATION` | `16256` | 가장 큰 세계관 batch 비교 상한 16,000 + 입력 최소 여유 256. 비교 시작·중단 후보 재개 전 요구 |
+| `AI_TOKEN_MINIMUM_ANALYSIS_RESERVATION` | `6256` | raw 최소 예약 기준. 분석 생성·재시도 때 최저 요율로 환산한 하한만 검사 |
+| `AI_TOKEN_MINIMUM_COMPARISON_RESERVATION` | `128256` | raw 최소 비교 예약 기준. 시작·재개 때 최저 요율로 환산한 하한만 검사 |
 
 기본 지급량을 바꾸면 이후 처음 생성되는 계정과 이후 승인되는 추가 사용량 요청부터 새 값이 적용됩니다. 이미 생성된 계정과 과거 `DEFAULT`·`MANUAL` 지급 이력은 소급 변경하지 않습니다.
 
