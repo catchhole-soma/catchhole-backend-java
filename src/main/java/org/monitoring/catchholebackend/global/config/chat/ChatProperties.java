@@ -7,6 +7,7 @@ import java.time.Duration;
 @ConfigurationProperties("chat")
 public record ChatProperties(
         boolean enabled,
+        boolean operationsEnabled,
         String pythonUrl,
         String capabilitySecret,
         int maxBodyBytes,
@@ -50,11 +51,19 @@ public record ChatProperties(
                 || usageGrace.isZero()
                 || retrievalEmbeddingVersion.isBlank()
                 || retrievalEmbeddingVersion.length() > 50) throw new IllegalArgumentException("채팅 제한 설정이 올바르지 않습니다.");
+        if ((enabled || operationsEnabled) && !validCapabilitySecret(capabilitySecret))
+            throw new IllegalArgumentException("채팅 또는 운영 백필에는 별도 32자 이상의 실행 인증 비밀값이 필요합니다.");
         if (enabled
-                && (capabilitySecret == null
-                        || capabilitySecret.length() < 32
-                        || pythonUrl == null
+                && (pythonUrl == null
                         || !(pythonUrl.startsWith("http://") || pythonUrl.startsWith("https://"))))
-            throw new IllegalArgumentException("채팅 주소와 별도 32자 이상의 실행 인증 비밀값이 필요합니다.");
+            throw new IllegalArgumentException("공개 채팅에는 Python 실행 주소가 필요합니다.");
+    }
+
+    public boolean capabilityConfigured() {
+        return validCapabilitySecret(capabilitySecret);
+    }
+
+    private static boolean validCapabilitySecret(String secret) {
+        return secret != null && !secret.isBlank() && secret.length() >= 32;
     }
 }

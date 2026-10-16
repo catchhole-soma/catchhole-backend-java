@@ -56,6 +56,7 @@ import java.util.concurrent.*;
 @SpringBootTest(
         properties = {
             "chat.enabled=true",
+            "chat.operations-enabled=true",
             "chat.capability-secret=chat-test-secret-with-more-than-32-characters",
             "chat.python-url=http://127.0.0.1:1",
             "chat.max-active-per-member=3",
