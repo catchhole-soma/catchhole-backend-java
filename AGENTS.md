@@ -937,10 +937,10 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 ### 챗봇 설정 경로·조건 조회 개선 (#247)
 
 - 챗봇이 새로 작성하는 설명·목록·조건 explanation은 존댓말(~습니다/~요)을 사용한다. AI의 공통 `ANSWER_STYLE_INSTRUCTIONS`는 hybrid answer v7·등록 설명/현재 조건/이력 조건 v2에 적용하고 계획 v6은 유지한다. 사용자·이전 대화 등 자료의 반말을 따르지 않는다. 말투 변경으로 저장값·정확한 인용·AI의 supports.quote를 바꾸지 않으며 정규식 말투 변환이나 추가 모델 호출을 하지 않는다. 검색·정산·인용 검증 계약은 유지하고 공통 문서에서 이전 실행 기록과 새 말투 검증을 구분한다.
-- `CHARACTER_FIELDS`/`WORLD_FIELDS`는 실제 현재/허용 이력의 값 없는 경로 메타데이터다. 모델은 관측된 경로 ref를 고르고 오케스트레이터가 저장 key/type/scope를 재사용한다. `factType`·key는 pagination 전에 필터하며 문맥 예산으로 조회 완전성을 대신 판단하지 않는다.
+- `CHARACTER_FIELDS`/`WORLD_FIELDS`는 실제 현재/허용 이력의 값 없는 경로 메타데이터다. 경로 발견 단계에서는 인물 `factType` 등 각 FIELD 도구의 허용 필터를 pagination 전에 적용하고, `settingKey`·`scopeName`은 받지 않는다. 모델이 관측된 경로 ref를 고르면 오케스트레이터가 실제 저장 key/type/scope를 후속 CURRENT·HISTORY·COLLECTION 조회에 전달해 pagination 전에 필터한다. 경로 발견과 값 조회의 인자를 혼동하지 않으며 문맥 예산으로 조회 완전성을 대신 판단하지 않는다.
 - `FIND_CHARACTERS`의 현재 scalar 조건 검색은 `CharacterSnapshotAccessor`를 재사용해 수동/레거시 형식을 일치시킨다. 조건 전에 활성 인물을 잘라 거짓 전체 결과를 반환하지 않으며 전체 scan 비용은 `docs/setting-tools-v1.md`에 명시한다. 조건 실패를 과거 Fact나 부분 문자열로 확장하지 않는다.
 - `CHARACTER_CURRENT_COLLECTION`/`WORLD_CURRENT_COLLECTION`은 작품의 등록 대상 현재 설정을 필터 후 페이지로 제공한다. 응답 `collection`은 모집단 대상 수·설정이 있는 대상 수·설정 행 수를 구분한다. 값 누락을 의미 조건 불일치로 처리하지 않으며 STATUS의 생존·부활 등을 Java가 추정하지 않는다.
-- COLLECTION 후속 페이지는 `readToken`을 요구하고 page 0 최종 재확인에도 적용한다. 작품·도구·필터·대상 집합/이름/version·표시 schema를 묶고 요청 전후 scalar 재조회로 변경을 감지한다. token은 권한이나 저장된 과거 snapshot이 아니며 기존 인증·현재값·직접 근거 검증을 유지한다. 기존 도구의 응답에는 collection 필드를 생략하고 공통 fixture를 별도로 추가한다.
+- COLLECTION 후속 페이지는 `readToken`을 요구하고 page 0 최종 재확인에도 적용한다. 작품·도구·필터·대상 집합/이름/version·세계관 수동 수정 경로와 확정 근거 상태·표시 schema를 묶고 요청 전후 scalar 재조회로 변경을 감지한다. 같은 값의 후보 확정으로 근거만 달라지는 경우도 포함하며 전역 world version 정책은 바꾸지 않는다. token은 권한이나 저장된 과거 snapshot이 아니며 기존 인증·현재값·직접 근거 검증을 유지한다. 기존 도구의 응답에는 collection 필드를 생략하고 공통 fixture를 별도로 추가한다.
 - 작품 범위 `WORLD_FIELDS`는 현재 경로만 category/scope/key별로 합친다. 세계관 목록·현재 COLLECTION·작품 FIELD의 `worldCategory`는 동일 분류를 뜻한다. 전체 설정 scan 비용과 FIND 기존 페이지의 snapshot 비보장 범위는 계약에 명시한다.
 
 ### OPT-31 후속 대화·조회 규칙 — 2026-10-15 현재
