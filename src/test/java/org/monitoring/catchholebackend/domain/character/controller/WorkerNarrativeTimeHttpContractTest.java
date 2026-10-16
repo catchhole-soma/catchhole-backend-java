@@ -11,6 +11,7 @@ import java.nio.file.*;
 import java.time.*;
 import java.util.*;
 import org.assertj.core.api.SoftAssertions;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -36,6 +37,7 @@ import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 /** Actual production mappers -> controllers -> MVC converter -> localhost HTTP. Only service return values are stubbed. */
 @SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,properties={"spring.docker.compose.enabled=false","internal.api-key=time-json-contract-only"})
 @ActiveProfiles("test")
+@DisplayName("Worker 캐릭터 비교와 서사 시점 HTTP 계약")
 class WorkerNarrativeTimeHttpContractTest {
  @LocalServerPort int port;
  @Autowired CharacterFactComparisonWorkerMapper candidateMapper;
@@ -47,6 +49,32 @@ class WorkerNarrativeTimeHttpContractTest {
  final UUID character=UUID.randomUUID(),candidateId=UUID.randomUUID(),chunk=UUID.randomUUID(),batch=UUID.randomUUID(),lease=UUID.randomUUID();
  final String hash="a".repeat(64),quote="오늘은 \"장마\" 첫날이다. 🌧";
  final Map<String,JsonNode> bodies=new LinkedHashMap<>();
+
+ @Test
+ @DisplayName("인물 묶음 claim은 명시적인 Worker 지원 헤더가 있을 때만 허용한다")
+ void personBatchClaimRequiresExplicitWorkerCapabilityHeader() throws Exception {
+  UUID job = UUID.randomUUID(), work = UUID.randomUUID();
+  var candidate = new WorkerCharacterFactComparisonBatchPayload.Candidate("C1", "Q1", CharacterFactType.STATUS,
+          null, "status.부상", "status.부상", CharacterFactCanonicalKeyResolution.PATTERN, "부상", SettingValueType.JSON,
+          Map.of("value", "부상"), List.of(), null, null, null);
+  when(comparisons.claimNextCharacterFactComparisonBatch(eq(job), eq(lease), eq(false)))
+          .thenReturn(Optional.of(new WorkerCharacterFactComparisonBatchPayload(batch, work, null, "K1", "류정우",
+                  CharacterFactType.STATUS, List.of(candidate))));
+  when(comparisons.claimNextCharacterFactComparisonBatch(eq(job), eq(lease), eq(true)))
+          .thenReturn(Optional.of(new WorkerCharacterFactComparisonBatchPayload(batch, work, null, "K1", "류정우",
+                  null, List.of(candidate))));
+  for (String capability : List.of("missing", "false", "true")) {
+   var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/internal/v1/analysis-jobs/" + job + "/character-fact-comparison-batches/claim-next"))
+           .header("X-Internal-Api-Key", "time-json-contract-only").header("X-Worker-Lease-Token", lease.toString())
+           .POST(HttpRequest.BodyPublishers.noBody());
+   if (!capability.equals("missing")) request.header("X-Character-Comparison-Person-Batches", capability);
+   var response = HttpClient.newHttpClient().send(request.build(), HttpResponse.BodyHandlers.ofString());
+   assertThat(response.statusCode()).as(capability).isEqualTo(200);
+   var payload = json.readTree(response.body()).path("data");
+   assertThat(payload.path("canonicalFactType").isNull()).as(capability).isEqualTo(capability.equals("true"));
+   assertThat(payload.at("/candidates/0/canonicalFactType").asText()).isEqualTo("STATUS");
+  }
+ }
 
  @Test void productionTimeValuesSurviveActualHttpIncludingLegacyNulls() throws Exception {
   Member member=Member.register("time-contract@fixture.invalid","fixture",null,"검증");
@@ -71,7 +99,7 @@ class WorkerNarrativeTimeHttpContractTest {
   var mappedCandidates=batchCandidates(entity);
   var claim=new WorkerCharacterFactComparisonBatchPayload(batch,work.getId(),episode.getId(),"K1","류정우",CharacterFactType.PROFILE,mappedCandidates);
   var context=new WorkerCharacterFactComparisonBatchContextResponse(batch,"K1","류정우",CharacterFactType.PROFILE,0,mappedCandidates,List.of(),hash,null,null,List.of(),advisory);
-  when(comparisons.claimNextCharacterFactComparisonBatch(any(),any())).thenReturn(Optional.of(claim));
+  when(comparisons.claimNextCharacterFactComparisonBatch(any(),any(),eq(false))).thenReturn(Optional.of(claim));
   when(comparisons.getCharacterFactComparisonBatchContext(any(),any(),any())).thenReturn(context);
   when(comparisons.claimNextCharacterFactComparison(any(),any())).thenReturn(Optional.of(single));
   when(comparisons.getCharacterFactComparisonContext(any(),any(),any())).thenReturn(new WorkerCharacterFactComparisonContextResponse(single,List.of(),List.of(),hash,List.of(),advisory));
@@ -91,7 +119,7 @@ class WorkerNarrativeTimeHttpContractTest {
   // Legacy null is mapped through both real candidate construction paths.
   ReflectionTestUtils.setField(entity,"narrativeTime",null);
   when(comparisons.claimNextCharacterFactComparison(any(),any())).thenReturn(Optional.of(candidateMapper.toCandidatePayload(entity,"류정우",CharacterFactType.PROFILE,"profile.거처")));
-  when(comparisons.claimNextCharacterFactComparisonBatch(any(),any())).thenReturn(Optional.of(new WorkerCharacterFactComparisonBatchPayload(batch,work.getId(),episode.getId(),"K1","류정우",CharacterFactType.PROFILE,batchCandidates(entity))));
+  when(comparisons.claimNextCharacterFactComparisonBatch(any(),any(),eq(false))).thenReturn(Optional.of(new WorkerCharacterFactComparisonBatchPayload(batch,work.getId(),episode.getId(),"K1","류정우",CharacterFactType.PROFILE,batchCandidates(entity))));
   fetch("single-null",base+"/character-fact-comparisons/claim-next","{}");fetch("batch-null",base+"/character-fact-comparison-batches/claim-next","{}");
   ReflectionTestUtils.setField(known,"currentNarrativeTime",null);ReflectionTestUtils.setField(job,"analysisMode",AnalysisMode.CONFIRMED_ONLY);
   when(jobs.claimAnalysisJob(any())).thenReturn(Optional.of(jobMapper.toResponse(job,episode,List.of(),List.of(known),List.of())));

@@ -17,6 +17,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobClaimRequest;
@@ -116,9 +118,10 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
         );
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     @DisplayName("lease 첫 만료는 묶음을 닫고 후보를 PENDING으로 되돌린다")
-    void expiredLeaseClosesBatchAndRecoversCandidates() {
+    void expiredLeaseClosesBatchAndRecoversCandidates(boolean wholePerson) {
         Member member = Member.register("lease@example.com", "password", "01012345678", "작가");
         Work work = Work.create(member, "lease 작품", WorkGenre.FANTASY, "테스트");
         ReflectionTestUtils.setField(work, "id", UUID.randomUUID());
@@ -158,7 +161,9 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
                 objectMapper.createObjectNode()
         );
         ReflectionTestUtils.setField(candidate, "id", UUID.randomUUID());
-        CharacterFactComparisonBatch batch = CharacterFactComparisonBatch.create(
+        CharacterFactComparisonBatch batch = wholePerson
+                ? CharacterFactComparisonBatch.createForPerson(work, null, job, character, 1, character.getSnapshotVersion())
+                : CharacterFactComparisonBatch.create(
                 work,
                 null,
                 job,
@@ -205,6 +210,7 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
         assertThat(batch.getFailureCode()).isEqualTo(AnalysisFailureCode.WORKER_LEASE_EXPIRED);
         assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PENDING);
         assertThat(candidate.getCharacterComparisonBatch()).isNull();
+        assertThat(candidate.getCharacterComparisonCandidateRef()).isNull();
         assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.PENDING);
         verify(aiTokenService).releaseReservedForAnalysisJob(
                 job.getId(),
