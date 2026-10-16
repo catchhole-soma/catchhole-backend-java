@@ -25,6 +25,9 @@ import org.monitoring.catchholebackend.domain.legal.repository.LegalDocumentRepo
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.monitoring.catchholebackend.domain.member.repository.MemberWithdrawalDataRepository;
 import org.monitoring.catchholebackend.domain.member.repository.MemberWithdrawalRequestRepository;
+import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipCandidateRepository;
+import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipEvidenceRepository;
+import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipRepository;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadFileRepository;
 import org.monitoring.catchholebackend.domain.work.repository.WorkPurgeDataRepository;
@@ -166,6 +169,15 @@ class CatchHoleBackendApplicationTests {
 
     @MockitoBean
     private CharacterSnapshotSourceRepository characterSnapshotSourceRepository;
+
+    @MockitoBean
+    private RelationshipRepository relationshipRepository;
+
+    @MockitoBean
+    private RelationshipCandidateRepository relationshipCandidateRepository;
+
+    @MockitoBean
+    private RelationshipEvidenceRepository relationshipEvidenceRepository;
 
     @MockitoBean
     private org.monitoring.catchholebackend.domain.worldimage.repository.WorldImageThemeAssetRepository worldImageThemeAssetRepository;
