@@ -102,6 +102,14 @@ jobs:
           BACKEND_IMAGE='$BACKEND_IMAGE'
 
           mkdir -p "\$DEPLOY_PATH"
+          # Share the host lock with chatbot bootstrap before reading or replacing api.env.
+          # Keep the same inode: replacing the lock file would allow overlapping writers.
+          test ! -L "\$DEPLOY_PATH/.api-deploy.lock"
+          (umask 077; touch "\$DEPLOY_PATH/.api-deploy.lock")
+          chown "\$DEPLOY_USER:\$DEPLOY_USER" "\$DEPLOY_PATH/.api-deploy.lock"
+          chmod 600 "\$DEPLOY_PATH/.api-deploy.lock"
+          exec 9>"\$DEPLOY_PATH/.api-deploy.lock"
+          flock -w 300 9
           curl -fsSL "\$RAW_BASE/compose.api.prod.yml" -o "\$DEPLOY_PATH/compose.api.prod.yml"
           curl -fsSL "\$RAW_BASE/Caddyfile" -o "\$DEPLOY_PATH/Caddyfile"
           test -f "\$DEPLOY_PATH/api.env"
