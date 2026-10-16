@@ -12,6 +12,15 @@ import org.springframework.core.io.ClassPathResource;
 class CharacterFactComparisonMigrationContractTest {
 
     @Test
+    @DisplayName("인물 전체 비교의 null 타입을 허용하고 기존 타입별 배치 값은 보존한다")
+    void personBatchAllowsNullScopeWithoutRewritingLegacyBatches() throws IOException {
+        String sql = readMigration("db/migration/V82__allow_person_character_comparison_batches.sql");
+        assertThat(sql).contains("ALTER TABLE character_fact_comparison_batches")
+                .contains("ALTER COLUMN canonical_fact_type DROP NOT NULL")
+                .doesNotContain("UPDATE character_fact_comparison_batches");
+    }
+
+    @Test
     @DisplayName("기존 후보를 끝난 분석 Job의 영구 PENDING 상태로 이관하지 않는다")
     void legacyCandidatesAreNotBackfilledAsPending() throws IOException {
         String sql = readMigration("db/migration/V20__add_character_fact_comparison.sql");

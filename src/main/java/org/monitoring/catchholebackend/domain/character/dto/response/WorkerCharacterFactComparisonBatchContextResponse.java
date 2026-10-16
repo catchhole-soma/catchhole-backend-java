@@ -13,7 +13,7 @@ public record WorkerCharacterFactComparisonBatchContextResponse(
         UUID comparisonBatchId,
         String characterRef,
         String matchedCharacterName,
-        CharacterFactType canonicalFactType,
+        @Schema(nullable = true, description = "null이면 인물 전체, 값이 있으면 과거 타입별 묶음") CharacterFactType canonicalFactType,
         long baseSnapshotVersion,
         List<WorkerCharacterFactComparisonBatchPayload.Candidate> candidates,
         List<SnapshotEntry> snapshotEntries,

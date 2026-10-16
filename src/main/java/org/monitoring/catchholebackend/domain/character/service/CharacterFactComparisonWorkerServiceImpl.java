@@ -98,6 +98,14 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
     }
 
     @Override
+    @Transactional(noRollbackFor = OrderedCharacterComparisonClaimException.class)
+    public Optional<WorkerCharacterFactComparisonBatchPayload> claimNextCharacterFactComparisonBatch(
+            UUID analysisJobId, UUID leaseToken, boolean supportsPersonBatches
+    ) {
+        return batchWorker.claimNext(analysisJobId, leaseToken, supportsPersonBatches);
+    }
+
+    @Override
     @Transactional
     public WorkerCharacterFactComparisonBatchContextResponse getCharacterFactComparisonBatchContext(
             UUID analysisJobId,

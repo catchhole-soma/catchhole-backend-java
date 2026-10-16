@@ -111,6 +111,15 @@ public class CharacterFactComparisonBatchWorker {
             UUID analysisJobId,
             UUID leaseToken
     ) {
+        return claimNext(analysisJobId, leaseToken, true);
+    }
+
+    @Transactional(noRollbackFor = OrderedCharacterComparisonClaimException.class)
+    public Optional<WorkerCharacterFactComparisonBatchPayload> claimNext(
+            UUID analysisJobId,
+            UUID leaseToken,
+            boolean supportsPersonBatches
+    ) {
         AnalysisJob analysisJob = analysisJobLeaseService.getRunningAnalysisJobForUpdate(
                 analysisJobId,
                 leaseToken
@@ -132,7 +141,7 @@ public class CharacterFactComparisonBatchWorker {
                 if (!comparisonJobCoordinator.hasCurrentInput(analysisJob, scopeCandidates)) {
                     return Optional.empty();
                 }
-                selected = selectNextScopeGroup(scopeCandidates);
+                selected = selectNextScopeGroup(scopeCandidates, supportsPersonBatches);
                 if (selected.isEmpty()) {
                     return Optional.empty();
                 }
@@ -149,7 +158,7 @@ public class CharacterFactComparisonBatchWorker {
                 selected = List.of(new CandidateTarget(candidate, target.get()));
             }
         } else {
-            selected = selectNextGroup(analysisJob);
+            selected = selectNextGroup(analysisJob, supportsPersonBatches);
             if (selected.isEmpty()) {
                 return Optional.empty();
             }
@@ -158,7 +167,7 @@ public class CharacterFactComparisonBatchWorker {
         SettingCandidate first = selected.getFirst().candidate();
         WorkCharacter character = first.getProvisionalSubjectKey() == null
                 ? getMatchedCharacterOrNull(first, true) : null;
-        CharacterFactComparisonBatch batch = createBatch(analysisJob, character, selected);
+        CharacterFactComparisonBatch batch = createBatch(analysisJob, character, selected, supportsPersonBatches);
         ComparisonCharacter comparisonCharacter = getComparisonCharacter(batch, character);
         batch = comparisonBatchRepository.saveAndFlush(batch);
         for (int index = 0; index < selected.size(); index++) {
@@ -428,7 +437,7 @@ public class CharacterFactComparisonBatchWorker {
         return Objects.equals(candidate.getComparisonContextHash(), context.contextToken());
     }
 
-    private List<CandidateTarget> selectNextGroup(AnalysisJob analysisJob) {
+    private List<CandidateTarget> selectNextGroup(AnalysisJob analysisJob, boolean supportsPersonBatches) {
         while (true) {
             List<SettingCandidate> seeds = settingCandidateRepository.findComparisonClaimCandidates(
                     analysisJob.getId(),
@@ -458,11 +467,11 @@ public class CharacterFactComparisonBatchWorker {
                     continue;
                 }
                 boolean processing = seed.getProvisionalSubjectKey() == null
-                        ? comparisonBatchRepository.existsByAnalysisJobIdAndMatchedCharacterIdAndCanonicalFactTypeAndStatus(
-                                analysisJob.getId(), seed.getMatchedCharacterId(), target.get().factType(),
+                        ? comparisonBatchRepository.existsByAnalysisJobIdAndMatchedCharacterIdAndStatus(
+                                analysisJob.getId(), seed.getMatchedCharacterId(),
                                 CharacterFactComparisonBatchStatus.PROCESSING)
-                        : comparisonBatchRepository.existsByAnalysisJobIdAndProvisionalSubjectKeyAndCanonicalFactTypeAndStatus(
-                                analysisJob.getId(), seed.getProvisionalSubjectKey(), target.get().factType(),
+                        : comparisonBatchRepository.existsByAnalysisJobIdAndProvisionalSubjectKeyAndStatus(
+                                analysisJob.getId(), seed.getProvisionalSubjectKey(),
                                 CharacterFactComparisonBatchStatus.PROCESSING);
                 if (processing) {
                     continue;
@@ -477,24 +486,22 @@ public class CharacterFactComparisonBatchWorker {
                                 SettingCandidateReviewStatus.PENDING_REVIEW,
                                 CharacterFactComparisonStatus.PENDING
                         );
-                List<CandidateTarget> sameType = resolveBatchTargets(
+                List<CandidateTarget> selected = resolveBatchTargets(
                         null,
                         SettingCandidateChronology.sorted(lockedGroup),
                         true
-                ).stream()
-                        .filter(value -> value.target().factType() == target.get().factType())
-                        .toList();
+                ).stream().filter(value -> supportsPersonBatches
+                        || value.target().factType() == target.get().factType()).toList();
                 if (analysisJob.isOrderedProvisional() && lockedGroup.stream().anyMatch(candidate ->
                         candidate.getComparisonStatus() == CharacterFactComparisonStatus.FAILED
                                 && (!analysisJob.isAutomaticReview() || !candidate.canDeferFailedComparison()))) {
                     throw new OrderedCharacterComparisonClaimException();
                 }
-                List<CandidateTarget> selected = List.copyOf(sameType);
                 if (selected.isEmpty() && analysisJob.isOrderedProvisional() && analysisJob.isAutomaticReview()) {
                     quarantined = true;
                     continue;
                 }
-                return selected;
+                return List.copyOf(selected);
             }
             if (quarantined) {
                 settingCandidateRepository.flush();
@@ -504,7 +511,11 @@ public class CharacterFactComparisonBatchWorker {
         }
     }
 
-    private List<CandidateTarget> selectNextScopeGroup(List<SettingCandidate> scopeCandidates) {
+    private List<CandidateTarget> selectNextScopeGroup(List<SettingCandidate> scopeCandidates, boolean supportsPersonBatches) {
+        if (scopeCandidates.stream().anyMatch(candidate -> candidate.getComparisonStatus()
+                == CharacterFactComparisonStatus.PROCESSING)) {
+            return List.of();
+        }
         while (true) {
             List<SettingCandidate> pending = SettingCandidateChronology.sorted(scopeCandidates).stream()
                     .filter(candidate -> candidate.getComparisonStatus() == CharacterFactComparisonStatus.PENDING)
@@ -518,10 +529,8 @@ public class CharacterFactComparisonBatchWorker {
                 first.quarantineInvalidComparison();
                 continue;
             }
-            List<CandidateTarget> sameType = resolveBatchTargets(null, pending, true).stream()
-                    .filter(value -> value.target().factType() == target.get().factType())
-                    .toList();
-            return List.copyOf(sameType);
+            return resolveBatchTargets(null, pending, true).stream()
+                    .filter(value -> supportsPersonBatches || value.target().factType() == target.get().factType()).toList();
         }
     }
 
@@ -547,7 +556,7 @@ public class CharacterFactComparisonBatchWorker {
                 continue;
             }
             if (batch != null
-                    && (target.get().factType() != batch.getCanonicalFactType()
+                    && (batch.getCanonicalFactType() != null && target.get().factType() != batch.getCanonicalFactType()
                     || !Objects.equals(candidate.getMatchedCharacterId(),
                             batch.getMatchedCharacter() == null ? null : batch.getMatchedCharacter().getId())
                     || !Objects.equals(candidate.getProvisionalSubjectKey(), batch.getProvisionalSubjectKey()))) {
@@ -559,15 +568,23 @@ public class CharacterFactComparisonBatchWorker {
     }
 
     private CharacterFactComparisonBatch createBatch(
-            AnalysisJob analysisJob, WorkCharacter character, List<CandidateTarget> candidates
+            AnalysisJob analysisJob, WorkCharacter character, List<CandidateTarget> candidates,
+            boolean supportsPersonBatches
     ) {
         SettingCandidate first = candidates.getFirst().candidate();
-        CharacterFactType factType = candidates.getFirst().target().factType();
-        return first.getProvisionalSubjectKey() != null ? CharacterFactComparisonBatch.createProvisional(
+        if (!supportsPersonBatches) {
+            CharacterFactType factType = candidates.getFirst().target().factType();
+            return first.getProvisionalSubjectKey() != null ? CharacterFactComparisonBatch.createProvisional(
+                    analysisJob.getWork(), first.getEpisode(), analysisJob, first.getProvisionalSubjectKey(),
+                    factType, candidates.size()
+            ) : CharacterFactComparisonBatch.create(analysisJob.getWork(), first.getEpisode(), analysisJob,
+                    character, factType, candidates.size(), snapshotVersion(character));
+        }
+        return first.getProvisionalSubjectKey() != null ? CharacterFactComparisonBatch.createProvisionalForPerson(
                 analysisJob.getWork(), first.getEpisode(), analysisJob, first.getProvisionalSubjectKey(),
-                factType, candidates.size()
-        ) : CharacterFactComparisonBatch.create(
-                analysisJob.getWork(), first.getEpisode(), analysisJob, character, factType,
+                candidates.size()
+        ) : CharacterFactComparisonBatch.createForPerson(
+                analysisJob.getWork(), first.getEpisode(), analysisJob, character,
                 candidates.size(), snapshotVersion(character)
         );
     }
@@ -594,8 +611,8 @@ public class CharacterFactComparisonBatchWorker {
             applyPriorCompletedDecisions(batch, candidates, projection);
         }
         candidates.forEach(value -> projection.registerDependency(value.candidate().getId()));
-        Projection selected = character.orderedState() == null
-                ? selectContextEntries(projection, candidates) : projection.copy();
+        Projection selected = batch.getCanonicalFactType() == null ? selectAllContextEntries(projection)
+                : character.orderedState() == null ? selectContextEntries(projection, candidates) : projection.copy();
         Projection validationProjection = projection.copy();
         List<WorkerCharacterFactComparisonBatchContextResponse.SnapshotEntry> responseEntries =
                 new ArrayList<>();
@@ -645,7 +662,8 @@ public class CharacterFactComparisonBatchWorker {
         }
         fingerprint.put("groupInputHash", batch.getAnalysisJob().getCharacterComparisonInputHash());
         fingerprint.put("factType", batch.getCanonicalFactType());
-        fingerprint.put("candidates", candidates.stream().map(this::candidateHashValue).toList());
+        fingerprint.put("candidates", candidates.stream()
+                .map(value -> candidateHashValue(value, batch.getCanonicalFactType() == null)).toList());
         fingerprint.put("snapshotEntries", selected.bySlot().values().stream()
                 .map(this::projectionHashValue)
                 .toList());
@@ -689,8 +707,9 @@ public class CharacterFactComparisonBatchWorker {
         }
         LinkedHashMap<CharacterSnapshotSlot, ProjectionValue> values = new LinkedHashMap<>();
         snapshotAccessor.read(character, sourceFactsBySlot).values().stream()
-                .filter(entry -> entry.slot().factType() == factType)
-                .sorted(Comparator.comparing(entry -> entry.slot().factKey()))
+                .filter(entry -> factType == null || entry.slot().factType() == factType)
+                .sorted(Comparator.comparing((CharacterSnapshotEntry entry) -> entry.slot().factType().name())
+                        .thenComparing(entry -> entry.slot().factKey()))
                 .forEach(entry -> values.put(
                         entry.slot(),
                         new ProjectionValue(
@@ -750,16 +769,17 @@ public class CharacterFactComparisonBatchWorker {
                 new LinkedHashMap<>(), new LinkedHashMap<>());
         state.path("slots").properties().stream().sorted(Map.Entry.comparingByKey()).forEach(item -> {
             JsonNode slot = item.getValue();
-            if (!factType.name().equals(slot.path("factType").asText())) {
+            CharacterFactType slotType = CharacterFactType.valueOf(slot.path("factType").asText());
+            if (factType != null && factType != slotType) {
                 return;
             }
-            CharacterSnapshotSlot key = new CharacterSnapshotSlot(factType, slot.path("factKey").asText());
+            CharacterSnapshotSlot key = new CharacterSnapshotSlot(slotType, slot.path("factKey").asText());
             JsonNode provenance = slot.path("provenance");
             List<UUID> sources = stateSourceIds(provenance);
             sources.forEach(projection::registerDependency);
             boolean provisional = "PROVISIONAL".equals(provenance.path("confirmationStatus").asText());
             projection.bySlot().put(key, new ProjectionValue(snapshotAccessor.entry(
-                    factType, key.factKey(), slot.path("factValue").isNull() ? null : slot.path("factValue").asText(),
+                    slotType, key.factKey(), slot.path("factValue").isNull() ? null : slot.path("factValue").asText(),
                     slot.path("valueJson").isNull() ? null : slot.path("valueJson").deepCopy()),
                     provisional ? CharacterFactSnapshotOrigin.PRIOR_DECISION : CharacterFactSnapshotOrigin.PERSISTED,
                     provisional && !sources.isEmpty() ? sources.getLast() : null,
@@ -767,13 +787,14 @@ public class CharacterFactComparisonBatchWorker {
         });
         state.path("absences").properties().forEach(item -> {
             int separator = item.getKey().indexOf(':');
-            if (separator < 1 || !factType.name().equals(item.getKey().substring(0, separator))) {
+            if (separator < 1 || factType != null && !factType.name().equals(item.getKey().substring(0, separator))) {
                 return;
             }
             List<UUID> sources = stateSourceIds(item.getValue());
             sources.forEach(projection::registerDependency);
             projection.absenceBySlot().put(
-                    new CharacterSnapshotSlot(factType, item.getKey().substring(separator + 1)), sources);
+                    new CharacterSnapshotSlot(CharacterFactType.valueOf(item.getKey().substring(0, separator)),
+                            item.getKey().substring(separator + 1)), sources);
         });
         return projection;
     }
@@ -817,7 +838,8 @@ public class CharacterFactComparisonBatchWorker {
             }
             projection.registerDependency(candidate.getId());
             Optional<CanonicalTarget> target = findValidTarget(candidate);
-            if (target.isEmpty() || target.get().factType() != batch.getCanonicalFactType()) {
+            if (target.isEmpty() || batch.getCanonicalFactType() != null
+                    && target.get().factType() != batch.getCanonicalFactType()) {
                 continue;
             }
             String resolvedKey = isBlank(candidate.getResolvedCanonicalFactKey())
@@ -851,6 +873,17 @@ public class CharacterFactComparisonBatchWorker {
                 );
             }
         }
+    }
+
+    private Projection selectAllContextEntries(Projection projection) {
+        LinkedHashMap<CharacterSnapshotSlot, ProjectionValue> selected = new LinkedHashMap<>();
+        projection.bySlot().entrySet().stream()
+                .sorted(Map.Entry.comparingByKey(Comparator
+                        .comparing((CharacterSnapshotSlot slot) -> slot.factType().name())
+                        .thenComparing(CharacterSnapshotSlot::factKey)))
+                .forEach(entry -> selected.put(entry.getKey(), entry.getValue()));
+        return new Projection(selected, new LinkedHashMap<>(), new LinkedHashMap<>(projection.absenceBySlot()),
+                new LinkedHashMap<>(projection.dependencyOrder()));
     }
 
     private Projection selectContextEntries(
@@ -1204,6 +1237,7 @@ public class CharacterFactComparisonBatchWorker {
             result.add(new WorkerCharacterFactComparisonBatchPayload.Candidate(
                     candidate.getCharacterComparisonCandidateRef(),
                     projectedRef(index),
+                    candidateTarget.target().factType(),
                     candidate.getEpisode() == null ? null : candidate.getEpisode().getEpisodeNo(),
                     candidate.getAttributeName(),
                     candidateTarget.target().factKey(),
@@ -1442,15 +1476,12 @@ public class CharacterFactComparisonBatchWorker {
                 || operation == CharacterFactOperation.MERGE;
     }
 
-    private Map<String, Object> candidateHashValue(CandidateTarget value) {
-        return candidateHashValue(value, value.candidate().getCharacterComparisonCandidateRef());
-    }
-
-    private Map<String, Object> candidateHashValue(CandidateTarget value, String candidateReference) {
+    private Map<String, Object> candidateHashValue(CandidateTarget value, boolean includeFactType) {
         SettingCandidate candidate = value.candidate();
         Map<String, Object> hash = new LinkedHashMap<>();
         hash.put("candidateId", candidate.getId());
-        hash.put("candidateRef", candidateReference);
+        hash.put("candidateRef", candidate.getCharacterComparisonCandidateRef());
+        if (includeFactType) hash.put("canonicalFactType", value.target().factType());
         hash.put("episodeNo", candidate.getEpisode() == null ? null : candidate.getEpisode().getEpisodeNo());
         hash.put("attributeName", candidate.getAttributeName());
         hash.put("attributeValue", candidate.getAttributeValue());

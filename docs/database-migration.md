@@ -549,3 +549,13 @@ main의 PR #197이 피드백 V55/V56을 먼저 확정했다. 미배포 GH194 여
 캐릭터 소유물의 공통 표시명을 `소지품`으로 맞춥니다. 전역 `SYSTEM_SEED`의 `items.item` 중 기존 기본 표시명 `아이템`인 행만 갱신하며, 이미 별도로 지정된 표시명과 작품별 스키마는 유지합니다.
 
 스탯·스킬 스키마, 저장 키·자료형·반영 정책은 변경하지 않습니다. 장르별 스킬 제목은 Front 표시 규칙으로만 처리하고 API의 기본 SKILL 표시명과 AI 입력 스키마는 `스킬`을 유지합니다. 프롬프트·추출 기준·세계관 `IMPORTANT_ITEM` 분류도 유지합니다.
+
+## V82 인물 전체 캐릭터 비교 묶음
+
+`character_fact_comparison_batches.canonical_fact_type`의 NOT NULL만 해제합니다. null은 동일 인물의 모든 FactType을 비교하는 새 범위이며, 기존 행의 유형·문맥 hash·완료 결과는 갱신하지 않습니다. 후보별 실제 유형은 schema 검증 결과와 비교 payload의 `candidate.canonicalFactType`으로 유지합니다.
+
+배포는 Java와 V82를 먼저 적용하고, null 범위·후보별 유형·모든 유형의 문맥을 처리하는 AI Worker를 이어서 배포합니다. Java는 `X-Character-Comparison-Person-Batches: true`인 claim에만 인물 묶음을 만들므로 그 전까지 구 Worker는 기존 유형별 묶음을 사용합니다. 진행 중인 같은 인물의 묶음은 유형과 무관하게 중복 claim을 막습니다.
+
+인물 묶음이 저장된 뒤에는 구 Java/Worker로의 단독 롤백을 안전하다고 볼 수 없습니다. 진행 중 lease를 배출해도 완료된 null 유형 묶음의 조회·확정이 남으므로 nullable 인물 범위를 읽는 호환 코드를 유지해야 합니다. V82를 되돌리거나 기존 null을 임의 유형으로 채우지 않습니다. 비교 결과와 후보 연결을 보존한 복구 절차를 먼저 검증합니다.
+
+이 변경은 [#251](https://github.com/catchhole-soma/catchhole-backend-java/issues/251)의 인물 묶음 계약 범위입니다. Java 회귀·PostgreSQL migration 통과와 실제 모델의 1~3화 품질·소요 시간 측정, 운영 적용 여부는 별도 근거로 보고합니다.

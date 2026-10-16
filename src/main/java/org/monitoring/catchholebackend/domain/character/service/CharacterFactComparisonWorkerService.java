@@ -18,6 +18,12 @@ public interface CharacterFactComparisonWorkerService {
             UUID leaseToken
     );
 
+    Optional<WorkerCharacterFactComparisonBatchPayload> claimNextCharacterFactComparisonBatch(
+            UUID analysisJobId,
+            UUID leaseToken,
+            boolean supportsPersonBatches
+    );
+
     WorkerCharacterFactComparisonBatchContextResponse getCharacterFactComparisonBatchContext(
             UUID analysisJobId,
             UUID comparisonBatchId,

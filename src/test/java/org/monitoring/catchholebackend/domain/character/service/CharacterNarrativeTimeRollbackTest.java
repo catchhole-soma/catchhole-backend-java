@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
@@ -33,11 +34,22 @@ import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.springframework.test.util.ReflectionTestUtils;
 
+@DisplayName("캐릭터 비교 보류 시 서사 시점 복원")
 class CharacterNarrativeTimeRollbackTest {
     private final JsonNodeFactory json = JsonNodeFactory.instance;
 
     @ParameterizedTest @ValueSource(booleans = {true, false})
     void holdingLaterRecoveryKeepsEarlierIndependentTimeAndHistory(boolean checkTime) {
+        assertHoldingLaterRecovery(checkTime, false);
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {true, false})
+    @DisplayName("인물 묶음의 회복 후보 보류는 독립적인 앞 시점과 이력을 보존한다")
+    void wholePersonBatchHoldingRecoveryKeepsEarlierIndependentTimeAndHistory(boolean checkTime) {
+        assertHoldingLaterRecovery(checkTime, true);
+    }
+
+    private void assertHoldingLaterRecovery(boolean checkTime, boolean wholePerson) {
         var journal = new AnalysisStateJournal();
         var states = mock(AnalysisRunStateService.class);
         var candidates = mock(SettingCandidateRepository.class);
@@ -84,6 +96,7 @@ class CharacterNarrativeTimeRollbackTest {
         service.recordDecision(job, c1, entry(CharacterFactType.PROFILE, "profile.직업"), List.of(), List.of());
         when(candidates.findByIdAndWorkIdForUpdate(c1.getId(), work.getId())).thenReturn(java.util.Optional.of(c1));
         var c2 = candidate(work, job, ownerId, CharacterFactOperation.REMOVE, CharacterFactType.STATUS, "status.회복");
+        if (wholePerson) when(c2.getCharacterComparisonBatch().getCanonicalFactType()).thenReturn(null);
         c2.recordNarrativeTime(null);
         choose(c2, projected.get().path("characters").path(ref).path("currentNarrativeTime"), "T2");
         ReflectionTestUtils.setField(c2, "removedSnapshotEntriesJson", json.arrayNode().add(json.objectNode().put("factType", "STATUS").put("factKey", "status.검지_경직")));
