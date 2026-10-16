@@ -35,6 +35,8 @@ sequenceDiagram
 
 일상 실행은 즉시 HTTP 전달이다. Spring의 5초 복구 스케줄은 아직 시작되지 않은 동일 시도 재전달·시간 초과 처리·고아 예약 회수용이다. Python은 시작 소유권을 한 번 획득해야 provider를 호출하므로 다른 프로세스가 같은 시도를 전달받아도 재실행하지 않는다. 사용자 결과 조회 API는 폴링 가능하며 SSE/스트리밍과 대화 UI는 이 범위에 없다.
 
+실행 `deadline`과 정산 `usageDeadline`은 생성 시 PostgreSQL 저장 정밀도인 마이크로초로 절삭한다. 최초 Dispatch, DB 재조회 후 start/context와 재전송은 같은 기한을 유지하며, Python은 deadline의 정확한 일치 검증을 유지한다.
+
 ## 식별자와 인증
 
 | 값 | 범위/역할 |
