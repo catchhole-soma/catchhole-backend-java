@@ -1,9 +1,11 @@
 package org.monitoring.catchholebackend.domain.settingtool;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -27,12 +29,16 @@ import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.settingtool.dto.*;
 import org.monitoring.catchholebackend.domain.settingtool.service.SettingToolService;
+import org.monitoring.catchholebackend.domain.settingtool.repository.SettingToolRepository;
 import org.monitoring.catchholebackend.domain.settingtool.type.SettingTool;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.*;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingPropertyUpdateRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.type.*;
 import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
+import org.monitoring.catchholebackend.global.exception.AppException;
+import org.monitoring.catchholebackend.global.exception.CommonErrorCode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -54,6 +60,7 @@ class SettingToolIntegrationTest {
     @Autowired MockMvc mvc;
     @Autowired JwtTokenProvider tokens;
     @Autowired SettingToolService tools;
+    @Autowired SettingToolRepository repository;
     @Autowired CharacterSnapshotAccessor snapshots;
     @Autowired CharacterSnapshotSourceManager sources;
     @MockitoBean ObjectStorageService storage;
@@ -645,6 +652,61 @@ class SettingToolIntegrationTest {
                 nodes.arrayNode(), CharacterSettingSchemaSource.SYSTEM_SEED, true));
         postQuery(work, collection(SettingTool.CHARACTER_CURRENT_COLLECTION, CharacterFactType.STAT, null, null, null, 0, 20, second), 409);
         assertThat(postQuery(work, query, 200).at("/items/content/0/displayName").asText()).isEqualTo("마력");
+    }
+
+    @Test @DisplayName("동일값 수동 저장도 collection 토큰을 갱신하고 과거 현재 근거를 해제한다")
+    void collectionTokenRejectsSameValueManualProtection() throws Exception {
+        var world = save(WorldSetting.create(work, WorldSettingCategory.POWER_SYSTEM, "마법", "일반", "소모 마력", "10"));
+        var source = worldCandidate(world, "일반", "10", false, WorldSettingOperation.ADD);
+        var query = collection(SettingTool.WORLD_CURRENT_COLLECTION, null, "소모 마력", "일반",
+                WorldSettingCategory.POWER_SYSTEM, 0, 1, null);
+        var first = postQuery(work, query, 200);
+        String oldToken = first.at("/collection/readToken").asText();
+        assertThat(first.at("/items/content/0/origin").asText()).isEqualTo("CONFIRMED_ANALYSIS");
+        assertThat(first.at("/items/content/0/sources/0/targetId").asText()).isEqualTo(source.getId().toString());
+        long version = world.getVersion();
+
+        var update = new WorldSettingPropertyUpdateRequest("일반", "소모 마력", "일반", "소모 마력", "10", version);
+        mvc.perform(patch("/api/v1/works/{workId}/world-settings/{id}/properties", work.getId(), world.getId())
+                .header("Authorization", "Bearer " + token).contentType("application/json")
+                .content(json.writeValueAsString(update))).andExpect(status().isOk());
+
+        assertThat(world.getVersion()).isEqualTo(version);
+        assertThat(world.isManuallyEdited("일반", "소모 마력")).isTrue();
+        for (int page : List.of(0, 1)) {
+            postQuery(work, collection(SettingTool.WORLD_CURRENT_COLLECTION, null, "소모 마력", "일반",
+                    WorldSettingCategory.POWER_SYSTEM, page, 1, oldToken), 409);
+        }
+        var fresh = postQuery(work, query, 200);
+        String newToken = fresh.at("/collection/readToken").asText();
+        assertThat(newToken).isNotEqualTo(oldToken);
+        assertThat(fresh.at("/items/content/0/value").asText()).isEqualTo("10");
+        assertThat(fresh.at("/items/content/0/origin").asText()).isEqualTo("USER_INPUT");
+        assertThat(fresh.at("/items/content/0/sources")).isEmpty();
+        assertThat(run(SettingTool.WORLD_EVIDENCE, source.getId()).items().content().getFirst().contributesToCurrent()).isFalse();
+
+        mvc.perform(patch("/api/v1/works/{workId}/world-settings/{id}/properties", work.getId(), world.getId())
+                .header("Authorization", "Bearer " + token).contentType("application/json")
+                .content(json.writeValueAsString(update))).andExpect(status().isOk());
+        assertThat(postQuery(work, query, 200).at("/collection/readToken").asText()).isEqualTo(newToken);
+    }
+
+    @Test @DisplayName("단건 조회 재검증은 같은 버전의 수동 보호 변경도 1차 캐시 밖에서 감지한다")
+    void worldGuardDetectsManualProtectionWithoutVersionChange() {
+        var stale = save(WorldSetting.create(work, WorldSettingCategory.RACE, "합성 종족", "수명", "100"));
+        em.flush();
+        repository.assertWorldUnchanged(stale);
+        em.detach(stale);
+        var current = em.find(WorldSetting.class, stale.getId());
+        current.updateProperty("수명", "수명", "100");
+        current.protectManualProperty(null, "수명");
+        em.flush();
+
+        assertThat(current.getVersion()).isEqualTo(stale.getVersion());
+        assertThatThrownBy(() -> repository.assertWorldUnchanged(stale))
+                .isInstanceOfSatisfying(AppException.class,
+                        error -> assertThat(error.getResultCode()).isEqualTo(CommonErrorCode.CONFLICT));
+        repository.assertWorldUnchanged(current);
     }
 
     @Test @DisplayName("작품 collection의 실제 HTTP 응답은 공유 계약 fixture와 일치한다")

@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -74,10 +75,14 @@ public class SettingToolRepository {
     }
 
     public void assertWorldUnchanged(WorldSetting world) {
-        var version = entityManager.createQuery("""
-                select w.version from WorldSetting w where w.id = :id and w.work.lifecycleStatus = 'ACTIVE'
-                """, Long.class).setParameter("id", world.getId()).getResultStream().findFirst();
-        if (version.isEmpty() || version.get() != world.getVersion()) throw new AppException(CommonErrorCode.CONFLICT);
+        var state = entityManager.createQuery("""
+                select w.version, w.manuallyEditedPaths from WorldSetting w
+                where w.id = :id and w.work.lifecycleStatus = 'ACTIVE'
+                """, Object[].class).setParameter("id", world.getId()).getResultStream().findFirst();
+        if (state.isEmpty() || !Long.valueOf(world.getVersion()).equals(state.get()[0])
+                || !Objects.equals(world.getManuallyEditedPaths(), state.get()[1])) {
+            throw new AppException(CommonErrorCode.CONFLICT);
+        }
     }
 
     public Page<WorkCharacter> characters(UUID workId, SettingToolQuery request) {
@@ -119,7 +124,7 @@ public class SettingToolRepository {
 
     public List<Object[]> worldCollectionState(UUID workId, WorldSettingCategory category) {
         var query = entityManager.createQuery("""
-                select w.id, w.subjectName, w.category, w.version from WorldSetting w
+                select w.id, w.subjectName, w.category, w.version, w.manuallyEditedPaths from WorldSetting w
                 where w.work.id = :workId
                 """ + (category == null ? "" : " and w.category = :category") + " order by w.id", Object[].class)
                 .setParameter("workId", workId);
