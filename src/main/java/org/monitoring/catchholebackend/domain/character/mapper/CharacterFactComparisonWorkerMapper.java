@@ -26,7 +26,7 @@ public class CharacterFactComparisonWorkerMapper {
             java.util.UUID actualCharacterId, String provisionalSubjectKey, CharacterFactType factType) {
         com.fasterxml.jackson.databind.node.ObjectNode selected = state.deepCopy();
         var history = selected.putArray("historyFacts");
-        for (JsonNode fact : state.path("historyFacts")) if (factType.name().equals(fact.path("factType").asText())) history.add(fact.deepCopy());
+        for (JsonNode fact : state.path("historyFacts")) if (factType == null || factType.name().equals(fact.path("factType").asText())) history.add(fact.deepCopy());
         return advisoryMapper.toResponse(job, selected, actualCharacterId, provisionalSubjectKey);
     }
 

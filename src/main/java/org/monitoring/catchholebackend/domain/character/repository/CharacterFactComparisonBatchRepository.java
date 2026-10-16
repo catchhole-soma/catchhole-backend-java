@@ -15,16 +15,14 @@ import org.springframework.data.repository.query.Param;
 public interface CharacterFactComparisonBatchRepository
         extends JpaRepository<CharacterFactComparisonBatch, UUID> {
 
-    boolean existsByAnalysisJobIdAndProvisionalSubjectKeyAndCanonicalFactTypeAndStatus(
+    boolean existsByAnalysisJobIdAndProvisionalSubjectKeyAndStatus(
             UUID analysisJobId, String provisionalSubjectKey,
-            org.monitoring.catchholebackend.domain.character.type.CharacterFactType canonicalFactType,
             CharacterFactComparisonBatchStatus status
     );
 
-    boolean existsByAnalysisJobIdAndMatchedCharacterIdAndCanonicalFactTypeAndStatus(
+    boolean existsByAnalysisJobIdAndMatchedCharacterIdAndStatus(
             UUID analysisJobId,
             UUID matchedCharacterId,
-            org.monitoring.catchholebackend.domain.character.type.CharacterFactType canonicalFactType,
             CharacterFactComparisonBatchStatus status
     );
 

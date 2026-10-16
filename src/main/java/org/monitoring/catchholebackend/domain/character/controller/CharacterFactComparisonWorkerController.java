@@ -41,9 +41,10 @@ public class CharacterFactComparisonWorkerController {
     )
     public ResponseEntity<CommonResponse<WorkerCharacterFactComparisonBatchPayload>> claimNextBatch(
             @PathVariable UUID analysisJobId,
-            @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken
+            @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken,
+            @RequestHeader(value = "X-Character-Comparison-Person-Batches", defaultValue = "false") boolean supportsPersonBatches
     ) {
-        return service.claimNextCharacterFactComparisonBatch(analysisJobId, leaseToken)
+        return service.claimNextCharacterFactComparisonBatch(analysisJobId, leaseToken, supportsPersonBatches)
                 .map(value -> ResponseEntity.ok(CommonResponse.success(
                         "캐릭터 Fact 비교 묶음을 claim했습니다.",
                         value

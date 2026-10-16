@@ -17,7 +17,7 @@ public record WorkerCharacterFactComparisonBatchPayload(
         @Schema(nullable = true) UUID sourceEpisodeId,
         String characterRef,
         String matchedCharacterName,
-        CharacterFactType canonicalFactType,
+        @Schema(nullable = true, description = "null이면 인물 전체, 값이 있으면 과거 타입별 묶음") CharacterFactType canonicalFactType,
         List<Candidate> candidates,
         @JsonInclude(JsonInclude.Include.NON_NULL) String provisionalSubjectKey,
         @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -40,6 +40,7 @@ public record WorkerCharacterFactComparisonBatchPayload(
     public record Candidate(
             String candidateRef,
             String projectedSnapshotRef,
+            CharacterFactType canonicalFactType,
             @Schema(nullable = true) Integer sourceEpisodeNo,
             String rawFactKey,
             String initialCanonicalFactKey,
@@ -53,11 +54,15 @@ public record WorkerCharacterFactComparisonBatchPayload(
             @Schema(nullable = true) Object narrativeTime
 ) {
     public Candidate(String candidateRef, String projectedSnapshotRef, Integer sourceEpisodeNo, String rawFactKey, String initialCanonicalFactKey, CharacterFactCanonicalKeyResolution canonicalKeyResolution, String attributeValue, SettingValueType valueType, Object valueJson, List<WorkerCharacterFactComparisonCandidatePayload.EvidenceSpan> evidenceSpans, BigDecimal confidence) {
-        this(candidateRef, projectedSnapshotRef, sourceEpisodeNo, rawFactKey, initialCanonicalFactKey, canonicalKeyResolution, attributeValue, valueType, valueJson, evidenceSpans, confidence, null, null);
+        this(candidateRef, projectedSnapshotRef, null, sourceEpisodeNo, rawFactKey, initialCanonicalFactKey, canonicalKeyResolution, attributeValue, valueType, valueJson, evidenceSpans, confidence, null, null);
     }
 
     public Candidate(String candidateRef, String projectedSnapshotRef, Integer sourceEpisodeNo, String rawFactKey, String initialCanonicalFactKey, CharacterFactCanonicalKeyResolution canonicalKeyResolution, String attributeValue, SettingValueType valueType, Object valueJson, List<WorkerCharacterFactComparisonCandidatePayload.EvidenceSpan> evidenceSpans, BigDecimal confidence, org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse source) {
-        this(candidateRef, projectedSnapshotRef, sourceEpisodeNo, rawFactKey, initialCanonicalFactKey, canonicalKeyResolution, attributeValue, valueType, valueJson, evidenceSpans, confidence, source, null);
+        this(candidateRef, projectedSnapshotRef, null, sourceEpisodeNo, rawFactKey, initialCanonicalFactKey, canonicalKeyResolution, attributeValue, valueType, valueJson, evidenceSpans, confidence, source, null);
+    }
+
+    public Candidate(String candidateRef, String projectedSnapshotRef, Integer sourceEpisodeNo, String rawFactKey, String initialCanonicalFactKey, CharacterFactCanonicalKeyResolution canonicalKeyResolution, String attributeValue, SettingValueType valueType, Object valueJson, List<WorkerCharacterFactComparisonCandidatePayload.EvidenceSpan> evidenceSpans, BigDecimal confidence, org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse source, Object narrativeTime) {
+        this(candidateRef, projectedSnapshotRef, null, sourceEpisodeNo, rawFactKey, initialCanonicalFactKey, canonicalKeyResolution, attributeValue, valueType, valueJson, evidenceSpans, confidence, source, narrativeTime);
     }
 
     }
