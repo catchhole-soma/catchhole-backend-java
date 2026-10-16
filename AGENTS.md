@@ -121,6 +121,7 @@
 - 로컬과 운영 Redis는 `redis:7.4.10-alpine3.21`로 고정한다. 운영 Redis는 호스트 포트를 열지 않고 비밀번호, 64MB `noeviction`, 비영속 정책을 유지한다. 이메일·휴대폰 인증 데이터는 모두 단기 상태이므로 재시작 시 초기화를 허용한다.
 - `main` 브랜치에 push되면 `.github/workflows/publish-image.yml`이 GHCR에 `ghcr.io/catchhole-soma/catchhole-backend-java:main`과 short SHA 태그를 발행한다.
 - API 자동 배포는 `main` push로 시작된 이미지 발행이 성공하고 publish run의 commit SHA가 현재 `main`일 때만 실행한다. 해당 SHA의 배포 파일과 `sha-<short-sha>` 이미지를 함께 사용하며, Workflow가 API 서버의 `api.env` 속 `BACKEND_IMAGE`를 해당 SHA로 갱신한다.
+- API 자동 배포와 챗봇 최초 설정은 같은 호스트의 `/opt/catchhole/.api-deploy.lock`을 공유한다. 환경 파일 읽기·수정부터 컨테이너 재생성과 health 확인까지 잠금을 유지해 이미지와 설정이 서로 덮어써지지 않게 한다. 잠금 파일은 배포 사용자 소유 0600으로 유지하며 실행 중 교체하거나 삭제하지 않는다.
 
 ### Package Structure
 
