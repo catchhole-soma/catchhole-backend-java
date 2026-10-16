@@ -2,6 +2,7 @@ package org.monitoring.catchholebackend.domain.settingtool.repository;
 
 import jakarta.persistence.EntityManager;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -85,6 +86,14 @@ public class SettingToolRepository {
         }
     }
 
+    public void assertWorldUnchanged(WorldSetting world, List<Object[]> sourceState) {
+        assertWorldUnchanged(world);
+        if (!Arrays.deepEquals(sourceState.toArray(),
+                worldSourceState(world.getWork().getId(), world.getId(), null).toArray())) {
+            throw new AppException(CommonErrorCode.CONFLICT);
+        }
+    }
+
     public Page<WorkCharacter> characters(UUID workId, SettingToolQuery request) {
         var params = params(workId);
         String from = "from WorkCharacter c where c.work.id = :workId and c.status = 'ACTIVE'";
@@ -128,6 +137,23 @@ public class SettingToolRepository {
                 where w.work.id = :workId
                 """ + (category == null ? "" : " and w.category = :category") + " order by w.id", Object[].class)
                 .setParameter("workId", workId);
+        if (category != null) query.setParameter("category", category);
+        return query.getResultList();
+    }
+
+    /** 값/version이 같아도 새 확정·이력 전용 전환·범위 이동으로 현재 근거가 달라질 수 있다. */
+    public List<Object[]> worldSourceState(UUID workId, UUID worldId, WorldSettingCategory category) {
+        var query = entityManager.createQuery("""
+                select w.id, c.id, e.id, aj.id, c.reviewedAt, c.createdAt, c.updatedAt,
+                       c.historyOnly, c.appliedWorldSettingVersion, d.id, d.updatedAt,
+                       d.rootPropertyMovesAppliedWorldSettingVersion, d.rootPropertyMovesDisabled
+                from WorldSettingCandidate c join c.targetWorldSetting w join c.sourceEpisode e
+                left join c.analysisJob aj left join c.comparisonDecision d
+                """ + where(WORLD_FROM)
+                + (worldId == null ? "" : " and w.id = :worldId")
+                + (category == null ? "" : " and w.category = :category")
+                + " order by w.id, c.id", Object[].class).setParameter("workId", workId);
+        if (worldId != null) query.setParameter("worldId", worldId);
         if (category != null) query.setParameter("category", category);
         return query.getResultList();
     }

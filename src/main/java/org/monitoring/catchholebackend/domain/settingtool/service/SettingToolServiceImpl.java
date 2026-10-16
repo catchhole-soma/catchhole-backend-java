@@ -88,6 +88,8 @@ public class SettingToolServiceImpl implements SettingToolService {
             case WORLD_EVIDENCE -> repository.worldEvidence(workId, request.targetId()).orElseThrow(this::notFound).getTargetWorldSetting();
             default -> null;
         };
+        var worldSourceState = world == null ? List.<Object[]>of()
+                : repository.worldSourceState(workId, world.getId(), null);
         SettingToolResponse result = switch (request.tool()) {
             case FIND_CHARACTERS -> findCharacters(workId, request);
             case FIND_WORLD_SETTINGS -> response(request, repository.worlds(workId, request).map(mapper::toWorldResponse), List.of());
@@ -103,7 +105,7 @@ public class SettingToolServiceImpl implements SettingToolService {
             case WORLD_EVIDENCE -> worldEvidence(workId, request);
         };
         if (character != null) repository.assertCharacterUnchanged(character);
-        if (world != null) repository.assertWorldUnchanged(world);
+        if (world != null) repository.assertWorldUnchanged(world, worldSourceState);
         return result;
     }
 
@@ -242,7 +244,8 @@ public class SettingToolServiceImpl implements SettingToolService {
     private String collectionToken(UUID workId, SettingToolQuery request, boolean character) {
         return SettingToolReadToken.create(workId, request,
                 character ? repository.characterCollectionState(workId) : repository.worldCollectionState(workId, request.worldCategory()),
-                character ? repository.characterSchemaState(workId) : List.of());
+                character ? repository.characterSchemaState(workId)
+                        : repository.worldSourceState(workId, null, request.worldCategory()));
     }
 
     private void assertRequestedToken(SettingToolQuery request, String current) {
