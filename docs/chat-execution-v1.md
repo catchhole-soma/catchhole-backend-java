@@ -107,7 +107,7 @@ stateDiagram-v2
 
 - `Execution.call()`은 호출 전 최대량을 예약한다. 허용 목적은 CHAT_INTERPRETATION/CHAT_ANSWER/CHAT_QUERY_EMBEDDING이다. provider adapter는 SDK 자동 재시도를 끄고 **실제 호출마다** 이 경계를 사용해야 한다. 기존 TextGenerationClient/EmbeddingApi를 연결하는 `ChatTextClient`/`ChatEmbeddingClient`가 예약 추정과 성공·truncation·실패의 usage 추출을 재사용한다. #238은 실제 client 구성과 질문 흐름을 연결한다.
 - 계정 잠금은 분석 예약과 공유한다. 잔액이 부족하면 provider를 호출하지 않는다. 재시도의 이전 사용량은 유지된다.
-- `SETTLE`: 실측 input/output과 cached input을 받는다. 차감량은 input+output이며 cached input은 input의 부분집합이다. 내용 없는 실패·truncation도 측정값이 있으면 FAILURE로 정산한다.
+- `SETTLE`: 실측 input/output과 cached input을 받는다. raw 측정량은 input+output이며 cached input은 input의 부분집합이다. 사용자 차감은 예약 당시 고정한 모델 정책으로 환산한다([#252 정책](ai-token-usage.md)). 내용 없는 실패·truncation도 측정값이 있으면 FAILURE로 정산한다.
 - `RELEASE`: provider를 호출하기 전 포기한 경우에만 사용한다. 동일 해제는 멱등이고 이후 정산으로 바꾸지 않는다.
 - `UNKNOWN`: 사용량 미확인 보고다. 즉시 0으로 확정하거나 예약을 풀지 않는다. deadline 뒤 기본 10분까지 보고를 기다린다. 이후 예약을 회수하되 UNKNOWN 행과 null 사용량을 보존한다. 그 뒤 24시간까지 확인된 늦은 정산을 받을 수 있다. 늦은 정산은 회수한 예약을 다시 빼지 않고 실제 사용량만 더한다.
 - 같은 callId의 owner/purpose/model/reservation 또는 완료 정산값이 달라지면 충돌한다. SETTLED/RELEASED 재전송은 잔액을 다시 바꾸지 않는다.
@@ -119,7 +119,7 @@ stateDiagram-v2
 
 `CHAT_QA_MAX_ATTEMPTS=2`는 같은 단계의 최초 호출과 모든 복구를 합친 기본 시도 수다. schema 오류와 잘림이 각각 별도 두 번을 받는 구조가 아니다. 각 실제 복구 호출도 새 callId로 예약·정산하며, 텍스트 최대 6회·전체 실행 deadline·회원 잔액·서버 호출 한도를 함께 지킨다. 잘린 호출의 알려진 사용량은 FAILURE로 정산하고, 알 수 없는 사용량은 UNKNOWN으로 남긴다. 일반 transport/provider 실패나 quota는 이 잘림 복구로 재호출하지 않는다.
 
-실행 누적 예약 기본값은 240,000이다. 보수적으로 텍스트 6회 모두에 입력 추정 32,000과 출력 6,000을 적용하고 질문 임베딩 예약 4,256을 더하면 232,256이다. 이는 호출 시작 전에 적용하는 상한 계산이며 실제 토큰 소비량·평균 비용이 아니다. 사용자 차감 정책은 여전히 실측 input+output이고, Luna 모델별 할인은 별도 [#252](https://github.com/catchhole-soma/catchhole-backend-java/issues/252) 범위다.
+실행 누적 예약 기본값은 240,000이다. 보수적으로 텍스트 6회 모두에 입력 추정 32,000과 출력 6,000을 적용하고 질문 임베딩 예약 4,256을 더하면 232,256이다. 이는 호출 시작 전에 적용하는 상한 계산이며 실제 토큰 소비량·평균 비용이 아니다. 사용자 차감은 [#252 정책](ai-token-usage.md)에 따라 신규 gpt-6-luna 호출만 실측 input+output의 1/20이며, raw 실행 예산과 기존 예약 정책은 유지한다.
 
 최신 검증 코드 AI `257dfe6cb56cf759047f5e62c0d079ff0d4a64e7`·Java `1166892aa300a8c27c46b40f227df6e69ec3ebcd`에서 Python 전체 2,780 passed/54 skipped/기존 경고 1개(11.50초), 별도 검색 PostgreSQL 26 passed, Java ChatExecution 관련 21 passed와 bootJar 성공을 확인했다. 실제 Luna·medium의 로컬 HTTP 질문 실행 13건은 개발 중 8건·중간 코드 2건·최종 코드 3건으로 구분하며 실행 오류는 0건이었다. 부분 답변도 정상 실행에 포함하므로 이 결과는 의미 정확도나 운영 처리량 보장이 아니다. 최종 원문 대조 결과와 미답변 요구는 [공통 품질 검증 기록](chat-query-quality-v1.md)에 기록한다.
 
@@ -149,7 +149,7 @@ Python outbox는 SQLite 파일과 전용 볼륨을 사용한다. provider 호출
 | CHAT_MAX_ACTIVE_PER_MEMBER | 3 | 사용자별 대기/실행/정산 대기 합계 |
 | CHAT_MAX_CALLS | 8 | 실행별 provider 호출 수 |
 | CHAT_MAX_TOOL_CALLS | 20 | 실행별 조회 수 |
-| CHAT_ATTEMPT_TOKEN_BUDGET | 240000 | 실행별 누적 예약 상한; 단계별 출력·잘림 복구 포함, 실제 차감은 provider 측정량 정산 |
+| CHAT_ATTEMPT_TOKEN_BUDGET | 240000 | 실행별 누적 예약 상한; 단계별 출력·잘림 복구 포함, 사용자 차감은 provider 측정량에 예약 당시 정책 적용 |
 | CHAT_EXECUTION_TIMEOUT | 120s | 대기 시간을 포함한 시도 deadline |
 | CHAT_USAGE_GRACE | 10m | 미정산 예약 보류 시간 |
 | CHAT_RECOVERY_DELAY_MS | 5000 | Spring 복구 간격 |

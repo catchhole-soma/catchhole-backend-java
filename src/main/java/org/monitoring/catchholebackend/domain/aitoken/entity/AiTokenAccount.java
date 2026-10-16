@@ -9,6 +9,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.MapsId;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
+import java.math.BigDecimal;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -38,48 +39,60 @@ public class AiTokenAccount extends BaseEntity {
     )
     private Member member;
 
-    @Column(name = "granted_tokens", nullable = false)
-    private long grantedTokens;
+    @Column(name = "granted_tokens", nullable = false, precision = 22, scale = 2)
+    private BigDecimal grantedTokens;
 
-    @Column(name = "used_tokens", nullable = false)
-    private long usedTokens;
+    @Column(name = "used_tokens", nullable = false, precision = 22, scale = 2)
+    private BigDecimal usedTokens = BigDecimal.ZERO;
 
-    @Column(name = "reserved_tokens", nullable = false)
-    private long reservedTokens;
+    @Column(name = "reserved_tokens", nullable = false, precision = 22, scale = 2)
+    private BigDecimal reservedTokens = BigDecimal.ZERO;
 
     private AiTokenAccount(Member member, long defaultGrant) {
         this.member = member;
-        this.grantedTokens = defaultGrant;
+        this.grantedTokens = BigDecimal.valueOf(defaultGrant);
     }
 
     public static AiTokenAccount create(Member member, long defaultGrant) {
         return new AiTokenAccount(member, defaultGrant);
     }
 
-    public long remainingTokens() {
-        return Math.max(0, grantedTokens - usedTokens - reservedTokens);
+    public BigDecimal remainingTokens() {
+        return grantedTokens.subtract(usedTokens).subtract(reservedTokens).max(BigDecimal.ZERO);
     }
 
     public void reserve(long tokens) {
-        if (tokens <= 0 || remainingTokens() < tokens) {
+        reserve(BigDecimal.valueOf(tokens));
+    }
+
+    public void reserve(BigDecimal tokens) {
+        if (tokens.signum() <= 0 || remainingTokens().compareTo(tokens) < 0) {
             throw new AppException(AiTokenErrorCode.AI_TOKEN_QUOTA_EXHAUSTED);
         }
-        reservedTokens += tokens;
+        reservedTokens = reservedTokens.add(tokens);
     }
 
     public void settle(long reserved, long actual) {
-        reservedTokens = Math.max(0, reservedTokens - reserved);
-        usedTokens += actual;
+        settle(BigDecimal.valueOf(reserved), BigDecimal.valueOf(actual));
+    }
+
+    public void settle(BigDecimal reserved, BigDecimal actual) {
+        release(reserved);
+        usedTokens = usedTokens.add(actual);
     }
 
     public void release(long reserved) {
-        reservedTokens = Math.max(0, reservedTokens - reserved);
+        release(BigDecimal.valueOf(reserved));
+    }
+
+    public void release(BigDecimal reserved) {
+        reservedTokens = reservedTokens.subtract(reserved).max(BigDecimal.ZERO);
     }
 
     public void grant(long tokens) {
         if (tokens <= 0) {
             throw new AppException(AiTokenErrorCode.AI_TOKEN_USAGE_INVALID);
         }
-        grantedTokens += tokens;
+        grantedTokens = grantedTokens.add(BigDecimal.valueOf(tokens));
     }
 }

@@ -711,7 +711,7 @@ class WorldSettingCandidateControllerIntegrationTest {
         WorldSettingCandidate interrupted = candidate("바바리안", "서식지", "혹한 지역");
         interrupted.interruptComparisonForTokenQuota("quota");
         candidateRepository.saveAndFlush(interrupted);
-        aiTokenAccountRepository.saveAndFlush(AiTokenAccount.create(member, 2255L));
+        aiTokenAccountRepository.saveAndFlush(AiTokenAccount.create(member, 6412L));
 
         mockMvc.perform(post(
                                 "/api/v1/works/{workId}/world-setting-candidates/batches/{batchId}"

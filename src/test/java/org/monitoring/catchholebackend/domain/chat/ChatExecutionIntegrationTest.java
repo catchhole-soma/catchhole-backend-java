@@ -128,11 +128,15 @@ class ChatExecutionIntegrationTest {
     }
 
     CallView reserve(Running r, UUID call, long amount) {
+        return reserve(r, call, "test-model", amount);
+    }
+
+    CallView reserve(Running r, UUID call, String model, long amount) {
         return service.reserve(
                 r.view.attemptId(),
                 r.token,
                 r.runner,
-                new Reserve(call, AiTokenPurpose.CHAT_ANSWER, "test-model", amount));
+                new Reserve(call, AiTokenPurpose.CHAT_ANSWER, model, amount));
     }
 
     void settle(Running r, UUID call) {
@@ -188,7 +192,18 @@ class ChatExecutionIntegrationTest {
         return tx.execute(
                 s -> {
                     var a = accounts.findByMemberId(member).orElseThrow();
-                    return new long[] {a.getUsedTokens(), a.getReservedTokens()};
+                    return new long[] {
+                        a.getUsedTokens().longValueExact(), a.getReservedTokens().longValueExact()
+                    };
+                });
+    }
+
+    void assertBalance(String used, String reserved) {
+        tx.executeWithoutResult(
+                status -> {
+                    var account = accounts.findByMemberId(member).orElseThrow();
+                    assertThat(account.getUsedTokens()).isEqualByComparingTo(used);
+                    assertThat(account.getReservedTokens()).isEqualByComparingTo(reserved);
                 });
     }
 
@@ -220,7 +235,7 @@ class ChatExecutionIntegrationTest {
                                     j.claim("test", "test", LocalDateTime.now().plusMinutes(10));
                             em.persist(j);
                             var a = accounts.findByMemberId(member).orElseThrow();
-                            a.reserve(a.remainingTokens() - 100);
+                            a.reserve(a.remainingTokens().subtract(BigDecimal.valueOf(100)));
                             return new UUID[] {j.getId(), lease};
                         });
         var probe = UUID.randomUUID();
@@ -376,6 +391,179 @@ class ChatExecutionIntegrationTest {
     }
 
     @Test
+    @DisplayName("Luna 호출은 raw 사용량을 보존하고 소수 예약·실측 정산을 중복 차감하지 않는다")
+    void lunaSettlementPreservesRawUsageAndIdempotency() {
+        var r = start();
+        var call = UUID.randomUUID();
+        var first = reserve(r, call, "gpt-6-luna", 101);
+        var replay = reserve(r, call, "gpt-6-luna", 101);
+        assertThat(first.reservedTokens()).isEqualTo(101);
+        assertThat(replay).isEqualTo(first);
+        assertBalance("0", "5.05");
+        assertThatThrownBy(() -> reserve(r, call, "gpt-6-sol", 101))
+                .isInstanceOf(AppException.class);
+
+        settle(r, call);
+        settle(r, call);
+        assertBalance("1.25", "0");
+        tx.executeWithoutResult(status -> {
+            var usage = usages.findByRequestId(call).orElseThrow();
+            assertThat(usage.getReservedTokens()).isEqualTo(101);
+            assertThat(usage.getInputTokens()).isEqualTo(20);
+            assertThat(usage.getCachedInputTokens()).isEqualTo(10);
+            assertThat(usage.getOutputTokens()).isEqualTo(5);
+            assertThat(usage.getChargeDenominator()).isEqualTo(20);
+            assertThat(usage.getReservedCharge()).isEqualByComparingTo("5.05");
+            assertThat(usage.getChargedTokens()).isEqualByComparingTo("1.25");
+            var run = runs.findById(r.view.attemptId()).orElseThrow();
+            assertThat(run.getCallCount()).isEqualTo(1);
+            assertThat(run.getAllocatedTokens()).isEqualTo(101);
+        });
+
+        var embedding = UUID.randomUUID();
+        service.reserve(
+                r.view.attemptId(), r.token, r.runner,
+                new Reserve(embedding, AiTokenPurpose.CHAT_QUERY_EMBEDDING, "test-embedding", 3));
+        assertBalance("1.25", "3");
+        service.report(
+                r.view.attemptId(), r.token, r.runner, embedding,
+                new Usage(ReportKind.SETTLE, 3L, 0L, 0L, AiTokenUsageOutcome.SUCCESS));
+        assertBalance("4.25", "0");
+    }
+
+    @Test
+    @DisplayName("소수 잔액은 Luna 예약을 정확히 허용하고 할인되지 않는 모델과 초과 예약은 거절한다")
+    void lunaReservationUsesExactFractionalBalance() {
+        var r = start();
+        var remaining = new BigDecimal("5.05");
+        var alreadyUsed = tx.execute(status -> {
+            var account = accounts.findByMemberId(member).orElseThrow();
+            var used = account.remainingTokens().subtract(remaining);
+            account.settle(BigDecimal.ZERO, used);
+            return used;
+        });
+        assertThatThrownBy(() -> reserve(r, UUID.randomUUID(), "gpt-6-sol", 101))
+                .isInstanceOfSatisfying(AppException.class, error ->
+                        assertThat(error.getResultCode()).isEqualTo(
+                                org.monitoring.catchholebackend.domain.aitoken.exception.AiTokenErrorCode.AI_TOKEN_QUOTA_EXHAUSTED));
+        reserve(r, UUID.randomUUID(), "gpt-6-luna", 101);
+        assertThatThrownBy(() -> reserve(r, UUID.randomUUID(), "gpt-6-luna", 1))
+                .isInstanceOfSatisfying(AppException.class, error ->
+                        assertThat(error.getResultCode()).isEqualTo(
+                                org.monitoring.catchholebackend.domain.aitoken.exception.AiTokenErrorCode.AI_TOKEN_QUOTA_EXHAUSTED));
+        tx.executeWithoutResult(status -> {
+            var account = accounts.findByMemberId(member).orElseThrow();
+            assertThat(account.getUsedTokens()).isEqualByComparingTo(alreadyUsed);
+            assertThat(account.getReservedTokens()).isEqualByComparingTo(remaining);
+            assertThat(account.remainingTokens()).isZero();
+            assertThat(usages.findAllByChatRunId(r.view.attemptId())).hasSize(1);
+            assertThat(runs.findById(r.view.attemptId()).orElseThrow().getAllocatedTokens())
+                    .isEqualTo(101);
+        });
+    }
+
+    @Test
+    @DisplayName("Luna 할인과 예약 해제는 raw 실행 예산을 늘리거나 되돌리지 않는다")
+    void lunaDiscountDoesNotExpandAttemptBudget() {
+        var r = start();
+        long rawBudget = service.context(r.view.attemptId(), r.token, r.runner).tokenBudget();
+        var call = UUID.randomUUID();
+        reserve(r, call, "gpt-6-luna", rawBudget);
+        assertBalance("0", BigDecimal.valueOf(rawBudget).divide(BigDecimal.valueOf(20)).toPlainString());
+        service.report(
+                r.view.attemptId(), r.token, r.runner, call,
+                new Usage(ReportKind.RELEASE, null, null, null, null));
+        assertBalance("0", "0");
+        assertThatThrownBy(() -> reserve(r, UUID.randomUUID(), "gpt-6-luna", 1))
+                .isInstanceOfSatisfying(AppException.class, error ->
+                        assertThat(error.getResultCode()).isEqualTo(
+                                org.monitoring.catchholebackend.domain.chat.exception.ChatErrorCode.CHAT_LIMIT_EXCEEDED));
+        tx.executeWithoutResult(status -> {
+            var run = runs.findById(r.view.attemptId()).orElseThrow();
+            assertThat(run.getAllocatedTokens()).isEqualTo(rawBudget);
+            assertThat(run.getCallCount()).isEqualTo(1);
+        });
+    }
+
+    @Test
+    @DisplayName("Luna UNKNOWN은 유예까지 예약을 유지하고 늦은 정산은 다른 호출의 예약을 해제하지 않는다")
+    void lunaUnknownAndLateSettlementKeepOtherReservation() {
+        var r = start();
+        var call = UUID.randomUUID();
+        reserve(r, call, "gpt-6-luna", 101);
+        service.report(
+                r.view.attemptId(), r.token, r.runner, call,
+                new Usage(ReportKind.UNKNOWN, null, null, null, null));
+        assertBalance("0", "5.05");
+        tx.executeWithoutResult(status -> {
+            var run = runs.findById(r.view.attemptId()).orElseThrow();
+            ReflectionTestUtils.setField(run, "deadline", Instant.now().minusSeconds(20));
+            ReflectionTestUtils.setField(run, "usageDeadline", Instant.now().minusSeconds(1));
+        });
+        service.recover(r.view.attemptId());
+        service.recover(r.view.attemptId());
+        assertBalance("0", "0");
+        tx.executeWithoutResult(status -> {
+            var usage = usages.findByRequestId(call).orElseThrow();
+            assertThat(usage.getStatus()).isEqualTo(AiTokenUsageStatus.UNKNOWN);
+            assertThat(usage.getChargedTokens()).isNull();
+        });
+
+        var other = start();
+        reserve(other, UUID.randomUUID(), "gpt-6-luna", 60);
+        settle(r, call);
+        settle(r, call);
+        assertBalance("1.25", "3");
+    }
+
+    @Test
+    @DisplayName("Luna 호출 전 해제는 할인 예약만 한 번 반환하고 실측 사용량을 만들지 않는다")
+    void lunaReleaseIsIdempotent() {
+        var r = start();
+        var call = UUID.randomUUID();
+        reserve(r, call, "gpt-6-luna", 101);
+        reserve(r, UUID.randomUUID(), "test-model", 7);
+        var release = new Usage(ReportKind.RELEASE, null, null, null, null);
+        service.report(r.view.attemptId(), r.token, r.runner, call, release);
+        service.report(r.view.attemptId(), r.token, r.runner, call, release);
+        assertBalance("0", "7");
+        tx.executeWithoutResult(status -> {
+            var usage = usages.findByRequestId(call).orElseThrow();
+            assertThat(usage.getStatus()).isEqualTo(AiTokenUsageStatus.RELEASED);
+            assertThat(usage.getChargedTokens()).isNull();
+        });
+        assertThatThrownBy(() -> settle(r, call)).isInstanceOf(AppException.class);
+    }
+
+    @Test
+    @DisplayName("작품 무효화는 Luna 예약을 반환하고 다른 작품의 예약을 유지한다")
+    void lunaInvalidationOnlyReleasesInvalidatedWorkReservation() {
+        var r = start();
+        var call = UUID.randomUUID();
+        reserve(r, call, "gpt-6-luna", 101);
+        var otherWork = tx.execute(status -> {
+            var created = Work.create(em.find(Member.class, member), "다른 작품", WorkGenre.FANTASY, "설명");
+            em.persist(created);
+            return created.getId();
+        });
+        var other = service.submit(member, otherWork, "other-work", new Submit("다른 질문", null, null));
+        var dispatch = service.dispatch(other.attemptId());
+        var runner = UUID.randomUUID();
+        service.start(other.attemptId(), dispatch.capability(), runner);
+        reserve(new Running(other, dispatch.capability(), runner), UUID.randomUUID(), "test-model", 7);
+
+        service.invalidateWork(work);
+        service.invalidateWork(work);
+        assertBalance("0", "7");
+        tx.executeWithoutResult(status -> {
+            var usage = usages.findByRequestId(call).orElseThrow();
+            assertThat(usage.getStatus()).isEqualTo(AiTokenUsageStatus.UNKNOWN);
+            assertThat(usage.getChargedTokens()).isNull();
+        });
+        assertThatThrownBy(() -> settle(r, call)).isInstanceOf(AppException.class);
+    }
+
+    @Test
     @DisplayName("다른 실행·runner·위조 인증·잘못된 목적의 예약은 거절한다")
     void scopeChecks() {
         var a = start();
@@ -409,7 +597,7 @@ class ChatExecutionIntegrationTest {
         tx.executeWithoutResult(
                 s -> {
                     var account = accounts.findByMemberId(member).orElseThrow();
-                    account.reserve(account.remainingTokens() - 50);
+                    account.reserve(account.remainingTokens().subtract(BigDecimal.valueOf(50)));
                 });
         assertThatThrownBy(() -> reserve(a, UUID.randomUUID(), 100))
                 .isInstanceOf(AppException.class);
@@ -604,7 +792,31 @@ class ChatExecutionIntegrationTest {
                 runner,
                 call,
                 new Usage(ReportKind.SETTLE, 10L, 0L, 0L, AiTokenUsageOutcome.SUCCESS));
+        var lunaCall = UUID.randomUUID();
+        service.reserve(
+                id,
+                d.capability(),
+                runner,
+                new Reserve(lunaCall, AiTokenPurpose.OPERATIONAL_BACKFILL, "gpt-6-luna", 100));
+        service.report(
+                id,
+                d.capability(),
+                runner,
+                lunaCall,
+                new Usage(ReportKind.SETTLE, 10L, 5L, 5L, AiTokenUsageOutcome.SUCCESS));
         assertThat(balance()).containsExactly(0, 0);
+        tx.executeWithoutResult(status -> {
+            for (var usage : usages.findAllByChatRunId(id)) {
+                assertThat(usage.getChargePolicyVersion()).isEqualTo("SERVICE_PAID_V1");
+                assertThat(usage.getChargeDenominator()).isEqualTo(1);
+                assertThat(usage.getReservedCharge()).isZero();
+                assertThat(usage.getChargedTokens()).isZero();
+                assertThat(usage.getReservedTokens()).isEqualTo(100);
+            }
+            assertThat(usages.findByRequestId(lunaCall).orElseThrow().getInputTokens()).isEqualTo(10);
+            assertThat(usages.findByRequestId(lunaCall).orElseThrow().getOutputTokens()).isEqualTo(5);
+            assertThat(runs.findById(id).orElseThrow().getAllocatedTokens()).isEqualTo(200);
+        });
         assertThat(service.operation(id, operation).attemptId()).isEqualTo(id);
         assertThatThrownBy(() -> service.operation(id, new Operation(work, "other", "same", 200)))
                 .isInstanceOf(AppException.class);

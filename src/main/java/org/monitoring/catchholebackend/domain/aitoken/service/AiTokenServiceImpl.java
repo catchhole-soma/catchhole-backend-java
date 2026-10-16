@@ -25,6 +25,7 @@ import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenExtensio
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenGrantRepository;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenUsageRepository;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenTotals;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenChargePolicy;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenExtensionStatus;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenExtensionSource;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenFeedbackRewardOutcome;
@@ -247,7 +248,10 @@ public class AiTokenServiceImpl implements AiTokenService {
     }
 
     private void ensureMinimumReservation(Long memberId, long minimumReservation) {
-        if (getOrCreateAccount(memberId).remainingTokens() < minimumReservation) {
+        // The worker chooses the model later. Only reject below every supported model's minimum;
+        // the call-specific reservation still checks the actual policy under the account lock.
+        if (getOrCreateAccount(memberId).remainingTokens()
+                .compareTo(AiTokenChargePolicy.minimumCharge(minimumReservation)) < 0) {
             throw new AppException(AiTokenErrorCode.AI_TOKEN_QUOTA_EXHAUSTED);
         }
     }
@@ -268,15 +272,16 @@ public class AiTokenServiceImpl implements AiTokenService {
             return aiTokenMapper.toResponse(existing);
         }
         AiTokenAccount account = getOrCreateAccount(analysisJob.getWork().getMember().getId());
-        account.reserve(request.reservedTokens());
-        AiTokenUsage usage = usageRepository.save(AiTokenUsage.reserve(
+        AiTokenUsage usage = AiTokenUsage.reserve(
                 request.requestId(),
                 analysisJob,
                 request.purpose(),
                 request.attempt(),
                 request.modelName(),
                 request.reservedTokens()
-        ));
+        );
+        account.reserve(usage.getReservedCharge());
+        usageRepository.save(usage);
         return aiTokenMapper.toResponse(usage);
     }
 
@@ -292,13 +297,13 @@ public class AiTokenServiceImpl implements AiTokenService {
             throw new AppException(AiTokenErrorCode.AI_TOKEN_RESERVATION_CONFLICT);
         }
         AiTokenAccount account = getOrCreateAccount(usage.getMember().getId());
-        long actualTokens = usage.settle(
+        usage.settle(
                 request.inputTokens(),
                 request.cachedInputTokens(),
                 request.outputTokens(),
                 request.outcome()
         );
-        account.settle(usage.getReservedTokens(), actualTokens);
+        account.settle(usage.getReservedCharge(), usage.getChargedTokens());
         synchronizeTerminalJobTokenTotals(analysisJob);
     }
 
@@ -314,7 +319,7 @@ public class AiTokenServiceImpl implements AiTokenService {
             throw new AppException(AiTokenErrorCode.AI_TOKEN_RESERVATION_CONFLICT);
         }
         AiTokenAccount account = getOrCreateAccount(usage.getMember().getId());
-        account.release(usage.getReservedTokens());
+        account.release(usage.getReservedCharge());
         usage.release(request.outcome());
     }
 
@@ -329,7 +334,7 @@ public class AiTokenServiceImpl implements AiTokenService {
         usageRepository.findAllByAnalysisJobIdAndStatus(analysisJobId, AiTokenUsageStatus.RESERVED)
                 .forEach(usage -> {
                     AiTokenAccount account = getOrCreateAccount(usage.getMember().getId());
-                    account.release(usage.getReservedTokens());
+                    account.release(usage.getReservedCharge());
                     usage.release(outcome);
                 });
     }

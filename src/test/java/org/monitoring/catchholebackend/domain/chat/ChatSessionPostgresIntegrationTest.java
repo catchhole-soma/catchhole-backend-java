@@ -44,7 +44,7 @@ class ChatSessionPostgresIntegrationTest extends ChatSessionIntegrationTest {
     }
 
     @Test
-    @DisplayName("main V79 질문과 V80 대화를 보존하며 V81 순번 제약을 적용한다")
+    @DisplayName("main V79 질문과 V80 대화를 보존하며 V81 순번·V82 인물 범위를 적용한다")
     void upgradesMainSchemaWithoutChangingExistingQuestions() throws Exception {
         String schema = "session_upgrade_" + java.util.UUID.randomUUID().toString().replace("-", "");
         String url = "jdbc:postgresql://" + POSTGRES.getHost() + ":"
@@ -83,7 +83,7 @@ class ChatSessionPostgresIntegrationTest extends ChatSessionIntegrationTest {
         }
         var upgraded = org.flywaydb.core.Flyway.configure()
                 .dataSource(isolatedUrl, "chat_test", "test-only")
-                .locations("classpath:db/migration").load();
+                .locations("classpath:db/migration").target("82").load();
         assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(2);
         upgraded.validate();
         assertThat(upgraded.info().current().getVersion().toString()).isEqualTo("82");

@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import java.math.BigDecimal;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -17,6 +18,7 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 import org.monitoring.catchholebackend.domain.aitoken.exception.AiTokenErrorCode;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenChargePolicy;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenPurpose;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageStatus;
@@ -78,6 +80,18 @@ public class AiTokenUsage extends BaseEntity {
     @Column(name = "reserved_tokens", nullable = false)
     private long reservedTokens;
 
+    @Column(name = "charge_policy_version", nullable = false, length = 40, updatable = false)
+    private String chargePolicyVersion;
+
+    @Column(name = "charge_denominator", nullable = false, updatable = false)
+    private int chargeDenominator;
+
+    @Column(name = "reserved_charge", nullable = false, precision = 22, scale = 2, updatable = false)
+    private BigDecimal reservedCharge;
+
+    @Column(name = "charged_tokens", precision = 22, scale = 2)
+    private BigDecimal chargedTokens;
+
     @Column(name = "input_tokens")
     private Long inputTokens;
 
@@ -97,6 +111,7 @@ public class AiTokenUsage extends BaseEntity {
         this.attempt = attempt;
         this.modelName = modelName;
         this.reservedTokens = reservedTokens;
+        freezeChargePolicy(AiTokenChargePolicy.forModel(modelName));
         this.status = AiTokenUsageStatus.RESERVED;
     }
 
@@ -116,6 +131,8 @@ public class AiTokenUsage extends BaseEntity {
         usage.attempt = Math.max(1, run.getGeneration());
         usage.modelName = model;
         usage.reservedTokens = tokens;
+        usage.freezeChargePolicy(run.operational()
+                ? AiTokenChargePolicy.servicePaid() : AiTokenChargePolicy.forModel(model));
         usage.status = AiTokenUsageStatus.RESERVED;
         return usage;
     }
@@ -138,6 +155,7 @@ public class AiTokenUsage extends BaseEntity {
         this.inputTokens = input;
         this.cachedInputTokens = cached;
         this.outputTokens = output;
+        this.chargedTokens = chargePolicy().convert(input + output);
         this.outcome = outcome;
         this.status = AiTokenUsageStatus.SETTLED;
         return input + output;
@@ -146,12 +164,15 @@ public class AiTokenUsage extends BaseEntity {
     public long settle(long inputTokens, long cachedInputTokens, long outputTokens,
                        AiTokenUsageOutcome outcome) {
         assertReserved();
-        if (outcome == AiTokenUsageOutcome.USAGE_UNAVAILABLE || cachedInputTokens > inputTokens) {
+        if (inputTokens < 0 || cachedInputTokens < 0 || outputTokens < 0
+                || inputTokens > Long.MAX_VALUE - outputTokens
+                || outcome == AiTokenUsageOutcome.USAGE_UNAVAILABLE || cachedInputTokens > inputTokens) {
             throw new AppException(AiTokenErrorCode.AI_TOKEN_USAGE_INVALID);
         }
         this.inputTokens = inputTokens;
         this.cachedInputTokens = cachedInputTokens;
         this.outputTokens = outputTokens;
+        this.chargedTokens = chargePolicy().convert(inputTokens + outputTokens);
         this.outcome = outcome;
         this.status = AiTokenUsageStatus.SETTLED;
         return inputTokens + outputTokens;
@@ -172,5 +193,15 @@ public class AiTokenUsage extends BaseEntity {
         if (status != AiTokenUsageStatus.RESERVED) {
             throw new AppException(AiTokenErrorCode.AI_TOKEN_RESERVATION_CONFLICT);
         }
+    }
+
+    private void freezeChargePolicy(AiTokenChargePolicy policy) {
+        this.chargePolicyVersion = policy.version();
+        this.chargeDenominator = policy.denominator();
+        this.reservedCharge = policy.convert(reservedTokens);
+    }
+
+    private AiTokenChargePolicy chargePolicy() {
+        return new AiTokenChargePolicy(chargePolicyVersion, chargeDenominator);
     }
 }

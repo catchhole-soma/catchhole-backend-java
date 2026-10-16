@@ -73,9 +73,9 @@ flowchart LR
     CHARACTER_COMPARISON_WORKER -->|"캐릭터 설정 재비교 Job claim·상태 보고"| SPRING
     WORKER -->|"청크·분석 후보 저장"| POSTGRES
     WORKER -->|"회차 원문 조회"| S3
-    WORKER -->|"Terra 후보 추출<br/>Luna 주체 해소·세계관 비교"| OPENAI
-    COMPARISON_WORKER -->|"Luna 세계관 재비교"| OPENAI
-    CHARACTER_COMPARISON_WORKER -->|"Luna 캐릭터 현재 설정 재비교"| OPENAI
+    WORKER -->|"Sol 후보 추출·비교<br/>Luna 주체 해소"| OPENAI
+    COMPARISON_WORKER -->|"Sol 세계관 재비교"| OPENAI
+    CHARACTER_COMPARISON_WORKER -->|"Sol 캐릭터 현재 설정 재비교"| OPENAI
 
     API_ENV -.-> SPRING
     API_ENV -.-> REDIS
@@ -119,7 +119,7 @@ Vercel은 Backend 요청을 중계하는 서버가 아닙니다. 브라우저가
 
 `AnalysisJob`은 별도 서버나 AWS 서비스가 아니라 PostgreSQL에 저장되는 Backend 도메인 데이터입니다.
 
-AI Worker의 모델 라우팅은 1차 캐릭터 Fact·세계관 후보 추출에 Terra, 캐릭터·세계관 주체 해소와 세계관 비교·재비교 및 캐릭터 현재 설정 비교·재비교에 Luna를 사용합니다. Compose가 `LLM_EXTRACTION_MODEL`, `LLM_SUBJECT_RESOLUTION_MODEL`, `LLM_COMPARISON_MODEL`을 각 Worker에 전달하고, 개별 값이 없을 때만 `LLM_MODEL`을 fallback으로 사용합니다.
+2026-10-16 실행 컨테이너 확인 기준으로 AI Worker는 1차 추출·캐릭터/세계관 비교 및 재비교에 `gpt-6.1-sol`, 주체 해소에 `gpt-6-luna`를 사용합니다. 위 다이어그램도 이 적용값을 표시합니다. Compose는 역할별 모델 환경변수를 전달하며 각 값이 비어 있을 때만 `LLM_MODEL`로 fallback합니다. 저장소의 기본값과 현재 운영값은 구분하며, 별도 챗봇 모델을 포함한 확인 범위는 [역할별 운영 모델 표](analysis-workflow.md#worker-실행-슬롯과-운영-동시성)를 따릅니다.
 
 ### 1.4 배포 흐름
 

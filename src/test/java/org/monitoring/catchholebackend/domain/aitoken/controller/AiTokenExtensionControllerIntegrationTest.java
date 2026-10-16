@@ -173,7 +173,7 @@ class AiTokenExtensionControllerIntegrationTest {
         assertThat(grantRepository.countByMemberIdAndGrantType(author.getId(), AiTokenGrantType.MANUAL))
                 .isEqualTo(1);
         assertThat(accountRepository.findByMemberId(author.getId()).orElseThrow().getGrantedTokens())
-                .isEqualTo(642);
+                .isEqualByComparingTo("642");
     }
 
     @Test

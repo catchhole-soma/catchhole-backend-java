@@ -113,8 +113,8 @@
 - 운영 `SETTING_EXTRACTION` 처리량은 `AI_WORKER_PROCESS_COUNT × AI_WORKER_CONCURRENCY`로 계산한다. 기본 운영값은 분석 Worker 5개 × 프로세스당 Job 10개 = 최대 50개다. 50개 Job 부하 테스트에서 Backend·PostgreSQL·LLM 지표가 기준에 미달하면 Worker 5개는 유지하고 프로세스당 Job과 LLM 요청을 5개로 낮춰 최대 25개로 되돌린다. 이 값은 별도 캐릭터·세계관 비교 Worker를 제외한 분석 Job 용량이며 provider 계정 전체의 분산 동시성 상한을 뜻하지 않는다.
 - 분석 Worker는 빈 실행 슬롯을 확보한 뒤 Job 하나만 claim하고 즉시 실행한다. 미리 여러 Job을 claim해 프로세스 내부 대기열에 쌓지 않으며, `LLM_MAX_CONCURRENT_REQUESTS`와 `AI_WORKER_BLOCKING_MAX_WORKERS`로 프로세스 안의 provider 호출과 동기 DB/S3 offload를 각각 제한한다. 재비교 Worker는 Job·LLM 동시성을 1로 고정한다.
 - Worker는 종료 신호를 받으면 신규 claim을 중단하고 `AI_WORKER_SHUTDOWN_GRACE_SECONDS` 동안 실행 중 Job과 heartbeat를 유지한다. Compose `stop_grace_period`는 내부 grace보다 길게 두어 정리 시간을 보장하며, 현재 운영값은 내부 180초·컨테이너 210초다. grace를 넘긴 Job은 heartbeat가 멈춘 뒤 Spring lease 회수 경로로 재처리한다.
-- 운영 AI 모델은 추출 `LLM_EXTRACTION_MODEL=gpt-5.6-terra`, 캐릭터·세계관 주체 해소 `LLM_SUBJECT_RESOLUTION_MODEL=gpt-5.6-luna`, 세계관 비교·재비교 `LLM_COMPARISON_MODEL=gpt-5.6-luna`로 분리하고 `LLM_MODEL`은 개별 설정이 없을 때의 fallback으로 둔다. 공통 추론 강도는 `LLM_REASONING_EFFORT=none`을 사용한다. 실제 비밀값과 override는 Worker 서버의 `/opt/catchhole/worker.env`에 두고 Compose가 AI Worker에 명시적으로 전달한다.
-- 운영 AI 출력 상한은 캐릭터 추출 6,000→12,000, 세계관 추출 5,000→10,000, 주체 해소 2,000, 단건 비교 3,000, 세계관 batch 비교 16,000·캐릭터 batch 비교 128,000이며 provider 상한은 128,000이다. Compose가 목적별 환경변수를 사용하는 Worker 서비스에 명시적으로 전달하고, Backend 비교 최소 예약량은 가장 큰 비교 출력 상한 128,000에 입력 여유 256을 더한 128,256으로 동기화한다. 작업 생성 단계의 빠른 검사가 실제 Worker 예약보다 낮아 실행 직후 실패하는 설정 drift를 막기 위함이다.
+- 2026-10-16 실행 컨테이너에서 확인한 운영 모델은 추출·캐릭터/세계관 비교 및 재비교 `gpt-6.1-sol`, 캐릭터·세계관 주체 해소와 챗봇 `gpt-6-luna`다. Worker의 `LLM_EXTRACTION_MODEL`·`LLM_SUBJECT_RESOLUTION_MODEL`·`LLM_COMPARISON_MODEL`은 `/opt/catchhole/worker.env`, 챗봇의 `CHAT_QA_MODEL`은 `/opt/catchhole/chatbot.env`에서 주입한다. 개별 Worker 모델이 비어 있을 때만 `LLM_MODEL`을 fallback으로 사용한다. 저장소 Compose/예제 기본값과 운영 적용값을 혼동하지 않으며, 추론 강도도 실행 컨테이너의 `LLM_REASONING_EFFORT`·`CHAT_QA_REASONING_EFFORT`를 확인한다. 역할별 표와 확인 범위는 `docs/analysis-workflow.md`를 따른다.
+- AI 출력 상한은 Worker에 전달된 목적별 `LLM_*_MAX_OUTPUT_TOKENS`와 `LLM_PROVIDER_MAX_OUTPUT_TOKENS` 설정을 확인한다. 예제 기본값이나 과거 실행값을 현재 운영값 또는 공급자 자체 최대치로 단정하지 않는다. Backend 비교 최소 예약량의 raw 기준은 현재 설정된 128,256이며, #252 이후 모델 미확정 작업 접수에서는 최저 요율의 차감 하한만 검사하고 실제 모델·입력 길이를 아는 Worker 호출 직전 예약에서 최종 판단한다.
 - 로컬 PostgreSQL 컨테이너는 `pgvector/pgvector:0.8.2-pg16` 이미지를 사용한다. 운영은 PostgreSQL 16 계열의 외부 Amazon RDS와 pgvector 0.8.2를 사용하므로 Docker 이미지를 실행한다고 설명하지 않는다. 로컬 이미지의 가변 `latest` 태그 사용을 피하고 운영 엔진·확장 버전과의 호환성을 확인한다.
 - API 서버 운영 배포 파일은 백엔드 저장소의 `deploy/compose.api.prod.yml`, `deploy/Caddyfile`, `deploy/api.env.example`로 관리한다. Worker 서버 운영 배포 파일은 인공지능 작업 저장소의 `deploy/compose.worker.prod.yml`, `deploy/worker.env.example`로 관리한다. 두 서버의 실제 `api.env`와 `worker.env`는 각각 `/opt/catchhole`에만 두고 커밋하지 않는다.
 - 운영 PostgreSQL은 외부 Amazon RDS를 사용한다. API 서버는 HikariCP 최대 10개, 분석 Worker 5개는 SQLAlchemy 연결을 각각 최대 3개, 캐릭터·세계관 비교 Worker는 각각 최대 1개로 제한해 애플리케이션 전체 최대 연결 수를 27개로 유지한다.
@@ -477,6 +477,10 @@ domain/<domain>
 - Worker는 분석 작업 생성과 상태 전이를 위해 백엔드 DB에 직접 접근하지 않는다. 다만 청킹, 설정 후보, 리포트 같은 분석 산출물 저장은 데이터 양과 모델 안정성에 따라 내부 API 또는 Worker의 DB 직접 저장 중 선택할 수 있으며, DB 직접 저장을 선택하면 관련 스키마/문서 변경을 함께 관리한다.
 
 #### AI Token Domain Policy
+
+- #252 사용자 원장은 `numeric(22,2)`와 BigDecimal을 사용한다. `AiTokenChargePolicy`는 정확한 `gpt-6-luna`만 1/20, 나머지 모델은 1배로 환산하고 예약에 정책 version·분모·환산 예약량을 동결한다. 0.05 단위를 보존해 소량 호출별 반올림 손실을 피하고 정산·해제·UNKNOWN 늦은 정산에도 같은 정책을 사용한다. 서비스 부담 운영 백필은 사용자 차감 0이다.
+- provider 입출력/cached/raw 예약량, Job 합계, 챗봇 실행 예산과 내부 응답은 raw 정수 그대로다. 계정 응답만 환산 단위 JSON number이며 프론트에 새 내부 수치를 노출하지 않는다. 모델을 모르는 분석·비교 접수 검사는 raw 최소량의 최저 요율 하한이고, 실제 모델의 계정 잠금 예약이 최종 권한이다.
+- V83은 기존 계정·지급량을 보존하며 배포 전 일반 원장은 모델명과 무관하게 LEGACY_RAW_V1(1배)을 유지한다. 신규 정책을 NULL/과거 예약에 소급하지 않는다. 구 Java writer를 중지한 뒤 새 Java를 기동하며, V83 적용 후 정수 매핑 버전으로 롤백하지 않는다. 상세 계약과 배포 경계는 `docs/ai-token-usage.md`를 따른다.
 
 - `AI_TOKEN_DEFAULT_GRANT`는 신규 토큰 계정의 최초 지급량과 운영자가 추가 사용량 요청을 승인할 때의 지급량에 공통 사용한다. 승인 API에서 별도 지급량을 받거나 현재 누적 지급량으로 다음 지급량을 계산하지 않는다.
 - `AiTokenUsageResponse.remainingPercent`는 회계용 누적 지급량이 아니라 현재 `AI_TOKEN_DEFAULT_GRANT`를 100% 기준으로 계산하고 최대 100%로 제한한다. 누적 `grantedTokens`·`usedTokens`·`reservedTokens`와 실제 `remainingTokens`는 그대로 유지한다.

@@ -246,7 +246,7 @@ class AnalysisJobControllerIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(longs = {0L, 4255L})
+    @ValueSource(longs = {0L, 312L})
     @DisplayName("잔여 토큰이 없거나 첫 분석 최소 예약량보다 작으면 작업 생성을 409로 거절한다")
     void createAnalysisJobRejectsWhenFirstReservationCannotBeCovered(long remainingTokens) throws Exception {
         aiTokenAccountRepository.saveAndFlush(AiTokenAccount.create(member, remainingTokens));
@@ -276,7 +276,7 @@ class AnalysisJobControllerIntegrationTest {
                 work, uploadBatch, firstEpisode, AnalysisJobType.SETTING_EXTRACTION);
         failedJob.fail("설정 추출 실패");
         analysisJobRepository.saveAndFlush(failedJob);
-        aiTokenAccountRepository.saveAndFlush(AiTokenAccount.create(member, 4255L));
+        aiTokenAccountRepository.saveAndFlush(AiTokenAccount.create(member, 312L));
 
         mockMvc.perform(post(
                                 "/api/v1/works/{workId}/analysis-jobs/{analysisJobId}/retry",
