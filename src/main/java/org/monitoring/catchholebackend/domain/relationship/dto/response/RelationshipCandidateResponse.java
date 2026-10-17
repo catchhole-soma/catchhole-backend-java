@@ -7,6 +7,7 @@ import java.util.UUID;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipAssertion;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipCandidateStatus;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipKind;
+import org.monitoring.catchholebackend.domain.relationship.type.RelationshipCandidateOrigin;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipSubtype;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipTemporalScope;
 
@@ -26,5 +27,9 @@ public record RelationshipCandidateResponse(
         @Schema(description = "확정된 관계 ID. 미확정이면 null") UUID confirmedRelationshipId,
         @Schema(description = "현재 확인된 보류 사유. 순환 등 확정 직전 검사는 별도로 수행합니다") List<String> reviewReasons,
         List<RelationshipEvidenceResponse> evidence,
-        @Schema(description = "시스템에 발견/등록된 시각. 관계 성립 시점이 아닙니다") LocalDateTime createdAt
+        @Schema(description = "시스템에 발견/등록된 시각. 관계 성립 시점이 아닙니다") LocalDateTime createdAt,
+        @Schema(description = "후보 생성 경로") RelationshipCandidateOrigin origin,
+        @Schema(description = "현재 설정에서 자동으로 확정했는지") boolean automaticallyConfirmed,
+        @Schema(description = "주체의 현재 이름") String subjectCharacterName,
+        @Schema(description = "상대의 현재 이름. 미해결이면 null") String objectCharacterName
 ) {}

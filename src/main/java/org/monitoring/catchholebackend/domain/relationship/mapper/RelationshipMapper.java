@@ -66,7 +66,9 @@ public class RelationshipMapper {
                 RelationshipGraphReader.isCurrent(evidence, sources), hasEvidence,
                 source != null ? source.manuallyEdited() : fact.getSettingCandidate() == null,
                 hasEvidence ? "/api/v1/works/" + evidence.getCandidate().getWork().getId()
-                        + "/character-facts/" + fact.getId() + "/evidence" : null);
+                        + "/character-facts/" + fact.getId() + "/evidence" : null,
+                RelationshipGraphReader.isCurrent(evidence, sources)
+                        ? jsonMapper.convertValue(source.currentValue(), Object.class) : null);
     }
 
     public RelationshipCandidateResponse toResponse(RelationshipCandidate candidate,
@@ -78,7 +80,9 @@ public class RelationshipMapper {
                 candidate.getObjectMention(), candidate.getKind(), candidate.getSubtype(), candidate.getTemporalScope(),
                 candidate.getTimeLabel(), candidate.getAssertion(),
                 candidate.getConfirmedRelationship() == null ? null : candidate.getConfirmedRelationship().getId(),
-                reasons, evidence.stream().map(e -> toResponse(e, sources)).toList(), candidate.getCreatedAt());
+                reasons, evidence.stream().map(e -> toResponse(e, sources)).toList(), candidate.getCreatedAt(),
+                candidate.getOrigin(), candidate.isAutomaticallyConfirmed(), candidate.getSubjectCharacter().getName(),
+                candidate.getObjectCharacter() == null ? null : candidate.getObjectCharacter().getName());
     }
 
     public RelationshipResponse toResponse(CharacterRelationship relation, RelationshipGraphReader.Graph graph) {
@@ -88,7 +92,8 @@ public class RelationshipMapper {
                 relation.getSubtype(), relation.getTemporalScope(), relation.getTimeLabel(), validity,
                 validity == RelationshipValidity.VALID && relation.getTemporalScope() == RelationshipTemporalScope.CURRENT,
                 distinctEvidence(graph.evidence().getOrDefault(relation.getId(), List.of())).stream()
-                        .map(e -> toResponse(e, graph.sources())).toList(), relation.getCreatedAt());
+                        .map(e -> toResponse(e, graph.sources())).toList(), relation.getCreatedAt(),
+                relation.getSubjectCharacter().getName(), relation.getObjectCharacter().getName());
     }
 
     private List<RelationshipEvidence> distinctEvidence(List<RelationshipEvidence> evidence) {

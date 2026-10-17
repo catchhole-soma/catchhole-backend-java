@@ -57,6 +57,10 @@ public class Work extends BaseEntity {
     @Column(name = "latest_episode_no", nullable = false)
     private int latestEpisodeNo;
 
+    // 관계 후처리의 durable 입력 세대. 처리 결과와 분리해 원 설정 트랜잭션에만 기록한다.
+    @Column(name = "relationship_input_version", nullable = false)
+    private long relationshipInputVersion;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "lifecycle_status", nullable = false, length = 20)
     private WorkLifecycleStatus lifecycleStatus;
@@ -82,6 +86,11 @@ public class Work extends BaseEntity {
 
     public void updateLatestEpisodeNo(int latestEpisodeNo) {
         this.latestEpisodeNo = latestEpisodeNo;
+    }
+
+    /** 작품 쓰기 잠금 아래 현재 프로필 또는 인물 식별 정보가 바뀌었음을 기록한다. */
+    public void markRelationshipInputChanged() {
+        this.relationshipInputVersion++;
     }
 
     public boolean isOwnedBy(Long memberId) {

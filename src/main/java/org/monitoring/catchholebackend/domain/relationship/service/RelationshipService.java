@@ -11,10 +11,11 @@ import org.monitoring.catchholebackend.domain.relationship.dto.response.Relation
 import org.monitoring.catchholebackend.domain.relationship.dto.response.RelationshipResponse;
 import org.monitoring.catchholebackend.domain.relationship.dto.response.RelationshipSourceResponse;
 import org.monitoring.catchholebackend.global.common.response.PageResponse;
+import org.monitoring.catchholebackend.domain.relationship.type.RelationshipCandidateStatus;
 
 public interface RelationshipService {
     List<RelationshipSourceResponse> getRelationshipSources(Long memberId, UUID workId, UUID characterId);
-    PageResponse<RelationshipCandidateResponse> getRelationshipCandidates(Long memberId, UUID workId, int page, int size);
+    PageResponse<RelationshipCandidateResponse> getRelationshipCandidates(Long memberId, UUID workId, int page, int size, RelationshipCandidateStatus status);
     RelationshipCandidateResponse getRelationshipCandidate(Long memberId, UUID workId, UUID candidateId);
     RelationshipCandidateResponse createRelationshipCandidate(Long memberId, UUID workId, RelationshipCandidateCreateRequest request);
     RelationshipCandidateResponse updateRelationshipCandidate(Long memberId, UUID workId, UUID candidateId, RelationshipCandidateUpdateRequest request);

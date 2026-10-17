@@ -154,7 +154,8 @@ public class CharacterServiceImpl implements CharacterService {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         WorkCharacter character = getActiveCharacterForUpdate(work.getId(), characterId);
         String name = request.name().trim();
-        if (!Objects.equals(character.getName(), name) && workCharacterRepository.existsByWorkIdAndNameAndStatusAndIdNot(
+        boolean nameChanged = !Objects.equals(character.getName(), name);
+        if (nameChanged && workCharacterRepository.existsByWorkIdAndNameAndStatusAndIdNot(
                 work.getId(),
                 name,
                 CharacterStatus.ACTIVE,
@@ -177,7 +178,7 @@ public class CharacterServiceImpl implements CharacterService {
         Map<CharacterSnapshotSlot, DesiredFact> desiredFacts = toDesiredFacts(request, schemas, snapshotEntries);
         String roleLabel = normalizeNullableText(request.roleLabel());
         UUID firstAppearanceEpisodeId = firstAppearanceEpisode == null ? null : firstAppearanceEpisode.getId();
-        boolean changed = !Objects.equals(character.getName(), name)
+        boolean changed = nameChanged
                 || !Objects.equals(character.getRoleLabel(), roleLabel)
                 || !Objects.equals(character.getFirstAppearanceEpisodeId(), firstAppearanceEpisodeId)
                 || hasManualCorrections(snapshotEntries, desiredFacts);
@@ -187,6 +188,9 @@ public class CharacterServiceImpl implements CharacterService {
         analysisRunStateService.assertSettingMutationAllowed(work.getId());
         character.updateBasicInfo(name, roleLabel);
         character.updateFirstAppearanceEpisodeId(firstAppearanceEpisodeId);
+        if (nameChanged) {
+            work.markRelationshipInputChanged();
+        }
 
         applyManualCorrections(character, snapshotEntries, desiredFacts);
         automaticImages.refreshCharacterImages(List.of(character));
@@ -200,6 +204,7 @@ public class CharacterServiceImpl implements CharacterService {
         analysisRunStateService.assertSettingMutationAllowed(work.getId());
         WorkCharacter character = getActiveCharacterForUpdate(work.getId(), characterId);
         character.archive();
+        work.markRelationshipInputChanged();
         return characterMapper.toArchiveResponse(character);
     }
 
@@ -218,6 +223,7 @@ public class CharacterServiceImpl implements CharacterService {
             throw new AppException(CharacterErrorCode.CHARACTER_NAME_DUPLICATED);
         }
         character.restore();
+        work.markRelationshipInputChanged();
         return characterMapper.toRestoreResponse(character);
     }
 

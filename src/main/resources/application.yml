@@ -149,3 +149,8 @@ chat:
   usage-grace: ${CHAT_USAGE_GRACE:10m}
   recovery-delay-ms: ${CHAT_RECOVERY_DELAY_MS:5000}
   retrieval-embedding-version: ${CHAT_RETRIEVAL_EMBEDDING_VERSION:v1}
+
+relationship:
+  processing:
+    scheduling-enabled: ${RELATIONSHIP_PROCESSING_SCHEDULING_ENABLED:true}
+    fixed-delay-ms: ${RELATIONSHIP_PROCESSING_FIXED_DELAY_MS:10000}

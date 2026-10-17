@@ -272,6 +272,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                 });
 
         WorkCharacter character = workCharacterRepository.save(promotionMapper.toWorkCharacter(representative));
+        representative.getWork().markRelationshipInputChanged();
         ResolvedCharacter resolved = new ResolvedCharacter(character, false);
         Set<UUID> versionedCharacterIds = new HashSet<>();
         long initialSnapshotVersion = character.getSnapshotVersion();
@@ -682,6 +683,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                         }
                     }
                     character = workCharacterRepository.save(promotionMapper.toWorkCharacter(candidate));
+                    candidate.getWork().markRelationshipInputChanged();
                 }
                 promotedSubjects.put(subjectKey, character);
             }
@@ -750,6 +752,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         }
 
         WorkCharacter newCharacter = workCharacterRepository.save(promotionMapper.toWorkCharacter(candidate));
+        candidate.getWork().markRelationshipInputChanged();
         boolean orderedProposal = hasOrderedProvisionalSubject(candidate);
         if (orderedProposal) {
             candidate.bindPromotedProvisionalCharacter(newCharacter);

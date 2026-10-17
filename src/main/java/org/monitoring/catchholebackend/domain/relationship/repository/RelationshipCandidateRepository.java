@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.relationship.entity.RelationshipCandidate;
+import org.monitoring.catchholebackend.domain.relationship.type.RelationshipCandidateStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -20,6 +21,12 @@ public interface RelationshipCandidateRepository extends JpaRepository<Relations
 
     @EntityGraph(attributePaths = {"subjectCharacter", "objectCharacter", "confirmedRelationship"})
     Page<RelationshipCandidate> findAllByWorkId(UUID workId, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"subjectCharacter", "objectCharacter", "confirmedRelationship"})
+    Page<RelationshipCandidate> findAllByWorkIdAndStatus(UUID workId, RelationshipCandidateStatus status, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"subjectCharacter", "objectCharacter", "confirmedRelationship"})
+    List<RelationshipCandidate> findAllByWorkId(UUID workId);
 
     @EntityGraph(attributePaths = {"subjectCharacter", "objectCharacter", "confirmedRelationship"})
     List<RelationshipCandidate> findAllByConfirmedRelationshipIdIn(Collection<UUID> relationshipIds);

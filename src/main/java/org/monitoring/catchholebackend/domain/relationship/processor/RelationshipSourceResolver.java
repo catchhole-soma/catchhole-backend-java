@@ -77,6 +77,11 @@ public class RelationshipSourceResolver {
                 .orElseGet(List::of);
     }
 
+    public List<RelationshipSourceContext> findCurrentSources(UUID workId) {
+        return resolveCurrentSources(characterRepository.findAllByWorkIdAndStatusOrderByCreatedAtDesc(
+                workId, CharacterStatus.ACTIVE));
+    }
+
     private boolean isEligibleCharacter(WorkCharacter character, UUID workId) {
         return character.getStatus() == CharacterStatus.ACTIVE
                 && character.getWork() != null
