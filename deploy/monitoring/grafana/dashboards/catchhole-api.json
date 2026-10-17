@@ -62,7 +62,7 @@
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 6,
+        "w": 4,
         "h": 5
       },
       "fieldConfig": {
@@ -111,6 +111,87 @@
       }
     },
     {
+      "id": 14,
+      "type": "stat",
+      "title": "API 4xx 응답률",
+      "description": "최근 5분 전체 API 요청 중 HTTP 400~499 응답 비율입니다. 입력 검증·인증·권한·충돌·요청 제한 응답을 포함하며 5xx 서버 오류율과 구분합니다. 상태 확인·Actuator 요청은 제외하고 내부 API 요청은 포함합니다. 요청은 있지만 4xx가 없으면 0%, 요청이 없으면 요청 없음, 수집 지표가 없으면 데이터 없음입니다. 외부 LLM의 4xx는 분석 · AI 상세에서 확인합니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 5,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "요청 없음"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "요청 없음"
+                }
+              }
+            }
+          ],
+          "max": 100
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "100 * (sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri!~\"/actuator.*|/healthz\",status=~\"4..\"}[5m])) or (0 * sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri!~\"/actuator.*|/healthz\"}[5m])))) / sum(rate(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri!~\"/actuator.*|/healthz\"}[5m]))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
       "id": 3,
       "type": "stat",
       "title": "API 서버 오류율 (5xx)",
@@ -121,9 +202,9 @@
       },
       "pluginVersion": "13.2.2",
       "gridPos": {
-        "x": 6,
+        "x": 9,
         "y": 0,
-        "w": 6,
+        "w": 5,
         "h": 5
       },
       "fieldConfig": {
@@ -202,9 +283,9 @@
       },
       "pluginVersion": "13.2.2",
       "gridPos": {
-        "x": 12,
+        "x": 14,
         "y": 0,
-        "w": 6,
+        "w": 5,
         "h": 5
       },
       "fieldConfig": {
@@ -282,9 +363,9 @@
       },
       "pluginVersion": "13.2.2",
       "gridPos": {
-        "x": 18,
+        "x": 19,
         "y": 0,
-        "w": 6,
+        "w": 5,
         "h": 5
       },
       "fieldConfig": {
@@ -495,13 +576,247 @@
       }
     },
     {
+      "id": 15,
+      "type": "timeseries",
+      "title": "API 4xx 응답 · 상태 코드별",
+      "description": "조회 기간 길이의 이동 구간에서 수집된 HTTP 400~499 응답 증가량입니다. 상태 코드별 Last가 현재 선택 기간의 추정 건수입니다. 401·403·404·409 등은 사용자 요청 거절을 포함하므로 5xx 서버 장애와 구분합니다. 외부 LLM 응답은 포함하지 않습니다. 수집 간격과 increase 보간 때문에 소수로 표시될 수 있습니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "데이터 없음",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 6,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "요청 없음"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "계산 불가"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by(status) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri!~\"/actuator.*|/healthz\",status=~\"4..\"}[$__range]))",
+          "legendFormat": "HTTP {{status}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "width": 240
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "type": "table",
+      "title": "API 4xx 응답 · 경로별",
+      "description": "선택 기간에 4xx가 발생한 API 경로·HTTP 메서드·상태 코드별 추정 건수입니다. 프레임워크가 기록한 route template을 사용하며 실제 작품·회원 ID를 노출하지 않습니다. 0건인 행은 숨깁니다. 빈 표는 4xx 없음 또는 해당 지표 없음일 수 있으므로 수집 상태를 함께 확인합니다. 외부 LLM의 4xx는 별도 분석 지표입니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by(status,method,uri) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri!~\"/actuator.*|/healthz\",status=~\"4..\"}[$__range])) > 0",
+          "format": "table",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "noValue": "데이터 없음",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "상태 코드"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "method"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "메서드"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "uri"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "API 경로"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "4xx 건수"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "4xx 건수",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "status": 0,
+              "method": 1,
+              "uri": 2,
+              "Value": 3
+            },
+            "renameByName": {}
+          }
+        }
+      ]
+    },
+    {
       "id": 11,
       "type": "row",
       "title": "인프라 · EC2 및 Java 애플리케이션",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 13,
+        "y": 21,
         "w": 24,
         "h": 1
       },
@@ -519,7 +834,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 14,
+        "y": 22,
         "w": 24,
         "h": 7
       },
@@ -613,7 +928,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 21,
+        "y": 29,
         "w": 12,
         "h": 7
       },
@@ -706,7 +1021,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 12,
-        "y": 21,
+        "y": 29,
         "w": 12,
         "h": 7
       },
@@ -840,7 +1155,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 28,
+        "y": 36,
         "w": 12,
         "h": 7
       },
@@ -964,7 +1279,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 12,
-        "y": 28,
+        "y": 36,
         "w": 12,
         "h": 7
       },
@@ -1110,7 +1425,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 35,
+        "y": 43,
         "w": 12,
         "h": 9
       },
@@ -1226,7 +1541,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 12,
-        "y": 35,
+        "y": 43,
         "w": 12,
         "h": 9
       },

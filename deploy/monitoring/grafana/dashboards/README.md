@@ -30,9 +30,13 @@ Stat은 Instant/Last를 사용하고 과거 유효값으로 현재 NaN을 채우
 
 실행 가능한 대기와 의존 대기는 구분하고 빈 queue의 oldest age는 0이다. DB snapshot 실패 또는 45초 이상 갱신 없음은 queue를 정상 0으로 표시하지 않는다. Worker 마지막 종료 시각 0은 아직 처리 종료가 없다는 뜻이며, 유휴 때문에 종료 경과가 길어질 수 있어 queue/active/up과 함께 확인한다.
 
+운영 현황과 API 상세 상단은 기존 5xx 서버 오류율과 별도로 `API 4xx 응답률`을 표시한다. 최근 5분의 모든 API 요청을 분모로 사용하며 입력 검증·인증·권한·충돌·요청 제한 응답을 포함한다. 요청이 있지만 4xx가 없으면 0%, 요청이 없으면 `요청 없음`, 수집 지표가 없으면 `데이터 없음`을 유지한다. API 상세의 상태 코드별 그래프는 선택 기간 길이의 이동 구간 증가량을 표시하고 Last가 현재 선택 기간의 추정 건수다. 경로별 표는 선택 기간의 `status + method + uri`별 양수 증가량만 표시하며 route template을 사용한다. increase의 수집 간격 보간 때문에 건수가 소수일 수 있다. 빈 표만으로 정상 또는 수집 장애를 단정하지 않는다.
+
+외부 LLM 오류는 캐치홀 API 응답과 별도다. 분석 상세의 `LLM 호출 실패 원인`은 400·401·403·429·기타 4xx·5xx를 구분하고 408은 timeout으로 유지한다. 429만으로 요청 제한과 API 사용 한도 원인을 확정하지 않는다. 새 분류는 Worker 배포 후 호출부터 적용하며 과거 `other` 데이터는 재분류하지 않는다.
+
 HTTP 패널은 `/actuator.*`와 `/healthz`를 제외하고 내부 API 요청은 포함한다. 요청 없음의 0/0 오류율·p95는 계산 불가이며 RPS 0과 구분한다. API 상세의 GC 평균도 이벤트가 없으면 계산 불가다. 수집 자체가 없는 경우에는 up와 target 수부터 확인한다.
 
-현재 세 JSON의 81개 dashboard PromQL은 promtool 3.13.3으로 문법을 확인했고, [쿼리 검증 fixture](../../tests/dashboard-promql.test.json)의 18개 시나리오는 snapshot 실패·정체·중복 API 관측·다른 mode 합산·부분 성공/취소의 성공률, 첫 완료의 0 기준값, 마지막 완료 선택과 5분 이후 유지·label 변경, 서비스 이용 snapshot의 최신 값 선택·빈 집계·불완전 이력을 검증한다. JSON 변경 시 모든 target expr을 추출해 template 변수를 실제 값으로 치환한 후 promtool check rules를 다시 실행한다.
+현재 세 JSON의 85개 dashboard PromQL은 promtool 3.13.3으로 문법을 확인했고, [쿼리 검증 fixture](../../tests/dashboard-promql.test.json)의 23개 시나리오는 snapshot 실패·정체·중복 API 관측·다른 mode 합산·부분 성공/취소의 성공률, 첫 완료의 0 기준값, 마지막 완료 선택과 5분 이후 유지·label 변경, 서비스 이용 snapshot의 최신 값 선택·빈 집계·불완전 이력과 HTTP 4xx의 환경·인스턴스·관리 경로 필터, 상태 코드/경로 집계·0/NaN/데이터 없음 구분을 검증한다. JSON 변경 시 모든 target expr을 추출해 template 변수를 실제 값으로 치환한 후 promtool check rules를 다시 실행한다.
 
 ## JVM CPU와 EC2 CPU
 
