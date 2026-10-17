@@ -32,6 +32,12 @@ erDiagram
     works ||--o{ upload_batches : groups
     works ||--o{ analysis_jobs : runs
     works ||--o{ ai_token_usages : meters
+    works ||--o{ character_relationships : owns_confirmed_relations
+    works ||--o{ relationship_candidates : reviews_relations
+    characters ||--o{ character_relationships : relates
+    character_relationships o|--o{ relationship_candidates : confirms_or_replaces
+    relationship_candidates ||--o{ relationship_evidence : references
+    character_facts ||--o{ relationship_evidence : supports
     works ||--o{ characters : has
     works ||--o{ setting_candidates : extracts
     works ||--o{ world_settings : defines
@@ -771,3 +777,7 @@ V61/V62: `world_image_recommendations`는 `(catalog_id, theme)` PK로 공용 도
 ### V64 최초 분석 안내
 
 `members.analysis_guide_shown_at`은 계정당 1회 자동 안내 선점 시각, `first_analysis_started_at`은 최초 분석 Job 생성 시각이다. 둘 다 nullable이며 한 번 기록된 값은 작품 삭제·재분석으로 초기화하지 않는다. V64는 기존 Job의 최초 시각을 이관한다. 상세 계약은 [첫 분석 안내](analysis-mode-guide.md)를 참고한다.
+
+## 가족 관계 (V84)
+
+`character_relationships`는 canonical 양 끝점·유형·세부 유형·서사 시점의 비철회 관계만 unique로 관리한다. `relationship_candidates`는 작품별 requestId/hash, 검토 버전과 확정/정정 이전 관계를 보존한다. `relationship_evidence`는 candidate/Fact unique와 슬롯 토큰을 저장한다. 원문을 복사하지 않으며 실제 현재 슬롯과 provenance가 모두 남아 있어야 지지 근거로 사용한다. 관계 정정·보관·파기 순서 및 상세 필드는 [가족 관계 v1](family-relationships-v1.md)을 따른다.

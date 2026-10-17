@@ -28,6 +28,7 @@
 | [Analysis Workflow](analysis-workflow.md) | 분석 API별 Mermaid workflow와 상태 전이 |
 | [Ordered Provisional Analysis](ordered-provisional-analysis.md) | 다회차 순차 실행, 고정 S0·변경 기록·임시 대상·사용자 변경 경계와 검증 현황 |
 | [Automatic Review Reliability](automatic-review-reliability.md) | 이전 묶음 참고, 부분 비교 복구, 자동 반영 보류와 전체 검토 집계, 사용자 자연어 안내 |
+| [Family Relationships v1](family-relationships-v1.md) | GH259 현재 프로필 근거의 가족 관계 모델·검토·API와 후속 가계도 계약 |
 | [Character](character.md) | 캐릭터 설정 저장 모델, CharacterFact 검색·근거 상세 API, Schema Registry, JSONB 기준, AI 설정 후보 저장 구조 |
 | [World Comparison Recovery](world-comparison-recovery.md) | 기존 속성 선택, 순차 자동 분석의 제한된 묶음 복구, 실패 진단 및 다음 회차 전달 |
 | [World Setting](world-setting.md) | 세계관 확정본·후보 저장 모델, 2차 비교 경계, 속성 단위 확정·직접 수정과 충돌 정책 |

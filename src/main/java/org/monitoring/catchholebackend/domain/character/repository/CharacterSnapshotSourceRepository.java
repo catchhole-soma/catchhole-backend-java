@@ -22,7 +22,7 @@ public interface CharacterSnapshotSourceRepository extends JpaRepository<Charact
             UUID characterId
     );
 
-    @EntityGraph(attributePaths = {"workCharacter", "sourceFact"})
+    @EntityGraph(attributePaths = {"workCharacter", "sourceFact", "sourceFact.settingCandidate"})
     @Query("""
             select source
             from CharacterSnapshotSource source
