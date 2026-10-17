@@ -1,6 +1,6 @@
 # 가족 관계 v1 — GH259
 
-[이슈 #259](https://github.com/catchhole-soma/catchhole-backend-java/issues/259)의 PostgreSQL 저장 모델, 검토 규칙과 사용자 API다. 기존 캐릭터 추출 프롬프트·출력·승격 흐름은 변경하지 않는다. 현재 프로필에서 후보를 생성하는 자동 처리 및 검토 화면은 [#260](https://github.com/catchhole-soma/catchhole-backend-java/issues/260), 가계도 배치는 [#261](https://github.com/catchhole-soma/catchhole-backend-java/issues/261)에서 연결한다.
+[이슈 #259](https://github.com/catchhole-soma/catchhole-backend-java/issues/259)의 PostgreSQL 저장 모델, 검토 규칙과 사용자 API다. 기존 캐릭터 추출 프롬프트·출력은 변경하지 않는다. [#260](https://github.com/catchhole-soma/catchhole-backend-java/issues/260)은 이 모델 위에 현재 프로필의 명시적 가족 관계를 연결하는 별도 후처리와 검토 화면을 추가한다. 자동 처리의 지원 문법·보류·재시도 계약은 [현재 설정의 가족 관계 처리 v1](family-relationship-processing-v1.md)에 정의한다. 가계도 배치는 [#261](https://github.com/catchhole-soma/catchhole-backend-java/issues/261)에서 연결한다.
 
 ## 입력과 검토 경계
 
@@ -8,7 +8,7 @@
 
 `GET relationship-sources?characterId=...`는 해당 캐릭터의 현재 PROFILE Fact별로 `factId`, `characterId`, `factKey`, `currentValue`, `contextToken`, `hasEvidence`, `manuallyEdited`를 제공한다. `contextToken`은 현재 슬롯 표시값·구조화 값 및 해당 슬롯 전체 source Fact ID 집합의 SHA-256이다. JSON 객체 key와 출처 ID의 순서는 정규화하며, 다른 슬롯의 변경은 이 토큰을 바꾸지 않는다. 한 슬롯에 여러 Fact가 기여하면 모두 같은 토큰을 갖는다.
 
-서버는 자연어에서 친족 의미를 새로 추론하지 않는다. 후보 작성자가 현재 설정에서 명시된 관계만 지정하고, 작품 소유자가 확인해야 확정한다. `assertion=ASSERTED`라고 전송하는 것만으로 자동 확정되지는 않는다. 각 근거는 해당 관계를 독립적으로 뒷받침하는 현재 슬롯이어야 한다. 여러 문장을 조합해야만 성립하는 추론이나 만남만으로 관계를 만드는 동작은 이번 계약에 포함하지 않는다.
+사용자 후보 API는 명시적 검토를 거쳐 확정한다. `assertion=ASSERTED`라고 전송하는 것만으로 자동 확정되지는 않는다. #260의 별도 규칙 처리만 이미 저장된 현재 프로필의 지원 문법, 정확히 한 명인 상대, 현재 출처와 모순·순환 검사를 통과한 **새 후보**를 자동 확정한다. 미해결·모호한 후보와 기존 사용자 검토 결정은 자동으로 확정하지 않는다. 각 근거는 해당 관계를 독립적으로 뒷받침하는 현재 슬롯이어야 한다. 여러 문장을 조합해야만 성립하는 추론이나 만남만으로 관계를 만드는 동작은 계약에 포함하지 않는다.
 
 ## 저장 모델
 
@@ -55,7 +55,7 @@ erDiagram
 - 서사 시점: `CURRENT`, `HISTORICAL`, `UNKNOWN`. 정확한 시작 시점을 모른다는 이유만으로 UNKNOWN은 아니다. 현재 관계임이 명시되면 CURRENT와 `timeLabel=null`을 사용한다. 실제 관계 시점이 불명확한 UNKNOWN은 검토를 유지한다.
 - 현재 사용 가능성: `VALID`, `REVIEW_REQUIRED`, `ARCHIVED_ENDPOINT`, `WITHDRAWN`. 근거 소실과 사용자 철회를 작품 속 이혼·사망·관계 종료로 해석하지 않는다.
 
-상대 ID가 없으면 `objectMention`을 남겨 PENDING으로 보관한다. 동명이인이나 이름 문자열로 자동 연결하지 않는다. `UNCERTAIN`, `NEGATED`, `FIGURATIVE`, `CONFLICTING` 주장, UNKNOWN 시점, 미해결 상대는 확정할 수 없다. 후보 수정 API로 최신 근거와 함께 사용자 검토 결과를 반영한 뒤 확정한다. HTTP 409의 `error.context.reviewReasons`와 후보의 `reviewReasons`를 사용하며 메시지 문자열을 파싱하지 않는다. 부모 순환 등 확정 직전 검증은 추가로 수행하므로 빈 reviewReasons가 확정 성공을 보장하지 않는다.
+상대 ID가 없으면 `objectMention`을 남겨 PENDING으로 보관한다. #260 규칙 처리는 같은 작품의 활성 캐릭터 이름과 정확히 일치하는 대상이 한 명일 때만 연결하며, 동명이인·대명사·별칭을 추정하지 않는다. `UNCERTAIN`, `NEGATED`, `FIGURATIVE`, `CONFLICTING` 주장, UNKNOWN 시점, 미해결 상대는 확정할 수 없다. 후보 수정 API로 최신 근거와 함께 사용자 검토 결과를 반영한 뒤 확정한다. HTTP 409의 `error.context.reviewReasons`와 후보의 `reviewReasons`를 사용하며 메시지 문자열을 파싱하지 않는다. 부모 순환 등 확정 직전 검증은 추가로 수행하므로 빈 reviewReasons가 확정 성공을 보장하지 않는다.
 
 `createdAt`은 시스템에 등록한 시각이다. Fact의 발견 회차는 기존 Fact 근거 API에서 확인하며 관계 시작 시점으로 바꾸지 않는다. `visibleInFamilyTree`는 `validity=VALID && temporalScope=CURRENT`일 때만 참이다. 관계 목록은 과거·철회·보류 항목도 포함한다. #261은 기본 가계도에 이 플래그를 적용하고, 별도의 이력/검토 화면에서는 원래 항목을 사용한다.
 
@@ -80,7 +80,7 @@ flowchart TD
 - 관계 정정은 기존 row의 끝점/유형을 덮지 않는다. 기존 관계를 철회하고, 새 현재 근거로 새 후보를 확정한다. 같은 canonical 내용도 새 관계로 재확인할 수 있다. 다른 비철회 관계와 내용이 같으면 그 관계에 새 근거를 추가한다. 실패하면 철회와 새 후보를 함께 롤백한다.
 - 작품 영구 삭제 및 이를 사용하는 회원 탈퇴 경로는 evidence → candidate → relationship → snapshot source → Fact 순서로 삭제한다. 원문과 별개로 관계 개인 데이터도 함께 삭제된다.
 
-현재 읽기는 관계별 비동기 stale flag를 저장하지 않고 작품의 관계·근거를 묶어서 조회해 사용 가능성을 계산한다. 순환 검사를 위해 목록의 페이지와 별개로 작품의 전체 관계 그래프를 읽는다. 작품당 관계 규모가 커지면 이 전체 조회와 가계도 전용 조회의 한도를 측정한 뒤 조정한다. 이번 변경에서 새로운 추출 작업, LLM 호출, 백그라운드 관계 갱신은 추가하지 않는다.
+현재 읽기는 작품의 관계·근거를 묶어서 조회해 사용 가능성을 계산한다. #260 자동 확정 근거는 추가로 작품의 최신 관계 입력 버전에서 검증되었는지와 자동 검토 보류 여부를 검사한다. 후처리 대기 중의 자동 관계를 계속 유효한 것으로 보여주지 않으며, 수동 확정 근거는 이 자동 처리 버전의 영향을 받지 않는다. 순환 검사를 위해 목록의 페이지와 별개로 작품의 전체 관계 그래프를 읽는다. 작품당 관계 규모가 커지면 이 전체 조회와 가계도 전용 조회의 한도를 측정한 뒤 조정한다. 기존 추출 작업과 LLM 호출은 늘리지 않으며, #260의 별도 규칙 후처리만 현재 설정을 소비한다.
 
 ## HTTP 계약
 
@@ -113,10 +113,10 @@ flowchart TD
 
 단위 테스트는 현재 슬롯/출처 교집합, 토큰 정규화, 원문 파기, 순환 복구와 근거 응답을 검증한다. MockMvc 테스트는 실제 인증·JPA로 방향 중복, 후보 검토, 수정·멱등 재시도, 여러 근거, 보관·복구, 동시 확정, 정정/철회 및 작품 삭제를 확인한다. 동일 테스트를 격리된 `pgvector/pgvector:0.8.2-pg16` Testcontainer에서 실행해 Flyway V84와 JPA validate도 검사한다. 공유/운영 DB는 사용하지 않는다.
 
-#260의 자동 후보 생성은 위 source 경계와 requestId 계약을 소비한다. 현재 사용자 API는 소유자의 명시적 작성·검토 경로다. Worker 저장 경계나 내부 인증은 후속 연계에서 결정하며 기존 SettingCandidate 생성 책임을 옮기지 않는다. #261은 canonical PARENT_OF를 위→아래, SPOUSE/SIBLING을 대칭 간선으로 해석하고, 원문이나 Fact를 다시 읽어 임의의 간선을 만들지 않는다.
+#260의 규칙 후처리는 위 source 경계를 소비하고, 현재 설정과 출처에 결속된 멱등 후보를 만든다. 사용자 API는 소유자의 명시적 작성·검토 경로를 유지한다. Worker 출력·내부 인증과 기존 SettingCandidate 생성 책임은 옮기지 않는다. #261은 canonical PARENT_OF를 위→아래, SPOUSE/SIBLING을 대칭 간선으로 해석하고, 원문이나 Fact를 다시 읽어 임의의 간선을 만들지 않는다.
 
-### 2026-10-17 구현 검증 결과
+### 2026-10-17 #259 구현 당시 검증 결과
 
 - `./gradlew test bootJar --console=plain`: 전체 3,091건 중 2,855건 통과, 236건 건너뜀, 실패 0건. 새 저장소 의존성을 반영하도록 기존 DB 없는 기동 테스트의 mock 등록도 보완했다.
 - 입력 검증 메시지를 한국어로 정리한 최종 상태에서 `./gradlew test --tests '*relationship.*' bootJar --console=plain`: 관계 테스트 76건 전부 통과, 건너뜀 0건. PostgreSQL API 26건에 Flyway/JPA validate 검증이 포함된다.
-- 원문에서 관계를 생성하는 자동 처리와 가계도 화면은 후속 #260/#261의 범위다. 이번 계약은 사용자 명시적 확정을 기본으로 하며 추가 자동 확정 정책은 도입하지 않았다.
+- 위 실행 결과는 #259 구현 당시 기록이다. 당시에는 사용자 명시적 확정만 제공했으며, #260 규칙 후처리의 변경과 검증은 별도 [후처리 문서](family-relationship-processing-v1.md)에서 관리한다. 가계도 화면은 #261 범위다.

@@ -51,7 +51,7 @@ Spring 스케줄러는 기본 10초 간격으로 한 번 실행될 때 최대 10
 3. 예약 중인 AI 토큰을 `WORK_PURGE_CANCELED` 사유로 반환합니다.
 4. 실행 중 작업이 있었다면 기본 75초 동안 Worker가 heartbeat 거절을 관찰하도록 기다립니다.
 5. `works/{workId}/`와 모든 `upload-batches/{batchId}/` prefix의 S3 object version과 delete marker를 삭제합니다.
-6. 저장소 삭제가 모두 성공한 경우에만 한 DB 트랜잭션에서 후보·근거·분석 작업·회차·업로드·작품을 자식부터 삭제합니다. 가족 관계는 relationship_evidence → relationship_candidates → character_relationships 순으로 Fact보다 먼저 삭제합니다.
+6. 저장소 삭제가 모두 성공한 경우에만 한 DB 트랜잭션에서 후보·근거·분석 작업·회차·업로드·작품을 자식부터 삭제합니다. 가족 관계 처리 상태 relationship_processing_states를 정리하고 관계는 relationship_evidence → relationship_candidates → character_relationships 순으로 Fact보다 먼저 삭제합니다.
 7. 삭제 요청 감사 row의 만료 시각을 완료 후 1년으로 설정합니다.
 
 `PURGING` 작품은 잠금을 사용하는 모든 변경 API와 새 분석 요청에서 `WORK_PURGE_IN_PROGRESS`로 거절됩니다. Worker claim 쿼리도 `ACTIVE` 작품만 선택합니다. 저장소 삭제가 실패하면 DB를 보존하므로 prefix 삭제를 안전하게 재시도할 수 있습니다.
