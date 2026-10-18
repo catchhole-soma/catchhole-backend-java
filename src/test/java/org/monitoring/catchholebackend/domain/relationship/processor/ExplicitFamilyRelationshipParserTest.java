@@ -116,6 +116,65 @@ class ExplicitFamilyRelationshipParserTest {
         });
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"profile.전_남편", "profile.전__남편", "profile.전_아내",
+            "profile_family/전_남편", "전_남편"})
+    @DisplayName("키 항목명 안의 underscore는 공백이며 명시된 과거 역할을 보존한다")
+    void preservesHistoricalRoleInWholeKeyLabel(String key) {
+        var result = parser.parse(key, current("홍길동"));
+
+        assertThat(result.reviewReasons()).isEmpty();
+        assertThat(result.relationships()).singleElement().satisfies(relation -> {
+            assertThat(relation.kind()).isEqualTo(RelationshipKind.SPOUSE);
+            assertThat(relation.objectMention()).isEqualTo("홍길동");
+            assertThat(relation.assertion()).isEqualTo(RelationshipAssertion.ASSERTED);
+            assertThat(relation.temporalScope()).isEqualTo(RelationshipTemporalScope.HISTORICAL);
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"profile.과거_아버지", "profile.추정_아버지", "profile.아버지_추정",
+            "profile.아버지(추정)", "profile_family/추정_아버지", "profile.미래_배우자",
+            "profile.의붓_아버지", "profile_아버지", "profile.추정/아버지", "profile.과거.아버지"})
+    @DisplayName("미지원 가족 항목명의 한정어나 경로를 버리고 마지막 역할만 연결하지 않는다")
+    void holdsUnsupportedWholeFamilyKeyForBareTarget(String key) {
+        var result = parser.parse(key, current("홍길동"));
+
+        assertThat(result.relationships()).isEmpty();
+        assertThat(result.familyMentioned()).isTrue();
+        assertThat(result.reviewReasons()).contains("UNSUPPORTED_FAMILY_SYNTAX");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"profile.과거_아버지", "profile.추정_아버지", "profile.아버지_추정",
+            "profile.추정_가족", "profile.아버지(추정)", "profile.소문_가족", "profile.의붓_아버지",
+            "profile.추정/아버지", "profile.과거.아버지"})
+    @DisplayName("값이 완결된 관계 문장이어도 키의 한정어 문맥을 무시하지 않는다")
+    void holdsQualifiedKeyEvenWhenValueIsCompleteClaim(String key) {
+        for (boolean hasStructuredValue : List.of(false, true)) {
+            ObjectNode wrapper = current("아버지: 홍길동");
+            if (hasStructuredValue) {
+                wrapper.set("valueJson", JsonNodeFactory.instance.objectNode()
+                        .put("value", "아버지: 홍길동").put("name", "family"));
+            }
+
+            assertThat(parser.parse(key, wrapper).relationships()).singleElement().satisfies(relation -> {
+                assertThat(relation.assertion()).isEqualTo(RelationshipAssertion.UNCERTAIN);
+                assertThat(relation.reviewReasons()).contains("UNSUPPORTED_FAMILY_SYNTAX");
+            });
+        }
+    }
+
+    @Test
+    @DisplayName("과거 키와 현재 문장의 상충을 현재 단정으로 해소하지 않는다")
+    void holdsConflictingKeyAndValueTime() {
+        assertThat(parser.parse("profile.과거_배우자", current("현재 배우자: 홍길동")).relationships())
+                .singleElement().satisfies(relation -> {
+                    assertThat(relation.assertion()).isEqualTo(RelationshipAssertion.UNCERTAIN);
+                    assertThat(relation.reviewReasons()).contains("UNSUPPORTED_FAMILY_SYNTAX");
+                });
+    }
+
     @Test
     @DisplayName("서로 같은 두 표현 채널과 반복된 명제는 한 번만 반환한다")
     void deduplicatesEquivalentChannelsAndRepeatedClaims() {
@@ -339,7 +398,7 @@ class ExplicitFamilyRelationshipParserTest {
         ObjectMapper json = new ObjectMapper();
         JsonNode fixture = json.readTree(Files.readString(Path.of("docs/contracts/family-relationship-processing-v1.json")));
         assertThat(fixture.path("schemaVersion").asInt()).isEqualTo(1);
-        assertThat(fixture.path("cases")).hasSize(25);
+        assertThat(fixture.path("cases")).hasSize(32);
         for (JsonNode testCase : fixture.path("cases")) {
             String key = testCase.path("factKey").isNull() ? null : testCase.path("factKey").asText();
             FamilyRelationshipParseResult result = parser.parse(key, testCase.path("currentValue"));

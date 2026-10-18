@@ -607,13 +607,172 @@
             "timeLabel": null,
             "assertion": "UNCERTAIN",
             "reviewReasons": [
+              "UNSUPPORTED_FAMILY_SYNTAX",
               "UNSUPPORTED_STRUCTURED_CONTEXT"
             ]
           }
         ],
         "familyMentioned": true,
         "reviewReasons": [
+          "UNSUPPORTED_FAMILY_SYNTAX",
           "UNSUPPORTED_STRUCTURED_CONTEXT"
+        ]
+      }
+    },
+    {
+      "name": "키 전체의 전 남편은 과거 관계로 보존",
+      "factKey": "profile.전_남편",
+      "currentValue": {
+        "factValue": "홍길동",
+        "valueJson": {
+          "value": "홍길동",
+          "name": "전 남편"
+        }
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "SPOUSE",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "HISTORICAL",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": []
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": []
+      }
+    },
+    {
+      "name": "과거 아버지 키의 한정어를 버리지 않음",
+      "factKey": "profile.과거_아버지",
+      "currentValue": {
+        "factValue": "홍길동",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNSUPPORTED_FAMILY_SYNTAX"
+        ]
+      }
+    },
+    {
+      "name": "추정 아버지 키의 단순 값은 역할로 추정하지 않음",
+      "factKey": "profile.추정_아버지",
+      "currentValue": {
+        "factValue": "홍길동",
+        "valueJson": {
+          "value": "홍길동"
+        }
+      },
+      "expected": {
+        "relationships": [],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNSUPPORTED_FAMILY_SYNTAX"
+        ]
+      }
+    },
+    {
+      "name": "추정 키는 완결된 관계 문장으로도 우회하지 않음",
+      "factKey": "profile.추정_아버지",
+      "currentValue": {
+        "factValue": "아버지: 홍길동",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "CHILD_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "UNCERTAIN",
+            "reviewReasons": [
+              "UNSUPPORTED_FAMILY_SYNTAX"
+            ]
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNSUPPORTED_FAMILY_SYNTAX"
+        ]
+      }
+    },
+    {
+      "name": "가족 일반 표시명은 키의 추정 문맥을 취소하지 않음",
+      "factKey": "profile.추정_가족",
+      "currentValue": {
+        "factValue": "아버지: 홍길동",
+        "valueJson": {
+          "value": "아버지: 홍길동",
+          "name": "family"
+        }
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "CHILD_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "UNCERTAIN",
+            "reviewReasons": [
+              "UNSUPPORTED_FAMILY_SYNTAX"
+            ]
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNSUPPORTED_FAMILY_SYNTAX"
+        ]
+      }
+    },
+    {
+      "name": "profile suffix 내부 슬래시는 namespace로 절단하지 않음",
+      "factKey": "profile.추정/아버지",
+      "currentValue": {
+        "factValue": "홍길동",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNSUPPORTED_FAMILY_SYNTAX"
+        ]
+      }
+    },
+    {
+      "name": "키의 과거와 값의 현재를 임의로 해소하지 않음",
+      "factKey": "profile.과거_배우자",
+      "currentValue": {
+        "factValue": "현재 배우자: 홍길동",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "SPOUSE",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "UNCERTAIN",
+            "reviewReasons": [
+              "UNSUPPORTED_FAMILY_SYNTAX"
+            ]
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNSUPPORTED_FAMILY_SYNTAX"
         ]
       }
     }

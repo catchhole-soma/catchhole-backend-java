@@ -38,6 +38,7 @@ import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.relationship.processor.RelationshipAutomationProcessor;
 import org.monitoring.catchholebackend.domain.relationship.processor.RelationshipProcessingScheduler;
+import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipProcessingInput;
 import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipProcessingStateRepository;
 import org.monitoring.catchholebackend.domain.relationship.service.RelationshipProcessingService;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
@@ -114,7 +115,7 @@ class RelationshipProcessingIntegrationTest {
         assertThat(relations()).isEmpty();
         assertThat(getData("/relationship-processing").path("state").asText()).isEqualTo("PENDING");
 
-        processing.process(workId);
+        processCurrentInput();
 
         JsonNode relationship = only(relations());
         assertThat(relationship.path("kind").asText()).isEqualTo("SPOUSE");
@@ -125,9 +126,9 @@ class RelationshipProcessingIntegrationTest {
         assertThat(candidate.path("automaticallyConfirmed").asBoolean()).isTrue();
         assertThat(getData("/relationship-processing").path("autoConfirmedCount").asInt()).isEqualTo(1);
 
-        processing.process(workId);
+        processCurrentInput();
         processing.requestProcessing(memberId, workId);
-        processing.process(workId);
+        processCurrentInput();
         assertThat(only(relations()).path("id")).isEqualTo(relationship.path("id"));
         assertThat(candidates()).hasSize(1);
         assertThat(getData("/relationship-processing").path("autoConfirmedCount").asInt()).isZero();
@@ -138,7 +139,7 @@ class RelationshipProcessingIntegrationTest {
     void inverseParentStatementsDeduplicate() throws Exception {
         source(aria, "profile.family", "자녀: 보린", true);
         source(borin, "profile.family", "부모: 아리아", true);
-        processing.process(workId);
+        processCurrentInput();
 
         JsonNode relationship = only(relations());
         assertThat(relationship.path("subjectCharacterId").asText()).isEqualTo(aria.toString());
@@ -152,7 +153,7 @@ class RelationshipProcessingIntegrationTest {
     @DisplayName("형제 관계만 명시되어 있으면 부모를 추정해 생성하지 않는다")
     void siblingsDoNotInventParents() throws Exception {
         source(aria, "profile.family", "형제: 보린", true);
-        processing.process(workId);
+        processCurrentInput();
         assertThat(only(relations()).path("kind").asText()).isEqualTo("SIBLING");
         assertThat(jdbc.queryForObject("select count(*) from characters where work_id = ?", Long.class, workId))
                 .isEqualTo(3);
@@ -162,7 +163,7 @@ class RelationshipProcessingIntegrationTest {
     @DisplayName("같은 자녀의 친부모와 양부모는 서로 충돌시키지 않고 구분해 보존한다")
     void biologicalAndAdoptiveParentsCoexist() throws Exception {
         source(borin, "profile.family", "친아버지: 아리아; 양어머니: 셀린", true);
-        processing.process(workId);
+        processCurrentInput();
         assertThat(relations()).hasSize(2);
         assertThat(relations().stream().map(row -> row.path("subtype").asText())).containsExactlyInAnyOrder("BIOLOGICAL", "ADOPTIVE");
         assertThat(relations()).allSatisfy(row -> assertThat(row.path("validity").asText()).isEqualTo("VALID"));
@@ -173,7 +174,7 @@ class RelationshipProcessingIntegrationTest {
     void duplicateNamesAndSelfReferencesRemainPending() throws Exception {
         tx.executeWithoutResult(transaction -> character(works.getOwnedWorkForUpdate(workId, memberId), "보린"));
         source(aria, "profile.family", "배우자: 보린; 형제: 아리아", true);
-        processing.process(workId);
+        processCurrentInput();
         assertThat(relations()).isEmpty();
         assertThat(candidates()).hasSize(2).allSatisfy(row -> {
             assertThat(row.path("status").asText()).isEqualTo("PENDING");
@@ -188,7 +189,7 @@ class RelationshipProcessingIntegrationTest {
     void simultaneousContradictionPreventsAutomaticConfirmation() throws Exception {
         source(aria, "profile.family", "보린의 부모", true);
         source(borin, "profile.family", "아리아의 자녀가 아니다", true);
-        processing.process(workId);
+        processCurrentInput();
         assertThat(relations()).isEmpty();
         assertThat(candidates()).hasSize(2).allSatisfy(row ->
                 assertThat(strings(row.path("reviewReasons"))).contains("CONFLICTING"));
@@ -198,12 +199,12 @@ class RelationshipProcessingIntegrationTest {
     @DisplayName("나중에 부정 근거가 저장되면 대기 중부터 기존 자동 관계를 보류하고 재처리 후에도 보류한다")
     void laterContradictionInvalidatesExistingAutomaticSupport() throws Exception {
         source(aria, "profile.family", "보린의 부모", true);
-        processing.process(workId);
+        processCurrentInput();
         String relationId = only(relations()).path("id").asText();
         source(borin, "profile.family", "아리아의 자녀가 아니다", true);
         assertThat(getData("/relationships/" + relationId).path("validity").asText()).isEqualTo("REVIEW_REQUIRED");
 
-        processing.process(workId);
+        processCurrentInput();
 
         assertThat(getData("/relationships/" + relationId).path("validity").asText()).isEqualTo("REVIEW_REQUIRED");
         assertThat(candidates()).hasSize(2);
@@ -217,7 +218,7 @@ class RelationshipProcessingIntegrationTest {
         source(aria, "profile.family", "자녀: 보린", true);
         source(borin, "profile.family", "자녀: 셀린", true);
         source(celine, "profile.family", "자녀: 아리아", true);
-        processing.process(workId);
+        processCurrentInput();
         assertThat(relations()).isEmpty();
         assertThat(candidates()).hasSize(3).allSatisfy(row ->
                 assertThat(strings(row.path("reviewReasons"))).contains("ANCESTRY_CYCLE"));
@@ -228,7 +229,7 @@ class RelationshipProcessingIntegrationTest {
     @DisplayName("철회한 부모 관계는 동일 또는 갱신 출처의 재처리에서도 새 관계의 순환 경로로 쓰지 않는다")
     void withdrawnAutomaticRelationDoesNotCreatePhantomAncestryCycle(boolean replaceOriginalSource) throws Exception {
         source(aria, "profile.family", "자녀: 보린", true);
-        processing.process(workId);
+        processCurrentInput();
         JsonNode withdrawn = only(relations());
         postJson("/relationships/" + withdrawn.path("id").asText() + "/withdraw",
                 revision(withdrawn.path("version").asLong())).andExpect(status().isOk());
@@ -237,7 +238,7 @@ class RelationshipProcessingIntegrationTest {
         }
         source(borin, "profile.family", "자녀: 아리아", true);
 
-        processing.process(workId);
+        processCurrentInput();
 
         assertThat(getData("/relationships/" + withdrawn.path("id").asText()).path("validity").asText()).isEqualTo("WITHDRAWN");
         List<JsonNode> active = relations().stream().filter(row -> row.path("validity").asText().equals("VALID")).toList();
@@ -256,7 +257,7 @@ class RelationshipProcessingIntegrationTest {
     void dismissedAndEditedCandidatesRemainUserDecisions() throws Exception {
         Source spouse = source(aria, "profile.family", "배우자: 미등록인", true);
         source(borin, "profile.family", "형제: 다른미등록인", true);
-        processing.process(workId);
+        processCurrentInput();
         JsonNode edited = candidates().stream().filter(row -> row.path("subjectCharacterId").asText().equals(aria.toString())).findFirst().orElseThrow();
         JsonNode dismissed = candidates().stream().filter(row -> row.path("subjectCharacterId").asText().equals(borin.toString())).findFirst().orElseThrow();
         postJson(candidatePath(dismissed) + "/dismiss", revision(0)).andExpect(status().isOk());
@@ -266,7 +267,7 @@ class RelationshipProcessingIntegrationTest {
         putJson(candidatePath(edited), update).andExpect(status().isOk());
 
         processing.requestProcessing(memberId, workId);
-        processing.process(workId);
+        processCurrentInput();
 
         assertThat(candidates()).hasSize(2);
         assertThat(getData(candidatePath(dismissed)).path("status").asText()).isEqualTo("DISMISSED");
@@ -279,10 +280,10 @@ class RelationshipProcessingIntegrationTest {
     @DisplayName("현재 슬롯 교체는 과거 자동 관계를 보류하고 새 관계와 Fact 이력을 함께 남긴다")
     void changedCurrentSlotReplacesSupportWithoutErasingHistory() throws Exception {
         Source before = source(aria, "profile.family", "배우자: 보린", true);
-        processing.process(workId);
+        processCurrentInput();
         String oldId = only(relations()).path("id").asText();
         Source after = source(aria, "profile.family", "배우자: 셀린", true);
-        processing.process(workId);
+        processCurrentInput();
 
         assertThat(relations()).hasSize(2);
         JsonNode old = getData("/relationships/" + oldId);
@@ -301,7 +302,7 @@ class RelationshipProcessingIntegrationTest {
         source(aria, "profile.old_family", "배우자: 보린", false);
         source(aria, "profile.family", "복잡한 가족 사정 때문에 서로를 피한다", true);
         source(borin, "profile.job", "검사", true);
-        processing.process(workId);
+        processCurrentInput();
         assertThat(candidates()).isEmpty();
         assertThat(relations()).isEmpty();
         assertThat(getData("/relationship-processing").path("unsupportedSourceCount").asInt()).isEqualTo(1);
@@ -328,16 +329,16 @@ class RelationshipProcessingIntegrationTest {
                 .andExpect(status().isOk()));
         assertThat(again.path("inputVersion")).isEqualTo(first.path("inputVersion"));
         assertThat(ready()).contains(workId);
-        processing.recordFailure(workId);
+        processing.recordFailure(workId, currentInputVersion());
         assertThat(getData("/relationship-processing").path("state").asText()).isEqualTo("FAILED");
         assertThat(ready()).doesNotContain(workId);
-        processing.process(workId);
+        processCurrentInput();
         assertThat(getData("/relationship-processing").path("processedVersion").asLong()).isZero();
 
         source(aria, "profile.family", "배우자: 보린", true);
         assertThat(ready()).contains(workId);
         assertThat(getData("/relationship-processing").path("state").asText()).isEqualTo("PENDING");
-        processing.process(workId);
+        processCurrentInput();
         JsonNode complete = getData("/relationship-processing");
         assertThat(complete.path("state").asText()).isEqualTo("SUCCEEDED");
         assertThat(complete.path("processedVersion")).isEqualTo(complete.path("inputVersion"));
@@ -347,10 +348,10 @@ class RelationshipProcessingIntegrationTest {
         assertThat(ready()).doesNotContain(workId);
 
         processing.requestProcessing(memberId, workId);
-        processing.recordFailure(workId);
+        processing.recordFailure(workId, currentInputVersion());
         processing.requestProcessing(memberId, workId);
         assertThat(ready()).contains(workId);
-        processing.process(workId);
+        processCurrentInput();
         assertThat(getData("/relationship-processing").path("state").asText()).isEqualTo("SUCCEEDED");
     }
 
@@ -364,14 +365,14 @@ class RelationshipProcessingIntegrationTest {
             throw new IllegalStateException("synthetic post-write failure");
         }).when(automationProcessor).process(any(Work.class));
         try {
-            assertThatThrownBy(() -> processing.process(workId)).isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> processing.process(workId, inputVersion)).isInstanceOf(IllegalStateException.class);
             assertThat(candidates()).isEmpty();
             assertThat(relations()).isEmpty();
             assertThat(states.findByWorkId(workId)).isEmpty();
 
             // 다른 테스트 작품을 처리하지 않도록 scheduler의 대상 선택만 좁힌다.
             RelationshipProcessingStateRepository queue = mock(RelationshipProcessingStateRepository.class);
-            when(queue.findReadyWorkIds(any(), any())).thenReturn(List.of(workId));
+            when(queue.findReadyInputs(any(), any())).thenReturn(List.of(new RelationshipProcessingInput(workId, inputVersion)));
             new RelationshipProcessingScheduler(queue, processing).processPending();
 
             JsonNode failed = getData("/relationship-processing");
@@ -390,7 +391,7 @@ class RelationshipProcessingIntegrationTest {
         }
 
         processing.requestProcessing(memberId, workId);
-        processing.process(workId);
+        processCurrentInput();
 
         assertThat(getData("/relationship-processing").path("state").asText()).isEqualTo("SUCCEEDED");
         assertThat(only(relations()).path("validity").asText()).isEqualTo("VALID");
@@ -398,18 +399,116 @@ class RelationshipProcessingIntegrationTest {
     }
 
     @Test
+    @DisplayName("실패 롤백 뒤 새 설정이 커밋되면 늦은 실패 기록은 새 입력을 실패로 표시하거나 지연하지 않는다")
+    void lateFailureAfterRollbackDoesNotDelayNewlyCommittedInput() throws Exception {
+        source(aria, "profile.family", "배우자: 보린", true);
+        RelationshipProcessingInput attempted = readyInput();
+        doAnswer(invocation -> {
+            invocation.callRealMethod();
+            throw new IllegalStateException("synthetic post-write failure");
+        }).when(automationProcessor).process(any(Work.class));
+        try {
+            assertThatThrownBy(() -> processing.process(attempted.workId(), attempted.inputVersion()))
+                    .isInstanceOf(IllegalStateException.class);
+        } finally {
+            doCallRealMethod().when(automationProcessor).process(any(Work.class));
+        }
+        assertThat(candidates()).isEmpty();
+        assertThat(relations()).isEmpty();
+
+        Source current = source(aria, "profile.family", "배우자: 셀린", true);
+        RelationshipProcessingInput latest = readyInput();
+        assertThat(latest.inputVersion()).isGreaterThan(attempted.inputVersion());
+
+        processing.recordFailure(attempted.workId(), attempted.inputVersion());
+
+        JsonNode pending = getData("/relationship-processing");
+        assertThat(pending.path("state").asText()).isEqualTo("PENDING");
+        assertThat(pending.path("failureCode").isNull()).isTrue();
+        assertThat(pending.path("retryAt").isNull()).isTrue();
+        assertThat(pending.path("inputVersion").asLong()).isEqualTo(latest.inputVersion());
+        assertThat(pending.path("processedVersion").asLong()).isZero();
+        assertThat(states.findByWorkId(workId)).isEmpty();
+        assertThat(readyInput()).isEqualTo(latest);
+        assertThat(getData("/relationship-sources?characterId=" + aria).get(0).path("factId").asText())
+                .isEqualTo(current.factId().toString());
+
+        processing.process(latest.workId(), latest.inputVersion());
+
+        assertThat(only(relations()).path("validity").asText()).isEqualTo("VALID");
+        assertThat(only(candidates()).path("objectCharacterId").asText()).isEqualTo(celine.toString());
+        assertThat(getData("/relationship-processing").path("state").asText()).isEqualTo("SUCCEEDED");
+    }
+
+    @Test
+    @DisplayName("큐에서 읽은 뒤 설정이 바뀌면 오래된 큐 항목은 새 입력 세대를 처리하지 않는다")
+    void staleQueuedInputCannotProcessNewerGeneration() throws Exception {
+        source(aria, "profile.family", "배우자: 보린", true);
+        RelationshipProcessingInput queued = readyInput();
+        source(aria, "profile.family", "배우자: 셀린", true);
+        RelationshipProcessingInput latest = readyInput();
+        assertThat(latest.inputVersion()).isGreaterThan(queued.inputVersion());
+
+        processing.process(queued.workId(), queued.inputVersion());
+
+        assertThat(candidates()).isEmpty();
+        assertThat(relations()).isEmpty();
+        assertThat(states.findByWorkId(workId)).isEmpty();
+        assertThat(readyInput()).isEqualTo(latest);
+        assertThat(getData("/relationship-processing").path("state").asText()).isEqualTo("PENDING");
+
+        processing.process(latest.workId(), latest.inputVersion());
+
+        assertThat(only(candidates()).path("objectCharacterId").asText()).isEqualTo(celine.toString());
+        assertThat(getData("/relationship-processing").path("processedVersion").asLong()).isEqualTo(latest.inputVersion());
+    }
+
+    @Test
+    @DisplayName("이전 세대의 늦은 실패는 최신 실패의 재시도 시각이나 이미 완료한 성공을 덮어쓰지 않는다")
+    void staleFailureCannotOverwriteNewerFailureOrCompletedSuccess() throws Exception {
+        source(aria, "profile.family", "배우자: 보린", true);
+        RelationshipProcessingInput previous = readyInput();
+        source(aria, "profile.family", "배우자: 셀린", true);
+        RelationshipProcessingInput latest = readyInput();
+        processing.recordFailure(latest.workId(), latest.inputVersion());
+        var latestFailure = processing.getStatus(memberId, workId);
+        assertThat(latestFailure.state().name()).isEqualTo("FAILED");
+        assertThat(latestFailure.retryAt()).isNotNull();
+
+        processing.recordFailure(previous.workId(), previous.inputVersion());
+
+        assertThat(processing.getStatus(memberId, workId)).isEqualTo(latestFailure);
+        assertThat(states.findByWorkId(workId).orElseThrow().getAttemptedVersion()).isEqualTo(latest.inputVersion());
+        assertThat(ready()).doesNotContain(workId);
+
+        processing.requestProcessing(memberId, workId);
+        processing.process(latest.workId(), latest.inputVersion());
+        var completed = processing.getStatus(memberId, workId);
+        assertThat(completed.state().name()).isEqualTo("SUCCEEDED");
+        assertThat(completed.processedVersion()).isEqualTo(latest.inputVersion());
+
+        processing.recordFailure(previous.workId(), previous.inputVersion());
+        processing.recordFailure(latest.workId(), latest.inputVersion());
+
+        assertThat(processing.getStatus(memberId, workId)).isEqualTo(completed);
+        assertThat(ready()).doesNotContain(workId);
+        assertThat(only(relations()).path("validity").asText()).isEqualTo("VALID");
+    }
+
+    @Test
     @DisplayName("작품 영구 삭제는 새 처리 상태와 관계 원장을 함께 정리한다")
     void workPurgeDeletesProcessingState() throws Exception {
         source(aria, "profile.family", "배우자: 보린", true);
-        processing.process(workId);
+        processCurrentInput();
+        long inputVersion = currentInputVersion();
         assertThat(states.findByWorkId(workId)).isPresent();
         jdbc.execute("create table if not exists episode_chunks (id uuid primary key, episode_id uuid not null)");
         tx.executeWithoutResult(transaction -> purge.purgeWorkData(workId));
         assertThat(states.findByWorkId(workId)).isEmpty();
         assertThat(jdbc.queryForObject("select count(*) from relationship_candidates where work_id = ?", Long.class, workId)).isZero();
         assertThat(jdbc.queryForObject("select count(*) from works where id = ?", Long.class, foreignWorkId)).isEqualTo(1);
-        processing.process(workId);
-        processing.recordFailure(workId);
+        processing.process(workId, inputVersion);
+        processing.recordFailure(workId, inputVersion);
         assertThat(states.findByWorkId(workId)).isEmpty();
     }
 
@@ -429,14 +528,14 @@ class RelationshipProcessingIntegrationTest {
     @DisplayName("캐릭터 보관과 복원은 자동 관계를 재검증하고 복원된 동일 관계를 재사용한다")
     void archiveAndRestoreRevalidateAutomaticSupport() throws Exception {
         source(aria, "profile.family", "배우자: 보린", true);
-        processing.process(workId);
+        processCurrentInput();
         String id = only(relations()).path("id").asText();
         characterService.archiveCharacter(memberId, workId, borin);
         assertThat(getData("/relationships/" + id).path("validity").asText()).isEqualTo("ARCHIVED_ENDPOINT");
-        processing.process(workId);
+        processCurrentInput();
         characterService.restoreCharacter(memberId, workId, borin);
         assertThat(getData("/relationships/" + id).path("validity").asText()).isEqualTo("REVIEW_REQUIRED");
-        processing.process(workId);
+        processCurrentInput();
         assertThat(only(relations()).path("id").asText()).isEqualTo(id);
         assertThat(only(relations()).path("validity").asText()).isEqualTo("VALID");
         assertThat(candidates()).hasSize(1);
@@ -480,7 +579,15 @@ class RelationshipProcessingIntegrationTest {
         return body;
     }
 
-    private List<UUID> ready() { return states.findReadyWorkIds(LocalDateTime.now(), PageRequest.of(0, 1000)); }
+    private long currentInputVersion() { return processing.getStatus(memberId, workId).inputVersion(); }
+    private void processCurrentInput() { processing.process(workId, currentInputVersion()); }
+    private List<RelationshipProcessingInput> readyInputs() {
+        return states.findReadyInputs(LocalDateTime.now(), PageRequest.of(0, 1000));
+    }
+    private RelationshipProcessingInput readyInput() {
+        return readyInputs().stream().filter(input -> input.workId().equals(workId)).findFirst().orElseThrow();
+    }
+    private List<UUID> ready() { return readyInputs().stream().map(RelationshipProcessingInput::workId).toList(); }
     private List<JsonNode> candidates() throws Exception { return rows(getData("/relationship-candidates?size=100").path("content")); }
     private List<JsonNode> relations() throws Exception { return rows(getData("/relationships?size=100").path("content")); }
     private List<JsonNode> rows(JsonNode values) {
