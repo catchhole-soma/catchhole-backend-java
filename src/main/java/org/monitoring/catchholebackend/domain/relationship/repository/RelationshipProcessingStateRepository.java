@@ -14,11 +14,13 @@ public interface RelationshipProcessingStateRepository extends JpaRepository<Rel
     Optional<RelationshipProcessingState> findByWorkId(UUID workId);
 
     @Query("""
-            select w.id from Work w left join RelationshipProcessingState s on s.work.id = w.id
+            select new org.monitoring.catchholebackend.domain.relationship.repository.RelationshipProcessingInput(
+                w.id, w.relationshipInputVersion)
+            from Work w left join RelationshipProcessingState s on s.work.id = w.id
             where w.lifecycleStatus = org.monitoring.catchholebackend.domain.work.type.WorkLifecycleStatus.ACTIVE
               and w.relationshipInputVersion > coalesce(s.processedVersion, 0)
               and (s.retryAt is null or s.retryAt <= :now or w.relationshipInputVersion > s.attemptedVersion)
             order by w.updatedAt asc, w.id asc
             """)
-    List<UUID> findReadyWorkIds(@Param("now") LocalDateTime now, Pageable pageable);
+    List<RelationshipProcessingInput> findReadyInputs(@Param("now") LocalDateTime now, Pageable pageable);
 }

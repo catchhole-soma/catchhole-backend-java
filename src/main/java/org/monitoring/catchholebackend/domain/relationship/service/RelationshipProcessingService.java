@@ -6,6 +6,6 @@ import org.monitoring.catchholebackend.domain.relationship.dto.response.Relation
 public interface RelationshipProcessingService {
     RelationshipProcessingResponse getStatus(Long memberId, UUID workId);
     RelationshipProcessingResponse requestProcessing(Long memberId, UUID workId);
-    void process(UUID workId);
-    void recordFailure(UUID workId);
+    void process(UUID workId, long expectedInputVersion);
+    void recordFailure(UUID workId, long attemptedVersion);
 }

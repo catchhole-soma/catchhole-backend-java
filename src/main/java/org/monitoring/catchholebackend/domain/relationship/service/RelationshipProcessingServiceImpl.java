@@ -43,9 +43,11 @@ public class RelationshipProcessingServiceImpl implements RelationshipProcessing
 
     @Override
     @Transactional
-    public void process(UUID workId) {
+    public void process(UUID workId, long expectedInputVersion) {
         var work = workRepository.findByIdForUpdate(workId).orElse(null);
         if (work == null || work.getLifecycleStatus() != WorkLifecycleStatus.ACTIVE) return;
+        // 큐 조회 뒤 바뀐 입력은 다음 조회가 처리한다. 실패 시도와 다른 세대를 섞지 않는다.
+        if (work.getRelationshipInputVersion() != expectedInputVersion) return;
         var state = stateRepository.findByWorkId(workId).orElse(null);
         long processed = state == null ? 0 : state.getProcessedVersion();
         if (work.getRelationshipInputVersion() <= processed) return;
@@ -59,13 +61,14 @@ public class RelationshipProcessingServiceImpl implements RelationshipProcessing
 
     @Override
     @Transactional
-    public void recordFailure(UUID workId) {
+    public void recordFailure(UUID workId, long attemptedVersion) {
         var work = workRepository.findByIdForUpdate(workId).orElse(null);
         if (work == null || work.getLifecycleStatus() != WorkLifecycleStatus.ACTIVE) return;
-        var state = stateRepository.findByWorkId(workId)
-                .orElseGet(() -> stateRepository.save(RelationshipProcessingState.create(work)));
-        if (work.getRelationshipInputVersion() > state.getProcessedVersion()) {
-            state.fail(work.getRelationshipInputVersion(), LocalDateTime.now());
-        }
+        // 처리 롤백과 이 트랜잭션 사이에 저장된 새 설정은 실패한 적이 없다.
+        if (work.getRelationshipInputVersion() != attemptedVersion) return;
+        var state = stateRepository.findByWorkId(workId).orElse(null);
+        if (attemptedVersion <= (state == null ? 0 : state.getProcessedVersion())) return;
+        if (state == null) state = stateRepository.save(RelationshipProcessingState.create(work));
+        state.fail(attemptedVersion, LocalDateTime.now());
     }
 }
