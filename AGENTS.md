@@ -589,6 +589,7 @@ domain/<domain>
 - 명확한 현재 설정은 별도 확인 클릭 없이 관계를 확정한다. 불확실·동명이인·미등록·순환·상충은 검토에 남기며 기존 설정 검토 모드/집계와 섞지 않는다. `CURRENT_SETTING_RULE` 후보의 생성 키는 현재 슬롯 토큰과 원래 명제 기준이며 대상 해석 결과를 포함하지 않는다. 재처리는 이미 존재하는 대기 후보·사용자 수정·제외·철회를 되돌리지 않는다.
 - PROFILE provenance 변경과 인물 생성/이름변경/보관/복구는 기존 Work 쓰기 잠금 안에서 `Work.relationshipInputVersion`만 증가시킨다. 관계 처리기는 별도 트랜잭션에서 처리하므로 실패가 설정 확정을 되돌리지 않는다. 새 promotion caller도 Work 잠금을 먼저 획득해야 한다.
 - `relationship.processing.scheduling-enabled=true`, `fixed-delay-ms=10000`은 base 설정이며 test에서는 끈다. scheduler는 한 번에 10개 작품을 처리하고 실패는 1분 뒤 재시도한다. 새 입력 또는 수동 재시도는 이전 실패 대기를 해제한다. 기존 작품의 초기 세대 0은 자동 백필하지 않으며 현재 설정 처리 API로 요청한다.
+- 대기 조회는 작품 ID와 입력 버전을 함께 캡처하고 처리·실패 기록에 같은 버전을 전달한다. Work 잠금 뒤 입력 버전이 다르면 오래된 작업은 건너뛰며, 실패 기록 전 새 입력이 저장됐거나 해당 버전이 이미 완료됐으면 실패 상태를 쓰지 않는다. 롤백 직후 저장된 새 설정에 이전 실패의 대기 시간을 적용하지 않기 위함이다.
 - 자동 확정 근거는 `validatedInputVersion`이 Work 입력 세대와 같아야 지원 근거다. 후처리 대기/실패 중에는 REVIEW_REQUIRED로 보류하고 성공한 트랜잭션에서 다시 검증한다. 수동 확정은 #259 현재 근거 검증을 유지한다. `relationship_processing_states`도 작품/회원 파기 때 Work보다 먼저 삭제한다.
 - API·가계도 계약은 `docs/family-relationships-v1.md`, 자동처리와 검토는 `docs/family-relationship-processing-v1.md`를 따른다. 공유 fixture는 `docs/contracts/family-relationships-v1.json`과 `docs/contracts/family-relationship-processing-v1.json`을 사용한다.
 
