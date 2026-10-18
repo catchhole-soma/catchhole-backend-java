@@ -100,8 +100,11 @@ public class ExplicitFamilyRelationshipParser {
         if (primary != null) {
             channels.add(primary);
         }
-        Role keyRole = roleFromKey(factKey);
-        boolean familyMentioned = keyRole != null || isFamilyKey(factKey)
+        String keyLabel = labelFromKey(factKey);
+        Role keyRole = keyLabel == null ? null : ROLE_BY_WORD.get(keyLabel);
+        boolean familyKeyLabel = keyLabel != null && mentionsFamily(
+                DISPLAY_NAME_QUALIFIER.matcher(keyLabel).replaceAll(" ").replaceAll("[./()\\[\\]]", " "));
+        boolean familyMentioned = keyRole != null || isFamilyKey(factKey) || familyKeyLabel
                 || channels.stream().anyMatch(this::mentionsFamily);
         if (channels.isEmpty()) {
             return new FamilyRelationshipParseResult(List.of(), familyMentioned,
@@ -113,6 +116,11 @@ public class ExplicitFamilyRelationshipParser {
         Set<String> reasons = new LinkedHashSet<>();
         if (channels.size() > 1) {
             reasons.add("CURRENT_VALUE_CONFLICT");
+        }
+        // 값이 온전한 문장이어도 키의 과거·추정 문맥이나 미지원 가족 역할을 버리지 않는다.
+        if (keyLabel != null && (DISPLAY_NAME_QUALIFIER.matcher(keyLabel).find()
+                || familyKeyLabel && keyRole == null && !FAMILY_DISPLAY_NAMES.contains(keyLabel))) {
+            reasons.add("UNSUPPORTED_FAMILY_SYNTAX");
         }
         if (structured != null && !structured.isNull()
                 && (!structured.isTextual() && !structured.isObject()
@@ -251,14 +259,18 @@ public class ExplicitFamilyRelationshipParser {
                 value.timeLabel(), assertion, List.copyOf(reasons));
     }
 
-    private Role roleFromKey(String factKey) {
+    private String labelFromKey(String factKey) {
         if (factKey == null) {
             return null;
         }
         String key = factKey.strip();
-        int delimiter = Math.max(Math.max(key.lastIndexOf('.'), key.lastIndexOf('/')), key.lastIndexOf('_'));
-        String last = key.substring(delimiter + 1);
-        return ROLES.stream().filter(role -> role.word().equals(last)).findFirst().orElse(null);
+        if (key.startsWith("profile.")) {
+            key = key.substring("profile.".length());
+        } else if (key.startsWith("profile_family/")) {
+            key = key.substring("profile_family/".length());
+        }
+        // 현재 PROFILE 키의 '_'는 항목명 안의 공백이다. '전_남편'에서 '전'을 버리지 않는다.
+        return key.replace('_', ' ').replaceAll("\\s+", " ").strip();
     }
 
     /** 직접 편집한 PROFILE의 name은 검증된 표시명일 때만 무시하며 명제로 해석하지 않는다. */
