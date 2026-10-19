@@ -32,6 +32,7 @@ public class CharacterSnapshotSourceManager {
         repository.deleteAll(existing);
         repository.flush();
         saveSources(character, slot, sourceFacts);
+        markRelationshipInputChanged(character, slot.factType());
     }
 
     public void mergeSource(
@@ -50,12 +51,14 @@ public class CharacterSnapshotSourceManager {
                     newSourceFact,
                     existing.size()
             ));
+            markRelationshipInputChanged(character, slot.factType());
         }
     }
 
     public void removeSources(WorkCharacter character, CharacterSnapshotSlot slot) {
         repository.deleteAll(findSources(character, slot));
         repository.flush();
+        markRelationshipInputChanged(character, slot.factType());
     }
 
     /** 여러 snapshot slot의 provenance를 fact type별 bulk 조회한 뒤 한 번에 제거한다. */
@@ -78,6 +81,9 @@ public class CharacterSnapshotSourceManager {
         ));
         repository.deleteAllInBatch(sources);
         repository.flush();
+        if (keysByType.containsKey(CharacterFactType.PROFILE)) {
+            markRelationshipInputChanged(character, CharacterFactType.PROFILE);
+        }
     }
 
     /** snapshot slot별 provenance를 저장된 source_order 순으로 반환한다. */
@@ -122,5 +128,12 @@ public class CharacterSnapshotSourceManager {
             ));
         }
         repository.saveAll(sources);
+    }
+
+    /** 실제 관계 해석은 실행하지 않고 원 설정과 함께 커밋되는 재처리 표지만 남긴다. */
+    private void markRelationshipInputChanged(WorkCharacter character, CharacterFactType factType) {
+        if (factType == CharacterFactType.PROFILE) {
+            character.getWork().markRelationshipInputChanged();
+        }
     }
 }

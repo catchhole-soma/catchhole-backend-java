@@ -25,6 +25,7 @@ import org.monitoring.catchholebackend.domain.relationship.dto.response.Relation
 import org.monitoring.catchholebackend.domain.relationship.dto.response.RelationshipResponse;
 import org.monitoring.catchholebackend.domain.relationship.dto.response.RelationshipSourceResponse;
 import org.monitoring.catchholebackend.domain.relationship.service.RelationshipService;
+import org.monitoring.catchholebackend.domain.relationship.type.RelationshipCandidateStatus;
 import org.monitoring.catchholebackend.global.common.response.CommonErrorResponse;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
 import org.monitoring.catchholebackend.global.common.response.PageResponse;
@@ -80,9 +81,10 @@ public class RelationshipController {
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,
             @Parameter(in = ParameterIn.QUERY, description = "0부터 시작하는 페이지") @RequestParam(defaultValue = "0") @Min(value = 0, message = "페이지 번호는 0 이상이어야 합니다.") int page,
-            @Parameter(in = ParameterIn.QUERY, description = "페이지당 항목 수, 최대 100") @RequestParam(defaultValue = "20") @Min(value = 1, message = "페이지 크기는 1 이상이어야 합니다.") @Max(value = 100, message = "페이지 크기는 100 이하여야 합니다.") int size
+            @Parameter(in = ParameterIn.QUERY, description = "페이지당 항목 수, 최대 100") @RequestParam(defaultValue = "20") @Min(value = 1, message = "페이지 크기는 1 이상이어야 합니다.") @Max(value = 100, message = "페이지 크기는 100 이하여야 합니다.") int size,
+            @Parameter(description = "후보 상태 필터. 생략하면 전체") @RequestParam(required = false) RelationshipCandidateStatus status
     ) {
-        return CommonResponse.success(relationshipService.getRelationshipCandidates(member.memberId(), workId, page, size));
+        return CommonResponse.success(relationshipService.getRelationshipCandidates(member.memberId(), workId, page, size, status));
     }
 
     @GetMapping("/relationship-candidates/{candidateId}")

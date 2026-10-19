@@ -34,6 +34,7 @@ erDiagram
     works ||--o{ ai_token_usages : meters
     works ||--o{ character_relationships : owns_confirmed_relations
     works ||--o{ relationship_candidates : reviews_relations
+    works ||--o| relationship_processing_states : tracks_relation_processing
     characters ||--o{ character_relationships : relates
     character_relationships o|--o{ relationship_candidates : confirms_or_replaces
     relationship_candidates ||--o{ relationship_evidence : references
@@ -781,3 +782,9 @@ V61/V62: `world_image_recommendations`는 `(catalog_id, theme)` PK로 공용 도
 ## 가족 관계 (V84)
 
 `character_relationships`는 canonical 양 끝점·유형·세부 유형·서사 시점의 비철회 관계만 unique로 관리한다. `relationship_candidates`는 작품별 requestId/hash, 검토 버전과 확정/정정 이전 관계를 보존한다. `relationship_evidence`는 candidate/Fact unique와 슬롯 토큰을 저장한다. 원문을 복사하지 않으며 실제 현재 슬롯과 provenance가 모두 남아 있어야 지지 근거로 사용한다. 관계 정정·보관·파기 순서 및 상세 필드는 [가족 관계 v1](family-relationships-v1.md)을 따른다.
+
+### 가족 관계 후처리 (V85)
+
+`works.relationship_input_version`은 현재 PROFILE 출처나 캐릭터 식별/활성 상태가 바뀔 때 증가한다. 초기값 0의 기존 작품은 수동 백필을 요청하기 전까지 자동 처리하지 않는다. `relationship_processing_states`는 작품당 마지막 완료/시도 버전, 완료 시각, 재시도 시각, 정제된 실패 코드, 마지막 실행의 자동 확정·대기·미지원 개수를 저장한다. 대기 여부는 Work 입력 버전과 완료 버전의 차이로 결정하여 프로세스 종료 뒤에도 요청을 잃지 않는다.
+
+후보의 `origin`은 MANUAL/CURRENT_SETTING_RULE을 구분하며 `automatically_confirmed`, `validated_input_version`, `automatic_review_reason`은 자동 확정 근거의 재검증 상태다. 생성 당시 requestId/hash는 수정하지 않는다. 사용자 결정과 과거 Fact 이력은 보존하고 원문을 추가 복제하지 않는다. 규칙과 API는 [가족 관계 후처리](family-relationship-processing-v1.md)를 참고한다.

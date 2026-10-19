@@ -14,5 +14,6 @@ public record RelationshipEvidenceResponse(
         @Schema(description = "현재 슬롯과 토큰이 일치하는지") boolean current,
         @Schema(description = "현재 슬롯 참여 여부와 별개인 원문 인용 존재 여부") boolean hasEvidence,
         @Schema(description = "직접 수정한 설정 근거인지") boolean manuallyEdited,
-        @Schema(description = "원문 근거 조회 경로. 원문이 없으면 null") String evidencePath
+        @Schema(description = "원문 근거 조회 경로. 원문이 없으면 null") String evidencePath,
+        @Schema(description = "현재 설정값. 현재 근거일 때만 제공하고 과거 원문으로 대신하지 않습니다") Object currentValue
 ) {}

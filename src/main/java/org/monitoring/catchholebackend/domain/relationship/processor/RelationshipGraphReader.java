@@ -50,7 +50,7 @@ public class RelationshipGraphReader {
                     || relation.getObjectCharacter().getStatus() != CharacterStatus.ACTIVE) {
                 state = RelationshipValidity.ARCHIVED_ENDPOINT;
             } else {
-                state = byRelation.getOrDefault(relation.getId(), List.of()).stream().anyMatch(e -> isCurrent(e, sources))
+                state = byRelation.getOrDefault(relation.getId(), List.of()).stream().anyMatch(e -> isSupporting(e, sources))
                         ? RelationshipValidity.VALID : RelationshipValidity.REVIEW_REQUIRED;
             }
             validity.put(relation.getId(), state);
@@ -74,8 +74,15 @@ public class RelationshipGraphReader {
                         && r.getSubjectCharacter().getStatus() == CharacterStatus.ACTIVE
                         && r.getObjectCharacter().getStatus() == CharacterStatus.ACTIVE
                         && graph.evidence().getOrDefault(r.getId(), List.of()).stream()
-                                .anyMatch(e -> isCurrent(e, graph.sources())))
+                                .anyMatch(e -> isSupporting(e, graph.sources())))
                 .toList()), child, parent);
+    }
+
+    public static boolean isSupporting(RelationshipEvidence evidence, Map<UUID, RelationshipSourceContext> sources) {
+        var candidate = evidence.getCandidate();
+        return isCurrent(evidence, sources) && !candidate.isAutomaticSupportBlocked()
+                && (!candidate.isAutomaticallyConfirmed()
+                    || candidate.getValidatedInputVersion() == candidate.getWork().getRelationshipInputVersion());
     }
 
     public static boolean isCurrent(RelationshipEvidence evidence, Map<UUID, RelationshipSourceContext> sources) {

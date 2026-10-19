@@ -25,6 +25,7 @@ public class WorkPurgeDataRepository {
      */
     public WorkPurgeDatabaseResult purgeWorkData(UUID workId) {
         int deletedCount = 0;
+        deletedCount += update("delete from relationship_processing_states where work_id = ?", workId);
         deletedCount += update("""
                 delete from relationship_evidence
                 where candidate_id in (select id from relationship_candidates where work_id = ?)

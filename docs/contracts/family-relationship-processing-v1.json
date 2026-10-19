@@ -1,0 +1,780 @@
+{
+  "schemaVersion": 1,
+  "parserVersion": "family-rule-v1",
+  "scope": "현재 PROFILE의 {factValue,valueJson}만 읽는 규칙 파서 사례. 캐릭터 이름의 정확한 일치·소유권·동명·순환·기존 사용자 결정은 후처리 서비스가 검증한다.",
+  "cases": [
+    {
+      "name": "역할 표기의 아버지는 상대를 부모로 연결",
+      "factKey": null,
+      "currentValue": {
+        "factValue": "아버지: 홍길동",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "CHILD_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": []
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": []
+      }
+    },
+    {
+      "name": "소유격 아들은 본인을 자녀로 연결",
+      "factKey": null,
+      "currentValue": {
+        "factValue": "홍길동의 아들",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "CHILD_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": []
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": []
+      }
+    },
+    {
+      "name": "역할 표기의 아들은 상대를 자녀로 연결",
+      "factKey": null,
+      "currentValue": {
+        "factValue": "아들: 홍길동",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "PARENT_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": []
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": []
+      }
+    },
+    {
+      "name": "명시적 배우자",
+      "factKey": null,
+      "currentValue": {
+        "factValue": "남편은 홍길동",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "SPOUSE",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": []
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": []
+      }
+    },
+    {
+      "name": "친형제는 양친 동일을 추론하지 않음",
+      "factKey": null,
+      "currentValue": {
+        "factValue": "홍길동의 친형제",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "SIBLING",
+            "subtype": "BIOLOGICAL",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": []
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": []
+      }
+    },
+    {
+      "name": "입양 부모 보존",
+      "factKey": null,
+      "currentValue": {
+        "factValue": "양부: 홍길동",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "CHILD_OF",
+            "subtype": "ADOPTIVE",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": []
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": []
+      }
+    },
+    {
+      "name": "의붓 부모 보존",
+      "factKey": null,
+      "currentValue": {
+        "factValue": "의붓어머니: 홍길동",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "CHILD_OF",
+            "subtype": "STEP",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": []
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": []
+      }
+    },
+    {
+      "name": "이복 형제의 한쪽 친부모 공유",
+      "factKey": null,
+      "currentValue": {
+        "factValue": "홍길동의 이복형제",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "SIBLING",
+            "subtype": "HALF",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": []
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": []
+      }
+    },
+    {
+      "name": "역할 자체인 슬롯 키",
+      "factKey": "profile_family/아버지",
+      "currentValue": {
+        "factValue": "홍길동",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "CHILD_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": []
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": []
+      }
+    },
+    {
+      "name": "현재 프로필에 명시된 과거 배우자",
+      "factKey": null,
+      "currentValue": {
+        "factValue": "전 남편: 홍길동",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "SPOUSE",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "HISTORICAL",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": []
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": []
+      }
+    },
+    {
+      "name": "부정된 가족 명제",
+      "factKey": null,
+      "currentValue": {
+        "factValue": "홍길동의 아들이 아니다",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "CHILD_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "NEGATED",
+            "reviewReasons": [
+              "NEGATED"
+            ]
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "NEGATED"
+        ]
+      }
+    },
+    {
+      "name": "추정된 가족 명제",
+      "factKey": null,
+      "currentValue": {
+        "factValue": "아버지: 홍길동 (추정)",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "CHILD_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "UNCERTAIN",
+            "reviewReasons": [
+              "UNCERTAIN"
+            ]
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNCERTAIN"
+        ]
+      }
+    },
+    {
+      "name": "비유적 아버지 호칭",
+      "factKey": null,
+      "currentValue": {
+        "factValue": "홍길동의 아버지 같은 존재",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "PARENT_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "FIGURATIVE",
+            "reviewReasons": [
+              "FIGURATIVE"
+            ]
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "FIGURATIVE"
+        ]
+      }
+    },
+    {
+      "name": "친족 외 호칭으로 쓰이는 오빠",
+      "factKey": null,
+      "currentValue": {
+        "factValue": "오빠: 홍길동",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "SIBLING",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "UNCERTAIN",
+            "reviewReasons": [
+              "AMBIGUOUS_FAMILY_ROLE"
+            ]
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "AMBIGUOUS_FAMILY_ROLE"
+        ]
+      }
+    },
+    {
+      "name": "복합 서술은 부분 관계를 추정하지 않음",
+      "factKey": null,
+      "currentValue": {
+        "factValue": "홍길동의 아들이며 김철수의 형제",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNSUPPORTED_FAMILY_SYNTAX"
+        ]
+      }
+    },
+    {
+      "name": "대명사는 이름으로 연결하지 않음",
+      "factKey": null,
+      "currentValue": {
+        "factValue": "아버지: 그 사람",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNSUPPORTED_FAMILY_SYNTAX"
+        ]
+      }
+    },
+    {
+      "name": "표시값과 구조화 현재값 상충",
+      "factKey": null,
+      "currentValue": {
+        "factValue": "아버지: 홍길동",
+        "valueJson": {
+          "value": "아버지: 김철수"
+        }
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "CHILD_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "CONFLICTING",
+            "reviewReasons": [
+              "CURRENT_VALUE_CONFLICT"
+            ]
+          },
+          {
+            "objectMention": "김철수",
+            "kind": "CHILD_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "CONFLICTING",
+            "reviewReasons": [
+              "CURRENT_VALUE_CONFLICT"
+            ]
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "CURRENT_VALUE_CONFLICT"
+        ]
+      }
+    },
+    {
+      "name": "해석하지 못하는 구조화 조건을 버리지 않음",
+      "factKey": null,
+      "currentValue": {
+        "factValue": "아버지: 홍길동",
+        "valueJson": {
+          "value": "아버지: 홍길동",
+          "uncertain": true
+        }
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "CHILD_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "UNCERTAIN",
+            "reviewReasons": [
+              "UNSUPPORTED_STRUCTURED_CONTEXT"
+            ]
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNSUPPORTED_STRUCTURED_CONTEXT"
+        ]
+      }
+    },
+    {
+      "name": "동일 표시값과 구조화 값 중복 제거",
+      "factKey": null,
+      "currentValue": {
+        "factValue": "아버지: 홍길동",
+        "valueJson": {
+          "value": "아버지: 홍길동"
+        }
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "CHILD_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": []
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": []
+      }
+    },
+    {
+      "name": "친족 단어 일부가 포함된 일반 프로필",
+      "factKey": null,
+      "currentValue": {
+        "factValue": "외형은 아름답다",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [],
+        "familyMentioned": false,
+        "reviewReasons": []
+      }
+    },
+    {
+      "name": "직접 편집 API의 value와 family 표시명",
+      "factKey": "profile.family",
+      "currentValue": {
+        "factValue": "배우자: 민지",
+        "valueJson": {
+          "value": "배우자: 민지",
+          "name": "family"
+        }
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "민지",
+            "kind": "SPOUSE",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": []
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": []
+      }
+    },
+    {
+      "name": "키 suffix 공백 표시명은 현재값을 한 번만 해석",
+      "factKey": "profile.family_relations",
+      "currentValue": {
+        "factValue": "배우자: 민지",
+        "valueJson": {
+          "value": "배우자: 민지",
+          "name": "family relations"
+        }
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "민지",
+            "kind": "SPOUSE",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": []
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": []
+      }
+    },
+    {
+      "name": "수동 custom 키의 가족 일반 표시명",
+      "factKey": "profile.manual_123",
+      "currentValue": {
+        "factValue": "배우자: 민지",
+        "valueJson": {
+          "value": "배우자: 민지",
+          "name": "가족 관계"
+        }
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "민지",
+            "kind": "SPOUSE",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": []
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": []
+      }
+    },
+    {
+      "name": "검증되지 않은 표시명 문맥은 보류",
+      "factKey": "profile.family",
+      "currentValue": {
+        "factValue": "배우자: 민지",
+        "valueJson": {
+          "value": "배우자: 민지",
+          "name": "추정 가족관계"
+        }
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "민지",
+            "kind": "SPOUSE",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "UNCERTAIN",
+            "reviewReasons": [
+              "UNSUPPORTED_STRUCTURED_CONTEXT"
+            ]
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNSUPPORTED_STRUCTURED_CONTEXT"
+        ]
+      }
+    },
+    {
+      "name": "키와 같은 표시명도 확실성 한정어는 보류",
+      "factKey": "profile.가족관계(추정)",
+      "currentValue": {
+        "factValue": "배우자: 민지",
+        "valueJson": {
+          "value": "배우자: 민지",
+          "name": "가족관계(추정)"
+        }
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "민지",
+            "kind": "SPOUSE",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "UNCERTAIN",
+            "reviewReasons": [
+              "UNSUPPORTED_FAMILY_SYNTAX",
+              "UNSUPPORTED_STRUCTURED_CONTEXT"
+            ]
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNSUPPORTED_FAMILY_SYNTAX",
+          "UNSUPPORTED_STRUCTURED_CONTEXT"
+        ]
+      }
+    },
+    {
+      "name": "키 전체의 전 남편은 과거 관계로 보존",
+      "factKey": "profile.전_남편",
+      "currentValue": {
+        "factValue": "홍길동",
+        "valueJson": {
+          "value": "홍길동",
+          "name": "전 남편"
+        }
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "SPOUSE",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "HISTORICAL",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": []
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": []
+      }
+    },
+    {
+      "name": "과거 아버지 키의 한정어를 버리지 않음",
+      "factKey": "profile.과거_아버지",
+      "currentValue": {
+        "factValue": "홍길동",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNSUPPORTED_FAMILY_SYNTAX"
+        ]
+      }
+    },
+    {
+      "name": "추정 아버지 키의 단순 값은 역할로 추정하지 않음",
+      "factKey": "profile.추정_아버지",
+      "currentValue": {
+        "factValue": "홍길동",
+        "valueJson": {
+          "value": "홍길동"
+        }
+      },
+      "expected": {
+        "relationships": [],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNSUPPORTED_FAMILY_SYNTAX"
+        ]
+      }
+    },
+    {
+      "name": "추정 키는 완결된 관계 문장으로도 우회하지 않음",
+      "factKey": "profile.추정_아버지",
+      "currentValue": {
+        "factValue": "아버지: 홍길동",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "CHILD_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "UNCERTAIN",
+            "reviewReasons": [
+              "UNSUPPORTED_FAMILY_SYNTAX"
+            ]
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNSUPPORTED_FAMILY_SYNTAX"
+        ]
+      }
+    },
+    {
+      "name": "가족 일반 표시명은 키의 추정 문맥을 취소하지 않음",
+      "factKey": "profile.추정_가족",
+      "currentValue": {
+        "factValue": "아버지: 홍길동",
+        "valueJson": {
+          "value": "아버지: 홍길동",
+          "name": "family"
+        }
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "CHILD_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "UNCERTAIN",
+            "reviewReasons": [
+              "UNSUPPORTED_FAMILY_SYNTAX"
+            ]
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNSUPPORTED_FAMILY_SYNTAX"
+        ]
+      }
+    },
+    {
+      "name": "profile suffix 내부 슬래시는 namespace로 절단하지 않음",
+      "factKey": "profile.추정/아버지",
+      "currentValue": {
+        "factValue": "홍길동",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNSUPPORTED_FAMILY_SYNTAX"
+        ]
+      }
+    },
+    {
+      "name": "키의 과거와 값의 현재를 임의로 해소하지 않음",
+      "factKey": "profile.과거_배우자",
+      "currentValue": {
+        "factValue": "현재 배우자: 홍길동",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "SPOUSE",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "UNCERTAIN",
+            "reviewReasons": [
+              "UNSUPPORTED_FAMILY_SYNTAX"
+            ]
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNSUPPORTED_FAMILY_SYNTAX"
+        ]
+      }
+    }
+  ]
+}

@@ -23,6 +23,7 @@ import org.monitoring.catchholebackend.domain.relationship.exception.Relationshi
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipAssertion;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipCandidateStatus;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipKind;
+import org.monitoring.catchholebackend.domain.relationship.type.RelationshipCandidateOrigin;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipSubtype;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipTemporalScope;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
@@ -108,6 +109,42 @@ public class RelationshipCandidate extends BaseEntity {
     @Column(name = "version", nullable = false)
     private long version;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30)
+    private RelationshipCandidateOrigin origin = RelationshipCandidateOrigin.MANUAL;
+
+    @Column(nullable = false)
+    private boolean automaticallyConfirmed;
+
+    @Column(nullable = false)
+    private long validatedInputVersion;
+
+    public void validateAutomaticSupport(long inputVersion) {
+        validatedInputVersion = inputVersion;
+    }
+
+    @Column(length = 50)
+    private String automaticReviewReason;
+
+    public void markRuleGenerated() {
+        origin = RelationshipCandidateOrigin.CURRENT_SETTING_RULE;
+    }
+
+    public void holdAutomatically(String reason) {
+        automaticReviewReason = reason;
+    }
+
+    public void confirmAutomatically(CharacterRelationship relationship) {
+        confirm(relationship);
+        automaticallyConfirmed = true;
+        automaticReviewReason = null;
+    }
+
+    public boolean isAutomaticSupportBlocked() {
+        return automaticallyConfirmed && automaticReviewReason != null;
+    }
+
+
     // 확정·제외 직전 버전으로 동일 결정의 재전송만 멱등하게 판별한다.
     @Column(name = "decision_from_version")
     private Long decisionFromVersion;
@@ -151,6 +188,7 @@ public class RelationshipCandidate extends BaseEntity {
         this.temporalScope = temporalScope;
         this.timeLabel = timeLabel;
         this.assertion = assertion;
+        automaticReviewReason = null;
         version++;
     }
 

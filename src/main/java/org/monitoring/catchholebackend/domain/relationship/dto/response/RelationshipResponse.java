@@ -22,5 +22,7 @@ public record RelationshipResponse(
         @Schema(description = "현재 근거 유효성. VALID만 가계도에서 사용할 수 있습니다") RelationshipValidity validity,
         @Schema(description = "가계도 기본 표시 대상: VALID이면서 CURRENT") boolean visibleInFamilyTree,
         List<RelationshipEvidenceResponse> evidence,
-        @Schema(description = "등록 시각. 관계 성립 시점이 아닙니다") LocalDateTime createdAt
+        @Schema(description = "등록 시각. 관계 성립 시점이 아닙니다") LocalDateTime createdAt,
+        @Schema(description = "주체의 현재 이름") String subjectCharacterName,
+        @Schema(description = "상대의 현재 이름") String objectCharacterName
 ) {}

@@ -70,9 +70,10 @@ public class RelationshipServiceImpl implements RelationshipService {
     }
 
     @Override
-    public PageResponse<RelationshipCandidateResponse> getRelationshipCandidates(Long memberId, UUID workId, int page, int size) {
+    public PageResponse<RelationshipCandidateResponse> getRelationshipCandidates(Long memberId, UUID workId, int page, int size, RelationshipCandidateStatus status) {
         workRepository.getOwnedWork(workId, memberId);
-        var candidates = candidateRepository.findAllByWorkId(workId, pageRequest(page, size));
+        var candidates = status == null ? candidateRepository.findAllByWorkId(workId, pageRequest(page, size))
+                : candidateRepository.findAllByWorkIdAndStatus(workId, status, pageRequest(page, size));
         var evidence = candidates.isEmpty() ? List.<RelationshipEvidence>of()
                 : evidenceRepository.findAllByCandidateIdIn(candidates.stream().map(RelationshipCandidate::getId).toList());
         var sources = resolveSources(workId, evidence);
@@ -260,6 +261,9 @@ public class RelationshipServiceImpl implements RelationshipService {
     private List<String> reviewReasons(RelationshipCandidate candidate, List<RelationshipEvidence> evidence,
             Map<UUID, RelationshipSourceContext> sources) {
         List<String> reasons = new ArrayList<>();
+        if (candidate.getAutomaticReviewReason() != null) {
+            reasons.add(candidate.getAutomaticReviewReason());
+        }
         if (candidate.getObjectCharacter() == null) {
             reasons.add("UNRESOLVED_TARGET");
         }
@@ -276,7 +280,7 @@ public class RelationshipServiceImpl implements RelationshipService {
         if (evidence.isEmpty() || evidence.stream().anyMatch(e -> !RelationshipGraphReader.isCurrent(e, sources))) {
             reasons.add("SOURCE_CHANGED");
         }
-        return List.copyOf(reasons);
+        return reasons.stream().distinct().toList();
     }
 
     private Map<UUID, RelationshipSourceContext> resolveSources(UUID workId, List<RelationshipEvidence> evidence) {

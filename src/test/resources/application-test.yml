@@ -49,3 +49,7 @@ chat:
   metrics-enabled: false
   session-cleanup:
     scheduling-enabled: false
+
+relationship:
+  processing:
+    scheduling-enabled: false
