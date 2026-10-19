@@ -69,6 +69,7 @@
 - `global.config.monitoring.ProductionHealthWebConfig`는 prod에서 기존 8080의 `/actuator/health`를 전체 health group의 `/healthz`로 내부 전달한다. 관리 포트만 살아 있는 상황을 정상으로 오인하지 않도록 API 포트에서 실제 health를 확인하며 상태 코드·상세 정보 노출 여부는 Actuator가 결정한다.
 - Caddy는 `/actuator/health`를 제외한 `/actuator` 경로를 404로 차단한다. 자동 배포는 Caddyfile을 명시적으로 reload해 파일만 바뀌어도 접근 규칙을 반영한다. 기존 API·Worker 인증과 health 확인 경로는 유지한다.
 - 사용자·작품·Job ID, 원문, 비밀값과 실제 ID가 포함된 URL은 metric label에 넣지 않는다. HTTP 경로는 framework가 제공하는 route template을 사용한다.
+- Security에서 종료된 401·403 중 경로 패턴이 없는 요청은 `SecurityRejectionMetricsFilter`가 등록된 MVC 매핑으로 Observation의 패턴만 보완한다. 컨트롤러·인터셉터는 실행하지 않으며, 미등록 경로·매핑 실패는 raw URI로 대체하지 않고 `UNKNOWN`을 유지한다. 인증 응답과 기존 MVC 계측을 보존하고 실제 HTTP→Prometheus 통합 테스트로 검증한다.
 - 기본 API 대시보드의 HTTP 집계에서는 `/actuator.*`와 `/healthz`를 제외해 메트릭 수집·health 확인 요청을 사용자 트래픽에 섞지 않는다.
 - API 4xx 응답률은 기존 5xx 서버 오류율과 분리한다. 4xx에는 검증·인증·권한·충돌 등 정상적인 요청 거절도 포함되므로 서버 장애율로 합치지 않는다. 상태 코드·메서드·route template별 선택 기간 증가량을 상세에 제공하고, 외부 LLM의 HTTP 오류는 분석 지표에서 별도로 조회한다. 요청 없음과 수집 없음은 정상 0%로 채우지 않는다.
 - 기본 운영 대시보드의 수동 가져오기용 JSON은 `deploy/monitoring/grafana/dashboards/catchhole-overview.json`에 보관한다. Grafana에서 단계별로 편집한 내용을 재시작 때 덮어쓰지 않도록 dashboard 자동 provisioning에는 연결하지 않는다. HTTP 요약은 최근 5분, 상단 Stat은 Instant query와 Last 계산을 사용하며 요청 없음의 NaN을 과거 유한값으로 대체하지 않는다. 적용·백업·가져오기는 같은 디렉터리의 `README.md`를 따른다.
