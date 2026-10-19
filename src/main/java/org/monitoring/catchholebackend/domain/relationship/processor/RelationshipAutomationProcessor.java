@@ -100,6 +100,19 @@ public class RelationshipAutomationProcessor {
         var conflictGroups = observations.stream().filter(o -> o.request().objectCharacterId() != null)
                 .collect(Collectors.groupingBy(o -> new ConflictScope(canonicalPair(o.request()),
                         o.request().temporalScope(), o.request().timeLabel())));
+        var assessed = observations.stream().map(observation -> {
+            String reason = observation.reason();
+            if (observation.request().objectCharacterId() != null) {
+                var scope = new ConflictScope(canonicalPair(observation.request()),
+                        observation.request().temporalScope(), observation.request().timeLabel());
+                if (conflictGroups.get(scope).stream().anyMatch(other -> conflicts(observation, other))) reason = "CONFLICTING";
+            }
+            if (observation.candidate().isAutomaticallyConfirmed()
+                    && !Objects.equals(observation.candidate().getObjectCharacter().getId(), observation.request().objectCharacterId())) {
+                reason = "TARGET_CHANGED";
+            }
+            return new Observation(observation.candidate(), observation.request(), observation.fresh(), reason);
+        }).toList();
         var graph = graphReader.readGraph(work.getId());
         var withdrawnKeys = graph.relationships().stream().filter(CharacterRelationship::isWithdrawn)
                 .map(CharacterRelationship::getCanonicalKey).collect(Collectors.toSet());
@@ -109,12 +122,14 @@ public class RelationshipAutomationProcessor {
                     && relation.getSubjectCharacter().getStatus() == CharacterStatus.ACTIVE
                     && relation.getObjectCharacter().getStatus() == CharacterStatus.ACTIVE
                     && graph.evidence().getOrDefault(relation.getId(), List.of()).stream()
-                            .anyMatch(e -> RelationshipGraphReader.isSupporting(e, graph.sources()))) {
+                            .anyMatch(e -> !e.getCandidate().isAutomaticallyConfirmed()
+                                    && RelationshipGraphReader.isSupporting(e, graph.sources()))) {
                 parents.computeIfAbsent(relation.getSubjectCharacter().getId(), ignored -> new HashSet<>())
                         .add(relation.getObjectCharacter().getId());
             }
         }
-        for (var observation : observations) {
+        // 자동 근거는 현재 대상·상충 검사를 통과한 명제로 다시 구성해야 가짜 순환을 만들지 않는다.
+        for (var observation : assessed) {
             if (observation.reason() == null && observation.request().kind() != RelationshipKind.SPOUSE
                     && observation.request().kind() != RelationshipKind.SIBLING && participates(observation)
                     && !withdrawnKeys.contains(rules.canonicalize(observation.candidate()).key())) {
@@ -128,14 +143,11 @@ public class RelationshipAutomationProcessor {
         int automatic = 0;
         Set<UUID> pending = new HashSet<>();
         Set<UUID> visited = new HashSet<>();
-        for (var observation : observations) {
+        for (var observation : assessed) {
             var candidate = observation.candidate();
             if (!visited.add(candidate.getRequestId())) continue;
             String reason = observation.reason();
-            if (observation.request().objectCharacterId() != null) {
-                var scope = new ConflictScope(canonicalPair(observation.request()),
-                        observation.request().temporalScope(), observation.request().timeLabel());
-                if (conflictGroups.get(scope).stream().anyMatch(other -> conflicts(observation, other))) reason = "CONFLICTING";
+            if (reason == null && observation.request().objectCharacterId() != null) {
                 var pair = canonicalPair(observation.request());
                 if (pair.kind() == RelationshipKind.PARENT_OF && reaches(parents, pair.object(), pair.subject())) {
                     reason = "ANCESTRY_CYCLE";
@@ -144,9 +156,6 @@ public class RelationshipAutomationProcessor {
             if (!observation.fresh()) {
                 // 완료한 사용자 결정을 덮어쓰지 않는다. 자동 확정의 지원만 현재 상태로 다시 검증한다.
                 if (candidate.isAutomaticallyConfirmed()) {
-                    if (!Objects.equals(candidate.getObjectCharacter().getId(), observation.request().objectCharacterId())) {
-                        reason = "TARGET_CHANGED";
-                    }
                     candidate.holdAutomatically(reason);
                     candidate.validateAutomaticSupport(work.getRelationshipInputVersion());
                 }

@@ -27,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
+import org.monitoring.catchholebackend.domain.character.dto.request.CharacterUpdateRequest;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessor;
@@ -210,6 +211,98 @@ class RelationshipProcessingIntegrationTest {
         assertThat(candidates()).hasSize(2);
         assertThat(candidates().stream().filter(row -> row.path("automaticallyConfirmed").asBoolean()).toList())
                 .singleElement().satisfies(row -> assertThat(strings(row.path("reviewReasons"))).contains("CONFLICTING"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("상충하는 새 명제나 기존 자동 관계는 정상 부모 관계의 순환 경로로 쓰지 않는다")
+    void conflictingClaimDoesNotCreatePhantomAncestryCycle(boolean previouslyConfirmed) throws Exception {
+        source(aria, "profile.family", "보린의 부모", true);
+        String previousRelationId = null;
+        if (previouslyConfirmed) {
+            processCurrentInput();
+            previousRelationId = only(relations()).path("id").asText();
+        }
+        source(borin, "profile.family", "아리아의 자녀가 아니다; 자녀: 아리아", true);
+
+        processCurrentInput();
+
+        List<JsonNode> active = relations().stream().filter(row -> row.path("validity").asText().equals("VALID")).toList();
+        assertThat(active).singleElement().satisfies(row -> {
+            assertThat(row.path("subjectCharacterId").asText()).isEqualTo(borin.toString());
+            assertThat(row.path("objectCharacterId").asText()).isEqualTo(aria.toString());
+        });
+        assertThat(candidates()).hasSize(3);
+        assertThat(candidates().stream().filter(row -> row.path("subjectCharacterId").asText().equals(aria.toString())
+                || row.path("assertion").asText().equals("NEGATED")).toList())
+                .hasSize(2).allSatisfy(row -> assertThat(strings(row.path("reviewReasons"))).contains("CONFLICTING"));
+        if (previousRelationId != null) {
+            assertThat(getData("/relationships/" + previousRelationId).path("validity").asText()).isEqualTo("REVIEW_REQUIRED");
+        }
+
+        processing.requestProcessing(memberId, workId);
+        processCurrentInput();
+        assertThat(relations().stream().filter(row -> row.path("validity").asText().equals("VALID")).toList())
+                .singleElement().satisfies(row -> assertThat(row.path("id")).isEqualTo(active.getFirst().path("id")));
+        assertThat(candidates()).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("이름 해석 대상이 바뀐 기존 자동 관계는 새 대상의 정상 부모 관계를 순환으로 보류하지 않는다")
+    void changedTargetDoesNotCreatePhantomAncestryCycle() throws Exception {
+        source(aria, "profile.family", "자녀: 보린", true);
+        processCurrentInput();
+        String previousRelationId = only(relations()).path("id").asText();
+        characterService.updateCharacter(memberId, workId, borin,
+                new CharacterUpdateRequest("다린", null, null, null, null, List.of(), List.of(), List.of(), List.of(), List.of()));
+        characterService.updateCharacter(memberId, workId, celine,
+                new CharacterUpdateRequest("보린", null, null, null, null, List.of(), List.of(), List.of(), List.of(), List.of()));
+        source(celine, "profile.family", "자녀: 아리아", true);
+
+        processCurrentInput();
+
+        assertThat(getData("/relationships/" + previousRelationId).path("validity").asText()).isEqualTo("REVIEW_REQUIRED");
+        JsonNode previousCandidate = candidates().stream()
+                .filter(row -> row.path("subjectCharacterId").asText().equals(aria.toString())).findFirst().orElseThrow();
+        assertThat(previousCandidate.path("objectCharacterId").asText()).isEqualTo(borin.toString());
+        assertThat(strings(previousCandidate.path("reviewReasons"))).contains("TARGET_CHANGED");
+        List<JsonNode> active = relations().stream().filter(row -> row.path("validity").asText().equals("VALID")).toList();
+        assertThat(active).singleElement().satisfies(row -> {
+            assertThat(row.path("subjectCharacterId").asText()).isEqualTo(celine.toString());
+            assertThat(row.path("objectCharacterId").asText()).isEqualTo(aria.toString());
+        });
+
+        processing.requestProcessing(memberId, workId);
+        processCurrentInput();
+        assertThat(relations().stream().filter(row -> row.path("validity").asText().equals("VALID")).toList())
+                .singleElement().satisfies(row -> assertThat(row.path("id")).isEqualTo(active.getFirst().path("id")));
+        assertThat(candidates()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("상충한 자동 근거와 별개의 수동 근거가 있으면 실제 부모 순환을 계속 차단한다")
+    void independentManualSupportStillPreventsAncestryCycle() throws Exception {
+        Source source = source(aria, "profile.family", "보린의 부모", true);
+        processCurrentInput();
+        String relationId = only(relations()).path("id").asText();
+        JsonNode manual = data(postJson("/relationship-candidates", request(aria, borin, "PARENT_OF", source))
+                .andExpect(status().is2xxSuccessful()));
+        postJson(candidatePath(manual) + "/confirm", revision(0)).andExpect(status().isOk());
+        source(borin, "profile.family", "아리아의 자녀가 아니다; 자녀: 아리아", true);
+
+        processCurrentInput();
+
+        assertThat(only(relations()).path("id").asText()).isEqualTo(relationId);
+        assertThat(only(relations()).path("validity").asText()).isEqualTo("VALID");
+        assertThat(candidates().stream().filter(row -> row.path("automaticallyConfirmed").asBoolean()).toList())
+                .singleElement().satisfies(row -> assertThat(strings(row.path("reviewReasons"))).contains("CONFLICTING"));
+        assertThat(candidates().stream().filter(row -> row.path("subjectCharacterId").asText().equals(borin.toString())
+                && row.path("assertion").asText().equals("ASSERTED")).toList())
+                .singleElement().satisfies(row -> {
+                    assertThat(row.path("status").asText()).isEqualTo("PENDING");
+                    assertThat(strings(row.path("reviewReasons"))).contains("ANCESTRY_CYCLE");
+                });
+        assertThat(getData(candidatePath(manual)).path("automaticallyConfirmed").asBoolean()).isFalse();
     }
 
     @Test
