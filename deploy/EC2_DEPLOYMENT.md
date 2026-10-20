@@ -1,5 +1,8 @@
 # CatchHole API 서버 운영 배포
 
+OpenTelemetry Java Agent의 이미지 포함·기본 OFF·사설 전송·단계적 활성화와 롤백은
+[API 추적 안내](API_TRACING.md)를 따른다. 기존 SHA 배포·lock·health 검증은 유지한다.
+
 이 문서는 API 서버용 Amazon EC2 인스턴스에서 Caddy, Spring Backend, Redis만 실행하는 절차를 설명한다. PostgreSQL은 Amazon RDS를 사용하고 인공지능 작업 프로세스는 별도의 Worker 서버용 Amazon EC2 인스턴스에서 실행한다.
 
 2026-09-10에 분리 운영과 SHA 이미지 실행을 확인했다. 실제 사양·연결·백업·비용 및 확인 방법은 [운영 현황표](../docs/operations-status-2026-09-10.md)를 참고한다. 이 문서의 최초 데이터 전환·초기화·기존 PostgreSQL 중지 절차는 당시의 전환 안내이며, 현재 운영의 일반 재배포 절차는 **GitHub Actions 자동 배포** 항목이다. 과거 안내에 적힌 모든 보존·정리 작업의 실제 수행 여부를 이번 점검에서 확인한 것은 아니다.

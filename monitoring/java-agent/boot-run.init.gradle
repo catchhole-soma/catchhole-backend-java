@@ -1,0 +1,13 @@
+// Applied only by run-local.sh boot-run; never changes the application's build.
+gradle.projectsEvaluated {
+    def tracingDirectory = new File(System.getProperty('catchhole.tracing.directory'))
+    def agentLock = new groovy.json.JsonSlurper().parse(new File(tracingDirectory, 'agent.lock.json'))
+    def agent = new File(tracingDirectory, "cache/opentelemetry-javaagent-${agentLock.version}.jar")
+    def extension = new File(tracingDirectory, 'build/libs/catchhole-tracing-privacy.jar')
+    def configuration = new File(tracingDirectory, 'agent-local.properties')
+    gradle.rootProject.tasks.named('bootRun').configure {
+        jvmArgs "-javaagent:${agent.absolutePath}",
+                "-Dotel.javaagent.extensions=${extension.absolutePath}",
+                "-Dotel.javaagent.configuration-file=${configuration.absolutePath}"
+    }
+}

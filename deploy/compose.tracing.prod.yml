@@ -1,0 +1,104 @@
+# Opt-in overlay: always use with compose.monitoring.prod.yml and its existing env.
+# This file alone neither enables application tracing nor changes the HTTPS entry point.
+services:
+  tempo-volume-init:
+    image: grafana/grafana:13.2.2
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mkdir -p /var/tempo/wal
+        chown 10001:10001 /var/tempo /var/tempo/wal
+    restart: "no"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    # Docker may initialize the volume with Tempo's non-root directory ownership.
+    cap_add: [CHOWN, DAC_OVERRIDE]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: journald
+    volumes:
+      - tempo_data:/var/tempo
+
+  tempo:
+    image: grafana/tempo:3.1.0
+    user: "10001:10001"
+    command:
+      - -target=all
+      - -config.file=/etc/tempo.yml
+      - -config.expand-env=true
+    restart: unless-stopped
+    stop_grace_period: 45s
+    depends_on:
+      tempo-volume-init:
+        condition: service_completed_successfully
+    environment:
+      GOMEMLIMIT: 384MiB
+      TEMPO_S3_BUCKET: ${TEMPO_S3_BUCKET:?TEMPO_S3_BUCKET is required for production tracing}
+      AWS_REGION: ${AWS_REGION:?AWS_REGION is required for production tracing}
+    mem_limit: 512m
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,uid=10001,gid=10001
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: journald
+    volumes:
+      - type: bind
+        source: ./monitoring/tracing/tempo.yml
+        target: /etc/tempo.yml
+        read_only: true
+        bind:
+          create_host_path: false
+      - tempo_data:/var/tempo
+    # Tempo HTTP/query and OTLP ports are reachable only inside this Compose network.
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    user: "10001:10001"
+    command:
+      - --config=/etc/otelcol/config.yml
+    restart: unless-stopped
+    stop_grace_period: 45s
+    depends_on:
+      - tempo
+    environment:
+      GOMEMLIMIT: 128MiB
+    mem_limit: 256m
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: journald
+    ports:
+      - "${TRACING_OTLP_BIND_ADDRESS:-127.0.0.1}:4318:4318"
+    volumes:
+      - type: bind
+        source: ./monitoring/tracing/otel-collector.yml
+        target: /etc/otelcol/config.yml
+        read_only: true
+        bind:
+          create_host_path: false
+
+  grafana:
+    # Compose >=2.24.4. A new nested file mount under the base read-only directory
+    # cannot create its mountpoint; mount both source files individually instead.
+    volumes: !override
+      - type: bind
+        source: ./monitoring/grafana/provisioning/datasources/prometheus.yml
+        target: /etc/grafana/provisioning/datasources/prometheus.yml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./monitoring/tracing/grafana-tempo.yml
+        target: /etc/grafana/provisioning/datasources/tempo.yml
+        read_only: true
+        bind:
+          create_host_path: false
+      - grafana_data:/var/lib/grafana
+
+volumes:
+  tempo_data:

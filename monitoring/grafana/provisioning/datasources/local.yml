@@ -1,0 +1,21 @@
+apiVersion: 1
+
+datasources:
+  - name: CatchHole Prometheus Local
+    uid: catchhole-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s
+
+  - name: CatchHole Tempo Local
+    uid: catchhole-tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    isDefault: false
+    editable: false

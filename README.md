@@ -79,6 +79,8 @@ Caddy와 Redis는 컨테이너 이름을 각각 `catchhole-caddy-1`, `catchhole-
 
 ## 참고
 
+로컬 Collector·Tempo·Grafana와 Python Worker→Spring HTTP·JDBC 연결 검증은 [로컬 트레이스 환경](docs/local-tracing.md)을 참고합니다. Java 계측은 [명시적 로컬 Agent 실행](monitoring/java-agent/README.md)으로 적용합니다. 지연·재시도·취소·전송 장애 및 Head/Tail 실험은 [6단계 검증](docs/tracing-validation.md)에 정리했습니다. 운영 수신 서버는 [Trace 배포 안내](deploy/TRACING_DEPLOYMENT.md), Java Agent의 기본 OFF·활성화·롤백은 [API 추적 안내](deploy/API_TRACING.md)를 따릅니다. 설정 준비와 실제 운영 검증 완료를 구분합니다.
+
 Spring Security가 포함되어 있어 초기 실행 시 기본 로그인 화면이나 `401 Unauthorized` 응답이 나올 수 있습니다. 이후 개발용 보안 설정을 추가할 예정입니다.
 
 DB schema 작성 규칙과 최초 운영 전환 절차는 [Database Migration](docs/database-migration.md)을 참고합니다.

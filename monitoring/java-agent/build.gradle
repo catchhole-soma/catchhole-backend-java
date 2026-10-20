@@ -1,0 +1,76 @@
+plugins {
+    id 'java'
+}
+
+group = 'org.monitoring.catchhole'
+version = '1.0.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+// The locked agent supplies these classes at runtime; never bundle a second SDK.
+def agentLock = new groovy.json.JsonSlurper().parse(file('agent.lock.json'))
+def otelVersion = agentLock.sdkVersion
+dependencies {
+    compileOnly "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure-spi:${otelVersion}"
+    compileOnly "io.opentelemetry:opentelemetry-sdk-trace:${otelVersion}"
+    testImplementation "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure-spi:${otelVersion}"
+    testImplementation "io.opentelemetry:opentelemetry-sdk-trace:${otelVersion}"
+    testImplementation platform('org.junit:junit-bom:5.13.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('jar') {
+    archiveFileName = 'catchhole-tracing-privacy.jar'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+// Build-time download only: the runtime image never fetches executable agents.
+tasks.register('prepareAgent') {
+    def target = layout.buildDirectory.file('agent/opentelemetry-javaagent.jar')
+    inputs.file('agent.lock.json')
+    outputs.file(target)
+    // Always verify an existing artifact, including after a restored build cache.
+    outputs.upToDateWhen { false }
+    doLast {
+        def destination = target.get().asFile
+        def checksum = { File candidate ->
+            def digest = java.security.MessageDigest.getInstance('SHA-256')
+            candidate.withInputStream { input ->
+                byte[] buffer = new byte[65536]
+                int count
+                while ((count = input.read(buffer)) != -1) digest.update(buffer, 0, count)
+            }
+            digest.digest().encodeHex().toString()
+        }
+        if (destination.exists() && checksum(destination) == agentLock.sha256) return
+        destination.parentFile.mkdirs()
+        def temporary = File.createTempFile('javaagent-', '.download', destination.parentFile)
+        try {
+            def connection = new URI(agentLock.url).toURL().openConnection()
+            connection.connectTimeout = 30000
+            connection.readTimeout = 60000
+            connection.inputStream.withCloseable { input ->
+                temporary.withOutputStream { output -> output << input }
+            }
+            if (checksum(temporary) != agentLock.sha256) {
+                throw new GradleException('Locked Java agent checksum mismatch')
+            }
+            java.nio.file.Files.move(temporary.toPath(), destination.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        } finally {
+            temporary.delete()
+        }
+    }
+}

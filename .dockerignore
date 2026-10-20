@@ -19,3 +19,6 @@ bin
 **/.DS_Store
 
 docs/.obsidian
+monitoring/java-agent/cache
+monitoring/java-agent/build
+monitoring/java-agent/.gradle
