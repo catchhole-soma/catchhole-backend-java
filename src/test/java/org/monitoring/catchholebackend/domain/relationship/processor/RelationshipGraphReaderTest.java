@@ -66,6 +66,22 @@ class RelationshipGraphReaderTest {
     }
 
     @Test
+    @DisplayName("명시 조상 간선도 부모 간선과 함께 순환 검사와 복구 재검토에 포함된다")
+    void ancestorEdgesParticipateInCycleProtection() {
+        var a = character("조상");
+        var b = character("후손");
+        var c = character("자녀");
+        var ab = relationship(a, b, RelationshipKind.ANCESTOR_OF);
+        relationship(b, c, RelationshipKind.PARENT_OF);
+        assertThat(reader.wouldCreateCycle(reader.readGraph(work.getId()), c.getId(), a.getId())).isTrue();
+        b.archive();
+        relationship(c, a, RelationshipKind.ANCESTOR_OF);
+        b.restore();
+        assertThat(reader.readGraph(work.getId()).validity().values()).containsOnly(RelationshipValidity.REVIEW_REQUIRED);
+        assertThat(reader.readGraph(work.getId()).validity().get(ab.getId())).isEqualTo(RelationshipValidity.REVIEW_REQUIRED);
+    }
+
+    @Test
     @DisplayName("같은 후보의 독립 근거 하나가 사라져도 남은 근거를 유지하고 모두 없으면 재검토한다")
     void keepsIndependentRemainingEvidenceWithoutDiscardingHistory() {
         WorkCharacter parent = character("부모");

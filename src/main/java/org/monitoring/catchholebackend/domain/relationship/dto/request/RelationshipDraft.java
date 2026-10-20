@@ -16,6 +16,7 @@ public interface RelationshipDraft {
     RelationshipSubtype subtype();
     RelationshipTemporalScope temporalScope();
     String timeLabel();
+    Integer generationGap();
     RelationshipAssertion assertion();
     List<RelationshipEvidenceRequest> evidence();
 }

@@ -31,5 +31,8 @@ public record RelationshipCandidateResponse(
         @Schema(description = "후보 생성 경로") RelationshipCandidateOrigin origin,
         @Schema(description = "현재 설정에서 자동으로 확정했는지") boolean automaticallyConfirmed,
         @Schema(description = "주체의 현재 이름") String subjectCharacterName,
-        @Schema(description = "상대의 현재 이름. 미해결이면 null") String objectCharacterName
+        @Schema(description = "상대의 현재 이름. 미해결이면 null") String objectCharacterName,
+        @Schema(description = "현재 설정에 명시된 미등록 인물로 가계도에 표시할 수 있는지. 캐릭터 연결은 선택 사항입니다") boolean displayableAsMention,
+        @Schema(description = "명시된 조상·후손 세대 차이. N대손은 N, 미상과 다른 관계는 null", example = "5", nullable = true) Integer generationGap,
+        @Schema(description = "사용자가 명시적으로 묶은 미등록 인물 그룹. 묶이지 않았으면 null", nullable = true) UUID mentionGroupId
 ) {}

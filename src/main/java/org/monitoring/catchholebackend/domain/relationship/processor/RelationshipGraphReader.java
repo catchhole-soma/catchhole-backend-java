@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.relationship.processor;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -60,22 +61,36 @@ public class RelationshipGraphReader {
                 .filter(r -> validity.get(r.getId()) == RelationshipValidity.VALID).toList());
         for (CharacterRelationship relation : relationships) {
             if (validity.get(relation.getId()) == RelationshipValidity.VALID
-                    && relation.getKind() == RelationshipKind.PARENT_OF
+                    && relation.getKind().isCanonicalLineage()
                     && reaches(ancestry, relation.getObjectCharacter().getId(), relation.getSubjectCharacter().getId())) {
                 validity.put(relation.getId(), RelationshipValidity.REVIEW_REQUIRED);
             }
         }
+        var generationConflicts = RelationshipGenerationRules.conflictingKeys(relationships.stream()
+                .filter(relation -> validity.get(relation.getId()) == RelationshipValidity.VALID)
+                .map(RelationshipGenerationRules::constraint).toList());
+        relationships.stream().filter(relation -> generationConflicts.contains(relation.getId().toString()))
+                .forEach(relation -> validity.put(relation.getId(), RelationshipValidity.REVIEW_REQUIRED));
         return new Graph(relationships, byRelation, sources, validity);
     }
 
     public boolean wouldCreateCycle(Graph graph, UUID parent, UUID child) {
-        return reaches(ancestry(graph.relationships().stream()
-                .filter(r -> !r.isWithdrawn()
-                        && r.getSubjectCharacter().getStatus() == CharacterStatus.ACTIVE
-                        && r.getObjectCharacter().getStatus() == CharacterStatus.ACTIVE
-                        && graph.evidence().getOrDefault(r.getId(), List.of()).stream()
-                                .anyMatch(e -> isSupporting(e, graph.sources())))
-                .toList()), child, parent);
+        return reaches(ancestry(supportedRelationships(graph)), child, parent);
+    }
+
+    public boolean wouldConflictGeneration(Graph graph, RelationshipGenerationRules.Constraint candidate) {
+        var constraints = new ArrayList<>(supportedRelationships(graph).stream()
+                .map(RelationshipGenerationRules::constraint).toList());
+        constraints.add(candidate);
+        return RelationshipGenerationRules.conflictingKeys(constraints).contains(candidate.key());
+    }
+
+    private List<CharacterRelationship> supportedRelationships(Graph graph) {
+        return graph.relationships().stream().filter(r -> !r.isWithdrawn()
+                && r.getSubjectCharacter().getStatus() == CharacterStatus.ACTIVE
+                && r.getObjectCharacter().getStatus() == CharacterStatus.ACTIVE
+                && graph.evidence().getOrDefault(r.getId(), List.of()).stream()
+                        .anyMatch(e -> isSupporting(e, graph.sources()))).toList();
     }
 
     public static boolean isSupporting(RelationshipEvidence evidence, Map<UUID, RelationshipSourceContext> sources) {
@@ -92,7 +107,7 @@ public class RelationshipGraphReader {
 
     private Map<UUID, Set<UUID>> ancestry(Collection<CharacterRelationship> relationships) {
         Map<UUID, Set<UUID>> adjacency = new HashMap<>();
-        relationships.stream().filter(r -> r.getKind() == RelationshipKind.PARENT_OF).forEach(r ->
+        relationships.stream().filter(r -> r.getKind().isCanonicalLineage()).forEach(r ->
                 adjacency.computeIfAbsent(r.getSubjectCharacter().getId(), ignored -> new HashSet<>())
                         .add(r.getObjectCharacter().getId()));
         return adjacency;

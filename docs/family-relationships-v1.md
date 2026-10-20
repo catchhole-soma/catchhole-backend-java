@@ -2,6 +2,8 @@
 
 [이슈 #259](https://github.com/catchhole-soma/catchhole-backend-java/issues/259)의 PostgreSQL 저장 모델, 검토 규칙과 사용자 API다. 기존 캐릭터 추출 프롬프트·출력은 변경하지 않는다. [#260](https://github.com/catchhole-soma/catchhole-backend-java/issues/260)은 이 모델 위에 현재 프로필의 명시적 가족 관계를 연결하는 별도 후처리와 검토 화면을 추가한다. 자동 처리의 지원 문법·보류·재시도 계약은 [현재 설정의 가족 관계 처리 v1](family-relationship-processing-v1.md)에 정의한다. 가계도 배치는 [#261](https://github.com/catchhole-soma/catchhole-backend-java/issues/261)에서 연결한다.
 
+#261의 [가계도 요약 조회](family-tree-v1.md)는 현재 유효한 관계와, 현재 설정으로 뒷받침된 미등록 인물을 별도 MENTION 출처로 한 DB 스냅샷에서 제공한다. 미등록 후보의 displayableAsMention은 저장 상태를 바꾸지 않으며 캐릭터 연결은 선택 사항이다. 기존 목록은 검토·이력 조회용으로 유지하며 가계도는 전용 `/family-tree`의 범위·상한·revision 계약을 사용한다.
+
 ## 입력과 검토 경계
 
 관계 입력은 `WorkCharacter`의 실제 현재 PROFILE 슬롯과 `CharacterSnapshotSource` 양쪽에 존재하는 Fact에 한정한다. 전체 Fact 이력, `HISTORY_ONLY` Fact, 비어 있는 슬롯에 남은 provenance는 입력으로 쓰지 않는다. 현재 슬롯이 여러 Fact를 병합한 값이면 각 Fact의 예전 값 대신 **현재 슬롯 전체** `{factValue, valueJson}`를 읽는다. 직접 수정한 설정도 새로운 현재 Fact를 통해 사용할 수 있다.
@@ -26,6 +28,7 @@ erDiagram
 | --- | --- |
 | `character_relationships` | 같은 작품의 양 끝점, 정규화한 유형·세부 유형·서사 시점·기간 설명, 철회 여부, 버전. 비철회 `(work_id, canonical_key)` partial unique |
 | `relationship_candidates` | 원래 방향의 관계 명제, 미해결 호칭, 주장 상태, PENDING/CONFIRMED/DISMISSED, 확정 관계 ID, 정정 이전 관계 ID, 멱등 요청 ID/hash, 버전 |
+| `relationship_mention_groups` | 사용자가 선택한 미등록 후보의 공유 표시 이름·구성 버전·활성 여부·멱등 요청. 실제 캐릭터 생성 없음 |
 | `relationship_evidence` | 후보와 Fact FK, 검토한 슬롯 토큰. `(candidate_id, source_fact_id)` unique. 원문·인용문·S3 key는 복사하지 않음 |
 
 관계의 지지 근거는 CONFIRMED 후보에 연결된 evidence에서 조회한다. 후보 하나의 근거 목록은 중복 Fact를 허용하지 않는다. 다른 검토 후보가 같은 Fact와 토큰을 재확인한 이력은 보존하지만, 관계 응답에서는 `(sourceFactId, sourceToken)`을 한 번만 표시한다. 대표 `candidateId`는 UUID 문자열 오름차순으로 선택한다.
@@ -46,6 +49,16 @@ erDiagram
 관계 식별키는 **정규화한 양 끝점 + 유형 + 세부 유형 + temporalScope + timeLabel** 전체로 만든다. 같은 두 사람이라도 친부모/양부모, 현재/과거, 명시된 기간이 다르면 별도 관계다. timeLabel은 앞뒤 공백만 제거하고 의미적 동치 비교를 하지 않는다. 서로 다른 명제가 모두 사실일 수 있으므로 유형 차이만으로 모순이라고 추정하지 않는다.
 
 자기 관계는 400으로 거절한다. 부모 그래프의 순환은 확정 시 409로 거절한다. 보관·근거 복구로 나중에 순환이 생기면 순환에 속한 관계를 REVIEW_REQUIRED로 표시한다. 이 간선도 다음 확정의 순환 검사에는 포함하여 검토 상태를 이용한 우회를 막는다. 순환 검사는 실제 시점 순서를 추정하지 않고, 현재 근거가 있는 비철회 부모 관계 전체에 적용한다.
+
+## 명시된 조상·후손 확장 — GH261
+
+`ANCESTOR_OF`와 입력 역방향 `DESCENDANT_OF`를 지원한다. 두 방향 모두 확정 저장은 조상→후손 `ANCESTOR_OF` 한 건이며 세부 유형은 `UNSPECIFIED` 또는 `BIOLOGICAL`이다. `generationGap`은 nullable 양의 정수다. 명시적인 `5대손`은 5, 세대 수 없이 명시된 `후손`은 null이며 부모·배우자·형제 유형에서는 null만 허용한다. 조상 관계가 `generationGap=1`이어도 부모 관계로 바꾸지 않는다.
+
+후보 생성·수정·관계 정정 요청과 후보·확정 관계·가계도 간선 응답에 `generationGap`을 포함한다. 후보 수정에서 생략/null은 이전 값을 비운다. 조상 관계 canonical key와 request hash에는 gap이 포함되므로 알려진 값, 미상, 다른 값이 묵시적으로 합쳐지지 않는다. 같은 gap의 역방향 명제는 같은 관계에 근거를 더한다. 기존 비조상 관계의 null-gap 식별키는 변경하지 않는다. 원래 `N대손` 문구는 기존 Fact와 evidence의 currentValue/원문 조회 경로에서 보존하며 별도의 요약 문자열로 대체하지 않는다.
+
+순환 검사는 부모와 조상 간선을 함께 사용한다. `RelationshipGenerationRules`는 같은 `temporalScope`/`timeLabel` 안에서 부모=1, 알려진 조상=N의 세대 제약을 비교한다. 예를 들어 A→B→C 부모 경로와 A→C 5대손은 양립하지 않아 `GENERATION_GAP_CONFLICT`로 검토한다. 서로 다른 경로가 실제로 가능한 특별한 계보인지 자동 결정하지 않으며, 충돌한 제약 연결 영역 전체를 보수적으로 보류한다. 자동 처리·수동 확정·보관 복구 후 읽기에 동일한 제약을 적용한다. unknown gap은 제약을 추가하지 않고 경로로 채우지도 않는다. 부모만 존재하는 기존 영역은 이 신규 세대 검증으로 변경하지 않는다.
+
+Flyway V86은 두 테이블의 nullable `generation_gap`과 종류·세부 유형·양수 제약만 추가한다. 기존 행을 바꾸거나 중간 인물·부모·관계를 생성하는 데이터 백필은 없다.
 
 ## 상태와 시점
 
@@ -78,7 +91,7 @@ flowchart TD
 - 캐릭터 보관은 관계를 삭제하지 않는다. 보관된 끝점이 있으면 ARCHIVED_ENDPOINT로 표시한다. 복구하면 현재 근거와 순환을 재계산한다. 보관 캐릭터의 Fact 근거 API는 기존 규약대로 사용할 수 없다.
 - 회차/설정집 원문 파기는 확정 Fact와 현재 설정을 보존한다. 원문 인용이 사라지면 hasEvidence=false가 되지만 슬롯과 출처 ID가 같으면 토큰과 관계는 유지한다. 설정을 수정해 현재성이 사라진 **활성 캐릭터의 과거 Fact**는 원문이 남아 있는 동안 `current=false, hasEvidence=true`로 다시 검토할 수 있다. 실제 원문 제공과 파기 대기 상태 제어는 기존 Fact evidence API가 담당한다.
 - 관계 정정은 기존 row의 끝점/유형을 덮지 않는다. 기존 관계를 철회하고, 새 현재 근거로 새 후보를 확정한다. 같은 canonical 내용도 새 관계로 재확인할 수 있다. 다른 비철회 관계와 내용이 같으면 그 관계에 새 근거를 추가한다. 실패하면 철회와 새 후보를 함께 롤백한다.
-- 작품 영구 삭제 및 이를 사용하는 회원 탈퇴 경로는 evidence → candidate → relationship → snapshot source → Fact 순서로 삭제한다. 원문과 별개로 관계 개인 데이터도 함께 삭제된다.
+- 작품 영구 삭제 및 이를 사용하는 회원 탈퇴 경로는 evidence → candidate → mention group → relationship → snapshot source → Fact 순서로 삭제한다. 원문과 별개로 관계 개인 데이터도 함께 삭제된다.
 
 현재 읽기는 작품의 관계·근거를 묶어서 조회해 사용 가능성을 계산한다. #260 자동 확정 근거는 추가로 작품의 최신 관계 입력 버전에서 검증되었는지와 자동 검토 보류 여부를 검사한다. 후처리 대기 중의 자동 관계를 계속 유효한 것으로 보여주지 않으며, 수동 확정 근거는 이 자동 처리 버전의 영향을 받지 않는다. 순환 검사를 위해 목록의 페이지와 별개로 작품의 전체 관계 그래프를 읽는다. 작품당 관계 규모가 커지면 이 전체 조회와 가계도 전용 조회의 한도를 측정한 뒤 조정한다. 기존 추출 작업과 LLM 호출은 늘리지 않으며, #260의 별도 규칙 후처리만 현재 설정을 소비한다.
 
@@ -96,12 +109,13 @@ flowchart TD
 | POST `/relationship-candidates/{id}/confirm` | expectedVersion → 확정 후보·관계 ID |
 | POST `/relationship-candidates/{id}/dismiss` | expectedVersion → 제외 후보 |
 | GET `/relationships` | 전체 관계 페이지·현재 유효성 |
+| GET `/family-tree` | VALID 현재 관계의 인물·간선 요약. 과거 포함·인물 초점·표시 상한은 [전용 계약](family-tree-v1.md) 참조 |
 | GET `/relationships/{id}` | 정규화한 관계 상세 |
 | GET `/relationships/{id}/evidence` | 중복 제거한 Fact 참조·원문 조회 경로 |
 | PUT `/relationships/{id}` | expectedVersion + requestId + 명제 + evidence → 대체 확정 관계 |
 | POST `/relationships/{id}/withdraw` | expectedVersion → 철회된 기존 관계 |
 
-명제 필드는 `subjectCharacterId`, nullable `objectCharacterId`/`objectMention`, `kind`, `subtype`, `temporalScope`, nullable `timeLabel`, `assertion`이다. 근거는 1~20개이며 각 항목은 `{sourceFactId, sourceToken}`이다. 토큰은 source API에서 받은 값을 그대로 전송한다. 전체 예시 및 양방향 정규화 fixture는 [공유 계약 JSON](contracts/family-relationships-v1.json)에 있다.
+명제 필드는 `subjectCharacterId`, nullable `objectCharacterId`/`objectMention`, `kind`, `subtype`, `temporalScope`, nullable `timeLabel`/`generationGap`, `assertion`이다. 근거는 1~20개이며 각 항목은 `{sourceFactId, sourceToken}`이다. 토큰은 source API에서 받은 값을 그대로 전송한다. 전체 예시 및 양방향 정규화 fixture는 [공유 계약 JSON](contracts/family-relationships-v1.json)에 있다.
 
 생성 requestId는 작품 안에서 유일하다. 같은 ID와 같은 원래 입력은 현재 후보 상태를 돌려준다. 후보가 수정/제외/확정된 뒤 재전송되어도 원래 상태로 되돌리지 않는다. 같은 ID에 다른 내용은 `RELATIONSHIP_IDEMPOTENCY_CONFLICT`다. 정정 requestId도 같은 공간을 사용하며 대상 관계 ID와 expectedVersion까지 hash에 포함한다.
 

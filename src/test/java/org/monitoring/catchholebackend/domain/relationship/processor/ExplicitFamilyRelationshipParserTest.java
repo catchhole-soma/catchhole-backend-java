@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.monitoring.catchholebackend.domain.relationship.type.FamilyTreeRole;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipAssertion;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipKind;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipSubtype;
@@ -23,6 +24,91 @@ import org.monitoring.catchholebackend.domain.relationship.type.RelationshipTemp
 class ExplicitFamilyRelationshipParserTest {
 
     private final ExplicitFamilyRelationshipParser parser = new ExplicitFamilyRelationshipParser();
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', value = {"아르덴의 5대손|5", "아르덴의 5대손이다|5", "아르덴의 12 대손|12",
+            "아르덴의 5대손 비칼|5", "아르덴의 5대손인 비칼|5"})
+    @DisplayName("명시적 대손 수는 조상 관계 한 건에 보존하며 소유자 이름을 검증한다")
+    void preservesExplicitAncestryWithoutInventingParents(String text, int gap) {
+        var result = parser.parse("profile.특징", current(text), "비칼");
+        assertThat(result.reviewReasons()).isEmpty();
+        assertThat(result.relationships()).singleElement().satisfies(claim -> {
+            assertThat(claim.kind()).isEqualTo(RelationshipKind.DESCENDANT_OF);
+            assertThat(claim.generationGap()).isEqualTo(gap);
+            assertThat(claim.objectMention()).isEqualTo("아르덴");
+            assertThat(claim.temporalScope()).isEqualTo(RelationshipTemporalScope.CURRENT);
+            assertThat(claim.assertion()).isEqualTo(RelationshipAssertion.ASSERTED);
+            assertThat(claim.subjectRole()).isNull();
+            assertThat(claim.objectRole()).isNull();
+        });
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', value = {"아르덴의 후손|DESCENDANT_OF", "조상: 아르덴|DESCENDANT_OF",
+            "선조: 아르덴|DESCENDANT_OF", "아르덴의 조상|ANCESTOR_OF", "후손: 아르덴|ANCESTOR_OF"})
+    @DisplayName("세대 수 없는 조상·후손은 미상으로 보존하고 부모 관계로 바꾸지 않는다")
+    void leavesUnstatedGenerationUnknown(String text, RelationshipKind kind) {
+        assertThat(parser.parse(current(text)).relationships()).singleElement().satisfies(claim -> {
+            assertThat(claim.kind()).isEqualTo(kind);
+            assertThat(claim.generationGap()).isNull();
+            assertThat(claim.temporalScope()).isEqualTo(RelationshipTemporalScope.CURRENT);
+        });
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"아르덴의 5대손 다른사람", "아르덴의 5대손 비칼이 아니다", "아르덴의 후손처럼 강해지고 싶다",
+            "아르덴 가문의 후손", "청연가문의 후손", "조상: 청연 가문", "청연 혈통", "아르덴의 0대손", "아르덴의 2147483648대손",
+            "아르덴의 5세손", "아르덴의 5대손의 2대손", "아르덴의 비칼의 5대손", "조상: 아르덴의 비칼", "누군가의 후손"})
+    @DisplayName("다른 인물·가문·비유·미지원 세대 표기를 명시된 개인 조상으로 잘못 연결하지 않는다")
+    void rejectsUnsafeAncestryPhrases(String text) {
+        assertThat(parser.parse("profile.가족", current(text), "비칼").relationships()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"왕조현", "클랜시"})
+    @DisplayName("개인 이름의 일부가 가문 용어와 같아도 이름을 버리지 않는다")
+    void retainsNamesContainingGroupWords(String name) {
+        assertThat(parser.parse(current(name + "의 5대손")).relationships()).singleElement()
+                .satisfies(claim -> assertThat(claim.objectMention()).isEqualTo(name));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', value = {"아르덴의 5대손이 아니다|NEGATED", "아르덴의 후손이 아니다|NEGATED",
+            "아르덴의 후손일지도 모른다|UNCERTAIN", "아르덴의 5대손이라고 한다|UNCERTAIN"})
+    @DisplayName("조상·후손 명제의 부정과 추측을 단정으로 승격하지 않는다")
+    void retainsAncestryQualifiers(String text, RelationshipAssertion assertion) {
+        assertThat(parser.parse(current(text)).relationships()).singleElement().satisfies(claim ->
+                assertThat(claim.assertion()).isEqualTo(assertion));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', value = {
+            "홍길동의 아들|CHILD_OF|SON|PARENT", "홍길동의 딸|CHILD_OF|DAUGHTER|PARENT",
+            "아버지: 홍길동|CHILD_OF|CHILD|FATHER", "어머니: 홍길동|CHILD_OF|CHILD|MOTHER",
+            "아들: 홍길동|PARENT_OF|PARENT|SON", "딸: 홍길동|PARENT_OF|PARENT|DAUGHTER",
+            "홍길동의 아버지|PARENT_OF|FATHER|CHILD", "홍길동의 어머니|PARENT_OF|MOTHER|CHILD",
+            "양부: 홍길동|CHILD_OF|CHILD|FATHER", "양녀: 홍길동|PARENT_OF|PARENT|DAUGHTER",
+            "홍길동의 의붓아들|CHILD_OF|SON|PARENT", "자녀: 홍길동|PARENT_OF|PARENT|CHILD"
+    })
+    @DisplayName("명시된 가족 호칭을 원래 방향의 정확한 끝점에 남기고 반대편 호칭을 추론하지 않는다")
+    void retainsExplicitEndpointRoles(String text, RelationshipKind kind, FamilyTreeRole subjectRole, FamilyTreeRole objectRole) {
+        assertThat(parser.parse(current(text)).relationships()).singleElement().satisfies(claim -> {
+            assertThat(claim.kind()).isEqualTo(kind);
+            assertThat(claim.subjectRole()).isEqualTo(subjectRole);
+            assertThat(claim.objectRole()).isEqualTo(objectRole);
+        });
+    }
+
+    @Test
+    @DisplayName("같은 관계의 서로 다른 끝점 호칭은 표시 시 상충 판단을 위해 모두 보존한다")
+    void retainsConflictingExplicitRoleWords() {
+        assertThat(parser.parse(current("아버지: 홍길동; 어머니: 홍길동")).relationships())
+                .extracting(ParsedFamilyRelationship::objectRole).containsExactly(FamilyTreeRole.FATHER, FamilyTreeRole.MOTHER);
+        assertThat(parser.parse(current("배우자: 홍길동")).relationships()).singleElement().satisfies(claim -> {
+            assertThat(claim.subjectRole()).isNull();
+            assertThat(claim.objectRole()).isNull();
+        });
+    }
 
     @ParameterizedTest(name = "{0}")
     @CsvSource(delimiter = '|', value = {
@@ -103,6 +189,125 @@ class ExplicitFamilyRelationshipParserTest {
             assertThat(relation.assertion()).isEqualTo(RelationshipAssertion.UNCERTAIN);
             assertThat(relation.reviewReasons()).contains("AMBIGUOUS_FAMILY_ROLE");
         });
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', value = {
+            "첫째 아들|SON", "둘째 아들|SON", "셋째 딸|DAUGHTER", "넷째 아들|SON",
+            "두 번째 딸|DAUGHTER", "세 번째 아들|SON", "제2 아들|SON", "2번째 딸|DAUGHTER",
+            "외동아들|SON", "외동 딸|DAUGHTER", "막내아들|SON", "막내 딸|DAUGHTER",
+            "맏아들|SON", "맏딸|DAUGHTER", "두 번째 자녀|CHILD", "넷째 자식|CHILD",
+            "장남|SON", "차남|SON", "장녀|DAUGHTER", "차녀|DAUGHTER"
+    })
+    @DisplayName("서수·출생 순서 수식어는 자녀 방향과 명시된 호칭을 보존하며 추가 형제를 만들지 않는다")
+    void parsesBirthOrderWithoutInventingAdditionalChildren(String role, FamilyTreeRole subjectRole) {
+        var result = parser.parse("profile.출생_순서", current("현우의 " + role));
+
+        assertThat(result.reviewReasons()).isEmpty();
+        assertThat(result.relationships()).singleElement().satisfies(claim -> {
+            assertThat(claim.objectMention()).isEqualTo("현우");
+            assertThat(claim.kind()).isEqualTo(RelationshipKind.CHILD_OF);
+            assertThat(claim.assertion()).isEqualTo(RelationshipAssertion.ASSERTED);
+            assertThat(claim.subjectRole()).isEqualTo(subjectRole);
+            assertThat(claim.objectRole()).isEqualTo(FamilyTreeRole.PARENT);
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"언니", "동생", "형", "오빠", "누나", "여동생", "남동생"})
+    @DisplayName("단순 인명의 소유격으로 명시된 형제 관계는 일상 호칭과 구분하여 읽는다")
+    void acceptsSiblingRelationshipToNamedPerson(String role) {
+        var result = parser.parse("profile.가족관계", current("은하의 " + role));
+
+        assertThat(result.reviewReasons()).isEmpty();
+        assertThat(result.relationships()).singleElement().satisfies(claim -> {
+            assertThat(claim.objectMention()).isEqualTo("은하");
+            assertThat(claim.kind()).isEqualTo(RelationshipKind.SIBLING);
+            assertThat(claim.assertion()).isEqualTo(RelationshipAssertion.ASSERTED);
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"6등급 탐험가", "6등급 탐험가이다", "6등급 탐험가입니다", "6등급 탐험가임"})
+    @DisplayName("가족 관계 뒤의 지원하는 직업 명사구를 인명에 섞거나 관계를 버리지 않는다")
+    void acceptsSupportedOccupationDescriptionAfterRelationship(String description) {
+        var result = parser.parse("profile.특징", current("은하의 언니인 " + description));
+
+        assertThat(result.reviewReasons()).isEmpty();
+        assertThat(result.relationships()).singleElement().satisfies(claim -> {
+            assertThat(claim.objectMention()).isEqualTo("은하");
+            assertThat(claim.kind()).isEqualTo(RelationshipKind.SIBLING);
+            assertThat(claim.assertion()).isEqualTo(RelationshipAssertion.ASSERTED);
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"청암 클랜 수인 남성", "청암 클랜 수인 여성", "숲에 사는 사람", "이웃 마을 남자", "이웃 마을 여자", "옆집 인물"})
+    @DisplayName("설명으로만 지칭한 형제 상대는 관계를 발견하되 이름처럼 자동 확정하지 않는다")
+    void holdsSiblingWithDescriptiveCounterpart(String mention) {
+        var result = parser.parse("profile.가족관계", current(mention + "의 동생"));
+
+        assertThat(result.relationships()).singleElement().satisfies(claim -> {
+            assertThat(claim.objectMention()).isEqualTo(mention);
+            assertThat(claim.kind()).isEqualTo(RelationshipKind.SIBLING);
+            assertThat(claim.assertion()).isEqualTo(RelationshipAssertion.UNCERTAIN);
+            assertThat(claim.reviewReasons()).contains("AMBIGUOUS_FAMILY_ROLE");
+        });
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', value = {
+            "현우의 넷째 아들이 아니다|NEGATED", "현우의 두 번째 딸로 추정된다|UNCERTAIN",
+            "은하의 언니처럼 여긴다|FIGURATIVE"
+    })
+    @DisplayName("확장 문법에서도 부정·추측·비유의 의미를 보존한다")
+    void preservesAssertionsAfterNewlySupportedGrammar(String value, RelationshipAssertion assertion) {
+        var result = parser.parse("profile.가족관계", current(value));
+
+        assertThat(result.relationships()).singleElement().satisfies(claim -> {
+            assertThat(claim.assertion()).isEqualTo(assertion);
+            assertThat(claim.reviewReasons()).contains(assertion.name());
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "현우의 넷째 아들인 줄 알았으나 아니었다", "은하의 언니인 척하는 탐험가",
+            "은하의 언니인 것으로 추정되는 탐험가", "은하의 언니인 탐험가가 아니다",
+            "은하의 언니인 탐험가의 아들", "은하의 언니인 탐험가와 동행",
+            "은하의 언니 같은 탐험가", "은하의 언니인 탐험가이며 현우의 딸",
+            "현우의 넷째 아들의 딸", "현우의 둘째 딸의 세 번째 아들"
+    })
+    @DisplayName("관계 뒤의 미지원 서술·정정·중첩 관계를 잘라 앞부분만 자동 확정하지 않는다")
+    void refusesUnrecognizedSuffixesInsteadOfTruncatingClaim(String value) {
+        var result = parser.parse("profile.특징", current(value));
+
+        assertThat(result.familyMentioned()).isTrue();
+        assertThat(result.reviewReasons()).isNotEmpty();
+        assertThat(result.relationships()).noneMatch(claim -> claim.assertion() == RelationshipAssertion.ASSERTED);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"현우의 넷째 아버지", "현우의 두 번째 어머니", "현우의 2번째 배우자", "현우의 막내 남편"})
+    @DisplayName("자녀의 출생 순서 규칙을 부모·배우자에 무분별하게 적용하지 않는다")
+    void rejectsBirthOrderBeforeUnsupportedFamilyRoles(String value) {
+        var result = parser.parse("profile.가족관계", current(value));
+
+        assertThat(result.familyMentioned()).isTrue();
+        assertThat(result.relationships()).isEmpty();
+        assertThat(result.reviewReasons()).contains("UNSUPPORTED_FAMILY_SYNTAX");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"아버지: 사망", "부모: 모름", "아들 둘", "부모는 사망했고 아버지의 얼굴을 모름",
+            "청연 가문의 직계", "학교에서 만난 은하의 언니", "아버지: 고향에서 살고 있음"})
+    @DisplayName("상대 없는 가족 상황과 혈통 표현을 이름이나 특정 부모 관계로 만들지 않는다")
+    void detectsFamilyInformationWithoutInventingPeople(String value) {
+        var result = parser.parse("profile.가족", current(value));
+
+        assertThat(result.familyMentioned()).isTrue();
+        assertThat(result.relationships()).isEmpty();
+        assertThat(result.reviewReasons()).isNotEmpty();
     }
 
     @ParameterizedTest
@@ -398,10 +603,11 @@ class ExplicitFamilyRelationshipParserTest {
         ObjectMapper json = new ObjectMapper();
         JsonNode fixture = json.readTree(Files.readString(Path.of("docs/contracts/family-relationship-processing-v1.json")));
         assertThat(fixture.path("schemaVersion").asInt()).isEqualTo(1);
-        assertThat(fixture.path("cases")).hasSize(32);
+        assertThat(fixture.path("cases")).hasSize(40);
         for (JsonNode testCase : fixture.path("cases")) {
             String key = testCase.path("factKey").isNull() ? null : testCase.path("factKey").asText();
-            FamilyRelationshipParseResult result = parser.parse(key, testCase.path("currentValue"));
+            FamilyRelationshipParseResult result = parser.parse(key, testCase.path("currentValue"),
+                    testCase.has("ownerName") ? testCase.path("ownerName").asText() : null);
             assertThat((JsonNode) json.valueToTree(result)).as(testCase.path("name").asText())
                     .isEqualTo(testCase.path("expected"));
         }

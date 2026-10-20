@@ -20,6 +20,7 @@
     "temporalScope": "CURRENT",
     "timeLabel": null,
     "assertion": "ASSERTED",
+    "generationGap": null,
     "evidence": [{
       "sourceFactId": "00000000-0000-0000-0000-000000000259",
       "sourceToken": "PLACEHOLDER_CURRENT_SLOT_TOKEN"

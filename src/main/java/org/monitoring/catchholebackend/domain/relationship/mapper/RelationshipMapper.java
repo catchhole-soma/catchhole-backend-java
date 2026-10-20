@@ -36,7 +36,7 @@ public class RelationshipMapper {
             WorkCharacter subject, WorkCharacter object, UUID replacedId) {
         return RelationshipCandidate.create(work, requestId, hash, subject, object,
                 RelationshipRules.clean(draft.objectMention()), draft.kind(), draft.subtype(),
-                draft.temporalScope(), RelationshipRules.clean(draft.timeLabel()), draft.assertion(), replacedId);
+                draft.temporalScope(), RelationshipRules.clean(draft.timeLabel()), draft.assertion(), replacedId, draft.generationGap());
     }
 
     public CharacterRelationship toEntity(RelationshipCandidate candidate,
@@ -46,7 +46,7 @@ public class RelationshipMapper {
         WorkCharacter object = candidate.getSubjectCharacter().getId().equals(canonical.objectId())
                 ? candidate.getSubjectCharacter() : candidate.getObjectCharacter();
         return CharacterRelationship.create(candidate.getWork(), subject, object, canonical.kind(),
-                candidate.getSubtype(), candidate.getTemporalScope(), candidate.getTimeLabel(), canonical.key());
+                candidate.getSubtype(), candidate.getTemporalScope(), candidate.getTimeLabel(), canonical.key(), candidate.getGenerationGap());
     }
 
     public RelationshipSourceResponse toResponse(RelationshipSourceContext source) {
@@ -74,6 +74,12 @@ public class RelationshipMapper {
     public RelationshipCandidateResponse toResponse(RelationshipCandidate candidate,
             List<RelationshipEvidence> evidence, Map<UUID, RelationshipSourceContext> sources,
             List<String> reasons) {
+        return toResponse(candidate, evidence, sources, reasons, false);
+    }
+
+    public RelationshipCandidateResponse toResponse(RelationshipCandidate candidate,
+            List<RelationshipEvidence> evidence, Map<UUID, RelationshipSourceContext> sources,
+            List<String> reasons, boolean displayableAsMention) {
         return new RelationshipCandidateResponse(candidate.getId(), candidate.getVersion(), candidate.getStatus(),
                 candidate.getSubjectCharacter().getId(),
                 candidate.getObjectCharacter() == null ? null : candidate.getObjectCharacter().getId(),
@@ -82,7 +88,8 @@ public class RelationshipMapper {
                 candidate.getConfirmedRelationship() == null ? null : candidate.getConfirmedRelationship().getId(),
                 reasons, evidence.stream().map(e -> toResponse(e, sources)).toList(), candidate.getCreatedAt(),
                 candidate.getOrigin(), candidate.isAutomaticallyConfirmed(), candidate.getSubjectCharacter().getName(),
-                candidate.getObjectCharacter() == null ? null : candidate.getObjectCharacter().getName());
+                candidate.getObjectCharacter() == null ? null : candidate.getObjectCharacter().getName(), displayableAsMention, candidate.getGenerationGap(),
+                candidate.getMentionGroup() == null ? null : candidate.getMentionGroup().getId());
     }
 
     public RelationshipResponse toResponse(CharacterRelationship relation, RelationshipGraphReader.Graph graph) {
@@ -93,7 +100,7 @@ public class RelationshipMapper {
                 validity == RelationshipValidity.VALID && relation.getTemporalScope() == RelationshipTemporalScope.CURRENT,
                 distinctEvidence(graph.evidence().getOrDefault(relation.getId(), List.of())).stream()
                         .map(e -> toResponse(e, graph.sources())).toList(), relation.getCreatedAt(),
-                relation.getSubjectCharacter().getName(), relation.getObjectCharacter().getName());
+                relation.getSubjectCharacter().getName(), relation.getObjectCharacter().getName(), relation.getGenerationGap());
     }
 
     private List<RelationshipEvidence> distinctEvidence(List<RelationshipEvidence> evidence) {
