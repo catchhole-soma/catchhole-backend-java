@@ -91,6 +91,26 @@
 - 서비스 이용 현황은 `global.monitoring`의 읽기 전용 DB snapshot과 캐시 Gauge를 사용한다. `service-usage.metrics.scheduling-enabled=true`, `fixed-delay-ms=60000`은 base YAML, test에서는 비활성이다. 요청 묶음은 최초 접수 기준으로 재시도를 중복 제거하고, 최근 24시간 원본 이력이 불완전하면 요청 수·평균을 NaN으로 표시한다. 조회 실패·180초 이상 갱신 없음은 정상 0으로 채우지 않는다. 여러 API 인스턴스에서는 최신 정상 snapshot과 같은 전체 label의 값을 선택하며 ID label은 추가하지 않는다. 삭제된 회원·작품은 기간 집계에서도 제외된다. 정의·설정·제약은 `docs/service-usage-metrics.md`를 따른다.
 - Grafana JSON은 운영 현황 catlfln / API·서버 상세 catchhole-api / 분석·AI 상세 catchhole-analysis 3개다. 설명/CPU 기준/peak thread를 API 상세에 보존하고 Python Worker는 개별 /metrics를 file_sd로 수집한다. 기본 localhost→운영 사설 bind 및 모니터링 SG 적용, actual port target 생성·원자 교체는 각 배포 안내를 따른다. 지표 정의는 `docs/analysis-metrics.md`가 담당한다.
 
+### Local Tracing
+
+- #271 로컬 트레이스 수신 환경은 기존 `compose.monitoring.yml`에 `compose.tracing.yml`을 겹쳐 실행한다. `catchhole-monitoring` 프로젝트와 기존 Prometheus 볼륨을 유지하며 운영 Compose에는 연결하지 않는다.
+- Collector contrib `0.162.0`은 `monitoring/otel-collector.yml`, Tempo `3.1.0`은 `monitoring/tempo.yml`, Grafana `13.2.2`의 로컬 데이터 소스는 `monitoring/grafana/provisioning/datasources/local.yml`로 관리한다. 호스트에는 Collector `127.0.0.1:4318`, Grafana `127.0.0.1:3001`만 추가 공개하고 Tempo 4318·3200은 Docker 내부에서 사용한다.
+- 로컬 Grafana 초기 관리자 비밀번호는 `LOCAL_GRAFANA_ADMIN_PASSWORD`로 주입한다. `monitoring/.env.tracing.example`만 커밋하고 실제 `.env.tracing.local`은 제외한다. Compose 검증은 비밀값을 출력하지 않는 `config --quiet`를 사용한다.
+- Collector는 메모리 제한·batch·요청 묶음 100개 메모리 대기열·최대 30초 재시도를 사용한다. 로컬 컨테이너 메모리 상한은 Collector 256MiB, Tempo·Grafana 각 512MiB이며 운영 용량으로 보장하지 않는다. Trace 전송 실패가 분석 정책이나 기존 Prometheus 지표를 바꾸지 않도록 후속 계측을 설계한다.
+- Tempo는 `-target=all`, local backend, `/var/tempo` 전체 named volume과 `overrides.defaults.compaction.block_retention: 24h`를 사용한다. Tail sampling은 아직 적용하지 않았다. 초기 수신 환경 준비와 아래 SDK·Agent의 실제 Span 생성·저장 검증을 구분하며 실행·종료·한계는 `docs/local-tracing.md`를 따른다.
+- #271 Java 계측은 `monitoring/java-agent/`의 별도 Gradle 프로젝트에서 관리한다. Agent 2.32.0의 공식 SHA-256을 검증하며 SDK 1.66.0 기반 privacy extension은 SDK를 중복 번들하지 않는다. 로컬은 명시적 스크립트, 운영은 이미지에 함께 포함한 Agent·extension·설정을 사용하며 앱 의존성은 변경하지 않는다. `JAVA_TOOL_OPTIONS`로 Gradle 프로세스까지 계측하지 않는다.
+- Java 로컬 샘플러는 `parentbased_always_off`: 부모 없는 새 trace를 수집하지 않고 Python Worker가 전달한 sampled 문맥의 HTTP SERVER·JDBC Span을 이어받는다. HTTP/JDBC와 executor 문맥 계측만 활성화하고 OTel metrics/logs export는 끈다. 이 설정은 내부 API 인증이나 URL 접근 제한을 대신하지 않는다.
+- Java export 전 `PrivacySpanExporter`는 ID·시간·kind·status code와 허용한 HTTP method/route template/status, DB system/operation만 보존한다. SQL·URL·본문·인증값·예외 event/status description·임의 resource/scope 속성을 내보내지 않고 정제 실패 시 원본으로 fallback하지 않는다. resource는 service allowlist·local/prod 환경·UUID 인스턴스만 허용하며 알려지지 않은 환경은 unknown, 자유 인스턴스는 제외한다.
+- `src/test/java/org/monitoring/traceverification/`는 운영 컴포넌트 탐색 밖의 검증 전용 패키지다. 실제 토큰 Controller·DTO·API-key filter와 합성 H2 원장을 사용하며 `application.yml`/`.env`/기존 DB를 읽지 않는다. `scripts/tracing/verification.init.gradle`과 `verify_worker_spring.py`를 명시적으로 실행해 동시 문맥 분리·샘플링·오류·전송 전 속성 제한·Tempo 저장을 검사한다. 이 결과를 실제 AiTokenServiceImpl의 lease/계정/원장 정책이나 운영 PostgreSQL 검증으로 확대하지 않는다.
+- #271 6단계는 `docs/tracing-validation.md`를 따른다. `verify_worker_trace_readback.py`는 AI 합성 실험의 모든 Span ID·부모·시각을 로컬 Tempo에서 대조한다. `verify_sampling.py`와 `monitoring/otel-collector.sampling-lab.yml`은 새 임시 Collector와 합성 데이터만 사용하는 명시적 실험이며 Compose에 연결하지 않는다. 짧은 Tail 결정 시간이 늦은 오류를 놓칠 수 있으므로 실제 로컬 정책은 Python all-on·Java 부모 상속·Tail OFF를 유지하고 운영 활성화·자원 설정은 7단계로 분리한다.
+
+### Production Tracing
+
+- #271 운영 수신기는 `deploy/compose.tracing.prod.yml`을 기존 운영 Compose에 명시적으로 겹친다. 기존 프로젝트·Prometheus/Grafana/인증서 볼륨·데이터 소스·수동 대시보드를 보존한다. Collector 4318은 기본 localhost이며 사설 IP와 API·Worker SG를 검증한 뒤 개방한다. Tempo 조회·관리 포트는 Docker 내부에 둔다. 자원·S3/보존·준비 상태 검증은 `deploy/TRACING_DEPLOYMENT.md`를 따른다.
+- API 이미지는 별도 Agent 프로젝트의 test/jar/prepareAgent를 실행해 잠긴 버전·SHA의 Agent와 privacy extension·prod 설정·entrypoint를 함께 포함한다. `BACKEND_TRACING_ENABLED=false`에서는 Agent를 로드하지 않는다. ON은 RFC1918 IPv4:4318/v1/traces와 필수 번들을 요구하며 기존 JAVA_OPTS·non-root·timezone·health 계약을 유지한다. CI는 별도 extension 테스트와 entrypoint 검증을 실행한다.
+- 공개 Caddy는 traceparent/tracestate/baggage를 제거하고 Worker의 사설 API 8080 경로는 유지한다. 부모 sampling 상속은 인증이 아니며 공개 8080 우회를 SG에서 차단해야 한다. 기존 내부 API key·lease 검증과 Actuator 제한을 바꾸지 않는다.
+- 운영 적용은 수신 서버/S3 → Java → 기존 비교 Worker 한 프로세스 → 종류별 확대 순서다. 운영 Agent는 부모 결정만 상속하고 Python all-on은 초기 제한적 검증 정책이며 Tail은 OFF다. 기존 immutable SHA 배포와 API lock·Worker drain을 지킨다. 설정·로컬 성공만으로 운영 적용이나 #271 완료를 선언하지 않는다. `deploy/API_TRACING.md`와 AI Worker 배포 문서의 OFF/rollback 절차를 함께 따른다.
+
 ### Database Migration
 
 - PostgreSQL schema 변경은 `src/main/resources/db/migration`의 Flyway SQL로 관리한다.
