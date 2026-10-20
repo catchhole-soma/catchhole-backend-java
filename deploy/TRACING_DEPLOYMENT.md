@@ -231,6 +231,10 @@ Span, 부모 연결, `prod`·프로세스 UUID와 전송 전 정보 제거를 �
 부모 없는 요청·sampled=0은 전송되지 않았고, OFF는 Agent를 실행하지 않았으며 확장이
 빠진 번들은 시작을 거절했다. 운영 DB·실제 Worker 분석·S3 저장의 검증은 아니다.
 
+PR 준비 시 최신 main `c005e9c`(#274 인증 거절 응답 경로 메트릭)를 충돌 없이 병합하고
+`test bootJar`를 다시 실행했다. 총 3,282개 중 236개 skip, 실패·오류 0개였으며
+privacy extension 6개와 entrypoint·운영 Compose 검사도 통과했다.
+
 ```bash
 # 저장소 루트에서 실제 이미지를 먼저 빌드한다.
 docker build -t catchhole-backend-tracing:stage7-local .
