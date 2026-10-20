@@ -33,6 +33,11 @@ jobs:
       - name: Test and build
         run: ./gradlew test bootJar
 
+      - name: Verify tracing extension and production entrypoint
+        run: |
+          ./gradlew --no-daemon -p monitoring/java-agent test jar prepareAgent
+          python3 scripts/tracing/verify_backend_entrypoint.py
+
       - name: Upload failed test reports
         if: failure()
         uses: actions/upload-artifact@v4

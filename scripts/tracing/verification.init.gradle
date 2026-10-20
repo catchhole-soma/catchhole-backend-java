@@ -1,0 +1,39 @@
+// Opt-in only: ./gradlew -I scripts/tracing/verification.init.gradle writeTraceVerificationClasspath
+gradle.projectsEvaluated {
+    def project = gradle.rootProject
+    project.tasks.register('writeTraceVerificationClasspath') {
+        group = 'verification'
+        description = 'Compile the isolated local tracing fixture and write its test runtime classpath.'
+        dependsOn project.tasks.named('testClasses')
+        def output = project.layout.buildDirectory.file('tracing-verification/classpath.txt')
+        inputs.files(project.sourceSets.test.runtimeClasspath)
+        outputs.file(output)
+        doLast {
+            def destination = output.get().asFile
+            destination.parentFile.mkdirs()
+            destination.text = project.sourceSets.test.runtimeClasspath.asPath
+        }
+    }
+    // Explicit fixture artifact only; never changes the production bootJar task.
+    def bootJarType = project.plugins.getPlugin('org.springframework.boot').class.classLoader
+            .loadClass('org.springframework.boot.gradle.tasks.bundling.BootJar')
+    project.tasks.register('traceVerificationBootJar', bootJarType) {
+        group = 'verification'
+        description = 'Package only isolated tracing fixture classes, with no application config/resources.'
+        dependsOn project.tasks.named('testClasses')
+        mainClass.set('org.monitoring.traceverification.TraceVerificationApplication')
+        targetJavaVersion.set(project.tasks.named('bootJar').flatMap { it.targetJavaVersion })
+        archiveFileName.set('trace-verification.jar')
+        destinationDirectory.set(project.layout.buildDirectory.dir('tracing-verification'))
+        classpath(project.configurations.testRuntimeClasspath)
+        bootInf {
+            from(project.sourceSets.main.output.classesDirs) {
+                into('classes')
+            }
+            from(project.sourceSets.test.output.classesDirs) {
+                into('classes')
+                include('org/monitoring/traceverification/**')
+            }
+        }
+    }
+}
