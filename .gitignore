@@ -23,6 +23,10 @@
 hs_err_pid*
 replay_pid*
 
+# Python verification tools
+__pycache__/
+*.py[cod]
+
 HELP.md
 .gradle
 build/
@@ -66,6 +70,8 @@ docs/.obsidian/
 
 ### Environment ###
 .env
+monitoring/.env.tracing.local
+monitoring/java-agent/cache/
 deploy/api.env
 deploy/monitoring.env
 deploy/monitoring/targets/catchhole-backend.json
