@@ -1,0 +1,46 @@
+# compose.monitoring.yml 위에 겹쳐 사용하는 로컬 트레이스 실습 구성이다.
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    command:
+      - --config=/etc/otelcol/config.yml
+    ports:
+      - "127.0.0.1:4318:4318"
+    volumes:
+      - ./monitoring/otel-collector.yml:/etc/otelcol/config.yml:ro
+    environment:
+      GOMEMLIMIT: 128MiB
+    mem_limit: 256m
+    depends_on:
+      - tempo
+
+  tempo:
+    image: grafana/tempo:3.1.0
+    command:
+      - -target=all
+      - -config.file=/etc/tempo.yml
+    volumes:
+      - ./monitoring/tempo.yml:/etc/tempo.yml:ro
+      - tempo_data:/var/tempo
+    mem_limit: 512m
+
+  grafana:
+    image: grafana/grafana:13.2.2
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${LOCAL_GRAFANA_ADMIN_PASSWORD:?Set LOCAL_GRAFANA_ADMIN_PASSWORD}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    mem_limit: 512m
+    depends_on:
+      - prometheus
+      - tempo
+
+volumes:
+  tempo_data:
+  grafana_data:

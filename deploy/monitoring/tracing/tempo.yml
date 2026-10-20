@@ -1,0 +1,46 @@
+server:
+  http_listen_port: 3200
+
+stream_over_http_enabled: true
+
+memory:
+  automemlimit_enabled: false
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+
+querier:
+  max_concurrent_queries: 2
+
+query_frontend:
+  search:
+    concurrent_jobs: 2
+    max_duration: 72h
+  metrics:
+    concurrent_jobs: 2
+
+storage:
+  trace:
+    backend: s3
+    wal:
+      path: /var/tempo/wal
+    s3:
+      bucket: ${TEMPO_S3_BUCKET}
+      prefix: tempo
+      endpoint: s3.${AWS_REGION}.amazonaws.com
+      region: ${AWS_REGION}
+      insecure: false
+      # Credentials come from the monitoring EC2's IAM instance profile.
+      # Do not add access keys or mount a developer's ~/.aws directory.
+
+overrides:
+  defaults:
+    compaction:
+      block_retention: 72h
+
+usage_report:
+  reporting_enabled: false
