@@ -5,5 +5,11 @@
 		not path /actuator/health
 	}
 	respond @privateActuator 404
-	reverse_proxy backend:8080
+	reverse_proxy backend:8080 {
+		# Public clients cannot select Java traces by forging a sampled parent.
+		# Worker traffic reaches private :8080 directly and retains tracecontext.
+		header_up -traceparent
+		header_up -tracestate
+		header_up -baggage
+	}
 }
