@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.relationship.processor;
 
 import java.util.List;
+import org.monitoring.catchholebackend.domain.relationship.type.FamilyTreeRole;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipAssertion;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipKind;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipSubtype;
@@ -14,7 +15,10 @@ public record ParsedFamilyRelationship(
         RelationshipTemporalScope temporalScope,
         String timeLabel,
         RelationshipAssertion assertion,
-        List<String> reviewReasons
+        List<String> reviewReasons,
+        FamilyTreeRole subjectRole,
+        FamilyTreeRole objectRole,
+        Integer generationGap
 ) {
     public ParsedFamilyRelationship {
         reviewReasons = List.copyOf(reviewReasons);

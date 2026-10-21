@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 public enum RelationshipErrorCode implements ResultCode {
 
+    RELATIONSHIP_MENTION_GROUP_NOT_FOUND(HttpStatus.NOT_FOUND, "미등록 인물 묶음을 찾을 수 없습니다."),
     RELATIONSHIP_NOT_FOUND(HttpStatus.NOT_FOUND, "가족 관계를 찾을 수 없습니다."),
     RELATIONSHIP_CANDIDATE_NOT_FOUND(HttpStatus.NOT_FOUND, "가족 관계 후보를 찾을 수 없습니다."),
     RELATIONSHIP_INVALID_RELATIONSHIP(HttpStatus.BAD_REQUEST, "가족 관계의 대상 또는 유형이 올바르지 않습니다."),

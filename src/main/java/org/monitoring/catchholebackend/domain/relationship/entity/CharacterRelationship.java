@@ -71,6 +71,9 @@ public class CharacterRelationship extends BaseEntity {
     @Column(name = "time_label", updatable = false, length = 200)
     private String timeLabel;
 
+    @Column(name = "generation_gap", updatable = false)
+    private Integer generationGap;
+
     // 정규화된 양 끝점·유형·세부 유형·작품 내 시점을 함께 해시한 중복 판정 키이다.
     @Column(name = "canonical_key", nullable = false, updatable = false, length = 64)
     private String canonicalKey;
@@ -101,6 +104,14 @@ public class CharacterRelationship extends BaseEntity {
             RelationshipTemporalScope temporalScope, String timeLabel, String canonicalKey) {
         return new CharacterRelationship(work, subjectCharacter, objectCharacter, kind, subtype, temporalScope,
                 timeLabel, canonicalKey);
+    }
+
+    public static CharacterRelationship create(Work work, WorkCharacter subjectCharacter,
+            WorkCharacter objectCharacter, RelationshipKind kind, RelationshipSubtype subtype,
+            RelationshipTemporalScope temporalScope, String timeLabel, String canonicalKey, Integer generationGap) {
+        var relation = create(work, subjectCharacter, objectCharacter, kind, subtype, temporalScope, timeLabel, canonicalKey);
+        relation.generationGap = generationGap;
+        return relation;
     }
 
     public void withdraw() {

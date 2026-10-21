@@ -27,6 +27,8 @@ import org.monitoring.catchholebackend.domain.relationship.entity.RelationshipEv
 import org.monitoring.catchholebackend.domain.relationship.exception.RelationshipErrorCode;
 import org.monitoring.catchholebackend.domain.relationship.mapper.RelationshipMapper;
 import org.monitoring.catchholebackend.domain.relationship.processor.RelationshipGraphReader;
+import org.monitoring.catchholebackend.domain.relationship.processor.RelationshipGenerationRules;
+import org.monitoring.catchholebackend.domain.relationship.processor.RelationshipMentionReader;
 import org.monitoring.catchholebackend.domain.relationship.processor.RelationshipRules;
 import org.monitoring.catchholebackend.domain.relationship.processor.RelationshipSourceContext;
 import org.monitoring.catchholebackend.domain.relationship.processor.RelationshipSourceResolver;
@@ -45,6 +47,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 
 @Service
 @RequiredArgsConstructor
@@ -59,6 +62,7 @@ public class RelationshipServiceImpl implements RelationshipService {
     private final RelationshipEvidenceRepository evidenceRepository;
     private final RelationshipSourceResolver sourceResolver;
     private final RelationshipGraphReader graphReader;
+    private final RelationshipMentionReader mentionReader;
     private final RelationshipRules rules;
     private final RelationshipMapper mapper;
 
@@ -70,6 +74,7 @@ public class RelationshipServiceImpl implements RelationshipService {
     }
 
     @Override
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PageResponse<RelationshipCandidateResponse> getRelationshipCandidates(Long memberId, UUID workId, int page, int size, RelationshipCandidateStatus status) {
         workRepository.getOwnedWork(workId, memberId);
         var candidates = status == null ? candidateRepository.findAllByWorkId(workId, pageRequest(page, size))
@@ -78,13 +83,15 @@ public class RelationshipServiceImpl implements RelationshipService {
                 : evidenceRepository.findAllByCandidateIdIn(candidates.stream().map(RelationshipCandidate::getId).toList());
         var sources = resolveSources(workId, evidence);
         var byCandidate = evidence.stream().collect(Collectors.groupingBy(e -> e.getCandidate().getId()));
+        var mentions = mentionReader.readMentions(workId);
         return PageResponse.from(candidates, candidates.stream().map(candidate -> {
             var support = byCandidate.getOrDefault(candidate.getId(), List.of());
-            return mapper.toResponse(candidate, support, sources, reviewReasons(candidate, support, sources));
+            return mapper.toResponse(candidate, support, sources, reviewReasons(candidate, support, sources), mentions.contains(candidate.getId()));
         }).toList());
     }
 
     @Override
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public RelationshipCandidateResponse getRelationshipCandidate(Long memberId, UUID workId, UUID candidateId) {
         workRepository.getOwnedWork(workId, memberId);
         return candidateResponse(getCandidate(workId, candidateId));
@@ -115,7 +122,7 @@ public class RelationshipServiceImpl implements RelationshipService {
         WorkCharacter object = request.objectCharacterId() == null ? null : getActiveCharacter(workId, request.objectCharacterId());
         validateSources(workId, request);
         candidate.revise(subject, object, RelationshipRules.clean(request.objectMention()), request.kind(),
-                request.subtype(), request.temporalScope(), RelationshipRules.clean(request.timeLabel()), request.assertion());
+                request.subtype(), request.temporalScope(), RelationshipRules.clean(request.timeLabel()), request.assertion(), request.generationGap());
         evidenceRepository.deleteAllByCandidateId(candidateId);
         evidenceRepository.flush();
         saveEvidence(candidate, request.evidence());
@@ -227,9 +234,18 @@ public class RelationshipServiceImpl implements RelationshipService {
                     : RelationshipErrorCode.RELATIONSHIP_REVIEW_REQUIRED, Map.of("reviewReasons", reasons));
         }
         var canonical = rules.canonicalize(candidate);
-        if (canonical.kind() == RelationshipKind.PARENT_OF && graphReader.wouldCreateCycle(
-                graphReader.readGraph(candidate.getWork().getId()), canonical.subjectId(), canonical.objectId())) {
-            throw new AppException(RelationshipErrorCode.RELATIONSHIP_ANCESTRY_CYCLE);
+        if (canonical.kind().isCanonicalLineage()) {
+            var graph = graphReader.readGraph(candidate.getWork().getId());
+            if (graphReader.wouldCreateCycle(graph, canonical.subjectId(), canonical.objectId())) {
+                throw new AppException(RelationshipErrorCode.RELATIONSHIP_ANCESTRY_CYCLE);
+            }
+            var constraint = new RelationshipGenerationRules.Constraint("candidate:" + candidate.getId(),
+                    canonical.subjectId(), canonical.objectId(), canonical.kind(), candidate.getGenerationGap(),
+                    candidate.getTemporalScope(), candidate.getTimeLabel());
+            if (graphReader.wouldConflictGeneration(graph, constraint)) {
+                throw new AppException(RelationshipErrorCode.RELATIONSHIP_REVIEW_REQUIRED,
+                        Map.of("reviewReasons", List.of("GENERATION_GAP_CONFLICT")));
+            }
         }
         CharacterRelationship relationship = relationshipRepository
                 .findByWorkIdAndCanonicalKeyAndWithdrawnFalse(candidate.getWork().getId(), canonical.key())
@@ -290,7 +306,8 @@ public class RelationshipServiceImpl implements RelationshipService {
     private RelationshipCandidateResponse candidateResponse(RelationshipCandidate candidate) {
         var evidence = evidenceRepository.findAllByCandidateIdIn(List.of(candidate.getId()));
         var sources = resolveSources(candidate.getWork().getId(), evidence);
-        return mapper.toResponse(candidate, evidence, sources, reviewReasons(candidate, evidence, sources));
+        return mapper.toResponse(candidate, evidence, sources, reviewReasons(candidate, evidence, sources),
+                mentionReader.readMentions(candidate.getWork().getId()).contains(candidate.getId()));
     }
 
     private RelationshipResponse relationshipResponse(CharacterRelationship relationship) {

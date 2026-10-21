@@ -599,7 +599,7 @@ domain/<domain>
 - 작품마다 구조가 달라지는 프로필, 스탯, 스킬, 아이템, 상태 상세값과 AI 원본 응답, 근거 span은 `JsonNode` + Hibernate JSON 매핑으로 JSONB 컬럼에 저장한다. 이 구조는 장르별 설정 차이를 수용하면서도 자주 조회하는 핵심 값은 일반 컬럼으로 유지하기 위한 선택이다.
 - `setting_candidates.source_chunk_id`는 청킹 Entity가 생기기 전까지 FK 없는 UUID로 저장한다. `ManuscriptChunk` 구현 이후 실제 FK 제약 여부를 다시 결정한다.
 
-#### Family Relationship Domain Policy (#259, #260)
+#### Family Relationship Domain Policy (#259, #260, #261)
 
 - 가족 관계는 `domain/relationship`에 둔다. 기존 추출 프롬프트·SettingCandidate 생성 책임은 유지하며, 현재 PROFILE 슬롯과 sourceFacts 양쪽에 존재하는 Fact만 관계 입력으로 사용한다. HISTORY_ONLY 이력으로 현재 관계를 복원하지 않는다.
 - 관계·검토 후보·Fact 근거 연결을 분리한다. 원문은 복사하지 않고 기존 Fact evidence API를 사용한다. 원문 파기는 현재 설정의 무효화나 서사상 관계 종료를 뜻하지 않는다.
@@ -608,12 +608,23 @@ domain/<domain>
 - 관계 조회는 현재 슬롯 및 보관 상태를 다시 계산한다. 복수의 독립 근거 중 하나라도 유효하면 유지하고, 마지막 근거 소실은 REVIEW_REQUIRED다. 보관/복구로 생긴 부모 순환도 검토로 표시하며 확정 시 순환 검사는 이 간선을 포함한다.
 - 관계 응답의 current와 hasEvidence는 별개다. 현재 설정에서 빠진 활성 캐릭터의 Fact도 원문이 보존되면 근거를 열 수 있어야 한다. 작품/회원 영구 삭제는 관계 evidence→candidate→relationship을 Fact보다 먼저 정리한다.
 - #260은 기존 AI 추출 결과나 프롬프트를 확장하지 않는다. 현재 설정의 제한된 명시 문법을 `ExplicitFamilyRelationshipParser`로 읽고 같은 작품의 활성 인물 이름이 정확히 한 명일 때만 자동 연결한다. 미지원 자유문은 관계 부재로 해석하지 않으며, 대화·감정·만남으로 가족 관계를 추론하지 않는다.
+- 명시 문법은 가족 항목 외 현재 PROFILE의 출생 순서·특징 값에서도 읽는다. 자녀 역할의 `넷째`·`두 번째`·숫자 서수와 외동·막내·맏, 장남·차남·장녀·차녀를 지원하되 부모·배우자 역할에 적용하거나 다른 자녀를 생성하지 않는다. `은하의 언니`처럼 단순 상대명의 소유격은 ASSERTED지만 `언니: 은하` 및 남성·여성·사람 등의 설명으로 끝나는 상대는 UNCERTAIN으로 검토한다. 뒤 설명은 허용된 등급/레벨+직업 명사구만 읽으며 부정·추측·중첩 명제를 잘라 버리지 않는다. 사망·거주·모름 등의 상황문을 상대 이름으로 받지 않고 혈통·가문·지원하지 않는 친족을 특정 부모 간선으로 추론하지 않는다. 상세 어휘와 합성 현재 13개·이력 4개 분류는 자동처리 계약과 파서 테스트를 따른다.
 - 명확한 현재 설정은 별도 확인 클릭 없이 관계를 확정한다. 불확실·동명이인·미등록·순환·상충은 검토에 남기며 기존 설정 검토 모드/집계와 섞지 않는다. `CURRENT_SETTING_RULE` 후보의 생성 키는 현재 슬롯 토큰과 원래 명제 기준이며 대상 해석 결과를 포함하지 않는다. 재처리는 이미 존재하는 대기 후보·사용자 수정·제외·철회를 되돌리지 않는다.
+- 명제가 형제 호칭 규칙 확장이나 같은 슬롯의 미지원 문법 해소로 UNCERTAIN에서 ASSERTED로 읽혀도 동일 원본 명제와 출처의 구 UNCERTAIN 요청 ID가 있으면 그 규칙 후보를 재사용한다. 사용자가 현재 필드를 바꾼 경우에도 원래 ID로 찾아 기존 대기·수정·제외·확정·철회와 버전을 보존하기 위함이다. 새 명제나 독립 출처까지 차단하지 않으며 이력 Fact는 문법상 인식 가능해도 CURRENT 슬롯과 출처에 함께 없으면 후처리 입력으로 복원하지 않는다.
 - PROFILE provenance 변경과 인물 생성/이름변경/보관/복구는 기존 Work 쓰기 잠금 안에서 `Work.relationshipInputVersion`만 증가시킨다. 관계 처리기는 별도 트랜잭션에서 처리하므로 실패가 설정 확정을 되돌리지 않는다. 새 promotion caller도 Work 잠금을 먼저 획득해야 한다.
 - `relationship.processing.scheduling-enabled=true`, `fixed-delay-ms=10000`은 base 설정이며 test에서는 끈다. scheduler는 한 번에 10개 작품을 처리하고 실패는 1분 뒤 재시도한다. 새 입력 또는 수동 재시도는 이전 실패 대기를 해제한다. 기존 작품의 초기 세대 0은 자동 백필하지 않으며 현재 설정 처리 API로 요청한다.
 - 대기 조회는 작품 ID와 입력 버전을 함께 캡처하고 처리·실패 기록에 같은 버전을 전달한다. Work 잠금 뒤 입력 버전이 다르면 오래된 작업은 건너뛰며, 실패 기록 전 새 입력이 저장됐거나 해당 버전이 이미 완료됐으면 실패 상태를 쓰지 않는다. 롤백 직후 저장된 새 설정에 이전 실패의 대기 시간을 적용하지 않기 위함이다.
 - 자동 확정 근거는 `validatedInputVersion`이 Work 입력 세대와 같아야 지원 근거다. 후처리 대기/실패 중에는 REVIEW_REQUIRED로 보류하고 성공한 트랜잭션에서 다시 검증한다. 수동 확정은 #259 현재 근거 검증을 유지한다. `relationship_processing_states`도 작품/회원 파기 때 Work보다 먼저 삭제한다.
 - API·가계도 계약은 `docs/family-relationships-v1.md`, 자동처리와 검토는 `docs/family-relationship-processing-v1.md`를 따른다. 공유 fixture는 `docs/contracts/family-relationships-v1.json`과 `docs/contracts/family-relationship-processing-v1.json`을 사용한다.
+- #261 가계도는 `GET /family-tree`의 요약 조회를 사용하며 기존 상세 페이지를 전수 왕복해 구성하지 않는다. `FamilyTreeServiceImpl`의 읽기 전용 REPEATABLE_READ로 인물·유효 관계·후보 수를 같은 DB 스냅샷에서 읽는다. GraphReader의 VALID+CURRENT가 기본이고 과거 포함도 VALID+HISTORICAL만 추가한다. 초점은 활성 인물의 연결 가족 범위이며 간선 기본 100/최대 200, 상한 전 합계와 truncated를 명시한다. 원문·전체 근거는 기존 상세 API를 사용한다. revision은 수동 확정/철회와 범위 내용의 변경 감지값이며 쓰기 버전이나 권한이 아니다. 상세 및 실행하지 않은 제한 백필 절차는 `docs/family-tree-v1.md`를 따른다.
+- #261 미등록 인물은 `RelationshipMentionReader`가 현재 출처·명시성·상충·보관 상태를 검사한 PENDING 규칙 후보만 별도 MENTION 도형으로 표시한다. 후보 상태나 확정 관계 row를 만들지 않으며 후보 ID 기반 `mention:` 식별자로 이름 병합을 막는다. 가계도와 후보 `displayableAsMention`은 같은 판정을 사용하고, optionalLinkCount는 작품 전체 선택적 연결 수다. 늦은 캐릭터 등록은 자동 연결하지 않고 기존 후보 수정·확정 API로만 연결한다. 저장 모델을 바꾸지 않고 설정에만 언급된 인물을 표시하기 위한 구분이다.
+- #261 끝점 호칭은 parser가 일치시킨 명시적 역할을 `FamilyTreeRoleResolver`가 현재 지지 근거·실제 끝점·방향·세부 유형·시점에 대조해 읽기 전용으로 제공한다. PARENT_OF의 subjectRole/objectRole은 각각 부모/자녀이며 명시되지 않거나 충돌한 끝점은 PARENT/CHILD다. 한쪽 호칭·이름·프로필 성별로 반대편을 추론하지 않고, 조회 revision에 호칭을 포함한다. DB 및 후보/관계 생성 identity는 변경하지 않는다.
+- #261 등록 인물의 가계도 image는 기존 `WorldSettingImageResponse`를 재사용하며 실제 표시된 인물만 `CharacterImageService`로 한 번에 읽는다. MENTION은 null, 경로 없는 기본 이미지는 기존 기본 아이콘이다. 개인 이미지는 기존 인증 파일 경로를 유지한다. 표시 이미지 변경도 응답 revision에 반영하되 관계 projector·입력 세대·LLM·배치 identity와 분리해 사진 수정이 관계나 화면 위치를 바꾸지 않게 한다.
+- #261 명시적 조상·후손은 `ANCESTOR_OF`로 정규화하고 입력 역방향은 `DESCENDANT_OF`다. nullable `generationGap`은 N대손의 N만 보존하며 미상은 null, 중간 인물·부모 간선은 만들지 않는다. 후보·확정·가계도 응답에 같은 필드를 제공하고 원래 문구는 기존 Fact 근거로 보존한다. 기존 비조상 canonical/request identity는 유지하며 새 조상 identity에는 gap을 포함한다. 조상이라는 이유로 HISTORICAL을 추정하지 않는다.
+- #261 미등록 언급의 동일 인물 묶기는 사용자 명시 요청으로만 `RelationshipMentionGroup`에 저장한다. `relationship-mention-groups` API는 Work 잠금·requestId/hash·후보/그룹 버전·현재 표시 가능 출처와 묶인 그래프의 순환/세대 차이를 검증한다. 그룹은 실제 캐릭터가 아니며 각 후보·관계·근거는 유지한다. 별개 후보는 이름으로 자동 합치지 않고, 명시 그룹만 `mention-group:<UUID>`로 투영한다. 후보 수정·확정·제외는 해당 멤버만 떼고 그룹 버전을 올린다. 전체 해제는 원래 후보별 도형을 복원하며 작품 purge는 후보 다음 그룹을 삭제한다.
+
+- 조상·부모는 같은 순환 검사에 참여한다. `RelationshipGenerationRules`는 같은 명시 시점의 부모=1·알려진 조상=N 제약을 비교하고 불일치한 연결 영역을 `GENERATION_GAP_CONFLICT` 검토로 보류한다. 미상 gap·기존 부모만의 영역에는 이 제약을 덧씌우지 않는다. 번호 대손 문법의 소유자 이름 접미사는 현재 프로필 소유자와 정확히 일치할 때만 허용하고 중첩 소유격·집단·추측·부정을 단정으로 승격하지 않는다.
+
 
 #### World Setting Domain Policy
 

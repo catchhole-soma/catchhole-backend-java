@@ -24,5 +24,6 @@ public record RelationshipResponse(
         List<RelationshipEvidenceResponse> evidence,
         @Schema(description = "등록 시각. 관계 성립 시점이 아닙니다") LocalDateTime createdAt,
         @Schema(description = "주체의 현재 이름") String subjectCharacterName,
-        @Schema(description = "상대의 현재 이름") String objectCharacterName
+        @Schema(description = "상대의 현재 이름") String objectCharacterName,
+        @Schema(description = "명시된 조상·후손 세대 차이. N대손은 N, 미상과 다른 관계는 null", example = "5", nullable = true) Integer generationGap
 ) {}

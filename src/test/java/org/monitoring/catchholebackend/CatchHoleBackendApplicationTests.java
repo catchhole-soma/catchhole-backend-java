@@ -27,6 +27,7 @@ import org.monitoring.catchholebackend.domain.member.repository.MemberWithdrawal
 import org.monitoring.catchholebackend.domain.member.repository.MemberWithdrawalRequestRepository;
 import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipCandidateRepository;
 import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipEvidenceRepository;
+import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipMentionGroupRepository;
 import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipRepository;
 import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipProcessingStateRepository;
 import org.monitoring.catchholebackend.domain.upload.repository.UploadBatchRepository;
@@ -179,6 +180,9 @@ class CatchHoleBackendApplicationTests {
 
     @MockitoBean
     private RelationshipEvidenceRepository relationshipEvidenceRepository;
+
+    @MockitoBean
+    private RelationshipMentionGroupRepository relationshipMentionGroupRepository;
 
     @MockitoBean
     private RelationshipProcessingStateRepository relationshipProcessingStateRepository;

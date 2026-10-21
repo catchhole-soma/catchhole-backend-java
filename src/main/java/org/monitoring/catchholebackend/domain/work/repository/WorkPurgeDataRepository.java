@@ -31,6 +31,7 @@ public class WorkPurgeDataRepository {
                 where candidate_id in (select id from relationship_candidates where work_id = ?)
                 """, workId);
         deletedCount += update("delete from relationship_candidates where work_id = ?", workId);
+        deletedCount += update("delete from relationship_mention_groups where work_id = ?", workId);
         deletedCount += update("delete from character_relationships where work_id = ?", workId);
         deletedCount += update("""
                 delete from character_snapshot_sources

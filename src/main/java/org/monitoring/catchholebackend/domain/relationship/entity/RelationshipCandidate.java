@@ -73,6 +73,36 @@ public class RelationshipCandidate extends BaseEntity {
     @Column(name = "object_mention", length = 200)
     private String objectMention;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "mention_group_id", foreignKey = @ForeignKey(name = "fk_relationship_candidates_mention_group"))
+    private RelationshipMentionGroup mentionGroup;
+
+    public void assignMentionGroup(RelationshipMentionGroup group) {
+        requirePending();
+        if (objectCharacter != null || mentionGroup != null || group == null || !group.isActive()
+                || !work.getId().equals(group.getWork().getId())) {
+            throw new AppException(RelationshipErrorCode.RELATIONSHIP_INVALID_RELATIONSHIP);
+        }
+        mentionGroup = group;
+        version++;
+    }
+
+    public void clearDisbandedMentionGroup() {
+        requirePending();
+        if (mentionGroup != null) {
+            mentionGroup = null;
+            version++;
+        }
+    }
+
+    private void detachMentionGroupOnDecision() {
+        if (mentionGroup != null) {
+            mentionGroup.recordMembershipChange();
+            mentionGroup = null;
+        }
+    }
+
+
     @Enumerated(EnumType.STRING)
     @Column(name = "kind", nullable = false, length = 30)
     private RelationshipKind kind;
@@ -88,6 +118,9 @@ public class RelationshipCandidate extends BaseEntity {
     // 발견 회차로 추정하지 않는 작품 내 시점 설명이며 미상은 null이다.
     @Column(name = "time_label", length = 200)
     private String timeLabel;
+
+    @Column(name = "generation_gap")
+    private Integer generationGap;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "assertion", nullable = false, length = 30)
@@ -180,6 +213,7 @@ public class RelationshipCandidate extends BaseEntity {
             RelationshipKind kind, RelationshipSubtype subtype, RelationshipTemporalScope temporalScope,
             String timeLabel, RelationshipAssertion assertion) {
         requirePending();
+        detachMentionGroupOnDecision();
         this.subjectCharacter = subjectCharacter;
         this.objectCharacter = objectCharacter;
         this.objectMention = objectMention;
@@ -188,8 +222,26 @@ public class RelationshipCandidate extends BaseEntity {
         this.temporalScope = temporalScope;
         this.timeLabel = timeLabel;
         this.assertion = assertion;
+        generationGap = null;
         automaticReviewReason = null;
         version++;
+    }
+
+    public static RelationshipCandidate create(Work work, UUID requestId, String requestHash,
+            WorkCharacter subjectCharacter, WorkCharacter objectCharacter, String objectMention,
+            RelationshipKind kind, RelationshipSubtype subtype, RelationshipTemporalScope temporalScope,
+            String timeLabel, RelationshipAssertion assertion, UUID replacesRelationshipId, Integer generationGap) {
+        var candidate = create(work, requestId, requestHash, subjectCharacter, objectCharacter, objectMention,
+                kind, subtype, temporalScope, timeLabel, assertion, replacesRelationshipId);
+        candidate.generationGap = generationGap;
+        return candidate;
+    }
+
+    public void revise(WorkCharacter subjectCharacter, WorkCharacter objectCharacter, String objectMention,
+            RelationshipKind kind, RelationshipSubtype subtype, RelationshipTemporalScope temporalScope,
+            String timeLabel, RelationshipAssertion assertion, Integer generationGap) {
+        revise(subjectCharacter, objectCharacter, objectMention, kind, subtype, temporalScope, timeLabel, assertion);
+        this.generationGap = generationGap;
     }
 
     public void confirm(CharacterRelationship relationship) {
@@ -197,6 +249,7 @@ public class RelationshipCandidate extends BaseEntity {
         if (relationship == null) {
             throw new AppException(RelationshipErrorCode.RELATIONSHIP_INVALID_RELATIONSHIP);
         }
+        detachMentionGroupOnDecision();
         confirmedRelationship = relationship;
         status = RelationshipCandidateStatus.CONFIRMED;
         decisionFromVersion = version++;
@@ -204,6 +257,7 @@ public class RelationshipCandidate extends BaseEntity {
 
     public void dismiss() {
         requirePending();
+        detachMentionGroupOnDecision();
         status = RelationshipCandidateStatus.DISMISSED;
         decisionFromVersion = version++;
     }

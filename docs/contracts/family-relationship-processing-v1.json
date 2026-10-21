@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "parserVersion": "family-rule-v1",
-  "scope": "현재 PROFILE의 {factValue,valueJson}만 읽는 규칙 파서 사례. 캐릭터 이름의 정확한 일치·소유권·동명·순환·기존 사용자 결정은 후처리 서비스가 검증한다.",
+  "scope": "현재 PROFILE의 {factValue,valueJson}만 읽는 규칙 파서 사례. 캐릭터 이름의 정확한 일치·소유권·동명·순환·기존 사용자 결정은 후처리 서비스가 검증한다. subjectRole/objectRole은 문법의 명시적 끝점 호칭으로 가계도 읽기에만 사용하며 자동 저장 identity에는 포함하지 않는다. 명시 조상은 generationGap에 N대손의 N만 보존하고 미상은 null이다. optional ownerName은 전체 명사구 끝 인명의 소유자 일치 검증에만 사용한다.",
   "cases": [
     {
       "name": "역할 표기의 아버지는 상대를 부모로 연결",
@@ -19,7 +19,10 @@
             "temporalScope": "CURRENT",
             "timeLabel": null,
             "assertion": "ASSERTED",
-            "reviewReasons": []
+            "reviewReasons": [],
+            "subjectRole": "CHILD",
+            "objectRole": "FATHER",
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -42,7 +45,10 @@
             "temporalScope": "CURRENT",
             "timeLabel": null,
             "assertion": "ASSERTED",
-            "reviewReasons": []
+            "reviewReasons": [],
+            "subjectRole": "SON",
+            "objectRole": "PARENT",
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -65,7 +71,10 @@
             "temporalScope": "CURRENT",
             "timeLabel": null,
             "assertion": "ASSERTED",
-            "reviewReasons": []
+            "reviewReasons": [],
+            "subjectRole": "PARENT",
+            "objectRole": "SON",
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -88,7 +97,10 @@
             "temporalScope": "CURRENT",
             "timeLabel": null,
             "assertion": "ASSERTED",
-            "reviewReasons": []
+            "reviewReasons": [],
+            "subjectRole": null,
+            "objectRole": null,
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -111,7 +123,10 @@
             "temporalScope": "CURRENT",
             "timeLabel": null,
             "assertion": "ASSERTED",
-            "reviewReasons": []
+            "reviewReasons": [],
+            "subjectRole": null,
+            "objectRole": null,
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -134,7 +149,10 @@
             "temporalScope": "CURRENT",
             "timeLabel": null,
             "assertion": "ASSERTED",
-            "reviewReasons": []
+            "reviewReasons": [],
+            "subjectRole": "CHILD",
+            "objectRole": "FATHER",
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -157,7 +175,10 @@
             "temporalScope": "CURRENT",
             "timeLabel": null,
             "assertion": "ASSERTED",
-            "reviewReasons": []
+            "reviewReasons": [],
+            "subjectRole": "CHILD",
+            "objectRole": "MOTHER",
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -180,7 +201,10 @@
             "temporalScope": "CURRENT",
             "timeLabel": null,
             "assertion": "ASSERTED",
-            "reviewReasons": []
+            "reviewReasons": [],
+            "subjectRole": null,
+            "objectRole": null,
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -203,7 +227,10 @@
             "temporalScope": "CURRENT",
             "timeLabel": null,
             "assertion": "ASSERTED",
-            "reviewReasons": []
+            "reviewReasons": [],
+            "subjectRole": "CHILD",
+            "objectRole": "FATHER",
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -226,7 +253,10 @@
             "temporalScope": "HISTORICAL",
             "timeLabel": null,
             "assertion": "ASSERTED",
-            "reviewReasons": []
+            "reviewReasons": [],
+            "subjectRole": null,
+            "objectRole": null,
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -251,7 +281,10 @@
             "assertion": "NEGATED",
             "reviewReasons": [
               "NEGATED"
-            ]
+            ],
+            "subjectRole": "SON",
+            "objectRole": "PARENT",
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -278,7 +311,10 @@
             "assertion": "UNCERTAIN",
             "reviewReasons": [
               "UNCERTAIN"
-            ]
+            ],
+            "subjectRole": "CHILD",
+            "objectRole": "FATHER",
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -305,7 +341,10 @@
             "assertion": "FIGURATIVE",
             "reviewReasons": [
               "FIGURATIVE"
-            ]
+            ],
+            "subjectRole": "FATHER",
+            "objectRole": "CHILD",
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -332,7 +371,10 @@
             "assertion": "UNCERTAIN",
             "reviewReasons": [
               "AMBIGUOUS_FAMILY_ROLE"
-            ]
+            ],
+            "subjectRole": null,
+            "objectRole": null,
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -391,7 +433,10 @@
             "assertion": "CONFLICTING",
             "reviewReasons": [
               "CURRENT_VALUE_CONFLICT"
-            ]
+            ],
+            "subjectRole": "CHILD",
+            "objectRole": "FATHER",
+            "generationGap": null
           },
           {
             "objectMention": "김철수",
@@ -402,7 +447,10 @@
             "assertion": "CONFLICTING",
             "reviewReasons": [
               "CURRENT_VALUE_CONFLICT"
-            ]
+            ],
+            "subjectRole": "CHILD",
+            "objectRole": "FATHER",
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -432,7 +480,10 @@
             "assertion": "UNCERTAIN",
             "reviewReasons": [
               "UNSUPPORTED_STRUCTURED_CONTEXT"
-            ]
+            ],
+            "subjectRole": "CHILD",
+            "objectRole": "FATHER",
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -459,7 +510,10 @@
             "temporalScope": "CURRENT",
             "timeLabel": null,
             "assertion": "ASSERTED",
-            "reviewReasons": []
+            "reviewReasons": [],
+            "subjectRole": "CHILD",
+            "objectRole": "FATHER",
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -498,7 +552,10 @@
             "temporalScope": "CURRENT",
             "timeLabel": null,
             "assertion": "ASSERTED",
-            "reviewReasons": []
+            "reviewReasons": [],
+            "subjectRole": null,
+            "objectRole": null,
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -524,7 +581,10 @@
             "temporalScope": "CURRENT",
             "timeLabel": null,
             "assertion": "ASSERTED",
-            "reviewReasons": []
+            "reviewReasons": [],
+            "subjectRole": null,
+            "objectRole": null,
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -550,7 +610,10 @@
             "temporalScope": "CURRENT",
             "timeLabel": null,
             "assertion": "ASSERTED",
-            "reviewReasons": []
+            "reviewReasons": [],
+            "subjectRole": null,
+            "objectRole": null,
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -578,7 +641,10 @@
             "assertion": "UNCERTAIN",
             "reviewReasons": [
               "UNSUPPORTED_STRUCTURED_CONTEXT"
-            ]
+            ],
+            "subjectRole": null,
+            "objectRole": null,
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -609,7 +675,10 @@
             "reviewReasons": [
               "UNSUPPORTED_FAMILY_SYNTAX",
               "UNSUPPORTED_STRUCTURED_CONTEXT"
-            ]
+            ],
+            "subjectRole": null,
+            "objectRole": null,
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -638,7 +707,10 @@
             "temporalScope": "HISTORICAL",
             "timeLabel": null,
             "assertion": "ASSERTED",
-            "reviewReasons": []
+            "reviewReasons": [],
+            "subjectRole": null,
+            "objectRole": null,
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -695,7 +767,10 @@
             "assertion": "UNCERTAIN",
             "reviewReasons": [
               "UNSUPPORTED_FAMILY_SYNTAX"
-            ]
+            ],
+            "subjectRole": "CHILD",
+            "objectRole": "FATHER",
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -725,7 +800,10 @@
             "assertion": "UNCERTAIN",
             "reviewReasons": [
               "UNSUPPORTED_FAMILY_SYNTAX"
-            ]
+            ],
+            "subjectRole": "CHILD",
+            "objectRole": "FATHER",
+            "generationGap": null
           }
         ],
         "familyMentioned": true,
@@ -767,9 +845,193 @@
             "assertion": "UNCERTAIN",
             "reviewReasons": [
               "UNSUPPORTED_FAMILY_SYNTAX"
-            ]
+            ],
+            "subjectRole": null,
+            "objectRole": null,
+            "generationGap": null
           }
         ],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNSUPPORTED_FAMILY_SYNTAX"
+        ]
+      }
+    },
+    {
+      "name": "명시된 5대손을 부모가 아닌 후손 관계로 보존",
+      "factKey": "profile.특징",
+      "currentValue": {
+        "factValue": "아르덴의 5대손",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "아르덴",
+            "kind": "DESCENDANT_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": [],
+            "subjectRole": null,
+            "objectRole": null,
+            "generationGap": 5
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": []
+      }
+    },
+    {
+      "name": "완전한 대손 명사구의 끝 이름은 현재 소유자와 일치",
+      "factKey": "profile.특징",
+      "currentValue": {
+        "factValue": "아르덴의 5대손 비칼",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "아르덴",
+            "kind": "DESCENDANT_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": [],
+            "subjectRole": null,
+            "objectRole": null,
+            "generationGap": 5
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": []
+      },
+      "ownerName": "비칼"
+    },
+    {
+      "name": "세대 수 없는 후손은 미상으로 유지",
+      "factKey": "profile.특징",
+      "currentValue": {
+        "factValue": "아르덴의 후손",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "아르덴",
+            "kind": "DESCENDANT_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": [],
+            "subjectRole": null,
+            "objectRole": null,
+            "generationGap": null
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": []
+      }
+    },
+    {
+      "name": "조상 역할은 후손과 역방향 명제",
+      "factKey": "profile.특징",
+      "currentValue": {
+        "factValue": "아르덴의 조상",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "아르덴",
+            "kind": "ANCESTOR_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": [],
+            "subjectRole": null,
+            "objectRole": null,
+            "generationGap": null
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": []
+      }
+    },
+    {
+      "name": "대손 부정을 명시된 긍정 관계로 승격하지 않음",
+      "factKey": "profile.특징",
+      "currentValue": {
+        "factValue": "아르덴의 5대손이 아니다",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [
+          {
+            "objectMention": "아르덴",
+            "kind": "DESCENDANT_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "NEGATED",
+            "reviewReasons": [
+              "NEGATED"
+            ],
+            "subjectRole": null,
+            "objectRole": null,
+            "generationGap": 5
+          }
+        ],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "NEGATED"
+        ]
+      }
+    },
+    {
+      "name": "붙여 쓴 가문은 특정 인물로 생성하지 않음",
+      "factKey": "profile.특징",
+      "currentValue": {
+        "factValue": "청연가문의 후손",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNSUPPORTED_FAMILY_SYNTAX"
+        ]
+      }
+    },
+    {
+      "name": "다른 소유자를 가리키는 끝 인명은 연결하지 않음",
+      "factKey": "profile.특징",
+      "currentValue": {
+        "factValue": "아르덴의 5대손 세린",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [],
+        "familyMentioned": true,
+        "reviewReasons": [
+          "UNSUPPORTED_FAMILY_SYNTAX"
+        ]
+      },
+      "ownerName": "비칼"
+    },
+    {
+      "name": "중첩 소유격의 대손을 임의 이름으로 만들지 않음",
+      "factKey": "profile.특징",
+      "currentValue": {
+        "factValue": "아르덴의 비칼의 5대손",
+        "valueJson": null
+      },
+      "expected": {
+        "relationships": [],
         "familyMentioned": true,
         "reviewReasons": [
           "UNSUPPORTED_FAMILY_SYNTAX"

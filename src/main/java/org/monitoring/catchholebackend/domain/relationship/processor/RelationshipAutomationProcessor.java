@@ -29,6 +29,7 @@ import org.monitoring.catchholebackend.domain.relationship.repository.Relationsh
 import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipRepository;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipAssertion;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipCandidateStatus;
+import org.monitoring.catchholebackend.domain.relationship.type.RelationshipCandidateOrigin;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipKind;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipSubtype;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipTemporalScope;
@@ -62,7 +63,7 @@ public class RelationshipAutomationProcessor {
         int unsupported = 0;
         for (var sources : slots.values()) {
             var source = sources.getFirst();
-            var parsed = parser.parse(source.factKey(), source.currentValue());
+            var parsed = parser.parse(source.factKey(), source.currentValue(), byId.get(source.characterId()).getName());
             if (parsed.familyMentioned() && (parsed.relationships().isEmpty() || sources.size() > 20)) {
                 unsupported++;
             }
@@ -82,10 +83,21 @@ public class RelationshipAutomationProcessor {
                 if (reason == null && !claim.reviewReasons().isEmpty()) reason = claim.reviewReasons().getFirst();
                 // 상대 등록/동명이인 수로 키를 바꾸지 않아 수정·제외 결정을 재처리로 되살리지 않는다.
                 var identity = draft(null, source.characterId(), null, claim, evidence);
-                UUID requestId = UUID.nameUUIDFromBytes(("family-rule-v1:" + work.getId() + ":"
-                        + rules.requestHash(identity, null, null)).getBytes(StandardCharsets.UTF_8));
+                UUID requestId = ruleRequestId(work.getId(), identity);
                 var request = draft(requestId, source.characterId(), object == null ? null : object.getId(), claim, evidence);
                 var candidate = existing.get(requestId);
+                if (candidate == null && claim.assertion() == RelationshipAssertion.ASSERTED) {
+                    // 구 규칙의 형제 호칭 보류 또는 같은 슬롯의 미지원 문장이 해소되면 모든 종류의
+                    // 명제가 UNCERTAIN에서 ASSERTED로 바뀔 수 있다. 같은 출처·원래 명제의 식별자를
+                    // 대조해야 필드가 수정되었어도 기존 검토·제외·확정 결정을 보존한다.
+                    var legacyIdentity = new RelationshipCandidateCreateRequest(null, identity.subjectCharacterId(),
+                            null, identity.objectMention(), identity.kind(), identity.subtype(), identity.temporalScope(),
+                            identity.timeLabel(), RelationshipAssertion.UNCERTAIN, identity.evidence(), identity.generationGap());
+                    var legacyCandidate = existing.get(ruleRequestId(work.getId(), legacyIdentity));
+                    if (legacyCandidate != null && legacyCandidate.getOrigin() == RelationshipCandidateOrigin.CURRENT_SETTING_RULE) {
+                        candidate = legacyCandidate;
+                    }
+                }
                 boolean fresh = candidate == null;
                 if (fresh) {
                     rules.validateDraft(request);
@@ -117,8 +129,9 @@ public class RelationshipAutomationProcessor {
         var withdrawnKeys = graph.relationships().stream().filter(CharacterRelationship::isWithdrawn)
                 .map(CharacterRelationship::getCanonicalKey).collect(Collectors.toSet());
         var parents = new HashMap<UUID, Set<UUID>>();
+        var generationConstraints = new ArrayList<RelationshipGenerationRules.Constraint>();
         for (var relation : graph.relationships()) {
-            if (!relation.isWithdrawn() && relation.getKind() == RelationshipKind.PARENT_OF
+            if (!relation.isWithdrawn() && relation.getKind().isCanonicalLineage()
                     && relation.getSubjectCharacter().getStatus() == CharacterStatus.ACTIVE
                     && relation.getObjectCharacter().getStatus() == CharacterStatus.ACTIVE
                     && graph.evidence().getOrDefault(relation.getId(), List.of()).stream()
@@ -126,6 +139,7 @@ public class RelationshipAutomationProcessor {
                                     && RelationshipGraphReader.isSupporting(e, graph.sources()))) {
                 parents.computeIfAbsent(relation.getSubjectCharacter().getId(), ignored -> new HashSet<>())
                         .add(relation.getObjectCharacter().getId());
+                generationConstraints.add(RelationshipGenerationRules.constraint(relation));
             }
         }
         // 자동 근거는 현재 대상·상충 검사를 통과한 명제로 다시 구성해야 가짜 순환을 만들지 않는다.
@@ -135,9 +149,14 @@ public class RelationshipAutomationProcessor {
                     && !withdrawnKeys.contains(rules.canonicalize(observation.candidate()).key())) {
                 var pair = canonicalPair(observation.request());
                 parents.computeIfAbsent(pair.subject(), ignored -> new HashSet<>()).add(pair.object());
+                var request = observation.request();
+                generationConstraints.add(new RelationshipGenerationRules.Constraint(
+                        observation.candidate().getRequestId().toString(), pair.subject(), pair.object(), pair.kind(),
+                        request.generationGap(), request.temporalScope(), request.timeLabel()));
             }
         }
 
+        var generationConflicts = RelationshipGenerationRules.conflictingKeys(generationConstraints);
         var relationsByKey = graph.relationships().stream().filter(r -> !r.isWithdrawn())
                 .collect(Collectors.toMap(CharacterRelationship::getCanonicalKey, r -> r));
         int automatic = 0;
@@ -149,9 +168,12 @@ public class RelationshipAutomationProcessor {
             String reason = observation.reason();
             if (reason == null && observation.request().objectCharacterId() != null) {
                 var pair = canonicalPair(observation.request());
-                if (pair.kind() == RelationshipKind.PARENT_OF && reaches(parents, pair.object(), pair.subject())) {
+                if (pair.kind().isCanonicalLineage() && reaches(parents, pair.object(), pair.subject())) {
                     reason = "ANCESTRY_CYCLE";
                 }
+            }
+            if (reason == null && generationConflicts.contains(candidate.getRequestId().toString())) {
+                reason = "GENERATION_GAP_CONFLICT";
             }
             if (!observation.fresh()) {
                 // 완료한 사용자 결정을 덮어쓰지 않는다. 자동 확정의 지원만 현재 상태로 다시 검증한다.
@@ -195,15 +217,21 @@ public class RelationshipAutomationProcessor {
                 || !Objects.equals(a.timeLabel(), b.timeLabel())) return false;
         boolean incompatibleAssertion = (a.assertion() == RelationshipAssertion.ASSERTED && b.assertion() == RelationshipAssertion.NEGATED)
                 || (b.assertion() == RelationshipAssertion.ASSERTED && a.assertion() == RelationshipAssertion.NEGATED);
-        return incompatibleAssertion && (a.subtype() == b.subtype()
-                || a.subtype() == RelationshipSubtype.UNSPECIFIED || b.subtype() == RelationshipSubtype.UNSPECIFIED);
+        boolean compatibleSubtype = a.subtype() == b.subtype()
+                || a.subtype() == RelationshipSubtype.UNSPECIFIED || b.subtype() == RelationshipSubtype.UNSPECIFIED;
+        boolean compatibleGap = a.generationGap() == null || b.generationGap() == null
+                || a.generationGap().equals(b.generationGap());
+        boolean conflictingGap = a.kind().isAncestry() && a.generationGap() != null && b.generationGap() != null
+                && !a.generationGap().equals(b.generationGap()) && a.assertion() == RelationshipAssertion.ASSERTED
+                && b.assertion() == RelationshipAssertion.ASSERTED;
+        return compatibleSubtype && (incompatibleAssertion && compatibleGap || conflictingGap);
     }
 
     private Pair canonicalPair(RelationshipCandidateCreateRequest draft) {
         var subject = draft.subjectCharacterId();
         var object = draft.objectCharacterId();
         var kind = draft.kind();
-        if (kind == RelationshipKind.CHILD_OF) return new Pair(object, subject, RelationshipKind.PARENT_OF);
+        if (kind.isInverseLineage()) return new Pair(object, subject, kind.canonicalKind());
         if ((kind == RelationshipKind.SPOUSE || kind == RelationshipKind.SIBLING) && subject.compareTo(object) > 0) {
             return new Pair(object, subject, kind);
         }
@@ -225,7 +253,12 @@ public class RelationshipAutomationProcessor {
     private RelationshipCandidateCreateRequest draft(UUID id, UUID subject, UUID object, ParsedFamilyRelationship claim,
             List<RelationshipEvidenceRequest> evidence) {
         return new RelationshipCandidateCreateRequest(id, subject, object, claim.objectMention(), claim.kind(),
-                claim.subtype(), claim.temporalScope(), claim.timeLabel(), claim.assertion(), evidence);
+                claim.subtype(), claim.temporalScope(), claim.timeLabel(), claim.assertion(), evidence, claim.generationGap());
+    }
+
+    private UUID ruleRequestId(UUID workId, RelationshipCandidateCreateRequest identity) {
+        return UUID.nameUUIDFromBytes(("family-rule-v1:" + workId + ":"
+                + rules.requestHash(identity, null, null)).getBytes(StandardCharsets.UTF_8));
     }
 
     private record ConflictScope(Pair pair, RelationshipTemporalScope temporalScope, String timeLabel) {}
