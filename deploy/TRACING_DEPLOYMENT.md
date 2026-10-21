@@ -25,9 +25,11 @@ Spring HTTP/JDBC Span ── OTLP HTTP ────────────┤
   `-target=all`이며 S3 블록과 `/var/tempo` 전체 named volume을 사용한다.
   이 볼륨에는 `/var/tempo/wal`뿐 아니라 Tempo 3.1의 기본 live-store WAL 경로인
   `/var/tempo/live-store/traces`도 포함되어 컨테이너 재생성 시 보존된다.
-- 운영 저장 기간은 초기 **72시간(3일)**이다. 로컬 실험의 local backend/24시간과 다르다.
-  block retention은 비동기 정리 기준이며 정확히 72시간이 되는 순간 모든 파일이 지워지거나
+- 운영 저장 기간은 **336시간(14일)**이다. 로컬 실험의 local backend/24시간과 다르다.
+  block retention은 비동기 정리 기준이며 정확히 336시간이 되는 순간 모든 파일이 지워지거나
   디스크/비용이 일정 크기로 제한된다는 의미는 아니다.
+- 한 번의 검색 범위는 `query_frontend.search.max_duration: 72h`로 유지한다.
+  보관 기간과 검색 범위는 별개이며, 오래된 Trace는 해당 날짜의 좁은 시간 범위를 지정해 조회한다.
 - 순서는 **수신 서버 → Spring → Worker 한 프로세스 canary → 나머지 Worker 확대**다.
   수신 환경 준비만으로 기존 분석·AI 대시보드에 Trace 패널을 자동 추가하지 않는다.
 - Tail sampling은 OFF다. Worker의 head 결정과 Java 부모 결정 상속을 유지한다.
@@ -221,7 +223,7 @@ Prometheus 데이터 소스 `catchhole-prometheus`는 기본값을 유지하고,
 Compose 병합 검사를 통과했다. 별도 임시 project와 볼륨에 **local backend로만 교체한
 smoke**에서 UID 10001의 WAL 쓰기, 두 데이터 소스 공존, 합성 Span의 Collector→Tempo→
 Grafana proxy 조회, Tempo 컨테이너 재생성 뒤 Trace 보존을 확인했다. 이 결과는 운영
-S3 업로드·IAM·SG, 실제 분석 부하, 72시간 뒤 정리 또는 운영 안정성을 검증한 결과가 아니다.
+S3 업로드·IAM·SG, 실제 분석 부하, 보관 기간 경과 후 실제 삭제 또는 운영 안정성을 검증한 결과가 아니다.
 
 같은 날 Java 전체 `test bootJar`는 3,276개 중 236개 skip, 실패 0개였으며 개인정보
 제거 확장 테스트 6개도 통과했다. `scripts/tracing/verify_production_image.py`는 실제
