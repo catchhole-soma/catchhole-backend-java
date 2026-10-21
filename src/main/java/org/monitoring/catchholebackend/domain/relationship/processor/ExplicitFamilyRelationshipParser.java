@@ -33,17 +33,28 @@ public class ExplicitFamilyRelationshipParser {
             .collect(Collectors.joining("|"));
     private static final Map<String, Role> ROLE_BY_WORD = ROLES.stream()
             .collect(Collectors.toMap(Role::word, role -> role));
-    private static final Pattern LABELED = Pattern.compile("^(" + ROLE_WORDS + ")(?:\\s*[:：]\\s*|(?:은|는|이|가)\\s*)(.+)$");
     private static final String CHILD_MODIFIER = "(?:첫째|둘째|셋째|넷째|다섯째|여섯째|일곱째|여덟째|아홉째|열째"
             + "|(?:첫|두|세|네|다섯|여섯|일곱|여덟|아홉|열)\\s*번째"
             + "|제\\s*[1-9][0-9]{0,2}(?:\\s*(?:번째|째))?|[1-9][0-9]{0,2}\\s*(?:번째|째)|외동|막내|맏)";
-    private static final Pattern POSSESSIVE = Pattern.compile("^(.+?)의\\s*(?:(" + CHILD_MODIFIER
+    private static final String ROLE_MODIFIER = "(?:" + CHILD_MODIFIER + "|쌍둥이|하나뿐인)";
+    private static final Pattern ROLE_PHRASE = Pattern.compile("^(?:(" + ROLE_MODIFIER + ")\\s*)?(" + ROLE_WORDS + ")$");
+    private static final Pattern LABELED = Pattern.compile("^(?:(" + ROLE_MODIFIER + ")\\s*)?(" + ROLE_WORDS
+            + ")(?:\\s*[:：]\\s*|(?:은|는|이|가)\\s*)(.+)$");
+    private static final Pattern ROLE_FIRST = Pattern.compile("^(?:(" + ROLE_MODIFIER + ")\\s*)?(" + ROLE_WORDS + ")\\s+(.+)$");
+    private static final Pattern COMPOUND_SEPARATOR = Pattern.compile("[,，]|(?<=(?:" + ROLE_WORDS + "))(?:이자|이며|이고)\\s+");
+    private static final Pattern POSSESSIVE = Pattern.compile("^(.+?)의\\s*(?:(" + ROLE_MODIFIER
             + ")\\s*)?(" + ROLE_WORDS + ")(.*)$");
-    private static final Pattern NESTED_ROLE = Pattern.compile("의\\s*(?:" + CHILD_MODIFIER + "\\s*)?(?:" + ROLE_WORDS + ")");
+    private static final Pattern NESTED_ROLE = Pattern.compile("의\\s*(?:" + ROLE_MODIFIER + "\\s*)?(?:" + ROLE_WORDS + ")");
     private static final Pattern NUMBERED_DESCENDANT = Pattern.compile("^(.+?)의\\s*([1-9][0-9]{0,9})\\s*대손(.*)$");
-    private static final Pattern ANCESTRY_GROUP = Pattern.compile("(?:가문|혈통|혈족|왕조|일족|종족|문파|클랜|부족)(?:$|\\s)");
+    private static final Pattern ANCESTRY_GROUP = Pattern.compile("(?:가문|세가|혈통|혈족|왕조|일족|종족|문파|클랜|부족)(?:$|\\s)");
+    private static final Pattern GROUP_TARGET = Pattern.compile("(?:가문|세가|혈통|혈족|왕조|일족|종족|문파|클랜|부족)(?:\\s*(?:가주|문주|수장|일원))?$|\\s(?:가주|문주)$");
+    private static final Pattern COUNT_ONLY = Pattern.compile("^(?:하나|둘|셋|넷|다섯|여섯|일곱|여덟|아홉|열|한|두|세|네|[0-9]+)(?:\\s*명)?$");
+    private static final Pattern LIST_CONTEXT = Pattern.compile("(?:^|\\s)(?:함께|같이|사는|살던|사이|중)(?:$|\\s)");
+    private static final Pattern ROLE_FIRST_CONTEXT = Pattern.compile("(?:^|\\s)(?:아닌|아니|같은|같이|처럼|노릇|역할|뻘|줄|척|듯"
+            + "|닮|따르|불리|부르|칭하|여기|생각|삼고|삼아|삼음|맺|지내|돌보|찾|잃|죽|태어|입양|되는|된|될|인\\s|이라는|이라고|라는|라고)");
+    private static final Pattern WITH_RELATION = Pattern.compile("^(.+?)(?:과|와)\\s+(형제|자매|남매|배우자)\\s*관계(.*)$");
     private static final Pattern NESTED_POSSESSIVE = Pattern.compile("의\\s");
-    private static final Pattern FAMILY_ROLE = Pattern.compile("(?:^|[\\s:：,;]|의\\s*)(?:" + CHILD_MODIFIER + "\\s*)?(?:" + ROLE_WORDS
+    private static final Pattern FAMILY_ROLE = Pattern.compile("(?:^|[\\s:：,;]|의\\s*)(?:" + ROLE_MODIFIER + "\\s*)?(?:" + ROLE_WORDS
             + ")(?=$|[\\s:：,;.?!]|은|는|이|가|을|를|의|다|임|였|처럼|같|일|인)");
     private static final Pattern EXTENDED_FAMILY = Pattern.compile("가문|혈통|혈족|직계|친족|친척"
             + "|(?:^|의\\s*)(?:할아버지|할머니|조부모|조부|조모|삼촌|외삼촌|고모|이모|사촌|조카)(?=$|[\\s:：]|은|는|이|가|의)");
@@ -53,10 +64,14 @@ public class ExplicitFamilyRelationshipParser {
             + "(?:탐험가|모험가|전사|기사|검사|마법사|사제|궁수|상인|학자|연금술사|치유사)(?:이다|입니다|임)?$");
     private static final Pattern DESCRIPTIVE_PERSON = Pattern.compile("(?:^|\\s)(?:남성|여성|남자|여자|사람|인물)$");
     private static final Pattern NON_PERSON_CONTEXT = Pattern.compile("(?:^|\\s)(?:사망|실종|출산|사별|생존|부재|고아"
+            + "|출장|야근|외출|없이|자람|생활|성장|육아|일하"
             + "|돌아가|돌아오|살고|버림받|있음|있다|없음|없다|모름|모른|알\\s*수|추정|추측|아님|아니다)"
             + "|(?:에서|에게|한테|라고|처럼)\\s|(?:얼굴|이름|행방)을\\s");
-    private static final Set<String> AMBIGUOUS_ROLES = Set.of("형", "오빠", "누나", "언니", "동생", "남동생", "여동생");
+    private static final Set<String> AMBIGUOUS_ROLES = Set.of("형", "오빠", "오라버니", "누나", "언니", "동생", "남동생", "여동생");
+    private static final Set<String> CLAN_AMBIGUOUS_CHILD_ROLES = Set.of("장자", "서자", "서녀");
     private static final Set<String> FAMILY_DISPLAY_NAMES = Set.of("family", "가족", "가족 관계", "가족관계");
+    private static final Set<String> FAMILY_KEYS = Set.of("family", "family relationship", "family relationships",
+            "parents", "parent", "father", "mother", "children", "child", "siblings", "sibling", "spouse");
     private static final Pattern DISPLAY_NAME_QUALIFIER = Pattern.compile(
             "추정|추측|불확실|소문|비유|부정|거짓|가능성|가설|의심|믿음|착각|가상|사칭|과거|예전|이전|전생|예정|미래"
                     + "|(?i:\\b(?:uncertain|rumou?r|figurative|false|possible|hypothesis|suspected|belief|former|past|alleged|not|unconfirmed)\\b)");
@@ -124,7 +139,8 @@ public class ExplicitFamilyRelationshipParser {
             channels.add(primary);
         }
         String keyLabel = labelFromKey(factKey);
-        Role keyRole = keyLabel == null ? null : ROLE_BY_WORD.get(keyLabel);
+        Role keyRole = roleFromPhrase(keyLabel);
+        boolean allowRoleFirst = keyRole != null || isFamilyKey(factKey) || keyLabel != null && FAMILY_KEYS.contains(keyLabel);
         boolean familyKeyLabel = keyLabel != null && mentionsFamily(
                 DISPLAY_NAME_QUALIFIER.matcher(keyLabel).replaceAll(" ").replaceAll("[./()\\[\\]]", " "));
         boolean familyMentioned = keyRole != null || isFamilyKey(factKey) || familyKeyLabel
@@ -160,12 +176,27 @@ public class ExplicitFamilyRelationshipParser {
                 if (clause.isBlank()) {
                     continue;
                 }
-                ParsedFamilyRelationship relationship = parseClause(clause.strip(), keyRole, ownerName);
-                if (relationship == null) {
+                String[] conjuncts = COMPOUND_SEPARATOR.split(clause.strip(), -1);
+                List<ParsedFamilyRelationship> compound = new ArrayList<>();
+                for (String conjunct : conjuncts) {
+                    List<ParsedFamilyRelationship> relationships = parseSharedTargets(conjunct.strip(), keyRole,
+                            ownerName, allowRoleFirst);
+                    if (relationships.isEmpty()) {
+                        reasons.add("UNSUPPORTED_FAMILY_SYNTAX");
+                    } else {
+                        compound.addAll(relationships);
+                        familyMentioned = true;
+                    }
+                }
+                // 복문의 뒤 부정·추측·과거 한정이 앞 명제까지 수식할 수 있으므로 일부만 확정하지 않는다.
+                if (conjuncts.length > 1 && (compound.stream().anyMatch(claim -> claim.assertion() != RelationshipAssertion.ASSERTED)
+                        || compound.stream().anyMatch(claim -> claim.temporalScope() == RelationshipTemporalScope.HISTORICAL)
+                        || clause.strip().startsWith("과거 ") || clause.strip().startsWith("예전 "))) {
                     reasons.add("UNSUPPORTED_FAMILY_SYNTAX");
-                } else {
-                    parsed.add(relationship);
-                    familyMentioned = true;
+                }
+                parsed.addAll(compound);
+                if (conjuncts.length > MAX_CLAUSES || parsed.size() > MAX_CLAUSES) {
+                    return new FamilyRelationshipParseResult(List.of(), familyMentioned, List.of("INPUT_LIMIT_EXCEEDED"));
                 }
             }
         }
@@ -178,7 +209,31 @@ public class ExplicitFamilyRelationshipParser {
         return new FamilyRelationshipParseResult(result, true, List.copyOf(allReasons));
     }
 
-    private ParsedFamilyRelationship parseClause(String clause, Role keyRole, String ownerName) {
+    private List<ParsedFamilyRelationship> parseSharedTargets(String clause, Role keyRole, String ownerName,
+                                                               boolean allowRoleFirst) {
+        Matcher possessive = POSSESSIVE.matcher(clause);
+        if (possessive.matches() && possessive.group(1).matches(".*(?:과|와)\\s+.*")) {
+            if (LIST_CONTEXT.matcher(possessive.group(1)).find()
+                    || clause.startsWith("과거 ") || clause.startsWith("예전 ")) return List.of();
+            String[] names = possessive.group(1).split("(?:과|와)\\s+", -1);
+            if (names.length > MAX_CLAUSES) return List.of();
+            List<ParsedFamilyRelationship> claims = new ArrayList<>();
+            for (String name : names) {
+                ParsedFamilyRelationship claim = parseClause(name + clause.substring(possessive.group(1).length()),
+                        keyRole, ownerName, allowRoleFirst);
+                if (claim == null) return List.of();
+                claims.add(claim);
+            }
+            if (claims.stream().anyMatch(claim -> claim.assertion() != RelationshipAssertion.ASSERTED)) {
+                return claims.stream().map(claim -> holdIfNeeded(claim, Set.of("UNSUPPORTED_FAMILY_SYNTAX"))).toList();
+            }
+            return claims;
+        }
+        ParsedFamilyRelationship claim = parseClause(clause, keyRole, ownerName, allowRoleFirst);
+        return claim == null ? List.of() : List.of(claim);
+    }
+
+    private ParsedFamilyRelationship parseClause(String clause, Role keyRole, String ownerName, boolean allowRoleFirst) {
         String value = clause.endsWith(".") ? clause.substring(0, clause.length() - 1).strip() : clause;
         boolean historical = false;
         if (value.startsWith("현재 ")) {
@@ -202,14 +257,36 @@ public class ExplicitFamilyRelationshipParser {
             }
         }
         if (keyRole != null) {
+            if (mentionsFamily(value)) return null;
             Mention mention = parseMention(value);
             return mention == null ? null : parsed(keyRole, mention, false, historical);
         }
         Matcher labeled = LABELED.matcher(value);
         if (labeled.matches()) {
-            Mention mention = parseMention(labeled.group(2));
-            if (mention != null) {
-                return parsed(ROLE_BY_WORD.get(labeled.group(1)), mention, false, historical);
+            Role role = ROLE_BY_WORD.get(labeled.group(2));
+            Mention mention = parseMention(labeled.group(3));
+            if (mention != null && supportsModifier(labeled.group(1), role)) {
+                return parsed(role, mention, false, historical);
+            }
+        }
+        Matcher roleFirst = ROLE_FIRST.matcher(value);
+        if (allowRoleFirst && roleFirst.matches()) {
+            Role role = ROLE_BY_WORD.get(roleFirst.group(2));
+            Mention mention = parseMention(roleFirst.group(3));
+            if (mention != null && !COUNT_ONLY.matcher(mention.name()).matches()
+                    && !LIST_CONTEXT.matcher(mention.name()).find() && !ROLE_FIRST_CONTEXT.matcher(mention.name()).find()
+                    && !mentionsFamily(mention.name()) && !NESTED_POSSESSIVE.matcher(mention.name()).find()
+                    && !mention.name().matches(".*(?:과|와)\\s+.*")
+                    && supportsModifier(roleFirst.group(1), role)) {
+                return parsed(role, mention, false, historical);
+            }
+        }
+        Matcher withRelation = WITH_RELATION.matcher(value);
+        if (withRelation.matches()) {
+            String mention = validMention(withRelation.group(1));
+            Tail tail = parseRoleTail(withRelation.group(3));
+            if (mention != null && tail != null) {
+                return parsed(ROLE_BY_WORD.get(withRelation.group(2)), new Mention(mention, tail), false, historical);
             }
         }
         Matcher possessive = POSSESSIVE.matcher(value);
@@ -219,10 +296,11 @@ public class ExplicitFamilyRelationshipParser {
                 return null;
             }
             Role role = ROLE_BY_WORD.get(possessive.group(3));
-            if (possessive.group(2) != null && role.targetKind() != RelationshipKind.PARENT_OF) {
+            if (!supportsModifier(possessive.group(2), role)) {
                 return null;
             }
-            Tail tail = role.targetKind().isAncestry() ? parseAncestryTail(possessive.group(4), ownerName)
+            Tail tail = role.targetKind().isAncestry() || role.targetKind() == RelationshipKind.PARENT_OF
+                    || role.targetKind() == RelationshipKind.CHILD_OF ? parseAncestryTail(possessive.group(4), ownerName)
                     : parseRoleTail(possessive.group(4));
             String mention = role.targetKind().isAncestry() ? validAncestorMention(possessive.group(1))
                     : validMention(possessive.group(1));
@@ -231,6 +309,23 @@ public class ExplicitFamilyRelationshipParser {
             }
         }
         return null;
+    }
+
+    private Role roleFromPhrase(String phrase) {
+        if (phrase == null) return null;
+        Matcher matcher = ROLE_PHRASE.matcher(phrase);
+        if (!matcher.matches()) return null;
+        Role role = ROLE_BY_WORD.get(matcher.group(2));
+        return supportsModifier(matcher.group(1), role) ? role : null;
+    }
+
+    private boolean supportsModifier(String modifier, Role role) {
+        if (modifier == null) return true;
+        if (modifier.equals("쌍둥이")) return role.targetKind() == RelationshipKind.SIBLING;
+        if (modifier.equals("하나뿐인")) {
+            return role.targetKind() == RelationshipKind.SIBLING || role.targetKind() == RelationshipKind.PARENT_OF;
+        }
+        return role.targetKind() == RelationshipKind.PARENT_OF;
     }
 
     private Tail parseAncestryTail(String text, String ownerName) {
@@ -281,6 +376,7 @@ public class ExplicitFamilyRelationshipParser {
         String mention = value.strip();
         if (!NAME.matcher(mention).matches() || UNRESOLVED_MENTIONS.contains(mention)
                 || NON_PERSON_CONTEXT.matcher(mention).find()
+                || GROUP_TARGET.matcher(mention).find()
                 || mention.contains(" 또는 ") || mention.contains(" 혹은 ") || mention.contains(" 및 ")
                 || mention.contains(" 아닌 ") || mention.contains(" 아니라 ")) {
             return null;
@@ -307,7 +403,8 @@ public class ExplicitFamilyRelationshipParser {
         List<String> reasons = assertion == RelationshipAssertion.ASSERTED ? List.of() : List.of(assertion.name());
         if (assertion == RelationshipAssertion.ASSERTED
                 && (DESCRIPTIVE_PERSON.matcher(mention.name()).find()
-                    || (!inverse && AMBIGUOUS_ROLES.contains(role.word())))) {
+                    || (!inverse && AMBIGUOUS_ROLES.contains(role.word()))
+                    || (inverse && CLAN_AMBIGUOUS_CHILD_ROLES.contains(role.word()) && mention.name().endsWith("가")))) {
             assertion = RelationshipAssertion.UNCERTAIN;
             reasons = List.of("AMBIGUOUS_FAMILY_ROLE");
         }
@@ -343,8 +440,8 @@ public class ExplicitFamilyRelationshipParser {
         return switch (word) {
             case "아버지", "부친", "아빠", "친아버지", "친부", "양아버지", "양부", "의붓아버지", "계부" -> FamilyTreeRole.FATHER;
             case "어머니", "모친", "엄마", "친어머니", "친모", "양어머니", "양모", "의붓어머니", "계모" -> FamilyTreeRole.MOTHER;
-            case "아들", "친아들", "양아들", "의붓아들", "장남", "차남" -> FamilyTreeRole.SON;
-            case "딸", "친딸", "양딸", "양녀", "의붓딸", "장녀", "차녀" -> FamilyTreeRole.DAUGHTER;
+            case "아들", "친아들", "양아들", "의붓아들", "장남", "차남", "장자", "서자", "외아들" -> FamilyTreeRole.SON;
+            case "딸", "친딸", "양딸", "양녀", "의붓딸", "장녀", "차녀", "서녀", "외딸" -> FamilyTreeRole.DAUGHTER;
             default -> null;
         };
     }
@@ -412,7 +509,8 @@ public class ExplicitFamilyRelationshipParser {
         add(result, RelationshipKind.CHILD_OF, RelationshipSubtype.BIOLOGICAL, "친아버지", "친어머니", "친부", "친모");
         add(result, RelationshipKind.CHILD_OF, RelationshipSubtype.ADOPTIVE, "양아버지", "양어머니", "양부", "양모", "양부모");
         add(result, RelationshipKind.CHILD_OF, RelationshipSubtype.STEP, "의붓아버지", "의붓어머니", "계부", "계모");
-        add(result, RelationshipKind.PARENT_OF, RelationshipSubtype.UNSPECIFIED, "아들", "딸", "자녀", "자식", "장남", "차남", "장녀", "차녀");
+        add(result, RelationshipKind.PARENT_OF, RelationshipSubtype.UNSPECIFIED,
+                "아들", "딸", "자녀", "자식", "장남", "차남", "장녀", "차녀", "장자", "서자", "서녀", "외아들", "외딸");
         add(result, RelationshipKind.PARENT_OF, RelationshipSubtype.BIOLOGICAL, "친아들", "친딸", "친자녀");
         add(result, RelationshipKind.PARENT_OF, RelationshipSubtype.ADOPTIVE, "양아들", "양딸", "양자", "양녀", "입양아");
         add(result, RelationshipKind.PARENT_OF, RelationshipSubtype.STEP, "의붓아들", "의붓딸", "의붓자녀");
@@ -420,7 +518,7 @@ public class ExplicitFamilyRelationshipParser {
         add(result, RelationshipKind.ANCESTOR_OF, RelationshipSubtype.UNSPECIFIED, "후손");
         add(result, RelationshipKind.SPOUSE, RelationshipSubtype.UNSPECIFIED, "배우자", "남편", "아내", "부인");
         add(result, RelationshipKind.SIBLING, RelationshipSubtype.UNSPECIFIED,
-                "형", "오빠", "누나", "언니", "동생", "형제", "자매", "남매", "남동생", "여동생");
+                "형", "오빠", "오라버니", "누나", "언니", "동생", "형제", "자매", "남매", "남동생", "여동생");
         add(result, RelationshipKind.SIBLING, RelationshipSubtype.BIOLOGICAL,
                 "친형", "친오빠", "친누나", "친언니", "친동생", "친형제", "친자매", "친남매");
         add(result, RelationshipKind.SIBLING, RelationshipSubtype.HALF,
