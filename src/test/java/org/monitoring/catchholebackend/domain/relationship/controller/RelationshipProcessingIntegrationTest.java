@@ -126,6 +126,66 @@ class RelationshipProcessingIntegrationTest {
     }
 
     @Test
+    @DisplayName("완결된 복합 가족 설정은 등록 관계와 미등록 자녀를 구분하고 재처리해도 중복하지 않는다")
+    void completeCompoundFamilySettingPreservesSourcesAndIdempotency() throws Exception {
+        String text = "보린의 아내이자 셀린과 미등록자녀의 어머니";
+        source(aria, "profile.가족_관계", text, true);
+        processCurrentInput();
+
+        var firstCandidates = candidates();
+        var firstRelations = relations();
+        assertThat(firstCandidates).hasSize(3);
+        assertThat(firstRelations).hasSize(2).allSatisfy(relation ->
+                assertThat(relation.path("evidence").get(0).path("currentValue").toString()).contains(text));
+        assertThat(firstCandidates.stream().filter(candidate -> candidate.path("objectMention").asText().equals("미등록자녀")))
+                .singleElement().satisfies(candidate -> {
+                    assertThat(candidate.path("status").asText()).isEqualTo("PENDING");
+                    assertThat(candidate.path("assertion").asText()).isEqualTo("ASSERTED");
+                    assertThat(candidate.path("kind").asText()).isEqualTo("PARENT_OF");
+                });
+        assertThat(getData("/family-tree").path("edges")).hasSize(3);
+        assertThat(getData("/family-tree").path("nodes")).hasSize(4);
+
+        processing.requestProcessing(memberId, workId);
+        processCurrentInput();
+        assertThat(candidates().stream().map(candidate -> candidate.path("id").asText()).toList())
+                .containsExactlyInAnyOrderElementsOf(firstCandidates.stream().map(candidate -> candidate.path("id").asText()).toList());
+        assertThat(relations().stream().map(relation -> relation.path("id").asText()).toList())
+                .containsExactlyInAnyOrderElementsOf(firstRelations.stream().map(relation -> relation.path("id").asText()).toList());
+    }
+
+    @Test
+    @DisplayName("지원 밖 친족이 섞인 복문은 읽힌 부모 관계도 확정하거나 가계도에 표시하지 않는다")
+    void unsupportedCompoundContextNeverCreatesAnAssertedSubset() throws Exception {
+        source(aria, "profile.가족_관계", "보린의 아들이며 셀린의 사촌", true);
+        processCurrentInput();
+
+        assertThat(relations()).isEmpty();
+        assertThat(candidates()).allSatisfy(candidate -> {
+            assertThat(candidate.path("status").asText()).isEqualTo("PENDING");
+            assertThat(candidate.path("assertion").asText()).isNotEqualTo("ASSERTED");
+        });
+        assertThat(getData("/family-tree").path("edges")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("소유자 이름으로 끝나는 자녀 명사구는 미등록 부모와 명시된 딸 호칭을 표시한다")
+    void exactOwnerSuffixDisplaysUnregisteredParentWithoutCreatingCharacter() throws Exception {
+        source(aria, "profile.정식_호칭", "미등록부모의 둘째 딸 아리아", true);
+        processCurrentInput();
+
+        var candidate = only(candidates());
+        assertThat(candidate.path("objectMention").asText()).isEqualTo("미등록부모");
+        assertThat(candidate.path("kind").asText()).isEqualTo("CHILD_OF");
+        assertThat(candidate.path("assertion").asText()).isEqualTo("ASSERTED");
+        assertThat(relations()).isEmpty();
+        var tree = getData("/family-tree");
+        assertThat(tree.path("edges")).hasSize(1);
+        assertThat(tree.path("edges").get(0).path("objectRole").asText()).isEqualTo("DAUGHTER");
+        assertThat(jdbc.queryForObject("select count(*) from characters where work_id = ?", Long.class, workId)).isEqualTo(3);
+    }
+
+    @Test
     @DisplayName("소유자 이름이 명시된 5대손은 조상 간선 한 건과 원문 근거만 보존하며 재처리도 멱등하다")
     void explicitNumberedDescendantStoresSingleCanonicalEdge() throws Exception {
         String text = "아리아의 5대손 보린";

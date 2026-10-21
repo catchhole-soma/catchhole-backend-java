@@ -2,6 +2,7 @@ package org.monitoring.catchholebackend.domain.relationship.processor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
@@ -81,6 +82,32 @@ class FamilyTreeRoleResolverTest {
         assertRoles(registeredRoles(), FamilyTreeRole.PARENT, childRole);
     }
 
+    @ParameterizedTest(name = "{0}: {1}")
+    @CsvSource(delimiter = '|', value = {
+            "CHILD|두 번째 딸|PARENT|DAUGHTER",
+            "PARENT|어머니|MOTHER|CHILD"
+    })
+    @DisplayName("등록 관계의 현재 소유자 이름으로 끝나는 명제에서도 명시된 양 끝점 호칭을 유지한다")
+    void resolvesRegisteredRoleWithExactOwnerSuffix(String ownerSide, String role,
+            FamilyTreeRole parentRole, FamilyTreeRole childRole) {
+        var owner = ownerSide.equals("CHILD") ? child : parent;
+        var other = ownerSide.equals("CHILD") ? parent : child;
+        support(owner, other.getName() + "의 " + role + " " + owner.getName(), false);
+
+        assertRoles(registeredRoles(), parentRole, childRole);
+        verify(characters).findAllByWorkIdAndStatusOrderByCreatedAtDesc(work.getId(), CharacterStatus.ACTIVE);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"여솔", "담온"})
+    @DisplayName("등록 관계에서 축약명이나 타인 이름으로 끝나는 근거의 호칭을 소유자에게 옮기지 않는다")
+    void rejectsRegisteredRoleWithWrongOwnerSuffix(String suffix) {
+        ReflectionTestUtils.setField(child, "name", "여솔 아라온");
+        support(child, parent.getName() + "의 딸 " + suffix, false);
+
+        assertRoles(registeredRoles(), FamilyTreeRole.PARENT, FamilyTreeRole.CHILD);
+    }
+
     @ParameterizedTest(name = "{0}")
     @CsvSource(delimiter = '|', value = {"넷째 아들|SON", "두 번째 딸|DAUGHTER"})
     @DisplayName("부모 프로필이 없는 서수 관계도 명시된 아들·딸 호칭을 유지한다")
@@ -94,6 +121,38 @@ class FamilyTreeRoleResolverTest {
 
         assertRoles(resolver.resolveRoles(work.getId(), emptyGraph, mentions).get("mention:" + candidate.getId()),
                 FamilyTreeRole.PARENT, childRole);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', value = {"아들|SON", "두 번째 딸|DAUGHTER"})
+    @DisplayName("미등록 부모 관계도 소유자의 정확한 이름으로 끝나면 자녀 호칭을 보존한다")
+    void resolvesMentionRoleWithExactOwnerSuffix(String role, FamilyTreeRole childRole) {
+        var candidate = candidate(child, null, "담온", RelationshipKind.CHILD_OF);
+        candidate.markRuleGenerated();
+        var support = evidence(candidate, child, "담온의 " + role + " " + child.getName());
+        var mentions = new RelationshipMentionReader.Snapshot(List.of(candidate), 1,
+                Map.of(candidate.getId(), List.of(support)), sources);
+        var emptyGraph = new RelationshipGraphReader.Graph(List.of(), Map.of(), Map.of(), Map.of());
+
+        assertRoles(resolver.resolveRoles(work.getId(), emptyGraph, mentions).get("mention:" + candidate.getId()),
+                FamilyTreeRole.PARENT, childRole);
+        verify(characters).findAllByWorkIdAndStatusOrderByCreatedAtDesc(work.getId(), CharacterStatus.ACTIVE);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"여솔", "담온"})
+    @DisplayName("미등록 부모 관계에서도 축약명이나 타인 이름의 호칭을 연결된 소유자에게 붙이지 않는다")
+    void rejectsMentionRoleWithWrongOwnerSuffix(String suffix) {
+        ReflectionTestUtils.setField(child, "name", "여솔 아라온");
+        var candidate = candidate(child, null, "라온", RelationshipKind.CHILD_OF);
+        candidate.markRuleGenerated();
+        var support = evidence(candidate, child, "라온의 딸 " + suffix);
+        var mentions = new RelationshipMentionReader.Snapshot(List.of(candidate), 1,
+                Map.of(candidate.getId(), List.of(support)), sources);
+        var emptyGraph = new RelationshipGraphReader.Graph(List.of(), Map.of(), Map.of(), Map.of());
+
+        assertRoles(resolver.resolveRoles(work.getId(), emptyGraph, mentions).get("mention:" + candidate.getId()),
+                FamilyTreeRole.PARENT, FamilyTreeRole.CHILD);
     }
 
     @ParameterizedTest
