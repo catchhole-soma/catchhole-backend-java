@@ -627,6 +627,48 @@ class RelationshipProcessingIntegrationTest {
         assertThat(getData("/family-tree").path("edges")).hasSize(3);
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("설명형 상대의 아들은 같은 이름의 프로필 유무와 무관하게 검토에 남고 가계도에 표시되지 않는다")
+    void descriptiveParentRemainsUncertainRegardlessOfRegisteredTarget(boolean registeredTarget) throws Exception {
+        String description = "청암 클랜 수인 남성";
+        UUID targetId = registeredTarget ? tx.execute(transaction ->
+                character(works.getOwnedWorkForUpdate(workId, memberId), description)) : null;
+        source(aria, "profile.가족관계", description + "의 아들", true);
+
+        processCurrentInput();
+
+        JsonNode candidate = only(candidates());
+        assertThat(candidate.path("objectMention").asText()).isEqualTo(description);
+        if (registeredTarget) {
+            assertThat(candidate.path("objectCharacterId").asText()).isEqualTo(targetId.toString());
+        } else {
+            assertThat(candidate.path("objectCharacterId").isNull()).isTrue();
+        }
+        assertThat(candidate.path("kind").asText()).isEqualTo("CHILD_OF");
+        assertThat(candidate.path("assertion").asText()).isEqualTo("UNCERTAIN");
+        assertThat(candidate.path("status").asText()).isEqualTo("PENDING");
+        assertThat(candidate.path("automaticallyConfirmed").asBoolean()).isFalse();
+        assertThat(candidate.path("displayableAsMention").asBoolean()).isFalse();
+        assertThat(strings(candidate.path("reviewReasons"))).contains("UNCERTAIN");
+        assertThat(relations()).isEmpty();
+        JsonNode tree = getData("/family-tree");
+        assertThat(tree.path("nodes")).isEmpty();
+        assertThat(tree.path("edges")).isEmpty();
+        assertThat(tree.path("pendingCandidateCount").asInt()).isEqualTo(1);
+        assertThat(tree.path("optionalLinkCount").asInt()).isZero();
+
+        processing.requestProcessing(memberId, workId);
+        processCurrentInput();
+
+        JsonNode reprocessed = only(candidates());
+        assertThat(reprocessed.path("id")).isEqualTo(candidate.path("id"));
+        assertThat(reprocessed.path("assertion").asText()).isEqualTo("UNCERTAIN");
+        assertThat(reprocessed.path("status").asText()).isEqualTo("PENDING");
+        assertThat(relations()).isEmpty();
+        assertThat(getData("/family-tree").path("edges")).isEmpty();
+    }
+
     @Test
     @DisplayName("현재 슬롯 교체는 과거 자동 관계를 보류하고 새 관계와 Fact 이력을 함께 남긴다")
     void changedCurrentSlotReplacesSupportWithoutErasingHistory() throws Exception {

@@ -257,6 +257,76 @@ class ExplicitFamilyRelationshipParserTest {
 
     @ParameterizedTest(name = "{0}")
     @CsvSource(delimiter = '|', value = {
+            "청암 클랜 수인 남성의 아들|CHILD_OF|UNSPECIFIED",
+            "청암 클랜 수인 남성의 딸|CHILD_OF|UNSPECIFIED",
+            "청암 클랜 수인 남성의 두 번째 자녀|CHILD_OF|UNSPECIFIED",
+            "청암 클랜 수인 남성의 아버지|PARENT_OF|UNSPECIFIED",
+            "청암 클랜 수인 남성의 어머니|PARENT_OF|UNSPECIFIED",
+            "청암 클랜 수인 남성의 아내|SPOUSE|UNSPECIFIED",
+            "청암 클랜 수인 남성의 친형제|SIBLING|BIOLOGICAL",
+            "아버지: 청암 클랜 수인 남성|CHILD_OF|UNSPECIFIED",
+            "어머니: 청암 클랜 수인 남성|CHILD_OF|UNSPECIFIED",
+            "아들: 청암 클랜 수인 남성|PARENT_OF|UNSPECIFIED",
+            "딸: 청암 클랜 수인 남성|PARENT_OF|UNSPECIFIED",
+            "남편: 청암 클랜 수인 남성|SPOUSE|UNSPECIFIED",
+            "양부: 청암 클랜 수인 남성|CHILD_OF|ADOPTIVE",
+            "형제: 청암 클랜 수인 남성|SIBLING|UNSPECIFIED"
+    })
+    @DisplayName("설명형 상대는 가족 역할과 서술 방향에 관계없이 확인 대상으로 남긴다")
+    void holdsDescriptiveCounterpartForEveryFamilyRole(String text, RelationshipKind kind, RelationshipSubtype subtype) {
+        var result = parser.parse("profile.가족관계", current(text));
+
+        assertThat(result.reviewReasons()).containsExactly("AMBIGUOUS_FAMILY_ROLE");
+        assertThat(result.relationships()).singleElement().satisfies(claim -> {
+            assertThat(claim.objectMention()).isEqualTo("청암 클랜 수인 남성");
+            assertThat(claim.kind()).isEqualTo(kind);
+            assertThat(claim.subtype()).isEqualTo(subtype);
+            assertThat(claim.assertion()).isEqualTo(RelationshipAssertion.UNCERTAIN);
+            assertThat(claim.reviewReasons()).containsExactly("AMBIGUOUS_FAMILY_ROLE");
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"아버지", "어머니", "아들", "딸", "배우자", "친형제"})
+    @DisplayName("항목명으로 가족 역할을 보완해도 설명형 상대는 확인 대상으로 남긴다")
+    void holdsDescriptiveCounterpartFromRoleKey(String role) {
+        assertThat(parser.parse("profile." + role, current("이웃 마을 여성")).relationships())
+                .singleElement().satisfies(claim -> {
+                    assertThat(claim.assertion()).isEqualTo(RelationshipAssertion.UNCERTAIN);
+                    assertThat(claim.reviewReasons()).containsExactly("AMBIGUOUS_FAMILY_ROLE");
+                });
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', value = {
+            "청암 클랜 수인 남성의 아들이 아니다|NEGATED",
+            "아버지: 청암 클랜 수인 남성이 아님|NEGATED",
+            "청암 클랜 수인 남성의 아버지 같은 존재|FIGURATIVE",
+            "청암 클랜 수인 남성의 아들로 추정된다|UNCERTAIN"
+    })
+    @DisplayName("설명형 상대의 부정·비유·추측을 일반적인 확인 사유로 덮어쓰지 않는다")
+    void preservesNonAssertedDescriptiveClaims(String text, RelationshipAssertion assertion) {
+        assertThat(parser.parse(current(text)).relationships()).singleElement().satisfies(claim -> {
+            assertThat(claim.assertion()).isEqualTo(assertion);
+            assertThat(claim.reviewReasons()).containsExactly(assertion.name());
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"김남성", "한여성", "남자인", "사람온"})
+    @DisplayName("설명 어휘가 이름 일부에 포함되어도 독립된 설명 표현이 아니면 명시 관계를 유지한다")
+    void acceptsNamesContainingDescriptiveWords(String name) {
+        var result = parser.parse(current(name + "의 아들"));
+
+        assertThat(result.reviewReasons()).isEmpty();
+        assertThat(result.relationships()).singleElement().satisfies(claim -> {
+            assertThat(claim.objectMention()).isEqualTo(name);
+            assertThat(claim.assertion()).isEqualTo(RelationshipAssertion.ASSERTED);
+        });
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', value = {
             "현우의 넷째 아들이 아니다|NEGATED", "현우의 두 번째 딸로 추정된다|UNCERTAIN",
             "은하의 언니처럼 여긴다|FIGURATIVE"
     })

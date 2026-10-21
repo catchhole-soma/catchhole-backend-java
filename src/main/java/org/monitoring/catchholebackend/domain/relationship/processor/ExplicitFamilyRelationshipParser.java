@@ -305,8 +305,9 @@ public class ExplicitFamilyRelationshipParser {
         }
         RelationshipAssertion assertion = mention.tail().assertion();
         List<String> reasons = assertion == RelationshipAssertion.ASSERTED ? List.of() : List.of(assertion.name());
-        if (assertion == RelationshipAssertion.ASSERTED && AMBIGUOUS_ROLES.contains(role.word())
-                && (!inverse || DESCRIPTIVE_PERSON.matcher(mention.name()).find())) {
+        if (assertion == RelationshipAssertion.ASSERTED
+                && (DESCRIPTIVE_PERSON.matcher(mention.name()).find()
+                    || (!inverse && AMBIGUOUS_ROLES.contains(role.word())))) {
             assertion = RelationshipAssertion.UNCERTAIN;
             reasons = List.of("AMBIGUOUS_FAMILY_ROLE");
         }

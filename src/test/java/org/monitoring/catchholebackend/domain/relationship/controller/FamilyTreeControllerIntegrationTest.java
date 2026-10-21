@@ -914,8 +914,8 @@ class FamilyTreeControllerIntegrationTest {
     @DisplayName("과거·초점·상한은 표시 범위만 바꾸고 작품 전체 선택 연결 수와 전체 대기 수는 유지한다")
     void keepsWorkWideOptionalCountAcrossHistoryFocusAndTruncation() throws Exception {
         source(child, "profile.family", "얀델의 아들");
-        source(sibling, "profile.family", "미등록 인물의 딸");
-        source(spouse, "profile.family", "전 배우자: 과거 인물");
+        source(sibling, "profile.family", "에단의 딸");
+        source(spouse, "profile.family", "전 배우자: 루시아");
         source(isolated, "profile.family", "미확인 인물의 아들일지도 모른다");
         processCurrentInput();
 
