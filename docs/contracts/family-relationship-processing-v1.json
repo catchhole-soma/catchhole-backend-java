@@ -384,18 +384,41 @@
       }
     },
     {
-      "name": "복합 서술은 부분 관계를 추정하지 않음",
+      "name": "완결된 명시 복문은 모든 관계를 읽음",
       "factKey": null,
       "currentValue": {
         "factValue": "홍길동의 아들이며 김철수의 형제",
         "valueJson": null
       },
       "expected": {
-        "relationships": [],
+        "relationships": [
+          {
+            "objectMention": "홍길동",
+            "kind": "CHILD_OF",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": [],
+            "subjectRole": "SON",
+            "objectRole": "PARENT",
+            "generationGap": null
+          },
+          {
+            "objectMention": "김철수",
+            "kind": "SIBLING",
+            "subtype": "UNSPECIFIED",
+            "temporalScope": "CURRENT",
+            "timeLabel": null,
+            "assertion": "ASSERTED",
+            "reviewReasons": [],
+            "subjectRole": null,
+            "objectRole": null,
+            "generationGap": null
+          }
+        ],
         "familyMentioned": true,
-        "reviewReasons": [
-          "UNSUPPORTED_FAMILY_SYNTAX"
-        ]
+        "reviewReasons": []
       }
     },
     {

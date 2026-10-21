@@ -498,7 +498,7 @@ class ExplicitFamilyRelationshipParserTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"홍길동의 아들이며 김철수의 형제", "아버지: 홍길동, 김철수", "홍길동의 의형제",
+    @ValueSource(strings = {"홍길동의 의형제",
             "홍길동의 아들의 아버지", "아버지: 미상", "아버지는 홍길동이 아닌 김철수", "아버지: 그"})
     @DisplayName("지원하지 않는 복합 추론과 미해결 대명사는 관계로 만들지 않는다")
     void doesNotGuessUnsupportedFamilyClaims(String text) {
@@ -507,6 +507,102 @@ class ExplicitFamilyRelationshipParserTest {
         assertThat(result.relationships()).isEmpty();
         assertThat(result.familyMentioned()).isTrue();
         assertThat(result.reviewReasons()).contains("UNSUPPORTED_FAMILY_SYNTAX");
+    }
+
+    @Test
+    @DisplayName("지원하는 두 가족 명제로 완결된 복문은 각각의 방향을 보존한다")
+    void readsCompleteIndependentConjuncts() {
+        var result = parser.parse(current("하람의 아들이며 소연의 형제"));
+
+        assertThat(result.reviewReasons()).isEmpty();
+        assertThat(result.relationships()).extracting(ParsedFamilyRelationship::kind)
+                .containsExactly(RelationshipKind.CHILD_OF, RelationshipKind.SIBLING);
+        assertThat(result.relationships()).allSatisfy(claim ->
+                assertThat(claim.assertion()).isEqualTo(RelationshipAssertion.ASSERTED));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"아버지: 하람, 소연", "하람의 아들이며 소연의 딸이 아니다",
+            "하람의 아들이자 소연의 딸로 추정된다", "하람의 아들이며 사실은 그렇지 않다",
+            "하람의 아내이자 소연의 어머니였다",
+            "과거 하람의 배우자이자 소연의 어머니", "과거 하람과 소연의 아들",
+            "하람과 이웃 마을 여성의 아들"})
+    @DisplayName("복문의 미지원·부정·추측·모호한 공동 상대에서 일부만 단정하지 않는다")
+    void retainsQualifiersAcrossNewCompoundGrammar(String text) {
+        var result = parser.parse("profile.가족", current(text));
+
+        assertThat(result.relationships()).noneMatch(claim -> claim.assertion() == RelationshipAssertion.ASSERTED);
+        assertThat(result.reviewReasons()).contains("UNSUPPORTED_FAMILY_SYNTAX");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"하람과 함께 사는 소연의 아들", "하람과 소연 사이의 아들",
+            "하람과 소연 중 한 명의 아들", "하람과 소연 가문의 아들", "남궁세가의 차남",
+            "남궁세가 가주의 동생", "청풍가 가주의 장자"})
+    @DisplayName("공동 상대의 서술이나 가문을 인명 목록으로 분리하지 않는다")
+    void rejectsNarrativeSharedTargetsAndClans(String text) {
+        assertThat(parser.parse("profile.가족", current(text)).relationships()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"장자", "서자", "서녀"})
+    @DisplayName("가문을 가로 줄여 적었을 수 있는 새 자녀 호칭은 특정 부모로 단정하지 않는다")
+    void holdsClanAmbiguousParentForLineageChildTitles(String role) {
+        var result = parser.parse("profile.가족", current("동해박가의 " + role));
+
+        assertThat(result.relationships()).singleElement().satisfies(claim -> {
+            assertThat(claim.objectMention()).isEqualTo("동해박가");
+            assertThat(claim.assertion()).isEqualTo(RelationshipAssertion.UNCERTAIN);
+            assertThat(claim.reviewReasons()).containsExactly("AMBIGUOUS_FAMILY_ROLE");
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"하람의 서녀", "하람의 서자", "하람의 장자", "타이가의 아들"})
+    @DisplayName("가문이 의심되지 않는 새 호칭과 가로 끝나는 일반 부모 인명은 기존 단정을 유지한다")
+    void preservesExplicitChildRelationsOutsideClanAmbiguity(String text) {
+        assertThat(parser.parse("profile.가족", current(text)).relationships()).singleElement().satisfies(claim -> {
+            assertThat(claim.assertion()).isEqualTo(RelationshipAssertion.ASSERTED);
+            assertThat(claim.reviewReasons()).isEmpty();
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"형 하람을 닮음", "아들 둘", "아들 두 명", "딸 3명", "아들 하람과 같이 사는 소연",
+            "아버지 하람과 어머니 소연", "부모 없이 자람", "아버지는 출장으로, 어머니는 야근으로 부재"})
+    @DisplayName("역할 앞표기에서 행동·수량·서술을 상대 이름으로 받아들이지 않는다")
+    void rejectsNonNamesAfterBareFamilyRole(String text) {
+        assertThat(parser.parse("profile.family", current(text)).relationships()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"아들 아닌 하람", "아버지 같은 하람", "아버지 노릇을 하는 하람", "아들 하람인 줄 알았다"})
+    @DisplayName("역할 앞표기 뒤의 부정·비유·정정을 인명 일부로 흡수하지 않는다")
+    void rejectsQualifyingContextAfterBareFamilyRole(String text) {
+        assertThat(parser.parse("profile.family", current(text)).relationships()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("역할 항목에서 중복된 역할 표현을 인물 이름으로 만들지 않는다")
+    void doesNotConsumeRolePhraseAsNameInRoleKey() {
+        assertThat(parser.parse("profile.막내아들", current("아들 하람")).relationships()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"profile.외형", "profile.personality", "profile.title"})
+    @DisplayName("역할과 이름만 나란히 있는 표현은 가족 항목 밖에서 관계를 만들지 않는다")
+    void limitsBareRoleGrammarToFamilyContext(String key) {
+        assertThat(parser.parse(key, current("아들 하람")).relationships()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"profile.children", "profile.siblings", "profile.father"})
+    @DisplayName("새 가족 문법의 항목 허용이 일반 내용의 미지원 가족 집계를 늘리지 않는다")
+    void doesNotClassifyEnglishKeyAloneAsFamilyMention(String key) {
+        var result = parser.parse(key, current("기록 없음"));
+
+        assertThat(result.familyMentioned()).isFalse();
+        assertThat(result.relationships()).isEmpty();
     }
 
     @ParameterizedTest

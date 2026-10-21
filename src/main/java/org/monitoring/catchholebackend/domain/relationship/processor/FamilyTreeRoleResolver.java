@@ -31,8 +31,11 @@ public class FamilyTreeRoleResolver {
 
     public Map<String, EndpointRoles> resolveRoles(UUID workId, RelationshipGraphReader.Graph graph,
             RelationshipMentionReader.Snapshot mentions) {
-        var names = characterRepository.findAllByWorkIdAndStatusOrderByCreatedAtDesc(workId, CharacterStatus.ACTIVE)
-                .stream().collect(Collectors.groupingBy(character -> character.getName().strip(), Collectors.counting()));
+        var characters = characterRepository.findAllByWorkIdAndStatusOrderByCreatedAtDesc(workId, CharacterStatus.ACTIVE);
+        var names = characters.stream()
+                .collect(Collectors.groupingBy(character -> character.getName().strip(), Collectors.counting()));
+        var namesById = characters.stream()
+                .collect(Collectors.toMap(WorkCharacter::getId, character -> character.getName().strip()));
         Map<String, EndpointRoles> result = new HashMap<>();
         Map<RelationshipSourceContext, List<ParsedFamilyRelationship>> parsed = new HashMap<>();
         for (var relation : graph.relationships()) {
@@ -42,7 +45,7 @@ public class FamilyTreeRoleResolver {
             for (var evidence : graph.evidence().getOrDefault(relation.getId(), List.of())) {
                 if (!RelationshipGraphReader.isSupporting(evidence, graph.sources())) continue;
                 var source = graph.sources().get(evidence.getSourceFact().getId());
-                for (var claim : parse(source, parsed)) {
+                for (var claim : parse(source, parsed, namesById)) {
                     if (matchesRelationship(source, claim, relation, names)) roles.add(normalize(claim));
                 }
             }
@@ -54,7 +57,7 @@ public class FamilyTreeRoleResolver {
             for (var evidence : mentions.evidence().getOrDefault(candidate.getId(), List.of())) {
                 if (!RelationshipGraphReader.isCurrent(evidence, mentions.sources())) continue;
                 var source = mentions.sources().get(evidence.getSourceFact().getId());
-                for (var claim : parse(source, parsed)) {
+                for (var claim : parse(source, parsed, namesById)) {
                     if (matchesMention(source, claim, candidate)) roles.add(normalize(claim));
                 }
             }
@@ -64,8 +67,9 @@ public class FamilyTreeRoleResolver {
     }
 
     private List<ParsedFamilyRelationship> parse(RelationshipSourceContext source,
-            Map<RelationshipSourceContext, List<ParsedFamilyRelationship>> parsed) {
-        return parsed.computeIfAbsent(source, context -> parser.parse(context.factKey(), context.currentValue()).relationships());
+            Map<RelationshipSourceContext, List<ParsedFamilyRelationship>> parsed, Map<UUID, String> namesById) {
+        return parsed.computeIfAbsent(source, context -> parser.parse(context.factKey(), context.currentValue(),
+                namesById.get(context.characterId())).relationships());
     }
 
     private boolean matchesRelationship(RelationshipSourceContext source, ParsedFamilyRelationship claim,
