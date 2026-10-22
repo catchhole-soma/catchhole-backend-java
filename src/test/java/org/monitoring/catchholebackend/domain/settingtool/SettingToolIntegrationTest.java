@@ -133,7 +133,37 @@ class SettingToolIntegrationTest {
         assertThat(current.value()).isEqualTo("직접 수정 30");
         assertThat(current.origin().name()).isEqualTo("UNKNOWN");
         assertThat(current.sources()).isEmpty();
+        assertThat(current.provenance()).isNull();
         assertThat(run(SettingTool.CHARACTER_HISTORY, character.getId()).items().content().getFirst().contributesToCurrent()).isFalse();
+    }
+
+    @Test @DisplayName("현재 복수 출처의 내용 편집·확정 정보는 원문 파기 후에도 변조되지 않는다")
+    void currentProvenanceRetainsStoredReviewMetadataAfterSourcePurge() throws Exception {
+        var original = fact("10", true);
+        original.getSettingCandidate().markAutomaticallyReviewed();
+        var edited = fact("30", false);
+        var candidate = edited.getSettingCandidate();
+        candidate.updateReviewContent(SLOT.factKey(), "30", null);
+        ReflectionTestUtils.setField(candidate, "reviewedApplicationMode", CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+        ReflectionTestUtils.setField(candidate, "rawComparisonJson", nodes.objectNode().put("origin", "USER_EDIT"));
+        candidate.confirm();
+        snapshot("30", List.of(original, edited));
+        var before = postQuery(work, request(SettingTool.CHARACTER_CURRENT, character.getId()), 200);
+        var provenance = before.at("/items/content/0/provenance");
+        assertThat(provenance.path("sources")).hasSize(2);
+        assertThat(provenance.at("/sources/0/reference/targetId").asText()).isEqualTo(edited.getId().toString());
+        assertThat(provenance.at("/sources/0/sourceKind").asText()).isEqualTo("EPISODE");
+        assertThat(provenance.at("/sources/0/contentEdited").asBoolean()).isTrue();
+        assertThat(provenance.at("/sources/0/applicationAction").asText()).isEqualTo("USER_CONFIRM");
+        assertThat(LocalDateTime.parse(provenance.at("/sources/0/recordedAt").asText())).isEqualTo(edited.getCreatedAt());
+        assertThat(provenance.at("/sources/1/contentEdited").asBoolean()).isFalse();
+        assertThat(provenance.at("/sources/1/applicationAction").asText()).isEqualTo("AUTOMATIC_CONFIRM");
+        assertThatThrownBy(() -> candidate.updateReviewContent(SLOT.factKey(), "40", null)).isInstanceOf(AppException.class);
+        candidate.purgeSourceEvidence();
+        var after = postQuery(work, request(SettingTool.CHARACTER_CURRENT, character.getId()), 200);
+        assertThat(after.at("/items/content/0/provenance")).isEqualTo(provenance);
+        assertThat(after.at("/items/content/0/value").asText()).isEqualTo("30");
+        verifyNoInteractions(storage);
     }
 
     @Test @DisplayName("같은 설정명이 다른 scope에 있어도 값과 현재 근거가 섞이지 않는다")
@@ -200,7 +230,8 @@ class SettingToolIntegrationTest {
                 .replace(fact.getId().toString(), "00000000-0000-0000-0000-000000000001")
                 .replace(character.getId().toString(), "00000000-0000-0000-0000-000000000002")
                 .replace(fact.getSettingCandidate().getId().toString(), "00000000-0000-0000-0000-000000000003")
-                .replace(episode.getId().toString(), "00000000-0000-0000-0000-000000000004");
+                .replace(episode.getId().toString(), "00000000-0000-0000-0000-000000000004")
+                .replace(actual.at("/items/content/0/provenance/sources/0/recordedAt").asText(), "2026-01-02T03:04:05");
         try (var fixture = getClass().getResourceAsStream("/contracts/setting-tools-v1.json")) {
             assertThat(json.readTree(normalized)).isEqualTo(json.readTree(fixture));
         }
@@ -271,6 +302,7 @@ class SettingToolIntegrationTest {
         var outside = postQuery(work, evidence, 200);
         assertThat(outside.at("/items/content/0/evidence/status").asText()).isEqualTo("OUT_OF_RANGE");
         assertThat(outside.at("/items/content/0/value").isNull()).isTrue();
+        assertThat(outside.at("/items/content/0/provenance").isMissingNode()).isTrue();
         episode.updateStatus(EpisodeStatus.ARCHIVED);
         var outsidePurged = postQuery(work, evidence, 200);
         assertThat(outsidePurged.at("/items/content/0/evidence/status").asText()).isEqualTo("OUT_OF_RANGE");
@@ -488,6 +520,8 @@ class SettingToolIntegrationTest {
         var response = run(SettingTool.CHARACTER_CURRENT, character.getId());
         assertThat(response.items().content().getFirst().value()).isEqualTo("값24");
         assertThat(response.items().content().getFirst().sources()).hasSize(20);
+        assertThat(response.items().content().getFirst().provenance().sources()).hasSize(20);
+        assertThat(response.items().content().getFirst().provenance().sourcesTruncated()).isTrue();
         assertThat(response.partial()).isTrue();
         assertThat(response.items().content().getFirst().sources().getFirst().targetId()).isEqualTo(facts.getLast().getId());
         var screen = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
@@ -507,6 +541,7 @@ class SettingToolIntegrationTest {
         assertThat(api.path("paths").path("/api/internal/v1/works/{workId}/setting-tools/queries").at("/post/operationId").asText())
                 .isEqualTo("queryInternalSettingTools");
         assertThat(api.at("/components/schemas/SettingToolItemV1/properties/sourceEpisodeNo").isMissingNode()).isFalse();
+        assertThat(api.at("/components/schemas/SettingToolItemV1/properties/provenance").isMissingNode()).isFalse();
         assertThat(api.at("/components/schemas/SettingToolEvidenceV1/properties/status").isMissingNode()).isFalse();
     }
 
@@ -544,6 +579,10 @@ class SettingToolIntegrationTest {
                 .isEqualTo("LEGACY_UNVERIFIED");
         var manual = save(CharacterFact.createManual(character, CharacterFactType.STAT, "stats.manual", "30", null));
         assertEvidence(manual, "NO_SOURCE");
+        var provenance = run(SettingTool.CHARACTER_EVIDENCE, manual.getId()).items().content().getFirst().provenance().sources().getFirst();
+        assertThat(provenance.sourceKind().name()).isEqualTo("UNKNOWN");
+        assertThat(provenance.contentEdited()).isNull();
+        assertThat(provenance.applicationAction().name()).isEqualTo("UNKNOWN");
     }
 
     @Test @DisplayName("작품 현재 설정은 구조화된 상태를 보존하고 값 없는 인물과 페이지 완전성을 구별한다")
