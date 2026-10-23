@@ -1,0 +1,47 @@
+{
+  "protocol": {
+    "warmups": 3,
+    "pages": 20,
+    "apiSamples": 30,
+    "reloadSets": 5,
+    "viewport": {
+      "width": 1280,
+      "height": 800
+    },
+    "timeoutMs": 60000,
+    "drainAfterReadyAndLoadMs": 2000
+  },
+  "browserVersion": "149.0.7827.55",
+  "runnerSha256": "a4459ea74d879108bb659d4daefd9cb5046d930407f9956c7474a68b7843ab0a",
+  "measuredNavigation": {
+    "total": 20,
+    "success": 20,
+    "failures": 0,
+    "pageReadyMs": {
+      "n": 20,
+      "median": 129.34999990463257,
+      "p95": 184.30000019073486,
+      "max": 290.60000014305115
+    },
+    "loadEventEndMs": {
+      "n": 20,
+      "median": 64.25,
+      "p95": 119.20000004768372,
+      "max": 224.70000004768372
+    }
+  },
+  "measuredApi": {
+    "total": 30,
+    "failures": 0,
+    "latencyMs": {
+      "n": 30,
+      "median": 8.517021000006935,
+      "p95": 13.191874999989523,
+      "max": 13.514166000008117
+    }
+  },
+  "reloads": {
+    "total": 10,
+    "failures": 0
+  }
+}

@@ -1,0 +1,1 @@
+select w1_0.id,w1_0.created_at,w1_0.description,w1_0.genre,w1_0.latest_episode_no,w1_0.lifecycle_status,w1_0.member_id,w1_0.relationship_input_version,w1_0.title,w1_0.updated_at from works w1_0 where w1_0.id='47e524ae-e53c-5b8b-b430-905990a20f3d' and w1_0.member_id='1';

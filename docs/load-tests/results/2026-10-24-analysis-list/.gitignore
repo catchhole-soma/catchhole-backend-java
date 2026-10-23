@@ -1,0 +1,9 @@
+# Only these sanitized evidence logs override the repository log exclusion.
+!before/gc.log
+!before/sql/batches-postgres.log
+!before/sql/all-jobs-postgres.log
+!before/sql/episodes-postgres.log
+!after/gc.log
+!after/sql-list/batches-postgres.log
+!after/sql-compat/all-jobs-postgres.log
+!after/sql-compat/episodes-postgres.log
