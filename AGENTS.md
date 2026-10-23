@@ -61,6 +61,9 @@
 
 ### Application Metrics
 
+- 회차 분석 실패 알림은 `analysis_failure_notifications`의 transactional outbox를 사용한다. V88의 PostgreSQL trigger는 회차 Job/캐릭터·세계관 후보가 새로 FAILED가 될 때 식별자와 고정 실패 코드만 기록한다. Python의 후보 최초 저장과 SQL 상태 갱신도 누락하지 않기 위한 경계이며 원시 오류·원문·연락처는 복사하지 않는다. 동일 트랜잭션·Job·회차·종류·코드의 후보 실패는 한 알림의 건수로 합친다.
+- `ANALYSIS_FAILURE_NOTIFICATIONS_ENABLED=false`가 기본이며 활성화할 때 `ANALYSIS_FAILURE_DISCORD_WEBHOOK_URL`을 서버 비밀 설정으로 주입한다. 운영 Compose는 알림 환경을 prod로 고정한다. 전용 dispatcher는 DB 선점을 끝낸 뒤 HTTP를 호출하고, 429의 대기 헤더·일시 오류 backoff·재시작 후 미발송 복구를 처리한다. 전송은 at-least-once이며 응답 유실 때 같은 알림 ID가 중복될 수 있다. 비활성 중 대기 기록도 활성화 시 발송하며 완료 이력만 30일 뒤 정리한다. 설정집·접수 전 HTTP 오류·브라우저 연결 오류는 이 알림의 대상이 아니다. 운영 설정과 한계는 `docs/analysis-failure-notifications.md`를 따른다.
+
 - 기본 애플리케이션 지표는 Actuator와 `micrometer-registry-prometheus`로 제공한다. registry 버전은 Spring Boot의 의존성 관리에 맡긴다.
 - 메트릭 HTTP 노출은 `application-local.yml`과 `application-prod.yml` 각각의 `management.endpoints.web.exposure.include: health,prometheus`로 설정한다. 필요한 환경에서만 제공하도록 공통·test·e2e 프로파일로 노출 설정을 확장하지 않는다.
 - 공통 label은 두 환경 모두 `application=catchhole-backend`를 사용하고, `environment`는 local에서 `local`, prod에서 `prod`로 구분한다. 서로 다른 환경의 지표가 섞이지 않도록 각 프로파일에서 설정한다.
@@ -150,6 +153,7 @@
 - base package: `org.monitoring.catchholebackend`
 - 도메인별 기능 코드는 `domain` 아래에 둔다.
 - 전역 공통 코드는 `global` 아래에 둔다.
+- `global.notification`은 Discord HTTP 전송만 담당한다. 분석 실패 발송 흐름은 `domain.analysis.processor`, payload 조립은 `mapper`, outbox 접근은 `repository`, 설정은 `global.config.analysisnotification`에 둔다.
 - 공통 응답 코드는 `global.common.response` 아래에 둔다.
 - 전역 예외 코드는 `global.exception` 아래에 둔다.
 - 전역 `@Configuration` 클래스는 `global.config.<영역>` 아래에 둔다.
@@ -286,6 +290,7 @@ org.monitoring.catchholebackend
     │   └── response
     ├── config
     │   ├── ai
+    │   ├── analysisnotification
     │   ├── auth
     │   ├── chat
     │   ├── cors
@@ -299,6 +304,7 @@ org.monitoring.catchholebackend
     │   └── swagger
     ├── exception
     ├── monitoring
+    ├── notification
     └── storage
 ```
 
@@ -463,7 +469,8 @@ domain/<domain>
 - AnalysisJob은 작품에 속한 단일 회차 AI 분석 작업의 상태와 결과 메타데이터를 추적한다. `UploadBatch`는 업로드 출처 묶음이며 분석 실행 단위가 아니다.
 - 첫 분석 안내는 계정 전체 기준으로 V64의 `analysis_guide_shown_at`과 `first_analysis_started_at`을 사용한다. 조회는 비소비, 노출 선점은 회원 잠금 아래 한 번만 성공하며 Job 생성과 최초 분석 시각을 같은 트랜잭션에 저장한다. 작품 삭제 후에도 경험 기록을 유지한다. 예시 확정은 실제 분석·설정 변경을 호출하지 않는다. 상세 API·이관 범위는 `docs/analysis-mode-guide.md`를 따른다.
 - 원문 텍스트는 `Episode`의 S3 저장 구조를 재사용한다. `analysis_jobs`에는 작업 메타데이터와 누적 모드의 고정 S0·검증 변경 기록을 저장하며 원문 전문이나 raw LLM 응답을 중복 저장하지 않는다.
-- 분석 실패 처리 이력은 `analysis_jobs.error_message`에 누적하지 않고, 후속 모니터링 기능에서 별도 기록/조회한다.
+- 분석 실패 이력은 `analysis_jobs.error_message`에 누적하지 않는다. Discord 발송 이력은 원시 오류 없이 `analysis_failure_notifications`에 식별자·고정 실패 코드·전송 상태로 따로 기록한다.
+- 새 회차 분석으로 대체된 legacy 캐릭터·세계관 비교 Job은 `cancelForSourceChange`로 `CANCELED` 마감한다. 토큰 예약 해제·후보 unlink·flush 순서는 유지하며 정상적인 교체를 `FAILED` 장애로 기록하거나 Discord 실패 알림으로 보내지 않는다.
 - 화면은 업로드 묶음에 생성된 회차별 `AnalysisJob.status`를 집계하고, 각 Job의 단일 대상 `Episode.status`를 단계별 상태로 보여준다.
 - 신규 분석 작업은 정확히 한 회차를 `analysis_job_episode_targets`에 스냅샷으로 저장한다. 이후 회차 원본 교체나 `ARCHIVED` 전이로 과거 작업의 대상이 바뀌지 않게 하며, 과거 batch-wide 작업의 복수 target 연결은 조회 이력 호환용으로만 유지한다.
 - 분석 배치 목록은 `UploadBatch`를 페이지 항목으로 사용하고, 같은 분석 목적·회차의 재시도 이력 중 최신 `AnalysisJob`만 현재 상태에 포함한다. `UploadBatch` 자체를 독립 분석 실행 식별자로 해석하지 않는다.
