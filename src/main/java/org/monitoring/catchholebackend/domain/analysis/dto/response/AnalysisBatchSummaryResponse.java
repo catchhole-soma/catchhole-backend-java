@@ -61,6 +61,13 @@ public record AnalysisBatchSummaryResponse(
         LocalDateTime lastRequestedAt,
 
         @Schema(description = "배치 작업의 마지막 상태 변경 시각")
-        LocalDateTime lastActivityAt
+        LocalDateTime lastActivityAt,
+
+        @Schema(description = "회차 출처만 포함한 목적별 카드 집계")
+        List<AnalysisBatchJobGroupResponse> episodeJobGroups,
+        @Schema(description = "회차 카드 상태. 회차 그룹이 없으면 null", nullable = true)
+        AnalysisBatchStatus episodeStatus,
+        @Schema(description = "현재 페이지 설정집 카드 요약")
+        List<AnalysisBatchSettingBookResponse> settingBooks
 ) {
 }
