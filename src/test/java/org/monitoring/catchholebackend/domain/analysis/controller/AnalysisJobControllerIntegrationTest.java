@@ -1073,7 +1073,10 @@ class AnalysisJobControllerIntegrationTest {
         AnalysisJob supersededCharacterComparisonJob = analysisJobRepository
                 .findById(characterComparisonJob.getId())
                 .orElseThrow();
-        assertThat(supersededCharacterComparisonJob.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
+        assertThat(supersededCharacterComparisonJob.getStatus()).isEqualTo(AnalysisJobStatus.CANCELED);
+        assertThat(supersededCharacterComparisonJob.getLeaseToken()).isNull();
+        assertThat(supersededCharacterComparisonJob.getLeaseExpiresAt()).isNull();
+        assertThat(supersededCharacterComparisonJob.getFailureCode()).isNull();
         assertThat(supersededCharacterComparisonJob.getSettingCandidate()).isNull();
         assertThat(aiTokenUsageRepository.findById(characterComparisonUsageRequestId))
                 .get()
@@ -1086,7 +1089,10 @@ class AnalysisJobControllerIntegrationTest {
         AnalysisJob supersededComparisonJob = analysisJobRepository
                 .findById(worldComparisonJob.getId())
                 .orElseThrow();
-        assertThat(supersededComparisonJob.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
+        assertThat(supersededComparisonJob.getStatus()).isEqualTo(AnalysisJobStatus.CANCELED);
+        assertThat(supersededComparisonJob.getLeaseToken()).isNull();
+        assertThat(supersededComparisonJob.getLeaseExpiresAt()).isNull();
+        assertThat(supersededComparisonJob.getFailureCode()).isNull();
         assertThat(supersededComparisonJob.getWorldSettingCandidate()).isNull();
         assertThat(aiTokenUsageRepository.findById(comparisonUsageRequestId))
                 .get()

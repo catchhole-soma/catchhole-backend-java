@@ -603,7 +603,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                             comparisonJob.getId(),
                             AiTokenUsageOutcome.USAGE_UNAVAILABLE
                     );
-                    comparisonJob.fail("새 회차 분석 작업으로 대체되었습니다.");
+                    comparisonJob.cancelForSourceChange("새 회차 분석 작업으로 대체되었습니다.");
                     comparisonJob.unlinkSettingCandidate();
                 }));
         analysisJobRepository.flush();
@@ -634,7 +634,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                             comparisonJob.getId(),
                             AiTokenUsageOutcome.USAGE_UNAVAILABLE
                     );
-                    comparisonJob.fail("새 회차 분석 작업으로 대체되었습니다.");
+                    comparisonJob.cancelForSourceChange("새 회차 분석 작업으로 대체되었습니다.");
                     comparisonJob.unlinkWorldSettingCandidate();
                 }));
         analysisJobRepository.flush();
