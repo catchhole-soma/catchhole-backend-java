@@ -4,14 +4,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.Optional;
 import java.util.ArrayList;
 import java.util.List;
 import org.hibernate.SessionFactory;
 import org.hibernate.resource.jdbc.spi.StatementInspector;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.auditing.AuditingHandler;
+import org.springframework.data.auditing.CurrentDateTimeProvider;
 import org.springframework.test.util.ReflectionTestUtils;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFactComparisonBatch;
@@ -50,6 +55,7 @@ import org.testcontainers.utility.DockerImageName;
 @Testcontainers
 @DisplayName("PostgreSQL 후보 검토의 전체 HTTP 읽기 경계")
 class CandidateReviewReadPostgresIntegrationTest extends CandidateReviewApiFixture {
+    @Autowired AuditingHandler auditingHandler;
     @Autowired CandidateReviewMetadataRepository metadata;
     @Autowired org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope sources;
     @Autowired org.monitoring.catchholebackend.domain.character.mapper.SettingCandidateMapper characterMapper;
@@ -77,13 +83,25 @@ class CandidateReviewReadPostgresIntegrationTest extends CandidateReviewApiFixtu
         static final List<String> statements = new ArrayList<>();
         @Override public String inspect(String sql) { statements.add(sql); return sql; }
     }
+    @AfterEach
+    void restoreAuditingClock() {
+        auditingHandler.setDateTimeProvider(CurrentDateTimeProvider.INSTANCE);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"EPISODE", "SETTING_BOOK", "MANUAL"})
     @DisplayName("메타데이터 매핑은 비교 revision·고정 미리보기·현재 대상·출처를 포함한 전체 DTO와 같다")
     void metadataMappingPreservesWholeCandidateResponse(String kind) {
+        // Linux CI의 나노초 audit 값이 PostgreSQL의 마이크로초 정밀도를 거치도록 강제한다.
+        var auditTime = LocalDateTime.of(2026, 10, 24, 22, 59, 8, 947_259_827);
+        auditingHandler.setDateTimeProvider(() -> Optional.of(auditTime));
         var origin = kind.equals("SETTING_BOOK") ? bookJob() : kind.equals("EPISODE") ? completedJob(3) : job(3);
         if (kind.equals("MANUAL")) ReflectionTestUtils.setField(origin, "status", org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.SUCCEEDED);
         var character = comparedCharacter(origin); var world = comparedWorld(origin); em.flush();
+        // 두 매핑 경로 모두 DB에 저장된 동일 상태를 읽는다. flush만으로 managed audit 값은 반올림되지 않는다.
+        em.clear();
+        character = em.find(SettingCandidate.class, character.getId());
+        world = em.find(WorldSettingCandidate.class, world.getId());
         var expectedCharacter = characterMapper.toReviewListResponse(character, false, null,
                 org.monitoring.catchholebackend.domain.character.processor.SettingCandidateValueValidation.valid(), "나이");
         var expectedWorld = worldMapper.toCandidateResponse(world);
