@@ -42,9 +42,10 @@ public class CharacterFactComparisonWorkerController {
     public ResponseEntity<CommonResponse<WorkerCharacterFactComparisonBatchPayload>> claimNextBatch(
             @PathVariable UUID analysisJobId,
             @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken,
-            @RequestHeader(value = "X-Character-Comparison-Person-Batches", defaultValue = "false") boolean supportsPersonBatches
+            @RequestHeader(value = "X-Character-Comparison-Person-Batches", defaultValue = "false") boolean supportsPersonBatches,
+            @RequestHeader(value = "X-Analysis-Reference-Selection", defaultValue = "false") boolean includeReferenceSelection
     ) {
-        return service.claimNextCharacterFactComparisonBatch(analysisJobId, leaseToken, supportsPersonBatches)
+        return service.claimNextCharacterFactComparisonBatch(analysisJobId, leaseToken, supportsPersonBatches, includeReferenceSelection)
                 .map(value -> ResponseEntity.ok(CommonResponse.success(
                         "캐릭터 Fact 비교 묶음을 claim했습니다.",
                         value
@@ -60,14 +61,16 @@ public class CharacterFactComparisonWorkerController {
     public CommonResponse<WorkerCharacterFactComparisonBatchContextResponse> getBatchContext(
             @PathVariable UUID analysisJobId,
             @PathVariable UUID comparisonBatchId,
-            @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken
+            @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken,
+            @RequestHeader(value = "X-Analysis-Reference-Selection", defaultValue = "false") boolean includeReferenceSelection
     ) {
         return CommonResponse.success(
                 "캐릭터 Fact 비교 묶음 문맥을 조회했습니다.",
                 service.getCharacterFactComparisonBatchContext(
                         analysisJobId,
                         comparisonBatchId,
-                        leaseToken
+                        leaseToken,
+                        includeReferenceSelection
                 )
         );
     }

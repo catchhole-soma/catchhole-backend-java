@@ -123,13 +123,18 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
     }
 
     public WorkerWorldSettingSubjectResolutionPendingResponse getPendingSubjects(AnalysisJob job) {
+        return getPendingSubjects(job, false);
+    }
+
+    public WorkerWorldSettingSubjectResolutionPendingResponse getPendingSubjects(AnalysisJob job, boolean includeReferenceSelection
+    ) {
         return new WorkerWorldSettingSubjectResolutionPendingResponse(pendingCandidates(job).stream()
                 .filter(candidate -> !candidate.hasSubjectResolution())
                 .map(candidate -> new WorkerWorldSettingSubjectResolutionPendingResponse.Candidate(
                         candidate.getId(), (candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getId()), candidate.getCategory(),
                         candidate.getSubjectName(), mapper.toResponse(candidate).evidenceSpans(),
                         (candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getEpisodeNo()), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(candidate.getAnalysisJob()), mapper.toRawExtraction(candidate.getRawExtractionJson()))).toList(),
-                contextMapper.toResponse(job));
+                contextMapper.toResponse(job, includeReferenceSelection));
     }
 
     public WorkerWorldSettingSubjectResolutionResponse resolveSubjects(AnalysisJob job,
@@ -199,6 +204,11 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
     }
 
     public Optional<WorkerWorldSettingComparisonBatchPayload> claimBatch(AnalysisJob job) {
+        return claimBatch(job, false);
+    }
+
+    public Optional<WorkerWorldSettingComparisonBatchPayload> claimBatch(AnalysisJob job, boolean includeReferenceSelection
+    ) {
         if (candidates.findAllByAnalysisJobIdAndComparisonStatus(job.getId(), WorldSettingComparisonStatus.FAILED)
                 .stream().anyMatch(candidate -> !job.isAutomaticReview() || !candidate.canDeferFailedComparison())) {
             throw new OrderedWorldSettingComparisonClaimException();
@@ -263,7 +273,7 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
                     batch.getCanonicalSubjectKey(), batch.getCanonicalSubjectName(),
                     mapper.toUuidList(batch.getResolvedTargetWorldSettingIds()), batch.getRawScopeName(),
                     mapper.toComparisonBatchCandidates(group), stringList(batch.getResolvedProvisionalSubjectKeys()),
-                    contextMapper.toResponse(job), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(batch.getAnalysisJob())));
+                    contextMapper.toResponse(job, includeReferenceSelection), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(batch.getAnalysisJob())));
         }
     }
 
@@ -291,6 +301,12 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
 
     public WorkerWorldSettingComparisonBatchContextResponse getContext(AnalysisJob job, UUID batchId,
             WorkerWorldSettingComparisonBatchContextRequest request) {
+        return getContext(job, batchId, request, false);
+    }
+
+    public WorkerWorldSettingComparisonBatchContextResponse getContext(AnalysisJob job, UUID batchId,
+            WorkerWorldSettingComparisonBatchContextRequest request, boolean includeReferenceSelection
+    ) {
         WorldSettingComparisonBatch batch = getBatch(job, batchId);
         requireProcessing(batch);
         List<WorldSettingCandidate> group = processingCandidates(batch);
@@ -313,7 +329,7 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
                                 ? mapper.toUuidList(candidate.getResolvedTargetWorldSettingIds()).getFirst() : null,
                         candidate.getProvisionalSubjectKey())).toList();
         return new WorkerWorldSettingComparisonBatchContextResponse(batch.getId(),
-                mapper.toComparisonBatchCandidates(group), exact, targets, token, contextMapper.toResponse(job));
+                mapper.toComparisonBatchCandidates(group), exact, targets, token, contextMapper.toResponse(job, includeReferenceSelection));
     }
 
     public void completeBatch(AnalysisJob job, UUID batchId, WorkerWorldSettingComparisonBatchCompleteRequest request) {

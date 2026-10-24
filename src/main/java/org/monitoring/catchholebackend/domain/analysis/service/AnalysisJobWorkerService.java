@@ -11,6 +11,9 @@ import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalys
 
 public interface AnalysisJobWorkerService {
 
+    Optional<WorkerAnalysisJobPayload> claimAnalysisJob(WorkerAnalysisJobClaimRequest request, boolean includeReferenceSelection
+    );
+
     /**
      * Worker가 허용한 유형의 대기 작업 하나를 선점하고 lease와 단일 회차 payload를 발급한다.
      * 대기 작업이 없으면 빈 Optional을 반환하며, 대상 회차 계약이 잘못된 Job은 실패 처리한다.

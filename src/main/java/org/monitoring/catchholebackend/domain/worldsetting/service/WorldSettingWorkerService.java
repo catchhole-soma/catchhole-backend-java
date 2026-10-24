@@ -21,6 +21,23 @@ import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCate
 
 public interface WorldSettingWorkerService {
 
+    WorkerWorldSettingComparisonBatchContextResponse getWorldSettingComparisonBatchContext(
+            UUID analysisJobId,
+            UUID comparisonBatchId,
+            UUID leaseToken,
+            WorkerWorldSettingComparisonBatchContextRequest request, boolean includeReferenceSelection
+    );
+
+    WorkerWorldSettingSubjectResolutionPendingResponse getPendingWorldSettingSubjectResolutions(
+            UUID analysisJobId,
+            UUID leaseToken, boolean includeReferenceSelection
+    );
+
+    Optional<WorkerWorldSettingComparisonBatchPayload> claimNextWorldSettingComparisonBatch(
+            UUID analysisJobId,
+            UUID leaseToken, boolean includeReferenceSelection
+    );
+
     List<WorkerWorldSettingCandidatePayload> publishWorldSettingCandidates(
             UUID analysisJobId,
             UUID leaseToken,
