@@ -124,3 +124,7 @@ TDD에서 누락 계약 HTTP/PG/count 테스트 RED를 확인한 뒤 구현했�
 독립 Astra 검토의 Important1건은 “restart POST 성공 후 GET 실패가 새 ID 채택을 막는 문제”였다. 해당 재현 테스트가 기존 코드에서 실패하는 것을 확인하고, 새 ID/URL을 먼저 저장한 뒤 GET 오류를 상태 재시도로 처리하도록 수정했다. 이후112개 관련 사례와 최종 nullable SDK/typecheck/build가 통과했고 그 artifact를 AFTER에서 사용했다. 최종 scoped 재검토에서 추가 findings 없이 Ready to merge: Yes를 받았다.
 
 남은 비용은 초기 `/episodes`의 기존 전체 entity 읽기, retry 쓰기의 JSON 로딩/복사, 후보 검토 화면의 #272 상세 페이지네이션이다. 이번 범위에서 바꾸지 않았다. 새로운 timer 지연은 ordered 대기 시 최대30초이며 명시 재개·focus/reconnect/사용량 알림은 별도 즉시 갱신 경로를 유지한다.
+
+## PR 검토 후 추가 보정
+
+위 수치는 `after/manifest.json`의 측정 artifact에 해당한다. 이후 [Frontend #100](https://github.com/catchhole-soma/catchhole-front/pull/100) 리뷰에서 재시도 POST 성공 ID를 후속 GET 전에 저장하는 처리와, INVALIDATED이지만 실행 상태가 PENDING/RUNNING인 작업을 종료까지 계속 읽는 처리를 보정했다. 이 두 상태 전이는 위 main/active 성능 fixture에 포함되지 않으며 별도 회귀 테스트로 검증한다. 원자료·측정 수치를 다시 쓰지 않았고 최종 커밋·CI·추가 검토 결과는 PR에 기록한다. 최초 독립 검토 이후 발견된 두 건이므로 최초 검토 기록만으로 최종 머지 판단을 대신하지 않는다.

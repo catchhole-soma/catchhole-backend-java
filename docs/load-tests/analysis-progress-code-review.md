@@ -1,5 +1,7 @@
 # Independent review — CatchHole #291
 
+Publication note (root): This is the initial local review record. Subsequent GitHub review of [Frontend #100](https://github.com/catchhole-soma/catchhole-front/pull/100) found two additional lifecycle defects: retry IDs were persisted after the status read, and invalidated nonterminal jobs stopped refreshing too early. The PR contains the corrections, regression evidence, and supplemental review. Its final head and CI must be checked before merge; the readiness statement below applies to the original local review only.
+
 Status: FINAL — ready to merge within the authorized scope. The one Important finding is resolved; no actionable findings remain. This verdict does not authorize a commit, push, or deployment.
 
 Reviewed working changes against backend baseline `79c2b0ee3e872bf38c8da57480736de238184491` and frontend baseline `74d10ece56698233ecad000025918f9648e4f29c`, including new source files. Read the spec, implementation plan, progress ledger, relevant repository conventions, generated-contract changes, product code, and contract/regression tests. No builds, tests, browser/API/DB requests, or process control were performed by this reviewer.
