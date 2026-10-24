@@ -96,11 +96,40 @@ class AnalysisRunContextMapperTest {
         var json = new tools.jackson.databind.ObjectMapper();
         assertThat(json.readTree(json.writeValueAsString(old.unresolvedReferences().getFirst())).has("selection")).isFalse();
         assertThat(capable.unresolvedReferences().getFirst().selection().actualSubjectIds()).containsExactly(UUID.fromString(id));
-        assertThat(capable.unresolvedReferences().getFirst().selection().valueJson().path("active").asBoolean()).isFalse();
+        assertThat(capable.unresolvedReferences().getFirst().selection().valueJson().get("active")).isEqualTo(false);
         selection.put("factType", "PROFILE");
         assertThat(capable.unresolvedReferences().getFirst().selection().factType()).isEqualTo("STATUS");
         assertThat(mapper.toResponse(job, true)).isNotEqualTo(capable);
         assertThat(job.getInputStateHash()).isEqualTo("a".repeat(64));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void selectionValueIsPlainDeeplyImmutableJsonIncludingNestedNulls() throws Exception {
+        AnalysisJob job = job();
+        ObjectNode input = input(List.of("a"));
+        var original = ((ObjectNode) input.path("references").path("a")).putObject("selection")
+                .putObject("valueJson").put("active", false).putNull("endedAt");
+        original.putObject("details").put("active", false).putArray("symptoms").add("통증").addNull().add(2);
+        when(job.getAutomaticInputState()).thenReturn(input);
+        Object value = mapper.toResponse(job, true).unresolvedReferences().getFirst().selection().valueJson();
+        assertThat(value).isInstanceOf(java.util.Map.class);
+        var map = (java.util.Map<String, Object>) value;
+        var details = (java.util.Map<String, Object>) map.get("details");
+        var symptoms = (java.util.List<Object>) details.get("symptoms");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> map.put("active", true)).isInstanceOf(UnsupportedOperationException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> details.put("active", true)).isInstanceOf(UnsupportedOperationException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> symptoms.add("추가")).isInstanceOf(UnsupportedOperationException.class);
+        original.put("active", true);
+        ((ObjectNode) original.path("details")).put("active", true);
+        assertThat(map.get("active")).isEqualTo(false);
+        assertThat(map).containsEntry("endedAt", null);
+        assertThat(details.get("active")).isEqualTo(false);
+        assertThat(symptoms).containsExactly("통증", null, 2);
+        var mvcJson = new tools.jackson.databind.ObjectMapper();
+        var serialized = mvcJson.readTree(mvcJson.writeValueAsString(value));
+        assertThat(serialized.path("active").isBoolean()).isTrue();
+        assertThat(serialized.path("details").path("symptoms").get(1).isNull()).isTrue();
     }
 
     private AnalysisJob job() {

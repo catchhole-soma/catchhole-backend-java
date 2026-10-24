@@ -14,6 +14,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
@@ -50,6 +51,71 @@ class AnalysisPendingReferenceSourceTest {
     void prepareWork() {
         when(work.getId()).thenReturn(UUID.randomUUID());
         current = job(7);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"COMPLETED,AMBIGUOUS", "FAILED,AMBIGUOUS", "COMPLETED,FAILED", "FAILED,FAILED"})
+    void ambiguousOrFailedWorldSubjectsStayTextOnlyEvenWithCompletedTargetFallback(WorldSettingComparisonStatus status,
+            org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSubjectResolutionType resolutionType) {
+        var older = job(2);
+        var candidate = world(older);
+        var target = mock(org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting.class);
+        UUID targetId = UUID.randomUUID();
+        when(target.getId()).thenReturn(targetId);
+        when(candidate.getComparisonStatus()).thenReturn(status);
+        when(candidate.hasSubjectResolution()).thenReturn(true);
+        when(candidate.getSubjectResolutionType()).thenReturn(resolutionType);
+        when(candidate.getResolvedTargetWorldSettingIds()).thenReturn(JsonNodeFactory.instance.arrayNode().add(targetId.toString()).add(UUID.randomUUID().toString()));
+        when(candidate.getResolvedProvisionalSubjectKeys()).thenReturn(JsonNodeFactory.instance.arrayNode().add("provisional-world:" + UUID.randomUUID()));
+        when(candidate.getTargetWorldSetting()).thenReturn(target);
+        when(candidate.getProvisionalSubjectKey()).thenReturn("provisional-world:" + UUID.randomUUID());
+        earlier(older);
+        var reference = source.capture(current).path("pending-world:" + candidate.getId());
+        assertThat(reference.path("subjectName").asText()).isEqualTo(candidate.getSubjectName());
+        assertThat(reference.path("value").asText()).isEqualTo(candidate.getExtractedValue());
+        assertThat(reference.path("evidenceSpans")).isEqualTo(candidate.getEvidenceSpans());
+        assertThat(reference.path("selection").path("actualSubjectIds")).isEmpty();
+        assertThat(reference.path("selection").path("provisionalSubjectKeys")).isEmpty();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"FAILED,false", "FAILED,true", "RECOMPARISON_REQUIRED,false", "RECOMPARISON_REQUIRED,true"})
+    void editedStatusWithoutComparisonTypeOrKeyUsesSchemaFallback(CharacterFactComparisonStatus status, boolean partialType) {
+        var repository = mock(org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository.class);
+        var schema = mock(org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema.class);
+        when(schema.getSchemaKey()).thenReturn("statuses.condition");
+        when(schema.getAttributePattern()).thenReturn("status.*");
+        when(schema.getFactType()).thenReturn(org.monitoring.catchholebackend.domain.character.type.CharacterFactType.STATUS);
+        when(schema.getValueType()).thenReturn(org.monitoring.catchholebackend.domain.character.type.SettingValueType.JSON);
+        when(repository.findAllActiveForWork(work.getId())).thenReturn(List.of(schema));
+        var older = job(2);
+        var candidate = character(older);
+        when(candidate.isUserModified()).thenReturn(true);
+        when(candidate.getComparisonStatus()).thenReturn(status);
+        when(candidate.getAttributeName()).thenReturn("status.부상");
+        when(candidate.getAttributeValue()).thenReturn("작가가 수정한 종료 상태");
+        when(candidate.getValueType()).thenReturn(org.monitoring.catchholebackend.domain.character.type.SettingValueType.JSON);
+        when(candidate.getValueJson()).thenReturn(JsonNodeFactory.instance.objectNode().put("active", false));
+        if (partialType) {
+            when(candidate.getComparisonTargetFactType()).thenReturn(org.monitoring.catchholebackend.domain.character.type.CharacterFactType.PROFILE);
+            when(candidate.getComparisonTargetFactKey()).thenReturn(" ");
+        }
+        earlier(older);
+        var reference = new AnalysisPendingReferenceSource(characters, worlds, jobs, repository,
+                new org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver())
+                .capture(current).path("pending-character:" + candidate.getId());
+        assertThat(reference.path("value").asText()).isEqualTo("작가가 수정한 종료 상태");
+        assertThat(reference.path("selection").path("factType").asText()).isEqualTo("STATUS");
+        assertThat(reference.path("selection").path("canonicalFactKey").asText()).isEqualTo("status.부상");
+        assertThat(reference.path("selection").path("valueJson").path("active").isBoolean()).isTrue();
+        assertThat(reference.path("selection").path("valueJson").path("active").asBoolean()).isFalse();
+        when(candidate.getComparisonTargetFactType()).thenReturn(org.monitoring.catchholebackend.domain.character.type.CharacterFactType.STATUS);
+        when(candidate.getComparisonTargetFactKey()).thenReturn("status.정규화된_부상");
+        var valid = new AnalysisPendingReferenceSource(characters, worlds, jobs, repository,
+                new org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver())
+                .capture(current).path("pending-character:" + candidate.getId()).path("selection");
+        assertThat(valid.path("factType").asText()).isEqualTo("STATUS");
+        assertThat(valid.path("canonicalFactKey").asText()).isEqualTo("status.정규화된_부상");
     }
 
     @Test

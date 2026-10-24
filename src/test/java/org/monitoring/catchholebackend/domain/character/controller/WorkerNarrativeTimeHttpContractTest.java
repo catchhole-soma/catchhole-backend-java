@@ -65,6 +65,9 @@ class WorkerNarrativeTimeHttpContractTest {
       .put("reason", "검토 대기").put("settingName", "status.부상").put("value", "골절");
   reference.putArray("evidenceSpans").addObject().put("quote", "합성 근거");
   reference.putObject("selection").put("factType", "STATUS").putArray("actualSubjectIds").add(character.toString());
+  var expectedValue = json.createObjectNode().put("active", false).put("value", "골절").putNull("endedAt");
+  expectedValue.putObject("details").put("confirmed", true).putArray("symptoms").add("통증").addNull().add(2);
+  ((ObjectNode) reference.path("selection")).set("valueJson", expectedValue.deepCopy());
   when(job.getAutomaticInputState()).thenReturn(frozen);
   UUID jobId = UUID.randomUUID();
   for (String capability : List.of("missing", "false", "true")) {
@@ -97,7 +100,11 @@ class WorkerNarrativeTimeHttpContractTest {
     assertThat(response.statusCode()).as(capability + " " + path).isEqualTo(200);
     var actual = json.readTree(response.body()).at("/data/analysisContext/unresolvedReferences/0");
     assertThat(actual.has("selection")).as(capability + " " + path).isEqualTo(include);
-    if (include) assertThat(actual.at("/selection/actualSubjectIds/0").asText()).isEqualTo(character.toString());
+    if (include) {
+     assertThat(actual.at("/selection/actualSubjectIds/0").asText()).isEqualTo(character.toString());
+     assertThat(actual.at("/selection/valueJson")).as("plain JSON " + path).isEqualTo(expectedValue);
+     assertThat(actual.at("/selection/valueJson/active").isBoolean()).isTrue();
+    }
     if (path.contains("character-fact-comparison-batches/") && path.endsWith("/context")) {
      var carrier = json.readTree(response.body()).at("/data/advisoryCurrentContext");
      assertThat(carrier.has("selectionNames")).as(capability).isEqualTo(include);
