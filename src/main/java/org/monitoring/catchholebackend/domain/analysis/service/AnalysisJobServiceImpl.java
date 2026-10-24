@@ -16,6 +16,9 @@ import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatc
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatchSettingBookResponse;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobCandidateReviewCounts;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobResponse;
+import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobProgressResponse;
+import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisJobProgressMapper;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobProgressRow;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisBatchMapper;
@@ -58,6 +61,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComp
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.monitoring.catchholebackend.global.common.response.PageResponse;
 import org.monitoring.catchholebackend.global.exception.AppException;
+import org.monitoring.catchholebackend.global.exception.CommonErrorCode;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -77,6 +81,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     private final UploadBatchRepository uploadBatchRepository;
     private final UploadFileRepository uploadFileRepository;
     private final AnalysisJobMapper analysisJobMapper;
+    private final AnalysisJobProgressMapper analysisJobProgressMapper;
     private final AnalysisBatchMapper analysisBatchMapper;
     private final EpisodeRepository episodeRepository;
     private final EpisodeSourcePurgeRequestRepository episodeSourcePurgeRequestRepository;
@@ -264,6 +269,22 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 ))
                 .toList();
         return PageResponse.from(batchPage, responses);
+    }
+
+    @Override
+    public List<AnalysisJobProgressResponse> getAnalysisJobProgress(Long memberId, UUID workId, List<UUID> analysisJobIds) {
+        if (analysisJobIds == null || analysisJobIds.isEmpty() || analysisJobIds.size() > 100
+                || analysisJobIds.stream().anyMatch(java.util.Objects::isNull)) {
+            throw new AppException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
+        }
+        Work work = workRepository.getOwnedWork(workId, memberId);
+        List<UUID> ids = analysisJobIds.stream().distinct().toList();
+        var rows = analysisJobRepository.findProgressByWorkIdAndIdIn(work.getId(), ids).stream()
+                .collect(Collectors.toMap(AnalysisJobProgressRow::id, row -> row));
+        if (rows.size() != ids.size()) throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND);
+        rows.values().forEach(row -> assertPublicJobType(row.jobType()));
+        return analysisJobProgressMapper.toResponseList(ids.stream().map(rows::get).toList(),
+                analysisJobRepository.findProgressEpisodesByWorkIdAndJobIdIn(work.getId(), ids));
     }
 
     @Override

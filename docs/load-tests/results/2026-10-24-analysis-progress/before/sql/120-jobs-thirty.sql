@@ -1,0 +1,1 @@
+select m1_0.id,m1_0.age_requirement_confirmed_at,m1_0.analysis_guide_shown_at,m1_0.created_at,m1_0.display_name,m1_0.email,m1_0.email_verified,m1_0.feedback_prompt_shown_at,m1_0.first_analysis_started_at,m1_0.password_hash,m1_0.phone_number,m1_0.phone_verified,m1_0.profile_image_url,m1_0.role,m1_0.status,m1_0.updated_at from members m1_0 where m1_0.id='1';

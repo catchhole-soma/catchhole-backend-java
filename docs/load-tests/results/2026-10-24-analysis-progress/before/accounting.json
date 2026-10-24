@@ -1,0 +1,253 @@
+{
+  "navigationSamples": 10,
+  "latestObservedInitialApiCompletionMs": {
+    "n": 10,
+    "median": 1556.13994140625,
+    "p95": 1928.03190625,
+    "max": 1928.03190625
+  },
+  "initialApiRoutes": {
+    "GET /api/v1/auth/me": {
+      "count": {
+        "n": 10,
+        "median": 1.0,
+        "p95": 1,
+        "max": 1
+      },
+      "encodedResponseBodyBytes": {
+        "n": 10,
+        "median": 327.0,
+        "p95": 327,
+        "max": 327
+      },
+      "responseHeadersBytes": {
+        "n": 10,
+        "median": 617.0,
+        "p95": 617,
+        "max": 617
+      }
+    },
+    "GET /api/v1/works/:id": {
+      "count": {
+        "n": 10,
+        "median": 1.0,
+        "p95": 1,
+        "max": 1
+      },
+      "encodedResponseBodyBytes": {
+        "n": 10,
+        "median": 358.0,
+        "p95": 358,
+        "max": 358
+      },
+      "responseHeadersBytes": {
+        "n": 10,
+        "median": 617.0,
+        "p95": 617,
+        "max": 617
+      }
+    },
+    "GET /api/v1/works/:id/analysis-jobs/:id": {
+      "count": {
+        "n": 10,
+        "median": 30.0,
+        "p95": 30,
+        "max": 30
+      },
+      "encodedResponseBodyBytes": {
+        "n": 10,
+        "median": 49728.0,
+        "p95": 49728,
+        "max": 49728
+      },
+      "responseHeadersBytes": {
+        "n": 10,
+        "median": 18540.0,
+        "p95": 18540,
+        "max": 18540
+      }
+    },
+    "GET /api/v1/works/:id/episodes": {
+      "count": {
+        "n": 10,
+        "median": 1.0,
+        "p95": 1,
+        "max": 1
+      },
+      "encodedResponseBodyBytes": {
+        "n": 10,
+        "median": 13417.0,
+        "p95": 13417,
+        "max": 13417
+      },
+      "responseHeadersBytes": {
+        "n": 10,
+        "median": 624.0,
+        "p95": 624,
+        "max": 624
+      }
+    },
+    "GET /api/v1/works/:id/world-setting-candidates": {
+      "count": {
+        "n": 10,
+        "median": 1.0,
+        "p95": 1,
+        "max": 1
+      },
+      "encodedResponseBodyBytes": {
+        "n": 10,
+        "median": 3192.0,
+        "p95": 3192,
+        "max": 3192
+      },
+      "responseHeadersBytes": {
+        "n": 10,
+        "median": 618.0,
+        "p95": 618,
+        "max": 618
+      }
+    }
+  },
+  "initialApiTotalBodyBytes": {
+    "n": 10,
+    "median": 67022.0,
+    "p95": 67022,
+    "max": 67022
+  },
+  "pollingSteadyWindows": [
+    {
+      "index": 0,
+      "success": true,
+      "observationStartMs": 501.60000014305115,
+      "observationCutoffMs": 65501.60000014305,
+      "windowMs": 65000.0,
+      "routes": {
+        "GET /api/v1/works/:id/analysis-jobs/:id": {
+          "count": 630,
+          "encodedResponseBodyBytes": 1044288,
+          "failed": 0,
+          "censored": 0
+        }
+      }
+    },
+    {
+      "index": 1,
+      "success": true,
+      "observationStartMs": 435,
+      "observationCutoffMs": 65435,
+      "windowMs": 65000,
+      "routes": {
+        "GET /api/v1/works/:id/analysis-jobs/:id": {
+          "count": 630,
+          "encodedResponseBodyBytes": 1044288,
+          "failed": 0,
+          "censored": 0
+        }
+      }
+    },
+    {
+      "index": 2,
+      "success": true,
+      "observationStartMs": 423.2000000476837,
+      "observationCutoffMs": 65423.200000047684,
+      "windowMs": 65000.0,
+      "routes": {
+        "GET /api/v1/works/:id/analysis-jobs/:id": {
+          "count": 630,
+          "encodedResponseBodyBytes": 1044288,
+          "failed": 0,
+          "censored": 0
+        }
+      }
+    }
+  ],
+  "resources": {
+    "samples": 554,
+    "startEpochSeconds": 1792819516.2841651,
+    "endEpochSeconds": 1792819794.5624619,
+    "maxRssMiB": 1185.0625,
+    "maxHeapUsedMiB": 766.679296875,
+    "gcDeltas": {
+      "YGC": 996.0,
+      "YGCT": 2.067,
+      "FGC": 76.0,
+      "FGCT": 3.215,
+      "CGC": 436.0,
+      "CGCT": 0.503,
+      "GCT": 5.785
+    },
+    "rawSamples": 554,
+    "runnerSummaryEpochSeconds": 1792819794.7218585
+  },
+  "matchedSteadyWindowResources": [
+    {
+      "index": 0,
+      "boundStartEpochSeconds": 1792819550.3732002,
+      "boundEndEpochSeconds": 1792819615.3732002,
+      "samples": 129,
+      "startEpochSeconds": 1792819550.509904,
+      "endEpochSeconds": 1792819614.926142,
+      "maxRssMiB": 1073.96875,
+      "maxHeapUsedMiB": 759.3621093749999,
+      "gcDeltas": {
+        "YGC": 56.0,
+        "YGCT": 0.08999999999999997,
+        "FGC": 2.0,
+        "FGCT": 0.07500000000000018,
+        "CGC": 32.0,
+        "CGCT": 0.035,
+        "GCT": 0.19900000000000007
+      }
+    },
+    {
+      "index": 1,
+      "boundStartEpochSeconds": 1792819615.8687,
+      "boundEndEpochSeconds": 1792819680.8687,
+      "samples": 130,
+      "startEpochSeconds": 1792819615.954166,
+      "endEpochSeconds": 1792819680.865998,
+      "maxRssMiB": 1140.6875,
+      "maxHeapUsedMiB": 739.63369140625,
+      "gcDeltas": {
+        "YGC": 59.0,
+        "YGCT": 0.09599999999999997,
+        "FGC": 1.0,
+        "FGCT": 0.04399999999999982,
+        "CGC": 36.0,
+        "CGCT": 0.03900000000000001,
+        "GCT": 0.17900000000000027
+      }
+    },
+    {
+      "index": 2,
+      "boundStartEpochSeconds": 1792819681.3514,
+      "boundEndEpochSeconds": 1792819746.3514,
+      "samples": 130,
+      "startEpochSeconds": 1792819681.416221,
+      "endEpochSeconds": 1792819746.3333492,
+      "maxRssMiB": 1104.359375,
+      "maxHeapUsedMiB": 721.9696289062499,
+      "gcDeltas": {
+        "YGC": 55.0,
+        "YGCT": 0.09600000000000009,
+        "FGC": 2.0,
+        "FGCT": 0.07300000000000018,
+        "CGC": 32.0,
+        "CGCT": 0.03199999999999997,
+        "GCT": 0.20100000000000007
+      }
+    }
+  ],
+  "failures": {
+    "pages": 0,
+    "collectorErrors": 0,
+    "censored": 0
+  },
+  "notes": [
+    "Ready asserts 30 progress rows/statuses and resume button; comparison count completion is not a ready dependency.",
+    "Initial API completion is latest observed relevant response, separate from ready/load.",
+    "Steady counts include starts inside the exact observation bounds; initial navigation requests are separate.",
+    "Encoded bodies exclude response headers; CDP OPTIONS remain separate in raw pages.",
+    "Heap/RSS peaks are 0.5s observations; jstat GC time is collector time, not HTTP latency or all wall-clock pause time."
+  ]
+}

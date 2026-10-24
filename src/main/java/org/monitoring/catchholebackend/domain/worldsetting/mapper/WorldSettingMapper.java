@@ -13,6 +13,8 @@ import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSett
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateGroupActionResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateGroupResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateProgressResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateBatchCounts;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingDetailResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingEvidenceSpanResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingListItemResponse;
@@ -35,6 +37,11 @@ import org.springframework.stereotype.Component;
 @lombok.RequiredArgsConstructor
 public class WorldSettingMapper {
     private final org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope reviewSources;
+
+    public WorldSettingCandidateProgressResponse toProgressResponse(WorldSettingCandidateBatchCounts counts) {
+        return new WorldSettingCandidateProgressResponse(counts.getPendingComparisonCount(),
+                counts.getProcessingComparisonCount(), counts.getTokenInterruptedComparisonCount());
+    }
 
     public WorldSetting toEntity(Work work, WorldSettingCreateRequest request) {
         return WorldSetting.create(

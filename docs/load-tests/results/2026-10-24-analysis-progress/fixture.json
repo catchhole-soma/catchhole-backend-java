@@ -1,0 +1,238 @@
+{
+  "analysisJsonDataMd5": "47214e1c4a6a5ec4fcf0a97186dc4fb7",
+  "batchId": "a87bda2b-9e89-5631-9e1e-852151905d99",
+  "characterCandidates": 410,
+  "episodes": 30,
+  "fixedTimestamp": "2026-10-24T12:00:00",
+  "fixtureHashExcludes": "bcrypt salt, private credentials and auth records",
+  "fixtureSha256": "586ec0a7cefd73e6807c43649ab4bd632dc3b587a67e89a6bb42fa63c8275d08",
+  "jobIds": [
+    "55e35eff-e5fd-5dfb-8432-496e5ba8b072",
+    "9ade00b0-998a-52bf-88fc-98cee59ef791",
+    "aea4e128-c196-5f4e-8cc9-dc1bd360c1c4",
+    "613ef029-6d17-5111-93e8-292371ffb4cc",
+    "1fe5b528-5eb1-55f8-b57f-5b1c5fc418c1",
+    "cef56611-e328-52d0-a752-3efdadcc332a",
+    "e4b38186-bc61-51c5-83a5-c3ef69244baa",
+    "8dcf97f6-34b0-5625-8d0a-b82e86df759f",
+    "a1ec2ca9-7c8a-5031-b9f1-91354d2a4499",
+    "5fdd1a41-9083-5894-84a9-3606a54cbba8",
+    "1d82df01-75b2-59c4-b9b1-c2784c792543",
+    "db3bc0fa-d287-50d6-826a-f87231aabb94",
+    "e5c32de5-b203-5c8e-9835-d8af3ac32070",
+    "522178ac-94cd-5f1e-9251-370317e6f034",
+    "000d545b-c8aa-5aa3-976d-b78373b50644",
+    "04d8fb3a-6a74-5518-b71c-f53383fbe9d9",
+    "7eebc047-020a-5b7f-977c-8cc5b5144854",
+    "22983aa2-7f1f-5a85-8fa7-bb6fc4c20dc2",
+    "531c210e-96c9-5d52-90d8-98f9a872cd0b",
+    "09f5f045-567a-5e9a-87a9-fc3c61ea5960",
+    "026f0e37-ce8b-53c7-8162-3ff4bdec7a82",
+    "e58bac77-4a00-5e29-be78-94eab41994fd",
+    "11dbe99a-3283-5089-b1bc-e910aca807a8",
+    "8b4347a0-1d06-5c4a-b87a-9a76dc186d3c",
+    "b6fe5024-1187-5d1f-8ba3-928fc5c5eacc",
+    "1c04c052-ad2f-56e5-b505-bf61f448dd8d",
+    "796726e4-15ae-529b-b6f9-15e38b55fa92",
+    "0ba39b66-a9e5-5b6f-ae56-d50bbc0aa682",
+    "b20aa58e-d9d0-551b-9a94-abe0a49c4973",
+    "cd94f16a-34c3-55bc-9b07-3a22325f2efa"
+  ],
+  "jobs": 30,
+  "jsonEncoding": "PostgreSQL JSONB::text UTF-8; nested synthetic characters/world settings with fixed-PRNG short evidence; no production data",
+  "nestedStructures": [
+    {
+      "characters": 33,
+      "episodeNo": 1,
+      "evidenceExtensionBytes": 21840,
+      "jsonBytes": 200000,
+      "worldSettings": 9
+    },
+    {
+      "characters": 84,
+      "episodeNo": 2,
+      "evidenceExtensionBytes": 28058,
+      "jsonBytes": 253801,
+      "worldSettings": 21
+    },
+    {
+      "characters": 102,
+      "episodeNo": 3,
+      "evidenceExtensionBytes": 33351,
+      "jsonBytes": 307602,
+      "worldSettings": 26
+    },
+    {
+      "characters": 120,
+      "episodeNo": 4,
+      "evidenceExtensionBytes": 39054,
+      "jsonBytes": 361403,
+      "worldSettings": 30
+    },
+    {
+      "characters": 138,
+      "episodeNo": 5,
+      "evidenceExtensionBytes": 44311,
+      "jsonBytes": 415204,
+      "worldSettings": 35
+    },
+    {
+      "characters": 156,
+      "episodeNo": 6,
+      "evidenceExtensionBytes": 50014,
+      "jsonBytes": 469005,
+      "worldSettings": 39
+    },
+    {
+      "characters": 174,
+      "episodeNo": 7,
+      "evidenceExtensionBytes": 55271,
+      "jsonBytes": 522806,
+      "worldSettings": 44
+    },
+    {
+      "characters": 192,
+      "episodeNo": 8,
+      "evidenceExtensionBytes": 60974,
+      "jsonBytes": 576607,
+      "worldSettings": 48
+    },
+    {
+      "characters": 210,
+      "episodeNo": 9,
+      "evidenceExtensionBytes": 66231,
+      "jsonBytes": 630408,
+      "worldSettings": 53
+    },
+    {
+      "characters": 228,
+      "episodeNo": 10,
+      "evidenceExtensionBytes": 71705,
+      "jsonBytes": 684209,
+      "worldSettings": 57
+    },
+    {
+      "characters": 246,
+      "episodeNo": 11,
+      "evidenceExtensionBytes": 75835,
+      "jsonBytes": 738010,
+      "worldSettings": 62
+    },
+    {
+      "characters": 263,
+      "episodeNo": 12,
+      "evidenceExtensionBytes": 84018,
+      "jsonBytes": 791811,
+      "worldSettings": 66
+    },
+    {
+      "characters": 281,
+      "episodeNo": 13,
+      "evidenceExtensionBytes": 89175,
+      "jsonBytes": 845612,
+      "worldSettings": 71
+    },
+    {
+      "characters": 299,
+      "episodeNo": 14,
+      "evidenceExtensionBytes": 94780,
+      "jsonBytes": 899413,
+      "worldSettings": 75
+    },
+    {
+      "characters": 317,
+      "episodeNo": 15,
+      "evidenceExtensionBytes": 99937,
+      "jsonBytes": 953214,
+      "worldSettings": 80
+    },
+    {
+      "characters": 335,
+      "episodeNo": 16,
+      "evidenceExtensionBytes": 105542,
+      "jsonBytes": 1007015,
+      "worldSettings": 84
+    },
+    {
+      "characters": 353,
+      "episodeNo": 17,
+      "evidenceExtensionBytes": 110699,
+      "jsonBytes": 1060816,
+      "worldSettings": 89
+    },
+    {
+      "characters": 371,
+      "episodeNo": 18,
+      "evidenceExtensionBytes": 116304,
+      "jsonBytes": 1114617,
+      "worldSettings": 93
+    },
+    {
+      "characters": 389,
+      "episodeNo": 19,
+      "evidenceExtensionBytes": 121461,
+      "jsonBytes": 1168418,
+      "worldSettings": 98
+    },
+    {
+      "characters": 407,
+      "episodeNo": 20,
+      "evidenceExtensionBytes": 127066,
+      "jsonBytes": 1222219,
+      "worldSettings": 102
+    },
+    {
+      "characters": 425,
+      "episodeNo": 21,
+      "evidenceExtensionBytes": 132376,
+      "jsonBytes": 1276173,
+      "worldSettings": 107
+    },
+    {
+      "characters": 601,
+      "episodeNo": 22,
+      "evidenceExtensionBytes": 186314,
+      "jsonBytes": 1803551,
+      "worldSettings": 151
+    },
+    {
+      "characters": 286,
+      "episodeNo": 23,
+      "evidenceExtensionBytes": 90119,
+      "jsonBytes": 859832,
+      "worldSettings": 72
+    }
+  ],
+  "normalizedJsonUtf8Bytes": 18161746,
+  "runId": "c9d22fa8-40b5-5079-8434-059cb414dbc1",
+  "seed": 20261024,
+  "sourceScriptSha256": "7d09b671eb95194ed6b10e1b2c8d5e1bbd17546ca869bfe77f83d3fdbebb9ccf",
+  "statusDistribution": [
+    [
+      "FAILED",
+      "INCOMPLETE",
+      1,
+      859832,
+      0
+    ],
+    [
+      "PENDING",
+      "PENDING",
+      7,
+      0,
+      0
+    ],
+    [
+      "SUCCEEDED",
+      "SEALED",
+      22,
+      17301914,
+      22
+    ]
+  ],
+  "synthetic": true,
+  "version": 1,
+  "workId": "082683aa-c3d8-56b3-91e2-8031e85f4a92",
+  "worldCandidateDataMd5": "f7a300fb09e5f69dc18788cf31c5a6de",
+  "worldCandidates": 404
+}

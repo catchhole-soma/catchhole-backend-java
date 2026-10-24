@@ -1,0 +1,1 @@
+select e1_0.id,e1_0.char_count,e1_0.content_hash,e1_0.content_s3_key,e1_0.content_s3_version,e1_0.content_updated_at,e1_0.created_at,e1_0.episode_no,e1_0.source_file_id,e1_0.status,e1_0.title,e1_0.updated_at,e1_0.work_id from episodes e1_0 where e1_0.work_id='082683aa-c3d8-56b3-91e2-8031e85f4a92' and e1_0.status<>'ARCHIVED' order by e1_0.episode_no desc;

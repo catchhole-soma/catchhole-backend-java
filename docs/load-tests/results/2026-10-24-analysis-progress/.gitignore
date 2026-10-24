@@ -1,0 +1,3 @@
+# Synthetic GC logs are intentionally reviewable.
+!before/gc.log
+!after/gc.log

@@ -39,6 +39,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSet
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateListResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateDecisionUpdateResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateProgressResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingTokenInterruptedResumeResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
@@ -272,6 +273,22 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             }
         }
         return true;
+    }
+
+    @Override
+    public WorldSettingCandidateProgressResponse getWorldSettingCandidateProgress(
+            Long memberId, UUID workId, UUID batchId
+    ) {
+        Work work = workRepository.getOwnedWork(workId, memberId);
+        if (batchId == null || !uploadBatchRepository.existsByIdAndWorkId(batchId, work.getId())) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_BATCH_NOT_FOUND);
+        }
+        var counts = worldSettingCandidateRepository.countReviewSummary(work.getId(), batchId,
+                WorldSettingReviewStatus.PENDING_REVIEW, WorldSettingComparisonStatus.PENDING,
+                WorldSettingComparisonStatus.PROCESSING, WorldSettingComparisonStatus.FAILED,
+                AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED, WorldSettingComparisonStatus.RECOMPARISON_REQUIRED,
+                WorldSettingComparisonStatus.COMPLETED, WorldSettingConsolidationStatus.CONFLICT);
+        return worldSettingMapper.toProgressResponse(counts);
     }
 
     @Override

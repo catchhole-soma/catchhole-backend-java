@@ -1,0 +1,485 @@
+{
+  "scenario": "22 completed, 1 RUNNING/INCOMPLETE, 7 blocked pending; 1 PROCESSING world comparison",
+  "phase": "after",
+  "timeOriginEpochMs": 1792822238396.9,
+  "observationStartMs": 403.7999999523163,
+  "observationCutoffMs": 15403.799999952316,
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "browserVersion": "149.0.7827.55",
+  "runnerSha256": "f86f24d24acbe88395e78ca7e2dd62e4f098af76d93dff98f91bf9a63c064f2c",
+  "errors": [],
+  "requests": [
+    {
+      "url": "http://127.0.0.1:3340/episode-upload?workId=082683aa-c3d8-56b3-91e2-8031e85f4a92&batchId=a87bda2b-9e89-5631-9e1e-852151905d99&analysisJobIds=55e35eff-e5fd-5dfb-8432-496e5ba8b072,9ade00b0-998a-52bf-88fc-98cee59ef791,aea4e128-c196-5f4e-8cc9-dc1bd360c1c4,613ef029-6d17-5111-93e8-292371ffb4cc,1fe5b528-5eb1-55f8-b57f-5b1c5fc418c1,cef56611-e328-52d0-a752-3efdadcc332a,e4b38186-bc61-51c5-83a5-c3ef69244baa,8dcf97f6-34b0-5625-8d0a-b82e86df759f,a1ec2ca9-7c8a-5031-b9f1-91354d2a4499,5fdd1a41-9083-5894-84a9-3606a54cbba8,1d82df01-75b2-59c4-b9b1-c2784c792543,db3bc0fa-d287-50d6-826a-f87231aabb94,e5c32de5-b203-5c8e-9835-d8af3ac32070,522178ac-94cd-5f1e-9251-370317e6f034,000d545b-c8aa-5aa3-976d-b78373b50644,04d8fb3a-6a74-5518-b71c-f53383fbe9d9,7eebc047-020a-5b7f-977c-8cc5b5144854,22983aa2-7f1f-5a85-8fa7-bb6fc4c20dc2,531c210e-96c9-5d52-90d8-98f9a872cd0b,09f5f045-567a-5e9a-87a9-fc3c61ea5960,026f0e37-ce8b-53c7-8162-3ff4bdec7a82,e58bac77-4a00-5e29-be78-94eab41994fd,11dbe99a-3283-5089-b1bc-e910aca807a8,8b4347a0-1d06-5c4a-b87a-9a76dc186d3c,b6fe5024-1187-5d1f-8ba3-928fc5c5eacc,1c04c052-ad2f-56e5-b505-bf61f448dd8d,796726e4-15ae-529b-b6f9-15e38b55fa92,0ba39b66-a9e5-5b6f-ae56-d50bbc0aa682,b20aa58e-d9d0-551b-9a94-abe0a49c4973,cd94f16a-34c3-55bc-9b07-3a22325f2efa&currentAnalysisJobIds=55e35eff-e5fd-5dfb-8432-496e5ba8b072,9ade00b0-998a-52bf-88fc-98cee59ef791,aea4e128-c196-5f4e-8cc9-dc1bd360c1c4,613ef029-6d17-5111-93e8-292371ffb4cc,1fe5b528-5eb1-55f8-b57f-5b1c5fc418c1,cef56611-e328-52d0-a752-3efdadcc332a,e4b38186-bc61-51c5-83a5-c3ef69244baa,8dcf97f6-34b0-5625-8d0a-b82e86df759f,a1ec2ca9-7c8a-5031-b9f1-91354d2a4499,5fdd1a41-9083-5894-84a9-3606a54cbba8,1d82df01-75b2-59c4-b9b1-c2784c792543,db3bc0fa-d287-50d6-826a-f87231aabb94,e5c32de5-b203-5c8e-9835-d8af3ac32070,522178ac-94cd-5f1e-9251-370317e6f034,000d545b-c8aa-5aa3-976d-b78373b50644,04d8fb3a-6a74-5518-b71c-f53383fbe9d9,7eebc047-020a-5b7f-977c-8cc5b5144854,22983aa2-7f1f-5a85-8fa7-bb6fc4c20dc2,531c210e-96c9-5d52-90d8-98f9a872cd0b,09f5f045-567a-5e9a-87a9-fc3c61ea5960,026f0e37-ce8b-53c7-8162-3ff4bdec7a82,e58bac77-4a00-5e29-be78-94eab41994fd,11dbe99a-3283-5089-b1bc-e910aca807a8,8b4347a0-1d06-5c4a-b87a-9a76dc186d3c,b6fe5024-1187-5d1f-8ba3-928fc5c5eacc,1c04c052-ad2f-56e5-b505-bf61f448dd8d,796726e4-15ae-529b-b6f9-15e38b55fa92,0ba39b66-a9e5-5b6f-ae56-d50bbc0aa682,b20aa58e-d9d0-551b-9a94-abe0a49c4973,cd94f16a-34c3-55bc-9b07-3a22325f2efa",
+      "method": "GET",
+      "timing": {
+        "startTime": 1792822238397.578,
+        "domainLookupStart": 0.174,
+        "domainLookupEnd": 0.272,
+        "connectStart": 0.272,
+        "secureConnectionStart": -1,
+        "connectEnd": 0.445,
+        "requestStart": 0.517,
+        "responseStart": 1.121,
+        "responseEnd": 1.934
+      },
+      "finished": true,
+      "status": 200,
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 703,
+        "responseBodySize": 750,
+        "responseHeadersSize": 262
+      },
+      "startMs": 0.677978515625,
+      "endMs": 2.611978515625,
+      "censored": false
+    },
+    {
+      "url": "http://127.0.0.1:3340/assets/index-B_mQ9t3W.js",
+      "method": "GET",
+      "timing": {
+        "startTime": 1792822238400.2622,
+        "domainLookupStart": -1,
+        "domainLookupEnd": -1,
+        "connectStart": -1,
+        "secureConnectionStart": -1,
+        "connectEnd": -1,
+        "requestStart": 0.206,
+        "responseStart": 2.122,
+        "responseEnd": 24.031
+      },
+      "finished": true,
+      "status": 200,
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 2956,
+        "responseBodySize": 415487,
+        "responseHeadersSize": 356
+      },
+      "startMs": 3.3623046875,
+      "endMs": 27.3933046875,
+      "censored": false
+    },
+    {
+      "url": "http://127.0.0.1:3340/assets/index-BRp9PRYZ.css",
+      "method": "GET",
+      "timing": {
+        "startTime": 1792822238400.336,
+        "domainLookupStart": 0.022,
+        "domainLookupEnd": 0.026,
+        "connectStart": 0.026,
+        "secureConnectionStart": -1,
+        "connectEnd": 0.151,
+        "requestStart": 0.162,
+        "responseStart": 1.61,
+        "responseEnd": 6.68
+      },
+      "finished": true,
+      "status": 200,
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 2971,
+        "responseBodySize": 57881,
+        "responseHeadersSize": 348
+      },
+      "startMs": 3.43603515625,
+      "endMs": 10.11603515625,
+      "censored": false
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css",
+      "method": "GET",
+      "timing": {
+        "startTime": 1792822238407.5618,
+        "domainLookupStart": 0.115,
+        "domainLookupEnd": 7.191,
+        "connectStart": 7.233,
+        "secureConnectionStart": 16.156,
+        "connectEnd": 73.093,
+        "requestStart": 73.204,
+        "responseStart": 326.854,
+        "responseEnd": 327.455
+      },
+      "finished": true,
+      "status": 200,
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 784,
+        "responseBodySize": 1103,
+        "responseHeadersSize": 0
+      },
+      "startMs": 10.661865234375,
+      "endMs": 338.116865234375,
+      "censored": false
+    },
+    {
+      "url": "http://127.0.0.1:28480/api/v1/auth/me",
+      "method": "GET",
+      "timing": {
+        "startTime": 1792822238765.149,
+        "domainLookupStart": 0.057,
+        "domainLookupEnd": 0.059,
+        "connectStart": 0.059,
+        "secureConnectionStart": -1,
+        "connectEnd": 0.193,
+        "requestStart": 0.214,
+        "responseStart": 6.128,
+        "responseEnd": 9.83
+      },
+      "finished": true,
+      "status": 200,
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 905,
+        "responseBodySize": 327,
+        "responseHeadersSize": 617
+      },
+      "startMs": 368.2490234375,
+      "endMs": 378.0790234375,
+      "censored": false
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/variable/woff2/PretendardVariable.woff2",
+      "method": "GET",
+      "timing": {
+        "startTime": 1792822238762.516,
+        "domainLookupStart": 0.068,
+        "domainLookupEnd": 0.074,
+        "connectStart": 0.356,
+        "secureConnectionStart": 0.356,
+        "connectEnd": 10.804,
+        "requestStart": 10.868,
+        "responseStart": 22.908,
+        "responseEnd": 565.371
+      },
+      "finished": true,
+      "status": 200,
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 890,
+        "responseBodySize": 2059085,
+        "responseHeadersSize": 0
+      },
+      "startMs": 365.6162109375,
+      "endMs": 930.9872109375,
+      "censored": false
+    },
+    {
+      "url": "http://127.0.0.1:28480/api/v1/works/082683aa-c3d8-56b3-91e2-8031e85f4a92",
+      "method": "GET",
+      "timing": {
+        "startTime": 1792822238783.997,
+        "domainLookupStart": 0.023,
+        "domainLookupEnd": 0.023,
+        "connectStart": 0.023,
+        "secureConnectionStart": -1,
+        "connectEnd": 0.138,
+        "requestStart": 0.224,
+        "responseStart": 5.737,
+        "responseEnd": 7.851
+      },
+      "finished": true,
+      "status": 200,
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 874,
+        "responseBodySize": 358,
+        "responseHeadersSize": 617
+      },
+      "startMs": 387.09716796875,
+      "endMs": 394.94816796875,
+      "censored": false
+    },
+    {
+      "url": "http://127.0.0.1:28480/api/v1/works/082683aa-c3d8-56b3-91e2-8031e85f4a92/episodes",
+      "method": "GET",
+      "timing": {
+        "startTime": 1792822238783.784,
+        "domainLookupStart": -1,
+        "domainLookupEnd": -1,
+        "connectStart": -1,
+        "secureConnectionStart": -1,
+        "connectEnd": -1,
+        "requestStart": 0.36,
+        "responseStart": 187.188,
+        "responseEnd": 189.662
+      },
+      "finished": true,
+      "status": 200,
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 883,
+        "responseBodySize": 13422,
+        "responseHeadersSize": 624
+      },
+      "startMs": 386.884033203125,
+      "endMs": 576.546033203125,
+      "censored": false
+    },
+    {
+      "url": "http://127.0.0.1:28480/api/v1/works/082683aa-c3d8-56b3-91e2-8031e85f4a92/analysis-jobs/progress?analysisJobIds=55e35eff-e5fd-5dfb-8432-496e5ba8b072&analysisJobIds=9ade00b0-998a-52bf-88fc-98cee59ef791&analysisJobIds=aea4e128-c196-5f4e-8cc9-dc1bd360c1c4&analysisJobIds=613ef029-6d17-5111-93e8-292371ffb4cc&analysisJobIds=1fe5b528-5eb1-55f8-b57f-5b1c5fc418c1&analysisJobIds=cef56611-e328-52d0-a752-3efdadcc332a&analysisJobIds=e4b38186-bc61-51c5-83a5-c3ef69244baa&analysisJobIds=8dcf97f6-34b0-5625-8d0a-b82e86df759f&analysisJobIds=a1ec2ca9-7c8a-5031-b9f1-91354d2a4499&analysisJobIds=5fdd1a41-9083-5894-84a9-3606a54cbba8&analysisJobIds=1d82df01-75b2-59c4-b9b1-c2784c792543&analysisJobIds=db3bc0fa-d287-50d6-826a-f87231aabb94&analysisJobIds=e5c32de5-b203-5c8e-9835-d8af3ac32070&analysisJobIds=522178ac-94cd-5f1e-9251-370317e6f034&analysisJobIds=000d545b-c8aa-5aa3-976d-b78373b50644&analysisJobIds=04d8fb3a-6a74-5518-b71c-f53383fbe9d9&analysisJobIds=7eebc047-020a-5b7f-977c-8cc5b5144854&analysisJobIds=22983aa2-7f1f-5a85-8fa7-bb6fc4c20dc2&analysisJobIds=531c210e-96c9-5d52-90d8-98f9a872cd0b&analysisJobIds=09f5f045-567a-5e9a-87a9-fc3c61ea5960&analysisJobIds=026f0e37-ce8b-53c7-8162-3ff4bdec7a82&analysisJobIds=e58bac77-4a00-5e29-be78-94eab41994fd&analysisJobIds=11dbe99a-3283-5089-b1bc-e910aca807a8&analysisJobIds=8b4347a0-1d06-5c4a-b87a-9a76dc186d3c&analysisJobIds=b6fe5024-1187-5d1f-8ba3-928fc5c5eacc&analysisJobIds=1c04c052-ad2f-56e5-b505-bf61f448dd8d&analysisJobIds=796726e4-15ae-529b-b6f9-15e38b55fa92&analysisJobIds=0ba39b66-a9e5-5b6f-ae56-d50bbc0aa682&analysisJobIds=b20aa58e-d9d0-551b-9a94-abe0a49c4973&analysisJobIds=cd94f16a-34c3-55bc-9b07-3a22325f2efa",
+      "method": "GET",
+      "timing": {
+        "startTime": 1792822238783.8608,
+        "domainLookupStart": 0.023,
+        "domainLookupEnd": 0.025,
+        "connectStart": 0.025,
+        "secureConnectionStart": -1,
+        "connectEnd": 0.183,
+        "requestStart": 0.328,
+        "responseStart": 8.487,
+        "responseEnd": 10.498
+      },
+      "finished": true,
+      "status": 200,
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 897,
+        "responseBodySize": 19648,
+        "responseHeadersSize": 624
+      },
+      "startMs": 386.9609375,
+      "endMs": 397.4589375,
+      "censored": false
+    },
+    {
+      "url": "http://127.0.0.1:28480/api/v1/works/082683aa-c3d8-56b3-91e2-8031e85f4a92/world-setting-candidates/progress?batchId=a87bda2b-9e89-5631-9e1e-852151905d99",
+      "method": "GET",
+      "timing": {
+        "startTime": 1792822238784.072,
+        "domainLookupStart": 0.022,
+        "domainLookupEnd": 0.022,
+        "connectStart": 0.022,
+        "secureConnectionStart": -1,
+        "connectEnd": 0.092,
+        "requestStart": 0.155,
+        "responseStart": 8.749,
+        "responseEnd": 10.719
+      },
+      "finished": true,
+      "status": 200,
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 908,
+        "responseBodySize": 208,
+        "responseHeadersSize": 617
+      },
+      "startMs": 387.172119140625,
+      "endMs": 397.891119140625,
+      "censored": false
+    },
+    {
+      "url": "http://127.0.0.1:28480/api/v1/works/082683aa-c3d8-56b3-91e2-8031e85f4a92/analysis-jobs/progress?analysisJobIds=55e35eff-e5fd-5dfb-8432-496e5ba8b072&analysisJobIds=9ade00b0-998a-52bf-88fc-98cee59ef791&analysisJobIds=aea4e128-c196-5f4e-8cc9-dc1bd360c1c4&analysisJobIds=613ef029-6d17-5111-93e8-292371ffb4cc&analysisJobIds=1fe5b528-5eb1-55f8-b57f-5b1c5fc418c1&analysisJobIds=cef56611-e328-52d0-a752-3efdadcc332a&analysisJobIds=e4b38186-bc61-51c5-83a5-c3ef69244baa&analysisJobIds=8dcf97f6-34b0-5625-8d0a-b82e86df759f&analysisJobIds=a1ec2ca9-7c8a-5031-b9f1-91354d2a4499&analysisJobIds=5fdd1a41-9083-5894-84a9-3606a54cbba8&analysisJobIds=1d82df01-75b2-59c4-b9b1-c2784c792543&analysisJobIds=db3bc0fa-d287-50d6-826a-f87231aabb94&analysisJobIds=e5c32de5-b203-5c8e-9835-d8af3ac32070&analysisJobIds=522178ac-94cd-5f1e-9251-370317e6f034&analysisJobIds=000d545b-c8aa-5aa3-976d-b78373b50644&analysisJobIds=04d8fb3a-6a74-5518-b71c-f53383fbe9d9&analysisJobIds=7eebc047-020a-5b7f-977c-8cc5b5144854&analysisJobIds=22983aa2-7f1f-5a85-8fa7-bb6fc4c20dc2&analysisJobIds=531c210e-96c9-5d52-90d8-98f9a872cd0b&analysisJobIds=09f5f045-567a-5e9a-87a9-fc3c61ea5960&analysisJobIds=026f0e37-ce8b-53c7-8162-3ff4bdec7a82&analysisJobIds=e58bac77-4a00-5e29-be78-94eab41994fd&analysisJobIds=11dbe99a-3283-5089-b1bc-e910aca807a8&analysisJobIds=8b4347a0-1d06-5c4a-b87a-9a76dc186d3c&analysisJobIds=b6fe5024-1187-5d1f-8ba3-928fc5c5eacc&analysisJobIds=1c04c052-ad2f-56e5-b505-bf61f448dd8d&analysisJobIds=796726e4-15ae-529b-b6f9-15e38b55fa92&analysisJobIds=0ba39b66-a9e5-5b6f-ae56-d50bbc0aa682&analysisJobIds=b20aa58e-d9d0-551b-9a94-abe0a49c4973&analysisJobIds=cd94f16a-34c3-55bc-9b07-3a22325f2efa",
+      "method": "GET",
+      "timing": {
+        "startTime": 1792822241799.169,
+        "domainLookupStart": -1,
+        "domainLookupEnd": -1,
+        "connectStart": -1,
+        "secureConnectionStart": -1,
+        "connectEnd": -1,
+        "requestStart": 0.137,
+        "responseStart": 10.762,
+        "responseEnd": 15.06
+      },
+      "finished": true,
+      "status": 200,
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 897,
+        "responseBodySize": 19648,
+        "responseHeadersSize": 624
+      },
+      "startMs": 3402.26904296875,
+      "endMs": 3417.32904296875,
+      "censored": false
+    },
+    {
+      "url": "http://127.0.0.1:28480/api/v1/works/082683aa-c3d8-56b3-91e2-8031e85f4a92/world-setting-candidates/progress?batchId=a87bda2b-9e89-5631-9e1e-852151905d99",
+      "method": "GET",
+      "timing": {
+        "startTime": 1792822241804.002,
+        "domainLookupStart": -1,
+        "domainLookupEnd": -1,
+        "connectStart": -1,
+        "secureConnectionStart": -1,
+        "connectEnd": -1,
+        "requestStart": 0.088,
+        "responseStart": 8.357,
+        "responseEnd": 10.864
+      },
+      "finished": true,
+      "status": 200,
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 908,
+        "responseBodySize": 208,
+        "responseHeadersSize": 617
+      },
+      "startMs": 3407.10205078125,
+      "endMs": 3417.96605078125,
+      "censored": false
+    },
+    {
+      "url": "http://127.0.0.1:28480/api/v1/works/082683aa-c3d8-56b3-91e2-8031e85f4a92/analysis-jobs/progress?analysisJobIds=55e35eff-e5fd-5dfb-8432-496e5ba8b072&analysisJobIds=9ade00b0-998a-52bf-88fc-98cee59ef791&analysisJobIds=aea4e128-c196-5f4e-8cc9-dc1bd360c1c4&analysisJobIds=613ef029-6d17-5111-93e8-292371ffb4cc&analysisJobIds=1fe5b528-5eb1-55f8-b57f-5b1c5fc418c1&analysisJobIds=cef56611-e328-52d0-a752-3efdadcc332a&analysisJobIds=e4b38186-bc61-51c5-83a5-c3ef69244baa&analysisJobIds=8dcf97f6-34b0-5625-8d0a-b82e86df759f&analysisJobIds=a1ec2ca9-7c8a-5031-b9f1-91354d2a4499&analysisJobIds=5fdd1a41-9083-5894-84a9-3606a54cbba8&analysisJobIds=1d82df01-75b2-59c4-b9b1-c2784c792543&analysisJobIds=db3bc0fa-d287-50d6-826a-f87231aabb94&analysisJobIds=e5c32de5-b203-5c8e-9835-d8af3ac32070&analysisJobIds=522178ac-94cd-5f1e-9251-370317e6f034&analysisJobIds=000d545b-c8aa-5aa3-976d-b78373b50644&analysisJobIds=04d8fb3a-6a74-5518-b71c-f53383fbe9d9&analysisJobIds=7eebc047-020a-5b7f-977c-8cc5b5144854&analysisJobIds=22983aa2-7f1f-5a85-8fa7-bb6fc4c20dc2&analysisJobIds=531c210e-96c9-5d52-90d8-98f9a872cd0b&analysisJobIds=09f5f045-567a-5e9a-87a9-fc3c61ea5960&analysisJobIds=026f0e37-ce8b-53c7-8162-3ff4bdec7a82&analysisJobIds=e58bac77-4a00-5e29-be78-94eab41994fd&analysisJobIds=11dbe99a-3283-5089-b1bc-e910aca807a8&analysisJobIds=8b4347a0-1d06-5c4a-b87a-9a76dc186d3c&analysisJobIds=b6fe5024-1187-5d1f-8ba3-928fc5c5eacc&analysisJobIds=1c04c052-ad2f-56e5-b505-bf61f448dd8d&analysisJobIds=796726e4-15ae-529b-b6f9-15e38b55fa92&analysisJobIds=0ba39b66-a9e5-5b6f-ae56-d50bbc0aa682&analysisJobIds=b20aa58e-d9d0-551b-9a94-abe0a49c4973&analysisJobIds=cd94f16a-34c3-55bc-9b07-3a22325f2efa",
+      "method": "GET",
+      "timing": {
+        "startTime": 1792822244816.242,
+        "domainLookupStart": -1,
+        "domainLookupEnd": -1,
+        "connectStart": -1,
+        "secureConnectionStart": -1,
+        "connectEnd": -1,
+        "requestStart": 0.17,
+        "responseStart": 9.504,
+        "responseEnd": 13.521
+      },
+      "finished": true,
+      "status": 200,
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 897,
+        "responseBodySize": 19648,
+        "responseHeadersSize": 624
+      },
+      "startMs": 6419.342041015625,
+      "endMs": 6432.863041015625,
+      "censored": false
+    },
+    {
+      "url": "http://127.0.0.1:28480/api/v1/works/082683aa-c3d8-56b3-91e2-8031e85f4a92/world-setting-candidates/progress?batchId=a87bda2b-9e89-5631-9e1e-852151905d99",
+      "method": "GET",
+      "timing": {
+        "startTime": 1792822244816.7122,
+        "domainLookupStart": -1,
+        "domainLookupEnd": -1,
+        "connectStart": -1,
+        "secureConnectionStart": -1,
+        "connectEnd": -1,
+        "requestStart": 0.103,
+        "responseStart": 9.412,
+        "responseEnd": 11.774
+      },
+      "finished": true,
+      "status": 200,
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 908,
+        "responseBodySize": 208,
+        "responseHeadersSize": 617
+      },
+      "startMs": 6419.812255859375,
+      "endMs": 6431.586255859375,
+      "censored": false
+    },
+    {
+      "url": "http://127.0.0.1:28480/api/v1/works/082683aa-c3d8-56b3-91e2-8031e85f4a92/analysis-jobs/progress?analysisJobIds=55e35eff-e5fd-5dfb-8432-496e5ba8b072&analysisJobIds=9ade00b0-998a-52bf-88fc-98cee59ef791&analysisJobIds=aea4e128-c196-5f4e-8cc9-dc1bd360c1c4&analysisJobIds=613ef029-6d17-5111-93e8-292371ffb4cc&analysisJobIds=1fe5b528-5eb1-55f8-b57f-5b1c5fc418c1&analysisJobIds=cef56611-e328-52d0-a752-3efdadcc332a&analysisJobIds=e4b38186-bc61-51c5-83a5-c3ef69244baa&analysisJobIds=8dcf97f6-34b0-5625-8d0a-b82e86df759f&analysisJobIds=a1ec2ca9-7c8a-5031-b9f1-91354d2a4499&analysisJobIds=5fdd1a41-9083-5894-84a9-3606a54cbba8&analysisJobIds=1d82df01-75b2-59c4-b9b1-c2784c792543&analysisJobIds=db3bc0fa-d287-50d6-826a-f87231aabb94&analysisJobIds=e5c32de5-b203-5c8e-9835-d8af3ac32070&analysisJobIds=522178ac-94cd-5f1e-9251-370317e6f034&analysisJobIds=000d545b-c8aa-5aa3-976d-b78373b50644&analysisJobIds=04d8fb3a-6a74-5518-b71c-f53383fbe9d9&analysisJobIds=7eebc047-020a-5b7f-977c-8cc5b5144854&analysisJobIds=22983aa2-7f1f-5a85-8fa7-bb6fc4c20dc2&analysisJobIds=531c210e-96c9-5d52-90d8-98f9a872cd0b&analysisJobIds=09f5f045-567a-5e9a-87a9-fc3c61ea5960&analysisJobIds=026f0e37-ce8b-53c7-8162-3ff4bdec7a82&analysisJobIds=e58bac77-4a00-5e29-be78-94eab41994fd&analysisJobIds=11dbe99a-3283-5089-b1bc-e910aca807a8&analysisJobIds=8b4347a0-1d06-5c4a-b87a-9a76dc186d3c&analysisJobIds=b6fe5024-1187-5d1f-8ba3-928fc5c5eacc&analysisJobIds=1c04c052-ad2f-56e5-b505-bf61f448dd8d&analysisJobIds=796726e4-15ae-529b-b6f9-15e38b55fa92&analysisJobIds=0ba39b66-a9e5-5b6f-ae56-d50bbc0aa682&analysisJobIds=b20aa58e-d9d0-551b-9a94-abe0a49c4973&analysisJobIds=cd94f16a-34c3-55bc-9b07-3a22325f2efa",
+      "method": "GET",
+      "timing": {
+        "startTime": 1792822247831.8489,
+        "domainLookupStart": -1,
+        "domainLookupEnd": -1,
+        "connectStart": -1,
+        "secureConnectionStart": -1,
+        "connectEnd": -1,
+        "requestStart": 0.214,
+        "responseStart": 9.477,
+        "responseEnd": 13.344
+      },
+      "finished": true,
+      "status": 200,
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 897,
+        "responseBodySize": 19648,
+        "responseHeadersSize": 624
+      },
+      "startMs": 9434.948974609375,
+      "endMs": 9448.292974609374,
+      "censored": false
+    },
+    {
+      "url": "http://127.0.0.1:28480/api/v1/works/082683aa-c3d8-56b3-91e2-8031e85f4a92/world-setting-candidates/progress?batchId=a87bda2b-9e89-5631-9e1e-852151905d99",
+      "method": "GET",
+      "timing": {
+        "startTime": 1792822247831.979,
+        "domainLookupStart": -1,
+        "domainLookupEnd": -1,
+        "connectStart": -1,
+        "secureConnectionStart": -1,
+        "connectEnd": -1,
+        "requestStart": 0.127,
+        "responseStart": 9.641,
+        "responseEnd": 12.982
+      },
+      "finished": true,
+      "status": 200,
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 908,
+        "responseBodySize": 208,
+        "responseHeadersSize": 617
+      },
+      "startMs": 9435.0791015625,
+      "endMs": 9448.0611015625,
+      "censored": false
+    },
+    {
+      "url": "http://127.0.0.1:28480/api/v1/works/082683aa-c3d8-56b3-91e2-8031e85f4a92/analysis-jobs/progress?analysisJobIds=55e35eff-e5fd-5dfb-8432-496e5ba8b072&analysisJobIds=9ade00b0-998a-52bf-88fc-98cee59ef791&analysisJobIds=aea4e128-c196-5f4e-8cc9-dc1bd360c1c4&analysisJobIds=613ef029-6d17-5111-93e8-292371ffb4cc&analysisJobIds=1fe5b528-5eb1-55f8-b57f-5b1c5fc418c1&analysisJobIds=cef56611-e328-52d0-a752-3efdadcc332a&analysisJobIds=e4b38186-bc61-51c5-83a5-c3ef69244baa&analysisJobIds=8dcf97f6-34b0-5625-8d0a-b82e86df759f&analysisJobIds=a1ec2ca9-7c8a-5031-b9f1-91354d2a4499&analysisJobIds=5fdd1a41-9083-5894-84a9-3606a54cbba8&analysisJobIds=1d82df01-75b2-59c4-b9b1-c2784c792543&analysisJobIds=db3bc0fa-d287-50d6-826a-f87231aabb94&analysisJobIds=e5c32de5-b203-5c8e-9835-d8af3ac32070&analysisJobIds=522178ac-94cd-5f1e-9251-370317e6f034&analysisJobIds=000d545b-c8aa-5aa3-976d-b78373b50644&analysisJobIds=04d8fb3a-6a74-5518-b71c-f53383fbe9d9&analysisJobIds=7eebc047-020a-5b7f-977c-8cc5b5144854&analysisJobIds=22983aa2-7f1f-5a85-8fa7-bb6fc4c20dc2&analysisJobIds=531c210e-96c9-5d52-90d8-98f9a872cd0b&analysisJobIds=09f5f045-567a-5e9a-87a9-fc3c61ea5960&analysisJobIds=026f0e37-ce8b-53c7-8162-3ff4bdec7a82&analysisJobIds=e58bac77-4a00-5e29-be78-94eab41994fd&analysisJobIds=11dbe99a-3283-5089-b1bc-e910aca807a8&analysisJobIds=8b4347a0-1d06-5c4a-b87a-9a76dc186d3c&analysisJobIds=b6fe5024-1187-5d1f-8ba3-928fc5c5eacc&analysisJobIds=1c04c052-ad2f-56e5-b505-bf61f448dd8d&analysisJobIds=796726e4-15ae-529b-b6f9-15e38b55fa92&analysisJobIds=0ba39b66-a9e5-5b6f-ae56-d50bbc0aa682&analysisJobIds=b20aa58e-d9d0-551b-9a94-abe0a49c4973&analysisJobIds=cd94f16a-34c3-55bc-9b07-3a22325f2efa",
+      "method": "GET",
+      "timing": {
+        "startTime": 1792822250845.5159,
+        "domainLookupStart": -1,
+        "domainLookupEnd": -1,
+        "connectStart": -1,
+        "secureConnectionStart": -1,
+        "connectEnd": -1,
+        "requestStart": 0.137,
+        "responseStart": 8.114,
+        "responseEnd": 10.918
+      },
+      "finished": true,
+      "status": 200,
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 897,
+        "responseBodySize": 19648,
+        "responseHeadersSize": 624
+      },
+      "startMs": 12448.615966796875,
+      "endMs": 12459.533966796875,
+      "censored": false
+    },
+    {
+      "url": "http://127.0.0.1:28480/api/v1/works/082683aa-c3d8-56b3-91e2-8031e85f4a92/world-setting-candidates/progress?batchId=a87bda2b-9e89-5631-9e1e-852151905d99",
+      "method": "GET",
+      "timing": {
+        "startTime": 1792822250845.35,
+        "domainLookupStart": -1,
+        "domainLookupEnd": -1,
+        "connectStart": -1,
+        "secureConnectionStart": -1,
+        "connectEnd": -1,
+        "requestStart": 0.234,
+        "responseStart": 8.919,
+        "responseEnd": 10.917
+      },
+      "finished": true,
+      "status": 200,
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 908,
+        "responseBodySize": 208,
+        "responseHeadersSize": 617
+      },
+      "startMs": 12448.4501953125,
+      "endMs": 12459.3671953125,
+      "censored": false
+    }
+  ],
+  "success": true
+}

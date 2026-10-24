@@ -1,0 +1,59 @@
+{
+  "success": true,
+  "cookies": [
+    {
+      "name": "refreshToken",
+      "httpOnly": true,
+      "path": "/api/v1/auth",
+      "sameSite": "Lax"
+    }
+  ],
+  "statuses": {
+    "mixedMissingJob": 404,
+    "unknownWork": 404,
+    "unknownBatch": 404,
+    "anonymous": 401,
+    "tooMany": 400
+  },
+  "rows": 30,
+  "labels": {
+    "completed": 22,
+    "incomplete": 1,
+    "blocked": 7
+  },
+  "dtoKeys": [
+    "analysisRun",
+    "automaticAppliedAt",
+    "episodeId",
+    "episodes",
+    "failureCode",
+    "id",
+    "jobType",
+    "reviewMode",
+    "status",
+    "tokenInterruptedAfterExtraction"
+  ],
+  "requests": [
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:28480/api/v1/auth/me"
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:28480/api/v1/works/082683aa-c3d8-56b3-91e2-8031e85f4a92"
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:28480/api/v1/works/082683aa-c3d8-56b3-91e2-8031e85f4a92/episodes"
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:28480/api/v1/works/082683aa-c3d8-56b3-91e2-8031e85f4a92/analysis-jobs/progress?analysisJobIds=55e35eff-e5fd-5dfb-8432-496e5ba8b072&analysisJobIds=9ade00b0-998a-52bf-88fc-98cee59ef791&analysisJobIds=aea4e128-c196-5f4e-8cc9-dc1bd360c1c4&analysisJobIds=613ef029-6d17-5111-93e8-292371ffb4cc&analysisJobIds=1fe5b528-5eb1-55f8-b57f-5b1c5fc418c1&analysisJobIds=cef56611-e328-52d0-a752-3efdadcc332a&analysisJobIds=e4b38186-bc61-51c5-83a5-c3ef69244baa&analysisJobIds=8dcf97f6-34b0-5625-8d0a-b82e86df759f&analysisJobIds=a1ec2ca9-7c8a-5031-b9f1-91354d2a4499&analysisJobIds=5fdd1a41-9083-5894-84a9-3606a54cbba8&analysisJobIds=1d82df01-75b2-59c4-b9b1-c2784c792543&analysisJobIds=db3bc0fa-d287-50d6-826a-f87231aabb94&analysisJobIds=e5c32de5-b203-5c8e-9835-d8af3ac32070&analysisJobIds=522178ac-94cd-5f1e-9251-370317e6f034&analysisJobIds=000d545b-c8aa-5aa3-976d-b78373b50644&analysisJobIds=04d8fb3a-6a74-5518-b71c-f53383fbe9d9&analysisJobIds=7eebc047-020a-5b7f-977c-8cc5b5144854&analysisJobIds=22983aa2-7f1f-5a85-8fa7-bb6fc4c20dc2&analysisJobIds=531c210e-96c9-5d52-90d8-98f9a872cd0b&analysisJobIds=09f5f045-567a-5e9a-87a9-fc3c61ea5960&analysisJobIds=026f0e37-ce8b-53c7-8162-3ff4bdec7a82&analysisJobIds=e58bac77-4a00-5e29-be78-94eab41994fd&analysisJobIds=11dbe99a-3283-5089-b1bc-e910aca807a8&analysisJobIds=8b4347a0-1d06-5c4a-b87a-9a76dc186d3c&analysisJobIds=b6fe5024-1187-5d1f-8ba3-928fc5c5eacc&analysisJobIds=1c04c052-ad2f-56e5-b505-bf61f448dd8d&analysisJobIds=796726e4-15ae-529b-b6f9-15e38b55fa92&analysisJobIds=0ba39b66-a9e5-5b6f-ae56-d50bbc0aa682&analysisJobIds=b20aa58e-d9d0-551b-9a94-abe0a49c4973&analysisJobIds=cd94f16a-34c3-55bc-9b07-3a22325f2efa"
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:28480/api/v1/works/082683aa-c3d8-56b3-91e2-8031e85f4a92/world-setting-candidates/progress?batchId=a87bda2b-9e89-5631-9e1e-852151905d99"
+    }
+  ],
+  "browserErrors": []
+}

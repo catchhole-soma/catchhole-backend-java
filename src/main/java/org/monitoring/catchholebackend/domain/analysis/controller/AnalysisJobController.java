@@ -12,12 +12,15 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.NotNull;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.dto.request.AnalysisJobCreateRequest;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatchSummaryResponse;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobResponse;
+import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobProgressResponse;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobService;
 import org.monitoring.catchholebackend.domain.auth.security.MemberPrincipal;
 import org.monitoring.catchholebackend.global.common.response.CommonErrorResponse;
@@ -145,6 +148,24 @@ public class AnalysisJobController {
         return CommonResponse.success(
                 analysisJobService.getAnalysisBatches(member.memberId(), workId, page, size)
         );
+    }
+
+    @GetMapping("/progress")
+    @Operation(operationId = "getAnalysisJobProgress", summary = "분석 진행 상태 묶음 조회",
+            description = "본인 작품의 공개 작업 1~100개를 요청 순서대로 조회합니다. 중복 ID는 최초 순서를 유지하며, 없는 작업이 섞이면 전체 요청을 거절합니다. 큰 상태 JSON과 결과 본문은 읽지 않습니다.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "분석 진행 상태 조회 성공"),
+            @ApiResponse(responseCode = "400", description = "ID 개수·형식 또는 공개 분석 유형 검증 실패", content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "인증 실패", content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "작품 또는 요청한 분석 작업을 찾을 수 없음", content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
+    })
+    public CommonResponse<List<AnalysisJobProgressResponse>> getAnalysisJobProgress(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId,
+            @Parameter(name = "analysisJobIds", in = ParameterIn.QUERY, description = "쉼표로 구분한 분석 작업 ID. 중복 제거 전 1~100개입니다.")
+            @RequestParam @Size(min = 1, max = 100, message = "분석 작업 ID는 1~100개여야 합니다.") List<@NotNull UUID> analysisJobIds
+    ) {
+        return CommonResponse.success(analysisJobService.getAnalysisJobProgress(member.memberId(), workId, analysisJobIds));
     }
 
     @GetMapping("/{analysisJobId}")
