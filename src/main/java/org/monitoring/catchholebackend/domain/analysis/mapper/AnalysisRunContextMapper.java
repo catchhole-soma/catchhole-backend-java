@@ -5,6 +5,9 @@ import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalys
 import org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
@@ -15,6 +18,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class AnalysisRunContextMapper {
     private final CharacterFactEvidenceMapper evidenceMapper;
+    private final ObjectMapper objectMapper = new ObjectMapper();
     public WorkerAnalysisContextPayload toResponse(AnalysisJob job) {
         return toResponse(job, false);
     }
@@ -64,7 +68,8 @@ public class AnalysisRunContextMapper {
         return new WorkerAnalysisReferencePayload.Selection(ids, keys,
                 nullableText(node, "rawSubjectMention"), nullableText(node, "candidateKind"),
                 nullableText(node, "factType"), nullableText(node, "canonicalFactKey"),
-                node.path("valueJson").isObject() ? node.get("valueJson") : null,
+                node.path("valueJson").isObject()
+                        ? objectMapper.convertValue(node.get("valueJson"), new TypeReference<Map<String, Object>>() {}) : null,
                 nullableText(node, "worldCategory"));
     }
 

@@ -24,6 +24,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComp
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSubjectResolutionType;
 import org.springframework.stereotype.Component;
 
 /** 업로드 묶음과 무관하게 앞 회차의 대기 내용을 실제 설정과 구분해 수집한다. */
@@ -118,9 +119,9 @@ public class AnalysisPendingReferenceSource {
             if (!candidate.isCharacterDiscovery()) {
                 // A held/failed comparison can still have a valid original STATUS schema.
                 // Never infer its type from the display label or a failed comparison.
-                if (candidate.isUserModified() || validSelection && candidate.getComparisonTargetFactType() != null) {
-                    if (candidate.getComparisonTargetFactType() != null)
-                        selection.put("factType", candidate.getComparisonTargetFactType().name());
+                if (validSelection && candidate.getComparisonTargetFactType() != null
+                        && hasText(candidate.getComparisonTargetFactKey())) {
+                    selection.put("factType", candidate.getComparisonTargetFactType().name());
                     selection.put("canonicalFactKey", candidate.getComparisonTargetFactKey());
                 } else if (schemas != null) {
                     try {
@@ -178,8 +179,10 @@ public class AnalysisPendingReferenceSource {
             if (category != null) selection.put("worldCategory", category.name());
             selection.put("rawSubjectMention", edited ? candidate.getFinalSubjectName() : candidate.getSubjectName());
             if (!edited && validAnalysis) {
+                var resolutionType = candidate.getSubjectResolutionType();
                 boolean linkedSubject = candidate.hasSubjectResolution()
-                        && candidate.getSubjectResolutionType() != org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSubjectResolutionType.FAILED;
+                        && (resolutionType == WorldSettingSubjectResolutionType.NEW
+                        || resolutionType == WorldSettingSubjectResolutionType.EXISTING);
                 if (linkedSubject) {
                     if (candidate.getResolvedTargetWorldSettingIds() != null)
                         candidate.getResolvedTargetWorldSettingIds().forEach(id -> actualIds.add(id.deepCopy()));
@@ -188,7 +191,8 @@ public class AnalysisPendingReferenceSource {
                 }
                 // Legacy completed comparisons may predate the typed subject resolution.
                 // Operation-selected targets from failed content comparisons stay out.
-                if (candidate.getComparisonStatus() == WorldSettingComparisonStatus.COMPLETED) {
+                if (candidate.getComparisonStatus() == WorldSettingComparisonStatus.COMPLETED
+                        && (resolutionType == null || linkedSubject)) {
                     if (actualIds.isEmpty() && candidate.getTargetWorldSetting() != null)
                         actualIds.add(candidate.getTargetWorldSetting().getId().toString());
                     if (provisionalKeys.isEmpty() && hasText(candidate.getProvisionalSubjectKey()))
