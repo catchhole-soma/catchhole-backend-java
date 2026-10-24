@@ -1029,3 +1029,9 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 일반 claim의 relatedFacets는 관련 원문 맥락이며 요구 충족이 아니다. 미답 요구는 missingFacets와 PARTIAL로 남기고 정확한 supports.quote·참조/위치·최종 인용 검사를 유지한다. hybrid.answer의 ResponseValidationFailure만 미검증 문장을 버린 NONE으로 복구해 남은 검색이나 검증된 PARTIAL을 보존한다. 전송/provider·출력 절단 복구·권한/조회 실패는 숨기지 않으며 계획·등록 답변의 실패 경계와 전체 실행 상한은 유지한다.
 - hybrid plan v8은 최초 습득 항목의 HISTORY와 현재 보유 목록의 CURRENT를 구분하고 실제 최초 획득은 원문 PROCESS로 확인하도록 지시한다. 최초 등록/사용 기록을 실제 최초로 단정하지 않는다. 일반 원문 경로의 직접 근거 조회는 `3 * max_rounds + 2 + collection 검사 수`의 도구 여유를 남기며 기본 두 라운드는 검사 수 외 8회분이다. 전체 상한을 늘리거나 키워드·벡터 실행을 보장하지 않는다. 후속 실제 검증에서 HISTORY+PROCESS와 키워드·벡터 두 라운드까지 확인했지만 최초 획득의 입증은 미확인으로 남았다. 상세 호출량·중간 실패와 SHA별 범위는 공통 품질 문서에 보존한다.
 - 실제 77dc74e 검증 6건에는 자연 발생한 모델 응답 검증 실패가 없었다. related 맥락 경로의 실제 확인과 typed 검증 실패 복구의 합성 회귀를 구분한다. 최종 265fc68는 같은 프롬프트·검색·검증에 안내 표현만 보완했으며 전체 자동 테스트·로컬 기동으로 확인했고 실제 모델을 다시 호출하지 않았다.
+
+### GH287 고정 보류 참고와 Worker 기능 광고
+
+- 앞선 미확정 후보는 원래 freeze 시점에 optional `selection`을 함께 저장하고 replay에서는 `automaticInputState`만 읽는다. 기존 입력/hash를 backfill하거나 현재 후보로 재구성하지 않는다. 주체 해소의 MATCHED/actual·provisional 연결은 후속 내용 비교 실패와 구분해 보존하고, 모호/실패한 주체 연결·실패한 operation 대상은 권위 있는 링크로 복원하지 않는다. 원래 schema로 held/failed STATUS를 판별하고 active=false를 보존한다.
+- `X-Analysis-Reference-Selection: true`를 받은 응답에만 `selection`과 캐릭터 advisory의 `selectionNames`를 노출한다. 누락/false에는 필드 자체를 생략하며 모든 claim/context/주체 조회에 같은 boolean을 명시적으로 전달한다. metadata freeze·advisory hash/contextToken은 capability와 무관하고 구 overload는 false다. `selectionNames`는 기존 frozen 주체 별칭·원 후보 표기를 전달하는 선택 전용 metadata다.
+- AI는 EPISODE의 모델 입력만 같은 도메인·관련 주체로 투영하며 전체 transport/equality/source/lease/journal을 유지한다. 보류는 현재값·선택 대상·변경/의존 참조·과거 후보 자동 승인이 아니다. 1차 캐릭터 입력은 기존 이름/활성 STATUS와 별도 미확정 이름/STATUS 힌트, 세계관은 원문·metadata·정적 규칙만 사용하며 BOOK 입력과 기존 시점 보호를 유지한다.

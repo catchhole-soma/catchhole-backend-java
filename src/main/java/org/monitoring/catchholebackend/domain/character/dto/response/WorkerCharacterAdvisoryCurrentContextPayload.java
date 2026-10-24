@@ -19,8 +19,23 @@ public record WorkerCharacterAdvisoryCurrentContextPayload(
         @Schema(nullable = true) String provisionalSubjectKey,
         List<CurrentSlot> currentSlots,
         Object currentNarrativeTime,
-        List<Object> historyFacts
+        List<Object> historyFacts,
+        @JsonInclude(JsonInclude.Include.NON_EMPTY) List<String> selectionNames
 ) {
+    public WorkerCharacterAdvisoryCurrentContextPayload {
+        selectionNames = selectionNames == null ? List.of() : List.copyOf(selectionNames);
+    }
+    public WorkerCharacterAdvisoryCurrentContextPayload(int formatVersion, int captureVersion, UUID runId, long generation,
+            String inputStateHash, String sourceHash, String projectionStateHash, boolean complete, UUID characterId,
+            String provisionalSubjectKey, List<CurrentSlot> currentSlots, Object currentNarrativeTime, List<Object> historyFacts) {
+        this(formatVersion, captureVersion, runId, generation, inputStateHash, sourceHash, projectionStateHash, complete,
+                characterId, provisionalSubjectKey, currentSlots, currentNarrativeTime, historyFacts, List.of());
+    }
+    public WorkerCharacterAdvisoryCurrentContextPayload withSelectionNames(List<String> names) {
+        return new WorkerCharacterAdvisoryCurrentContextPayload(formatVersion, captureVersion, runId, generation,
+                inputStateHash, sourceHash, projectionStateHash, complete, characterId, provisionalSubjectKey,
+                currentSlots, currentNarrativeTime, historyFacts, names);
+    }
     public WorkerCharacterAdvisoryCurrentContextPayload(int formatVersion, int captureVersion, UUID runId, long generation,
             String inputStateHash, String sourceHash, String projectionStateHash, boolean complete, UUID characterId,
             String provisionalSubjectKey, List<CurrentSlot> currentSlots) {

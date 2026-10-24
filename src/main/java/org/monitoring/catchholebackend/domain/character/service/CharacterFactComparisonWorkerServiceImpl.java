@@ -102,7 +102,14 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
     public Optional<WorkerCharacterFactComparisonBatchPayload> claimNextCharacterFactComparisonBatch(
             UUID analysisJobId, UUID leaseToken, boolean supportsPersonBatches
     ) {
-        return batchWorker.claimNext(analysisJobId, leaseToken, supportsPersonBatches);
+        return claimNextCharacterFactComparisonBatch(analysisJobId, leaseToken, supportsPersonBatches, false);
+    }
+
+    @org.springframework.transaction.annotation.Transactional(noRollbackFor = org.monitoring.catchholebackend.domain.character.exception.OrderedCharacterComparisonClaimException.class)
+    public Optional<WorkerCharacterFactComparisonBatchPayload> claimNextCharacterFactComparisonBatch(
+            UUID analysisJobId, UUID leaseToken, boolean supportsPersonBatches, boolean includeReferenceSelection
+    ) {
+        return batchWorker.claimNext(analysisJobId, leaseToken, supportsPersonBatches, includeReferenceSelection);
     }
 
     @Override
@@ -112,7 +119,16 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
             UUID comparisonBatchId,
             UUID leaseToken
     ) {
-        return batchWorker.getContext(analysisJobId, comparisonBatchId, leaseToken);
+        return getCharacterFactComparisonBatchContext(analysisJobId, comparisonBatchId, leaseToken, false);
+    }
+
+    @org.springframework.transaction.annotation.Transactional
+    public WorkerCharacterFactComparisonBatchContextResponse getCharacterFactComparisonBatchContext(
+            UUID analysisJobId,
+            UUID comparisonBatchId,
+            UUID leaseToken, boolean includeReferenceSelection
+    ) {
+        return batchWorker.getContext(analysisJobId, comparisonBatchId, leaseToken, includeReferenceSelection);
     }
 
     @Override

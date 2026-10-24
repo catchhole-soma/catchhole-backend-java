@@ -92,6 +92,12 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     @Override
     @Transactional
     public Optional<WorkerAnalysisJobPayload> claimAnalysisJob(WorkerAnalysisJobClaimRequest request) {
+        return claimAnalysisJob(request, false);
+    }
+
+    @org.springframework.transaction.annotation.Transactional
+    public Optional<WorkerAnalysisJobPayload> claimAnalysisJob(WorkerAnalysisJobClaimRequest request, boolean includeReferenceSelection
+    ) {
         LocalDateTime now = LocalDateTime.now();
         recoverExpiredLeases(request.allowedJobTypes(), now);
         Optional<AnalysisJob> claimed = analysisJobClaimRepository.findClaimableJob(request);
@@ -168,7 +174,8 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 knownCharacters,
                 activeStatusSources,
                 input,
-                semantic
+                semantic,
+                includeReferenceSelection
         ));
     }
 

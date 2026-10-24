@@ -69,6 +69,18 @@ public class AnalysisJobWorkerMapper {
             JsonNode orderedInputState,
             WorkerSemanticCurrentContextPayload semanticCurrentContext
     ) {
+        return toResponse(analysisJob, episode, characterSettingSchemas, knownCharacters, activeStatusSources, orderedInputState, semanticCurrentContext, false);
+    }
+
+    public WorkerAnalysisJobPayload toResponse(
+            AnalysisJob analysisJob,
+            Episode episode,
+            List<CharacterSettingSchema> characterSettingSchemas,
+            List<WorkCharacter> knownCharacters,
+            List<CharacterSnapshotSource> activeStatusSources,
+            JsonNode orderedInputState,
+            WorkerSemanticCurrentContextPayload semanticCurrentContext, boolean includeReferenceSelection
+    ) {
         if (analysisJob.isOrderedProvisional() && (orderedInputState == null || !orderedInputState.isObject())) {
             throw new IllegalArgumentException("누적 모드의 고정 입력 상태가 필요합니다.");
         }
@@ -103,7 +115,7 @@ public class AnalysisJobWorkerMapper {
                         .toList(),
                 toEpisodeResponse(episode),
                 analysisJob.isOrderedProvisional() ? analysisJob.getAnalysisMode() : null,
-                analysisRunContextMapper.toResponse(analysisJob),
+                analysisRunContextMapper.toResponse(analysisJob, includeReferenceSelection),
                 analysisJob.isOrderedProvisional() ? toProvisionalCharacters(orderedInputState) : List.of(),
                 analysisJob.isAutomaticReview() ? analysisJob.getReviewMode() : null,
                 analysisJob.getSourceKind(), analysisJob.isSettingBookSource()

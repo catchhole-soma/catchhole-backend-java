@@ -120,6 +120,15 @@ public class CharacterFactComparisonBatchWorker {
             UUID leaseToken,
             boolean supportsPersonBatches
     ) {
+        return claimNext(analysisJobId, leaseToken, supportsPersonBatches, false);
+    }
+
+    @Transactional(noRollbackFor = OrderedCharacterComparisonClaimException.class)
+    public Optional<WorkerCharacterFactComparisonBatchPayload> claimNext(
+            UUID analysisJobId,
+            UUID leaseToken,
+            boolean supportsPersonBatches, boolean includeReferenceSelection
+    ) {
         AnalysisJob analysisJob = analysisJobLeaseService.getRunningAnalysisJobForUpdate(
                 analysisJobId,
                 leaseToken
@@ -174,7 +183,7 @@ public class CharacterFactComparisonBatchWorker {
             selected.get(index).candidate().startComparison(batch, candidateRef(index));
         }
         settingCandidateRepository.flush();
-        return Optional.of(toPayload(batch, comparisonCharacter, selected));
+        return Optional.of(toPayload(batch, comparisonCharacter, selected, includeReferenceSelection));
         }
     }
 
@@ -183,6 +192,15 @@ public class CharacterFactComparisonBatchWorker {
             UUID analysisJobId,
             UUID comparisonBatchId,
             UUID leaseToken
+    ) {
+        return getContext(analysisJobId, comparisonBatchId, leaseToken, false);
+    }
+
+    @Transactional
+    public WorkerCharacterFactComparisonBatchContextResponse getContext(
+            UUID analysisJobId,
+            UUID comparisonBatchId,
+            UUID leaseToken, boolean includeReferenceSelection
     ) {
         AnalysisJob analysisJob = analysisJobLeaseService.getRunningAnalysisJobForUpdate(
                 analysisJobId,
@@ -213,11 +231,13 @@ public class CharacterFactComparisonBatchWorker {
                 context.responseEntries(),
                 context.contextToken(),
                 batch.getProvisionalSubjectKey(),
-                contextMapper.toResponse(batch.getAnalysisJob()),
+                contextMapper.toResponse(batch.getAnalysisJob(), includeReferenceSelection),
                 character.orderedState() == null
                         ? org.monitoring.catchholebackend.domain.character.mapper.CharacterAnalysisStateMapper.protectedSlots(character.entity())
                         : org.monitoring.catchholebackend.domain.character.mapper.CharacterAnalysisStateMapper.protectedSlots(character.orderedState()),
-                context.advisoryCurrentContext()
+                includeReferenceSelection || context.advisoryCurrentContext() == null
+                        ? context.advisoryCurrentContext()
+                        : context.advisoryCurrentContext().withSelectionNames(List.of())
         );
     }
 
@@ -671,7 +691,20 @@ public class CharacterFactComparisonBatchWorker {
         var advisory = character.entity() == null && character.orderedState() == null ? null : workerMapper.toAdvisoryCurrentContext(
                 batch.getAnalysisJob(), provenanceState,
                 character.entity() == null ? null : character.entity().getId(), batch.getProvisionalSubjectKey(), batch.getCanonicalFactType());
-        if (advisory != null) fingerprint.put("advisoryCurrentContext", advisory);
+        if (advisory != null) {
+            // Frozen owner aliases and original candidate spellings select advisory
+            // references only; Python strips this carrier from provider prompts.
+            java.util.LinkedHashSet<String> selectionNames = new java.util.LinkedHashSet<>();
+            selectionNames.add(character.name());
+            for (JsonNode alias : provenanceState.path("aliases")) if (alias.isTextual()) selectionNames.add(alias.asText());
+            for (var value : candidates) {
+                selectionNames.add(value.candidate().getEntityName());
+                selectionNames.add(value.candidate().getRawEntityMention());
+            }
+            selectionNames.removeIf(name -> name == null || name.isBlank());
+            advisory = advisory.withSelectionNames(List.copyOf(selectionNames));
+            fingerprint.put("advisoryCurrentContext", advisory);
+        }
         fingerprint.put("protectedSlots", org.monitoring.catchholebackend.domain.character.mapper.CharacterAnalysisStateMapper.protectedSlots(provenanceState));
         fingerprint.put("snapshotAbsences", projection.absenceBySlot().entrySet().stream()
                 .sorted(Map.Entry.comparingByKey(Comparator
@@ -1214,7 +1247,7 @@ public class CharacterFactComparisonBatchWorker {
             CharacterFactComparisonBatch batch,
             ComparisonCharacter character,
             List<CandidateTarget> candidates
-    ) {
+    , boolean includeReferenceSelection) {
         return new WorkerCharacterFactComparisonBatchPayload(
                 batch.getId(),
                 batch.getWork().getId(),
@@ -1224,7 +1257,7 @@ public class CharacterFactComparisonBatchWorker {
                 batch.getCanonicalFactType(),
                 toPayloadCandidates(candidates),
                 batch.getProvisionalSubjectKey(),
-                contextMapper.toResponse(batch.getAnalysisJob()), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(batch.getAnalysisJob()));
+                contextMapper.toResponse(batch.getAnalysisJob(), includeReferenceSelection), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(batch.getAnalysisJob()));
     }
 
     private List<WorkerCharacterFactComparisonBatchPayload.Candidate> toPayloadCandidates(
