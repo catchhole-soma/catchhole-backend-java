@@ -1,0 +1,1 @@
+select aj1_0.batch_id,count(aj1_0.id) from analysis_jobs aj1_0 where aj1_0.work_id='082683aa-c3d8-56b3-91e2-8031e85f4a92' and aj1_0.batch_id in ('a87bda2b-9e89-5631-9e1e-852151905d99') and aj1_0.source_kind='EPISODE' and aj1_0.job_type='WORLD_SETTING_COMPARISON' and aj1_0.status in ('PENDING','RUNNING') group by aj1_0.batch_id;

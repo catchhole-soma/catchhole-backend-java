@@ -1,0 +1,56 @@
+# Analysis progress bulk scalar read design — #291
+
+Authorized scope: progress-page reads and polling, preserving current flows. Implementation baseline BE `79c2b0e`, FE `74d10ec`; both isolated `codex/analysis-progress-summary` worktrees under `output/analysis-progress-optimization-20261024/worktrees`. #288 is finished; #272, retry write-path redesign, deployment and production load are excluded. Planning/review use GPT-6 Astra; one GPT-6.1 Sol ultra implementer owns both repositories. Existing user authorization covers proceeding without another approval checkpoint. No commit or external post in this planning task.
+
+## Evidence and boundaries
+
+Read `output/java-latency-20261024/diagnosis.md`, issue #291, both AGENTS.md, backend analysis mapper/service/controller, frontend `SEpisodeUpload.tsx` and `ordered-analysis.ts`. The page creates one detail query per tracked ID. Detail reads full entities/JSON even though JSON is not sent. Thirty jobs held 17.32 MiB logical JSON (22 succeeded, 1 failed, 7 pending); JVM max heap was 768 MiB. Retry also failed with OOM and is not fixed by this read change.
+
+## API contract
+
+Add `GET /api/v1/works/{workId}/analysis-jobs/progress?analysisJobIds=<comma-separated UUIDs>` with operationId `getAnalysisJobProgress`. Return `CommonResponse<List<AnalysisJobProgressResponse>>`. Require 1–100 input IDs before deduplication; missing, empty, invalid UUID or 101 IDs yields existing validation 400. Deduplicate in first-occurrence order and return exactly that order. Existing ownership and purging-work semantics apply via `getOwnedWork`; missing/cross-work job causes whole-request `ANALYSIS_JOB_NOT_FOUND` (404), no partial disclosure. Preserve `assertPublicJobType` policy for internal job types. Authentication remains existing bearer JWT behavior. No writes, locks, entity graph, per-ID repository reads or fallback to detail.
+
+Minimal response fields and consumers:
+
+| Field | Consumer |
+|---|---|
+| id, episodeId | current/history mapping, retry, progress row |
+| jobType | retry response type validation and review routing |
+| status | running/failure/success/buttons |
+| reviewMode, automaticAppliedAt | automatic finalization and completion latch |
+| failureCode | quota classification; expose only FAILED, null failure maps existing unexpected code |
+| tokenInterruptedAfterExtraction | existing non-ordered SETTING_EXTRACTION + FAILED + AI_TOKEN_QUOTA_EXHAUSTED + checkpoint >= WORLD_CANDIDATES_PUBLISHED predicate |
+| analysisRun | existing scalar AnalysisRunResponse: mode/runId/generation/sequence/predecessorJobId/journalStatus/invalidationReason; null for non-ordered |
+| episodes | only id/episodeNo/title/status/updatedAt per target; no body or content |
+
+Reuse scalar run response for consistency; use dedicated five-field episode response so content is absent. Do not add summary, model, token totals, source body, upload-file metadata or currentStep (page does not read it). Work title comes from existing work query/selected-work fallback. `sourceAnalysisJobId` routes to `SettingBookProgressRoute` before the episode component; that route and its source contract remain unchanged. Do not route setting-book origin IDs through episode inference.
+
+Use one explicit scalar job projection plus one scalar target-episode projection, independent of job count. Include checkpoint only internally to calculate token predicate. Preserve target snapshot membership precedence: if job target collection exists, use exactly those episodes including ARCHIVED; otherwise use episode_id, otherwise empty. Never replace historical targets with current batch episodes. Scope both SQL reads to owned work/request IDs; no AnalysisJob/Episode/UploadFile entity materialization or JSON SELECT, including summary_json/content columns. Work ownership read may load Work as current convention. Use existing indexes unless actual plans show a need. Sorting episodes by episodeNo/id is deterministic. Validate all job IDs before target query.
+
+## Frontend query and transitions
+
+Use one React Query owner, `useAnalysisJobProgress`, for the page's complete tracked/current/superseded scope, backed by generated SDK. Key includes workId and normalized tracked/current/superseded ID arrays. Initially fetch all tracked IDs (history included), in sequential chunks of at most 100; 30 IDs means one request. On subsequent polls fetch only eligible current IDs, merging by ID with retained successful history data in that scoped cache. Superseded or non-current history is fetched once per scope and never periodically. Query scope changes may re-read history once; do not copy results across works. Deduplicate IDs before requesting. Do not silently truncate long legitimate retry histories. Pass AbortSignal through all chunks and stop on cancellation; commit a merged result only after every chunk succeeds. On error retain last successful data and existing error/retry banner, never turn missing/error data into success or enable restart.
+
+Eligible current jobs are non-superseded jobs that are unknown, nonterminal non-ordered jobs, or ordered jobs not INVALIDATED/CANCELED. Poll 3,000 ms while any eligible job is unknown, RUNNING, unblocked PENDING, or SUCCEEDED with finalization unfinished other than an INCOMPLETE journal. A PENDING ordered job behind an earlier failed/incomplete job is quiescent. If no active work but at least one eligible ordered job remains (completed, failed, INCOMPLETE, or blocked waiting), poll 30,000 ms. If none remain, stop interval. This preserves later same-ID resume and invalidation discovery with at most one idle interval delay; focus/reconnect refetch remains enabled for eligible current jobs, background intervals remain disabled per React Query defaults. Never stop merely on SUCCEEDED, and never declare automatic completion before SEALED plus automaticAppliedAt.
+
+Explicit successful retry/restart must cancel stale in-flight progress reads, immediately update/refetch the relevant bulk cache and restore fast polling even for same-ID ordered resume. Preserve existing detail-cache seeding for other screens if useful, but it no longer updates this page by itself. Preserve current-ID replacement, superseded IDs, URL history, partial retry successes, quota notification generations, job-type mismatch handling and restart guard. Manual status retry invokes one bulk refetch. Shared ordered helpers should accept their minimal structural fields, allowing detail and progress DTO consumers without casts.
+
+## Separate lightweight comparison progress
+
+Authorized adjacent scope: replace this same page’s full world candidate page request, which consumes only three counts. Add `GET /api/v1/works/{workId}/world-setting-candidates/progress?batchId=<UUID>`, operationId `getWorldSettingCandidateProgress`, returning `CommonResponse<WorldSettingCandidateProgressResponse>` with exactly `pendingComparisonCount`, `processingComparisonCount`, `tokenInterruptedComparisonCount` (nonnegative long; empty valid batch returns zero).
+
+Reuse existing `WorldSettingCandidateRepository.countReviewSummary` with sourceAnalysisJobId=null. This already performs scalar aggregates and preserves EPISODE source filtering, batch scope, PENDING_REVIEW filtering and FAILED+AI_TOKEN_QUOTA_EXHAUSTED token semantics. Do not restrict by current job IDs, which changes existing batch semantics. Validate work ownership and batch-in-work with the same read access/error conventions as getCandidates (`reviewSources.validate` and `validateBatch` as applicable); missing/cross-work batch is the existing not-found response, not empty success. Check those validation helpers do not hydrate jobs/candidates/JSON; use equivalent scalar existence checks if needed without changing permissions. Missing/invalid batch UUID=400, unauthenticated401, nonowner/missing/cross-work404.
+
+Keep this query independent from job bulk/chunking: existing enabled condition and 3s polling while analysisRunning or pending+processing comparisons>0, otherwise stop. Existing interruption notification explicitly refetches the new summary endpoint. No new polling interval or candidate-detail logic is introduced. There are now one job bulk GET and one comparison summary GET for 30 IDs; report both. Existing episode/work reads and costs are still counted separately. This does not modify #272’s world detail/group pagination.
+
+Test aggregate values against mixed episode/setting-book sources, different batches/works, confirmed versus pending review, quota versus other failures and zero candidates. Assert actual SQL selects no candidate payload/JSON and entity statistics load zero AnalysisJob/WorldSettingCandidate entities. Browser asserts full candidate list/detail GET zero on progress while independent comparison polling and quota notification remain correct.
+
+## Verification and performance acceptance
+
+Real SQL-shape tests must observe executed SQL and entity loads after clearing persistence context, not merely assert repository method selection or response JSON. For 1 and 30 jobs, assert constant query count, no AnalysisJob/Episode entity loads and no three large JSON columns or other excluded content. Exercise PostgreSQL with a dedicated local fixture DB, alongside MockMvc contract tests.
+
+Browser tests cover 30 jobs/one request/zero details, 100/101 chunking, history once, 3s active/30s idle transitions, blocked pending, same-ID retry, cross-work key isolation, error retained data, cancellation, external resume, invalidation, automatic latch, legacy multi-target and source routing. Update existing mocks to the new endpoint; do not weaken prior retry/ordered assertions.
+
+Preserve a before build from exact baselines before editing. Reuse `scripts/load-tests/analysis-list` safety/sampling/SQL tooling, adding dedicated progress runner and fixture. Local isolated PostgreSQL16 and Java21 `-Xms256m -Xmx768m`; disable .env import/default compose/external workers/schedulers/tracing. Synthetic fixture uses 30 jobs, 22 SUCCEEDED/1 FAILED/7 PENDING and deterministic valid JSON totaling approximately 17.32 MiB measured as JSONB::text bytes (completed rows approximately 16.50 MiB); no production text. Same DB dump/fixture hash, heap flags, warmup and browser conditions both phases.
+
+Use at least 60s observation per phase for quiescent 22/1/7 case (30s idle is observable), plus an active runnable fixture case at 3s and terminal/finalization correctness tests. Record request counts and encoded API bytes by route, status/error counts, API latency median/p95/max, ready timing separately, sampled heap/RSS, GC count/time deltas, observation durations and actual SQL/EXPLAIN. Keep warmup separate, drain in-flight requests, do not run builds/tests while timing, preserve failures/censored observations and report sampling limits. Never equate JSON text size with response bytes or heap; no forced OOM requirement or extrapolated production guarantee. Report remaining heavy legacy APIs honestly. New backend must precede frontend rollout.

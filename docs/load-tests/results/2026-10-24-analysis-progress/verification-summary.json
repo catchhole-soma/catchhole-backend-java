@@ -1,0 +1,37 @@
+{
+  "backend": {
+    "tests": 3829,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 236,
+    "classes": 207,
+    "executed": 3593
+  },
+  "frontend": {
+    "full": {
+      "total": 832,
+      "passed": 807,
+      "skipped": 20,
+      "failed": 5
+    },
+    "scopedPostFix": {
+      "passed": 112,
+      "skipped": 0,
+      "failed": 0
+    },
+    "asciiUnrelatedRerun": {
+      "passed": 3,
+      "skipped": 0,
+      "failed": 0
+    },
+    "fullFailureDisposition": {
+      "upload-policy completed and pending automatic cases": "fixture endpoint updates; included in112 passing rerun",
+      "family-tree profile and320px": "existing percent-encoded pathname fixture issue; source-identical ASCII rerun passed",
+      "world target-panel640px2x screenshot": "load-related timeout; source-identical ASCII rerun passed"
+    },
+    "lint": "pass,2 pre-existing react-refresh warnings",
+    "typecheck": "pass",
+    "unused": "2 pre-existing unused files: e2e/episode-source-list.ts and scripts/analysis-list-benchmark.mjs; new CLI scripts registered as entries",
+    "doctor": "exit0 with blocking none;245 diagnostics including2 pre-existing WorldSettingDatabase state-updater errors. New hook await-in-loop is intentional sequential chunking; benchmark iteration warnings are offline collection code."
+  }
+}

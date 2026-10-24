@@ -1,0 +1,337 @@
+{
+  "phase": "after",
+  "os": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "hostLogicalCpus": "18",
+  "hostMemoryBytes": "51539607552",
+  "jvmPid": 33912,
+  "javaVersion": "openjdk version \"21.0.12.1\" 2026-08-18 LTS\nOpenJDK Runtime Environment Microsoft-14941480 (build 21.0.12.1+1-LTS)\nOpenJDK 64-Bit Server VM Microsoft-14941480 (build 21.0.12.1+1-LTS, mixed mode, sharing)",
+  "jvmActualFlags": "33912:\n-XX:CICompilerCount=12 -XX:ConcGCThreads=4 -XX:G1ConcRefinementThreads=14 -XX:G1EagerReclaimRemSetThreshold=12 -XX:G1HeapRegionSize=1048576 -XX:G1RemSetArrayOfCardsEntries=12 -XX:G1RemSetHowlMaxNumBuckets=8 -XX:G1RemSetHowlNumBuckets=4 -XX:GCDrainStackTargetSize=64 -XX:InitialHeapSize=268435456 -XX:MarkStackSize=4194304 -XX:MaxHeapSize=805306368 -XX:MaxNewSize=482344960 -XX:MinHeapDeltaBytes=1048576 -XX:MinHeapSize=268435456 -XX:NonNMethodCodeHeapSize=7602992 -XX:NonProfiledCodeHeapSize=122027624 -XX:ProfiledCodeHeapSize=122027624 -XX:ReservedCodeCacheSize=251658240 -XX:+SegmentedCodeCache -XX:SoftMaxHeapSize=805306368 -XX:+UseCompressedOops -XX:+UseG1GC -XX:-UseNUMA -XX:-UseNUMAInterleaving",
+  "jvmVmVersion": "33912:\nOpenJDK 64-Bit Server VM version 21.0.12.1+1-LTS\nJDK 21.0.12.1",
+  "nodeVersion": "v24.19.0",
+  "pythonVersion": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.3.34.2)]",
+  "database": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+  "databaseContainerLimits": {
+    "NanoCpus": 2000000000,
+    "Memory": 1073741824,
+    "MemorySwap": 2147483648,
+    "CpuQuota": 0,
+    "CpuPeriod": 0,
+    "CpusetCpus": "",
+    "ShmSize": 67108864
+  },
+  "runtime": "native Java; native production Vite preview; docker PostgreSQL",
+  "jvmHeapMaxMiB": 768,
+  "jvmHeapInitialMiB": 256,
+  "apiCpuLimit": "none (host scheduling); identical before/after",
+  "apiContainerMemoryLimit": "none (native process); Xmx fixed",
+  "frontendBuildMode": "production; VITE_API_BASE_URL=http://127.0.0.1:28480; preview 127.0.0.1:3340",
+  "apiUrl": "http://127.0.0.1:28480",
+  "postgresPort": 26432,
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "fixture": {
+    "analysisJsonDataMd5": "47214e1c4a6a5ec4fcf0a97186dc4fb7",
+    "batchId": "a87bda2b-9e89-5631-9e1e-852151905d99",
+    "characterCandidates": 410,
+    "episodes": 30,
+    "fixedTimestamp": "2026-10-24T12:00:00",
+    "fixtureHashExcludes": "bcrypt salt, private credentials and auth records",
+    "fixtureSha256": "586ec0a7cefd73e6807c43649ab4bd632dc3b587a67e89a6bb42fa63c8275d08",
+    "jobIds": [
+      "55e35eff-e5fd-5dfb-8432-496e5ba8b072",
+      "9ade00b0-998a-52bf-88fc-98cee59ef791",
+      "aea4e128-c196-5f4e-8cc9-dc1bd360c1c4",
+      "613ef029-6d17-5111-93e8-292371ffb4cc",
+      "1fe5b528-5eb1-55f8-b57f-5b1c5fc418c1",
+      "cef56611-e328-52d0-a752-3efdadcc332a",
+      "e4b38186-bc61-51c5-83a5-c3ef69244baa",
+      "8dcf97f6-34b0-5625-8d0a-b82e86df759f",
+      "a1ec2ca9-7c8a-5031-b9f1-91354d2a4499",
+      "5fdd1a41-9083-5894-84a9-3606a54cbba8",
+      "1d82df01-75b2-59c4-b9b1-c2784c792543",
+      "db3bc0fa-d287-50d6-826a-f87231aabb94",
+      "e5c32de5-b203-5c8e-9835-d8af3ac32070",
+      "522178ac-94cd-5f1e-9251-370317e6f034",
+      "000d545b-c8aa-5aa3-976d-b78373b50644",
+      "04d8fb3a-6a74-5518-b71c-f53383fbe9d9",
+      "7eebc047-020a-5b7f-977c-8cc5b5144854",
+      "22983aa2-7f1f-5a85-8fa7-bb6fc4c20dc2",
+      "531c210e-96c9-5d52-90d8-98f9a872cd0b",
+      "09f5f045-567a-5e9a-87a9-fc3c61ea5960",
+      "026f0e37-ce8b-53c7-8162-3ff4bdec7a82",
+      "e58bac77-4a00-5e29-be78-94eab41994fd",
+      "11dbe99a-3283-5089-b1bc-e910aca807a8",
+      "8b4347a0-1d06-5c4a-b87a-9a76dc186d3c",
+      "b6fe5024-1187-5d1f-8ba3-928fc5c5eacc",
+      "1c04c052-ad2f-56e5-b505-bf61f448dd8d",
+      "796726e4-15ae-529b-b6f9-15e38b55fa92",
+      "0ba39b66-a9e5-5b6f-ae56-d50bbc0aa682",
+      "b20aa58e-d9d0-551b-9a94-abe0a49c4973",
+      "cd94f16a-34c3-55bc-9b07-3a22325f2efa"
+    ],
+    "jobs": 30,
+    "jsonEncoding": "PostgreSQL JSONB::text UTF-8; nested synthetic characters/world settings with fixed-PRNG short evidence; no production data",
+    "nestedStructures": [
+      {
+        "characters": 33,
+        "episodeNo": 1,
+        "evidenceExtensionBytes": 21840,
+        "jsonBytes": 200000,
+        "worldSettings": 9
+      },
+      {
+        "characters": 84,
+        "episodeNo": 2,
+        "evidenceExtensionBytes": 28058,
+        "jsonBytes": 253801,
+        "worldSettings": 21
+      },
+      {
+        "characters": 102,
+        "episodeNo": 3,
+        "evidenceExtensionBytes": 33351,
+        "jsonBytes": 307602,
+        "worldSettings": 26
+      },
+      {
+        "characters": 120,
+        "episodeNo": 4,
+        "evidenceExtensionBytes": 39054,
+        "jsonBytes": 361403,
+        "worldSettings": 30
+      },
+      {
+        "characters": 138,
+        "episodeNo": 5,
+        "evidenceExtensionBytes": 44311,
+        "jsonBytes": 415204,
+        "worldSettings": 35
+      },
+      {
+        "characters": 156,
+        "episodeNo": 6,
+        "evidenceExtensionBytes": 50014,
+        "jsonBytes": 469005,
+        "worldSettings": 39
+      },
+      {
+        "characters": 174,
+        "episodeNo": 7,
+        "evidenceExtensionBytes": 55271,
+        "jsonBytes": 522806,
+        "worldSettings": 44
+      },
+      {
+        "characters": 192,
+        "episodeNo": 8,
+        "evidenceExtensionBytes": 60974,
+        "jsonBytes": 576607,
+        "worldSettings": 48
+      },
+      {
+        "characters": 210,
+        "episodeNo": 9,
+        "evidenceExtensionBytes": 66231,
+        "jsonBytes": 630408,
+        "worldSettings": 53
+      },
+      {
+        "characters": 228,
+        "episodeNo": 10,
+        "evidenceExtensionBytes": 71705,
+        "jsonBytes": 684209,
+        "worldSettings": 57
+      },
+      {
+        "characters": 246,
+        "episodeNo": 11,
+        "evidenceExtensionBytes": 75835,
+        "jsonBytes": 738010,
+        "worldSettings": 62
+      },
+      {
+        "characters": 263,
+        "episodeNo": 12,
+        "evidenceExtensionBytes": 84018,
+        "jsonBytes": 791811,
+        "worldSettings": 66
+      },
+      {
+        "characters": 281,
+        "episodeNo": 13,
+        "evidenceExtensionBytes": 89175,
+        "jsonBytes": 845612,
+        "worldSettings": 71
+      },
+      {
+        "characters": 299,
+        "episodeNo": 14,
+        "evidenceExtensionBytes": 94780,
+        "jsonBytes": 899413,
+        "worldSettings": 75
+      },
+      {
+        "characters": 317,
+        "episodeNo": 15,
+        "evidenceExtensionBytes": 99937,
+        "jsonBytes": 953214,
+        "worldSettings": 80
+      },
+      {
+        "characters": 335,
+        "episodeNo": 16,
+        "evidenceExtensionBytes": 105542,
+        "jsonBytes": 1007015,
+        "worldSettings": 84
+      },
+      {
+        "characters": 353,
+        "episodeNo": 17,
+        "evidenceExtensionBytes": 110699,
+        "jsonBytes": 1060816,
+        "worldSettings": 89
+      },
+      {
+        "characters": 371,
+        "episodeNo": 18,
+        "evidenceExtensionBytes": 116304,
+        "jsonBytes": 1114617,
+        "worldSettings": 93
+      },
+      {
+        "characters": 389,
+        "episodeNo": 19,
+        "evidenceExtensionBytes": 121461,
+        "jsonBytes": 1168418,
+        "worldSettings": 98
+      },
+      {
+        "characters": 407,
+        "episodeNo": 20,
+        "evidenceExtensionBytes": 127066,
+        "jsonBytes": 1222219,
+        "worldSettings": 102
+      },
+      {
+        "characters": 425,
+        "episodeNo": 21,
+        "evidenceExtensionBytes": 132376,
+        "jsonBytes": 1276173,
+        "worldSettings": 107
+      },
+      {
+        "characters": 601,
+        "episodeNo": 22,
+        "evidenceExtensionBytes": 186314,
+        "jsonBytes": 1803551,
+        "worldSettings": 151
+      },
+      {
+        "characters": 286,
+        "episodeNo": 23,
+        "evidenceExtensionBytes": 90119,
+        "jsonBytes": 859832,
+        "worldSettings": 72
+      }
+    ],
+    "normalizedJsonUtf8Bytes": 18161746,
+    "runId": "c9d22fa8-40b5-5079-8434-059cb414dbc1",
+    "seed": 20261024,
+    "sourceScriptSha256": "7d09b671eb95194ed6b10e1b2c8d5e1bbd17546ca869bfe77f83d3fdbebb9ccf",
+    "statusDistribution": [
+      [
+        "FAILED",
+        "INCOMPLETE",
+        1,
+        859832,
+        0
+      ],
+      [
+        "PENDING",
+        "PENDING",
+        7,
+        0,
+        0
+      ],
+      [
+        "SUCCEEDED",
+        "SEALED",
+        22,
+        17301914,
+        22
+      ]
+    ],
+    "synthetic": true,
+    "version": 1,
+    "workId": "082683aa-c3d8-56b3-91e2-8031e85f4a92",
+    "worldCandidateDataMd5": "f7a300fb09e5f69dc18788cf31c5a6de",
+    "worldCandidates": 404
+  },
+  "cacheProtocol": "3 warmups + 10 fresh-context navigations + three 65s polling windows; DB/JVM warm; HTTP cache disabled; no OS/DB cache reset claimed",
+  "resourceSampling": "ps RSS KiB + jstat -gc every0.5sec (observed peaks only); GC unified log includes startup separately",
+  "traceAndSqlDebug": "disabled during timing; PostgreSQL SQL capture occurs separately",
+  "worker": "none",
+  "originalDotEnvImport": false,
+  "schedulers": "explicitly disabled; chat recovery interval86400000ms",
+  "sources": {
+    "backend": {
+      "head": "79c2b0ee3e872bf38c8da57480736de238184491",
+      "trackedDiffStat": "AGENTS.md                                          |  2 ++\n .../analysis/controller/AnalysisJobController.java | 21 ++++++++++++++++\n .../analysis/repository/AnalysisJobRepository.java | 29 ++++++++++++++++++++++\n .../analysis/service/AnalysisJobService.java       |  3 +++\n .../analysis/service/AnalysisJobServiceImpl.java   | 21 ++++++++++++++++\n .../upload/repository/UploadBatchRepository.java   |  2 ++\n .../WorldSettingCandidateController.java           | 18 ++++++++++++++\n .../worldsetting/mapper/WorldSettingMapper.java    |  7 ++++++\n .../service/WorldSettingCandidateService.java      |  3 +++\n .../service/WorldSettingCandidateServiceImpl.java  | 17 +++++++++++++\n .../global/config/swagger/SwaggerConfig.java       | 14 +++++++++++\n .../service/AnalysisJobOrderedRetryTest.java       |  2 +-\n 12 files changed, 138 insertions(+), 1 deletion(-)",
+      "packageLockSha256": null
+    },
+    "frontend": {
+      "head": "74d10ece56698233ecad000025918f9648e4f29c",
+      "trackedDiffStat": "AGENTS.md                                          |   3 +-\n docs/analysis-recovery.md                          |  10 +-\n docs/data-requirements/analysis.md                 |  31 ++-\n e2e/analysis-list.spec.ts                          |  11 +-\n e2e/manuscript-analysis-refresh.spec.ts            |   5 +-\n e2e/mobile-responsive.spec.ts                      |   9 +-\n e2e/ordered-analysis.spec.ts                       |  39 ++--\n e2e/review-fixes.spec.ts                           |  33 +--\n e2e/smoke.spec.ts                                  |  43 ++--\n e2e/token-interruption.spec.ts                     |  25 ++-\n e2e/upload-policy.spec.ts                          |  11 +-\n knip.json                                          |   2 +-\n src/app/api/generated/@tanstack/react-query.gen.ts |  44 +++-\n src/app/api/generated/index.ts                     |   4 +-\n src/app/api/generated/sdk.gen.ts                   |  24 +-\n src/app/api/generated/types.gen.ts                 | 247 ++++++++++++++++++++-\n src/app/components/catchhole/SEpisodeUpload.tsx    | 102 +++------\n src/app/lib/ordered-analysis.ts                    |  17 +-\n 18 files changed, 480 insertions(+), 180 deletions(-)",
+      "packageLockSha256": "59f31c54be091e0e0b23e65d9c31c753f5b8b049403ea97ab275ab91e9b3816f"
+    }
+  },
+  "actualRuntimeJar": "${MEASUREMENT_ROOT}/runtime/after.jar",
+  "actualRuntimeJarSha256": "21ad9922e4932d31da40beced21b4f7619a56eb6881878728f173543c5c1c5ca",
+  "baselineJarSha256": "6e14ef0f4f4994e4dedb5f66ebd3ccb1deff8a56c3bfef7844957a0c273d511a",
+  "actualFrontendBuildDir": "${MEASUREMENT_ROOT}/runtime/frontend-after",
+  "frontendBuiltAssetHashes": {
+    "index.html": "743add601e8c95b2f45d092bc2f4f5bdde9ef99585f80c3a26fc0ffdd7764cc3",
+    "_redirects": "6036983e5fc00f0169c9e939b1816ed771eee00e27f2fcc517b819041460b9ef",
+    "brand/catchhole-glossy-v1.png": "b80e773d8fa1b993b54f5f442ce523fc48ecbb3ac767d53960424a0571d7f056",
+    "brand/catchhole-favicon-v1.png": "4eb70b8f89cb4b4630ca1fd5a1bf9e6644c44ae5c25c31bd6ad68c946821cae5",
+    "brand/catchhole-share-v1.png": "ba15954519509e82f0a17aa22a64ef00f73b4d1ae1c6d38d7a708d715b511496",
+    "brand/catchhole-apple-touch-v1.png": "ec5418d8eb6db124cbf2aa4bb4b4813690805d1aff606bbd4d64e988d73b58f4",
+    "brand/catchhole-symbol.png": "ea3bec9fa1a85751cb7f13af9fbf2b8c2bdabb7caf91bebf6853e5d0172634b2",
+    "brand/catchhole-wordmark.png": "7197691b5bb2649b2af08092b300a08f3b7989b3e4959f471a0f2726fb295dbd",
+    "assets/catchhole-analysis-friendly-v1-BoB1cJ-l.png": "e01703cc2fdb0516d4a2b03d0fe2ac88386eb1c5c56861a21dc113077044afa0",
+    "assets/faction-BCNeh_iE.webp": "44930da93e3a343c60572f1743598ad892c3e0f7c3ecb65873abb16a138fc660",
+    "assets/product-character-20261012-V4IPER-y.png": "3e34e75616da4951e90ced9ff5d5c43d280ec4abfb7b23ebb22dd70d7d9415da",
+    "assets/character-neutral-v1-B7edHgjg.webp": "d8086c888829730193026ecf87926bb773c0130f5802a608f172e4d4876269be",
+    "assets/FamilyTreeView-DCGf-0PO.js": "1776db2ede78f6e78330a59380ef4edff3a6b8b978141da92798dcf9ff0b5b78",
+    "assets/catchhole-hero-editorial-v2-gKqmtO62.webp": "4843fe4035db4c68ec7279bedb6f9396bf7bfcb6d06cc6d4ed1bf657e5993568",
+    "assets/history-Dwp1N2JR.webp": "ed8b18c1f7d9ad46e3f5af00f04340680fbc195a885cc4e942b7700a3253e2a4",
+    "assets/location-Da5zvqIW.webp": "84b105bcb0083532ee8866e9c930d24c6add859a126d5599b49c34e23ec2728c",
+    "assets/index-BRp9PRYZ.css": "93ae001d6ad22a5ff8ab3104177e26225a3d89014e87a6c2301b6805d0972327",
+    "assets/product-review-20261012-CtmLqTEW.png": "e09bd9d3b8e7a9f9c0b4dc16de99c57223e72ecb9252ee674808291e33cf5824",
+    "assets/monster-BASbN-2I.webp": "aa6425072ae1ea28252b3f6169e42538a8622dce9db73740a7227adb99a51264",
+    "assets/product-world-20261012-M6NP2Y6Y.png": "c0af2c27f29b7d0b8cff8cbb3346378749f9b0c746f9f632653a7b0f2e031eee",
+    "assets/power-system-DeXUYFMb.webp": "292037a18999345d2fba8fa4e8a9874f3820708d9e998d40711bd50f56dbb0bf",
+    "assets/index-B_mQ9t3W.js": "6f24fd4d9e4a8be8cf480b91d91d33114b081ce8744b09231adaef5d79d00dc0",
+    "assets/catchhole-story-world-v1-Coy52G-4.png": "115779b9b5a9b24b5bc5b247e34752efbba37b56e04c3b1531bf74467b149a33",
+    "assets/item-Cpd-GpSv.webp": "7156af7fcecf5c4504e56d46a94015425acdc62bfae65906de1da206be7c1aa8",
+    "assets/catchhole-upload-friendly-v1-DcEpKdiI.png": "78a284dc34279c04c993e3de8585ef636cb7733b5bb5be63a295e87d82e72914",
+    "assets/rien-fire-mage-BX4e2hl8.webp": "5f84b4e0754dfbddecf6d3826968fc99df3fd27a0ce37805864c376605c2bb9f",
+    "assets/product-timeline-20261012-CyrHWL7Y.png": "6b9d78d7f0f5a783b6ab89ba860949000cd0297a591584774846311a901e3f91",
+    "assets/product-manuscript-20261012-nxcfRqlS.png": "718e9e88b006ba325faec62cde1dac9006131004db9c483bf5aedc83a289ab1a",
+    "assets/product-review-mobile-20261012-CqsqawLM.png": "99444ca4db980e967fb9f1f86d71cd7d56bf3843c718d912a065ae55d3ef485e",
+    "assets/all-RHLZLldO.webp": "7b03c2364cba983165557daf1fecfd0262542e1b617dbaca2d0763c76e728adc",
+    "assets/FamilyTreeView-ByRZFdMv.css": "04cc157ff646aeb5bc08d4b7983b3a7b3c07038ca1ef547d9462dbb96210d4a2",
+    "assets/race-CQwClIq8.webp": "3ea93c0a1dc4b0e017b7d6562dc23ffb10b1f95ff6ee9506f2e61521becf3dda",
+    "landing/video-hero/manuscript-25.png": "0508d211286a69588ed9030639d338fdbb6cb752513f58b9fce976f5eedd8e07",
+    "landing/video-hero/poster.jpg": "4a589abc1b93e6084571618d3d51b075413e0177835ed64217e4f4aaefd93b9d",
+    "landing/video-hero/README.md": "9c707e58e4a71e796eddf438e39187a9c01f2977f63c05a9aee2afd96219d208",
+    "landing/video-hero/writer-to-laptop.mp4": "f8d6f853b3fbde0631bd3c3bc88734df6ff83e571c30744f4c6259af8670c340",
+    "landing/video-hero/last-frame.jpg": "82756c16a8aac612c435d4767ff09bf3b5f135be2da1497c3cfa0adea98458f9"
+  },
+  "runnerSha256": "364cad8209b8163a0a61bcabd039626a1b5349f9e43c9d7bf742e7ad128e7bae",
+  "fixtureScriptSha256": "7d09b671eb95194ed6b10e1b2c8d5e1bbd17546ca869bfe77f83d3fdbebb9ccf",
+  "startScriptSha256": "ca1d6d91c7236c0cfdc5a614992fe21c074c59d4266458f3d6813fb00fddcb20"
+}
