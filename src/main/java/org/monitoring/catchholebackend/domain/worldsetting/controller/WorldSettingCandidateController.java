@@ -24,6 +24,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSet
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateListResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateDecisionUpdateResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateProgressResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingTokenInterruptedResumeResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.service.WorldSettingCandidateGroupConfirmResult;
 import org.monitoring.catchholebackend.domain.worldsetting.service.WorldSettingCandidateService;
@@ -89,6 +90,23 @@ public class WorldSettingCandidateController {
         return CommonResponse.success(candidateService.getCandidates(
                 member.memberId(), workId, batchId, reviewStatus, category, operation, page, size
         , sourceAnalysisJobId));
+    }
+
+    @GetMapping("/progress")
+    @Operation(operationId = "getWorldSettingCandidateProgress", summary = "세계관 비교 진행 집계 조회",
+            description = "본인 작품의 업로드 묶음에 속한 회차 후보의 비교 대기·처리·사용량 중단 수만 조회합니다. 후보 본문과 분석 상태 JSON은 읽지 않습니다.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "비교 진행 집계 조회 성공"),
+            @ApiResponse(responseCode = "400", description = "필수 묶음 ID 형식 검증 실패", content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "인증 실패", content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "작품 또는 업로드 묶음을 찾을 수 없음", content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
+    })
+    public CommonResponse<WorldSettingCandidateProgressResponse> getWorldSettingCandidateProgress(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId,
+            @Parameter(description = "회차 후보를 집계할 업로드 묶음 ID") @RequestParam UUID batchId
+    ) {
+        return CommonResponse.success(candidateService.getWorldSettingCandidateProgress(member.memberId(), workId, batchId));
     }
 
     @GetMapping("/{candidateId}")

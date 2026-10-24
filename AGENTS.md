@@ -475,6 +475,8 @@ domain/<domain>
 - 신규 분석 작업은 정확히 한 회차를 `analysis_job_episode_targets`에 스냅샷으로 저장한다. 이후 회차 원본 교체나 `ARCHIVED` 전이로 과거 작업의 대상이 바뀌지 않게 하며, 과거 batch-wide 작업의 복수 target 연결은 조회 이력 호환용으로만 유지한다.
 - 분석 배치 목록은 `UploadBatch`를 페이지 항목으로 사용하고, 같은 분석 목적·회차의 재시도 이력 중 최신 `AnalysisJob`만 현재 상태에 포함한다. `UploadBatch` 자체를 독립 분석 실행 식별자로 해석하지 않는다.
 - 분석 목록은 현재 페이지 batch IDs를 제한한 `AnalysisBatchSummaryRepository`의 최신 대상·표시 상태 SQL 집계를 사용한다. 목록용으로 `AnalysisJob`/후보/설정집 본문 엔티티나 큰 상태 JSON을 읽지 않는다. 회차 `episodeJobGroups`와 설정집 `settingBooks`를 분리하고, 설정집 후보 수는 선택된 원본 Job ID별 다건 집계로 구한다. 상세 조회를 카드마다 반복해 heap·전송량을 키우지 않기 위한 경계다.
+- 회차 진행 조회는 `/analysis-jobs/progress`의 1~100개 raw ID 제한과 전체 소유권·공개 유형 검증 뒤 두 scalar projection만 읽는다. 입력 중복은 최초 순서를 보존하며 대상 스냅샷을 단일 episode fallback보다 우선한다. 상태 확인에 큰 JSON·원문·Job/Episode 엔티티를 읽지 않기 위한 경계이며 HTTP/JPA 경계를 실제 PostgreSQL SQL·entity-load 통계로 검증한다.
+- 같은 화면의 세계관 비교 집계는 `/world-setting-candidates/progress?batchId=...`의 세 count만 반환한다. 기존 `countReviewSummary`의 EPISODE·배치·검토 대기·토큰 실패 범위를 유지하고 후보 목록이나 Job 엔티티를 조회하지 않는다. 새 진행 계약은 Backend를 먼저 배포한 뒤 Frontend에 적용한다. 상세 계약은 `docs/analysis-progress.md`를 따른다.
 - 회차 출처 Worker의 claim·진행·완료·실패 처리는 신규 Job의 단일 대상 `Episode.status`만 전이한다. 설정집·설정집 숨김 비교는 Episode 상태를 요구하거나 갱신하지 않는다. 한 회차 실패가 다른 회차 Job이나 상태를 변경하면 안 된다.
 - 공개 분석 작업 생성 API는 `batch_id`를 필수 입력으로 받고 `episode_id`를 선택 범위 지정자로 허용한다. `episode_id`가 없으면 batch의 현재 회차마다 Job을 하나씩 생성해 목록으로 반환하고, 있으면 해당 회차 Job 하나를 목록으로 반환한다.
 - 본인 작품의 분석 작업만 생성/조회할 수 있으며, 다른 회원의 작품이나 다른 작품에 속한 분석 대상은 404로 응답한다.

@@ -5,9 +5,12 @@ import java.util.UUID;
 import org.monitoring.catchholebackend.domain.analysis.dto.request.AnalysisJobCreateRequest;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatchSummaryResponse;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobResponse;
+import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobProgressResponse;
 import org.monitoring.catchholebackend.global.common.response.PageResponse;
 
 public interface AnalysisJobService {
+
+    List<AnalysisJobProgressResponse> getAnalysisJobProgress(Long memberId, UUID workId, List<UUID> analysisJobIds);
 
     /**
      * 작품 소유권을 확인하고, 요청에 batchId가 있으면 해당 업로드 batch가 같은 작품에 속하는지 검증한다.

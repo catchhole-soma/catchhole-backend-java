@@ -18,6 +18,35 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> {
+    @Query("""
+            select new org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobProgressRow(
+                job.id, job.episode.id, job.jobType, job.status, job.reviewMode, job.automaticAppliedAt,
+                job.failureCode, job.analysisMode, job.analysisRunId, job.runGeneration, job.runSequence,
+                job.predecessorJobId, job.journalStatus, job.journalInvalidationReason, job.checkpointStage)
+            from AnalysisJob job
+            where job.work.id = :workId and job.id in :analysisJobIds
+            """)
+    List<AnalysisJobProgressRow> findProgressByWorkIdAndIdIn(
+            @Param("workId") UUID workId, @Param("analysisJobIds") Collection<UUID> analysisJobIds);
+
+    @Query("""
+            select new org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobProgressEpisodeRow(
+                job.id, coalesce(target.id, episode.id),
+                case when target.id is not null then target.episodeNo else episode.episodeNo end,
+                case when target.id is not null then target.title else episode.title end,
+                case when target.id is not null then target.status else episode.status end,
+                case when target.id is not null then target.updatedAt else episode.updatedAt end)
+            from AnalysisJob job
+            left join job.targetEpisodes target
+            left join job.episode episode
+            where job.work.id = :workId and job.id in :analysisJobIds
+              and ((target.id is not null and target.work.id = :workId)
+                or (target.id is null and episode.work.id = :workId))
+            order by job.id, coalesce(target.episodeNo, episode.episodeNo), coalesce(target.id, episode.id)
+            """)
+    List<AnalysisJobProgressEpisodeRow> findProgressEpisodesByWorkIdAndJobIdIn(
+            @Param("workId") UUID workId, @Param("analysisJobIds") Collection<UUID> analysisJobIds);
+
     List<AnalysisJob> findAllByWorkIdAndSourceSettingBookIdOrderByCreatedAtDescIdDesc(UUID workId, UUID sourceSettingBookId);
     List<AnalysisJob> findAllByWorkIdAndSourceKindAndJobTypeOrderByCreatedAtDescIdDesc(UUID workId,
             org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind sourceKind, AnalysisJobType jobType);
