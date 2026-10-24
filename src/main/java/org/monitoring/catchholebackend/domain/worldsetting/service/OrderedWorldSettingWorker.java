@@ -240,8 +240,7 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
                     .sorted(org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingCandidateChronology.comparator())
                     .toList();
             if (job.isAutomaticReview() && first.getSubjectResolutionType() != WorldSettingSubjectResolutionType.AMBIGUOUS) {
-                group = boundedAutomaticGroup(job, first, group);
-                if (group.isEmpty()) continue;
+                group = group.stream().limit(20).toList();
             }
             WorldSettingComparisonBatch batch = batches.saveAndFlush(WorldSettingComparisonBatch.createOrdered(
                     job.getWork(), first.getSourceEpisode(), job, first.getCategory(), first.getScopeName(),
@@ -254,7 +253,7 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
                 holdReviewBatch(job, batch, group, WorldSettingComparisonReviewReason.SUBJECT_UNRESOLVED);
                 continue;
             }
-            if (group.size() > 20 || mapper.toJsonNode(mapper.toComparisonBatchCandidates(group)).toString().length() > 30000) {
+            if (group.size() > 20) {
                 String message = "누적 비교 입력 상한을 초과했습니다.";
                 for (WorldSettingCandidate candidate : group) {
                     candidate.failComparison(org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode.COMPARISON_VALIDATION_FAILED,
@@ -277,28 +276,6 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
         }
     }
 
-    private List<WorldSettingCandidate> boundedAutomaticGroup(AnalysisJob job, WorldSettingCandidate first,
-            List<WorldSettingCandidate> group) {
-        Set<String> refs = targetRefs(mapper.toUuidList(first.getResolvedTargetWorldSettingIds()),
-                stringList(first.getResolvedProvisionalSubjectKeys()));
-        int contextSize = contextState(job, new UUID(0, 0), first.getCategory(), refs).toString().length();
-        List<WorldSettingCandidate> selected = new ArrayList<>();
-        for (WorldSettingCandidate candidate : group) {
-            if (selected.size() == 20) break;
-            List<WorldSettingCandidate> next = new ArrayList<>(selected);
-            next.add(candidate);
-            // C 참조는 startComparison 뒤 붙으므로 그 길이를 미리 포함한다.
-            int inputSize = mapper.toJsonNode(mapper.toComparisonBatchCandidates(next)).toString().length()
-                    + 8 * next.size();
-            if (contextSize + inputSize > 30000) {
-                if (selected.isEmpty()) candidate.deferComparisonInputLimit();
-                break;
-            }
-            selected.add(candidate);
-        }
-        return List.copyOf(selected);
-    }
-
     public WorkerWorldSettingComparisonBatchContextResponse getContext(AnalysisJob job, UUID batchId,
             WorkerWorldSettingComparisonBatchContextRequest request) {
         return getContext(job, batchId, request, false);
@@ -315,9 +292,6 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
             throw invalid();
         }
         ObjectNode context = contextState(job, batch, requested);
-        if (context.toString().length() + mapper.toJsonNode(mapper.toComparisonBatchCandidates(group)).toString().length() > 30000) {
-            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_COMPARISON_INPUT_LIMIT_EXCEEDED);
-        }
         String token = journal.hash(context);
         batch.recordContext(context);
         List<WorkerWorldSettingComparisonContextResponse.Target> targets = new ArrayList<>();
@@ -495,6 +469,22 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
             throw invalid();
         }
         if (operation == WorldSettingSuggestedOperation.REVIEW_REQUIRED) {
+            if (input.comparisonReviewReason() == WorldSettingComparisonReviewReason.BATCH_LIMIT_EXCEEDED) {
+                if (source.size() != 1 || input.matchedScopeName() != null || input.matchedPropertyName() != null) {
+                    throw invalid();
+                }
+                var original = source.getFirst();
+                long valueCount = java.util.Arrays.stream(original.getExtractedValue().split("\\R", -1))
+                        .map(String::strip).filter(value -> !value.isEmpty()).count();
+                var expected = valueCount > 1 ? WorldSettingConsolidationStatus.CONFLICT : WorldSettingConsolidationStatus.SINGLE;
+                if (input.consolidationStatus() != expected
+                        || !Objects.equals(original.getScopeName(), input.proposedScopeName())
+                        || !Objects.equals(original.getSettingName(), input.proposedSettingName())
+                        || !Objects.equals(original.getExtractedValue(), input.proposedValue())) {
+                    throw invalid();
+                }
+                return;
+            }
             if (input.consolidationStatus() == WorldSettingConsolidationStatus.CONFLICT
                     && input.comparisonReviewReason() == WorldSettingComparisonReviewReason.GENERAL_UNCERTAINTY) {
                 var matched = property.path(input.matchedScopeName(), input.matchedPropertyName());
@@ -808,6 +798,16 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
             reference.put("matchedScopeName", decision.getMatchedScopeName());
             reference.put("matchedPropertyName", decision.getMatchedPropertyName());
             reference.put("beforeValue", decision.getBeforeValue());
+        }
+        if (decision.getComparisonReviewReason() == WorldSettingComparisonReviewReason.BATCH_LIMIT_EXCEEDED) {
+            WorldSettingCandidate original = source.getFirst();
+            reference.put("comparisonReviewReason", decision.getComparisonReviewReason().name());
+            reference.put("confirmationStatus", "UNCONFIRMED");
+            reference.put("subjectName", original.getSubjectName());
+            reference.put("value", original.getExtractedValue());
+            if (original.getEvidenceSpans() != null) {
+                reference.set("evidenceSpans", original.getEvidenceSpans().deepCopy());
+            }
         }
         if (decision.getComparisonReviewReason() == WorldSettingComparisonReviewReason.GENERAL_UNCERTAINTY
                 && decision.getConsolidationStatus() != WorldSettingConsolidationStatus.CONFLICT) {
