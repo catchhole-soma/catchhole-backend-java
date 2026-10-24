@@ -81,6 +81,28 @@ class AnalysisRunContextMapperTest {
         assertThat(reviewJson.has("matchedScopeName")).isEqualTo(matchedScope != null);
     }
 
+    @Test
+    void selectionIsOptInFrozenAndNeverRehydratesLiveCandidates() throws Exception {
+        AnalysisJob job = job();
+        ObjectNode input = input(List.of("a"));
+        String id = UUID.randomUUID().toString();
+        var selection = ((ObjectNode) input.path("references").path("a")).putObject("selection");
+        selection.putArray("actualSubjectIds").add(id);
+        selection.put("factType", "STATUS");
+        selection.putObject("valueJson").put("active", false);
+        when(job.getAutomaticInputState()).thenReturn(input);
+        var old = mapper.toResponse(job);
+        var capable = mapper.toResponse(job, true);
+        var json = new tools.jackson.databind.ObjectMapper();
+        assertThat(json.readTree(json.writeValueAsString(old.unresolvedReferences().getFirst())).has("selection")).isFalse();
+        assertThat(capable.unresolvedReferences().getFirst().selection().actualSubjectIds()).containsExactly(UUID.fromString(id));
+        assertThat(capable.unresolvedReferences().getFirst().selection().valueJson().path("active").asBoolean()).isFalse();
+        selection.put("factType", "PROFILE");
+        assertThat(capable.unresolvedReferences().getFirst().selection().factType()).isEqualTo("STATUS");
+        assertThat(mapper.toResponse(job, true)).isNotEqualTo(capable);
+        assertThat(job.getInputStateHash()).isEqualTo("a".repeat(64));
+    }
+
     private AnalysisJob job() {
         AnalysisJob job = mock(AnalysisJob.class);
         when(job.isOrderedProvisional()).thenReturn(true);

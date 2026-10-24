@@ -53,6 +53,73 @@ class AnalysisPendingReferenceSourceTest {
     }
 
     @Test
+    void failedOriginalStatusUsesSchemaAndCaptureLoadsItOnce() {
+        var repository = mock(org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository.class);
+        var resolver = mock(org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver.class);
+        var schema = mock(org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema.class);
+        when(schema.getFactType()).thenReturn(org.monitoring.catchholebackend.domain.character.type.CharacterFactType.STATUS);
+        when(repository.findAllActiveForWork(work.getId())).thenReturn(List.of(schema));
+        var older = job(2);
+        var candidate = character(older);
+        when(resolver.resolve(candidate.getAttributeName(), candidate.getValueType(), List.of(schema))).thenReturn(
+            new org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaMatch(schema, "status.부상",
+                org.monitoring.catchholebackend.domain.character.type.CharacterFactCanonicalKeyResolution.ALIAS));
+        earlier(older);
+        var selection = new AnalysisPendingReferenceSource(characters, worlds, jobs, repository, resolver)
+                .capture(current).path("pending-character:" + candidate.getId()).path("selection");
+        assertThat(selection.path("factType").asText()).isEqualTo("STATUS");
+        assertThat(selection.path("canonicalFactKey").asText()).isEqualTo("status.부상");
+        assertThat(selection.path("actualSubjectIds").isEmpty()).isTrue();
+        org.mockito.Mockito.verify(repository).findAllActiveForWork(work.getId());
+    }
+
+    @Test
+    void freezesLinkedStatusSelectionAndEndedValueIndependentlyOfFactComparison() {
+        var older = job(2);
+        var candidate = character(older);
+        UUID id = UUID.randomUUID();
+        when(candidate.getComparisonStatus()).thenReturn(CharacterFactComparisonStatus.COMPLETED);
+        when(candidate.getMatchedCharacterId()).thenReturn(id);
+        when(candidate.getMatchStatus()).thenReturn(org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus.MATCHED);
+        when(candidate.getComparisonTargetFactType()).thenReturn(org.monitoring.catchholebackend.domain.character.type.CharacterFactType.STATUS);
+        when(candidate.getComparisonTargetFactKey()).thenReturn("status.부상");
+        when(candidate.getValueJson()).thenReturn(JsonNodeFactory.instance.objectNode().put("active", false));
+        earlier(older);
+        var selection = source.capture(current).path("pending-character:" + candidate.getId()).path("selection");
+        assertThat(selection.path("actualSubjectIds").get(0).asText()).isEqualTo(id.toString());
+        assertThat(selection.path("factType").asText()).isEqualTo("STATUS");
+        assertThat(selection.path("valueJson").path("active").asBoolean()).isFalse();
+        when(candidate.getComparisonStatus()).thenReturn(CharacterFactComparisonStatus.FAILED);
+        assertThat(source.capture(current).path("pending-character:" + candidate.getId())
+                .path("selection").path("actualSubjectIds").get(0).asText()).isEqualTo(id.toString());
+        when(candidate.getMatchStatus()).thenReturn(org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus.AMBIGUOUS);
+        assertThat(source.capture(current).path("pending-character:" + candidate.getId())
+                .path("selection").path("actualSubjectIds").isEmpty()).isTrue();
+    }
+
+    @Test
+    void freezesPluralWorldIdentityLinksAfterContentFailureButDropsFailedIdentity() {
+        var older = job(2);
+        var candidate = world(older);
+        var ids = JsonNodeFactory.instance.arrayNode().add(UUID.randomUUID().toString()).add(UUID.randomUUID().toString());
+        when(candidate.getCategory()).thenReturn(org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory.LOCATION);
+        when(candidate.getResolvedTargetWorldSettingIds()).thenReturn(ids);
+        when(candidate.hasSubjectResolution()).thenReturn(true);
+        when(candidate.getSubjectResolutionType()).thenReturn(org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSubjectResolutionType.EXISTING);
+        when(candidate.getResolvedProvisionalSubjectKeys()).thenReturn(JsonNodeFactory.instance.arrayNode().add("provisional-world:test"));
+        earlier(older);
+        var selection = source.capture(current).path("pending-world:" + candidate.getId()).path("selection");
+        assertThat(selection.path("actualSubjectIds")).isEqualTo(ids).isNotSameAs(ids);
+        assertThat(selection.path("worldCategory").asText()).isEqualTo("LOCATION");
+        when(candidate.getComparisonStatus()).thenReturn(WorldSettingComparisonStatus.FAILED);
+        assertThat(source.capture(current).path("pending-world:" + candidate.getId())
+                .path("selection").path("actualSubjectIds")).isEqualTo(ids);
+        when(candidate.getSubjectResolutionType()).thenReturn(org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSubjectResolutionType.FAILED);
+        assertThat(source.capture(current).path("pending-world:" + candidate.getId())
+                .path("selection").path("actualSubjectIds").isEmpty()).isTrue();
+    }
+
+    @Test
     @DisplayName("같은 실행과 다른 실행의 앞 회차 대기 후보를 한 번씩 참고로 수집한다")
     void capturesPendingAcrossRunsWithoutPromotingFacts() {
         var older = job(2);

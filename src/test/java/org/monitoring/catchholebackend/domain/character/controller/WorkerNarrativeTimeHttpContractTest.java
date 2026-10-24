@@ -45,10 +45,81 @@ class WorkerNarrativeTimeHttpContractTest {
  @Autowired AnalysisJobWorkerMapper jobMapper;
  @MockitoBean CharacterFactComparisonWorkerService comparisons;
  @MockitoBean AnalysisJobWorkerService jobs;
+ @MockitoBean org.monitoring.catchholebackend.domain.worldsetting.service.WorldSettingWorkerService worlds;
+ @Autowired AnalysisRunContextMapper contexts;
  final ObjectMapper json=new ObjectMapper().findAndRegisterModules();
  final UUID character=UUID.randomUUID(),candidateId=UUID.randomUUID(),chunk=UUID.randomUUID(),batch=UUID.randomUUID(),lease=UUID.randomUUID();
  final String hash="a".repeat(64),quote="오늘은 \"장마\" 첫날이다. 🌧";
  final Map<String,JsonNode> bodies=new LinkedHashMap<>();
+
+ @Test void frozenSelectionCapabilityIsConsistentAcrossAllContextRoutes() throws Exception {
+  var job = org.mockito.Mockito.mock(AnalysisJob.class);
+  when(job.isOrderedProvisional()).thenReturn(true);
+  when(job.getAnalysisRunId()).thenReturn(UUID.randomUUID());
+  when(job.getRunGeneration()).thenReturn(1L);
+  when(job.getInputStateHash()).thenReturn(hash);
+  when(job.getSourceContentHash()).thenReturn(hash);
+  var frozen = json.createObjectNode();
+  var reference = frozen.putObject("references").putObject("pending-character:synthetic");
+  reference.put("domain", "characters").put("subjectName", "합성 인물").put("sourceEpisodeNo", 1)
+      .put("reason", "검토 대기").put("settingName", "status.부상").put("value", "골절");
+  reference.putArray("evidenceSpans").addObject().put("quote", "합성 근거");
+  reference.putObject("selection").put("factType", "STATUS").putArray("actualSubjectIds").add(character.toString());
+  when(job.getAutomaticInputState()).thenReturn(frozen);
+  UUID jobId = UUID.randomUUID();
+  for (String capability : List.of("missing", "false", "true")) {
+   boolean include = capability.equals("true");
+   var context = contexts.toResponse(job, include);
+   when(jobs.claimAnalysisJob(any(), eq(include))).thenReturn(Optional.of(contextRecord(WorkerAnalysisJobPayload.class, context)));
+   when(comparisons.claimNextCharacterFactComparisonBatch(any(), any(), eq(false), eq(include)))
+       .thenReturn(Optional.of(contextRecord(WorkerCharacterFactComparisonBatchPayload.class, context)));
+   when(comparisons.getCharacterFactComparisonBatchContext(any(), any(), any(), eq(include)))
+       .thenReturn(contextRecord(WorkerCharacterFactComparisonBatchContextResponse.class, context));
+   when(worlds.getPendingWorldSettingSubjectResolutions(any(), any(), eq(include)))
+       .thenReturn(contextRecord(org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingSubjectResolutionPendingResponse.class, context));
+   when(worlds.claimNextWorldSettingComparisonBatch(any(), any(), eq(include)))
+       .thenReturn(Optional.of(contextRecord(org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingComparisonBatchPayload.class, context)));
+   when(worlds.getWorldSettingComparisonBatchContext(any(), any(), any(), any(), eq(include)))
+       .thenReturn(contextRecord(org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingComparisonBatchContextResponse.class, context));
+   String base = "/api/internal/v1/analysis-jobs/" + jobId;
+   var paths = List.of("/api/internal/v1/analysis-jobs/claim", base + "/character-fact-comparison-batches/claim-next",
+       base + "/character-fact-comparison-batches/" + batch + "/context", base + "/world-setting-subject-resolutions/pending",
+       base + "/world-setting-comparison-batches/claim-next", base + "/world-setting-comparison-batches/" + batch + "/context");
+   for (String path : paths) {
+    var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))
+        .header("X-Internal-Api-Key", "time-json-contract-only").header("X-Worker-Lease-Token", lease.toString())
+        .header("Content-Type", "application/json");
+    if (!capability.equals("missing")) request.header("X-Analysis-Reference-Selection", capability);
+    if (path.endsWith("/pending")) request.GET();
+    else request.POST(HttpRequest.BodyPublishers.ofString(path.endsWith("/claim") ? "{\"allowedJobTypes\":[\"SETTING_EXTRACTION\"]}"
+        : path.contains("world-setting-comparison-batches/") && path.endsWith("/context") ? "{\"targetWorldSettingIds\":[],\"provisionalSubjectKeys\":[]}" : "{}"));
+    var response = HttpClient.newHttpClient().send(request.build(), HttpResponse.BodyHandlers.ofString());
+    assertThat(response.statusCode()).as(capability + " " + path).isEqualTo(200);
+    var actual = json.readTree(response.body()).at("/data/analysisContext/unresolvedReferences/0");
+    assertThat(actual.has("selection")).as(capability + " " + path).isEqualTo(include);
+    if (include) assertThat(actual.at("/selection/actualSubjectIds/0").asText()).isEqualTo(character.toString());
+    if (path.contains("character-fact-comparison-batches/") && path.endsWith("/context")) {
+     var carrier = json.readTree(response.body()).at("/data/advisoryCurrentContext");
+     assertThat(carrier.has("selectionNames")).as(capability).isEqualTo(include);
+    }
+   }
+  }
+ }
+
+ @SuppressWarnings("unchecked") private <T> T contextRecord(Class<T> type, WorkerAnalysisContextPayload context) throws Exception {
+  var fields = type.getRecordComponents();
+  Object[] args = new Object[fields.length];
+  Class<?>[] types = new Class<?>[fields.length];
+  for (int i=0; i<fields.length; i++) {
+   types[i] = fields[i].getType();
+   args[i] = types[i] == WorkerCharacterAdvisoryCurrentContextPayload.class
+       ? new WorkerCharacterAdvisoryCurrentContextPayload(1, 0, null, 0, hash, hash, hash, true, character, null, List.of())
+           .withSelectionNames(context.unresolvedReferences().getFirst().selection() == null ? List.of() : List.of("합성 별칭"))
+       : types[i] == WorkerAnalysisContextPayload.class ? context : types[i] == long.class ? 0L
+       : types[i] == int.class ? 0 : types[i] == boolean.class ? false : List.class.isAssignableFrom(types[i]) ? List.of() : null;
+  }
+  return type.getDeclaredConstructor(types).newInstance(args);
+ }
 
  @Test
  @DisplayName("인물 묶음 claim은 명시적인 Worker 지원 헤더가 있을 때만 허용한다")
@@ -57,10 +128,10 @@ class WorkerNarrativeTimeHttpContractTest {
   var candidate = new WorkerCharacterFactComparisonBatchPayload.Candidate("C1", "Q1", CharacterFactType.STATUS,
           null, "status.부상", "status.부상", CharacterFactCanonicalKeyResolution.PATTERN, "부상", SettingValueType.JSON,
           Map.of("value", "부상"), List.of(), null, null, null);
-  when(comparisons.claimNextCharacterFactComparisonBatch(eq(job), eq(lease), eq(false)))
+  when(comparisons.claimNextCharacterFactComparisonBatch(eq(job), eq(lease), eq(false), eq(false)))
           .thenReturn(Optional.of(new WorkerCharacterFactComparisonBatchPayload(batch, work, null, "K1", "류정우",
                   CharacterFactType.STATUS, List.of(candidate))));
-  when(comparisons.claimNextCharacterFactComparisonBatch(eq(job), eq(lease), eq(true)))
+  when(comparisons.claimNextCharacterFactComparisonBatch(eq(job), eq(lease), eq(true), eq(false)))
           .thenReturn(Optional.of(new WorkerCharacterFactComparisonBatchPayload(batch, work, null, "K1", "류정우",
                   null, List.of(candidate))));
   for (String capability : List.of("missing", "false", "true")) {
@@ -99,8 +170,8 @@ class WorkerNarrativeTimeHttpContractTest {
   var mappedCandidates=batchCandidates(entity);
   var claim=new WorkerCharacterFactComparisonBatchPayload(batch,work.getId(),episode.getId(),"K1","류정우",CharacterFactType.PROFILE,mappedCandidates);
   var context=new WorkerCharacterFactComparisonBatchContextResponse(batch,"K1","류정우",CharacterFactType.PROFILE,0,mappedCandidates,List.of(),hash,null,null,List.of(),advisory);
-  when(comparisons.claimNextCharacterFactComparisonBatch(any(),any(),eq(false))).thenReturn(Optional.of(claim));
-  when(comparisons.getCharacterFactComparisonBatchContext(any(),any(),any())).thenReturn(context);
+  when(comparisons.claimNextCharacterFactComparisonBatch(any(),any(),eq(false),eq(false))).thenReturn(Optional.of(claim));
+  when(comparisons.getCharacterFactComparisonBatchContext(any(),any(),any(),eq(false))).thenReturn(context);
   when(comparisons.claimNextCharacterFactComparison(any(),any())).thenReturn(Optional.of(single));
   when(comparisons.getCharacterFactComparisonContext(any(),any(),any())).thenReturn(new WorkerCharacterFactComparisonContextResponse(single,List.of(),List.of(),hash,List.of(),advisory));
   String base="/api/internal/v1/analysis-jobs/"+job.getId();
@@ -109,20 +180,20 @@ class WorkerNarrativeTimeHttpContractTest {
   fetch("single-claim",base+"/character-fact-comparisons/claim-next","{}");
   fetch("single-context",base+"/setting-candidates/"+candidateId+"/character-fact-comparison-context","{}");
   WorkCharacter known=WorkCharacter.create(work,"류정우",null,null,null,null,null,null,null,null,null);id(known,character);ReflectionTestUtils.setField(known,"currentNarrativeTime",representative);
-  when(jobs.claimAnalysisJob(any())).thenReturn(Optional.of(jobMapper.toResponse(job,episode,List.of(),List.of(known),List.of())));
+  when(jobs.claimAnalysisJob(any(),eq(false))).thenReturn(Optional.of(jobMapper.toResponse(job,episode,List.of(),List.of(known),List.of())));
   fetch("known-legacy","/api/internal/v1/analysis-jobs/claim","{\"allowedJobTypes\":[\"SETTING_EXTRACTION\"]}");
   ReflectionTestUtils.setField(job,"analysisMode",AnalysisMode.ORDERED_PROVISIONAL);ReflectionTestUtils.setField(job,"analysisRunId",UUID.randomUUID());ReflectionTestUtils.setField(job,"runGeneration",1L);ReflectionTestUtils.setField(job,"inputStateHash",hash);
   ObjectNode state=json.createObjectNode();ObjectNode characters=state.putObject("characters");characters.set("character:"+character,owner);
   ObjectNode provisional=owner.deepCopy();provisional.putNull("actualCharacterId").put("provisionalSubjectKey","provisional-character:"+UUID.randomUUID()).put("name","새 인물");characters.set(provisional.path("provisionalSubjectKey").asText(),provisional);
-  when(jobs.claimAnalysisJob(any())).thenReturn(Optional.of(jobMapper.toResponse(job,episode,List.of(),List.of(),List.of(),state)));
+  when(jobs.claimAnalysisJob(any(),eq(false))).thenReturn(Optional.of(jobMapper.toResponse(job,episode,List.of(),List.of(),List.of(),state)));
   fetch("known-provisional-ordered","/api/internal/v1/analysis-jobs/claim","{\"allowedJobTypes\":[\"SETTING_EXTRACTION\"]}");
   // Legacy null is mapped through both real candidate construction paths.
   ReflectionTestUtils.setField(entity,"narrativeTime",null);
   when(comparisons.claimNextCharacterFactComparison(any(),any())).thenReturn(Optional.of(candidateMapper.toCandidatePayload(entity,"류정우",CharacterFactType.PROFILE,"profile.거처")));
-  when(comparisons.claimNextCharacterFactComparisonBatch(any(),any(),eq(false))).thenReturn(Optional.of(new WorkerCharacterFactComparisonBatchPayload(batch,work.getId(),episode.getId(),"K1","류정우",CharacterFactType.PROFILE,batchCandidates(entity))));
+  when(comparisons.claimNextCharacterFactComparisonBatch(any(),any(),eq(false),eq(false))).thenReturn(Optional.of(new WorkerCharacterFactComparisonBatchPayload(batch,work.getId(),episode.getId(),"K1","류정우",CharacterFactType.PROFILE,batchCandidates(entity))));
   fetch("single-null",base+"/character-fact-comparisons/claim-next","{}");fetch("batch-null",base+"/character-fact-comparison-batches/claim-next","{}");
   ReflectionTestUtils.setField(known,"currentNarrativeTime",null);ReflectionTestUtils.setField(job,"analysisMode",AnalysisMode.CONFIRMED_ONLY);
-  when(jobs.claimAnalysisJob(any())).thenReturn(Optional.of(jobMapper.toResponse(job,episode,List.of(),List.of(known),List.of())));
+  when(jobs.claimAnalysisJob(any(),eq(false))).thenReturn(Optional.of(jobMapper.toResponse(job,episode,List.of(),List.of(known),List.of())));
   fetch("known-null","/api/internal/v1/analysis-jobs/claim","{\"allowedJobTypes\":[\"SETTING_EXTRACTION\"]}");
   ObjectNode emptyOwner=owner.deepCopy();emptyOwner.putNull("currentNarrativeTime");ObjectNode nullHistory=history.deepCopy();nullHistory.putNull("narrativeTime");((ObjectNode)nullHistory.path("supportingSource")).putNull("narrativeTime");emptyOwner.putArray("historyFacts").add(nullHistory);emptyOwner.putObject("slots");
   var nullAdvisory=candidateMapper.toAdvisoryCurrentContext(job,emptyOwner,character,null);
