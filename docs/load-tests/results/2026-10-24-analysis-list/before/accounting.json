@@ -1,0 +1,184 @@
+{
+  "benchmarkCompletedAtEpochSeconds": 1792775216.1044834,
+  "completionClockSource": "summary.json filesystem mtime immediately after runner final write",
+  "pageSampleAccounting": {
+    "warmup": 3,
+    "navigation": 20,
+    "reload-setup": 5,
+    "double-reload": 10
+  },
+  "apiSampleAccounting": {
+    "initial-cold-jvm-request": 1,
+    "warmup": 3,
+    "measured": 30
+  },
+  "pageFailures": 0,
+  "apiFailures": 0,
+  "uniqueMeasuredTimeOrigins": 20,
+  "playwrightRequestsAllSamples": 494,
+  "censored": 0,
+  "collectorErrors": 0,
+  "finishedAfterReady": 0,
+  "cdpPreflightsAllSamples": 228,
+  "preflightFailures": 0,
+  "preflightTransferBytes": "not fully observable; encodedDataLength=0 does not mean zero wire bytes",
+  "apiPerMeasuredNavigation": {
+    "n": 20,
+    "median": 6.0,
+    "p95": 6,
+    "max": 6
+  },
+  "encodedApiResponseBodyBytesPerNavigation": {
+    "n": 20,
+    "median": 124223.0,
+    "p95": 124223,
+    "max": 124223
+  },
+  "observedApiResponseHeaderBytesPerNavigation": {
+    "n": 20,
+    "median": 3717.0,
+    "p95": 3717,
+    "max": 3717
+  },
+  "allPlaywrightResponseBodyBytesPerNavigation": {
+    "n": 20,
+    "median": 2956977.5,
+    "p95": 2957839,
+    "max": 2957851
+  },
+  "routes": {
+    "GET /auth/me": {
+      "observations": 20,
+      "callsPerNavigation": 1.0,
+      "statusCounts": {
+        "200": 20
+      },
+      "encodedResponseBodyBytes": {
+        "n": 20,
+        "median": 321.0,
+        "p95": 321,
+        "max": 321
+      },
+      "responseEndMs": {
+        "n": 20,
+        "median": 7.385,
+        "p95": 8.208,
+        "max": 8.457
+      }
+    },
+    "GET /works/:id/analysis-jobs/batches": {
+      "observations": 20,
+      "callsPerNavigation": 1.0,
+      "statusCounts": {
+        "200": 20
+      },
+      "encodedResponseBodyBytes": {
+        "n": 20,
+        "median": 4237.0,
+        "p95": 4237,
+        "max": 4237
+      },
+      "responseEndMs": {
+        "n": 20,
+        "median": 195.775,
+        "p95": 210.241,
+        "max": 230.702
+      }
+    },
+    "GET /works/:id/setting-books": {
+      "observations": 20,
+      "callsPerNavigation": 1.0,
+      "statusCounts": {
+        "200": 20
+      },
+      "encodedResponseBodyBytes": {
+        "n": 20,
+        "median": 116.0,
+        "p95": 116,
+        "max": 116
+      },
+      "responseEndMs": {
+        "n": 20,
+        "median": 8.038499999999999,
+        "p95": 8.943,
+        "max": 10.077
+      }
+    },
+    "GET /works": {
+      "observations": 20,
+      "callsPerNavigation": 1.0,
+      "statusCounts": {
+        "200": 20
+      },
+      "encodedResponseBodyBytes": {
+        "n": 20,
+        "median": 360.0,
+        "p95": 360,
+        "max": 360
+      },
+      "responseEndMs": {
+        "n": 20,
+        "median": 7.5235,
+        "p95": 8.346,
+        "max": 9.091
+      }
+    },
+    "GET /works/:id/episodes": {
+      "observations": 20,
+      "callsPerNavigation": 1.0,
+      "statusCounts": {
+        "200": 20
+      },
+      "encodedResponseBodyBytes": {
+        "n": 20,
+        "median": 26464.0,
+        "p95": 26464,
+        "max": 26464
+      },
+      "responseEndMs": {
+        "n": 20,
+        "median": 190.483,
+        "p95": 203.527,
+        "max": 223.862
+      }
+    },
+    "GET /works/:id/analysis-jobs": {
+      "observations": 20,
+      "callsPerNavigation": 1.0,
+      "statusCounts": {
+        "200": 20
+      },
+      "encodedResponseBodyBytes": {
+        "n": 20,
+        "median": 92725.0,
+        "p95": 92725,
+        "max": 92725
+      },
+      "responseEndMs": {
+        "n": 20,
+        "median": 136.35250000000002,
+        "p95": 143.41,
+        "max": 156.763
+      }
+    }
+  },
+  "resources": {
+    "rawSamples": 343,
+    "measurementWindowSamples": 199,
+    "unavailableSamples": 0,
+    "measurementWindowPeakRssMiB": 951.875,
+    "measurementWindowPeakHeapUsedMiB": 450.38564453125,
+    "rawWindowPeakRssMiB": 951.953125,
+    "rawWindowPeakHeapUsedMiB": 466.519140625,
+    "gcJstatDelta": {
+      "YGC": 264.0,
+      "YGCT": 0.32899999999999996,
+      "FGC": 0,
+      "FGCT": 0,
+      "CGC": 90.0,
+      "CGCT": 0.079,
+      "GCT": 0.4089999999999999
+    }
+  },
+  "reloadProtocol": "5 sets of two serial reloads; each waits for ready/load+drain before the next reload; no concurrent-load/OOM-reproduction claim"
+}

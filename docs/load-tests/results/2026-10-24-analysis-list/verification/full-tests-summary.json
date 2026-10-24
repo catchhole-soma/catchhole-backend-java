@@ -1,0 +1,2046 @@
+{
+  "exitCode": 0,
+  "suites": [
+    {
+      "name": "\uc124\uc815 \ud6c4\ubcf4 Mapper \ub2e8\uc704 \ud14c\uc2a4\ud2b8",
+      "tests": "12",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:03.301Z",
+      "time": "0.124"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.global.config.database.SettingBookReferenceTimeAiMigrationIntegrationTest",
+      "tests": "1",
+      "skipped": "1",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:10.298Z",
+      "time": "0.0"
+    },
+    {
+      "name": "\uce90\ub9ad\ud130 \ud604\uc7ac \uc124\uc815\uacfc \uc2dd\ubcc4 \ubcc0\uacbd\uc758 \uad00\uacc4 \uc7ac\ucc98\ub9ac \uc785\ub825 \uc138\ub300",
+      "tests": "8",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:06.189Z",
+      "time": "0.508"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.analysis.controller.AnalysisJobControllerIntegrationTest",
+      "tests": "54",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:46.674Z",
+      "time": "1.691"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.global.monitoring.ServiceUsageMetricsSchedulerTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:16.172Z",
+      "time": "0.004"
+    },
+    {
+      "name": "\ud68c\ucc28 Mapper \ub2e8\uc704 \ud14c\uc2a4\ud2b8",
+      "tests": "11",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:23.751Z",
+      "time": "0.002"
+    },
+    {
+      "name": "SMTP \uc774\uba54\uc77c \uc778\uc99d\ubc88\ud638 \ubc1c\uc1a1\uae30",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:56.159Z",
+      "time": "0.099"
+    },
+    {
+      "name": "\uac00\uc871 \uad00\uacc4 \ud6c4\ucc98\ub9ac PostgreSQL V85\u00b7\ud604\uc7ac\uc131\u00b7\uc7ac\uc2dc\ub3c4 \uacc4\uc57d",
+      "tests": "56",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:42.575Z",
+      "time": "3.835"
+    },
+    {
+      "name": "\uc774\uc804 \uc5c5\ub85c\ub4dc \ubb36\uc74c\uc758 \ucd5c\uc2e0 \ubbf8\ud655\uc815 \ucc38\uace0 \uc218\uc9d1",
+      "tests": "24",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:04.833Z",
+      "time": "0.11"
+    },
+    {
+      "name": "\ud734\ub300\ud3f0 \uc778\uc99d Mapper \ub2e8\uc704 \ud14c\uc2a4\ud2b8",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:56.259Z",
+      "time": "0.0"
+    },
+    {
+      "name": "PostgreSQL \ud68c\ucc28 \uc2e4\ud328 \uc54c\ub9bc \uae30\ub85d\uacfc \ubc1c\uc1a1 \uc120\uc810",
+      "tests": "16",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:58.169Z",
+      "time": "3.915"
+    },
+    {
+      "name": "\ud55c\uae00 \ubb38\uc11c \ubcf8\ubb38 \ucd94\ucd9c \ubc0f \ud68c\ucc28 \uc5f0\uacb0",
+      "tests": "27",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:12:24.759Z",
+      "time": "0.132"
+    },
+    {
+      "name": "\uc138\uacc4\uad00 \uc124\uc815 Entity \ub2e8\uc704 \ud14c\uc2a4\ud2b8",
+      "tests": "13",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:01.067Z",
+      "time": "0.001"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.member.service.MemberWithdrawalOwnedPostgresIntegrationTest",
+      "tests": "6",
+      "skipped": "6",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:28.659Z",
+      "time": "0.0"
+    },
+    {
+      "name": "\uac00\uacc4\ub3c4 \ud45c\uc2dc \uc0c1\ud55c\u00b7\ucd08\uc810 \uac70\ub9ac\u00b7\uc548\uc815 \uc815\ub82c\u00b7\ubcc0\uacbd \uac10\uc9c0 \uaddc\uce59",
+      "tests": "13",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:46.599Z",
+      "time": "0.013"
+    },
+    {
+      "name": "claim\uc758 \uc791\uc740 \ube44\uad50\uadfc\uac70 \uacc4\uc57d\uc740 ORDERED\uc5d0\ub9cc \uba85\uc2dc\ub418\uc5b4 \uad6c Worker\uc758 silent downgrade\ub97c \ub9c9\ub294\ub2e4",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:49.446Z",
+      "time": "0.013"
+    },
+    {
+      "name": "\uce90\ub9ad\ud130 \ud604\uc7ac \uc124\uc815 API \ud1b5\ud569 \ud14c\uc2a4\ud2b8",
+      "tests": "52",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:57.741Z",
+      "time": "2.127"
+    },
+    {
+      "name": "\ud604\uc7ac \ud504\ub85c\ud544\uc758 \uba85\uc2dc\uc801 \uac00\uc871 \uad00\uacc4 \ubb38\ubc95",
+      "tests": "289",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:46.546Z",
+      "time": "0.046"
+    },
+    {
+      "name": "\uc774\uba54\uc77c \ubc1c\uc1a1 \uc124\uc815\uacfc \uc6b4\uc601 \uae30\ub3d9 \uac80\uc99d",
+      "tests": "20",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:10.301Z",
+      "time": "0.035"
+    },
+    {
+      "name": "\uce90\ub9ad\ud130 \uc124\uc815 \uad6c\uc870\ud654 \uac12 \uac80\uc99d",
+      "tests": "11",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:03.427Z",
+      "time": "0.002"
+    },
+    {
+      "name": "\uc124\uc815 \uc870\ud68c \ub3c4\uad6c\uc758 \uad8c\ud55c\u00b7\ud604\uc7ac\uac12\u00b7\uadfc\uac70 \uacc4\uc57d",
+      "tests": "43",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:48.904Z",
+      "time": "1.941"
+    },
+    {
+      "name": "PostgreSQL \uc11c\ube44\uc2a4 \uc774\uc6a9 \uc9d1\uacc4\uc640 V71 \uae30\uac04 \uc778\ub371\uc2a4",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:16.177Z",
+      "time": "2.216"
+    },
+    {
+      "name": "\uc0ac\uc6a9\ub7c9 \uacc4\uc815\uc758 \uc18c\uc218 \ub2e8\uc704 \uc608\uc57d\uacfc \uc815\uc0b0",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:45.689Z",
+      "time": "0.031"
+    },
+    {
+      "name": "\uc18c\uc218 \uc0ac\uc6a9\ub7c9 \uc751\ub2f5\uacfc \uc18c\uc9c4 \ube44\uc728 \ub9e4\ud551",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:45.777Z",
+      "time": "0.002"
+    },
+    {
+      "name": "\uce90\ub9ad\ud130 \ube44\uad50 \ubcf4\ub958 \uc2dc \uc11c\uc0ac \uc2dc\uc810 \ubcf5\uc6d0",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:06.016Z",
+      "time": "0.005"
+    },
+    {
+      "name": "\ubaa8\ub378\ubcc4 \uc0ac\uc6a9\uc790 \uc0ac\uc6a9\ub7c9 \ud658\uc0b0 \uc815\ucc45",
+      "tests": "10",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:45.842Z",
+      "time": "0.015"
+    },
+    {
+      "name": "\uc77c\ubc18 \ud53c\ub4dc\ubc31 \ubcf4\uc0c1 migration \uacc4\uc57d",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:10.297Z",
+      "time": "0.001"
+    },
+    {
+      "name": "OpenAPI \uc778\uc99d \ubc0f \ud504\ub860\ud2b8 \uc5f0\ub3d9 \uacc4\uc57d",
+      "tests": "21",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:13.663Z",
+      "time": "2.303"
+    },
+    {
+      "name": "\ucc44\ud305 \uc2e4\ud589\uc758 \uba71\ub4f1\uc131\u00b7\uad8c\ud55c\u00b7\uc815\uc0b0 \ud1b5\ud569 \uacc4\uc57d",
+      "tests": "29",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:10.233Z",
+      "time": "0.919"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.upload.controller.SettingBookAnalysisIntegrationTest",
+      "tests": "213",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:59.325Z",
+      "time": "5.122"
+    },
+    {
+      "name": "HTTP requestId\uc640 \uc2e4\uc81c \ubcf4\uc548 \uccb4\uc778 \ud1b5\ud569",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:10.868Z",
+      "time": "0.551"
+    },
+    {
+      "name": "\uc124\uc815 \ud6c4\ubcf4 \uc2dc\uac04\uc21c \uc815\ub82c \ub2e8\uc704 \ud14c\uc2a4\ud2b8",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:03.431Z",
+      "time": "0.01"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.analysis.processor.SettingBookTemporalPolicyTest",
+      "tests": "9",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:49.735Z",
+      "time": "0.002"
+    },
+    {
+      "name": "PostgreSQL \uc758\uacac \uc548\ub0b4 \uc870\ud68c \uc778\ub371\uc2a4",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:07.671Z",
+      "time": "2.465"
+    },
+    {
+      "name": "\ubd84\uc11d \uc2e4\ud328 \uc54c\ub9bc \ubc1c\uc1a1\uacfc \uc804\uc1a1 \uc2e4\ud328 \uaca9\ub9ac",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:49.605Z",
+      "time": "0.074"
+    },
+    {
+      "name": "\uc778\uc99d Mapper \ub2e8\uc704 \ud14c\uc2a4\ud2b8",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:56.259Z",
+      "time": "0.0"
+    },
+    {
+      "name": "\uad00\uacc4 \ucd9c\ucc98\uc758 \ud604\uc7ac \ud504\ub85c\ud544 \uac80\uc99d",
+      "tests": "12",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:46.740Z",
+      "time": "0.003"
+    },
+    {
+      "name": "\ud655\uc815 \uc124\uc815 \uc9c1\uc811 \ud3b8\uc9d1\uacfc \uc21c\ucc28 \ubd84\uc11d \uae30\ub85d \ubcf4\ud638",
+      "tests": "57",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:51.379Z",
+      "time": "0.644"
+    },
+    {
+      "name": "Discord \uc54c\ub9bc HTTP \uc804\uc1a1",
+      "tests": "6",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:19.174Z",
+      "time": "0.023"
+    },
+    {
+      "name": "PostgreSQL \ubd84\uc11d \uc0c1\ud0dc \uc9d1\uacc4",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:55.919Z",
+      "time": "2.092"
+    },
+    {
+      "name": "Java\u00b7Python \uac80\uc0c9 \uc778\uc6a9 v1 fixture",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:14.025Z",
+      "time": "0.005"
+    },
+    {
+      "name": "\uacf5\uac1c \ubc95\ub960 \ubb38\uc11c API \ud1b5\ud569",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:26.669Z",
+      "time": "0.539"
+    },
+    {
+      "name": "PostgreSQL \uc804\uccb4 Flyway\u00b7JPA validate\uc640 \ucc44\ud305 \uacc4\uc57d",
+      "tests": "31",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:11.152Z",
+      "time": "2.731"
+    },
+    {
+      "name": "\uc124\uc815 \ud6c4\ubcf4 Entity \ub2e8\uc704 \ud14c\uc2a4\ud2b8",
+      "tests": "22",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:03.296Z",
+      "time": "0.002"
+    },
+    {
+      "name": "\uc0ac\uc6a9\uc790\uc5d0\uac8c \ubcf4\uc5ec \uc8fc\ub294 \ubd84\uc11d \ud310\ub2e8 \ubb38\uc7a5",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:49.443Z",
+      "time": "0.003"
+    },
+    {
+      "name": "\uc11c\ube44\uc2a4 \uc774\uc6a9 \ud604\ud669\uc758 \ubcf4\uc874\ub41c DB \uae30\ub85d \uc9d1\uacc4",
+      "tests": "15",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:18.557Z",
+      "time": "0.616"
+    },
+    {
+      "name": "\ubd84\uc11d Worker \uce90\ub9ad\ud130 \ube44\uad50 \ubb36\uc74c lease \ubcf5\uad6c \ud14c\uc2a4\ud2b8",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:03.317Z",
+      "time": "0.042"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournalTest",
+      "tests": "7",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:49.685Z",
+      "time": "0.008"
+    },
+    {
+      "name": "\uc124\uc815\uc9d1 \uc800\uc7a5\u00b7\ud3b8\uc9d1 API \ud1b5\ud569 \ud14c\uc2a4\ud2b8",
+      "tests": "6",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:12:22.247Z",
+      "time": "0.51"
+    },
+    {
+      "name": "\uc790\ub3d9 \ubd84\uc11d\uc758 \uac1c\ubcc4 \ube44\uad50 \uc2e4\ud328\ub294 \ubbf8\ud655\uc815 \ucc38\uace0\ub85c\ub9cc \ubcf4\uc874\ud55c\ub2e4",
+      "tests": "18",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:51.273Z",
+      "time": "0.106"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.member.service.SettingBookWithdrawalPostgresIntegrationTest",
+      "tests": "6",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:28.659Z",
+      "time": "3.058"
+    },
+    {
+      "name": "PostgreSQL \uac80\ud1a0 \uacb0\uc815 migration\uacfc JPA \ub9e4\ud551",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:03.858Z",
+      "time": "2.036"
+    },
+    {
+      "name": "\uac00\uc871 \uad00\uacc4 PostgreSQL migration\u00b7API\u00b7\ub3d9\uc2dc \ud655\uc815 \uacc4\uc57d",
+      "tests": "26",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:32.848Z",
+      "time": "3.015"
+    },
+    {
+      "name": "claim \uc804\uc6a9 \uace0\uc815 CURRENT \uc644\uc804\uc131\u00b7\uc9c1\ub82c\ud654 \uacbd\uacc4",
+      "tests": "12",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:49.505Z",
+      "time": "0.1"
+    },
+    {
+      "name": "\ud569\uc131 \uac00\uc871 \uc124\uc815 17\uac1c \ubb38\uc7a5 \uc720\ud615\uc758 \uc778\uc2dd\u00b7\ubcf4\ub958\u00b7\ud638\uce6d \uc81c\uc678 \ud68c\uadc0",
+      "tests": "18",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:46.543Z",
+      "time": "0.003"
+    },
+    {
+      "name": "\uc124\uc815 \ud6c4\ubcf4 \ud655\uc815 \ub370\uc774\ud130 \ubc18\uc601 Service \ud14c\uc2a4\ud2b8",
+      "tests": "55",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:08.326Z",
+      "time": "1.584"
+    },
+    {
+      "name": "PostgreSQL \uc804\uccb4 \ub9c8\uc774\uadf8\ub808\uc774\uc158\uacfc \uc77c\ud68c\uc131 \ub300\ud654 \uacc4\uc57d",
+      "tests": "28",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:18.747Z",
+      "time": "3.782"
+    },
+    {
+      "name": "\ud68c\uc6d0\uac00\uc785 API \ud1b5\ud569",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:52.033Z",
+      "time": "0.682"
+    },
+    {
+      "name": "\ud68c\uc6d0 \uc989\uc2dc \ud0c8\ud1f4 \ud1b5\ud569 \ud14c\uc2a4\ud2b8",
+      "tests": "6",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:27.210Z",
+      "time": "1.449"
+    },
+    {
+      "name": "\uce90\ub9ad\ud130 Fact \ube44\uad50 migration \uacc4\uc57d",
+      "tests": "11",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:03.854Z",
+      "time": "0.003"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.character.service.CharacterPastHistoryAutomaticHoldTest",
+      "tests": "13",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:06.021Z",
+      "time": "0.168"
+    },
+    {
+      "name": "\uba85\uc2dc\uc801 \uc0c8 \ub204\uc801 \uc2e4\ud589\uc758 \uc815\ud655\ud55c \uc6d0\ubb38 \uc8fc\uc7a5 \ubc18\ub824 \ubcf4\uc874",
+      "tests": "8",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:02.827Z",
+      "time": "0.084"
+    },
+    {
+      "name": "\uce90\ub9ad\ud130 Fact \ube44\uad50 Worker Mapper \ud14c\uc2a4\ud2b8",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:03.298Z",
+      "time": "0.002"
+    },
+    {
+      "name": "\uac00\uacc4\ub3c4 PostgreSQL \uc870\ud68c \uad8c\ud55c\u00b7\uc720\ud6a8\uc131\u00b7\ub3d9\uc77c MVCC \uc2a4\ub0c5\uc0f7 \uacc4\uc57d",
+      "tests": "55",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:37.303Z",
+      "time": "3.892"
+    },
+    {
+      "name": "Worker \uce90\ub9ad\ud130 \uc124\uc815 \ube44\uad50 \uc644\ub8cc \uc694\uccad \uac80\uc99d",
+      "tests": "7",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:03.275Z",
+      "time": "0.021"
+    },
+    {
+      "name": "AI \ud638\ucd9c \uc6d0\uc7a5\uc758 raw \uc0ac\uc6a9\ub7c9\uacfc \ucc28\uac10 \uc815\ucc45",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:45.720Z",
+      "time": "0.057"
+    },
+    {
+      "name": "PostgreSQL \ubaa8\ub378\ubcc4 \uc0ac\uc6a9\uc790 \ucc28\uac10 migration",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:01.980Z",
+      "time": "1.728"
+    },
+    {
+      "name": "\uc0ac\uc6a9\uc790 \ubd84\uc11d \uc694\uccad\uc758 \uc804\uccb4 \ud68c\ucc28 \uacc4\uce21 \ubb36\uc74c",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:04.101Z",
+      "time": "0.595"
+    },
+    {
+      "name": "\uad00\uacc4 \ud6c4\ubcf4 \uc0dd\uc131\u00b7\uac00\uacc4\ub3c4 \uc5f0\ub3d9 \uacf5\ud1b5 v1 fixture",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:46.619Z",
+      "time": "0.007"
+    },
+    {
+      "name": "\uc120\ud589 \ubd84\uc11d \uc5c6\ub294 \ub2e4\ud68c\ucc28 \uc5c5\ub85c\ub4dc \uc815\ucc45",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:24.680Z",
+      "time": "0.001"
+    },
+    {
+      "name": "\uce90\ub9ad\ud130 Fact \ubb36\uc74c \ube44\uad50 Worker \ub2e8\uc704 \ud14c\uc2a4\ud2b8",
+      "tests": "47",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:05.578Z",
+      "time": "0.209"
+    },
+    {
+      "name": "\ud1b5\ud569\ub41c main\uacfc \uc124\uc815\uc9d1 PostgreSQL migration \uac80\uc99d",
+      "tests": "87",
+      "skipped": "87",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:12:22.758Z",
+      "time": "0.0"
+    },
+    {
+      "name": "\ubc95\ub960 \ubb38\uc11c \uc11c\ube44\uc2a4",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:27.208Z",
+      "time": "0.002"
+    },
+    {
+      "name": "\ub85c\uceec SMTP \uc11c\ubc84\uc640 \uc2e4\uc81c STARTTLS \ubc1c\uc1a1 \ud1b5\ud569",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:10.337Z",
+      "time": "0.524"
+    },
+    {
+      "name": "\uce90\ub9ad\ud130 Fact batch \ube44\uad50 \ud2b8\ub79c\uc7ad\uc158 \uacc4\uc57d \ud14c\uc2a4\ud2b8",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:05.898Z",
+      "time": "0.001"
+    },
+    {
+      "name": "\ub204\uc801 \ubd84\uc11d \uc791\uc5c5\uc758 \uba85\uc2dc\uc801 \uc2e4\ud328 \uc7ac\uc2dc\ub3c4",
+      "tests": "28",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:02.913Z",
+      "time": "0.404"
+    },
+    {
+      "name": "\uc138\uacc4\uad00 \ube44\uad50\uc758 \uc548\uc804\ud55c \ub2e8\uacc4\ubcc4 \uc9c4\ub2e8 \uae30\ub85d",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:01.069Z",
+      "time": "0.002"
+    },
+    {
+      "name": "\uacf5\uac1c \ucc44\ud305\uacfc \uc6b4\uc601 \ubc31\ud544\uc758 \ub3c5\ub9bd \uc124\uc815 \uac80\uc99d",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:01.964Z",
+      "time": "0.015"
+    },
+    {
+      "name": "CURRENT \uadfc\uac70 capture\ub294 \uc6d0 manifest\uc640 \uc2e4\uc81c \ud655\uc815 canonical Fact\ub97c hash \uc774\uc804\uc5d0 \ub3d9\uacb0\ud55c\ub2e4",
+      "tests": "13",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:05.569Z",
+      "time": "0.006"
+    },
+    {
+      "name": "\uc790\ub3d9 \ubc18\uc601 \ub300\uae30 \ud6c4\ubcf4\uc758 \uc9d1\uacc4\uc640 \uc0ac\uc6a9\uc790 \ubcc0\uacbd \ubcf4\ud638",
+      "tests": "32",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:50.458Z",
+      "time": "0.814"
+    },
+    {
+      "name": "Redis \uc774\uba54\uc77c \uc778\uc99d \uc800\uc7a5\uc18c",
+      "tests": "21",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:55.728Z",
+      "time": "0.213"
+    },
+    {
+      "name": "\uac19\uc740 \uc6d0\ubb38 \ubc1c\uacac\uc744 \ubc18\ub824\ud55c \ub4a4 \uc0c8 \ub204\uc801 \uc2e4\ud589\uc758 \uc784\uc2dc \uc778\ubb3c \uacbd\uacc4",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:05.576Z",
+      "time": "0.002"
+    },
+    {
+      "name": "\uac00\uacc4\ub3c4 \uc694\uc57d\uc758 \uad8c\ud55c\u00b7\ud604\uc7ac\uc131\u00b7\ubc94\uc704\u00b7\ubcc0\uacbd \uac10\uc9c0\u00b7\ub3d9\uc77c \uc2a4\ub0c5\uc0f7 \uacc4\uc57d",
+      "tests": "55",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:36.012Z",
+      "time": "1.291"
+    },
+    {
+      "name": "\uc124\uc815 \ud6c4\ubcf4 \ud655\uc815 \ubc18\uc601 Mapper \ud14c\uc2a4\ud2b8",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:03.425Z",
+      "time": "0.0"
+    },
+    {
+      "name": "PostgreSQL \ubd84\uc11d \ubaa9\ub85d\uc758 \ucd5c\uc2e0 \uc120\ud0dd\uacfc \uc791\uc740 \uce74\ub4dc \uc694\uc57d",
+      "tests": "29",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:49.739Z",
+      "time": "3.155"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTimeTest",
+      "tests": "11",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:03.426Z",
+      "time": "0.001"
+    },
+    {
+      "name": "\ud6c4\ubcf4 \ud655\uc815 \uc2dc \uc6d0\ubb38 manifest \ubcf4\ud638",
+      "tests": "8",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:58.162Z",
+      "time": "0.007"
+    },
+    {
+      "name": "\uce90\ub9ad\ud130 \ubaa9\ub85d \uc815\ub82c migration \uacc4\uc57d",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:03.857Z",
+      "time": "0.001"
+    },
+    {
+      "name": "\uc774\uba54\uc77c \uc778\uc99d \uc11c\ube44\uc2a4 \ub2e8\uc704 \ud14c\uc2a4\ud2b8",
+      "tests": "7",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:56.925Z",
+      "time": "0.383"
+    },
+    {
+      "name": "\uce90\ub9ad\ud130 Fact \uadf8\ub8f9 Job \uc778\uacc4 \uc870\uc815 \ud14c\uc2a4\ud2b8",
+      "tests": "9",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:05.787Z",
+      "time": "0.005"
+    },
+    {
+      "name": "\ubd84\uc11d \uc9c0\ud45c\uc758 \uc218\uc9d1 \uc2e4\ud328\uc640 \uc720\ud734 \uc0c1\ud0dc",
+      "tests": "8",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:04.696Z",
+      "time": "0.136"
+    },
+    {
+      "name": "\ud604\uc7ac \uc124\uc815 \uc870\uac74 \uac80\uc0c9\uc758 scalar \uacbd\uacc4",
+      "tests": "12",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:53.936Z",
+      "time": "0.003"
+    },
+    {
+      "name": "\uc138\uacc4\uad00 \ub204\uc801 Worker\uc758 \uace0\uc815 \uc785\ub825\uacfc \uac80\uc99d \uae30\ub85d",
+      "tests": "49",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:01.603Z",
+      "time": "0.075"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.analysis.service.OrderedAnalysisPostgresIntegrationTest",
+      "tests": "12",
+      "skipped": "12",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:52.028Z",
+      "time": "0.0"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.auth.security.JwtMemberAuthenticationConverterTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:56.616Z",
+      "time": "0.002"
+    },
+    {
+      "name": "\uace0\uc815 \ube44\uad50 \uadfc\uac70\ub97c \uc18c\ube44\ud558\uc9c0 \ubabb\ud558\ub294 Worker\uc758 ORDERED claim\uc740 \uacc4\uc57d\uc73c\ub85c \ucc28\ub2e8\ud55c\ub2e4",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:49.443Z",
+      "time": "0.0"
+    },
+    {
+      "name": "\uac00\uc871 \uad00\uacc4 \ucc98\ub9ac \uc2a4\ucf00\uc904\ub7ec\uc758 \uc2e4\ud328 \uc785\ub825 \uc138\ub300 \ubcf4\uc874",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:46.685Z",
+      "time": "0.055"
+    },
+    {
+      "name": "SOLAPI SMS \ubc1c\uc1a1\uae30",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:57.632Z",
+      "time": "0.108"
+    },
+    {
+      "name": "\uaca9\ub9ac DB\uc5d0\uc11c \uc790\ub3d9 \ubc18\uc601 API \uacc4\uc57d\uc744 \uc0dd\uc131\ud55c\ub2e4",
+      "tests": "1",
+      "skipped": "1",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:50.458Z",
+      "time": "0.0"
+    },
+    {
+      "name": "PostgreSQL \uc774\uba54\uc77c \uac00\uc785 migration",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:06.045Z",
+      "time": "1.486"
+    },
+    {
+      "name": "\uc6b4\uc601 \uba54\ud2b8\ub9ad \ud3ec\ud2b8\uc640 \uae30\uc874 health \uacbd\ub85c \ubd84\ub9ac",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:11.419Z",
+      "time": "0.324"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.work.service.WorkPurgeIntegrationTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:12:55.776Z",
+      "time": "0.597"
+    },
+    {
+      "name": "\uc138\uacc4\uad00 \ub300\ud45c \uc774\ubbf8\uc9c0 \uc774\ub984 \uaddc\uce59",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:12:58.570Z",
+      "time": "0.121"
+    },
+    {
+      "name": "\ud68c\ucc28 \ud30c\uc77c \ud30c\uc11c \uc815\uaddc\uc2dd \ud14c\uc2a4\ud2b8",
+      "tests": "34",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:23.753Z",
+      "time": "0.267"
+    },
+    {
+      "name": "\uc11c\ube44\uc2a4 \uc758\uacac API \ud1b5\ud569",
+      "tests": "10",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:24.681Z",
+      "time": "1.49"
+    },
+    {
+      "name": "\uce90\ub9ad\ud130 \uc124\uc815 Schema Registry \uc815\ucc45 enum \ud14c\uc2a4\ud2b8",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:10.220Z",
+      "time": "0.0"
+    },
+    {
+      "name": "\uc778\uc99d \uc11c\ube44\uc2a4",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:56.618Z",
+      "time": "0.307"
+    },
+    {
+      "name": "\uac00\uacc4\ub3c4 \ub05d\uc810 \ud638\uce6d\uc758 \ud604\uc7ac \uadfc\uac70\u00b7\ub300\uc0c1 \uc77c\uce58\u00b7\ud55c\ucabd \uba85\uc2dc\u00b7\uc0c1\ucda9 \uacbd\uacc4",
+      "tests": "41",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:46.612Z",
+      "time": "0.007"
+    },
+    {
+      "name": "\ud68c\ucc28 \uc6d0\ubb38 \ud30c\uae30 \ube44\uad50 \ubb36\uc74c \ud1b5\ud569 \ud14c\uc2a4\ud2b8",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:24.021Z",
+      "time": "0.53"
+    },
+    {
+      "name": "\ubd84\uc11d \uacb0\uacfc \uc9c0\ud45c\uc758 \ube44\ub3d9\uae30 \uad00\uce21 \uacbd\ud569",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:49.679Z",
+      "time": "0.006"
+    },
+    {
+      "name": "\uac1c\ubcc4 \uc9c1\uc811 \uac80\ud1a0 \uc7ac\ubd84\uc11d \uc138\uacc4\uad00\uc758 \ud604\uc7ac \uc124\uc815 \ubcf4\ud638",
+      "tests": "24",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:01.955Z",
+      "time": "0.009"
+    },
+    {
+      "name": "\uc138\uacc4\uad00 \uc124\uc815 Repository \ud1b5\ud569 \ud14c\uc2a4\ud2b8",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:01.072Z",
+      "time": "0.531"
+    },
+    {
+      "name": "\ud569\uc131 \ud6c4\ubcf4 \ub370\uc774\ud130\ub85c \uac80\ud1a0 \ud654\uba74 \ube0c\ub77c\uc6b0\uc800 \uac80\uc99d \uc11c\ubc84\ub97c \uc2e4\ud589\ud55c\ub2e4",
+      "tests": "1",
+      "skipped": "1",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:19.388Z",
+      "time": "0.0"
+    },
+    {
+      "name": "\uc791\ud488 \uc7a5\ub974 enum \ud14c\uc2a4\ud2b8",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:12:56.373Z",
+      "time": "0.0"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.global.config.database.OrderedAnalysisMigrationIntegrationTest",
+      "tests": "1",
+      "skipped": "1",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:10.298Z",
+      "time": "0.0"
+    },
+    {
+      "name": "\uc560\ud50c\ub9ac\ucf00\uc774\uc158 Context \ud1b5\ud569 \ud14c\uc2a4\ud2b8",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:37.861Z",
+      "time": "3.748"
+    },
+    {
+      "name": "\ubd84\uc11d \uc791\uc5c5 Worker Mapper \ub2e8\uc704 \ud14c\uc2a4\ud2b8",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:49.459Z",
+      "time": "0.001"
+    },
+    {
+      "name": "\uc124\uc815\uc9d1 \uc138\uacc4\uad00 \ube44\uad50 \ubb36\uc74c\uc758 \ud68c\ucc28 \uc5c6\ub294 \ucd9c\ucc98 \uac80\uc99d",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:01.892Z",
+      "time": "0.062"
+    },
+    {
+      "name": "\uc218\ub3d9 \uc7ac\ubd84\uc11d \ud6c4\ubcf4\uc758 \ud68c\ucc28\ubcc4 \ud604\uc7ac\uac12 \ubcf4\ud638",
+      "tests": "75",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:07.497Z",
+      "time": "0.825"
+    },
+    {
+      "name": "\ud604\uc7ac \uac00\uc871 \uc124\uc815\uc758 \ube44\ub3d9\uae30 \uaddc\uce59 \ucc98\ub9ac\u00b7\uac80\ud1a0\u00b7\uc7ac\ucc98\ub9ac \ud1b5\ud569 \uacc4\uc57d",
+      "tests": "56",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:41.359Z",
+      "time": "1.216"
+    },
+    {
+      "name": "\uc2e4\uc81c Spring \uc870\ud68c\u00b7\uc6d0\uc7a5\uacfc Python \ub2e8\uc77c \uc9c8\uc758\uc751\ub2f5 \ucc98\ub9ac\uae30\ub97c \uc5f0\uacb0\ud55c\ub2e4",
+      "tests": "1",
+      "skipped": "1",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:14.693Z",
+      "time": "0.0"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.worldsetting.mapper.WorldSettingMapperDiagnosticsTest",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:01.068Z",
+      "time": "0.001"
+    },
+    {
+      "name": "\ud68c\ucc28\ubcc4 \uc790\ub3d9 \ubc18\uc601\uacfc \ub2e4\uc74c \ud68c\ucc28 \ubb38\ub9e5\uc758 \uc2e4\uc81c \uc800\uc7a5 \uacbd\uacc4",
+      "tests": "80",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:04.944Z",
+      "time": "45.512"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.global.storage.S3ObjectStorageTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:19.197Z",
+      "time": "0.19"
+    },
+    {
+      "name": "\uac19\uc740 \ud68c\ucc28\uc758 \uc218\ub3d9 \uc218\uc815\u00b7\uc81c\uc678\uc640 \ud45c\uc2dc\ub41c \ucd5c\uc885 \uacb0\uacfc \ud655\uc815",
+      "tests": "36",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:06.697Z",
+      "time": "0.796"
+    },
+    {
+      "name": "Redis \ud734\ub300\ud3f0 \uc778\uc99d \uc800\uc7a5\uc18c",
+      "tests": "8",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:56.259Z",
+      "time": "0.152"
+    },
+    {
+      "name": "\uce90\ub9ad\ud130 \uc124\uc815 \ud45c\uc2dc\uba85 \ud574\uc11d \ub2e8\uc704 \ud14c\uc2a4\ud2b8",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:03.427Z",
+      "time": "0.0"
+    },
+    {
+      "name": "\uac00\uc871 \uad00\uacc4 \uadf8\ub798\ud504\uc758 \ud604\uc7ac \uadfc\uac70\uc640 \ubcf5\uad6c \uc21c\ud658 \uac80\uc99d",
+      "tests": "7",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:46.627Z",
+      "time": "0.058"
+    },
+    {
+      "name": "\ud68c\ucc28 \uc644\ub8cc \uc2dc \uc138\uacc4\uad00 \uc548\uc804 \uc790\ub3d9 \ubc18\uc601",
+      "tests": "32",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:01.747Z",
+      "time": "0.145"
+    },
+    {
+      "name": "\ud68c\ucc28 \uc6d0\ubb38 \ud30c\uae30 \ucc98\ub9ac\uae30 \ub2e8\uc704 \ud14c\uc2a4\ud2b8",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:24.551Z",
+      "time": "0.129"
+    },
+    {
+      "name": "\uce90\ub9ad\ud130 Fact 2\ucc28 \ube44\uad50 Worker Service \ub2e8\uc704 \ud14c\uc2a4\ud2b8",
+      "tests": "28",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:05.792Z",
+      "time": "0.106"
+    },
+    {
+      "name": "\uc554\ud638\ud654 \uac1c\uc778 \uc774\ubbf8\uc9c0\uc758 \uc18c\uc720\uad8c\u00b7\uc120\ud0dd\u00b7\uc800\uc7a5 \uacbd\uacc4",
+      "tests": "17",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:12:57.428Z",
+      "time": "0.646"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.upload.controller.SettingBookQueueTransactionIntegrationTest",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:12:22.759Z",
+      "time": "0.627"
+    },
+    {
+      "name": "Java\u00b7Python \ucc44\ud305 \uc2e4\ud589 v1 fixture",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:10.220Z",
+      "time": "0.013"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.upload.controller.FrozenCurrentCaptureFailureIntegrationTest",
+      "tests": "217",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:53.939Z",
+      "time": "5.385"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.character.service.CharacterNarrativeTimeFinalizationTest",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:05.899Z",
+      "time": "0.117"
+    },
+    {
+      "name": "\uce90\ub9ad\ud130 \uc774\ubbf8\uc9c0 \uc790\ub3d9 \uc5f0\uacb0\u00b7\uc218\ub3d9 \uc120\ud0dd\u00b7\uad8c\ud55c",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:12:56.373Z",
+      "time": "0.549"
+    },
+    {
+      "name": "\uc138\uacc4\uad00 \uc124\uc815 \ud6c4\ubcf4 API \ud1b5\ud569 \ud14c\uc2a4\ud2b8",
+      "tests": "52",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:12:58.691Z",
+      "time": "0.911"
+    },
+    {
+      "name": "\uc124\uc815 \ud6c4\ubcf4 \uac80\ud1a0 API \ud1b5\ud569 \ud14c\uc2a4\ud2b8",
+      "tests": "55",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:01.546Z",
+      "time": "0.914"
+    },
+    {
+      "name": "\uc124\uc815 \ud6c4\ubcf4 Schema Resolver \ud14c\uc2a4\ud2b8",
+      "tests": "19",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:03.441Z",
+      "time": "0.002"
+    },
+    {
+      "name": "PostgreSQL \uc804\uccb4 \ubd84\uc11d \uc694\uccad \uc870\ud68c\uc640 \uc548\uc804\ud55c \uae30\uc874 \uc2e4\ud589 \ubcf5\uc6d0",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:53.057Z",
+      "time": "2.128"
+    },
+    {
+      "name": "\ud68c\ucc28 \uc5c5\ub85c\ub4dc\uc640 \uc6d0\uace0 \uad00\ub9ac API \ud1b5\ud569 \ud14c\uc2a4\ud2b8",
+      "tests": "67",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:22.677Z",
+      "time": "1.074"
+    },
+    {
+      "name": "\ud734\ub300\ud3f0 \uc778\uc99d \uc11c\ube44\uc2a4 \ub2e8\uc704 \ud14c\uc2a4\ud2b8",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:57.308Z",
+      "time": "0.324"
+    },
+    {
+      "name": "\uc138\uacc4\uad00 \uc124\uc815 \ube44\uad50 migration \uacc4\uc57d",
+      "tests": "7",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:10.298Z",
+      "time": "0.003"
+    },
+    {
+      "name": "CharacterFact \uc124\uc815 \uac80\uc0c9\u00b7\uc0c1\uc138 API \ud1b5\ud569 \ud14c\uc2a4\ud2b8",
+      "tests": "19",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:59.869Z",
+      "time": "1.676"
+    },
+    {
+      "name": "\uc774\uba54\uc77c \uc778\uc99d Mapper \ub2e8\uc704 \ud14c\uc2a4\ud2b8",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:56.259Z",
+      "time": "0.0"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepositoryTest",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:03.443Z",
+      "time": "0.489"
+    },
+    {
+      "name": "\uacf5\uac1c \ucc44\ud305 \ube44\ud65c\uc131 \uc0c1\ud0dc\uc758 \uc6b4\uc601 \ubc31\ud544\u00b7\uc778\uc99d\u00b7\ubcf5\uad6c \uacc4\uc57d",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:14.031Z",
+      "time": "0.662"
+    },
+    {
+      "name": "\uce90\ub9ad\ud130 \ud0c0\uc784\ub77c\uc778 \ub2e4\uc911 \ud544\ud130 \uc815\uaddc\ud654",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:03.430Z",
+      "time": "0.001"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.upload.controller.SettingBookReferenceTimePostgresIntegrationTest",
+      "tests": "86",
+      "skipped": "86",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:12:23.387Z",
+      "time": "0.0"
+    },
+    {
+      "name": "\uac00\uc871 \uad00\uacc4 \ud6c4\ubcf4\u00b7\ud655\uc815\u00b7\ud604\uc7ac \uadfc\uac70 API \ud1b5\ud569 \uac80\uc99d",
+      "tests": "26",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:31.868Z",
+      "time": "0.98"
+    },
+    {
+      "name": "\uc2e4\uc81c Spring\u2194FastAPI \ub2e8\uc77c \uc9c8\ubb38 HTTP \uc655\ubcf5",
+      "tests": "1",
+      "skipped": "1",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:14.025Z",
+      "time": "0.0"
+    },
+    {
+      "name": "\uba85\uc2dc \uc870\uc0c1 \uc138\ub300 \uc218\uc640 \uc774\ubbf8 \uc54c\ub824\uc9c4 \ubd80\ubaa8 \uacbd\ub85c\uc758 \uc77c\uad00\uc131",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:46.626Z",
+      "time": "0.0"
+    },
+    {
+      "name": "\uc124\uc815 \ud6c4\ubcf4 Service \ub2e8\uc704 \ud14c\uc2a4\ud2b8",
+      "tests": "66",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:09.911Z",
+      "time": "0.309"
+    },
+    {
+      "name": "\ubbf8\uc9c0\uc6d0 \uac00\uc871 \uc124\uc815 \uc720\ud615\uc758 \ud569\uc131 \ud68c\uadc0 \uc0ac\ub840",
+      "tests": "35",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:46.592Z",
+      "time": "0.007"
+    },
+    {
+      "name": "PostgreSQL\uc5d0\uc11c \uc124\uc815 \uc870\ud68c\u00b7\uc791\ud488 collection\u00b7\ubcc0\uacbd \uac10\uc9c0 \uacc4\uc57d\uc744 \ud655\uc778\ud55c\ub2e4",
+      "tests": "43",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:50.845Z",
+      "time": "2.954"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.upload.controller.SettingBookCommittedAcceptancePostgresIntegrationTest",
+      "tests": "23",
+      "skipped": "23",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:12:22.247Z",
+      "time": "0.0"
+    },
+    {
+      "name": "\ud655\uc815 \uc138\uacc4\uad00 \uc124\uc815 API \ud1b5\ud569 \ud14c\uc2a4\ud2b8",
+      "tests": "8",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:12:59.602Z",
+      "time": "0.537"
+    },
+    {
+      "name": "\uc774\uba54\uc77c \uc778\uc99d API \ud1b5\ud569 \ud14c\uc2a4\ud2b8",
+      "tests": "7",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:53.629Z",
+      "time": "1.043"
+    },
+    {
+      "name": "\uce90\ub9ad\ud130 \uc124\uc815 Schema Registry Repository \ud1b5\ud569 \ud14c\uc2a4\ud2b8",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:03.932Z",
+      "time": "0.648"
+    },
+    {
+      "name": "\uccab \ubd84\uc11d \uc548\ub0b4 \ub3d9\uc2dc \uc120\uc810 \ud1b5\ud569",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:02.245Z",
+      "time": "0.582"
+    },
+    {
+      "name": "\ubd84\uc11d \uc811\uc218\uc640 \uacb0\uacfc \uc900\ube44 \uc9c0\ud45c\uc758 \uc2e4\uc81c \uc800\uc7a5 \uacbd\uacc4",
+      "tests": "15",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:03.360Z",
+      "time": "0.741"
+    },
+    {
+      "name": "\uac80\uc0c9 \uc778\uc6a9\uc758 \uc2e4\ud589 \uc778\uc99d\u00b7\uc2e4\uc81c \uc6d0\ubb38\u00b7\ucd5c\uc885 \uacb0\uacfc PostgreSQL \uacc4\uc57d",
+      "tests": "40",
+      "skipped": "1",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:14.693Z",
+      "time": "3.054"
+    },
+    {
+      "name": "AI \ud1a0\ud070 \ucd94\uac00 \uc0ac\uc6a9\ub7c9 \uc694\uccad API \ud1b5\ud569",
+      "tests": "6",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:41.611Z",
+      "time": "4.077"
+    },
+    {
+      "name": "\ubaa8\ub378\ubcc4 \uc0ac\uc6a9\ub7c9 \uc6d0\uc7a5\uc758 \uc608\uc57d\u00b7\uc815\uc0b0\u00b7\ud574\uc81c",
+      "tests": "8",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:45.779Z",
+      "time": "0.063"
+    },
+    {
+      "name": "\uc138\uacc4\uad00 \uc124\uc815 Worker \ub0b4\ubd80 API \ud1b5\ud569 \ud14c\uc2a4\ud2b8",
+      "tests": "45",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:00.139Z",
+      "time": "0.903"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingExtractionAssertionTest",
+      "tests": "14",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:01.071Z",
+      "time": "0.001"
+    },
+    {
+      "name": "\ud604\uc7ac \ud504\ub85c\ud544 provenance \ubcc0\uacbd\uc758 \uad00\uacc4 \uc7ac\ucc98\ub9ac \ud45c\uc9c0",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:03.429Z",
+      "time": "0.001"
+    },
+    {
+      "name": "\ub204\uc801 \ubd84\uc11d\uc758 \uace0\uc815 \uc785\ub825 \ucc38\uace0 \ubaa9\ub85d",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:49.460Z",
+      "time": "0.045"
+    },
+    {
+      "name": "\uc77c\ud68c\uc131 \ub300\ud654\uc758 \uc21c\uc11c\u00b7\ub9cc\ub8cc\u00b7\ubcf8\ubb38 \uc0ad\uc81c\u00b7\uc815\uc0b0 \uacc4\uc57d",
+      "tests": "21",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:17.907Z",
+      "time": "0.84"
+    },
+    {
+      "name": "HTTP requestId \ud544\ud130 \uc218\uba85",
+      "tests": "9",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:10.865Z",
+      "time": "0.003"
+    },
+    {
+      "name": "\uc774\uba54\uc77c \uc778\uc99d \uc2dc\uc791 \uc124\uc815 \uac80\uc99d",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:10.865Z",
+      "time": "0.0"
+    },
+    {
+      "name": "\uce90\ub9ad\ud130 \ud655\uc815\uc758 \uc778\ubb3c \uc804\uccb4 \ube44\uad50 \ubb38\ub9e5 \uac80\uc99d",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:05.512Z",
+      "time": "0.057"
+    },
+    {
+      "name": "\uac80\uc0c9 \uccad\ud06c \uc804\uccb4 migration\u00b7JPA \ub9e4\ud551\u00b7\uc6d0\ubb38 \uc0dd\uba85\uc8fc\uae30",
+      "tests": "7",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:46.743Z",
+      "time": "2.015"
+    },
+    {
+      "name": "\ucc44\ud305 \uc2e4\ud589 \uae30\ud55c\uc758 \ub370\uc774\ud130\ubca0\uc774\uc2a4 \uc815\ubc00\ub3c4",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:17.905Z",
+      "time": "0.002"
+    },
+    {
+      "name": "\ud655\uc815 \uc774\ubbf8\uc9c0 \uc601\uc18d\ud654\u00b7\uae30\uc874 \ub370\uc774\ud130 \ubcf4\uc815",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:12:56.923Z",
+      "time": "0.505"
+    },
+    {
+      "name": "\uc791\ud488 API \ud1b5\ud569 \ud14c\uc2a4\ud2b8",
+      "tests": "20",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:12:24.891Z",
+      "time": "30.882"
+    },
+    {
+      "name": "\uc138\uacc4\uad00 \ucd94\ucd9c \uc2e0\ub8b0\ub3c4\ub294 \uc720\ud6a8\ud55c \ud655\ub960\uac12\uc744 \uc6d0\ub798 \uac12\uc73c\ub85c \ubcf4\uc874\ud55c\ub2e4",
+      "tests": "9",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:01.043Z",
+      "time": "0.023"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.global.exception.GlobalExceptionHandlerTest",
+      "tests": "7",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:15.967Z",
+      "time": "0.205"
+    },
+    {
+      "name": "\ud734\ub300\ud3f0 \uc778\uc99d\uacfc \ud68c\uc6d0\uac00\uc785 API \ud1b5\ud569",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:54.784Z",
+      "time": "0.813"
+    },
+    {
+      "name": "\uc758\uacac \uc548\ub0b4 \ub3d9\uc2dc \uc120\uc810 \ud1b5\ud569",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:26.171Z",
+      "time": "0.497"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.analysis.service.OrderedAnalysisHttpWorkerIntegrationTest",
+      "tests": "9",
+      "skipped": "9",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:52.028Z",
+      "time": "0.0"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.analysis.processor.SettingBookAutomaticEvidenceValidatorTest",
+      "tests": "12",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:49.693Z",
+      "time": "0.042"
+    },
+    {
+      "name": "\ub9c8\uc9c0\ub9c9 \uc804\uccb4 \ud68c\ucc28 \ubd84\uc11d \uc694\uccad\uc758 \uc900\ube44 \uc2dc\uac04 \uc870\ud68c",
+      "tests": "9",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:55.326Z",
+      "time": "0.592"
+    },
+    {
+      "name": "\uc138\uacc4\uad00 \ub204\uc801 \ubd84\uc11d \uc0ac\uc6a9\uc790 \ud655\uc815 \uac80\uc99d",
+      "tests": "8",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:01.679Z",
+      "time": "0.068"
+    },
+    {
+      "name": "\uc138\uacc4\uad00 \uacf5\uc6a9 \uc774\ubbf8\uc9c0 \ub3c4\uac10\uacfc \uc218\ub3d9 \uc120\ud0dd",
+      "tests": "9",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:12:58.074Z",
+      "time": "0.496"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.global.monitoring.ServiceUsageMetricsTest",
+      "tests": "6",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:16.176Z",
+      "time": "0.001"
+    },
+    {
+      "name": "\uad00\uacc4 \uadfc\uac70 \uc751\ub2f5\uc758 \ud604\uc7ac\uc131 \ubc0f \uc6d0\ubb38 \uc870\ud68c \uac00\ub2a5 \uc5ec\ubd80",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:46.542Z",
+      "time": "0.001"
+    },
+    {
+      "name": "\uc138\uacc4\uad00 \uc124\uc815 \ud6c4\ubcf4 Entity \ub2e8\uc704 \ud14c\uc2a4\ud2b8",
+      "tests": "10",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:01.066Z",
+      "time": "0.001"
+    },
+    {
+      "name": "\uc778\uc99d \ucee8\ud2b8\ub864\ub7ec",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:52.028Z",
+      "time": "0.005"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.upload.controller.SettingBookCommittedAcceptanceIntegrationTest",
+      "tests": "41",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:12:19.137Z",
+      "time": "3.109"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.upload.controller.SettingBookRevisionCasPostgresIntegrationTest",
+      "tests": "6",
+      "skipped": "6",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:12:24.759Z",
+      "time": "0.0"
+    },
+    {
+      "name": "\uacc4\uc815\ubcc4 \uccab \ubd84\uc11d \ubc29\uc2dd \uc548\ub0b4",
+      "tests": "6",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:45.857Z",
+      "time": "0.816"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepositoryTest",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:04.580Z",
+      "time": "0.49"
+    },
+    {
+      "name": "\ud68c\ucc28 \uad50\uccb4 \uc800\uc7a5\uc18c \ub864\ubc31 \ubcf4\uc0c1 \ub2e8\uc704 \ud14c\uc2a4\ud2b8",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:24.020Z",
+      "time": "0.001"
+    },
+    {
+      "name": "\ubd84\uc11d \uc791\uc5c5 Worker \ub0b4\ubd80 API \ud1b5\ud569 \ud14c\uc2a4\ud2b8",
+      "tests": "28",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:09:48.366Z",
+      "time": "1.076"
+    },
+    {
+      "name": "\uc774\uba54\uc77c \uac00\uc785\uc758 \ud68c\uc6d0 \uc800\uc7a5 \ubc0f \ud2b8\ub79c\uc7ad\uc158 \uacbd\uacc4",
+      "tests": "6",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:10:52.716Z",
+      "time": "0.912"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.upload.controller.SettingBookAnalysisPostgresIntegrationTest",
+      "tests": "214",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:12:04.447Z",
+      "time": "14.524"
+    },
+    {
+      "name": "\uc778\uc99d \uac70\uc808 HTTP \uc751\ub2f5\uc758 Prometheus API \uacbd\ub85c \uacc4\uce21",
+      "tests": "6",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:13:11.744Z",
+      "time": "1.918"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepositoryTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:05.070Z",
+      "time": "0.442"
+    },
+    {
+      "name": "Worker \uce90\ub9ad\ud130 \ube44\uad50\uc640 \uc11c\uc0ac \uc2dc\uc810 HTTP \uacc4\uc57d",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:02.461Z",
+      "time": "0.813"
+    },
+    {
+      "name": "\uc124\uc815\uc9d1 \ud3b8\uc9d1 \uc2dc\uc791 revision\uc758 \uc6d0\uc790 \uc800\uc7a5 \uac80\uc99d",
+      "tests": "11",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:12:23.387Z",
+      "time": "1.372"
+    },
+    {
+      "name": "org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessorTest",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-23T17:11:03.429Z",
+      "time": "0.0"
+    }
+  ],
+  "totals": {
+    "tests": 3792,
+    "skipped": 236,
+    "failures": 0,
+    "errors": 0
+  },
+  "testSourceHashes": {
+    "src/test/java/org/monitoring/catchholebackend/CatchHoleBackendApplicationTests.java": "12bdabc8ea14c4fe446d469a3fd535d19dbca72f17c7982707cee307d4d257df",
+    "src/test/java/org/monitoring/traceverification/TraceVerificationApplication.java": "ae1bd2cabab3ec739f592a917269a8412ab53adcaf3e84faa9c7ce3502d31ae8",
+    "src/test/java/org/monitoring/catchholebackend/support/TestClassContextCustomizerFactory.java": "abb544e69217a6e6e660c6827791a021ffbe5fbf978df1efc57e18be1b380695",
+    "src/test/java/org/monitoring/catchholebackend/support/ReviewUxHttpRuntimeTest.java": "484727796f811ee460a1a547f7361367ee558891792e92980c00ad3a2cfbba07",
+    "src/test/java/org/monitoring/catchholebackend/global/notification/DiscordWebhookClientTest.java": "1371cb5e46cd30d609db5f867c6e84ef1cffbc3ca074cb201db70ee36f3a965f",
+    "src/test/java/org/monitoring/catchholebackend/global/storage/S3ObjectStorageTest.java": "0e2da78f36541f03f2a0b27f229b37b246dcbd18b1f92384ca998d2d59a2b6f4",
+    "src/test/java/org/monitoring/catchholebackend/global/monitoring/ServiceUsageMetricsTest.java": "d5c03b92ec454a50e916066b9af86b1a4ab6bfc4a829323f7c2b974d4f803fb6",
+    "src/test/java/org/monitoring/catchholebackend/global/monitoring/ServiceUsageSnapshotPostgresIntegrationTest.java": "f3b3291973203faa6ea918f9c5068ed076b4abe5fa23a1d742aa4697b220aca7",
+    "src/test/java/org/monitoring/catchholebackend/global/monitoring/ServiceUsageMetricsSchedulerTest.java": "7eaf8f5315580b7a64d0830fe4bd9b24eea962c0b9f8093c1003d657ab3ab6ca",
+    "src/test/java/org/monitoring/catchholebackend/global/monitoring/ServiceUsageSnapshotRepositoryIntegrationTest.java": "8a099179968700b616b35d3293af8fc37b228357eda53bc00b2045dc6511362b",
+    "src/test/java/org/monitoring/catchholebackend/global/exception/GlobalExceptionHandlerTest.java": "fb1470ad5b6ee4789332aabc526fae60ce0f9a306130e1a2f4f6a921b9b6361e",
+    "src/test/java/org/monitoring/catchholebackend/global/exception/GlobalExceptionHandlerTestController.java": "9741019db5df113c447e00fca6cab0adb90c9773d198d4bb11ee70360ff23d12",
+    "src/test/java/org/monitoring/catchholebackend/global/config/database/EmailSignupMigrationIntegrationTest.java": "a41a5cff261e02ba1e333a9a14dfcd94bf0613a5084c4e7027cf900547d3fac5",
+    "src/test/java/org/monitoring/catchholebackend/global/config/database/GeneralFeedbackMigrationContractTest.java": "8dd1a21b9526f05f285a003d63cc63798a562944bc8f01092cc9b897a802dda0",
+    "src/test/java/org/monitoring/catchholebackend/global/config/database/CharacterFactComparisonMigrationContractTest.java": "9057d02636985d91c734509ce7774d4fbb68de4b3c39134f9988f2fd27a2eeaf",
+    "src/test/java/org/monitoring/catchholebackend/global/config/database/OrderedAnalysisMigrationIntegrationTest.java": "7b3c6084052983dedcd2ef075b8e3aa99454be2fc200294c4a3d9bb1b1a5ddf0",
+    "src/test/java/org/monitoring/catchholebackend/global/config/database/CharacterPageMigrationContractTest.java": "f6cb7b209a17f17ab608dfb8fee9263a332cec1c31c5d0d2044b1d533990efa6",
+    "src/test/java/org/monitoring/catchholebackend/global/config/database/CharacterReviewDecisionMigrationIntegrationTest.java": "7e4cb804c54a47e0a98799feb2b2f36372fb0cc1ec212a3e692956b410a25d57",
+    "src/test/java/org/monitoring/catchholebackend/global/config/database/FeedbackPromptMigrationIntegrationTest.java": "9d28106cce4eede24725de3b91b806f66034b2798e5748f0e99c9a1bacee1427",
+    "src/test/java/org/monitoring/catchholebackend/global/config/database/WorldSettingComparisonMigrationContractTest.java": "96ab950245ddee1e8a4c0a6b350c571ec8eb72cd2351dcdb77056807a4d56231",
+    "src/test/java/org/monitoring/catchholebackend/global/config/database/AiTokenWeightMigrationIntegrationTest.java": "53bf460abd10fa356b4bdd1ddde49c03e9be2e2ad04ab37fb6797ab87e0ae4f4",
+    "src/test/java/org/monitoring/catchholebackend/global/config/database/SettingBookReferenceTimeAiMigrationIntegrationTest.java": "a4e3353062620a3d8c052ab7236adfebee220538a5ac6d90cd3ad8bd4e916898",
+    "src/test/java/org/monitoring/catchholebackend/global/config/chat/ChatPropertiesTest.java": "c2595331dec9376876c8e809d6ae236a352aac43e84d3c60a538095f137f88b9",
+    "src/test/java/org/monitoring/catchholebackend/global/config/swagger/OpenApiContractIntegrationTest.java": "9ef46c4fb10b27e1062207c07a81b75dccc3014e058db468186e22cba8863d27",
+    "src/test/java/org/monitoring/catchholebackend/global/config/emaildelivery/EmailDeliverySmtpIntegrationTest.java": "835e1b74f84acf84f632fcd97c99ca8478c3ca9358bfe3d38ed67441088be561",
+    "src/test/java/org/monitoring/catchholebackend/global/config/emaildelivery/EmailDeliveryConfigTest.java": "59b16534d610e9080f431b46e45f19a49e87dc7ef40638094a5b06778af16b16",
+    "src/test/java/org/monitoring/catchholebackend/global/config/monitoring/ProductionMetricsIntegrationTest.java": "5b4d2db4fc6dd9b2f3ec5bfa9271e3d2303890f6828948176ec25e3575f7ebaf",
+    "src/test/java/org/monitoring/catchholebackend/global/config/monitoring/SecurityRejectionMetricsIntegrationTest.java": "7aff93a4f94939a7cc0d96b5162fb2ee5b6cf298352996dee0ff73c76e0f5c68",
+    "src/test/java/org/monitoring/catchholebackend/global/config/logging/RequestIdFilterTest.java": "3a7f3bf9af0b1ccbd9201d406f9b1478ff73e14c7d0f4a912851fa25e2aa74b2",
+    "src/test/java/org/monitoring/catchholebackend/global/config/logging/RequestLoggingIntegrationTest.java": "636335a7080579e8c520a183313eb4efceab02bf3be794bf0d5b26735d0efba4",
+    "src/test/java/org/monitoring/catchholebackend/global/config/emailverification/EmailVerificationConfigTest.java": "439212ab75b3567653c080f9a3ae4d60d0dbfd56177060410d1fe1437abb0efc",
+    "src/test/java/org/monitoring/catchholebackend/domain/chat/ChatHybridContractTest.java": "70904a50322d68ca26571ae1aaf72f74c6d5488a7664bde555f787fbd0e51157",
+    "src/test/java/org/monitoring/catchholebackend/domain/chat/ChatOperationsIntegrationTest.java": "c46496992f9ebef53dc386aecfb6a2beca0339d326a03bb9e592535b0b3cb00f",
+    "src/test/java/org/monitoring/catchholebackend/domain/chat/ChatQaHttpEndToEndTest.java": "b47b93cf4249230cdbb4c036bf750aa00df1bd42fa4463cbf3ef6642bb1fbc84",
+    "src/test/java/org/monitoring/catchholebackend/domain/chat/ChatExecutionIntegrationTest.java": "9f77d91a150b811af7c8eac77ce56d3507bdb9cf73074d9baf3f050fb5c31430",
+    "src/test/java/org/monitoring/catchholebackend/domain/chat/ChatRetrievalSourcesPostgresIntegrationTest.java": "4ab2910051a935da427a0655395781cf990617b028dabe1c28540d9dcdc9e163",
+    "src/test/java/org/monitoring/catchholebackend/domain/chat/ChatSessionPostgresIntegrationTest.java": "28229cf701f979c80d435105f5f040bd8fc09e047ca7fab7a7dd3c703abc9a2e",
+    "src/test/java/org/monitoring/catchholebackend/domain/chat/ChatSessionIntegrationTest.java": "df705ba84028da4b98df565aa6188abcc8951e5cd7609bdab4576de4e8a91e3f",
+    "src/test/java/org/monitoring/catchholebackend/domain/chat/ChatHttpEndToEndTest.java": "e1ba3cda2f6bb5de9aae396b90994b3cb7b0986a636fa30ba527d042714a7455",
+    "src/test/java/org/monitoring/catchholebackend/domain/chat/ChatExecutionPostgresIntegrationTest.java": "8e174a85dbccbe22e5dd12f811b86899da6b25d1ea3336fc0b0adbb4900b712a",
+    "src/test/java/org/monitoring/catchholebackend/domain/chat/ChatExecutionContractTest.java": "6379c67eb4b1d1528e87e6f54e8e87fcf0a94d4db9ccb1c3fc2859b561e57767",
+    "src/test/java/org/monitoring/catchholebackend/domain/chat/ChatRunTest.java": "b230a274c126df876eb262feb3d1d5bd4dde8678ef1b52034200d33ad3684057",
+    "src/test/java/org/monitoring/catchholebackend/domain/settingtool/SettingToolScalarValueTest.java": "9e12c146f86985efe5cbfca335f9d86f80c2a2f70f806705ce49fd7d64948116",
+    "src/test/java/org/monitoring/catchholebackend/domain/settingtool/SettingToolPostgresIntegrationTest.java": "f753ac770298877d221196cc4d19591d10357aa1404f7cee44d0e0f8a8623069",
+    "src/test/java/org/monitoring/catchholebackend/domain/settingtool/SettingToolIntegrationTest.java": "777e8f0cdf65ba767e5a90f41e1dadb6b5df5a95a59f0f9d08c151c7e067b678",
+    "src/test/java/org/monitoring/catchholebackend/domain/worldimage/PersistedImageIntegrationTest.java": "234c642c1354e58ae74c5b7fde2d728d7ef1dfda5b94ad0de36268ee1134d226",
+    "src/test/java/org/monitoring/catchholebackend/domain/worldimage/WorldSettingImageMatcherTest.java": "6524edc084b49287296041627350a9c889360de11f52c3e686f3e0dd631d9eaf",
+    "src/test/java/org/monitoring/catchholebackend/domain/worldimage/WorldImageIntegrationTest.java": "61102b0e85341b0dc6971e24f833f4c982b912bb14d4f264932c0197606f26ba",
+    "src/test/java/org/monitoring/catchholebackend/domain/worldimage/PrivateWorldImageIntegrationTest.java": "0b77d8c8c713e5258b93bd80e55c649178c898dc7c0aa71eb8f4b9262f8b413d",
+    "src/test/java/org/monitoring/catchholebackend/domain/worldimage/CharacterImageIntegrationTest.java": "03e15ac786e389f09dcc1f48619440e2adf8555dd4412a7a88943ffc22eb90f7",
+    "src/test/java/org/monitoring/catchholebackend/domain/retrieval/RetrievalIndexPostgresIntegrationTest.java": "3c43540880c317cee63a919c4ca24753164bff90ab57ca5c069cbc9cb4f6808c",
+    "src/test/java/org/monitoring/catchholebackend/domain/upload/parser/HangulDocumentReaderTest.java": "3a4ee010e76950f5a6e3d549f205997eed700d9075105daa6a4eaace9598bd68",
+    "src/test/java/org/monitoring/catchholebackend/domain/upload/controller/SettingBookCommittedAcceptanceIntegrationTest.java": "a552c174b51a6a55e59cd10300d2468409c9ca813943e8ea148b08599c77060a",
+    "src/test/java/org/monitoring/catchholebackend/domain/upload/controller/SettingBookCommittedAcceptancePostgresIntegrationTest.java": "82f33558661e69579f7f7b073d95e68b0224940c1b86380d96b31dd63c4ee05c",
+    "src/test/java/org/monitoring/catchholebackend/domain/upload/controller/SettingBookMainMigrationPostgresIntegrationTest.java": "e0fee839c80d616c0eb280b07b3802e15cd43052ea3b15d9472b0dfae43a75d5",
+    "src/test/java/org/monitoring/catchholebackend/domain/upload/controller/SettingBookRevisionCasIntegrationTest.java": "974e7c37d947f9a4b308fbd175728a03541f4f0cccdbb6caa3f0ddf66d4d3a08",
+    "src/test/java/org/monitoring/catchholebackend/domain/upload/controller/SettingBookQueueTransactionIntegrationTest.java": "08dfa0afbea0cd2bece6fc5ba778e230f9334df7a1d5b753547c78327bf5b023",
+    "src/test/java/org/monitoring/catchholebackend/domain/upload/controller/SettingBookAnalysisIntegrationTest.java": "2ba19d2e04087f882aa835429156320a88db2e9592e2aee9520e6d8d2155b9de",
+    "src/test/java/org/monitoring/catchholebackend/domain/upload/controller/SettingBookRevisionCasPostgresIntegrationTest.java": "4c0f42ef50e815edc36b3a4dc749935647b4b987975f8e91a8fb5fbeec991a09",
+    "src/test/java/org/monitoring/catchholebackend/domain/upload/controller/SettingBookAnalysisPostgresIntegrationTest.java": "874f25752eed8e3450ceec881904d4753fb9879df6e7d4f281be5fce14b61182",
+    "src/test/java/org/monitoring/catchholebackend/domain/upload/controller/SettingBookReferenceTimePostgresIntegrationTest.java": "06b06d723ff0d59b010ab23d72ca4f321250f141ffa2272c2c60e9aa4f7401d1",
+    "src/test/java/org/monitoring/catchholebackend/domain/upload/controller/SettingBookControllerIntegrationTest.java": "c7719b616469ba394c023efe374d8f90b1f15d7eb8371ba8a060f4f7d49e5349",
+    "src/test/java/org/monitoring/catchholebackend/domain/upload/controller/FrozenCurrentCaptureFailureIntegrationTest.java": "03516e894aac11ac95b1b4c8cd2fc53612d6e27d107a60cc5424b9ac8eae7fd9",
+    "src/test/java/org/monitoring/catchholebackend/domain/legal/controller/LegalDocumentControllerIntegrationTest.java": "132f2f482874dd470d381ab5b806734efe0c2247f844b9d935abc1d80fed1f01",
+    "src/test/java/org/monitoring/catchholebackend/domain/legal/service/LegalDocumentServiceImplTest.java": "c4dad7b3acf0270f32f23dff99b88fac76c896d9cf25b06bd435b40e8e0ca853",
+    "src/test/java/org/monitoring/catchholebackend/domain/aitoken/entity/AiTokenAccountTest.java": "0959b993edbbff1372c02b3695abfb88556869bb67f65ebc1882ded25afed9e5",
+    "src/test/java/org/monitoring/catchholebackend/domain/aitoken/entity/AiTokenUsageTest.java": "46ad34b3542e9ba9beeaa3d330d3b5359f3fd0602fc85b1a0d07f8ce42aa66a5",
+    "src/test/java/org/monitoring/catchholebackend/domain/aitoken/mapper/AiTokenMapperTest.java": "46f3ad74fd83017ef891279b70e2a4d51ce7e459b5cf21a01bf368b6a4d34a89",
+    "src/test/java/org/monitoring/catchholebackend/domain/aitoken/controller/AiTokenExtensionControllerIntegrationTest.java": "ee4a5d652b1a02abda2f6d3818f0adb3c55e6cabc2899c40af49f15f07179775",
+    "src/test/java/org/monitoring/catchholebackend/domain/aitoken/type/AiTokenChargePolicyTest.java": "6c9f9af249151d430d04ff15c66cd0e58f529e57c1f3cf4922444070d041ef59",
+    "src/test/java/org/monitoring/catchholebackend/domain/aitoken/service/AiTokenServiceImplTest.java": "5790d1dec7fd693801be67a3207e42b6c8aea08a0ba4e0b1156440355d804b5a",
+    "src/test/java/org/monitoring/catchholebackend/domain/work/controller/WorkControllerIntegrationTest.java": "5c1ebcf91f8ea30a9ef5254e73c4d24caddd55da77ce5153e57a80be1765b35e",
+    "src/test/java/org/monitoring/catchholebackend/domain/work/type/WorkGenreTest.java": "0c8fa5b056a340b6237a370a852a21a61c40ffd4346e4f6b64a3cdad028682b3",
+    "src/test/java/org/monitoring/catchholebackend/domain/work/service/WorkPurgeIntegrationTest.java": "f4a8195410231baf53ae006f55c25ebb2b96824c1f7e31918183357dc2f0f5e5",
+    "src/test/java/org/monitoring/catchholebackend/domain/relationship/processor/ExplicitFamilyRelationshipParserTest.java": "8611d32571c50492f283ede67978397281a6a74351a5a1bfbaf7f9e447b45ba7",
+    "src/test/java/org/monitoring/catchholebackend/domain/relationship/processor/RelationshipGenerationRulesTest.java": "59f0dbb7e58556343142b93817d18172497a597d57becd95ab5bb3b30662e421",
+    "src/test/java/org/monitoring/catchholebackend/domain/relationship/processor/RelationshipSourceResolverTest.java": "d4f694e48aed9b62f0d07f9d3586305aa6b0422058763017ccd012e55333ca9f",
+    "src/test/java/org/monitoring/catchholebackend/domain/relationship/processor/RelationshipContractTest.java": "b8725fdf6ce9efd845b1c27c20b94a8d64c382ba89da6e1824d1a5fbf33fb959",
+    "src/test/java/org/monitoring/catchholebackend/domain/relationship/processor/ExplicitFamilyRelationshipCorpusTest.java": "b7d8d209a9f25378634a8a0118f559ab7c39975fd0aae8e4f85840531aed8171",
+    "src/test/java/org/monitoring/catchholebackend/domain/relationship/processor/RelationshipGraphReaderTest.java": "9458f40e531c87c7f4f4b97afc118b3f65f65169b9ca8afedc9483a19138cf1b",
+    "src/test/java/org/monitoring/catchholebackend/domain/relationship/processor/FamilyTreeRoleResolverTest.java": "00bfa6189160841f85ce04a162fa8f2c10a519bf60bf8a819c84b17ab457c753",
+    "src/test/java/org/monitoring/catchholebackend/domain/relationship/processor/ExplicitFamilyRelationshipUnsupportedCorpusTest.java": "d457e99d2b0b46511b579831d3c6714a5a8568b9dfb2b74ca38fd46b68a5f97c",
+    "src/test/java/org/monitoring/catchholebackend/domain/relationship/processor/FamilyTreeProjectorTest.java": "22166268a45a738e51acd685499a1b428621a33ba5f14cf3d09710af7be861b4",
+    "src/test/java/org/monitoring/catchholebackend/domain/relationship/processor/RelationshipProcessingSchedulerTest.java": "b76037d82140b50c9a577ba06d487ded604e1c6210f60b93b979fe7d970a2483",
+    "src/test/java/org/monitoring/catchholebackend/domain/relationship/mapper/RelationshipMapperTest.java": "af3815222e71bfc5c4702b841b4a3637db5f5c8cb26f5df085159fe976e5406b",
+    "src/test/java/org/monitoring/catchholebackend/domain/relationship/controller/RelationshipProcessingPostgresIntegrationTest.java": "1206bdee445602c3855ed5405493ae308248d8222ea15f402b3ad395e958994f",
+    "src/test/java/org/monitoring/catchholebackend/domain/relationship/controller/CharacterRelationshipPostgresIntegrationTest.java": "e8344479e3ee45a45913ad139e8980b5a04898ed03dad35a2daf70cc3988964d",
+    "src/test/java/org/monitoring/catchholebackend/domain/relationship/controller/FamilyTreePostgresIntegrationTest.java": "531d62187e6021bc1612b0812bcc75c17d091195fd24d3368b4a9c2f5825f9db",
+    "src/test/java/org/monitoring/catchholebackend/domain/relationship/controller/RelationshipProcessingIntegrationTest.java": "757c3ec06f5631705bf110a5927849c501fa6526a50560bb482b22230217212d",
+    "src/test/java/org/monitoring/catchholebackend/domain/relationship/controller/CharacterRelationshipControllerIntegrationTest.java": "6493b92c58da90e5f17ea2297c6c5df530021f086b14fc3e05c6d31ae5cc8c67",
+    "src/test/java/org/monitoring/catchholebackend/domain/relationship/controller/FamilyTreeControllerIntegrationTest.java": "969545463061389ea94bc6525e79ebd3ba7f1201ec21ba502e9ec5305f1c4746",
+    "src/test/java/org/monitoring/catchholebackend/domain/feedback/controller/FeedbackControllerIntegrationTest.java": "482a176245c0e747f76b91e52f17fd1ad071d01ceb8871fc29050a89c1e9d7f3",
+    "src/test/java/org/monitoring/catchholebackend/domain/feedback/service/FeedbackPromptConcurrencyIntegrationTest.java": "981d443b699c83bee795d61651bc2b66006a785cda08973ea79e30d8f4c6c8c3",
+    "src/test/java/org/monitoring/catchholebackend/domain/worldsetting/repository/WorldSettingRepositoryTest.java": "badd776138be673ab808f81aebdef778441d98fd5cc2dde9fbef80a82ac6e6ea",
+    "src/test/java/org/monitoring/catchholebackend/domain/worldsetting/entity/WorldSettingTest.java": "68db92a0639232874cade09b551db54186860eb5509c133da21fae81a8c45152",
+    "src/test/java/org/monitoring/catchholebackend/domain/worldsetting/entity/WorldSettingCandidateTest.java": "e07870bf9f3ae034a4a4591aa2fa811d36b4ff8c60316b3549b4ada0c3cb89ae",
+    "src/test/java/org/monitoring/catchholebackend/domain/worldsetting/processor/WorldSettingExtractionAssertionTest.java": "db74de99c50e0d9d4fc6276e3f9f3780e375d65232e9350d05a5b406acf7d4f1",
+    "src/test/java/org/monitoring/catchholebackend/domain/worldsetting/processor/WorldSettingComparisonDiagnosticsTest.java": "d5cd09f4af0bdf277a0ba9a8c726f0fc7f3d07b212db5d86e2e8a8d378fc72cc",
+    "src/test/java/org/monitoring/catchholebackend/domain/worldsetting/mapper/WorldSettingMapperDiagnosticsTest.java": "7597e720db5d6351a98fa87b6d11645393fe91e8b8e3c7c03665c97b4e2d9b11",
+    "src/test/java/org/monitoring/catchholebackend/domain/worldsetting/controller/WorldSettingCandidateControllerIntegrationTest.java": "655dc55810022ceb2876fba2b97d9038abf19225d2628027c4a2f43be322d2a0",
+    "src/test/java/org/monitoring/catchholebackend/domain/worldsetting/controller/WorldSettingWorkerControllerIntegrationTest.java": "fde2635ace1887f6747b10fd4288d50860400a8e51cfbe6f8d887ee92d06eb39",
+    "src/test/java/org/monitoring/catchholebackend/domain/worldsetting/controller/WorldSettingControllerIntegrationTest.java": "a52d3bc2532fd73312e0d72673ec190c99a92e2e4c06bd72f6b30d676877cc55",
+    "src/test/java/org/monitoring/catchholebackend/domain/worldsetting/service/WorldSettingBookComparisonGroupTest.java": "f40479cca6a9169a3598386fb6e009fd8d58e6aad608b46f25d49d5f4f54bc2f",
+    "src/test/java/org/monitoring/catchholebackend/domain/worldsetting/service/WorldSettingAnalysisConfirmationTest.java": "de6300507408a5f29c14b55c8babc2444db10ac5305545d6898f429091c10a4a",
+    "src/test/java/org/monitoring/catchholebackend/domain/worldsetting/service/WorldSettingConfirmedHistoryProtectionTest.java": "2813cc2662d451aefa709c72de829bbd083a832441ea134f456d5c68b3fd1c93",
+    "src/test/java/org/monitoring/catchholebackend/domain/worldsetting/service/OrderedWorldSettingWorkerTest.java": "5f85b2f979db03615e0235c6aa149544f5d75bf2afa2460a5fc6441a9402e6e4",
+    "src/test/java/org/monitoring/catchholebackend/domain/worldsetting/service/WorldSettingAutomaticApplicationTest.java": "0b5e0a2deef6a863f56e741437139c7dfc2fd0cab7f0143b1b534df3e69ba7d4",
+    "src/test/java/org/monitoring/catchholebackend/domain/worldsetting/dto/request/WorkerWorldSettingCandidatePublishRequestTest.java": "d289297cb337176e061b5f99815c78bd5c8bb50fe5d7911c2d3ca685748e28ff",
+    "src/test/java/org/monitoring/catchholebackend/domain/member/service/MemberWithdrawalOwnedPostgresIntegrationTest.java": "b1c110b74c8ea2d88843970fa331391b099174047c6b48c484bda6c164fcf58d",
+    "src/test/java/org/monitoring/catchholebackend/domain/member/service/MemberWithdrawalIntegrationTest.java": "70fa9052f8dfaa871f67d83a27a9abb75ddb3b0db3c706faf9ad6af05b03a372",
+    "src/test/java/org/monitoring/catchholebackend/domain/member/service/SettingBookWithdrawalPostgresIntegrationTest.java": "6f5268acdf1601d51b8670a0921cb445af0a51c944a9d34c9d417e418efe406d",
+    "src/test/java/org/monitoring/catchholebackend/domain/episode/processor/EpisodeReplacementStorageCompensatorTest.java": "d68f148d7f9c53ecf3e00ced5cb93ec4ad8c7ffe6d99f7a9ec8bb0933dc63097",
+    "src/test/java/org/monitoring/catchholebackend/domain/episode/processor/EpisodeSourcePurgeProcessorTest.java": "d7601b058d76e782af90f42f0edea088a6f29e1e0854182442c07ec7ba38c356",
+    "src/test/java/org/monitoring/catchholebackend/domain/episode/processor/EpisodeSourcePurgeProcessorIntegrationTest.java": "bc5e1f0a43ed06fb057693ed06572b0b89b9b7dbc555263117dc9903f37d0180",
+    "src/test/java/org/monitoring/catchholebackend/domain/episode/processor/EpisodeUploadPolicyTest.java": "efd30f2af10db560b7ecadf70f72c35fce7873c089834ba894be4b8ee71aa430",
+    "src/test/java/org/monitoring/catchholebackend/domain/episode/mapper/EpisodeMapperTest.java": "028c80ecdcb70738698583c53e1ac4d45de43348dc980ef1bf760e8b85f8984a",
+    "src/test/java/org/monitoring/catchholebackend/domain/episode/parser/EpisodeFileParserTest.java": "70edad7076a70ba268c2ac6e63c2a34d8e6885f38398e6f01de93102bc328bf0",
+    "src/test/java/org/monitoring/catchholebackend/domain/episode/controller/EpisodeControllerIntegrationTest.java": "3d22106db4ddb15cd18c5b834e9cc0fc4bb0aa4ca21c9a2659610db4d7a07b83",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/repository/CharacterSettingSchemaRepositoryTest.java": "82decf855af8881e37db28104d64cb9c5de6a62bad002a5261e50e814385694b",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/repository/CharacterFactRepositoryTest.java": "d1fc5abea1859723cbb285c7b98b9122e5ad9a27db0804521defd2df6d4f0989",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/repository/SettingCandidateRepositoryTest.java": "12f3dd1235cf3aadb86bfb90a8cb633726be9502207782b66ef1af647b1a0186",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/repository/WorkCharacterRepositoryTest.java": "acd4208989d78aebfdf633d5575cdfc0070c3797a1114bf4d9454c6015f07de6",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/entity/SettingCandidateTest.java": "04539e10bc1187247a7ac99e89dbf91d3f296dcd3891f38dc3774d8f778acc51",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/processor/CharacterTimelineFilterSelectionTest.java": "f7d235c4f95b86f147d7d454411607307a8fdb8668a2aacb0ec3749fc6569194",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/processor/CharacterSettingValueValidatorTest.java": "224cab110f2c6d0af09648f478d06652909e8161134a83c03de3b78fb0a63c10",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/processor/CharacterSnapshotAccessorTest.java": "d62b2976d4d74aa025406a324ae50f7025c1f3e697730824b3eacf79d86d0817",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/processor/SettingCandidateChronologyTest.java": "ee00d9f53b2fab8fa51bf480a4f75b6be46613a5e6ed3ed9b302970b2916dd34",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/processor/CharacterNarrativeTimeTest.java": "d56b6d817f4bdd37dbd4b16d41ad9c104548a2c5d4db1f43329bdb1a62fa1303",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/processor/SettingCandidateSchemaResolverTest.java": "6c7a9aabf5a9411a22fde32fe1f1b273e46583434031fa0c32bad9a62ec38547",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/processor/CharacterSnapshotSourceRelationshipTriggerTest.java": "48ec44f4a28eadc1db8c818e46c5f120eea1ce1fdba863f7bb7962fe2308bfa2",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/processor/CharacterSettingDisplayNameResolverTest.java": "a0e6ceb655c80659abfffd67a52ce7e96d1c01b120125863131707edc3543308",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/mapper/SettingCandidateMapperTest.java": "72f4b79ae3ed6fe40024b9706ceb4eaa72b49ff1ff8ca56a84b0d5c873978c0a",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/mapper/SettingCandidatePromotionMapperTest.java": "41bcf599c18b3e9ec9cdd1483c9c22f99d8e437f76816c79a3f21049c79d0b20",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/mapper/CharacterFactComparisonWorkerMapperTest.java": "fb15be6dfc8325b4cace6b06ee7d2b7e34b83724ab9a2c7a6046775f09e7ed6c",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/controller/CharacterControllerIntegrationTest.java": "1c0ea809c5cd3bc3e37e42ac212d0022bbb16d3fa59cb5b8ccbed0543501b6c9",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/controller/SettingCandidateControllerIntegrationTest.java": "203c25214d2a08e03848e280b2e458a1937273d29a86f0bf17b8ef29875ed81c",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/controller/CharacterFactControllerIntegrationTest.java": "de31d5df2e2965902325f706af150afe143503ce7c4be5f5e44cc109e9244ee6",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/controller/WorkerNarrativeTimeHttpContractTest.java": "ee62630a5c320a273ffdd8b9803da571a6621ffbe2c7e4bfa16fffcf61f8b59a",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/type/CharacterSettingSchemaPolicyTypeTest.java": "bf40165783221d4b81f423bf6b10682b10446a64a08f4fb4803f83bc675ced16",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/service/CharacterCurrentSupportingEvidenceCaptureTest.java": "ad53df07673bae4c899853b30843a0b07f5b57b9f4b2c90bad4648285d06618d",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/service/CharacterPastHistoryAutomaticHoldTest.java": "bd4f395541e653a00d932e140c9bd5c8622141ef926f40f7c8d9f56d79ee9ca4",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/service/CharacterRelationshipInputTriggerIntegrationTest.java": "fc9c2573fc2e83f43832324058b306b9528022b5ca78ffdeccbda05e4f0d1183",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/service/CharacterDiscoveryRejectionTest.java": "10eabfe7b49b9c8381330fc63e21bb8ca109476eb88abffc6cf4f7dcd469e54f",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/service/SettingCandidatePromotionServiceTest.java": "272e2d1f450493d18b29ed00b8ce11f1a5a5aeec2ef45d416a1575e77ab20db5",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/service/ManualCharacterReviewHistoryIntegrationTest.java": "83c0d5cc3b1e0d27aa80bba565a30ad720583899fb3d28cdf196d4f43ed8e254",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/service/SettingCandidateServiceImplTest.java": "649b7dbabde35c6205612fca089eaca8a2ee513a3900454f76a73cd051a18d8f",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/service/CharacterFactComparisonBatchWorkerTest.java": "e7cc1a0cd9c5e50c11e67b739b4edb275c8547974ef94d20416779c04d762dca",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/service/CharacterAnalysisConfirmationContextTest.java": "9bb7486b848e7c4d535c18026f76521654dc4780da6242f172c037382c05e76e",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/service/CharacterFactComparisonWorkerServiceImplTest.java": "1e6dbc8d75cffd838ae13240f0707db8dcd51ee4e5312b8e927bbacc2bb63711",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/service/CharacterFactComparisonJobCoordinatorTest.java": "1f230073142c7988f0e91187191051c06d405562b06c454e831533a9fe5c59f8",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/service/CharacterFactComparisonWorkerTransactionTest.java": "0d565a4d0ab91a4b23d75ba1f8cd29519cc5f0d0ed26ec9d97e70eb36ebe21e5",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/service/ManualCharacterFinalReviewIntegrationTest.java": "306cb84d95f0a4e1afd8de6b2d6ca4be879d715eb2181d93c76c36faa85602ac",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/service/CharacterNarrativeTimeFinalizationTest.java": "b12829af57af6a48f13002d01fb82a8df3437b659fa9255db225bd8ac3933351",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/service/CharacterNarrativeTimeRollbackTest.java": "8b9c857cb0955b92134d7ec67e01fe6b330b49e56e80421ba4019a143ae082cd",
+    "src/test/java/org/monitoring/catchholebackend/domain/character/dto/request/WorkerCharacterFactComparisonCompleteRequestValidationTest.java": "79d729ffa6d880dbde1f08b88ead9e1ef9eef954386bd210db0f69e73fb0f205",
+    "src/test/java/org/monitoring/catchholebackend/domain/auth/sms/SolapiSmsSenderTest.java": "e703e878734f00c3df00e2c3c0ca838c251b698de98c073fb97eba48cf5b4e82",
+    "src/test/java/org/monitoring/catchholebackend/domain/auth/security/JwtMemberAuthenticationConverterTest.java": "75d63dd96b7507182d2cd1a11afdf1481ae13e2671ac9a12b59cd3865e370db5",
+    "src/test/java/org/monitoring/catchholebackend/domain/auth/mail/SmtpEmailSenderTest.java": "c9eac56e1041d4a6dd7e5e1fe17e5095b3bcd8f09a309a3720fcd70a2f973742",
+    "src/test/java/org/monitoring/catchholebackend/domain/auth/mapper/EmailVerificationMapperTest.java": "fb52ab3a1a94ee730946519c3fbaeca6077bc11a0d3da3fd57ba3e467d03a740",
+    "src/test/java/org/monitoring/catchholebackend/domain/auth/mapper/PhoneVerificationMapperTest.java": "f1aecbc90f10f9001b1af919f400127a3518093ab43b66def4da2810dee9e396",
+    "src/test/java/org/monitoring/catchholebackend/domain/auth/mapper/AuthMapperTest.java": "6d32f7a3695b27c42b410a2a1384702b98a06d8c7c08ba886e2a76ddce29d3be",
+    "src/test/java/org/monitoring/catchholebackend/domain/auth/controller/AuthSignupIntegrationTest.java": "a323a62087740a92a972861e207f2cc06813cf142cd546a2c401702fae5e6b81",
+    "src/test/java/org/monitoring/catchholebackend/domain/auth/controller/EmailSignupIntegrationTest.java": "2d6b31a41bd4822432f8a76bc9dbdf87bc962ec2f70e2f93864a92549e86928a",
+    "src/test/java/org/monitoring/catchholebackend/domain/auth/controller/AuthControllerTest.java": "d600cdb5565adffdce4a28b8ef2d15e5c95218b9b3948df63ff88ef86441ed97",
+    "src/test/java/org/monitoring/catchholebackend/domain/auth/controller/PhoneVerificationControllerIntegrationTest.java": "affc5f4ea6395d3702674b86401cf37561ab3175d695721b712f678547da51d4",
+    "src/test/java/org/monitoring/catchholebackend/domain/auth/controller/EmailVerificationControllerIntegrationTest.java": "49066ed5084d4dc272127019364816c54f1489bb5498d11588e4e3d122959f58",
+    "src/test/java/org/monitoring/catchholebackend/domain/auth/phone/PhoneVerificationRedisIntegrationTest.java": "605daa5d3cddfa6d641d3f20f138a2ba775e155060ea2f212558f015c67ee335",
+    "src/test/java/org/monitoring/catchholebackend/domain/auth/service/EmailVerificationServiceImplTest.java": "6fd59d189c429437484319178e3d0b5f9bbf85cb52e859ae5bd19c8074be10d3",
+    "src/test/java/org/monitoring/catchholebackend/domain/auth/service/AuthServiceImplTest.java": "aa85a32d3217cef6a728988390196661b20854df60ed073d16f19fbf26e448f9",
+    "src/test/java/org/monitoring/catchholebackend/domain/auth/service/PhoneVerificationServiceImplTest.java": "f7a353fde21fee323ee59ffa2d9c95f6b20cecd084fb25e3d4e804fbbabe8ec9",
+    "src/test/java/org/monitoring/catchholebackend/domain/auth/email/EmailVerificationRedisIntegrationTest.java": "5da2b6f5b7d8dbd81c63b0a202872dd9d05f4a09c996f0f44c24e101c8aab895",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/repository/AnalysisLatestCompletedRequestPostgresIntegrationTest.java": "1a9dee8c6bc6fda8f2a5da1d972262178734eff220d772b759aba6efd67c4d53",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/repository/AnalysisLatestCompletedRequestRepositoryIntegrationTest.java": "31084e8aab18bc5199f47aafc869e404b7c818757653409f3220483e91f58b96",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/repository/AnalysisBatchSummaryPostgresIntegrationTest.java": "6d582fd8f1aac19f4886ffd6d3afd355afb9b9d001ad9d316d18d7d04f9db112",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/repository/AnalysisMetricsSnapshotPostgresIntegrationTest.java": "98a2890e626668df1321b1d3518bcac2d8360cd4324678d3dd425ae7fd0dff66",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/processor/AnalysisStateJournalTest.java": "9dfc86ba24ae721869d7a5f1885c75ca0121275d9ba0e9176071fa4a87611102",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/processor/AnalysisFailureNotificationDispatcherTest.java": "2166a8f69b6910efe3f04be2b29bed2942a24919f3a7626d1bee1306f7963b6e",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/processor/AnalysisMetricsReconcilerTest.java": "193aafff92e3d5585c1ae8f7f7bc31123f954f84d97e80f215a96177aea85f65",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/processor/SettingBookTemporalPolicyTest.java": "a18b8f2981574c9acffe7de6ead19623a8c1ceaeae752a57e2309903f8c35510",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/processor/SettingBookAutomaticEvidenceValidatorTest.java": "8c01174a00b4fc283c370441d0eb343f4c86c2a7df9d2896c953e2064bb27c80",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/mapper/AnalysisJobWorkerMapperTest.java": "25f78588af0a2dd7bc5c9af405004b56610b1dc58ce9b2bec5460f4a5ba2f5f2",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/mapper/AnalysisSemanticCurrentContextMapperTest.java": "db4187cfcae45bf777d4d08ba1a140f964859f1dc85c980814680f90db38d0a5",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/mapper/AnalysisExplanationTextTest.java": "fc123c89182280785f62df9c55a83ee0abd1dfff73f0dd12c1f2e5ccf5e31ec0",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/mapper/AnalysisRunContextMapperTest.java": "4224f8de2ee361bedfd08415f47745f689ecb23444e8571582d7f341bdfda7b1",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/mapper/AnalysisFrozenComparisonEvidenceClaimMapperTest.java": "127f5cff64f4b448b520a0585465609fd494bd14c5a36e488f5f6db58b0e7240",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/controller/AnalysisJobControllerIntegrationTest.java": "a63bd63f797144f7701014aea1f2acd0600d1b0c7293dc091a40cae0997029fb",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/controller/AnalysisGuideControllerIntegrationTest.java": "c42ba7554685172a4bcb9d922b961df9b51bf487e1130e82904ed5f0534eed79",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/controller/AnalysisJobWorkerControllerIntegrationTest.java": "8b77a123116208fb9e447be520fdd4104aa5f93cfbae189ab1902c196b4a6a45",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/service/OrderedAnalysisHttpWorkerIntegrationTest.java": "c545770c485ddfa4dd1624b5ee8570b0bbbdb79207d47e3d05ae833a453acb91",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/service/AnalysisMetricsIntegrationTest.java": "e4342dc17480154fb07554fd4a31be7407bd894ae45d54fb22d78d8241945090",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/service/DirectSettingMutationAnalysisIntegrationTest.java": "f427996c70318d51ed2914f6b40d9af6d00a5ca91230f605e20a0d0ff80d26b5",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/service/AnalysisGuideConcurrencyIntegrationTest.java": "c2cd0a5d8d0216c7d31290540d52ba62b30ea7a283efd42717c4726be8adaf74",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/service/AutomaticComparisonFailureJournalTest.java": "8cd54a78d46bdfbe87a7a6a05339fb0c90a6ec14c7a9bc963298dc8fb597e8dc",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/service/AutomaticApplicationPendingIntegrationTest.java": "d5cc6f53fb24e8834073e70adf2f76d27e240ae8ea8d732c4dea292b30c6be54",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/service/AnalysisMetricsRequestGroupingIntegrationTest.java": "4b1055df51c101805375ec15e58af158ba3b69b3003a0018b7a0ab31fde58a15",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/service/AnalysisCandidateSourceGuardTest.java": "29c86d0dda7fd774dda496832b922317d7f1c400c26b6b2882dd0a4cec7fc438",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/service/AnalysisPendingReferenceSourceTest.java": "4b54e4a2d1857155f16c36ca5a5597978b651123757e963d98e7ffc63d7f722f",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/service/AnalysisMetricsTest.java": "c4470679339eaa1c8b6eccd939c7da750ef4c079c5a7822ba45a752348ad184a",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/service/AnalysisJobWorkerServiceCharacterBatchRecoveryTest.java": "3e3347c39de357c6def0721943ad1d1ddafc527187682cf4a2d15db76ff6a5b1",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/service/AnalysisHumanRejectionPolicyTest.java": "9273dc41156e849b0a961dd3b60a54e77977f076a4fe361035585efbf9aa0183",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/service/AnalysisJobOrderedRetryTest.java": "507714ddd1f10ec273ca2f4e26195127899bb50a87e92f89637d3ef3d6f177ae",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/service/OrderedAnalysisPostgresIntegrationTest.java": "d9bbe03aa3825fa0dcfc009161ce185e807b03b0c07be15db70d2834a60a5821",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/service/AutomaticAnalysisOpenApiSnapshotTest.java": "0ce9877193fc1a53fe399701d9de19fc83371ac38cc792eadab2a3e553ebe328",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/service/AnalysisFailureNotificationPostgresIntegrationTest.java": "1bce2575e812d353dd67221dfad478e7c206459e5d7d0b3b2c203c89694c8894",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/service/AutomaticAnalysisIntegrationTest.java": "6815fbdb5dc29ec691a18825ddd78fdac70a15c1b896b2a0531b81202684ae16",
+    "src/test/java/org/monitoring/catchholebackend/domain/analysis/dto/request/WorkerFrozenComparisonEvidenceClaimContractTest.java": "3023e74d6e97d60730a7b09a16be63a05fd451e6c1700ee63fc93c37f686f62f"
+  }
+}

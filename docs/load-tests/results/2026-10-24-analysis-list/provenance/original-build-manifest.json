@@ -1,0 +1,154 @@
+{
+  "phase": "before",
+  "os": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "hostLogicalCpus": "18",
+  "hostMemoryBytes": "51539607552",
+  "jvmPid": 58208,
+  "javaVersion": "openjdk version \"21.0.12.1\" 2026-08-18 LTS\nOpenJDK Runtime Environment Microsoft-14941480 (build 21.0.12.1+1-LTS)\nOpenJDK 64-Bit Server VM Microsoft-14941480 (build 21.0.12.1+1-LTS, mixed mode, sharing)",
+  "jvmActualFlags": "58208:\n-XX:CICompilerCount=12 -XX:ConcGCThreads=4 -XX:G1ConcRefinementThreads=14 -XX:G1EagerReclaimRemSetThreshold=12 -XX:G1HeapRegionSize=1048576 -XX:G1RemSetArrayOfCardsEntries=12 -XX:G1RemSetHowlMaxNumBuckets=8 -XX:G1RemSetHowlNumBuckets=4 -XX:GCDrainStackTargetSize=64 -XX:InitialHeapSize=268435456 -XX:MarkStackSize=4194304 -XX:MaxHeapSize=805306368 -XX:MaxNewSize=482344960 -XX:MinHeapDeltaBytes=1048576 -XX:MinHeapSize=268435456 -XX:NonNMethodCodeHeapSize=7602992 -XX:NonProfiledCodeHeapSize=122027624 -XX:ProfiledCodeHeapSize=122027624 -XX:ReservedCodeCacheSize=251658240 -XX:+SegmentedCodeCache -XX:SoftMaxHeapSize=805306368 -XX:+UseCompressedOops -XX:+UseG1GC -XX:-UseNUMA -XX:-UseNUMAInterleaving",
+  "jvmVmVersion": "58208:\nOpenJDK 64-Bit Server VM version 21.0.12.1+1-LTS\nJDK 21.0.12.1",
+  "nodeVersion": "v24.19.0",
+  "pythonVersion": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.3.34.2)]",
+  "database": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+  "databaseContainerLimits": {
+    "NanoCpus": 2000000000,
+    "Memory": 1073741824,
+    "MemorySwap": 2147483648,
+    "CpuQuota": 0,
+    "CpuPeriod": 0,
+    "CpusetCpus": "",
+    "ShmSize": 67108864
+  },
+  "runtime": "native Java; native production Vite preview; docker PostgreSQL",
+  "jvmHeapMaxMiB": 768,
+  "jvmHeapInitialMiB": 256,
+  "apiCpuLimit": "none (host scheduling); identical before/after",
+  "apiContainerMemoryLimit": "none (native process); Xmx fixed",
+  "frontendBuildMode": "production; VITE_API_BASE_URL=http://127.0.0.1:28080; preview 127.0.0.1:3300",
+  "apiUrl": "http://127.0.0.1:28080",
+  "postgresPort": 25432,
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "fixture": {
+    "analysisJsonDataMd5": "0b24b03a1e8b94054e78635a4d79ebc0",
+    "batchIds": [
+      "651dff26-6e30-589a-9981-6dc04c6259ba",
+      "551540e7-15da-551b-99d2-fa32ac754bcb"
+    ],
+    "characterCandidates": 398,
+    "characterCandidatesByBatch": [
+      342,
+      56
+    ],
+    "episodes": 60,
+    "fixedTimestamp": "2026-10-23T12:00:00",
+    "fixtureHashExcludes": "bcrypt salt, credentials, DB-generated auth session records",
+    "fixtureSha256": "065909fc1578913b6674f3ead741f73fd485fed502befc8a290403d7b42f1f40",
+    "jobs": 60,
+    "jsonEncoding": "PostgreSQL JSONB ::text; fixed PRNG base64 payload; no production data",
+    "normalizedJsonUtf8Bytes": 15460388,
+    "seed": 20261024,
+    "sourceScriptSha256": "1e0ebace88668e9b5ba3e894c027da7450d3a65cff8196f5bef918867ef27244",
+    "statusDistribution": [
+      [
+        "551540e7-15da-551b-99d2-fa32ac754bcb",
+        "FAILED",
+        "1"
+      ],
+      [
+        "551540e7-15da-551b-99d2-fa32ac754bcb",
+        "PENDING",
+        "27"
+      ],
+      [
+        "551540e7-15da-551b-99d2-fa32ac754bcb",
+        "SUCCEEDED",
+        "2"
+      ],
+      [
+        "651dff26-6e30-589a-9981-6dc04c6259ba",
+        "CANCELED",
+        "12"
+      ],
+      [
+        "651dff26-6e30-589a-9981-6dc04c6259ba",
+        "SUCCEEDED",
+        "18"
+      ]
+    ],
+    "synthetic": true,
+    "version": 1,
+    "workId": "47e524ae-e53c-5b8b-b430-905990a20f3d",
+    "worldCandidates": 409,
+    "worldCandidatesByBatch": [
+      296,
+      113
+    ]
+  },
+  "cacheProtocol": "3 warmups; DB/JVM warm; fresh browser context and HTTP cache disabled per navigation; no OS/DB cache reset claimed",
+  "resourceSampling": "ps RSS KiB + jstat -gc every0.5sec (observed peaks only); GC unified log includes startup separately",
+  "traceAndSqlDebug": "disabled during timing; PostgreSQL SQL capture occurs separately",
+  "worker": "none",
+  "originalDotEnvImport": false,
+  "schedulers": "explicitly disabled; chat recovery interval86400000ms",
+  "sources": {
+    "backend": {
+      "head": "0bf469df9c6db274ca12ce6a88f7d10115515899",
+      "trackedDiffStat": "",
+      "packageLockSha256": null
+    },
+    "frontend": {
+      "head": "49a1112fb1b6a6f9692b403e3d6482c56b25ffba",
+      "trackedDiffStat": "",
+      "packageLockSha256": "59f31c54be091e0e0b23e65d9c31c753f5b8b049403ea97ab275ab91e9b3816f"
+    }
+  },
+  "actualRuntimeJar": "${MEASUREMENT_ROOT}/runtime/baseline.jar",
+  "actualRuntimeJarSha256": "addbba49f034045ede11b6d6541a234f5d41c51602d12e5ee82fc29b370ae13e",
+  "baselineJarSha256": "addbba49f034045ede11b6d6541a234f5d41c51602d12e5ee82fc29b370ae13e",
+  "frontendBuiltAssetHashes": {
+    "index.html": "3aa602fbd7222a826410322bc6feee29f145905e144337863ae1e143431bf6ec",
+    "_redirects": "6036983e5fc00f0169c9e939b1816ed771eee00e27f2fcc517b819041460b9ef",
+    "brand/catchhole-glossy-v1.png": "b80e773d8fa1b993b54f5f442ce523fc48ecbb3ac767d53960424a0571d7f056",
+    "brand/catchhole-favicon-v1.png": "4eb70b8f89cb4b4630ca1fd5a1bf9e6644c44ae5c25c31bd6ad68c946821cae5",
+    "brand/catchhole-share-v1.png": "ba15954519509e82f0a17aa22a64ef00f73b4d1ae1c6d38d7a708d715b511496",
+    "brand/catchhole-apple-touch-v1.png": "ec5418d8eb6db124cbf2aa4bb4b4813690805d1aff606bbd4d64e988d73b58f4",
+    "brand/catchhole-symbol.png": "ea3bec9fa1a85751cb7f13af9fbf2b8c2bdabb7caf91bebf6853e5d0172634b2",
+    "brand/catchhole-wordmark.png": "7197691b5bb2649b2af08092b300a08f3b7989b3e4959f471a0f2726fb295dbd",
+    "assets/catchhole-analysis-friendly-v1-BoB1cJ-l.png": "e01703cc2fdb0516d4a2b03d0fe2ac88386eb1c5c56861a21dc113077044afa0",
+    "assets/index-BGBsbfmC.js": "bd442f5326315ec5dbdb8c6828e957b957001ce23a75dc58142002e85efcc2e4",
+    "assets/faction-BCNeh_iE.webp": "44930da93e3a343c60572f1743598ad892c3e0f7c3ecb65873abb16a138fc660",
+    "assets/product-character-20261012-V4IPER-y.png": "3e34e75616da4951e90ced9ff5d5c43d280ec4abfb7b23ebb22dd70d7d9415da",
+    "assets/character-neutral-v1-B7edHgjg.webp": "d8086c888829730193026ecf87926bb773c0130f5802a608f172e4d4876269be",
+    "assets/FamilyTreeView-DkV1EMgA.js": "93ba31c4a446fde4eda9893af39a092312a2d1d7f6b6c9f6bbeba8c8190a8de4",
+    "assets/catchhole-hero-editorial-v2-gKqmtO62.webp": "4843fe4035db4c68ec7279bedb6f9396bf7bfcb6d06cc6d4ed1bf657e5993568",
+    "assets/history-Dwp1N2JR.webp": "ed8b18c1f7d9ad46e3f5af00f04340680fbc195a885cc4e942b7700a3253e2a4",
+    "assets/location-Da5zvqIW.webp": "84b105bcb0083532ee8866e9c930d24c6add859a126d5599b49c34e23ec2728c",
+    "assets/index-BRp9PRYZ.css": "93ae001d6ad22a5ff8ab3104177e26225a3d89014e87a6c2301b6805d0972327",
+    "assets/product-review-20261012-CtmLqTEW.png": "e09bd9d3b8e7a9f9c0b4dc16de99c57223e72ecb9252ee674808291e33cf5824",
+    "assets/monster-BASbN-2I.webp": "aa6425072ae1ea28252b3f6169e42538a8622dce9db73740a7227adb99a51264",
+    "assets/product-world-20261012-M6NP2Y6Y.png": "c0af2c27f29b7d0b8cff8cbb3346378749f9b0c746f9f632653a7b0f2e031eee",
+    "assets/power-system-DeXUYFMb.webp": "292037a18999345d2fba8fa4e8a9874f3820708d9e998d40711bd50f56dbb0bf",
+    "assets/catchhole-story-world-v1-Coy52G-4.png": "115779b9b5a9b24b5bc5b247e34752efbba37b56e04c3b1531bf74467b149a33",
+    "assets/item-Cpd-GpSv.webp": "7156af7fcecf5c4504e56d46a94015425acdc62bfae65906de1da206be7c1aa8",
+    "assets/catchhole-upload-friendly-v1-DcEpKdiI.png": "78a284dc34279c04c993e3de8585ef636cb7733b5bb5be63a295e87d82e72914",
+    "assets/rien-fire-mage-BX4e2hl8.webp": "5f84b4e0754dfbddecf6d3826968fc99df3fd27a0ce37805864c376605c2bb9f",
+    "assets/product-timeline-20261012-CyrHWL7Y.png": "6b9d78d7f0f5a783b6ab89ba860949000cd0297a591584774846311a901e3f91",
+    "assets/product-manuscript-20261012-nxcfRqlS.png": "718e9e88b006ba325faec62cde1dac9006131004db9c483bf5aedc83a289ab1a",
+    "assets/product-review-mobile-20261012-CqsqawLM.png": "99444ca4db980e967fb9f1f86d71cd7d56bf3843c718d912a065ae55d3ef485e",
+    "assets/all-RHLZLldO.webp": "7b03c2364cba983165557daf1fecfd0262542e1b617dbaca2d0763c76e728adc",
+    "assets/FamilyTreeView-ByRZFdMv.css": "04cc157ff646aeb5bc08d4b7983b3a7b3c07038ca1ef547d9462dbb96210d4a2",
+    "assets/race-CQwClIq8.webp": "3ea93c0a1dc4b0e017b7d6562dc23ffb10b1f95ff6ee9506f2e61521becf3dda",
+    "landing/video-hero/manuscript-25.png": "0508d211286a69588ed9030639d338fdbb6cb752513f58b9fce976f5eedd8e07",
+    "landing/video-hero/poster.jpg": "4a589abc1b93e6084571618d3d51b075413e0177835ed64217e4f4aaefd93b9d",
+    "landing/video-hero/README.md": "9c707e58e4a71e796eddf438e39187a9c01f2977f63c05a9aee2afd96219d208",
+    "landing/video-hero/writer-to-laptop.mp4": "f8d6f853b3fbde0631bd3c3bc88734df6ff83e571c30744f4c6259af8670c340",
+    "landing/video-hero/last-frame.jpg": "82756c16a8aac612c435d4767ff09bf3b5f135be2da1497c3cfa0adea98458f9"
+  },
+  "runnerSha256": "a4459ea74d879108bb659d4daefd9cb5046d930407f9956c7474a68b7843ab0a",
+  "fixtureScriptSha256": "1e0ebace88668e9b5ba3e894c027da7450d3a65cff8196f5bef918867ef27244",
+  "startScriptSha256": "4107ca5c627a05d95a77836e283d81546bbe4b4e2b179df11c31885bfb94f43a"
+}

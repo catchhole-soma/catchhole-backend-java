@@ -237,6 +237,32 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
     }
 
     @Query("""
+            select analysisJob.id as analysisJobId,
+                   count(candidate) as totalCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus <> org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.PENDING_REVIEW then 1 else 0 end), 0) as reviewedCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.PENDING_REVIEW then 1 else 0 end), 0) as pendingCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.PENDING_REVIEW
+                     and candidate.comparisonStatus not in (org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus.PENDING, org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus.PROCESSING)
+                     and not (analysisJob.reviewMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC
+                         and analysisJob.automaticAppliedAt is null
+                         and analysisJob.status in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING, org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING))
+                     then 1 else 0 end), 0) as directReviewCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.PENDING_REVIEW
+                     and (candidate.comparisonStatus in (org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus.PENDING, org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus.PROCESSING)
+                         or (analysisJob.reviewMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC
+                         and analysisJob.automaticAppliedAt is null
+                         and analysisJob.status in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING, org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING)))
+                     then 1 else 0 end), 0) as processingCandidateCount
+            from SettingCandidate candidate join candidate.analysisJob analysisJob
+            where candidate.work.id = :workId and analysisJob.work.id = :workId
+              and analysisJob.id in :analysisJobIds
+              and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.SETTING_BOOK
+            group by analysisJob.id
+            """)
+    List<org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobCandidateReviewCounts> countReviewSummaryByAnalysisJobIds(
+            @Param("workId") UUID workId, @Param("analysisJobIds") List<UUID> analysisJobIds);
+
+    @Query("""
             select count(candidate) as totalCandidateCount,
                    coalesce(sum(case when candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CONFIRMED then 1 else 0 end), 0) as confirmedCandidateCount,
                    coalesce(sum(case when candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.DISMISSED then 1 else 0 end), 0) as dismissedCandidateCount,

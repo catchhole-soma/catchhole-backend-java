@@ -1,0 +1,146 @@
+[
+  {
+    "number": 0,
+    "route": "batches",
+    "sqlFile": "00-batches.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.156,
+    "executionMs": 0.014
+  },
+  {
+    "number": 1,
+    "route": "batches",
+    "sqlFile": "01-batches.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.08,
+    "executionMs": 0.007
+  },
+  {
+    "number": 2,
+    "route": "batches",
+    "sqlFile": "02-batches.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.38,
+    "executionMs": 0.091
+  },
+  {
+    "number": 3,
+    "route": "batches",
+    "sqlFile": "03-batches.sql",
+    "includesAnalysisJson": true,
+    "parametersBound": true,
+    "planningMs": 0.484,
+    "executionMs": 0.251
+  },
+  {
+    "number": 4,
+    "route": "batches",
+    "sqlFile": "04-batches.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.21,
+    "executionMs": 0.134
+  },
+  {
+    "number": 5,
+    "route": "batches",
+    "sqlFile": "05-batches.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.216,
+    "executionMs": 0.177
+  },
+  {
+    "number": 6,
+    "route": "batches",
+    "sqlFile": "06-batches.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.073,
+    "executionMs": 0.016
+  },
+  {
+    "number": 7,
+    "route": "all-jobs",
+    "sqlFile": "07-all-jobs.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.043,
+    "executionMs": 0.014
+  },
+  {
+    "number": 8,
+    "route": "all-jobs",
+    "sqlFile": "08-all-jobs.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.027,
+    "executionMs": 0.007
+  },
+  {
+    "number": 9,
+    "route": "all-jobs",
+    "sqlFile": "09-all-jobs.sql",
+    "includesAnalysisJson": true,
+    "parametersBound": true,
+    "planningMs": 2.841,
+    "executionMs": 0.426
+  },
+  {
+    "number": 10,
+    "route": "all-jobs",
+    "sqlFile": "10-all-jobs.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.139,
+    "executionMs": 0.013
+  },
+  {
+    "number": 11,
+    "route": "episodes",
+    "sqlFile": "11-episodes.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.044,
+    "executionMs": 0.015
+  },
+  {
+    "number": 12,
+    "route": "episodes",
+    "sqlFile": "12-episodes.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.024,
+    "executionMs": 0.008
+  },
+  {
+    "number": 13,
+    "route": "episodes",
+    "sqlFile": "13-episodes.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.037,
+    "executionMs": 0.027
+  },
+  {
+    "number": 14,
+    "route": "episodes",
+    "sqlFile": "14-episodes.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.057,
+    "executionMs": 0.012
+  },
+  {
+    "number": 15,
+    "route": "episodes",
+    "sqlFile": "15-episodes.sql",
+    "includesAnalysisJson": true,
+    "parametersBound": true,
+    "planningMs": 0.151,
+    "executionMs": 0.14
+  }
+]

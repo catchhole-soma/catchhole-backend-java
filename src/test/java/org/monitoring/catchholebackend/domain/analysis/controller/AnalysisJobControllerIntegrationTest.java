@@ -1306,6 +1306,22 @@ class AnalysisJobControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("회차 카드 요약만으로 출처 조회 없이 현재 작업과 상태를 제공한다")
+    void getAnalysisBatchesProvidesEpisodeCardSummary() throws Exception {
+        AnalysisJob job = analysisJobRepository.save(AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.SETTING_EXTRACTION));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].episodeStatus").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.data.content[0].episodeJobGroups[0].totalJobCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].episodeJobGroups[0].currentAnalysisJobIds[0]")
+                        .value(job.getId().toString()))
+                .andExpect(jsonPath("$.data.content[0].settingBooks", hasSize(0)));
+    }
+
+    @Test
     @DisplayName("분석 배치 목록은 세계관 후보만 검토 대기여도 검토 필요로 표시한다")
     void getAnalysisBatchesRequiresReviewForPendingWorldSettingCandidates() throws Exception {
         AnalysisJob succeededJob = succeededJob(firstEpisode, AnalysisJobType.SETTING_EXTRACTION);

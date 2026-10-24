@@ -1,0 +1,83 @@
+[
+  {
+    "number": 0,
+    "route": "batches",
+    "sqlFile": "00-batches.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.384,
+    "executionMs": 0.041
+  },
+  {
+    "number": 1,
+    "route": "batches",
+    "sqlFile": "01-batches.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.174,
+    "executionMs": 0.014
+  },
+  {
+    "number": 2,
+    "route": "batches",
+    "sqlFile": "02-batches.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.972,
+    "executionMs": 0.19
+  },
+  {
+    "number": 3,
+    "route": "batches",
+    "sqlFile": "03-batches.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 1.086,
+    "executionMs": 0.765
+  },
+  {
+    "number": 4,
+    "route": "batches",
+    "sqlFile": "04-batches.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.718,
+    "executionMs": 0.749
+  },
+  {
+    "number": 5,
+    "route": "batches",
+    "sqlFile": "05-batches.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.341,
+    "executionMs": 0.254
+  },
+  {
+    "number": 6,
+    "route": "batches",
+    "sqlFile": "06-batches.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.434,
+    "executionMs": 0.332
+  },
+  {
+    "number": 7,
+    "route": "batches",
+    "sqlFile": "07-batches.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.103,
+    "executionMs": 0.028
+  },
+  {
+    "number": 8,
+    "route": "batches",
+    "sqlFile": "08-batches.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.736,
+    "executionMs": 0.082
+  }
+]

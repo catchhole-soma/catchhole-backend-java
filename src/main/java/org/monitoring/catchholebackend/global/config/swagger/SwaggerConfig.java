@@ -62,6 +62,8 @@ public class SwaggerConfig {
             replaceWithNullableJsonUnion(openApi, "WorkerCharacterCurrentSnapshotEntry", "valueJson");
             replaceWithNullableJsonUnion(openApi, "WorkerCharacterPriorFactCandidate", "valueJson");
             replaceWithNullableJsonUnion(openApi, "WorkerCharacterPriorFactCandidate", "proposedValueJson");
+            replaceWithNullableEnumUnion(openApi, "AnalysisBatchSummaryResponse", "episodeStatus");
+            replaceWithNullableEnumUnion(openApi, "AnalysisBatchSettingBookResponse", "failureCode");
             replaceWithNullableEnumUnion(openApi, "SettingCandidateResponse", "valueType");
             replaceWithNullableEnumUnion(openApi, "SettingCandidateResponse", "suggestedOperation");
             replaceWithNullableEnumUnion(openApi, "SettingCandidateResponse", "temporalScope");

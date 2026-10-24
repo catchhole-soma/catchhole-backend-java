@@ -3,12 +3,9 @@ package org.monitoring.catchholebackend.domain.analysis.service;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.EnumMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -16,6 +13,8 @@ import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.dto.request.AnalysisJobCreateRequest;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatchJobGroupResponse;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatchSummaryResponse;
+import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatchSettingBookResponse;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobCandidateReviewCounts;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobResponse;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
@@ -23,6 +22,8 @@ import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisBatchMappe
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisJobMapper;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchActiveComparisonCounts;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchPageRow;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchSummaryRepository;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchSummaryRepository.GroupSummary;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisBatchStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
@@ -71,6 +72,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     private final AnalysisGuideService analysisGuideService;
 
     private final AnalysisJobRepository analysisJobRepository;
+    private final AnalysisBatchSummaryRepository analysisBatchSummaryRepository;
     private final WorkRepository workRepository;
     private final UploadBatchRepository uploadBatchRepository;
     private final UploadFileRepository uploadFileRepository;
@@ -196,14 +198,9 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
             return PageResponse.from(batchPage, List.of());
         }
 
-        Map<UUID, List<AnalysisJob>> jobsByBatchId = analysisJobRepository
-                .findAllByWorkIdAndBatchIdInOrderByCreatedAtDescIdDesc(work.getId(), batchIds)
-                .stream()
-                .collect(Collectors.groupingBy(
-                        job -> job.getBatch().getId(),
-                        LinkedHashMap::new,
-                        Collectors.toList()
-                ));
+        Map<UUID, List<GroupSummary>> summariesByBatchId = analysisBatchSummaryRepository
+                .readSummaries(work.getId(), batchIds).stream()
+                .collect(Collectors.groupingBy(GroupSummary::batchId));
         Map<UUID, SettingCandidateBatchReviewCounts> characterCandidateCountsByBatchId =
                 settingCandidateRepository.countReviewSummaryByBatchIds(
                                 work.getId(),
@@ -243,13 +240,27 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                         AnalysisBatchActiveComparisonCounts::getActiveComparisonCount
                 ));
 
+        var bookRows = analysisBatchSummaryRepository.readSettingBooks(work.getId(), batchIds);
+        List<UUID> bookJobIds = bookRows.stream().map(book -> book.sourceAnalysisJobId()).distinct().toList();
+        Map<UUID, AnalysisJobCandidateReviewCounts> bookCharacters = bookJobIds.isEmpty() ? Map.of()
+                : settingCandidateRepository.countReviewSummaryByAnalysisJobIds(work.getId(), bookJobIds).stream()
+                        .collect(Collectors.toMap(AnalysisJobCandidateReviewCounts::getAnalysisJobId, counts -> counts));
+        Map<UUID, AnalysisJobCandidateReviewCounts> bookWorlds = bookJobIds.isEmpty() ? Map.of()
+                : worldSettingCandidateRepository.countReviewSummaryByAnalysisJobIds(work.getId(), bookJobIds).stream()
+                        .collect(Collectors.toMap(AnalysisJobCandidateReviewCounts::getAnalysisJobId, counts -> counts));
+        Map<UUID, List<AnalysisBatchSettingBookResponse>> booksByPageBatch = bookRows.stream()
+                .collect(Collectors.groupingBy(book -> book.pageBatchId(), Collectors.mapping(
+                        book -> analysisBatchMapper.toSettingBookResponse(book, bookCharacters.get(book.sourceAnalysisJobId()),
+                                bookWorlds.get(book.sourceAnalysisJobId())), Collectors.toList())));
+
         List<AnalysisBatchSummaryResponse> responses = batchPage.getContent().stream()
                 .map(row -> toBatchSummary(
                         row,
-                        jobsByBatchId.getOrDefault(row.getBatchId(), List.of()),
+                        summariesByBatchId.getOrDefault(row.getBatchId(), List.of()),
                         characterCandidateCountsByBatchId.get(row.getBatchId()),
                         worldSettingCandidateCountsByBatchId.get(row.getBatchId()),
-                        activeWorldComparisonCountsByBatchId.getOrDefault(row.getBatchId(), 0L)
+                        activeWorldComparisonCountsByBatchId.getOrDefault(row.getBatchId(), 0L),
+                        booksByPageBatch.getOrDefault(row.getBatchId(), List.of())
                 ))
                 .toList();
         return PageResponse.from(batchPage, responses);
@@ -669,161 +680,33 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
 
     private AnalysisBatchSummaryResponse toBatchSummary(
             AnalysisBatchPageRow pageRow,
-            List<AnalysisJob> jobs,
+            List<GroupSummary> summaries,
             SettingCandidateBatchReviewCounts characterCandidateCounts,
             WorldSettingCandidateBatchReviewCounts worldSettingCandidateCounts,
-            long activeWorldSettingComparisonCount
+            long activeWorldSettingComparisonCount,
+            List<AnalysisBatchSettingBookResponse> books
     ) {
-        Map<AnalysisJobType, List<AnalysisJob>> currentJobsByType = findCurrentJobsByType(jobs);
-        List<AnalysisBatchJobGroupResponse> jobGroups = currentJobsByType.entrySet().stream()
-                .map(entry -> analysisBatchMapper.toJobGroupResponse(
-                        entry.getKey(),
-                        resolveJobGroupStatus(entry.getValue()),
-                        entry.getValue(),
-                        entry.getValue().stream().collect(Collectors.toMap(
-                                AnalysisJob::getId, this::listedJobStatus, (first, ignored) -> first))
-                ))
-                .toList();
-        Map<UUID, Episode> targetEpisodesById = currentJobsByType.values().stream()
-                .flatMap(List::stream)
-                .flatMap(job -> getTargetEpisodes(job).stream())
-                .collect(Collectors.toMap(
-                        Episode::getId,
-                        episode -> episode,
-                        (first, ignored) -> first
-                ));
-        Integer episodeStartNo = targetEpisodesById.values().stream()
-                .map(Episode::getEpisodeNo)
-                .min(Integer::compareTo)
-                .orElse(null);
-        Integer episodeEndNo = targetEpisodesById.values().stream()
-                .map(Episode::getEpisodeNo)
-                .max(Integer::compareTo)
-                .orElse(null);
-        long pendingCharacterCandidateCount = characterCandidateCounts == null
-                ? 0
-                : characterCandidateCounts.getPendingCandidateCount();
-        long pendingWorldSettingCandidateCount = worldSettingCandidateCounts == null
-                ? 0
-                : worldSettingCandidateCounts.getPendingCandidateCount();
-        long tokenInterruptedWorldSettingComparisonCount = worldSettingCandidateCounts == null
-                ? 0
+        List<AnalysisBatchJobGroupResponse> jobGroups = summaries.stream()
+                .filter(group -> !group.episodeOnly())
+                .sorted(Comparator.comparing(GroupSummary::jobType))
+                .map(analysisBatchMapper::toJobGroupResponse).toList();
+        List<AnalysisBatchJobGroupResponse> episodeGroups = summaries.stream()
+                .filter(GroupSummary::episodeOnly)
+                .sorted(Comparator.comparing(GroupSummary::jobType))
+                .map(analysisBatchMapper::toJobGroupResponse).toList();
+        long pendingCandidateCount = (characterCandidateCounts == null ? 0
+                : characterCandidateCounts.getPendingCandidateCount())
+                + (worldSettingCandidateCounts == null ? 0 : worldSettingCandidateCounts.getPendingCandidateCount());
+        long tokenInterruptedCount = worldSettingCandidateCounts == null ? 0
                 : worldSettingCandidateCounts.getTokenInterruptedComparisonCount();
-        LocalDateTime lastActivityAt = currentJobsByType.values().stream()
-                .flatMap(List::stream)
-                .map(AnalysisJob::getUpdatedAt)
-                .max(Comparator.naturalOrder())
-                .orElse(pageRow.getLastRequestedAt());
-
-        return analysisBatchMapper.toResponse(
-                pageRow,
-                jobs.getFirst().getBatch(),
-                resolveBatchStatus(
-                        jobGroups,
-                        pendingCharacterCandidateCount + pendingWorldSettingCandidateCount,
-                        activeWorldSettingComparisonCount,
-                        tokenInterruptedWorldSettingComparisonCount
-                ),
-                episodeStartNo,
-                episodeEndNo,
-                targetEpisodesById.size(),
-                characterCandidateCounts,
-                worldSettingCandidateCounts,
-                jobGroups,
-                lastActivityAt
-        );
-    }
-
-    /**
-     * 재시도 이력까지 포함된 작업에서 분석 목적·회차별 최신 작업만 현재 상태로 선택한다.
-     * episode_id가 없는 과거 작업은 보존된 targetEpisodes를 같은 기준으로 펼쳐서 처리한다.
-     */
-    private Map<AnalysisJobType, List<AnalysisJob>> findCurrentJobsByType(List<AnalysisJob> jobs) {
-        Map<AnalysisJobType, LinkedHashMap<UUID, AnalysisJob>> jobsByEpisode = new EnumMap<>(
-                AnalysisJobType.class
-        );
-        Map<AnalysisJobType, AnalysisJob> targetlessJobs = new EnumMap<>(AnalysisJobType.class);
-        Map<AnalysisJobType, LinkedHashMap<UUID, AnalysisJob>> jobsByBook = new EnumMap<>(AnalysisJobType.class);
-
-        for (AnalysisJob job : jobs) {
-            if (job.isSettingBookSource()) {
-                jobsByBook.computeIfAbsent(job.getJobType(), ignored -> new LinkedHashMap<>())
-                        .putIfAbsent(job.getSourceSettingBook().getId(), job);
-                continue;
-            }
-            List<Episode> targetEpisodes = getTargetEpisodes(job);
-            if (targetEpisodes.isEmpty()) {
-                targetlessJobs.putIfAbsent(job.getJobType(), job);
-                continue;
-            }
-            LinkedHashMap<UUID, AnalysisJob> latestJobs = jobsByEpisode.computeIfAbsent(
-                    job.getJobType(),
-                    ignored -> new LinkedHashMap<>()
-            );
-            targetEpisodes.forEach(episode -> latestJobs.putIfAbsent(episode.getId(), job));
-        }
-
-        Map<AnalysisJobType, List<AnalysisJob>> result = new EnumMap<>(AnalysisJobType.class);
-        for (AnalysisJobType jobType : AnalysisJobType.values()) {
-            LinkedHashMap<UUID, AnalysisJob> latestJobs = jobsByEpisode.get(jobType);
-            List<AnalysisJob> current = new ArrayList<>();
-            if (latestJobs != null) current.addAll(latestJobs.values());
-            if (jobsByBook.containsKey(jobType)) current.addAll(jobsByBook.get(jobType).values());
-            if (!current.isEmpty()) {
-                result.put(jobType, current);
-                continue;
-            }
-            AnalysisJob targetlessJob = targetlessJobs.get(jobType);
-            if (targetlessJob != null) {
-                result.put(jobType, List.of(targetlessJob));
-            }
-        }
-        return result;
-    }
-
-    private AnalysisBatchStatus resolveJobGroupStatus(List<AnalysisJob> currentJobs) {
-        long failedCount = currentJobs.stream()
-                .filter(job -> listedJobStatus(job) == AnalysisJobStatus.FAILED)
-                .filter(job -> !job.isResumableTokenInterruption())
-                .count();
-        long canceledCount = currentJobs.stream()
-                .filter(job -> listedJobStatus(job) == AnalysisJobStatus.CANCELED)
-                .count();
-        if (currentJobs.stream().anyMatch(job ->
-                listedJobStatus(job) == AnalysisJobStatus.RUNNING
-                        || listedJobStatus(job) == AnalysisJobStatus.PENDING
-                        && !isBlockedOrderedJob(job, currentJobs))) {
-            return AnalysisBatchStatus.IN_PROGRESS;
-        }
-        if (canceledCount > 0) {
-            return AnalysisBatchStatus.CANCELED;
-        }
-        if (failedCount > 0) {
-            return currentJobs.stream().anyMatch(job -> listedJobStatus(job) == AnalysisJobStatus.SUCCEEDED)
-                    ? AnalysisBatchStatus.PARTIALLY_FAILED : AnalysisBatchStatus.FAILED;
-        }
-        return AnalysisBatchStatus.COMPLETED;
-    }
-
-    private AnalysisJobStatus listedJobStatus(AnalysisJob job) {
-        if (!job.isOrderedProvisional()) return job.getStatus();
-        if (job.getJournalStatus() == AnalysisJournalStatus.INVALIDATED) return AnalysisJobStatus.CANCELED;
-        if (job.getStatus() == AnalysisJobStatus.SUCCEEDED
-                && (job.getJournalStatus() != AnalysisJournalStatus.SEALED
-                || job.isAutomaticReview() && job.getAutomaticAppliedAt() == null)) {
-            return AnalysisJobStatus.FAILED;
-        }
-        return job.getStatus();
-    }
-
-    private boolean isBlockedOrderedJob(AnalysisJob job, List<AnalysisJob> currentJobs) {
-        if (!job.isOrderedProvisional()) return false;
-        return currentJobs.stream().anyMatch(earlier -> earlier.isOrderedProvisional()
-                && Objects.equals(earlier.getAnalysisRunId(), job.getAnalysisRunId())
-                && Objects.equals(earlier.getRunGeneration(), job.getRunGeneration())
-                && earlier.getRunSequence() < job.getRunSequence()
-                && (listedJobStatus(earlier) == AnalysisJobStatus.FAILED
-                || listedJobStatus(earlier) == AnalysisJobStatus.CANCELED));
+        LocalDateTime lastActivityAt = jobGroups.stream().map(AnalysisBatchJobGroupResponse::lastActivityAt)
+                .max(Comparator.naturalOrder()).orElse(pageRow.getLastRequestedAt());
+        return analysisBatchMapper.toResponse(pageRow,
+                resolveBatchStatus(jobGroups, pendingCandidateCount, activeWorldSettingComparisonCount, tokenInterruptedCount),
+                summaries.getFirst(), characterCandidateCounts, worldSettingCandidateCounts, jobGroups, lastActivityAt,
+                episodeGroups, episodeGroups.isEmpty() ? null
+                        : resolveBatchStatus(episodeGroups, pendingCandidateCount, activeWorldSettingComparisonCount, tokenInterruptedCount),
+                books);
     }
 
     private AnalysisBatchStatus resolveBatchStatus(

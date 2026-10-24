@@ -1,0 +1,1 @@
+select aj1_0.batch_id,min(aj1_0.created_at),max(aj1_0.created_at) from analysis_jobs aj1_0 where aj1_0.work_id='47e524ae-e53c-5b8b-b430-905990a20f3d' and aj1_0.batch_id is not null and aj1_0.job_type not in ('WORLD_SETTING_COMPARISON','CHARACTER_FACT_COMPARISON') group by aj1_0.batch_id order by max(aj1_0.created_at) desc,aj1_0.batch_id desc fetch first '10' rows only;

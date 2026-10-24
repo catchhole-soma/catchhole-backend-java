@@ -185,6 +185,7 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
     @Query(
             value = """
                     select analysisJob.batch.id as batchId,
+                           analysisJob.batch.uploadType as uploadType,
                            min(analysisJob.createdAt) as firstRequestedAt,
                            max(analysisJob.createdAt) as lastRequestedAt
                     from AnalysisJob analysisJob
@@ -194,7 +195,7 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
                           org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON,
                           org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.CHARACTER_FACT_COMPARISON
                       )
-                    group by analysisJob.batch.id
+                    group by analysisJob.batch.id, analysisJob.batch.uploadType
                     order by max(analysisJob.createdAt) desc, analysisJob.batch.id desc
                     """,
             countQuery = """
@@ -211,23 +212,6 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
     Page<AnalysisBatchPageRow> findBatchPage(
             @Param("workId") UUID workId,
             Pageable pageable
-    );
-
-    @EntityGraph(attributePaths = {"batch", "episode", "targetEpisodes"})
-    @Query("""
-            select analysisJob
-            from AnalysisJob analysisJob
-            where analysisJob.work.id = :workId
-              and analysisJob.batch.id in :batchIds
-              and analysisJob.jobType not in (
-                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON,
-                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.CHARACTER_FACT_COMPARISON
-              )
-            order by analysisJob.createdAt desc, analysisJob.id desc
-            """)
-    List<AnalysisJob> findAllByWorkIdAndBatchIdInOrderByCreatedAtDescIdDesc(
-            @Param("workId") UUID workId,
-            @Param("batchIds") Collection<UUID> batchIds
     );
 
     @Query("""

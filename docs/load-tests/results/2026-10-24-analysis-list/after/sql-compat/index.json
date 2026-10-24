@@ -1,0 +1,83 @@
+[
+  {
+    "number": 0,
+    "route": "all-jobs",
+    "sqlFile": "00-all-jobs.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.153,
+    "executionMs": 0.019
+  },
+  {
+    "number": 1,
+    "route": "all-jobs",
+    "sqlFile": "01-all-jobs.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.086,
+    "executionMs": 0.007
+  },
+  {
+    "number": 2,
+    "route": "all-jobs",
+    "sqlFile": "02-all-jobs.sql",
+    "includesAnalysisJson": true,
+    "parametersBound": true,
+    "planningMs": 3.217,
+    "executionMs": 0.434
+  },
+  {
+    "number": 3,
+    "route": "all-jobs",
+    "sqlFile": "03-all-jobs.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.082,
+    "executionMs": 0.009
+  },
+  {
+    "number": 4,
+    "route": "episodes",
+    "sqlFile": "04-episodes.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.037,
+    "executionMs": 0.013
+  },
+  {
+    "number": 5,
+    "route": "episodes",
+    "sqlFile": "05-episodes.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.022,
+    "executionMs": 0.007
+  },
+  {
+    "number": 6,
+    "route": "episodes",
+    "sqlFile": "06-episodes.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.036,
+    "executionMs": 0.025
+  },
+  {
+    "number": 7,
+    "route": "episodes",
+    "sqlFile": "07-episodes.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.069,
+    "executionMs": 0.013
+  },
+  {
+    "number": 8,
+    "route": "episodes",
+    "sqlFile": "08-episodes.sql",
+    "includesAnalysisJson": true,
+    "parametersBound": true,
+    "planningMs": 0.15,
+    "executionMs": 0.115
+  }
+]
