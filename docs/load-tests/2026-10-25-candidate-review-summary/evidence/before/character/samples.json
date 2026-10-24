@@ -1,0 +1,992 @@
+[
+  {
+    "index": 0,
+    "kind": "warmup",
+    "durationMs": 590.6693330034614,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 1,
+    "kind": "warmup",
+    "durationMs": 486.50449980050325,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 2,
+    "kind": "warmup",
+    "durationMs": 504.55762492492795,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 3,
+    "kind": "measured",
+    "durationMs": 442.3671248368919,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 4,
+    "kind": "measured",
+    "durationMs": 496.5676669962704,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 5,
+    "kind": "measured",
+    "durationMs": 452.4790411815047,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 6,
+    "kind": "measured",
+    "durationMs": 454.37720813788474,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 7,
+    "kind": "measured",
+    "durationMs": 428.26925008557737,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 8,
+    "kind": "measured",
+    "durationMs": 446.6064590960741,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 9,
+    "kind": "measured",
+    "durationMs": 404.0782500524074,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 10,
+    "kind": "measured",
+    "durationMs": 396.99583291076124,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 11,
+    "kind": "measured",
+    "durationMs": 416.6388330049813,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 12,
+    "kind": "measured",
+    "durationMs": 436.3594171591103,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 13,
+    "kind": "measured",
+    "durationMs": 488.82220801897347,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 14,
+    "kind": "measured",
+    "durationMs": 437.0355000719428,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 15,
+    "kind": "measured",
+    "durationMs": 464.54874984920025,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 16,
+    "kind": "measured",
+    "durationMs": 450.01891697756946,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 17,
+    "kind": "measured",
+    "durationMs": 428.5657908767462,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 18,
+    "kind": "measured",
+    "durationMs": 391.8523748870939,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 19,
+    "kind": "measured",
+    "durationMs": 467.8793749772012,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 20,
+    "kind": "measured",
+    "durationMs": 481.9252910092473,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 21,
+    "kind": "measured",
+    "durationMs": 423.5319171566516,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 22,
+    "kind": "measured",
+    "durationMs": 413.1014999002218,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 23,
+    "kind": "measured",
+    "durationMs": 478.0739159323275,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 24,
+    "kind": "measured",
+    "durationMs": 430.72216701693833,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 25,
+    "kind": "measured",
+    "durationMs": 413.60441595315933,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 26,
+    "kind": "measured",
+    "durationMs": 438.95466602407396,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 27,
+    "kind": "measured",
+    "durationMs": 419.61020790040493,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 28,
+    "kind": "measured",
+    "durationMs": 436.60029117017984,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 29,
+    "kind": "measured",
+    "durationMs": 422.2017079591751,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 30,
+    "kind": "measured",
+    "durationMs": 449.7216672170907,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 31,
+    "kind": "measured",
+    "durationMs": 422.9812079574913,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  },
+  {
+    "index": 32,
+    "kind": "measured",
+    "durationMs": 475.0869171693921,
+    "status": 200,
+    "bodyBytes": 280296,
+    "error": null,
+    "correctness": {
+      "total": 585,
+      "pending": 123,
+      "responseFields": [
+        "attentionRequiredCandidateCount",
+        "batchId",
+        "candidates",
+        "confirmedCandidateCount",
+        "directReviewCandidateCount",
+        "dismissedCandidateCount",
+        "episodeCount",
+        "episodeEndNo",
+        "episodeStartNo",
+        "groups",
+        "matchRequiredCandidateCount",
+        "pendingCandidateCount",
+        "processingCandidateCount",
+        "reviewedCandidateCount",
+        "totalCandidateCount"
+      ]
+    },
+    "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+  }
+]

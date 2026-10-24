@@ -1,0 +1,21 @@
+{
+  "batchId": "10fe7b4b-0093-5a1f-be13-aa729499dbd8",
+  "episodeStartNo": 1,
+  "episodeEndNo": 30,
+  "episodeCount": 30,
+  "totalCandidateCount": 637,
+  "reviewedCandidateCount": 575,
+  "pendingCandidateCount": 62,
+  "pendingComparisonCount": 1,
+  "processingComparisonCount": 1,
+  "activeComparisonJobCount": 0,
+  "failedComparisonCount": 0,
+  "tokenInterruptedComparisonCount": 0,
+  "canResumeTokenInterruptedComparisons": false,
+  "recomparisonRequiredCount": 0,
+  "conflictCandidateCount": 0,
+  "confirmedCandidateCount": 287,
+  "dismissedCandidateCount": 288,
+  "directReviewCandidateCount": 60,
+  "processingCandidateCount": 2
+}

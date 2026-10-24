@@ -1,0 +1,229 @@
+{
+  "protocol": "same incident-size fixture; one fresh JVM per route;3warmup+30sequential samples; stop first error; quiet window; no SQL debug",
+  "routes": [
+    {
+      "route": "character",
+      "before": {
+        "phase": "before",
+        "route": "character",
+        "requestPath": "/api/v1/works/32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f/setting-candidates?batchId=10fe7b4b-0093-5a1f-be13-aa729499dbd8&reviewStatus=PENDING_REVIEW&page=0&size=20&includeLegacyCandidates=false",
+        "protocol": "one fresh JVM per route; sequential; three warmups then thirty measured by default; stop on first error",
+        "plannedWarmups": 3,
+        "plannedMeasurements": 30,
+        "completedWarmups": 3,
+        "completedMeasurements": 30,
+        "errors": 0,
+        "stoppedEarly": false,
+        "medianMs": 436.8178956210613,
+        "p95Ms": 488.82220801897347,
+        "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c",
+        "attemptedRequests": 33,
+        "successfulRequests": 33,
+        "successfulMeasuredBodyBytes": [
+          280296
+        ],
+        "resourceSampleCount": 31,
+        "observedPeakRssMiB": 1204.109375,
+        "sampledGcCollectorSeconds": 0.962
+      },
+      "after": {
+        "phase": "after",
+        "route": "character",
+        "requestPath": "/api/v1/works/32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f/setting-candidates?batchId=10fe7b4b-0093-5a1f-be13-aa729499dbd8&reviewStatus=PENDING_REVIEW&page=0&size=20&includeLegacyCandidates=false",
+        "protocol": "one fresh JVM per route; sequential; three warmups then thirty measured by default; stop on first error",
+        "plannedWarmups": 3,
+        "plannedMeasurements": 30,
+        "completedWarmups": 3,
+        "completedMeasurements": 30,
+        "errors": 0,
+        "stoppedEarly": false,
+        "medianMs": 17.922020982950926,
+        "p95Ms": 26.53645910322666,
+        "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c",
+        "attemptedRequests": 33,
+        "successfulRequests": 33,
+        "successfulMeasuredBodyBytes": [
+          280296
+        ],
+        "resourceSampleCount": 3,
+        "observedPeakRssMiB": 858.265625,
+        "sampledGcCollectorSeconds": 0.006000000000000005
+      },
+      "medianReductionPct": 95.89714131160547,
+      "p95ReductionPct": 94.57134748219201,
+      "beforeNoLatencyRatioWhenFailure": false
+    },
+    {
+      "route": "world",
+      "before": {
+        "phase": "before",
+        "route": "world",
+        "requestPath": "/api/v1/works/32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f/world-setting-candidates?batchId=10fe7b4b-0093-5a1f-be13-aa729499dbd8&reviewStatus=PENDING_REVIEW&page=0&size=20",
+        "protocol": "one fresh JVM per route; sequential; three warmups then thirty measured by default; stop on first error",
+        "plannedWarmups": 3,
+        "plannedMeasurements": 30,
+        "completedWarmups": 3,
+        "completedMeasurements": 30,
+        "errors": 0,
+        "stoppedEarly": false,
+        "medianMs": 363.62827057018876,
+        "p95Ms": 422.7915001101792,
+        "responseSha256": "316caea64839fa14960433c8e7a138599c00af777d02549070ec130588100e47",
+        "attemptedRequests": 33,
+        "successfulRequests": 33,
+        "successfulMeasuredBodyBytes": [
+          143582
+        ],
+        "resourceSampleCount": 26,
+        "observedPeakRssMiB": 1186.359375,
+        "sampledGcCollectorSeconds": 0.938
+      },
+      "after": {
+        "phase": "after",
+        "route": "world",
+        "requestPath": "/api/v1/works/32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f/world-setting-candidates?batchId=10fe7b4b-0093-5a1f-be13-aa729499dbd8&reviewStatus=PENDING_REVIEW&page=0&size=20",
+        "protocol": "one fresh JVM per route; sequential; three warmups then thirty measured by default; stop on first error",
+        "plannedWarmups": 3,
+        "plannedMeasurements": 30,
+        "completedWarmups": 3,
+        "completedMeasurements": 30,
+        "errors": 0,
+        "stoppedEarly": false,
+        "medianMs": 13.752270839177072,
+        "p95Ms": 23.935999954119325,
+        "responseSha256": "316caea64839fa14960433c8e7a138599c00af777d02549070ec130588100e47",
+        "attemptedRequests": 33,
+        "successfulRequests": 33,
+        "successfulMeasuredBodyBytes": [
+          143582
+        ],
+        "resourceSampleCount": 3,
+        "observedPeakRssMiB": 941.5,
+        "sampledGcCollectorSeconds": 0.0040000000000000036
+      },
+      "medianReductionPct": 96.21804134821178,
+      "p95ReductionPct": 94.33858061293058,
+      "beforeNoLatencyRatioWhenFailure": false
+    },
+    {
+      "route": "summary",
+      "before": {
+        "phase": "before",
+        "route": "summary",
+        "requestPath": "/api/v1/works/32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f/world-setting-candidates?batchId=10fe7b4b-0093-5a1f-be13-aa729499dbd8&page=0&size=1",
+        "protocol": "one fresh JVM per route; sequential; three warmups then thirty measured by default; stop on first error",
+        "plannedWarmups": 3,
+        "plannedMeasurements": 30,
+        "completedWarmups": 1,
+        "completedMeasurements": 0,
+        "errors": 1,
+        "stoppedEarly": true,
+        "medianMs": null,
+        "p95Ms": null,
+        "responseSha256": null,
+        "attemptedRequests": 1,
+        "successfulRequests": 0,
+        "successfulMeasuredBodyBytes": [],
+        "resourceSampleCount": 6,
+        "observedPeakRssMiB": 1168.34375,
+        "sampledGcCollectorSeconds": 0.692
+      },
+      "after": {
+        "phase": "after",
+        "route": "summary",
+        "requestPath": "/api/v1/works/32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f/world-setting-candidates/summary?batchId=10fe7b4b-0093-5a1f-be13-aa729499dbd8",
+        "protocol": "one fresh JVM per route; sequential; three warmups then thirty measured by default; stop on first error",
+        "plannedWarmups": 3,
+        "plannedMeasurements": 30,
+        "completedWarmups": 3,
+        "completedMeasurements": 30,
+        "errors": 0,
+        "stoppedEarly": false,
+        "medianMs": 7.710833451710641,
+        "p95Ms": 9.410083061084151,
+        "responseSha256": "07711cf543167d559b89d10796c15bfe50a1e7561282a0990eeb2068c7c905e8",
+        "attemptedRequests": 33,
+        "successfulRequests": 33,
+        "successfulMeasuredBodyBytes": [
+          671
+        ],
+        "resourceSampleCount": 2,
+        "observedPeakRssMiB": 864.21875,
+        "sampledGcCollectorSeconds": 0.0
+      },
+      "medianReductionPct": null,
+      "p95ReductionPct": null,
+      "beforeNoLatencyRatioWhenFailure": true
+    }
+  ],
+  "fullDataEquality": {
+    "primaryRowsUnchangedAfterTiming": true,
+    "stateSha256": "0b85fbeef1b703ad3f8b55530e572c7eb0e1c549b52271e058e1ab17633927a9",
+    "results": [
+      {
+        "route": "character",
+        "before": "evidence/before/character/response.json",
+        "after": "evidence/after/character/response.json",
+        "fullDataEqual": true,
+        "comparison": "entire data object; summary removes only groups from old body; envelope timestamp excluded"
+      },
+      {
+        "route": "world",
+        "before": "evidence/before/world/response.json",
+        "after": "evidence/after/world/response.json",
+        "fullDataEqual": true,
+        "comparison": "entire data object; summary removes only groups from old body; envelope timestamp excluded"
+      },
+      {
+        "route": "summary",
+        "before": "evidence/before/correctness-summary/response.json",
+        "after": "evidence/after/summary/response.json",
+        "fullDataEqual": true,
+        "comparison": "entire data object; summary removes only groups from old body; envelope timestamp excluded"
+      }
+    ]
+  },
+  "sqlVerification": {
+    "sqlChecks": [
+      {
+        "route": "sql-character",
+        "selects": 8,
+        "threeJobJsonColumnsAbsentFromEntireSql": true
+      },
+      {
+        "route": "sql-world",
+        "selects": 8,
+        "threeJobJsonColumnsAbsentFromEntireSql": true
+      },
+      {
+        "route": "sql-summary",
+        "selects": 6,
+        "threeJobJsonColumnsAbsentFromEntireSql": true
+      }
+    ],
+    "smallJsonFixtureSameBeforeAfter": true,
+    "frontendArtifactFiles": 37,
+    "frontendFileManifestSha256": "97dedbf9d3a9440d37eb74819fabd04138754407435e1f8b4c02df0f55e93caf"
+  },
+  "cleanup": {
+    "primaryFixtureRestored": true,
+    "stateSha256": "0b85fbeef1b703ad3f8b55530e572c7eb0e1c549b52271e058e1ab17633927a9",
+    "analysisJsonBytes": 32201769,
+    "ownedJavaPidsStopped": [
+      76436
+    ],
+    "ownedPreviewPidsStopped": [
+      76982
+    ],
+    "postgresContainer": "candidate-review-benchmark-20261025-postgres",
+    "containerStoppedNotRemoved": true,
+    "databaseVolumesPreserved": [
+      {
+        "Type": "volume",
+        "Name": "1f69c60216fd91ddfcfe7558be11caf9365246b6abae6ffb072797df01f50c2a",
+        "Destination": "/var/lib/postgresql/data"
+      }
+    ],
+    "sqlLoggingDisabledBeforeStop": true
+  }
+}

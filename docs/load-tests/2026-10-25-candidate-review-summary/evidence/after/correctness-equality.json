@@ -1,0 +1,31 @@
+{
+  "phase": "after",
+  "timingSample": false,
+  "fixture": "small-json browser correctness only",
+  "results": [
+    {
+      "route": "character",
+      "httpStatus": 200,
+      "reference": "<BENCHMARK_ROOT>/evidence/before/correctness-character/response.json",
+      "fullDataEqual": true,
+      "scope": "all data fields, excluding groups for summary; no CommonResponse envelope timestamp",
+      "topLevelDifferences": []
+    },
+    {
+      "route": "world",
+      "httpStatus": 200,
+      "reference": "<BENCHMARK_ROOT>/evidence/before/correctness-world/response.json",
+      "fullDataEqual": true,
+      "scope": "all data fields, excluding groups for summary; no CommonResponse envelope timestamp",
+      "topLevelDifferences": []
+    },
+    {
+      "route": "summary",
+      "httpStatus": 200,
+      "reference": "<BENCHMARK_ROOT>/evidence/before/correctness-summary/response.json",
+      "fullDataEqual": true,
+      "scope": "all data fields, excluding groups for summary; no CommonResponse envelope timestamp",
+      "topLevelDifferences": []
+    }
+  ]
+}

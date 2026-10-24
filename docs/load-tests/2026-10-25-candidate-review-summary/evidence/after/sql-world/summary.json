@@ -1,0 +1,11 @@
+{
+  "phase": "after",
+  "route": "world",
+  "httpStatus": 200,
+  "requestError": null,
+  "diagnosticDurationMs": 69.56387497484684,
+  "timingSample": false,
+  "capturedSelects": 8,
+  "jsonSelectingQueries": 0,
+  "explainFailures": 0
+}

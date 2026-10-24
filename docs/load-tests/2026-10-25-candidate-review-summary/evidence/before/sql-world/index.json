@@ -1,0 +1,79 @@
+[
+  {
+    "number": 0,
+    "sqlFile": "00.sql",
+    "selectedExpressions": "select m1_0.id,m1_0.age_requirement_confirmed_at,m1_0.analysis_guide_shown_at,m1_0.created_at,m1_0.display_name,m1_0.email,m1_0.email_verified,m1_0.feedback_prompt_shown_at,m1_0.first_analysis_started_at,m1_0.password_hash,m1_0.phone_number,m1_0.phone_verified,m1_0.profile_image_url,m1_0.role,m1_0.status,m1_0.updated_at ",
+    "includesAnalysisJson": false,
+    "includesRawAi": false,
+    "parametersBound": true,
+    "planningMs": 0.298,
+    "executionMs": 0.027,
+    "returnedRows": 1
+  },
+  {
+    "number": 1,
+    "sqlFile": "01.sql",
+    "selectedExpressions": "select w1_0.id,w1_0.created_at,w1_0.description,w1_0.genre,w1_0.latest_episode_no,w1_0.lifecycle_status,w1_0.member_id,w1_0.relationship_input_version,w1_0.title,w1_0.updated_at ",
+    "includesAnalysisJson": false,
+    "includesRawAi": false,
+    "parametersBound": true,
+    "planningMs": 0.18,
+    "executionMs": 0.016,
+    "returnedRows": 1
+  },
+  {
+    "number": 2,
+    "sqlFile": "02.sql",
+    "selectedExpressions": "select ub1_0.id,ub1_0.completed_at,ub1_0.created_at,ub1_0.file_count,ub1_0.member_id,ub1_0.source_type,ub1_0.status,ub1_0.updated_at,ub1_0.upload_type,ub1_0.work_id ",
+    "includesAnalysisJson": false,
+    "includesRawAi": false,
+    "parametersBound": true,
+    "planningMs": 0.086,
+    "executionMs": 0.013,
+    "returnedRows": 1
+  },
+  {
+    "number": 3,
+    "sqlFile": "03.sql",
+    "selectedExpressions": "select wsc1_0.id,wsc1_0.analysis_job_id,aj2_0.id,aj2_0.analysis_mode,aj2_0.analysis_run_id,aj2_0.attempt_requested_at,aj2_0.automatic_applied_at,aj2_0.automatic_input_state,aj2_0.batch_id,aj2_0.character_comparison_input_hash,aj2_0.character_comparisons_handed_off,aj2_0.checkpoint_stage,aj2_0.claim_attempt_count,aj2_0.completed_at,aj2_0.created_at,aj2_0.current_step,aj2_0.episode_id,aj2_0.error_message,aj2_0.failure_code,aj2_0.input_state_hash,aj2_0.input_token_count,aj2_0.job_type,aj2_0.journal_invalidation_reason,aj2_0.journal_status,aj2_0.lease_expires_at,aj2_0.lease_token,aj2_0.metrics_attempt_no,aj2_0.metrics_request_episode_count,aj2_0.metrics_request_id,aj2_0.metrics_request_started_at,aj2_0.metrics_user_retry,aj2_0.model_name,aj2_0.output_token_count,aj2_0.pending_since,aj2_0.predecessor_job_id,aj2_0.result_outcome,aj2_0.result_ready_at,aj2_0.review_mode,aj2_0.run_base_state,aj2_0.run_generation,aj2_0.run_sequence,aj2_0.setting_candidate_id,aj2_0.source_content_hash,aj2_0.source_content_s3_key,aj2_0.source_content_s3_version,aj2_0.source_episode_no,aj2_0.source_kind,aj2_0.source_setting_book_id,aj2_0.source_setting_book_revision_id,aj2_0.started_at,aj2_0.state_journal,aj2_0.status,aj2_0.summary_json,aj2_0.updated_at,aj2_0.work_id,aj2_0.world_setting_candidate_id,wsc1_0.applied_world_setting_version,wsc1_0.automatic_review_hold_reason,wsc1_0.base_world_setting_version,wsc1_0.before_value,wsc1_0.canonical_subject_key,wsc1_0.canonical_subject_name,wsc1_0.category,wsc1_0.compared_at,wsc1_0.comparison_batch_id,wsc1_0.comparison_candidate_ref,cd1_0.id,cd1_0.base_world_setting_version,cd1_0.before_value,cd1_0.canonical_subject_name,cd1_0.comparison_batch_id,cb2_0.id,cb2_0.analysis_job_id,cb2_0.candidate_count,cb2_0.canonical_subject_key,cb2_0.canonical_subject_name,cb2_0.category,cb2_0.completion_hash,cb2_0.context_snapshot_json,cb2_0.created_at,cb2_0.error_message,cb2_0.failure_code,cb2_0.raw_completion_json,cb2_0.raw_scope_name,cb2_0.resolved_provisional_subject_keys,cb2_0.resolved_target_world_setting_ids,cb2_0.source_episode_id,cb2_0.status,cb2_0.subject_resolution_type,cb2_0.updated_at,cb2_0.work_id,cd1_0.comparison_reason,cd1_0.comparison_review_reason,cd1_0.consolidation_status,cd1_0.created_at,cd1_0.decision_ref,cd1_0.existing_root_property_move_snapshots,cd1_0.matched_property_name,cd1_0.matched_scope_name,cd1_0.proposed_scope_name,cd1_0.proposed_setting_name,cd1_0.proposed_value,cd1_0.provisional_subject_key,cd1_0.raw_comparison_json,cd1_0.root_property_moves_applied_world_setting_version,cd1_0.root_property_moves_disabled,cd1_0.suggested_operation,cd1_0.target_world_setting_id,cd1_0.updated_at,wsc1_0.comparison_diagnostics,wsc1_0.comparison_error_message,wsc1_0.comparison_failure_code,wsc1_0.comparison_reason,wsc1_0.comparison_review_reason,wsc1_0.comparison_source_error_code,wsc1_0.comparison_source_reason_code,wsc1_0.comparison_status,wsc1_0.comparison_terminal_at,wsc1_0.comparison_terminal_outcome,wsc1_0.consolidation_status,wsc1_0.created_at,wsc1_0.effective_from_episode_no,wsc1_0.evidence_spans,wsc1_0.extracted_value,wsc1_0.extraction_confidence,wsc1_0.final_category,wsc1_0.final_operation,wsc1_0.final_scope_name,wsc1_0.final_setting_name,wsc1_0.final_subject_name,wsc1_0.final_value,wsc1_0.history_only,wsc1_0.matched_property_name,wsc1_0.matched_scope_name,wsc1_0.metrics_source_attempt_no,wsc1_0.preparation_failure_stage,wsc1_0.proposed_scope_name,wsc1_0.proposed_setting_name,wsc1_0.proposed_value,wsc1_0.provisional_subject_key,wsc1_0.raw_comparison_json,wsc1_0.raw_extraction_json,wsc1_0.resolved_provisional_subject_keys,wsc1_0.resolved_target_world_setting_ids,wsc1_0.review_note,wsc1_0.review_status,wsc1_0.reviewed_at,wsc1_0.reviewed_automatically,rb1_0.id,rb1_0.age_requirement_confirmed_at,rb1_0.analysis_guide_shown_at,rb1_0.created_at,rb1_0.display_name,rb1_0.email,rb1_0.email_verified,rb1_0.feedback_prompt_shown_at,rb1_0.first_analysis_started_at,rb1_0.password_hash,rb1_0.phone_number,rb1_0.phone_verified,rb1_0.profile_image_url,rb1_0.role,rb1_0.status,rb1_0.updated_at,wsc1_0.scope_name,wsc1_0.setting_name,se1_0.id,se1_0.char_count,se1_0.content_hash,se1_0.content_s3_key,se1_0.content_s3_version,se1_0.content_updated_at,se1_0.created_at,se1_0.episode_no,se1_0.source_file_id,se1_0.status,se1_0.title,se1_0.updated_at,se1_0.work_id,wsc1_0.source_kind,wsc1_0.source_setting_book_id,wsc1_0.source_setting_book_revision_id,wsc1_0.subject_name,wsc1_0.subject_resolution_type,wsc1_0.suggested_operation,tws3_0.id,tws3_0.category,tws3_0.created_at,tws3_0.manually_edited_paths,tws3_0.normalized_subject_name,tws3_0.properties_json,tws3_0.subject_name,tws3_0.updated_at,tws3_0.version,tws3_0.work_id,wsc1_0.temporal_scope,wsc1_0.updated_at,wsc1_0.work_id,w5_0.id,w5_0.created_at,w5_0.description,w5_0.genre,w5_0.latest_episode_no,w5_0.lifecycle_status,w5_0.member_id,w5_0.relationship_input_version,w5_0.title,w5_0.updated_at ",
+    "includesAnalysisJson": true,
+    "includesRawAi": true,
+    "parametersBound": true,
+    "planningMs": 2.085,
+    "executionMs": 0.588,
+    "returnedRows": 62
+  },
+  {
+    "number": 4,
+    "sqlFile": "04.sql",
+    "selectedExpressions": "select count(wsc1_0.id),coalesce(sum(case when wsc1_0.review_status='CONFIRMED' then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status='DISMISSED' then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status=$1 and wsc1_0.comparison_status not in ('PENDING','PROCESSING') and not((aj1_0.review_mode='AUTOMATIC' and aj1_0.automatic_applied_at is null and aj1_0.status in ('PENDING','RUNNING'))) then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status=$2 and (wsc1_0.comparison_status in ('PENDING','PROCESSING') or (aj1_0.review_mode='AUTOMATIC' and aj1_0.automatic_applied_at is null and aj1_0.status in ('PENDING','RUNNING'))) then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status<>$3 then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status=$4 then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status=$5 and wsc1_0.comparison_status=$6 then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status=$7 and wsc1_0.comparison_status=$8 then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status=$9 and wsc1_0.comparison_status=$10 then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status=$11 and wsc1_0.comparison_status=$12 and wsc1_0.comparison_failure_code=$13 then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status=$14 and wsc1_0.comparison_status=$15 and wsc1_0.comparison_failure_code=$16 and (aj1_0.analysis_mode='ORDERED_PROVISIONAL' or (aj1_0.review_mode='AUTOMATIC' and aj1_0.automatic_applied_at is null and aj1_0.status in ('PENDING','RUNNING'))) then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status=$17 and wsc1_0.comparison_status=$18 then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status=$19 and wsc1_0.comparison_status=$20 and wsc1_0.consolidation_status=$21 then 1 else 0 end),0) ",
+    "includesAnalysisJson": false,
+    "includesRawAi": false,
+    "parametersBound": true,
+    "planningMs": 0.132,
+    "executionMs": 0.274,
+    "returnedRows": 1
+  },
+  {
+    "number": 5,
+    "sqlFile": "05.sql",
+    "selectedExpressions": "select min(te1_1.episode_no),max(te1_1.episode_no),count(distinct te1_0.episode_id) ",
+    "includesAnalysisJson": false,
+    "includesRawAi": false,
+    "parametersBound": true,
+    "planningMs": 0.132,
+    "executionMs": 0.036,
+    "returnedRows": 1
+  },
+  {
+    "number": 6,
+    "sqlFile": "06.sql",
+    "selectedExpressions": "select aj1_0.batch_id,count(aj1_0.id) ",
+    "includesAnalysisJson": false,
+    "includesRawAi": false,
+    "parametersBound": true,
+    "planningMs": 0.085,
+    "executionMs": 0.009,
+    "returnedRows": 0
+  }
+]

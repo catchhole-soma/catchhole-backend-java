@@ -1,0 +1,22 @@
+{
+  "sqlChecks": [
+    {
+      "route": "sql-character",
+      "selects": 8,
+      "threeJobJsonColumnsAbsentFromEntireSql": true
+    },
+    {
+      "route": "sql-world",
+      "selects": 8,
+      "threeJobJsonColumnsAbsentFromEntireSql": true
+    },
+    {
+      "route": "sql-summary",
+      "selects": 6,
+      "threeJobJsonColumnsAbsentFromEntireSql": true
+    }
+  ],
+  "smallJsonFixtureSameBeforeAfter": true,
+  "frontendArtifactFiles": 37,
+  "frontendFileManifestSha256": "97dedbf9d3a9440d37eb74819fabd04138754407435e1f8b4c02df0f55e93caf"
+}

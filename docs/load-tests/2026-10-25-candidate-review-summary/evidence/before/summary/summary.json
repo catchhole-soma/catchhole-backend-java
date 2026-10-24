@@ -1,0 +1,15 @@
+{
+  "phase": "before",
+  "route": "summary",
+  "requestPath": "/api/v1/works/32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f/world-setting-candidates?batchId=10fe7b4b-0093-5a1f-be13-aa729499dbd8&page=0&size=1",
+  "protocol": "one fresh JVM per route; sequential; three warmups then thirty measured by default; stop on first error",
+  "plannedWarmups": 3,
+  "plannedMeasurements": 30,
+  "completedWarmups": 1,
+  "completedMeasurements": 0,
+  "errors": 1,
+  "stoppedEarly": true,
+  "medianMs": null,
+  "p95Ms": null,
+  "responseSha256": null
+}

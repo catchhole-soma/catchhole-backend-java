@@ -1,0 +1,21 @@
+{
+  "primaryFixtureRestored": true,
+  "stateSha256": "0b85fbeef1b703ad3f8b55530e572c7eb0e1c549b52271e058e1ab17633927a9",
+  "analysisJsonBytes": 32201769,
+  "ownedJavaPidsStopped": [
+    76436
+  ],
+  "ownedPreviewPidsStopped": [
+    76982
+  ],
+  "postgresContainer": "candidate-review-benchmark-20261025-postgres",
+  "containerStoppedNotRemoved": true,
+  "databaseVolumesPreserved": [
+    {
+      "Type": "volume",
+      "Name": "1f69c60216fd91ddfcfe7558be11caf9365246b6abae6ffb072797df01f50c2a",
+      "Destination": "/var/lib/postgresql/data"
+    }
+  ],
+  "sqlLoggingDisabledBeforeStop": true
+}

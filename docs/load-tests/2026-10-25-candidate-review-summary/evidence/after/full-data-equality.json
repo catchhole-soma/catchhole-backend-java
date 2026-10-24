@@ -1,0 +1,27 @@
+{
+  "primaryRowsUnchangedAfterTiming": true,
+  "stateSha256": "0b85fbeef1b703ad3f8b55530e572c7eb0e1c549b52271e058e1ab17633927a9",
+  "results": [
+    {
+      "route": "character",
+      "before": "evidence/before/character/response.json",
+      "after": "evidence/after/character/response.json",
+      "fullDataEqual": true,
+      "comparison": "entire data object; summary removes only groups from old body; envelope timestamp excluded"
+    },
+    {
+      "route": "world",
+      "before": "evidence/before/world/response.json",
+      "after": "evidence/after/world/response.json",
+      "fullDataEqual": true,
+      "comparison": "entire data object; summary removes only groups from old body; envelope timestamp excluded"
+    },
+    {
+      "route": "summary",
+      "before": "evidence/before/correctness-summary/response.json",
+      "after": "evidence/after/summary/response.json",
+      "fullDataEqual": true,
+      "comparison": "entire data object; summary removes only groups from old body; envelope timestamp excluded"
+    }
+  ]
+}

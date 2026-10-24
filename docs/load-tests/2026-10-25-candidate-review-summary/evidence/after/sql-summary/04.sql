@@ -1,0 +1,1 @@
+select min(te1_1.episode_no),max(te1_1.episode_no),count(distinct te1_0.episode_id) from analysis_jobs aj1_0 join analysis_job_episode_targets te1_0 on aj1_0.id=te1_0.analysis_job_id join episodes te1_1 on te1_1.id=te1_0.episode_id where aj1_0.work_id='32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f' and aj1_0.batch_id='10fe7b4b-0093-5a1f-be13-aa729499dbd8';
