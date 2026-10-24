@@ -90,7 +90,7 @@ class AnalysisJobOrderedRetryTest {
     @BeforeEach
     void setUp() {
         service = new AnalysisJobServiceImpl(runStateService, org.mockito.Mockito.mock(AnalysisGuideService.class), jobRepository, org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchSummaryRepository.class), workRepository,
-                batchRepository, fileRepository, new AnalysisJobMapper(), batchMapper,
+                batchRepository, fileRepository, new AnalysisJobMapper(), new org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisJobProgressMapper(), batchMapper,
                 episodeRepository, purgeRepository, characterRepository, worldRepository, tokenService,
                 org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator.class));
         Member member = Member.register("retry@example.com", "password", "01012345678", "작가");
