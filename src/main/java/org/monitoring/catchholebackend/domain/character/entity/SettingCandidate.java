@@ -1,5 +1,7 @@
 package org.monitoring.catchholebackend.domain.character.entity;
 
+import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisReviewState;
+
 import org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.persistence.Column;
@@ -354,16 +356,23 @@ public class SettingCandidate extends BaseEntity {
     }
 
     public boolean isManualReviewAvailable() {
-        if (isCompletedManualReview() && isPendingReview() && analysisJob.hasCurrentSourceVersion()) {
+        AnalysisReviewState state = AnalysisReviewState.from(analysisJob, false);
+        boolean needsCurrentSource = state != null && isPendingReview()
+                && (state.completedManual() || state.automatic() && state.completedOrdered());
+        return isManualReviewAvailable(needsCurrentSource ? AnalysisReviewState.from(analysisJob) : state);
+    }
+
+    public boolean isManualReviewAvailable(AnalysisReviewState state) {
+        if (state != null && state.completedManual() && isPendingReview() && state.currentSourceVersion()) {
             return reviewedApplicationMode != null
                     || comparisonStatus == CharacterFactComparisonStatus.COMPLETED
                         && suggestedOperation == CharacterFactOperation.REVIEW_REQUIRED;
         }
-        return isPendingReview() && analysisJob != null && analysisJob.isAutomaticReview()
-                && analysisJob.isCompletedOrderedAnalysis() && analysisJob.hasCurrentSourceVersion()
+        return isPendingReview() && state != null && state.automatic()
+                && state.completedOrdered() && state.currentSourceVersion()
                 && comparisonStatus != CharacterFactComparisonStatus.PENDING
                 && comparisonStatus != CharacterFactComparisonStatus.PROCESSING
-                && (comparisonStatus != CharacterFactComparisonStatus.FAILED || canDeferFailedComparison());
+                && (comparisonStatus != CharacterFactComparisonStatus.FAILED || canDeferFailedComparison(state));
     }
 
     public boolean isCompletedManualReview() {
@@ -372,7 +381,11 @@ public class SettingCandidate extends BaseEntity {
     }
 
     public boolean isAutomaticApplicationPending() {
-        return isPendingReview() && analysisJob != null && analysisJob.isAutomaticApplicationPending();
+        return isPendingReview() && isAutomaticApplicationPending(AnalysisReviewState.from(analysisJob, false));
+    }
+
+    public boolean isAutomaticApplicationPending(AnalysisReviewState state) {
+        return isPendingReview() && state != null && state.automaticPending();
     }
 
     // 그룹 확정 성공 응답이 유실된 뒤 동일 결정을 멱등적으로 반환하기 위한 hash.
@@ -936,12 +949,20 @@ public class SettingCandidate extends BaseEntity {
     public boolean canDeferFailedComparison() {
         return comparisonStatus == CharacterFactComparisonStatus.FAILED
                 && AnalysisFailureCode.orUnexpected(comparisonFailureCode).isCandidateComparisonFailure()
-                && (hasDeferredPreparationFailure() || characterComparisonBatch != null
+                && canDeferFailedComparison(AnalysisReviewState.from(analysisJob, false));
+    }
+
+    public boolean canDeferFailedComparison(AnalysisReviewState state) {
+        return comparisonStatus == CharacterFactComparisonStatus.FAILED
+                && AnalysisFailureCode.orUnexpected(comparisonFailureCode).isCandidateComparisonFailure()
+                && (hasDeferredPreparationFailure(state) || characterComparisonBatch != null
                 && characterComparisonBatch.getAnalysisContextSnapshotJson() != null);
     }
 
-    public boolean hasDeferredPreparationFailure() {
-        return analysisJob != null && analysisJob.isOrderedProvisional() && analysisJob.isAutomaticReview()
+    public boolean hasDeferredPreparationFailure() { return hasDeferredPreparationFailure(AnalysisReviewState.from(analysisJob, false)); }
+
+    public boolean hasDeferredPreparationFailure(AnalysisReviewState state) {
+        return state != null && state.ordered() && state.automatic()
                 && preparationFailureStage != null
                 && AnalysisFailureCode.orUnexpected(comparisonFailureCode).isCandidateComparisonFailure()
                 && (preparationFailureStage == CandidatePreparationFailureStage.SUBJECT_RESOLUTION

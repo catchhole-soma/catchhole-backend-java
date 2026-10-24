@@ -120,6 +120,72 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             SettingCandidateReviewStatus reviewStatus
     );
 
+    @EntityGraph(attributePaths = {"work", "episode", "matchedCharacter", "characterComparisonBatch", "characterComparisonBatch.matchedCharacter"})
+    @Query(
+            value = """
+                    select candidate
+                    from SettingCandidate candidate
+                    join candidate.analysisJob analysisJob
+                    left join candidate.episode episode
+                    where candidate.work.id = :workId
+                      and analysisJob.batch.id = :batchId
+              and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
+                or analysisJob.id = :sourceAnalysisJobId)
+                      and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
+                      and candidate.matchStatus in :matchStatuses
+                    order by episode.episodeNo asc, candidate.createdAt asc, candidate.id asc
+                    """,
+            countQuery = """
+                    select count(candidate)
+                    from SettingCandidate candidate
+                    join candidate.analysisJob analysisJob
+                    where candidate.work.id = :workId
+                      and analysisJob.batch.id = :batchId
+              and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
+                or analysisJob.id = :sourceAnalysisJobId)
+                      and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
+                      and candidate.matchStatus in :matchStatuses
+                    """
+    )
+    Page<SettingCandidate> findReviewListPage(
+            @Param("workId") UUID workId,
+            @Param("batchId") UUID batchId,
+            @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus,
+            @Param("matchStatuses") Collection<SettingCandidateMatchStatus> matchStatuses,
+            Pageable pageable,
+            @Param("sourceAnalysisJobId") UUID sourceAnalysisJobId
+    );
+
+    default Page<SettingCandidate> findReviewListPage(UUID workId, UUID batchId, SettingCandidateReviewStatus reviewStatus, Collection<SettingCandidateMatchStatus> matchStatuses, Pageable pageable) {
+        return findReviewListPage(workId, batchId, reviewStatus, matchStatuses, pageable, null);
+    }
+
+    @EntityGraph(attributePaths = {"work", "episode", "matchedCharacter", "characterComparisonBatch", "characterComparisonBatch.matchedCharacter"})
+    @Query("""
+            select candidate
+            from SettingCandidate candidate
+            join candidate.analysisJob analysisJob
+            left join candidate.episode episode
+            where candidate.work.id = :workId
+              and analysisJob.batch.id = :batchId
+              and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
+                or analysisJob.id = :sourceAnalysisJobId)
+              and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
+              and candidate.matchStatus in :matchStatuses
+            order by episode.episodeNo asc, candidate.createdAt asc, candidate.id asc
+            """)
+    List<SettingCandidate> findReviewListCandidates(
+            @Param("workId") UUID workId,
+            @Param("batchId") UUID batchId,
+            @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus,
+            @Param("matchStatuses") Collection<SettingCandidateMatchStatus> matchStatuses,
+            @Param("sourceAnalysisJobId") UUID sourceAnalysisJobId
+    );
+
+    default List<SettingCandidate> findReviewListCandidates(UUID workId, UUID batchId, SettingCandidateReviewStatus reviewStatus, Collection<SettingCandidateMatchStatus> matchStatuses) {
+        return findReviewListCandidates(workId, batchId, reviewStatus, matchStatuses, null);
+    }
+
     @EntityGraph(attributePaths = {"work", "episode", "analysisJob", "matchedCharacter"})
     @Query(
             value = """

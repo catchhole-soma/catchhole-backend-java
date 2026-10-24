@@ -1,5 +1,7 @@
 package org.monitoring.catchholebackend.domain.worldsetting.entity;
 
+import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisReviewState;
+
 import org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
@@ -79,7 +81,11 @@ public class WorldSettingCandidate extends BaseEntity {
     private Integer effectiveFromEpisodeNo;
 
     public org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope getTemporalScope() {
-        return temporalScope != null ? temporalScope : analysisJob != null && analysisJob.isSettingBookSource()
+        return temporalScope != null ? temporalScope : getTemporalScope(analysisJob != null && analysisJob.isSettingBookSource());
+    }
+
+    public org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope getTemporalScope(boolean settingBookSource) {
+        return temporalScope != null ? temporalScope : settingBookSource
                 ? org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope.UNKNOWN
                 : org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope.PRESENT;
     }
@@ -950,14 +956,22 @@ public class WorldSettingCandidate extends BaseEntity {
     }
 
     public boolean isManualReviewAvailable() {
-        return isPendingReview() && analysisJob != null && analysisJob.isAutomaticReview()
-                && analysisJob.getAutomaticAppliedAt() != null
+        return isPendingReview() && isManualReviewAvailable(AnalysisReviewState.from(analysisJob, false));
+    }
+
+    public boolean isManualReviewAvailable(AnalysisReviewState state) {
+        return isPendingReview() && state != null && state.automatic()
+                && state.automaticAppliedAt() != null
                 && comparisonStatus != WorldSettingComparisonStatus.PENDING
                 && comparisonStatus != WorldSettingComparisonStatus.PROCESSING;
     }
 
     public boolean isAutomaticApplicationPending() {
-        return isPendingReview() && analysisJob != null && analysisJob.isAutomaticApplicationPending();
+        return isPendingReview() && isAutomaticApplicationPending(AnalysisReviewState.from(analysisJob, false));
+    }
+
+    public boolean isAutomaticApplicationPending(AnalysisReviewState state) {
+        return isPendingReview() && state != null && state.automaticPending();
     }
 
     public boolean hasManualReviewDecision() {

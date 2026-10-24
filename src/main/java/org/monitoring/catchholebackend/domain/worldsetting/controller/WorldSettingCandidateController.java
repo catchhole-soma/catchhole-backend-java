@@ -1,5 +1,7 @@
 package org.monitoring.catchholebackend.domain.worldsetting.controller;
 
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateSummaryResponse;
+
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -90,6 +92,24 @@ public class WorldSettingCandidateController {
         return CommonResponse.success(candidateService.getCandidates(
                 member.memberId(), workId, batchId, reviewStatus, category, operation, page, size
         , sourceAnalysisJobId));
+    }
+
+    @GetMapping("/summary")
+    @Operation(operationId = "getWorldSettingCandidateSummary", summary = "세계관 후보 검토 요약 조회",
+            description = "본인 작품의 업로드 묶음과 선택한 추출 출처 전체의 검토 집계를 조회합니다. 출처를 생략하면 회차 후보만 포함하며 후보 본문과 분석 상태 JSON은 읽지 않습니다.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "세계관 후보 검토 요약 조회 성공"),
+            @ApiResponse(responseCode = "400", description = "필수 묶음 ID 또는 출처 ID 형식 검증 실패", content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "인증 실패", content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "작품, 업로드 묶음 또는 추출 출처를 찾을 수 없음", content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
+    })
+    public CommonResponse<WorldSettingCandidateSummaryResponse> getWorldSettingCandidateSummary(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId,
+            @Parameter(description = "후보를 집계할 업로드 묶음 ID") @RequestParam UUID batchId,
+            @Parameter(description = "원본 SETTING_EXTRACTION 분석 작업 ID. 생략 시 회차 후보만 집계합니다.") @RequestParam(required = false) UUID sourceAnalysisJobId
+    ) {
+        return CommonResponse.success(candidateService.getWorldSettingCandidateSummary(member.memberId(), workId, batchId, sourceAnalysisJobId));
     }
 
     @GetMapping("/progress")

@@ -9,6 +9,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import org.monitoring.catchholebackend.domain.analysis.repository.CandidateReviewJobMetadata;
+import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisReviewState;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateResponse;
@@ -68,6 +71,12 @@ public class SettingCandidateMapper {
         return toResponse(candidate, attributeNameEditable, attributeNamePrefix, valueValidation, attributeDisplayName, false);
     }
 
+    public SettingCandidateResponse toReviewListResponse(SettingCandidate candidate, boolean attributeNameEditable,
+            String attributeNamePrefix, SettingCandidateValueValidation valueValidation, String attributeDisplayName,
+            Map<UUID, CandidateReviewJobMetadata> metadata) {
+        return toResponse(candidate, attributeNameEditable, attributeNamePrefix, valueValidation, attributeDisplayName, false, metadata);
+    }
+
     private SettingCandidateResponse toResponse(
             SettingCandidate candidate,
             boolean attributeNameEditable,
@@ -76,8 +85,22 @@ public class SettingCandidateMapper {
             String attributeDisplayName,
             boolean includeRawAiResult
     ) {
+        return toResponse(candidate, attributeNameEditable, attributeNamePrefix, valueValidation, attributeDisplayName, includeRawAiResult, null);
+    }
+
+    private SettingCandidateResponse toResponse(SettingCandidate candidate, boolean attributeNameEditable,
+            String attributeNamePrefix, SettingCandidateValueValidation valueValidation, String attributeDisplayName,
+            boolean includeRawAiResult, Map<UUID, CandidateReviewJobMetadata> metadata) {
         Episode episode = candidate.getEpisode();
-        AnalysisJob analysisJob = candidate.getAnalysisJob();
+        AnalysisJob origin = candidate.getAnalysisJob();
+        CandidateReviewJobMetadata analysisJob = metadata == null || origin == null ? null
+                : CandidateReviewJobMetadata.require(metadata, origin.getId());
+        AnalysisReviewState state = metadata == null ? AnalysisReviewState.from(origin, false)
+                : analysisJob == null ? null : analysisJob.reviewState();
+        boolean settingBookSource = metadata == null ? origin != null && origin.isSettingBookSource()
+                : analysisJob != null && analysisJob.settingBookSource();
+        boolean manualReviewAvailable = metadata == null ? candidate.isManualReviewAvailable() : candidate.isManualReviewAvailable(state);
+        boolean automaticApplicationPending = metadata == null ? candidate.isAutomaticApplicationPending() : candidate.isAutomaticApplicationPending(state);
 
         WorkCharacter current = candidate.getMatchedCharacter();
         if (current == null && candidate.getCharacterComparisonBatch() != null) current = candidate.getCharacterComparisonBatch().getMatchedCharacter();
@@ -88,7 +111,7 @@ public class SettingCandidateMapper {
                 episode == null ? null : episode.getId(),
                 episode == null ? null : episode.getEpisodeNo(),
                 candidate.getSourceChunkId(),
-                analysisJob == null ? null : analysisJob.getId(),
+                origin == null ? null : origin.getId(),
                 candidate.getCandidateKind(),
                 candidate.getEntityType(),
                 candidate.getDisplayEntityName(),
@@ -115,7 +138,7 @@ public class SettingCandidateMapper {
                 candidate.getResolvedCanonicalFactKey(),
                 toJsonValue(candidate.getProposedValueJson()),
                 candidate.getProposedFactValue(),
-                toSnapshotChanges(candidate),
+                toSnapshotChanges(candidate, state),
                 AnalysisExplanationText.forReader(candidate.getComparisonReason(), candidate.getEntityName(),
                         candidate.getAttributeValue(), candidate.getProposedFactValue()),
                 publicComparisonErrorMessage(candidate),
@@ -123,25 +146,29 @@ public class SettingCandidateMapper {
                 candidate.getComparisonBaseSnapshotVersion(),
                 candidate.getCharacterComparisonBatch() == null
                         ? null
-                        : candidate.getCharacterComparisonBatch().getAnalysisJob()
-                        .getCharacterComparisonInputHash(),
+                        : (metadata == null ? candidate.getCharacterComparisonBatch().getAnalysisJob().getCharacterComparisonInputHash()
+                            : CandidateReviewJobMetadata.require(metadata, candidate.getCharacterComparisonBatch().getAnalysisJob().getId()).characterComparisonInputHash()),
                 candidate.getCreatedAt(),
                 candidate.getUpdatedAt(),
-                candidate.isManualReviewAvailable() && (!analysisJob.isSettingBookSource() || reviewSources.isActionable(analysisJob)),
+                manualReviewAvailable && (!settingBookSource || (metadata == null ? reviewSources.isActionable(origin) : analysisJob.actionable())),
                 candidate.isPendingReview() ? candidate.getAutomaticReviewHoldReason() : null,
-                candidate.isAutomaticApplicationPending(),
-                analysisJob == null ? null : analysisJob.getAnalysisMode(),
+                automaticApplicationPending,
+                metadata == null ? origin == null ? null : origin.getAnalysisMode() : analysisJob == null ? null : analysisJob.analysisMode(),
                 candidate.getConfirmedApplicationMode() == org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode.HISTORY_ONLY,
                 candidate.isUserModified(),
-                candidate.getReviewedApplicationMode(), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(candidate.getAnalysisJob()), currentVersion,
-                currentVersion != null && analysisJob != null && analysisJob.isSettingBookSource() && analysisJob.isCompletedOrderedAnalysis()
-                        && !candidate.isAutomaticApplicationPending() && candidate.isPendingReview() && !candidate.isCharacterDiscovery()
+                candidate.getReviewedApplicationMode(), metadata == null
+                        ? org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(origin)
+                        : analysisJob == null ? null : analysisJob.sourceResponse(), currentVersion,
+                currentVersion != null && origin != null && settingBookSource && state.completedOrdered()
+                        && !automaticApplicationPending && candidate.isPendingReview() && !candidate.isCharacterDiscovery()
                         && candidate.getSuggestedOperation() != org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation.REMOVE
                         && candidate.getSuggestedOperation() != org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation.EXCLUDE
-                        && candidate.isManualReviewAvailable() && reviewSources.isActionable(analysisJob)
+                        && manualReviewAvailable && (metadata == null ? reviewSources.isActionable(origin) : analysisJob.actionable())
                         && (!org.monitoring.catchholebackend.domain.analysis.processor.SettingBookTemporalPolicy.requiresReview(
-                            org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(
-                                analysisJob, candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope()), java.util.List.of(), false)
+                            (metadata == null ? org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(
+                                origin, candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope())
+                                : org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.fromMetadata(
+                                    analysisJob, candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope())), java.util.List.of(), false)
                             || candidate.getReviewedApplicationMode() == org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode.APPLY_PROPOSAL),
                 candidate.getEffectiveFromEpisodeNo());
     }
@@ -174,7 +201,7 @@ public class SettingCandidateMapper {
         );
     }
 
-    private List<SettingCandidateSnapshotChangeResponse> toSnapshotChanges(SettingCandidate candidate) {
+    private List<SettingCandidateSnapshotChangeResponse> toSnapshotChanges(SettingCandidate candidate, AnalysisReviewState state) {
         CharacterFactOperation operation = candidate.getSuggestedOperation();
         JsonNode removals = candidate.getRemovedSnapshotEntriesJson();
         boolean hasUpsert = operation == CharacterFactOperation.ADD
@@ -184,7 +211,7 @@ public class SettingCandidateMapper {
                 && (removals == null || !removals.isArray() || removals.isEmpty())) {
             return List.of();
         }
-        Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshot = currentSnapshot(candidate);
+        Map<CharacterSnapshotSlot, CharacterSnapshotEntry> snapshot = currentSnapshot(candidate, state);
         List<SettingCandidateSnapshotChangeResponse> changes = new ArrayList<>();
         if (hasUpsert
                 && candidate.getComparisonTargetFactType() != null
@@ -241,8 +268,8 @@ public class SettingCandidateMapper {
         return List.copyOf(changes);
     }
 
-    private Map<CharacterSnapshotSlot, CharacterSnapshotEntry> currentSnapshot(SettingCandidate candidate) {
-        if (candidate.getAnalysisJob() != null && candidate.getAnalysisJob().isOrderedProvisional()) {
+    private Map<CharacterSnapshotSlot, CharacterSnapshotEntry> currentSnapshot(SettingCandidate candidate, AnalysisReviewState state) {
+        if (state != null && state.ordered()) {
             // 비교 미리보기는 확정 시점의 DB가 아니라 실제 비교에 사용한 상태를 보여준다.
             JsonNode raw = candidate.getRawComparisonJson();
             JsonNode entries = raw == null ? null : raw.get("backendComparisonBefore");

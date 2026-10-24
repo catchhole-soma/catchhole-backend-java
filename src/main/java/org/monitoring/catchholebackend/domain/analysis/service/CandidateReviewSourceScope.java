@@ -1,5 +1,8 @@
 package org.monitoring.catchholebackend.domain.analysis.service;
 
+import org.monitoring.catchholebackend.domain.analysis.repository.CandidateReviewJobMetadata;
+import org.monitoring.catchholebackend.domain.analysis.repository.CandidateReviewMetadataRepository;
+
 import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -19,8 +22,41 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class CandidateReviewSourceScope {
     private final AnalysisJobRepository jobs;
+    private final CandidateReviewMetadataRepository metadata;
     private final SettingCandidateRepository characters;
     private final WorldSettingCandidateRepository worlds;
+
+    public CandidateReviewJobMetadata validateRead(
+            Work work, UUID batchId, UUID sourceAnalysisJobId) {
+        if (sourceAnalysisJobId == null) return null;
+        return metadata.findByIds(java.util.List.of(sourceAnalysisJobId)).stream()
+                .filter(job -> job.jobType() == AnalysisJobType.SETTING_EXTRACTION
+                        && Objects.equals(job.workId(), work.getId())
+                        && (batchId == null || Objects.equals(job.batchId(), batchId)))
+                .findFirst().orElseThrow(this::notFound);
+    }
+
+    public AnalysisJobEpisodeRange episodeRangeRead(Work work, UUID batchId,
+            CandidateReviewJobMetadata source) {
+        if (source == null) return jobs.findEpisodeRangeByWorkIdAndBatchId(work.getId(), batchId);
+        Integer episodeNo = source.settingBookSource() ? null
+                : source.sourceEpisodeNo() == null ? source.episodeNo() : source.sourceEpisodeNo();
+        return new AnalysisJobEpisodeRange() {
+            public Integer getEpisodeStartNo() { return episodeNo; }
+            public Integer getEpisodeEndNo() { return episodeNo; }
+            public long getEpisodeCount() { return episodeNo == null ? 0 : 1; }
+        };
+    }
+
+    public java.util.Map<UUID, CandidateReviewJobMetadata> readMetadata(
+            java.util.Collection<UUID> ids,
+            CandidateReviewJobMetadata source) {
+        var remaining = new java.util.HashSet<>(ids);
+        var result = new java.util.HashMap<UUID, CandidateReviewJobMetadata>();
+        if (source != null) { result.put(source.id(), source); remaining.remove(source.id()); }
+        metadata.findByIds(remaining).forEach(row -> result.put(row.id(), row));
+        return java.util.Map.copyOf(result);
+    }
 
     public AnalysisJob validate(Work work, UUID batchId, UUID sourceAnalysisJobId, boolean mutation) {
         if (sourceAnalysisJobId == null) return null;
