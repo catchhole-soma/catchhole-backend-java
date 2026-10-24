@@ -2459,6 +2459,30 @@ class WorldSettingWorkerControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("일반 비교도 3만 자를 넘는 후보를 절단하지 않고 Worker에 전달한다")
+    void claimsLargeCandidateWithoutCharacterLimit() throws Exception {
+        String value = "가".repeat(31000);
+        var candidate = candidateRepository.saveAndFlush(WorldSettingCandidate.create(
+                work, episode, analysisJob, WorldSettingCategory.MONSTER, "고블린", null, "서식지", value,
+                objectMapper.readTree("[{\"quote\":\"동굴에 산다.\"}]"), new BigDecimal("0.95"), null));
+        analysisJob.updateCheckpointStage(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+        analysisJobRepository.saveAndFlush(analysisJob);
+        resolveSubjects(Map.of(candidate.getId(), List.of()));
+        var claim = mockMvc.perform(post("/api/internal/v1/analysis-jobs/{id}/world-setting-comparison-batches/claim-next", analysisJob.getId())
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidates[0].extractedValue").value(value)).andReturn();
+        String batchId = objectMapper.readTree(claim.getResponse().getContentAsString()).at("/data/comparisonBatchId").asText();
+        mockMvc.perform(post("/api/internal/v1/analysis-jobs/{id}/world-setting-comparison-batches/{batch}/context", analysisJob.getId(), batchId)
+                        .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                        .header(WORKER_LEASE_TOKEN_HEADER, leaseToken)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"targetWorldSettingIds\":[]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidates[0].extractedValue").value(value));
+    }
+
+    @Test
     @DisplayName("묶음 상한을 넘으면 후보를 조용히 나누지 않고 전체를 사용자 확인 대상으로 남긴다")
     void holdsWholeOversizedBatchForReviewWithoutSplitting() throws Exception {
         List<WorldSettingCandidate> oversizedCandidates = new ArrayList<>();

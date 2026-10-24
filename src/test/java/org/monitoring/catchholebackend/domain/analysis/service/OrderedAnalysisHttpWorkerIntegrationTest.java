@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.analysis.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.when;
 
 import jakarta.persistence.EntityManager;
 import java.nio.charset.StandardCharsets;
@@ -90,6 +91,9 @@ class OrderedAnalysisHttpWorkerIntegrationTest {
         properties.add("spring.docker.compose.enabled", () -> "false");
     }
 
+    @org.springframework.test.context.bean.override.mockito.MockitoBean
+    org.monitoring.catchholebackend.global.storage.ObjectStorage objectStorage;
+
     @LocalServerPort int port;
     @Autowired EntityManager entities;
     @Autowired PlatformTransactionManager transactions;
@@ -134,6 +138,7 @@ class OrderedAnalysisHttpWorkerIntegrationTest {
                 if (preparationFailure && number == 1) {
                     source += " 그 사람은 왼팔을 다쳤다. 미궁의 구조는 여러 갈래다.\n" + "고요".repeat(3500);
                 }
+                when(objectStorage.getText("gh180-e2e/" + number)).thenReturn(source);
                 Episode episode = Episode.create(work, null, number, "테스트 회차", "gh180-e2e/" + number,
                         "v1", hash(source), source.length());
                 entities.persist(episode);
@@ -233,17 +238,22 @@ class OrderedAnalysisHttpWorkerIntegrationTest {
     }
 
     @Test
-    @DisplayName("세계관 입력 상한 초과는 후보·batch 실패를 commit하고 비교 호출과 다음 회차를 차단한다")
-    void oversizedWorldBatchCommitsFailureAndStopsBeforeComparisonAndNextEpisode() throws Exception {
-        List<UUID> ids = createRun(2);
+    @DisplayName("Worker 입력 토큰 초과는 원본 보류로 저장하고 다음 회차를 계속한다")
+    void oversizedWorldInputIsHeldWithoutProviderCallAndNextEpisodeContinues() throws Exception {
+        List<UUID> ids = createRun(2, true);
         String logs = runHarness(2, "world-input-limit");
-        assertThat(logs).contains("\"expectedWorldInputLimitFailure\": true", "\"worldComparisonProviderCalls\": 0");
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM world_setting_candidates WHERE comparison_status='FAILED'", Integer.class)).isEqualTo(1);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM world_setting_comparison_batches WHERE status='FAILED'", Integer.class)).isEqualTo(1);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM world_setting_comparison_decisions", Integer.class)).isZero();
+        assertThat(logs).contains("\"worldInputLimitHeld\": true", "\"worldComparisonProviderCalls\": 0", "\"completed\": 2");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM world_setting_candidates WHERE comparison_status='FAILED'", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM world_setting_candidates WHERE comparison_status='COMPLETED' AND review_status='PENDING_REVIEW' AND comparison_review_reason='BATCH_LIMIT_EXCEEDED'", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM world_setting_comparison_decisions", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM world_setting_comparison_decision_sources", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM world_settings", Integer.class)).isZero();
         new TransactionTemplate(transactions).executeWithoutResult(status -> {
-            assertThat(jobs.findById(ids.getFirst()).orElseThrow().getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
-            assertThat(jobs.findById(ids.getLast()).orElseThrow().getStatus()).isEqualTo(AnalysisJobStatus.PENDING);
+            assertThat(jobs.findAllById(ids)).allSatisfy(job -> {
+                assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.SUCCEEDED);
+                assertThat(job.getJournalStatus()).isEqualTo(AnalysisJournalStatus.SEALED);
+            });
+            assertThat(jobs.findById(ids.getLast()).orElseThrow().getAutomaticInputState().path("references").size()).isEqualTo(1);
         });
     }
 

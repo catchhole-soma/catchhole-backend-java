@@ -81,7 +81,6 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
 
     private static final int CLAIM_SIZE = 1;
     private static final int MAX_BATCH_CANDIDATES = 20;
-    private static final int MAX_BATCH_INPUT_CHARACTERS = 30_000;
     private static final int MAX_FUZZY_SUBJECT_TARGETS = 3;
     private static final String STALE_SUBJECT_RESOLUTION_RESET_MESSAGE =
             "canonical 주체 해소 대상이 변경되어 다시 해소해야 합니다.";
@@ -1355,8 +1354,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
     }
 
     private boolean exceedsComparisonBatchLimit(List<WorldSettingCandidate> candidates) {
-        return candidates.size() > MAX_BATCH_CANDIDATES
-                || estimatedInputCharacters(candidates) > MAX_BATCH_INPUT_CHARACTERS;
+        return candidates.size() > MAX_BATCH_CANDIDATES;
     }
 
     private int estimatedInputCharacters(List<WorldSettingCandidate> candidates) {
