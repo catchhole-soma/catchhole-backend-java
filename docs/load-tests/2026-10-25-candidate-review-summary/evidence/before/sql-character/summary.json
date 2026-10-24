@@ -1,0 +1,11 @@
+{
+  "phase": "before",
+  "route": "character",
+  "httpStatus": 200,
+  "requestError": null,
+  "diagnosticDurationMs": 625.3983329515904,
+  "timingSample": false,
+  "capturedSelects": 30,
+  "jsonSelectingQueries": 1,
+  "explainFailures": 0
+}

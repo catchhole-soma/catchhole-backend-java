@@ -1,5 +1,7 @@
 package org.monitoring.catchholebackend.domain.worldsetting.service;
 
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateSummaryResponse;
+
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDecisionUpdateRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateGroupConfirmRequest;
@@ -17,6 +19,9 @@ import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingRevi
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
 
 public interface WorldSettingCandidateService {
+    WorldSettingCandidateSummaryResponse getWorldSettingCandidateSummary(
+            Long memberId, UUID workId, UUID batchId, UUID sourceAnalysisJobId);
+
 
     WorldSettingCandidateProgressResponse getWorldSettingCandidateProgress(Long memberId, UUID workId, UUID batchId);
 

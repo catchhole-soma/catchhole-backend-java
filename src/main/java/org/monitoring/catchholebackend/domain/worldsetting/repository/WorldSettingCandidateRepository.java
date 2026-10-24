@@ -57,6 +57,52 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
     @EntityGraph(attributePaths = {
             "work",
             "sourceEpisode",
+            "targetWorldSetting",
+            "reviewedBy",
+            "comparisonBatch",
+            "comparisonDecision",
+            "comparisonDecision.comparisonBatch"
+    })
+    @Query("""
+            select candidate
+            from WorldSettingCandidate candidate
+            join candidate.analysisJob analysisJob
+            left join candidate.sourceEpisode sourceEpisode
+            left join candidate.targetWorldSetting targetWorldSetting
+            where candidate.work.id = :workId
+              and analysisJob.batch.id = :batchId
+              and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
+                or analysisJob.id = :sourceAnalysisJobId)
+              and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
+              and (:category is null
+                  or (candidate.finalCategory is not null and candidate.finalCategory = :category)
+                  or (candidate.finalCategory is null and targetWorldSetting is not null
+                      and targetWorldSetting.category = :category)
+                  or (candidate.finalCategory is null and targetWorldSetting is null
+                      and candidate.category = :category))
+              and (:suggestedOperation is null
+                  or (candidate.finalOperation is not null and candidate.finalOperation = :finalOperation)
+                  or (candidate.finalOperation is null
+                      and candidate.suggestedOperation = :suggestedOperation))
+            order by sourceEpisode.episodeNo asc, candidate.createdAt asc, candidate.id asc
+            """)
+    List<WorldSettingCandidate> findReviewListWithoutJobs(
+            @Param("workId") UUID workId,
+            @Param("batchId") UUID batchId,
+            @Param("reviewStatus") WorldSettingReviewStatus reviewStatus,
+            @Param("category") WorldSettingCategory category,
+            @Param("suggestedOperation") WorldSettingSuggestedOperation suggestedOperation,
+            @Param("finalOperation") WorldSettingOperation finalOperation,
+            @Param("sourceAnalysisJobId") UUID sourceAnalysisJobId
+    );
+
+    default List<WorldSettingCandidate> findReviewListWithoutJobs(UUID workId, UUID batchId, WorldSettingReviewStatus reviewStatus, WorldSettingCategory category, WorldSettingSuggestedOperation suggestedOperation, WorldSettingOperation finalOperation) {
+        return findReviewListWithoutJobs(workId, batchId, reviewStatus, category, suggestedOperation, finalOperation, null);
+    }
+
+    @EntityGraph(attributePaths = {
+            "work",
+            "sourceEpisode",
             "analysisJob",
             "targetWorldSetting",
             "reviewedBy",

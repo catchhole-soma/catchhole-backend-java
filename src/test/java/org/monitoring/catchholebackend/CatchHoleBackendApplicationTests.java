@@ -125,6 +125,9 @@ class CatchHoleBackendApplicationTests {
     private AnalysisJobRepository analysisJobRepository;
 
     @MockitoBean
+    private org.monitoring.catchholebackend.domain.analysis.repository.CandidateReviewMetadataRepository candidateReviewMetadataRepository;
+
+    @MockitoBean
     private AnalysisJobClaimRepository analysisJobClaimRepository;
 
     @MockitoBean

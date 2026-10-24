@@ -465,13 +465,13 @@ class SettingCandidateServiceImplTest {
         when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
         when(uploadBatchRepository.findByIdAndWorkId(batchId, workId))
                 .thenReturn(Optional.of(org.mockito.Mockito.mock(UploadBatch.class)));
-        when(settingCandidateRepository.findReviewCandidates(
+        when(settingCandidateRepository.findReviewListCandidates(
                 workId,
                 batchId,
                 SettingCandidateReviewStatus.PENDING_REVIEW,
                 Set.of(SettingCandidateMatchStatus.AMBIGUOUS)
         )).thenReturn(candidates);
-        when(settingCandidateRepository.findReviewPage(
+        when(settingCandidateRepository.findReviewListPage(
                 workId,
                 batchId,
                 SettingCandidateReviewStatus.PENDING_REVIEW,
@@ -490,7 +490,7 @@ class SettingCandidateServiceImplTest {
         when(counts.getPendingCandidateCount()).thenReturn(3L);
         when(counts.getMatchRequiredCandidateCount()).thenReturn(2L);
         when(counts.getAttentionRequiredCandidateCount()).thenReturn(3L);
-        when(reviewSources.episodeRange(work, batchId, null))
+        when(reviewSources.episodeRangeRead(work, batchId, null))
                 .thenReturn(episodeRange);
         when(episodeRange.getEpisodeStartNo()).thenReturn(1);
         when(episodeRange.getEpisodeEndNo()).thenReturn(5);
@@ -502,7 +502,7 @@ class SettingCandidateServiceImplTest {
                 eq(false),
                 eq(null),
                 eq(SettingCandidateValueValidation.valid()),
-                nullable(String.class)
+                nullable(String.class), org.mockito.ArgumentMatchers.anyMap()
         ))
                 .thenReturn(responses.getFirst());
 
@@ -530,13 +530,13 @@ class SettingCandidateServiceImplTest {
         assertThat(result.groups().content().getFirst().groupKey()).isEqualTo("아리아");
         assertThat(result.groups().content().getFirst().candidates()).containsExactlyElementsOf(responses);
         assertThat(result.candidates().content()).containsExactlyElementsOf(responses);
-        verify(settingCandidateRepository).findReviewCandidates(
+        verify(settingCandidateRepository).findReviewListCandidates(
                 workId,
                 batchId,
                 SettingCandidateReviewStatus.PENDING_REVIEW,
                 Set.of(SettingCandidateMatchStatus.AMBIGUOUS)
         );
-        verify(settingCandidateRepository).findReviewPage(
+        verify(settingCandidateRepository).findReviewListPage(
                 workId,
                 batchId,
                 SettingCandidateReviewStatus.PENDING_REVIEW,
@@ -565,7 +565,7 @@ class SettingCandidateServiceImplTest {
         when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
         when(uploadBatchRepository.findByIdAndWorkId(batchId, workId))
                 .thenReturn(Optional.of(org.mockito.Mockito.mock(UploadBatch.class)));
-        when(settingCandidateRepository.findReviewCandidates(
+        when(settingCandidateRepository.findReviewListCandidates(
                 workId,
                 batchId,
                 SettingCandidateReviewStatus.PENDING_REVIEW,
@@ -578,7 +578,7 @@ class SettingCandidateServiceImplTest {
                 SettingCandidateMatchStatus.AMBIGUOUS,
                 Set.of(CharacterFactComparisonStatus.FAILED, CharacterFactComparisonStatus.RECOMPARISON_REQUIRED)
         )).thenReturn(counts);
-        when(reviewSources.episodeRange(work, batchId, null))
+        when(reviewSources.episodeRangeRead(work, batchId, null))
                 .thenReturn(episodeRange);
         when(characterSettingSchemaRepository.findAllActiveForWork(workId)).thenReturn(List.of());
         SettingCandidateResponse firstResponse = response(workId);
@@ -589,7 +589,7 @@ class SettingCandidateServiceImplTest {
                 eq(SettingCandidateValueValidation.unrepairableInvalid(
                         CharacterErrorCode.SETTING_CANDIDATE_SCHEMA_NOT_MATCHED
                 )),
-                nullable(String.class)
+                nullable(String.class), org.mockito.ArgumentMatchers.anyMap()
         ))
                 .thenReturn(firstResponse);
 
@@ -615,14 +615,14 @@ class SettingCandidateServiceImplTest {
                 eq(SettingCandidateValueValidation.unrepairableInvalid(
                         CharacterErrorCode.SETTING_CANDIDATE_SCHEMA_NOT_MATCHED
                 )),
-                nullable(String.class)
+                nullable(String.class), org.mockito.ArgumentMatchers.anyMap()
         );
         verify(settingCandidateMapper, never()).toReviewListResponse(
                 eq(secondGroupCandidate),
                 eq(false),
                 eq(null),
                 eq(SettingCandidateValueValidation.valid()),
-                nullable(String.class)
+                nullable(String.class), org.mockito.ArgumentMatchers.anyMap()
         );
     }
 
@@ -647,7 +647,7 @@ class SettingCandidateServiceImplTest {
         when(workRepository.getOwnedWork(workId, memberId)).thenReturn(work);
         when(uploadBatchRepository.findByIdAndWorkId(batchId, workId))
                 .thenReturn(Optional.of(org.mockito.Mockito.mock(UploadBatch.class)));
-        when(settingCandidateRepository.findReviewCandidates(
+        when(settingCandidateRepository.findReviewListCandidates(
                 workId,
                 batchId,
                 SettingCandidateReviewStatus.PENDING_REVIEW,
@@ -660,7 +660,7 @@ class SettingCandidateServiceImplTest {
                 SettingCandidateMatchStatus.AMBIGUOUS,
                 Set.of(CharacterFactComparisonStatus.FAILED, CharacterFactComparisonStatus.RECOMPARISON_REQUIRED)
         )).thenReturn(counts);
-        when(reviewSources.episodeRange(work, batchId, null))
+        when(reviewSources.episodeRangeRead(work, batchId, null))
                 .thenReturn(episodeRange);
         when(characterSettingSchemaRepository.findAllActiveForWork(workId))
                 .thenReturn(List.of(schema("age", null, CharacterFactType.AGE, SettingValueType.NUMBER)));
@@ -669,14 +669,14 @@ class SettingCandidateServiceImplTest {
                 eq(false),
                 eq(null),
                 eq(SettingCandidateValueValidation.valid()),
-                nullable(String.class)
+                nullable(String.class), org.mockito.ArgumentMatchers.anyMap()
         )).thenReturn(response(workId));
         when(settingCandidateMapper.toReviewListResponse(
                 eq(second),
                 eq(false),
                 eq(null),
                 eq(SettingCandidateValueValidation.valid()),
-                nullable(String.class)
+                nullable(String.class), org.mockito.ArgumentMatchers.anyMap()
         )).thenReturn(response(workId));
 
         SettingCandidateListResponse result = service.getSettingCandidates(

@@ -512,11 +512,12 @@ class SettingCandidateMapperTest {
     @DisplayName("누적 비교의 기존값은 아직 확정하지 않은 앞 회차에서 읽는다")
     void orderedPreviewReadsPriorEpisode(String key, String before, String after) throws Exception {
         SettingCandidate candidate = mock(SettingCandidate.class);
-        AnalysisJob job = mock(AnalysisJob.class);
+        Work work = work(UUID.randomUUID());
+        AnalysisJob job = AnalysisJob.create(work, null, null, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(job, "analysisMode", org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL);
         CharacterFactComparisonBatch batch = mock(CharacterFactComparisonBatch.class);
-        when(candidate.getWork()).thenReturn(work(UUID.randomUUID()));
+        when(candidate.getWork()).thenReturn(work);
         when(candidate.getAnalysisJob()).thenReturn(job);
-        when(job.isOrderedProvisional()).thenReturn(true);
         when(candidate.getCharacterComparisonBatch()).thenReturn(batch);
         when(batch.getAnalysisJob()).thenReturn(job);
         when(candidate.getSuggestedOperation()).thenReturn(CharacterFactOperation.UPDATE);

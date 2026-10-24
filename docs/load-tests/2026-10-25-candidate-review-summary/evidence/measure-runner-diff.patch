@@ -1,0 +1,8 @@
+--- before/measure.py
++++ after/measure.py
+@@ -80,4 +80,5 @@
+                 except subprocess.TimeoutExpired:
+                     java.kill()
+                     java.wait(timeout=5)
++            (output / 'process.json').write_text(json.dumps({'ownedJavaPid': java.pid, 'exitCode': java.returncode, 'apiLog': str(log_path), 'stoppedAfterSeries': True}, indent=2) + '\n')
+         print(json.dumps({'phaseCompleted': a.phase, 'route': route, 'ownedJavaStopped': True}), flush=True)

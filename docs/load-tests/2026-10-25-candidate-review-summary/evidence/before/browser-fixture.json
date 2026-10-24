@@ -1,0 +1,45 @@
+{
+  "synthetic": true,
+  "scenario": "small-json browser correctness only",
+  "analysisJsonBytes": 13370,
+  "tables": {
+    "works": {
+      "rows": 1,
+      "allColumnDataMd5": "8edb32c28cc786edf9c6c4fd40972d75"
+    },
+    "upload_batches": {
+      "rows": 1,
+      "allColumnDataMd5": "b9ea09608eb9f93852cfbd6fae0c4869"
+    },
+    "upload_files": {
+      "rows": 1,
+      "allColumnDataMd5": "cc25cdec9af56bb8775f435bef5555fd"
+    },
+    "episodes": {
+      "rows": 30,
+      "allColumnDataMd5": "dcb582411d8f34bb483520f34b32d58f"
+    },
+    "analysis_jobs": {
+      "rows": 30,
+      "allColumnDataMd5": "09bee1e409790af358e2e6b2fbeac21e"
+    },
+    "analysis_job_episode_targets": {
+      "rows": 30,
+      "allColumnDataMd5": "9d77966c3ca8cc4b38817f86536087f4"
+    },
+    "setting_candidates": {
+      "rows": 585,
+      "allColumnDataMd5": "a3d4d0ebc8ece9602efd292626a1d39b"
+    },
+    "world_setting_candidates": {
+      "rows": 637,
+      "allColumnDataMd5": "4e52d140c1ed26137b9ea2730ed3d2ec"
+    },
+    "character_fact_comparison_batches": {
+      "rows": 23,
+      "allColumnDataMd5": "c0f487a66e4da97ecc4f9358bd1d6024"
+    }
+  },
+  "excludes": "member bcrypt salt, private credentials and auth/session rows; every column included in the listed tables",
+  "stateSha256": "e5047a9b56a73bae28a6da36fef6d4c85eedaad8dc489518ace485feadd971c0"
+}

@@ -1,0 +1,17 @@
+{
+  "reviewedAtUtc": "2026-10-24T17:43:31.208977+00:00",
+  "source": "allowlisted synthetic endpoint benchmark evidence only",
+  "filesCopied": 224,
+  "exactPrivateCredentialValueScan": "passed; values not recorded here",
+  "bearerAndJwtPatternScan": "passed",
+  "absolutePathNormalization": "<BENCHMARK_ROOT> and <WORKSPACE> placeholders only; JSON/log formatting can differ; source and published SHA256 recorded",
+  "omitted": [
+    "runtime credentials, DSN/properties/env files",
+    "JWT/cookie/auth headers",
+    "JAR/frontend bundle binaries",
+    "private application startup logs except one OOM termination line",
+    "production data",
+    "bulk product-test logs"
+  ],
+  "validationLogs": "Source evidence hashes summarized in evidence/product-verification-summary.json"
+}

@@ -1,0 +1,21 @@
+{
+  "baselineBackendCommit": "64eda0e3f37a07a82616bb01733f947a03547c19",
+  "baselineFrontendCommit": "36a143391e8f330ac88c910517585a263626d3e0",
+  "beforeJarSha256": "e4c60a0fc604b49e567b6bd9f8b5c2f6379ac89d5dfc67aa90098fafbc4eb1fc",
+  "afterJarSha256": "e73f4a5587450c772028e7adb274fb4f819c9df8ab6ad245b7e8cfeaebbf89ff",
+  "afterJarBytes": 102618021,
+  "afterBackendSourceTreeSha256": "99bc22e2175d72c8c8f66b4bc9576c8f6a720d19da63ee6ac1befdad1ed6ace3",
+  "afterBackendReviewDiffSha256": "09c4cd031a3185d296c8050f827e837174675d3b0846fb1c643ddc69e8e0a20e",
+  "frontendAfterFileManifestSha256": "97dedbf9d3a9440d37eb74819fabd04138754407435e1f8b4c02df0f55e93caf",
+  "requestedRoles": {
+    "implementation": "GPT-6.1 Sol ultra",
+    "planningAndReview": "Astra"
+  },
+  "artifactsOmittedFromPublicPacket": [
+    "JAR files",
+    "frontend production bundles",
+    "private auth/DB credentials",
+    "private .env/properties",
+    "private application startup logs"
+  ]
+}

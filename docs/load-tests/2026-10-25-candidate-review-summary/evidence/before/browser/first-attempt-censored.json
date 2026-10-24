@@ -1,0 +1,181 @@
+{
+  "phase": "before",
+  "browserVersion": "149.0.7827.55",
+  "protocol": "one fresh browser context; HTTP cache disabled; API requests through 2s after character-ready or first API failure; external origins blocked identically",
+  "success": false,
+  "pageReadyMs": 174.70000004768372,
+  "timeOriginEpochMs": 1792861307755.3,
+  "groups": 9,
+  "loadEventEndMs": 50.200000047683716,
+  "requests": [
+    {
+      "url": "http://127.0.0.1:29480/api/v1/auth/me",
+      "method": "GET",
+      "resourceType": "fetch",
+      "finished": true,
+      "status": 200,
+      "timing": {
+        "startTime": 1792861307813.647,
+        "domainLookupStart": 0.087,
+        "domainLookupEnd": 0.092,
+        "connectStart": 0.092,
+        "secureConnectionStart": -1,
+        "connectEnd": 0.257,
+        "requestStart": 0.283,
+        "responseStart": 11.299,
+        "responseEnd": 13.376
+      },
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 633,
+        "responseBodySize": 326,
+        "responseHeadersSize": 617
+      },
+      "decodedBodyBytes": 325,
+      "bodySha256": "c1721dbf11b6b12b0e65641796d21f98329d6f97ba759b8c29030c22f33a07e9"
+    },
+    {
+      "url": "http://127.0.0.1:29480/api/v1/works/32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f",
+      "method": "GET",
+      "resourceType": "fetch",
+      "finished": true,
+      "status": 200,
+      "timing": {
+        "startTime": 1792861307826.997,
+        "domainLookupStart": -1,
+        "domainLookupEnd": -1,
+        "connectStart": -1,
+        "secureConnectionStart": -1,
+        "connectEnd": -1,
+        "requestStart": 0.105,
+        "responseStart": 7.367,
+        "responseEnd": 8.58
+      },
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 668,
+        "responseBodySize": 358,
+        "responseHeadersSize": 617
+      },
+      "decodedBodyBytes": 357,
+      "bodySha256": "fed5f7077b439c87ece251917dffb42b9954aba6c442ec18bd17e1b34d490c94"
+    },
+    {
+      "url": "http://127.0.0.1:29480/api/v1/works/32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f/setting-candidates?batchId=10fe7b4b-0093-5a1f-be13-aa729499dbd8&reviewStatus=PENDING_REVIEW&page=0&size=20&includeLegacyCandidates=false",
+      "method": "GET",
+      "resourceType": "fetch",
+      "finished": true,
+      "status": 200,
+      "timing": {
+        "startTime": 1792861307846.981,
+        "domainLookupStart": -1,
+        "domainLookupEnd": -1,
+        "connectStart": -1,
+        "secureConnectionStart": -1,
+        "connectEnd": -1,
+        "requestStart": 0.114,
+        "responseStart": 55.582,
+        "responseEnd": 61.452
+      },
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 687,
+        "responseBodySize": 280581,
+        "responseHeadersSize": 624
+      },
+      "decodedBodyBytes": 280296,
+      "bodySha256": "fba4731bdaadc2a8ae1fec15fcfea928379b6a81e24bf3cc37bd5138a3bfaa17"
+    },
+    {
+      "url": "http://127.0.0.1:29480/api/v1/works/32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f/world-setting-candidates?batchId=10fe7b4b-0093-5a1f-be13-aa729499dbd8&page=0&size=1",
+      "method": "GET",
+      "resourceType": "fetch",
+      "finished": true,
+      "status": 200,
+      "timing": {
+        "startTime": 1792861307847.827,
+        "domainLookupStart": 0.118,
+        "domainLookupEnd": 0.123,
+        "connectStart": 0.123,
+        "secureConnectionStart": -1,
+        "connectEnd": 0.266,
+        "requestStart": 0.285,
+        "responseStart": 52.473,
+        "responseEnd": 56.271
+      },
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 693,
+        "responseBodySize": 46032,
+        "responseHeadersSize": 624
+      },
+      "decodedBodyBytes": 45978,
+      "bodySha256": "33a17edbedfdd2bb942bb7cefa829041551a27a20a451fd6da28a30f597a8bfe"
+    },
+    {
+      "url": "http://127.0.0.1:29480/api/v1/works/32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f/world-image-theme",
+      "method": "GET",
+      "resourceType": "fetch",
+      "finished": true,
+      "status": 200,
+      "timing": {
+        "startTime": 1792861307847.895,
+        "domainLookupStart": 0.16,
+        "domainLookupEnd": 0.161,
+        "connectStart": 0.161,
+        "secureConnectionStart": -1,
+        "connectEnd": 0.233,
+        "requestStart": 0.241,
+        "responseStart": 17.407,
+        "responseEnd": 19.954
+      },
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 686,
+        "responseBodySize": 5558,
+        "responseHeadersSize": 618
+      },
+      "decodedBodyBytes": 5557,
+      "bodySha256": "15d59734ba27832f70991b0b31c57ad58c5c3cdb851fa2f01bd8b0d257034893"
+    },
+    {
+      "url": "http://127.0.0.1:29480/api/v1/works/32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f/world-setting-candidates?batchId=10fe7b4b-0093-5a1f-be13-aa729499dbd8&page=0&size=1",
+      "method": "GET",
+      "resourceType": "fetch",
+      "finished": true,
+      "status": 200,
+      "timing": {
+        "startTime": 1792861309907.93,
+        "domainLookupStart": -1,
+        "domainLookupEnd": -1,
+        "connectStart": -1,
+        "secureConnectionStart": -1,
+        "connectEnd": -1,
+        "requestStart": 0.281,
+        "responseStart": 59.37,
+        "responseEnd": 63.686
+      },
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 693,
+        "responseBodySize": 46032,
+        "responseHeadersSize": 624
+      },
+      "decodedBodyBytes": 45978,
+      "bodySha256": "18323ff8009bd55cf705bf555ca5c1f81522fad4b3151b4c717ae4d34bd0958c"
+    },
+    {
+      "url": "http://127.0.0.1:29480/api/v1/works/32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f/setting-candidates?batchId=10fe7b4b-0093-5a1f-be13-aa729499dbd8&reviewStatus=PENDING_REVIEW&page=0&size=20&includeLegacyCandidates=false",
+      "method": "GET",
+      "resourceType": "fetch",
+      "finished": false
+    }
+  ],
+  "apiRequestCount": 7,
+  "apiResponseBytes": 378491,
+  "failedApiRequests": 1,
+  "externalOriginsBlocked": [
+    "https://cdn.jsdelivr.net"
+  ],
+  "collectorErrors": []
+}

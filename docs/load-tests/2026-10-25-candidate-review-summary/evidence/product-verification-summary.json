@@ -1,0 +1,94 @@
+{
+  "backend": {
+    "passed": 3641,
+    "skipped": 236,
+    "failed": 0,
+    "total": 3877,
+    "testClassCount": 210,
+    "totalsFromFinalXmlManifest": {
+      "tests": 3877,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 236
+    },
+    "sourceTreeSha256": "99bc22e2175d72c8c8f66b4bc9576c8f6a720d19da63ee6ac1befdad1ed6ace3"
+  },
+  "frontend": {
+    "focusedPassed": 17,
+    "fullSuite": {
+      "passed": 826,
+      "skipped": 20,
+      "failed": 3
+    },
+    "fullSuiteFailureReasons": "한글 경로를 파일 경로로 처리한 기존 테스트2건과 데모 대기 타임아웃1건",
+    "sameTargetAsciiRerunPassed": 4,
+    "productAndTestBytesUnchangedForAsciiRerun": true,
+    "lintTypecheckBuild": "passed",
+    "liveMutation": {
+      "passed": true,
+      "excludedCandidateCount": 1,
+      "before": {
+        "batchId": "10fe7b4b-0093-5a1f-be13-aa729499dbd8",
+        "episodeStartNo": 1,
+        "episodeEndNo": 30,
+        "episodeCount": 30,
+        "totalCandidateCount": 637,
+        "reviewedCandidateCount": 575,
+        "pendingCandidateCount": 62,
+        "pendingComparisonCount": 1,
+        "processingComparisonCount": 1,
+        "activeComparisonJobCount": 0,
+        "failedComparisonCount": 0,
+        "tokenInterruptedComparisonCount": 0,
+        "canResumeTokenInterruptedComparisons": false,
+        "recomparisonRequiredCount": 0,
+        "conflictCandidateCount": 0,
+        "confirmedCandidateCount": 287,
+        "dismissedCandidateCount": 288,
+        "directReviewCandidateCount": 60,
+        "processingCandidateCount": 2
+      },
+      "after": {
+        "batchId": "10fe7b4b-0093-5a1f-be13-aa729499dbd8",
+        "episodeStartNo": 1,
+        "episodeEndNo": 30,
+        "episodeCount": 30,
+        "totalCandidateCount": 637,
+        "reviewedCandidateCount": 576,
+        "pendingCandidateCount": 61,
+        "pendingComparisonCount": 1,
+        "processingComparisonCount": 1,
+        "activeComparisonJobCount": 0,
+        "failedComparisonCount": 0,
+        "tokenInterruptedComparisonCount": 0,
+        "canResumeTokenInterruptedComparisons": false,
+        "recomparisonRequiredCount": 0,
+        "conflictCandidateCount": 0,
+        "confirmedCandidateCount": 287,
+        "dismissedCandidateCount": 289,
+        "directReviewCandidateCount": 59,
+        "processingCandidateCount": 2
+      },
+      "db": {
+        "reviewStatusCounts": {
+          "CONFIRMED": 287,
+          "DISMISSED": 289,
+          "PENDING_REVIEW": 61
+        },
+        "mutatedCandidateStatus": "DISMISSED"
+      },
+      "mutationStatus": 200
+    }
+  },
+  "sourceEvidenceSha256": {
+    "reports/backend-final-test-manifest.json": "16c2d6c1aa5225edaa8422b457ace9f3773513ef69c6095a4ebb4739d5d46dbc",
+    "reports/backend-final-source-manifest.json": "14c3c5f71ac41abe4ca36152239c52cee308ed62e7ab7ae884d971ec9a1ca65d",
+    "evidence/frontend-focused.log": "009d5d4099f7b5e9a55a43216124e65dcd072e14d2e1209d64e1f83941c7ca32",
+    "evidence/frontend-e2e-full.log": "bfd32a2889522402091db4a98ad901f889355d4a5059a58115b7142698403027",
+    "evidence/frontend-ascii-failure-rerun.log": "7d907803b07b99ecd31d32d3da4150ec29532e2cebaac72ed560f11476d0b91a",
+    "evidence/frontend-ascii-verification-copy.json": "d53e6bad714f383bacf7ba68e836181b59601591d2bdba5024ee1f7330236191",
+    "evidence/frontend-live-correctness.json": "e845597b9f0dbd1650f5572181bb0c7538c3832aacca391f1f6b4123f39e6803",
+    "evidence/frontend-correctness-restoration.json": "57c16a578e1e60808da626b1f440b7e8354256e04a6703f7ba71a225a52d5927"
+  },
+  "rawValidationLogs": "Retained outside repository in the local task evidence; not bulk-copied into this performance packet"
+}
