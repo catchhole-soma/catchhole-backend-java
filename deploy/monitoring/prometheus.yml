@@ -27,3 +27,12 @@ scrape_configs:
       - files:
           - /etc/prometheus/worker-targets/*.json
         refresh_interval: 15s
+
+  # No target is discovered until the optional exporter has been verified.
+  - job_name: catchhole-rds-backup
+    metrics_path: /metrics
+    honor_labels: true
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/rds-backup-targets/*.json
+        refresh_interval: 15s
