@@ -18,6 +18,35 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> {
+    @Query("""
+            select new org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobProgressRow(
+                job.id, job.episode.id, job.jobType, job.status, job.reviewMode, job.automaticAppliedAt,
+                job.failureCode, job.analysisMode, job.analysisRunId, job.runGeneration, job.runSequence,
+                job.predecessorJobId, job.journalStatus, job.journalInvalidationReason, job.checkpointStage)
+            from AnalysisJob job
+            where job.work.id = :workId and job.id in :analysisJobIds
+            """)
+    List<AnalysisJobProgressRow> findProgressByWorkIdAndIdIn(
+            @Param("workId") UUID workId, @Param("analysisJobIds") Collection<UUID> analysisJobIds);
+
+    @Query("""
+            select new org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobProgressEpisodeRow(
+                job.id, coalesce(target.id, episode.id),
+                case when target.id is not null then target.episodeNo else episode.episodeNo end,
+                case when target.id is not null then target.title else episode.title end,
+                case when target.id is not null then target.status else episode.status end,
+                case when target.id is not null then target.updatedAt else episode.updatedAt end)
+            from AnalysisJob job
+            left join job.targetEpisodes target
+            left join job.episode episode
+            where job.work.id = :workId and job.id in :analysisJobIds
+              and ((target.id is not null and target.work.id = :workId)
+                or (target.id is null and episode.work.id = :workId))
+            order by job.id, coalesce(target.episodeNo, episode.episodeNo), coalesce(target.id, episode.id)
+            """)
+    List<AnalysisJobProgressEpisodeRow> findProgressEpisodesByWorkIdAndJobIdIn(
+            @Param("workId") UUID workId, @Param("analysisJobIds") Collection<UUID> analysisJobIds);
+
     List<AnalysisJob> findAllByWorkIdAndSourceSettingBookIdOrderByCreatedAtDescIdDesc(UUID workId, UUID sourceSettingBookId);
     List<AnalysisJob> findAllByWorkIdAndSourceKindAndJobTypeOrderByCreatedAtDescIdDesc(UUID workId,
             org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind sourceKind, AnalysisJobType jobType);
@@ -185,6 +214,7 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
     @Query(
             value = """
                     select analysisJob.batch.id as batchId,
+                           analysisJob.batch.uploadType as uploadType,
                            min(analysisJob.createdAt) as firstRequestedAt,
                            max(analysisJob.createdAt) as lastRequestedAt
                     from AnalysisJob analysisJob
@@ -194,7 +224,7 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
                           org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON,
                           org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.CHARACTER_FACT_COMPARISON
                       )
-                    group by analysisJob.batch.id
+                    group by analysisJob.batch.id, analysisJob.batch.uploadType
                     order by max(analysisJob.createdAt) desc, analysisJob.batch.id desc
                     """,
             countQuery = """
@@ -211,23 +241,6 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
     Page<AnalysisBatchPageRow> findBatchPage(
             @Param("workId") UUID workId,
             Pageable pageable
-    );
-
-    @EntityGraph(attributePaths = {"batch", "episode", "targetEpisodes"})
-    @Query("""
-            select analysisJob
-            from AnalysisJob analysisJob
-            where analysisJob.work.id = :workId
-              and analysisJob.batch.id in :batchIds
-              and analysisJob.jobType not in (
-                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON,
-                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.CHARACTER_FACT_COMPARISON
-              )
-            order by analysisJob.createdAt desc, analysisJob.id desc
-            """)
-    List<AnalysisJob> findAllByWorkIdAndBatchIdInOrderByCreatedAtDescIdDesc(
-            @Param("workId") UUID workId,
-            @Param("batchIds") Collection<UUID> batchIds
     );
 
     @Query("""

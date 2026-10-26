@@ -1,0 +1,108 @@
+{
+  "api": "http://127.0.0.1:28080",
+  "frontend": "http://127.0.0.1:3300",
+  "refreshCookiePresent": true,
+  "cases": [
+    {
+      "name": "book-only",
+      "workId": "8f4c8aab-31c5-5138-8407-85f1c08d5a64",
+      "listRequests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/works/8f4c8aab-31c5-5138-8407-85f1c08d5a64/analysis-jobs/batches"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/works"
+        }
+      ],
+      "listStatuses": [
+        {
+          "status": 200,
+          "path": "/api/v1/auth/me"
+        },
+        {
+          "status": 200,
+          "path": "/api/v1/works"
+        },
+        {
+          "status": 200,
+          "path": "/api/v1/works/8f4c8aab-31c5-5138-8407-85f1c08d5a64/analysis-jobs/batches"
+        }
+      ],
+      "primary": "확인이 필요한 2개 검토",
+      "review": {
+        "batchId": "aac996ab-5758-504f-b2af-f630120d653a",
+        "sourceAnalysisJobId": "7e559c09-d7b1-5c3c-b188-fd2f511dc94f",
+        "candidateType": "character"
+      },
+      "historyFilters": [
+        "ALL",
+        "ALL",
+        "ALL"
+      ],
+      "original": {
+        "settingBookId": "ed1f0b1f-2389-5756-86e3-a0930b3e85e9",
+        "revisionId": "fbe35a17-d7a3-53ad-86c2-108308d5e764",
+        "status": 200
+      },
+      "progress": null
+    },
+    {
+      "name": "mixed",
+      "workId": "8a565bed-0063-5fae-bf9f-7297f79fb1c8",
+      "listRequests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/works/8a565bed-0063-5fae-bf9f-7297f79fb1c8/analysis-jobs/batches"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/works"
+        }
+      ],
+      "listStatuses": [
+        {
+          "status": 200,
+          "path": "/api/v1/auth/me"
+        },
+        {
+          "status": 200,
+          "path": "/api/v1/works"
+        },
+        {
+          "status": 200,
+          "path": "/api/v1/works/8a565bed-0063-5fae-bf9f-7297f79fb1c8/analysis-jobs/batches"
+        }
+      ],
+      "primary": "사유 확인",
+      "review": null,
+      "historyFilters": [
+        "ALL",
+        "ALL",
+        "ALL"
+      ],
+      "original": {
+        "settingBookId": "0f46a1ff-401b-577e-b8c5-13c18ae14732",
+        "revisionId": "aa6226b9-72f0-5a31-84d4-16eaa2fa010a",
+        "status": 200
+      },
+      "progress": {
+        "path": "/episode-upload",
+        "analysisJobIds": "1de70f49-9567-5f88-854e-7ad1f6893f03"
+      }
+    }
+  ],
+  "crossWorkRejections": {
+    "job": 404,
+    "revision": 404
+  }
+}

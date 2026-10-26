@@ -1,8 +1,15 @@
 package org.monitoring.catchholebackend.domain.worldsetting.mapper;
 
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobEpisodeRange;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateSummaryResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateListResponse;
+
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisExplanationText;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.monitoring.catchholebackend.domain.analysis.repository.CandidateReviewJobMetadata;
 import org.monitoring.catchholebackend.domain.worldimage.dto.response.WorldSettingImageResponse;
 import java.util.Objects;
 import java.util.stream.StreamSupport;
@@ -13,6 +20,8 @@ import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSett
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateGroupActionResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateGroupResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateProgressResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateBatchCounts;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingDetailResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingEvidenceSpanResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingListItemResponse;
@@ -35,6 +44,61 @@ import org.springframework.stereotype.Component;
 @lombok.RequiredArgsConstructor
 public class WorldSettingMapper {
     private final org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope reviewSources;
+
+    public WorldSettingCandidateSummaryResponse toSummaryResponse(
+            java.util.UUID batchId, AnalysisJobEpisodeRange range,
+            WorldSettingCandidateBatchCounts counts, long activeComparisonJobCount) {
+        return new WorldSettingCandidateSummaryResponse(
+                batchId,
+                range.getEpisodeStartNo(),
+                range.getEpisodeEndNo(),
+                range.getEpisodeCount(),
+                counts.getTotalCandidateCount(),
+                counts.getReviewedCandidateCount(),
+                counts.getPendingCandidateCount(),
+                counts.getPendingComparisonCount(),
+                counts.getProcessingComparisonCount(),
+                activeComparisonJobCount,
+                counts.getFailedComparisonCount(),
+                counts.getTokenInterruptedComparisonCount(),
+                counts.canResumeTokenInterruptedComparisons(),
+                counts.getRecomparisonRequiredCount(),
+                counts.getConflictCandidateCount(),
+                counts.getConfirmedCandidateCount(),
+                counts.getDismissedCandidateCount(),
+                counts.getDirectReviewCandidateCount(),
+                counts.getProcessingCandidateCount());
+    }
+
+    public WorldSettingCandidateListResponse toListResponse(
+            WorldSettingCandidateSummaryResponse summary,
+            org.monitoring.catchholebackend.global.common.response.PageResponse<WorldSettingCandidateGroupResponse> groups) {
+        return new WorldSettingCandidateListResponse(
+                summary.batchId(),
+                summary.episodeStartNo(),
+                summary.episodeEndNo(),
+                summary.episodeCount(),
+                summary.totalCandidateCount(),
+                summary.reviewedCandidateCount(),
+                summary.pendingCandidateCount(),
+                summary.pendingComparisonCount(),
+                summary.processingComparisonCount(),
+                summary.activeComparisonJobCount(),
+                summary.failedComparisonCount(),
+                summary.tokenInterruptedComparisonCount(),
+                summary.canResumeTokenInterruptedComparisons(),
+                summary.recomparisonRequiredCount(),
+                summary.conflictCandidateCount(),
+                summary.confirmedCandidateCount(),
+                summary.dismissedCandidateCount(),
+                summary.directReviewCandidateCount(),
+                summary.processingCandidateCount(), groups);
+    }
+
+    public WorldSettingCandidateProgressResponse toProgressResponse(WorldSettingCandidateBatchCounts counts) {
+        return new WorldSettingCandidateProgressResponse(counts.getPendingComparisonCount(),
+                counts.getProcessingComparisonCount(), counts.getTokenInterruptedComparisonCount());
+    }
 
     public WorldSetting toEntity(Work work, WorldSettingCreateRequest request) {
         return WorldSetting.create(
@@ -108,6 +172,21 @@ public class WorldSettingMapper {
     }
 
     public WorldSettingCandidateResponse toCandidateResponse(WorldSettingCandidate candidate) {
+        return toCandidateResponse(candidate, (CandidateReviewJobMetadata) null);
+    }
+
+    public WorldSettingCandidateResponse toCandidateResponse(WorldSettingCandidate candidate,
+            Map<UUID, CandidateReviewJobMetadata> metadata) {
+        return toCandidateResponse(candidate, CandidateReviewJobMetadata.require(metadata, candidate.getAnalysisJob().getId()));
+    }
+
+    private WorldSettingCandidateResponse toCandidateResponse(WorldSettingCandidate candidate, CandidateReviewJobMetadata origin) {
+        var job = candidate.getAnalysisJob();
+        var state = origin == null ? org.monitoring.catchholebackend.domain.analysis.processor.AnalysisReviewState.from(job, false) : origin.reviewState();
+        boolean settingBookSource = origin == null ? job.isSettingBookSource() : origin.settingBookSource();
+        var temporalScope = origin == null ? candidate.getTemporalScope() : candidate.getTemporalScope(settingBookSource);
+        boolean manualReviewAvailable = origin == null ? candidate.isManualReviewAvailable() : candidate.isManualReviewAvailable(state);
+        boolean automaticApplicationPending = origin == null ? candidate.isAutomaticApplicationPending() : candidate.isAutomaticApplicationPending(state);
         WorldSetting targetWorldSetting = candidate.getTargetWorldSetting();
         String suggestedSubjectName = targetWorldSetting == null
                 ? candidate.getEffectiveSubjectName()
@@ -124,8 +203,8 @@ public class WorldSettingMapper {
                 candidate.getWork().getId(),
                 (candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getId()),
                 (candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getEpisodeNo()),
-                candidate.getAnalysisJob().getId(),
-                candidate.getAnalysisJob().getAnalysisMode(),
+                job.getId(),
+                origin == null ? job.getAnalysisMode() : origin.analysisMode(),
                 candidate.getComparisonBatch() == null
                         ? null
                         : candidate.getComparisonBatch().getId(),
@@ -183,26 +262,29 @@ public class WorldSettingMapper {
                 candidate.getAppliedWorldSettingVersion(),
                 candidate.getCreatedAt(),
                 candidate.getUpdatedAt(),
-                candidate.isManualReviewAvailable() && (!candidate.getAnalysisJob().isSettingBookSource() || reviewSources.isActionable(candidate.getAnalysisJob())),
+                manualReviewAvailable && (!settingBookSource || (origin == null ? reviewSources.isActionable(job) : origin.actionable())),
                 toComparisonDiagnostics(candidate.getComparisonDiagnostics()),
                 candidate.isPendingReview() ? candidate.getAutomaticReviewHoldReason() : null,
-                candidate.isAutomaticApplicationPending(),
+                automaticApplicationPending,
                 candidate.isHistoryOnly(),
-                candidate.getAnalysisJob().getStatus(),
-                candidate.getAnalysisJob().getJournalStatus(), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(candidate.getAnalysisJob()), targetWorldSetting == null ? null : targetWorldSetting.getVersion(),
-                targetWorldSetting != null && candidate.getAnalysisJob().isSettingBookSource() && candidate.getAnalysisJob().isCompletedOrderedAnalysis()
+                origin == null ? job.getStatus() : origin.status(),
+                origin == null ? job.getJournalStatus() : origin.journalStatus(), origin == null
+                        ? org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(job) : origin.sourceResponse(), targetWorldSetting == null ? null : targetWorldSetting.getVersion(),
+                targetWorldSetting != null && settingBookSource && state.completedOrdered()
                         && candidate.getEffectiveCategory() == targetWorldSetting.getCategory()
                         && WorldSettingNameNormalizer.duplicateKey(candidate.getEffectiveSubjectName())
                             .equals(WorldSettingNameNormalizer.duplicateKey(targetWorldSetting.getSubjectName()))
-                        && !candidate.isAutomaticApplicationPending() && candidate.isPendingReview() && candidate.isManualReviewAvailable()
+                        && !automaticApplicationPending && candidate.isPendingReview() && manualReviewAvailable
                         && candidate.getSuggestedOperation() != org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation.EXCLUDE
                         && candidate.getFinalOperation() != org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation.EXCLUDE
-                        && reviewSources.isActionable(candidate.getAnalysisJob())
+                        && (origin == null ? reviewSources.isActionable(job) : origin.actionable())
                         && (!org.monitoring.catchholebackend.domain.analysis.processor.SettingBookTemporalPolicy.requiresReview(
-                            org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(
-                                candidate.getAnalysisJob(), candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope()), java.util.List.of(), false)
-                            || candidate.hasManualReviewDecision()),
-                candidate.getTemporalScope(), candidate.getEffectiveFromEpisodeNo());
+                            (origin == null ? org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(
+                                job, candidate.getEffectiveFromEpisodeNo(), temporalScope)
+                                : org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.fromMetadata(
+                                    origin, candidate.getEffectiveFromEpisodeNo(), temporalScope)), java.util.List.of(), false)
+                            || (manualReviewAvailable && candidate.getFinalOperation() != null)),
+                temporalScope, candidate.getEffectiveFromEpisodeNo());
     }
 
     private List<WorldSettingComparisonDiagnostic> toComparisonDiagnostics(JsonNode value) {
@@ -251,6 +333,11 @@ public class WorldSettingMapper {
             String groupKey,
             List<WorldSettingCandidate> candidates
     ) {
+        return toCandidateGroupResponse(groupKey, candidates, null);
+    }
+
+    public WorldSettingCandidateGroupResponse toCandidateGroupResponse(String groupKey,
+            List<WorldSettingCandidate> candidates, Map<UUID, CandidateReviewJobMetadata> metadata) {
         WorldSettingCandidate representative = candidates.getFirst();
         WorldSettingCategory category = representative.getEffectiveCategory();
         String subjectName = representative.getEffectiveSubjectName();
@@ -274,7 +361,7 @@ public class WorldSettingMapper {
                         .toList(),
                 groupStatus(candidates),
                 recomparisonScope(candidates),
-                candidates.stream().map(this::toCandidateResponse).toList()
+                candidates.stream().map(candidate -> metadata == null ? toCandidateResponse(candidate) : toCandidateResponse(candidate, metadata)).toList()
         );
     }
 

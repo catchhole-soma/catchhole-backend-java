@@ -1,0 +1,22 @@
+{
+  "identicalRequestAndJvmScripts": {
+    "run.py": {
+      "beforeSha256": "18c9eaf38f2da050e2bdd3ce36d8091bd07aaf7ca023c758652802e760e7e4b5",
+      "afterSha256": "18c9eaf38f2da050e2bdd3ce36d8091bd07aaf7ca023c758652802e760e7e4b5",
+      "identical": true
+    },
+    "run-api.sh": {
+      "beforeSha256": "2d2078000878072a9ae007732e69f3a221c5928f69170259f301a9cd1ec9b8be",
+      "afterSha256": "2d2078000878072a9ae007732e69f3a221c5928f69170259f301a9cd1ec9b8be",
+      "identical": true
+    }
+  },
+  "orchestrator": {
+    "beforeSha256": "753349c05239340b97e6db86831d46306131dbaf897818835390eaa1c72c3a83",
+    "afterSha256": "e0c18332ec5a9656baecca5bde7cc46ab3f2351edd7f184200d90e6b6f754fd3",
+    "onlyChange": "After-owned-Java-stop process.json PID/exit-code/log-path record; one added line; request/timing loop unchanged",
+    "reconstructedBeforeSha256MatchesManifest": true,
+    "diffFile": "measure-runner-diff.patch"
+  },
+  "otherHelpers": "Browser/correctness/helper additions occurred during preparation; not all helper/README hashes are asserted identical"
+}

@@ -24,18 +24,29 @@ import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComp
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
+import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSubjectResolutionType;
 import org.springframework.stereotype.Component;
 
 /** 업로드 묶음과 무관하게 앞 회차의 대기 내용을 실제 설정과 구분해 수집한다. */
 @Component
-@RequiredArgsConstructor
+@RequiredArgsConstructor(onConstructor_ = @org.springframework.beans.factory.annotation.Autowired)
 public class AnalysisPendingReferenceSource {
     private final SettingCandidateRepository characterCandidates;
     private final WorldSettingCandidateRepository worldCandidates;
     private final AnalysisJobRepository jobs;
 
+    private final org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository schemas;
+    private final org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver schemaResolver;
+
+    public AnalysisPendingReferenceSource(SettingCandidateRepository characters,
+            WorldSettingCandidateRepository worlds, AnalysisJobRepository jobs) {
+        this(characters, worlds, jobs, null, new org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver());
+    }
+
     public ObjectNode capture(AnalysisJob current) {
         ObjectNode references = JsonNodeFactory.instance.objectNode();
+        var activeSchemas = schemas == null ? java.util.List.<org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema>of()
+                : schemas.findAllActiveForWork(current.getWork().getId());
         Set<UUID> seenBooks=new HashSet<>();
         for (AnalysisJob earlier : jobs.findAllByWorkIdAndSourceKindAndJobTypeOrderByCreatedAtDescIdDesc(current.getWork().getId(),
                 org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.SETTING_BOOK, AnalysisJobType.SETTING_EXTRACTION)) {
@@ -43,7 +54,7 @@ public class AnalysisPendingReferenceSource {
             // A newer attempt replaces pending references even when it analyzes the same revision.
             if (!seenBooks.add(bookId) || current.isSettingBookSource() && bookId.equals(current.getSourceSettingBook().getId())
                     || !hasCurrentSource(earlier) || !earlier.isCompletedOrderedAnalysis()) continue;
-            captureCharacters(references,earlier,true);
+            captureCharacters(references,earlier,true,activeSchemas);
             captureWorlds(references,earlier,true);
         }
         if (current.getSourceEpisodeNo() == null || current.getSourceEpisodeNo() < 1) return references;
@@ -62,13 +73,14 @@ public class AnalysisPendingReferenceSource {
             boolean editedAnalysis = earlier.isOrderedProvisional()
                     && earlier.getJournalStatus() == AnalysisJournalStatus.INVALIDATED;
             if (!validAnalysis && !editedAnalysis) continue;
-            captureCharacters(references, earlier, validAnalysis);
+            captureCharacters(references, earlier, validAnalysis, activeSchemas);
             captureWorlds(references, earlier, validAnalysis);
         }
         return references;
     }
 
-    private void captureCharacters(ObjectNode references, AnalysisJob earlier, boolean validAnalysis) {
+    private void captureCharacters(ObjectNode references, AnalysisJob earlier, boolean validAnalysis,
+            java.util.List<org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema> activeSchemas) {
         for (var candidate : characterCandidates.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(earlier.getId())) {
             if (candidate.getReviewStatus() != SettingCandidateReviewStatus.PENDING_REVIEW
                     || !validAnalysis && !candidate.isUserModified()
@@ -87,6 +99,43 @@ public class AnalysisPendingReferenceSource {
             ObjectNode value = reference("characters", subjectName, earlier,
                     candidate.getAttributeName(), candidate.getAttributeValue(), candidate.getEvidenceSpans(),
                     candidate.isUserModified());
+            ObjectNode selection = value.putObject("selection");
+            var actualIds = selection.putArray("actualSubjectIds");
+            var provisionalKeys = selection.putArray("provisionalSubjectKeys");
+            boolean validSelection = candidate.isUserModified() || validAnalysis
+                    && candidate.getComparisonStatus() == CharacterFactComparisonStatus.COMPLETED;
+            // Identity resolution precedes Fact comparison; a failed Fact does not
+            // invalidate an independently resolved owner. Failed operation targets
+            // (P/Q slots, proposals) are never copied into this advisory linkage.
+            boolean linkedSubject = (candidate.isUserModified() || validAnalysis)
+                    && (candidate.getMatchStatus() == org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus.MATCHED
+                    || candidate.getMatchStatus() == org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
+            if (linkedSubject) {
+                if (candidate.getMatchedCharacterId() != null) actualIds.add(candidate.getMatchedCharacterId().toString());
+                else if (hasText(candidate.getProvisionalSubjectKey())) provisionalKeys.add(candidate.getProvisionalSubjectKey());
+            }
+            selection.put("rawSubjectMention", candidate.getRawEntityMention());
+            if (candidate.getCandidateKind() != null) selection.put("candidateKind", candidate.getCandidateKind().name());
+            if (!candidate.isCharacterDiscovery()) {
+                // A held/failed comparison can still have a valid original STATUS schema.
+                // Never infer its type from the display label or a failed comparison.
+                if (validSelection && candidate.getComparisonTargetFactType() != null
+                        && hasText(candidate.getComparisonTargetFactKey())) {
+                    selection.put("factType", candidate.getComparisonTargetFactType().name());
+                    selection.put("canonicalFactKey", candidate.getComparisonTargetFactKey());
+                } else if (schemas != null) {
+                    try {
+                        var match = schemaResolver.resolve(candidate.getAttributeName(), candidate.getValueType(),
+                                activeSchemas);
+                        selection.put("factType", match.matchedSchema().getFactType().name());
+                        selection.put("canonicalFactKey", match.factKey());
+                    } catch (org.monitoring.catchholebackend.global.exception.AppException ignored) {
+                        // Unknown/ambiguous original schema stays untyped advisory data.
+                    }
+                }
+                if (candidate.getValueJson() != null && candidate.getValueJson().isObject())
+                    selection.set("valueJson", candidate.getValueJson().deepCopy());
+            }
             references.set("pending-character:" + candidate.getId(), value);
         }
     }
@@ -122,6 +171,37 @@ public class AnalysisPendingReferenceSource {
                     && candidate.getComparisonReviewReason() == WorldSettingComparisonReviewReason.GENERAL_UNCERTAINTY) {
                 value.put("comparisonReviewReason", WorldSettingComparisonReviewReason.GENERAL_UNCERTAINTY.name());
                 value.put("reason", "앞 회차에서 대상이나 내용을 확정하지 못한 참고 정보입니다. 원문을 확인해 주세요.");
+            }
+            ObjectNode selection = value.putObject("selection");
+            var actualIds = selection.putArray("actualSubjectIds");
+            var provisionalKeys = selection.putArray("provisionalSubjectKeys");
+            var category = edited ? candidate.getFinalCategory() : candidate.getCategory();
+            if (category != null) selection.put("worldCategory", category.name());
+            selection.put("rawSubjectMention", edited ? candidate.getFinalSubjectName() : candidate.getSubjectName());
+            if (!edited && validAnalysis) {
+                var resolutionType = candidate.getSubjectResolutionType();
+                boolean linkedSubject = candidate.hasSubjectResolution()
+                        && (resolutionType == WorldSettingSubjectResolutionType.NEW
+                        || resolutionType == WorldSettingSubjectResolutionType.EXISTING);
+                if (linkedSubject) {
+                    if (candidate.getResolvedTargetWorldSettingIds() != null)
+                        candidate.getResolvedTargetWorldSettingIds().forEach(id -> actualIds.add(id.deepCopy()));
+                    if (candidate.getResolvedProvisionalSubjectKeys() != null)
+                        candidate.getResolvedProvisionalSubjectKeys().forEach(key -> provisionalKeys.add(key.deepCopy()));
+                }
+                // Legacy completed comparisons may predate the typed subject resolution.
+                // Operation-selected targets from failed content comparisons stay out.
+                if (candidate.getComparisonStatus() == WorldSettingComparisonStatus.COMPLETED
+                        && (resolutionType == null || linkedSubject)) {
+                    if (actualIds.isEmpty() && candidate.getTargetWorldSetting() != null)
+                        actualIds.add(candidate.getTargetWorldSetting().getId().toString());
+                    if (provisionalKeys.isEmpty() && hasText(candidate.getProvisionalSubjectKey()))
+                        provisionalKeys.add(candidate.getProvisionalSubjectKey());
+                }
+            } else if (edited && candidate.getTargetWorldSetting() != null
+                    && Objects.equals(candidate.getFinalSubjectName(), candidate.getTargetWorldSetting().getSubjectName())
+                    && category == candidate.getTargetWorldSetting().getCategory()) {
+                actualIds.add(candidate.getTargetWorldSetting().getId().toString());
             }
             references.set("pending-world:" + candidate.getId(), value);
         }

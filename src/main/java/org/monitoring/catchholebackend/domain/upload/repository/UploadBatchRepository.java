@@ -12,6 +12,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface UploadBatchRepository extends JpaRepository<UploadBatch, UUID> {
 
+    boolean existsByIdAndWorkId(UUID id, UUID workId);
+
     Optional<UploadBatch> findByIdAndWorkId(UUID id, UUID workId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

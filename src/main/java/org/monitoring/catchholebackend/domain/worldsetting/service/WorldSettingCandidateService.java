@@ -1,5 +1,7 @@
 package org.monitoring.catchholebackend.domain.worldsetting.service;
 
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateSummaryResponse;
+
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDecisionUpdateRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateGroupConfirmRequest;
@@ -10,12 +12,18 @@ import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSet
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateDecisionUpdateResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateGroupActionResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateProgressResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingTokenInterruptedResumeResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingSuggestedOperation;
 
 public interface WorldSettingCandidateService {
+    WorldSettingCandidateSummaryResponse getWorldSettingCandidateSummary(
+            Long memberId, UUID workId, UUID batchId, UUID sourceAnalysisJobId);
+
+
+    WorldSettingCandidateProgressResponse getWorldSettingCandidateProgress(Long memberId, UUID workId, UUID batchId);
 
     WorldSettingCandidateListResponse getCandidates(
             Long memberId,

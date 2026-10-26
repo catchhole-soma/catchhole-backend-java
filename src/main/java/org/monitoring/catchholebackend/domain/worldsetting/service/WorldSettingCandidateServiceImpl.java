@@ -1,5 +1,8 @@
 package org.monitoring.catchholebackend.domain.worldsetting.service;
 
+import org.monitoring.catchholebackend.domain.analysis.repository.CandidateReviewJobMetadata;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateSummaryResponse;
+
 import org.monitoring.catchholebackend.domain.worldimage.service.AutomaticImageService;
 import org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason;
 import java.util.ArrayList;
@@ -39,6 +42,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSet
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateListResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateDecisionUpdateResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateResponse;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingCandidateProgressResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSettingTokenInterruptedResumeResponse;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
@@ -275,6 +279,49 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
     }
 
     @Override
+    public WorldSettingCandidateProgressResponse getWorldSettingCandidateProgress(
+            Long memberId, UUID workId, UUID batchId
+    ) {
+        Work work = workRepository.getOwnedWork(workId, memberId);
+        if (batchId == null || !uploadBatchRepository.existsByIdAndWorkId(batchId, work.getId())) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_BATCH_NOT_FOUND);
+        }
+        var counts = worldSettingCandidateRepository.countReviewSummary(work.getId(), batchId,
+                WorldSettingReviewStatus.PENDING_REVIEW, WorldSettingComparisonStatus.PENDING,
+                WorldSettingComparisonStatus.PROCESSING, WorldSettingComparisonStatus.FAILED,
+                AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED, WorldSettingComparisonStatus.RECOMPARISON_REQUIRED,
+                WorldSettingComparisonStatus.COMPLETED, WorldSettingConsolidationStatus.CONFLICT);
+        return worldSettingMapper.toProgressResponse(counts);
+    }
+
+    @Override
+    public WorldSettingCandidateSummaryResponse getWorldSettingCandidateSummary(
+            Long memberId, UUID workId, UUID batchId, UUID sourceAnalysisJobId) {
+        Work work = workRepository.getOwnedWork(workId, memberId);
+        var source = reviewSources.validateRead(work, batchId, sourceAnalysisJobId);
+        validateBatch(work, batchId);
+        return loadSummary(work, batchId, sourceAnalysisJobId, source);
+    }
+
+    private WorldSettingCandidateSummaryResponse loadSummary(
+            Work work, UUID batchId, UUID sourceAnalysisJobId,
+            CandidateReviewJobMetadata source) {
+        var counts = worldSettingCandidateRepository.countReviewSummary(work.getId(), batchId,
+                WorldSettingReviewStatus.PENDING_REVIEW, WorldSettingComparisonStatus.PENDING,
+                WorldSettingComparisonStatus.PROCESSING, WorldSettingComparisonStatus.FAILED,
+                AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED, WorldSettingComparisonStatus.RECOMPARISON_REQUIRED,
+                WorldSettingComparisonStatus.COMPLETED, WorldSettingConsolidationStatus.CONFLICT, sourceAnalysisJobId);
+        var range = reviewSources.episodeRangeRead(work, batchId, source);
+        long active = sourceAnalysisJobId != null
+                ? analysisJobRepository.countActiveWorldSettingComparisonsBySourceAnalysisJobId(sourceAnalysisJobId,
+                        List.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING))
+                : analysisJobRepository.countActiveComparisonsByBatchIds(work.getId(), List.of(batchId),
+                        AnalysisJobType.WORLD_SETTING_COMPARISON, List.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING))
+                        .stream().mapToLong(row -> row.getActiveComparisonCount()).findFirst().orElse(0L);
+        return worldSettingMapper.toSummaryResponse(batchId, range, counts, active);
+    }
+
+    @Override
     public WorldSettingCandidateListResponse getCandidates(Long memberId, UUID workId, UUID batchId, WorldSettingReviewStatus reviewStatus, WorldSettingCategory category, WorldSettingSuggestedOperation operation, int page, int size) {
         return getCandidates(memberId, workId, batchId, reviewStatus, category, operation, page, size, null);
     }
@@ -292,11 +339,11 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             UUID sourceAnalysisJobId
     ) {
         Work work = workRepository.getOwnedWork(workId, memberId);
-        reviewSources.validate(work, batchId, sourceAnalysisJobId, false);
+        var source = reviewSources.validateRead(work, batchId, sourceAnalysisJobId);
         validateBatch(work, batchId);
-        List<WorldSettingCandidate> candidates = (sourceAnalysisJobId == null ? worldSettingCandidateRepository.findReviewList(work.getId(), batchId, reviewStatus, category, operation, operation == null || operation == WorldSettingSuggestedOperation.REVIEW_REQUIRED
+        List<WorldSettingCandidate> candidates = (sourceAnalysisJobId == null ? worldSettingCandidateRepository.findReviewListWithoutJobs(work.getId(), batchId, reviewStatus, category, operation, operation == null || operation == WorldSettingSuggestedOperation.REVIEW_REQUIRED
                         ? null
-                        : WorldSettingOperation.valueOf(operation.name())) : worldSettingCandidateRepository.findReviewList(
+                        : WorldSettingOperation.valueOf(operation.name())) : worldSettingCandidateRepository.findReviewListWithoutJobs(
                 work.getId(),
                 batchId,
                 reviewStatus,
@@ -306,73 +353,31 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                         ? null
                         : WorldSettingOperation.valueOf(operation.name())
         , sourceAnalysisJobId));
-        WorldSettingCandidateBatchCounts counts = (sourceAnalysisJobId == null ? worldSettingCandidateRepository.countReviewSummary(work.getId(), batchId, WorldSettingReviewStatus.PENDING_REVIEW, WorldSettingComparisonStatus.PENDING, WorldSettingComparisonStatus.PROCESSING, WorldSettingComparisonStatus.FAILED, AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED, WorldSettingComparisonStatus.RECOMPARISON_REQUIRED, WorldSettingComparisonStatus.COMPLETED, WorldSettingConsolidationStatus.CONFLICT) : worldSettingCandidateRepository.countReviewSummary(
-                work.getId(),
-                batchId,
-                WorldSettingReviewStatus.PENDING_REVIEW,
-                WorldSettingComparisonStatus.PENDING,
-                WorldSettingComparisonStatus.PROCESSING,
-                WorldSettingComparisonStatus.FAILED,
-                AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED,
-                WorldSettingComparisonStatus.RECOMPARISON_REQUIRED,
-                WorldSettingComparisonStatus.COMPLETED,
-                WorldSettingConsolidationStatus.CONFLICT
-        , sourceAnalysisJobId));
-        AnalysisJobEpisodeRange episodeRange =
-                reviewSources.episodeRange(work, batchId, sourceAnalysisJobId);
-        long activeComparisonJobCount = sourceAnalysisJobId != null
-                ? analysisJobRepository.countActiveWorldSettingComparisonsBySourceAnalysisJobId(sourceAnalysisJobId, List.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING))
-                : analysisJobRepository.countActiveComparisonsByBatchIds(
-                        work.getId(),
-                        List.of(batchId),
-                        AnalysisJobType.WORLD_SETTING_COMPARISON,
-                        List.of(AnalysisJobStatus.PENDING, AnalysisJobStatus.RUNNING)
-                )
-                .stream()
-                .mapToLong(countsByBatch -> countsByBatch.getActiveComparisonCount())
-                .findFirst()
-                .orElse(0L);
+        var summary = loadSummary(work, batchId, sourceAnalysisJobId, source);
         Map<String, List<WorldSettingCandidate>> candidatesByGroup = new LinkedHashMap<>();
         for (WorldSettingCandidate candidate : candidates) {
             candidatesByGroup.computeIfAbsent(groupKey(candidate), ignored -> new ArrayList<>())
                     .add(candidate);
         }
-        List<WorldSettingCandidateGroupResponse> allGroups = candidatesByGroup.entrySet().stream()
-                .map(entry -> worldSettingMapper.toCandidateGroupResponse(entry.getKey(), entry.getValue()))
-                .toList();
+        var allGroups = new ArrayList<>(candidatesByGroup.entrySet());
         int fromIndex = (int) Math.min((long) page * size, allGroups.size());
         int toIndex = Math.min(fromIndex + size, allGroups.size());
         int totalPages = allGroups.isEmpty() ? 0 : (allGroups.size() + size - 1) / size;
+        var selectedGroups = allGroups.subList(fromIndex, toIndex);
+        Set<UUID> jobIds = selectedGroups.stream().flatMap(entry -> entry.getValue().stream())
+                .map(candidate -> candidate.getAnalysisJob().getId()).collect(java.util.stream.Collectors.toSet());
+        var metadata = reviewSources.readMetadata(jobIds, source);
+        var responses = selectedGroups.stream()
+                .map(entry -> worldSettingMapper.toCandidateGroupResponse(entry.getKey(), entry.getValue(), metadata)).toList();
         PageResponse<WorldSettingCandidateGroupResponse> groupPage = new PageResponse<>(
-                allGroups.subList(fromIndex, toIndex),
+                responses,
                 page,
                 size,
                 allGroups.size(),
                 totalPages,
                 page + 1 < totalPages
         );
-        return new WorldSettingCandidateListResponse(
-                batchId,
-                episodeRange.getEpisodeStartNo(),
-                episodeRange.getEpisodeEndNo(),
-                episodeRange.getEpisodeCount(),
-                counts.getTotalCandidateCount(),
-                counts.getReviewedCandidateCount(),
-                counts.getPendingCandidateCount(),
-                counts.getPendingComparisonCount(),
-                counts.getProcessingComparisonCount(),
-                activeComparisonJobCount,
-                counts.getFailedComparisonCount(),
-                counts.getTokenInterruptedComparisonCount(),
-                counts.canResumeTokenInterruptedComparisons(),
-                counts.getRecomparisonRequiredCount(),
-                counts.getConflictCandidateCount(),
-                counts.getConfirmedCandidateCount(),
-                counts.getDismissedCandidateCount(),
-                counts.getDirectReviewCandidateCount(),
-                counts.getProcessingCandidateCount(),
-                groupPage
-        );
+        return worldSettingMapper.toListResponse(summary, groupPage);
     }
 
     @Override

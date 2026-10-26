@@ -57,6 +57,52 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
     @EntityGraph(attributePaths = {
             "work",
             "sourceEpisode",
+            "targetWorldSetting",
+            "reviewedBy",
+            "comparisonBatch",
+            "comparisonDecision",
+            "comparisonDecision.comparisonBatch"
+    })
+    @Query("""
+            select candidate
+            from WorldSettingCandidate candidate
+            join candidate.analysisJob analysisJob
+            left join candidate.sourceEpisode sourceEpisode
+            left join candidate.targetWorldSetting targetWorldSetting
+            where candidate.work.id = :workId
+              and analysisJob.batch.id = :batchId
+              and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
+                or analysisJob.id = :sourceAnalysisJobId)
+              and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
+              and (:category is null
+                  or (candidate.finalCategory is not null and candidate.finalCategory = :category)
+                  or (candidate.finalCategory is null and targetWorldSetting is not null
+                      and targetWorldSetting.category = :category)
+                  or (candidate.finalCategory is null and targetWorldSetting is null
+                      and candidate.category = :category))
+              and (:suggestedOperation is null
+                  or (candidate.finalOperation is not null and candidate.finalOperation = :finalOperation)
+                  or (candidate.finalOperation is null
+                      and candidate.suggestedOperation = :suggestedOperation))
+            order by sourceEpisode.episodeNo asc, candidate.createdAt asc, candidate.id asc
+            """)
+    List<WorldSettingCandidate> findReviewListWithoutJobs(
+            @Param("workId") UUID workId,
+            @Param("batchId") UUID batchId,
+            @Param("reviewStatus") WorldSettingReviewStatus reviewStatus,
+            @Param("category") WorldSettingCategory category,
+            @Param("suggestedOperation") WorldSettingSuggestedOperation suggestedOperation,
+            @Param("finalOperation") WorldSettingOperation finalOperation,
+            @Param("sourceAnalysisJobId") UUID sourceAnalysisJobId
+    );
+
+    default List<WorldSettingCandidate> findReviewListWithoutJobs(UUID workId, UUID batchId, WorldSettingReviewStatus reviewStatus, WorldSettingCategory category, WorldSettingSuggestedOperation suggestedOperation, WorldSettingOperation finalOperation) {
+        return findReviewListWithoutJobs(workId, batchId, reviewStatus, category, suggestedOperation, finalOperation, null);
+    }
+
+    @EntityGraph(attributePaths = {
+            "work",
+            "sourceEpisode",
             "analysisJob",
             "targetWorldSetting",
             "reviewedBy",
@@ -99,6 +145,32 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
     default List<WorldSettingCandidate> findReviewList(UUID workId, UUID batchId, WorldSettingReviewStatus reviewStatus, WorldSettingCategory category, WorldSettingSuggestedOperation suggestedOperation, WorldSettingOperation finalOperation) {
         return findReviewList(workId, batchId, reviewStatus, category, suggestedOperation, finalOperation, null);
     }
+
+    @Query("""
+            select analysisJob.id as analysisJobId,
+                   count(candidate) as totalCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus <> org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.PENDING_REVIEW then 1 else 0 end), 0) as reviewedCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus = org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.PENDING_REVIEW then 1 else 0 end), 0) as pendingCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus = org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.PENDING_REVIEW
+                     and candidate.comparisonStatus not in (org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus.PENDING, org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus.PROCESSING)
+                     and not (analysisJob.reviewMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC
+                         and analysisJob.automaticAppliedAt is null
+                         and analysisJob.status in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING, org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING))
+                     then 1 else 0 end), 0) as directReviewCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus = org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.PENDING_REVIEW
+                     and (candidate.comparisonStatus in (org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus.PENDING, org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus.PROCESSING)
+                         or (analysisJob.reviewMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC
+                         and analysisJob.automaticAppliedAt is null
+                         and analysisJob.status in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING, org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING)))
+                     then 1 else 0 end), 0) as processingCandidateCount
+            from WorldSettingCandidate candidate join candidate.analysisJob analysisJob
+            where candidate.work.id = :workId and analysisJob.work.id = :workId
+              and analysisJob.id in :analysisJobIds
+              and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.SETTING_BOOK
+            group by analysisJob.id
+            """)
+    List<org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobCandidateReviewCounts> countReviewSummaryByAnalysisJobIds(
+            @Param("workId") UUID workId, @Param("analysisJobIds") List<UUID> analysisJobIds);
 
     @Query("""
             select count(candidate) as totalCandidateCount,

@@ -13,6 +13,16 @@ import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 
 public interface CharacterFactComparisonWorkerService {
 
+    WorkerCharacterFactComparisonBatchContextResponse getCharacterFactComparisonBatchContext(
+            UUID analysisJobId,
+            UUID comparisonBatchId,
+            UUID leaseToken, boolean includeReferenceSelection
+    );
+
+    Optional<WorkerCharacterFactComparisonBatchPayload> claimNextCharacterFactComparisonBatch(
+            UUID analysisJobId, UUID leaseToken, boolean supportsPersonBatches, boolean includeReferenceSelection
+    );
+
     Optional<WorkerCharacterFactComparisonBatchPayload> claimNextCharacterFactComparisonBatch(
             UUID analysisJobId,
             UUID leaseToken

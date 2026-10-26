@@ -1,0 +1,15 @@
+{
+  "phase": "before",
+  "route": "character",
+  "requestPath": "/api/v1/works/32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f/setting-candidates?batchId=10fe7b4b-0093-5a1f-be13-aa729499dbd8&reviewStatus=PENDING_REVIEW&page=0&size=20&includeLegacyCandidates=false",
+  "protocol": "one fresh JVM per route; sequential; three warmups then thirty measured by default; stop on first error",
+  "plannedWarmups": 3,
+  "plannedMeasurements": 30,
+  "completedWarmups": 3,
+  "completedMeasurements": 30,
+  "errors": 0,
+  "stoppedEarly": false,
+  "medianMs": 436.8178956210613,
+  "p95Ms": 488.82220801897347,
+  "responseSha256": "add86b5012a0f0001c0a96a2eb0656c3c1311af0948518d4bc0056b4333c0e1c"
+}

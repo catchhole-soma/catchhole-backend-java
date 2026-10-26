@@ -1,0 +1,155 @@
+{
+  "phase": "before",
+  "browserVersion": "149.0.7827.55",
+  "protocol": "one fresh browser context; HTTP cache disabled; API requests starting through 500ms after character-ready, drained up to30s; stop on first API failure; external origins blocked identically",
+  "success": true,
+  "pageReadyMs": 146.89999985694885,
+  "timeOriginEpochMs": 1792861347863.2,
+  "groups": 9,
+  "observationCutoffEpochMs": 1792861348510.0999,
+  "loadEventEndMs": 46.5,
+  "requests": [
+    {
+      "url": "http://127.0.0.1:29480/api/v1/auth/me",
+      "method": "GET",
+      "resourceType": "fetch",
+      "startedEpochMs": 1792861347916,
+      "finished": true,
+      "status": 200,
+      "timing": {
+        "startTime": 1792861347917.598,
+        "domainLookupStart": 0.091,
+        "domainLookupEnd": 0.097,
+        "connectStart": 0.097,
+        "secureConnectionStart": -1,
+        "connectEnd": 0.257,
+        "requestStart": 0.279,
+        "responseStart": 4.909,
+        "responseEnd": 6.905
+      },
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 633,
+        "responseBodySize": 326,
+        "responseHeadersSize": 617
+      },
+      "decodedBodyBytes": 325,
+      "bodySha256": "b24fa8bd49e9fdfe42f2514fef2acd152fa4ab13105028cedf621417d024c81e"
+    },
+    {
+      "url": "http://127.0.0.1:29480/api/v1/works/32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f",
+      "method": "GET",
+      "resourceType": "fetch",
+      "startedEpochMs": 1792861347923,
+      "finished": true,
+      "status": 200,
+      "timing": {
+        "startTime": 1792861347924.096,
+        "domainLookupStart": -1,
+        "domainLookupEnd": -1,
+        "connectStart": -1,
+        "secureConnectionStart": -1,
+        "connectEnd": -1,
+        "requestStart": 0.089,
+        "responseStart": 4.919,
+        "responseEnd": 5.954
+      },
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 668,
+        "responseBodySize": 358,
+        "responseHeadersSize": 617
+      },
+      "decodedBodyBytes": 357,
+      "bodySha256": "c4110cf0a1788e62b1d902fa0d99263878c8d3b9f51a3289888ff7f31547f5aa"
+    },
+    {
+      "url": "http://127.0.0.1:29480/api/v1/works/32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f/setting-candidates?batchId=10fe7b4b-0093-5a1f-be13-aa729499dbd8&reviewStatus=PENDING_REVIEW&page=0&size=20&includeLegacyCandidates=false",
+      "method": "GET",
+      "resourceType": "fetch",
+      "startedEpochMs": 1792861347941,
+      "finished": true,
+      "status": 200,
+      "timing": {
+        "startTime": 1792861347942.189,
+        "domainLookupStart": -1,
+        "domainLookupEnd": -1,
+        "connectStart": -1,
+        "secureConnectionStart": -1,
+        "connectEnd": -1,
+        "requestStart": 0.22,
+        "responseStart": 37.255,
+        "responseEnd": 42.28
+      },
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 687,
+        "responseBodySize": 280581,
+        "responseHeadersSize": 624
+      },
+      "decodedBodyBytes": 280296,
+      "bodySha256": "2005ab632ddcfcb1ece4cca236715eb4f9373bccb82aad327acac476fd4ef72d"
+    },
+    {
+      "url": "http://127.0.0.1:29480/api/v1/works/32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f/world-setting-candidates?batchId=10fe7b4b-0093-5a1f-be13-aa729499dbd8&page=0&size=1",
+      "method": "GET",
+      "resourceType": "fetch",
+      "startedEpochMs": 1792861347941,
+      "finished": true,
+      "status": 200,
+      "timing": {
+        "startTime": 1792861347942.22,
+        "domainLookupStart": 0.074,
+        "domainLookupEnd": 0.079,
+        "connectStart": 0.079,
+        "secureConnectionStart": -1,
+        "connectEnd": 0.208,
+        "requestStart": 0.221,
+        "responseStart": 34.758,
+        "responseEnd": 37.529
+      },
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 693,
+        "responseBodySize": 46032,
+        "responseHeadersSize": 624
+      },
+      "decodedBodyBytes": 45978,
+      "bodySha256": "97c0f9a1eba9d413b5e70093940062cd1eae0735bbacca9ee8fdd0a95b60b169"
+    },
+    {
+      "url": "http://127.0.0.1:29480/api/v1/works/32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f/world-image-theme",
+      "method": "GET",
+      "resourceType": "fetch",
+      "startedEpochMs": 1792861347942,
+      "finished": true,
+      "status": 200,
+      "timing": {
+        "startTime": 1792861347942.649,
+        "domainLookupStart": 0.063,
+        "domainLookupEnd": 0.065,
+        "connectStart": 0.065,
+        "secureConnectionStart": -1,
+        "connectEnd": 0.137,
+        "requestStart": 0.149,
+        "responseStart": 6.732,
+        "responseEnd": 9.18
+      },
+      "sizes": {
+        "requestBodySize": 0,
+        "requestHeadersSize": 686,
+        "responseBodySize": 5558,
+        "responseHeadersSize": 618
+      },
+      "decodedBodyBytes": 5557,
+      "bodySha256": "db6de334dffdcaf254c51e0c656f7a65bbc8c60247d4d58f0372cb6a91028936"
+    }
+  ],
+  "apiRequestCount": 5,
+  "apiResponseBytes": 332513,
+  "failedApiRequests": 0,
+  "externalOriginsBlocked": [
+    "https://cdn.jsdelivr.net"
+  ],
+  "collectorErrors": []
+}

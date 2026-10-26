@@ -1,0 +1,1 @@
+select ub1_0.id,ub1_0.completed_at,ub1_0.created_at,ub1_0.file_count,ub1_0.member_id,ub1_0.source_type,ub1_0.status,ub1_0.updated_at,ub1_0.upload_type,ub1_0.work_id from upload_batches ub1_0 where ub1_0.id='10fe7b4b-0093-5a1f-be13-aa729499dbd8' and ub1_0.work_id='32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f';

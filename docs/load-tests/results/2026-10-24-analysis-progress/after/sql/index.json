@@ -1,0 +1,155 @@
+[
+  {
+    "number": 0,
+    "route": "job-one",
+    "sqlFile": "00-job-one.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.178,
+    "executionMs": 0.019
+  },
+  {
+    "number": 1,
+    "route": "job-one",
+    "sqlFile": "01-job-one.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.114,
+    "executionMs": 0.01
+  },
+  {
+    "number": 2,
+    "route": "job-one",
+    "sqlFile": "02-job-one.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.38,
+    "executionMs": 0.028
+  },
+  {
+    "number": 3,
+    "route": "job-one",
+    "sqlFile": "03-job-one.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.314,
+    "executionMs": 0.076
+  },
+  {
+    "number": 4,
+    "route": "jobs-thirty",
+    "sqlFile": "04-jobs-thirty.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.043,
+    "executionMs": 0.015
+  },
+  {
+    "number": 5,
+    "route": "jobs-thirty",
+    "sqlFile": "05-jobs-thirty.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.026,
+    "executionMs": 0.008
+  },
+  {
+    "number": 6,
+    "route": "jobs-thirty",
+    "sqlFile": "06-jobs-thirty.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.106,
+    "executionMs": 0.025
+  },
+  {
+    "number": 7,
+    "route": "jobs-thirty",
+    "sqlFile": "07-jobs-thirty.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.193,
+    "executionMs": 0.075
+  },
+  {
+    "number": 8,
+    "route": "comparison",
+    "sqlFile": "08-comparison.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.04,
+    "executionMs": 0.014
+  },
+  {
+    "number": 9,
+    "route": "comparison",
+    "sqlFile": "09-comparison.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.029,
+    "executionMs": 0.009
+  },
+  {
+    "number": 10,
+    "route": "comparison",
+    "sqlFile": "10-comparison.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.064,
+    "executionMs": 0.008
+  },
+  {
+    "number": 11,
+    "route": "comparison",
+    "sqlFile": "11-comparison.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.353,
+    "executionMs": 0.285
+  },
+  {
+    "number": 12,
+    "route": "episodes",
+    "sqlFile": "12-episodes.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.044,
+    "executionMs": 0.021
+  },
+  {
+    "number": 13,
+    "route": "episodes",
+    "sqlFile": "13-episodes.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.025,
+    "executionMs": 0.007
+  },
+  {
+    "number": 14,
+    "route": "episodes",
+    "sqlFile": "14-episodes.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.128,
+    "executionMs": 0.02
+  },
+  {
+    "number": 15,
+    "route": "episodes",
+    "sqlFile": "15-episodes.sql",
+    "includesAnalysisJson": false,
+    "parametersBound": true,
+    "planningMs": 0.123,
+    "executionMs": 0.011
+  },
+  {
+    "number": 16,
+    "route": "episodes",
+    "sqlFile": "16-episodes.sql",
+    "includesAnalysisJson": true,
+    "parametersBound": true,
+    "planningMs": 0.23,
+    "executionMs": 0.08
+  }
+]

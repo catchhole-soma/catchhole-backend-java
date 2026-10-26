@@ -286,14 +286,25 @@ class CharacterFactComparisonBatchWorkerTest {
         provenance.putArray("currentSourceTimes").addObject().put("sourceKind", "SETTING_BOOK")
                 .putNull("sourceEpisodeNo").put("referenceTimeKind", "EPISODE").put("referenceEpisodeNo", 3)
                 .putNull("effectiveFromEpisodeNo").put("temporalScope", "PRESENT");
-        candidate("status.오른발_부상", "과거 화상", 10);
+        state.withArray("aliases").add("이전 별칭");
+        var original = candidate("status.오른발_부상", "과거 화상", 10);
+        ReflectionTestUtils.setField(original, "rawEntityMention", "이번 별칭");
         var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
-        var context = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken);
+        var context = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken, true);
         assertThat(context.snapshotEntries()).extracting(WorkerCharacterFactComparisonBatchContextResponse.SnapshotEntry::factType)
                 .containsExactly(CharacterFactType.PROFILE);
         var json = objectMapper.valueToTree(context).path("advisoryCurrentContext");
         assertThat(json.path("complete").asBoolean()).isTrue();
         assertThat(json.path("characterId").asText()).isEqualTo(character.getId().toString());
+        assertThat(json.path("selectionNames").toString()).contains("이전 별칭", "이번 별칭");
+        var legacyContext = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken, false);
+        assertThat(legacyContext.contextToken()).isEqualTo(context.contextToken());
+        assertThat(legacyContext.advisoryCurrentContext().selectionNames()).isEmpty();
+        assertThat(objectMapper.valueToTree(legacyContext).path("advisoryCurrentContext").has("selectionNames")).isFalse();
+        ObjectNode oldModelCarrier = objectMapper.valueToTree(legacyContext.advisoryCurrentContext());
+        ObjectNode capableModelCarrier = objectMapper.valueToTree(context.advisoryCurrentContext());
+        capableModelCarrier.remove("selectionNames");
+        assertThat(oldModelCarrier).isEqualTo(capableModelCarrier);
         assertThat(json.path("captureVersion").asInt()).isZero();
         assertThat(json.path("currentSlots")).hasSize(1);
         assertThat(json.path("currentSlots").get(0).path("factType").asText()).isEqualTo("PROFILE");

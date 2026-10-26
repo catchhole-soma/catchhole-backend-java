@@ -62,6 +62,10 @@ public class SwaggerConfig {
             replaceWithNullableJsonUnion(openApi, "WorkerCharacterCurrentSnapshotEntry", "valueJson");
             replaceWithNullableJsonUnion(openApi, "WorkerCharacterPriorFactCandidate", "valueJson");
             replaceWithNullableJsonUnion(openApi, "WorkerCharacterPriorFactCandidate", "proposedValueJson");
+            replaceWithNullableEnumUnion(openApi, "AnalysisBatchSummaryResponse", "episodeStatus");
+            replaceWithNullableEnumUnion(openApi, "AnalysisBatchSettingBookResponse", "failureCode");
+            replaceWithNullableEnumUnion(openApi, "AnalysisJobProgressResponse", "failureCode");
+            replaceWithNullableReferenceUnion(openApi, "AnalysisJobProgressResponse", "analysisRun");
             replaceWithNullableEnumUnion(openApi, "SettingCandidateResponse", "valueType");
             replaceWithNullableEnumUnion(openApi, "SettingCandidateResponse", "suggestedOperation");
             replaceWithNullableEnumUnion(openApi, "SettingCandidateResponse", "temporalScope");
@@ -95,6 +99,18 @@ public class SwaggerConfig {
         nullableJsonUnion.setAnyOf(List.of(jsonValueSchema, nullSchema));
         nullableJsonUnion.setDescription(originalSchema.getDescription());
         ownerSchema.addProperty(propertyName, nullableJsonUnion);
+    }
+
+    private static void replaceWithNullableReferenceUnion(OpenAPI openApi, String ownerName, String propertyName) {
+        if (openApi.getComponents() == null || openApi.getComponents().getSchemas() == null) return;
+        Schema<?> owner = openApi.getComponents().getSchemas().get(ownerName);
+        if (owner == null || owner.getProperties() == null) return;
+        Schema<?> original = owner.getProperties().get(propertyName);
+        if (original == null || original.get$ref() == null) return;
+        JsonSchema reference = new JsonSchema(); reference.set$ref(original.get$ref());
+        JsonSchema nullSchema = new JsonSchema(); nullSchema.setTypes(Set.of("null"));
+        JsonSchema union = new JsonSchema(); union.setAnyOf(List.of(reference, nullSchema));
+        union.setDescription(original.getDescription()); owner.addProperty(propertyName, union);
     }
 
     private static void replaceWithNullableEnumUnion(

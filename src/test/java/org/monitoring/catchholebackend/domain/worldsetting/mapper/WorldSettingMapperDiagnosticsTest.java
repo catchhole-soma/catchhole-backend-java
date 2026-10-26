@@ -19,8 +19,11 @@ class WorldSettingMapperDiagnosticsTest {
     @Test
     void candidateResponsePreservesDiagnosticStagesAndAcceptsLegacyMetadata() throws Exception {
         ObjectMapper json = new ObjectMapper();
-        WorldSettingCandidate candidate = WorldSettingCandidate.create(mock(Work.class), mock(Episode.class),
-                mock(AnalysisJob.class), WorldSettingCategory.LOCATION, "미궁", "광원", "수정",
+        Work work = Work.create(null, "합성 작품", org.monitoring.catchholebackend.domain.work.type.WorkGenre.FANTASY, null);
+        Episode episode = Episode.create(work, null, 1, "1화", "synthetic/1", null, "a".repeat(64), 100);
+        AnalysisJob job = AnalysisJob.create(work, null, episode,
+                org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION);
+        WorldSettingCandidate candidate = WorldSettingCandidate.create(work, episode, job, WorldSettingCategory.LOCATION, "미궁", "광원", "수정",
                 json.createArrayNode(), new BigDecimal("0.95"), json.createObjectNode());
         ReflectionTestUtils.setField(candidate, "comparisonStatus", WorldSettingComparisonStatus.COMPLETED);
         candidate.recordComparisonDiagnostics(json.readTree("""

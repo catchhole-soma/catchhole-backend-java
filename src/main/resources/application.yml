@@ -102,6 +102,10 @@ ai-token:
   minimum-comparison-reservation: ${AI_TOKEN_MINIMUM_COMPARISON_RESERVATION:128256}
 
 analysis:
+  notifications:
+    enabled: ${ANALYSIS_FAILURE_NOTIFICATIONS_ENABLED:false}
+    discord-webhook-url: ${ANALYSIS_FAILURE_DISCORD_WEBHOOK_URL:}
+    environment: ${ANALYSIS_FAILURE_NOTIFICATION_ENVIRONMENT:local}
   metrics:
     scheduling-enabled: ${ANALYSIS_METRICS_SCHEDULING_ENABLED:true}
     fixed-delay-ms: ${ANALYSIS_METRICS_FIXED_DELAY_MS:15000}

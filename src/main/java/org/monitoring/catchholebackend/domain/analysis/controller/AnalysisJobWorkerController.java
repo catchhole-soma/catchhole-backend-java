@@ -44,9 +44,10 @@ public class AnalysisJobWorkerController {
             @ApiResponse(responseCode = "401", description = "내부 API Key 없음 또는 검증 실패")
     })
     public ResponseEntity<CommonResponse<WorkerAnalysisJobPayload>> claimAnalysisJob(
-            @Valid @RequestBody WorkerAnalysisJobClaimRequest request
+            @Valid @RequestBody WorkerAnalysisJobClaimRequest request,
+            @RequestHeader(value = "X-Analysis-Reference-Selection", defaultValue = "false") boolean includeReferenceSelection
     ) {
-        Optional<WorkerAnalysisJobPayload> payload = analysisJobWorkerService.claimAnalysisJob(request);
+        Optional<WorkerAnalysisJobPayload> payload = analysisJobWorkerService.claimAnalysisJob(request, includeReferenceSelection);
         return payload
                 .map(value -> ResponseEntity.ok(CommonResponse.success("분석 작업을 claim했습니다.", value)))
                 .orElseGet(() -> ResponseEntity.noContent().build());

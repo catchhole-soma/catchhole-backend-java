@@ -1,88 +1,60 @@
 package org.monitoring.catchholebackend.domain.analysis.mapper;
 
 import java.time.LocalDateTime;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
-import java.util.UUID;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatchJobGroupResponse;
+import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatchCandidateCountsResponse;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobCandidateReviewCounts;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchSummaryRepository.BookSummary;
+import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatchSettingBookResponse;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatchSummaryResponse;
-import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchPageRow;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchSummaryRepository.GroupSummary;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisBatchStatus;
-import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
-import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateBatchReviewCounts;
-import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateBatchReviewCounts;
 import org.springframework.stereotype.Component;
 
 @Component
 public class AnalysisBatchMapper {
+    public AnalysisBatchJobGroupResponse toJobGroupResponse(GroupSummary group) {
+        return new AnalysisBatchJobGroupResponse(group.jobType(), group.status(), group.total(),
+                group.pending(), group.running(), group.succeeded(), group.failed(), group.canceled(),
+                group.currentJobIds(), group.lastActivityAt());
+    }
 
-    public AnalysisBatchJobGroupResponse toJobGroupResponse(
-            AnalysisJobType jobType,
-            AnalysisBatchStatus status,
-            List<AnalysisJob> currentJobs,
-            Map<UUID, AnalysisJobStatus> listedStatuses
-    ) {
-        return new AnalysisBatchJobGroupResponse(
-                jobType,
-                status,
-                currentJobs.size(),
-                countStatus(currentJobs, listedStatuses, AnalysisJobStatus.PENDING),
-                countStatus(currentJobs, listedStatuses, AnalysisJobStatus.RUNNING),
-                countStatus(currentJobs, listedStatuses, AnalysisJobStatus.SUCCEEDED),
-                countStatus(currentJobs, listedStatuses, AnalysisJobStatus.FAILED),
-                countStatus(currentJobs, listedStatuses, AnalysisJobStatus.CANCELED),
-                currentJobs.stream().map(AnalysisJob::getId).distinct().toList(),
-                currentJobs.stream()
-                        .map(AnalysisJob::getUpdatedAt)
-                        .max(Comparator.naturalOrder())
-                        .orElse(null)
-        );
+    public AnalysisBatchSettingBookResponse toSettingBookResponse(BookSummary book,
+            AnalysisJobCandidateReviewCounts characters, AnalysisJobCandidateReviewCounts worlds) {
+        return new AnalysisBatchSettingBookResponse(book.settingBookId(), book.sourceAnalysisJobId(),
+                book.batchId(), book.revisionId(), book.settingBookName(), book.status(), book.failureCode(),
+                book.currentStep(), book.changed(), book.historical(), book.lastActivityAt(),
+                toCandidateCountsResponse(characters), toCandidateCountsResponse(worlds));
+    }
+
+    private AnalysisBatchCandidateCountsResponse toCandidateCountsResponse(AnalysisJobCandidateReviewCounts counts) {
+        return counts == null ? new AnalysisBatchCandidateCountsResponse(0, 0, 0, 0, 0)
+                : new AnalysisBatchCandidateCountsResponse(counts.getTotalCandidateCount(), counts.getReviewedCandidateCount(),
+                        counts.getPendingCandidateCount(), counts.getDirectReviewCandidateCount(), counts.getProcessingCandidateCount());
     }
 
     public AnalysisBatchSummaryResponse toResponse(
-            AnalysisBatchPageRow pageRow,
-            UploadBatch batch,
-            AnalysisBatchStatus status,
-            Integer episodeStartNo,
-            Integer episodeEndNo,
-            int episodeCount,
-            SettingCandidateBatchReviewCounts characterCandidateCounts,
-            WorldSettingCandidateBatchReviewCounts worldSettingCandidateCounts,
-            List<AnalysisBatchJobGroupResponse> jobGroups,
-            LocalDateTime lastActivityAt
-    ) {
+            AnalysisBatchPageRow pageRow, AnalysisBatchStatus status, GroupSummary metadata,
+            SettingCandidateBatchReviewCounts characters, WorldSettingCandidateBatchReviewCounts worlds,
+            List<AnalysisBatchJobGroupResponse> groups, LocalDateTime lastActivityAt,
+            List<AnalysisBatchJobGroupResponse> episodeGroups, AnalysisBatchStatus episodeStatus,
+            List<AnalysisBatchSettingBookResponse> books) {
         return new AnalysisBatchSummaryResponse(
-                pageRow.getBatchId(),
-                batch.getUploadType(),
-                status,
-                episodeStartNo,
-                episodeEndNo,
-                episodeCount,
-                characterCandidateCounts == null ? 0 : characterCandidateCounts.getTotalCandidateCount(),
-                characterCandidateCounts == null ? 0 : characterCandidateCounts.getReviewedCandidateCount(),
-                characterCandidateCounts == null ? 0 : characterCandidateCounts.getPendingCandidateCount(),
-                worldSettingCandidateCounts == null ? 0 : worldSettingCandidateCounts.getTotalCandidateCount(),
-                worldSettingCandidateCounts == null ? 0 : worldSettingCandidateCounts.getReviewedCandidateCount(),
-                worldSettingCandidateCounts == null ? 0 : worldSettingCandidateCounts.getPendingCandidateCount(),
-                worldSettingCandidateCounts == null
-                        ? 0
-                        : worldSettingCandidateCounts.getTokenInterruptedComparisonCount(),
-                worldSettingCandidateCounts != null
-                        && worldSettingCandidateCounts.canResumeTokenInterruptedComparisons(),
-                jobGroups,
-                pageRow.getFirstRequestedAt(),
-                pageRow.getLastRequestedAt(),
-                lastActivityAt
-        );
-    }
-
-    private int countStatus(List<AnalysisJob> jobs, Map<UUID, AnalysisJobStatus> listedStatuses, AnalysisJobStatus status) {
-        return (int) jobs.stream()
-                .filter(job -> listedStatuses.get(job.getId()) == status)
-                .count();
+                pageRow.getBatchId(), pageRow.getUploadType(), status,
+                metadata.episodeStartNo(), metadata.episodeEndNo(), metadata.episodeCount(),
+                characters == null ? 0 : characters.getTotalCandidateCount(),
+                characters == null ? 0 : characters.getReviewedCandidateCount(),
+                characters == null ? 0 : characters.getPendingCandidateCount(),
+                worlds == null ? 0 : worlds.getTotalCandidateCount(),
+                worlds == null ? 0 : worlds.getReviewedCandidateCount(),
+                worlds == null ? 0 : worlds.getPendingCandidateCount(),
+                worlds == null ? 0 : worlds.getTokenInterruptedComparisonCount(),
+                worlds != null && worlds.canResumeTokenInterruptedComparisons(), groups,
+                pageRow.getFirstRequestedAt(), pageRow.getLastRequestedAt(), lastActivityAt,
+                episodeGroups, episodeStatus, books);
     }
 }

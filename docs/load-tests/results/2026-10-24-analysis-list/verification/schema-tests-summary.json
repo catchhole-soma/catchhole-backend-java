@@ -1,0 +1,16 @@
+[
+  {
+    "name": "org.monitoring.catchholebackend.domain.analysis.controller.AnalysisJobControllerIntegrationTest",
+    "tests": "7",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0"
+  },
+  {
+    "name": "\ubd84\uc11d \uce74\ub4dc \uc694\uc57d OpenAPI \uacc4\uc57d",
+    "tests": "1",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0"
+  }
+]

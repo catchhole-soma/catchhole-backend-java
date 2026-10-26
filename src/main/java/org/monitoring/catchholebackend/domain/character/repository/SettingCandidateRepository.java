@@ -120,6 +120,72 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             SettingCandidateReviewStatus reviewStatus
     );
 
+    @EntityGraph(attributePaths = {"work", "episode", "matchedCharacter", "characterComparisonBatch", "characterComparisonBatch.matchedCharacter"})
+    @Query(
+            value = """
+                    select candidate
+                    from SettingCandidate candidate
+                    join candidate.analysisJob analysisJob
+                    left join candidate.episode episode
+                    where candidate.work.id = :workId
+                      and analysisJob.batch.id = :batchId
+              and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
+                or analysisJob.id = :sourceAnalysisJobId)
+                      and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
+                      and candidate.matchStatus in :matchStatuses
+                    order by episode.episodeNo asc, candidate.createdAt asc, candidate.id asc
+                    """,
+            countQuery = """
+                    select count(candidate)
+                    from SettingCandidate candidate
+                    join candidate.analysisJob analysisJob
+                    where candidate.work.id = :workId
+                      and analysisJob.batch.id = :batchId
+              and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
+                or analysisJob.id = :sourceAnalysisJobId)
+                      and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
+                      and candidate.matchStatus in :matchStatuses
+                    """
+    )
+    Page<SettingCandidate> findReviewListPage(
+            @Param("workId") UUID workId,
+            @Param("batchId") UUID batchId,
+            @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus,
+            @Param("matchStatuses") Collection<SettingCandidateMatchStatus> matchStatuses,
+            Pageable pageable,
+            @Param("sourceAnalysisJobId") UUID sourceAnalysisJobId
+    );
+
+    default Page<SettingCandidate> findReviewListPage(UUID workId, UUID batchId, SettingCandidateReviewStatus reviewStatus, Collection<SettingCandidateMatchStatus> matchStatuses, Pageable pageable) {
+        return findReviewListPage(workId, batchId, reviewStatus, matchStatuses, pageable, null);
+    }
+
+    @EntityGraph(attributePaths = {"work", "episode", "matchedCharacter", "characterComparisonBatch", "characterComparisonBatch.matchedCharacter"})
+    @Query("""
+            select candidate
+            from SettingCandidate candidate
+            join candidate.analysisJob analysisJob
+            left join candidate.episode episode
+            where candidate.work.id = :workId
+              and analysisJob.batch.id = :batchId
+              and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
+                or analysisJob.id = :sourceAnalysisJobId)
+              and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
+              and candidate.matchStatus in :matchStatuses
+            order by episode.episodeNo asc, candidate.createdAt asc, candidate.id asc
+            """)
+    List<SettingCandidate> findReviewListCandidates(
+            @Param("workId") UUID workId,
+            @Param("batchId") UUID batchId,
+            @Param("reviewStatus") SettingCandidateReviewStatus reviewStatus,
+            @Param("matchStatuses") Collection<SettingCandidateMatchStatus> matchStatuses,
+            @Param("sourceAnalysisJobId") UUID sourceAnalysisJobId
+    );
+
+    default List<SettingCandidate> findReviewListCandidates(UUID workId, UUID batchId, SettingCandidateReviewStatus reviewStatus, Collection<SettingCandidateMatchStatus> matchStatuses) {
+        return findReviewListCandidates(workId, batchId, reviewStatus, matchStatuses, null);
+    }
+
     @EntityGraph(attributePaths = {"work", "episode", "analysisJob", "matchedCharacter"})
     @Query(
             value = """
@@ -235,6 +301,32 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
     default List<SettingCandidate> findAllByIdsAndBatchForUpdate(UUID workId, UUID batchId, Collection<UUID> candidateIds) {
         return findAllByIdsAndBatchForUpdate(workId, batchId, candidateIds, null);
     }
+
+    @Query("""
+            select analysisJob.id as analysisJobId,
+                   count(candidate) as totalCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus <> org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.PENDING_REVIEW then 1 else 0 end), 0) as reviewedCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.PENDING_REVIEW then 1 else 0 end), 0) as pendingCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.PENDING_REVIEW
+                     and candidate.comparisonStatus not in (org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus.PENDING, org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus.PROCESSING)
+                     and not (analysisJob.reviewMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC
+                         and analysisJob.automaticAppliedAt is null
+                         and analysisJob.status in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING, org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING))
+                     then 1 else 0 end), 0) as directReviewCandidateCount,
+                   coalesce(sum(case when candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.PENDING_REVIEW
+                     and (candidate.comparisonStatus in (org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus.PENDING, org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus.PROCESSING)
+                         or (analysisJob.reviewMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC
+                         and analysisJob.automaticAppliedAt is null
+                         and analysisJob.status in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING, org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING)))
+                     then 1 else 0 end), 0) as processingCandidateCount
+            from SettingCandidate candidate join candidate.analysisJob analysisJob
+            where candidate.work.id = :workId and analysisJob.work.id = :workId
+              and analysisJob.id in :analysisJobIds
+              and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.SETTING_BOOK
+            group by analysisJob.id
+            """)
+    List<org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobCandidateReviewCounts> countReviewSummaryByAnalysisJobIds(
+            @Param("workId") UUID workId, @Param("analysisJobIds") List<UUID> analysisJobIds);
 
     @Query("""
             select count(candidate) as totalCandidateCount,

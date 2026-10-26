@@ -14,6 +14,15 @@ public final class AnalysisCurrentSourceTimeMapper {
                 effectiveFrom, scope == null ? CharacterFactTemporalScope.UNKNOWN : scope);
     }
 
+    public static WorkerAnalysisCurrentSourceTimePayload fromMetadata(
+            org.monitoring.catchholebackend.domain.analysis.repository.CandidateReviewJobMetadata job,
+            Integer effectiveFrom, CharacterFactTemporalScope scope) {
+        if (job == null) return new WorkerAnalysisCurrentSourceTimePayload(null, null, null, null, effectiveFrom, CharacterFactTemporalScope.UNKNOWN);
+        return new WorkerAnalysisCurrentSourceTimePayload(job.sourceKind(), job.sourceEpisodeNo(),
+                job.referenceTimeKind(), job.referenceEpisodeNo(), effectiveFrom,
+                scope == null ? CharacterFactTemporalScope.UNKNOWN : scope);
+    }
+
     public static com.fasterxml.jackson.databind.node.ObjectNode toJson(WorkerAnalysisCurrentSourceTimePayload time) {
         var node = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
         node.put("sourceKind", time.sourceKind() == null ? null : time.sourceKind().name());

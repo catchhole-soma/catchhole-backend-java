@@ -89,12 +89,14 @@ public class WorldSettingWorkerController {
     public ResponseEntity<CommonResponse<WorkerWorldSettingComparisonBatchPayload>>
             claimNextWorldSettingComparisonBatch(
             @PathVariable UUID analysisJobId,
-            @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken
+            @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken,
+            @RequestHeader(value = "X-Analysis-Reference-Selection", defaultValue = "false") boolean includeReferenceSelection
     ) {
         Optional<WorkerWorldSettingComparisonBatchPayload> batch =
                 worldSettingWorkerService.claimNextWorldSettingComparisonBatch(
                         analysisJobId,
-                        leaseToken
+                        leaseToken,
+                        includeReferenceSelection
                 );
         return batch
                 .map(value -> ResponseEntity.ok(CommonResponse.success(
@@ -112,13 +114,15 @@ public class WorldSettingWorkerController {
     public CommonResponse<WorkerWorldSettingSubjectResolutionPendingResponse>
             getPendingWorldSettingSubjectResolutions(
             @PathVariable UUID analysisJobId,
-            @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken
+            @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken,
+            @RequestHeader(value = "X-Analysis-Reference-Selection", defaultValue = "false") boolean includeReferenceSelection
     ) {
         return CommonResponse.success(
                 "canonical 주체 해소 대상을 조회했습니다.",
                 worldSettingWorkerService.getPendingWorldSettingSubjectResolutions(
                         analysisJobId,
-                        leaseToken
+                        leaseToken,
+                        includeReferenceSelection
                 )
         );
     }
@@ -154,7 +158,8 @@ public class WorldSettingWorkerController {
             @PathVariable UUID analysisJobId,
             @PathVariable UUID comparisonBatchId,
             @RequestHeader(SecurityConstant.WORKER_LEASE_TOKEN_HEADER) UUID leaseToken,
-            @Valid @RequestBody WorkerWorldSettingComparisonBatchContextRequest request
+            @Valid @RequestBody WorkerWorldSettingComparisonBatchContextRequest request,
+            @RequestHeader(value = "X-Analysis-Reference-Selection", defaultValue = "false") boolean includeReferenceSelection
     ) {
         return CommonResponse.success(
                 "세계관 설정 묶음 비교 문맥을 조회했습니다.",
@@ -162,7 +167,8 @@ public class WorldSettingWorkerController {
                         analysisJobId,
                         comparisonBatchId,
                         leaseToken,
-                        request
+                        request,
+                        includeReferenceSelection
                 )
         );
     }

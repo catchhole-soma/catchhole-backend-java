@@ -1,0 +1,253 @@
+{
+  "navigationSamples": 10,
+  "latestObservedInitialApiCompletionMs": {
+    "n": 10,
+    "median": 324.5978505859375,
+    "p95": 458.871984375,
+    "max": 458.871984375
+  },
+  "initialApiRoutes": {
+    "GET /api/v1/auth/me": {
+      "count": {
+        "n": 10,
+        "median": 1.0,
+        "p95": 1,
+        "max": 1
+      },
+      "encodedResponseBodyBytes": {
+        "n": 10,
+        "median": 327.0,
+        "p95": 327,
+        "max": 327
+      },
+      "responseHeadersBytes": {
+        "n": 10,
+        "median": 617.0,
+        "p95": 617,
+        "max": 617
+      }
+    },
+    "GET /api/v1/works/:id": {
+      "count": {
+        "n": 10,
+        "median": 1.0,
+        "p95": 1,
+        "max": 1
+      },
+      "encodedResponseBodyBytes": {
+        "n": 10,
+        "median": 358.0,
+        "p95": 358,
+        "max": 358
+      },
+      "responseHeadersBytes": {
+        "n": 10,
+        "median": 617.0,
+        "p95": 617,
+        "max": 617
+      }
+    },
+    "GET /api/v1/works/:id/analysis-jobs/progress": {
+      "count": {
+        "n": 10,
+        "median": 1.0,
+        "p95": 1,
+        "max": 1
+      },
+      "encodedResponseBodyBytes": {
+        "n": 10,
+        "median": 19661.0,
+        "p95": 19661,
+        "max": 19661
+      },
+      "responseHeadersBytes": {
+        "n": 10,
+        "median": 624.0,
+        "p95": 624,
+        "max": 624
+      }
+    },
+    "GET /api/v1/works/:id/episodes": {
+      "count": {
+        "n": 10,
+        "median": 1.0,
+        "p95": 1,
+        "max": 1
+      },
+      "encodedResponseBodyBytes": {
+        "n": 10,
+        "median": 13417.0,
+        "p95": 13417,
+        "max": 13417
+      },
+      "responseHeadersBytes": {
+        "n": 10,
+        "median": 624.0,
+        "p95": 624,
+        "max": 624
+      }
+    },
+    "GET /api/v1/works/:id/world-setting-candidates/progress": {
+      "count": {
+        "n": 10,
+        "median": 1.0,
+        "p95": 1,
+        "max": 1
+      },
+      "encodedResponseBodyBytes": {
+        "n": 10,
+        "median": 208.0,
+        "p95": 208,
+        "max": 208
+      },
+      "responseHeadersBytes": {
+        "n": 10,
+        "median": 617.0,
+        "p95": 617,
+        "max": 617
+      }
+    }
+  },
+  "initialApiTotalBodyBytes": {
+    "n": 10,
+    "median": 33971.0,
+    "p95": 33971,
+    "max": 33971
+  },
+  "pollingSteadyWindows": [
+    {
+      "index": 0,
+      "success": true,
+      "observationStartMs": 217,
+      "observationCutoffMs": 65217,
+      "windowMs": 65000,
+      "routes": {
+        "GET /api/v1/works/:id/analysis-jobs/progress": {
+          "count": 2,
+          "encodedResponseBodyBytes": 39322,
+          "failed": 0,
+          "censored": 0
+        }
+      }
+    },
+    {
+      "index": 1,
+      "success": true,
+      "observationStartMs": 137,
+      "observationCutoffMs": 65137,
+      "windowMs": 65000,
+      "routes": {
+        "GET /api/v1/works/:id/analysis-jobs/progress": {
+          "count": 2,
+          "encodedResponseBodyBytes": 39322,
+          "failed": 0,
+          "censored": 0
+        }
+      }
+    },
+    {
+      "index": 2,
+      "success": true,
+      "observationStartMs": 127.70000004768372,
+      "observationCutoffMs": 65127.700000047684,
+      "windowMs": 65000.0,
+      "routes": {
+        "GET /api/v1/works/:id/analysis-jobs/progress": {
+          "count": 2,
+          "encodedResponseBodyBytes": 39322,
+          "failed": 0,
+          "censored": 0
+        }
+      }
+    }
+  ],
+  "resources": {
+    "samples": 450,
+    "startEpochSeconds": 1792821959.382255,
+    "endEpochSeconds": 1792822185.608619,
+    "maxRssMiB": 1177.609375,
+    "maxHeapUsedMiB": 689.8080078125,
+    "gcDeltas": {
+      "YGC": 52.0,
+      "YGCT": 0.192,
+      "FGC": 1.0,
+      "FGCT": 0.056,
+      "CGC": 24.0,
+      "CGCT": 0.042,
+      "GCT": 0.289
+    },
+    "rawSamples": 450,
+    "runnerSummaryEpochSeconds": 1792822185.8581452
+  },
+  "matchedSteadyWindowResources": [
+    {
+      "index": 0,
+      "boundStartEpochSeconds": 1792821989.7742,
+      "boundEndEpochSeconds": 1792822054.7742,
+      "samples": 129,
+      "startEpochSeconds": 1792821990.091339,
+      "endEpochSeconds": 1792822054.6220338,
+      "maxRssMiB": 1120.546875,
+      "maxHeapUsedMiB": 578.11826171875,
+      "gcDeltas": {
+        "YGC": 0.0,
+        "YGCT": 0.0,
+        "FGC": 0.0,
+        "FGCT": 0.0,
+        "CGC": 0.0,
+        "CGCT": 0.0,
+        "GCT": 0.0
+      }
+    },
+    {
+      "index": 1,
+      "boundStartEpochSeconds": 1792822054.9745,
+      "boundEndEpochSeconds": 1792822119.9745,
+      "samples": 129,
+      "startEpochSeconds": 1792822055.15266,
+      "endEpochSeconds": 1792822119.5951328,
+      "maxRssMiB": 1120.6875,
+      "maxHeapUsedMiB": 575.30712890625,
+      "gcDeltas": {
+        "YGC": 0.0,
+        "YGCT": 0.0,
+        "FGC": 0.0,
+        "FGCT": 0.0,
+        "CGC": 1.0,
+        "CGCT": 0.0,
+        "GCT": 0.0
+      }
+    },
+    {
+      "index": 2,
+      "boundStartEpochSeconds": 1792822120.1612,
+      "boundEndEpochSeconds": 1792822185.1612,
+      "samples": 129,
+      "startEpochSeconds": 1792822120.600318,
+      "endEpochSeconds": 1792822185.092483,
+      "maxRssMiB": 1119.828125,
+      "maxHeapUsedMiB": 416.85927734375,
+      "gcDeltas": {
+        "YGC": 1.0,
+        "YGCT": 0.0010000000000000009,
+        "FGC": 0.0,
+        "FGCT": 0.0,
+        "CGC": 0.0,
+        "CGCT": 0.0,
+        "GCT": 0.0010000000000000009
+      }
+    }
+  ],
+  "failures": {
+    "pages": 0,
+    "collectorErrors": 0,
+    "censored": 0
+  },
+  "notes": [
+    "Ready asserts 30 progress rows/statuses and resume button; comparison count completion is not a ready dependency.",
+    "Initial API completion is latest observed relevant response, separate from ready/load.",
+    "Steady counts include starts inside the exact observation bounds; initial navigation requests are separate.",
+    "Encoded bodies exclude response headers; CDP OPTIONS remain separate in raw pages.",
+    "Heap/RSS peaks are 0.5s observations; jstat GC time is collector time, not HTTP latency or all wall-clock pause time."
+  ]
+}

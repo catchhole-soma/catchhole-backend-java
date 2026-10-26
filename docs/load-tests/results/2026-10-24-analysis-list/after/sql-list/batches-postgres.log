@@ -1,0 +1,525 @@
+2026-10-23 17:27:42.556 UTC [380] LOG:  duration: 0.038 ms  statement: 
+2026-10-23 17:27:42.557 UTC [380] LOG:  duration: 0.037 ms  statement: BEGIN READ ONLY
+2026-10-23 17:27:42.557 UTC [380] LOG:  duration: 0.053 ms  bind S_2: select m1_0.id,m1_0.age_requirement_confirmed_at,m1_0.analysis_guide_shown_at,m1_0.created_at,m1_0.display_name,m1_0.email,m1_0.email_verified,m1_0.feedback_prompt_shown_at,m1_0.first_analysis_started_at,m1_0.password_hash,m1_0.phone_number,m1_0.phone_verified,m1_0.profile_image_url,m1_0.role,m1_0.status,m1_0.updated_at from members m1_0 where m1_0.id=$1
+2026-10-23 17:27:42.557 UTC [380] DETAIL:  parameters: $1 = '1'
+2026-10-23 17:27:42.557 UTC [380] LOG:  duration: 0.040 ms  execute S_2: select m1_0.id,m1_0.age_requirement_confirmed_at,m1_0.analysis_guide_shown_at,m1_0.created_at,m1_0.display_name,m1_0.email,m1_0.email_verified,m1_0.feedback_prompt_shown_at,m1_0.first_analysis_started_at,m1_0.password_hash,m1_0.phone_number,m1_0.phone_verified,m1_0.profile_image_url,m1_0.role,m1_0.status,m1_0.updated_at from members m1_0 where m1_0.id=$1
+2026-10-23 17:27:42.557 UTC [380] DETAIL:  parameters: $1 = '1'
+2026-10-23 17:27:42.558 UTC [380] LOG:  duration: 0.010 ms  bind S_1: COMMIT
+2026-10-23 17:27:42.558 UTC [380] LOG:  duration: 0.011 ms  execute S_1: COMMIT
+2026-10-23 17:27:42.560 UTC [380] LOG:  duration: 0.021 ms  statement: BEGIN READ ONLY
+2026-10-23 17:27:42.561 UTC [380] LOG:  duration: 0.027 ms  bind S_4: select w1_0.id,w1_0.created_at,w1_0.description,w1_0.genre,w1_0.latest_episode_no,w1_0.lifecycle_status,w1_0.member_id,w1_0.relationship_input_version,w1_0.title,w1_0.updated_at from works w1_0 where w1_0.id=$1 and w1_0.member_id=$2
+2026-10-23 17:27:42.561 UTC [380] DETAIL:  parameters: $1 = '47e524ae-e53c-5b8b-b430-905990a20f3d', $2 = '1'
+2026-10-23 17:27:42.561 UTC [380] LOG:  duration: 0.021 ms  execute S_4: select w1_0.id,w1_0.created_at,w1_0.description,w1_0.genre,w1_0.latest_episode_no,w1_0.lifecycle_status,w1_0.member_id,w1_0.relationship_input_version,w1_0.title,w1_0.updated_at from works w1_0 where w1_0.id=$1 and w1_0.member_id=$2
+2026-10-23 17:27:42.561 UTC [380] DETAIL:  parameters: $1 = '47e524ae-e53c-5b8b-b430-905990a20f3d', $2 = '1'
+2026-10-23 17:27:42.562 UTC [380] LOG:  duration: 0.055 ms  bind S_5: select aj1_0.batch_id,b1_0.upload_type,min(aj1_0.created_at),max(aj1_0.created_at) from analysis_jobs aj1_0 join upload_batches b1_0 on b1_0.id=aj1_0.batch_id where aj1_0.work_id=$1 and aj1_0.batch_id is not null and aj1_0.job_type not in ('WORLD_SETTING_COMPARISON','CHARACTER_FACT_COMPARISON') group by aj1_0.batch_id,b1_0.upload_type order by max(aj1_0.created_at) desc,aj1_0.batch_id desc fetch first $2 rows only
+2026-10-23 17:27:42.562 UTC [380] DETAIL:  parameters: $1 = '47e524ae-e53c-5b8b-b430-905990a20f3d', $2 = '10'
+2026-10-23 17:27:42.562 UTC [380] LOG:  duration: 0.099 ms  execute S_5: select aj1_0.batch_id,b1_0.upload_type,min(aj1_0.created_at),max(aj1_0.created_at) from analysis_jobs aj1_0 join upload_batches b1_0 on b1_0.id=aj1_0.batch_id where aj1_0.work_id=$1 and aj1_0.batch_id is not null and aj1_0.job_type not in ('WORLD_SETTING_COMPARISON','CHARACTER_FACT_COMPARISON') group by aj1_0.batch_id,b1_0.upload_type order by max(aj1_0.created_at) desc,aj1_0.batch_id desc fetch first $2 rows only
+2026-10-23 17:27:42.562 UTC [380] DETAIL:  parameters: $1 = '47e524ae-e53c-5b8b-b430-905990a20f3d', $2 = '10'
+2026-10-23 17:27:42.563 UTC [380] LOG:  duration: 0.081 ms  bind S_6: with public_jobs as (
+	    select j.id, j.batch_id, j.episode_id, j.job_type, j.source_kind,
+	           j.source_setting_book_id, j.status, j.analysis_mode, j.analysis_run_id,
+	           j.run_generation, j.run_sequence, j.journal_status, j.review_mode,
+	           j.automatic_applied_at, j.failure_code, j.checkpoint_stage, j.created_at, j.updated_at
+	    from analysis_jobs j
+	    where j.work_id = $1 and j.batch_id in ($2,$3)
+	      and j.job_type not in ('WORLD_SETTING_COMPARISON', 'CHARACTER_FACT_COMPARISON')
+	), expanded as (
+	    select j.id, j.batch_id, j.job_type, j.source_kind, j.status, j.analysis_mode,
+	           j.analysis_run_id, j.run_generation, j.run_sequence, j.journal_status,
+	           j.review_mode, j.automatic_applied_at, j.failure_code, j.checkpoint_stage,
+	           j.created_at, j.updated_at,
+	           case when j.source_kind = 'SETTING_BOOK' then j.source_setting_book_id
+	                else coalesce(t.episode_id, j.episode_id) end as target_id,
+	           e.episode_no
+	    from public_jobs j
+	    left join analysis_job_episode_targets t
+	      on t.analysis_job_id = j.id and j.source_kind = 'EPISODE'
+	    left join episodes e on j.source_kind = 'EPISODE'
+	      and e.id = coalesce(t.episode_id, j.episode_id)
+	), ranked as (
+	    select e.*, row_number() over (
+	        partition by batch_id, job_type, source_kind, target_id
+	        order by created_at desc, id desc) as latest
+	    from expanded e
+	), selected as (
+	    select r.* from ranked r where latest = 1
+	      and (target_id is not null or not exists (
+	          select 1 from ranked other
+	          where other.batch_id = r.batch_id and other.job_type = r.job_type
+	            and other.target_id is not null))
+	), normalized as (
+	    select s.*,
+	           case when analysis_mode = 'ORDERED_PROVISIONAL' and journal_status = 'INVALIDATED'
+	                then 'CANCELED'
+	                when analysis_mode = 'ORDERED_PROVISIONAL' and status = 'SUCCEEDED'
+	                  and (journal_status is null or journal_status <> 'SEALED'
+	                    or (review_mode = 'AUTOMATIC' and automatic_applied_at is null))
+	                then 'FAILED' else status end as listed_status,
+	           case when analysis_mode = 'CONFIRMED_ONLY' and job_type = 'SETTING_EXTRACTION'
+	                  and status = 'FAILED' and failure_code = 'AI_TOKEN_QUOTA_EXHAUSTED'
+	                  and checkpoint_stage in ('WORLD_CANDIDATES_PUBLISHED', 'WORLD_COMPARISONS_FINISHED')
+	                then 1 else 0 end as resumable_token
+	    from selected s
+	), ready as (
+	    select n.*, case when n.analysis_mode = 'ORDERED_PROVISIONAL' and n.listed_status = 'PENDING'
+	        and exists (select 1 from normalized earlier
+	            where earlier.batch_id = n.batch_id and earlier.job_type = n.job_type
+	              and earlier.analysis_mode = 'ORDERED_PROVISIONAL'
+	              and earlier.analysis_run_id = n.analysis_run_id
+	              and earlier.run_generation = n.run_generation
+	              and earlier.run_sequence < n.run_sequence
+	              and earlier.listed_status in ('FAILED', 'CANCELED'))
+	        then 1 else 0 end as blocked
+	    from normalized n
+	), scopes as (select 'ALL' as scope union all select 'EPISODE' as scope), scoped as (
+	    select scopes.scope, ready.* from ready cross join scopes
+	    where scopes.scope = 'ALL' or ready.source_kind = 'EPISODE'
+	)
+	select distinct batch_id, job_type, scope, id, created_at from scoped
+	order by batch_id, job_type, scope, created_at desc, id desc
+	
+2026-10-23 17:27:42.563 UTC [380] DETAIL:  parameters: $1 = '47e524ae-e53c-5b8b-b430-905990a20f3d', $2 = '551540e7-15da-551b-99d2-fa32ac754bcb', $3 = '651dff26-6e30-589a-9981-6dc04c6259ba'
+2026-10-23 17:27:42.563 UTC [380] LOG:  duration: 0.442 ms  execute S_6: with public_jobs as (
+	    select j.id, j.batch_id, j.episode_id, j.job_type, j.source_kind,
+	           j.source_setting_book_id, j.status, j.analysis_mode, j.analysis_run_id,
+	           j.run_generation, j.run_sequence, j.journal_status, j.review_mode,
+	           j.automatic_applied_at, j.failure_code, j.checkpoint_stage, j.created_at, j.updated_at
+	    from analysis_jobs j
+	    where j.work_id = $1 and j.batch_id in ($2,$3)
+	      and j.job_type not in ('WORLD_SETTING_COMPARISON', 'CHARACTER_FACT_COMPARISON')
+	), expanded as (
+	    select j.id, j.batch_id, j.job_type, j.source_kind, j.status, j.analysis_mode,
+	           j.analysis_run_id, j.run_generation, j.run_sequence, j.journal_status,
+	           j.review_mode, j.automatic_applied_at, j.failure_code, j.checkpoint_stage,
+	           j.created_at, j.updated_at,
+	           case when j.source_kind = 'SETTING_BOOK' then j.source_setting_book_id
+	                else coalesce(t.episode_id, j.episode_id) end as target_id,
+	           e.episode_no
+	    from public_jobs j
+	    left join analysis_job_episode_targets t
+	      on t.analysis_job_id = j.id and j.source_kind = 'EPISODE'
+	    left join episodes e on j.source_kind = 'EPISODE'
+	      and e.id = coalesce(t.episode_id, j.episode_id)
+	), ranked as (
+	    select e.*, row_number() over (
+	        partition by batch_id, job_type, source_kind, target_id
+	        order by created_at desc, id desc) as latest
+	    from expanded e
+	), selected as (
+	    select r.* from ranked r where latest = 1
+	      and (target_id is not null or not exists (
+	          select 1 from ranked other
+	          where other.batch_id = r.batch_id and other.job_type = r.job_type
+	            and other.target_id is not null))
+	), normalized as (
+	    select s.*,
+	           case when analysis_mode = 'ORDERED_PROVISIONAL' and journal_status = 'INVALIDATED'
+	                then 'CANCELED'
+	                when analysis_mode = 'ORDERED_PROVISIONAL' and status = 'SUCCEEDED'
+	                  and (journal_status is null or journal_status <> 'SEALED'
+	                    or (review_mode = 'AUTOMATIC' and automatic_applied_at is null))
+	                then 'FAILED' else status end as listed_status,
+	           case when analysis_mode = 'CONFIRMED_ONLY' and job_type = 'SETTING_EXTRACTION'
+	                  and status = 'FAILED' and failure_code = 'AI_TOKEN_QUOTA_EXHAUSTED'
+	                  and checkpoint_stage in ('WORLD_CANDIDATES_PUBLISHED', 'WORLD_COMPARISONS_FINISHED')
+	                then 1 else 0 end as resumable_token
+	    from selected s
+	), ready as (
+	    select n.*, case when n.analysis_mode = 'ORDERED_PROVISIONAL' and n.listed_status = 'PENDING'
+	        and exists (select 1 from normalized earlier
+	            where earlier.batch_id = n.batch_id and earlier.job_type = n.job_type
+	              and earlier.analysis_mode = 'ORDERED_PROVISIONAL'
+	              and earlier.analysis_run_id = n.analysis_run_id
+	              and earlier.run_generation = n.run_generation
+	              and earlier.run_sequence < n.run_sequence
+	              and earlier.listed_status in ('FAILED', 'CANCELED'))
+	        then 1 else 0 end as blocked
+	    from normalized n
+	), scopes as (select 'ALL' as scope union all select 'EPISODE' as scope), scoped as (
+	    select scopes.scope, ready.* from ready cross join scopes
+	    where scopes.scope = 'ALL' or ready.source_kind = 'EPISODE'
+	)
+	select distinct batch_id, job_type, scope, id, created_at from scoped
+	order by batch_id, job_type, scope, created_at desc, id desc
+	
+2026-10-23 17:27:42.563 UTC [380] DETAIL:  parameters: $1 = '47e524ae-e53c-5b8b-b430-905990a20f3d', $2 = '551540e7-15da-551b-99d2-fa32ac754bcb', $3 = '651dff26-6e30-589a-9981-6dc04c6259ba'
+2026-10-23 17:27:42.564 UTC [380] LOG:  duration: 0.104 ms  bind S_7: with public_jobs as (
+	    select j.id, j.batch_id, j.episode_id, j.job_type, j.source_kind,
+	           j.source_setting_book_id, j.status, j.analysis_mode, j.analysis_run_id,
+	           j.run_generation, j.run_sequence, j.journal_status, j.review_mode,
+	           j.automatic_applied_at, j.failure_code, j.checkpoint_stage, j.created_at, j.updated_at
+	    from analysis_jobs j
+	    where j.work_id = $1 and j.batch_id in ($2,$3)
+	      and j.job_type not in ('WORLD_SETTING_COMPARISON', 'CHARACTER_FACT_COMPARISON')
+	), expanded as (
+	    select j.id, j.batch_id, j.job_type, j.source_kind, j.status, j.analysis_mode,
+	           j.analysis_run_id, j.run_generation, j.run_sequence, j.journal_status,
+	           j.review_mode, j.automatic_applied_at, j.failure_code, j.checkpoint_stage,
+	           j.created_at, j.updated_at,
+	           case when j.source_kind = 'SETTING_BOOK' then j.source_setting_book_id
+	                else coalesce(t.episode_id, j.episode_id) end as target_id,
+	           e.episode_no
+	    from public_jobs j
+	    left join analysis_job_episode_targets t
+	      on t.analysis_job_id = j.id and j.source_kind = 'EPISODE'
+	    left join episodes e on j.source_kind = 'EPISODE'
+	      and e.id = coalesce(t.episode_id, j.episode_id)
+	), ranked as (
+	    select e.*, row_number() over (
+	        partition by batch_id, job_type, source_kind, target_id
+	        order by created_at desc, id desc) as latest
+	    from expanded e
+	), selected as (
+	    select r.* from ranked r where latest = 1
+	      and (target_id is not null or not exists (
+	          select 1 from ranked other
+	          where other.batch_id = r.batch_id and other.job_type = r.job_type
+	            and other.target_id is not null))
+	), normalized as (
+	    select s.*,
+	           case when analysis_mode = 'ORDERED_PROVISIONAL' and journal_status = 'INVALIDATED'
+	                then 'CANCELED'
+	                when analysis_mode = 'ORDERED_PROVISIONAL' and status = 'SUCCEEDED'
+	                  and (journal_status is null or journal_status <> 'SEALED'
+	                    or (review_mode = 'AUTOMATIC' and automatic_applied_at is null))
+	                then 'FAILED' else status end as listed_status,
+	           case when analysis_mode = 'CONFIRMED_ONLY' and job_type = 'SETTING_EXTRACTION'
+	                  and status = 'FAILED' and failure_code = 'AI_TOKEN_QUOTA_EXHAUSTED'
+	                  and checkpoint_stage in ('WORLD_CANDIDATES_PUBLISHED', 'WORLD_COMPARISONS_FINISHED')
+	                then 1 else 0 end as resumable_token
+	    from selected s
+	), ready as (
+	    select n.*, case when n.analysis_mode = 'ORDERED_PROVISIONAL' and n.listed_status = 'PENDING'
+	        and exists (select 1 from normalized earlier
+	            where earlier.batch_id = n.batch_id and earlier.job_type = n.job_type
+	              and earlier.analysis_mode = 'ORDERED_PROVISIONAL'
+	              and earlier.analysis_run_id = n.analysis_run_id
+	              and earlier.run_generation = n.run_generation
+	              and earlier.run_sequence < n.run_sequence
+	              and earlier.listed_status in ('FAILED', 'CANCELED'))
+	        then 1 else 0 end as blocked
+	    from normalized n
+	), scopes as (select 'ALL' as scope union all select 'EPISODE' as scope), scoped as (
+	    select scopes.scope, ready.* from ready cross join scopes
+	    where scopes.scope = 'ALL' or ready.source_kind = 'EPISODE'
+	)
+	, batch_metadata as (
+	    select batch_id, min(episode_no) as episode_start_no, max(episode_no) as episode_end_no,
+	           count(distinct case when source_kind = 'EPISODE' then target_id end) as episode_count
+	    from ready group by batch_id
+	), groups as (
+	    select batch_id, job_type, scope, count(*) as total,
+	           sum(case when listed_status = 'PENDING' then 1 else 0 end) as pending,
+	           sum(case when listed_status = 'RUNNING' then 1 else 0 end) as running,
+	           sum(case when listed_status = 'SUCCEEDED' then 1 else 0 end) as succeeded,
+	           sum(case when listed_status = 'FAILED' then 1 else 0 end) as failed,
+	           sum(case when listed_status = 'CANCELED' then 1 else 0 end) as canceled,
+	           sum(case when listed_status = 'FAILED' and resumable_token = 0 then 1 else 0 end) as terminal_failed,
+	           sum(case when listed_status = 'RUNNING' or (listed_status = 'PENDING' and blocked = 0)
+	                    then 1 else 0 end) as active,
+	           max(updated_at) as last_activity_at
+	    from scoped group by batch_id, job_type, scope
+	)
+	select g.batch_id, g.job_type, g.scope,
+	       case when g.active > 0 then 'IN_PROGRESS' when g.canceled > 0 then 'CANCELED'
+	            when g.terminal_failed > 0 and g.succeeded > 0 then 'PARTIALLY_FAILED'
+	            when g.terminal_failed > 0 then 'FAILED' else 'COMPLETED' end as status,
+	       g.total, g.pending, g.running, g.succeeded, g.failed, g.canceled, g.last_activity_at,
+	       m.episode_start_no, m.episode_end_no, m.episode_count
+	from groups g join batch_metadata m on m.batch_id = g.batch_id
+	
+2026-10-23 17:27:42.564 UTC [380] DETAIL:  parameters: $1 = '47e524ae-e53c-5b8b-b430-905990a20f3d', $2 = '551540e7-15da-551b-99d2-fa32ac754bcb', $3 = '651dff26-6e30-589a-9981-6dc04c6259ba'
+2026-10-23 17:27:42.564 UTC [380] LOG:  duration: 0.472 ms  execute S_7: with public_jobs as (
+	    select j.id, j.batch_id, j.episode_id, j.job_type, j.source_kind,
+	           j.source_setting_book_id, j.status, j.analysis_mode, j.analysis_run_id,
+	           j.run_generation, j.run_sequence, j.journal_status, j.review_mode,
+	           j.automatic_applied_at, j.failure_code, j.checkpoint_stage, j.created_at, j.updated_at
+	    from analysis_jobs j
+	    where j.work_id = $1 and j.batch_id in ($2,$3)
+	      and j.job_type not in ('WORLD_SETTING_COMPARISON', 'CHARACTER_FACT_COMPARISON')
+	), expanded as (
+	    select j.id, j.batch_id, j.job_type, j.source_kind, j.status, j.analysis_mode,
+	           j.analysis_run_id, j.run_generation, j.run_sequence, j.journal_status,
+	           j.review_mode, j.automatic_applied_at, j.failure_code, j.checkpoint_stage,
+	           j.created_at, j.updated_at,
+	           case when j.source_kind = 'SETTING_BOOK' then j.source_setting_book_id
+	                else coalesce(t.episode_id, j.episode_id) end as target_id,
+	           e.episode_no
+	    from public_jobs j
+	    left join analysis_job_episode_targets t
+	      on t.analysis_job_id = j.id and j.source_kind = 'EPISODE'
+	    left join episodes e on j.source_kind = 'EPISODE'
+	      and e.id = coalesce(t.episode_id, j.episode_id)
+	), ranked as (
+	    select e.*, row_number() over (
+	        partition by batch_id, job_type, source_kind, target_id
+	        order by created_at desc, id desc) as latest
+	    from expanded e
+	), selected as (
+	    select r.* from ranked r where latest = 1
+	      and (target_id is not null or not exists (
+	          select 1 from ranked other
+	          where other.batch_id = r.batch_id and other.job_type = r.job_type
+	            and other.target_id is not null))
+	), normalized as (
+	    select s.*,
+	           case when analysis_mode = 'ORDERED_PROVISIONAL' and journal_status = 'INVALIDATED'
+	                then 'CANCELED'
+	                when analysis_mode = 'ORDERED_PROVISIONAL' and status = 'SUCCEEDED'
+	                  and (journal_status is null or journal_status <> 'SEALED'
+	                    or (review_mode = 'AUTOMATIC' and automatic_applied_at is null))
+	                then 'FAILED' else status end as listed_status,
+	           case when analysis_mode = 'CONFIRMED_ONLY' and job_type = 'SETTING_EXTRACTION'
+	                  and status = 'FAILED' and failure_code = 'AI_TOKEN_QUOTA_EXHAUSTED'
+	                  and checkpoint_stage in ('WORLD_CANDIDATES_PUBLISHED', 'WORLD_COMPARISONS_FINISHED')
+	                then 1 else 0 end as resumable_token
+	    from selected s
+	), ready as (
+	    select n.*, case when n.analysis_mode = 'ORDERED_PROVISIONAL' and n.listed_status = 'PENDING'
+	        and exists (select 1 from normalized earlier
+	            where earlier.batch_id = n.batch_id and earlier.job_type = n.job_type
+	              and earlier.analysis_mode = 'ORDERED_PROVISIONAL'
+	              and earlier.analysis_run_id = n.analysis_run_id
+	              and earlier.run_generation = n.run_generation
+	              and earlier.run_sequence < n.run_sequence
+	              and earlier.listed_status in ('FAILED', 'CANCELED'))
+	        then 1 else 0 end as blocked
+	    from normalized n
+	), scopes as (select 'ALL' as scope union all select 'EPISODE' as scope), scoped as (
+	    select scopes.scope, ready.* from ready cross join scopes
+	    where scopes.scope = 'ALL' or ready.source_kind = 'EPISODE'
+	)
+	, batch_metadata as (
+	    select batch_id, min(episode_no) as episode_start_no, max(episode_no) as episode_end_no,
+	           count(distinct case when source_kind = 'EPISODE' then target_id end) as episode_count
+	    from ready group by batch_id
+	), groups as (
+	    select batch_id, job_type, scope, count(*) as total,
+	           sum(case when listed_status = 'PENDING' then 1 else 0 end) as pending,
+	           sum(case when listed_status = 'RUNNING' then 1 else 0 end) as running,
+	           sum(case when listed_status = 'SUCCEEDED' then 1 else 0 end) as succeeded,
+	           sum(case when listed_status = 'FAILED' then 1 else 0 end) as failed,
+	           sum(case when listed_status = 'CANCELED' then 1 else 0 end) as canceled,
+	           sum(case when listed_status = 'FAILED' and resumable_token = 0 then 1 else 0 end) as terminal_failed,
+	           sum(case when listed_status = 'RUNNING' or (listed_status = 'PENDING' and blocked = 0)
+	                    then 1 else 0 end) as active,
+	           max(updated_at) as last_activity_at
+	    from scoped group by batch_id, job_type, scope
+	)
+	select g.batch_id, g.job_type, g.scope,
+	       case when g.active > 0 then 'IN_PROGRESS' when g.canceled > 0 then 'CANCELED'
+	            when g.terminal_failed > 0 and g.succeeded > 0 then 'PARTIALLY_FAILED'
+	            when g.terminal_failed > 0 then 'FAILED' else 'COMPLETED' end as status,
+	       g.total, g.pending, g.running, g.succeeded, g.failed, g.canceled, g.last_activity_at,
+	       m.episode_start_no, m.episode_end_no, m.episode_count
+	from groups g join batch_metadata m on m.batch_id = g.batch_id
+	
+2026-10-23 17:27:42.564 UTC [380] DETAIL:  parameters: $1 = '47e524ae-e53c-5b8b-b430-905990a20f3d', $2 = '551540e7-15da-551b-99d2-fa32ac754bcb', $3 = '651dff26-6e30-589a-9981-6dc04c6259ba'
+2026-10-23 17:27:42.566 UTC [380] LOG:  duration: 0.042 ms  bind S_8: select aj1_0.batch_id,count(sc1_0.id),coalesce(sum(case when sc1_0.review_status<>$1 then 1 else 0 end),0),coalesce(sum(case when sc1_0.review_status=$2 then 1 else 0 end),0) from setting_candidates sc1_0 join analysis_jobs aj1_0 on aj1_0.id=sc1_0.analysis_job_id where sc1_0.work_id=$3 and aj1_0.batch_id in ($4,$5) and aj1_0.source_kind='EPISODE' group by aj1_0.batch_id
+2026-10-23 17:27:42.566 UTC [380] DETAIL:  parameters: $1 = 'PENDING_REVIEW', $2 = 'PENDING_REVIEW', $3 = '47e524ae-e53c-5b8b-b430-905990a20f3d', $4 = '551540e7-15da-551b-99d2-fa32ac754bcb', $5 = '651dff26-6e30-589a-9981-6dc04c6259ba'
+2026-10-23 17:27:42.566 UTC [380] LOG:  duration: 0.211 ms  execute S_8: select aj1_0.batch_id,count(sc1_0.id),coalesce(sum(case when sc1_0.review_status<>$1 then 1 else 0 end),0),coalesce(sum(case when sc1_0.review_status=$2 then 1 else 0 end),0) from setting_candidates sc1_0 join analysis_jobs aj1_0 on aj1_0.id=sc1_0.analysis_job_id where sc1_0.work_id=$3 and aj1_0.batch_id in ($4,$5) and aj1_0.source_kind='EPISODE' group by aj1_0.batch_id
+2026-10-23 17:27:42.566 UTC [380] DETAIL:  parameters: $1 = 'PENDING_REVIEW', $2 = 'PENDING_REVIEW', $3 = '47e524ae-e53c-5b8b-b430-905990a20f3d', $4 = '551540e7-15da-551b-99d2-fa32ac754bcb', $5 = '651dff26-6e30-589a-9981-6dc04c6259ba'
+2026-10-23 17:27:42.567 UTC [380] LOG:  duration: 0.044 ms  bind S_9: select aj1_0.batch_id,count(wsc1_0.id),coalesce(sum(case when wsc1_0.review_status<>$1 then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status=$2 then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status=$3 and wsc1_0.comparison_status=$4 then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status=$5 and wsc1_0.comparison_status=$6 then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status=$7 and wsc1_0.comparison_status=$8 and wsc1_0.comparison_failure_code=$9 then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status=$10 and wsc1_0.comparison_status=$11 and wsc1_0.comparison_failure_code=$12 and (aj1_0.analysis_mode='ORDERED_PROVISIONAL' or (aj1_0.review_mode='AUTOMATIC' and aj1_0.automatic_applied_at is null and aj1_0.status in ('PENDING','RUNNING'))) then 1 else 0 end),0) from world_setting_candidates wsc1_0 join analysis_jobs aj1_0 on aj1_0.id=wsc1_0.analysis_job_id where wsc1_0.work_id=$13 and aj1_0.batch_id in ($14,$15) and aj1_0.source_kind='EPISODE' group by aj1_0.batch_id
+2026-10-23 17:27:42.567 UTC [380] DETAIL:  parameters: $1 = 'PENDING_REVIEW', $2 = 'PENDING_REVIEW', $3 = 'PENDING_REVIEW', $4 = 'PENDING', $5 = 'PENDING_REVIEW', $6 = 'PROCESSING', $7 = 'PENDING_REVIEW', $8 = 'FAILED', $9 = 'AI_TOKEN_QUOTA_EXHAUSTED', $10 = 'PENDING_REVIEW', $11 = 'FAILED', $12 = 'AI_TOKEN_QUOTA_EXHAUSTED', $13 = '47e524ae-e53c-5b8b-b430-905990a20f3d', $14 = '551540e7-15da-551b-99d2-fa32ac754bcb', $15 = '651dff26-6e30-589a-9981-6dc04c6259ba'
+2026-10-23 17:27:42.568 UTC [380] LOG:  duration: 0.312 ms  execute S_9: select aj1_0.batch_id,count(wsc1_0.id),coalesce(sum(case when wsc1_0.review_status<>$1 then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status=$2 then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status=$3 and wsc1_0.comparison_status=$4 then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status=$5 and wsc1_0.comparison_status=$6 then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status=$7 and wsc1_0.comparison_status=$8 and wsc1_0.comparison_failure_code=$9 then 1 else 0 end),0),coalesce(sum(case when wsc1_0.review_status=$10 and wsc1_0.comparison_status=$11 and wsc1_0.comparison_failure_code=$12 and (aj1_0.analysis_mode='ORDERED_PROVISIONAL' or (aj1_0.review_mode='AUTOMATIC' and aj1_0.automatic_applied_at is null and aj1_0.status in ('PENDING','RUNNING'))) then 1 else 0 end),0) from world_setting_candidates wsc1_0 join analysis_jobs aj1_0 on aj1_0.id=wsc1_0.analysis_job_id where wsc1_0.work_id=$13 and aj1_0.batch_id in ($14,$15) and aj1_0.source_kind='EPISODE' group by aj1_0.batch_id
+2026-10-23 17:27:42.568 UTC [380] DETAIL:  parameters: $1 = 'PENDING_REVIEW', $2 = 'PENDING_REVIEW', $3 = 'PENDING_REVIEW', $4 = 'PENDING', $5 = 'PENDING_REVIEW', $6 = 'PROCESSING', $7 = 'PENDING_REVIEW', $8 = 'FAILED', $9 = 'AI_TOKEN_QUOTA_EXHAUSTED', $10 = 'PENDING_REVIEW', $11 = 'FAILED', $12 = 'AI_TOKEN_QUOTA_EXHAUSTED', $13 = '47e524ae-e53c-5b8b-b430-905990a20f3d', $14 = '551540e7-15da-551b-99d2-fa32ac754bcb', $15 = '651dff26-6e30-589a-9981-6dc04c6259ba'
+2026-10-23 17:27:42.569 UTC [380] LOG:  duration: 0.034 ms  bind S_10: select aj1_0.batch_id,count(aj1_0.id) from analysis_jobs aj1_0 where aj1_0.work_id=$1 and aj1_0.batch_id in ($2,$3) and aj1_0.source_kind='EPISODE' and aj1_0.job_type=$4 and aj1_0.status in ($5,$6) group by aj1_0.batch_id
+2026-10-23 17:27:42.569 UTC [380] DETAIL:  parameters: $1 = '47e524ae-e53c-5b8b-b430-905990a20f3d', $2 = '551540e7-15da-551b-99d2-fa32ac754bcb', $3 = '651dff26-6e30-589a-9981-6dc04c6259ba', $4 = 'WORLD_SETTING_COMPARISON', $5 = 'PENDING', $6 = 'RUNNING'
+2026-10-23 17:27:42.569 UTC [380] LOG:  duration: 0.036 ms  execute S_10: select aj1_0.batch_id,count(aj1_0.id) from analysis_jobs aj1_0 where aj1_0.work_id=$1 and aj1_0.batch_id in ($2,$3) and aj1_0.source_kind='EPISODE' and aj1_0.job_type=$4 and aj1_0.status in ($5,$6) group by aj1_0.batch_id
+2026-10-23 17:27:42.569 UTC [380] DETAIL:  parameters: $1 = '47e524ae-e53c-5b8b-b430-905990a20f3d', $2 = '551540e7-15da-551b-99d2-fa32ac754bcb', $3 = '651dff26-6e30-589a-9981-6dc04c6259ba', $4 = 'WORLD_SETTING_COMPARISON', $5 = 'PENDING', $6 = 'RUNNING'
+2026-10-23 17:27:42.569 UTC [380] LOG:  duration: 0.102 ms  bind S_11: with public_jobs as (
+	    select j.id, j.batch_id, j.episode_id, j.job_type, j.source_kind,
+	           j.source_setting_book_id, j.status, j.analysis_mode, j.analysis_run_id,
+	           j.run_generation, j.run_sequence, j.journal_status, j.review_mode,
+	           j.automatic_applied_at, j.failure_code, j.checkpoint_stage, j.created_at, j.updated_at
+	    from analysis_jobs j
+	    where j.work_id = $1 and j.batch_id in ($2,$3)
+	      and j.job_type not in ('WORLD_SETTING_COMPARISON', 'CHARACTER_FACT_COMPARISON')
+	), expanded as (
+	    select j.id, j.batch_id, j.job_type, j.source_kind, j.status, j.analysis_mode,
+	           j.analysis_run_id, j.run_generation, j.run_sequence, j.journal_status,
+	           j.review_mode, j.automatic_applied_at, j.failure_code, j.checkpoint_stage,
+	           j.created_at, j.updated_at,
+	           case when j.source_kind = 'SETTING_BOOK' then j.source_setting_book_id
+	                else coalesce(t.episode_id, j.episode_id) end as target_id,
+	           e.episode_no
+	    from public_jobs j
+	    left join analysis_job_episode_targets t
+	      on t.analysis_job_id = j.id and j.source_kind = 'EPISODE'
+	    left join episodes e on j.source_kind = 'EPISODE'
+	      and e.id = coalesce(t.episode_id, j.episode_id)
+	), ranked as (
+	    select e.*, row_number() over (
+	        partition by batch_id, job_type, source_kind, target_id
+	        order by created_at desc, id desc) as latest
+	    from expanded e
+	), selected as (
+	    select r.* from ranked r where latest = 1
+	      and (target_id is not null or not exists (
+	          select 1 from ranked other
+	          where other.batch_id = r.batch_id and other.job_type = r.job_type
+	            and other.target_id is not null))
+	), normalized as (
+	    select s.*,
+	           case when analysis_mode = 'ORDERED_PROVISIONAL' and journal_status = 'INVALIDATED'
+	                then 'CANCELED'
+	                when analysis_mode = 'ORDERED_PROVISIONAL' and status = 'SUCCEEDED'
+	                  and (journal_status is null or journal_status <> 'SEALED'
+	                    or (review_mode = 'AUTOMATIC' and automatic_applied_at is null))
+	                then 'FAILED' else status end as listed_status,
+	           case when analysis_mode = 'CONFIRMED_ONLY' and job_type = 'SETTING_EXTRACTION'
+	                  and status = 'FAILED' and failure_code = 'AI_TOKEN_QUOTA_EXHAUSTED'
+	                  and checkpoint_stage in ('WORLD_CANDIDATES_PUBLISHED', 'WORLD_COMPARISONS_FINISHED')
+	                then 1 else 0 end as resumable_token
+	    from selected s
+	), ready as (
+	    select n.*, case when n.analysis_mode = 'ORDERED_PROVISIONAL' and n.listed_status = 'PENDING'
+	        and exists (select 1 from normalized earlier
+	            where earlier.batch_id = n.batch_id and earlier.job_type = n.job_type
+	              and earlier.analysis_mode = 'ORDERED_PROVISIONAL'
+	              and earlier.analysis_run_id = n.analysis_run_id
+	              and earlier.run_generation = n.run_generation
+	              and earlier.run_sequence < n.run_sequence
+	              and earlier.listed_status in ('FAILED', 'CANCELED'))
+	        then 1 else 0 end as blocked
+	    from normalized n
+	), scopes as (select 'ALL' as scope union all select 'EPISODE' as scope), scoped as (
+	    select scopes.scope, ready.* from ready cross join scopes
+	    where scopes.scope = 'ALL' or ready.source_kind = 'EPISODE'
+	)
+	, page_books as (
+	    select distinct batch_id as page_batch_id, source_setting_book_id as book_id
+	    from public_jobs where source_kind = 'SETTING_BOOK' and source_setting_book_id is not null
+	    union
+	    select f.batch_id as page_batch_id, f.id as book_id
+	    from upload_files f join upload_batches b on b.id = f.batch_id
+	    where b.work_id = $4 and f.batch_id in ($5,$6)
+	      and f.file_role = 'SETTING_BOOK' and f.archived_at is null
+	), latest_book_jobs as (
+	    select j.id, j.source_setting_book_id, j.source_setting_book_revision_id, j.batch_id,
+	           j.status, j.analysis_mode, j.journal_status, j.review_mode, j.automatic_applied_at,
+	           j.failure_code, j.current_step, j.updated_at,
+	           row_number() over (partition by j.source_setting_book_id order by j.created_at desc, j.id desc) as latest
+	    from analysis_jobs j where j.work_id = $7 and j.source_kind = 'SETTING_BOOK'
+	      and j.job_type = 'SETTING_EXTRACTION'
+	      and j.source_setting_book_id in (select book_id from page_books)
+	)
+	select p.page_batch_id, f.id, j.id, j.batch_id, j.source_setting_book_revision_id, f.original_filename,
+	       case when j.analysis_mode = 'ORDERED_PROVISIONAL' and j.journal_status = 'INVALIDATED' then 'INVALIDATED'
+	            when j.analysis_mode = 'ORDERED_PROVISIONAL' and j.status = 'SUCCEEDED' and j.journal_status = 'SEALED'
+	              and (j.review_mode <> 'AUTOMATIC' or j.automatic_applied_at is not null) then 'COMPLETED'
+	            when j.analysis_mode = 'ORDERED_PROVISIONAL'
+	              and (j.status = 'FAILED' or (j.status = 'SUCCEEDED' and j.journal_status = 'INCOMPLETE')) then 'INTERRUPTED'
+	            when j.status = 'CANCELED' then 'CANCELED' when j.status = 'FAILED' then 'FAILED'
+	            when j.status = 'PENDING' then 'PENDING' else 'IN_PROGRESS' end as display_status,
+	       case when j.status = 'FAILED' then coalesce(j.failure_code, 'UNEXPECTED_ERROR') else null end,
+	       j.current_step,
+	       case when f.current_setting_book_revision_id is null
+	              or f.current_setting_book_revision_id <> j.source_setting_book_revision_id then 1 else 0 end as changed,
+	       case when f.archived_at is not null or f.current_setting_book_revision_id is null
+	              or f.current_setting_book_revision_id <> j.source_setting_book_revision_id then 1 else 0 end as historical,
+	       j.updated_at
+	from page_books p join latest_book_jobs j on j.source_setting_book_id = p.book_id and j.latest = 1
+	join upload_files f on f.id = p.book_id
+	order by p.page_batch_id, j.updated_at desc, j.id desc
+	
+2026-10-23 17:27:42.569 UTC [380] DETAIL:  parameters: $1 = '47e524ae-e53c-5b8b-b430-905990a20f3d', $2 = '551540e7-15da-551b-99d2-fa32ac754bcb', $3 = '651dff26-6e30-589a-9981-6dc04c6259ba', $4 = '47e524ae-e53c-5b8b-b430-905990a20f3d', $5 = '551540e7-15da-551b-99d2-fa32ac754bcb', $6 = '651dff26-6e30-589a-9981-6dc04c6259ba', $7 = '47e524ae-e53c-5b8b-b430-905990a20f3d'
+2026-10-23 17:27:42.569 UTC [380] LOG:  duration: 0.035 ms  execute S_11: with public_jobs as (
+	    select j.id, j.batch_id, j.episode_id, j.job_type, j.source_kind,
+	           j.source_setting_book_id, j.status, j.analysis_mode, j.analysis_run_id,
+	           j.run_generation, j.run_sequence, j.journal_status, j.review_mode,
+	           j.automatic_applied_at, j.failure_code, j.checkpoint_stage, j.created_at, j.updated_at
+	    from analysis_jobs j
+	    where j.work_id = $1 and j.batch_id in ($2,$3)
+	      and j.job_type not in ('WORLD_SETTING_COMPARISON', 'CHARACTER_FACT_COMPARISON')
+	), expanded as (
+	    select j.id, j.batch_id, j.job_type, j.source_kind, j.status, j.analysis_mode,
+	           j.analysis_run_id, j.run_generation, j.run_sequence, j.journal_status,
+	           j.review_mode, j.automatic_applied_at, j.failure_code, j.checkpoint_stage,
+	           j.created_at, j.updated_at,
+	           case when j.source_kind = 'SETTING_BOOK' then j.source_setting_book_id
+	                else coalesce(t.episode_id, j.episode_id) end as target_id,
+	           e.episode_no
+	    from public_jobs j
+	    left join analysis_job_episode_targets t
+	      on t.analysis_job_id = j.id and j.source_kind = 'EPISODE'
+	    left join episodes e on j.source_kind = 'EPISODE'
+	      and e.id = coalesce(t.episode_id, j.episode_id)
+	), ranked as (
+	    select e.*, row_number() over (
+	        partition by batch_id, job_type, source_kind, target_id
+	        order by created_at desc, id desc) as latest
+	    from expanded e
+	), selected as (
+	    select r.* from ranked r where latest = 1
+	      and (target_id is not null or not exists (
+	          select 1 from ranked other
+	          where other.batch_id = r.batch_id and other.job_type = r.job_type
+	            and other.target_id is not null))
+	), normalized as (
+	    select s.*,
+	           case when analysis_mode = 'ORDERED_PROVISIONAL' and journal_status = 'INVALIDATED'
+	                then 'CANCELED'
+	                when analysis_mode = 'ORDERED_PROVISIONAL' and status = 'SUCCEEDED'
+	                  and (journal_status is null or journal_status <> 'SEALED'
+	                    or (review_mode = 'AUTOMATIC' and automatic_applied_at is null))
+	                then 'FAILED' else status end as listed_status,
+	           case when analysis_mode = 'CONFIRMED_ONLY' and job_type = 'SETTING_EXTRACTION'
+	                  and status = 'FAILED' and failure_code = 'AI_TOKEN_QUOTA_EXHAUSTED'
+	                  and checkpoint_stage in ('WORLD_CANDIDATES_PUBLISHED', 'WORLD_COMPARISONS_FINISHED')
+	                then 1 else 0 end as resumable_token
+	    from selected s
+	), ready as (
+	    select n.*, case when n.analysis_mode = 'ORDERED_PROVISIONAL' and n.listed_status = 'PENDING'
+	        and exists (select 1 from normalized earlier
+	            where earlier.batch_id = n.batch_id and earlier.job_type = n.job_type
+	              and earlier.analysis_mode = 'ORDERED_PROVISIONAL'
+	              and earlier.analysis_run_id = n.analysis_run_id
+	              and earlier.run_generation = n.run_generation
+	              and earlier.run_sequence < n.run_sequence
+	              and earlier.listed_status in ('FAILED', 'CANCELED'))
+	        then 1 else 0 end as blocked
+	    from normalized n
+	), scopes as (select 'ALL' as scope union all select 'EPISODE' as scope), scoped as (
+	    select scopes.scope, ready.* from ready cross join scopes
+	    where scopes.scope = 'ALL' or ready.source_kind = 'EPISODE'
+	)
+	, page_books as (
+	    select distinct batch_id as page_batch_id, source_setting_book_id as book_id
+	    from public_jobs where source_kind = 'SETTING_BOOK' and source_setting_book_id is not null
+	    union
+	    select f.batch_id as page_batch_id, f.id as book_id
+	    from upload_files f join upload_batches b on b.id = f.batch_id
+	    where b.work_id = $4 and f.batch_id in ($5,$6)
+	      and f.file_role = 'SETTING_BOOK' and f.archived_at is null
+	), latest_book_jobs as (
+	    select j.id, j.source_setting_book_id, j.source_setting_book_revision_id, j.batch_id,
+	           j.status, j.analysis_mode, j.journal_status, j.review_mode, j.automatic_applied_at,
+	           j.failure_code, j.current_step, j.updated_at,
+	           row_number() over (partition by j.source_setting_book_id order by j.created_at desc, j.id desc) as latest
+	    from analysis_jobs j where j.work_id = $7 and j.source_kind = 'SETTING_BOOK'
+	      and j.job_type = 'SETTING_EXTRACTION'
+	      and j.source_setting_book_id in (select book_id from page_books)
+	)
+	select p.page_batch_id, f.id, j.id, j.batch_id, j.source_setting_book_revision_id, f.original_filename,
+	       case when j.analysis_mode = 'ORDERED_PROVISIONAL' and j.journal_status = 'INVALIDATED' then 'INVALIDATED'
+	            when j.analysis_mode = 'ORDERED_PROVISIONAL' and j.status = 'SUCCEEDED' and j.journal_status = 'SEALED'
+	              and (j.review_mode <> 'AUTOMATIC' or j.automatic_applied_at is not null) then 'COMPLETED'
+	            when j.analysis_mode = 'ORDERED_PROVISIONAL'
+	              and (j.status = 'FAILED' or (j.status = 'SUCCEEDED' and j.journal_status = 'INCOMPLETE')) then 'INTERRUPTED'
+	            when j.status = 'CANCELED' then 'CANCELED' when j.status = 'FAILED' then 'FAILED'
+	            when j.status = 'PENDING' then 'PENDING' else 'IN_PROGRESS' end as display_status,
+	       case when j.status = 'FAILED' then coalesce(j.failure_code, 'UNEXPECTED_ERROR') else null end,
+	       j.current_step,
+	       case when f.current_setting_book_revision_id is null
+	              or f.current_setting_book_revision_id <> j.source_setting_book_revision_id then 1 else 0 end as changed,
+	       case when f.archived_at is not null or f.current_setting_book_revision_id is null
+	              or f.current_setting_book_revision_id <> j.source_setting_book_revision_id then 1 else 0 end as historical,
+	       j.updated_at
+	from page_books p join latest_book_jobs j on j.source_setting_book_id = p.book_id and j.latest = 1
+	join upload_files f on f.id = p.book_id
+	order by p.page_batch_id, j.updated_at desc, j.id desc
+	
+2026-10-23 17:27:42.569 UTC [380] DETAIL:  parameters: $1 = '47e524ae-e53c-5b8b-b430-905990a20f3d', $2 = '551540e7-15da-551b-99d2-fa32ac754bcb', $3 = '651dff26-6e30-589a-9981-6dc04c6259ba', $4 = '47e524ae-e53c-5b8b-b430-905990a20f3d', $5 = '551540e7-15da-551b-99d2-fa32ac754bcb', $6 = '651dff26-6e30-589a-9981-6dc04c6259ba', $7 = '47e524ae-e53c-5b8b-b430-905990a20f3d'
+2026-10-23 17:27:42.570 UTC [380] LOG:  duration: 0.016 ms  bind S_1: COMMIT
+2026-10-23 17:27:42.570 UTC [380] LOG:  duration: 0.017 ms  execute S_1: COMMIT

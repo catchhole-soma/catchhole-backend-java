@@ -61,6 +61,9 @@
 
 ### Application Metrics
 
+- 회차 분석 실패 알림은 `analysis_failure_notifications`의 transactional outbox를 사용한다. V88의 PostgreSQL trigger는 회차 Job/캐릭터·세계관 후보가 새로 FAILED가 될 때 식별자와 고정 실패 코드만 기록한다. Python의 후보 최초 저장과 SQL 상태 갱신도 누락하지 않기 위한 경계이며 원시 오류·원문·연락처는 복사하지 않는다. 동일 트랜잭션·Job·회차·종류·코드의 후보 실패는 한 알림의 건수로 합친다.
+- `ANALYSIS_FAILURE_NOTIFICATIONS_ENABLED=false`가 기본이며 활성화할 때 `ANALYSIS_FAILURE_DISCORD_WEBHOOK_URL`을 서버 비밀 설정으로 주입한다. 운영 Compose는 알림 환경을 prod로 고정한다. 전용 dispatcher는 DB 선점을 끝낸 뒤 HTTP를 호출하고, 429의 대기 헤더·일시 오류 backoff·재시작 후 미발송 복구를 처리한다. 전송은 at-least-once이며 응답 유실 때 같은 알림 ID가 중복될 수 있다. 비활성 중 대기 기록도 활성화 시 발송하며 완료 이력만 30일 뒤 정리한다. 설정집·접수 전 HTTP 오류·브라우저 연결 오류는 이 알림의 대상이 아니다. 운영 설정과 한계는 `docs/analysis-failure-notifications.md`를 따른다.
+
 - 기본 애플리케이션 지표는 Actuator와 `micrometer-registry-prometheus`로 제공한다. registry 버전은 Spring Boot의 의존성 관리에 맡긴다.
 - 메트릭 HTTP 노출은 `application-local.yml`과 `application-prod.yml` 각각의 `management.endpoints.web.exposure.include: health,prometheus`로 설정한다. 필요한 환경에서만 제공하도록 공통·test·e2e 프로파일로 노출 설정을 확장하지 않는다.
 - 공통 label은 두 환경 모두 `application=catchhole-backend`를 사용하고, `environment`는 local에서 `local`, prod에서 `prod`로 구분한다. 서로 다른 환경의 지표가 섞이지 않도록 각 프로파일에서 설정한다.
@@ -150,6 +153,7 @@
 - base package: `org.monitoring.catchholebackend`
 - 도메인별 기능 코드는 `domain` 아래에 둔다.
 - 전역 공통 코드는 `global` 아래에 둔다.
+- `global.notification`은 Discord HTTP 전송만 담당한다. 분석 실패 발송 흐름은 `domain.analysis.processor`, payload 조립은 `mapper`, outbox 접근은 `repository`, 설정은 `global.config.analysisnotification`에 둔다.
 - 공통 응답 코드는 `global.common.response` 아래에 둔다.
 - 전역 예외 코드는 `global.exception` 아래에 둔다.
 - 전역 `@Configuration` 클래스는 `global.config.<영역>` 아래에 둔다.
@@ -286,6 +290,7 @@ org.monitoring.catchholebackend
     │   └── response
     ├── config
     │   ├── ai
+    │   ├── analysisnotification
     │   ├── auth
     │   ├── chat
     │   ├── cors
@@ -299,6 +304,7 @@ org.monitoring.catchholebackend
     │   └── swagger
     ├── exception
     ├── monitoring
+    ├── notification
     └── storage
 ```
 
@@ -463,10 +469,16 @@ domain/<domain>
 - AnalysisJob은 작품에 속한 단일 회차 AI 분석 작업의 상태와 결과 메타데이터를 추적한다. `UploadBatch`는 업로드 출처 묶음이며 분석 실행 단위가 아니다.
 - 첫 분석 안내는 계정 전체 기준으로 V64의 `analysis_guide_shown_at`과 `first_analysis_started_at`을 사용한다. 조회는 비소비, 노출 선점은 회원 잠금 아래 한 번만 성공하며 Job 생성과 최초 분석 시각을 같은 트랜잭션에 저장한다. 작품 삭제 후에도 경험 기록을 유지한다. 예시 확정은 실제 분석·설정 변경을 호출하지 않는다. 상세 API·이관 범위는 `docs/analysis-mode-guide.md`를 따른다.
 - 원문 텍스트는 `Episode`의 S3 저장 구조를 재사용한다. `analysis_jobs`에는 작업 메타데이터와 누적 모드의 고정 S0·검증 변경 기록을 저장하며 원문 전문이나 raw LLM 응답을 중복 저장하지 않는다.
-- 분석 실패 처리 이력은 `analysis_jobs.error_message`에 누적하지 않고, 후속 모니터링 기능에서 별도 기록/조회한다.
+- 분석 실패 이력은 `analysis_jobs.error_message`에 누적하지 않는다. Discord 발송 이력은 원시 오류 없이 `analysis_failure_notifications`에 식별자·고정 실패 코드·전송 상태로 따로 기록한다.
+- 새 회차 분석으로 대체된 legacy 캐릭터·세계관 비교 Job은 `cancelForSourceChange`로 `CANCELED` 마감한다. 토큰 예약 해제·후보 unlink·flush 순서는 유지하며 정상적인 교체를 `FAILED` 장애로 기록하거나 Discord 실패 알림으로 보내지 않는다.
 - 화면은 업로드 묶음에 생성된 회차별 `AnalysisJob.status`를 집계하고, 각 Job의 단일 대상 `Episode.status`를 단계별 상태로 보여준다.
 - 신규 분석 작업은 정확히 한 회차를 `analysis_job_episode_targets`에 스냅샷으로 저장한다. 이후 회차 원본 교체나 `ARCHIVED` 전이로 과거 작업의 대상이 바뀌지 않게 하며, 과거 batch-wide 작업의 복수 target 연결은 조회 이력 호환용으로만 유지한다.
 - 분석 배치 목록은 `UploadBatch`를 페이지 항목으로 사용하고, 같은 분석 목적·회차의 재시도 이력 중 최신 `AnalysisJob`만 현재 상태에 포함한다. `UploadBatch` 자체를 독립 분석 실행 식별자로 해석하지 않는다.
+- 분석 목록은 현재 페이지 batch IDs를 제한한 `AnalysisBatchSummaryRepository`의 최신 대상·표시 상태 SQL 집계를 사용한다. 목록용으로 `AnalysisJob`/후보/설정집 본문 엔티티나 큰 상태 JSON을 읽지 않는다. 회차 `episodeJobGroups`와 설정집 `settingBooks`를 분리하고, 설정집 후보 수는 선택된 원본 Job ID별 다건 집계로 구한다. 상세 조회를 카드마다 반복해 heap·전송량을 키우지 않기 위한 경계다.
+- 회차 진행 조회는 `/analysis-jobs/progress`의 1~100개 raw ID 제한과 전체 소유권·공개 유형 검증 뒤 두 scalar projection만 읽는다. 입력 중복은 최초 순서를 보존하며 대상 스냅샷을 단일 episode fallback보다 우선한다. 상태 확인에 큰 JSON·원문·Job/Episode 엔티티를 읽지 않기 위한 경계이며 HTTP/JPA 경계를 실제 PostgreSQL SQL·entity-load 통계로 검증한다.
+- GH296 캐릭터·세계관 후보 목록은 후보 엔티티와 비교 문맥을 유지하면서 `CandidateReviewMetadataRepository`의 불변 scalar 메타데이터를 명시적으로 Mapper에 전달한다. 원본/비교 Job proxy의 ID만 참조하고 `automatic_input_state`, `run_base_state`, `state_journal` 또는 전체 `AnalysisJob`은 읽지 않는다. `includeLegacyCandidates=true`도 같은 경계를 따르며 상세·변경 API는 기존 완전한 엔티티 경로를 유지한다. 상태 정책은 `AnalysisReviewState`와 후보 predicate overload로 공유하고, 실제 HTTP 직렬화 뒤 PostgreSQL SQL·entity-load 통계로 검증한다.
+- GH296 `/world-setting-candidates/summary`는 필수 `batchId`와 선택 `sourceAnalysisJobId`로 기존 목록 최상위 값에서 `groups`만 제외한 전체 범위 집계를 반환한다. 목록과 같은 source 검증·회차 범위·검토 집계·활성 비교 Job 수를 재사용하고 후보/Job 엔티티는 조회하지 않는다. 출처 생략은 EPISODE만, 지정은 해당 추출 origin만 포함하며 과거 설정집 이력을 읽기 가능한 상태와 수정 가능한 상태로 구분한다. 캐릭터 검토 화면이 세계관 개수를 얻기 위해 후보 본문 전체를 가져오지 않도록 둔 경계다.
+- 같은 화면의 세계관 비교 집계는 `/world-setting-candidates/progress?batchId=...`의 세 count만 반환한다. 기존 `countReviewSummary`의 EPISODE·배치·검토 대기·토큰 실패 범위를 유지하고 후보 목록이나 Job 엔티티를 조회하지 않는다. 새 진행 계약은 Backend를 먼저 배포한 뒤 Frontend에 적용한다. 상세 계약은 `docs/analysis-progress.md`를 따른다.
 - 회차 출처 Worker의 claim·진행·완료·실패 처리는 신규 Job의 단일 대상 `Episode.status`만 전이한다. 설정집·설정집 숨김 비교는 Episode 상태를 요구하거나 갱신하지 않는다. 한 회차 실패가 다른 회차 Job이나 상태를 변경하면 안 된다.
 - 공개 분석 작업 생성 API는 `batch_id`를 필수 입력으로 받고 `episode_id`를 선택 범위 지정자로 허용한다. `episode_id`가 없으면 batch의 현재 회차마다 Job을 하나씩 생성해 목록으로 반환하고, 있으면 해당 회차 Job 하나를 목록으로 반환한다.
 - 본인 작품의 분석 작업만 생성/조회할 수 있으며, 다른 회원의 작품이나 다른 작품에 속한 분석 대상은 404로 응답한다.
@@ -483,7 +495,7 @@ domain/<domain>
 - 자동 모드의 실패 격리는 후보의 `canDeferFailedComparison()`을 claim·journal 마무리·작업 완료에서 공통으로 사용한다. 실제 비교 문맥이 저장된 묶음의 격리 가능한 AI 실패와, 자동 누적 후보에 명시적으로 기록한 `preparation_failure_stage`의 실패만 허용한다. 주체 연결 실패는 실제/임시 대상 연결 없이 보존하며 비교 준비의 값 형식·문맥 크기 실패는 해당 후보/묶음만 보류한다. 단계 기록 없는 선검증 실패와 Backend 원인 코드가 있는 세계관 실패는 계속 차단한다. AI의 입력 문맥 오류도 격리 가능한 비교 코드로 기록하지 않는다. 같은 오류가 처리 단계에 따라 다르게 취급되어 후속 회차가 잘못 진행되는 것을 막기 위한 규칙이다. 실패 참고의 멱등 기준은 후보가 다른 사건에 사용됐는지가 아니라 해당 실패 참고의 eventId이며, 주체 등록에 쓰인 첫 후보도 원문·값을 빠짐없이 보존한다.
 - 자동 누적 세계관 연결의 실행 실패는 `failureCode`와 빈 대상 목록을 받으며 `FAILED`로 저장한다. 정상적인 `AMBIGUOUS`와 구분하고 실제/임시 대상을 생성하지 않는다. 선택적 캐릭터 연결 보강의 실패도 원본 후보 최초 저장 시 단계와 실패 코드를 기록하고 Spring이 실패 참고와 보류 안내를 완성한다. 계정 인증·결제·토큰·lease·입력 변경·저장 오류는 후보 격리 코드로 우회하지 않는다.
 - 캐릭터 비교는 동일 인물의 모든 FactType을 한 논리 그룹으로 원문 순서로 claim하며 후보 수·문자 수로 자르거나 큰 입력을 Java에서 미리 보류하지 않는다. AI가 전체 prompt 입력 256,000토큰과 출력 상한 128,000토큰으로 분할한다. Sol 6.1 캐릭터 비교 입력은 생성과 같은 전체 payload의 provider token-count API로 정확히 확인하며 동일 입력의 count는 재사용한다. count 실패에는 추정 fallback 없이 Job 오류로 중단하고, complete는 모든 후보를 정확히 한 decision/typed failure로 덮는다. 묶음 decision·dependency·제거 참조 목록에 20/30개 개수 제한을 다시 넣지 않는다. 새 인물 묶음은 모든 유형의 snapshot을 제공하며 30개 문맥 제한을 적용하지 않는다. 기존 단건과 타입이 명시된 예전 저장 batch의 snapshot 정책 및 세계관 속성 비교 한도는 유지한다. `X-Character-Comparison-Person-Batches: true`를 광고한 claim에만 새 묶음을 생성하며, 없는 구 Worker에는 기존 유형별 묶음을 반환한다. 새 batch/context의 `canonicalFactType=null`은 인물 전체 범위이고 각 candidate의 `canonicalFactType`을 검증·저장·projection에 사용한다. 예전 batch의 타입 값은 그대로 유지한다.
-- 자동 누적 비교 준비는 캐릭터 설정 형식 오류를 항목별로 보류한다. 세계관 묶음은 기존 원문 순서를 유지하여 후보 20개/입력 30,000자 이내로 나누고 앞 묶음 처리를 반영한 뒤 다음 묶음을 준비한다. 기존 문맥을 포함한 독립 비교도 너무 크면 그 묶음만 `COMPARISON_INPUT_TOO_LARGE`로 보류한다. 전체 문맥을 임의 절단하지 않는다. 수동 모드의 기존 거절 경계는 유지한다.
+- 자동 누적 비교 준비는 캐릭터 설정 형식 오류를 항목별로 보류한다. 세계관 묶음은 기존 원문 순서를 유지하여 후보 20개 이내로 나누고 앞 묶음 처리를 반영한 뒤 다음 묶음을 준비한다. Java는 내부 JSON 문자 수로 비교를 차단하지 않으며 Worker가 최종 LLM 입력·예상 출력 토큰을 검사한다. 초과한 묶음은 후보별 원본 경로·값을 보존한 `REVIEW_REQUIRED + BATCH_LIMIT_EXCEEDED`로 완료하고 journal 참고에도 미확정 상태·동일 사유를 남긴다. 후보 수·source coverage·문맥 token/version·canonical 경로 검증과 고정 입력 오류 중단은 유지하며 전체 문맥을 임의 절단하지 않는다.
 - 캐릭터 자동 저장 전에 실제 저장과 같은 순수 검증 계획을 순서대로 계산한다. 앞서 수용한 후보만 예상 상태에 적용하고 실패 항목과 의존 항목은 보류한다. 검증 예외를 DB 쓰기 후 삼키지 않으며 실제 저장 장애는 회차 완료 트랜잭션 전체를 롤백한다. 명시적 이력 저장은 현재 상태를 변경하지 않는다. 자동 모드의 격리 가능한 준비·비교 실패는 인프라 오류 후 같은 작업 재개에서도 초기화하지 않는다. 이미 journal에 기록한 실패 참고와 새 비교 결정이 중복되는 것을 막는다.
 - 세계관 후보의 `sourceAnalysisJobStatus`·`sourceAnalysisJournalStatus`는 원본 회차 상태를 나타내는 선택 응답이다. 비교 PENDING이나 별도 비교 Job 수를 순차 실행 중단으로 오인하지 않도록 제공한다. 일반 사용량 중단의 배치 비교 재개와 순차 회차 Job 재개는 구분하며 후보 목록·분석 목록은 같은 배치 전체 집계로 재개 불가 대상(순차/자동 반영 중)을 확인한다. 페이지·필터로 보이지 않는 후보도 포함하고 실제 토큰 잔액은 POST에서 재검증한다.
 - 세계관 신뢰도는 필수 유한 숫자 0~1의 원값을 보존한다. 정해진 세 등급값만 허용하거나 반올림해 정상 추출을 거절하지 않는다.
@@ -1023,3 +1035,9 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 일반 claim의 relatedFacets는 관련 원문 맥락이며 요구 충족이 아니다. 미답 요구는 missingFacets와 PARTIAL로 남기고 정확한 supports.quote·참조/위치·최종 인용 검사를 유지한다. hybrid.answer의 ResponseValidationFailure만 미검증 문장을 버린 NONE으로 복구해 남은 검색이나 검증된 PARTIAL을 보존한다. 전송/provider·출력 절단 복구·권한/조회 실패는 숨기지 않으며 계획·등록 답변의 실패 경계와 전체 실행 상한은 유지한다.
 - hybrid plan v8은 최초 습득 항목의 HISTORY와 현재 보유 목록의 CURRENT를 구분하고 실제 최초 획득은 원문 PROCESS로 확인하도록 지시한다. 최초 등록/사용 기록을 실제 최초로 단정하지 않는다. 일반 원문 경로의 직접 근거 조회는 `3 * max_rounds + 2 + collection 검사 수`의 도구 여유를 남기며 기본 두 라운드는 검사 수 외 8회분이다. 전체 상한을 늘리거나 키워드·벡터 실행을 보장하지 않는다. 후속 실제 검증에서 HISTORY+PROCESS와 키워드·벡터 두 라운드까지 확인했지만 최초 획득의 입증은 미확인으로 남았다. 상세 호출량·중간 실패와 SHA별 범위는 공통 품질 문서에 보존한다.
 - 실제 77dc74e 검증 6건에는 자연 발생한 모델 응답 검증 실패가 없었다. related 맥락 경로의 실제 확인과 typed 검증 실패 복구의 합성 회귀를 구분한다. 최종 265fc68는 같은 프롬프트·검색·검증에 안내 표현만 보완했으며 전체 자동 테스트·로컬 기동으로 확인했고 실제 모델을 다시 호출하지 않았다.
+
+### GH287 고정 보류 참고와 Worker 기능 광고
+
+- 앞선 미확정 후보는 원래 freeze 시점에 optional `selection`을 함께 저장하고 replay에서는 `automaticInputState`만 읽는다. 기존 입력/hash를 backfill하거나 현재 후보로 재구성하지 않는다. 주체 해소의 MATCHED/actual·provisional 연결은 후속 내용 비교 실패와 구분해 보존하고, 모호/실패한 주체 연결·실패한 operation 대상은 권위 있는 링크로 복원하지 않는다. 원래 schema로 held/failed STATUS를 판별하고 active=false를 보존한다.
+- `X-Analysis-Reference-Selection: true`를 받은 응답에만 `selection`과 캐릭터 advisory의 `selectionNames`를 노출한다. 누락/false에는 필드 자체를 생략하며 모든 claim/context/주체 조회에 같은 boolean을 명시적으로 전달한다. metadata freeze·advisory hash/contextToken은 capability와 무관하고 구 overload는 false다. `selectionNames`는 기존 frozen 주체 별칭·원 후보 표기를 전달하는 선택 전용 metadata다.
+- AI는 EPISODE의 모델 입력만 같은 도메인·관련 주체로 투영하며 전체 transport/equality/source/lease/journal을 유지한다. 보류는 현재값·선택 대상·변경/의존 참조·과거 후보 자동 승인이 아니다. 1차 캐릭터 입력은 기존 이름/활성 STATUS와 별도 미확정 이름/STATUS 힌트, 세계관은 원문·metadata·정적 규칙만 사용하며 BOOK 입력과 기존 시점 보호를 유지한다.

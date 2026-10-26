@@ -1,0 +1,194 @@
+{
+  "kind": "Vite production build",
+  "apiBaseUrl": "http://127.0.0.1:29480",
+  "baselineCommit": "36a143391e8f330ac88c910517585a263626d3e0",
+  "uncommittedChanges": true,
+  "files": [
+    {
+      "path": "_redirects",
+      "bytes": 19,
+      "sha256": "6036983e5fc00f0169c9e939b1816ed771eee00e27f2fcc517b819041460b9ef"
+    },
+    {
+      "path": "assets/FamilyTreeView-BwZtS-kR.js",
+      "bytes": 1689084,
+      "sha256": "a395966e1e860afd4bf3abbbb96ac3001444d2325adce22620ff1e9d9d1c0f30"
+    },
+    {
+      "path": "assets/FamilyTreeView-ByRZFdMv.css",
+      "bytes": 27847,
+      "sha256": "04cc157ff646aeb5bc08d4b7983b3a7b3c07038ca1ef547d9462dbb96210d4a2"
+    },
+    {
+      "path": "assets/all-RHLZLldO.webp",
+      "bytes": 91904,
+      "sha256": "7b03c2364cba983165557daf1fecfd0262542e1b617dbaca2d0763c76e728adc"
+    },
+    {
+      "path": "assets/catchhole-analysis-friendly-v1-BoB1cJ-l.png",
+      "bytes": 1402909,
+      "sha256": "e01703cc2fdb0516d4a2b03d0fe2ac88386eb1c5c56861a21dc113077044afa0"
+    },
+    {
+      "path": "assets/catchhole-hero-editorial-v2-gKqmtO62.webp",
+      "bytes": 148294,
+      "sha256": "4843fe4035db4c68ec7279bedb6f9396bf7bfcb6d06cc6d4ed1bf657e5993568"
+    },
+    {
+      "path": "assets/catchhole-story-world-v1-Coy52G-4.png",
+      "bytes": 2212510,
+      "sha256": "115779b9b5a9b24b5bc5b247e34752efbba37b56e04c3b1531bf74467b149a33"
+    },
+    {
+      "path": "assets/catchhole-upload-friendly-v1-DcEpKdiI.png",
+      "bytes": 1252644,
+      "sha256": "78a284dc34279c04c993e3de8585ef636cb7733b5bb5be63a295e87d82e72914"
+    },
+    {
+      "path": "assets/character-neutral-v1-B7edHgjg.webp",
+      "bytes": 18576,
+      "sha256": "d8086c888829730193026ecf87926bb773c0130f5802a608f172e4d4876269be"
+    },
+    {
+      "path": "assets/faction-BCNeh_iE.webp",
+      "bytes": 27564,
+      "sha256": "44930da93e3a343c60572f1743598ad892c3e0f7c3ecb65873abb16a138fc660"
+    },
+    {
+      "path": "assets/history-Dwp1N2JR.webp",
+      "bytes": 28130,
+      "sha256": "ed8b18c1f7d9ad46e3f5af00f04340680fbc195a885cc4e942b7700a3253e2a4"
+    },
+    {
+      "path": "assets/index-BRp9PRYZ.css",
+      "bytes": 390905,
+      "sha256": "93ae001d6ad22a5ff8ab3104177e26225a3d89014e87a6c2301b6805d0972327"
+    },
+    {
+      "path": "assets/index-DtL6lQGs.js",
+      "bytes": 1439667,
+      "sha256": "f18ff47c3b3bf8c9a5ba7a27d5d2c21a7148f8cad577070903b3395500ecc156"
+    },
+    {
+      "path": "assets/item-Cpd-GpSv.webp",
+      "bytes": 21590,
+      "sha256": "7156af7fcecf5c4504e56d46a94015425acdc62bfae65906de1da206be7c1aa8"
+    },
+    {
+      "path": "assets/location-Da5zvqIW.webp",
+      "bytes": 33050,
+      "sha256": "84b105bcb0083532ee8866e9c930d24c6add859a126d5599b49c34e23ec2728c"
+    },
+    {
+      "path": "assets/monster-BASbN-2I.webp",
+      "bytes": 18808,
+      "sha256": "aa6425072ae1ea28252b3f6169e42538a8622dce9db73740a7227adb99a51264"
+    },
+    {
+      "path": "assets/power-system-DeXUYFMb.webp",
+      "bytes": 15158,
+      "sha256": "292037a18999345d2fba8fa4e8a9874f3820708d9e998d40711bd50f56dbb0bf"
+    },
+    {
+      "path": "assets/product-character-20261012-V4IPER-y.png",
+      "bytes": 80266,
+      "sha256": "3e34e75616da4951e90ced9ff5d5c43d280ec4abfb7b23ebb22dd70d7d9415da"
+    },
+    {
+      "path": "assets/product-manuscript-20261012-nxcfRqlS.png",
+      "bytes": 132838,
+      "sha256": "718e9e88b006ba325faec62cde1dac9006131004db9c483bf5aedc83a289ab1a"
+    },
+    {
+      "path": "assets/product-review-20261012-CtmLqTEW.png",
+      "bytes": 86773,
+      "sha256": "e09bd9d3b8e7a9f9c0b4dc16de99c57223e72ecb9252ee674808291e33cf5824"
+    },
+    {
+      "path": "assets/product-review-mobile-20261012-CqsqawLM.png",
+      "bytes": 76437,
+      "sha256": "99444ca4db980e967fb9f1f86d71cd7d56bf3843c718d912a065ae55d3ef485e"
+    },
+    {
+      "path": "assets/product-timeline-20261012-CyrHWL7Y.png",
+      "bytes": 35047,
+      "sha256": "6b9d78d7f0f5a783b6ab89ba860949000cd0297a591584774846311a901e3f91"
+    },
+    {
+      "path": "assets/product-world-20261012-M6NP2Y6Y.png",
+      "bytes": 69445,
+      "sha256": "c0af2c27f29b7d0b8cff8cbb3346378749f9b0c746f9f632653a7b0f2e031eee"
+    },
+    {
+      "path": "assets/race-CQwClIq8.webp",
+      "bytes": 27684,
+      "sha256": "3ea93c0a1dc4b0e017b7d6562dc23ffb10b1f95ff6ee9506f2e61521becf3dda"
+    },
+    {
+      "path": "assets/rien-fire-mage-BX4e2hl8.webp",
+      "bytes": 86352,
+      "sha256": "5f84b4e0754dfbddecf6d3826968fc99df3fd27a0ce37805864c376605c2bb9f"
+    },
+    {
+      "path": "brand/catchhole-apple-touch-v1.png",
+      "bytes": 23403,
+      "sha256": "ec5418d8eb6db124cbf2aa4bb4b4813690805d1aff606bbd4d64e988d73b58f4"
+    },
+    {
+      "path": "brand/catchhole-favicon-v1.png",
+      "bytes": 2301,
+      "sha256": "4eb70b8f89cb4b4630ca1fd5a1bf9e6644c44ae5c25c31bd6ad68c946821cae5"
+    },
+    {
+      "path": "brand/catchhole-glossy-v1.png",
+      "bytes": 167419,
+      "sha256": "b80e773d8fa1b993b54f5f442ce523fc48ecbb3ac767d53960424a0571d7f056"
+    },
+    {
+      "path": "brand/catchhole-share-v1.png",
+      "bytes": 1015366,
+      "sha256": "ba15954519509e82f0a17aa22a64ef00f73b4d1ae1c6d38d7a708d715b511496"
+    },
+    {
+      "path": "brand/catchhole-symbol.png",
+      "bytes": 27865,
+      "sha256": "ea3bec9fa1a85751cb7f13af9fbf2b8c2bdabb7caf91bebf6853e5d0172634b2"
+    },
+    {
+      "path": "brand/catchhole-wordmark.png",
+      "bytes": 132697,
+      "sha256": "7197691b5bb2649b2af08092b300a08f3b7989b3e4959f471a0f2726fb295dbd"
+    },
+    {
+      "path": "index.html",
+      "bytes": 2236,
+      "sha256": "d2cbc51054cc4c6e233c8d75c9831d58486605c0161c743ddbe9ffeae722942c"
+    },
+    {
+      "path": "landing/video-hero/README.md",
+      "bytes": 996,
+      "sha256": "9c707e58e4a71e796eddf438e39187a9c01f2977f63c05a9aee2afd96219d208"
+    },
+    {
+      "path": "landing/video-hero/last-frame.jpg",
+      "bytes": 145724,
+      "sha256": "82756c16a8aac612c435d4767ff09bf3b5f135be2da1497c3cfa0adea98458f9"
+    },
+    {
+      "path": "landing/video-hero/manuscript-25.png",
+      "bytes": 380234,
+      "sha256": "0508d211286a69588ed9030639d338fdbb6cb752513f58b9fce976f5eedd8e07"
+    },
+    {
+      "path": "landing/video-hero/poster.jpg",
+      "bytes": 159826,
+      "sha256": "4a589abc1b93e6084571618d3d51b075413e0177835ed64217e4f4aaefd93b9d"
+    },
+    {
+      "path": "landing/video-hero/writer-to-laptop.mp4",
+      "bytes": 7496722,
+      "sha256": "f8d6f853b3fbde0631bd3c3bc88734df6ff83e571c30744f4c6259af8670c340"
+    }
+  ],
+  "fileManifestSha256": "97dedbf9d3a9440d37eb74819fabd04138754407435e1f8b4c02df0f55e93caf"
+}

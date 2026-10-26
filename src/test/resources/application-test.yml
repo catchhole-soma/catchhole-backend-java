@@ -38,6 +38,8 @@ world-image:
     scheduling-enabled: false
 
 analysis:
+  notifications:
+    enabled: false
   metrics:
     scheduling-enabled: false
 

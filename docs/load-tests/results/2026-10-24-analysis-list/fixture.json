@@ -1,0 +1,64 @@
+{
+  "analysisJsonDataMd5": "0b24b03a1e8b94054e78635a4d79ebc0",
+  "batchIds": [
+    "651dff26-6e30-589a-9981-6dc04c6259ba",
+    "551540e7-15da-551b-99d2-fa32ac754bcb"
+  ],
+  "candidateEnumValues": {
+    "comparisonStatus": "COMPLETED",
+    "entityType": "CHARACTER",
+    "matchStatus": "UNRESOLVED",
+    "reviewStatus": "PENDING_REVIEW",
+    "suggestedOperation": "ADD",
+    "valueType": "STRING"
+  },
+  "characterCandidates": 398,
+  "characterCandidatesByBatch": [
+    342,
+    56
+  ],
+  "episodes": 60,
+  "fixedTimestamp": "2026-10-23T12:00:00",
+  "fixtureHashExcludes": "bcrypt salt, credentials, DB-generated auth session records",
+  "fixtureSha256": "ea6b258ed763031405d49ca9bc28a6841807c1f99a4082144d91f55f521910ed",
+  "jobs": 60,
+  "jsonEncoding": "PostgreSQL JSONB ::text; fixed PRNG base64 payload; no production data",
+  "normalizedJsonUtf8Bytes": 15460388,
+  "seed": 20261024,
+  "sourceScriptSha256": "1b2b00024ac6e9385a7e9f2c79fdfb27d01ab56ed895d28c9c7d0ed062e60ced",
+  "statusDistribution": [
+    [
+      "551540e7-15da-551b-99d2-fa32ac754bcb",
+      "FAILED",
+      "1"
+    ],
+    [
+      "551540e7-15da-551b-99d2-fa32ac754bcb",
+      "PENDING",
+      "27"
+    ],
+    [
+      "551540e7-15da-551b-99d2-fa32ac754bcb",
+      "SUCCEEDED",
+      "2"
+    ],
+    [
+      "651dff26-6e30-589a-9981-6dc04c6259ba",
+      "CANCELED",
+      "12"
+    ],
+    [
+      "651dff26-6e30-589a-9981-6dc04c6259ba",
+      "SUCCEEDED",
+      "18"
+    ]
+  ],
+  "synthetic": true,
+  "version": 2,
+  "workId": "47e524ae-e53c-5b8b-b430-905990a20f3d",
+  "worldCandidates": 409,
+  "worldCandidatesByBatch": [
+    296,
+    113
+  ]
+}

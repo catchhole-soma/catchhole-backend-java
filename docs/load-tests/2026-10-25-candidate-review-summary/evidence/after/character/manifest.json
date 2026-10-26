@@ -1,0 +1,332 @@
+{
+  "phase": "after",
+  "route": "character",
+  "jarSha256": "e73f4a5587450c772028e7adb274fb4f819c9df8ab6ad245b7e8cfeaebbf89ff",
+  "jarPath": "<BENCHMARK_ROOT>/runtime/after-final.jar",
+  "baselineBackendCommit": "64eda0e3f37a07a82616bb01733f947a03547c19",
+  "baselineFrontendCommit": "36a143391e8f330ac88c910517585a263626d3e0",
+  "pid": 76082,
+  "os": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "hostLogicalCpus": "18",
+  "hostMemoryBytes": "51539607552",
+  "jvmFlags": "76082:\n-XX:CICompilerCount=12 -XX:ConcGCThreads=4 -XX:+ExitOnOutOfMemoryError -XX:G1ConcRefinementThreads=14 -XX:G1EagerReclaimRemSetThreshold=12 -XX:G1HeapRegionSize=1048576 -XX:G1RemSetArrayOfCardsEntries=12 -XX:G1RemSetHowlMaxNumBuckets=8 -XX:G1RemSetHowlNumBuckets=4 -XX:GCDrainStackTargetSize=64 -XX:InitialHeapSize=268435456 -XX:MarkStackSize=4194304 -XX:MaxHeapSize=805306368 -XX:MaxNewSize=482344960 -XX:MinHeapDeltaBytes=1048576 -XX:MinHeapSize=268435456 -XX:NonNMethodCodeHeapSize=7602992 -XX:NonProfiledCodeHeapSize=122027624 -XX:ProfiledCodeHeapSize=122027624 -XX:ReservedCodeCacheSize=251658240 -XX:+SegmentedCodeCache -XX:SoftMaxHeapSize=805306368 -XX:+UseCompressedOops -XX:+UseG1GC -XX:-UseNUMA -XX:-UseNUMAInterleaving \n",
+  "javaVersion": "openjdk version \"21.0.12.1\" 2026-08-18 LTS\nOpenJDK Runtime Environment Microsoft-14941480 (build 21.0.12.1+1-LTS)\nOpenJDK 64-Bit Server VM Microsoft-14941480 (build 21.0.12.1+1-LTS, mixed mode, sharing)\n",
+  "postgresVersion": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+  "databaseContainerLimits": {
+    "NanoCpus": 0,
+    "Memory": 0,
+    "MemorySwap": 0,
+    "CpuQuota": 0,
+    "CpuPeriod": 0,
+    "CpusetCpus": "",
+    "ShmSize": 67108864
+  },
+  "fixture": {
+    "analysisJsonDataMd5": "2d2620618d71cfb47daeac37bdd7bd13",
+    "batchId": "10fe7b4b-0093-5a1f-be13-aa729499dbd8",
+    "characterCandidateDataMd5": "72154988e327f1cecc85e7995a06ce6d",
+    "characterCandidates": 585,
+    "episodes": 30,
+    "fixedTimestamp": "2026-10-25T12:00:00",
+    "fixtureHashExcludes": "bcrypt salt, private credentials and auth records",
+    "fixtureSha256": "c5b56934b0b58c13995388d0c8d4a3ad1641acd2fbd65d30daad2309ad5f75e4",
+    "jobIds": [
+      "1735c13c-3323-59e3-bb76-0b84b1af4e55",
+      "a57fa758-3752-5dba-b24c-f40fe026892d",
+      "5b147788-1757-5a90-ab8c-1361cd1248d9",
+      "5db30b3e-ba4b-5a29-8325-0d2a5cbc8991",
+      "fada7e34-850e-556e-a41c-9470e8eaff4a",
+      "16792634-9b95-5694-848a-d694cb7c7211",
+      "5ddb08e5-9014-522a-ab6b-636f4f54069e",
+      "563a8258-a224-5b2f-8a73-c125735aa4b2",
+      "9e75fcd2-be59-53f0-a0ca-a89d0d2379e9",
+      "879d244c-1617-54ae-bd9b-bca7c1345f11",
+      "3a23714b-44d6-5f8c-9651-b2ffb5def5e0",
+      "5ae09aae-cef9-5cea-aeac-8720553d8f32",
+      "b763a5cc-36e0-5426-9d33-ddf499a53593",
+      "2e6b7aec-8be4-56ee-8a8a-b940342b7232",
+      "a0584904-c67d-5470-a5cb-c8bdeadc6771",
+      "79c2da2c-2e06-5026-a99e-1cc7d7e82ac3",
+      "2f39ae86-80aa-59fb-981d-ad3757f7d238",
+      "8b957cb4-42e6-52f9-8dd2-5e702289e7d4",
+      "dae41f97-a77b-562d-a611-4ec8c3543309",
+      "60f0149f-2a4b-5758-9329-75210fd2a2b6",
+      "d72192a5-a30c-5a3d-a830-aa2075eac67e",
+      "fa2991f3-9539-52cc-96eb-39d5b343a1c3",
+      "ae143e43-80d9-5492-8229-29a55de24c31",
+      "4b5f5785-964c-5f47-9186-4ba43f6193f6",
+      "d1897920-5df4-507f-82ae-8d8fc4e465db",
+      "33f3c801-f43d-5b5e-b9d4-fa7b979ef23e",
+      "0ab83879-2d9e-551e-8cc8-cd9bf674f169",
+      "a2707297-ac05-5854-8bdf-0280cafb6711",
+      "23645c3c-e1fa-536e-81c3-1048a35c97e7",
+      "2c12fbe4-05d7-5a57-9710-b599e88c3ffb"
+    ],
+    "jobs": 30,
+    "jsonEncoding": "PostgreSQL JSONB::text UTF-8; nested synthetic characters/world settings with fixed-PRNG short evidence; no production data",
+    "nestedStructures": [
+      {
+        "characters": 42,
+        "episodeNo": 1,
+        "evidenceExtensionBytes": 73782,
+        "jsonBytes": 300000,
+        "worldSettings": 11
+      },
+      {
+        "characters": 100,
+        "episodeNo": 2,
+        "evidenceExtensionBytes": 81341,
+        "jsonBytes": 350000,
+        "worldSettings": 25
+      },
+      {
+        "characters": 114,
+        "episodeNo": 3,
+        "evidenceExtensionBytes": 93535,
+        "jsonBytes": 400000,
+        "worldSettings": 29
+      },
+      {
+        "characters": 128,
+        "episodeNo": 4,
+        "evidenceExtensionBytes": 106175,
+        "jsonBytes": 450000,
+        "worldSettings": 32
+      },
+      {
+        "characters": 142,
+        "episodeNo": 5,
+        "evidenceExtensionBytes": 118369,
+        "jsonBytes": 500000,
+        "worldSettings": 36
+      },
+      {
+        "characters": 157,
+        "episodeNo": 6,
+        "evidenceExtensionBytes": 127990,
+        "jsonBytes": 550000,
+        "worldSettings": 40
+      },
+      {
+        "characters": 171,
+        "episodeNo": 7,
+        "evidenceExtensionBytes": 140630,
+        "jsonBytes": 600000,
+        "worldSettings": 43
+      },
+      {
+        "characters": 185,
+        "episodeNo": 8,
+        "evidenceExtensionBytes": 152824,
+        "jsonBytes": 650000,
+        "worldSettings": 47
+      },
+      {
+        "characters": 200,
+        "episodeNo": 9,
+        "evidenceExtensionBytes": 162891,
+        "jsonBytes": 700000,
+        "worldSettings": 50
+      },
+      {
+        "characters": 214,
+        "episodeNo": 10,
+        "evidenceExtensionBytes": 174870,
+        "jsonBytes": 750000,
+        "worldSettings": 54
+      },
+      {
+        "characters": 228,
+        "episodeNo": 11,
+        "evidenceExtensionBytes": 186469,
+        "jsonBytes": 800000,
+        "worldSettings": 57
+      },
+      {
+        "characters": 242,
+        "episodeNo": 12,
+        "evidenceExtensionBytes": 198585,
+        "jsonBytes": 850000,
+        "worldSettings": 61
+      },
+      {
+        "characters": 257,
+        "episodeNo": 13,
+        "evidenceExtensionBytes": 208123,
+        "jsonBytes": 900000,
+        "worldSettings": 65
+      },
+      {
+        "characters": 271,
+        "episodeNo": 14,
+        "evidenceExtensionBytes": 220687,
+        "jsonBytes": 950000,
+        "worldSettings": 68
+      },
+      {
+        "characters": 285,
+        "episodeNo": 15,
+        "evidenceExtensionBytes": 232803,
+        "jsonBytes": 1000000,
+        "worldSettings": 72
+      },
+      {
+        "characters": 300,
+        "episodeNo": 16,
+        "evidenceExtensionBytes": 242789,
+        "jsonBytes": 1050000,
+        "worldSettings": 75
+      },
+      {
+        "characters": 314,
+        "episodeNo": 17,
+        "evidenceExtensionBytes": 254905,
+        "jsonBytes": 1100000,
+        "worldSettings": 79
+      },
+      {
+        "characters": 328,
+        "episodeNo": 18,
+        "evidenceExtensionBytes": 267469,
+        "jsonBytes": 1150000,
+        "worldSettings": 82
+      },
+      {
+        "characters": 342,
+        "episodeNo": 19,
+        "evidenceExtensionBytes": 279585,
+        "jsonBytes": 1200000,
+        "worldSettings": 86
+      },
+      {
+        "characters": 357,
+        "episodeNo": 20,
+        "evidenceExtensionBytes": 289123,
+        "jsonBytes": 1250000,
+        "worldSettings": 90
+      },
+      {
+        "characters": 371,
+        "episodeNo": 21,
+        "evidenceExtensionBytes": 301687,
+        "jsonBytes": 1300000,
+        "worldSettings": 93
+      },
+      {
+        "characters": 385,
+        "episodeNo": 22,
+        "evidenceExtensionBytes": 313803,
+        "jsonBytes": 1350000,
+        "worldSettings": 97
+      },
+      {
+        "characters": 400,
+        "episodeNo": 23,
+        "evidenceExtensionBytes": 323789,
+        "jsonBytes": 1400000,
+        "worldSettings": 100
+      },
+      {
+        "characters": 414,
+        "episodeNo": 24,
+        "evidenceExtensionBytes": 335905,
+        "jsonBytes": 1450000,
+        "worldSettings": 104
+      },
+      {
+        "characters": 428,
+        "episodeNo": 25,
+        "evidenceExtensionBytes": 348469,
+        "jsonBytes": 1500000,
+        "worldSettings": 107
+      },
+      {
+        "characters": 442,
+        "episodeNo": 26,
+        "evidenceExtensionBytes": 360585,
+        "jsonBytes": 1550000,
+        "worldSettings": 111
+      },
+      {
+        "characters": 457,
+        "episodeNo": 27,
+        "evidenceExtensionBytes": 370123,
+        "jsonBytes": 1600000,
+        "worldSettings": 115
+      },
+      {
+        "characters": 471,
+        "episodeNo": 28,
+        "evidenceExtensionBytes": 382687,
+        "jsonBytes": 1650000,
+        "worldSettings": 118
+      },
+      {
+        "characters": 485,
+        "episodeNo": 29,
+        "evidenceExtensionBytes": 394803,
+        "jsonBytes": 1700000,
+        "worldSettings": 122
+      },
+      {
+        "characters": 914,
+        "episodeNo": 30,
+        "evidenceExtensionBytes": 742674,
+        "jsonBytes": 3201769,
+        "worldSettings": 229
+      }
+    ],
+    "normalizedJsonUtf8Bytes": 32201769,
+    "pendingCharacterCandidates": 123,
+    "pendingCharacterGroups": 9,
+    "pendingCharacterSourceJobs": 23,
+    "pendingWorldCandidates": 62,
+    "repeatedAnalysisJsonBytes": [
+      [
+        "character",
+        585,
+        123,
+        593276535
+      ],
+      [
+        "world",
+        637,
+        62,
+        679387149
+      ]
+    ],
+    "runId": "e85685a3-2098-51d8-9baa-d32ddabf590a",
+    "seed": 20261025,
+    "statusDistribution": [
+      [
+        "SUCCEEDED",
+        "SEALED",
+        30,
+        32201769,
+        30
+      ]
+    ],
+    "synthetic": true,
+    "version": 1,
+    "workId": "32dbd752-8b1e-5ac4-8bfc-21f68e7ce40f",
+    "worldCandidateDataMd5": "6d7af8251e74f5a69f94e988d7222505",
+    "worldCandidates": 637
+  },
+  "scriptSha256": {
+    "fixture.py": "c8fd859dbe90fdf994e1daf7cb06c5bd113ef9774ae0944e856aee4d266d17fb",
+    "measure.py": "e0c18332ec5a9656baecca5bde7cc46ab3f2351edd7f184200d90e6b6f754fd3",
+    "run-api.sh": "2d2078000878072a9ae007732e69f3a221c5928f69170259f301a9cd1ec9b8be",
+    "run.py": "18c9eaf38f2da050e2bdd3ce36d8091bd07aaf7ca023c758652802e760e7e4b5",
+    "browser.mjs": "c6769237ef2331c7a6a0203a65fb55896f3618c92f6cc762febe3390508541fc",
+    "capture-sql.py": "4149436b977946a00e8d4f9c5bc1ecb113e72286316c1c156b94d4995aa9c4f3",
+    "setup-runtime.py": "44a9fdbb49e8870c4d4c06de2540087855d930858ffc9238594a57e02e9ea289",
+    "README.md": "73cf3d4dba43568e4ac89999dd32f4849eb8a1362008ef74c6ab75878ff29b5d",
+    "check-equality.py": "2dd78c7a662a80eb784aecbe0f80911164dd6a96d3f7598d74309a303c76693f",
+    "fixture-state.py": "a734585ef1b9b9c7344a920118e5d09120e8ffef0cdfdc02c1aacb51917e0f2e",
+    "sample-resources.py": "b0cee00df8da353dc427a140659e854c816def1b68bca4f58c7c93969d98c22d"
+  },
+  "cacheProtocol": "Fresh Java per route; 3 sequential warmup requests then 30 measured requests. OS/DB caches not reset. No concurrent builds/tests or SQL debug.",
+  "resourceSampling": "RSS KiB and jstat -gc every 0.5s; observed peaks only; GC collector time is not pause time",
+  "isolation": "localhost PG27432/API29480/FE3440; native Xms256m/Xmx768m; ExitOnOutOfMemoryError; no worker, dotenv, compose, tracing or schedulers"
+}

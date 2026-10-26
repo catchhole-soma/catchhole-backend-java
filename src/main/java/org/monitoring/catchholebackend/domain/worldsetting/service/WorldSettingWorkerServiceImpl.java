@@ -81,7 +81,6 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
 
     private static final int CLAIM_SIZE = 1;
     private static final int MAX_BATCH_CANDIDATES = 20;
-    private static final int MAX_BATCH_INPUT_CHARACTERS = 30_000;
     private static final int MAX_FUZZY_SUBJECT_TARGETS = 3;
     private static final String STALE_SUBJECT_RESOLUTION_RESET_MESSAGE =
             "canonical 주체 해소 대상이 변경되어 다시 해소해야 합니다.";
@@ -209,12 +208,21 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
             UUID analysisJobId,
             UUID leaseToken
     ) {
+        return claimNextWorldSettingComparisonBatch(analysisJobId, leaseToken, false);
+    }
+
+    @org.springframework.transaction.annotation.Transactional(noRollbackFor = org.monitoring.catchholebackend.domain.worldsetting.exception.OrderedWorldSettingComparisonClaimException.class)
+    public Optional<WorkerWorldSettingComparisonBatchPayload>
+            claimNextWorldSettingComparisonBatch(
+            UUID analysisJobId,
+            UUID leaseToken, boolean includeReferenceSelection
+    ) {
         AnalysisJob analysisJob = analysisJobLeaseService.getRunningAnalysisJobForUpdate(
                 analysisJobId,
                 leaseToken
         );
         if (analysisJob.isOrderedProvisional()) {
-            return orderedWorker.claimBatch(analysisJob);
+            return orderedWorker.claimBatch(analysisJob, includeReferenceSelection);
         }
         if (analysisJob.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON) {
             WorldSettingCandidate candidate = lockLinkedCandidate(analysisJob);
@@ -294,12 +302,21 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
             UUID analysisJobId,
             UUID leaseToken
     ) {
+        return getPendingWorldSettingSubjectResolutions(analysisJobId, leaseToken, false);
+    }
+
+    @org.springframework.transaction.annotation.Transactional
+    public WorkerWorldSettingSubjectResolutionPendingResponse
+            getPendingWorldSettingSubjectResolutions(
+            UUID analysisJobId,
+            UUID leaseToken, boolean includeReferenceSelection
+    ) {
         AnalysisJob analysisJob = analysisJobLeaseService.getRunningAnalysisJobForUpdate(
                 analysisJobId,
                 leaseToken
         );
         if (analysisJob.isOrderedProvisional()) {
-            return orderedWorker.getPendingSubjects(analysisJob);
+            return orderedWorker.getPendingSubjects(analysisJob, includeReferenceSelection);
         }
         List<WorldSettingCandidate> candidates = subjectResolutionCandidates(analysisJob);
         return worldSettingWorkerMapper.toSubjectResolutionPendingResponse(
@@ -414,12 +431,23 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
             UUID leaseToken,
             WorkerWorldSettingComparisonBatchContextRequest request
     ) {
+        return getWorldSettingComparisonBatchContext(analysisJobId, comparisonBatchId, leaseToken, request, false);
+    }
+
+    @org.springframework.transaction.annotation.Transactional
+    public WorkerWorldSettingComparisonBatchContextResponse
+            getWorldSettingComparisonBatchContext(
+            UUID analysisJobId,
+            UUID comparisonBatchId,
+            UUID leaseToken,
+            WorkerWorldSettingComparisonBatchContextRequest request, boolean includeReferenceSelection
+    ) {
         AnalysisJob analysisJob = analysisJobLeaseService.getRunningAnalysisJobForUpdate(
                 analysisJobId,
                 leaseToken
         );
         if (analysisJob.isOrderedProvisional()) {
-            return orderedWorker.getContext(analysisJob, comparisonBatchId, request);
+            return orderedWorker.getContext(analysisJob, comparisonBatchId, request, includeReferenceSelection);
         }
         WorldSettingComparisonBatch batch = getOwnedComparisonBatchForUpdate(
                 analysisJob,
@@ -1326,8 +1354,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
     }
 
     private boolean exceedsComparisonBatchLimit(List<WorldSettingCandidate> candidates) {
-        return candidates.size() > MAX_BATCH_CANDIDATES
-                || estimatedInputCharacters(candidates) > MAX_BATCH_INPUT_CHARACTERS;
+        return candidates.size() > MAX_BATCH_CANDIDATES;
     }
 
     private int estimatedInputCharacters(List<WorldSettingCandidate> candidates) {

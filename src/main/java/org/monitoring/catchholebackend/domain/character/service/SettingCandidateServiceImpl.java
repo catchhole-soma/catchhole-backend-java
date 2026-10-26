@@ -1,5 +1,7 @@
 package org.monitoring.catchholebackend.domain.character.service;
 
+import org.monitoring.catchholebackend.domain.analysis.repository.CandidateReviewJobMetadata;
+
 import org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -123,13 +125,13 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             UUID sourceAnalysisJobId
     ) {
         Work work = workRepository.getOwnedWork(workId, memberId);
-        reviewSources.validate(work, batchId, sourceAnalysisJobId, false);
+        var source = reviewSources.validateRead(work, batchId, sourceAnalysisJobId);
         uploadBatchRepository.findByIdAndWorkId(batchId, work.getId())
                 .orElseThrow(() -> new AppException(CharacterErrorCode.SETTING_CANDIDATE_BATCH_NOT_FOUND));
 
-        List<SettingCandidate> candidates = (sourceAnalysisJobId == null ? settingCandidateRepository.findReviewCandidates(work.getId(), batchId, reviewStatus, matchStatuses == null || matchStatuses.isEmpty()
+        List<SettingCandidate> candidates = (sourceAnalysisJobId == null ? settingCandidateRepository.findReviewListCandidates(work.getId(), batchId, reviewStatus, matchStatuses == null || matchStatuses.isEmpty()
                         ? EnumSet.allOf(SettingCandidateMatchStatus.class)
-                        : EnumSet.copyOf(matchStatuses)) : settingCandidateRepository.findReviewCandidates(
+                        : EnumSet.copyOf(matchStatuses)) : settingCandidateRepository.findReviewListCandidates(
                 work.getId(),
                 batchId,
                 reviewStatus,
@@ -138,9 +140,9 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                         : EnumSet.copyOf(matchStatuses)
         , sourceAnalysisJobId));
         Page<SettingCandidate> candidatePage = includeLegacyCandidates
-                ? (sourceAnalysisJobId == null ? settingCandidateRepository.findReviewPage(work.getId(), batchId, reviewStatus, matchStatuses == null || matchStatuses.isEmpty()
+                ? (sourceAnalysisJobId == null ? settingCandidateRepository.findReviewListPage(work.getId(), batchId, reviewStatus, matchStatuses == null || matchStatuses.isEmpty()
                                 ? EnumSet.allOf(SettingCandidateMatchStatus.class)
-                                : EnumSet.copyOf(matchStatuses), PageRequest.of(page, size)) : settingCandidateRepository.findReviewPage(
+                                : EnumSet.copyOf(matchStatuses), PageRequest.of(page, size)) : settingCandidateRepository.findReviewListPage(
                         work.getId(),
                         batchId,
                         reviewStatus,
@@ -150,6 +152,14 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                         PageRequest.of(page, size)
                 , sourceAnalysisJobId))
                 : null;
+        Set<UUID> jobIds = new java.util.HashSet<>();
+        java.util.stream.Stream.concat(candidates.stream(), candidatePage == null ? java.util.stream.Stream.empty() : candidatePage.stream())
+                .forEach(candidate -> {
+                    if (candidate.getAnalysisJob() != null) jobIds.add(candidate.getAnalysisJob().getId());
+                    if (candidate.getCharacterComparisonBatch() != null)
+                        jobIds.add(candidate.getCharacterComparisonBatch().getAnalysisJob().getId());
+                });
+        var metadata = reviewSources.readMetadata(jobIds, source);
         SettingCandidateBatchCounts counts = (sourceAnalysisJobId == null ? settingCandidateRepository.countReviewSummary(work.getId(), batchId, SettingCandidateReviewStatus.PENDING_REVIEW, SettingCandidateMatchStatus.AMBIGUOUS, EnumSet.of(CharacterFactComparisonStatus.FAILED, CharacterFactComparisonStatus.RECOMPARISON_REQUIRED)) : settingCandidateRepository.countReviewSummary(
                 work.getId(),
                 batchId,
@@ -158,7 +168,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                 EnumSet.of(CharacterFactComparisonStatus.FAILED, CharacterFactComparisonStatus.RECOMPARISON_REQUIRED)
         , sourceAnalysisJobId));
         AnalysisJobEpisodeRange episodeRange =
-                reviewSources.episodeRange(work, batchId, sourceAnalysisJobId);
+                reviewSources.episodeRangeRead(work, batchId, source);
         List<CharacterSettingSchema> schemas =
                 characterSettingSchemaRepository.findAllActiveForWork(work.getId());
 
@@ -179,7 +189,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         // 그룹 key를 먼저 페이지로 자른 뒤 선택된 그룹만 DTO로 변환한다.
         // 현재 snapshot 미리보기에서 발생하는 provenance 조회도 요청한 페이지 수에 비례하게 유지된다.
         List<SettingCandidateGroupResponse> pagedGroups = orderedGroups.subList(fromIndex, toIndex).stream()
-                .map(entry -> toGroupResponse(entry.getKey(), entry.getValue(), schemas))
+                .map(entry -> toGroupResponse(entry.getKey(), entry.getValue(), schemas, metadata))
                 .toList();
         PageResponse<SettingCandidateGroupResponse> groupPage = new PageResponse<>(
                 pagedGroups,
@@ -210,7 +220,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                         : PageResponse.from(
                                 candidatePage,
                                 candidatePage.getContent().stream()
-                                        .map(candidate -> toReviewListResponse(candidate, schemas))
+                                        .map(candidate -> toReviewListResponse(candidate, schemas, metadata))
                                         .toList()
                         )
         );
@@ -1801,25 +1811,27 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
 
     private SettingCandidateResponse toReviewListResponse(
             SettingCandidate candidate,
-            List<CharacterSettingSchema> schemas
+            List<CharacterSettingSchema> schemas,
+            Map<UUID, CandidateReviewJobMetadata> metadata
     ) {
-        CandidateResponseMetadata metadata = resolveResponseMetadata(candidate, schemas);
+        CandidateResponseMetadata responseMetadata = resolveResponseMetadata(candidate, schemas);
         return settingCandidateMapper.toReviewListResponse(
                 candidate,
-                metadata.attributeNameEditable(),
-                metadata.attributeNamePrefix(),
-                metadata.valueValidation(),
-                metadata.attributeDisplayName()
+                responseMetadata.attributeNameEditable(),
+                responseMetadata.attributeNamePrefix(),
+                responseMetadata.valueValidation(),
+                responseMetadata.attributeDisplayName(), metadata
         );
     }
 
     private SettingCandidateGroupResponse toGroupResponse(
             String groupKey,
             List<SettingCandidate> candidates,
-            List<CharacterSettingSchema> schemas
+            List<CharacterSettingSchema> schemas,
+            Map<UUID, CandidateReviewJobMetadata> metadata
     ) {
         List<SettingCandidateResponse> responses = candidates.stream()
-                .map(candidate -> toReviewListResponse(candidate, schemas))
+                .map(candidate -> toReviewListResponse(candidate, schemas, metadata))
                 .toList();
         List<Integer> evidenceEpisodeNos = candidates.stream()
                 .map(SettingCandidate::getEpisode)

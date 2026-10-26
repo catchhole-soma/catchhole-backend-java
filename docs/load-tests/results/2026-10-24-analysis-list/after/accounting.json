@@ -1,0 +1,127 @@
+{
+  "benchmarkCompletedAtEpochSeconds": 1792776417.7367404,
+  "completionClockSource": "summary.json filesystem mtime immediately after runner final write",
+  "pageSampleAccounting": {
+    "warmup": 3,
+    "navigation": 20,
+    "reload-setup": 5,
+    "double-reload": 10
+  },
+  "apiSampleAccounting": {
+    "initial-cold-jvm-request": 1,
+    "warmup": 3,
+    "measured": 30
+  },
+  "pageFailures": 0,
+  "apiFailures": 0,
+  "uniqueMeasuredTimeOrigins": 20,
+  "playwrightRequestsAllSamples": 380,
+  "censored": 0,
+  "collectorErrors": 0,
+  "finishedAfterReady": 38,
+  "cdpPreflightsAllSamples": 114,
+  "preflightFailures": 0,
+  "preflightTransferBytes": "not fully observable; encodedDataLength=0 does not mean zero wire bytes",
+  "apiPerMeasuredNavigation": {
+    "n": 20,
+    "median": 3.0,
+    "p95": 3,
+    "max": 3
+  },
+  "encodedApiResponseBodyBytesPerNavigation": {
+    "n": 20,
+    "median": 7887.0,
+    "p95": 7887,
+    "max": 7887
+  },
+  "observedApiResponseHeaderBytesPerNavigation": {
+    "n": 20,
+    "median": 1852.0,
+    "p95": 1852,
+    "max": 1852
+  },
+  "allPlaywrightResponseBodyBytesPerNavigation": {
+    "n": 20,
+    "median": 2841333.0,
+    "p95": 2841357,
+    "max": 2841387
+  },
+  "routes": {
+    "GET /auth/me": {
+      "observations": 20,
+      "callsPerNavigation": 1.0,
+      "statusCounts": {
+        "200": 20
+      },
+      "encodedResponseBodyBytes": {
+        "n": 20,
+        "median": 321.0,
+        "p95": 321,
+        "max": 321
+      },
+      "responseEndMs": {
+        "n": 20,
+        "median": 7.584,
+        "p95": 8.04,
+        "max": 8.162
+      }
+    },
+    "GET /works/:id/analysis-jobs/batches": {
+      "observations": 20,
+      "callsPerNavigation": 1.0,
+      "statusCounts": {
+        "200": 20
+      },
+      "encodedResponseBodyBytes": {
+        "n": 20,
+        "median": 7206.0,
+        "p95": 7206,
+        "max": 7206
+      },
+      "responseEndMs": {
+        "n": 20,
+        "median": 18.6315,
+        "p95": 21.299,
+        "max": 21.509
+      }
+    },
+    "GET /works": {
+      "observations": 20,
+      "callsPerNavigation": 1.0,
+      "statusCounts": {
+        "200": 20
+      },
+      "encodedResponseBodyBytes": {
+        "n": 20,
+        "median": 360.0,
+        "p95": 360,
+        "max": 360
+      },
+      "responseEndMs": {
+        "n": 20,
+        "median": 7.037,
+        "p95": 7.913,
+        "max": 7.925
+      }
+    }
+  },
+  "resources": {
+    "rawSamples": 167,
+    "measurementWindowSamples": 167,
+    "unavailableSamples": 0,
+    "measurementWindowPeakRssMiB": 895.859375,
+    "measurementWindowPeakHeapUsedMiB": 348.57666015625,
+    "rawWindowPeakRssMiB": 895.859375,
+    "rawWindowPeakHeapUsedMiB": 348.57666015625,
+    "gcJstatDelta": {
+      "YGC": 1.0,
+      "YGCT": 0.0040000000000000036,
+      "FGC": 0,
+      "FGCT": 0,
+      "CGC": 0.0,
+      "CGCT": 0.0,
+      "GCT": 0.0040000000000000036
+    }
+  },
+  "reloadProtocol": "5 sets of two serial reloads; each waits for ready/load+drain before the next reload; no concurrent-load/OOM-reproduction claim"
+}

@@ -579,28 +579,72 @@ class OrderedWorldSettingWorkerTest {
         assertThat(pending).allMatch(value -> value.getComparisonStatus() == WorldSettingComparisonStatus.PROCESSING);
     }
 
-    @Test
-    @DisplayName("세계관 후보 하나가 너무 길면 보류하고 뒤의 정상 후보 비교를 계속한다")
-    void automaticOversizedCandidateDoesNotBlockLaterCandidate() {
-        ReflectionTestUtils.setField(job, "reviewMode", AnalysisReviewMode.AUTOMATIC);
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("긴 세계관 후보도 원문 순서대로 Worker에 전달해 실제 토큰 한도를 검사한다")
+    void oversizedCandidateIsClaimedForWorkerTokenValidation(boolean automatic) {
+        ReflectionTestUtils.setField(job, "reviewMode", automatic ? AnalysisReviewMode.AUTOMATIC : AnalysisReviewMode.MANUAL);
         var large = pendingCandidate("긴 설정", "가".repeat(31000), true);
         var normal = pendingCandidate("정상 설정", "정상", true);
         stubPending(List.of(large, normal));
         var claimed = worker.claimBatch(job).orElseThrow();
-        assertThat(claimed.candidates()).extracting(value -> value.candidateId()).containsExactly(normal.getId());
-        assertThat(large.canDeferFailedComparison()).isTrue();
+        assertThat(claimed.candidates()).extracting(value -> value.candidateId()).containsExactly(large.getId(), normal.getId());
+        assertThat(large.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.PROCESSING);
+        assertThat(claimed.candidates().getFirst().extractedValue()).isEqualTo("가".repeat(31000));
     }
 
     @Test
-    @DisplayName("기존 세계관 비교 문맥이 너무 커도 해당 후보만 보류한다")
-    void automaticOversizedContextIsDeferredBeforeWorkerReceivesBatch() {
+    @DisplayName("기존 세계관 문맥이 3만 자를 넘어도 비교 후보를 claim한다")
+    void automaticOversizedContextIsClaimedForWorkerTokenValidation() {
         ReflectionTestUtils.setField(job, "reviewMode", AnalysisReviewMode.AUTOMATIC);
         ((ObjectNode) state.get().path("worldSettings").path(key).path("propertiesJson")).put("장문", "가".repeat(31000));
         var pending = pendingCandidate("설정", "짧은 값", true);
         stubPending(List.of(pending));
-        assertThat(worker.claimBatch(job)).isEmpty();
-        assertThat(pending.canDeferFailedComparison()).isTrue();
-        assertThat(pending.getComparisonBatch()).isNull();
+        assertThat(worker.claimBatch(job)).isPresent();
+        assertThat(pending.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.PROCESSING);
+        assertThat(pending.getComparisonBatch()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("큰 문맥도 절단 없이 전달하며 완료 시 문맥 토큰 검증을 유지한다")
+    void oversizedContextStillPreservesFreshnessValidation() {
+        ((ObjectNode) state.get().path("worldSettings").path(key).path("propertiesJson"))
+                .put("장문", "가".repeat(31000));
+        var context = worker.getContext(job, batch.getId(), new WorkerWorldSettingComparisonBatchContextRequest(List.of(), List.of(key)));
+        assertThat(context.targets().getFirst().properties()).anySatisfy(property -> {
+            assertThat(property.settingName()).isEqualTo("장문");
+            assertThat(property.value()).hasSize(31000);
+        });
+        ((ObjectNode) state.get().path("worldSettings").path(key).path("propertiesJson")).put("장문", "변경됨");
+        assertThatThrownBy(() -> worker.completeBatch(job, batch.getId(), request(context.contextToken(), WorldSettingConsolidationStatus.SINGLE)))
+                .isInstanceOf(AppException.class);
+        verifyNoInteractions(decisions, sources);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"북부 설원", "북부 설원\n남부 산맥"})
+    @DisplayName("Worker 토큰 초과 보류는 원본값과 출처를 보존하고 현재 설정을 바꾸지 않는다")
+    void tokenLimitReviewPreservesSourceAndCurrentState(String value) {
+        ReflectionTestUtils.setField(candidate, "extractedValue", value);
+        var context = worker.getContext(job, batch.getId(), new WorkerWorldSettingComparisonBatchContextRequest(List.of(), List.of(key)));
+        String before = journal.hash(state.get().path("worldSettings"));
+        var status = value.contains("\n") ? WorldSettingConsolidationStatus.CONFLICT : WorldSettingConsolidationStatus.SINGLE;
+        var review = new WorkerWorldSettingComparisonBatchCompleteRequest(List.of(new ContextVersion(null, 1, key)),
+                List.of(new Decision("D1", List.of("C1"), "설인", null, null, null, List.of(), status,
+                        WorldSettingSuggestedOperation.REVIEW_REQUIRED, WorldSettingComparisonReviewReason.BATCH_LIMIT_EXCEEDED,
+                        candidate.getScopeName(), candidate.getSettingName(), value, "입력 토큰 한도를 초과했습니다.", Map.of(), key)),
+                Map.of(), context.contextToken());
+        worker.completeBatch(job, batch.getId(), review);
+        worker.completeBatch(job, batch.getId(), review);
+        assertThat(candidate.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.COMPLETED);
+        assertThat(candidate.getComparisonReviewReason()).isEqualTo(WorldSettingComparisonReviewReason.BATCH_LIMIT_EXCEEDED);
+        assertThat(journal.hash(state.get().path("worldSettings"))).isEqualTo(before);
+        assertThat(state.get().path("references").size()).isEqualTo(1);
+        var reference = state.get().path("references").elements().next();
+        assertThat(reference.path("comparisonReviewReason").asText()).isEqualTo("BATCH_LIMIT_EXCEEDED");
+        assertThat(reference.path("confirmationStatus").asText()).isEqualTo("UNCONFIRMED");
+        assertThat(reference.path("value").asText()).isEqualTo(value);
+        verify(decisions, times(1)).saveAndFlush(any());
     }
 
     @Test

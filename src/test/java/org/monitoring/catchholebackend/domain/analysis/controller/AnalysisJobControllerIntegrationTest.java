@@ -1073,7 +1073,10 @@ class AnalysisJobControllerIntegrationTest {
         AnalysisJob supersededCharacterComparisonJob = analysisJobRepository
                 .findById(characterComparisonJob.getId())
                 .orElseThrow();
-        assertThat(supersededCharacterComparisonJob.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
+        assertThat(supersededCharacterComparisonJob.getStatus()).isEqualTo(AnalysisJobStatus.CANCELED);
+        assertThat(supersededCharacterComparisonJob.getLeaseToken()).isNull();
+        assertThat(supersededCharacterComparisonJob.getLeaseExpiresAt()).isNull();
+        assertThat(supersededCharacterComparisonJob.getFailureCode()).isNull();
         assertThat(supersededCharacterComparisonJob.getSettingCandidate()).isNull();
         assertThat(aiTokenUsageRepository.findById(characterComparisonUsageRequestId))
                 .get()
@@ -1086,7 +1089,10 @@ class AnalysisJobControllerIntegrationTest {
         AnalysisJob supersededComparisonJob = analysisJobRepository
                 .findById(worldComparisonJob.getId())
                 .orElseThrow();
-        assertThat(supersededComparisonJob.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
+        assertThat(supersededComparisonJob.getStatus()).isEqualTo(AnalysisJobStatus.CANCELED);
+        assertThat(supersededComparisonJob.getLeaseToken()).isNull();
+        assertThat(supersededComparisonJob.getLeaseExpiresAt()).isNull();
+        assertThat(supersededComparisonJob.getFailureCode()).isNull();
         assertThat(supersededComparisonJob.getWorldSettingCandidate()).isNull();
         assertThat(aiTokenUsageRepository.findById(comparisonUsageRequestId))
                 .get()
@@ -1297,6 +1303,22 @@ class AnalysisJobControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.content[0].jobGroups[0].totalJobCount").value(2))
                 .andExpect(jsonPath("$.data.content[0].jobGroups[0].pendingJobCount").value(1))
                 .andExpect(jsonPath("$.data.content[0].jobGroups[0].succeededJobCount").value(1));
+    }
+
+    @Test
+    @DisplayName("회차 카드 요약만으로 출처 조회 없이 현재 작업과 상태를 제공한다")
+    void getAnalysisBatchesProvidesEpisodeCardSummary() throws Exception {
+        AnalysisJob job = analysisJobRepository.save(AnalysisJob.create(
+                work, uploadBatch, firstEpisode, AnalysisJobType.SETTING_EXTRACTION));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].episodeStatus").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.data.content[0].episodeJobGroups[0].totalJobCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].episodeJobGroups[0].currentAnalysisJobIds[0]")
+                        .value(job.getId().toString()))
+                .andExpect(jsonPath("$.data.content[0].settingBooks", hasSize(0)));
     }
 
     @Test
