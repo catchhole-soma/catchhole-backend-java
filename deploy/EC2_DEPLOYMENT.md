@@ -7,7 +7,7 @@ OpenTelemetry Java Agent의 이미지 포함·기본 OFF·사설 전송·단계�
 
 2026-09-10에 분리 운영과 SHA 이미지 실행을 확인했다. 실제 사양·연결·백업·비용 및 확인 방법은 [운영 현황표](../docs/operations-status-2026-09-10.md)를 참고한다. 이 문서의 최초 데이터 전환·초기화·기존 PostgreSQL 중지 절차는 당시의 전환 안내이며, 현재 운영의 일반 재배포 절차는 **GitHub Actions 자동 배포** 항목이다. 과거 안내에 적힌 모든 보존·정리 작업의 실제 수행 여부를 이번 점검에서 확인한 것은 아니다.
 
-현재 RDS의 RPO·RTO 목표, 백업 보존·삭제 보호, 계획 삭제 시 최종 스냅샷 절차와 확인 권한은 [RDS 백업·삭제 보호 정책](../docs/rds-backup-policy.md)을 따른다. RTO 12시간은 미실측 목표이며 운영 DB 복원·전환을 이 배포 문서의 일반 재배포 절차로 실행하지 않는다.
+현재 RDS의 RPO·RTO 목표, 백업 보존·삭제 보호, 계획 삭제 시 최종 스냅샷 절차와 확인 권한은 [RDS 백업·삭제 보호 정책](../docs/rds-backup-policy.md)을 따른다. RTO 2시간은 미실측 목표이며 운영 DB 복원·전환을 이 배포 문서의 일반 재배포 절차로 실행하지 않는다.
 
 ## 서버 파일
 
@@ -153,7 +153,7 @@ DATABASE_POOL_MINIMUM_IDLE=2
 
 `INTERNAL_API_KEY`는 Worker 서버의 `SPRING_INTERNAL_API_KEY`와 정확히 같은 값이어야 한다. 실제 데이터베이스 비밀번호, 내부 API 키, JSON Web Token 서명키, 문자 발송 자격 증명은 GitHub와 저장소에 올리지 않는다.
 
-Spring Backend의 HikariCP 최대 연결 수는 10개다. Worker 서버의 SQLAlchemy 연결 수 17개와 합쳐 애플리케이션이 사용하는 최대 데이터베이스 연결 수는 27개다.
+2026-10-26 실행 설정 기준 Spring Backend의 HikariCP 최대 연결 수는 10개다. 분석·비교 Worker의 SQLAlchemy 17개와 챗봇 검색 2개를 합친 **상시 앱 풀 예산은 29개**이며, 일회성 검색 백필 실행 시 별도 2개를 더해 31개다. 관리자 도구·별도 작업·추가 replica의 연결은 별도로 계산한다. 일반 Spring 기동 Flyway는 주 DataSource를 사용하며, 실제 API의 별도 Flyway 연결 override가 없음을 확인했다. DB 한도 181·예약 5, 최근 연결 기준선과 경보 근거는 [RDS 자원·백업 알림](RDS_BACKUP_MONITORING.md)을 따른다.
 
 ## Amazon RDS와 연결 session 시간대
 

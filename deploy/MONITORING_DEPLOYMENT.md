@@ -2,6 +2,8 @@
 
 팀원은 SSM 터널 없이 `https://monitoring.catchhole.com`에서 기존 Grafana 계정으로 로그인한다. 모니터링 EC2의 Nginx가 HTTPS를 종료하고 같은 Docker Compose의 Grafana로 전달한다. Prometheus 수집과 기존 데이터는 유지하며 설정 배포는 수동, 인증서 갱신은 systemd timer로 자동화한다.
 
+#174의 선택적 RDS 자원·백업 수집과 Discord 알림은 [RDS 자원·백업 모니터링](RDS_BACKUP_MONITORING.md)을 따른다. LRT/보존은 RDS metadata API, 일일 자동 스냅샷은 RDS snapshot API, DB CPU·공간·연결은 기본 CloudWatch AWS/RDS 지표를 조회한다. 기존 EC2/앱 CPU 수집 경로와 구분하며 기본 배포에 RDS overlay를 자동으로 추가하지 않는다. 14개 규칙의 구현·운영 적용·수신 검증 상태는 해당 문서에서 별도로 확인한다.
+
 이 문서는 재현 절차다. 파일 작성·로컬 검사만으로 실제 AWS·DNS 적용이나 운영 완료를 판정하지 않는다. 아래 운영 검증과 인증서 갱신 검증 결과는 적용 시점의 별도 기록으로 확인한다.
 
 기존 메트릭 환경에 Collector·Tempo를 추가하는 #271 절차는
