@@ -2,6 +2,7 @@ package org.monitoring.catchholebackend.domain.settingtool.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.settingtool.type.SettingTool;
@@ -27,6 +28,8 @@ public record SettingToolResponse(
             @Schema(description = "도구·작품·필터·모집단의 변경 감지값. 권한 토큰이나 과거 snapshot 식별자가 아닙니다.") String readToken
     ) {}
     public enum Origin { CONFIRMED_ANALYSIS, USER_INPUT, UNKNOWN }
+    public enum SourceKind { EPISODE, SETTING_BOOK, USER_INPUT, UNKNOWN }
+    public enum ApplicationAction { AUTOMATIC_CONFIRM, USER_CONFIRM, UNKNOWN }
     public enum EvidenceStatus {
         AVAILABLE, LEGACY_UNVERIFIED, NO_SOURCE, SOURCE_MISSING, SOURCE_PURGED,
         SOURCE_CHANGED, STORAGE_UNAVAILABLE, OUT_OF_RANGE, INVALID_QUOTE
@@ -40,7 +43,20 @@ public record SettingToolResponse(
             @Schema(description = "구조화된 설정의 JSON 문자열. 상한 초과 시 생략합니다.") String structuredValueJson,
             boolean valueTruncated, Boolean contributesToCurrent, String operation, Boolean historyOnly, Long settingVersion,
             Integer effectiveFromEpisodeNo, UUID sourceEpisodeId, Integer sourceEpisodeNo, Origin origin,
-            List<Reference> sources, boolean sourcesTruncated, Evidence evidence
+            List<Reference> sources, boolean sourcesTruncated, Evidence evidence,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Provenance provenance
+    ) {}
+
+    @Schema(name = "SettingToolProvenanceV1", description = "인물 Fact별 원자료·내용 수정·보존된 확정 정보. 현재값 전체의 단일 출처나 마지막 반영 이벤트가 아닙니다.")
+    public record Provenance(List<SourceProvenance> sources, boolean sourcesTruncated) {}
+
+    @Schema(name = "SettingToolSourceProvenanceV1", description = "참조 Fact에 연결된 저장 정보. 인용의 유효성·값의 입증은 evidence로 따로 확인합니다.")
+    public record SourceProvenance(
+            Reference reference,
+            SourceKind sourceKind,
+            @Schema(description = "후보 내용의 사용자 수정 여부. 명시적 저장 표지가 없으면 null이며 확정·연결 선택만으로 true로 추정하지 않습니다.") Boolean contentEdited,
+            @Schema(description = "후보에 보존된 자동/사용자 확정 정보. 현재 slot의 마지막 반영 행위를 복원한 값이 아닙니다.") ApplicationAction applicationAction,
+            @Schema(description = "Fact 생성 시각(서버 설정 시간대, offset 없음). 수정·현재 반영·작중 사건 시각이 아닙니다.") LocalDateTime recordedAt
     ) {}
 
     @Schema(name = "SettingToolReferenceV1", description = "원문을 포함하지 않는 직접 근거 참조. 근거 도구에서 접근 가능 여부를 다시 확인합니다.")
