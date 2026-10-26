@@ -89,8 +89,12 @@ class PromQLTests(unittest.TestCase):
 
     def run_promtool(self, tests):
         with tempfile.TemporaryDirectory(prefix="rds-alert-promql-") as directory:
+            # The production image runs as nobody; Linux bind mounts preserve
+            # host permissions, unlike Docker Desktop's shared filesystem.
+            Path(directory).chmod(0o755)
             path = Path(directory) / "tests.json"
             path.write_text(json.dumps({"rule_files": [], "tests": tests}), encoding="utf-8")
+            path.chmod(0o644)
             result = subprocess.run([
                 "docker", "run", "--rm", "--network", "none",
                 "--mount", f"type=bind,source={directory},target=/tests,readonly",
