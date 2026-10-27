@@ -34,4 +34,8 @@ public interface SettingCandidatePromotionService {
      * 아직 존재하지 않는 같은 이름의 캐릭터를 한 번만 만들고 그룹의 모든 후보를 순서대로 반영한다.
      */
     void promoteNewCharacterGroup(List<SettingCandidateGroupPromotion> promotions);
+
+    /** 같은 검토 그룹에서 승인한 중복 제외의 관측 시점도 새 캐릭터에 연결한다. */
+    void promoteNewCharacterGroup(List<SettingCandidateGroupPromotion> promotions,
+            List<SettingCandidate> approvedExclusions);
 }

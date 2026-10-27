@@ -735,9 +735,10 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
             validateComparisonRevision(candidates, request.comparisonRevision());
             validateGroupDecisionDependencies(candidates, decisions, schemas);
             Map<UUID, SettingCandidateGroupConfirmDecision> protectedDecisions = protectReviewDecisions(candidates, decisions);
-            candidates.stream()
+            // dismiss clears the proposal operation, so freeze both lists before changing candidate state.
+            List<SettingCandidate> exclusions = candidates.stream()
                     .filter(candidate -> candidate.getSuggestedOperation() == CharacterFactOperation.EXCLUDE)
-                    .forEach(SettingCandidate::dismiss);
+                    .toList();
             List<SettingCandidateGroupPromotion> promotions = candidates.stream()
                     .filter(candidate -> candidate.getSuggestedOperation() != CharacterFactOperation.EXCLUDE)
                     .map(candidate -> new SettingCandidateGroupPromotion(
@@ -760,13 +761,14 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                     earlierApplied.add(candidate);
                 }
             }
+            exclusions.forEach(SettingCandidate::dismiss);
             if (promotions.isEmpty()) {
                 candidates.forEach(candidate -> candidate.recordGroupConfirmation(decisionHash));
                 return SettingCandidateGroupConfirmResult.confirmed(
                         toGroupActionResponse(groupKey(candidates.getFirst()), candidates, schemas)
                 );
             }
-            settingCandidatePromotionService.promoteNewCharacterGroup(promotions);
+            settingCandidatePromotionService.promoteNewCharacterGroup(promotions, exclusions);
             candidates.forEach(candidate -> candidate.recordGroupConfirmation(decisionHash));
             return SettingCandidateGroupConfirmResult.confirmed(
                     toGroupActionResponse(groupKey(candidates.getFirst()), candidates, schemas)
@@ -907,14 +909,15 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         validateDistinctCurrentSelections(promotions);
         exclusions.forEach(SettingCandidate::dismiss);
         if (!promotions.isEmpty()) {
-            if (newCharacter) settingCandidatePromotionService.promoteNewCharacterGroup(promotions);
+            if (newCharacter) settingCandidatePromotionService.promoteNewCharacterGroup(promotions, exclusions);
             else {
                 promotions.forEach(promotion -> promotion.candidate().confirm());
                 settingCandidatePromotionService.promoteGroup(promotions);
-                settingCandidatePromotionService.finalizeNarrativeTimes(candidates.stream().map(SettingCandidate::getAnalysisJob)
-                        .filter(Objects::nonNull).distinct().toList());
             }
         }
+        // Approving only semantic duplicates can still advance the representative observation time.
+        settingCandidatePromotionService.finalizeNarrativeTimes(candidates.stream().map(SettingCandidate::getAnalysisJob)
+                .filter(Objects::nonNull).distinct().toList());
         candidates.forEach(candidate -> candidate.recordGroupConfirmation(decisionHash));
         return SettingCandidateGroupConfirmResult.confirmed(toGroupActionResponse(groupKey(representative), candidates,
                 characterSettingSchemaRepository.findAllActiveForWork(work.getId())));

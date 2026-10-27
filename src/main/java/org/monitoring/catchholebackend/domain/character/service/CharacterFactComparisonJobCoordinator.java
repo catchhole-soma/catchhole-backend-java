@@ -37,6 +37,10 @@ public class CharacterFactComparisonJobCoordinator {
             AnalysisJobStatus.PENDING,
             AnalysisJobStatus.RUNNING
     );
+    private static final List<AnalysisJobStatus> FINISHED_JOB_STATUSES = List.of(
+            AnalysisJobStatus.SUCCEEDED,
+            AnalysisJobStatus.FAILED
+    );
     private final UploadBatchRepository uploadBatchRepository;
     private final AnalysisJobRepository analysisJobRepository;
     private final SettingCandidateRepository settingCandidateRepository;
@@ -220,6 +224,14 @@ public class CharacterFactComparisonJobCoordinator {
             }
         }
         if (currentExists) {
+            return;
+        }
+        // 부모의 후속 progress는 같은 입력의 완료/실패 결과를 다시 실행하지 않는다.
+        // 명시적인 재시도와 사용자 연결 변경은 checkQuota 경로에서 계속 허용한다.
+        boolean reopenedInput = group.stream().anyMatch(candidate ->
+                candidate.getComparisonStatus() == CharacterFactComparisonStatus.RECOMPARISON_REQUIRED);
+        if (!checkQuota && !reopenedInput && analysisJobRepository.existsByBatchIdAndJobTypeAndCharacterComparisonInputHashAndStatusIn(
+                batchId, AnalysisJobType.CHARACTER_FACT_COMPARISON, inputHash, FINISHED_JOB_STATUSES)) {
             return;
         }
         if (checkQuota) {

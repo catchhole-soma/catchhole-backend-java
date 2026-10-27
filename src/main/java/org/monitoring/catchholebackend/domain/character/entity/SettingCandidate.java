@@ -746,6 +746,19 @@ public class SettingCandidate extends BaseEntity {
         applyPromotedCharacterMatch(character, SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
     }
 
+    /** Final group approval may keep a duplicate's observation without creating a Fact for it. */
+    public void bindApprovedExcludedCharacter(WorkCharacter character) {
+        if (reviewStatus != SettingCandidateReviewStatus.DISMISSED
+                || matchStatus != SettingCandidateMatchStatus.UNRESOLVED || matchedCharacterId != null
+                || !work.getId().equals(character.getWork().getId())
+                || rawComparisonJson == null
+                || !rawComparisonJson.path("validatedNarrativeTime").path("advance").asBoolean()
+                || !rawComparisonJson.path("validatedNarrativeTime").path("selected").isObject()) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
+        }
+        applyCharacterMatch(character, SettingCandidateMatchStatus.AUTO_MATCHED_BY_NAME);
+    }
+
     public void bindPromotedProvisionalCharacter(WorkCharacter character) {
         if (reviewStatus != SettingCandidateReviewStatus.CONFIRMED || matchedCharacterId != null
                 || provisionalSubjectKey == null && !userModified || analysisJob == null || !analysisJob.isOrderedProvisional()) {

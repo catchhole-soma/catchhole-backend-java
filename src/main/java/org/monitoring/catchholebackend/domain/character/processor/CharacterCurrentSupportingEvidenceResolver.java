@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.processor.SettingBookAutomaticEvidenceValidator;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
@@ -122,6 +123,15 @@ public class CharacterCurrentSupportingEvidenceResolver {
                         ? new Object[]{chunk, job.getId(), job.getSourceSettingBookRevision().getId()}
                         : new Object[]{chunk, job.getEpisode().getId()};
                 var ranges = jdbc.query(sql, (rs, row) -> new Object[]{rs.getInt(1), rs.getInt(2), rs.getString(3)}, args);
+                // Episode chunks are replaceable processing artifacts. Older reanalysis removed
+                // their UUIDs even when the immutable source and grounded offsets stayed identical.
+                // Recover only retained observations; new extraction still needs its actual chunk.
+                if (ranges.isEmpty() && !job.isSettingBookSource()
+                        && (job.getStatus() == AnalysisJobStatus.SUCCEEDED || !candidate.isPendingReview())
+                        && Integer.valueOf(0).equals(jdbc.queryForObject(
+                                "select count(*) from episode_chunks where id = ?", Integer.class, chunk))) {
+                    continue;
+                }
                 if (ranges.size() != 1) throw invalid();
                 Object[] range = ranges.getFirst();
                 int start = (int) range[0], end = (int) range[1];
