@@ -175,6 +175,13 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             @Param("statuses") Collection<AnalysisJobStatus> statuses
     );
 
+    boolean existsByBatchIdAndJobTypeAndCharacterComparisonInputHashAndStatusIn(
+            UUID batchId,
+            AnalysisJobType jobType,
+            String characterComparisonInputHash,
+            Collection<AnalysisJobStatus> statuses
+    );
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select analysisJob

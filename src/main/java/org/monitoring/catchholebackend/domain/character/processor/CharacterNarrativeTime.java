@@ -46,7 +46,9 @@ public final class CharacterNarrativeTime {
                 || candidate.getSuggestedOperation() == null || candidate.getSuggestedOperation() == CharacterFactOperation.REVIEW_REQUIRED
                 || candidate.getAutomaticReviewHoldReason() != null || verifiedTime == null
                 || !verifiedTime.path("referenceTime").isObject()) throw invalid();
-        if (current != null && current.isObject() && current.path("evidenceSpans").isEmpty()) throw invalid();
+        // Source replacement removes the old point's quotes, not the author's confirmed state.
+        // A newly grounded PRESENT observation can establish the next point; expectedCurrent
+        // still prevents applying this choice after another selection changed the character.
         JsonNode point = verifiedTime.path("referenceTime");
         requirePoint(point);
         ObjectNode selected = point.deepCopy();

@@ -178,6 +178,8 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         if (owner == null) return;
         WorkCharacter character = workCharacterRepository.findByIdAndWorkIdForUpdate(owner, candidate.getWork().getId()).orElseThrow(() ->
                 new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCHED_CHARACTER_INVALID));
+        // Approval of a duplicate remains valid after archiving, but cannot change the archived state.
+        if (character.getStatus() == CharacterStatus.ARCHIVED) return;
         JsonNode selected = org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.selected(candidate, character.getCurrentNarrativeTime());
         if (selected != null) character.updateCurrentNarrativeTime(selected, versioned.add(character.getId()));
     }
@@ -229,6 +231,13 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
     @Override
     @Transactional
     public void promoteNewCharacterGroup(List<SettingCandidateGroupPromotion> promotions) {
+        promoteNewCharacterGroup(promotions, List.of());
+    }
+
+    @Override
+    @Transactional
+    public void promoteNewCharacterGroup(List<SettingCandidateGroupPromotion> promotions,
+            List<SettingCandidate> approvedExclusions) {
         if (promotions.isEmpty()) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
         }
@@ -242,7 +251,15 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                         || candidate.getMatchedCharacterId() != null
                         || !SettingCandidateGroupNameNormalizer.toGroupKey(candidate.getEntityName())
                         .equals(SettingCandidateGroupNameNormalizer.toGroupKey(characterName)));
-        if (invalidGroup) {
+        boolean invalidExclusion = approvedExclusions.stream().anyMatch(candidate ->
+                candidate.getReviewStatus() != SettingCandidateReviewStatus.DISMISSED
+                        || !candidate.getWork().getId().equals(workId)
+                        || candidate.getMatchStatus() != SettingCandidateMatchStatus.UNRESOLVED
+                        || candidate.getMatchedCharacterId() != null
+                        || !SettingCandidateGroupNameNormalizer.toGroupKey(candidate.getEntityName())
+                            .equals(SettingCandidateGroupNameNormalizer.toGroupKey(characterName))
+                        || !sameReviewSourceScope(representative, candidate));
+        if (invalidGroup || invalidExclusion) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_MATCH_STATUS_CONFLICT);
         }
         if (findActiveCharacterByGroupName(workId, characterName).isPresent()) {
@@ -302,11 +319,23 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
                 );
             }
         }
+        approvedExclusions.stream().filter(this::hasApprovedNarrativeSelection)
+                .forEach(candidate -> candidate.bindApprovedExcludedCharacter(character));
         automaticImages.refreshCharacterImages(List.of(character));
-        finalizeNarrativeTimes(promotions.stream().map(promotion -> promotion.candidate().getAnalysisJob())
-                .filter(Objects::nonNull).distinct().toList(), versionedCharacterIds);
+        finalizeNarrativeTimes(java.util.stream.Stream.concat(
+                promotions.stream().map(SettingCandidateGroupPromotion::candidate), approvedExclusions.stream())
+                .map(SettingCandidate::getAnalysisJob).filter(Objects::nonNull).distinct().toList(), versionedCharacterIds);
         // 현재 묶음 밖에도 같은 이름의 미검토 후보가 있다면 새 캐릭터에 연결하고 재비교를 예약한다.
         matchPendingUnresolvedSiblings(workId, characterName, character, true);
+    }
+
+    private boolean sameReviewSourceScope(SettingCandidate left, SettingCandidate right) {
+        var leftJob = left.getAnalysisJob();
+        var rightJob = right.getAnalysisJob();
+        return leftJob != null && rightJob != null && leftJob.getBatch() != null && rightJob.getBatch() != null
+                && Objects.equals(leftJob.getBatch().getId(), rightJob.getBatch().getId())
+                && leftJob.isSettingBookSource() == rightJob.isSettingBookSource()
+                && (!leftJob.isSettingBookSource() || Objects.equals(leftJob.getId(), rightJob.getId()));
     }
 
     @Override
