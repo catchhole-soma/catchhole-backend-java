@@ -213,6 +213,56 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
                 .isEqualTo(content.codePointCount(0,content.length()));
     }
 
+    @Test @DisplayName("옛 청크가 재생성되어도 현재 Fact·과거 이력·대표 시점을 같은 고정 원문으로 동결한다")
+    void rechunkedSourceKeepsCurrentHistoryAndRepresentativeTimeAvailable() {
+        ObjectNode point = json.createObjectNode().put("description", "회복한 날");
+        point.set("evidenceSpans", json.createArrayNode().add(json.createObjectNode().put("quote", content)
+                .put("startOffset", 0).put("endOffset", content.codePointCount(0, content.length()))
+                .put("sourceChunkId", candidate.getSourceChunkId().toString())));
+        candidate.recordNarrativeTime(json.createObjectNode().putNull("factTime").set("referenceTime", point));
+        ReflectionTestUtils.setField(origin, "status", org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.SUCCEEDED);
+        var current = CharacterFact.create(character, candidate, CharacterFactType.PROFILE, "profile.오른손_감각",
+                "정상", "정상", candidate.getValueJson(), episode, null, origin, BigDecimal.ONE, 3);
+        var historical = CharacterFact.create(character, candidate, CharacterFactType.PROFILE, "profile.관측",
+                "회복 관측", "회복 관측", candidate.getValueJson(), episode, null, origin, BigDecimal.ONE, 3);
+        ReflectionTestUtils.setField(current, "id", UUID.randomUUID());
+        ReflectionTestUtils.setField(historical, "id", UUID.randomUUID());
+        currentFacts(List.of(current));
+        when(factRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId())).thenReturn(List.of(current, historical));
+        when(candidates.findByIdAndWorkId(candidate.getId(), work.getId())).thenReturn(java.util.Optional.of(candidate));
+        org.mockito.Mockito.doReturn(0).when(jdbc).queryForObject(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq(Integer.class), org.mockito.ArgumentMatchers.any(Object[].class));
+        character.updateCurrentNarrativeTime(point.deepCopy().put("sourceCandidateId", candidate.getId().toString()), true);
+
+        var frozen = owner();
+
+        assertThat(frozen.path("slots").path(key).path("supportingSources").get(0).path("availability").asText()).isEqualTo("VERIFIED");
+        assertThat(frozen.path("historyFacts")).hasSize(1);
+        assertThat(frozen.path("historyFacts").get(0).path("narrativeTime").path("referenceTime")).isEqualTo(point);
+        assertThat(frozen.path("currentNarrativeTime").path("supportingSource").path("availability").asText()).isEqualTo("VERIFIED");
+    }
+
+    @Test @DisplayName("원문 파기 후에도 확정값과 시점 설명은 남기고 사용할 수 없는 인용만 비운다")
+    void purgedSourceRetainsConfirmedStateWithoutReadingDeletedText() {
+        ObjectNode point = json.createObjectNode().put("description", "회복한 날");
+        point.set("evidenceSpans", json.createArrayNode().add(json.createObjectNode().put("quote", content)
+                .put("startOffset", 0).put("endOffset", content.codePointCount(0, content.length()))
+                .put("sourceChunkId", candidate.getSourceChunkId().toString())));
+        candidate.recordNarrativeTime(json.createObjectNode().putNull("factTime").set("referenceTime", point));
+        candidate.purgeSourceEvidence();
+        character.updateCurrentNarrativeTime(org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.purgeEvidence(
+                point.deepCopy().put("sourceCandidateId", candidate.getId().toString())), true);
+        when(candidates.findByIdAndWorkId(candidate.getId(), work.getId())).thenReturn(java.util.Optional.of(candidate));
+
+        var frozen = owner();
+
+        assertThat(frozen.path("slots").path(key).path("factValue").asText()).isEqualTo("정상");
+        assertThat(frozen.path("currentNarrativeTime").path("description").asText()).isEqualTo("회복한 날");
+        assertThat(frozen.path("currentNarrativeTime").path("evidenceSpans")).isEmpty();
+        assertThat(frozen.path("currentNarrativeTime").path("supportingSource").path("availability").asText()).isEqualTo("UNAVAILABLE");
+        org.mockito.Mockito.verifyNoInteractions(storage);
+    }
+
     @Test @DisplayName("capture 뒤 후보 인용과 현재 episode 원문이 바뀌어도 기존 입력 bytes는 바뀌지 않는다")
     void frozenQuoteDoesNotFollowLiveCandidateOrEpisode() {
         var before = owner();
