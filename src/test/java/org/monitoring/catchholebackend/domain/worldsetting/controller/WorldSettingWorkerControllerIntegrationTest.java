@@ -2897,6 +2897,64 @@ class WorldSettingWorkerControllerIntegrationTest {
         assertThat(pending.getComparisonFailureCode()).isNull();
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    @DisplayName("세계관 단건 실패는 진단 유무와 관계없이 승인된 재비교 실행을 고정하고 재시도에서 비운다")
+    void singleFailureSnapshotsAuthorizedRecomparisonAndResetsOnRetry(boolean includeDiagnostics) throws Exception {
+        AnalysisJob extraction = analysisJob;
+        WorldSettingCandidate candidate = WorldSettingCandidate.create(
+                work, episode, extraction, WorldSettingCategory.LOCATION, "합성 장소", null, "광원", "빛난다.",
+                objectMapper.readTree("[{\"quote\":\"빛난다.\"}]"), new BigDecimal("0.95"), null);
+        candidate.startComparison();
+        candidate = candidateRepository.saveAndFlush(candidate);
+        AnalysisJob execution = AnalysisJob.createWorldSettingComparison(candidate);
+        UUID executionLease = execution.claim("synthetic-model", "WORLD_SETTING_COMPARISON", LocalDateTime.now().plusMinutes(5));
+        execution = analysisJobRepository.saveAndFlush(execution);
+        assertThat(execution.getId()).isNotEqualTo(extraction.getId());
+
+        ObjectNode request = objectMapper.createObjectNode().put("failureCode", "LLM_PROVIDER_ERROR")
+                .put("errorMessage", "합성 provider 실패");
+        if (includeDiagnostics) {
+            request.putObject("failureDiagnostics").put("schemaVersion", 1).put("origin", "PROVIDER")
+                    .put("stage", "WORLD_COMPARE").put("reasonCode", "LLM_PROVIDER_ERROR")
+                    .put("sourceErrorCode", "PRIVATE_UNSUPPORTED_CODE").put("httpStatus", 502)
+                    .put("requestId", "synthetic_request_1").put("errorMessage", "PRIVATE_MANUSCRIPT")
+                    .put("leaseToken", "PRIVATE_TOKEN").put("analysisJobId", UUID.randomUUID().toString());
+        }
+        mockMvc.perform(post("/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates/{candidateId}/comparison-fail",
+                        execution.getId(), candidate.getId())
+                .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                .header(WORKER_LEASE_TOKEN_HEADER, executionLease)
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk());
+
+        WorldSettingCandidate failed = candidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(failed.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.FAILED);
+        assertThat(failed.getComparisonFailureCode()).isEqualTo(AnalysisFailureCode.LLM_PROVIDER_ERROR);
+        if (includeDiagnostics) {
+            assertThat(failed.getComparisonFailureDiagnostics()).isNotNull();
+            assertThat(failed.getComparisonFailureDiagnostics().reasonCode()).isEqualTo("LLM_PROVIDER_ERROR");
+            assertThat(failed.getComparisonFailureDiagnostics().sourceErrorCode()).isEqualTo("UNKNOWN");
+            assertThat(failed.getComparisonFailureDiagnostics().requestId()).isEqualTo("synthetic_request_1");
+            assertThat(failed.getComparisonFailureDiagnostics().httpStatus()).isEqualTo(502);
+            assertThat(objectMapper.writeValueAsString(failed.getComparisonFailureDiagnostics()))
+                    .doesNotContain("PRIVATE", "leaseToken", "analysisJobId");
+        } else {
+            assertThat(failed.getComparisonFailureDiagnostics()).isNull();
+        }
+        assertThat(failed.getAnalysisJob().getId()).isEqualTo(extraction.getId());
+        assertThat(failed.getComparisonFailureAnalysisJobId()).isEqualTo(execution.getId());
+        assertThat(failed.getComparisonFailureBatchId()).isNull();
+
+        failed.requestRecomparison();
+        candidateRepository.saveAndFlush(failed);
+        WorldSettingCandidate retried = candidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(retried.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.PENDING);
+        assertThat(retried.getComparisonFailureDiagnostics()).isNull();
+        assertThat(retried.getComparisonFailureAnalysisJobId()).isNull();
+        assertThat(retried.getComparisonFailureBatchId()).isNull();
+    }
+
     @Test
     @DisplayName("세계관 비교 실패는 상위 실패 코드와 Spring 원본 원인을 분리해 저장한다")
     void storesComparisonFailureSourceSeparately() throws Exception {

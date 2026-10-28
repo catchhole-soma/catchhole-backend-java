@@ -863,6 +863,11 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 request.sourceErrorCode(),
                 request.sourceReasonCode()
         );
+        candidate.recordComparisonFailure(
+                analysisJob,
+                candidate.getComparisonBatch() == null ? null : candidate.getComparisonBatch().getId(),
+                failureDiagnosticsSanitizer.sanitize(request.failureDiagnostics(), analysisJob.getWork().getId())
+        );
         candidate.recordComparisonDiagnostics(WorldSettingComparisonDiagnostics.forCandidate(diagnostics, candidate.getComparisonCandidateRef()));
     }
 
