@@ -1,16 +1,23 @@
 package org.monitoring.catchholebackend.domain.analysis.repository;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.domain.analysis.dto.AnalysisFailureDiagnostics;
 import org.monitoring.catchholebackend.domain.analysis.dto.AnalysisFailureNotification;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import tools.jackson.databind.json.JsonMapper;
 
 @Repository
 @RequiredArgsConstructor
 public class AnalysisFailureNotificationRepository {
+    private static final JsonMapper SNAPSHOT_JSON = new JsonMapper();
     private final JdbcTemplate jdbc;
 
     /** 단일 statement로 선점한다. HTTP 호출 중에는 transaction/DB 연결을 보유하지 않는다. */
@@ -34,7 +41,10 @@ public class AnalysisFailureNotificationRepository {
                 rs.getObject("episode_id", UUID.class), rs.getObject("episode_no", Integer.class),
                 rs.getString("failure_kind"), rs.getString("failure_code"), rs.getInt("failure_count"),
                 rs.getTimestamp("occurred_at").toLocalDateTime(), rs.getInt("attempts"),
-                rs.getObject("lease_token", UUID.class)), leaseToken).stream().findFirst();
+                rs.getObject("lease_token", UUID.class), diagnostics(rs.getString("failure_diagnostics")),
+                rs.getObject("execution_job_id", UUID.class), rs.getObject("source_analysis_job_id", UUID.class),
+                rs.getObject("comparison_batch_id", UUID.class), rs.getString("job_type"),
+                targetEpisodeNos(rs)), leaseToken).stream().findFirst();
     }
 
     public void markDelivered(AnalysisFailureNotification notification) {
@@ -54,5 +64,18 @@ public class AnalysisFailureNotificationRepository {
 
     public void deleteDeliveredHistory() {
         jdbc.update("DELETE FROM analysis_failure_notifications WHERE delivered_at < localtimestamp - interval '30 days'");
+    }
+
+    private static AnalysisFailureDiagnostics diagnostics(String snapshot) {
+        if (snapshot == null) return null;
+        try { return SNAPSHOT_JSON.readValue(snapshot, AnalysisFailureDiagnostics.class); }
+        catch (RuntimeException ex) { return null; }
+    }
+
+    private static List<Integer> targetEpisodeNos(ResultSet rs) throws SQLException {
+        var array = rs.getArray("target_episode_nos");
+        if (array == null) return null;
+        try { return Arrays.asList((Integer[]) array.getArray()); }
+        finally { array.free(); }
     }
 }
