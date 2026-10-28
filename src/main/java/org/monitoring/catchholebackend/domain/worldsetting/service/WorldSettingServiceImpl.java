@@ -99,6 +99,7 @@ public class WorldSettingServiceImpl implements WorldSettingService {
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         analysisRunStateService.assertSettingMutationAllowed(work.getId());
+        analysisRunStateService.confirmedSettingsChanged(work.getId());
         String normalizedSubjectName = WorldSettingNameNormalizer.duplicateKey(request.subjectName());
         if (worldSettingRepository.findByWorkIdAndCategoryAndNormalizedSubjectName(
                 work.getId(),
@@ -141,6 +142,7 @@ public class WorldSettingServiceImpl implements WorldSettingService {
             return toDetail(worldSetting);
         }
         analysisRunStateService.assertSettingMutationAllowed(work.getId());
+        analysisRunStateService.confirmedSettingsChanged(work.getId());
         worldImageService.clearMismatchedImage(worldSetting);
         automaticImages.refreshWorldSettingImages(List.of(worldSetting));
         flushIdentityChange(worldSetting);
@@ -157,6 +159,7 @@ public class WorldSettingServiceImpl implements WorldSettingService {
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         analysisRunStateService.assertSettingMutationAllowed(work.getId());
+        analysisRunStateService.confirmedSettingsChanged(work.getId());
         WorldSetting worldSetting = getWorldSettingForUpdate(worldSettingId, work.getId());
         worldSetting.validateVersion(request.version());
         worldSetting.addProperty(request.scopeName(), request.settingName(), request.settingValue());
@@ -190,6 +193,7 @@ public class WorldSettingServiceImpl implements WorldSettingService {
             return toDetail(worldSetting);
         }
         analysisRunStateService.assertSettingMutationAllowed(work.getId());
+        analysisRunStateService.confirmedSettingsChanged(work.getId());
         worldSetting.protectManualProperty(request.currentScopeName(), request.currentSettingName());
         worldSetting.protectManualProperty(request.scopeName(), request.settingName());
         worldSettingRepository.flush();

@@ -39,6 +39,7 @@ public class SettingBookServiceImpl implements SettingBookService {
     private static final String TEXT_MIME_TYPE = "text/plain; charset=UTF-8";
 
     private final WorkRepository workRepository;
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
     private final UploadBatchRepository uploadBatchRepository;
     private final UploadFileRepository uploadFileRepository;
     private final UploadMapper uploadMapper;
@@ -148,6 +149,7 @@ public class SettingBookServiceImpl implements SettingBookService {
                 || currentRevision.getReferenceTimeKind() != referenceTimeKind
                 || !java.util.Objects.equals(currentRevision.getReferenceEpisodeNo(), referenceEpisodeNo)) {
             runState.invalidateRunsForSettingBookChangeForUpdate(work.getId(), settingBook.getId(), "설정집 원문이 변경되어 재분석이 필요합니다.");
+            eventPublisher.publishEvent(new org.monitoring.catchholebackend.domain.validation.event.ValidationStagingEvents.SettingBookSourceChanged(work.getId(), settingBook.getId()));
             List<String> newObjectKeys = new java.util.ArrayList<>();
             storageCompensator.registerRollbackCompensation(newObjectKeys);
             saveRevision(work, settingBook, request.content(), referenceTimeKind, referenceEpisodeNo, newObjectKeys);
@@ -161,6 +163,7 @@ public class SettingBookServiceImpl implements SettingBookService {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         UploadFile book = getActiveSettingBook(settingBookId, work);
         runState.invalidateRunsForSettingBookChangeForUpdate(work.getId(), book.getId(), "설정집이 보관되어 기존 분석을 사용할 수 없습니다.");
+        eventPublisher.publishEvent(new org.monitoring.catchholebackend.domain.validation.event.ValidationStagingEvents.SettingBookSourceChanged(work.getId(), book.getId()));
         book.archive();
     }
 

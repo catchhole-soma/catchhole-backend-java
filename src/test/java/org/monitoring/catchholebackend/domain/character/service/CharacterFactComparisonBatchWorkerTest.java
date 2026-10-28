@@ -82,6 +82,7 @@ class CharacterFactComparisonBatchWorkerTest {
 
     @Mock
     private AnalysisJobLeaseService analysisJobLeaseService;
+    @Mock private org.springframework.context.ApplicationEventPublisher validationEvents;
     @Mock
     private SettingCandidateRepository candidateRepository;
     @Mock
@@ -111,7 +112,7 @@ class CharacterFactComparisonBatchWorkerTest {
     void setUp() {
         CharacterSettingValueValidator valueValidator = new CharacterSettingValueValidator();
         worker = new CharacterFactComparisonBatchWorker(
-                analysisJobLeaseService,
+                analysisJobLeaseService, validationEvents,
                 candidateRepository,
                 batchRepository,
                 characterRepository,

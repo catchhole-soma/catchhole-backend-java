@@ -186,6 +186,7 @@ public class CharacterServiceImpl implements CharacterService {
             return toDetailResponse(character, firstAppearanceEpisode, schemas);
         }
         analysisRunStateService.assertSettingMutationAllowed(work.getId());
+        analysisRunStateService.confirmedSettingsChanged(work.getId());
         character.updateBasicInfo(name, roleLabel);
         character.updateFirstAppearanceEpisodeId(firstAppearanceEpisodeId);
         if (nameChanged) {
@@ -202,6 +203,7 @@ public class CharacterServiceImpl implements CharacterService {
     public CharacterArchiveResponse archiveCharacter(Long memberId, UUID workId, UUID characterId) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         analysisRunStateService.assertSettingMutationAllowed(work.getId());
+        analysisRunStateService.confirmedSettingsChanged(work.getId());
         WorkCharacter character = getActiveCharacterForUpdate(work.getId(), characterId);
         character.archive();
         work.markRelationshipInputChanged();
@@ -213,6 +215,7 @@ public class CharacterServiceImpl implements CharacterService {
     public CharacterRestoreResponse restoreCharacter(Long memberId, UUID workId, UUID characterId) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         analysisRunStateService.assertSettingMutationAllowed(work.getId());
+        analysisRunStateService.confirmedSettingsChanged(work.getId());
         WorkCharacter character = getArchivedCharacterForUpdate(work.getId(), characterId);
         if (workCharacterRepository.existsByWorkIdAndNameAndStatusAndIdNot(
                 work.getId(),

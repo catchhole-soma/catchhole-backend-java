@@ -18,6 +18,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> {
+    @Query("select job.work.id from AnalysisJob job where job.id = :id")
+    Optional<UUID> findWorkIdById(@Param("id") UUID id);
+
     @Query("""
             select new org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobProgressRow(
                 job.id, job.episode.id, job.jobType, job.status, job.reviewMode, job.automaticAppliedAt,
@@ -218,33 +221,19 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             """)
     List<AnalysisJob> findAllWithTargetsByWorkIdOrderByCreatedAtDesc(@Param("workId") UUID workId);
 
-    @Query(
-            value = """
-                    select analysisJob.batch.id as batchId,
-                           analysisJob.batch.uploadType as uploadType,
-                           min(analysisJob.createdAt) as firstRequestedAt,
-                           max(analysisJob.createdAt) as lastRequestedAt
-                    from AnalysisJob analysisJob
-                    where analysisJob.work.id = :workId
-                      and analysisJob.batch is not null
-                      and analysisJob.jobType not in (
-                          org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON,
-                          org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.CHARACTER_FACT_COMPARISON
-                      )
-                    group by analysisJob.batch.id, analysisJob.batch.uploadType
-                    order by max(analysisJob.createdAt) desc, analysisJob.batch.id desc
-                    """,
-            countQuery = """
-                    select count(distinct analysisJob.batch.id)
-                    from AnalysisJob analysisJob
-                    where analysisJob.work.id = :workId
-                      and analysisJob.batch is not null
-                      and analysisJob.jobType not in (
-                          org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON,
-                          org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.CHARACTER_FACT_COMPARISON
-                      )
-                    """
-    )
+    @Query(value = """
+            with requests as (
+                select batch_id, created_at from analysis_jobs where work_id = :workId and batch_id is not null
+                  and job_type not in ('WORLD_SETTING_COMPARISON','CHARACTER_FACT_COMPARISON')
+                union all select batch_id, created_at from validation_reports where work_id = :workId
+            ) select cast(b.id as varchar) as batchId, b.upload_type as uploadType, min(r.created_at) as firstRequestedAt,
+                max(r.created_at) as lastRequestedAt from upload_batches b join requests r on r.batch_id = b.id
+                group by b.id, b.upload_type order by max(r.created_at) desc, b.id desc
+            """, countQuery = """
+            select count(*) from upload_batches b where b.work_id = :workId and (
+                exists (select 1 from analysis_jobs j where j.batch_id = b.id and j.job_type not in ('WORLD_SETTING_COMPARISON','CHARACTER_FACT_COMPARISON'))
+                or exists (select 1 from validation_reports r where r.batch_id = b.id))
+            """, nativeQuery = true)
     Page<AnalysisBatchPageRow> findBatchPage(
             @Param("workId") UUID workId,
             Pageable pageable
@@ -433,5 +422,8 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
                        )))
             """)
     boolean existsUnfinishedOrderedAnalysis(@Param("workId") UUID workId);
+
+    @Query("select count(r) > 0 from ValidationReport r where r.episode.id in :episodeIds")
+    boolean existsValidationStagingForEpisodes(@Param("episodeIds") java.util.Collection<UUID> episodeIds);
 
 }

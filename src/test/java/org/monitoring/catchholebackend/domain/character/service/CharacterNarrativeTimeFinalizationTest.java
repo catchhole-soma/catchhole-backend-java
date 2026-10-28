@@ -36,6 +36,8 @@ class CharacterNarrativeTimeFinalizationTest {
         var characters = mock(WorkCharacterRepository.class);
         var confirmation = mock(CharacterAnalysisConfirmation.class);
         var finalizer = mock(SettingCandidatePromotionServiceImpl.class, CALLS_REAL_METHODS);
+        var changes = mock(org.springframework.context.ApplicationEventPublisher.class);
+        ReflectionTestUtils.setField(finalizer, "validationEvents", changes);
         ReflectionTestUtils.setField(finalizer, "settingCandidateRepository", candidates);
         ReflectionTestUtils.setField(finalizer, "workCharacterRepository", characters);
         ReflectionTestUtils.setField(finalizer, "analysisConfirmation", confirmation);
@@ -67,5 +69,6 @@ class CharacterNarrativeTimeFinalizationTest {
 
         assertThat(character.getCurrentNarrativeTime().path("description").asText()).isEqualTo("T3");
         assertThat(character.getSnapshotVersion()).isEqualTo(1);
+        verify(changes, times(3)).publishEvent(new org.monitoring.catchholebackend.domain.validation.event.ValidationStagingEvents.ConfirmedSettingsChanged(work.getId()));
     }
 }

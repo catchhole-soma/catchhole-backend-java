@@ -68,6 +68,7 @@ public record AnalysisBatchSummaryResponse(
         @Schema(description = "회차 카드 상태. 회차 그룹이 없으면 null", nullable = true)
         AnalysisBatchStatus episodeStatus,
         @Schema(description = "현재 페이지 설정집 카드 요약")
-        List<AnalysisBatchSettingBookResponse> settingBooks
+        List<AnalysisBatchSettingBookResponse> settingBooks,
+        @Schema(description = "설정 추출 전 오류 검수 요청. Job 수에 포함하지 않습니다.") List<org.monitoring.catchholebackend.domain.validation.dto.response.ValidationRequestSummaryResponse> validationReports
 ) {
 }

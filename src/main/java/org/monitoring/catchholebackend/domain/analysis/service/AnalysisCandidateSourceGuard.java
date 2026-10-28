@@ -18,6 +18,15 @@ public class AnalysisCandidateSourceGuard {
     private final org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository jobs;
 
     public void assertCurrent(AnalysisJob job, Episode sourceEpisode) {
+        var targets = new java.util.HashSet<java.util.UUID>();
+        if (sourceEpisode != null) targets.add(sourceEpisode.getId());
+        if (job != null) {
+            job.getTargetEpisodes().forEach(e -> targets.add(e.getId()));
+            if (job.getEpisode() != null) targets.add(job.getEpisode().getId());
+        }
+        if (!targets.isEmpty() && jobs.existsValidationStagingForEpisodes(targets)) {
+            throw new AppException(org.monitoring.catchholebackend.domain.validation.exception.ValidationErrorCode.VALIDATION_ERROR_REVIEW_PENDING);
+        }
         if (job != null && job.isSettingBookSource()) {
             if (sourceEpisode != null || !job.hasCurrentSourceVersion()) {
                 throw new AppException(AnalysisJobErrorCode.ANALYSIS_RUN_STATE_CONFLICT);

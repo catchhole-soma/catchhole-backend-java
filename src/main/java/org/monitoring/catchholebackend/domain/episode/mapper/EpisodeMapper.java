@@ -72,7 +72,13 @@ public class EpisodeMapper {
             UploadFile uploadFile,
             AnalysisJob latestAnalysisJob
     ) {
-        EpisodeAnalysisStatus analysisStatus = resolveAnalysisStatus(episode, latestAnalysisJob);
+        return toSummaryResponse(episode, uploadFile, latestAnalysisJob, null);
+    }
+
+    public EpisodeSummaryResponse toSummaryResponse(Episode episode, UploadFile uploadFile,
+            AnalysisJob latestAnalysisJob,
+            org.monitoring.catchholebackend.domain.validation.repository.ValidationReportState validationState) {
+        EpisodeAnalysisStatus analysisStatus = resolveAnalysisStatus(episode, latestAnalysisJob, validationState);
         return new EpisodeSummaryResponse(
                 episode.getId(),
                 episode.getEpisodeNo(),
@@ -86,11 +92,20 @@ public class EpisodeMapper {
                 latestAnalysisJob == null ? null : latestAnalysisJob.getId(),
                 episode.getContentUpdatedAt(),
                 episode.getCreatedAt(),
-                episode.getUpdatedAt()
+                episode.getUpdatedAt(), validationState == null ? null : validationState.reportId()
         );
     }
 
-    private EpisodeAnalysisStatus resolveAnalysisStatus(Episode episode, AnalysisJob latestAnalysisJob) {
+    private EpisodeAnalysisStatus resolveAnalysisStatus(Episode episode, AnalysisJob latestAnalysisJob,
+            org.monitoring.catchholebackend.domain.validation.repository.ValidationReportState validationState) {
+        if (validationState != null) {
+            return switch (validationState.status()) {
+                case PREPARING_BASELINE -> EpisodeAnalysisStatus.ERROR_REVIEW_PREPARING;
+                case WAITING_FOR_ERROR_REVIEW -> EpisodeAnalysisStatus.ERROR_REVIEW_PENDING;
+                case HELD_INCOMPLETE -> EpisodeAnalysisStatus.ERROR_REVIEW_HELD;
+                case INVALIDATED -> EpisodeAnalysisStatus.ERROR_REVIEW_INVALIDATED;
+            };
+        }
         if (latestAnalysisJob != null && latestAnalysisJob.isOrderedProvisional()) {
             if (latestAnalysisJob.getJournalStatus() == AnalysisJournalStatus.INVALIDATED) {
                 return EpisodeAnalysisStatus.REANALYSIS_REQUIRED;

@@ -159,9 +159,11 @@ public class CharacterCurrentSupportingEvidenceResolver {
         String binding = job.getSourceContentS3Key()+"\n"+job.getSourceContentS3Version()+"\n"+job.getSourceContentHash();
         return capture.contents.computeIfAbsent(binding, ignored -> {
             // Episode/revision writers use immutable unique keys. Never read the current Episode pointer.
-            String content = storage.getText(job.getSourceContentS3Key());
+            String content;
+            try { content = storage.getText(job.getSourceContentS3Key()); }
+            catch (RuntimeException exception) { throw new SourceUnavailableException(exception); }
             if (content == null || !job.getSourceContentHash().equals(storage.contentHash(content))) {
-                throw new IllegalStateException("CURRENT 원문 근거의 고정 저장본을 읽거나 검증할 수 없습니다.");
+                throw new SourceUnavailableException(null);
             }
             return content;
         });
@@ -228,6 +230,10 @@ public class CharacterCurrentSupportingEvidenceResolver {
     }
 
     /** Dedicated deterministic shape/binding failure; excludes transient source storage failures. */
+    public static final class SourceUnavailableException extends IllegalStateException {
+        public SourceUnavailableException(Throwable cause) { super("고정 원문 근거를 읽거나 hash를 확인할 수 없습니다.", cause); }
+    }
+
     public static final class InvalidEvidenceException extends RuntimeException {
         public InvalidEvidenceException() { super("FROZEN_CURRENT_EVIDENCE_INVALID: 고정 현재 근거의 결속 또는 인용이 올바르지 않습니다."); }
     }

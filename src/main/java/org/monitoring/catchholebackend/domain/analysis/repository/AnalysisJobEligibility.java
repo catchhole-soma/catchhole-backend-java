@@ -5,6 +5,10 @@ final class AnalysisJobEligibility {
     private AnalysisJobEligibility() {}
     static final String DOMAIN = """
             job.work.lifecycleStatus = org.monitoring.catchholebackend.domain.work.type.WorkLifecycleStatus.ACTIVE
+            and not exists (select report.id from ValidationReport report where report.work.id = job.work.id
+                and (report.episode.id = job.episode.id or exists (
+                    select target.id from AnalysisJob owner join owner.targetEpisodes target
+                    where owner.id = job.id and target.id = report.episode.id)))
             and (job.analysisMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.CONFIRMED_ONLY
                 or (job.journalStatus = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.PENDING
                     and (job.runSequence = 0 or exists (

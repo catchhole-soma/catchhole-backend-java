@@ -18,6 +18,16 @@ public class AnalysisJobLeaseServiceImpl implements AnalysisJobLeaseService {
 
     private final AnalysisJobRepository analysisJobRepository;
     private final AnalysisRunStateService analysisRunStateService;
+    private final org.monitoring.catchholebackend.domain.work.repository.WorkRepository workRepository;
+
+    @Override
+    @Transactional
+    public void lockWorkForUpdate(UUID analysisJobId) {
+        UUID workId = analysisJobRepository.findWorkIdById(analysisJobId)
+                .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND));
+        workRepository.findByIdForUpdate(workId)
+                .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND));
+    }
 
     @Override
     @Transactional
@@ -29,6 +39,12 @@ public class AnalysisJobLeaseServiceImpl implements AnalysisJobLeaseService {
         }
         if (!analysisJob.hasLease(leaseToken) || analysisJob.isLeaseExpired(LocalDateTime.now())) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_LEASE_CONFLICT);
+        }
+        var targetIds = new java.util.HashSet<UUID>();
+        analysisJob.getTargetEpisodes().forEach(e -> targetIds.add(e.getId()));
+        if (analysisJob.getEpisode() != null) targetIds.add(analysisJob.getEpisode().getId());
+        if (!targetIds.isEmpty() && analysisJobRepository.existsValidationStagingForEpisodes(targetIds)) {
+            throw new AppException(org.monitoring.catchholebackend.domain.validation.exception.ValidationErrorCode.VALIDATION_ERROR_REVIEW_PENDING);
         }
         analysisRunStateService.assertValidInput(analysisJob);
         return analysisJob;

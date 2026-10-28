@@ -10,6 +10,8 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
@@ -126,7 +128,8 @@ class WorldSettingAutomaticApplicationTest {
             assertThat(row.getReviewedBy()).isNull();
         });
         verify(settings).saveAndFlush(any());
-        verifyNoInteractions(runState);
+        verify(runState, times(2)).confirmedSettingsChanged(work.getId());
+        verifyNoMoreInteractions(runState);
     }
 
     @Test

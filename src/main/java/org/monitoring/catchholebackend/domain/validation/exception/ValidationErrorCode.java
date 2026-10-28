@@ -1,0 +1,20 @@
+package org.monitoring.catchholebackend.domain.validation.exception;
+
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.global.exception.ResultCode;
+import org.springframework.http.HttpStatus;
+
+@Getter
+@RequiredArgsConstructor
+public enum ValidationErrorCode implements ResultCode {
+    VALIDATION_TARGET_INVALID(HttpStatus.BAD_REQUEST, "마지막 회차 뒤에 단일 업로드한 새 원고만 검수를 시작할 수 있습니다."),
+    VALIDATION_COMPARISON_MATERIAL_REQUIRED(HttpStatus.BAD_REQUEST, "첫 회차 검수에는 설정집이나 직접 입력한 설정 등 비교 자료가 필요합니다."),
+    VALIDATION_SOURCE_VERSION_CONFLICT(HttpStatus.CONFLICT, "원고 버전이 변경되었습니다. 현재 원고를 다시 확인해 주세요."),
+    VALIDATION_IDEMPOTENCY_CONFLICT(HttpStatus.CONFLICT, "같은 검수 요청 키에 다른 입력을 사용할 수 없습니다."),
+    VALIDATION_ERROR_REVIEW_PENDING(HttpStatus.CONFLICT, "오류 검사와 검토가 완료되기 전에는 설정 추출이나 후보 반영을 시작할 수 없습니다."),
+    VALIDATION_NOT_FOUND(HttpStatus.NOT_FOUND, "검수 요청을 찾을 수 없습니다.");
+    private final HttpStatus status;
+    private final String message;
+    @Override public String getCode() { return name(); }
+}

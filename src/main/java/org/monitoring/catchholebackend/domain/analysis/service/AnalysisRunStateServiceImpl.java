@@ -322,6 +322,11 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
     }
 
     @Override
+    public void confirmedSettingsChanged(UUID workId) {
+        eventPublisher.publishEvent(new org.monitoring.catchholebackend.domain.validation.event.ValidationStagingEvents.ConfirmedSettingsChanged(workId));
+    }
+
+    @Override
     public void assertSettingMutationAllowed(UUID workId) {
         if (analysisJobRepository.existsUnfinishedOrderedAnalysis(workId)) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_REVIEW_WAIT_REQUIRED);
@@ -332,6 +337,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
     @Transactional
     public void invalidateRunsForEpisodeChangeForUpdate(UUID workId, UUID episodeId, int firstAffectedEpisodeNo, String reason) {
         requireInvalidationReason(reason);
+        eventPublisher.publishEvent(new org.monitoring.catchholebackend.domain.validation.event.ValidationStagingEvents.EpisodeSourceChanged(workId, episodeId));
         analysisJobRepository.findAffectedOrderedJobsForUpdate(workId, firstAffectedEpisodeNo).stream()
                 .filter(job -> !preservesCompletedSuccessor(job, episodeId))
                 .forEach(member -> invalidateMember(member, reason));
@@ -360,6 +366,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
     @Override
     @Transactional
     public void purgeSourceEvidenceForWorkForUpdate(UUID workId, UUID episodeId, int sourceEpisodeNo) {
+        eventPublisher.publishEvent(new org.monitoring.catchholebackend.domain.validation.event.ValidationStagingEvents.EpisodeSourceChanged(workId, episodeId));
         analysisJobRepository.findOrderedJobsForSourcePurgeForUpdate(workId, sourceEpisodeNo).forEach(job -> {
             if (!preservesCompletedSuccessor(job, episodeId)) {
                 invalidateMember(job, "원문 근거가 파기되어 기존 누적 입력을 재사용할 수 없습니다.");

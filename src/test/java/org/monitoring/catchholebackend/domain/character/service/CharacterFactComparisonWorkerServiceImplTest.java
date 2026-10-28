@@ -74,6 +74,7 @@ class CharacterFactComparisonWorkerServiceImplTest {
 
     @Mock
     private AnalysisJobLeaseService analysisJobLeaseService;
+    @Mock private org.springframework.context.ApplicationEventPublisher validationEvents;
     @Mock
     private SettingCandidateRepository candidateRepository;
     @Mock
@@ -98,7 +99,7 @@ class CharacterFactComparisonWorkerServiceImplTest {
     void setUp() {
         CharacterSettingValueValidator valueValidator = new CharacterSettingValueValidator();
         service = new CharacterFactComparisonWorkerServiceImpl(
-                analysisJobLeaseService,
+                analysisJobLeaseService, validationEvents,
                 candidateRepository,
                 characterRepository,
                 schemaRepository,

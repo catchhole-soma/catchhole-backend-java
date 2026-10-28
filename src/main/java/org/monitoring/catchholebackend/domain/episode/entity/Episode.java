@@ -71,6 +71,12 @@ public class Episode extends BaseEntity {
     @Column(name = "char_count", nullable = false)
     private int charCount;
 
+    // 신규 append 업로드 시에만 서버가 부여하며 기존 회차/교체 원고에는 부여하지 않는다.
+    @Column(name = "validation_upload_eligible", nullable = false)
+    private boolean validationUploadEligible;
+
+    public void markValidationUploadEligible() { validationUploadEligible = true; }
+
     //episode 분석 상태 변수
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
@@ -129,6 +135,7 @@ public class Episode extends BaseEntity {
             String contentHash,
             int charCount
     ) {
+        validationUploadEligible = false;
         this.episodeNo = episodeNo;
         this.title = title;
         this.contentS3Key = contentS3Key;
@@ -140,6 +147,7 @@ public class Episode extends BaseEntity {
     }
 
     public void updateContentStorage(String contentS3Key, String contentS3Version, String contentHash) {
+        validationUploadEligible = false;
         this.contentS3Key = contentS3Key;
         this.contentS3Version = contentS3Version;
         this.contentHash = contentHash;
@@ -153,6 +161,7 @@ public class Episode extends BaseEntity {
             String contentHash,
             int charCount
     ) {
+        validationUploadEligible = false;
         this.sourceFileId = sourceFileId;
         this.contentS3Key = contentS3Key;
         this.contentS3Version = contentS3Version;
@@ -195,6 +204,7 @@ public class Episode extends BaseEntity {
     }
 
     public void archive() {
+        validationUploadEligible = false;
         this.contentS3Key = null;
         this.contentS3Version = null;
         this.contentHash = null;

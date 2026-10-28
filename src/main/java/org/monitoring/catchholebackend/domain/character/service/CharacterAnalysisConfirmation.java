@@ -46,6 +46,10 @@ public class CharacterAnalysisConfirmation {
     private final SettingCandidateSchemaResolver schemaResolver;
     private final AnalysisCandidateSourceGuard sourceGuard;
 
+    public void assertExtractionAllowed(org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob job) {
+        sourceGuard.assertCurrent(job, job.getEpisode());
+    }
+
     public void assertReviewSourceCurrent(SettingCandidate candidate) {
         sourceGuard.assertCurrent(candidate.getAnalysisJob(), candidate.getEpisode());
     }

@@ -42,10 +42,13 @@ public class AnalysisBatchMapper {
             SettingCandidateBatchReviewCounts characters, WorldSettingCandidateBatchReviewCounts worlds,
             List<AnalysisBatchJobGroupResponse> groups, LocalDateTime lastActivityAt,
             List<AnalysisBatchJobGroupResponse> episodeGroups, AnalysisBatchStatus episodeStatus,
-            List<AnalysisBatchSettingBookResponse> books) {
+            List<AnalysisBatchSettingBookResponse> books,
+            List<org.monitoring.catchholebackend.domain.validation.dto.response.ValidationRequestSummaryResponse> validations) {
         return new AnalysisBatchSummaryResponse(
                 pageRow.getBatchId(), pageRow.getUploadType(), status,
-                metadata.episodeStartNo(), metadata.episodeEndNo(), metadata.episodeCount(),
+                metadata == null ? validations.stream().map(v -> v.sourceEpisodeNo()).min(Integer::compareTo).orElse(null) : metadata.episodeStartNo(),
+                metadata == null ? validations.stream().map(v -> v.sourceEpisodeNo()).max(Integer::compareTo).orElse(null) : metadata.episodeEndNo(),
+                metadata == null ? validations.size() : metadata.episodeCount(),
                 characters == null ? 0 : characters.getTotalCandidateCount(),
                 characters == null ? 0 : characters.getReviewedCandidateCount(),
                 characters == null ? 0 : characters.getPendingCandidateCount(),
@@ -55,6 +58,6 @@ public class AnalysisBatchMapper {
                 worlds == null ? 0 : worlds.getTokenInterruptedComparisonCount(),
                 worlds != null && worlds.canResumeTokenInterruptedComparisons(), groups,
                 pageRow.getFirstRequestedAt(), pageRow.getLastRequestedAt(), lastActivityAt,
-                episodeGroups, episodeStatus, books);
+                episodeGroups, episodeStatus, books, validations);
     }
 }
