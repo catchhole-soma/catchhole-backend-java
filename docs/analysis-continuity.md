@@ -91,3 +91,21 @@ Front `65fcf6f`다. 제품·회귀 코드는 아래 커밋으로 고정했다. �
 | Java | `3ffacfe2e9e341733a3614ea11e13c326bddcba2` | `678c1791c4ed24c45792e2dd190480f3a04628c7` |
 | AI | `7f74f9ed4c76b6a135d2d2c99bc516e6acce738b` | `16fbeb2c05fd008c28f98ec6b68fd9c061b55fdd` |
 | Front | `16b2b21a3730d710a33de688aa7a3da35e973698` | `c59325f0f559b95c6b66253b5c07aec66349aad8` |
+
+## GH304 기존 인용 확인 불가와 새 비교 — 2026-10-28
+
+과거에 확정한 일반 quote가 원문과 다를 때 현재 설정값을 삭제하거나 확정 근거를 고치지 않는다.
+확정 Fact·이력·발견의 해당 source만 `UNAVAILABLE/QUOTE_NOT_FOUND`와 빈 복사 근거로 전달하고
+다른 정상 source와 검증된 시점을 유지한다. 근거 부족 시 정상 `REVIEW_REQUIRED`로 저장할 수 있다.
+빈 인용·파기된 근거·없는 legacy manifest는 각각 기존 확인 불가 의미를 유지한다.
+
+신규 인용은 exact·공백 검색 뒤 `U+0022/U+201C/U+201D` 차이만 허용해 유일한 원문 구간을 찾고
+실제 slice와 Unicode code point offset을 함께 저장한다. 숫자·부정·단어·그 밖의 문장부호와
+모호한 반복은 보정하지 않는다. 신규 근거·시점·원문 hash/manifest·작품/Job 연결·lease·문맥 token
+검증은 그대로 엄격하다. hash 불일치는 typed 409, 원문 읽기 장애는 503으로 구분한다.
+
+합성 회귀는 emoji offset·다른 정상 출처·파기·재시도·현재값 보존을 검증한다.
+실제 PostgreSQL EPISODE HTTP claim부터 retained UNAVAILABLE context와 정상 검토 완료까지
+실행해 실패 outbox가 없음을 확인하며, 별도 실제 Python HTTP 오류 보고와 localhost 가짜 Discord도
+검증한다. 상세 계약·호환성·명령은 [실패 알림 문서](analysis-failure-notifications.md)를 따른다.
+기존 운영 Job을 테스트로 다시 실행하거나 사용자 근거를 백필하지 않는다. 실제 모델 품질은 미측정이다.
