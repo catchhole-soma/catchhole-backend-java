@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.worldsetting.service;
 
+import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisFailureDiagnosticsSanitizer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
@@ -47,6 +48,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class OrderedWorldSettingWorker implements org.monitoring.catchholebackend.domain.analysis.service.AnalysisJournalContributor {
 
+    private final AnalysisFailureDiagnosticsSanitizer failureDiagnosticsSanitizer;
     private final AnalysisRunStateService stateService;
     private final AnalysisStateJournal journal;
     private final AnalysisRunContextMapper contextMapper;
@@ -308,7 +310,7 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
 
     public void completeBatch(AnalysisJob job, UUID batchId, WorkerWorldSettingComparisonBatchCompleteRequest request) {
         WorldSettingComparisonBatch batch = getBatch(job, batchId);
-        String completionHash = journal.hash(mapper.toJsonNode(request));
+        String completionHash = journal.hash(mapper.toCompletionFingerprintPayload(request));
         if (batch.isCompletedWith(completionHash)) {
             return;
         }
@@ -440,6 +442,7 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
                 if (!consumed.add(ref)) throw invalid();
                 var candidate = byRef.get(ref);
                 candidate.failComparison(failure.failureCode(), failure.errorMessage());
+                candidate.recordComparisonFailure(job, batch.getId(), failureDiagnosticsSanitizer.sanitize(failure.failureDiagnostics(), job.getWork().getId()));
                 candidate.recordComparisonDiagnostics(candidateDiagnostics.get(ref));
                 if (job.isAutomaticReview()) changes.add(failedComparisonReference(candidate));
             }

@@ -1,5 +1,7 @@
 package org.monitoring.catchholebackend.domain.analysis.service;
 
+import org.monitoring.catchholebackend.domain.analysis.dto.AnalysisFailureDiagnostics;
+import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisFailureDiagnosticsSanitizer;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -59,6 +61,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
 
+    private final AnalysisFailureDiagnosticsSanitizer failureDiagnosticsSanitizer;
     private final AnalysisJobClaimRepository analysisJobClaimRepository;
     private final AnalysisRunStateService analysisRunStateService;
     private final List<AnalysisJournalContributor> analysisJournalContributors;
@@ -112,7 +115,10 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             // Only a deterministic captured-evidence error reaches this path. Source/run conflicts
             // and storage failures retain their existing invalidation/retry behavior.
             analysisJob.claim(request.modelName(), request.currentStep(), now.plus(LEASE_DURATION));
-            finishFailure(analysisJob, new WorkerAnalysisJobFailRequest(AnalysisFailureCode.UNEXPECTED_ERROR, exception.getMessage()));
+            var diagnostics = new tools.jackson.databind.ObjectMapper().valueToTree(exception.getErrorContext().get("failureDiagnostics"));
+            ((tools.jackson.databind.node.ObjectNode) diagnostics).put("stage", "CLAIM_INPUT")
+                    .put("requestId", org.slf4j.MDC.get("requestId")).put("traceId", org.slf4j.MDC.get("traceId"));
+            finishFailure(analysisJob, new WorkerAnalysisJobFailRequest(AnalysisFailureCode.UNEXPECTED_ERROR, exception.getMessage(), diagnostics));
             analysisJob.markJournalIncomplete();
             aiTokenService.releaseReservedForAnalysisJob(analysisJob.getId(), AiTokenUsageOutcome.USAGE_UNAVAILABLE);
             return Optional.empty();
@@ -279,6 +285,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     }
 
     private void finishFailure(AnalysisJob analysisJob, WorkerAnalysisJobFailRequest request) {
+        AnalysisFailureDiagnostics failureDiagnostics = failureDiagnosticsSanitizer.sanitize(request.failureDiagnostics(), analysisJob.getWork().getId());
         AnalysisFailureCode failureCode = AnalysisFailureCode.orUnexpected(request.failureCode());
         boolean resumableTokenInterruption = !analysisJob.isOrderedProvisional()
                 && failureCode == AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED
@@ -287,19 +294,19 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         failProcessingWorldComparisonBatches(
                 analysisJob,
                 failureCode,
-                request.errorMessage()
+                request.errorMessage(), failureDiagnostics
         );
         failProcessingCharacterComparisonBatches(
                 analysisJob,
                 failureCode,
-                request.errorMessage()
+                request.errorMessage(), failureDiagnostics
         );
         if (resumableTokenInterruption) {
-            interruptRemainingWorldCandidatesForTokenQuota(analysisJob, request.errorMessage());
+            interruptRemainingWorldCandidatesForTokenQuota(analysisJob, request.errorMessage(), failureDiagnostics);
             markTargetEpisodesAnalyzed(analysisJob);
         } else {
-            failProcessingWorldCandidates(analysisJob, failureCode, request.errorMessage());
-            failProcessingCharacterCandidates(analysisJob, failureCode, request.errorMessage());
+            failProcessingWorldCandidates(analysisJob, failureCode, request.errorMessage(), failureDiagnostics);
+            failProcessingCharacterCandidates(analysisJob, failureCode, request.errorMessage(), failureDiagnostics);
         }
         if (!isHiddenComparisonJob(analysisJob) && !resumableTokenInterruption) {
             markTargetEpisodesFailed(analysisJob);
@@ -311,6 +318,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 Math.toIntExact(totals[0]),
                 Math.toIntExact(totals[1])
         );
+        analysisJob.recordFailureDiagnostics(failureDiagnostics);
         characterComparisonJobCoordinator.handoffIfInputComplete(analysisJob);
     }
 
@@ -461,13 +469,22 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             AnalysisFailureCode failureCode,
             String errorMessage
     ) {
+        failProcessingWorldComparisonBatches(analysisJob, failureCode, errorMessage, null);
+    }
+
+    private void failProcessingWorldComparisonBatches(
+            AnalysisJob analysisJob,
+            AnalysisFailureCode failureCode,
+            String errorMessage,
+            AnalysisFailureDiagnostics diagnostics
+    ) {
         worldSettingComparisonBatchRepository.findAllByAnalysisJobIdAndStatusForUpdate(
                 analysisJob.getId(),
                 WorldSettingComparisonBatchStatus.PROCESSING
-        ).forEach(batch -> batch.fail(
-                failureCode,
-                errorMessage
-        ));
+        ).forEach(batch -> {
+            batch.fail(failureCode, errorMessage);
+            batch.recordFailureDiagnostics(diagnostics);
+        });
     }
 
     private void failProcessingCharacterComparisonBatches(
@@ -475,13 +492,22 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             AnalysisFailureCode failureCode,
             String errorMessage
     ) {
+        failProcessingCharacterComparisonBatches(analysisJob, failureCode, errorMessage, null);
+    }
+
+    private void failProcessingCharacterComparisonBatches(
+            AnalysisJob analysisJob,
+            AnalysisFailureCode failureCode,
+            String errorMessage,
+            AnalysisFailureDiagnostics diagnostics
+    ) {
         characterFactComparisonBatchRepository.findAllByAnalysisJobIdAndStatusForUpdate(
                 analysisJob.getId(),
                 CharacterFactComparisonBatchStatus.PROCESSING
-        ).forEach(batch -> batch.fail(
-                failureCode,
-                errorMessage
-        ));
+        ).forEach(batch -> {
+            batch.fail(failureCode, errorMessage);
+            batch.recordFailureDiagnostics(diagnostics);
+        });
     }
 
     private void recoverProcessingWorldCandidates(AnalysisJob analysisJob) {
@@ -503,24 +529,39 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             AnalysisFailureCode failureCode,
             String errorMessage
     ) {
+        failProcessingWorldCandidates(analysisJob, failureCode, errorMessage, null);
+    }
+
+    private void failProcessingWorldCandidates(
+            AnalysisJob analysisJob,
+            AnalysisFailureCode failureCode,
+            String errorMessage,
+            AnalysisFailureDiagnostics diagnostics
+    ) {
         if (analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION) {
             worldSettingCandidateRepository.findAllByAnalysisJobIdAndComparisonStatus(
                     analysisJob.getId(),
                     WorldSettingComparisonStatus.PROCESSING
-            ).forEach(candidate -> candidate.failComparison(failureCode, errorMessage));
+            ).forEach(candidate -> {
+                candidate.failComparison(failureCode, errorMessage);
+                candidate.recordComparisonFailure(analysisJob, candidate.getComparisonBatch() == null ? null : candidate.getComparisonBatch().getId(), diagnostics);
+            });
             return;
         }
         if (analysisJob.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON
                 && analysisJob.getWorldSettingCandidate() != null
                 && analysisJob.getWorldSettingCandidate().getComparisonStatus()
                 == WorldSettingComparisonStatus.PROCESSING) {
-            analysisJob.getWorldSettingCandidate().failComparison(failureCode, errorMessage);
+            var candidate = analysisJob.getWorldSettingCandidate();
+            candidate.failComparison(failureCode, errorMessage);
+            candidate.recordComparisonFailure(analysisJob, candidate.getComparisonBatch() == null ? null : candidate.getComparisonBatch().getId(), diagnostics);
         }
     }
 
     private void interruptRemainingWorldCandidatesForTokenQuota(
             AnalysisJob analysisJob,
-            String errorMessage
+            String errorMessage,
+            AnalysisFailureDiagnostics diagnostics
     ) {
         worldSettingCandidateRepository
                 .findAllByAnalysisJobIdAndReviewStatusAndComparisonStatusIn(
@@ -528,7 +569,10 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                         WorldSettingReviewStatus.PENDING_REVIEW,
                         List.of(WorldSettingComparisonStatus.PENDING, WorldSettingComparisonStatus.PROCESSING)
                 )
-                .forEach(candidate -> candidate.interruptComparisonForTokenQuota(errorMessage));
+                .forEach(candidate -> {
+                    candidate.interruptComparisonForTokenQuota(errorMessage);
+                    candidate.recordComparisonFailure(analysisJob, candidate.getComparisonBatch() == null ? null : candidate.getComparisonBatch().getId(), diagnostics);
+                });
     }
 
     private void recoverProcessingCharacterCandidates(AnalysisJob analysisJob) {
@@ -565,6 +609,15 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             AnalysisFailureCode failureCode,
             String errorMessage
     ) {
+        failProcessingCharacterCandidates(analysisJob, failureCode, errorMessage, null);
+    }
+
+    private void failProcessingCharacterCandidates(
+            AnalysisJob analysisJob,
+            AnalysisFailureCode failureCode,
+            String errorMessage,
+            AnalysisFailureDiagnostics diagnostics
+    ) {
         if (analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION) {
             if (analysisJob.hasHandedOffCharacterComparisons()) {
                 return;
@@ -575,7 +628,10 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                             CharacterFactComparisonStatus.PENDING,
                             CharacterFactComparisonStatus.PROCESSING
                     )
-            ).forEach(candidate -> candidate.failComparison(failureCode, errorMessage));
+            ).forEach(candidate -> {
+                candidate.failComparison(failureCode, errorMessage);
+                candidate.recordComparisonFailure(analysisJob, candidate.getCharacterComparisonBatch() == null ? null : candidate.getCharacterComparisonBatch().getId(), diagnostics);
+            });
             return;
         }
         if (analysisJob.getJobType() == AnalysisJobType.CHARACTER_FACT_COMPARISON
@@ -590,7 +646,15 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             candidates.stream()
                     .filter(candidate -> candidate.getComparisonStatus() == CharacterFactComparisonStatus.PENDING
                             || candidate.getComparisonStatus() == CharacterFactComparisonStatus.PROCESSING)
-                    .forEach(candidate -> candidate.failComparison(failureCode, errorMessage));
+                    .forEach(candidate -> {
+                        candidate.failComparison(failureCode, errorMessage);
+                        candidate.recordComparisonFailure(analysisJob,
+                                candidate.getCharacterComparisonBatch() == null ? null : candidate.getCharacterComparisonBatch().getId(), diagnostics);
+                    });
+            if (analysisJob.getCharacterComparisonInputHash() != null) {
+                // 첫 묶음 전에도 Job FAILED 트리거가 전체 그룹을 읽도록 같은 트랜잭션에서 먼저 저장한다.
+                settingCandidateRepository.flush();
+            }
         }
     }
 

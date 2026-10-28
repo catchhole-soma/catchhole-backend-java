@@ -95,7 +95,7 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
 
     @BeforeEach
     void setUp() {
-        service = new AnalysisJobWorkerServiceImpl(
+        service = new AnalysisJobWorkerServiceImpl(new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisFailureDiagnosticsSanitizer(org.mockito.Mockito.mock(org.springframework.jdbc.core.JdbcTemplate.class)),
                 claimRepository,
                 analysisRunStateService,
                 List.of(),

@@ -61,7 +61,10 @@
 
 ### Application Metrics
 
-- 회차 분석 실패 알림은 `analysis_failure_notifications`의 transactional outbox를 사용한다. V88의 PostgreSQL trigger는 회차 Job/캐릭터·세계관 후보가 새로 FAILED가 될 때 식별자와 고정 실패 코드만 기록한다. Python의 후보 최초 저장과 SQL 상태 갱신도 누락하지 않기 위한 경계이며 원시 오류·원문·연락처는 복사하지 않는다. 동일 트랜잭션·Job·회차·종류·코드의 후보 실패는 한 알림의 건수로 합친다.
+- 회차 분석 실패 알림은 `analysis_failure_notifications`의 transactional outbox를 사용한다. V90의 PostgreSQL trigger는 회차 Job/캐릭터·세계관 후보가 새로 FAILED가 될 때 안전한 진단·실행 종류·실행/원본 추출/비교 묶음·대상 회차를 실패 당시 snapshot으로 기록한다. 발송 때 현재 Job·후보·FK로 과거 원인을 재구성하지 않으며 원시 오류·원문·연락처는 복사하지 않는다.
+- 후보 실패는 기존 트랜잭션·원본 Job·회차·종류·코드에 실행·묶음·정리한 진단 전체가 같은 경우만 합친다. reason이 같아도 단계·관측 HTTP·원천 코드·원인 근거 ID가 다르면 나눠 대표 진단이 전체 개수를 설명하는 것처럼 표시하지 않는다. 진단과 서버 실행 링크가 모두 없는 구 writer만 기존 그룹 의미를 유지한다.
+- 새 시도의 현재 진단·후보 실행 링크는 애플리케이션과 DB 상태 전이에서 함께 비워 rolling/rollback의 구 SQL writer도 이전 시도를 재사용하지 않게 한다. 과거 outbox는 유지한다. 실행 실패의 기본 수는 실패 작업 1건이며 후보 사건만 실패 항목 수를 쓴다. 다회차 실행은 실제 membership의 회차를 쓰고 여러 원본 추출 Job을 하나로 추정하지 않는다.
+- 입력 hash가 유효한 숨김 캐릭터 그룹은 직접 실패와 lease 회수 한도 초과에서 후보 실행 링크를 같은 트랜잭션으로 먼저 flush한 뒤 Job을 FAILED로 바꾼다. 첫 비교 묶음 전에는 이 링크만으로 전체 대상 회차·유일한 원본 출처를 snapshot할 수 있기 때문이다. stale 입력은 현재 후보를 바꾸지 않으며 이후 live 상태로 과거 outbox를 보완하지 않는다.
 - `ANALYSIS_FAILURE_NOTIFICATIONS_ENABLED=false`가 기본이며 활성화할 때 `ANALYSIS_FAILURE_DISCORD_WEBHOOK_URL`을 서버 비밀 설정으로 주입한다. 운영 Compose는 알림 환경을 prod로 고정한다. 전용 dispatcher는 DB 선점을 끝낸 뒤 HTTP를 호출하고, 429의 대기 헤더·일시 오류 backoff·재시작 후 미발송 복구를 처리한다. 전송은 at-least-once이며 응답 유실 때 같은 알림 ID가 중복될 수 있다. 비활성 중 대기 기록도 활성화 시 발송하며 완료 이력만 30일 뒤 정리한다. 설정집·접수 전 HTTP 오류·브라우저 연결 오류는 이 알림의 대상이 아니다. 운영 설정과 한계는 `docs/analysis-failure-notifications.md`를 따른다.
 
 - 기본 애플리케이션 지표는 Actuator와 `micrometer-registry-prometheus`로 제공한다. registry 버전은 Spring Boot의 의존성 관리에 맡긴다.
@@ -469,7 +472,7 @@ domain/<domain>
 - AnalysisJob은 작품에 속한 단일 회차 AI 분석 작업의 상태와 결과 메타데이터를 추적한다. `UploadBatch`는 업로드 출처 묶음이며 분석 실행 단위가 아니다.
 - 첫 분석 안내는 계정 전체 기준으로 V64의 `analysis_guide_shown_at`과 `first_analysis_started_at`을 사용한다. 조회는 비소비, 노출 선점은 회원 잠금 아래 한 번만 성공하며 Job 생성과 최초 분석 시각을 같은 트랜잭션에 저장한다. 작품 삭제 후에도 경험 기록을 유지한다. 예시 확정은 실제 분석·설정 변경을 호출하지 않는다. 상세 API·이관 범위는 `docs/analysis-mode-guide.md`를 따른다.
 - 원문 텍스트는 `Episode`의 S3 저장 구조를 재사용한다. `analysis_jobs`에는 작업 메타데이터와 누적 모드의 고정 S0·검증 변경 기록을 저장하며 원문 전문이나 raw LLM 응답을 중복 저장하지 않는다.
-- 분석 실패 이력은 `analysis_jobs.error_message`에 누적하지 않는다. Discord 발송 이력은 원시 오류 없이 `analysis_failure_notifications`에 식별자·고정 실패 코드·전송 상태로 따로 기록한다.
+- 분석 실패 이력은 `analysis_jobs.error_message`에 누적하지 않는다. Discord 발송 이력은 원시 오류 없이 `analysis_failure_notifications`에 식별자·고정 실패 코드·안전한 진단 snapshot·전송 상태로 따로 기록한다.
 - 새 회차 분석으로 대체된 legacy 캐릭터·세계관 비교 Job은 `cancelForSourceChange`로 `CANCELED` 마감한다. 토큰 예약 해제·후보 unlink·flush 순서는 유지하며 정상적인 교체를 `FAILED` 장애로 기록하거나 Discord 실패 알림으로 보내지 않는다.
 - 화면은 업로드 묶음에 생성된 회차별 `AnalysisJob.status`를 집계하고, 각 Job의 단일 대상 `Episode.status`를 단계별 상태로 보여준다.
 - 신규 분석 작업은 정확히 한 회차를 `analysis_job_episode_targets`에 스냅샷으로 저장한다. 이후 회차 원본 교체나 `ARCHIVED` 전이로 과거 작업의 대상이 바뀌지 않게 하며, 과거 batch-wide 작업의 복수 target 연결은 조회 이력 호환용으로만 유지한다.
@@ -516,6 +519,9 @@ domain/<domain>
 - 원문 파기는 기존 후보 근거뿐 아니라 영향 이후 ordered journal·S0·자동 시작 문맥에 복사된 identity evidence·참고 주장과 비교 context도 정리한다. S0는 실행 중 불변이다. 근거 삭제는 무효화된 입력 또는 정상 완료된 후행 기록에만 허용하며, 완료 상태·정산·설정값을 바꾸지 않는다. 커밋 후 원문 파기 재시도도 완료 후행을 다시 무효화하지 않는다. 당시 hash는 감사용으로 보존하되 `sourceEvidencePurged` 기록은 다시 replay하지 않는다.
 - `ORDERED_PROVISIONAL`은 회차별 고정 입력으로 캐릭터 비교를 원 Job 안에서 끝낸 뒤 `CHARACTER_COMPARISONS_FINISHED`를 기록한다. 같은 batch의 후속 회차가 앞 회차 저장을 기다리므로 그룹 handoff barrier를 사용하지 않으며 ordered 후보는 legacy 그룹 숨김 Job에 섞지 않는다.
 - Worker 실패는 `AnalysisFailureCode`로 분류해 `analysis_jobs.failure_code`와 후보별 비교 실패 코드에 저장한다. `error_message`는 운영 진단용 원문이며 공개 DTO의 실패 문구는 코드별 안전한 사용자 메시지만 사용한다. URL, 내부 API 경로, stack trace가 공개 응답에 섞이지 않게 한다.
+- 기존 확정 Fact·이력·발견의 일반 인용만 `QUOTE_NOT_FOUND`이면 값과 원출처를 보존하고 복사 문맥의 근거를 `UNAVAILABLE`로 비운다. 신규 근거·offset·원문 hash/manifest·작품/Job 연결·서사 시점 검증은 완화하지 않는다. 원문 확인 불가를 값 삭제나 VERIFIED 승격으로 해석하지 않기 위한 경계다.
+- Worker의 선택적 `failureDiagnostics`는 v1 고정 코드·단계·실제 HTTP/요청/trace 식별자만 받는다. 새 HTTP 필드는 Jackson 3 `JsonNode`, 저장 모델은 typed `AnalysisFailureDiagnostics`를 사용하고 nonthrowing sanitizer가 잘못된 부가 진단과 검증되지 않은 원인 ID를 버린다. 진단 오류로 본래 `/fail` 상태 전이를 거절하거나 기존 `AnalysisFailureCode`의 격리·재시도 정책을 바꾸지 않는다. 후보의 `comparison_failure_analysis_job_id`/`comparison_failure_batch_id`는 서버가 승인한 실제 실행에서 같은 실패 전이에 고정하며 원 추출 Job으로 재비교 실행을 추정하지 않는다. 이 필드와 현재 진단은 새 시도에서 비우고 과거 outbox snapshot은 바꾸지 않는다.
+
 - `WORLD_CANDIDATES_PUBLISHED` 이후 `SETTING_EXTRACTION`이 `AI_TOKEN_QUOTA_EXHAUSTED`로 중단되면 완료된 1차 추출·비교와 `Episode.ANALYZED`를 보존하고, 남은 세계관 후보만 같은 코드의 재개 가능한 중단 상태로 표시한다. 미해결 토큰 중단 후보나 해당 후보의 활성 `WORLD_SETTING_COMPARISON` Job이 남아 있는 동안 새 전체 분석 생성과 다른 실패 Job을 통한 우회 재시도를 차단하고 배치 단위 세계관 비교 재개 API로만 복구한다. 후보가 모두 완료·기각되고 활성 복구 Job이 사라지면 새 분석 생성은 다시 허용한다.
 - 공개 분석 생성·재시도는 최소 첫 추출 예약량, 세계관 비교 시작·일괄 재개는 최소 첫 비교 예약량을 사전 확인한다. 이 검사는 빠른 사용자 피드백용이며, 동시 실행에서 실제 사용 권한은 Worker 호출 직전의 계정 잠금 기반 원자적 예약이 최종 결정한다.
 - `WORLD_SETTING_COMPARISON`은 사용자 재비교 요청 한 건을 처리하는 내부 Job type이다. 공개 분석 목록·진행률·회차 실행 잠금에서 제외하고 동일 후보의 활성 Job은 하나만 허용한다. 후보가 `PENDING_REVIEW`를 벗어나 Job이 obsolete가 되면 후보 상태를 되돌리거나 실패 이력을 만들지 않고 no-op 성공시킨다.
@@ -930,6 +936,7 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 기본 H2 DB 이름은 `${random.uuid}`로 Spring Context마다 분리하고 `src/test/java/.../support/TestClassContextCustomizerFactory`를 test 전용 `META-INF/spring.factories`에 등록해 Context 캐시도 테스트 클래스별로 분리한다. 서로 다른 클래스가 같은 DB의 schema를 생성·삭제하거나 커밋된 fixture를 공유하지 않게 하기 위함이다. 같은 클래스의 메서드 간에는 기존 트랜잭션 rollback 또는 명시적인 fixture 정리를 유지하며 PostgreSQL 테스트의 명시적인 DB override는 보존한다.
 - Gradle 테스트 JVM heap은 1GiB, Spring TestContext 캐시는 8개로 제한한다. 전체 테스트에서 여러 JPA Context를 보관하다 CI heap이 고갈되는 것을 막기 위한 테스트 전용 설정이며 운영 JVM 설정을 바꾸지 않는다.
 - `main` 대상 PR은 `.github/workflows/ci.yml`에서 전체 테스트와 `bootJar`를 실행하고 실패 보고서를 7일간 보관한다. 배포 전에 실패를 확인하기 위한 검증 전용 workflow이며 이미지 발행·운영 배포는 실행하지 않는다. `main` push의 기존 이미지 발행 테스트도 유지한다.
+- GH304 실제 연결 검증은 `ComparisonEvidenceHttpPostgresIntegrationTest`에서 전용 Testcontainers EPISODE·Spring HTTP·합성 저장소를 사용한다. `GH304_AI_CHECKOUT`은 AI checkout, `GH304_PYTHON`은 별도 기존 venv의 Python 경로다. 이 두 값을 지정하면 실제 Python 실패 보고와 localhost 가짜 Discord, 변경 전 DTO 수신을 함께 실행한다. 외부 provider/webhook과 실제 원고는 사용하지 않는다. Java 시간 payload export의 기존 빈 디렉터리 `BATCH_TIME_FIX_OUTPUT`을 Python에도 전달해 네 계약 검증을 실행한다.
 - 이메일·휴대폰 인증의 TTL, Lua rate limit 경계, 이전 코드 폐기, 오입력 잠금과 동시 토큰 소비는 `redis:7.4.10-alpine3.21` Testcontainers 통합 테스트로 검증한다.
 
 - 그룹 검토 응답의 `analysisMode`는 원 후보 Job의 정책이다. `CONFIRMED_ONLY`의 구형 요청·여러 회차 그룹은 그룹 공통 비교 revision을 확인하고, `ORDERED_PROVISIONAL`은 회차별 고정 문맥·실제 상태·의존성을 검증한다. 자동 보류 후보의 명시적 사용자 수정 확정과 그룹 멱등 결정 hash의 `applyEditedValue`를 함께 보존한다.

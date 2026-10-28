@@ -51,8 +51,10 @@ public class CharacterAnalysisStateSource implements AnalysisStateSource {
                 work.getId(), CharacterStatus.ACTIVE
         )) {
             ObjectNode state = captureCharacter(character, capture);
-            mapper.addConfirmedIdentity(state, discoveries.stream()
-                    .filter(candidate -> character.getId().equals(candidate.getMatchedCharacterId())).toList());
+            var confirmed = discoveries.stream().filter(candidate -> character.getId().equals(candidate.getMatchedCharacterId())).toList();
+            var identityEvidence = JsonNodeFactory.instance.arrayNode();
+            for (SettingCandidate discovery : confirmed) identityEvidence.addAll(supportingEvidence.captureRetainedIdentityEvidence(capture, discovery));
+            mapper.addConfirmedIdentity(state, confirmed, identityEvidence);
             result.set(CharacterAnalysisStateMapper.persistedRef(character.getId()), state);
         }
         return result;
@@ -109,8 +111,9 @@ public class CharacterAnalysisStateSource implements AnalysisStateSource {
             }
             if (!character.getId().equals(sourceOwner)) throw new org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException();
             ObjectNode frozen = current.deepCopy();
-            ObjectNode origin = supportingEvidence.captureCandidate(capture, source);
-            if ("VERIFIED".equals(origin.path("availability").asText())) {
+            ObjectNode origin = supportingEvidence.captureRetainedCandidate(capture, source);
+            if ("VERIFIED".equals(origin.path("availability").asText())
+                    || "QUOTE_NOT_FOUND".equals(origin.path("unavailableReason").asText())) {
                 ObjectNode point = frozen.deepCopy(); point.remove("sourceCandidateId");
                 if (!point.equals(origin.path("narrativeTime").path("referenceTime"))) throw new org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException();
             }

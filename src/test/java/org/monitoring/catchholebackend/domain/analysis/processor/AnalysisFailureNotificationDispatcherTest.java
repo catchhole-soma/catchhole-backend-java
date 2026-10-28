@@ -34,7 +34,7 @@ class AnalysisFailureNotificationDispatcherTest {
         }
         var order = inOrder(client, repository);
         order.verify(repository).claimNext();
-        order.verify(client).send(contains("세계관 비교 실패"));
+        order.verify(client).send(contains("세계관 비교 항목 실패"));
         order.verify(repository).markDelivered(event);
         verify(repository, never()).postpone(any(), any());
     }

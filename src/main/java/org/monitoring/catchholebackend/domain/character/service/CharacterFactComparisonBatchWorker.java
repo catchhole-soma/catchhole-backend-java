@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.character.service;
 
+import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisFailureDiagnosticsSanitizer;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
@@ -86,6 +87,7 @@ public class CharacterFactComparisonBatchWorker {
             "^status\\.[\\p{L}\\p{N}_-]+$"
     );
 
+    private final AnalysisFailureDiagnosticsSanitizer failureDiagnosticsSanitizer;
     private final AnalysisJobLeaseService analysisJobLeaseService;
     private final SettingCandidateRepository settingCandidateRepository;
     private final CharacterFactComparisonBatchRepository comparisonBatchRepository;
@@ -287,10 +289,14 @@ public class CharacterFactComparisonBatchWorker {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_BATCH_RESPONSE_INVALID);
         }
         if (analysisJob.isOrderedProvisional() && !failures.isEmpty() && decisions.isEmpty()) {
-            failures.forEach((ref, failure) -> findByRef(candidates, ref).candidate().failComparison(
-                    failure.failureCode(), failure.errorMessage()));
+            failures.forEach((ref, failure) -> {
+                var candidate = findByRef(candidates, ref).candidate();
+                candidate.failComparison(failure.failureCode(), failure.errorMessage());
+                candidate.recordComparisonFailure(analysisJob, batch.getId(), failureDiagnosticsSanitizer.sanitize(failure.failureDiagnostics(), analysisJob.getWork().getId()));
+            });
             var firstFailure = failures.values().iterator().next();
             batch.failCompletion(completionHash, firstFailure.failureCode(), firstFailure.errorMessage());
+            batch.recordFailureDiagnostics(failureDiagnosticsSanitizer.sanitize(firstFailure.failureDiagnostics(), analysisJob.getWork().getId()));
             return;
         }
 
@@ -358,10 +364,11 @@ public class CharacterFactComparisonBatchWorker {
                         decision.removedSlots(), decision.dependencyCandidateIds());
             }
         }
-        failures.forEach((ref, failure) -> findByRef(candidates, ref).candidate().failComparison(
-                failure.failureCode(),
-                failure.errorMessage()
-        ));
+        failures.forEach((ref, failure) -> {
+            var candidate = findByRef(candidates, ref).candidate();
+            candidate.failComparison(failure.failureCode(), failure.errorMessage());
+            candidate.recordComparisonFailure(analysisJob, batch.getId(), failureDiagnosticsSanitizer.sanitize(failure.failureDiagnostics(), analysisJob.getWork().getId()));
+        });
         if (analysisJob.getCharacterComparisonInputHash() == null) {
             validated.stream()
                     .map(ValidatedDecision::candidateTarget)
@@ -429,8 +436,10 @@ public class CharacterFactComparisonBatchWorker {
         }
         for (SettingCandidate candidate : candidates) {
             candidate.failComparison(failureCode, errorMessage);
+            candidate.recordComparisonFailure(analysisJob, batch.getId(), failureDiagnosticsSanitizer.sanitize(request.failureDiagnostics(), analysisJob.getWork().getId()));
         }
         batch.fail(failureCode, errorMessage);
+        batch.recordFailureDiagnostics(failureDiagnosticsSanitizer.sanitize(request.failureDiagnostics(), analysisJob.getWork().getId()));
     }
 
     @Transactional
@@ -1178,7 +1187,13 @@ public class CharacterFactComparisonBatchWorker {
                 .toList());
         canonical.put("failures", request.failures().stream()
                 .sorted(Comparator.comparing(WorkerCharacterFactComparisonBatchCompleteRequest.Failure::candidateRef))
-                .toList());
+                .map(failure -> {
+                    Map<String, Object> value = new LinkedHashMap<>();
+                    value.put("candidateRef", failure.candidateRef());
+                    value.put("failureCode", failure.failureCode());
+                    value.put("errorMessage", failure.errorMessage());
+                    return value;
+                }).toList());
         canonical.put("rawComparisonJson", request.rawComparisonJson());
         return canonical;
     }

@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.character.entity;
 
+import org.monitoring.catchholebackend.domain.analysis.dto.AnalysisFailureDiagnostics;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -124,6 +125,16 @@ public class CharacterFactComparisonBatch extends BaseEntity {
     @Column(name = "failure_code", length = 60)
     private AnalysisFailureCode failureCode;
 
+    // 실패 전이 당시의 안전한 원인만 보존하며 재시도에서는 비운다.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "failure_diagnostics", columnDefinition = "jsonb")
+    private AnalysisFailureDiagnostics failureDiagnostics;
+
+    public void recordFailureDiagnostics(AnalysisFailureDiagnostics diagnostics) {
+        this.failureDiagnostics = diagnostics;
+    }
+
+
     @Column(name = "error_message", columnDefinition = "text")
     private String errorMessage;
 
@@ -235,6 +246,7 @@ public class CharacterFactComparisonBatch extends BaseEntity {
         this.completionHash = requireHash(completionHash);
         this.rawCompletionJson = rawCompletionJson == null ? null : rawCompletionJson.deepCopy();
         this.failureCode = null;
+        this.failureDiagnostics = null;
         this.errorMessage = null;
     }
 
@@ -242,6 +254,7 @@ public class CharacterFactComparisonBatch extends BaseEntity {
         requireProcessing();
         this.status = CharacterFactComparisonBatchStatus.FAILED;
         this.failureCode = AnalysisFailureCode.orUnexpected(failureCode);
+        this.failureDiagnostics = null;
         this.errorMessage = Objects.requireNonNull(errorMessage).trim();
     }
 

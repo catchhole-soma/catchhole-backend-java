@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.analysis.entity;
 
+import org.monitoring.catchholebackend.domain.analysis.dto.AnalysisFailureDiagnostics;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -282,6 +283,16 @@ public class AnalysisJob extends BaseEntity {
     @Column(name = "failure_code", length = 60)
     private AnalysisFailureCode failureCode;
 
+    // 실패 전이 당시의 안전한 원인만 보존하며 재시도에서는 비운다.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "failure_diagnostics", columnDefinition = "jsonb")
+    private AnalysisFailureDiagnostics failureDiagnostics;
+
+    public void recordFailureDiagnostics(AnalysisFailureDiagnostics diagnostics) {
+        this.failureDiagnostics = diagnostics;
+    }
+
+
     // Worker가 현재 실행 시도를 claim한 시각.
     @Column(name = "started_at")
     private LocalDateTime startedAt;
@@ -449,6 +460,7 @@ public class AnalysisJob extends BaseEntity {
         }
         this.errorMessage = null;
         this.failureCode = null;
+        this.failureDiagnostics = null;
         this.startedAt = LocalDateTime.now();
         this.leaseToken = UUID.randomUUID();
         this.leaseExpiresAt = leaseExpiresAt;
@@ -670,6 +682,7 @@ public class AnalysisJob extends BaseEntity {
         this.leaseExpiresAt = null;
         this.errorMessage = null;
         this.failureCode = null;
+        this.failureDiagnostics = null;
         this.completedAt = null;
     }
 
@@ -694,6 +707,7 @@ public class AnalysisJob extends BaseEntity {
         this.currentStep = "실패한 누적 분석 재시도 대기";
         this.errorMessage = null;
         this.failureCode = null;
+        this.failureDiagnostics = null;
         this.summaryJson = null;
         this.startedAt = null;
         this.completedAt = null;
@@ -721,6 +735,7 @@ public class AnalysisJob extends BaseEntity {
         this.outputTokenCount = outputTokenCount;
         this.errorMessage = null;
         this.failureCode = null;
+        this.failureDiagnostics = null;
         this.completedAt = LocalDateTime.now();
         clearLease();
     }
@@ -745,6 +760,7 @@ public class AnalysisJob extends BaseEntity {
     ) {
         this.status = AnalysisJobStatus.FAILED;
         this.failureCode = AnalysisFailureCode.orUnexpected(failureCode);
+        this.failureDiagnostics = null;
         this.errorMessage = errorMessage;
         this.inputTokenCount = inputTokenCount;
         this.outputTokenCount = outputTokenCount;
@@ -771,6 +787,7 @@ public class AnalysisJob extends BaseEntity {
         this.currentStep = "작품 영구 삭제로 취소됨";
         this.errorMessage = null;
         this.failureCode = null;
+        this.failureDiagnostics = null;
         this.completedAt = LocalDateTime.now();
         recordResultReady(metricsAttemptNo, completedAt, "canceled");
         clearLease();
