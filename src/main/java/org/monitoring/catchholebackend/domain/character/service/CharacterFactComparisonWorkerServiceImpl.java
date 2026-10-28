@@ -75,6 +75,7 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
 
     private final AnalysisFailureDiagnosticsSanitizer failureDiagnosticsSanitizer;
     private final AnalysisJobLeaseService analysisJobLeaseService;
+    private final org.springframework.context.ApplicationEventPublisher validationEvents;
     private final SettingCandidateRepository settingCandidateRepository;
     private final WorkCharacterRepository workCharacterRepository;
     private final CharacterSettingSchemaRepository schemaRepository;
@@ -258,6 +259,7 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
             UUID leaseToken,
             WorkerCharacterFactComparisonCompleteRequest request
     ) {
+        analysisJobLeaseService.lockWorkForUpdate(analysisJobId);
         AnalysisJob analysisJob = analysisJobLeaseService.getRunningAnalysisJobForUpdate(
                 analysisJobId,
                 leaseToken
@@ -348,7 +350,9 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
         analysisStateService.recordNarrativeTimeSelection(candidate, request.advanceCurrentNarrativeTime(), character.getCurrentNarrativeTime());
         if (candidate.getAutomaticReviewHoldReason() == null && request.operation() == CharacterFactOperation.EXCLUDE) {
             JsonNode selectedTime = org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.selected(candidate, character.getCurrentNarrativeTime());
-            if (selectedTime != null) character.updateCurrentNarrativeTime(selectedTime, true);
+            if (selectedTime != null && character.updateCurrentNarrativeTime(selectedTime, true)) {
+                validationEvents.publishEvent(new org.monitoring.catchholebackend.domain.validation.event.ValidationStagingEvents.ConfirmedSettingsChanged(analysisJob.getWork().getId()));
+            }
             candidate.dismiss();
         }
     }

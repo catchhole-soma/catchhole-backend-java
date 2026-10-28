@@ -66,6 +66,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
     private final CharacterSnapshotSourceManager snapshotSourceManager;
     private final CharacterSettingValueValidator valueValidator;
     private final AutomaticImageService automaticImages;
+    private final org.springframework.context.ApplicationEventPublisher validationEvents;
 
     @Override
     @Transactional
@@ -173,6 +174,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
     }
 
     private void applyNarrativeSelection(SettingCandidate candidate, Set<UUID> versioned) {
+        analysisConfirmation.assertReviewSourceCurrent(candidate);
         if (!hasApprovedNarrativeSelection(candidate)) return;
         UUID owner = analysisConfirmation.resolvedCharacterId(candidate);
         if (owner == null) return;
@@ -181,7 +183,10 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         // Approval of a duplicate remains valid after archiving, but cannot change the archived state.
         if (character.getStatus() == CharacterStatus.ARCHIVED) return;
         JsonNode selected = org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.selected(candidate, character.getCurrentNarrativeTime());
-        if (selected != null) character.updateCurrentNarrativeTime(selected, versioned.add(character.getId()));
+        if (selected != null) {
+            validationEvents.publishEvent(new org.monitoring.catchholebackend.domain.validation.event.ValidationStagingEvents.ConfirmedSettingsChanged(candidate.getWork().getId()));
+            character.updateCurrentNarrativeTime(selected, versioned.add(character.getId()));
+        }
     }
 
     private WorkCharacter promote(
@@ -193,6 +198,8 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             boolean acceptedFinalResult,
             ValidatedIdentities identities
     ) {
+        analysisConfirmation.assertReviewSourceCurrent(candidate);
+        validationEvents.publishEvent(new org.monitoring.catchholebackend.domain.validation.event.ValidationStagingEvents.ConfirmedSettingsChanged(candidate.getWork().getId()));
         candidate.recordConfirmedApplicationMode(applicationMode);
         if (candidate.isCharacterDiscovery()) {
             ResolvedCharacter resolved = resolveCharacterForPromotion(candidate, promotedSubjects, identities);
@@ -241,7 +248,9 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         if (promotions.isEmpty()) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
         }
+        promotions.forEach(p -> analysisConfirmation.assertReviewSourceCurrent(p.candidate()));
         SettingCandidate representative = promotions.getFirst().candidate();
+        validationEvents.publishEvent(new org.monitoring.catchholebackend.domain.validation.event.ValidationStagingEvents.ConfirmedSettingsChanged(representative.getWork().getId()));
         UUID workId = representative.getWork().getId();
         String characterName = promotionMapper.toCharacterName(representative);
         boolean invalidGroup = promotions.stream()

@@ -33,6 +33,10 @@ public class WorldSettingAnalysisConfirmation {
     private final WorldSettingCandidateRepository repository;
     private final AnalysisCandidateSourceGuard sourceGuard;
 
+    public void assertExtractionAllowed(org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob job) {
+        sourceGuard.assertCurrent(job, job.getEpisode());
+    }
+
     public void assertReviewSourceCurrent(WorldSettingCandidate candidate) {
         sourceGuard.assertCurrent(candidate.getAnalysisJob(), candidate.getSourceEpisode());
     }

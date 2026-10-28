@@ -125,6 +125,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         if (targetEpisodes.isEmpty()) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_TARGET_NOT_FOUND);
         }
+        assertNoValidationReviewPending(targetEpisodes);
         assertNoSourcePurgeInProgress(targetEpisodes);
 
         if (targetEpisodes.stream().anyMatch(targetEpisode -> hasActiveAnalysisJob(batch, targetEpisode))) {
@@ -258,6 +259,8 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                         book -> analysisBatchMapper.toSettingBookResponse(book, bookCharacters.get(book.sourceAnalysisJobId()),
                                 bookWorlds.get(book.sourceAnalysisJobId())), Collectors.toList())));
 
+        var validations = analysisBatchSummaryRepository.readValidations(work.getId(), batchIds).stream()
+                .collect(Collectors.groupingBy(org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchSummaryRepository.ValidationRow::batchId));
         List<AnalysisBatchSummaryResponse> responses = batchPage.getContent().stream()
                 .map(row -> toBatchSummary(
                         row,
@@ -265,7 +268,8 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                         characterCandidateCountsByBatchId.get(row.getBatchId()),
                         worldSettingCandidateCountsByBatchId.get(row.getBatchId()),
                         activeWorldComparisonCountsByBatchId.getOrDefault(row.getBatchId(), 0L),
-                        booksByPageBatch.getOrDefault(row.getBatchId(), List.of())
+                        booksByPageBatch.getOrDefault(row.getBatchId(), List.of()),
+                        validations.getOrDefault(row.getBatchId(), List.of())
                 ))
                 .toList();
         return PageResponse.from(batchPage, responses);
@@ -303,6 +307,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         AnalysisJob failedJob = analysisJobRepository.findByIdAndWorkId(analysisJobId, work.getId())
                 .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND));
         assertPublicJobType(failedJob.getJobType());
+        assertNoValidationReviewPending(getTargetEpisodes(failedJob));
         if (failedJob.isOrderedProvisional()) {
             return List.of(toResponse(resumeOrderedJob(work, failedJob.getId())));
         }
@@ -331,6 +336,12 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 .map(episode -> getOrCreateRetryJob(work, failedJob, episode))
                 .map(this::toResponse)
                 .toList();
+    }
+
+    private void assertNoValidationReviewPending(List<Episode> episodes) {
+        if (!episodes.isEmpty() && analysisJobRepository.existsValidationStagingForEpisodes(episodes.stream().map(Episode::getId).toList())) {
+            throw new AppException(org.monitoring.catchholebackend.domain.validation.exception.ValidationErrorCode.VALIDATION_ERROR_REVIEW_PENDING);
+        }
     }
 
     private AnalysisJob resumeOrderedJob(Work work, UUID jobId) {
@@ -705,7 +716,8 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
             SettingCandidateBatchReviewCounts characterCandidateCounts,
             WorldSettingCandidateBatchReviewCounts worldSettingCandidateCounts,
             long activeWorldSettingComparisonCount,
-            List<AnalysisBatchSettingBookResponse> books
+            List<AnalysisBatchSettingBookResponse> books,
+            List<org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchSummaryRepository.ValidationRow> validations
     ) {
         List<AnalysisBatchJobGroupResponse> jobGroups = summaries.stream()
                 .filter(group -> !group.episodeOnly())
@@ -720,14 +732,22 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 + (worldSettingCandidateCounts == null ? 0 : worldSettingCandidateCounts.getPendingCandidateCount());
         long tokenInterruptedCount = worldSettingCandidateCounts == null ? 0
                 : worldSettingCandidateCounts.getTokenInterruptedComparisonCount();
-        LocalDateTime lastActivityAt = jobGroups.stream().map(AnalysisBatchJobGroupResponse::lastActivityAt)
+        LocalDateTime lastActivityAt = java.util.stream.Stream.concat(
+                jobGroups.stream().map(AnalysisBatchJobGroupResponse::lastActivityAt),
+                validations.stream().map(org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchSummaryRepository.ValidationRow::updatedAt))
                 .max(Comparator.naturalOrder()).orElse(pageRow.getLastRequestedAt());
+        AnalysisBatchStatus validationStatus = validations.stream().map(v -> switch (v.response().status()) {
+            case PREPARING_BASELINE -> AnalysisBatchStatus.ERROR_REVIEW_PREPARING;
+            case WAITING_FOR_ERROR_REVIEW -> AnalysisBatchStatus.ERROR_REVIEW_PENDING;
+            case HELD_INCOMPLETE -> AnalysisBatchStatus.ERROR_REVIEW_HELD;
+            case INVALIDATED -> AnalysisBatchStatus.ERROR_REVIEW_INVALIDATED;
+        }).findFirst().orElse(null);
         return analysisBatchMapper.toResponse(pageRow,
-                resolveBatchStatus(jobGroups, pendingCandidateCount, activeWorldSettingComparisonCount, tokenInterruptedCount),
-                summaries.getFirst(), characterCandidateCounts, worldSettingCandidateCounts, jobGroups, lastActivityAt,
-                episodeGroups, episodeGroups.isEmpty() ? null
+                validationStatus != null ? validationStatus : resolveBatchStatus(jobGroups, pendingCandidateCount, activeWorldSettingComparisonCount, tokenInterruptedCount),
+                summaries.isEmpty() ? null : summaries.getFirst(), characterCandidateCounts, worldSettingCandidateCounts, jobGroups, lastActivityAt,
+                episodeGroups, validationStatus != null ? validationStatus : episodeGroups.isEmpty() ? null
                         : resolveBatchStatus(episodeGroups, pendingCandidateCount, activeWorldSettingComparisonCount, tokenInterruptedCount),
-                books);
+                books, validations.stream().map(v -> v.response()).toList());
     }
 
     private AnalysisBatchStatus resolveBatchStatus(

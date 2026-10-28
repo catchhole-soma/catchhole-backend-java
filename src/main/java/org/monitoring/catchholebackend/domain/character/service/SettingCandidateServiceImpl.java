@@ -929,6 +929,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
     @Override
     @Transactional
     public void applyAutomatically(AnalysisJob job) {
+        analysisConfirmation.assertExtractionAllowed(job);
         if (!job.isAutomaticReview()) return;
         List<SettingCandidate> candidates = SettingCandidateChronology.sorted(
                 settingCandidateRepository.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(job.getId()));

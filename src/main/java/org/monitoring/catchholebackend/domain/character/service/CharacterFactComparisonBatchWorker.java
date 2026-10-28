@@ -89,6 +89,7 @@ public class CharacterFactComparisonBatchWorker {
 
     private final AnalysisFailureDiagnosticsSanitizer failureDiagnosticsSanitizer;
     private final AnalysisJobLeaseService analysisJobLeaseService;
+    private final org.springframework.context.ApplicationEventPublisher validationEvents;
     private final SettingCandidateRepository settingCandidateRepository;
     private final CharacterFactComparisonBatchRepository comparisonBatchRepository;
     private final WorkCharacterRepository workCharacterRepository;
@@ -250,6 +251,7 @@ public class CharacterFactComparisonBatchWorker {
             UUID leaseToken,
             WorkerCharacterFactComparisonBatchCompleteRequest request
     ) {
+        analysisJobLeaseService.lockWorkForUpdate(analysisJobId);
         AnalysisJob analysisJob = analysisJobLeaseService.getRunningAnalysisJobForUpdate(
                 analysisJobId,
                 leaseToken
@@ -378,7 +380,9 @@ public class CharacterFactComparisonBatchWorker {
                     .forEach(candidate -> {
                         if (!analysisJob.isOrderedProvisional() && character.entity() != null) {
                             JsonNode selectedTime = org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.selected(candidate, character.entity().getCurrentNarrativeTime());
-                            if (selectedTime != null) character.entity().updateCurrentNarrativeTime(selectedTime, true);
+                            if (selectedTime != null && character.entity().updateCurrentNarrativeTime(selectedTime, true)) {
+                                validationEvents.publishEvent(new org.monitoring.catchholebackend.domain.validation.event.ValidationStagingEvents.ConfirmedSettingsChanged(analysisJob.getWork().getId()));
+                            }
                         }
                         candidate.dismiss();
                     });

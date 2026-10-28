@@ -98,6 +98,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
     @Override
     @Transactional
     public void applyAutomatically(AnalysisJob job) {
+        analysisConfirmation.assertExtractionAllowed(job);
         if (!job.isAutomaticReview() || !job.isOrderedProvisional()
                 || job.getJobType() != AnalysisJobType.SETTING_EXTRACTION) {
             return;
@@ -597,7 +598,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         requireSingletonComparisonDecision(candidate);
 
         if (candidate.getReviewStatus() == WorldSettingReviewStatus.CONFIRMED) {
-            candidate.confirm(
+            if (candidate.confirm(
                     request.operation(),
                     request.category(),
                     request.subjectName(),
@@ -607,7 +608,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                     request.reviewNote(),
                     work.getMember(),
                     candidate.getTargetWorldSetting()
-            );
+            )) analysisRunStateService.confirmedSettingsChanged(candidate.getWork().getId());
             return WorldSettingCandidateConfirmResult.confirmed(
                     worldSettingMapper.toCandidateResponse(candidate)
             );
@@ -652,8 +653,8 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                 target = current;
             }
             automaticImages.refreshWorldSettingImages(List.of(target));
-            candidate.confirm(request.operation(), request.category(), request.subjectName(), request.scopeName(),
-                    request.settingName(), request.value(), request.reviewNote(), work.getMember(), target);
+            if (candidate.confirm(request.operation(), request.category(), request.subjectName(), request.scopeName(),
+                    request.settingName(), request.value(), request.reviewNote(), work.getMember(), target)) analysisRunStateService.confirmedSettingsChanged(candidate.getWork().getId());
             worldSettingCandidateRepository.flush();
             return WorldSettingCandidateConfirmResult.confirmed(worldSettingMapper.toCandidateResponse(candidate));
         }
@@ -684,7 +685,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                 appliedTarget = currentTarget;
             }
             if (!historyOnly) automaticImages.refreshWorldSettingImages(List.of(appliedTarget));
-            candidate.confirm(
+            if (candidate.confirm(
                     request.operation(),
                     request.category(),
                     request.subjectName(),
@@ -694,7 +695,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                     request.reviewNote(),
                     work.getMember(),
                     appliedTarget
-            );
+            )) analysisRunStateService.confirmedSettingsChanged(candidate.getWork().getId());
             if (historyOnly) candidate.markHistoryOnly();
             worldSettingCandidateRepository.flush();
             return WorldSettingCandidateConfirmResult.confirmed(
@@ -749,7 +750,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         }
 
         if (!historyOnly) automaticImages.refreshWorldSettingImages(List.of(appliedTarget));
-        candidate.confirm(
+        if (candidate.confirm(
                 request.operation(),
                 request.category(),
                 request.subjectName(),
@@ -759,7 +760,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                 request.reviewNote(),
                 work.getMember(),
                 appliedTarget
-        );
+        )) analysisRunStateService.confirmedSettingsChanged(candidate.getWork().getId());
         if (historyOnly) candidate.markHistoryOnly();
         worldSettingCandidateRepository.flush();
         return WorldSettingCandidateConfirmResult.confirmed(
@@ -835,7 +836,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                 if (decision.operation() == WorldSettingOperation.EXCLUDE) {
                     candidate.dismiss(decision.reviewNote(), work.getMember());
                 } else {
-                    candidate.confirm(
+                    if (candidate.confirm(
                             decision.operation(),
                             decision.category(),
                             decision.subjectName(),
@@ -845,7 +846,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                             decision.reviewNote(),
                             work.getMember(),
                             candidate.getTargetWorldSetting()
-                    );
+                    )) analysisRunStateService.confirmedSettingsChanged(candidate.getWork().getId());
                 }
             }
             WorldSetting appliedTarget = singleAppliedTarget(candidates.stream()
@@ -1089,7 +1090,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
             if (decision.operation() == WorldSettingOperation.EXCLUDE) {
                 candidate.dismiss(decision.reviewNote(), work.getMember());
             } else {
-                candidate.confirm(
+                if (candidate.confirm(
                         decision.operation(),
                         decision.category(),
                         decision.subjectName(),
@@ -1099,7 +1100,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
                         decision.reviewNote(),
                         work.getMember(),
                         appliedTargetsByCandidateId.get(candidate.getId())
-                );
+                )) analysisRunStateService.confirmedSettingsChanged(candidate.getWork().getId());
                 if (historyOnlyCandidateIds.contains(candidate.getId())) candidate.markHistoryOnly();
             }
             if (automatic) {
@@ -1296,8 +1297,8 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         } else if (!historyOnly) {
             current.applyProperty(decision.scopeName(), decision.settingName(), decision.value());
         }
-        candidate.confirm(decision.operation(), decision.category(), decision.subjectName(), decision.scopeName(),
-                decision.settingName(), decision.value(), decision.reviewNote(), work.getMember(), current);
+        if (candidate.confirm(decision.operation(), decision.category(), decision.subjectName(), decision.scopeName(),
+                decision.settingName(), decision.value(), decision.reviewNote(), work.getMember(), current)) analysisRunStateService.confirmedSettingsChanged(candidate.getWork().getId());
         if (historyOnly) candidate.markHistoryOnly();
         else {
             if (Boolean.TRUE.equals(decision.applyToCurrent()) || savedCurrentDecision) current.protectManualProperty(decision.scopeName(), decision.settingName());

@@ -45,6 +45,7 @@ public record EpisodeSummaryResponse(
         LocalDateTime createdAt,
 
         @Schema(description = "회차 수정 시각", example = "2026-06-11T16:30:00")
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+        @Schema(description = "설정 추출 전 오류 검수 요청 ID", nullable = true) UUID validationReportId
 ) {
 }

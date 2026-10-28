@@ -84,6 +84,7 @@ public class CharacterAnalysisStateSource implements AnalysisStateSource {
             row.put("factId", fact.getId() == null ? null : fact.getId().toString());
             SettingCandidate candidate = fact.getSettingCandidate();
             row.put("sourceCandidateId", candidate == null ? null : candidate.getId().toString());
+            row.put("effectiveFromEpisodeNo", fact.getEffectiveFromEpisodeNo());
             row.put("factType", fact.getFactType().name()).put("factKey", fact.getFactKey()).put("factValue", fact.getFactValue());
             row.set("valueJson", fact.getValueJson() == null ? JsonNodeFactory.instance.nullNode() : fact.getValueJson().deepCopy());
             row.put("operation", candidate == null || candidate.getSuggestedOperation() == null ? null : candidate.getSuggestedOperation().name());

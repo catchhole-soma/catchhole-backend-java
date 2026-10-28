@@ -1,0 +1,41 @@
+package org.monitoring.catchholebackend.domain.validation.controller;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.*;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import java.util.UUID;
+import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.domain.auth.security.MemberPrincipal;
+import org.monitoring.catchholebackend.domain.validation.dto.request.ValidationStartRequest;
+import org.monitoring.catchholebackend.domain.validation.dto.response.ValidationStagingResponse;
+import org.monitoring.catchholebackend.domain.validation.service.EpisodeValidationService;
+import org.monitoring.catchholebackend.global.common.response.CommonResponse;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequiredArgsConstructor
+@RequestMapping("/api/v1/works/{workId}/episode-validations")
+@Tag(name = "EpisodeValidation", description = "신규 단일 회차 검수 접수와 준비 상태. 실제 오류 검사와 검사 후 확정은 후속 구현입니다.")
+@SecurityRequirement(name = "bearerAuth")
+public class EpisodeValidationController {
+    private final EpisodeValidationService service;
+    @PostMapping
+    @Operation(operationId = "startEpisodeValidation", summary = "신규 회차 검수 접수", description = "현재 원고 버전과 단일 append 업로드 자격을 확인하고 고정 기준과 오류 검사/검토 대기를 저장합니다. 설정 추출 Job/후보를 만들지 않으며 같은 입력은 같은 식별자를 반환합니다.")
+    @ApiResponses({@ApiResponse(responseCode = "200", description = "접수 또는 동일 입력의 재전송"),
+            @ApiResponse(responseCode = "400", description = "신규 단일 회차/비교 자료/필드 검증 실패"),
+            @ApiResponse(responseCode = "404", description = "작품 소유권 또는 검수 요청 없음"),
+            @ApiResponse(responseCode = "409", description = "동일 키 다른 입력, 원고 버전 충돌 또는 토큰 한도")})
+    public CommonResponse<ValidationStagingResponse> start(@AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId, @Valid @RequestBody ValidationStartRequest request) {
+        return CommonResponse.success("신규 회차 검수를 접수했습니다.", service.start(member.memberId(), workId, request));
+    }
+    @GetMapping("/{reportId}")
+    @Operation(operationId = "getEpisodeValidationStaging", summary = "검수 준비 상태 조회", description = "기준 준비와 오류 검사/검토 대기 또는 보류 사유를 조회합니다. 기준 READY는 검사/검토 완료가 아니며 설정 추출은 NOT_STARTED입니다.")
+    public CommonResponse<ValidationStagingResponse> get(@AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId, @PathVariable UUID reportId) {
+        return CommonResponse.success(service.get(member.memberId(), workId, reportId));
+    }
+}

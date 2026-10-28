@@ -76,6 +76,8 @@ public class EpisodeUploadProcessor {
         );
         validateEpisodeNumberAvailability(work, finalizedEpisodeFiles);
 
+        int previousLatest = episodeRepository.findFirstByWorkIdAndStatusNotOrderByEpisodeNoDesc(work.getId(), EpisodeStatus.ARCHIVED)
+                .map(Episode::getEpisodeNo).orElse(0);
         UploadBatch uploadBatch = uploadBatchRepository.save(
                 UploadBatch.create(
                         work,
@@ -91,6 +93,10 @@ public class EpisodeUploadProcessor {
         List<Episode> savedEpisodes = new ArrayList<>();
         for (FinalizedEpisodeFile finalizedEpisodeFile : finalizedEpisodeFiles) {
             saveEpisodeSourceFileAndEpisodes(uploadBatch, work, finalizedEpisodeFile, savedEpisodes);
+        }
+        if (uploadRequest.uploadType() == EpisodeUploadType.SINGLE_EPISODE && savedEpisodes.size() == 1
+                && savedEpisodes.getFirst().getEpisodeNo() == previousLatest + 1) {
+            savedEpisodes.getFirst().markValidationUploadEligible();
         }
         updateLatestEpisodeNo(work, savedEpisodes);
 

@@ -167,6 +167,15 @@
 ```text
 org.monitoring.catchholebackend
 ├── domain
+│   ├── validation
+│   │   ├── controller
+│   │   ├── dto
+│   │   ├── entity
+│   │   ├── event
+│   │   ├── exception
+│   │   ├── repository
+│   │   ├── service
+│   │   └── type
 │   ├── settingtool
 │   │   ├── controller
 │   │   ├── dto
@@ -466,6 +475,15 @@ domain/<domain>
 - 회차 원본 `UploadFile`은 `markEpisodesParsed(episodeStartNo, episodeEndNo, episodeCount)`로 최종 생성 범위와 파싱 완료를 함께 기록하고, 회차 범위가 없는 설정집은 `markParsed()`만 사용한다. API 응답도 `episodeStartNo`/`episodeEndNo`/`episodeCount`로 노출한다.
 - 회차 조회, 수정, 삭제, 업로드는 모두 먼저 작품 소유권을 확인한다.
 - Worker의 회차 처리 상태 변경은 단계별 엔드포인트를 나누지 않고, progress 요청의 `episodeStatus`로 명시적으로 전달한다. 자유 형식 표시 문구인 `currentStep`에서 상태를 추론하지 않는다.
+
+#### 오류 검사 우선 검수 정책 (#303)
+
+- `domain.validation`은 원고 저장 후 고정 기준과 오류 검사/작가 검토 대기를 관리한다. 이 기반 단계에서 추출 Job·후보·journal을 만들지 않는다. 검사 Worker/findings/검토 완료 release는 후속 작업이며 기준 READY나 client flag로 추출을 허용하지 않는다.
+- report에 소유권, 접수 당시 batch와 원고 fingerprint를 고정한다. 접수 Work 잠금 아래 기존 확정 state 캡처를 읽기 전용으로 재사용해 캐릭터/세계관 전체 확정 이력과 앞선 활성 원문/실제 설정집 revision을 보존한다. 정규화는 저장 seed만 사용하며 typed 원문 실패는 report 보류로, DB 오류는 롤백으로 구분한다.
+- create/reanalysis/retry/claim/늦은 lease/후보 적용은 Job 정책이 아니라 report의 회차를 확인한다. target-only legacy 관계도 차단하며 claim SQL에서 미리 제외한다. no-job report는 원고/배치 목록의 얇은 projection과 별도 report 목록으로 표시하고 가짜 Job/성공 건수를 만들지 않는다. 기존 일반 추출의 실제 반영 완료/후행 claim 조건은 유지한다.
+- 원고·기준 출처 변경/파기와 확정 설정 변경은 Work 잠금 안에서 새 기준 복사본을 무효화한다. 기존 설정 직접 수정은 허용하되 재검사를 요구한다. 늦은 정규화는 같은 트랜잭션의 무효화도 flush 후 재확인한다. 작품/회원 파기는 새 자식 행을 먼저 제거한다. 계약과 후속 release 원칙은 `docs/episode-validation-staging.md`를 따른다.
+- 검수 기준을 바꾸는 기존 비교 callback도 Work → Job → Character 잠금 순서를 지킨다. singleton/batch EXCLUDE가 대표 서사 시점을 실제 변경할 때 기준 복사본을 같은 트랜잭션에서 무효화하고, no-job 배치 최근 활동 시각에는 report.updatedAt을 포함한다.
+- GH303 실제 PostgreSQL은 새 loopback `gh303_error_first_test`의 `GH303_ERROR_FIRST_POSTGRES_JDBC_URL`만 사용한다. 기존 DB/.env는 재사용하지 않고 skip은 통과로 계산하지 않는다.
 
 #### Analysis Domain Policy
 

@@ -66,6 +66,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class EpisodeServiceImpl implements EpisodeService {
 
     private final EpisodeRepository episodeRepository;
+    private final org.monitoring.catchholebackend.domain.validation.repository.ValidationReportRepository validationReports;
     private final EpisodeSourcePurgeRequestRepository episodeSourcePurgeRequestRepository;
     private final WorkRepository workRepository;
     private final EpisodeMapper episodeMapper;
@@ -306,7 +307,8 @@ public class EpisodeServiceImpl implements EpisodeService {
                 ? null
                 : uploadFileRepository.findById(episode.getSourceFileId()).orElse(null);
         AnalysisJob latestAnalysisJob = sourceFile == null ? null : resolveLatestAnalysisJob(episode, sourceFile);
-        return episodeMapper.toSummaryResponse(episode, sourceFile, latestAnalysisJob);
+        var applicationStatus = validationStates(List.of(episode)).get(episode.getId());
+        return episodeMapper.toSummaryResponse(episode, sourceFile, latestAnalysisJob, applicationStatus);
     }
 
     private List<EpisodeSummaryResponse> toSummaryResponses(List<Episode> episodes) {
@@ -338,6 +340,7 @@ public class EpisodeServiceImpl implements EpisodeService {
                         latestEpisodeJobsByBatch
                 ));
 
+        var validationStatuses = validationStates(episodes);
         return episodes.stream()
                 .map(episode -> {
                     UploadFile sourceFile = sourceFilesById.get(episode.getSourceFileId());
@@ -348,9 +351,16 @@ public class EpisodeServiceImpl implements EpisodeService {
                                     sourceFile.getBatch().getId(),
                                     latestEpisodeJobsByBatch
                             );
-                    return episodeMapper.toSummaryResponse(episode, sourceFile, latestAnalysisJob);
+                    return episodeMapper.toSummaryResponse(episode, sourceFile, latestAnalysisJob,
+                            validationStatuses.get(episode.getId()));
                 })
                 .toList();
+    }
+
+    private Map<UUID, org.monitoring.catchholebackend.domain.validation.repository.ValidationReportState> validationStates(List<Episode> episodes) {
+        if (episodes.isEmpty()) return Map.of();
+        return validationReports.findStatesByEpisodeIdIn(episodes.stream().map(Episode::getId).toList()).stream()
+                .collect(Collectors.toMap(org.monitoring.catchholebackend.domain.validation.repository.ValidationReportState::episodeId, Function.identity()));
     }
 
     private void collectLatestAnalysisJob(

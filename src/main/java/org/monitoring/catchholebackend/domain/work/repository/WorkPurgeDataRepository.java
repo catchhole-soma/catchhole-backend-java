@@ -25,6 +25,9 @@ public class WorkPurgeDataRepository {
      */
     public WorkPurgeDatabaseResult purgeWorkData(UUID workId) {
         int deletedCount = 0;
+        deletedCount += update("delete from validation_baseline_sources where report_id in (select id from validation_reports where work_id = ?)", workId);
+        deletedCount += update("delete from validation_request_keys where work_id = ?", workId);
+        deletedCount += update("delete from validation_reports where work_id = ?", workId);
         deletedCount += update("delete from relationship_processing_states where work_id = ?", workId);
         deletedCount += update("""
                 delete from relationship_evidence
