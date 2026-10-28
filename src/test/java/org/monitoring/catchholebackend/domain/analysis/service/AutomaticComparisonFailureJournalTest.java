@@ -59,7 +59,7 @@ class AutomaticComparisonFailureJournalTest {
     private final List<AnalysisStateChange> changes = new ArrayList<>();
     private final CharacterAnalysisStateService characterService = new CharacterAnalysisStateService(
             states, characters, new CharacterAnalysisStateMapper(), rejections, mock(org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.class));
-    private final OrderedWorldSettingWorker worldService = new OrderedWorldSettingWorker(states, journal,
+    private final OrderedWorldSettingWorker worldService = new OrderedWorldSettingWorker(new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisFailureDiagnosticsSanitizer(org.mockito.Mockito.mock(org.springframework.jdbc.core.JdbcTemplate.class)), states, journal,
             mock(AnalysisRunContextMapper.class), worlds, mock(WorldSettingComparisonBatchRepository.class),
             mock(WorldSettingComparisonDecisionRepository.class), mock(WorldSettingComparisonDecisionSourceRepository.class),
             mock(WorldSettingRepository.class), new WorldSettingWorkerMapper(), new WorldSettingAnalysisStateMapper(), rejections);

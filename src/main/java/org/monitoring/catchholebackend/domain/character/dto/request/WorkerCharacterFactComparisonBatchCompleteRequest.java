@@ -105,7 +105,11 @@ public record WorkerCharacterFactComparisonBatchCompleteRequest(
 
             @NotBlank
             @Size(max = 1000)
-            String errorMessage
+            String errorMessage,
+            tools.jackson.databind.JsonNode failureDiagnostics
     ) {
+        public Failure(String candidateRef, AnalysisFailureCode failureCode, String errorMessage) {
+            this(candidateRef, failureCode, errorMessage, null);
+        }
     }
 }

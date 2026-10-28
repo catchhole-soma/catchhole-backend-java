@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.worldsetting.dto.request;
 
+import tools.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -30,13 +31,19 @@ public record WorkerWorldSettingComparisonFailRequest(
 
         @Schema(description = "Spring 세계관 비교 계약 검증 분기", nullable = true)
         WorldSettingComparisonValidationReason sourceReasonCode,
-        @Valid @Size(max = 30) List<@NotNull WorldSettingComparisonDiagnostic> diagnostics
+        @Valid @Size(max = 30) List<@NotNull WorldSettingComparisonDiagnostic> diagnostics,
+        JsonNode failureDiagnostics
 ) {
     public WorkerWorldSettingComparisonFailRequest {
         diagnostics = diagnostics == null ? List.of() : diagnostics;
     }
     public WorkerWorldSettingComparisonFailRequest(AnalysisFailureCode failureCode, String errorMessage,
+            String sourceErrorCode, WorldSettingComparisonValidationReason sourceReasonCode,
+            List<WorldSettingComparisonDiagnostic> diagnostics) {
+        this(failureCode, errorMessage, sourceErrorCode, sourceReasonCode, diagnostics, null);
+    }
+    public WorkerWorldSettingComparisonFailRequest(AnalysisFailureCode failureCode, String errorMessage,
             String sourceErrorCode, WorldSettingComparisonValidationReason sourceReasonCode) {
-        this(failureCode, errorMessage, sourceErrorCode, sourceReasonCode, List.of());
+        this(failureCode, errorMessage, sourceErrorCode, sourceReasonCode, List.of(), null);
     }
 }

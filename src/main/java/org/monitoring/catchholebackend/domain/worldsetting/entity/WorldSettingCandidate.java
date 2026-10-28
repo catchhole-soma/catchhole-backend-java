@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.worldsetting.entity;
 
+import org.monitoring.catchholebackend.domain.analysis.dto.AnalysisFailureDiagnostics;
 import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisReviewState;
 
 import org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason;
@@ -294,6 +295,34 @@ public class WorldSettingCandidate extends BaseEntity {
     @Column(name = "comparison_failure_code", length = 60)
     private AnalysisFailureCode comparisonFailureCode;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "comparison_failure_diagnostics", columnDefinition = "jsonb")
+    private AnalysisFailureDiagnostics comparisonFailureDiagnostics;
+
+    // 추출 Job과 다른 숨김 재비교 실행도 있으므로 실패를 승인한 실제 실행을 고정한다.
+    @Column(name = "comparison_failure_analysis_job_id")
+    private UUID comparisonFailureAnalysisJobId;
+
+    // 묶음 없는 구 단건 비교는 null이며 Worker가 지정할 수 없다.
+    @Column(name = "comparison_failure_batch_id")
+    private UUID comparisonFailureBatchId;
+
+    public void recordComparisonFailure(AnalysisJob execution, UUID batchId, AnalysisFailureDiagnostics diagnostics) {
+        if (execution == null || !work.getId().equals(execution.getWork().getId())) {
+            throw new IllegalArgumentException("비교 실패 실행의 작품이 일치하지 않습니다.");
+        }
+        comparisonFailureAnalysisJobId = execution.getId();
+        comparisonFailureBatchId = batchId;
+        comparisonFailureDiagnostics = diagnostics;
+    }
+
+    private void clearComparisonFailureDetails() {
+        comparisonFailureDiagnostics = null;
+        comparisonFailureAnalysisJobId = null;
+        comparisonFailureBatchId = null;
+    }
+
+
     @Enumerated(EnumType.STRING)
     @Column(name = "preparation_failure_stage", length = 40)
     private CandidatePreparationFailureStage preparationFailureStage;
@@ -480,6 +509,7 @@ public class WorldSettingCandidate extends BaseEntity {
         captureComparisonMetrics();
         comparisonErrorMessage = null;
         comparisonFailureCode = null;
+        clearComparisonFailureDetails();
         clearPreparationFailure();
         comparisonDiagnostics = null;
         comparisonSourceErrorCode = null;
@@ -495,6 +525,7 @@ public class WorldSettingCandidate extends BaseEntity {
         captureComparisonAttempt();
         comparisonErrorMessage = null;
         comparisonFailureCode = null;
+        clearComparisonFailureDetails();
         clearPreparationFailure();
         comparisonDiagnostics = null;
         comparisonSourceErrorCode = null;
@@ -674,6 +705,7 @@ public class WorldSettingCandidate extends BaseEntity {
         captureComparisonMetrics();
         this.comparisonErrorMessage = null;
         this.comparisonFailureCode = null;
+        clearComparisonFailureDetails();
         clearPreparationFailure();
         this.comparisonDiagnostics = null;
         this.comparisonSourceErrorCode = null;
@@ -751,6 +783,9 @@ public class WorldSettingCandidate extends BaseEntity {
         captureComparisonAttempt();
         captureComparisonMetrics();
         comparisonFailureCode = failureCode;
+        comparisonFailureDiagnostics = null;
+        comparisonFailureAnalysisJobId = analysisJob == null ? null : analysisJob.getId();
+        comparisonFailureBatchId = comparisonBatch == null ? null : comparisonBatch.getId();
         comparisonErrorMessage = AutomaticReviewHoldReason.SUBJECT_RESOLUTION_FAILED.getMessage();
         preparationFailureStage = CandidatePreparationFailureStage.SUBJECT_RESOLUTION;
         recordAutomaticReviewHold(AutomaticReviewHoldReason.SUBJECT_RESOLUTION_FAILED);
@@ -769,6 +804,9 @@ public class WorldSettingCandidate extends BaseEntity {
         captureComparisonAttempt();
         captureComparisonMetrics();
         comparisonFailureCode = AnalysisFailureCode.COMPARISON_VALIDATION_FAILED;
+        comparisonFailureDiagnostics = null;
+        comparisonFailureAnalysisJobId = analysisJob == null ? null : analysisJob.getId();
+        comparisonFailureBatchId = comparisonBatch == null ? null : comparisonBatch.getId();
         comparisonErrorMessage = AutomaticReviewHoldReason.COMPARISON_INPUT_TOO_LARGE.getMessage();
         preparationFailureStage = CandidatePreparationFailureStage.COMPARISON_PREPARATION;
         recordAutomaticReviewHold(AutomaticReviewHoldReason.COMPARISON_INPUT_TOO_LARGE);
@@ -798,6 +836,9 @@ public class WorldSettingCandidate extends BaseEntity {
         captureComparisonAttempt();
         captureComparisonMetrics();
         comparisonFailureCode = normalizedFailureCode;
+        comparisonFailureDiagnostics = null;
+        comparisonFailureAnalysisJobId = analysisJob == null ? null : analysisJob.getId();
+        comparisonFailureBatchId = comparisonBatch == null ? null : comparisonBatch.getId();
         comparisonErrorMessage = normalizedErrorMessage;
         comparisonSourceErrorCode = normalizedSourceErrorCode;
         comparisonSourceReasonCode = sourceReasonCode;
@@ -823,6 +864,9 @@ public class WorldSettingCandidate extends BaseEntity {
         captureComparisonAttempt();
         captureComparisonMetrics();
         comparisonFailureCode = AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED;
+        comparisonFailureDiagnostics = null;
+        comparisonFailureAnalysisJobId = analysisJob == null ? null : analysisJob.getId();
+        comparisonFailureBatchId = comparisonBatch == null ? null : comparisonBatch.getId();
         comparisonErrorMessage = requiredValue(errorMessage);
         comparisonSourceErrorCode = null;
         comparisonSourceReasonCode = null;
@@ -870,6 +914,7 @@ public class WorldSettingCandidate extends BaseEntity {
         automaticReviewHoldReason = null;
         comparisonErrorMessage = null;
         comparisonFailureCode = null;
+        clearComparisonFailureDetails();
         clearPreparationFailure();
         comparisonDiagnostics = null;
         comparisonSourceErrorCode = null;
@@ -882,6 +927,7 @@ public class WorldSettingCandidate extends BaseEntity {
         automaticReviewHoldReason = null;
             comparisonErrorMessage = null;
             comparisonFailureCode = null;
+        clearComparisonFailureDetails();
             clearPreparationFailure();
             comparisonDiagnostics = null;
             comparisonSourceErrorCode = null;
@@ -914,6 +960,7 @@ public class WorldSettingCandidate extends BaseEntity {
         captureComparisonAttempt();
         captureComparisonMetrics();
         comparisonFailureCode = null;
+        clearComparisonFailureDetails();
         clearPreparationFailure();
         comparisonDiagnostics = null;
         comparisonErrorMessage = requiredValue(reason);
@@ -1167,6 +1214,7 @@ public class WorldSettingCandidate extends BaseEntity {
         comparedAt = null;
         comparisonErrorMessage = null;
         comparisonFailureCode = null;
+        clearComparisonFailureDetails();
         clearPreparationFailure();
         comparisonDiagnostics = null;
         comparisonSourceErrorCode = null;

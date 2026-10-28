@@ -1,5 +1,8 @@
 package org.monitoring.catchholebackend.domain.character.processor;
 
+import org.monitoring.catchholebackend.domain.analysis.dto.AnalysisFailureDiagnostics;
+import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
+import org.monitoring.catchholebackend.global.exception.AppException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
@@ -104,7 +107,7 @@ public class CharacterCurrentSupportingEvidenceResolver {
         boolean noManifest = job.getSourceContentHash() == null && job.getSourceContentS3Key() == null;
         if (noManifest) return unavailable(candidate.getId(), job.getId(), "LEGACY_NO_MANIFEST", candidate.hasUserEditedContent());
         if (job.getSourceContentHash() == null || !job.getSourceContentHash().matches("[0-9a-f]{64}")
-                || job.getSourceContentS3Key() == null || job.getSourceContentS3Key().isBlank()) throw invalid();
+                || job.getSourceContentS3Key() == null || job.getSourceContentS3Key().isBlank()) throw new InvalidEvidenceException("CURRENT_EVIDENCE_MANIFEST_INVALID");
         ObjectNode source = source(job);
         if (evidence == null || evidence.isNull() || evidence.isArray() && evidence.isEmpty()) {
             ObjectNode row = unavailable(candidate.getId(), job.getId(), "NO_RECORDED_QUOTE", candidate.hasUserEditedContent());
@@ -123,7 +126,12 @@ public class CharacterCurrentSupportingEvidenceResolver {
                     candidate.getId(), job.getId(), evidence.size());
             return row;
         }
-        if (validation != EvidenceValidationResult.VALID) throw invalid();
+        if (validation != EvidenceValidationResult.VALID) throw new InvalidEvidenceException(switch (validation) {
+            case MALFORMED_SPANS -> "CURRENT_EVIDENCE_STRUCTURE_INVALID";
+            case INVALID_OFFSETS -> "CURRENT_EVIDENCE_OFFSET_INVALID";
+            case QUOTE_NOT_FOUND -> "CURRENT_EVIDENCE_QUOTE_NOT_FOUND";
+            case VALID -> throw new IllegalStateException("근거 검증 분기가 올바르지 않습니다.");
+        });
         ObjectNode row = base(candidate.getId(), job.getId(), candidate.hasUserEditedContent());
         row.put("availability", "VERIFIED").putNull("unavailableReason");
         row.set("source", source);
@@ -199,9 +207,18 @@ public class CharacterCurrentSupportingEvidenceResolver {
         String binding = job.getSourceContentS3Key()+"\n"+job.getSourceContentS3Version()+"\n"+job.getSourceContentHash();
         return capture.contents.computeIfAbsent(binding, ignored -> {
             // Episode/revision writers use immutable unique keys. Never read the current Episode pointer.
-            String content = storage.getText(job.getSourceContentS3Key());
-            if (content == null || !job.getSourceContentHash().equals(storage.contentHash(content))) {
-                throw new IllegalStateException("CURRENT 원문 근거의 고정 저장본을 읽거나 검증할 수 없습니다.");
+            String content;
+            String hash;
+            try {
+                content = storage.getText(job.getSourceContentS3Key());
+                if (content == null) throw new IllegalStateException("고정 원문이 없습니다.");
+                hash = storage.contentHash(content);
+            } catch (RuntimeException ignoredFailure) {
+                throw new AppException(AnalysisJobErrorCode.ANALYSIS_CURRENT_EVIDENCE_SOURCE_UNAVAILABLE,
+                        diagnosticContext("CURRENT_EVIDENCE_SOURCE_READ_FAILED", job));
+            }
+            if (!job.getSourceContentHash().equals(hash)) {
+                throw new InvalidEvidenceException("CURRENT_EVIDENCE_SOURCE_HASH_MISMATCH", job);
             }
             return content;
         });
@@ -268,7 +285,19 @@ public class CharacterCurrentSupportingEvidenceResolver {
     }
 
     /** Dedicated deterministic shape/binding failure; excludes transient source storage failures. */
-    public static final class InvalidEvidenceException extends RuntimeException {
-        public InvalidEvidenceException() { super("FROZEN_CURRENT_EVIDENCE_INVALID: 고정 현재 근거의 결속 또는 인용이 올바르지 않습니다."); }
+    public static final class InvalidEvidenceException extends AppException {
+        public InvalidEvidenceException() { this("CURRENT_EVIDENCE_BINDING_INVALID"); }
+        public InvalidEvidenceException(String reason) { this(reason, null); }
+        public InvalidEvidenceException(String reason, AnalysisJob source) {
+            super(AnalysisJobErrorCode.ANALYSIS_CURRENT_EVIDENCE_INVALID, diagnosticContext(reason, source));
+        }
+    }
+
+    private static Map<String, Object> diagnosticContext(String reason, AnalysisJob source) {
+        return Map.of("failureDiagnostics", new AnalysisFailureDiagnostics(1, "SPRING", "UNKNOWN", reason,
+                "CURRENT_EVIDENCE_SOURCE_READ_FAILED".equals(reason) ? "ANALYSIS_CURRENT_EVIDENCE_SOURCE_UNAVAILABLE" : "ANALYSIS_CURRENT_EVIDENCE_INVALID",
+                null, null, null, source == null ? null : source.getId(), null,
+                source == null || source.getEpisode() == null ? null : source.getEpisode().getId(),
+                source == null ? null : source.getSourceEpisodeNo()));
     }
 }

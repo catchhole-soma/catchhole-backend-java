@@ -97,7 +97,7 @@ class CharacterFactComparisonWorkerServiceImplTest {
     @BeforeEach
     void setUp() {
         CharacterSettingValueValidator valueValidator = new CharacterSettingValueValidator();
-        service = new CharacterFactComparisonWorkerServiceImpl(
+        service = new CharacterFactComparisonWorkerServiceImpl(new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisFailureDiagnosticsSanitizer(org.mockito.Mockito.mock(org.springframework.jdbc.core.JdbcTemplate.class)),
                 analysisJobLeaseService,
                 candidateRepository,
                 characterRepository,
@@ -221,6 +221,29 @@ class CharacterFactComparisonWorkerServiceImplTest {
         assertThat(candidate.getComparisonFailureCode()).isEqualTo(AnalysisFailureCode.LLM_PROVIDER_ERROR);
         assertThat(candidate.getComparisonErrorMessage())
                 .isEqualTo("https://provider.internal/v1 stack trace");
+    }
+
+    @Test @DisplayName("구 단건 실패는 원 추출과 다른 실제 재비교 실행을 진단 없이도 고정한다")
+    void legacySingleFailureSnapshotsAuthorizedExecutionAndClearsOnRetry() {
+        SettingCandidate candidate = newCandidate("stats.strength", "10", SettingValueType.NUMBER, value(10));
+        AnalysisJob extraction = analysisJob;
+        AnalysisJob execution = AnalysisJob.createCharacterFactComparison(candidate);
+        UUID executionId = UUID.randomUUID();
+        ReflectionTestUtils.setField(execution, "id", executionId);
+        org.mockito.Mockito.reset(analysisJobLeaseService);
+        when(analysisJobLeaseService.getRunningAnalysisJobForUpdate(executionId, leaseToken)).thenReturn(execution);
+        when(candidateRepository.findByIdAndWorkIdForUpdate(candidate.getId(), work.getId())).thenReturn(Optional.of(candidate));
+        candidate.startComparison();
+        service.failCharacterFactComparison(executionId, candidate.getId(), leaseToken,
+                new WorkerCharacterFactComparisonFailRequest(AnalysisFailureCode.LLM_PROVIDER_ERROR, "합성 실패"));
+        assertThat(candidate.getAnalysisJob()).isSameAs(extraction);
+        assertThat(candidate.getComparisonFailureAnalysisJobId()).isEqualTo(executionId);
+        assertThat(candidate.getComparisonFailureBatchId()).isNull();
+        assertThat(candidate.getComparisonFailureDiagnostics()).isNull();
+        candidate.requestComparison();
+        assertThat(candidate.getComparisonFailureAnalysisJobId()).isNull();
+        assertThat(candidate.getComparisonFailureBatchId()).isNull();
+        assertThat(candidate.getComparisonFailureDiagnostics()).isNull();
     }
 
     @Test

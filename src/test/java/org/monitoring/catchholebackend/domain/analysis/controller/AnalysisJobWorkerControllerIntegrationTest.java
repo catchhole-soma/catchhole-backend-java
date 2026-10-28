@@ -1367,6 +1367,74 @@ class AnalysisJobWorkerControllerIntegrationTest {
                 .isEqualTo(org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.UPLOADED);
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"[1,2]", "{\"schemaVersion\":1}", "{\"schemaVersion\":1,\"origin\":{}}", "{\"schemaVersion\":1,\"origin\":[]}", "{\"schemaVersion\":true,\"origin\":\"SPRING\"}"})
+    @DisplayName("잘못된 선택 진단이 있어도 기존 실패 상태를 기록한다")
+    void malformedOptionalDiagnosticsStillRecordsFailure(String diagnostics) throws Exception {
+        recordFailureWithDiagnostics(diagnostics, false);
+    }
+
+    @Test @DisplayName("미지원 진단 버전이 있어도 기존 실패 상태를 기록한다")
+    void unsupportedDiagnosticVersionStillRecordsFailure() throws Exception {
+        recordFailureWithDiagnostics("{\"schemaVersion\":2}", false);
+    }
+
+    @Test @DisplayName("안전한 실패 진단은 같은 실패 전이에 저장한다")
+    void safeDiagnosticsArePersistedWithFailure() throws Exception {
+        recordFailureWithDiagnostics("{\"schemaVersion\":1,\"origin\":\"PROVIDER\",\"stage\":\"EXTRACTION\","
+                + "\"reasonCode\":\"LLM_RATE_LIMIT\",\"sourceErrorCode\":\"rate_limit_exceeded\",\"httpStatus\":429}", true);
+    }
+
+    @Test @DisplayName("교차 작품 원인 식별자는 버리고 안전한 실패 원인만 저장한다")
+    void foreignSourceIdentifiersAreRemovedWithoutRejectingFailure() throws Exception {
+        AnalysisJob job = runningJob();
+        var diagnostics = objectMapper.readTree(getClass().getResourceAsStream("/contracts/analysis-failure-diagnostics-v1.json"));
+        mockMvc.perform(post("/api/internal/v1/analysis-jobs/{id}/fail", job.getId())
+                .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                .header(WORKER_LEASE_TOKEN_HEADER, job.getLeaseToken()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"failureCode\":\"UNEXPECTED_ERROR\",\"errorMessage\":\"합성 실패\",\"failureDiagnostics\":" + diagnostics + "}"))
+                .andExpect(status().isOk());
+        var failed = analysisJobRepository.findById(job.getId()).orElseThrow();
+        assertThat(failed.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
+        assertThat(failed.getFailureDiagnostics().sourceAnalysisJobId()).isNull();
+        assertThat(failed.getFailureDiagnostics().sourceCandidateId()).isNull();
+        assertThat(failed.getFailureDiagnostics().sourceEpisodeId()).isNull();
+        assertThat(failed.getFailureDiagnostics().reasonCode()).isEqualTo("CURRENT_EVIDENCE_OFFSET_INVALID");
+    }
+
+    @Test @DisplayName("동일 작품의 연결을 확인한 원인 Job과 회차만 보존한다")
+    void verifiedSourceIdentifiersArePersistedAndResetOnNewClaim() throws Exception {
+        AnalysisJob job = runningJob();
+        var diagnostics = objectMapper.createObjectNode().put("schemaVersion", 1).put("origin", "SPRING")
+                .put("stage", "CHARACTER_CONTEXT").put("reasonCode", "CURRENT_EVIDENCE_OFFSET_INVALID")
+                .put("sourceAnalysisJobId", job.getId().toString()).put("sourceEpisodeId", firstEpisode.getId().toString())
+                .put("sourceEpisodeNo", job.getSourceEpisodeNo());
+        mockMvc.perform(post("/api/internal/v1/analysis-jobs/{id}/fail", job.getId())
+                .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                .header(WORKER_LEASE_TOKEN_HEADER, job.getLeaseToken()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"failureCode\":\"UNEXPECTED_ERROR\",\"errorMessage\":\"합성 실패\",\"failureDiagnostics\":" + diagnostics + "}"))
+                .andExpect(status().isOk());
+        var failed = analysisJobRepository.findById(job.getId()).orElseThrow();
+        assertThat(failed.getFailureDiagnostics().sourceAnalysisJobId()).isEqualTo(job.getId());
+        assertThat(failed.getFailureDiagnostics().sourceEpisodeId()).isEqualTo(firstEpisode.getId());
+        failed.claim("synthetic-model", "합성 재시도", LocalDateTime.now().plusMinutes(5));
+        assertThat(failed.getFailureDiagnostics()).isNull();
+    }
+
+    private void recordFailureWithDiagnostics(String diagnostics, boolean expected) throws Exception {
+        AnalysisJob job = runningJob();
+        mockMvc.perform(post("/api/internal/v1/analysis-jobs/{id}/fail", job.getId())
+                .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                .header(WORKER_LEASE_TOKEN_HEADER, job.getLeaseToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"failureCode\":\"UNEXPECTED_ERROR\",\"errorMessage\":\"합성 실패\",\"failureDiagnostics\":" + diagnostics + "}"))
+                .andExpect(status().isOk());
+        AnalysisJob failed = analysisJobRepository.findById(job.getId()).orElseThrow();
+        assertThat(failed.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
+        assertThat(failed.getFailureDiagnostics() != null).isEqualTo(expected);
+        if (expected) assertThat(failed.getFailureDiagnostics().reasonCode()).isEqualTo("LLM_RATE_LIMIT");
+    }
+
     @Test
     @DisplayName("세계관 후보 게시 뒤 토큰 부족은 완료 후보를 보존하고 남은 비교만 재개 가능하게 중단한다")
     void tokenQuotaAfterWorldCandidatesPreservesExtractionAndInterruptsRemainingComparisons() throws Exception {

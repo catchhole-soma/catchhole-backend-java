@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.worldsetting.service;
 
+import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisFailureDiagnosticsSanitizer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
@@ -85,6 +86,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
     private static final String STALE_SUBJECT_RESOLUTION_RESET_MESSAGE =
             "canonical 주체 해소 대상이 변경되어 다시 해소해야 합니다.";
 
+    private final AnalysisFailureDiagnosticsSanitizer failureDiagnosticsSanitizer;
     private final AnalysisJobLeaseService analysisJobLeaseService;
     private final WorldSettingCandidateRepository worldSettingCandidateRepository;
     private final WorldSettingComparisonBatchRepository comparisonBatchRepository;
@@ -808,6 +810,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
             for (String ref : failure.sourceCandidateRefs()) {
                 var candidate = candidatesByRef.get(ref);
                 candidate.failComparison(failure.failureCode(), failure.errorMessage());
+                candidate.recordComparisonFailure(analysisJob, batch.getId(), failureDiagnosticsSanitizer.sanitize(failure.failureDiagnostics(), analysisJob.getWork().getId()));
                 candidate.recordComparisonDiagnostics(candidateDiagnostics.get(ref));
             }
         }
@@ -844,7 +847,9 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                 );
             }
             candidate.interruptComparisonForTokenQuota(failure.errorMessage());
-            candidate.recordComparisonDiagnostics(WorldSettingComparisonDiagnostics.forCandidate(diagnostics, candidate.getComparisonCandidateRef()));
+            candidate.recordComparisonFailure(analysisJob, candidate.getComparisonBatch() == null ? null : candidate.getComparisonBatch().getId(),
+                failureDiagnosticsSanitizer.sanitize(request.failureDiagnostics(), analysisJob.getWork().getId()));
+        candidate.recordComparisonDiagnostics(WorldSettingComparisonDiagnostics.forCandidate(diagnostics, candidate.getComparisonCandidateRef()));
             return;
         }
         if (candidate.getComparisonStatus() != WorldSettingComparisonStatus.PROCESSING) {
@@ -896,9 +901,11 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
                     failure.sourceErrorCode(),
                     failure.sourceReasonCode()
             );
+            candidate.recordComparisonFailure(analysisJob, batch.getId(), failureDiagnosticsSanitizer.sanitize(request.failureDiagnostics(), analysisJob.getWork().getId()));
             candidate.recordComparisonDiagnostics(WorldSettingComparisonDiagnostics.forCandidate(diagnostics, candidate.getComparisonCandidateRef()));
         }
         batch.fail(failure.failureCode(), failure.errorMessage());
+        batch.recordFailureDiagnostics(failureDiagnosticsSanitizer.sanitize(request.failureDiagnostics(), analysisJob.getWork().getId()));
     }
 
     @Override
@@ -1666,7 +1673,7 @@ public class WorldSettingWorkerServiceImpl implements WorldSettingWorkerService 
     private JsonNode canonicalCompletionPayload(
             WorkerWorldSettingComparisonBatchCompleteRequest request
     ) {
-        ObjectNode payload = (ObjectNode) worldSettingWorkerMapper.toJsonNode(request);
+        ObjectNode payload = (ObjectNode) worldSettingWorkerMapper.toCompletionFingerprintPayload(request);
         payload.set(
                 "contextVersions",
                 sortedJsonArray(

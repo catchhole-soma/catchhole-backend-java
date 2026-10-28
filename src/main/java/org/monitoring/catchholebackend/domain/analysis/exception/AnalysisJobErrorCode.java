@@ -9,6 +9,8 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 public enum AnalysisJobErrorCode implements ResultCode {
 
+    ANALYSIS_CURRENT_EVIDENCE_INVALID(HttpStatus.CONFLICT, "현재 설정의 고정 원문 근거를 검증할 수 없습니다."),
+    ANALYSIS_CURRENT_EVIDENCE_SOURCE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "현재 설정의 원문 저장소에 일시적으로 접근할 수 없습니다."),
     ANALYSIS_REVIEW_WAIT_REQUIRED(HttpStatus.CONFLICT, "진행 중이거나 재개를 기다리는 순차 분석이 있습니다. 분석 목록에서 상태를 확인하고, 분석이 모두 끝난 뒤 설정을 변경해 주세요."),
     ANALYSIS_JOB_NOT_FOUND(HttpStatus.NOT_FOUND, "분석 작업을 찾을 수 없습니다."),
     ANALYSIS_JOB_TARGET_NOT_FOUND(HttpStatus.NOT_FOUND, "분석 대상 리소스를 찾을 수 없습니다."),

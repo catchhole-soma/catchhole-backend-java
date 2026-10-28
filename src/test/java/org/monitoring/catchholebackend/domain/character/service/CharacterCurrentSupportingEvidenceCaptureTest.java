@@ -496,13 +496,28 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
     void retainedQuoteMismatchCannotHideStorageFailure() {
         quoteOnlyMismatch();
         when(storage.getText("immutable/ep3.txt")).thenThrow(new IllegalStateException("합성 저장소 실패"));
-        assertThatThrownBy(this::owner).isInstanceOf(IllegalStateException.class).hasMessage("합성 저장소 실패");
+        assertThatThrownBy(this::owner).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class)
+                .hasMessage("현재 설정의 원문 저장소에 일시적으로 접근할 수 없습니다.");
+    }
+
+    @Test @DisplayName("고정 원문 저장소 장애는 안전한 503 오류로 구분한다")
+    void sourceStorageFailureIsRetryableAndDoesNotExposeCause() {
+        // Use the immutable manifest's actual key; no latest source fallback.
+        when(storage.getText(candidate.getAnalysisJob().getSourceContentS3Key())).thenThrow(new IllegalStateException("PRIVATE_MANUSCRIPT"));
+        assertThatThrownBy(this::owner).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class)
+                .satisfies(error -> {
+                    var app = (org.monitoring.catchholebackend.global.exception.AppException)error;
+                    assertThat(app.getResultCode().getStatus().value()).isEqualTo(503);
+                    assertThat(app.getCause()).isNull();
+                    assertThat(app.getMessage()).doesNotContain("PRIVATE");
+                });
     }
 
     @Test @DisplayName("원 storage bytes hash가 다르면 정상 unavailable로 낮추지 않는다")
     void rejectsOriginalSourceHashMismatch() {
         when(storage.contentHash(content)).thenReturn("f".repeat(64));
-        assertThatThrownBy(this::owner).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(this::owner).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class)
+                .satisfies(error -> assertThat(((org.monitoring.catchholebackend.global.exception.AppException)error).getResultCode().getStatus().value()).isEqualTo(409));
     }
 
     @Test @DisplayName("다른 작품 origin manifest는 실제 슬롯 source로 허용하지 않는다")

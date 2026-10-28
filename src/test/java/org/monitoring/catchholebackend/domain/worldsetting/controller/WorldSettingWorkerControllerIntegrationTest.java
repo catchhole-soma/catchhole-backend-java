@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -103,6 +104,9 @@ class WorldSettingWorkerControllerIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingComparisonBatchRepository failureBatchRepository;
 
     private Work work;
     private Episode episode;
@@ -2748,7 +2752,9 @@ class WorldSettingWorkerControllerIntegrationTest {
                 {
                   "failureCode": null,
                   "errorMessage": " unexpected provider failure ",
-                  "sourceErrorCode": "ORIGINAL_PROVIDER_ERROR"
+                  "sourceErrorCode": "ORIGINAL_PROVIDER_ERROR",
+                  "failureDiagnostics": {"schemaVersion":1,"origin":"PROVIDER","stage":"WORLD_COMPARE",
+                    "reasonCode":"LLM_RATE_LIMIT","sourceErrorCode":"rate_limit_exceeded","httpStatus":429}
                 }
                 """;
 
@@ -2787,6 +2793,11 @@ class WorldSettingWorkerControllerIntegrationTest {
 
         WorldSettingCandidate failed = candidateRepository.findById(candidate.getId())
                 .orElseThrow();
+        assertThat(failed.getComparisonFailureAnalysisJobId()).isEqualTo(analysisJob.getId());
+        assertThat(failed.getComparisonFailureBatchId()).isEqualTo(comparisonBatchId);
+        assertThat(failed.getComparisonFailureDiagnostics().reasonCode()).isEqualTo("LLM_RATE_LIMIT");
+        assertThat(failureBatchRepository.findById(comparisonBatchId).orElseThrow().getFailureDiagnostics())
+                .isEqualTo(failed.getComparisonFailureDiagnostics());
         assertThat(failed.getComparisonFailureCode())
                 .isEqualTo(AnalysisFailureCode.UNEXPECTED_ERROR);
         assertThat(failed.getComparisonErrorMessage())
@@ -3113,6 +3124,11 @@ class WorldSettingWorkerControllerIntegrationTest {
     void manualPartialCompletionRetainsMergedSuccessAndRetriesOnlyFailedCandidate() throws Exception {
         var fixture = preparePartialBatch();
         String completion = objectMapper.writeValueAsString(fixture.completion());
+        ObjectNode enriched = (ObjectNode) objectMapper.readTree(completion);
+        ((ObjectNode) enriched.path("failures").get(0)).putObject("failureDiagnostics")
+                .put("schemaVersion", 1).put("origin", "PROVIDER").put("stage", "WORLD_COMPARE")
+                .put("reasonCode", "LLM_OUTPUT_TRUNCATED");
+        completion = objectMapper.writeValueAsString(enriched);
         for (int i = 0; i < 2; i++) {
             mockMvc.perform(post("/api/internal/v1/analysis-jobs/{jobId}/world-setting-comparison-batches/{batchId}/complete",
                             analysisJob.getId(), fixture.batchId())
@@ -3127,11 +3143,17 @@ class WorldSettingWorkerControllerIntegrationTest {
         assertThat(second.getComparisonDecision().getId()).isEqualTo(first.getComparisonDecision().getId());
         assertThat(first.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.PENDING_REVIEW);
         assertThat(failed.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.FAILED);
+        assertThat(failed.getComparisonFailureAnalysisJobId()).isEqualTo(analysisJob.getId());
+        assertThat(failed.getComparisonFailureBatchId()).isEqualTo(fixture.batchId());
+        assertThat(failed.getComparisonFailureDiagnostics().reasonCode()).isEqualTo("LLM_OUTPUT_TRUNCATED");
         assertThat(failed.getComparisonDiagnostics().size()).isEqualTo(1);
         assertThat(worldSettingRepository.count()).isZero();
         assertThat(jdbcTemplate.queryForObject("select count(*) from world_setting_comparison_decision_sources where comparison_batch_id = ?",
                 Long.class, fixture.batchId())).isEqualTo(2);
         failed.requestRecomparison();
+        assertThat(failed.getComparisonFailureDiagnostics()).isNull();
+        assertThat(failed.getComparisonFailureAnalysisJobId()).isNull();
+        assertThat(failed.getComparisonFailureBatchId()).isNull();
         candidateRepository.saveAndFlush(failed);
         assertThat(candidateRepository.findById(fixture.ids().get(2)).orElseThrow().getComparisonStatus())
                 .isEqualTo(WorldSettingComparisonStatus.PENDING);

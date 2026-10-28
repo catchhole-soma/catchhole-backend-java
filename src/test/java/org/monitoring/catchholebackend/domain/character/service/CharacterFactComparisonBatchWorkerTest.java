@@ -110,7 +110,7 @@ class CharacterFactComparisonBatchWorkerTest {
     @BeforeEach
     void setUp() {
         CharacterSettingValueValidator valueValidator = new CharacterSettingValueValidator();
-        worker = new CharacterFactComparisonBatchWorker(
+        worker = new CharacterFactComparisonBatchWorker(new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisFailureDiagnosticsSanitizer(org.mockito.Mockito.mock(org.springframework.jdbc.core.JdbcTemplate.class)),
                 analysisJobLeaseService,
                 candidateRepository,
                 batchRepository,

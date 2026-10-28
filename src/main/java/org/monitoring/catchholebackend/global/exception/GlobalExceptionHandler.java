@@ -1,5 +1,10 @@
 package org.monitoring.catchholebackend.global.exception;
 
+import org.monitoring.catchholebackend.domain.analysis.dto.AnalysisFailureDiagnostics;
+import org.slf4j.MDC;
+import java.util.HashMap;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import jakarta.validation.ConstraintViolationException;
 import java.util.Comparator;
 import java.util.List;
@@ -32,7 +37,7 @@ public class GlobalExceptionHandler {
                         exception.getResultCode(),
                         exception.getMessage(),
                         List.of(),
-                        exception.getErrorContext()
+                        failureContext(exception.getErrorContext(), exception.getResultCode())
                 );
         if (exception.getRetryAfterSeconds() == null) {
             return response;
@@ -105,7 +110,31 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<CommonResponse<Void>> handleException(Exception exception) {
         log.error("예상하지 못한 오류가 발생했습니다.", exception);
-        return buildErrorResponse(CommonErrorCode.COMMON_INTERNAL_SERVER_ERROR, List.of());
+        return buildErrorResponse(CommonErrorCode.COMMON_INTERNAL_SERVER_ERROR, CommonErrorCode.COMMON_INTERNAL_SERVER_ERROR.getMessage(), List.of(),
+                failureContext(Map.of(), CommonErrorCode.COMMON_INTERNAL_SERVER_ERROR));
+    }
+
+    private Map<String, Object> failureContext(Map<String, Object> existing, ResultCode code) {
+        if (!(RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes)) return existing;
+        String path = attributes.getRequest().getRequestURI();
+        if (!path.startsWith("/api/internal/v1/analysis-jobs")) return existing;
+        String stage = path.endsWith("/claim") ? "CLAIM_INPUT"
+                : path.contains("character-fact") ? ((path.contains("context") || path.endsWith("/claim-next")) ? "CHARACTER_CONTEXT" : "CHARACTER_COMPARE")
+                : path.contains("world-setting") ? ((path.contains("context") || path.endsWith("/claim-next") || path.contains("subject-resolution")) ? "WORLD_CONTEXT" : "WORLD_COMPARE")
+                : path.endsWith("/complete") ? "FINALIZE" : "UNKNOWN";
+        var prior = existing.get("failureDiagnostics") instanceof AnalysisFailureDiagnostics diagnostics ? diagnostics : null;
+        String requestId = MDC.get("requestId"), traceId = MDC.get("traceId");
+        if (requestId == null || !requestId.matches("[0-9a-fA-F-]{36}")) requestId = null;
+        if (traceId == null || !traceId.matches("[0-9a-f]{32}")) traceId = null;
+        var safe = new AnalysisFailureDiagnostics(1, "SPRING", stage,
+                prior == null ? "UNKNOWN" : prior.reasonCode(),
+                AnalysisFailureDiagnostics.SOURCE_CODES.contains(code.getCode()) ? code.getCode() : "UNKNOWN",
+                code.getStatus().value(), requestId, traceId,
+                prior == null ? null : prior.sourceAnalysisJobId(), prior == null ? null : prior.sourceCandidateId(),
+                prior == null ? null : prior.sourceEpisodeId(), prior == null ? null : prior.sourceEpisodeNo());
+        Map<String, Object> context = new HashMap<>(existing);
+        context.put("failureDiagnostics", safe);
+        return context;
     }
 
     private ResponseEntity<CommonResponse<Void>> buildErrorResponse(

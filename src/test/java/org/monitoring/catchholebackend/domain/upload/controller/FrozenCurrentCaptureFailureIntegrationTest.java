@@ -116,7 +116,9 @@ class FrozenCurrentCaptureFailureIntegrationTest extends SettingBookAnalysisInte
         em.flush();
         assertThat(pending.getStatus().name()).isEqualTo("FAILED");
         assertThat(pending.getJournalStatus().name()).isEqualTo("INCOMPLETE");
-        assertThat(pending.getErrorMessage()).startsWith("FROZEN_CURRENT_EVIDENCE_INVALID");
+        assertThat(pending.getFailureDiagnostics().reasonCode()).isEqualTo("CURRENT_EVIDENCE_OFFSET_INVALID");
+        assertThat(pending.getFailureDiagnostics().stage()).isEqualTo("CLAIM_INPUT");
+        assertThat(pending.getFailureDiagnostics().httpStatus()).isNull();
         assertThat(pending.getLeaseToken()).isNull();
         assertThat(pending.getLeaseExpiresAt()).isNull();
         assertThat(sql.queryForObject("select count(*) from setting_candidates where analysis_job_id=?", Integer.class, pending.getId())).isZero();
@@ -149,19 +151,36 @@ class FrozenCurrentCaptureFailureIntegrationTest extends SettingBookAnalysisInte
     }
 
     @Test
-    @DisplayName("고정 원 storage bytes를 검증할 수 없는 기술 실패는 영구 근거 실패로 낮추지 않는다")
-    void sourceStorageHashFailureKeepsRetryBoundary() throws Exception {
+    @DisplayName("고정 원 storage bytes의 hash 불일치는 첫 claim의 결정적 실패로 정리한다")
+    void sourceStorageHashMismatchClosesDeterministicFailure() throws Exception {
         var book = upload("기술 실패 뒤 재시도할 원문");
         var pending = jobs.findById(UUID.fromString(book.path("latestAnalysisJob").path("id").asText())).orElseThrow();
         currentQuote(true);
         em.flush();
-        evidenceClaim("SETTING_BOOK", 500);
+        evidenceClaim("SETTING_BOOK", 204);
+        assertThat(pending.getStatus().name()).isEqualTo("FAILED");
+        assertThat(pending.getJournalStatus().name()).isEqualTo("INCOMPLETE");
+        assertThat(pending.getLeaseToken()).isNull();
+        assertThat(pending.getFailureDiagnostics().reasonCode()).isEqualTo("CURRENT_EVIDENCE_SOURCE_HASH_MISMATCH");
+        assertThat(pending.getFailureDiagnostics().httpStatus()).isNull();
+        assertThat(pending.getAutomaticInputState()).isNull();
+        assertThat(sql.queryForObject("select reserved_tokens+used_tokens from ai_token_accounts where member_id=?", Long.class, work.getMember().getId())).isZero();
+    }
+
+    @Test @DisplayName("원문 저장소의 일시 읽기 오류는 503이며 첫 claim을 실패 상태로 바꾸지 않는다")
+    void sourceReadFailureKeepsRetryBoundary() throws Exception {
+        var book = upload("일시 장애 뒤 재시도할 합성 원문");
+        var pending = jobs.findById(UUID.fromString(book.path("latestAnalysisJob").path("id").asText())).orElseThrow();
+        currentQuote(false);
+        org.mockito.Mockito.when(storage.getText("synthetic/original-recovery"))
+                .thenThrow(new IllegalStateException("PRIVATE_SOURCE_FAILURE"));
+        em.flush();
+        evidenceClaim("SETTING_BOOK", 503);
         assertThat(pending.getStatus().name()).isEqualTo("PENDING");
         assertThat(pending.getJournalStatus().name()).isEqualTo("PENDING");
         assertThat(pending.getLeaseToken()).isNull();
-        assertThat(pending.getFailureCode()).isNull();
+        assertThat(pending.getFailureDiagnostics()).isNull();
         assertThat(pending.getAutomaticInputState()).isNull();
-        assertThat(sql.queryForObject("select reserved_tokens+used_tokens from ai_token_accounts where member_id=?", Long.class, work.getMember().getId())).isZero();
     }
 
     @Test
