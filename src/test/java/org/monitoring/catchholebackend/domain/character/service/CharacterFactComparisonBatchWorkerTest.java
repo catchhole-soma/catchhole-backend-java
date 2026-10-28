@@ -321,6 +321,58 @@ class CharacterFactComparisonBatchWorkerTest {
     }
 
     @Test
+    @DisplayName("확정값의 확인 불가 일반 인용은 빈 근거로 문맥에 전달하고 정상 검토 판단을 저장한다")
+    void retainedUnavailableQuoteReachesContextAndAllowsReviewCompletion() {
+        ObjectNode state = orderedState(1);
+        state.put("currentSupportingEvidenceVersion", 1);
+        var slot = (ObjectNode) state.path("slots").path("STATUS:status.앞회차_0");
+        UUID sourceId = UUID.randomUUID();
+        var provenance = (ObjectNode)slot.path("provenance");
+        provenance.put("confirmationStatus", "CONFIRMED").put("currentValueProtected", false);
+        provenance.putArray("sourceCandidateIds").add(sourceId.toString());
+        provenance.putArray("currentSourceTimes").addObject().put("sourceKind", "EPISODE").put("sourceEpisodeNo", 1)
+                .putNull("referenceTimeKind").putNull("referenceEpisodeNo").putNull("effectiveFromEpisodeNo").put("temporalScope", "PRESENT");
+        var origin = slot.putArray("supportingSources").addObject();
+        origin.put("sourceCandidateId", sourceId.toString()).put("sourceAnalysisJobId", UUID.randomUUID().toString())
+                .put("availability", "UNAVAILABLE").put("unavailableReason", "QUOTE_NOT_FOUND").put("candidateWasEdited", false)
+                .put("quoteRelation", "SOURCE_CONTEXT_ONLY").putNull("narrativeTime");
+        origin.putArray("evidenceSpans");
+        origin.putObject("source").put("sourceKind", "EPISODE").put("episodeId", UUID.randomUUID().toString()).put("episodeNo", 1)
+                .put("contentHash", "c".repeat(64)).putNull("settingBookId").putNull("revisionId").putNull("revisionNo")
+                .putNull("referenceTimeKind").putNull("referenceEpisodeNo");
+        origin.putObject("storageBinding").put("key", "synthetic/origin").putNull("versionId");
+        var candidate = candidate("status.앞회차_0", "관측 불명", 10);
+
+        var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
+        var context = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken);
+        var advisory = objectMapper.valueToTree(context.advisoryCurrentContext());
+        var current = advisory.path("currentSlots").get(0);
+        assertThat(current.path("factValue").asText()).isEqualTo("앞 회차 부상");
+        var captured = current.path("supportingSources").get(0);
+        assertThat(captured.path("availability").asText()).isEqualTo("UNAVAILABLE");
+        assertThat(captured.path("unavailableReason").asText()).isEqualTo("QUOTE_NOT_FOUND");
+        assertThat(captured.path("evidenceSpans")).isEmpty();
+        assertThat(captured.has("storageBinding")).isFalse();
+        for (String binding : List.of("sourceAnalysisJobId", "source", "storageBinding")) {
+            JsonNode previous = origin.get(binding);
+            if ("storageBinding".equals(binding)) origin.remove(binding); else origin.putNull(binding);
+            assertThatThrownBy(() -> worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken))
+                    .as("QUOTE_NOT_FOUND도 %s 결속을 요구한다", binding)
+                    .isInstanceOf(org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException.class);
+            origin.set(binding, previous);
+        }
+        worker.complete(analysisJobId, claim.comparisonBatchId(), leaseToken,
+                new WorkerCharacterFactComparisonBatchCompleteRequest(context.contextToken(), List.of(
+                        new WorkerCharacterFactComparisonBatchCompleteRequest.Decision("C1", CharacterFactOperation.REVIEW_REQUIRED,
+                                "status.앞회차_0", null, List.of(), List.of(), null, null, CharacterFactTemporalScope.PRESENT,
+                                "새 관측의 근거가 부족하여 확인이 필요합니다.", Map.of())), List.of(), Map.of()));
+        assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.COMPLETED);
+        assertThat(candidate.getSuggestedOperation()).isEqualTo(CharacterFactOperation.REVIEW_REQUIRED);
+        assertThat(batches.get(claim.comparisonBatchId()).getStatus()).isEqualTo(CharacterFactComparisonBatchStatus.COMPLETED);
+        assertThat(slot.path("factValue").asText()).isEqualTo("앞 회차 부상");
+    }
+
+    @Test
     @DisplayName("frozen advisory는 같은 이름이어도 다른 실제 인물의 CURRENT를 허용하지 않는다")
     void orderedAdvisoryRejectsAnotherOwner() {
         ObjectNode state = orderedState(0);

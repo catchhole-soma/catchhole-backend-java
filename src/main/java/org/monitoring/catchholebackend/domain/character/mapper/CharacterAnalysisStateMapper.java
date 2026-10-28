@@ -96,26 +96,14 @@ public class CharacterAnalysisStateMapper {
         return protectedSlots(state);
     }
 
-    public void addConfirmedIdentity(ObjectNode state, List<SettingCandidate> discoveries) {
+    public void addConfirmedIdentity(ObjectNode state, List<SettingCandidate> discoveries, ArrayNode verifiedEvidence) {
         ArrayNode aliases = state.putArray("aliases");
         discoveries.stream().map(SettingCandidate::getEntityName).filter(Objects::nonNull)
                 .map(String::trim).filter(name -> !name.isBlank() && !name.equals(state.path("name").asText()))
                 .distinct().forEach(aliases::add);
         ArrayNode evidence = state.putArray("identityEvidence");
         java.util.Set<JsonNode> seen = new java.util.LinkedHashSet<>();
-        discoveries.stream().map(SettingCandidate::getEvidenceSpans).filter(Objects::nonNull)
-                .filter(JsonNode::isArray).forEach(spans -> spans.forEach(span -> {
-                    if (seen.add(span)) evidence.add(span.deepCopy());
-                }));
-        // 이름 인용만 추출됐어도 검증 후 자동 승격한 별도 프로필은 후속 실제 인물 연결의 근거로 남긴다.
-        discoveries.stream().filter(SettingCandidate::isReviewedAutomatically)
-                .filter(candidate -> candidate.getAnalysisJob() != null && candidate.getAnalysisJob().isSettingBookSource())
-                .map(SettingCandidate::getRawAiResultJson).filter(Objects::nonNull)
-                .map(raw -> raw.path("setting_book_identity_proof")).filter(JsonNode::isObject)
-                .forEach(proof -> proof.path("members").forEach(member -> {
-                    JsonNode span = member.path("profileEvidence");
-                    if (member.path("targetRef").equals(proof.path("parentTargetRef")) && span.isObject() && seen.add(span)) evidence.add(span.deepCopy());
-                }));
+        verifiedEvidence.forEach(span -> { if (seen.add(span)) evidence.add(span.deepCopy()); });
         Integer episode = discoveries.stream().map(SettingCandidate::getEpisode).filter(Objects::nonNull)
                 .map(source -> source.getEpisodeNo()).max(Integer::compareTo).orElse(null);
         ObjectNode source = provenance("CONFIRMED", episode,

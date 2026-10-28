@@ -10,10 +10,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.processor.SettingBookAutomaticEvidenceValidator;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.EvidenceValidationResult;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
@@ -24,6 +26,7 @@ import org.springframework.stereotype.Component;
 /** Source reads occur only while an input or a new journal snapshot is frozen. */
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class CharacterCurrentSupportingEvidenceResolver {
     private final ObjectStorageService storage;
     private final SettingBookAutomaticEvidenceValidator quoteValidator;
@@ -58,7 +61,7 @@ public class CharacterCurrentSupportingEvidenceResolver {
             }
             if (candidate.getAnalysisJob() == null || job == null
                     || !same(candidate.getAnalysisJob().getId(), job.getId())) throw invalid();
-            ObjectNode origin = captureCandidate(capture, candidate);
+            ObjectNode origin = captureRetainedCandidate(capture, candidate);
             origin.set("narrativeTime", captureNarrativeTime(capture, candidate, fact.getNarrativeTime()));
             result.add(origin);
         }
@@ -66,6 +69,34 @@ public class CharacterCurrentSupportingEvidenceResolver {
     }
 
     public ObjectNode captureCandidate(Capture capture, SettingCandidate candidate) {
+        return captureCandidate(capture, candidate, false, candidate.getEvidenceSpans());
+    }
+
+    public ObjectNode captureRetainedCandidate(Capture capture, SettingCandidate candidate) {
+        return captureCandidate(capture, candidate, true, candidate.getEvidenceSpans());
+    }
+
+    public ArrayNode captureRetainedIdentityEvidence(Capture capture, SettingCandidate discovery) {
+        ArrayNode result = JsonNodeFactory.instance.arrayNode();
+        if ("VERIFIED".equals(captureRetainedCandidate(capture, discovery).path("availability").asText())) {
+            result.addAll((ArrayNode) discovery.getEvidenceSpans().deepCopy());
+        }
+        if (discovery.isReviewedAutomatically() && discovery.getAnalysisJob() != null
+                && discovery.getAnalysisJob().isSettingBookSource() && discovery.getRawAiResultJson() != null) {
+            JsonNode proof = discovery.getRawAiResultJson().path("setting_book_identity_proof");
+            for (JsonNode member : proof.path("members")) {
+                JsonNode span = member.path("profileEvidence");
+                if (member.path("targetRef").equals(proof.path("parentTargetRef")) && span.isObject()
+                        && "VERIFIED".equals(captureCandidate(capture, discovery, true,
+                                JsonNodeFactory.instance.arrayNode().add(span)).path("availability").asText())) {
+                    result.add(span.deepCopy());
+                }
+            }
+        }
+        return result;
+    }
+
+    private ObjectNode captureCandidate(Capture capture, SettingCandidate candidate, boolean retained, JsonNode evidence) {
         AnalysisJob job = candidate.getAnalysisJob();
         if (job == null) return unavailable(candidate.getId(), null, "LEGACY_NO_MANIFEST", candidate.hasUserEditedContent());
         if (!same(job.getWork().getId(), capture.workId) || !same(candidate.getWork().getId(), capture.workId)
@@ -75,7 +106,6 @@ public class CharacterCurrentSupportingEvidenceResolver {
         if (job.getSourceContentHash() == null || !job.getSourceContentHash().matches("[0-9a-f]{64}")
                 || job.getSourceContentS3Key() == null || job.getSourceContentS3Key().isBlank()) throw invalid();
         ObjectNode source = source(job);
-        JsonNode evidence = candidate.getEvidenceSpans();
         if (evidence == null || evidence.isNull() || evidence.isArray() && evidence.isEmpty()) {
             ObjectNode row = unavailable(candidate.getId(), job.getId(), "NO_RECORDED_QUOTE", candidate.hasUserEditedContent());
             row.set("source", source);
@@ -83,7 +113,17 @@ public class CharacterCurrentSupportingEvidenceResolver {
             return row;
         }
         String content = original(capture, job);
-        if (!quoteValidator.matches(content, evidence)) throw invalid();
+        EvidenceValidationResult validation = quoteValidator.validate(content, evidence);
+        if (retained && validation == EvidenceValidationResult.QUOTE_NOT_FOUND) {
+            ObjectNode row = unavailable(candidate.getId(), job.getId(), "QUOTE_NOT_FOUND", candidate.hasUserEditedContent());
+            row.set("source", source);
+            storageBinding(row, job);
+            row.set("narrativeTime", captureNarrativeTime(capture, candidate, candidate.getNarrativeTime()));
+            log.warn("기존 확정 근거의 일반 인용을 확인할 수 없습니다. sourceCandidateId={}, sourceAnalysisJobId={}, reason=QUOTE_NOT_FOUND, spanCount={}",
+                    candidate.getId(), job.getId(), evidence.size());
+            return row;
+        }
+        if (validation != EvidenceValidationResult.VALID) throw invalid();
         ObjectNode row = base(candidate.getId(), job.getId(), candidate.hasUserEditedContent());
         row.put("availability", "VERIFIED").putNull("unavailableReason");
         row.set("source", source);
@@ -150,7 +190,7 @@ public class CharacterCurrentSupportingEvidenceResolver {
                 || !same(fact.getWorkCharacter().getId(), candidate.getMatchedCharacterId())
                 || fact.getExtractedByJob() != null && (candidate.getAnalysisJob() == null
                 || !same(fact.getExtractedByJob().getId(), candidate.getAnalysisJob().getId()))) throw invalid();
-        ObjectNode origin = captureCandidate(capture, candidate);
+        ObjectNode origin = captureRetainedCandidate(capture, candidate);
         origin.set("narrativeTime", captureNarrativeTime(capture, candidate, fact.getNarrativeTime()));
         return origin;
     }

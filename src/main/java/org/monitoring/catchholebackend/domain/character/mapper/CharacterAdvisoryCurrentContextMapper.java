@@ -25,7 +25,7 @@ public final class CharacterAdvisoryCurrentContextMapper {
     private final ObjectMapper values = new ObjectMapper();
     private final AnalysisStateJournal journal = new AnalysisStateJournal();
     private static final Set<String> REASONS = Set.of("LEGACY_INPUT_WITHOUT_FROZEN_EVIDENCE", "LEGACY_NO_MANIFEST",
-            "NO_RECORDED_QUOTE", "HUMAN_CURRENT_WITHOUT_SOURCE", "SOURCE_EVIDENCE_PURGED");
+            "NO_RECORDED_QUOTE", "HUMAN_CURRENT_WITHOUT_SOURCE", "SOURCE_EVIDENCE_PURGED", "QUOTE_NOT_FOUND");
 
     public WorkerCharacterAdvisoryCurrentContextPayload toResponse(AnalysisJob job, JsonNode owner,
             UUID expectedActual, String expectedProvisional) {
@@ -153,10 +153,13 @@ public final class CharacterAdvisoryCurrentContextMapper {
                 evidenceSpans.add(new EvidenceSpan(quote, start, end));
             }
             if ("VERIFIED".equals(availability)) {
-                if (candidate == null || job == null || source == null || reason != null || evidenceSpans.isEmpty()) throw invalid();
+                if (reason != null || evidenceSpans.isEmpty()) throw invalid();
+            } else if (!"UNAVAILABLE".equals(availability) || !REASONS.contains(reason) || !evidenceSpans.isEmpty()) throw invalid();
+            if ("VERIFIED".equals(availability) || "QUOTE_NOT_FOUND".equals(reason)) {
+                if (candidate == null || job == null || source == null) throw invalid();
                 JsonNode binding = required(row, "storageBinding");
                 exact(binding, Set.of("key", "versionId")); text(binding, "key", false); text(binding, "versionId", true);
-            } else if (!"UNAVAILABLE".equals(availability) || !REASONS.contains(reason) || !evidenceSpans.isEmpty()) throw invalid();
+            }
             JsonNode narrative = row.get("narrativeTime");
             validateNarrativeTime(narrative);
             result.add(new SupportingOrigin(candidate, job, availability, reason, edited.isNull() ? null : edited.booleanValue(),
