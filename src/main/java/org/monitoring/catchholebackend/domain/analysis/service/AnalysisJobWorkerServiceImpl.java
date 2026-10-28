@@ -651,6 +651,10 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                         candidate.recordComparisonFailure(analysisJob,
                                 candidate.getCharacterComparisonBatch() == null ? null : candidate.getCharacterComparisonBatch().getId(), diagnostics);
                     });
+            if (analysisJob.getCharacterComparisonInputHash() != null) {
+                // 첫 묶음 전에도 Job FAILED 트리거가 전체 그룹을 읽도록 같은 트랜잭션에서 먼저 저장한다.
+                settingCandidateRepository.flush();
+            }
         }
     }
 
