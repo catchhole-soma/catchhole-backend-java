@@ -67,6 +67,7 @@ import org.testcontainers.utility.DockerImageName;
 @DirtiesContext
 @Testcontainers(disabledWithoutDocker = true)
 @org.springframework.context.annotation.Import(ComparisonEvidenceHttpPostgresIntegrationTest.LegacyReceiver.class)
+@DisplayName("회차 비교 근거와 실패 알림의 실제 HTTP·PostgreSQL 연결")
 class ComparisonEvidenceHttpPostgresIntegrationTest {
     @Container static final GenericContainer<?> PG = new GenericContainer<>(DockerImageName.parse("pgvector/pgvector:0.8.2-pg16"))
             .withEnv("POSTGRES_USER", "evidence_test").withEnv("POSTGRES_PASSWORD", "test-only")
@@ -161,7 +162,9 @@ class ComparisonEvidenceHttpPostgresIntegrationTest {
         acknowledgeGroupEvents(f);
     }
 
-    @Test void episodeRetainedUnavailableCompletesThroughHttpWithoutFailureOutbox() throws Exception {
+    @Test
+    @DisplayName("과거 인용만 확인 불가인 회차 비교는 HTTP 검토를 완료하고 실패 알림을 만들지 않는다")
+    void episodeRetainedUnavailableCompletesThroughHttpWithoutFailureOutbox() throws Exception {
         var f = seed(true);
         var claim = post("/api/internal/v1/analysis-jobs/claim", null, Map.of(
                 "allowedJobTypes", List.of("SETTING_EXTRACTION"), "supportedAnalysisModes", List.of("ORDERED_PROVISIONAL"),
@@ -195,6 +198,7 @@ class ComparisonEvidenceHttpPostgresIntegrationTest {
     }
 
     @Test
+    @DisplayName("실제 Python 실패 보고는 구 DTO 수신과 PostgreSQL·가짜 Discord까지 이어진다")
     @EnabledIfEnvironmentVariable(named = "GH304_AI_CHECKOUT", matches = ".+")
     void pythonReportsRealTypedSourceFailureAndLocalDiscordReceivesSnapshots() throws Exception {
         var f = seed(false);
@@ -252,7 +256,9 @@ class ComparisonEvidenceHttpPostgresIntegrationTest {
         sql.update("UPDATE analysis_jobs SET status='CANCELED' WHERE work_id=(SELECT work_id FROM analysis_jobs WHERE id=?) AND job_type='CHARACTER_FACT_COMPARISON' AND status='PENDING'", f.job);
     }
 
-    @Test void oldWorkerFailurePayloadRetainsAuthorizedExecutionWithoutOptionalDiagnostic() throws Exception {
+    @Test
+    @DisplayName("구 Worker가 진단을 생략해도 승인된 비교 실행과 원래 근거를 보존한다")
+    void oldWorkerFailurePayloadRetainsAuthorizedExecutionWithoutOptionalDiagnostic() throws Exception {
         var f = seed(false);
         var claim = post("/api/internal/v1/analysis-jobs/claim", null, Map.of("allowedJobTypes", List.of("SETTING_EXTRACTION")), 200);
         String lease = claim.path("leaseToken").asText();
