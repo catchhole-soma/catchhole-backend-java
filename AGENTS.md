@@ -64,6 +64,7 @@
 - 회차 분석 실패 알림은 `analysis_failure_notifications`의 transactional outbox를 사용한다. V90의 PostgreSQL trigger는 회차 Job/캐릭터·세계관 후보가 새로 FAILED가 될 때 안전한 진단·실행 종류·실행/원본 추출/비교 묶음·대상 회차를 실패 당시 snapshot으로 기록한다. 발송 때 현재 Job·후보·FK로 과거 원인을 재구성하지 않으며 원시 오류·원문·연락처는 복사하지 않는다.
 - 후보 실패는 기존 트랜잭션·원본 Job·회차·종류·코드에 실행·묶음·정리한 진단 전체가 같은 경우만 합친다. reason이 같아도 단계·관측 HTTP·원천 코드·원인 근거 ID가 다르면 나눠 대표 진단이 전체 개수를 설명하는 것처럼 표시하지 않는다. 진단과 서버 실행 링크가 모두 없는 구 writer만 기존 그룹 의미를 유지한다.
 - 새 시도의 현재 진단·후보 실행 링크는 애플리케이션과 DB 상태 전이에서 함께 비워 rolling/rollback의 구 SQL writer도 이전 시도를 재사용하지 않게 한다. 과거 outbox는 유지한다. 실행 실패의 기본 수는 실패 작업 1건이며 후보 사건만 실패 항목 수를 쓴다. 다회차 실행은 실제 membership의 회차를 쓰고 여러 원본 추출 Job을 하나로 추정하지 않는다.
+- 입력 hash가 유효한 숨김 캐릭터 그룹은 직접 실패와 lease 회수 한도 초과에서 후보 실행 링크를 같은 트랜잭션으로 먼저 flush한 뒤 Job을 FAILED로 바꾼다. 첫 비교 묶음 전에는 이 링크만으로 전체 대상 회차·유일한 원본 출처를 snapshot할 수 있기 때문이다. stale 입력은 현재 후보를 바꾸지 않으며 이후 live 상태로 과거 outbox를 보완하지 않는다.
 - `ANALYSIS_FAILURE_NOTIFICATIONS_ENABLED=false`가 기본이며 활성화할 때 `ANALYSIS_FAILURE_DISCORD_WEBHOOK_URL`을 서버 비밀 설정으로 주입한다. 운영 Compose는 알림 환경을 prod로 고정한다. 전용 dispatcher는 DB 선점을 끝낸 뒤 HTTP를 호출하고, 429의 대기 헤더·일시 오류 backoff·재시작 후 미발송 복구를 처리한다. 전송은 at-least-once이며 응답 유실 때 같은 알림 ID가 중복될 수 있다. 비활성 중 대기 기록도 활성화 시 발송하며 완료 이력만 30일 뒤 정리한다. 설정집·접수 전 HTTP 오류·브라우저 연결 오류는 이 알림의 대상이 아니다. 운영 설정과 한계는 `docs/analysis-failure-notifications.md`를 따른다.
 
 - 기본 애플리케이션 지표는 Actuator와 `micrometer-registry-prometheus`로 제공한다. registry 버전은 Spring Boot의 의존성 관리에 맡긴다.
