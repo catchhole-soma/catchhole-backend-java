@@ -193,7 +193,7 @@ class AnalysisHumanRejectionPolicyTest {
                 extracted.getComparisonStatus() == WorldSettingComparisonStatus.PENDING ? List.of(extracted) : List.of());
         WorldSettingComparisonBatchRepository batches = mock(WorldSettingComparisonBatchRepository.class);
         WorldSettingComparisonDecisionRepository decisions = mock(WorldSettingComparisonDecisionRepository.class);
-        OrderedWorldSettingWorker worker = new OrderedWorldSettingWorker(states, journal, new AnalysisRunContextMapper(new org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper(new org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver())),
+        OrderedWorldSettingWorker worker = new OrderedWorldSettingWorker(new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisFailureDiagnosticsSanitizer(org.mockito.Mockito.mock(org.springframework.jdbc.core.JdbcTemplate.class)), states, journal, new AnalysisRunContextMapper(new org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper(new org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver())),
                 worlds, batches, decisions, mock(WorldSettingComparisonDecisionSourceRepository.class),
                 mock(WorldSettingRepository.class), new WorldSettingWorkerMapper(), new WorldSettingAnalysisStateMapper(), policy);
 

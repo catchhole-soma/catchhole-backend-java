@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -103,6 +104,9 @@ class WorldSettingWorkerControllerIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingComparisonBatchRepository failureBatchRepository;
 
     private Work work;
     private Episode episode;
@@ -2748,7 +2752,9 @@ class WorldSettingWorkerControllerIntegrationTest {
                 {
                   "failureCode": null,
                   "errorMessage": " unexpected provider failure ",
-                  "sourceErrorCode": "ORIGINAL_PROVIDER_ERROR"
+                  "sourceErrorCode": "ORIGINAL_PROVIDER_ERROR",
+                  "failureDiagnostics": {"schemaVersion":1,"origin":"PROVIDER","stage":"WORLD_COMPARE",
+                    "reasonCode":"LLM_RATE_LIMIT","sourceErrorCode":"rate_limit_exceeded","httpStatus":429}
                 }
                 """;
 
@@ -2787,6 +2793,11 @@ class WorldSettingWorkerControllerIntegrationTest {
 
         WorldSettingCandidate failed = candidateRepository.findById(candidate.getId())
                 .orElseThrow();
+        assertThat(failed.getComparisonFailureAnalysisJobId()).isEqualTo(analysisJob.getId());
+        assertThat(failed.getComparisonFailureBatchId()).isEqualTo(comparisonBatchId);
+        assertThat(failed.getComparisonFailureDiagnostics().reasonCode()).isEqualTo("LLM_RATE_LIMIT");
+        assertThat(failureBatchRepository.findById(comparisonBatchId).orElseThrow().getFailureDiagnostics())
+                .isEqualTo(failed.getComparisonFailureDiagnostics());
         assertThat(failed.getComparisonFailureCode())
                 .isEqualTo(AnalysisFailureCode.UNEXPECTED_ERROR);
         assertThat(failed.getComparisonErrorMessage())
@@ -2884,6 +2895,64 @@ class WorldSettingWorkerControllerIntegrationTest {
         assertThat(pending.getComparisonStatus())
                 .isEqualTo(WorldSettingComparisonStatus.PENDING);
         assertThat(pending.getComparisonFailureCode()).isNull();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    @DisplayName("세계관 단건 실패는 진단 유무와 관계없이 승인된 재비교 실행을 고정하고 재시도에서 비운다")
+    void singleFailureSnapshotsAuthorizedRecomparisonAndResetsOnRetry(boolean includeDiagnostics) throws Exception {
+        AnalysisJob extraction = analysisJob;
+        WorldSettingCandidate candidate = WorldSettingCandidate.create(
+                work, episode, extraction, WorldSettingCategory.LOCATION, "합성 장소", null, "광원", "빛난다.",
+                objectMapper.readTree("[{\"quote\":\"빛난다.\"}]"), new BigDecimal("0.95"), null);
+        candidate.startComparison();
+        candidate = candidateRepository.saveAndFlush(candidate);
+        AnalysisJob execution = AnalysisJob.createWorldSettingComparison(candidate);
+        UUID executionLease = execution.claim("synthetic-model", "WORLD_SETTING_COMPARISON", LocalDateTime.now().plusMinutes(5));
+        execution = analysisJobRepository.saveAndFlush(execution);
+        assertThat(execution.getId()).isNotEqualTo(extraction.getId());
+
+        ObjectNode request = objectMapper.createObjectNode().put("failureCode", "LLM_PROVIDER_ERROR")
+                .put("errorMessage", "합성 provider 실패");
+        if (includeDiagnostics) {
+            request.putObject("failureDiagnostics").put("schemaVersion", 1).put("origin", "PROVIDER")
+                    .put("stage", "WORLD_COMPARE").put("reasonCode", "LLM_PROVIDER_ERROR")
+                    .put("sourceErrorCode", "PRIVATE_UNSUPPORTED_CODE").put("httpStatus", 502)
+                    .put("requestId", "synthetic_request_1").put("errorMessage", "PRIVATE_MANUSCRIPT")
+                    .put("leaseToken", "PRIVATE_TOKEN").put("analysisJobId", UUID.randomUUID().toString());
+        }
+        mockMvc.perform(post("/api/internal/v1/analysis-jobs/{jobId}/world-setting-candidates/{candidateId}/comparison-fail",
+                        execution.getId(), candidate.getId())
+                .header(SecurityConstant.INTERNAL_API_KEY_HEADER, INTERNAL_API_KEY)
+                .header(WORKER_LEASE_TOKEN_HEADER, executionLease)
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk());
+
+        WorldSettingCandidate failed = candidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(failed.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.FAILED);
+        assertThat(failed.getComparisonFailureCode()).isEqualTo(AnalysisFailureCode.LLM_PROVIDER_ERROR);
+        if (includeDiagnostics) {
+            assertThat(failed.getComparisonFailureDiagnostics()).isNotNull();
+            assertThat(failed.getComparisonFailureDiagnostics().reasonCode()).isEqualTo("LLM_PROVIDER_ERROR");
+            assertThat(failed.getComparisonFailureDiagnostics().sourceErrorCode()).isEqualTo("UNKNOWN");
+            assertThat(failed.getComparisonFailureDiagnostics().requestId()).isEqualTo("synthetic_request_1");
+            assertThat(failed.getComparisonFailureDiagnostics().httpStatus()).isEqualTo(502);
+            assertThat(objectMapper.writeValueAsString(failed.getComparisonFailureDiagnostics()))
+                    .doesNotContain("PRIVATE", "leaseToken", "analysisJobId");
+        } else {
+            assertThat(failed.getComparisonFailureDiagnostics()).isNull();
+        }
+        assertThat(failed.getAnalysisJob().getId()).isEqualTo(extraction.getId());
+        assertThat(failed.getComparisonFailureAnalysisJobId()).isEqualTo(execution.getId());
+        assertThat(failed.getComparisonFailureBatchId()).isNull();
+
+        failed.requestRecomparison();
+        candidateRepository.saveAndFlush(failed);
+        WorldSettingCandidate retried = candidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(retried.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.PENDING);
+        assertThat(retried.getComparisonFailureDiagnostics()).isNull();
+        assertThat(retried.getComparisonFailureAnalysisJobId()).isNull();
+        assertThat(retried.getComparisonFailureBatchId()).isNull();
     }
 
     @Test
@@ -3113,6 +3182,11 @@ class WorldSettingWorkerControllerIntegrationTest {
     void manualPartialCompletionRetainsMergedSuccessAndRetriesOnlyFailedCandidate() throws Exception {
         var fixture = preparePartialBatch();
         String completion = objectMapper.writeValueAsString(fixture.completion());
+        ObjectNode enriched = (ObjectNode) objectMapper.readTree(completion);
+        ((ObjectNode) enriched.path("failures").get(0)).putObject("failureDiagnostics")
+                .put("schemaVersion", 1).put("origin", "PROVIDER").put("stage", "WORLD_COMPARE")
+                .put("reasonCode", "LLM_OUTPUT_TRUNCATED");
+        completion = objectMapper.writeValueAsString(enriched);
         for (int i = 0; i < 2; i++) {
             mockMvc.perform(post("/api/internal/v1/analysis-jobs/{jobId}/world-setting-comparison-batches/{batchId}/complete",
                             analysisJob.getId(), fixture.batchId())
@@ -3127,11 +3201,17 @@ class WorldSettingWorkerControllerIntegrationTest {
         assertThat(second.getComparisonDecision().getId()).isEqualTo(first.getComparisonDecision().getId());
         assertThat(first.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.PENDING_REVIEW);
         assertThat(failed.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.FAILED);
+        assertThat(failed.getComparisonFailureAnalysisJobId()).isEqualTo(analysisJob.getId());
+        assertThat(failed.getComparisonFailureBatchId()).isEqualTo(fixture.batchId());
+        assertThat(failed.getComparisonFailureDiagnostics().reasonCode()).isEqualTo("LLM_OUTPUT_TRUNCATED");
         assertThat(failed.getComparisonDiagnostics().size()).isEqualTo(1);
         assertThat(worldSettingRepository.count()).isZero();
         assertThat(jdbcTemplate.queryForObject("select count(*) from world_setting_comparison_decision_sources where comparison_batch_id = ?",
                 Long.class, fixture.batchId())).isEqualTo(2);
         failed.requestRecomparison();
+        assertThat(failed.getComparisonFailureDiagnostics()).isNull();
+        assertThat(failed.getComparisonFailureAnalysisJobId()).isNull();
+        assertThat(failed.getComparisonFailureBatchId()).isNull();
         candidateRepository.saveAndFlush(failed);
         assertThat(candidateRepository.findById(fixture.ids().get(2)).orElseThrow().getComparisonStatus())
                 .isEqualTo(WorldSettingComparisonStatus.PENDING);

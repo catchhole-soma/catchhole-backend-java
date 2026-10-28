@@ -128,7 +128,8 @@ class CharacterNarrativeEvidenceLifecycleTest {
     void missingChunkCannotHideChangedSourceOrForgedOffsets() {
         ReflectionTestUtils.setField(job, "status", AnalysisJobStatus.SUCCEEDED);
         when(storage.contentHash(content)).thenReturn("b".repeat(64));
-        assertThatThrownBy(this::capture).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(this::capture).isInstanceOf(CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException.class)
+                .satisfies(error -> org.assertj.core.api.Assertions.assertThat(((org.monitoring.catchholebackend.global.exception.AppException)error).getResultCode().getStatus().value()).isEqualTo(409));
         when(storage.contentHash(content)).thenReturn("a".repeat(64));
         ((ObjectNode) candidate.getNarrativeTime().path("referenceTime").path("evidenceSpans").get(0)).put("startOffset", 1);
         assertThatThrownBy(this::capture).isInstanceOf(CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException.class);

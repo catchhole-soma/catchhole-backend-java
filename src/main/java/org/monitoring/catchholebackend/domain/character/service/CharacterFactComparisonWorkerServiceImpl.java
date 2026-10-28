@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.character.service;
 
+import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisFailureDiagnosticsSanitizer;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -72,6 +73,7 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
     private static final int MAX_CONTEXT_ENTRIES = 30;
     private static final int MAX_PRIOR_CANDIDATES = 30;
 
+    private final AnalysisFailureDiagnosticsSanitizer failureDiagnosticsSanitizer;
     private final AnalysisJobLeaseService analysisJobLeaseService;
     private final org.springframework.context.ApplicationEventPublisher validationEvents;
     private final SettingCandidateRepository settingCandidateRepository;
@@ -367,10 +369,11 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
                 analysisJobId,
                 leaseToken
         );
-        getOwnedProcessingCandidate(analysisJob, candidateId).failComparison(
-                request.failureCode(),
-                request.errorMessage()
-        );
+        SettingCandidate candidate = getOwnedProcessingCandidate(analysisJob, candidateId);
+        candidate.failComparison(request.failureCode(), request.errorMessage());
+        candidate.recordComparisonFailure(analysisJob,
+                candidate.getCharacterComparisonBatch() == null ? null : candidate.getCharacterComparisonBatch().getId(),
+                failureDiagnosticsSanitizer.sanitize(request.failureDiagnostics(), analysisJob.getWork().getId()));
     }
 
     @Override

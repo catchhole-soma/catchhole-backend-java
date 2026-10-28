@@ -1,5 +1,8 @@
 package org.monitoring.catchholebackend.domain.character.processor;
 
+import org.monitoring.catchholebackend.domain.analysis.dto.AnalysisFailureDiagnostics;
+import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
+import org.monitoring.catchholebackend.global.exception.AppException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
@@ -10,10 +13,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.processor.SettingBookAutomaticEvidenceValidator;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.EvidenceValidationResult;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
@@ -24,6 +29,7 @@ import org.springframework.stereotype.Component;
 /** Source reads occur only while an input or a new journal snapshot is frozen. */
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class CharacterCurrentSupportingEvidenceResolver {
     private final ObjectStorageService storage;
     private final SettingBookAutomaticEvidenceValidator quoteValidator;
@@ -58,7 +64,7 @@ public class CharacterCurrentSupportingEvidenceResolver {
             }
             if (candidate.getAnalysisJob() == null || job == null
                     || !same(candidate.getAnalysisJob().getId(), job.getId())) throw invalid();
-            ObjectNode origin = captureCandidate(capture, candidate);
+            ObjectNode origin = captureRetainedCandidate(capture, candidate);
             origin.set("narrativeTime", captureNarrativeTime(capture, candidate, fact.getNarrativeTime()));
             result.add(origin);
         }
@@ -66,6 +72,34 @@ public class CharacterCurrentSupportingEvidenceResolver {
     }
 
     public ObjectNode captureCandidate(Capture capture, SettingCandidate candidate) {
+        return captureCandidate(capture, candidate, false, candidate.getEvidenceSpans());
+    }
+
+    public ObjectNode captureRetainedCandidate(Capture capture, SettingCandidate candidate) {
+        return captureCandidate(capture, candidate, true, candidate.getEvidenceSpans());
+    }
+
+    public ArrayNode captureRetainedIdentityEvidence(Capture capture, SettingCandidate discovery) {
+        ArrayNode result = JsonNodeFactory.instance.arrayNode();
+        if ("VERIFIED".equals(captureRetainedCandidate(capture, discovery).path("availability").asText())) {
+            result.addAll((ArrayNode) discovery.getEvidenceSpans().deepCopy());
+        }
+        if (discovery.isReviewedAutomatically() && discovery.getAnalysisJob() != null
+                && discovery.getAnalysisJob().isSettingBookSource() && discovery.getRawAiResultJson() != null) {
+            JsonNode proof = discovery.getRawAiResultJson().path("setting_book_identity_proof");
+            for (JsonNode member : proof.path("members")) {
+                JsonNode span = member.path("profileEvidence");
+                if (member.path("targetRef").equals(proof.path("parentTargetRef")) && span.isObject()
+                        && "VERIFIED".equals(captureCandidate(capture, discovery, true,
+                                JsonNodeFactory.instance.arrayNode().add(span)).path("availability").asText())) {
+                    result.add(span.deepCopy());
+                }
+            }
+        }
+        return result;
+    }
+
+    private ObjectNode captureCandidate(Capture capture, SettingCandidate candidate, boolean retained, JsonNode evidence) {
         AnalysisJob job = candidate.getAnalysisJob();
         if (job == null) return unavailable(candidate.getId(), null, "LEGACY_NO_MANIFEST", candidate.hasUserEditedContent());
         if (!same(job.getWork().getId(), capture.workId) || !same(candidate.getWork().getId(), capture.workId)
@@ -73,9 +107,8 @@ public class CharacterCurrentSupportingEvidenceResolver {
         boolean noManifest = job.getSourceContentHash() == null && job.getSourceContentS3Key() == null;
         if (noManifest) return unavailable(candidate.getId(), job.getId(), "LEGACY_NO_MANIFEST", candidate.hasUserEditedContent());
         if (job.getSourceContentHash() == null || !job.getSourceContentHash().matches("[0-9a-f]{64}")
-                || job.getSourceContentS3Key() == null || job.getSourceContentS3Key().isBlank()) throw invalid();
+                || job.getSourceContentS3Key() == null || job.getSourceContentS3Key().isBlank()) throw new InvalidEvidenceException("CURRENT_EVIDENCE_MANIFEST_INVALID");
         ObjectNode source = source(job);
-        JsonNode evidence = candidate.getEvidenceSpans();
         if (evidence == null || evidence.isNull() || evidence.isArray() && evidence.isEmpty()) {
             ObjectNode row = unavailable(candidate.getId(), job.getId(), "NO_RECORDED_QUOTE", candidate.hasUserEditedContent());
             row.set("source", source);
@@ -83,7 +116,22 @@ public class CharacterCurrentSupportingEvidenceResolver {
             return row;
         }
         String content = original(capture, job);
-        if (!quoteValidator.matches(content, evidence)) throw invalid();
+        EvidenceValidationResult validation = quoteValidator.validate(content, evidence);
+        if (retained && validation == EvidenceValidationResult.QUOTE_NOT_FOUND) {
+            ObjectNode row = unavailable(candidate.getId(), job.getId(), "QUOTE_NOT_FOUND", candidate.hasUserEditedContent());
+            row.set("source", source);
+            storageBinding(row, job);
+            row.set("narrativeTime", captureNarrativeTime(capture, candidate, candidate.getNarrativeTime()));
+            log.warn("기존 확정 근거의 일반 인용을 확인할 수 없습니다. sourceCandidateId={}, sourceAnalysisJobId={}, reason=QUOTE_NOT_FOUND, spanCount={}",
+                    candidate.getId(), job.getId(), evidence.size());
+            return row;
+        }
+        if (validation != EvidenceValidationResult.VALID) throw new InvalidEvidenceException(switch (validation) {
+            case MALFORMED_SPANS -> "CURRENT_EVIDENCE_STRUCTURE_INVALID";
+            case INVALID_OFFSETS -> "CURRENT_EVIDENCE_OFFSET_INVALID";
+            case QUOTE_NOT_FOUND -> "CURRENT_EVIDENCE_QUOTE_NOT_FOUND";
+            case VALID -> throw new IllegalStateException("근거 검증 분기가 올바르지 않습니다.");
+        });
         ObjectNode row = base(candidate.getId(), job.getId(), candidate.hasUserEditedContent());
         row.put("availability", "VERIFIED").putNull("unavailableReason");
         row.set("source", source);
@@ -150,7 +198,7 @@ public class CharacterCurrentSupportingEvidenceResolver {
                 || !same(fact.getWorkCharacter().getId(), candidate.getMatchedCharacterId())
                 || fact.getExtractedByJob() != null && (candidate.getAnalysisJob() == null
                 || !same(fact.getExtractedByJob().getId(), candidate.getAnalysisJob().getId()))) throw invalid();
-        ObjectNode origin = captureCandidate(capture, candidate);
+        ObjectNode origin = captureRetainedCandidate(capture, candidate);
         origin.set("narrativeTime", captureNarrativeTime(capture, candidate, fact.getNarrativeTime()));
         return origin;
     }
@@ -160,10 +208,17 @@ public class CharacterCurrentSupportingEvidenceResolver {
         return capture.contents.computeIfAbsent(binding, ignored -> {
             // Episode/revision writers use immutable unique keys. Never read the current Episode pointer.
             String content;
-            try { content = storage.getText(job.getSourceContentS3Key()); }
-            catch (RuntimeException exception) { throw new SourceUnavailableException(exception); }
-            if (content == null || !job.getSourceContentHash().equals(storage.contentHash(content))) {
-                throw new SourceUnavailableException(null);
+            String hash;
+            try {
+                content = storage.getText(job.getSourceContentS3Key());
+                if (content == null) throw new IllegalStateException("고정 원문이 없습니다.");
+                hash = storage.contentHash(content);
+            } catch (RuntimeException ignoredFailure) {
+                throw new AppException(AnalysisJobErrorCode.ANALYSIS_CURRENT_EVIDENCE_SOURCE_UNAVAILABLE,
+                        diagnosticContext("CURRENT_EVIDENCE_SOURCE_READ_FAILED", job));
+            }
+            if (!job.getSourceContentHash().equals(hash)) {
+                throw new InvalidEvidenceException("CURRENT_EVIDENCE_SOURCE_HASH_MISMATCH", job);
             }
             return content;
         });
@@ -230,11 +285,19 @@ public class CharacterCurrentSupportingEvidenceResolver {
     }
 
     /** Dedicated deterministic shape/binding failure; excludes transient source storage failures. */
-    public static final class SourceUnavailableException extends IllegalStateException {
-        public SourceUnavailableException(Throwable cause) { super("고정 원문 근거를 읽거나 hash를 확인할 수 없습니다.", cause); }
+    public static final class InvalidEvidenceException extends AppException {
+        public InvalidEvidenceException() { this("CURRENT_EVIDENCE_BINDING_INVALID"); }
+        public InvalidEvidenceException(String reason) { this(reason, null); }
+        public InvalidEvidenceException(String reason, AnalysisJob source) {
+            super(AnalysisJobErrorCode.ANALYSIS_CURRENT_EVIDENCE_INVALID, diagnosticContext(reason, source));
+        }
     }
 
-    public static final class InvalidEvidenceException extends RuntimeException {
-        public InvalidEvidenceException() { super("FROZEN_CURRENT_EVIDENCE_INVALID: 고정 현재 근거의 결속 또는 인용이 올바르지 않습니다."); }
+    private static Map<String, Object> diagnosticContext(String reason, AnalysisJob source) {
+        return Map.of("failureDiagnostics", new AnalysisFailureDiagnostics(1, "SPRING", "UNKNOWN", reason,
+                "CURRENT_EVIDENCE_SOURCE_READ_FAILED".equals(reason) ? "ANALYSIS_CURRENT_EVIDENCE_SOURCE_UNAVAILABLE" : "ANALYSIS_CURRENT_EVIDENCE_INVALID",
+                null, null, null, source == null ? null : source.getId(), null,
+                source == null || source.getEpisode() == null ? null : source.getEpisode().getId(),
+                source == null ? null : source.getSourceEpisodeNo()));
     }
 }

@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.character.entity;
 
+import org.monitoring.catchholebackend.domain.analysis.dto.AnalysisFailureDiagnostics;
 import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisReviewState;
 
 import org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason;
@@ -304,6 +305,34 @@ public class SettingCandidate extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "comparison_failure_code", length = 60)
     private AnalysisFailureCode comparisonFailureCode;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "comparison_failure_diagnostics", columnDefinition = "jsonb")
+    private AnalysisFailureDiagnostics comparisonFailureDiagnostics;
+
+    // 추출 Job과 다른 숨김 재비교 실행도 있으므로 실패를 승인한 실제 실행을 고정한다.
+    @Column(name = "comparison_failure_analysis_job_id")
+    private UUID comparisonFailureAnalysisJobId;
+
+    // 묶음 없는 구 단건 비교는 null이며 Worker가 지정할 수 없다.
+    @Column(name = "comparison_failure_batch_id")
+    private UUID comparisonFailureBatchId;
+
+    public void recordComparisonFailure(AnalysisJob execution, UUID batchId, AnalysisFailureDiagnostics diagnostics) {
+        if (execution == null || !work.getId().equals(execution.getWork().getId())) {
+            throw new IllegalArgumentException("비교 실패 실행의 작품이 일치하지 않습니다.");
+        }
+        comparisonFailureAnalysisJobId = execution.getId();
+        comparisonFailureBatchId = batchId;
+        comparisonFailureDiagnostics = diagnostics;
+    }
+
+    private void clearComparisonFailureDetails() {
+        comparisonFailureDiagnostics = null;
+        comparisonFailureAnalysisJobId = null;
+        comparisonFailureBatchId = null;
+    }
+
 
     @Enumerated(EnumType.STRING)
     @Column(name = "preparation_failure_stage", length = 40)
@@ -825,6 +854,7 @@ public class SettingCandidate extends BaseEntity {
         clearComparisonBatchAssignment();
         comparisonErrorMessage = null;
         comparisonFailureCode = null;
+        clearComparisonFailureDetails();
         preparationFailureStage = null;
     }
 
@@ -952,6 +982,7 @@ public class SettingCandidate extends BaseEntity {
         captureComparisonMetrics();
         this.comparisonErrorMessage = null;
         this.comparisonFailureCode = null;
+        clearComparisonFailureDetails();
         this.preparationFailureStage = null;
     }
 
@@ -1007,6 +1038,9 @@ public class SettingCandidate extends BaseEntity {
         captureComparisonAttempt();
         captureComparisonMetrics();
         comparisonFailureCode = AnalysisFailureCode.orUnexpected(failureCode);
+        comparisonFailureDiagnostics = null;
+        comparisonFailureAnalysisJobId = analysisJob == null ? null : analysisJob.getId();
+        comparisonFailureBatchId = characterComparisonBatch == null ? null : characterComparisonBatch.getId();
         comparisonErrorMessage = Objects.requireNonNull(errorMessage).trim();
     }
 
@@ -1022,6 +1056,7 @@ public class SettingCandidate extends BaseEntity {
         comparisonStatus = CharacterFactComparisonStatus.PENDING;
         comparisonErrorMessage = null;
         comparisonFailureCode = null;
+        clearComparisonFailureDetails();
         preparationFailureStage = null;
     }
 
@@ -1031,6 +1066,7 @@ public class SettingCandidate extends BaseEntity {
             clearComparisonBatchAssignment();
             comparisonErrorMessage = null;
             comparisonFailureCode = null;
+        clearComparisonFailureDetails();
             preparationFailureStage = null;
         }
     }
@@ -1206,6 +1242,7 @@ public class SettingCandidate extends BaseEntity {
         comparedAt = null;
         comparisonErrorMessage = null;
         comparisonFailureCode = null;
+        clearComparisonFailureDetails();
         preparationFailureStage = null;
         if (!preserveCompletedBatchMembership) {
             clearComparisonBatchAssignment();

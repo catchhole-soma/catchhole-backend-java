@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.worldsetting.entity;
 
+import org.monitoring.catchholebackend.domain.analysis.dto.AnalysisFailureDiagnostics;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -130,6 +131,16 @@ public class WorldSettingComparisonBatch extends BaseEntity {
     @Column(name = "failure_code", length = 60)
     private AnalysisFailureCode failureCode;
 
+    // 실패 전이 당시의 안전한 원인만 보존하며 재시도에서는 비운다.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "failure_diagnostics", columnDefinition = "jsonb")
+    private AnalysisFailureDiagnostics failureDiagnostics;
+
+    public void recordFailureDiagnostics(AnalysisFailureDiagnostics diagnostics) {
+        this.failureDiagnostics = diagnostics;
+    }
+
+
     @Column(name = "error_message", columnDefinition = "text")
     private String errorMessage;
 
@@ -240,6 +251,7 @@ public class WorldSettingComparisonBatch extends BaseEntity {
         this.completionHash = Objects.requireNonNull(completionHash);
         this.rawCompletionJson = rawCompletionJson;
         this.failureCode = null;
+        this.failureDiagnostics = null;
         this.errorMessage = null;
     }
 
@@ -253,6 +265,7 @@ public class WorldSettingComparisonBatch extends BaseEntity {
         requireProcessing();
         this.status = WorldSettingComparisonBatchStatus.FAILED;
         this.failureCode = AnalysisFailureCode.orUnexpected(failureCode);
+        this.failureDiagnostics = null;
         this.errorMessage = Objects.requireNonNull(errorMessage);
     }
 

@@ -129,7 +129,7 @@ class ErrorFirstValidationPostgresIntegrationTest {
     @Test @DisplayName("새 PostgreSQL 전체 migration은 추출 없는 원장과 승인 불가 제약을 검증한다")
     void freshMigrationValidatesNoExtractionSchemaAndClosedGate() {
         var f = fixture(); var r = start(f);
-        assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where version = '89' and success", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where version = '91' and script = 'V91__add_validation_staging.sql' and success", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("select count(*) from information_schema.columns where table_name = 'validation_reports' and column_name in ('extraction_job_id','candidate_generation','candidate_digest')", Integer.class)).isZero();
         assertThat(r.extractionJobId()).isNull(); assertThat(r.candidateGeneration()).isNull(); assertThat(r.extractionStatus().name()).isEqualTo("NOT_STARTED");
         assertThat(r.baselineStatus().name()).isEqualTo("READY"); assertNoExtraction();

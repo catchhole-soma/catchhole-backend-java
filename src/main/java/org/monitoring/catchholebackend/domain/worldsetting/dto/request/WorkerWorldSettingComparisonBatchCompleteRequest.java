@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.worldsetting.dto.request;
 
+import tools.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -58,8 +59,13 @@ public record WorkerWorldSettingComparisonBatchCompleteRequest(
             @NotEmpty @Size(max = 20) List<@NotNull @Pattern(regexp = "C[1-9][0-9]*") String> sourceCandidateRefs,
             @NotNull AnalysisFailureCode failureCode,
             @NotBlank @Size(max = 1000) String errorMessage,
-            @Valid @Size(max = 30) List<@NotNull WorldSettingComparisonDiagnostic> diagnostics
+            @Valid @Size(max = 30) List<@NotNull WorldSettingComparisonDiagnostic> diagnostics,
+            JsonNode failureDiagnostics
     ) {
+        public Failure(List<String> sourceCandidateRefs, AnalysisFailureCode failureCode, String errorMessage,
+                List<WorldSettingComparisonDiagnostic> diagnostics) {
+            this(sourceCandidateRefs, failureCode, errorMessage, diagnostics, null);
+        }
         public Failure {
             diagnostics = diagnostics == null ? List.of() : diagnostics;
         }

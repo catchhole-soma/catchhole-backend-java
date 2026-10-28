@@ -13,6 +13,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
@@ -22,6 +24,7 @@ import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.mapper.CharacterAnalysisStateMapper;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessor;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSnapshotSourceRepository;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
@@ -47,6 +50,7 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
             mock(org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository.class);
     private final org.springframework.jdbc.core.JdbcTemplate jdbc = mock(org.springframework.jdbc.core.JdbcTemplate.class);
     private CharacterAnalysisStateSource capture;
+    private CharacterCurrentSupportingEvidenceResolver resolver;
     private Work work;
     private WorkCharacter character;
     private AnalysisJob origin;
@@ -87,10 +91,10 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
         when(storage.getText("immutable/ep3.txt")).thenReturn(content);
         when(storage.contentHash(content)).thenReturn("a".repeat(64));
         currentFacts(List.of(fact));
+        resolver = new CharacterCurrentSupportingEvidenceResolver(storage,
+                new org.monitoring.catchholebackend.domain.analysis.processor.SettingBookAutomaticEvidenceValidator(storage), jdbc);
         capture = new CharacterAnalysisStateSource(characters,sources,new CharacterSnapshotAccessor(),
-                new CharacterAnalysisStateMapper(),candidates,factRepository,
-                new org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver(storage,
-                        new org.monitoring.catchholebackend.domain.analysis.processor.SettingBookAutomaticEvidenceValidator(storage), jdbc));
+                new CharacterAnalysisStateMapper(),candidates,factRepository,resolver);
     }
 
     @Test @DisplayName("legacy 캐릭터의 빈 현재 상태도 미상 대표 시점을 명시하며 회차로 추정하지 않는다")
@@ -303,16 +307,217 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
         assertThat(slot.path("supportingSources").get(0).path("sourceCandidateId").isNull()).isTrue();
     }
 
-    @Test @DisplayName("명시한 인용이 원문에 없으면 legacy fallback으로 capture하지 않는다")
-    void rejectsForgedQuote() {
+    @Test @DisplayName("기존 Fact라도 명시 offset과 인용의 불일치는 거절한다")
+    void retainedFactWithExplicitOffsetQuoteMismatchStillFails() {
         ((ObjectNode)candidate.getEvidenceSpans().get(0)).put("quote","원문에 없는 회복");
-        assertThatThrownBy(this::owner).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(this::owner).isInstanceOf(CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException.class);
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    @DisplayName("확정 Fact의 위치 없는 잘못된 인용만 unavailable이며 현재값·출처·다른 근거와 다른 인물은 보존한다")
+    void retainedQuoteOnlyMismatchKeepsConfirmedValueOtherSourcesAndCharacters(boolean nullOffsets) {
+        var valid = SettingCandidate.create(work, episode, null, origin, SettingEntityType.CHARACTER,
+                "한서린", "profile.손감각", "정상", SettingValueType.STRING, null,
+                candidate.getEvidenceSpans().deepCopy(), BigDecimal.ONE, json.createObjectNode());
+        ReflectionTestUtils.setField(valid, "id", UUID.randomUUID());
+        ReflectionTestUtils.setField(valid, "matchedCharacterId", character.getId());
+        valid.confirm();
+        candidate.confirm();
+        quoteOnlyMismatch();
+        if (!nullOffsets) ((ObjectNode)candidate.getEvidenceSpans().get(0)).remove(List.of("start_offset", "end_offset"));
+        currentFacts(List.of(fact, CharacterFact.create(character, valid, CharacterFactType.PROFILE,
+                "profile.오른손_감각", "정상", "정상", null, episode, null, origin, BigDecimal.ONE, 3)));
+        var other = WorkCharacter.create(work, "독립 인물", null, null, null, null, null, null, null, null, null);
+        ReflectionTestUtils.setField(other, "id", UUID.randomUUID());
+        other.replaceCurrentSnapshots(21, null, null, null, null, null, null);
+        when(characters.findAllByWorkIdAndStatusOrderByCreatedAtDesc(work.getId(), CharacterStatus.ACTIVE))
+                .thenReturn(List.of(character, other));
+
+        var frozen = capture.capture(work);
+        var slot = frozen.path("character:" + character.getId()).path("slots").path(key);
+        assertThat(slot.path("factValue").asText()).isEqualTo("정상");
+        assertThat(slot.path("provenance").path("sourceCandidateIds"))
+                .containsExactly(json.getNodeFactory().textNode(candidate.getId().toString()), json.getNodeFactory().textNode(valid.getId().toString()));
+        var rows = slot.path("supportingSources");
+        assertThat(rows).hasSize(2);
+        assertUnavailableQuote(rows.get(0));
+        assertThat(rows.get(0).path("sourceCandidateId").asText()).isEqualTo(candidate.getId().toString());
+        assertThat(rows.get(0).path("sourceAnalysisJobId").asText()).isEqualTo(origin.getId().toString());
+        assertThat(rows.get(0).path("storageBinding").path("key").asText()).isEqualTo("immutable/ep3.txt");
+        assertThat(rows.get(1).path("availability").asText()).isEqualTo("VERIFIED");
+        assertThat(rows.get(1).path("evidenceSpans").get(0).path("quote").asText()).isEqualTo(content);
+        assertThat(frozen.path("character:" + other.getId()).path("slots").path("AGE:age").path("factValue").asText()).isEqualTo("21");
+        assertThat(candidate.getEvidenceSpans().get(0).path("quote").asText()).isEqualTo("원문에 없는 회복");
+        assertThat(candidate.getReviewStatus().name()).isEqualTo("CONFIRMED");
+    }
+
+    @Test @DisplayName("확정 이력 Fact의 잘못된 일반 인용도 값과 source ID를 유지한 unavailable로 동결한다")
+    void retainedHistoricalFactWithQuoteOnlyMismatchKeepsValue() {
+        candidate.confirm();
+        quoteOnlyMismatch();
+        character.replaceCurrentSnapshots(null, null, null, null, null, null, null);
+        currentFacts(List.of());
+        when(factRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId())).thenReturn(List.of(fact));
+
+        var historical = owner().path("historyFacts").get(0);
+
+        assertThat(historical.path("factValue").asText()).isEqualTo("정상");
+        assertThat(historical.path("sourceCandidateId").asText()).isEqualTo(candidate.getId().toString());
+        assertUnavailableQuote(historical.path("supportingSource"));
+    }
+
+    @Test @DisplayName("신규 capture의 위치 없는 인용 오류는 확정 상태를 가졌어도 엄격히 거절한다")
+    void strictCaptureRejectsQuoteOnlyMismatchRegardlessOfReviewStatus() {
+        candidate.confirm();
+        quoteOnlyMismatch();
+        assertThatThrownBy(() -> resolver.captureCandidate(resolver.begin(work), candidate))
+                .isInstanceOf(CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException.class);
+    }
+
+    @Test @DisplayName("저장된 대표 시점의 일반 인용만 틀리면 시점 근거를 엄격히 검증하고 비교를 계속한다")
+    void retainedRepresentativeTimeWithInvalidGeneralQuoteAndValidTimeEvidenceContinues() {
+        retainedRepresentativeTime();
+        var frozen = owner().path("currentNarrativeTime");
+        assertThat(frozen.path("description").asText()).isEqualTo("회복한 날");
+        assertThat(frozen.path("evidenceSpans").get(0).path("quote").asText()).isEqualTo(content);
+        assertUnavailableQuote(frozen.path("supportingSource"));
+        assertThat(frozen.path("supportingSource").path("narrativeTime").path("referenceTime").path("description").asText())
+                .isEqualTo("회복한 날");
+    }
+
+    @Test @DisplayName("저장된 대표 시점의 별도 시점 인용 오류는 일반 인용 unavailable로 숨기지 않는다")
+    void retainedRepresentativeTimeWithInvalidTimeEvidenceStillFails() {
+        retainedRepresentativeTime();
+        ((ObjectNode)candidate.getNarrativeTime().path("referenceTime").path("evidenceSpans").get(0)).put("quote", "위조 시점");
+        assertThatThrownBy(this::owner).isInstanceOf(CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException.class);
+    }
+
+    @Test @DisplayName("일반 인용이 unavailable이어도 저장된 대표 시점은 source의 referenceTime과 정확히 같아야 한다")
+    void retainedRepresentativeTimeWithMismatchedStoredReferenceStillFails() {
+        retainedRepresentativeTime();
+        ((ObjectNode)character.getCurrentNarrativeTime()).put("description", "다른 시점");
+        assertThatThrownBy(this::owner).isInstanceOf(CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException.class);
+    }
+
+    @Test @DisplayName("확정 발견의 이름과 출처는 유지하고 확인 불가 인용만 identityEvidence에서 제외한다")
+    void confirmedDiscoveryUsesRetainedGeneralEvidence() {
+        var discovery = SettingCandidate.createCharacterDiscovery(work, episode, null, origin,
+                "이전 별칭", "이전 별칭", character.getId(),
+                org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus.MATCHED,
+                json.createArrayNode().add(json.createObjectNode().put("quote", "없는 별칭").putNull("startOffset").putNull("endOffset")),
+                BigDecimal.ONE, json.createObjectNode());
+        ReflectionTestUtils.setField(discovery, "id", UUID.randomUUID());
+        discovery.confirm();
+        var valid = SettingCandidate.createCharacterDiscovery(work, episode, null, origin,
+                "유효 별칭", "유효 별칭", character.getId(),
+                org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus.MATCHED,
+                candidate.getEvidenceSpans().deepCopy(), BigDecimal.ONE, json.createObjectNode());
+        ReflectionTestUtils.setField(valid, "id", UUID.randomUUID());
+        valid.confirm();
+        when(candidates.findConfirmedDiscoveries(work.getId())).thenReturn(List.of(discovery, valid));
+
+        var frozen = owner();
+
+        assertThat(frozen.path("aliases")).containsExactly(json.getNodeFactory().textNode("이전 별칭"), json.getNodeFactory().textNode("유효 별칭"));
+        assertThat(frozen.path("provenance").path("sourceCandidateIds")).hasSize(2);
+        assertThat(frozen.path("identityEvidence")).hasSize(1);
+        assertThat(frozen.path("identityEvidence").get(0).path("quote").asText()).isEqualTo(content);
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"halfOffset", "invalidOffsetType", "outOfRange", "malformedSpan", "malformedArray", "laterMalformed", "laterInvalidOffset", "foreignCharacter", "differentFactJob", "partialManifest"})
+    @DisplayName("일반 인용 불일치와 함께 있는 구조·offset·연결 오류는 unavailable로 낮추지 않는다")
+    void retainedMismatchCannotHideInvalidStructureOrBinding(String invalid) {
+        quoteOnlyMismatch();
+        var span = (ObjectNode)candidate.getEvidenceSpans().get(0);
+        switch (invalid) {
+            case "halfOffset" -> span.put("start_offset", 0);
+            case "invalidOffsetType" -> span.put("start_offset", "0").put("end_offset", "1");
+            case "outOfRange" -> span.put("start_offset", 0).put("end_offset", 999);
+            case "malformedSpan" -> span.putNull("quote");
+            case "malformedArray" -> ReflectionTestUtils.setField(candidate, "evidenceSpans", json.createObjectNode());
+            case "laterMalformed" -> ((com.fasterxml.jackson.databind.node.ArrayNode)candidate.getEvidenceSpans()).add(12);
+            case "laterInvalidOffset" -> ((com.fasterxml.jackson.databind.node.ArrayNode)candidate.getEvidenceSpans()).add(
+                    json.createObjectNode().put("quote", content).put("startOffset", -1).put("endOffset", 1));
+            case "foreignCharacter" -> ReflectionTestUtils.setField(candidate, "matchedCharacterId", UUID.randomUUID());
+            case "differentFactJob" -> {
+                var other = AnalysisJob.create(work, null, episode, AnalysisJobType.SETTING_EXTRACTION);
+                ReflectionTestUtils.setField(other, "id", UUID.randomUUID());
+                ReflectionTestUtils.setField(fact, "extractedByJob", other);
+            }
+            case "partialManifest" -> ReflectionTestUtils.setField(origin, "sourceContentHash", null);
+        }
+        assertThatThrownBy(this::owner).isInstanceOf(CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException.class);
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"valid", "unlocatedMissing", "explicitMismatch"})
+    @DisplayName("자동 확정 발견의 추가 프로필 인용도 원문을 검증하여 정상 근거만 보존한다")
+    void retainedAutomaticDiscoveryCannotBypassValidationThroughProfileProof(String kind) {
+        character.replaceCurrentSnapshots(null, null, null, null, null, null, null);
+        currentFacts(List.of());
+        var span = json.createObjectNode().put("quote", "정상").put("startOffset", 9).put("endOffset", 11);
+        if (!"valid".equals(kind)) span.put("quote", "없는 프로필");
+        if ("unlocatedMissing".equals(kind)) span.putNull("startOffset").putNull("endOffset");
+        var batch = org.monitoring.catchholebackend.domain.upload.entity.UploadBatch.create(work, work.getMember(),
+                org.monitoring.catchholebackend.domain.upload.type.UploadType.SETTING_BOOK,
+                org.monitoring.catchholebackend.domain.upload.type.UploadSourceType.TEXT_PASTE);
+        var book = org.monitoring.catchholebackend.domain.upload.entity.UploadFile.create(batch,
+                org.monitoring.catchholebackend.domain.upload.type.UploadFileRole.SETTING_BOOK, "합성 설정집.txt", "text/plain", "synthetic/raw", 10);
+        ReflectionTestUtils.setField(book, "id", UUID.randomUUID());
+        var revision = org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision.create(book, 1,
+                new org.monitoring.catchholebackend.global.storage.StoredTextObject("immutable/book-identity.txt", null, "c".repeat(64), content.codePointCount(0, content.length())));
+        ReflectionTestUtils.setField(revision, "id", UUID.randomUUID());
+        var job = AnalysisJob.createSettingBook(work, book, revision);
+        ReflectionTestUtils.setField(job, "id", UUID.randomUUID());
+        var raw = json.createObjectNode();
+        var proof = raw.putObject("setting_book_identity_proof").put("parentTargetRef", "K1");
+        proof.putArray("members").addObject().put("targetRef", "K1").set("profileEvidence", span);
+        var discovery = SettingCandidate.createCharacterDiscovery(work, null, null, job, "이전 별칭", "이전 별칭", character.getId(),
+                org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus.MATCHED,
+                candidate.getEvidenceSpans().deepCopy(), BigDecimal.ONE, raw);
+        ReflectionTestUtils.setField(discovery, "id", UUID.randomUUID());
+        discovery.confirm(); discovery.markAutomaticallyReviewed();
+        when(candidates.findConfirmedDiscoveries(work.getId())).thenReturn(List.of(discovery));
+        when(storage.getText("immutable/book-identity.txt")).thenReturn(content);
+        when(storage.contentHash(content)).thenReturn("c".repeat(64));
+
+        if ("explicitMismatch".equals(kind)) {
+            assertThatThrownBy(this::owner).isInstanceOf(CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException.class);
+        } else {
+            var state = owner();
+            assertThat(state.path("aliases")).containsExactly(json.getNodeFactory().textNode("이전 별칭"));
+            assertThat(state.path("provenance").path("sourceCandidateIds"))
+                    .containsExactly(json.getNodeFactory().textNode(discovery.getId().toString()));
+            assertThat(state.path("identityEvidence")).hasSize("valid".equals(kind) ? 2 : 1);
+            assertThat(state.path("identityEvidence").toString()).doesNotContain("없는 프로필");
+        }
+    }
+
+    @Test @DisplayName("저장소 조회 실패는 인용 없음으로 낮추지 않는다")
+    void retainedQuoteMismatchCannotHideStorageFailure() {
+        quoteOnlyMismatch();
+        when(storage.getText("immutable/ep3.txt")).thenThrow(new IllegalStateException("합성 저장소 실패"));
+        assertThatThrownBy(this::owner).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class)
+                .hasMessage("현재 설정의 원문 저장소에 일시적으로 접근할 수 없습니다.");
+    }
+
+    @Test @DisplayName("고정 원문 저장소 장애는 안전한 503 오류로 구분한다")
+    void sourceStorageFailureIsRetryableAndDoesNotExposeCause() {
+        // Use the immutable manifest's actual key; no latest source fallback.
+        when(storage.getText(candidate.getAnalysisJob().getSourceContentS3Key())).thenThrow(new IllegalStateException("PRIVATE_MANUSCRIPT"));
+        assertThatThrownBy(this::owner).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class)
+                .satisfies(error -> {
+                    var app = (org.monitoring.catchholebackend.global.exception.AppException)error;
+                    assertThat(app.getResultCode().getStatus().value()).isEqualTo(503);
+                    assertThat(app.getCause()).isNull();
+                    assertThat(app.getMessage()).doesNotContain("PRIVATE");
+                });
     }
 
     @Test @DisplayName("원 storage bytes hash가 다르면 정상 unavailable로 낮추지 않는다")
     void rejectsOriginalSourceHashMismatch() {
         when(storage.contentHash(content)).thenReturn("f".repeat(64));
-        assertThatThrownBy(this::owner).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(this::owner).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class)
+                .satisfies(error -> assertThat(((org.monitoring.catchholebackend.global.exception.AppException)error).getResultCode().getStatus().value()).isEqualTo(409));
     }
 
     @Test @DisplayName("다른 작품 origin manifest는 실제 슬롯 source로 허용하지 않는다")
@@ -374,6 +579,31 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
 
     private com.fasterxml.jackson.databind.JsonNode owner() {
         return capture.capture(work).path("character:"+character.getId());
+    }
+    private void quoteOnlyMismatch() {
+        ((ObjectNode)candidate.getEvidenceSpans().get(0)).put("quote", "원문에 없는 회복").putNull("start_offset").putNull("end_offset");
+    }
+    private void assertUnavailableQuote(com.fasterxml.jackson.databind.JsonNode row) {
+        assertThat(row.path("availability").asText()).isEqualTo("UNAVAILABLE");
+        assertThat(row.path("unavailableReason").asText()).isEqualTo("QUOTE_NOT_FOUND");
+        assertThat(row.path("evidenceSpans")).isEmpty();
+    }
+    private void retainedRepresentativeTime() {
+        character.replaceCurrentSnapshots(null, null, null, null, null, null, null);
+        currentFacts(List.of());
+        candidate.confirm();
+        quoteOnlyMismatch();
+        var point = json.createObjectNode().put("description", "회복한 날");
+        point.set("evidenceSpans", json.createArrayNode().add(json.createObjectNode().put("quote", content)
+                .put("startOffset", 0).put("endOffset", content.codePointCount(0, content.length()))
+                .put("sourceChunkId", candidate.getSourceChunkId().toString())));
+        candidate.recordNarrativeTime(json.createObjectNode().putNull("factTime").set("referenceTime", point));
+        when(candidates.findByIdAndWorkId(candidate.getId(), work.getId())).thenReturn(java.util.Optional.of(candidate));
+        org.mockito.Mockito.doReturn(List.<Object[]>of(new Object[]{0, content.codePointCount(0, content.length()), content}))
+                .when(jdbc).query(org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any(org.springframework.jdbc.core.RowMapper.class),
+                        org.mockito.ArgumentMatchers.any(Object[].class));
+        character.updateCurrentNarrativeTime(point.deepCopy().put("sourceCandidateId", candidate.getId().toString()), true);
     }
     private void currentFacts(List<CharacterFact> facts) {
         java.util.ArrayList<CharacterSnapshotSource> links = new java.util.ArrayList<>();

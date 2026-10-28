@@ -2,12 +2,14 @@ package org.monitoring.catchholebackend.domain.worldsetting.mapper;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.StreamSupport;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorkerWorldSettingCandidatePublishRequest;
+import org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorkerWorldSettingComparisonBatchCompleteRequest;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingCandidatePayload;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingComparisonBatchPayload;
 import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingComparisonContextResponse;
@@ -153,6 +155,20 @@ public class WorldSettingWorkerMapper {
     public Map<String, Object> toRawExtraction(JsonNode value) {
         return value == null || !value.isObject() ? null
                 : objectMapper.convertValue(value, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+    }
+
+    /** 선택적 비신뢰 진단은 기존 완료 요청의 멱등 기준에서 제외한다. */
+    public JsonNode toCompletionFingerprintPayload(
+            WorkerWorldSettingComparisonBatchCompleteRequest request
+    ) {
+        var legacy = new WorkerWorldSettingComparisonBatchCompleteRequest(
+                request.contextVersions(), request.decisions(), request.rawComparisonJson(), request.contextToken(),
+                request.failures().stream().map(failure -> new WorkerWorldSettingComparisonBatchCompleteRequest.Failure(
+                        failure.sourceCandidateRefs(), failure.failureCode(), failure.errorMessage(), failure.diagnostics())).toList(),
+                request.diagnostics());
+        var payload = (ObjectNode) toJsonNode(legacy);
+        payload.path("failures").forEach(failure -> ((ObjectNode) failure).remove("failureDiagnostics"));
+        return payload;
     }
 
     public JsonNode toJsonNode(Object value) {

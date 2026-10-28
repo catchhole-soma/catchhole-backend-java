@@ -435,8 +435,10 @@ class ErrorFirstValidationIntegrationTest {
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("VALIDATION_TARGET_INVALID"));
         assertThat(count("ValidationReport")).isEqualTo(1);
     }
-    @Test @DisplayName("과거 원문 읽기 실패는 접수를 없애지 않고 기준 보류와 대상 fingerprint를 보존한다")
-    void historicalSourceFailureProducesHeldReportWithoutExtraction() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"SOURCE_UNAVAILABLE", "HASH_MISMATCH", "QUOTE_NOT_FOUND"})
+    @DisplayName("과거 근거의 원문 실패와 hash 오류는 보류하고 일반 인용 누락은 값과 빈 근거를 보존한다")
+    void historicalSourceValidationPreservesReceiptAndExtractionGate(String outcome) throws Exception {
         prepare();
         var owner = org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.create(work, "기존", null, null, null,
                 JsonNodeFactory.instance.objectNode(), JsonNodeFactory.instance.objectNode(), JsonNodeFactory.instance.objectNode(), JsonNodeFactory.instance.objectNode(), JsonNodeFactory.instance.objectNode(), null); em.persist(owner);
@@ -446,13 +448,31 @@ class ErrorFirstValidationIntegrationTest {
                 "직업", "수리공", SettingValueType.STRING, null, JsonNodeFactory.instance.arrayNode().add(JsonNodeFactory.instance.objectNode().put("quote", "합성 근거")), BigDecimal.ONE, null);
         em.persist(c); ReflectionTestUtils.setField(c, "reviewStatus", SettingCandidateReviewStatus.CONFIRMED);
         em.persist(CharacterFact.create(owner, c, CharacterFactType.PROFILE, "직업", "수리공", "수리공", null, prior, null, previous, BigDecimal.ONE, 12));
-        when(storage.getText(prior.getContentS3Key())).thenThrow(new IllegalStateException("synthetic storage failure")); em.flush();
+        if (outcome.equals("SOURCE_UNAVAILABLE")) {
+            when(storage.getText(prior.getContentS3Key())).thenThrow(new IllegalStateException("synthetic storage failure"));
+        } else {
+            String content = "인용이 없는 합성 원문";
+            when(storage.getText(prior.getContentS3Key())).thenReturn(content);
+            if (outcome.equals("QUOTE_NOT_FOUND")) {
+                ReflectionTestUtils.setField(previous, "sourceContentHash", storedText.contentHash(content));
+                ReflectionTestUtils.setField(prior, "contentHash", storedText.contentHash(content));
+            }
+        }
+        em.flush();
         long before = count("AnalysisJob"); var r = stored(start("source-unavailable"));
-        assertThat(r.getStatus().name()).isEqualTo("HELD_INCOMPLETE"); assertThat(r.getHoldReason()).isEqualTo("BASELINE_SOURCE_UNAVAILABLE");
+        if (outcome.equals("QUOTE_NOT_FOUND")) {
+            assertThat(r.getStatus().name()).isEqualTo("WAITING_FOR_ERROR_REVIEW");
+            var historical = r.getBaselineSeed().path("characters").elements().next().path("historyFacts").get(0);
+            assertThat(historical.path("factValue").asText()).isEqualTo("수리공");
+            assertThat(historical.path("supportingSource").path("unavailableReason").asText()).isEqualTo("QUOTE_NOT_FOUND");
+            assertThat(historical.path("supportingSource").path("evidenceSpans")).isEmpty();
+        } else {
+            assertThat(r.getStatus().name()).isEqualTo("HELD_INCOMPLETE");
+            assertThat(r.getHoldReason()).isEqualTo(outcome.equals("SOURCE_UNAVAILABLE") ? "BASELINE_SOURCE_UNAVAILABLE" : "BASELINE_EVIDENCE_INVALID");
+        }
         assertThat(r.getSourceContentHash()).isEqualTo(target.getContentHash()); assertThat(r.getSourceContentS3Key()).isEqualTo(target.getContentS3Key());
         assertThat(count("AnalysisJob")).isEqualTo(before); assertThat(count("ValidationReport")).isEqualTo(1);
         mvc.perform(get(base()+"/"+r.getId()).header(HttpHeaders.AUTHORIZATION,"Bearer "+token)).andExpect(status().isOk()).andExpect(jsonPath("$.data.extractionStatus").value("NOT_STARTED"));
     }
 
 }
-

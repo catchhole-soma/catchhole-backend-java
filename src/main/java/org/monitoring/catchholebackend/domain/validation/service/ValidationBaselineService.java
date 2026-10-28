@@ -46,7 +46,8 @@ public class ValidationBaselineService {
             normalize(report);
         } catch (org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException exception) {
             report.hold("BASELINE_EVIDENCE_INVALID");
-        } catch (org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.SourceUnavailableException exception) {
+        } catch (org.monitoring.catchholebackend.global.exception.AppException exception) {
+            if (exception.getResultCode() != org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode.ANALYSIS_CURRENT_EVIDENCE_SOURCE_UNAVAILABLE) throw exception;
             report.hold("BASELINE_SOURCE_UNAVAILABLE");
         }
     }
