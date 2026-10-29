@@ -1,0 +1,185 @@
+{
+  "contractVersion": 1,
+  "scope": "GH312 author judgments, review completion/release, whole-episode settings application, history and derived reviewStage; screens are GH314",
+  "synthetic": true,
+  "routes": {
+    "listValidationFindings": "GET /api/v1/works/{workId}/episode-validations/{reportId}/findings?branch=&judgment=&outcome=&page=0&size=20",
+    "getValidationFinding": "GET /api/v1/works/{workId}/episode-validations/{reportId}/findings/{findingId}",
+    "saveValidationJudgment": "PATCH /api/v1/works/{workId}/episode-validations/{reportId}/findings/{findingId}/judgment",
+    "getValidationReviewSummary": "GET /api/v1/works/{workId}/episode-validations/{reportId}/review",
+    "completeValidationReview": "POST /api/v1/works/{workId}/episode-validations/{reportId}/review-completion",
+    "applyValidationSettings": "POST /api/v1/works/{workId}/episode-validations/{reportId}/settings-application",
+    "listEpisodeValidationHistory": "GET /api/v1/works/{workId}/episode-validations/history?episodeId=&page=0&size=20"
+  },
+  "requests": {
+    "judgment": {
+      "judgment": "KEEP_ORIGINAL",
+      "expectedJudgmentVersion": 1,
+      "expectedCheckRevision": null
+    },
+    "reviewCompletion": {
+      "expectedReportVersion": 12,
+      "idempotencyKey": "synthetic-review-completion-1"
+    },
+    "settingsApplication": {
+      "expectedReportVersion": 15,
+      "idempotencyKey": "synthetic-settings-application-1"
+    }
+  },
+  "responses": {
+    "findingSummary": {
+      "findingId": "00000000-0000-4000-8000-000000000101",
+      "branch": "SETTING",
+      "unitRef": "Q1",
+      "checkId": "00000000-0000-4000-8000-000000000102",
+      "checkRevision": 2,
+      "outcome": "CONFLICT",
+      "judgment": {"value": "NOT_CONFLICT", "version": 1, "decidedAt": "2026-10-30T10:15:00"},
+      "changed": true,
+      "summary": {
+        "impact": "CAUTION",
+        "reason": "합성 충돌 판정",
+        "replacement": null,
+        "spans": [{"sourceRef": "T1", "start": 0, "end": 2, "quote": "처음"}]
+      }
+    },
+    "findingDetail": {
+      "findingId": "00000000-0000-4000-8000-000000000101",
+      "branch": "SETTING",
+      "unitRef": "Q1",
+      "checkId": "00000000-0000-4000-8000-000000000102",
+      "checkRevision": 2,
+      "currentCheckRevision": 2,
+      "outcome": "CONFLICT",
+      "stale": false,
+      "changed": true,
+      "payload": {"reason": "합성 충돌 판정", "basis": "DIRECT_CONTRADICTION", "impact": "CAUTION", "target_spans": [{"source_ref": "T1", "start": 0, "end": 2, "quote": "처음"}]},
+      "evidence": [{"sourceRef": "R1", "start": 0, "end": 2, "quote": "합성"}],
+      "judgment": {"value": "NOT_CONFLICT", "version": 1, "decidedAt": "2026-10-30T10:15:00"},
+      "allowedJudgments": ["PENDING", "NEEDS_FIX", "NOT_CONFLICT"],
+      "judgmentHistory": [
+        {"findingId": "00000000-0000-4000-8000-000000000103", "checkRevision": 1, "fromJudgment": "NOT_CONFLICT", "toJudgment": "PENDING", "reason": "REVISION_SUPERSEDED", "changeReason": "NEW_CLUE", "createdAt": "2026-10-30T10:05:00"},
+        {"findingId": "00000000-0000-4000-8000-000000000101", "checkRevision": 2, "fromJudgment": null, "toJudgment": "NOT_CONFLICT", "reason": "AUTHOR", "changeReason": null, "createdAt": "2026-10-30T10:15:00"}
+      ],
+      "priorRevisions": [
+        {"checkRevision": 1, "outcome": "CONFLICT", "changeReason": null, "findingId": "00000000-0000-4000-8000-000000000103", "judgment": {"value": "NOT_CONFLICT", "version": 1, "decidedAt": "2026-10-30T10:01:00"}}
+      ]
+    },
+    "reviewSummary": {
+      "reportId": "00000000-0000-4000-8000-000000000001",
+      "reportVersion": 15,
+      "executionStatus": "COMPLETED",
+      "mode": "BEFORE_CONFIRMATION",
+      "counts": {"settingTotal": 1, "settingPending": 0, "settingNeedsFix": 0, "settingNotConflict": 1, "typoTotal": 2, "typoPending": 0, "typoNeedsFix": 0, "typoKeepOriginal": 2},
+      "judgmentLocked": true,
+      "lockReason": "REVIEW_COMPLETED",
+      "canCompleteReview": false,
+      "completionMode": "COMPLETED",
+      "holdReasons": [],
+      "allowedActions": ["APPLY_SETTINGS"],
+      "completion": {"completionId": "00000000-0000-4000-8000-000000000201", "trigger": "EXPLICIT", "completedAt": "2026-10-30T10:20:00", "extractionJobId": "00000000-0000-4000-8000-000000000301"},
+      "releaseHold": null,
+      "application": {
+        "status": "HELD_REVIEW",
+        "attempt": 1,
+        "holdReasons": [{"code": "DECISION_PENDING", "candidateType": "CHARACTER", "candidateId": "00000000-0000-4000-8000-000000000401", "detail": "REVIEW_REQUIRED"}],
+        "appliedAt": null,
+        "extractionJobGeneration": 1
+      },
+      "extractionState": "SUCCEEDED",
+      "reviewStage": "APPLICATION_HELD"
+    },
+    "reviewCompletion": {
+      "completionId": "00000000-0000-4000-8000-000000000201",
+      "trigger": "EXPLICIT",
+      "reportId": "00000000-0000-4000-8000-000000000001",
+      "reportVersion": 12,
+      "extractionJobId": "00000000-0000-4000-8000-000000000301",
+      "completedAt": "2026-10-30T10:20:00"
+    },
+    "settingsApplication": {
+      "applicationId": "00000000-0000-4000-8000-000000000501",
+      "status": "HELD_REVIEW",
+      "trigger": "EXPLICIT",
+      "attempt": 2,
+      "holdReasons": [{"code": "UNKNOWN_ERROR", "candidateType": "EPISODE", "candidateId": null, "detail": "WORLD_SETTING_CANDIDATE_GROUP_INVALID"}],
+      "appliedAt": null,
+      "extractionJobId": "00000000-0000-4000-8000-000000000301",
+      "extractionJobGeneration": 1,
+      "lastErrorCode": "WORLD_SETTING_CANDIDATE_GROUP_INVALID",
+      "reportVersion": 16
+    },
+    "historyPage": {
+      "content": [
+        {
+          "reportId": "00000000-0000-4000-8000-000000000011",
+          "revision": 2,
+          "current": true,
+          "mode": "BEFORE_CONFIRMATION",
+          "status": "WAITING_FOR_ERROR_REVIEW",
+          "baselineStatus": "READY",
+          "requestedAt": "2026-10-30T11:00:00",
+          "executionStatus": "COMPLETED",
+          "counts": {"settingFindings": 0, "typoFindings": 0},
+          "completion": {"trigger": "AUTOMATIC", "completedAt": "2026-10-30T11:05:00"},
+          "application": {"status": "APPLIED", "appliedAt": "2026-10-30T11:07:00"},
+          "releaseHold": null,
+          "invalidatedAt": null,
+          "previousReportId": "00000000-0000-4000-8000-000000000001",
+          "reviewStage": "APPLIED"
+        },
+        {
+          "reportId": "00000000-0000-4000-8000-000000000001",
+          "revision": 1,
+          "current": false,
+          "mode": "BEFORE_CONFIRMATION",
+          "status": "INVALIDATED",
+          "baselineStatus": "INVALIDATED",
+          "requestedAt": "2026-10-30T10:00:00",
+          "executionStatus": "CANCELED",
+          "counts": {"settingFindings": 0, "typoFindings": 0},
+          "completion": {"trigger": "EXPLICIT", "completedAt": "2026-10-30T10:20:00"},
+          "application": {"status": "HELD_REVIEW", "appliedAt": null},
+          "releaseHold": null,
+          "invalidatedAt": "2026-10-30T10:40:00",
+          "previousReportId": null,
+          "reviewStage": "INVALIDATED"
+        }
+      ],
+      "page": 0,
+      "size": 20,
+      "totalElements": 2,
+      "totalPages": 1,
+      "hasNext": false
+    },
+    "batchValidationReport": {
+      "reportId": "00000000-0000-4000-8000-000000000011",
+      "episodeId": "00000000-0000-4000-8000-000000000002",
+      "sourceEpisodeNo": 101,
+      "status": "WAITING_FOR_ERROR_REVIEW",
+      "baselineStatus": "READY",
+      "holdReason": null,
+      "reviewStage": "APPLIED"
+    }
+  },
+  "reviewStages": ["PREPARING_BASELINE", "VALIDATING", "AWAITING_REVIEW", "REVIEW_COMPLETED", "EXTRACTION_FAILED", "APPLICATION_HELD", "APPLIED", "HELD_INCOMPLETE", "INVALIDATED"],
+  "reviewStageCases": [
+    {"name": "기준 준비 중", "input": {"current": true, "status": "PREPARING_BASELINE", "baselineStatus": "PENDING", "execution": "NOT_STARTED", "reviewCompleted": false, "extraction": "NOT_STARTED", "application": null}, "expected": "PREPARING_BASELINE"},
+    {"name": "검사 대기", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "QUEUED", "reviewCompleted": false, "extraction": "NOT_STARTED", "application": null}, "expected": "VALIDATING"},
+    {"name": "항목 판단 중", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "COMPLETED", "reviewCompleted": false, "extraction": "NOT_STARTED", "application": null}, "expected": "AWAITING_REVIEW"},
+    {"name": "부분 검사 뒤 판단", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "PARTIAL", "reviewCompleted": false, "extraction": "NOT_STARTED", "application": null}, "expected": "AWAITING_REVIEW"},
+    {"name": "검토 종료 후 추출 중", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "COMPLETED", "reviewCompleted": true, "extraction": "RUNNING", "application": null}, "expected": "REVIEW_COMPLETED"},
+    {"name": "추출 실패", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "COMPLETED", "reviewCompleted": true, "extraction": "FAILED", "application": null}, "expected": "EXTRACTION_FAILED"},
+    {"name": "반영 보류", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "COMPLETED", "reviewCompleted": true, "extraction": "SUCCEEDED", "application": "HELD_REVIEW"}, "expected": "APPLICATION_HELD"},
+    {"name": "반영 완료", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "COMPLETED", "reviewCompleted": true, "extraction": "SUCCEEDED", "application": "APPLIED"}, "expected": "APPLIED"},
+    {"name": "기준 준비 보류", "input": {"current": true, "status": "HELD_INCOMPLETE", "baselineStatus": "FAILED", "execution": "NOT_STARTED", "reviewCompleted": false, "extraction": "NOT_STARTED", "application": null}, "expected": "HELD_INCOMPLETE"},
+    {"name": "원고 교체로 무효", "input": {"current": true, "status": "INVALIDATED", "baselineStatus": "INVALIDATED", "execution": "CANCELED", "reviewCompleted": false, "extraction": "NOT_STARTED", "application": null}, "expected": "INVALIDATED"},
+    {"name": "재검수로 퇴역한 반영 report", "input": {"current": false, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "COMPLETED", "reviewCompleted": true, "extraction": "SUCCEEDED", "application": "APPLIED"}, "expected": "INVALIDATED"}
+  ],
+  "invariants": {
+    "historyIsSummaryOnly": "history rows never contain quotes, evidence, payload or judgment lists",
+    "historyCountsAreCurrentRevision": "counts use the /review current-item rule and are 0 after purge",
+    "reviewStageIsDerived": "reviewStage is never stored; every projection calls ValidationReviewStages.resolve",
+    "existingFieldsUnchanged": "errorReviewStatus, extractionStatus, candidateStatus, Episode analysisStatus and batch status keep their S1-S3 meaning"
+  }
+}
