@@ -8,6 +8,11 @@ import org.springframework.http.HttpStatus;
 @Getter
 @RequiredArgsConstructor
 public enum ValidationErrorCode implements ResultCode {
+    VALIDATION_RUNTIME_DISABLED(HttpStatus.CONFLICT, "검수 실행이 활성화되어 있지 않습니다."),
+    VALIDATION_LEASE_CONFLICT(HttpStatus.CONFLICT, "검수 실행 권한이 만료되었거나 다른 실행입니다."),
+    VALIDATION_PUBLICATION_CONFLICT(HttpStatus.CONFLICT, "저장된 검수 단계 또는 검사 항목 버전이 다릅니다."),
+    VALIDATION_RESULT_INVALID(HttpStatus.BAD_REQUEST, "검수 결과의 처리 범위 또는 원문 근거가 올바르지 않습니다."),
+    VALIDATION_EXECUTION_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "검수 실행 예산을 초과했습니다."),
     VALIDATION_TARGET_INVALID(HttpStatus.BAD_REQUEST, "마지막 회차 뒤에 단일 업로드한 새 원고만 검수를 시작할 수 있습니다."),
     VALIDATION_COMPARISON_MATERIAL_REQUIRED(HttpStatus.BAD_REQUEST, "첫 회차 검수에는 설정집이나 직접 입력한 설정 등 비교 자료가 필요합니다."),
     VALIDATION_SOURCE_VERSION_CONFLICT(HttpStatus.CONFLICT, "원고 버전이 변경되었습니다. 현재 원고를 다시 확인해 주세요."),

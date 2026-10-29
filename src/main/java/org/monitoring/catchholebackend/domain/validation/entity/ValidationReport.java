@@ -50,6 +50,8 @@ public class ValidationReport extends BaseEntity {
     @Enumerated(EnumType.STRING) @Column(name = "baseline_status", nullable = false, length = 20) private ValidationPreparationStatus baselineStatus;
     @Enumerated(EnumType.STRING) @Column(name = "status", nullable = false, length = 40) private ValidationReportStatus status;
     @Column(name = "hold_reason", length = 100) private String holdReason;
+    @OneToOne(mappedBy = "report", fetch = FetchType.LAZY) private ValidationJob validationJob;
+    public void attachValidationJob(ValidationJob job) { validationJob=job; advanceVersion(); }
 
     public static ValidationReport create(Work work, Episode episode, UploadBatch batch, String requestHash) {
         ValidationReport r = new ValidationReport(); r.work = work; r.member = work.getMember(); r.episode = episode; r.batch = batch;

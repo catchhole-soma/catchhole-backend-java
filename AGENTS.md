@@ -173,6 +173,8 @@ org.monitoring.catchholebackend
 │   │   ├── entity
 │   │   ├── event
 │   │   ├── exception
+│   │   ├── mapper
+│   │   ├── processor
 │   │   ├── repository
 │   │   ├── service
 │   │   └── type
@@ -313,6 +315,7 @@ org.monitoring.catchholebackend
 │   ├── emailverification
 │   ├── phoneverification
     │   ├── security
+    │   ├── validation
     │   └── swagger
     ├── exception
     ├── monitoring
@@ -484,13 +487,20 @@ domain/<domain>
 - DIAGNOSTIC_ONLY는 실제 자동 적용/후보 확정 식별값으로 서버가 결정하며 SUCCEEDED만으로 추정하지 않는다. Job 없는 직접 회차의 캐릭터 확정도 식별값을 보존한다. 진행 중 추출·비교를 중간에 막지 않게 자격을 확인한다. Work 잠금 안에서 확정 전 입력의 실제 출처 ID/hash·후보/Job 저장 위치·수명·파기 대기도 검증하고 입증 불가면 DIAGNOSTIC_BASELINE_UNAVAILABLE로 보류한다. 진단은 retained 원문으로 옛 출처를 재연결하거나 live 현재값/타겟 자기 근거로 보충하지 않으며 일반 fresh 기준의 retained-key 허용은 유지한다. report 없는 legacy 회차 최초 진단 입구는 별도 범위다.
 - `ValidationStagingEvents.ReportInvalidated(workId,reportId)`는 Work 잠금 안의 동기 삭제 경계다. 후속 결과/인용/checkpoint도 같은 트랜잭션에 정리한다. 교체 정리의 retainedContentKey는 새 원문만 보존하며 contentRevision/hash/key/version 검증을 생략하지 않는다. 작품/회원 파기에서는 정정 사본부터 삭제한다. 상세 계약은 `docs/validation-execution-v1.md`를 따른다.
 
-- GH306의 `ValidationDataService`는 내부 API key와 신뢰 서버의 회원·작품·report 범위 및 expected baseline/target/source fingerprint를 검증해 저장 기준과 실제 원문만 읽는다. 원문 I/O 전후 scalar 조회로 교체·파기·무효화를 확인하고 live 현재값으로 보충하지 않는다. Spring Boot 4 HTTP 경계에는 Jackson 2 JsonNode를 직접 반환하지 않고 `ValidationDataMapper.toTransport`의 표준 JSON Map을 사용한다. 원문 위치는 Unicode code point이며 전문·부분 읽기의 범위를 유지한다. Worker lease·결과 저장·추출 release는 후속이고 이 read endpoint로 생성하지 않는다. 공통 계약은 `docs/setting-validation-v1.md`다.
+- GH310 실행은 `VALIDATION_EXECUTION_ENABLED=false`가 기본이다. 활성화에는 lease/회수 한도, 양쪽 모든 InvocationBudget와 다섯 Terra 역할 cap을 명시한다. 일반 API 기동에는 이 예산이 필요하지 않으며 과거 대기 report를 자동 backfill하지 않는다. 명시 START/RECHECK 복구 또는 RETRY만 queue한다. retry는 Work 잠금 아래 최신 활성 회차를 확인하되 성공한 원 receipt 재전송과 기존 lease 복구에는 후속 회차만으로 거절하지 않는다.
+- 전용 lease/실행 세대·inputDigest와 current check revision/checkInputDigest는 public reportVersion과 다르다. 두 분기는 별도 checkpoint CAS를 쓰며 heartbeat/조회/동일 결과 재전송은 reportVersion을 올리지 않는다. 원문 I/O 전후 실제 lease/현재 입력을 확인하고 I/O 뒤 짧은 Work → Job → 항목/원장·계정 잠금 안에서 다시 검증한다.
+- 서버는 실제 code point 원문·전체 catalogue·각 설정집의 길이로 필수 grid와 versioned modelSettings/modelSourceCatalogue/modelClues를 산출한다. Worker 실행은 이를 소비하며 모델이 source/member/work/lease/cap을 정하지 않는다. BOOK_SOURCE는 전문 읽기, BOOK_COVERAGE는 target×book 구간 검사다. 정상 0건은 저장된 완료 check/typo/검증된 NO_CHECK 처리로만 센다. 공개 results에는 전체 bundle·catalogue·checkpoint·호출 원장을 노출하지 않는다.
+- 같은 입력 RETRY는 성공 단계/check와 실제 원장 누계를 보존한다. 유효 saved seed의 준비 실패는 source 수명/hash 검증 뒤 기존 materialize로 복구하고 seedless/invalidated는 새 기준 접수 경계를 유지한다. 명시 retry에서만 현재 cap/호출·시간·입출력 상한을 새 budgetRevision에 채택하며 segmentation/context/catalogue/search 폭과 모델·추론은 보존한다. 부족한 필수 generation role cap은 409이며 기존 RETRY key는 원 response_snapshot을 반환한다. 초기 optional query embedding은 명시 cap+기존 색인 호환 모델과 미사용 증명을 요구한다. actual reserve cap은 항상 검사하고 reuse-aware QUERY retry preflight는 Task3의 typed receipt 복원과 함께 완성한다.
+- 검수 원장은 실제 validation_job_id 및 원래 lease/generation을 가진다. 분석 예약 경로는 VALIDATION_* 목적을 거절한다. 미호출이 확실한 RELEASE만 cap을 반환하고, UNKNOWN/만료/무효화는 hold를 풀되 호출 cap과 늦은 실제 정산 소유권을 보존한다. Work/회원 파기는 UNKNOWN 호출도 drain한 뒤 account hold 해제와 자식 → usage → Job → report 삭제 순서를 지킨다.
+- canonical author_correction은 null이며 plural authorCorrectionProofs는 실제 정정 사실이다. 자유문자열 질문의 서사 시점/조건 권위로 승격하지 않으며 DB_RAW_DISAGREEMENT는 NEEDS_CONTEXT로 둔다. typed 시간·조건 대응이 입증되는 후속 계약 전에는 자동 해소하지 않는다.
+- GH306의 `ValidationDataService`는 내부 API key와 신뢰 서버의 회원·작품·report 범위 및 expected baseline/target/source fingerprint를 검증해 저장 기준과 실제 원문만 읽는다. 원문 I/O 전후 scalar 조회로 교체·파기·무효화를 확인하고 live 현재값으로 보충하지 않는다. Spring Boot 4 HTTP 경계에는 Jackson 2 JsonNode를 직접 반환하지 않고 `ValidationDataMapper.toTransport`의 표준 JSON Map을 사용한다. 원문 위치는 Unicode code point이며 전문·부분 읽기의 범위를 유지한다. 전용 Job이 있으면 X-Validation-Job-Id와 실제 X-Worker-Lease-Token을 읽기 전후 요구한다. 기존 no-job 호출 계약은 유지하며 read endpoint가 Job/결과/추출 release를 생성하지 않는다. 공통 계약은 `docs/setting-validation-v1.md`다.
 
-- `domain.validation`은 원고 저장 후 고정 기준과 오류 검사/작가 검토 대기를 관리한다. 이 기반 단계에서 추출 Job·후보·journal을 만들지 않는다. 검사 Worker/findings/검토 완료 release는 후속 작업이며 기준 READY나 client flag로 추출을 허용하지 않는다.
+- `domain.validation`은 고정 기준과 전용 ValidationJob/lease·의미 단계·check revision·finding/근거·분기 checkpoint를 소유한다. 전용 실행은 AnalysisJob을 만들지 않으며 COMPLETED여도 추출 Job·후보·journal·자동 확정은 0이다. 작가 판단/검토 완료 release는 #312다.
 - report에 소유권, 접수 당시 batch와 원고 fingerprint를 고정한다. 접수 Work 잠금 아래 기존 확정 state 캡처를 읽기 전용으로 재사용해 캐릭터/세계관 전체 확정 이력과 앞선 활성 원문/실제 설정집 revision을 보존한다. 정규화는 저장 seed만 사용하며 typed 원문 실패는 report 보류로, DB 오류는 롤백으로 구분한다.
 - create/reanalysis/retry/claim/늦은 lease/후보 적용은 Job 정책이 아니라 report의 회차를 확인한다. target-only legacy 관계도 차단하며 claim SQL에서 미리 제외한다. no-job report는 원고/배치 목록의 얇은 projection과 별도 report 목록으로 표시하고 가짜 Job/성공 건수를 만들지 않는다. 기존 일반 추출의 실제 반영 완료/후행 claim 조건은 유지한다.
 - 원고·기준 출처 변경/파기와 확정 설정 변경은 Work 잠금 안에서 새 기준 복사본을 무효화한다. 기존 설정 직접 수정은 허용하되 재검사를 요구한다. 늦은 정규화는 같은 트랜잭션의 무효화도 flush 후 재확인한다. 작품/회원 파기는 새 자식 행을 먼저 제거한다. 계약과 후속 release 원칙은 `docs/episode-validation-staging.md`를 따른다.
 - 검수 기준을 바꾸는 기존 비교 callback도 Work → Job → Character 잠금 순서를 지킨다. singleton/batch EXCLUDE가 대표 서사 시점을 실제 변경할 때 기준 복사본을 같은 트랜잭션에서 무효화하고, no-job 배치 최근 활동 시각에는 report.updatedAt을 포함한다.
+- GH310 실행 PostgreSQL은 새 loopback `gh310_execution_test`의 `GH310_EXECUTION_POSTGRES_JDBC_URL`로만 실행한다. `ValidationExecutionPostgresIntegrationTest`는 실제 Flyway/JPA validate·동시 claim/게시/원장·원문 ABA/파기와 저장 계획 복구를 검증하며 합성 storage/provider와 실제 모델 품질을 구분한다. 기존 DB/.env는 재사용하지 않는다.
 - GH303 실제 PostgreSQL은 새 loopback `gh303_error_first_test`의 `GH303_ERROR_FIRST_POSTGRES_JDBC_URL`만 사용한다. 기존 DB/.env는 재사용하지 않고 skip은 통과로 계산하지 않는다.
 
 #### Analysis Domain Policy

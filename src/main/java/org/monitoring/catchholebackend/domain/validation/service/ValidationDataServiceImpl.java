@@ -23,17 +23,40 @@ import org.springframework.transaction.annotation.Transactional;
 public class ValidationDataServiceImpl implements ValidationDataService {
     private static final int MAX_SOURCE_BYTES = 2_000_000; // 기존 검색·인용 reader와 동일한 읽기 지원 범위
     private final ValidationReportRepository reports;
+    private final org.monitoring.catchholebackend.domain.validation.repository.ValidationBaselineSourceRepository frozenSources;
     private final EpisodeSourcePurgeRequestRepository purges;
     private final ObjectStorageService storage;
     private final AnalysisStateJournal journal;
     private final ValidationDataMapper mapper;
     private final EntityManager em;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationClueCollector clues;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationExecutionAccess execution;
+
+    @Override
+    public void validateSavedValidationSeed(Long memberId, UUID workId, UUID reportId) {
+        var r=reports.findByIdAndWorkId(reportId,workId).filter(x->x.getMember().getId().equals(memberId)).orElseThrow(()->new AppException(ValidationErrorCode.VALIDATION_NOT_FOUND));
+        execution.currentInput(r,false);var seed=r.getBaselineSeed();
+        if(seed==null||r.getBaselineHash()==null||!r.getBaselineHash().equals(r.getBaselineFingerprint())||!r.getBaselineHash().equals(journal.hash(seed))
+                ||!seed.path("characters").isObject()||!seed.path("worldSettings").isObject()||!seed.path("worldHistory").isArray()||!seed.path("sources").isArray()
+                ||!workId.toString().equals(seed.path("workId").asText())||memberId.longValue()!=seed.path("memberId").asLong()
+                ||!r.getEpisode().getId().toString().equals(seed.path("target").path("episodeId").asText())||r.getSourceContentRevision()!=seed.path("target").path("contentRevision").asLong()
+                ||r.getSourceEpisodeNo()!=seed.path("target").path("episodeNo").asInt()||!r.getSourceContentHash().equals(seed.path("target").path("contentHash").asText())
+                ||!r.getSourceContentS3Key().equals(seed.path("target").path("contentS3Key").asText())||!Objects.equals(r.getSourceContentS3Version(),nullable(seed.path("target"),"contentS3Version")))throw changed();
+        var stored=new HashSet<String>();for(var source:frozenSources.findAllByReportId(reportId))stored.add(journal.hash(source.getSourceManifest()));
+        var expected=new HashSet<String>();for(var source:seed.path("sources"))expected.add(journal.hash(source));
+        if(stored.size()!=seed.path("sources").size()||!stored.equals(expected))throw changed();
+        for(var source:mapper.toSourceReferences(r).entrySet())if(!"READY".equals(sourceStatus(workId,r.getSourceEpisodeNo(),source.getValue(),source.getKey().equals("T1"))))throw changed();
+    }
 
     @Override
     public JsonNode readValidationData(Long memberId, UUID workId, UUID reportId, ValidationDataRequest request) {
+        return readValidationData(memberId,workId,reportId,request,null,null);
+    }
+    @Override
+    public JsonNode readValidationData(Long memberId, UUID workId, UUID reportId, ValidationDataRequest request, UUID jobId, UUID leaseToken) {
         if (memberId == null || request == null || request.offset() < 0 || request.limit() < 1 || request.limit() > 100)
             throw new AppException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
-        requireCurrentReport(memberId, workId, reportId, request);
+        requireCurrentReport(memberId, workId, reportId, request, jobId, leaseToken);
         ValidationReport report = reports.findById(reportId).orElseThrow(() -> new AppException(ValidationErrorCode.VALIDATION_NOT_FOUND));
         if (report.getBaselineSeed() == null || report.getBaselineEntries() == null
                 || !Objects.equals(journal.hash(report.getBaselineSeed()), request.expectedBaselineHash())) throw changed();
@@ -44,9 +67,17 @@ public class ValidationDataServiceImpl implements ValidationDataService {
                 response.set("target", refs.get("T1"));
                 var sources = response.putArray("sources"); refs.forEach((ref, source) -> { if (!ref.equals("T1")) sources.add(source); });
                 response.put("entryCount", report.getBaselineEntries().size());
+                response.set("modelSourceCatalogue",mapper.toValidationSourceCatalogue(refs));
             }
             case "ENTRIES" -> {
                 response.set("entries", mapper.toEntries(report.getBaselineEntries(), request.offset(), request.limit()));
+                var projected=mapper.toValidationSettings(report.getBaselineEntries(),refs);var models=response.putArray("modelSettings");
+                projected.values().stream().skip(request.offset()).limit(request.limit()).forEach(models::add);
+                var proofs=response.putArray("authorCorrectionProofs");int index=0;
+                for(var entry:report.getBaselineEntries()) {
+                    index++;if(index>request.offset()&&index<=(long)request.offset()+request.limit()&&entry.path("state").path("explicitAuthorCorrections").isArray())
+                        proofs.addObject().put("entryRef","B"+index).set("proofs",entry.path("state").path("explicitAuthorCorrections").deepCopy());
+                }
                 int next = (int) Math.min(report.getBaselineEntries().size(), (long) request.offset() + request.limit());
                 response.put("nextOffset", next).put("hasMore", next < report.getBaselineEntries().size());
             }
@@ -65,8 +96,8 @@ public class ValidationDataServiceImpl implements ValidationDataService {
                 if (!before.equals("READY")) return response.put("status", before);
                 String text;
                 try { text = storage.getText(source.path("contentS3Key").asText()); }
-                catch (RuntimeException exception) { return response.put("status", "SOURCE_UNREADABLE"); }
-                requireCurrentReport(memberId, workId, reportId, request);
+                catch (RuntimeException exception) { requireCurrentReport(memberId, workId, reportId, request, jobId, leaseToken); return response.put("status", "SOURCE_UNREADABLE"); }
+                requireCurrentReport(memberId, workId, reportId, request, jobId, leaseToken);
                 String after = sourceStatus(workId, report.getSourceEpisodeNo(), source, request.sourceRef().equals("T1"));
                 if (!after.equals("READY")) return response.put("status", after);
                 if (text == null || text.getBytes(StandardCharsets.UTF_8).length > MAX_SOURCE_BYTES) return response.put("status", "SOURCE_UNREADABLE");
@@ -75,17 +106,19 @@ public class ValidationDataServiceImpl implements ValidationDataService {
                 int start = request.start() == null ? 0 : request.start();
                 int end = request.end() == null ? length : request.end();
                 if (start < 0 || end < start || end > length) return response.put("status", "INVALID_RANGE");
+                if(request.sourceRef().equals("T1")&&start==0&&end==length)response.set("modelClues",clues.collectValidationClues(text,mapper.toValidationNames(report.getBaselineEntries())));
                 response.put("sourceRef", request.sourceRef()).put("contentHash", source.path("contentHash").asText())
                         .put("start", start).put("end", end).put("totalCodePoints", length)
                         .put("text", text.substring(text.offsetByCodePoints(0, start), text.offsetByCodePoints(0, end)));
             }
             default -> throw new AppException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
         }
-        requireCurrentReport(memberId, workId, reportId, request);
+        requireCurrentReport(memberId, workId, reportId, request, jobId, leaseToken);
         return response;
     }
 
-    private void requireCurrentReport(Long member, UUID work, UUID report, ValidationDataRequest request) {
+    private void requireCurrentReport(Long member, UUID work, UUID report, ValidationDataRequest request, UUID jobId, UUID leaseToken) {
+        execution.requireRead(report,jobId,leaseToken);
         var state = em.createQuery("""
                 select r.baselineHash, r.sourceContentHash, cast(r.baselineStatus as string),
                        cast(r.status as string), cast(r.work.lifecycleStatus as string), cast(r.member.status as string),

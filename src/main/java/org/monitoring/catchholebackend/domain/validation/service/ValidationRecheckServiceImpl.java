@@ -32,6 +32,7 @@ public class ValidationRecheckServiceImpl implements ValidationRecheckService {
     private final ValidationBaselineService baselines;
     private final AnalysisStateJournal journal;
     private final EntityManager em;
+    private final ValidationWorkerService workers;
 
     @Override @Transactional
     public ValidationStagingResponse recheckValidation(Long memberId,UUID workId,UUID reportId,ValidationRecheckRequest request) {
@@ -44,6 +45,7 @@ public class ValidationRecheckServiceImpl implements ValidationRecheckService {
         var hash=journal.hash(input); var keyed=keys.findByWorkIdAndRequestKey(workId,request.idempotencyKey());
         if(keyed.isPresent()) {
             if(!"RECHECK".equals(keyed.get().getRequestKind()) || !hash.equals(keyed.get().getRequestHash())) throw error(ValidationErrorCode.VALIDATION_IDEMPOTENCY_CONFLICT);
+            workers.queuePrepared(keyed.get().getReport());
             return ValidationStagingResponse.from(keyed.get().getReport());
         }
         var previous=reports.findByIdAndWorkId(reportId,workId).orElseThrow(()->error(ValidationErrorCode.VALIDATION_NOT_FOUND));
@@ -73,7 +75,7 @@ public class ValidationRecheckServiceImpl implements ValidationRecheckService {
         var application=previousApplication(workId,target.getId());
         baselines.retire(previous); em.flush(); // partial unique current index: old pointer must leave before the insert.
         var next=reports.save(ValidationReport.recheck(previous,hash,application));
-        baselines.prepare(next); keys.save(ValidationRequestKey.create(work,request.idempotencyKey(),next,"RECHECK",hash)); em.flush();
+        baselines.prepare(next); workers.queuePrepared(next); keys.save(ValidationRequestKey.create(work,request.idempotencyKey(),next,"RECHECK",hash)); em.flush();
         return ValidationStagingResponse.from(next);
     }
 

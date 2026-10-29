@@ -199,6 +199,16 @@ class AiTokenServiceImplTest {
         assertThat(account.getUsedTokens()).isEqualByComparingTo("1000");
     }
 
+    @Test
+    @DisplayName("분석 lease는 검수 전용 목적의 원장을 만들 수 없다")
+    void analysisLeaseRejectsEveryValidationPurpose() {
+        for(var purpose:AiTokenPurpose.values())if(purpose.name().startsWith("VALIDATION_")) {
+            assertThatThrownBy(()->service.reserve(new AiTokenReserveRequest(UUID.randomUUID(),jobId,purpose,1,"gpt-6.1-terra",100),lease))
+                    .isInstanceOfSatisfying(AppException.class,error->assertThat(error.getResultCode()).isEqualTo(AiTokenErrorCode.AI_TOKEN_USAGE_INVALID));
+        }
+        assertThat(ledger).isEmpty();assertThat(account.getReservedTokens()).isZero();
+    }
+
     private AiTokenReserveRequest request(String model, long rawTokens) {
         return new AiTokenReserveRequest(UUID.randomUUID(), jobId, AiTokenPurpose.SUBJECT_RESOLUTION,
                 1, model, rawTokens);

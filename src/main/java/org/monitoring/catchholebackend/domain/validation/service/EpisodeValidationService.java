@@ -32,6 +32,7 @@ public class EpisodeValidationService {
     private final ValidationRequestKeyRepository keys;
     private final AnalysisStateJournal journal;
     private final EntityManager em;
+    private final ValidationWorkerService workers;
 
     @Transactional
     public ValidationStagingResponse start(Long memberId, UUID workId, ValidationStartRequest request) {
@@ -44,6 +45,7 @@ public class EpisodeValidationService {
         var keyed = keys.findByWorkIdAndRequestKey(workId, request.idempotencyKey());
         if (keyed.isPresent()) {
             if (!"START".equals(keyed.get().getRequestKind()) || !hash.equals(keyed.get().getRequestHash())) throw error(ValidationErrorCode.VALIDATION_IDEMPOTENCY_CONFLICT);
+            workers.queuePrepared(keyed.get().getReport());
             return ValidationStagingResponse.from(keyed.get().getReport());
         }
         var prior = reports.findByEpisodeIdAndCurrentTrue(request.episodeId());
@@ -78,6 +80,7 @@ public class EpisodeValidationService {
         if (!priorEpisode && !hasComparisonMaterial(workId)) throw error(ValidationErrorCode.VALIDATION_COMPARISON_MATERIAL_REQUIRED);
         var report = reports.save(ValidationReport.create(work, episode, file.getBatch(), hash));
         baselines.prepare(report);
+        workers.queuePrepared(report);
         keys.save(ValidationRequestKey.create(work, request.idempotencyKey(), report));
         em.flush();
         return ValidationStagingResponse.from(report);
@@ -98,6 +101,7 @@ public class EpisodeValidationService {
     }
     private ValidationStagingResponse sameInput(ValidationReport report, String hash) {
         if (!report.getRequestHash().equals(hash)) throw error(ValidationErrorCode.VALIDATION_IDEMPOTENCY_CONFLICT);
+        workers.queuePrepared(report);
         return ValidationStagingResponse.from(report);
     }
     private AppException error(ValidationErrorCode code) { return new AppException(code); }

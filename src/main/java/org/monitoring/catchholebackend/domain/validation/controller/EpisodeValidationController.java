@@ -21,10 +21,12 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/works/{workId}/episode-validations")
-@Tag(name = "EpisodeValidation", description = "신규 단일 회차 검수 접수와 준비 상태. 실제 오류 검사와 검사 후 확정은 후속 구현입니다.")
+@Tag(name = "EpisodeValidation", description = "신규 회차 검수 접수·전용 실행·읽기 전용 결과. 작가 판단과 추출 허가는 후속입니다.")
 @SecurityRequirement(name = "bearerAuth")
 public class EpisodeValidationController {
     private final EpisodeValidationService service;
+    private final org.monitoring.catchholebackend.domain.validation.service.ValidationWorkerService workers;
+    private final org.monitoring.catchholebackend.domain.validation.service.ValidationResultService results;
     private final org.monitoring.catchholebackend.domain.validation.service.ValidationRecheckService rechecks;
     private final org.monitoring.catchholebackend.domain.validation.service.ValidationCorrectionService corrections;
     @PostMapping
@@ -56,6 +58,17 @@ public class EpisodeValidationController {
     public CommonResponse<ValidationStagingResponse> recheck(@AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,@PathVariable UUID reportId,@Valid @RequestBody ValidationRecheckRequest request) {
         return CommonResponse.success(rechecks.recheckValidation(member.memberId(),workId,reportId,request));
+    }
+
+    @GetMapping("/{reportId}/results")
+    @Operation(operationId="getValidationExecutionResults",summary="검수 진행 및 저장 결과 읽기 전용 조회")
+    public CommonResponse<java.util.Map<String,Object>> results(@AuthenticationPrincipal MemberPrincipal member,@PathVariable UUID workId,@PathVariable UUID reportId) {
+        return CommonResponse.success(results.getValidationProgress(member.memberId(),workId,reportId));
+    }
+    @PostMapping("/{reportId}/retries")
+    @Operation(operationId="retryValidationExecution",summary="같은 입력의 미완료 검사 재시도")
+    public CommonResponse<ValidationStagingResponse> retry(@AuthenticationPrincipal MemberPrincipal member,@PathVariable UUID workId,@PathVariable UUID reportId,@Valid @RequestBody org.monitoring.catchholebackend.domain.validation.dto.ValidationExecutionContract.Retry request) {
+        return CommonResponse.success(workers.retryValidation(member.memberId(),workId,reportId,request));
     }
 
     @PostMapping("/{reportId}/corrections")
