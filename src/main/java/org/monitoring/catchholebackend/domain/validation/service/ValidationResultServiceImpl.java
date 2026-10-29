@@ -37,6 +37,7 @@ public class ValidationResultServiceImpl implements ValidationResultService {
     private final org.monitoring.catchholebackend.domain.validation.mapper.ValidationDataMapper dataMapper;
     private final ValidationUsageService usage;
     private final AnalysisStateJournal journal;
+    private final ValidationJudgmentRepository judgments;
     private final EntityManager em;
 
     @Override public Map<String,Object> publishValidationPlan(UUID id,UUID lease,Publish c) {
@@ -104,7 +105,9 @@ public class ValidationResultServiceImpl implements ValidationResultService {
                 affected.add(check);
             }
             // Verify every CAS first; no old completion survives a partially applied follow-up.
-            for(int i=0;i<affected.size();i++) {var check=affected.get(i);results.save(ValidationCheckHistory.supersede(check,c.reason()));var state=decisions.state(mapper.toTree(c.changes().get(i).state()),decisions.subjects(p));check.revise(state,journal.hash(state),c.reason());}
+            // The old judgment stays on its stale finding as history; the new revision starts without a judgment row (PENDING).
+            for(int i=0;i<affected.size();i++) {var check=affected.get(i);results.save(ValidationCheckHistory.supersede(check,c.reason()));
+                for(var judgment:judgments.findAllByCheckIdAndCheckRevision(check.getId(),check.getRevision()))results.save(ValidationJudgmentHistory.supersede(judgment));var state=decisions.state(mapper.toTree(c.changes().get(i).state()),decisions.subjects(p));check.revise(state,journal.hash(state),c.reason());}
             results.checkpoint(j.getReport().getId(),ValidationBranch.SETTING).ifPresent(ValidationCheckpoint::advanceForQuestionRevision);
             saveEvidence(j,"REVISION",c.citations());return new PublicationResult(Map.of("checks",affected.stream().map(mapper::toCheckResponse).toList()),true);
         });

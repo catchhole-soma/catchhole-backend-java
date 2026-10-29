@@ -33,6 +33,7 @@ public class ValidationRecheckServiceImpl implements ValidationRecheckService {
     private final AnalysisStateJournal journal;
     private final EntityManager em;
     private final ValidationWorkerService workers;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationReviewGate reviewGate;
 
     @Override @Transactional
     public ValidationStagingResponse recheckValidation(Long memberId,UUID workId,UUID reportId,ValidationRecheckRequest request) {
@@ -46,7 +47,7 @@ public class ValidationRecheckServiceImpl implements ValidationRecheckService {
         if(keyed.isPresent()) {
             if(!"RECHECK".equals(keyed.get().getRequestKind()) || !hash.equals(keyed.get().getRequestHash())) throw error(ValidationErrorCode.VALIDATION_IDEMPOTENCY_CONFLICT);
             workers.queuePrepared(keyed.get().getReport());
-            return ValidationStagingResponse.from(keyed.get().getReport());
+            return staging(keyed.get().getReport());
         }
         var previous=reports.findByIdAndWorkId(reportId,workId).orElseThrow(()->error(ValidationErrorCode.VALIDATION_NOT_FOUND));
         em.flush(); em.refresh(previous);
@@ -76,12 +77,12 @@ public class ValidationRecheckServiceImpl implements ValidationRecheckService {
         baselines.retire(previous); em.flush(); // partial unique current index: old pointer must leave before the insert.
         var next=reports.save(ValidationReport.recheck(previous,hash,application));
         baselines.prepare(next); workers.queuePrepared(next); keys.save(ValidationRequestKey.create(work,request.idempotencyKey(),next,"RECHECK",hash)); em.flush();
-        return ValidationStagingResponse.from(next);
+        return staging(next);
     }
 
     @Override public ValidationStagingResponse getCurrentValidation(Long memberId,UUID workId,UUID episodeId) {
         works.getOwnedWork(workId,memberId);
-        return ValidationStagingResponse.from(reports.findByEpisodeIdAndCurrentTrue(episodeId).filter(r->r.getWork().getId().equals(workId))
+        return staging(reports.findByEpisodeIdAndCurrentTrue(episodeId).filter(r->r.getWork().getId().equals(workId))
                 .orElseThrow(()->error(ValidationErrorCode.VALIDATION_NOT_FOUND)));
     }
 
@@ -98,5 +99,6 @@ public class ValidationRecheckServiceImpl implements ValidationRecheckService {
         if(!world.isEmpty()) {var c=world.getFirst();return new ValidationApplicationReference("WORLD_SETTING_CONFIRMATION",c.getId(),c.getAnalysisJob()==null?null:c.getAnalysisJob().getId(),c.getReviewedAt());}
         return null;
     }
+    private ValidationStagingResponse staging(ValidationReport report) {return ValidationStagingResponse.from(report,reviewGate.errorReviewStatus(report));}
     private AppException error(ValidationErrorCode code) {return new AppException(code);}
 }

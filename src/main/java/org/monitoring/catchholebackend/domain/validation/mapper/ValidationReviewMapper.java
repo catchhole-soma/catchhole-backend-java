@@ -1,0 +1,48 @@
+package org.monitoring.catchholebackend.domain.validation.mapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.*;
+import java.util.*;
+import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.domain.validation.dto.response.*;
+import org.monitoring.catchholebackend.domain.validation.dto.response.ValidationFindingDetailResponse.*;
+import org.monitoring.catchholebackend.domain.validation.dto.response.ValidationFindingSummaryResponse.*;
+import org.monitoring.catchholebackend.domain.validation.entity.*;
+import org.monitoring.catchholebackend.domain.validation.processor.ValidationReviewGate;
+import org.monitoring.catchholebackend.domain.validation.type.*;
+import org.springframework.stereotype.Component;
+/** 공개 판정 내용만 옮긴다. evidence_bundle(고정 설정·catalogue·조회 receipt)은 GH310 공개 계약대로 제외한다. */
+@Component @RequiredArgsConstructor
+public class ValidationReviewMapper {
+    private static final List<String> DETAIL_FIELDS=List.of("reason","basis","impact","impact_reason","target_spans","evidence_refs","disagreements","completion","span","replacement","category");
+    private final ValidationExecutionMapper transport;
+    public ValidationFindingSummaryResponse toSummaryResponse(ValidationFinding f,ValidationJudgment j,boolean changed) {
+        var p=f.getPayload();var spans=new ArrayList<Span>();
+        for(var span:f.getBranch()==ValidationBranch.SETTING?p.path("target_spans"):JsonNodeFactory.instance.arrayNode().add(p.path("span")))
+            if(span.isObject())spans.add(new Span(text(span,"source_ref"),number(span,"start"),number(span,"end"),text(span,"quote")));
+        return new ValidationFindingSummaryResponse(f.getId(),f.getBranch(),f.getUnitRef(),f.getCheckId(),f.getCheckRevision(),f.getOutcome(),toJudgmentResponse(j),changed,
+                new Summary(text(p,"impact"),text(p,"reason"),text(p,"replacement"),List.copyOf(spans)));
+    }
+    public ValidationFindingSummaryResponse.Judgment toJudgmentResponse(ValidationJudgment j) {
+        return j==null?new ValidationFindingSummaryResponse.Judgment(ValidationJudgmentValue.PENDING,0,null):new ValidationFindingSummaryResponse.Judgment(j.getJudgment(),j.getVersion(),j.getDecidedAt());
+    }
+    public ValidationFindingDetailResponse toDetailResponse(ValidationFinding f,ValidationJudgment j,Long currentRevision,boolean changed,List<ValidationEvidence> evidence,
+            List<ValidationJudgmentHistory> history,Map<Long,String> changeReasons,List<PriorRevision> prior) {
+        var body=JsonNodeFactory.instance.objectNode();for(String field:DETAIL_FIELDS)if(f.getPayload().has(field))body.set(field,f.getPayload().path(field).deepCopy());
+        // 완료 판정의 receipt ref는 비공개 호출 기록을 가리키므로 사유와 근거 ref만 남긴다.
+        if(body.path("completion").isObject())for(var assessment:body.path("completion"))if(assessment.isObject())((ObjectNode)assessment).remove("receipt_refs");
+        @SuppressWarnings("unchecked") var payload=(Map<String,Object>)transport.toTransportValue(body);
+        return new ValidationFindingDetailResponse(f.getId(),f.getBranch(),f.getUnitRef(),f.getCheckId(),f.getCheckRevision(),currentRevision,f.getOutcome(),
+                f.getCheckId()!=null&&!Objects.equals(currentRevision,f.getCheckRevision()),changed,payload,
+                evidence.stream().map(e->new Evidence(e.getSourceRef(),e.getStart(),e.getEnd(),e.getQuote())).distinct().toList(),toJudgmentResponse(j),ValidationJudgmentValue.allowedFor(f.getBranch()),
+                history.stream().map(h->new History(h.getFinding().getId(),h.getCheckRevision(),h.getFromJudgment(),h.getToJudgment(),h.getReason(),
+                        h.getReason()==ValidationJudgmentHistoryReason.REVISION_SUPERSEDED?changeReasons.get(h.getCheckRevision()):null,h.getCreatedAt())).toList(),prior);
+    }
+    public ValidationReviewSummaryResponse toReviewResponse(ValidationReport r,ValidationReviewGate.Review review) {
+        var c=review.counts();
+        return new ValidationReviewSummaryResponse(r.getId(),r.getVersion(),review.executionStatus(),r.getMode(),
+                new ValidationReviewSummaryResponse.Counts(c.settingTotal(),c.settingPending(),c.settingNeedsFix(),c.settingNotConflict(),c.typoTotal(),c.typoPending(),c.typoNeedsFix(),c.typoKeepOriginal()),
+                review.judgmentLocked(),review.lockReason(),review.canCompleteReview(),review.completionMode(),review.holdReasons(),review.allowedActions());
+    }
+    private static String text(JsonNode n,String field) {return n.path(field).isTextual()?n.path(field).asText():null;}
+    private static Integer number(JsonNode n,String field) {return n.path(field).isIntegralNumber()?n.path(field).asInt():null;}
+}

@@ -23,7 +23,7 @@ public class ValidationExecutionRepository {
     }
     private boolean vector(com.fasterxml.jackson.databind.JsonNode decision) {if(decision==null)return false;for(var r:decision.path("evidence_bundle").path("receipts"))if("SUCCEEDED".equals(r.path("status").asText())&&"VECTOR".equals(r.path("intent").path("operation").asText()))return true;return false;}
     public void purge(UUID r) {
-        for(String entity:List.of("ValidationCheckHistory","ValidationEvidence","ValidationFinding","ValidationCheckpoint","ValidationPublication","ValidationCheck","ValidationStage"))
+        for(String entity:List.of("ValidationJudgmentHistory","ValidationJudgment","ValidationCheckHistory","ValidationEvidence","ValidationFinding","ValidationCheckpoint","ValidationPublication","ValidationCheck","ValidationStage"))
             em.createQuery("delete from "+entity+" x where x.report.id=:r").setParameter("r",r).executeUpdate();
     }
 }

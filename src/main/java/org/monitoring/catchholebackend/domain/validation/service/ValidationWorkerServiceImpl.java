@@ -38,6 +38,7 @@ public class ValidationWorkerServiceImpl implements ValidationWorkerService {
     private final EntityManager em;
     private final ValidationDataService data;
     private final ValidationBaselineService baselines;
+    private final ValidationReviewGate reviewGate;
 
     @Override @Transactional public void queuePrepared(ValidationReport r) {
         if(!properties.enabled()||!r.isCurrent()||r.getBaselineStatus()!=ValidationPreparationStatus.READY||r.getBaselineSeed()==null||r.getBaselineEntries()==null||jobs.findByReportId(r.getId()).isPresent())return;
@@ -83,7 +84,7 @@ public class ValidationWorkerServiceImpl implements ValidationWorkerService {
         var existing=keys.findByWorkIdAndRequestKey(work,c.idempotencyKey());
         if(existing.isPresent()) {
             var k=existing.get();if(!"RETRY".equals(k.getRequestKind())||!hash.equals(k.getRequestHash()))throw error(VALIDATION_IDEMPOTENCY_CONFLICT);
-            return k.getResponseSnapshot()==null?ValidationStagingResponse.from(k.getReport()):mapper.toStagingResponse(k.getResponseSnapshot());
+            return k.getResponseSnapshot()==null?ValidationStagingResponse.from(k.getReport(),reviewGate.errorReviewStatus(k.getReport())):mapper.toStagingResponse(k.getResponseSnapshot());
         }
         if(!properties.enabled())throw error(VALIDATION_RUNTIME_DISABLED);
         var r=reports.findByIdAndWorkId(report,work).orElseThrow(()->error(VALIDATION_NOT_FOUND));em.refresh(r);access.currentInput(r,false);
@@ -99,7 +100,7 @@ public class ValidationWorkerServiceImpl implements ValidationWorkerService {
             if(j.getStatus()!=ValidationExecutionStatus.PARTIAL&&j.getStatus()!=ValidationExecutionStatus.FAILED)throw error(VALIDATION_PUBLICATION_CONFLICT);
             budgetPolicy.refreshForRetry(j);usage.ensureValidationRetryCapacity(j);usage.releaseReservedValidationUsage(j,AiTokenUsageOutcome.USAGE_UNAVAILABLE);j.retry();r.advanceVersion();
         }
-        var response=ValidationStagingResponse.from(r);var key=ValidationRequestKey.create(owner,c.idempotencyKey(),r,"RETRY",hash);key.recordRetryResponse(mapper.toTree(response));keys.save(key);em.flush();return response;
+        var response=ValidationStagingResponse.from(r,reviewGate.errorReviewStatus(r));var key=ValidationRequestKey.create(owner,c.idempotencyKey(),r,"RETRY",hash);key.recordRetryResponse(mapper.toTree(response));keys.save(key);em.flush();return response;
     }
     private Duration lease(ValidationJob j) {return Duration.ofMillis(j.getConfiguration().path("leaseMillis").asLong());}
 }

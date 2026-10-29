@@ -21,6 +21,11 @@ public enum ValidationErrorCode implements ResultCode {
     VALIDATION_RECHECK_INPUT_UNCHANGED(HttpStatus.CONFLICT, "동일한 입력은 기존 검수의 재시도를 사용해 주세요."),
     VALIDATION_CORRECTION_CONFLICT(HttpStatus.CONFLICT, "기준 항목과 현재 설정을 정확히 연결할 수 없습니다. 다시 확인해 주세요."),
     VALIDATION_ERROR_REVIEW_PENDING(HttpStatus.CONFLICT, "오류 검사와 검토가 완료되기 전에는 설정 추출이나 후보 반영을 시작할 수 없습니다."),
+    VALIDATION_JUDGMENT_INVALID(HttpStatus.BAD_REQUEST, "이 항목에 사용할 수 없는 판단입니다."),
+    VALIDATION_JUDGMENT_LOCKED(HttpStatus.CONFLICT, "검사가 진행 중이거나 현재 유효한 검수가 아니어서 판단을 저장할 수 없습니다."),
+    VALIDATION_JUDGMENT_STALE(HttpStatus.CONFLICT, "다시 검사되어 바뀐 항목입니다. 최신 항목을 다시 확인해 주세요."),
+    VALIDATION_JUDGMENT_VERSION_CONFLICT(HttpStatus.CONFLICT, "판단이 이미 변경되었습니다. 다시 확인해 주세요."),
+    VALIDATION_FINDING_NOT_FOUND(HttpStatus.NOT_FOUND, "검수 발견 항목을 찾을 수 없습니다."),
     VALIDATION_NOT_FOUND(HttpStatus.NOT_FOUND, "검수 요청을 찾을 수 없습니다.");
     private final HttpStatus status;
     private final String message;
