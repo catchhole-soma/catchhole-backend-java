@@ -185,6 +185,24 @@ class ValidationWorkerIntegrationTest extends ValidationRecheckFixture {
         var finish=internal(path(job,"/complete"),job,Map.of("scope",scope(job),"idempotencyKey","one-no-check","failureCode","MODEL_CALL_FAILED"),200);
         assertThat(finish.path("status").asText()).isEqualTo("PARTIAL");assertThat(finish.path("completedNoCheckSegments").asInt()).isEqualTo(1);noExtraction();
     }
+    @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(strings={"T1","R1"})
+    @DisplayName("실제 원문 인용이 맞아도 현재 회차만의 충돌은 거절하고 과거 출처 충돌은 저장한다")
+    void conflictPublicationRequiresActualNonTargetEvidence(String sourceRef) throws Exception {
+        source();String priorHash=java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest("합성 앞 원고".getBytes(java.nio.charset.StandardCharsets.UTF_8)));prior.updateContentStorage(prior.getContentS3Key(),prior.getContentS3Version(),priorHash);em.flush();start();var job=claim();
+        var span=Map.of("source_ref","T1","start",0,"end",2,"quote","처음");var draft=draft("local-1",List.of(span));var citation=Map.of("sourceRef","T1","sourceHash",target.getContentHash(),"sourceVersion",target.getContentS3Version(),"start",0,"end",2,"quote","처음");
+        var planner=publication(job,"SETTING","PLANNER","TSEG1",batch("TSEG1",List.of(draft)));planner.put("citations",List.of(citation));internal(path(job,"/plans"),job,planner,200);
+        int count=stored(get(UUID.fromString(job.path("scope").path("reportId").asText()))).getBaselineEntries().size();var selection=new ArrayList<Object>();for(int i=1;i<=count;i++)selection.add(Map.of("entry_ref","B"+i,"selected",false,"reason","합성 비선정"));
+        savePlan(job,"RELATED_SELECTION","TSEG1:PAGE1",Map.of("entries",selection));savePlan(job,"COVERAGE","TSEG1",batch("TSEG1",List.of()));
+        var plan=publication(job,"SETTING","MERGED_PLAN","PLAN",Map.of("questions",List.of(Map.of("localRef","Q1","originalRefs",List.of("PLANNER:TSEG1:local-1"),"state",Map.of("draft",draft)))));plan.put("citations",List.of(citation));var check=internal(path(job,"/plans"),job,plan,200).path("checks").path(0);
+        var bundle=evidenceBundle(draft);String quote=sourceRef.equals("T1")?"처음":"합성";bundle.put("evidence",List.of(Map.of("ref","E1","source_ref",sourceRef,"source_kind","EPISODE","start",0,"end",2,"quote",quote)));
+        var assessment=Map.of("reason","실제 고정 자료 확인","evidence_refs",List.of("T1","E1"),"receipt_refs",List.of("L1","L2"));
+        var decision=new LinkedHashMap<String,Object>();decision.put("action","DECIDED");decision.put("outcome","CONFLICT");decision.put("basis","DIRECT_CONTRADICTION");decision.put("reason","합성 충돌 판정");decision.put("impact","CAUTION");decision.put("impact_reason","비교값 차이");decision.put("target_spans",List.of(span));decision.put("evidence_refs",List.of("T1","E1"));decision.put("completion",Map.of("comparison_context",assessment,"changes_exceptions",assessment,"no_pending_clues",assessment,"required_reads",assessment));decision.put("follow_ups",List.of());decision.put("affected_question_refs",List.of());decision.put("disagreements",List.of());decision.put("evidence_bundle",bundle);
+        var citations=new ArrayList<Object>();citations.add(citation);citations.add(Map.of("sourceRef","T1","sourceHash",target.getContentHash(),"sourceVersion",target.getContentS3Version(),"start",0,"end",8,"quote","처음 합성 원고"));if(sourceRef.equals("R1"))citations.add(Map.of("sourceRef","R1","sourceHash",priorHash,"sourceVersion",prior.getContentS3Version(),"start",0,"end",2,"quote",quote));
+        var command=unit(job,"SETTING","Q1","CONFLICT",decision);command.put("checkId",check.path("checkId").asText());command.put("expectedCheckRevision",1);command.put("checkInputDigest",check.path("checkInputDigest").asText());command.put("citations",citations);
+        var before=get(UUID.fromString(job.path("scope").path("reportId").asText()));var result=internal(path(job,"/units"),job,command,sourceRef.equals("T1")?400:200);
+        assertThat(em.createNativeQuery("select count(*) from validation_findings").getSingleResult()).isEqualTo(sourceRef.equals("T1")?0L:1L);
+        if(sourceRef.equals("T1")) {assertThat(result.path("code").asText()).isEqualTo("VALIDATION_RESULT_INVALID");assertThat(get(UUID.fromString(job.path("scope").path("reportId").asText())).path("reportVersion")).isEqualTo(before.path("reportVersion"));}else assertThat(result.path("outcome").asText()).isEqualTo("CONFLICT");noExtraction();
+    }
     @Test @DisplayName("반복 비BMP 인용은 정확한 code point 위치만 허용한다") void unicodeCodePointQuotesKeepRepeatedPositionsAndRejectUtf16Offsets() throws Exception {
         targetText("😀가😀가");start();var job=claim();
         var citation=Map.of("sourceRef","T1","sourceHash",target.getContentHash(),"sourceVersion",target.getContentS3Version(),"start",2,"end",3,"quote","😀");
