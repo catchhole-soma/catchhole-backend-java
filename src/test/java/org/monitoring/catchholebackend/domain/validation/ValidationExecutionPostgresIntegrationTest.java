@@ -77,12 +77,18 @@ class ValidationExecutionPostgresIntegrationTest {
         when(storage.purgePrefixes(anyCollection())).thenReturn(new ObjectStoragePurgeResult(1,1,0));when(storage.purgePrefixesExcluding(anyCollection(),anyCollection())).thenReturn(new ObjectStoragePurgeResult(1,1,0));
     }
     Fixture fixture() {return fixture(null);}
-    Fixture fixture(Long owner) {return tx.execute(s->{
+    Fixture fixture(Long owner) {return fixture(owner,List.of());}
+    Fixture fixture(Long owner,List<String> books) {return tx.execute(s->{
         var member=owner==null?Member.register("execution-"+UUID.randomUUID()+"@example.invalid","synthetic-only","01012345678","합성 작가"):em.find(Member.class,owner);if(owner==null)em.persist(member);
         var work=Work.create(member,"격리 검수",WorkGenre.FANTASY,null);em.persist(work);String prior="앞선 합성 원고";texts.put("synthetic/prior/"+work.getId(),prior);
         em.persist(Episode.create(work,null,100,"앞 회차","synthetic/prior/"+work.getId(),"v1",hashes.contentHash(prior),prior.length()));work.updateLatestEpisodeNo(100);
         em.persist(WorkCharacter.create(work,"합성 인물",null,20,1,null,null,null,null,null,null));
         var batch=episodes.uploadEpisodes(member.getId(),work.getId(),new EpisodeUploadRequest(EpisodeUploadType.SINGLE_EPISODE,101,"합성",null),List.of(file("😀가😀가 합성 원고")));
+        for(int i=0;i<books.size();i++) {
+            String text=books.get(i),key="synthetic/book/"+work.getId()+"/"+i;texts.put(key,text);
+            var book=org.monitoring.catchholebackend.domain.upload.entity.UploadFile.create(em.find(org.monitoring.catchholebackend.domain.upload.entity.UploadBatch.class,batch.batchId()),org.monitoring.catchholebackend.domain.upload.type.UploadFileRole.SETTING_BOOK,"book-"+i+".txt","text/plain","s3://synthetic/book-"+i,30);em.persist(book);
+            var revision=org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision.create(book,1,new StoredTextObject(key,"v1",hashes.contentHash(text),text.length()),org.monitoring.catchholebackend.domain.upload.type.SettingBookReferenceTimeKind.WORK_START,null);em.persist(revision);book.linkCurrentRevision(revision);
+        }em.flush();
         var e=em.createQuery("select e from Episode e where e.work=:w and e.episodeNo=101",Episode.class).setParameter("w",work).getSingleResult();
         var report=admissions.start(member.getId(),work.getId(),new ValidationStartRequest("initial",batch.batchId(),e.getId(),e.getContentHash(),e.getContentS3Key(),e.getContentS3Version()));
         return new Fixture(member.getId(),work.getId(),e.getId(),report.reportId(),e.getContentS3Key(),e.getContentHash(),e.getContentS3Version());
@@ -120,6 +126,50 @@ class ValidationExecutionPostgresIntegrationTest {
             var a=pool.submit(()->{ready.countDown();await(go);return planner(j);});var b=pool.submit(()->{ready.countDown();await(go);return planner(j);});await(ready);go.countDown();assertThat(a.get(20,TimeUnit.SECONDS)).isEqualTo(b.get(20,TimeUnit.SECONDS));
         }
         assertThat(jdbc.queryForObject("select count(*) from validation_stages",Integer.class)).isEqualTo(1);assertThat(jdbc.queryForObject("select count(*) from validation_publications",Integer.class)).isEqualTo(1);noExtraction();
+    }
+    @SuppressWarnings("unchecked") @Test @DisplayName("설정집 일부 읽기 실패 뒤에도 성공 단계와 checkpoint를 회수하여 남은 grid만 확장한다")
+    void partialBookPreparationSurvivesReclaimWithoutRepeatingSuccessfulStages() {
+        var f=fixture(null,List.of("첫 합성 설정집","둘째 합성 설정집"));var j=claim();
+        var input=data.readValidationData(f.member(),f.work(),f.report(),new org.monitoring.catchholebackend.domain.validation.dto.request.ValidationDataRequest(j.get("baselineHash").toString(),f.hash(),"INPUT",0,100,null,null,null,null,null),id(j),lease(j));
+        var books=new ArrayList<JsonNode>();for(var source:input.path("sources"))if(source.path("sourceKind").asText().equals("SETTING_BOOK"))books.add(source);
+        String first=books.getFirst().path("sourceRef").asText(),second=books.get(1).path("sourceRef").asText(),firstKey=books.getFirst().path("contentS3Key").asText(),secondKey=books.get(1).path("contentS3Key").asText();
+        String missing=texts.remove(secondKey);var reads=new ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicInteger>();
+        org.mockito.Mockito.doAnswer(c->{String key=c.getArgument(0);reads.computeIfAbsent(key,k->new java.util.concurrent.atomic.AtomicInteger()).incrementAndGet();var value=texts.get(key);if(value==null)throw new IllegalStateException("synthetic unavailable");return value;}).when(storage).getText(anyString());
+        var plannerReceipt=planner(j);var bookReceipt=results.publishValidationPlan(id(j),lease(j),plan(j,ValidationStageKind.BOOK_SOURCE,first,Map.of("source_read_status","READY","planned_checks",1)));
+        results.publishValidationCheckpoint(id(j),lease(j),new Checkpoint(scope(j),"partial-checkpoint",ValidationBranch.SETTING,0,Map.of("saved_stage_refs",List.of("PLANNER:TSEG1","BOOK_SOURCE:"+first)),List.of()));
+        assertThatThrownBy(()->results.publishValidationPlan(id(j),lease(j),plan(j,ValidationStageKind.BOOK_SOURCE,second,Map.of("source_read_status","READY","planned_checks",1)))).isInstanceOf(AppException.class);
+        var saved=workers.loadValidationCheckpoint(id(j),lease(j));var grid=(Map<String,Object>)((Map<String,Object>)saved.get("requiredGrid")).get("SETTING");
+        assertThat(grid.get("pendingBookRefs")).isEqualTo(List.of(second));assertThat(saved.get("gridReady")).isEqualTo(false);
+        assertThatThrownBy(()->results.publishValidationPlan(id(j),lease(j),plan(j,ValidationStageKind.MERGED_PLAN,"PLAN",Map.of("questions",List.of())))).isInstanceOf(AppException.class);
+        expire(j);var resumed=claim();assertThat(scope(resumed).generation()).isEqualTo(scope(j).generation()+1);
+        var restored=workers.loadValidationCheckpoint(id(resumed),lease(resumed));assertThat(restored.get("stages")).isEqualTo(saved.get("stages"));assertThat(restored.get("branches")).isEqualTo(saved.get("branches"));
+        assertThat(planner(resumed)).isEqualTo(plannerReceipt);assertThat(results.publishValidationPlan(id(resumed),lease(resumed),plan(resumed,ValidationStageKind.BOOK_SOURCE,first,Map.of("source_read_status","READY","planned_checks",1)))).isEqualTo(bookReceipt);
+        var stopped=results.completeValidationJob(id(resumed),lease(resumed),new Complete(scope(resumed),"pending-stop","SOURCE_UNREADABLE"));assertThat(stopped.get("status").toString()).isEqualTo("FAILED");assertThat(stopped.get("completedNoCheckSegments")).isEqualTo(0L);
+        workers.retryValidation(f.member(),f.work(),f.report(),new Retry(((Number)stopped.get("reportVersion")).longValue(),"pending-retry"));var retry=claim();texts.put(secondKey,missing);
+        results.publishValidationPlan(id(retry),lease(retry),plan(retry,ValidationStageKind.BOOK_SOURCE,second,Map.of("source_read_status","READY","planned_checks",1)));
+        var expanded=workers.loadValidationCheckpoint(id(retry),lease(retry));var completeGrid=(Map<String,Object>)((Map<String,Object>)expanded.get("requiredGrid")).get("SETTING");assertThat(completeGrid.get("pendingBookRefs")).isEqualTo(List.of());assertThat(((List<?>)completeGrid.get("books"))).hasSize(2);
+        assertThat(reads.get(firstKey).get()).isEqualTo(1);assertThat(reads.get(secondKey).get()).isEqualTo(2);assertThat(jdbc.queryForObject("select count(*) from validation_stages",Integer.class)).isEqualTo(3);
+        assertThat(results.publishValidationPlan(id(retry),lease(retry),plan(retry,ValidationStageKind.PLANNER,"TSEG1",batch(List.of())))).isEqualTo(plannerReceipt);
+        jdbc.update("update setting_book_revisions set content_hash=? where id=?","d".repeat(64),UUID.fromString(books.get(1).path("revisionId").asText()));
+        assertThatThrownBy(()->results.publishValidationCheckpoint(id(retry),lease(retry),new Checkpoint(scope(retry),"changed-book",ValidationBranch.SETTING,1,Map.of("saved_stage_refs",List.of()),List.of())))
+                .isInstanceOfSatisfying(AppException.class,e->assertThat(e.getResultCode().getCode()).isEqualTo("VALIDATION_SOURCE_VERSION_CONFLICT"));
+        assertThat(jdbc.queryForObject("select checkpoint_version from validation_checkpoints",Long.class)).isEqualTo(1L);noExtraction();
+    }
+    @SuppressWarnings("unchecked") @Test @DisplayName("동시 설정집 준비는 Work 잠금에서 두 grid 확장을 모두 보존한다")
+    void concurrentBookDiscoveriesExtendGridWithoutOverwritingEachOther() throws Exception {
+        var f=fixture(null,List.of("동시 첫 책","동시 둘째 책"));var j=claim();
+        var input=data.readValidationData(f.member(),f.work(),f.report(),new org.monitoring.catchholebackend.domain.validation.dto.request.ValidationDataRequest(j.get("baselineHash").toString(),f.hash(),"INPUT",0,100,null,null,null,null,null),id(j),lease(j));
+        var books=new ArrayList<JsonNode>();for(var source:input.path("sources"))if(source.path("sourceKind").asText().equals("SETTING_BOOK"))books.add(source);
+        var keys=new HashSet<String>();books.forEach(b->keys.add(b.path("contentS3Key").asText()));var reading=new CountDownLatch(2);var release=new CountDownLatch(1);
+        org.mockito.Mockito.doAnswer(c->{String key=c.getArgument(0);if(keys.contains(key)){reading.countDown();await(release);}return texts.get(key);}).when(storage).getText(anyString());
+        try(var pool=Executors.newFixedThreadPool(2)) {
+            var a=pool.submit(()->results.publishValidationPlan(id(j),lease(j),plan(j,ValidationStageKind.BOOK_SOURCE,books.getFirst().path("sourceRef").asText(),Map.of("source_read_status","READY","planned_checks",1))));
+            var b=pool.submit(()->results.publishValidationPlan(id(j),lease(j),plan(j,ValidationStageKind.BOOK_SOURCE,books.get(1).path("sourceRef").asText(),Map.of("source_read_status","READY","planned_checks",1))));
+            try {await(reading);}finally{release.countDown();}a.get(20,TimeUnit.SECONDS);b.get(20,TimeUnit.SECONDS);
+        }
+        var saved=workers.loadValidationCheckpoint(id(j),lease(j));var grid=(Map<String,Object>)((Map<String,Object>)saved.get("requiredGrid")).get("SETTING");
+        assertThat(grid.get("pendingBookRefs")).isEqualTo(List.of());for(var book:(List<Map<String,Object>>)grid.get("books"))assertThat(book.get("plannedChecks")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from validation_stages where successful",Integer.class)).isEqualTo(2);noExtraction();
     }
     @Test @DisplayName("원문 읽기 I/O 동안 교체를 막지 않고 늦은 복사를 거절한다") void sourceReplacementCommitsWhileReaderIsBlockedAndLatePublishCannotRestoreCopies() throws Exception {
         var f=fixture();var j=claim();var reading=new CountDownLatch(1);var release=new CountDownLatch(1);var once=new AtomicBoolean(true);

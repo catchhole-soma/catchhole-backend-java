@@ -25,7 +25,7 @@ public class ValidationPublicationValidator {
     public record Context(UUID jobId,UUID lease,Scope scope,Long member,UUID work,String baselineHash,String targetHash,JsonNode configuration,JsonNode entries,Map<String,JsonNode> sourceReferences) {}
     public record Prepared(Context context,ValidationBranch branch,JsonNode grid,Map<String,JsonNode> sources,int entryCount) {}
 
-    public Prepared prepare(Context c,ValidationBranch branch) {
+    public Prepared prepare(Context c,ValidationBranch branch,JsonNode savedGrid,String requestedBook) {
         var input=read(c,"INPUT",null,null,null,null,null);var target=read(c,"READ_SOURCE","T1",c.targetHash(),nullable(input.path("target"),"contentS3Version"),null,null);
         if(target.path("text").asText().isEmpty())throw error(VALIDATION_RESULT_INVALID);
         var limits=c.configuration().path("budgets").path(branch==ValidationBranch.SETTING?"setting":"typo");
@@ -43,15 +43,49 @@ public class ValidationPublicationValidator {
             }
             var books=grid.putArray("books");
             for(var source:input.path("sources"))if("SETTING_BOOK".equals(source.path("sourceKind").asText())) {
-                String ref=source.path("sourceRef").asText();var book=read(c,"READ_SOURCE",ref,source.path("contentHash").asText(),nullable(source,"contentS3Version"),null,null);sources.put(ref,book);
-                var parts=segments(book.path("totalCodePoints").asInt(),core,context);var b=books.addObject().put("sourceRef",ref).put("totalCodePoints",book.path("totalCodePoints").asInt()).put("plannedChecks",(long)parts.size()*segments.size());b.set("segments",parts);
-                unit(units,"BOOK_SOURCE",ref);
-                for(var s:segments)for(int i=0;i<parts.size();i++)unit(units,"BOOK_COVERAGE",s.path("ref").asText()+":"+ref+"SEG"+(i+1));
+                String ref=source.path("sourceRef").asText();var previous=bookOrNull(savedGrid,ref);var b=books.addObject().put("sourceRef",ref);
+                if(previous!=null&&previous.has("totalCodePoints"))b.setAll((ObjectNode)previous.deepCopy());
+                else if(ref.equals(requestedBook)) {
+                    var book=read(c,"READ_SOURCE",ref,source.path("contentHash").asText(),nullable(source,"contentS3Version"),null,null);sources.put(ref,book);
+                    var parts=segments(book.path("totalCodePoints").asInt(),core,context);b.put("totalCodePoints",book.path("totalCodePoints").asInt()).put("plannedChecks",(long)parts.size()*segments.size()).set("segments",parts);
+                }
             }
-            unit(units,"MERGED_PLAN","PLAN");
+            bookUnits(grid);
         }
         return new Prepared(c,branch,grid,sources,input.path("entryCount").asInt());
     }
+    /** Merge concurrent source discoveries under Work without shrinking the server-owned required grid. */
+    public Prepared extendGrid(Prepared prepared,JsonNode current) {
+        if(current==null)return prepared;
+        if(prepared.branch()==ValidationBranch.TYPO) {if(!decisions.same(current,prepared.grid()))throw error(VALIDATION_SOURCE_VERSION_CONFLICT);return prepared;}
+        if(!decisions.same(gridBase(current),gridBase(prepared.grid())))throw error(VALIDATION_SOURCE_VERSION_CONFLICT);
+        var merged=(ObjectNode)prepared.grid().deepCopy();var books=(ArrayNode)merged.path("books");
+        if(current.path("books").size()!=books.size())throw error(VALIDATION_SOURCE_VERSION_CONFLICT);
+        for(int i=0;i<books.size();i++) {
+            var proposed=books.path(i);var old=current.path("books").path(i);
+            if(!old.path("sourceRef").equals(proposed.path("sourceRef")))throw error(VALIDATION_SOURCE_VERSION_CONFLICT);
+            if(old.has("totalCodePoints")) {
+                if(proposed.has("totalCodePoints")&&!decisions.same(old,proposed))throw error(VALIDATION_SOURCE_VERSION_CONFLICT);
+                books.set(i,old.deepCopy());
+            }
+        }
+        bookUnits(merged);return new Prepared(prepared.context(),prepared.branch(),merged,prepared.sources(),prepared.entryCount());
+    }
+    private ObjectNode gridBase(JsonNode grid) {
+        var base=(ObjectNode)grid.deepCopy();base.remove(List.of("books","pendingBookRefs"));var units=base.putArray("units");
+        for(var row:grid.path("units"))if(!Set.of("BOOK_SOURCE","BOOK_COVERAGE","MERGED_PLAN").contains(row.path("stage").asText()))units.add(row);
+        return base;
+    }
+    private void bookUnits(ObjectNode grid) {
+        var base=gridBase(grid);var units=grid.putArray("units");units.addAll((ArrayNode)base.path("units"));var pending=grid.putArray("pendingBookRefs");
+        for(var book:grid.path("books")) {
+            String ref=book.path("sourceRef").asText();unit(units,"BOOK_SOURCE",ref);
+            if(!book.has("totalCodePoints")) {pending.add(ref);continue;}
+            for(var segment:grid.path("segments"))for(int i=0;i<book.path("segments").size();i++)unit(units,"BOOK_COVERAGE",segment.path("ref").asText()+":"+ref+"SEG"+(i+1));
+        }
+        unit(units,"MERGED_PLAN","PLAN");
+    }
+    public static boolean sourcesReady(JsonNode grid) {return grid!=null&&grid.path("pendingBookRefs").isEmpty();}
     public void recheck(Context c) {read(c,"VALIDATE",null,null,null,null,null);}
     public void payload(Prepared p,JsonNode payload,List<Citation> citations) {
         if(payload.toString().getBytes(StandardCharsets.UTF_8).length>MAX_PAYLOAD_BYTES||citations.size()>1000)throw error(VALIDATION_RESULT_INVALID);
@@ -166,7 +200,8 @@ public class ValidationPublicationValidator {
         for(var row:grid.path("units"))if(kind.name().equals(row.path("stage").asText())&&ref.equals(row.path("ref").asText()))return true;return false;
     }
     public static JsonNode segment(JsonNode grid,String ref) {for(var row:grid.path("segments"))if(ref.equals(row.path("ref").asText()))return row;throw error(VALIDATION_RESULT_INVALID);}
-    private static JsonNode findBook(JsonNode grid,String ref) {for(var row:grid.path("books"))if(ref.equals(row.path("sourceRef").asText()))return row;throw error(VALIDATION_RESULT_INVALID);}
+    private static JsonNode bookOrNull(JsonNode grid,String ref) {if(grid!=null)for(var row:grid.path("books"))if(ref.equals(row.path("sourceRef").asText()))return row;return null;}
+    private static JsonNode findBook(JsonNode grid,String ref) {var book=bookOrNull(grid,ref);if(book==null||!book.has("totalCodePoints"))throw error(VALIDATION_RESULT_INVALID);return book;}
     private static ArrayNode segments(int length,int core,int context) {
         var a=JsonNodeFactory.instance.arrayNode();for(int start=0,index=1;start<length;start+=core,index++)a.addObject().put("ref","TSEG"+index).put("start",start).put("end",Math.min(length,(long)start+core)).put("contextStart",Math.max(0,start-context)).put("contextEnd",Math.min(length,(long)start+core+context));return a;
     }

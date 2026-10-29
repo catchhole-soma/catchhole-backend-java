@@ -39,7 +39,7 @@ public class ValidationJob extends BaseEntity {
     public void initializeGrid(ValidationBranch branch,JsonNode grid) {
         if(requiredGrid==null)requiredGrid=com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
         ((com.fasterxml.jackson.databind.node.ObjectNode)requiredGrid).set(branch.name(),grid.deepCopy());
-        gridReady=requiredGrid.has("SETTING")&&requiredGrid.has("TYPO");
+        gridReady=requiredGrid.has("SETTING")&&requiredGrid.has("TYPO")&&requiredGrid.path("SETTING").path("pendingBookRefs").isEmpty();
     }
     public void finish(ValidationExecutionStatus result,String reason) { status=result;failureCode=reason; }
     public void cancel() { status=ValidationExecutionStatus.CANCELED;leaseToken=null;leaseExpiresAt=null;requiredGrid=null;gridReady=false;failureCode="SOURCE_EVIDENCE_PURGED"; }

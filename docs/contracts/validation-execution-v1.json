@@ -1239,7 +1239,8 @@
             }
           ],
           "clueVersion": 1,
-          "modelClues": []
+          "modelClues": [],
+          "pendingBookRefs": []
         },
         "expectedTypo": {
           "gridVersion": 1,
@@ -1440,7 +1441,8 @@
             }
           ],
           "clueVersion": 1,
-          "modelClues": []
+          "modelClues": [],
+          "pendingBookRefs": []
         },
         "expectedTypo": {
           "gridVersion": 1,
@@ -1620,7 +1622,8 @@
               }
             }
           ],
-          "books": []
+          "books": [],
+          "pendingBookRefs": []
         },
         "expectedTypo": {
           "gridVersion": 1,

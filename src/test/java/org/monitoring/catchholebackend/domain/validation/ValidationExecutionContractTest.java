@@ -36,9 +36,14 @@ class ValidationExecutionContractTest {
             when(service.readValidationData(anyLong(),any(),any(),any(),any(),any())).thenAnswer(call->{var request=call.getArgument(3,org.monitoring.catchholebackend.domain.validation.dto.request.ValidationDataRequest.class);if(request.operation().equals("INPUT"))return input;
                 String text=request.sourceRef().equals("T1")?target:example.path("sourceTexts").path(request.sourceRef()).asText();return json.createObjectNode().put("status","READY").put("text",text).put("totalCodePoints",text.codePointCount(0,text.length()));});
             var validator=new ValidationPublicationValidator(service,decision,new ValidationClueCollector(),mapping);
-            if(example.has("expectedError"))assertThatThrownBy(()->validator.prepare(context,ValidationBranch.SETTING)).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class);
-            else {assertThat(journal.canonicalJson(validator.prepare(context,ValidationBranch.SETTING).grid())).as(example.path("name").asText()).isEqualTo(journal.canonicalJson(example.path("expectedSetting")));assertThat(journal.canonicalJson(validator.prepare(context,ValidationBranch.TYPO).grid())).isEqualTo(journal.canonicalJson(example.path("expectedTypo")));}
+            if(example.has("expectedError"))assertThatThrownBy(()->prepareGrid(validator,context,ValidationBranch.SETTING,input)).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class);
+            else {assertThat(journal.canonicalJson(prepareGrid(validator,context,ValidationBranch.SETTING,input).grid())).as(example.path("name").asText()).isEqualTo(journal.canonicalJson(example.path("expectedSetting")));assertThat(journal.canonicalJson(prepareGrid(validator,context,ValidationBranch.TYPO,input).grid())).isEqualTo(journal.canonicalJson(example.path("expectedTypo")));}
         }
+    }
+    ValidationPublicationValidator.Prepared prepareGrid(ValidationPublicationValidator validator,ValidationPublicationValidator.Context context,ValidationBranch branch,JsonNode input) {
+        var prepared=validator.prepare(context,branch,null,null);
+        if(branch==ValidationBranch.SETTING)for(var source:input.path("sources"))if(source.path("sourceKind").asText().equals("SETTING_BOOK"))prepared=validator.prepare(context,branch,prepared.grid(),source.path("sourceRef").asText());
+        return prepared;
     }
     @Test @DisplayName("서버 projection은 페이지와 무관한 S 참조와 원문 ref를 보존한다") void canonicalProjectionHasStableSubjectAndSourceRefs() throws Exception {
         var f=fixture().path("projectionVector");var sources=new LinkedHashMap<String,JsonNode>();f.path("sources").properties().forEach(e->sources.put(e.getKey(),e.getValue()));

@@ -181,7 +181,10 @@ class ValidationWorkerIntegrationTest extends ValidationRecheckFixture {
         when(storage.getText(anyString())).thenReturn(text);
     }
     @Test @DisplayName("모든 필수 점검이 끝난 무질문 구간은 부분 성공으로 센다") void fullyCoveredNoCheckSegmentCountsBeforeAnotherSegmentFails() throws Exception {
-        targetText("가".repeat(105));start();var job=claim();prePlan(job,List.of());
+        targetText("가".repeat(105));String bookKey="synthetic/empty-book";String emptyHash=java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(new byte[0]));
+        var book=org.monitoring.catchholebackend.domain.upload.entity.UploadFile.create(em.find(org.monitoring.catchholebackend.domain.upload.entity.UploadBatch.class,batchId),org.monitoring.catchholebackend.domain.upload.type.UploadFileRole.SETTING_BOOK,"empty.txt","text/plain","s3://synthetic/empty",0);em.persist(book);
+        var revision=org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision.create(book,1,new org.monitoring.catchholebackend.global.storage.StoredTextObject(bookKey,"v1",emptyHash,0),org.monitoring.catchholebackend.domain.upload.type.SettingBookReferenceTimeKind.WORK_START,null);em.persist(revision);book.linkCurrentRevision(revision);em.flush();when(storage.getText(bookKey)).thenReturn("");
+        start();var job=claim();prePlan(job,List.of());savePlan(job,"BOOK_SOURCE","R2",Map.of("source_read_status","READY","planned_checks",0));
         var finish=internal(path(job,"/complete"),job,Map.of("scope",scope(job),"idempotencyKey","one-no-check","failureCode","MODEL_CALL_FAILED"),200);
         assertThat(finish.path("status").asText()).isEqualTo("PARTIAL");assertThat(finish.path("completedNoCheckSegments").asInt()).isEqualTo(1);noExtraction();
     }
@@ -302,10 +305,13 @@ class ValidationWorkerIntegrationTest extends ValidationRecheckFixture {
         var book=org.monitoring.catchholebackend.domain.upload.entity.UploadFile.create(em.find(org.monitoring.catchholebackend.domain.upload.entity.UploadBatch.class,batchId),org.monitoring.catchholebackend.domain.upload.type.UploadFileRole.SETTING_BOOK,"book.txt","text/plain","s3://synthetic/book",30);em.persist(book);
         var revision=org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision.create(book,1,new org.monitoring.catchholebackend.global.storage.StoredTextObject(bookKey,"v1",hash,bookText.length()),org.monitoring.catchholebackend.domain.upload.type.SettingBookReferenceTimeKind.WORK_START,null);em.persist(revision);book.linkCurrentRevision(revision);em.flush();org.mockito.Mockito.when(storage.getText(bookKey)).thenThrow(new IllegalStateException("synthetic unavailable"));
         start();var job=claim();mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(WORKER+path(job,"/checkpoint")).header("X-Internal-Api-Key",KEY).header("X-Worker-Lease-Token",job.path("leaseToken").asText())).andExpect(status().isOk()).andExpect(jsonPath("$.data.gridReady").value(false));
-        internal(path(job,"/plans"),job,publication(job,"SETTING","PLANNER","TSEG1",batch("TSEG1",List.of())),409);
+        internal(path(job,"/plans"),job,publication(job,"SETTING","PLANNER","TSEG1",batch("TSEG1",List.of())),200);
+        internal(path(job,"/checkpoint"),job,Map.of("scope",scope(job),"idempotencyKey","partial-setting-checkpoint","branch","SETTING","expectedVersion",0,"payload",Map.of("saved_stage_refs",List.of("PLANNER:TSEG1")),"citations",List.of()),200);
+        internal(path(job,"/plans"),job,publication(job,"SETTING","BOOK_SOURCE","R2",Map.of("source_read_status","READY","planned_checks",1)),409);
+        internal(path(job,"/plans"),job,publication(job,"SETTING","MERGED_PLAN","PLAN",Map.of("questions",List.of())),400);
         internal(path(job,"/units"),job,unit(job,"TYPO","TSEG1","COMPLETED",typoEmpty()),200);
         var finish=internal(path(job,"/complete"),job,Map.of("scope",scope(job),"idempotencyKey","independent-book","failureCode","SOURCE_UNREADABLE"),200);
-        assertThat(finish.path("status").asText()).isEqualTo("PARTIAL");assertThat(finish.path("typoStatus").asText()).isEqualTo("COMPLETED");assertThat(finish.path("settingStatus").asText()).isEqualTo("FAILED");assertThat(finish.path("coverage").path("gridReady").asBoolean()).isFalse();org.mockito.Mockito.verify(storage,org.mockito.Mockito.times(1)).getText(bookKey);noExtraction();
+        assertThat(finish.path("status").asText()).isEqualTo("PARTIAL");assertThat(finish.path("typoStatus").asText()).isEqualTo("COMPLETED");assertThat(finish.path("settingStatus").asText()).isEqualTo("FAILED");assertThat(finish.path("coverage").path("gridReady").asBoolean()).isFalse();assertThat(finish.path("completedNoCheckSegments").asInt()).isZero();org.mockito.Mockito.verify(storage,org.mockito.Mockito.times(1)).getText(bookKey);noExtraction();
     }
     @Test @DisplayName("TYPO의 최종 검증을 계획 endpoint로 우회할 수 없다") void typoCoverageCannotBypassUnitValidationThroughPlanRoute() throws Exception {
         source();var report=start();var job=claim();var before=get(UUID.fromString(report.path("reportId").asText()));

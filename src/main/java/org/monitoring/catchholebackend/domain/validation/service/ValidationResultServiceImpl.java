@@ -140,13 +140,16 @@ public class ValidationResultServiceImpl implements ValidationResultService {
     private Map<String,Object> publish(UUID id,UUID lease,Scope scope,String operation,String key,Object command,ValidationBranch branch,Object payload,List<Citation> citations,Publication action) {
         if(mapper.toTree(command).toString().getBytes(java.nio.charset.StandardCharsets.UTF_8).length>ValidationPublicationValidator.MAX_PAYLOAD_BYTES)throw error(VALIDATION_RESULT_INVALID);
         var replay=transaction(junk->{var j=access.running(id,lease,scope);requireCurrentUnit(j,command);return receipt(j,operation,key,command);});if(replay!=null)return replay;
-        Context context=transaction(junk->context(access.running(id,lease,scope),lease));var prepared=validator.prepare(context,branch);validator.payload(prepared,mapper.toTree(payload),citations);
+        var snapshot=transaction(junk->{var j=access.running(id,lease,scope);return new Preparation(context(j,lease),j.getRequiredGrid()==null?null:j.getRequiredGrid().path(branch.name()).deepCopy());});
+        String book=command instanceof Publish c&&c.stage()==ValidationStageKind.BOOK_SOURCE&&c.failureCode()==null?c.ref():null;
+        Context context=snapshot.context();var prepared=validator.prepare(context,branch,snapshot.grid(),book);validator.payload(prepared,mapper.toTree(payload),citations);
         return transaction(junk->{var j=access.running(id,lease,scope);requireCurrentUnit(j,command);var existing=receipt(j,operation,key,command);if(existing!=null)return existing;validator.recheck(context);
-            var old=j.getRequiredGrid()==null?null:j.getRequiredGrid().get(branch.name());if(old!=null&&!journal.hash(old).equals(journal.hash(prepared.grid())))throw error(VALIDATION_SOURCE_VERSION_CONFLICT);
-            j.initializeGrid(branch,prepared.grid());var publication=action.publish(j,prepared);var response=mapper.toTransport(publication.response());if(publication.changed())j.getReport().advanceVersion();saveReceipt(j,operation,key,command,response);em.flush();return response;});
+            var old=j.getRequiredGrid()==null?null:j.getRequiredGrid().get(branch.name());var extended=validator.extendGrid(prepared,old);
+            j.initializeGrid(branch,extended.grid());var publication=action.publish(j,extended);var response=mapper.toTransport(publication.response());if(publication.changed())j.getReport().advanceVersion();saveReceipt(j,operation,key,command,response);em.flush();return response;});
     }
     private void merge(ValidationJob j,JsonNode payload,List<ValidationStage> stages,Prepared p) {
         var grid=p.grid();
+        if(!ValidationPublicationValidator.sourcesReady(grid))throw error(VALIDATION_RESULT_INVALID);
         for(var unit:grid.path("units"))if(!"MERGED_PLAN".equals(unit.path("stage").asText())&&stages.stream().noneMatch(s->s.isSuccessful()&&s.getBranch()==ValidationBranch.SETTING&&s.getStage().name().equals(unit.path("stage").asText())&&s.getRef().equals(unit.path("ref").asText())))throw error(VALIDATION_RESULT_INVALID);
         if(!payload.path("questions").isArray())throw error(VALIDATION_RESULT_INVALID);
         var originals=new HashMap<String,JsonNode>();for(var s:stages)if(s.getBranch()==ValidationBranch.SETTING&&Set.of(ValidationStageKind.PLANNER,ValidationStageKind.COVERAGE,ValidationStageKind.BOOK_COVERAGE).contains(s.getStage()))
@@ -201,6 +204,7 @@ public class ValidationResultServiceImpl implements ValidationResultService {
 
     private boolean complete(ValidationJob j,ValidationBranch branch) {
         if(j.getRequiredGrid()==null||!j.getRequiredGrid().has(branch.name()))return false;
+        if(branch==ValidationBranch.SETTING&&!ValidationPublicationValidator.sourcesReady(j.getRequiredGrid().path(branch.name())))return false;
         var stages=results.stages(j.getReport().getId());for(var row:j.getRequiredGrid().path(branch.name()).path("units"))if(stages.stream().noneMatch(s->s.isSuccessful()&&s.getBranch()==branch&&s.getStage().name().equals(row.path("stage").asText())&&s.getRef().equals(row.path("ref").asText())))return false;
         return branch!=ValidationBranch.SETTING||results.checks(j.getReport().getId()).stream().allMatch(ValidationCheck::completed);
     }
@@ -210,6 +214,7 @@ public class ValidationResultServiceImpl implements ValidationResultService {
     private long noCheckSegments(ValidationJob j) {
         if(j.getRequiredGrid()==null||!j.getRequiredGrid().has("SETTING"))return 0;
         var grid=j.getRequiredGrid().path("SETTING");var stages=results.stages(j.getReport().getId());long count=0;
+        if(!ValidationPublicationValidator.sourcesReady(grid))return 0;
         for(var segment:grid.path("segments")) {
             String ref=segment.path("ref").asText();boolean ready=true;
             for(var required:grid.path("units")) {
@@ -244,5 +249,6 @@ public class ValidationResultServiceImpl implements ValidationResultService {
     private boolean safeCode(String code) {return code!=null&&code.matches("[A-Z][A-Z0-9_]{0,99}");}
     private <T>T transaction(Function<Void,T> action) {return new TransactionTemplate(transactions).execute(s->action.apply(null));}
     private record PublicationResult(Map<String,Object> response,boolean changed) {}
+    private record Preparation(Context context,JsonNode grid) {}
     private interface Publication {PublicationResult publish(ValidationJob j,Prepared p);}
 }
