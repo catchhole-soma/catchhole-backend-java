@@ -9,8 +9,10 @@
 
 신뢰 서버가 `ValidationContext(member_id, work_id, report_id, baseline_hash, target_hash)`를 만든다.
 서버 ID·SQL·저장소 key·lease·작품/기준 선택 권한을 모델에서 받지 않는다.
-현재 GH303에는 별도 검수 Job/lease가 없으므로 report가 고정 기준을 식별하며 baselineRevision은 1이다.
-별도 기준 revision 저장이 도입되면 계약 버전을 올려 연결한다. 현재 값을 과거 기준으로 재구성하지 않는다.
+GH306 최초 접수/read 계약의 baselineRevision은 1이다. GH310의 재검수 Java 응답은 실제 baselineRevision과
+reportMode·원고 contentRevision을 제공한다. 실행 연결은 신뢰된 claim의 expected revision과 함께 검증하며
+기존 Python의 상수 1 검증을 그대로 재검수에 사용할 수 없다. 접수·정정 범위는 `docs/validation-execution-v1.md`를 따른다.
+현재 값을 과거 기준으로 재구성하지 않는다.
 
 `ValidationDataClient`는 다음 내부 API를 호출한다.
 

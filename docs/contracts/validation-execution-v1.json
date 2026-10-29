@@ -1,0 +1,79 @@
+{
+  "contractVersion": 1,
+  "scope": "GH310 admission/rechecks/corrections; execution and review release are separate implementation units",
+  "synthetic": true,
+  "identities": {
+    "reportId": "00000000-0000-4000-8000-000000000001",
+    "baselineId": "00000000-0000-4000-8000-000000000001",
+    "episodeId": "00000000-0000-4000-8000-000000000002",
+    "characterId": "00000000-0000-4000-8000-000000000003"
+  },
+  "recheckRequest": {
+    "idempotencyKey": "synthetic-recheck-2",
+    "expectedReportVersion": 3,
+    "expectedContentHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "expectedContentS3Key": "synthetic/episode-101-revision-2.txt",
+    "expectedContentS3Version": "synthetic-version-2",
+    "expectedContentRevision": 1,
+    "expectedBaselineHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "correctionRequest": {
+    "idempotencyKey": "synthetic-age-correction",
+    "expectedReportVersion": 2,
+    "baselineId": "00000000-0000-4000-8000-000000000001",
+    "expectedBaselineRevision": 1,
+    "expectedBaselineHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "entryRef": "B1",
+    "expectedEntryHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "character": {
+      "targetId": "00000000-0000-4000-8000-000000000003",
+      "expectedSnapshotVersion": 0,
+      "factType": "AGE",
+      "factKey": "age",
+      "edit": {
+        "name": "합성 인물",
+        "roleLabel": null,
+        "currentAge": 21,
+        "currentLevel": 1,
+        "firstAppearanceEpisodeNo": null,
+        "profile": [],
+        "stats": [],
+        "skills": [],
+        "items": [],
+        "statuses": []
+      }
+    }
+  },
+  "serverCorrectionScope": {
+    "kind": "AUTHOR_CORRECTION",
+    "sourceKind": "AUTHOR_MANUAL_EDIT",
+    "scopeKind": "CURRENT_VALUE",
+    "targetId": "00000000-0000-4000-8000-000000000003",
+    "domain": "characters",
+    "factType": "AGE",
+    "factKey": "age",
+    "beforeValue": "20",
+    "beforeValueJson": { "value": 20 },
+    "afterValue": "21",
+    "afterValueJson": { "value": 21 },
+    "entityVersion": 1,
+    "correctionId": "00000000-0000-4000-8000-000000000004",
+    "baselineId": "00000000-0000-4000-8000-000000000001",
+    "baselineRevision": 1,
+    "entryRef": "B1",
+    "entryHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "invariants": {
+    "reportModeIsServerDerived": true,
+    "baselineIdEqualsReportId": true,
+    "recheckCreatesNewReport": true,
+    "sameInputRetryCreatesNewReport": false,
+    "ordinarySaveCreatesCorrection": false,
+    "extractionJobId": null,
+    "candidateGeneration": null,
+    "candidateDigest": null,
+    "nullExpectedBaselineHash": "Only when the current server report has neither a baseline fingerprint nor a saved seed",
+    "diagnosticWithoutVerifiedPreApplicationInput": "HELD_INCOMPLETE/DIAGNOSTIC_BASELINE_UNAVAILABLE",
+    "correctionTimeAndConditions": "CURRENT_VALUE scope is not proof of arbitrary narrative time or conditions; unresolved mapping remains NEEDS_CONTEXT"
+  }
+}
