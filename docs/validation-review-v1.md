@@ -1,9 +1,10 @@
-# 작가 판단·검토 종료 v1 — GH312 S1·S2
+# 작가 판단·검토 종료·회차 전체 확정 v1 — GH312 S1·S2·S3
 
-GH310 검수 실행이 저장한 finding에 작가 판단을 저장하고(S1) 검토 종료 receipt와 설정 추출 release를 만든다(S2).
+GH310 검수 실행이 저장한 finding에 작가 판단을 저장하고(S1) 검토 종료 receipt와 설정 추출 release를 만든 뒤(S2)
+추출 결과를 회차 단위로 한 번에 확정한다(S3).
 **마지막 판단 저장은 어떤 경우에도 검토 종료나 추출을 시작하지 않는다.** 검토 종료는 `/complete`의 서버 자동 판정 또는
 `POST /review-completion` 명시 요청에서만 생기며, 그 전에는 AnalysisJob·후보·journal·확정이 0이다.
-회차 전체 확정(후보 적용 gate)은 S3, 이력·배치 요약 마감은 S4 범위다.
+추출 성공은 설정 확정이 아니다. 회차 전체 확정(아래 S3)만 release 회차의 확정 설정을 쓰며, 이력·배치 요약 마감은 S4 범위다.
 
 ## 저장 모델 (V96)
 
@@ -40,6 +41,7 @@ TYPO segment는 성공 저장 뒤 같은 payload 재전송이 receipt만 반환�
 | `PATCH /findings/{findingId}/judgment` | `ValidationJudgmentRequest{judgment, expectedJudgmentVersion, expectedCheckRevision}` → `ValidationFindingSummaryResponse` |
 | `GET /review` | `ValidationReviewSummaryResponse` (S2: `completion` 포함) |
 | `POST /review-completion` | S2. `ValidationReviewCompletionRequest{expectedReportVersion, idempotencyKey}` → `ValidationReviewCompletionResponse` |
+| `POST /settings-application` | S3. `ValidationSettingsApplicationRequest{expectedReportVersion, idempotencyKey}` → `ValidationSettingsApplicationResponse` |
 
 목록 요약(`summary`)은 payload에서 `impact`(SETTING), `reason`, `replacement`(TYPO), 원문 위치 `spans`만 투영한다.
 상세 `payload`는 `reason/basis/impact/impact_reason/target_spans/evidence_refs/disagreements/completion/span/replacement/category`만 허용하고
@@ -73,12 +75,13 @@ JPA `@Version`은 사용하지 않는다. 검사 순서와 오류는 다음과 �
 - `canCompleteReview` = `EXPLICIT_REQUIRED` 또는 receipt 없는 `AUTOMATIC_ELIGIBLE`(아래 자동 종료 보류). `allowedActions`의 `COMPLETE_REVIEW`도 같다.
 - `judgmentLocked`/`lockReason` ∈ `REPORT_INVALIDATED, BASELINE_NOT_READY, EXECUTION_NOT_STARTED, EXECUTION_IN_PROGRESS, EXECUTION_CANCELED, REVIEW_COMPLETED`.
 - `allowedActions`는 화면 안내용이다. `SAVE_JUDGMENT`(잠금 없음+현재 항목 존재), `COMPLETE_REVIEW`, `RETRY`(실행 활성화+유효 report+PARTIAL/FAILED 또는 Job 없는 READY 기준),
-  `RECHECK`(현재 포인터가 무효 report). 최신 회차·seed·예산 같은 실제 조건은 각 요청에서 서버가 다시 검증한다.
+  `RECHECK`(현재 포인터가 무효 report), `APPLY_SETTINGS`(S3: 검토 종료 receipt가 있고 무효 report가 아니며 회차 전체 확정이 APPLIED가 아님).
+  최신 회차·seed·예산·추출 진행 같은 실제 조건은 각 요청에서 서버가 다시 검증한다.
 - DIAGNOSTIC_ONLY report는 판단 저장은 가능하지만 항상 `BLOCKED(DIAGNOSTIC_ONLY)`다. 이미 반영된 회차의 진단은 새 추출을 만들지 않는다.
 
 `ValidationStagingResponse.errorReviewStatus`도 이 판정을 사용한다. 무효 report `INVALIDATED`, 실행 미완료(Job 없음·진행·PARTIAL·FAILED·CANCELED) `NOT_STARTED`,
 `AUTOMATIC_ELIGIBLE`/`EXPLICIT_REQUIRED`/`COMPLETED` `READY`, 그 밖의 완료 report(판단 남음·NEEDS_FIX·진단) `PENDING`이다. RETRY 재전송의 저장 snapshot은 당시 값을 유지한다.
-`extractionJobId`·`extractionStatus`는 S2 receipt에서 채우고(아래), `candidateStatus`·`candidateGeneration`은 계속 NOT_STARTED/null이다.
+`extractionJobId`·`extractionStatus`는 S2 receipt에서 채우고(아래), `candidateStatus`는 S3 회차 전체 확정 결과(아래)다. `candidateGeneration`은 계속 null이다.
 
 ## 검토 종료·release (S2)
 
@@ -136,7 +139,7 @@ DIAGNOSTIC_ONLY·INVALIDATED·HELD_INCOMPLETE·기준 미준비·실행 미완�
 | `AnalysisJobEligibility.DOMAIN` (claim·DB snapshot 공유) | 직접·target-only 회차의 현재 report에 receipt가 없으면 claim하지 않는다 |
 | `AnalysisJobRepository.existsValidationStagingForEpisodes` | 같은 규칙(이름 유지) |
 | `AnalysisJobLeaseServiceImpl` 늦은 callback | 같은 규칙 |
-| `AnalysisCandidateSourceGuard.assertCurrent` | 같은 규칙. receipt가 있으면 후보 쓰기를 허용(release 회차 수동 확정 제한은 S3) |
+| `AnalysisCandidateSourceGuard.assertCurrent` | 같은 규칙. receipt가 있으면 후보 쓰기를 허용. 사람의 확정 경로는 S3의 `assertManualWriteAllowed`가 release 회차를 막는다 |
 | `AnalysisJobServiceImpl` 공개 생성 | `existsCurrentValidationReportForEpisodes`: 현재 report가 있으면 **종료 뒤에도** 차단. release Job은 receipt 서비스만 만든다 |
 | `AnalysisJobServiceImpl` 공개 재시도 | 현재 report가 있으면 그 receipt의 `extraction_job_id` Job만 허용. 새 Job이 생기면 같은 트랜잭션에서 연결 Job·세대를 옮긴다. 기본 release는 ORDERED_PROVISIONAL이라 재시도가 같은 Job을 재개하며 세대는 1로 유지된다 |
 
@@ -151,8 +154,8 @@ DIAGNOSTIC_ONLY·INVALIDATED·HELD_INCOMPLETE·기준 미준비·실행 미완�
 
 ### 파기 순서
 
-작품/회원 파기(`WorkPurgeDataRepository`)는 `validation_review_completions`를 가장 먼저 지운 뒤 판단 이력 → … → `validation_reports`, 이후 `analysis_jobs`를 지운다.
-receipt는 report와 analysis Job을 모두 참조하기 때문이다. `ValidationExecutionRepository.purge`(무효화)는 receipt를 지우지 않는다.
+작품/회원 파기(`WorkPurgeDataRepository`)는 S3 `validation_settings_applications` → `validation_review_completions`를 가장 먼저 지운 뒤 판단 이력 → … → `validation_reports`, 이후 `analysis_jobs`를 지운다.
+두 receipt가 report와 analysis Job을, 회차 전체 확정 receipt는 검토 종료 receipt도 참조하기 때문이다. `ValidationExecutionRepository.purge`(무효화)는 두 receipt를 지우지 않는다.
 
 ### 잠금 순서
 
@@ -165,19 +168,127 @@ release는 검수 계약대로 Work를 먼저 잠근 뒤 공개 생성 경로의
 - 같은 원문인 FAILED ordered release Job이 남은 채 다른 이유(기준 변경 등)로 재검수하면, 새 report의 release는 공개 생성 경로의
   `ANALYSIS_ORDERED_JOB_RETRY_REQUIRED`로 막히고 옛 Job 재시도는 receipt 연결이 없어 막힌다(미검증 이론상 경우, GH201의 설정 변경 거절이 대부분 예방한다).
 
+## 회차 전체 확정 (S3)
+
+release 회차(현재 report에 검토 종료 receipt)의 캐릭터·세계관 후보는 `ValidationSettingsApplicationService`만 확정한다.
+**Work 잠금 → (명시) report CAS → 평가 → 두 도메인을 한 트랜잭션에서 반영하거나, 하나라도 반영할 수 없으면 아무것도 쓰지 않고 보류를 기록한다.**
+부분 성공은 없다. `ValidationReportStatus`에는 값을 추가하지 않고 V99 receipt 행으로 상태를 표현한다.
+
+### 저장 모델 (V99)
+
+`validation_settings_applications`는 report당 한 행(`report_id` unique)이며 평가마다 갱신한다.
+
+| 컬럼 | 의미 |
+| --- | --- |
+| `completion_id`, `extraction_job_id`, `extraction_job_generation` | 평가한 검토 종료 receipt와 그 receipt의 현재 release Job·세대 |
+| `status` | `HELD_REVIEW`(이번 시도는 확정 설정 쓰기 0) 또는 `APPLIED`(두 도메인 모두 성공). `FAILED`는 CHECK에만 예약했고 S3는 쓰지 않는다 |
+| `hold_reasons` | HELD_REVIEW만. `[{code, candidateType(CHARACTER/WORLD_SETTING/EPISODE), candidateId?, detail?}]` |
+| `attempt` | receipt를 기록한 평가 수. 같은 키 재전송·APPLIED 뒤 요청은 늘리지 않는다 |
+| `trigger`, `idempotency_key`, `request_hash` | 마지막 기록 경로. EXPLICIT만 키·`{reportId, expectedReportVersion}` hash를 가진다(`(work_id, idempotency_key)` 부분 unique). AUTOMATIC 시도는 비운다 |
+| `last_error_code` | 반영 트랜잭션을 되돌린 AppException 코드 또는 `UNEXPECTED_ERROR` |
+| `report_version` | 이 시도가 report version을 올린 뒤의 값. 재전송이 같은 응답을 받는다 |
+| `applied_at`, `version` | CHECK `(status='APPLIED') = (applied_at IS NOT NULL)`. `version`은 기록마다 1 증가하는 명시적 값(JPA `@Version` 아님) |
+
+### 평가 (`ValidationApplicationGate.evaluate`, 상태 변경 없음)
+
+현재 report와 검토 종료 receipt가 필요하다(없으면 `VALIDATION_APPLICATION_UNAVAILABLE` 409). 결과는 `READY`(반영 순서 계획), `HELD(사유)`, `NOT_READY`다.
+
+1. report 무효(`INVALIDATED`) → `REPORT_INVALIDATED`. report batch가 회차의 현재 원본 업로드 batch가 아니면 `SOURCE_CHANGED`(detail `UPLOAD_BATCH`).
+2. 추출 성공은 receipt가 가리키는 Job의 journal `SEALED` + 상태 `RUNNING`(완료 트랜잭션 안) 또는 `SUCCEEDED`다. 그 전의 `PENDING/RUNNING`은 `NOT_READY`(receipt를 쓰지 않음),
+   실패·취소·`INCOMPLETE/INVALIDATED`는 `EXTRACTION_NOT_FINISHED`, 원문 버전이 현재 회차와 다르면 `SOURCE_CHANGED`(detail `EXTRACTION_SOURCE`).
+3. 그 Job의 검토 대기 후보 전체를 기존 자동 반영 규칙(`SettingCandidateServiceImpl.applyAutomatically`, `WorldSettingCandidateServiceImpl.isAutomaticCandidate`)과 같은 조건으로 판정한다.
+   제외·확정 후보는 건너뛴다.
+
+| 코드 | 감지 조건 |
+| --- | --- |
+| `AUTHOR_EDIT_PENDING` | 캐릭터 `userModified`/`reviewedApplicationMode`, 세계관 `finalOperation` 초안. S3는 자동 반영 규칙으로 판정할 수 있는 후보만 반영한다 |
+| `SUBJECT_UNRESOLVED` | 미상·AMBIGUOUS·실제/임시 대상 없음·연결 대기·이미 등록된 이름의 미연결 발견, 세계관 주체 해소 AMBIGUOUS/FAILED 또는 `SUBJECT_UNRESOLVED` |
+| `SCOPE_UNRESOLVED` | 세계관 `SCOPE_UNRESOLVED`/`SCOPE_MISMATCH` |
+| `VALUE_INVALID` | 조회의 `valueValidation INVALID`와 같은 판정(schema 해석 실패 포함). detail은 CharacterErrorCode |
+| `COMPARISON_PENDING` / `COMPARISON_FAILED` / `TOKEN_QUOTA` | 비교 PENDING·PROCESSING / FAILED·RECOMPARISON_REQUIRED·NOT_REQUIRED / `AI_TOKEN_QUOTA_EXHAUSTED` 실패 |
+| `REVIEW_REQUIRED` | 제안 REVIEW_REQUIRED·없음, 세계관 CONFLICT·`BATCH_LIMIT_EXCEEDED`·`GENERAL_UNCERTAINTY`·결정 불일치·root 이동 비활성, 비교 단계에서 기록된 `automaticReviewHoldReason`(detail) |
+| `CANDIDATE_CHANGED` | 반영 단계에서 기존 규칙이 계획한 후보를 보류·미반영함(현재 설정 변경·의존·보호 등, detail은 원래 보류 사유 또는 `NOT_APPLIED`) |
+| `UNKNOWN_ERROR` | 반영 트랜잭션이 예외로 되돌려짐. detail과 `last_error_code`가 오류 코드 |
+
+### 반영
+
+READY면 같은 트랜잭션에서 기존 contributor의 `applyAutomatically`를 캐릭터 → 세계관 순서로 실행한다. 두 contributor와 그 아래 확정 내부
+(Fact·snapshot·provenance, 신규 인물, 세계관 그룹 확정 core, 이미지 갱신, 서사 시점 확정)는 **변경 없이 재사용**한다. 추출한 별도 메서드는 없다.
+contributor는 검증 실패를 보류 표시로 흡수하므로, 실행 뒤 그 Job에 검토 대기 후보가 하나라도 남거나 어떤 예외라도 나면
+`VALIDATION_APPLICATION_ROLLED_BACK` 신호로 트랜잭션 전체(두 도메인 쓰기·보류 표시·확정 설정 변경 무효화 포함)를 되돌린다.
+남은 후보가 없을 때만 `AnalysisJob.completeReviewReleaseApplication()`이 `automaticAppliedAt`을 기록하고 receipt를 APPLIED로 바꾼 뒤 `report.advanceVersion()`한다.
+보류는 확정 설정을 쓰지 않고 receipt(HELD_REVIEW, attempt+1)와 `report.advanceVersion()`만 기록한다. 후보에는 보류 표시를 남기지 않아 해소 뒤 재평가가 같은 규칙을 다시 적용한다.
+
+- **APPLIED 표지**: job `automaticAppliedAt`(이미 SEALED), 반영 후보 CONFIRMED/자동 EXCLUDE의 DISMISSED와 `reviewedAutomatically`, receipt APPLIED·`applied_at`.
+  `automaticApplicationPending`은 Job이 SUCCEEDED가 된 뒤 파생값으로 false다.
+- **보류 상태**: Job은 `SUCCEEDED + SEALED`이고 `automaticAppliedAt`은 null이다. 후보는 검토 대기로 남고 자동 반영 대기가 아니므로 기존 목록 집계의 직접 확인 수에 포함된다.
+  `automaticAppliedAt`은 재검수의 DIAGNOSTIC_ONLY 근거이므로 APPLIED 전에는 기록하지 않는다. SEALED는 추출 기록 완료 표지라 보류에도 유지한다.
+- 확정 설정 변경은 기존 정책대로 `ConfirmedSettingsChanged`로 이 작품의 report 기준 복사본을 무효화한다. 따라서 APPLIED 뒤 이 report는 INVALIDATED이고 `RECHECK`만 안내한다.
+
+### 자동 경로 (추출 완료)
+
+`AnalysisJobWorkerServiceImpl.completeAnalysisJob`이 seal 직후 `isReleaseJob`(현재 report의 receipt가 이 Job을 가리킴)이면 두 contributor 대신 `applyAutomatically`를 호출한다.
+일반 회차(report 없음·legacy·설정집)는 기존 contributor 경로 그대로다. 반영이 되돌려지면 S2의 자동 종료 보류처럼 첫 트랜잭션을 전부 되돌리고
+같은 완료를 반영 없이 다시 실행해 추출 완료(SUCCEEDED+SEALED, Episode ANALYZED)와 보류 receipt만 저장한다(경고 로그 `회차 전체 확정을 되돌리고`).
+비교 실패가 치명적이라 journal이 INCOMPLETE가 되는 기존 분기는 receipt를 만들지 않는다. 바깥 트랜잭션에 참여한 호출은 재실행하지 않고 신호를 그대로 전달한다.
+
+### 명시 경로 (`POST /{reportId}/settings-application`)
+
+Work 잠금·소유권(`WORK_NOT_FOUND`) → 같은 `(work, key)` receipt면 hash가 같을 때 저장 응답 200, 다르면 `VALIDATION_IDEMPOTENCY_CONFLICT` →
+report 없음 `VALIDATION_NOT_FOUND` → 현재 report의 검토 종료 receipt 없음 `VALIDATION_APPLICATION_UNAVAILABLE` → 이미 APPLIED면 키·version과 무관하게 같은 APPLIED receipt(시도 증가 없음) →
+`expectedReportVersion` 불일치 `VALIDATION_REPORT_VERSION_CONFLICT` → 평가: `NOT_READY` 409 `VALIDATION_APPLICATION_NOT_READY`(receipt 없음), HELD 200(보류 receipt), READY 반영 200.
+반영이 되돌려지면 새 트랜잭션에서 같은 검사를 거쳐 그 사유로 HELD_REVIEW를 기록하고 200으로 반환한다. 키 열은 마지막 명시 요청 하나만 보관하므로
+이전 시도의 키는 재전송해도 새 평가로 처리된다(APPLIED 뒤에는 같은 APPLIED receipt). 동시 요청은 Work 잠금으로 직렬화되어 APPLIED는 하나다.
+
+### 수동 확정 차단
+
+`AnalysisCandidateSourceGuard.assertManualWriteAllowed`는 대상 회차의 현재 report에 검토 종료 receipt가 있으면 `VALIDATION_RELEASE_MANUAL_CONFIRM_BLOCKED`(409)다.
+캐릭터 개별 확정·그룹 확정(최종 결과 승인·신규 인물 포함)·`reviewedApplicationMode` 저장 PATCH, 승격 서비스 `promote`/`promoteNewCharacterGroup`,
+세계관 개별 확정·사람의 그룹 확정(`automatic=false`)이 후보를 읽은 직후 호출한다. 확정 재전송도 막힌다.
+값 수정 PATCH(선택 없음)·캐릭터 연결·세계관 결정 초안·제외·재비교·재개는 막지 않는다. 다만 작가가 저장한 수정값·결정 초안은 S3의 회차 전체 확정이 반영하지 않으므로
+(`AUTHOR_EDIT_PENDING`) 현재 해소 수단은 제외와 재비교·재개다.
+
+### 조회
+
+- `/review`: `application{status, attempt, holdReasons, appliedAt, extractionJobGeneration}`(시도 전·퇴역 report null), `extractionState`(receipt 없음 NOT_STARTED,
+  release Job PENDING/RUNNING → RUNNING, SEALED 성공 SUCCEEDED, 실패·취소·INCOMPLETE/INVALIDATED FAILED). `completionMode`는 그대로다.
+- `ValidationStagingResponse.candidateStatus`: APPLIED → READY, HELD_REVIEW → PENDING. receipt가 없으면 검토 종료 전·release Job 대기(PENDING) NOT_STARTED,
+  실행 중이거나 SEALED 성공 뒤 평가 전 PENDING, 추출 실패 FAILED.
+
+### 재검수
+
+APPLIED는 `automaticAppliedAt`을 남기므로 `ValidationRecheckServiceImpl`의 기존 판정 그대로 다음 재검수가 `DIAGNOSTIC_ONLY`이고
+`previousApplicationReceipt.kind=AUTOMATIC_APPLICATION`(release Job)이다. 진단 report는 검토 종료가 항상 `NOT_COMPLETABLE`이라 S2 release·S3 반영이 없다.
+보류 회차는 확정 이력이 없으므로 재검수가 BEFORE_CONFIRMATION이다.
+
+### 잠금 순서
+
+자동 경로는 기존 완료 순서(Work → Job → 후보·캐릭터·세계관)다. 명시 경로는 Work → report refresh → contributor의 캐릭터·세계관 잠금 순서이며 release Job 행은
+Work 잠금으로 직렬화한다(완료된 Job에는 Worker 쓰기가 없다).
+
+### 알려진 한계 (S3 시점)
+
+- 보류 중 release Job은 `SUCCEEDED + SEALED + automaticAppliedAt null`이라 배치 요약의 기존 정규화가 `FAILED`로 표시하고 원고 목록도 미완료로 본다(S4 projection 정리 대상).
+- 기존 후보 화면의 `manualReviewAvailable`은 `automaticAppliedAt`을 요구하므로 보류 후보에 false다. 작가 수정값·결정 초안의 회차 전체 반영 경로는 후속 결정이 필요하다.
+- 보류 회차를 재검수하면 새 report의 release Job 생성이 같은 원문의 기존 SUCCEEDED release Job과 어떻게 상호작용하는지 검증하지 않았다.
+
 ## 무효화·파기
 
 `ReportInvalidated`를 소비하는 `ValidationExecutionLifecycle`은 같은 Work 잠금 트랜잭션에서
 판단 이력 → 판단 → check history → evidence → finding … 순서로 report 복사본을 지운다(`ValidationExecutionRepository.purge`).
 원고 교체·기준 출처 변경·확정 설정 변경·재검수 퇴역이 같은 경계를 사용하며 새 report는 이전 판단을 승계하지 않는다.
-작품/회원 파기(`WorkPurgeDataRepository`)는 검토 종료 receipt → 판단 이력·판단 → finding/check 순서로 지운다. 무효화는 receipt를 이력으로 남긴다.
+작품/회원 파기(`WorkPurgeDataRepository`)는 회차 전체 확정 receipt → 검토 종료 receipt → 판단 이력·판단 → finding/check 순서로 지운다. 무효화는 두 receipt를 이력으로 남긴다.
 
 ## 검증
 
-H2: `./gradlew test --tests '*ValidationReview*' --tests '*ValidationJudgmentMigrationContractTest' --tests '*ValidationReviewCompletionMigrationContractTest'`.
+H2: `./gradlew test --tests '*ValidationReview*' --tests '*ValidationSettingsApplication*' --tests '*ValidationJudgmentMigrationContractTest' --tests '*ValidationReviewCompletionMigrationContractTest'`.
+`ValidationSettingsApplicationIntegrationTest`·`ValidationSettingsApplicationRollbackIntegrationTest`는 테스트 트랜잭션 없이 release Job을 claim·완료하며
+Worker claim이 DB 전체의 대기 Job을 고르므로 메서드마다 새 Context를 쓴다. 세계관 반영 실패는 테스트 spy로만 만든다.
 `ValidationReviewReleaseHoldIntegrationTest`는 테스트 트랜잭션 없이 자동 종료 보류의 rollback을 확인한다.
 PostgreSQL(V97·V98 Flyway·JPA validate·동시 명시 요청·보류 rollback과 사유 기록)은 새 loopback `gh310_execution_test`에서만 실행한다.
 
 ```bash
-GH310_EXECUTION_POSTGRES_JDBC_URL=jdbc:postgresql://127.0.0.1:<disposable-port>/gh310_execution_test ./gradlew test --tests '*ValidationReviewCompletionPostgresIntegrationTest'
+GH310_EXECUTION_POSTGRES_JDBC_URL=jdbc:postgresql://127.0.0.1:<disposable-port>/gh310_execution_test ./gradlew test --tests '*ValidationReviewCompletionPostgresIntegrationTest' --tests '*ValidationSettingsApplicationPostgresIntegrationTest'
 ```
+
+S3 PostgreSQL 테스트는 V99 Flyway·JPA validate, 다른 키의 동시 명시 반영(APPLIED 하나·시도 하나), 세계관 실패의 전체 되돌림을 확인한다.

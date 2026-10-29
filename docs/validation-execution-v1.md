@@ -4,7 +4,7 @@
 Python 전용 EpisodeValidationWorker는 이 계약으로 실제 검사 실행·의미 상태 저장·같은 입력 재개를 연결한다. 작가 판단·검토 종료·추출 허가는 GH312,
 화면과 다음 회차 등록 제한은 GH314다. 검토 종료 전에는 이 단위가 추출 Job·후보·설정 자동 확정·자동 철회를 생성하지 않는다.
 합성 요청 예시는 `docs/contracts/validation-execution-v1.json`이다.
-GH312의 작가 판단 저장·조회(S1)와 검토 종료 receipt·설정 추출 release(S2)는 `docs/validation-review-v1.md`를 따른다.
+GH312의 작가 판단 저장·조회(S1), 검토 종료 receipt·설정 추출 release(S2), 회차 전체 확정(S3)은 `docs/validation-review-v1.md`를 따른다.
 
 ## 이력과 버전
 

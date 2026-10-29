@@ -2,7 +2,7 @@
 
 현재 순서는 **원고 저장 → 원문·과거 확정 설정/출처로 오류 검사 → 작가 판단·수정·재검사 → 검토 완료 → 최종 원고 설정 추출·비교 → 확정**이다. 오류 검사를 위해 설정 후보를 먼저 만들지 않는다.
 
-> 이 문서는 #303 접수·기준 단계의 계약이다. 이후 구현된 전용 실행(#310)은 `docs/validation-execution-v1.md`, 작가 판단·검토 종료 receipt·설정 추출 release(GH312 S1·S2)는
+> 이 문서는 #303 접수·기준 단계의 계약이다. 이후 구현된 전용 실행(#310)은 `docs/validation-execution-v1.md`, 작가 판단·검토 종료 receipt·설정 추출 release·회차 전체 확정(GH312 S1~S3)은
 > `docs/validation-review-v1.md`가 우선한다. 특히 추출 차단은 이제 "현재 report에 검토 종료 receipt가 없으면 차단"이며, 아래의 "release API 없음"·"gate를 열 수 없다" 서술은 #303 시점 기록이다.
 
 이번 구현은 접수, 고정 기준, 검사·검토 대기, 우회 차단, 기본 무효화/파기까지다. 실제 오류 검사 Worker/findings, 판단 저장, 검토 완료 release, 이후 추출과 확정 연결, UI 공개는 아직 구현하지 않는다. 기준 READY와 findings가 없다는 사실은 검사 완료/의심 0건을 뜻하지 않는다. 현재는 gate를 열 수 없다.
@@ -36,7 +36,7 @@ Work 잠금 안에서 report와 대상의 **접수 당시 batch/episodeNo/hash/k
 | `batchId`, `episodeId` | 접수 당시 업로드와 대상 회차 |
 | `validationJobId` | `null` — 오류 검사 Worker 미구현 |
 | `extractionJobId`, `candidateGeneration`, `candidateDigest` | 모두 `null` — 설정 추출을 시작하지 않음 |
-| `extractionStatus`, `candidateStatus` | 모두 `NOT_STARTED` — 설정 추출을 시작하지 않음 |
+| `extractionStatus`, `candidateStatus` | 접수 시 모두 `NOT_STARTED` — 설정 추출을 시작하지 않음(검토 종료 뒤 값은 `docs/validation-review-v1.md`) |
 | `errorReviewStatus` | GH312 S1 작가 판단 진행(`NOT_STARTED`/`PENDING`/`READY`/`INVALIDATED`). READY도 추출을 시작하지 않는다. `docs/validation-review-v1.md` |
 | `baselineStatus` | `PENDING`, `READY`, `FAILED`, `INVALIDATED` |
 | `status` | `PREPARING_BASELINE`, `WAITING_FOR_ERROR_REVIEW`, `HELD_INCOMPLETE`, `INVALIDATED` |
