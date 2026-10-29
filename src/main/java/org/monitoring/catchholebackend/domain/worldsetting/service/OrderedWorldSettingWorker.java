@@ -144,6 +144,7 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
         Map<UUID, WorldSettingCandidate> pending = new LinkedHashMap<>();
         pendingCandidates(job).stream().filter(candidate -> !candidate.hasSubjectResolution())
                 .forEach(candidate -> pending.put(candidate.getId(), candidate));
+        var prepared = stateService.prepareState(job);
         Set<UUID> seen = new HashSet<>();
         List<WorkerWorldSettingSubjectResolutionResponse.ResolvedSubject> result = new ArrayList<>();
         for (var input : request.resolutions()) {
@@ -176,11 +177,11 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
             if (refs.isEmpty() && !input.ambiguous()) {
                 refs.add(WorldSettingAnalysisStateMapper.provisionalRef(candidate.getId()));
             }
-            JsonNode projected = stateService.getProjectedState(job).path("worldSettings");
+            JsonNode projected = prepared.projectedState().path("worldSettings");
             for (String ref : refs) {
                 if (!projected.has(ref)) {
-                    registerIdentity(job, candidate.getCategory(), ref, pending);
-                    projected = stateService.getProjectedState(job).path("worldSettings");
+                    registerIdentity(prepared, candidate.getCategory(), ref, pending);
+                    projected = prepared.projectedState().path("worldSettings");
                 }
                 requireCategory(projected.path(ref), candidate.getCategory());
             }
@@ -215,12 +216,13 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
                 .stream().anyMatch(candidate -> !job.isAutomaticReview() || !candidate.canDeferFailedComparison())) {
             throw new OrderedWorldSettingComparisonClaimException();
         }
-        JsonNode projected = stateService.getProjectedState(job);
+        var prepared = stateService.prepareState(job);
+        var matching = rejectionPolicy.beginMatching();
         for (WorldSettingCandidate candidate : pendingCandidates(job)) {
             if (candidate.hasSubjectResolution()) {
-                rejectionPolicy.match(candidate, projected).ifPresent(reference -> {
+                matching.match(candidate, prepared.projectedState()).ifPresent(reference -> {
                     candidate.preservePriorHumanRejection(reference);
-                    stateService.appendValidatedChanges(job, job.getInputStateHash(),
+                    prepared.append(
                             List.of(rejectionPolicy.referenceChange(candidate.getId(), reference)));
                 });
             }
@@ -905,7 +907,7 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
                 WorldSettingComparisonStatus.PENDING);
     }
 
-    private void registerIdentity(AnalysisJob job, WorldSettingCategory category, String ref,
+    private void registerIdentity(AnalysisRunStateService.PreparedState prepared, WorldSettingCategory category, String ref,
             Map<UUID, WorldSettingCandidate> pending) {
         if (!ref.startsWith("provisional-world:")) {
             throw invalid();
@@ -931,7 +933,7 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
         identity.putObject("provenanceByPath");
         identity.set("provenance", provenance(source));
         identity.set("identityEvidence", source.getEvidenceSpans() == null ? null : source.getEvidenceSpans().deepCopy());
-        stateService.appendValidatedChanges(job, job.getInputStateHash(), List.of(new AnalysisStateChange(
+        prepared.append(List.of(new AnalysisStateChange(
                 "world-identity:" + sourceId, List.of("worldSettings", ref), identity, false, "IDENTITY", List.of(sourceId))));
     }
 

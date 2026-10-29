@@ -13,6 +13,15 @@ public interface AnalysisRunStateService {
 
     JsonNode getProjectedState(AnalysisJob job);
 
+    /** Job 잠금을 보유한 한 번의 처리에서만 재사용한다. 반환 상태는 읽기 전용이다. */
+    PreparedState prepareState(AnalysisJob job);
+
+    interface PreparedState {
+        JsonNode projectedState();
+
+        void append(List<AnalysisStateChange> changes);
+    }
+
     boolean prepareInput(AnalysisJob job);
 
     void assertValidInput(AnalysisJob job);
