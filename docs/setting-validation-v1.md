@@ -118,3 +118,19 @@ Java는 GH306_POSTGRES_JDBC_URL=jdbc:postgresql://127.0.0.1:<port>/gh306_test를
 GH306_AI_CHECKOUT/GH306_PYTHON을 함께 주면 실제 Spring HTTP→Python adapter를 검증한다.
 기본 관련 전체 검증은 AI pytest, Backend ./gradlew test bootJar다. 선택 환경 미지정 skip을 통과로 세지 않는다.
 테스트는 합성 원고·모델 출력/HTTP provider 대역·원문 저장소 대역과 실제 DB/HTTP를 구분한다. 실제 Terra recall이나 운영 배포 검증으로 표현하지 않는다.
+
+
+## GH310 실행 scope와 서버 모델 projection
+
+전용 ValidationJob이 있는 report는 data 호출마다 기존 내부 key/회원 헤더에
+`X-Validation-Job-Id`와 실제 `X-Worker-Lease-Token`을 추가한다. 서버는 원문 I/O 전후 lease/current/input을 검사한다.
+Job 없는 기존 callable 계약은 유지하지만 queue/running Job의 무인증 lease 우회는 허용하지 않는다.
+
+응답의 projectionVersion=1에서 INPUT.modelSourceCatalogue와 ENTRIES.modelSettings를 실행 Worker가 그대로 사용한다.
+S-ref는 전체 고정 baseline 순서에서 생성되어 페이지와 무관하다. ENTRIES.authorCorrectionProofs는 실제 typed 정정
+사실이며 자유문자열 시점/조건 권위가 아니다. canonical author_correction은 null이고 DB_RAW_DISAGREEMENT는
+NEEDS_CONTEXT로 남긴다. 자동 정정 범위 매핑이 구현된 것은 아니다.
+T1 전문 READ_SOURCE의 clueVersion=1/modelClues는 서버 CL refs·code point span을 제공한다.
+전용 실행이 Python _settings/collect_clues로 조용히 fallback하지 않도록 v1 필드를 필수 검증한다.
+기존 nojob callable만 이전 fallback을 유지할 수 있다. 별도 Job/lease·저장·재시도/예산/완료 증명은
+`docs/validation-execution-v1.md`와 공통 fixture.execution을 따른다.

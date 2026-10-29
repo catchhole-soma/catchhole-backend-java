@@ -1,7 +1,7 @@
 # 검수 실행·재검수 계약 v1 — GH310
 
-이 문서의 첫 구현 단위는 변경 입력의 명시적 재검수와 실제 설정 편집의 기준 정정 연결이다.
-검수 Job/lease·진행 결과 저장은 다음 구현 단위가 연결한다. 작가 판단·검토 종료·추출 허가는 GH312,
+이 문서는 변경 입력의 명시적 재검수·실제 설정 정정과 Java 전용 검수 Job/lease·결과 저장 계약을 정의한다.
+Python 실행기 연결은 GH310의 다음 구현 단위가 소비한다. 작가 판단·검토 종료·추출 허가는 GH312,
 화면과 다음 회차 등록 제한은 GH314다. 이 단위에서 추출 Job·후보·설정 자동 확정·자동 철회는 생성하지 않는다.
 합성 요청 예시는 `docs/contracts/validation-execution-v1.json`이다.
 
@@ -117,7 +117,7 @@ Work 잠금 안에서 그 입력에 저장한 출처 ID/hash와 실제 후보·J
 `ValidationStagingEvents.ReportInvalidated(UUID workId, UUID reportId)`는 Work 잠금 안의 동기 이벤트다.
 `ValidationBaselineService`가 seed/entries/sources를 지운 뒤 발행한다. 후속 Job·checkpoint·결과·인용 소유자는
 같은 트랜잭션에서 이 이벤트를 소비해 무효화/본문 삭제를 연결해야 한다. source·setting 변경과 퇴역이 같은 경계를 사용한다.
-작품/회원 파기는 correction → baseline source/request key → report 순서로 자식을 지운다.
+작품/회원 파기는 결과/check history/evidence/checkpoint/publication → 검수 usage → 검수 Job → correction/baseline source/request key → report 순서로 자식을 지운다.
 
 파일 교체 파기 요청의 retainedContentKey는 새 원문을 보존한다. `blocksSource(episodeId,key)`는 삭제/다른 key만 막고,
 늦은 정리의 `EpisodeSourceChanged(workId,episodeId,retainedContentKey)`도 보존 key의 새 report를 지우지 않는다.
@@ -136,3 +136,153 @@ PG 테스트는 새 loopback `gh310_recheck_test` DB에서만 실행하며 .env/
 사용자는 `gh310`, 암호는 합성 fixture 전용 `gh310-disposable-only`다. 전체 Flyway 적용 후 JPA validate로 기동한다.
 테스트는 fixture마다 works/members를 CASCADE TRUNCATE하므로 해당 일회용 DB 외에는 실행하지 않는다.
 실제 모델 호출이나 운영 배포 검증이 아니며 전체 Java/AI 통합 gate는 마지막 구현 단위에서 별도로 수행한다.
+
+
+## 전용 Job과 실행 API
+
+`ValidationJob`은 report당 하나인 실제 실행/과금 소유자다. AnalysisJob을 가장하거나 생성하지 않는다.
+claim은 짧은 Work → Job 잠금 뒤 입력과 상태를 다시 확인하고 무작위 lease token을 발급한다.
+실행 세대 `generation`은 회수/명시 재시도마다 바뀌며 `attempt`는 실제 claim마다 증가한다.
+report ID/revision, target contentRevision/hash/key/version, baseline revision/hash, manifest hash로 만든
+서버 `inputDigest`는 같은 입력에서 유지한다. 각 질문의 `checkInputDigest`와 revision은 별도 CAS다.
+이 값들은 Worker가 재계산하지 않는 불투명 서버 토큰이고 모델 인자가 아니다.
+
+모든 내부 응답은 `CommonResponse.data`이며 exact JSON·null 필드·hash vectors는 공통 fixture의 `execution`에 있다.
+`X-Internal-Api-Key`를 모든 내부 경로에, claim 이후에는 `X-Worker-Lease-Token`을 함께 보낸다.
+
+| 경로 | 요청/결과 |
+| --- | --- |
+| `POST /api/internal/v1/validation-jobs/claim` | contractVersion=1, workerId, VALIDATION_EXECUTION_V1 capability. 대기가 없으면 data=null |
+| `POST /{jobId}/heartbeat` | Scope. 실제 현재 lease 연장, reportVersion 증가 없음 |
+| `GET /{jobId}/checkpoint` | 현재 lease의 저장 stages/checks/분기 checkpoints/usage와 budgetRevision/history |
+| `POST /{jobId}/plans` | Publish: Scope, report별 idempotencyKey, branch, stage/ref, 의미 payload, citations, nullable failureCode |
+| `POST /{jobId}/units` | Unit: Scope, branch/ref, 현재 check ID/revision/digest 또는 typo segment, outcome/payload/citations |
+| `POST /{jobId}/revisions` | Revise: 영향 check 전부의 CAS·새 lookup_obligations·변경 사유. 전체 성공 또는 전체 rollback |
+| `POST /{jobId}/checkpoint` | Checkpoint: branch, 그 분기의 expectedVersion, 의미 payload/citations |
+| `POST /{jobId}/complete` | Complete: Scope, key, nullable 안전한 failureCode. 서버가 저장 처리 범위로 상태 결정 |
+| `POST /{jobId}/usage/reserve` | Reserve: 실제 call requestId, role/model/raw 예약량 |
+| `POST /{jobId}/usage/{requestId}` | Usage: SETTLE/UNKNOWN/RELEASE, 원래 예약 Scope와 lease |
+
+표의 `/{jobId}` 접두사는 `/api/internal/v1/validation-jobs`다.
+공개 `GET /api/v1/works/{workId}/episode-validations/{reportId}/results`는 상태·처리 수·coverage 요약,
+현재 check 요약·finding·검증된 인용만 반환한다. 실행 중/중단 후 모두 읽기 전용이다.
+내부 전체 evidence_bundle/catalogue/checkpoint/lease/호출 원장 상세는 공개 응답에 내보내지 않는다.
+`POST /.../{reportId}/retries`는 expectedReportVersion과 idempotencyKey로 같은 입력을 다시 queue한다.
+
+## 초기 호출과 서버 발급 모델 입력
+
+초기 순서는 순환하지 않는다.
+
+1. claim에서 서버 Scope/회원·작품·report revision, baseline/target/manifest hash, 실제 lease/attempt,
+   projectionVersion=1/clueVersion=1, 고정 모델과 명시 budgets를 받는다.
+2. claim.checkpoint 또는 GET checkpoint로 이미 저장된 단계/check를 먼저 복원한다. 초기 requiredGrid=null은 정상이다.
+3. 기존 data 경로의 INPUT과 ENTRIES를 읽는다. 전용 Job이 있으면 기존 회원 헤더에
+   `X-Validation-Job-Id`와 실제 lease를 반드시 추가한다. Job 없는 기존 callable만 기존 읽기 계약을 유지한다.
+4. INPUT의 `modelSourceCatalogue`와 ENTRIES의 `modelSettings`를 그대로 사용한다.
+   `projectionVersion`을 검증하며 S-ref는 전체 고정 baseline 순서에서 발급되어 페이지에 따라 달라지지 않는다.
+   `authorCorrectionProofs`는 해당 entryRef에 연결된 원래 plural typed 정정 사실의 신뢰 서버 전송이다.
+5. 실제 T1 전문 READ_SOURCE의 `modelClues`와 clueVersion=1을 사용한다. CL은 서버가 발급한 code point
+   위치/인용이며 각 segment core에 start가 속하는 CL만 COVERAGE에 제공한다. 실행 경로가 Python의
+   로컬 `_settings`/`collect_clues`로 조용히 fallback하면 안 된다. Job 없는 기존 callable만 fallback을 보존할 수 있다.
+6. 각 검증된 의미 단계를 즉시 저장하고 MERGED_PLAN 영수증의 안정 check ID/revision/digest를 저장한 뒤 JUDGE를 호출한다.
+
+projection은 기존 값·이력·조건·시점을 보존하고 서버 ID/hash/key/token metadata만 모델 투영에서 제거한다.
+원문 provenance가 정확히 고정 manifest와 일치할 때만 R-ref를 추가한다. canonical author_correction은 null이다.
+정정 기록은 실제로 존재하지만 질문의 자유문자열 서사 시점/조건 권위로 추론하지 않는다.
+이 계약에서 DB_RAW_DISAGREEMENT는 NEEDS_CONTEXT이며 #312의 작가 판단으로 검토할 수 있다.
+정확한 typed 시간·조건 대응이 입증되는 후속 계약 전에는 자동 NO_CONFLICT 승격이나 광범위한 예외를 만들지 않는다.
+
+CL v1은 기존 Python 세 정규식과 반복 이름의 의미를 보존한다. 숫자는 명시적 ASCII `[0-9]`, 공백은 Python Unicode
+`\s`(U+001C..001F 포함), 위치는 code point다. `(start,end,kind)`를 정렬·중복 제거한 뒤 CL 순번을 준다.
+이름/별칭은 literal로 두 번 이상 나타날 때만 힌트가 된다. 힌트 자체는 finding이나 새 사실이 아니다.
+
+## 의미 단계와 완료 증명
+
+서버가 실제 전문 길이와 frozen entry count, 설정집 길이, 고정 segment/context/page 크기로 필수 grid를 계산한다.
+Worker가 required-grid 또는 done:true를 보내 완료를 대체할 수 없다.
+
+- PLANNER: target segment별 QuestionBatch.
+- RELATED_SELECTION: target segment × 전체 catalogue page별 RelatedSelection.entries.
+- COVERAGE: target segment별 QuestionBatch. 선정한 모든 rule과 정확한 서버 CL 집합의 CHECKED/NOT_APPLICABLE 기록을 요구한다.
+- BOOK_SOURCE: 설정집 전문을 읽었다는 source_read_status=READY와 실제 planned_checks 기록. 빈 책도 읽기 성공+0 checks를 저장한다.
+- BOOK_COVERAGE: 각 target segment × 각 book segment의 QuestionBatch/rule 처리.
+- MERGED_PLAN: 저장된 모든 원 질문 originalRefs를 빠짐없이 연결한 질문 목록. 서버 UUID와 local Q-ref의 대응을 반환한다.
+- TYPO_SEGMENT: 분류(SPELLING/SPACING/TYPO)와 정확한 제안 또는 제안 0개의 완료 segment.
+
+SETTING과 TYPO grid는 독립 준비한다. target이 읽히지만 어떤 설정집이 읽히지 않으면 SETTING 준비만 실패하고
+TYPO는 동일 target으로 실행/저장할 수 있다. target 전문 실패나 빈 target은 어느 쪽도 정상 완료가 아니다.
+Python의 BOOK_SOURCE.status=PROCESSED는 전체 book 검토 집계이므로 실제 전문 읽기와 혼동하지 않는다.
+Java의 BOOK_SOURCE 성공은 읽기이며 전체 target×book 검토는 별도 BOOK_COVERAGE grid가 증명한다.
+
+각 DECIDED unit에는 현재 Python ValidationDecision과 `evidence_bundle`을 함께 보낸다.
+bundle의 question_ref/check_revision/question은 저장 질문과 일치해야 한다. canonical frozen settings,
+실제 E-ref/원문 위치, target_context와 additional_target_context의 인용, 알려진 fact/evidence refs,
+성공한 실제 비교·필수 읽기 receipts, 남은 lookup_obligations 0을 검증한다. 네 completion 사유만으로 완료하지 않는다.
+정상 NO_CONFLICT도 완료 check/receipts를 저장하며, 같은 target 내부 근거만으로 CONFLICT를 허용하지 않는다.
+새 FOLLOW_UP은 영향을 받는 모든 check를 한 트랜잭션에서 revision 변경하고 옛 완료를 집계에서 제외한다.
+원 상태/판정과 changeReason은 check history에 남겨 #312가 변경된 질문을 구분할 수 있다.
+
+종료 상태는 현재 revision의 완료 check(NO_CONFLICT 포함), 완료 typo segment(제안 0개 포함),
+필수 PLANNER/selection/COVERAGE/book/CL이 모두 저장되고 미해결 질문이 없는 NO_CHECK segment로 결정한다.
+계획/선정/원문 읽기만 성공한 것은 성공 결과 수에 넣지 않는다.
+성공 처리 0+미완료는 FAILED, 일부 성공+필수 미완료는 PARTIAL, 양쪽 모든 grid와 현재 질문이 완료되어야 COMPLETED다.
+어느 경우에도 추출 Job·후보·자동 확정은 0이며 작가 판단 API를 추가하지 않는다.
+
+## 게시·파기·재시도
+
+게시 외피 전체는 131,072 UTF-8 bytes, citations는 1,000개, 의미 payload 깊이는 50을 넘기지 않는다.
+모든 quote와 원문 context text에는 정확한 source/hash/version/code point 인용 외피가 있어야 한다.
+I/O 전에 현재 lease/입력을 확인하고 실제 저장 원문 전체 hash·slice를 확인한 뒤, Work 잠금 안에서
+current/revision/contentRevision/lease/출처 metadata를 다시 검사한다. S3/provider I/O 동안 Work를 잠그지 않는다.
+같은 report/key의 exact payload는 원 receipt를 반환하고 다른 payload는 409다. 이미 바뀐 check revision의 unit은
+기존 key 재전송이라도 거절한다. 성공한 단계의 새 key exact 전송은 상태나 공개 version을 다시 바꾸지 않는다.
+
+같은 입력 retry는 report/성공 stages/check ID를 보존하고 미완료만 새 generation으로 실행한다.
+공개 새 retry는 최신 활성 회차만 허용한다. 원래 성공한 retry key는 새 행동이 아니므로 원 summary receipt를 반환한다.
+유효 saved seed의 준비 중단은 원래 hash/fingerprint·target/source 수명을 검증하고 기존 materialize로 복구한다.
+seedless/invalidated/purged 입력을 그 경로로 복원하지 않고 Task 1의 명시적 새 baseline 접수를 사용한다.
+
+ReportInvalidated는 baseline과 같은 트랜잭션에서 stage/check/history/finding/evidence/checkpoint/publication 및 grid의
+복사본문을 삭제하고 실제 Job을 취소한다. 원장은 원래 소유권을 유지해 늦은 실제 정산을 받을 수 있다.
+Work/회원 파기는 RESERVED/UNKNOWN 호출도 기존 worker drain에 포함하고 계정 hold를 해제한 뒤 FK 자식을 먼저 지운다.
+물리 파기 완료 뒤에는 기존 Job/원장도 없으며 그 이후 정산 소유권을 새 Job에 옮기지 않는다.
+
+## 실행 설정과 사용량
+
+`validation.execution.enabled`는 기본 false다. 켜려면 lease-duration, max-lease-recoveries,
+setting/typo의 model-calls/lookups/seconds/input-tokens/output-tokens/segment-chars/context-chars/catalogue-page-size/search-limit와
+다섯 역할 roles.*.max-calls/max-reserved-tokens를 모두 명시한다. production 수치 기본값을 만들지 않는다.
+정확한 Map enum 키를 보존하는 외부 YAML 또는 SPRING_APPLICATION_JSON을 사용할 수 있다.
+테스트 수치는 `src/test/resources/validation-execution-fixture.properties`이며 운영 권장값이 아니다.
+비활성 앱은 예산 없이 정상 기동하며 과거 report를 시작 시 일괄 queue하지 않는다. 활성화 뒤 기존 waiting report는
+명시 START/RECHECK의 동일 접수 복구 또는 공개 retry로 시작한다.
+
+모든 generation 역할은 Terra이며 PLANNER medium / RELATED_SELECTION high / COVERAGE high / JUDGE medium / TYPO low다.
+RELATED_SELECTION은 독립 보완의 실제 transport 역할이고 BOOK_COVERAGE는 COVERAGE 역할을 사용한다.
+count와 generation의 동일 옵션/schema는 Task3 adapter가 기존 검사기에서 유지해야 한다.
+QUERY_EMBEDDING은 선택 사항이며 명시 모델 text-embedding-3-small과 별도 cap을 함께 설정할 때만 예약한다.
+이는 기존 색인 계약의 모델 호환성이고 벡터 readiness나 검색 성공을 보장하지 않는다.
+필요한 VECTOR가 미설정/미준비이면 정상 빈 검색으로 숨기지 않는다.
+
+AiTokenUsage는 analysis/chat/validation 중 정확히 하나의 실제 owner를 가진다. validation 예약에는 원래 lease/generation을
+보존하고 기존 AiTokenAccount/charge policy를 재사용한다. raw provider tokens와 계정 환산량을 혼동하지 않는다.
+새 예약은 현재 lease·실제 잔액·역할 call cap·할당 raw cap과 call input/output 상한을 확인한다.
+cap은 Job 전체의 RESERVED/UNKNOWN/SETTLED 누계이며 확정 실제 사용량이 예약량보다 크면 큰 값을 사용한다.
+실패한 실제 호출도 소비하며, 확실히 provider를 호출하지 않은 RELEASE만 hold와 cap을 반환한다.
+응답 유실·취소·만료·source 무효화는 UNKNOWN으로 hold를 풀되 사용량 0을 주장하지 않고 cap 및 원래 정산 권한을 보존한다.
+정산은 같은 측정값에만 멱등이며 다른 값이나 다른 실제 owner는 409다.
+
+cap이 소진된 알려진 필수 미완료 generation 역할은 같은 설정 retry를 409로 거절한다. 운영자가 명시 설정을 변경한 뒤
+사용자가 retry하면 Job 전체 누계를 유지한 채 새 cap-기존 사용량으로 재개한다. 자동 증액은 없다.
+이때만 modelCalls/lookups/seconds/input/output 한도를 채택하고 segment/context/catalogue/search 폭·모델/추론은 보존한다.
+budgetRevision과 budgetHistory(before/after/generation)를 기록하며 동일 retry key가 이를 다시 적용하지 않는다.
+미사용 Job의 optional embedding 최초 도입은 기존 실제 embedding 호출과 성공 VECTOR receipt가 모두 없을 때만 허용한다.
+이미 사용한 모델을 조용히 교체하지 않는다. 기존 모델/검색 정책을 바꾸는 별도 운영 조치는 이 작업에 포함되지 않는다.
+
+
+Task3 필수 통합 항목: actual QUERY_EMBEDDING reserve는 현재도 cap 초과를 거절한다. 다만 retry queue 단계의
+reuse-aware embedding preflight는 typed semantic checkpoint/receipt 복원과 함께 완성해야 한다.
+실제로 새 embedding이 필요한 미완료 VECTOR 조회이고 cap이 소진됐으면 409/보류여야 한다.
+호환되는 성공 vector receipt를 재사용하고 JUDGE만 남은 경우에는 embedding cap 때문에 재시도를 막지 않는다.
+VECTOR 문자열 존재만으로 일괄 차단하거나 성공 조회를 다시 호출하지 않는다. 이 항목은 최종 GH310 완료 전 필수다.
+`/plans`는 SETTING 계획 전용이며 TYPO_SEGMENT는 `/units`의 제안·분류 검증을 거쳐야 한다.
