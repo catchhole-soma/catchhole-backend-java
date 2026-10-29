@@ -59,6 +59,25 @@ class ValidationSettingsApplicationRollbackIntegrationTest extends ValidationSet
         assertThat(characters(r.f())).isEqualTo(1);assertThat(worldSettings(r.f())).isEqualTo(1);assertThat(automaticAppliedAt(r.job())).isNotNull();
     }
 
+    @Test @DisplayName("작가가 결정한 세계관 후보의 반영이 실패하면 먼저 쓴 캐릭터까지 되돌리고 결정 초안은 남긴다")
+    void decidedWorldFailureRollsBackCharacterWrites() {
+        var r=release();
+        var ids=inJob(r.job(),job->{var d=discovery(job,"에르웬");stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.ADD);
+            return List.of(scopeUnresolvedWorld(job,"엘프","서식지","북부").getId(),job.getBatch().getId());});
+        completeExtraction(r);assertThat(applicationRow(r.f()).get("status")).isEqualTo("HELD_REVIEW");
+        worldApplication.updateCandidateDecisions(r.f().member(),r.f().work(),new org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDecisionUpdateRequest(ids.get(1),List.of(
+                new org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDecisionUpdateItem(ids.get(0),org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation.ADD,
+                        org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory.RACE,"엘프","북부 숲","서식지","북부","범위 확인"))));
+        doThrow(new IllegalStateException("합성 결정 반영 실패")).when(worldApplication).applyReviewedDecisions(any());
+        var held=apply(r.f(),"decided-failure");
+        assertThat(held.status()).isEqualTo(ValidationApplicationStatus.HELD_REVIEW);assertThat(held.lastErrorCode()).isEqualTo("UNEXPECTED_ERROR");
+        assertNothingApplied(r);
+        assertThat(jdbc.queryForObject("select final_operation from world_setting_candidates where id=?",String.class,ids.get(0))).as("the saved decision survives the rollback").isEqualTo("ADD");
+        reset(worldApplication);
+        assertThat(apply(r.f(),"decided-retry").status()).isEqualTo(ValidationApplicationStatus.APPLIED);
+        assertThat(characters(r.f())).isEqualTo(1);assertThat(worldProperties(r.f(),"엘프")).containsExactly(new org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting.Property("북부 숲","서식지","북부"));
+    }
+
     @Test @DisplayName("명시 반영 중 세계관 도메인 오류는 전체를 되돌리고 그 오류 코드로 보류를 기록한다")
     void explicitFailureRecordsAppExceptionCode() {
         var r=release();

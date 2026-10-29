@@ -56,20 +56,27 @@ class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApp
         assertThat(row.get("applied_at")).isNull();assertThat(row.get("last_error_code")).isNull();
         var review=reviews.getValidationReview(f.member(),f.work(),f.report());
         assertThat(review.application().status()).isEqualTo(ValidationApplicationStatus.HELD_REVIEW);
-        assertThat(review.application().holdReasons()).contains(new ValidationApplicationHoldReason(ValidationApplicationHoldCode.VALUE_INVALID,ValidationApplicationCandidateType.CHARACTER,invalid,"SETTING_CANDIDATE_VALUE_FORMAT_INVALID"))
+        assertThat(review.application().holdReasons()).contains(new ValidationApplicationHoldReason(ValidationApplicationHoldCode.DECISION_PENDING,ValidationApplicationCandidateType.CHARACTER,invalid,"VALUE_INVALID:SETTING_CANDIDATE_VALUE_FORMAT_INVALID"))
                 .as("only the invalid candidate holds; the others were applicable").hasSize(1);
         assertThat(review.allowedActions()).contains(ValidationReviewAction.APPLY_SETTINGS);assertThat(review.extractionState()).isEqualTo(ValidationExtractionState.SUCCEEDED);
         assertThat(confirmed(f)).isZero();assertThat(characters(f)).isZero();assertThat(facts(f)).isZero();assertThat(worldSettings(f)).isZero();
         assertThat(jobState(r.job())).as("extraction succeeded and stays sealed").isEqualTo("SUCCEEDED/SEALED");assertThat(automaticAppliedAt(r.job())).as("not marked applied").isNull();
         var staging=admissions.get(f.member(),f.work(),f.report());
         assertThat(staging.candidateStatus()).isEqualTo(ValidationPreparationStatus.PENDING);assertThat(staging.extractionStatus()).isEqualTo(ValidationPreparationStatus.READY);
-        // 기존 검토 화면 기준으로 자동 반영 대기가 아니며(SUCCEEDED) 직접 확인 수에 포함된다.
+        // 자동 단계는 끝났지만 반영하지 않았다. 기존 검토 화면 기준으로 자동 반영 대기가 아니고 직접 검토·결정 저장이 열린다.
+        assertThat(heldAt(r.job())).isNotNull();
         assertThat(tx.<Boolean>execute(s->em.find(SettingCandidate.class,invalid).isAutomaticApplicationPending())).isFalse();
+        assertThat(tx.<Boolean>execute(s->em.find(SettingCandidate.class,invalid).isManualReviewAvailable())).isTrue();
     }
 
     @Test @DisplayName("모두 반영 가능한 캐릭터·세계관 후보는 한 트랜잭션에서 함께 확정되고 receipt는 APPLIED다")
     void readyPlanAppliesBothDomainsInOneTransaction() {
-        var r=release();var ids=applicable(r);completeExtraction(r);var f=r.f();
+        var r=release();var ids=applicable(r);var f=r.f();
+        // 같은 작품의 다른 회차(100화)에 검토 중인 합성 report를 둔다. 101화의 반영은 이 report를 기존처럼 무효화해야 한다.
+        var other=tx.execute(s->{var work=em.find(Work.class,f.work());var episode=em.createQuery("select e from Episode e where e.work=:w and e.episodeNo=100",Episode.class).setParameter("w",work).getSingleResult();
+            var report=org.monitoring.catchholebackend.domain.validation.entity.ValidationReport.create(work,episode,em.find(org.monitoring.catchholebackend.domain.validation.entity.ValidationReport.class,f.report()).getBatch(),"synthetic-other-episode");
+            em.persist(report);return report.getId();});
+        completeExtraction(r);
         var row=applicationRow(f);
         assertThat(row.get("status")).isEqualTo("APPLIED");assertThat(row.get("applied_at")).isNotNull();assertThat(row.get("hold_reasons")).isNull();
         assertThat(((Number)row.get("attempt")).longValue()).isEqualTo(1);assertThat(row.get("trigger")).isEqualTo("AUTOMATIC");
@@ -83,8 +90,12 @@ class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApp
         assertThat(review.application().extractionJobGeneration()).isEqualTo(generation);assertThat(review.allowedActions()).doesNotContain(ValidationReviewAction.APPLY_SETTINGS);
         assertThat(review.extractionState()).isEqualTo(ValidationExtractionState.SUCCEEDED);
         assertThat(admissions.get(f.member(),f.work(),f.report()).candidateStatus()).isEqualTo(ValidationPreparationStatus.READY);
-        // 확정 설정 변경은 기존 정책대로 이 회차의 검수 기준 복사본도 무효화한다. 다음 재검수가 진단 전용이 되는 근거다.
-        assertThat(jdbc.queryForObject("select status from validation_reports where id=?",String.class,f.report())).isEqualTo("INVALIDATED");
+        // 이 회차의 report는 자기 반영으로 무효화되지 않고 검토 종료·반영 완료로 남는다. 같은 작품의 다른 report는 기존처럼 무효화된다.
+        assertThat(reportStatus(f.report())).isEqualTo("WAITING_FOR_ERROR_REVIEW");assertThat(heldAt(r.job())).isNull();
+        assertThat(review.holdReasons()).doesNotContain(ValidationReviewHoldReason.REPORT_INVALIDATED);assertThat(review.completionMode()).isEqualTo(ValidationReviewCompletionMode.COMPLETED);
+        assertThat(review.completion()).isNotNull();assertThat(review.allowedActions()).isEmpty();
+        assertThat(admissions.get(f.member(),f.work(),f.report()).status()).isNotEqualTo(ValidationReportStatus.INVALIDATED);
+        assertThat(reportStatus(other)).as("another episode's pending report is still invalidated").isEqualTo("INVALIDATED");
     }
 
     @Test @DisplayName("검수 회차는 개별·그룹 확정·승격·세계관 확정을 409로 막고 수정·연결·제외는 허용한다")
@@ -101,26 +112,24 @@ class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApp
         blocked(()->tx.executeWithoutResult(s->promotions.promote(em.find(SettingCandidate.class,stat),CharacterFactConfirmApplicationMode.HISTORY_ONLY)));
         blocked(()->tx.executeWithoutResult(s->promotions.promoteNewCharacterGroup(List.of(new org.monitoring.catchholebackend.domain.character.service.SettingCandidateGroupPromotion(
                 em.find(SettingCandidate.class,discovery),CharacterFactConfirmApplicationMode.APPLY_PROPOSAL)))));
-        var updatedAt=tx.execute(s->em.find(SettingCandidate.class,stat).getUpdatedAt());
-        blocked(()->characterReview.updateSettingCandidate(f.member(),f.work(),stat,new SettingCandidateUpdateRequest("stats.mental","35",CharacterFactConfirmApplicationMode.HISTORY_ONLY,updatedAt)));
         blocked(()->worldReview.confirmCandidate(f.member(),f.work(),world,new WorldSettingCandidateConfirmRequest(WorldSettingOperation.ADD,WorldSettingCategory.RACE,"엘프",null,"서식지","북부",false,null)));
         blocked(()->worldReview.confirmCandidateGroup(f.member(),f.work(),new WorldSettingCandidateGroupConfirmRequest(batch,List.of(
                 new WorldSettingCandidateGroupConfirmRequest.Decision(world,WorldSettingOperation.ADD,WorldSettingCategory.RACE,"엘프",null,"서식지","북부",false,null)))));
         assertThat(confirmed(f)).isZero();assertThat(characters(f)).isZero();assertThat(worldSettings(f)).isZero();
-        // 확정 설정을 쓰지 않는 경로는 그대로 열려 있어 작가가 보류를 해소할 수 있다.
+        // 확정 설정을 쓰지 않는 경로(값 수정·반영 방식 저장·연결·결정 초안·제외)는 그대로 열려 있어 작가가 보류를 해소할 수 있다.
         characterReview.updateSettingCandidate(f.member(),f.work(),stat,new SettingCandidateUpdateRequest("stats.mental","36"));
+        characterReview.updateSettingCandidate(f.member(),f.work(),stat,new SettingCandidateUpdateRequest("stats.mental","36",CharacterFactConfirmApplicationMode.HISTORY_ONLY,updatedAt(stat)));
         characterReview.updateSettingCandidateCharacterMatch(f.member(),f.work(),stat,new SettingCandidateCharacterMatchRequest(SettingCandidateCharacterMatchResolutionType.CREATE_NEW,null,"에르웬"));
         worldReview.updateCandidateDecisions(f.member(),f.work(),new WorldSettingCandidateDecisionUpdateRequest(batch,List.of(
                 new WorldSettingCandidateDecisionUpdateItem(world2,WorldSettingOperation.ADD,WorldSettingCategory.RACE,"드워프",null,"서식지","깊은 산","작가 확인"))));
         characterReview.dismissSettingCandidate(f.member(),f.work(),stat);
         worldReview.dismissCandidate(f.member(),f.work(),world,new org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDismissRequest("작가 제외"));
         assertThat(confirmed(f)).isZero();assertThat(worldSettings(f)).isZero();
-        // 작가가 저장한 세계관 최종 결정은 S3의 회차 전체 확정이 반영하지 않는 보류 사유로 남는다.
-        var held=apply(f,"after-edits");
-        assertThat(held.status()).isEqualTo(ValidationApplicationStatus.HELD_REVIEW);
-        assertThat(held.holdReasons()).extracting(ValidationApplicationHoldReason::code,ValidationApplicationHoldReason::candidateId)
-                .containsExactly(tuple(ValidationApplicationHoldCode.AUTHOR_EDIT_PENDING,world2));
-        assertThat(confirmed(f)).isZero();
+        // 작가가 저장한 세계관 최종 결정은 회차 전체 확정이 그 결정대로 반영한다.
+        var applied=apply(f,"after-edits");
+        assertThat(applied.status()).isEqualTo(ValidationApplicationStatus.APPLIED);
+        assertThat(worldProperties(f,"드워프")).containsExactly(new WorldSetting.Property(null,"서식지","깊은 산"));
+        assertThat(characters(f)).as("the discovery is applied automatically").isEqualTo(1);assertThat(facts(f)).as("the dismissed stat writes nothing").isZero();
     }
 
     @Test @DisplayName("일반 회차는 기존 자동 반영 contributor로 확정되고 사람의 그룹 확정도 그대로 동작한다")
@@ -158,7 +167,7 @@ class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApp
         completeExtraction(r);
         var summary=reviews.getValidationReview(f.member(),f.work(),f.report());
         assertThat(summary.application().holdReasons()).extracting(ValidationApplicationHoldReason::code,ValidationApplicationHoldReason::candidateId)
-                .containsExactly(tuple(ValidationApplicationHoldCode.REVIEW_REQUIRED,review));
+                .containsExactly(tuple(ValidationApplicationHoldCode.DECISION_PENDING,review));
         assertThat(confirmed(f)).isZero();
         characterReview.dismissSettingCandidate(f.member(),f.work(),review);
         var applied=apply(f,"after-dismiss");
@@ -166,6 +175,96 @@ class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApp
         assertThat(applied.holdReasons()).isEmpty();assertThat(applied.extractionJobId()).isEqualTo(r.job());assertThat(applied.reportVersion()).isEqualTo(reportVersion(f));
         assertThat(characters(f)).isEqualTo(2);assertThat(facts(f)).isEqualTo(1);assertThat(worldSettings(f)).isEqualTo(1);assertThat(automaticAppliedAt(r.job())).isNotNull();
         assertThat(reviews.getValidationReview(f.member(),f.work(),f.report()).application().status()).isEqualTo(ValidationApplicationStatus.APPLIED);
+    }
+
+    @Test @DisplayName("값을 고치고 반영 방식을 저장한 캐릭터 후보는 회차 전체 확정에서 그 값으로 현재 설정에 반영된다")
+    void editedCandidateAppliesWithSavedDecision() {
+        var r=release();var f=r.f();
+        var stat=inJob(r.job(),job->{var d=discovery(job,"에르웬");world(job,"엘프","서식지","북부");return stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.REVIEW_REQUIRED).getId();});
+        completeExtraction(r);
+        assertThat(reviews.getValidationReview(f.member(),f.work(),f.report()).application().holdReasons())
+                .containsExactly(new ValidationApplicationHoldReason(ValidationApplicationHoldCode.DECISION_PENDING,ValidationApplicationCandidateType.CHARACTER,stat,"REVIEW_REQUIRED"));
+        // 검수 회차의 확정은 막혀 있지만 값 수정과 반영 방식 저장은 결정 초안이다.
+        characterReview.updateSettingCandidate(f.member(),f.work(),stat,new SettingCandidateUpdateRequest("stats.mental","42",CharacterFactConfirmApplicationMode.APPLY_PROPOSAL,updatedAt(stat)));
+        assertThat(confirmed(f)).isZero();
+        var applied=apply(f,"edited");
+        assertThat(applied.status()).isEqualTo(ValidationApplicationStatus.APPLIED);assertThat(applied.attempt()).isEqualTo(2);
+        assertThat(characters(f)).isEqualTo(1);assertThat(factValue(f,"에르웬")).as("the saved edited value, not the AI proposal").isEqualTo("42");
+        assertThat(snapshotSources(f)).as("APPLY_PROPOSAL writes the current snapshot").isEqualTo(1);assertThat(worldSettings(f)).isEqualTo(1);assertThat(confirmed(f)).isEqualTo(3);
+        assertThat(tx.<Boolean>execute(s->em.find(SettingCandidate.class,stat).isReviewedAutomatically())).as("applied through the group-confirm body").isFalse();
+        assertThat(automaticAppliedAt(r.job())).isNotNull();assertThat(heldAt(r.job())).isNull();
+    }
+
+    @Test @DisplayName("범위를 정하지 못한 세계관 후보는 작가가 저장한 최종 결정대로 회차 전체 확정에 반영된다")
+    void worldDecisionDraftApplies() {
+        var r=release();var f=r.f();
+        var ids=inJob(r.job(),job->List.of(scopeUnresolvedWorld(job,"엘프","서식지","북부").getId(),job.getBatch().getId()));
+        completeExtraction(r);UUID world=ids.get(0),batch=ids.get(1);
+        assertThat(reviews.getValidationReview(f.member(),f.work(),f.report()).application().holdReasons())
+                .containsExactly(new ValidationApplicationHoldReason(ValidationApplicationHoldCode.DECISION_PENDING,ValidationApplicationCandidateType.WORLD_SETTING,world,"SCOPE_UNRESOLVED"));
+        worldReview.updateCandidateDecisions(f.member(),f.work(),new WorldSettingCandidateDecisionUpdateRequest(batch,List.of(
+                new WorldSettingCandidateDecisionUpdateItem(world,WorldSettingOperation.ADD,WorldSettingCategory.RACE,"엘프","북부 숲","서식지","북부","범위 확인"))));
+        var applied=apply(f,"world-decision");
+        assertThat(applied.status()).isEqualTo(ValidationApplicationStatus.APPLIED);
+        assertThat(worldProperties(f,"엘프")).containsExactly(new WorldSetting.Property("북부 숲","서식지","북부"));
+        assertThat(confirmed(f)).isEqualTo(1);assertThat(reportStatus(f.report())).isEqualTo("WAITING_FOR_ERROR_REVIEW");
+    }
+
+    @Test @DisplayName("자동 반영 후보와 작가 결정 후보가 섞인 회차는 두 도메인 모두 한 번의 반영으로 확정된다")
+    void mixedEpisodeAppliesInOneTransaction() {
+        var r=release();var f=r.f();
+        var ids=inJob(r.job(),job->{var d=discovery(job,"에르웬");stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.ADD);
+            var d2=discovery(job,"비요른");var s2=stat(job,d2.getProvisionalSubjectKey(),"비요른",50,CharacterFactOperation.REVIEW_REQUIRED);
+            world(job,"엘프","서식지","북부");var w2=scopeUnresolvedWorld(job,"드워프","서식지","산");return List.of(s2.getId(),w2.getId(),job.getBatch().getId());});
+        completeExtraction(r);UUID stat=ids.get(0),world=ids.get(1),batch=ids.get(2);
+        assertThat(reviews.getValidationReview(f.member(),f.work(),f.report()).application().holdReasons()).extracting(ValidationApplicationHoldReason::code,ValidationApplicationHoldReason::candidateId)
+                .containsExactlyInAnyOrder(tuple(ValidationApplicationHoldCode.DECISION_PENDING,stat),tuple(ValidationApplicationHoldCode.DECISION_PENDING,world));
+        characterReview.updateSettingCandidate(f.member(),f.work(),stat,new SettingCandidateUpdateRequest("stats.mental","50",CharacterFactConfirmApplicationMode.HISTORY_ONLY,updatedAt(stat)));
+        worldReview.updateCandidateDecisions(f.member(),f.work(),new WorldSettingCandidateDecisionUpdateRequest(batch,List.of(
+                new WorldSettingCandidateDecisionUpdateItem(world,WorldSettingOperation.ADD,WorldSettingCategory.RACE,"드워프","깊은 곳","서식지","산","범위 확인"))));
+        var applied=apply(f,"mixed");
+        assertThat(applied.status()).isEqualTo(ValidationApplicationStatus.APPLIED);assertThat(applied.attempt()).isEqualTo(2);
+        assertThat(characters(f)).isEqualTo(2);assertThat(facts(f)).isEqualTo(2);assertThat(factValue(f,"비요른")).isEqualTo("50");
+        assertThat(snapshotSources(f)).as("the HISTORY_ONLY decision keeps the current snapshot").isEqualTo(1);
+        assertThat(worldSettings(f)).isEqualTo(2);assertThat(worldProperties(f,"드워프")).containsExactly(new WorldSetting.Property("깊은 곳","서식지","산"));
+        assertThat(confirmed(f)).as("2 discoveries, 2 stats, 2 world candidates; nothing applied twice").isEqualTo(6);
+        assertThat(jdbc.queryForObject("select count(*) from setting_candidates where analysis_job_id=? and review_status='PENDING_REVIEW'",Long.class,r.job())).isZero();
+    }
+
+    @Test @DisplayName("결정 없는 검토 필요 후보가 있으면 명시 반영도 DECISION_PENDING 보류만 기록하고 아무것도 쓰지 않는다")
+    void undecidedReviewRequiredHolds() {
+        var r=release();var f=r.f();
+        var stat=inJob(r.job(),job->{var d=discovery(job,"에르웬");world(job,"엘프","서식지","북부");return stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.REVIEW_REQUIRED).getId();});
+        completeExtraction(r);long before=reportVersion(f);
+        var held=apply(f,"undecided");
+        assertThat(held.status()).isEqualTo(ValidationApplicationStatus.HELD_REVIEW);assertThat(held.attempt()).isEqualTo(2);assertThat(held.reportVersion()).isEqualTo(before+1);
+        assertThat(held.holdReasons()).containsExactly(new ValidationApplicationHoldReason(ValidationApplicationHoldCode.DECISION_PENDING,ValidationApplicationCandidateType.CHARACTER,stat,"REVIEW_REQUIRED"));
+        assertThat(confirmed(f)).isZero();assertThat(characters(f)).isZero();assertThat(facts(f)).isZero();assertThat(worldSettings(f)).isZero();
+        assertThat(automaticAppliedAt(r.job())).isNull();assertThat(heldAt(r.job())).isNotNull();
+    }
+
+    @Test @DisplayName("보류 뒤 원고를 교체하고 재검수하면 새 release Job이 반영되고 이전 release Job의 미확정 후보는 원문 교체 정리를 따른다")
+    void heldEpisodeReplacedAndRecheckedAppliesNewRelease() {
+        var r=release();var f=r.f();
+        var old=inJob(r.job(),job->{var d=discovery(job,"에르웬");world(job,"엘프","서식지","북부");return List.of(d.getId(),stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.REVIEW_REQUIRED).getId());});
+        completeExtraction(r);assertThat(applicationRow(f).get("status")).isEqualTo("HELD_REVIEW");
+        String replaced="수정한 합성 원고";replace(f,replaced);
+        assertThat(reportStatus(f.report())).as("file replacement invalidates the held report").isEqualTo("INVALIDATED");
+        var oldJob=jobState(r.job());var oldCandidates=jdbc.queryForList("select review_status from setting_candidates where analysis_job_id=? union all select review_status from world_setting_candidates where analysis_job_id=?",String.class,r.job(),r.job());
+        var next=recheck(f,"after-held-replacement");
+        var staging=admissions.get(f.member(),f.work(),next.report());
+        assertThat(staging.mode()).as("nothing was applied, so the recheck is a fresh review").isEqualTo(ValidationReportMode.BEFORE_CONFIRMATION);assertThat(staging.previousApplicationReceipt()).isNull();
+        var run=runToCompletion(next,false);var newJob=(UUID)run.done().get("extractionJobId");
+        assertThat(newJob).as(String.valueOf(run.done())).isNotNull().isNotEqualTo(r.job());
+        sourceText=replaced;var payload=analysisWorker.claimAnalysisJob(claimRequest()).orElseThrow();assertThat(payload.analysisJobId()).isEqualTo(newJob);
+        inJob(newJob,job->{var d=discovery(job,"에르웬");stat(job,d.getProvisionalSubjectKey(),"에르웬",36,CharacterFactOperation.ADD);world(job,"엘프","서식지","남부");return null;});
+        completeExtraction(newJob,payload.leaseToken());
+        assertThat(applicationRow(next).get("status")).isEqualTo("APPLIED");assertThat(factValue(f,"에르웬")).isEqualTo("36");assertThat(worldProperties(f,"엘프")).containsExactly(new WorldSetting.Property(null,"서식지","남부"));
+        assertThat(applicationRow(f).get("status")).as("the retired report keeps its HELD receipt as history").isEqualTo("HELD_REVIEW");
+        // 기존 원문 교체 정리: 이전 release Job은 불변 기록이 무효화되고, 검토 전 후보는 원문과 함께 파기되어 남지 않는다.
+        assertThat(oldJob).isEqualTo("SUCCEEDED/INVALIDATED");
+        assertThat(oldCandidates).as("old release job candidates are purged with the replaced source").isEmpty();
+        assertThat(old).hasSize(2);assertThat(confirmed(f)).as("only the new release job's candidates").isEqualTo(3);
     }
 
     @Test @DisplayName("같은 키 재전송은 같은 receipt이고 APPLIED 뒤 다른 키도 같은 APPLIED receipt를 시도 증가 없이 돌려준다")

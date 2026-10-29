@@ -47,6 +47,8 @@ abstract class ValidationSettingsApplicationFixture extends ValidationReviewComp
     @Autowired ValidationSettingsApplicationService applications;
 
     record Release(Fixture f,UUID job,WorkerAnalysisJobPayload payload) {}
+    /** 합성 후보 근거가 가리키는 현재 원고. 파일 교체 테스트는 교체한 원고로 바꾼다. */
+    String sourceText=TEXT;
 
     /** 검수 정상 0건 완료가 만든 release Job을 claim한다. 작품에는 합성 STAT schema를 둔다. */
     Release release() {
@@ -74,14 +76,14 @@ abstract class ValidationSettingsApplicationFixture extends ValidationReviewComp
         return JSON.arrayNode().add(JSON.objectNode().put("quote",quote).put("startOffset",text.codePointCount(0,start)).put("endOffset",text.codePointCount(0,start+quote.length())));
     }
     SettingCandidate discovery(AnalysisJob job,String name) {
-        var candidate=SettingCandidate.createCharacterDiscovery(job.getWork(),job.getEpisode(),null,job,name,name,null,SettingCandidateMatchStatus.UNRESOLVED,evidence(TEXT,"합성"),BigDecimal.ONE,null);
+        var candidate=SettingCandidate.createCharacterDiscovery(job.getWork(),job.getEpisode(),null,job,name,name,null,SettingCandidateMatchStatus.UNRESOLVED,evidence(sourceText,"합성"),BigDecimal.ONE,null);
         em.persist(candidate);ReflectionTestUtils.setField(candidate,"provisionalSubjectKey",CharacterAnalysisStateMapper.provisionalRef(candidate.getId()));em.flush();
         characterStates.prepareProvisionalCandidates(job);return candidate;
     }
     /** 임시 인물의 STAT 후보와 완료된 비교 결정. operation이 REVIEW_REQUIRED면 AI가 판단을 보류한 정상 비교 완료다. */
     SettingCandidate stat(AnalysisJob job,String provisional,String entityName,int value,CharacterFactOperation operation) {
         var candidate=SettingCandidate.create(job.getWork(),job.getEpisode(),null,job,SettingEntityType.CHARACTER,entityName,entityName,null,SettingCandidateMatchStatus.UNRESOLVED,
-                "stats.mental",String.valueOf(value),SettingValueType.NUMBER,JSON.objectNode().put("value",value),evidence(TEXT,"원고"),BigDecimal.ONE,null);
+                "stats.mental",String.valueOf(value),SettingValueType.NUMBER,JSON.objectNode().put("value",value),evidence(sourceText,"원고"),BigDecimal.ONE,null);
         ReflectionTestUtils.setField(candidate,"provisionalSubjectKey",provisional);em.persist(candidate);em.flush();
         characterStates.prepareProvisionalCandidates(job);
         JsonNode target=characterStates.getTarget(job,null,provisional);
@@ -109,6 +111,14 @@ abstract class ValidationSettingsApplicationFixture extends ValidationReviewComp
         states.appendValidatedChanges(job,job.getInputStateHash(),List.of(new AnalysisStateChange("world-decision:"+decision.getId(),List.of("worldSettings",key),target,false,"ADD",List.of(candidate.getId()))));
         return candidate;
     }
+    /** AI가 범위를 정하지 못한 세계관 후보(정상 비교 완료 + REVIEW_REQUIRED + SCOPE_UNRESOLVED). journal 변경은 ADD와 같은 경로로 덮는다. */
+    WorldSettingCandidate scopeUnresolvedWorld(AnalysisJob job,String subject,String setting,String value) {
+        var candidate=world(job,subject,setting,value);
+        ReflectionTestUtils.setField(candidate,"suggestedOperation",WorldSettingSuggestedOperation.REVIEW_REQUIRED);
+        ReflectionTestUtils.setField(candidate,"comparisonReviewReason",WorldSettingComparisonReviewReason.SCOPE_UNRESOLVED);
+        ReflectionTestUtils.setField(candidate.getComparisonDecision(),"suggestedOperation",WorldSettingSuggestedOperation.REVIEW_REQUIRED);
+        return candidate;
+    }
     /** 정상 인물 발견 + STAT ADD + 세계관 ADD. 모두 기존 자동 반영 규칙이 받아들이는 후보다. */
     record Candidates(UUID discovery,UUID stat,UUID world) {}
     Candidates applicable(Release r) {
@@ -130,4 +140,13 @@ abstract class ValidationSettingsApplicationFixture extends ValidationReviewComp
     java.sql.Timestamp automaticAppliedAt(UUID job) {return jdbc.queryForObject("select automatic_applied_at from analysis_jobs where id=?",java.sql.Timestamp.class,job);}
     String jobState(UUID job) {return jdbc.queryForObject("select status||'/'||journal_status from analysis_jobs where id=?",String.class,job);}
     Episode episode(Fixture f) {return tx.execute(s->em.find(Episode.class,f.target()));}
+    String factValue(Fixture f,String character) {
+        return jdbc.queryForObject("select f.fact_value from character_facts f join characters c on c.id=f.character_id where c.work_id=? and c.name=?",String.class,f.work(),character);
+    }
+    List<WorldSetting.Property> worldProperties(Fixture f,String subject) {
+        return tx.execute(s->em.createQuery("select w from WorldSetting w where w.work.id=:w and w.subjectName=:n",WorldSetting.class).setParameter("w",f.work()).setParameter("n",subject).getSingleResult().getProperties());
+    }
+    String reportStatus(UUID report) {return jdbc.queryForObject("select status from validation_reports where id=?",String.class,report);}
+    java.sql.Timestamp heldAt(UUID job) {return jdbc.queryForObject("select review_application_held_at from analysis_jobs where id=?",java.sql.Timestamp.class,job);}
+    java.time.LocalDateTime updatedAt(UUID candidate) {return tx.execute(s->em.find(SettingCandidate.class,candidate).getUpdatedAt());}
 }
