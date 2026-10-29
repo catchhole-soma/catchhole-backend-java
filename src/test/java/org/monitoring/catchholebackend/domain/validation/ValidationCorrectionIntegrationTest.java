@@ -6,6 +6,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.util.*;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.Arguments;
+import java.util.stream.Stream;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
@@ -87,5 +91,42 @@ class ValidationCorrectionIntegrationTest extends ValidationRecheckFixture {
         assertThat(em.createQuery("select count(c) from ValidationCorrection c",Long.class).getSingleResult()).isZero();
         assertThat(em.createQuery("select count(j) from AnalysisJob j",Long.class).getSingleResult()).isEqualTo(1);
         assertThat(em.createQuery("select count(c) from WorldSettingCandidate c",Long.class).getSingleResult()).isEqualTo(1);
+    }
+
+    static Stream<Arguments> canonicalWorldPaths() {
+        return Stream.of(
+                Arguments.of(null,"서식지",null," 서식지 ",null," 생활 지역 ",null,"생활 지역"),
+                Arguments.of(null,"Habitat",null," habitat ",null," Climate ",null,"Climate"),
+                Arguments.of(null,"Café",null," Cafe\u0301 ",null," Re\u0301gion ",null,"Région"),
+                Arguments.of(null,"서식지",null," 서식지 "," 1층 "," 생활 지역 ","1층","생활 지역"),
+                Arguments.of("Region","Habitat"," region "," habitat "," Zone "," Range ","Zone","Range"));
+    }
+    @ParameterizedTest @MethodSource("canonicalWorldPaths")
+    void diagnosticCorrectionUsesActualCanonicalStoredWorldPaths(String oldScope,String oldName,String requestedOldScope,String requestedOldName,
+            String requestedNewScope,String requestedNewName,String expectedScope,String expectedName) throws Exception {
+        world.updateProperty(null,"서식지",oldScope,oldName,"북부");em.flush();var first=start();
+        var job=org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.create(work,null,target,org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION);
+        job.configureReviewMode(org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC);states.initializeRun(List.of(job));
+        job.claim("synthetic-no-llm","합성 완료",java.time.LocalDateTime.now().plusMinutes(1));assertThat(states.prepareInput(job)).isTrue();
+        states.seal(job);job.completeAutomaticApplication();job.succeed(null,0,0);states.confirmedSettingsChanged(work.getId());em.flush();
+        var diagnostic=postOk(recheckPath(first),recheck(first,"path-diagnostic"));
+        Map<String,Object> edit=new LinkedHashMap<>();edit.put("currentScopeName",requestedOldScope);edit.put("currentSettingName",requestedOldName);
+        edit.put("scopeName",requestedNewScope);edit.put("settingName",requestedNewName);edit.put("settingValue","남부");edit.put("version",world.getVersion());
+        var input=correction(diagnostic,"worldSettings","canonical-correction");input.put("worldSetting",Map.of("targetId",world.getId(),"expectedVersion",world.getVersion(),"edit",edit));
+        var receipt=postOk(correctionPath(diagnostic),input);
+        var storedCorrection=em.find(org.monitoring.catchholebackend.domain.validation.entity.ValidationCorrection.class,UUID.fromString(receipt.path("correctionId").asText()));
+        var scope=storedCorrection.getScope();
+        assertThat(scope.path("currentScopeName").isNull()?null:scope.path("currentScopeName").asText()).isEqualTo(oldScope);
+        assertThat(scope.path("currentSettingName").asText()).isEqualTo(oldName);
+        assertThat(scope.path("scopeName").isNull()?null:scope.path("scopeName").asText()).isEqualTo(expectedScope);
+        assertThat(scope.path("settingName").asText()).isEqualTo(expectedName);
+        assertThat(scope.path("beforeValue").asText()).isEqualTo("북부");assertThat(scope.path("afterValue").asText()).isEqualTo("남부");
+        var command=recheck(diagnostic,"canonical-recheck");command.remove("expectedBaselineHash");command.put("correctionReceiptId",receipt.path("correctionId").asText());
+        var next=postOk(recheckPath(diagnostic),command);
+        assertThat(next.path("baselineStatus").asText()).isEqualTo("READY");
+        assertThat(stored(next).getBaselineSeed().path("worldSettings").path("world:"+world.getId()).path("propertiesJson")).isEqualTo(world.getPropertiesJson());
+        assertThat(world.getPropertyValue(expectedScope,expectedName)).isEqualTo("남부");
+        assertThat(em.createQuery("select count(j) from AnalysisJob j",Long.class).getSingleResult()).isEqualTo(1);
+        assertThat(em.createQuery("select count(c) from WorldSettingCandidate c",Long.class).getSingleResult()).isZero();
     }
 }

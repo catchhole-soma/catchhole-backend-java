@@ -106,14 +106,16 @@ public class ValidationCorrectionServiceImpl implements ValidationCorrectionServ
         if(setting.getVersion()!=command.expectedVersion() || !Objects.equals(edit.version(),command.expectedVersion())
                 || state.path("version").asLong(-1)!=command.expectedVersion() || !setting.getPropertiesJson().equals(state.path("propertiesJson"))
                 || !setting.getCategory().name().equals(state.path("category").asText()) || !setting.getSubjectName().equals(state.path("subjectName").asText())) throw conflict();
-        String before=setting.getPropertyValue(edit.currentScopeName(),edit.currentSettingName()); if(before==null) throw conflict();
+        var beforePath=setting.getStoredPropertyPath(edit.currentScopeName(),edit.currentSettingName()); if(beforePath==null) throw conflict();
+        String before=setting.getPropertyValue(beforePath.scopeName(),beforePath.settingName());
         var original=setting.getPropertiesJson().deepCopy();
         worldEdits.updateWorldSettingProperty(memberId,workId,command.targetId(),edit);
         if(original.equals(setting.getPropertiesJson())) throw conflict();
+        var afterPath=setting.getStoredPropertyPath(edit.scopeName(),edit.settingName()); if(afterPath==null) throw conflict();
         return JsonNodeFactory.instance.objectNode().put("domain","worldSettings").put("targetId",command.targetId().toString())
-                .put("currentScopeName",edit.currentScopeName()).put("currentSettingName",edit.currentSettingName())
-                .put("scopeName",edit.scopeName()).put("settingName",edit.settingName()).put("beforeValue",before)
-                .put("afterValue",setting.getPropertyValue(edit.scopeName(),edit.settingName())).put("entityVersion",setting.getVersion());
+                .put("currentScopeName",beforePath.scopeName()).put("currentSettingName",beforePath.settingName())
+                .put("scopeName",afterPath.scopeName()).put("settingName",afterPath.settingName()).put("beforeValue",before)
+                .put("afterValue",setting.getPropertyValue(afterPath.scopeName(),afterPath.settingName())).put("entityVersion",setting.getVersion());
     }
     private String nullable(JsonNode node,String field) {return node.path(field).isTextual()?node.path(field).asText():null;}
     private JsonNode value(JsonNode node) {return node==null?NullNode.instance:node.deepCopy();}
