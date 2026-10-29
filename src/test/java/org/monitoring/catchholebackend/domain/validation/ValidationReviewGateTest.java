@@ -22,7 +22,9 @@ class ValidationReviewGateTest {
     @Test @DisplayName("정상 완료 0건은 자동 추출 후보, 모두 판단한 항목은 명시 검토 완료 대상이다")
     void completedReportsChooseAutomaticOrExplicitPath() {
         var automatic=ready(ValidationReportMode.BEFORE_CONFIRMATION,COMPLETED,Counts.EMPTY);
-        assertThat(automatic.completionMode()).isEqualTo(ValidationReviewCompletionMode.AUTOMATIC_ELIGIBLE);assertThat(automatic.canCompleteReview()).isFalse();
+        assertThat(automatic.completionMode()).isEqualTo(ValidationReviewCompletionMode.AUTOMATIC_ELIGIBLE);
+        // GH312 S2: receipt 없는 AUTOMATIC_ELIGIBLE은 /complete의 자동 종료가 추출 생성 조건에 막힌 경우뿐이라 명시 요청으로 다시 시도할 수 있다.
+        assertThat(automatic.canCompleteReview()).isTrue();assertThat(automatic.allowedActions()).containsExactly(ValidationReviewAction.COMPLETE_REVIEW);
         assertThat(automatic.holdReasons()).isEmpty();assertThat(automatic.errorReviewStatus()).isEqualTo(ValidationPreparationStatus.READY);
         var explicit=ready(ValidationReportMode.BEFORE_CONFIRMATION,COMPLETED,DECIDED);
         assertThat(explicit.completionMode()).isEqualTo(ValidationReviewCompletionMode.EXPLICIT_REQUIRED);assertThat(explicit.canCompleteReview()).isTrue();
@@ -59,13 +61,26 @@ class ValidationReviewGateTest {
 
     @ParameterizedTest @EnumSource(ValidationExecutionStatus.class) @DisplayName("판단 저장은 COMPLETED·PARTIAL·FAILED에서만 열린다")
     void judgmentWindowFollowsExecutionStatus(ValidationExecutionStatus execution) {
-        var reason=ValidationReviewGate.lockReason(true,ValidationPreparationStatus.READY,ValidationReportStatus.WAITING_FOR_ERROR_REVIEW,execution);
+        var reason=ValidationReviewGate.lockReason(true,ValidationPreparationStatus.READY,ValidationReportStatus.WAITING_FOR_ERROR_REVIEW,execution,false);
         switch(execution) {
             case COMPLETED,PARTIAL,FAILED->assertThat(reason).isNull();
             case NOT_STARTED->assertThat(reason).isEqualTo(ValidationReviewLockReason.EXECUTION_NOT_STARTED);
             case CANCELED->assertThat(reason).isEqualTo(ValidationReviewLockReason.EXECUTION_CANCELED);
             default->assertThat(reason).isEqualTo(ValidationReviewLockReason.EXECUTION_IN_PROGRESS);
         }
+    }
+
+    @Test @DisplayName("현재 report의 검토 종료 receipt는 판단·재시도를 잠그고 COMPLETED를 알린다")
+    void completedReviewLocksJudgmentsAndHidesActions() {
+        var receipt=new Completion(java.util.UUID.randomUUID(),ValidationReviewTrigger.EXPLICIT,java.time.LocalDateTime.now(),java.util.UUID.randomUUID());
+        var completed=ValidationReviewGate.evaluate(new Input(true,ValidationPreparationStatus.READY,ValidationReportStatus.WAITING_FOR_ERROR_REVIEW,ValidationReportMode.BEFORE_CONFIRMATION,COMPLETED,DECIDED,true,receipt));
+        assertThat(completed.completionMode()).isEqualTo(ValidationReviewCompletionMode.COMPLETED);assertThat(completed.lockReason()).isEqualTo(ValidationReviewLockReason.REVIEW_COMPLETED);
+        assertThat(completed.allowedActions()).isEmpty();assertThat(completed.canCompleteReview()).isFalse();assertThat(completed.completion()).isEqualTo(receipt);
+        assertThat(completed.errorReviewStatus()).isEqualTo(ValidationPreparationStatus.READY);
+        var invalidated=ValidationReviewGate.evaluate(new Input(true,ValidationPreparationStatus.INVALIDATED,ValidationReportStatus.INVALIDATED,ValidationReportMode.BEFORE_CONFIRMATION,COMPLETED,Counts.EMPTY,true,receipt));
+        assertThat(invalidated.lockReason()).isEqualTo(ValidationReviewLockReason.REPORT_INVALIDATED);assertThat(invalidated.allowedActions()).containsExactly(ValidationReviewAction.RECHECK);
+        var retired=ValidationReviewGate.evaluate(new Input(false,ValidationPreparationStatus.INVALIDATED,ValidationReportStatus.INVALIDATED,ValidationReportMode.BEFORE_CONFIRMATION,COMPLETED,DECIDED,true,receipt));
+        assertThat(retired.completion()).as("retired receipts are history only").isNull();assertThat(retired.completionMode()).isEqualTo(ValidationReviewCompletionMode.BLOCKED);
     }
 
     @Test @DisplayName("분기마다 허용 판단을 분리한다")

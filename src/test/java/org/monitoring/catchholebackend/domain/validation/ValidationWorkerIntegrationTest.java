@@ -84,7 +84,9 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
         internal(path(next,"/units"),next,unit(next,"TYPO","TSEG1","COMPLETED",typoEmpty()),200);
         var finish=Map.of("scope",scope(next),"idempotencyKey","both-complete");var result=internal(path(next,"/complete"),next,finish,200);
         assertThat(result.path("status").asText()).isEqualTo("COMPLETED");assertThat(result.path("completedChecks").asInt()).isZero();assertThat(result.path("findings").size()).isZero();
-        assertThat(internal(path(next,"/complete"),next,finish,200)).isEqualTo(result);noExtraction();
+        // GH312 S2: 정상 0건 완료는 같은 트랜잭션에서 검토 종료 receipt와 release Job 하나를 만들고 재전송은 같은 receipt다.
+        assertThat(result.path("extractionJobId").asText()).isEqualTo(releaseOnly().toString());
+        assertThat(internal(path(next,"/complete"),next,finish,200)).isEqualTo(result);releaseOnly();
     }
     @Test @DisplayName("정상 질문도 안정 ID·완료 bundle·새 revision을 보존한다") void normalNoConflictDecisionHasStableServerCheckAndRevisionChangesAreAtomic() throws Exception {
         source();start();var job=claim();

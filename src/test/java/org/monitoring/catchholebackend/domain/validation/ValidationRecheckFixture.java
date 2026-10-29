@@ -121,4 +121,13 @@ abstract class ValidationRecheckFixture {
         for (String entity : List.of("AnalysisJob", "SettingCandidate", "WorldSettingCandidate"))
             assertThat(em.createQuery("select count(x) from "+entity+" x where x.work.id=:id", Long.class).setParameter("id", work.getId()).getSingleResult()).as(entity).isZero();
     }
+    /** GH312 S2: 검토 종료 receipt가 만든 SETTING_EXTRACTION Job 하나만 있고 후보는 아직 없다. */
+    UUID releaseOnly() {
+        var ids = em.createQuery("select j.id from AnalysisJob j where j.work.id=:id", UUID.class).setParameter("id", work.getId()).getResultList();
+        assertThat(ids).as("AnalysisJob").hasSize(1);
+        assertThat(em.createQuery("select j.jobType from AnalysisJob j where j.id=:id", Object.class).setParameter("id", ids.getFirst()).getSingleResult().toString()).isEqualTo("SETTING_EXTRACTION");
+        for (String entity : List.of("SettingCandidate", "WorldSettingCandidate"))
+            assertThat(em.createQuery("select count(x) from "+entity+" x where x.work.id=:id", Long.class).setParameter("id", work.getId()).getSingleResult()).as(entity).isZero();
+        return ids.getFirst();
+    }
 }

@@ -104,6 +104,12 @@ class ValidationExecutionHttpPostgresIntegrationTest {
     Map<String,Object> planner(Map<String,Object> j) {return results.publishValidationPlan(id(j),lease(j),plan(j,ValidationStageKind.PLANNER,"TSEG1",batch(List.of())));}
     void expire(Map<String,Object> j) {jdbc.update("update validation_jobs set lease_expires_at=now()-interval '1 second' where id=?",id(j));}
     void noExtraction() {for(String table:List.of("analysis_jobs","setting_candidates","world_setting_candidates"))assertThat(jdbc.queryForObject("select count(*) from "+table,Integer.class)).as(table).isZero();}
+    /** GH312 S2: 정상 0건 COMPLETED는 /complete가 검토 종료 receipt와 release Job 하나를 만들고 후보·확정은 아직 없다. */
+    void releaseOnly(Fixture f) {
+        assertThat(jdbc.queryForObject("select count(*) from validation_review_completions where report_id=? and trigger='AUTOMATIC'",Integer.class,f.report())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from analysis_jobs",Integer.class)).isEqualTo(1);
+        for(String table:List.of("setting_candidates","world_setting_candidates"))assertThat(jdbc.queryForObject("select count(*) from "+table,Integer.class)).as(table).isZero();
+    }
     void zeroCopies(UUID report) {for(String table:List.of("validation_stages","validation_checks","validation_check_history","validation_findings","validation_evidence","validation_checkpoints","validation_publications"))assertThat(jdbc.queryForObject("select count(*) from "+table+" where report_id=?",Integer.class,report)).as(table).isZero();}
     static void await(CountDownLatch latch) {try {if(!latch.await(15,TimeUnit.SECONDS))throw new AssertionError("synthetic latch timed out");}catch(InterruptedException ex){Thread.currentThread().interrupt();throw new AssertionError(ex);}}
 
@@ -134,7 +140,7 @@ class ValidationExecutionHttpPostgresIntegrationTest {
         var f=fixture();var response=python("zero");
         assertThat(response.at("/result/status").asText()).isEqualTo("COMPLETED");
         assertThat(response.at("/calls/PLANNER").asInt()).isEqualTo(1);assertThat(response.at("/calls/TYPO").asInt()).isEqualTo(1);
-        assertThat(progress(f).get("completedChecks")).isEqualTo(0L);noExtraction();
+        assertThat(progress(f).get("completedChecks")).isEqualTo(0L);releaseOnly(f);
     }
     @Test @DisplayName("계획 저장 직후 crash·lease회수는 저장 planner/coverage를 재호출하지 않는다")
     void actualWorkerRestoresPlanAfterCrashWithoutPlanningCalls() throws Exception {
@@ -142,14 +148,14 @@ class ValidationExecutionHttpPostgresIntegrationTest {
         assertThat(jdbc.queryForObject("select count(*) from validation_checks where report_id=?",Integer.class,f.report())).isEqualTo(1);
         reclaim(f);var resumed=python("inspect");assertThat(resumed.at("/result/status").asText()).as(resumed.toString()).isEqualTo("COMPLETED");
         for(String role:List.of("PLANNER","RELATED_SELECTION","COVERAGE"))assertThat(resumed.at("/calls/"+role).asInt()).isZero();
-        assertThat(resumed.at("/calls/JUDGE").asInt()).isEqualTo(1);noExtraction();
+        assertThat(resumed.at("/calls/JUDGE").asInt()).isEqualTo(1);releaseOnly(f);
     }
     @Test @DisplayName("정상 NO_CONFLICT 저장 직후 crash는 JUDGE를 재호출하지 않는다")
     void actualWorkerKeepsSuccessfulNoConflictOnReclaim() throws Exception {
         var f=fixture();assertThat(python("crash-decision").at("/result/crashed").asBoolean()).isTrue();
         assertThat(progress(f).get("completedChecks")).isEqualTo(1L);reclaim(f);
         var resumed=python("inspect");assertThat(resumed.at("/result/status").asText()).as(resumed.toString()).isEqualTo("COMPLETED");
-        assertThat(resumed.at("/calls/JUDGE").asInt()).isZero();noExtraction();
+        assertThat(resumed.at("/calls/JUDGE").asInt()).isZero();releaseOnly(f);
     }
     @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.CsvSource({"all-fail,FAILED","judge-fail,PARTIAL","typo-fail,PARTIAL"})
     @DisplayName("실제 실패와 일부 성공 0finding은 COMPLETED로 추측하지 않는다")
@@ -191,7 +197,7 @@ class ValidationExecutionHttpPostgresIntegrationTest {
         texts.put(second,missing);reclaim(f);org.mockito.Mockito.clearInvocations(storage);
         var resumed=python("zero");assertThat(resumed.at("/result/status").asText()).as(resumed.toString()).isEqualTo("COMPLETED");
         assertThat(resumed.at("/calls/PLANNER").asInt()).isZero();assertThat(resumed.at("/calls/COVERAGE").asInt()).isEqualTo(1);
-        org.mockito.Mockito.verify(storage,org.mockito.Mockito.never()).getText(first);noExtraction();
+        org.mockito.Mockito.verify(storage,org.mockito.Mockito.never()).getText(first);releaseOnly(f);
     }
 
     void readyIndex(Fixture f) {
@@ -208,7 +214,7 @@ class ValidationExecutionHttpPostgresIntegrationTest {
         jdbc.update("update retrieval_chunks set status='FAILED',embedding=null");
         retry(f,"reuse-vector");var resumed=python("vector-inspect");
         assertThat(resumed.at("/result/status").asText()).as(resumed.toString()).isEqualTo("COMPLETED");assertThat(resumed.at("/calls/QUERY_EMBEDDING").asInt()).isZero();
-        assertThat(resumed.at("/calls/JUDGE").asInt()).isEqualTo(1);noExtraction();
+        assertThat(resumed.at("/calls/JUDGE").asInt()).isEqualTo(1);releaseOnly(f);
     }
     @Test @DisplayName("원자 FOLLOW_UP 직후 crash는 영향 질문만 다시 판단한다")
     void actualWorkerRestoresAtomicFollowupRevisionAfterCrash() throws Exception {
@@ -218,7 +224,7 @@ class ValidationExecutionHttpPostgresIntegrationTest {
         reclaim(f);org.mockito.Mockito.clearInvocations(storage);var resumed=python("followup-resume");
         assertThat(resumed.at("/result/status").asText()).as(resumed.toString()).isEqualTo("COMPLETED");
         assertThat(resumed.at("/judges/Q1").asInt()).isEqualTo(1);assertThat(resumed.at("/judges/Q3").asInt()).isEqualTo(1);assertThat(resumed.at("/judges/Q2").asInt()).isZero();
-        for(String role:List.of("PLANNER","RELATED_SELECTION","COVERAGE"))assertThat(resumed.at("/calls/"+role).asInt()).isZero();noExtraction();
+        for(String role:List.of("PLANNER","RELATED_SELECTION","COVERAGE"))assertThat(resumed.at("/calls/"+role).asInt()).isZero();releaseOnly(f);
     }
 
     org.monitoring.catchholebackend.domain.validation.entity.ValidationJob currentJob(Fixture f) {
