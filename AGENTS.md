@@ -1087,3 +1087,9 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 앞선 미확정 후보는 원래 freeze 시점에 optional `selection`을 함께 저장하고 replay에서는 `automaticInputState`만 읽는다. 기존 입력/hash를 backfill하거나 현재 후보로 재구성하지 않는다. 주체 해소의 MATCHED/actual·provisional 연결은 후속 내용 비교 실패와 구분해 보존하고, 모호/실패한 주체 연결·실패한 operation 대상은 권위 있는 링크로 복원하지 않는다. 원래 schema로 held/failed STATUS를 판별하고 active=false를 보존한다.
 - `X-Analysis-Reference-Selection: true`를 받은 응답에만 `selection`과 캐릭터 advisory의 `selectionNames`를 노출한다. 누락/false에는 필드 자체를 생략하며 모든 claim/context/주체 조회에 같은 boolean을 명시적으로 전달한다. metadata freeze·advisory hash/contextToken은 capability와 무관하고 구 overload는 false다. `selectionNames`는 기존 frozen 주체 별칭·원 후보 표기를 전달하는 선택 전용 metadata다.
 - AI는 EPISODE의 모델 입력만 같은 도메인·관련 주체로 투영하며 전체 transport/equality/source/lease/journal을 유지한다. 보류는 현재값·선택 대상·변경/의존 참조·과거 후보 자동 승인이 아니다. 1차 캐릭터 입력은 기존 이름/활성 STATUS와 별도 미확정 이름/STATUS 힌트, 세계관은 원문·metadata·정적 규칙만 사용하며 BOOK 입력과 기존 시점 보호를 유지한다.
+
+- GH310 query embedding 예약은 QUERY 역할에만 typed queryInput을 요구하고 V95 immutable validation_call_input으로 원 호출 identity를 고정한다. UTF-8 query hash는 trim/정규화 없이 실제 provider 입력과 같아야 하며 현재 input/manifest/기존 index model/version/1536 차원을 대조한다. retry는 현재 VECTOR 의무·완전 READY receipt·원 SETTLED SUCCESS usage와 당시 완전한 index 처리 범위를 검증해 새 embedding이 필요한 소진 실행만 queue 전에 거절한다.
+- 같은 입력의 FOLLOW_UP은 영향 check 전부를 원자 revise하고 보조 checkpoint version만 전진시켜 성공 lookup/book 근거를 보존한다. 현재 서버 check revision/digest/outcome만 완료 권위이며 source/report 무효화·물리 파기의 사본 삭제는 그대로 유지한다.
+- 실제 Python 실행 연결 검증은 ValidationExecutionHttpPostgresIntegrationTest와 AI tests/support/validation_execution_http_client.py를 사용한다. GH310_AI_CHECKOUT/GH310_PYTHON 및 guarded loopback DB를 명시하고 provider/S3만 합성한다. 성공 모델 추가 호출0과 추출/후보0을 실제 counter/DB로 확인하며 모델 품질·운영 배포 결과로 보고하지 않는다.
+
+- 성공 VECTOR 조회의 JUDGE-only 재개는 live index 재구축 자체에 의존하지 않는다. 원래 완전 READY receipt·원 호출 identity·현재 input/check 의무와 leased source/hash 검증을 유지하고, 원래 실패/부분/미준비 receipt는 재사용하지 않는다.

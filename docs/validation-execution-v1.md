@@ -295,9 +295,65 @@ budgetRevision과 budgetHistory(before/after/generation)를 기록하며 동일 
 이미 사용한 모델을 조용히 교체하지 않는다. 기존 모델/검색 정책을 바꾸는 별도 운영 조치는 이 작업에 포함되지 않는다.
 
 
-Task3 필수 통합 항목: actual QUERY_EMBEDDING reserve는 현재도 cap 초과를 거절한다. 다만 retry queue 단계의
-reuse-aware embedding preflight는 typed semantic checkpoint/receipt 복원과 함께 완성해야 한다.
-실제로 새 embedding이 필요한 미완료 VECTOR 조회이고 cap이 소진됐으면 409/보류여야 한다.
-호환되는 성공 vector receipt를 재사용하고 JUDGE만 남은 경우에는 embedding cap 때문에 재시도를 막지 않는다.
-VECTOR 문자열 존재만으로 일괄 차단하거나 성공 조회를 다시 호출하지 않는다. 이 항목은 최종 GH310 완료 전 필수다.
+QUERY_EMBEDDING의 retry preflight는 실제 원 호출 identity와 typed semantic checkpoint를 함께 확인한다.
+예약 전에 adapter가 실제 query의 UTF-8 SHA-256(공백·대소문자·Unicode 정규화 없음), inputDigest/manifestHash,
+기존 색인 model/version/dimensions를 typed queryInput으로 고정한다. 원장의 immutable
+validation_call_input은 V95의 nullable JSONB이고 일반 generation 역할은 null만 허용한다.
+같은 requestId를 다른 queryInput으로 재전송하면 거절한다. 원문·query 본문은 원장에 저장하지 않는다.
+성공 VECTOR receipt의 readiness.query_embedding은 원래 requestId와 동일 proof를 보존한다.
+서버는 현재 질문의 실제 VECTOR 의무·원래 조회 당시 SUCCEEDED/완전 READY·원래 SETTLED SUCCESS
+ValidationJob 사용량과 proof 전체를 대조한다. 새 embedding이 필요하고 cap이 소진됐으면 queue 전에 409,
+호환 성공 receipt와 JUDGE만 남으면 cap 소진이어도 retry를 허용하며 추가 embedding은 0이다.
+원래 receipt가 failed/partial/not-ready이거나 다른 질의·입력·manifest·고정 model/version/차원이면 재사용하지 않는다.
+이미 성공한 조회의 JUDGE-only 재개는 live index 재구축/FAILED/embedding-null 때문에 막지 않는다.
+저장된 근거와 원 호출 proof를 사용하고 현재 input/source/hash는 기존 leased 경계에서 다시 검증한다.
+version은 기존 chat.retrieval-embedding-version override를 snapshot하고 차원은 기존 vector(1536)이다.
+새 색인/백필·모델 교체나 자동 cap 증액은 하지 않는다.
+
 `/plans`는 SETTING 계획 전용이며 TYPO_SEGMENT는 `/units`의 제안·분류 검증을 거쳐야 한다.
+
+
+## Python 실행기와 의미 재개
+
+`EpisodeValidationWorker.claim_next/process_claimed/aclose`는 기존 호출형 inspect/check_typos와 별도다.
+`ValidationExecutionClient`가 CommonResponse.data/실제 lease/scope를 사용하며, Python은 validation DB에 쓰지 않는다.
+PLANNER/전체 RELATED_SELECTION page/COVERAGE/각 BOOK_SOURCE/각 BOOK_COVERAGE를 검증 직후 게시한다.
+MERGED_PLAN은 첫 JUDGE 전에 서버 check UUID/revision/checkInputDigest를 발급받고 정상 NO_CONFLICT도 즉시 저장한다.
+FOLLOW_UP은 영향 질문 전부를 원자 revise한 다음 새 판단을 실행한다. 같은 입력의 checkpoint는 version만 전진하고
+원래 receipt와 근거를 보존한다. revision 저장 직후 crash는 서버 현재 의무와 이전 runtime revision 차이로 복원한다.
+source/report 파기와 입력 교체는 이 보존 경로를 쓰지 않고 기존 lifecycle에서 본문 전체를 지운다.
+
+checkpoint v1은 성공 stage/decision을 중복 복사하지 않는다. 전역 receipts와 질문별 refs, 남은 queue,
+필요한 실제 근거/추가 문맥/현재 관측 revision만 보존한다. evidence는 phase별 한 곳에 둔다.
+성공 BOOK_SOURCE와 서버 segments로 준비 상태를 복원하고, 미완료 rule은 인증된 READ_SOURCE 범위로 읽는다.
+질문이 없는 큰 책 전체를 checkpoint로 복사하지 않는다. 131072-byte 상한과 인용 검증은 그대로다.
+오탈자는 ClassifiedTypoSuggestion의 SPELLING/SPACING/TYPO와 정확한 span을 보존하고 실패 구간만 실행한다.
+
+두 분기는 독립 asyncio task이며 한 분기의 provider/role cap 실패나 질문 0개는 다른 분기를 취소하지 않는다.
+typed role-cap/token quota 409는 분기 실패로 처리한다. lease/current input/source 공유 무효화와 전체 취소는
+양쪽 children 및 새 예약/게시를 멈추되 원래 사용량의 UNKNOWN/늦은 실제 SETTLE는 유지한다.
+
+## 명시적 실행과 수동 검증
+
+기본 runner는 추가하지 않는다. AI checkout에서 명시 opt-in으로만 아래 전용 명령을 사용한다.
+
+```sh
+PYTHONPATH=. python scripts/run_validation_worker.py --enable --once \
+  --backend-url "$VALIDATION_BACKEND_URL" --worker-id validation-explicit
+```
+
+INTERNAL_API_KEY/LLM_API_KEY는 기존 secret 환경으로 주입한다. 이 명령은 실제 provider를 호출할 수 있으므로
+운영 검증은 별도 승인 절차에서 수행한다. --enable이 없거나 claim의 역할/분기 예산이 빠지면 시작하지 않는다.
+연속 실행에는 --poll-seconds를 명시한다. .env를 읽거나 운영 환경을 자동 수정하지 않는다.
+검색은 --readonly-url-env에 SELECT 전용 DB URL 환경변수명을 주면 실제 frozen RAG adapter에 연결된다.
+connection은 default_transaction_read_only=on이고 index model/version/1536 차원을 검증한다.
+--query-embedding은 서버의 별도 cap/model과 기존 준비 index가 모두 있을 때만 사용한다.
+미설정/미준비 vector는 정상 빈 검색으로 숨기지 않는다.
+
+합성 검증은 loopback gh310_execution_test 이외의 DB에서 실행하지 않는다. 실제 Spring HTTP·JPA·Flyway와
+새 Python Worker를 연결하는 ValidationExecutionHttpPostgresIntegrationTest는
+GH310_EXECUTION_POSTGRES_JDBC_URL/GH310_AI_CHECKOUT/GH310_PYTHON을 명시한다.
+provider와 S3만 합성이고, 이 검증을 실제 모델 의미 품질이나 운영 배포 결과로 해석하지 않는다.
+저장 계획/정상 판정 crash 뒤 provider 추가 호출0, 영향 revision만 재판정, 첫 책 성공 보존,
+정상0건/PARTIAL0finding/FAILED 구분, query proof 재사용/거절, 변경·파기·만료 후 게시0와 실제 정산을 확인한다.
+모든 상태에서 추출 Job/후보/자동 확정·철회는 0이다. 작가 판단·추출 release #312, UI #314는 별도다.
