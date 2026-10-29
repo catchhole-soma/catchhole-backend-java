@@ -568,6 +568,7 @@ public class AnalysisJob extends BaseEntity {
             throw new IllegalStateException("완료되거나 무효화된 변경 기록을 수정할 수 없습니다.");
         }
         stateJournal = journal.deepCopy();
+        stateJournalRevision++;
     }
 
     public void sealJournal() {
@@ -608,6 +609,7 @@ public class AnalysisJob extends BaseEntity {
         }
         // 완료된 후행 결과는 보존한다. 파기 표시는 해당 입력의 재실행/replay를 계속 거절한다.
         stateJournal = redacted == null ? null : redacted.deepCopy();
+        stateJournalRevision++;
         runBaseState = purgeCapturedEvidence(runBaseState);
         automaticInputState = purgeCapturedEvidence(automaticInputState);
     }
@@ -624,6 +626,10 @@ public class AnalysisJob extends BaseEntity {
         redacted.put("sourceEvidencePurged", true);
         return redacted;
     }
+
+    // 같은 영속 엔티티를 잠근 처리 안에서만 사용하는 변경 감지 값. DB에는 저장하지 않는다.
+    @jakarta.persistence.Transient
+    private long stateJournalRevision;
 
     public JsonNode getStateJournal() {
         return stateJournal == null ? null : stateJournal.deepCopy();
