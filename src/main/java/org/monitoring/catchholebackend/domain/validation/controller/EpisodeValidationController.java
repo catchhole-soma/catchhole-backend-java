@@ -54,17 +54,32 @@ public class EpisodeValidationController {
         return CommonResponse.success("신규 회차 검수를 접수했습니다.", service.start(member.memberId(), workId, request));
     }
     @GetMapping("/{reportId}")
-    @Operation(operationId = "getEpisodeValidationStaging", summary = "검수 준비 상태 조회", description = "기준 준비와 오류 검사/검토 대기 또는 보류 사유를 조회합니다. 기준 READY는 검사/검토 완료가 아니며 설정 추출은 NOT_STARTED입니다.")
+    @Operation(operationId = "getEpisodeValidationStaging", summary = "검수 준비 상태 조회", description = "기준 준비, 오류 검사·작가 검토 상태, 검토 종료 뒤 설정 추출(extractionStatus)·회차 전체 확정(candidateStatus)과 파생 검수 단계(reviewStage)를 조회합니다. 기준 READY는 검사·검토 완료가 아니며 검토 종료 전 설정 추출은 NOT_STARTED입니다. 조회는 추출·반영을 시작하지 않습니다.")
+    @ApiResponses({@ApiResponse(responseCode = "200", description = "조회 성공"),
+            @ApiResponse(responseCode = "404", description = "작품 소유권 또는 검수 요청 없음")})
     public CommonResponse<ValidationStagingResponse> get(@AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId, @PathVariable UUID reportId) {
         return CommonResponse.success(service.get(member.memberId(), workId, reportId));
     }
 
     @GetMapping("/current")
-    @Operation(operationId="getCurrentEpisodeValidation", summary="회차의 현재 검수 조회")
+    @Operation(operationId="getCurrentEpisodeValidation", summary="회차의 현재 검수 조회", description="회차의 현재(is_current) 검수 report를 단건 조회와 같은 형태로 반환합니다. 과거 report는 이력 조회를 사용합니다.")
+    @ApiResponses({@ApiResponse(responseCode="200", description="조회 성공"),
+            @ApiResponse(responseCode="400", description="episodeId 누락"),
+            @ApiResponse(responseCode="404", description="작품 소유권 없음 또는 회차의 현재 검수 없음")})
     public CommonResponse<ValidationStagingResponse> current(@AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId, @RequestParam UUID episodeId) {
         return CommonResponse.success(rechecks.getCurrentValidation(member.memberId(),workId,episodeId));
+    }
+
+    @GetMapping("/history")
+    @Operation(operationId="listEpisodeValidationHistory", summary="회차 검수 이력", description="회차의 모든 검수 report를 최신 revision부터 요약합니다. 각 행은 실행 상태, 현재 항목 수, 검토 종료·회차 전체 확정 receipt, 자동 종료 보류, 무효화 시각과 파생 검수 단계(reviewStage)만 담고 인용·근거·판정 내용은 반환하지 않습니다. 다른 작품의 회차는 빈 페이지입니다. page는 0부터, size는 1~100입니다.")
+    @ApiResponses({@ApiResponse(responseCode="200", description="조회 성공"),
+            @ApiResponse(responseCode="400", description="페이지 값 오류 또는 episodeId 누락"),
+            @ApiResponse(responseCode="404", description="작품 소유권 없음")})
+    public CommonResponse<PageResponse<org.monitoring.catchholebackend.domain.validation.dto.response.ValidationReportHistoryResponse>> history(@AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId,@RequestParam UUID episodeId,@RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="20") int size) {
+        return CommonResponse.success(reviews.getValidationHistory(member.memberId(),workId,episodeId,page,size));
     }
 
     @PostMapping("/{reportId}/rechecks")

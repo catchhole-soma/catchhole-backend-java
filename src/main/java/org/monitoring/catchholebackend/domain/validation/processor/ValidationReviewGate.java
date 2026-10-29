@@ -49,7 +49,7 @@ public class ValidationReviewGate {
     }
     public record Review(ValidationExecutionStatus executionStatus,Counts counts,ValidationReviewLockReason lockReason,ValidationReviewCompletionMode completionMode,
             List<ValidationReviewHoldReason> holdReasons,List<ValidationReviewAction> allowedActions,ValidationPreparationStatus errorReviewStatus,Completion completion,ReleaseHold releaseHold,
-            Application application,ValidationExtractionState extractionState) {
+            Application application,ValidationExtractionState extractionState,ValidationReviewStage reviewStage) {
         public boolean judgmentLocked() {return lockReason!=null;}
         /** 명시 검토 완료 endpoint가 받는 상태. AUTOMATIC_ELIGIBLE은 /complete의 자동 종료가 추출 생성 조건에 막혀 보류됐을 때만 남는다. */
         public boolean canCompleteReview() {return completionMode==ValidationReviewCompletionMode.EXPLICIT_REQUIRED||completionMode==ValidationReviewCompletionMode.AUTOMATIC_ELIGIBLE;}
@@ -88,13 +88,8 @@ public class ValidationReviewGate {
         var state=reviews.extractionJobState(c.extractionJobId()).orElse(null);
         var application=application(r).map(Application::status).orElse(null);
         if(state==null)return new Extraction(c.extractionJobId(),ValidationPreparationStatus.FAILED,ValidationExtractionState.FAILED,candidates(application,ValidationPreparationStatus.FAILED));
-        var status=(AnalysisJobStatus)state[0];var journal=(AnalysisJournalStatus)state[1];
-        var extraction=switch(status) {
-            case PENDING,RUNNING->ValidationPreparationStatus.PENDING;
-            case SUCCEEDED->journal==AnalysisJournalStatus.INCOMPLETE||journal==AnalysisJournalStatus.INVALIDATED?ValidationPreparationStatus.FAILED:ValidationPreparationStatus.READY;
-            case FAILED,CANCELED->ValidationPreparationStatus.FAILED;
-        };
-        var extractionState=switch(extraction) {case PENDING->ValidationExtractionState.RUNNING;case READY->ValidationExtractionState.SUCCEEDED;default->ValidationExtractionState.FAILED;};
+        var status=(AnalysisJobStatus)state[0];var extractionState=ValidationReviewStages.extractionState(status,(AnalysisJournalStatus)state[1]);
+        var extraction=switch(extractionState) {case RUNNING->ValidationPreparationStatus.PENDING;case SUCCEEDED->ValidationPreparationStatus.READY;default->ValidationPreparationStatus.FAILED;};
         return new Extraction(c.extractionJobId(),extraction,extractionState,
                 application==null&&status==AnalysisJobStatus.PENDING?ValidationPreparationStatus.NOT_STARTED:candidates(application,extraction));
     }
@@ -134,8 +129,16 @@ public class ValidationReviewGate {
         if(completed&&!invalid&&(application==null||application.status()!=ValidationApplicationStatus.APPLIED))actions.add(ValidationReviewAction.APPLY_SETTINGS);
         var status=invalid?ValidationPreparationStatus.INVALIDATED:in.execution()!=COMPLETED?ValidationPreparationStatus.NOT_STARTED
                 :mode!=ValidationReviewCompletionMode.BLOCKED?ValidationPreparationStatus.READY:ValidationPreparationStatus.PENDING;
-        return new Review(in.execution(),counts,lock,mode,List.copyOf(holds),List.copyOf(actions),status,completion,releaseHold,application,
-                completed&&in.extractionState()!=null?in.extractionState():ValidationExtractionState.NOT_STARTED);
+        var extractionState=completed&&in.extractionState()!=null?in.extractionState():ValidationExtractionState.NOT_STARTED;
+        var stage=ValidationReviewStages.resolve(new ValidationReviewStages.Input(in.current(),in.status(),in.baselineStatus(),in.execution(),completed,extractionState,application==null?null:application.status()));
+        return new Review(in.execution(),counts,lock,mode,List.copyOf(holds),List.copyOf(actions),status,completion,releaseHold,application,extractionState,stage);
+    }
+    /** GH312 S4: 단건 응답(ValidationStagingResponse)의 검수 단계. 목록 projection과 같은 {@link ValidationReviewStages#resolve}를 쓴다. */
+    public ValidationReviewStage reviewStage(ValidationReport r) {
+        var completion=completion(r).orElse(null);
+        var extraction=completion==null?ValidationExtractionState.NOT_STARTED:extraction(r).state();
+        var application=completion==null?null:application(r).map(Application::status).orElse(null);
+        return ValidationReviewStages.resolve(new ValidationReviewStages.Input(r.isCurrent(),r.getStatus(),r.getBaselineStatus(),execution(r),completion!=null,extraction,application));
     }
     /** 판단 저장은 현재 READY 기준의 실행 종료·중단 뒤, 검토 종료 전에만 가능하다. 재시도 queue/실행 중에는 다시 읽기 전용이다. */
     public static ValidationReviewLockReason lockReason(boolean current,ValidationPreparationStatus baseline,ValidationReportStatus status,ValidationExecutionStatus execution,boolean reviewCompleted) {

@@ -87,6 +87,13 @@ public class ValidationReviewServiceImpl implements ValidationReviewService {
     @Override public ValidationReviewSummaryResponse getValidationReview(Long memberId,UUID workId,UUID reportId) {
         var r=report(memberId,workId,reportId);return mapper.toReviewResponse(r,gate.evaluate(r));
     }
+    @Override public PageResponse<ValidationReportHistoryResponse> getValidationHistory(Long memberId,UUID workId,UUID episodeId,int page,int size) {
+        works.getOwnedWork(workId,memberId);if(page<0||size<1||size>MAX_PAGE_SIZE)throw new AppException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
+        var rows=reviews.history(workId,episodeId,PageRequest.of(page,size));
+        // 항목 수는 report별 count 집계 한 번으로 구한다. 항목·근거 행은 읽지 않는다.
+        var counts=reviews.currentFindingCounts(rows.getContent().stream().map(ValidationReportHistoryRow::reportId).toList());
+        return PageResponse.from(rows,rows.getContent().stream().map(row->mapper.toHistoryResponse(row,counts.getOrDefault(row.reportId(),new long[2]))).toList());
+    }
     private ValidationReport report(Long memberId,UUID workId,UUID reportId) {
         works.getOwnedWork(workId,memberId);return reports.findByIdAndWorkId(reportId,workId).orElseThrow(()->error(VALIDATION_NOT_FOUND));
     }

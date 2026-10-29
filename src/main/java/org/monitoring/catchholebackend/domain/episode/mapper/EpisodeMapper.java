@@ -92,7 +92,8 @@ public class EpisodeMapper {
                 latestAnalysisJob == null ? null : latestAnalysisJob.getId(),
                 episode.getContentUpdatedAt(),
                 episode.getCreatedAt(),
-                episode.getUpdatedAt(), validationState == null ? null : validationState.reportId()
+                episode.getUpdatedAt(), validationState == null ? null : validationState.reportId(),
+                validationState == null ? null : validationState.reviewStage()
         );
     }
 

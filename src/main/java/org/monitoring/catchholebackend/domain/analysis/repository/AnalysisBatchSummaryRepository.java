@@ -97,13 +97,37 @@ public class AnalysisBatchSummaryRepository {
 
     public record ValidationRow(UUID batchId, org.monitoring.catchholebackend.domain.validation.dto.response.ValidationRequestSummaryResponse response,
             LocalDateTime updatedAt) {}
+    /**
+     * 현재 검수 report와 검수 단계 계산에 필요한 실행·검토 종료·release Job·회차 전체 확정 상태를 한 SQL로 읽는다(GH312 S4).
+     * 단계 계산은 원고 목록·단건 조회와 같은 {@code ValidationReviewStages.resolve}다.
+     */
     public List<ValidationRow> readValidations(UUID workId, List<UUID> batchIds) {
         if (batchIds.isEmpty()) return List.of();
         List<ValidationRow> result = new ArrayList<>();
-        for (Object[] row : query("select batch_id,id,episode_id,source_episode_no,status,baseline_status,hold_reason,updated_at from validation_reports where is_current = true and work_id = :workId and batch_id in (:batchIds) order by created_at desc,id desc", workId, batchIds)) {
+        for (Object[] row : query("""
+                select r.batch_id, r.id, r.episode_id, r.source_episode_no, r.status, r.baseline_status, r.hold_reason, r.updated_at,
+                       vj.status, c.id, aj.status, aj.journal_status, a.status
+                from validation_reports r
+                left join validation_jobs vj on vj.report_id = r.id
+                left join validation_review_completions c on c.report_id = r.id
+                left join analysis_jobs aj on aj.id = c.extraction_job_id
+                left join validation_settings_applications a on a.report_id = r.id
+                where r.is_current = true and r.work_id = :workId and r.batch_id in (:batchIds)
+                order by r.created_at desc, r.id desc
+                """, workId, batchIds)) {
+            var status = org.monitoring.catchholebackend.domain.validation.type.ValidationReportStatus.valueOf((String) row[4]);
+            var baseline = org.monitoring.catchholebackend.domain.validation.type.ValidationPreparationStatus.valueOf((String) row[5]);
+            boolean completed = row[9] != null;
+            var stage = org.monitoring.catchholebackend.domain.validation.processor.ValidationReviewStages.resolve(
+                    new org.monitoring.catchholebackend.domain.validation.processor.ValidationReviewStages.Input(true, status, baseline,
+                            row[8] == null ? null : org.monitoring.catchholebackend.domain.validation.type.ValidationExecutionStatus.valueOf((String) row[8]), completed,
+                            !completed ? org.monitoring.catchholebackend.domain.validation.type.ValidationExtractionState.NOT_STARTED
+                                    : org.monitoring.catchholebackend.domain.validation.processor.ValidationReviewStages.extractionState(
+                                            row[10] == null ? null : org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.valueOf((String) row[10]),
+                                            row[11] == null ? null : org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.valueOf((String) row[11])),
+                            !completed || row[12] == null ? null : org.monitoring.catchholebackend.domain.validation.type.ValidationApplicationStatus.valueOf((String) row[12])));
             result.add(new ValidationRow(uuid(row[0]), new org.monitoring.catchholebackend.domain.validation.dto.response.ValidationRequestSummaryResponse(
-                    uuid(row[1]), uuid(row[2]), number(row[3]), org.monitoring.catchholebackend.domain.validation.type.ValidationReportStatus.valueOf((String)row[4]),
-                    org.monitoring.catchholebackend.domain.validation.type.ValidationPreparationStatus.valueOf((String)row[5]), (String)row[6]), time(row[7])));
+                    uuid(row[1]), uuid(row[2]), number(row[3]), status, baseline, (String) row[6], stage), time(row[7])));
         }
         return result;
     }

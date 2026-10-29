@@ -12,4 +12,6 @@ public interface ValidationReviewService {
     ValidationFindingDetailResponse getValidationFinding(Long memberId,UUID workId,UUID reportId,UUID findingId);
     ValidationFindingSummaryResponse saveValidationJudgment(Long memberId,UUID workId,UUID reportId,UUID findingId,ValidationJudgmentRequest request);
     ValidationReviewSummaryResponse getValidationReview(Long memberId,UUID workId,UUID reportId);
+    /** GH312 S4: 회차의 모든 report 요약을 최신 revision부터. 인용·근거·판정 payload는 반환하지 않는다. */
+    PageResponse<ValidationReportHistoryResponse> getValidationHistory(Long memberId,UUID workId,UUID episodeId,int page,int size);
 }

@@ -17,8 +17,11 @@ public record ValidationFindingDetailResponse(UUID findingId, ValidationBranch b
         List<ValidationJudgmentValue> allowedJudgments,
         @Schema(description = "이 항목과 같은 질문 이전 revision 항목의 판단 이력") List<History> judgmentHistory,
         @Schema(description = "설정 항목의 이전 revision과 당시 판단·변경 사유") List<PriorRevision> priorRevisions) {
+    @Schema(name = "ValidationFindingEvidence", description = "저장 때 검증한 인용. Unicode code point 위치")
     public record Evidence(String sourceRef, int start, int end, String quote) {}
+    @Schema(name = "ValidationFindingJudgmentHistory", description = "판단 전이 이력. REVISION_SUPERSEDED는 changeReason을 함께 제공")
     public record History(UUID findingId, Long checkRevision, ValidationJudgmentValue fromJudgment, ValidationJudgmentValue toJudgment,
             ValidationJudgmentHistoryReason reason, @Schema(description = "REVISION_SUPERSEDED의 질문 변경 사유") String changeReason, LocalDateTime createdAt) {}
+    @Schema(name = "ValidationFindingPriorRevision", description = "같은 설정 질문의 이전 revision 결과와 당시 판단")
     public record PriorRevision(long checkRevision, String outcome, String changeReason, UUID findingId, ValidationFindingSummaryResponse.Judgment judgment) {}
 }

@@ -34,6 +34,26 @@ public class ValidationReviewRepository {
     /** release Job의 상태만 읽는다. 큰 JSON 입력/journal 컬럼은 읽지 않는다. */
     public Optional<Object[]> extractionJobState(UUID job) { return em.createQuery("select j.status,j.journalStatus from AnalysisJob j where j.id=:j",Object[].class).setParameter("j",job).getResultStream().findFirst(); }
     public List<ValidationEvidence> evidence(UUID r,String owner) { return em.createQuery("select e from ValidationEvidence e where e.report.id=:r and e.ownerRef=:o order by e.createdAt,e.id",ValidationEvidence.class).setParameter("r",r).setParameter("o",owner).getResultList(); }
+    private static final String HISTORY=" from ValidationReport r left join ValidationJob j on j.report=r left join ValidationReviewCompletion c on c.report=r"
+            +" left join c.extractionJob aj left join ValidationSettingsApplication a on a.report=r where r.work.id=:w and r.episode.id=:e";
+    /** 회차의 모든 report를 최신 revision부터. 작품 범위로만 거르므로 다른 작품의 회차 ID는 빈 페이지다. */
+    public Page<ValidationReportHistoryRow> history(UUID work,UUID episode,Pageable page) {
+        var rows=em.createQuery("select new org.monitoring.catchholebackend.domain.validation.repository.ValidationReportHistoryRow(r.id,r.revision,r.current,r.mode,r.status,r.baselineStatus,r.createdAt,j.status,"
+                        +"c.id,c.trigger,c.completedAt,aj.status,aj.journalStatus,a.status,a.appliedAt,r.releaseHoldCode,r.releaseHoldAt,r.invalidatedAt,r.previousReportId)"+HISTORY+" order by r.revision desc,r.id desc",ValidationReportHistoryRow.class)
+                .setParameter("w",work).setParameter("e",episode).setFirstResult((int)page.getOffset()).setMaxResults(page.getPageSize()).getResultList();
+        long total=em.createQuery("select count(r) from ValidationReport r where r.work.id=:w and r.episode.id=:e",Long.class).setParameter("w",work).setParameter("e",episode).getSingleResult();
+        return new PageImpl<>(rows,page,total);
+    }
+    /** report별 현재 항목 수(설정, 오탈자). 항목 행을 읽지 않는 count 집계다. 파기된 report는 행이 없어 0이다. */
+    public Map<UUID,long[]> currentFindingCounts(Collection<UUID> reports) {
+        if(reports.isEmpty())return Map.of();
+        var counts=new HashMap<UUID,long[]>();
+        em.createQuery("select f.report.id,f.branch,count(f) from ValidationFinding f where f.report.id in :r"
+                        +" and (f.checkId is null or exists (select c.id from ValidationCheck c where c.id=f.checkId and c.revision=f.checkRevision)) group by f.report.id,f.branch",Object[].class)
+                .setParameter("r",reports).getResultList()
+                .forEach(x->counts.computeIfAbsent((UUID)x[0],k->new long[2])[x[1]==ValidationBranch.SETTING?0:1]+=(Long)x[2]);
+        return counts;
+    }
     private <T> TypedQuery<T> bind(TypedQuery<T> q,UUID r,ValidationBranch branch,ValidationJudgmentValue judgment,String outcome) {
         q.setParameter("r",r);if(branch!=null)q.setParameter("branch",branch);if(judgment!=null)q.setParameter("judgment",judgment);if(outcome!=null)q.setParameter("outcome",outcome);return q;
     }

@@ -45,7 +45,7 @@ public class ValidationReviewMapper {
                 review.completion()==null?null:new ValidationReviewSummaryResponse.Completion(review.completion().completionId(),review.completion().trigger(),review.completion().completedAt(),review.completion().extractionJobId()),
                 review.releaseHold()==null?null:new ValidationReviewSummaryResponse.ReleaseHold(review.releaseHold().code(),review.releaseHold().at()),
                 review.application()==null?null:new ValidationReviewSummaryResponse.Application(review.application().status(),review.application().attempt(),review.application().holdReasons(),
-                        review.application().appliedAt(),review.application().extractionJobGeneration()),review.extractionState());
+                        review.application().appliedAt(),review.application().extractionJobGeneration()),review.extractionState(),review.reviewStage());
     }
     public ValidationReviewCompletionResponse toCompletionResponse(ValidationReviewCompletion c) {
         return new ValidationReviewCompletionResponse(c.getId(),c.getTrigger(),c.getReport().getId(),c.getReportVersion(),c.getExtractionJob().getId(),c.getCompletedAt());
@@ -59,6 +59,21 @@ public class ValidationReviewMapper {
         return reasons==null||reasons.isNull()?List.of():List.copyOf(HOLDS.convertValue(reasons,new com.fasterxml.jackson.core.type.TypeReference<List<ValidationApplicationHoldReason>>(){}));
     }
     public JsonNode toHoldReasonTree(List<ValidationApplicationHoldReason> reasons) {return HOLDS.valueToTree(reasons);}
+    /** GH312 S4 이력 요약. 퇴역 report의 receipt도 이력으로 옮기며 단계는 목록과 같은 계산식이다. */
+    public ValidationReportHistoryResponse toHistoryResponse(org.monitoring.catchholebackend.domain.validation.repository.ValidationReportHistoryRow row,long[] counts) {
+        boolean completed=row.completionId()!=null;
+        var execution=row.execution()==null?ValidationExecutionStatus.NOT_STARTED:row.execution();
+        var stage=org.monitoring.catchholebackend.domain.validation.processor.ValidationReviewStages.resolve(new org.monitoring.catchholebackend.domain.validation.processor.ValidationReviewStages.Input(
+                row.current(),row.status(),row.baselineStatus(),execution,completed,
+                completed?org.monitoring.catchholebackend.domain.validation.processor.ValidationReviewStages.extractionState(row.extractionStatus(),row.extractionJournal()):ValidationExtractionState.NOT_STARTED,
+                completed?row.application():null));
+        return new ValidationReportHistoryResponse(row.reportId(),row.revision(),row.current(),row.mode(),row.status(),row.baselineStatus(),row.requestedAt(),execution,
+                new ValidationReportHistoryResponse.Counts(counts[0],counts[1]),
+                completed?new ValidationReportHistoryResponse.Completion(row.trigger(),row.completedAt()):null,
+                row.application()==null?null:new ValidationReportHistoryResponse.Application(row.application(),row.appliedAt()),
+                row.releaseHoldCode()==null?null:new ValidationReportHistoryResponse.ReleaseHold(row.releaseHoldCode(),row.releaseHoldAt()),
+                row.invalidatedAt(),row.previousReportId(),stage);
+    }
     private static final com.fasterxml.jackson.databind.ObjectMapper HOLDS=new com.fasterxml.jackson.databind.ObjectMapper();
     private static String text(JsonNode n,String field) {return n.path(field).isTextual()?n.path(field).asText():null;}
     private static Integer number(JsonNode n,String field) {return n.path(field).isIntegralNumber()?n.path(field).asInt():null;}

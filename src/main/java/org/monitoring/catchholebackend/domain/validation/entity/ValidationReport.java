@@ -53,6 +53,8 @@ public class ValidationReport extends BaseEntity {
     /** /complete의 자동 검토 종료가 추출 생성 조건(AppException 코드)에 막혀 되돌려진 이유. 검토 종료 receipt를 만들면 비운다(GH312). */
     @Column(name = "release_hold_code", length = 60) private String releaseHoldCode;
     @Column(name = "release_hold_at") private java.time.LocalDateTime releaseHoldAt;
+    /** 처음 INVALIDATED로 바뀐 시각(V100, GH312 S4 이력). 유효한 동안과 V100 이전에 무효화된 report는 null이다. 반복 파기는 바꾸지 않는다. */
+    @Column(name = "invalidated_at") private java.time.LocalDateTime invalidatedAt;
     @OneToOne(mappedBy = "report", fetch = FetchType.LAZY) private ValidationJob validationJob;
     public void attachValidationJob(ValidationJob job) { validationJob=job; advanceVersion(); }
 
@@ -102,6 +104,7 @@ public class ValidationReport extends BaseEntity {
     /** 고정 대상 fingerprint는 무효 결과 식별용 감사 메타데이터다. 원문 복사본/출처 목록은 재사용하지 않는다. */
     public void purge() {
         if (status != ValidationReportStatus.INVALIDATED || baselineSeed != null || baselineEntries != null) version++;
+        if (status != ValidationReportStatus.INVALIDATED) invalidatedAt = java.time.LocalDateTime.now();
         baselineSeed = null; baselineEntries = null; baselineHash = null; confirmedStateHash = null;
         baselineStatus = ValidationPreparationStatus.INVALIDATED; status = ValidationReportStatus.INVALIDATED; holdReason = "SOURCE_EVIDENCE_PURGED";
     }
