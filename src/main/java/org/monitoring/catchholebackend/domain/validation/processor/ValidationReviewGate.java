@@ -19,6 +19,8 @@ public class ValidationReviewGate {
     private final ValidationJobRepository jobs;
     private final ValidationReviewRepository reviews;
     private final ValidationReviewCompletionRepository completions;
+    private final ValidationSettingsApplicationRepository applications;
+    private final org.monitoring.catchholebackend.domain.validation.mapper.ValidationReviewMapper mapper;
     private final ValidationExecutionProperties properties;
 
     public record Counts(long settingTotal,long settingPending,long settingNeedsFix,long settingNotConflict,long typoTotal,long typoPending,long typoNeedsFix,long typoKeepOriginal) {
@@ -31,30 +33,49 @@ public class ValidationReviewGate {
     public record Completion(UUID completionId,ValidationReviewTrigger trigger,LocalDateTime completedAt,UUID extractionJobId) {}
     /** /complete의 자동 검토 종료가 되돌려진 이유와 시각. */
     public record ReleaseHold(String code,LocalDateTime at) {}
-    public record Input(boolean current,ValidationPreparationStatus baselineStatus,ValidationReportStatus status,ValidationReportMode mode,ValidationExecutionStatus execution,Counts counts,boolean executionEnabled,Completion completion,ReleaseHold releaseHold) {
+    /** 현재 report의 회차 전체 확정 receipt 요약(GH312 S3). 시도 전에는 null이다. */
+    public record Application(ValidationApplicationStatus status,long attempt,List<org.monitoring.catchholebackend.domain.validation.dto.response.ValidationApplicationHoldReason> holdReasons,LocalDateTime appliedAt,long extractionJobGeneration) {}
+    public record Input(boolean current,ValidationPreparationStatus baselineStatus,ValidationReportStatus status,ValidationReportMode mode,ValidationExecutionStatus execution,Counts counts,boolean executionEnabled,Completion completion,ReleaseHold releaseHold,
+            Application application,ValidationExtractionState extractionState) {
         public Input(boolean current,ValidationPreparationStatus baselineStatus,ValidationReportStatus status,ValidationReportMode mode,ValidationExecutionStatus execution,Counts counts,boolean executionEnabled) {
             this(current,baselineStatus,status,mode,execution,counts,executionEnabled,null,null);
         }
         public Input(boolean current,ValidationPreparationStatus baselineStatus,ValidationReportStatus status,ValidationReportMode mode,ValidationExecutionStatus execution,Counts counts,boolean executionEnabled,Completion completion) {
             this(current,baselineStatus,status,mode,execution,counts,executionEnabled,completion,null);
         }
+        public Input(boolean current,ValidationPreparationStatus baselineStatus,ValidationReportStatus status,ValidationReportMode mode,ValidationExecutionStatus execution,Counts counts,boolean executionEnabled,Completion completion,ReleaseHold releaseHold) {
+            this(current,baselineStatus,status,mode,execution,counts,executionEnabled,completion,releaseHold,null,ValidationExtractionState.NOT_STARTED);
+        }
     }
     public record Review(ValidationExecutionStatus executionStatus,Counts counts,ValidationReviewLockReason lockReason,ValidationReviewCompletionMode completionMode,
-            List<ValidationReviewHoldReason> holdReasons,List<ValidationReviewAction> allowedActions,ValidationPreparationStatus errorReviewStatus,Completion completion,ReleaseHold releaseHold) {
+            List<ValidationReviewHoldReason> holdReasons,List<ValidationReviewAction> allowedActions,ValidationPreparationStatus errorReviewStatus,Completion completion,ReleaseHold releaseHold,
+            Application application,ValidationExtractionState extractionState) {
         public boolean judgmentLocked() {return lockReason!=null;}
         /** 명시 검토 완료 endpoint가 받는 상태. AUTOMATIC_ELIGIBLE은 /complete의 자동 종료가 추출 생성 조건에 막혀 보류됐을 때만 남는다. */
         public boolean canCompleteReview() {return completionMode==ValidationReviewCompletionMode.EXPLICIT_REQUIRED||completionMode==ValidationReviewCompletionMode.AUTOMATIC_ELIGIBLE;}
     }
-    /** ValidationStagingResponse의 추출 상태. 검토 종료 전에는 NOT_STARTED이며 후보 상태는 S3 범위다. */
-    public record Extraction(UUID jobId,ValidationPreparationStatus status) {
-        public static final Extraction NOT_STARTED=new Extraction(null,ValidationPreparationStatus.NOT_STARTED);
+    /**
+     * ValidationStagingResponse의 추출·후보 상태와 /review의 extractionState. 검토 종료 전에는 모두 NOT_STARTED다.
+     * candidateStatus(GH312 S3): 회차 전체 확정 APPLIED → READY, HELD_REVIEW → PENDING. receipt가 없으면 release Job 대기(PENDING) NOT_STARTED,
+     * 실행 중이거나 SEALED 성공 뒤 평가 전 PENDING, 실패·취소·재개 필요 기록 FAILED.
+     */
+    public record Extraction(UUID jobId,ValidationPreparationStatus status,ValidationExtractionState state,ValidationPreparationStatus candidateStatus) {
+        public static final Extraction NOT_STARTED=new Extraction(null,ValidationPreparationStatus.NOT_STARTED,ValidationExtractionState.NOT_STARTED,ValidationPreparationStatus.NOT_STARTED);
     }
 
-    public Review evaluate(ValidationReport r) { var execution=execution(r);return evaluate(input(r,execution,counts(r.getId()),completion(r).orElse(null))); }
+    public Review evaluate(ValidationReport r) {
+        var execution=execution(r);var completion=completion(r).orElse(null);
+        return evaluate(input(r,execution,counts(r.getId()),completion,completion==null?null:application(r).orElse(null),completion==null?ValidationExtractionState.NOT_STARTED:extraction(r).state()));
+    }
+    /** GH312 S3: 현재 report의 회차 전체 확정 receipt. 퇴역 report의 receipt는 읽지 않는다. */
+    public Optional<Application> application(ValidationReport r) {
+        if(!r.isCurrent())return Optional.empty();
+        return applications.findByReportId(r.getId()).map(a->new Application(a.getStatus(),a.getAttempt(),mapper.toHoldReasons(a.getHoldReasons()),a.getAppliedAt(),a.getExtractionJobGeneration()));
+    }
     /** 실행이 끝나기 전에는 판단 개수를 읽지 않는다. */
     public ValidationPreparationStatus errorReviewStatus(ValidationReport r) {
         var execution=execution(r);if(invalidated(r.isCurrent(),r.getBaselineStatus(),r.getStatus()))return ValidationPreparationStatus.INVALIDATED;
-        if(execution!=COMPLETED)return ValidationPreparationStatus.NOT_STARTED;return evaluate(input(r,execution,counts(r.getId()),completion(r).orElse(null))).errorReviewStatus();
+        if(execution!=COMPLETED)return ValidationPreparationStatus.NOT_STARTED;return evaluate(input(r,execution,counts(r.getId()),completion(r).orElse(null),null,ValidationExtractionState.NOT_STARTED)).errorReviewStatus();
     }
     /** GH312: 퇴역한 report의 receipt는 이력일 뿐 검토 요약·추출 허가에 쓰지 않는다. */
     public Optional<Completion> completion(ValidationReport r) {
@@ -65,13 +86,22 @@ public class ValidationReviewGate {
     public Extraction extraction(ValidationReport r) {
         var c=completion(r).orElse(null);if(c==null)return Extraction.NOT_STARTED;
         var state=reviews.extractionJobState(c.extractionJobId()).orElse(null);
-        if(state==null)return new Extraction(c.extractionJobId(),ValidationPreparationStatus.FAILED);
+        var application=application(r).map(Application::status).orElse(null);
+        if(state==null)return new Extraction(c.extractionJobId(),ValidationPreparationStatus.FAILED,ValidationExtractionState.FAILED,candidates(application,ValidationPreparationStatus.FAILED));
         var status=(AnalysisJobStatus)state[0];var journal=(AnalysisJournalStatus)state[1];
-        return new Extraction(c.extractionJobId(),switch(status) {
+        var extraction=switch(status) {
             case PENDING,RUNNING->ValidationPreparationStatus.PENDING;
             case SUCCEEDED->journal==AnalysisJournalStatus.INCOMPLETE||journal==AnalysisJournalStatus.INVALIDATED?ValidationPreparationStatus.FAILED:ValidationPreparationStatus.READY;
             case FAILED,CANCELED->ValidationPreparationStatus.FAILED;
-        });
+        };
+        var extractionState=switch(extraction) {case PENDING->ValidationExtractionState.RUNNING;case READY->ValidationExtractionState.SUCCEEDED;default->ValidationExtractionState.FAILED;};
+        return new Extraction(c.extractionJobId(),extraction,extractionState,
+                application==null&&status==AnalysisJobStatus.PENDING?ValidationPreparationStatus.NOT_STARTED:candidates(application,extraction));
+    }
+    private static ValidationPreparationStatus candidates(ValidationApplicationStatus application,ValidationPreparationStatus extraction) {
+        if(application==ValidationApplicationStatus.APPLIED)return ValidationPreparationStatus.READY;
+        if(application!=null)return ValidationPreparationStatus.PENDING;
+        return extraction==ValidationPreparationStatus.FAILED?ValidationPreparationStatus.FAILED:ValidationPreparationStatus.PENDING;
     }
     public Counts counts(UUID report) {
         long[] c=new long[8];
@@ -99,9 +129,13 @@ public class ValidationReviewGate {
         if(mode==ValidationReviewCompletionMode.EXPLICIT_REQUIRED||mode==ValidationReviewCompletionMode.AUTOMATIC_ELIGIBLE)actions.add(ValidationReviewAction.COMPLETE_REVIEW);
         if(in.executionEnabled()&&!invalid&&!completed&&(in.execution()==PARTIAL||in.execution()==FAILED||in.execution()==NOT_STARTED&&in.baselineStatus()==ValidationPreparationStatus.READY))actions.add(ValidationReviewAction.RETRY);
         if(in.current()&&invalid)actions.add(ValidationReviewAction.RECHECK);
+        // GH312 S3: 검토 종료 뒤 아직 반영하지 않은 유효 report만 안내한다. 무효 report의 반영은 REPORT_INVALIDATED로 보류될 뿐이므로 재검수를 안내한다.
+        var application=completed?in.application():null;
+        if(completed&&!invalid&&(application==null||application.status()!=ValidationApplicationStatus.APPLIED))actions.add(ValidationReviewAction.APPLY_SETTINGS);
         var status=invalid?ValidationPreparationStatus.INVALIDATED:in.execution()!=COMPLETED?ValidationPreparationStatus.NOT_STARTED
                 :mode!=ValidationReviewCompletionMode.BLOCKED?ValidationPreparationStatus.READY:ValidationPreparationStatus.PENDING;
-        return new Review(in.execution(),counts,lock,mode,List.copyOf(holds),List.copyOf(actions),status,completion,releaseHold);
+        return new Review(in.execution(),counts,lock,mode,List.copyOf(holds),List.copyOf(actions),status,completion,releaseHold,application,
+                completed&&in.extractionState()!=null?in.extractionState():ValidationExtractionState.NOT_STARTED);
     }
     /** 판단 저장은 현재 READY 기준의 실행 종료·중단 뒤, 검토 종료 전에만 가능하다. 재시도 queue/실행 중에는 다시 읽기 전용이다. */
     public static ValidationReviewLockReason lockReason(boolean current,ValidationPreparationStatus baseline,ValidationReportStatus status,ValidationExecutionStatus execution,boolean reviewCompleted) {
@@ -112,9 +146,9 @@ public class ValidationReviewGate {
         return execution==NOT_STARTED?ValidationReviewLockReason.EXECUTION_NOT_STARTED:execution==CANCELED?ValidationReviewLockReason.EXECUTION_CANCELED:ValidationReviewLockReason.EXECUTION_IN_PROGRESS;
     }
     public ValidationExecutionStatus execution(ValidationReport r) { return jobs.findByReportId(r.getId()).map(ValidationJob::getStatus).orElse(NOT_STARTED); }
-    private Input input(ValidationReport r,ValidationExecutionStatus execution,Counts counts,Completion completion) {
+    private Input input(ValidationReport r,ValidationExecutionStatus execution,Counts counts,Completion completion,Application application,ValidationExtractionState extractionState) {
         var hold=r.getReleaseHoldCode()==null?null:new ReleaseHold(r.getReleaseHoldCode(),r.getReleaseHoldAt());
-        return new Input(r.isCurrent(),r.getBaselineStatus(),r.getStatus(),r.getMode(),execution,counts,properties.enabled(),completion,hold);
+        return new Input(r.isCurrent(),r.getBaselineStatus(),r.getStatus(),r.getMode(),execution,counts,properties.enabled(),completion,hold,application,extractionState);
     }
     private static boolean invalidated(boolean current,ValidationPreparationStatus baseline,ValidationReportStatus status) { return !current||status==ValidationReportStatus.INVALIDATED||baseline==ValidationPreparationStatus.INVALIDATED; }
 }

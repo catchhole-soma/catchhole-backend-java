@@ -106,6 +106,6 @@ public class ValidationWorkerServiceImpl implements ValidationWorkerService {
         }
         var response=staging(r);var key=ValidationRequestKey.create(owner,c.idempotencyKey(),r,"RETRY",hash);key.recordRetryResponse(mapper.toTree(response));keys.save(key);em.flush();return response;
     }
-    private ValidationStagingResponse staging(ValidationReport r) {var extraction=reviewGate.extraction(r);return ValidationStagingResponse.from(r,reviewGate.errorReviewStatus(r),extraction.jobId(),extraction.status());}
+    private ValidationStagingResponse staging(ValidationReport r) {var extraction=reviewGate.extraction(r);return ValidationStagingResponse.from(r,reviewGate.errorReviewStatus(r),extraction.jobId(),extraction.status(),extraction.candidateStatus());}
     private Duration lease(ValidationJob j) {return Duration.ofMillis(j.getConfiguration().path("leaseMillis").asLong());}
 }

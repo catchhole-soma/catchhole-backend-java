@@ -595,6 +595,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         reviewSources.validate(work, null, sourceAnalysisJobId, true);
         reviewSources.assertWorld(work, null, sourceAnalysisJobId, candidateId, true);
         WorldSettingCandidate candidate = getCandidateForUpdate(candidateId, work.getId());
+        analysisConfirmation.assertManualWriteAllowed(candidate);
         requireSingletonComparisonDecision(candidate);
 
         if (candidate.getReviewStatus() == WorldSettingReviewStatus.CONFIRMED) {
@@ -825,6 +826,8 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         List<WorldSettingCandidate> candidates = (sourceAnalysisJobId == null ? worldSettingCandidateRepository.findAllByIdsAndBatchForUpdate(work.getId(), request.batchId(), decisionsById.keySet()) : worldSettingCandidateRepository
                 .findAllByIdsAndBatchForUpdate(work.getId(), request.batchId(), decisionsById.keySet(), sourceAnalysisJobId));
         validateRequestedCandidates(candidates, decisionsById.size());
+        // 사람의 그룹 확정만 막는다. 자동 반영(automatic)은 회차 전체 확정이 같은 트랜잭션에서 조율한다(GH312 S3).
+        if (!automatic) candidates.forEach(analysisConfirmation::assertManualWriteAllowed);
         validateCompleteComparisonDecisionMembership(candidates, decisionsById.keySet());
         String selectedGroupKey = validateSameCandidateGroup(candidates);
 

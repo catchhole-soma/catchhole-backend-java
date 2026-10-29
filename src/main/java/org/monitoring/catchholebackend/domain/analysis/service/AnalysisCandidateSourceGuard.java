@@ -18,13 +18,8 @@ public class AnalysisCandidateSourceGuard {
     private final org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository jobs;
 
     public void assertCurrent(AnalysisJob job, Episode sourceEpisode) {
-        var targets = new java.util.HashSet<java.util.UUID>();
-        if (sourceEpisode != null) targets.add(sourceEpisode.getId());
-        if (job != null) {
-            job.getTargetEpisodes().forEach(e -> targets.add(e.getId()));
-            if (job.getEpisode() != null) targets.add(job.getEpisode().getId());
-        }
-        // GH312: 현재 검수 report에 검토 종료 receipt가 있으면 후보 쓰기를 허용한다. release 회차의 수동 확정 제한은 S3 범위다.
+        var targets = targets(job, sourceEpisode);
+        // GH312: 현재 검수 report에 검토 종료 receipt가 있으면 후보 쓰기를 허용한다. 사람의 확정 경로는 assertManualWriteAllowed가 따로 막는다.
         if (!targets.isEmpty() && jobs.existsValidationStagingForEpisodes(targets)) {
             throw new AppException(org.monitoring.catchholebackend.domain.validation.exception.ValidationErrorCode.VALIDATION_ERROR_REVIEW_PENDING);
         }
@@ -52,5 +47,27 @@ public class AnalysisCandidateSourceGuard {
                 || !Objects.equals(job.getSourceContentS3Version(), episode.getContentS3Version()))) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_RUN_STATE_CONFLICT);
         }
+    }
+
+    /**
+     * GH312 S3: release 회차(현재 report에 검토 종료 receipt)는 회차 전체 확정만 확정 설정을 쓴다. 사람의 개별·그룹 확정,
+     * 저장 선택(reviewedApplicationMode), 승격·신규 대상 생성 진입점이 호출하며 수정·제외·연결·재비교·재개는 호출하지 않는다.
+     * 자동 반영과 회차 전체 확정은 기존 assertCurrent만 사용한다.
+     */
+    public void assertManualWriteAllowed(AnalysisJob job, Episode sourceEpisode) {
+        var targets = targets(job, sourceEpisode);
+        if (!targets.isEmpty() && jobs.existsReleasedValidationForEpisodes(targets)) {
+            throw new AppException(org.monitoring.catchholebackend.domain.validation.exception.ValidationErrorCode.VALIDATION_RELEASE_MANUAL_CONFIRM_BLOCKED);
+        }
+    }
+
+    private java.util.Set<java.util.UUID> targets(AnalysisJob job, Episode sourceEpisode) {
+        var targets = new java.util.HashSet<java.util.UUID>();
+        if (sourceEpisode != null) targets.add(sourceEpisode.getId());
+        if (job != null) {
+            job.getTargetEpisodes().forEach(e -> targets.add(e.getId()));
+            if (job.getEpisode() != null) targets.add(job.getEpisode().getId());
+        }
+        return targets;
     }
 }

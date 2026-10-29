@@ -28,6 +28,10 @@ public enum ValidationErrorCode implements ResultCode {
     VALIDATION_REVIEW_NOT_COMPLETABLE(HttpStatus.CONFLICT, "검사가 정상 완료되지 않았거나 검토할 항목이 남아 있거나 현재 유효한 검수가 아니어서 검토를 완료할 수 없습니다."),
     VALIDATION_REVIEW_ALREADY_COMPLETED(HttpStatus.CONFLICT, "이미 검토를 완료한 검수입니다. 판단 변경이나 재시도 대신 수정한 원고로 새 검수를 접수해 주세요."),
     VALIDATION_FINDING_NOT_FOUND(HttpStatus.NOT_FOUND, "검수 발견 항목을 찾을 수 없습니다."),
+    VALIDATION_RELEASE_MANUAL_CONFIRM_BLOCKED(HttpStatus.CONFLICT, "검수 회차는 검토 완료 후 한 번에 반영됩니다. 개별 확정 대신 후보를 수정·제외한 뒤 회차 전체 반영을 요청해 주세요."),
+    VALIDATION_APPLICATION_NOT_READY(HttpStatus.CONFLICT, "설정 추출이나 비교가 아직 진행 중입니다. 완료된 뒤 다시 반영해 주세요."),
+    VALIDATION_APPLICATION_UNAVAILABLE(HttpStatus.CONFLICT, "검토를 완료한 현재 검수에서만 설정을 반영할 수 있습니다."),
+    VALIDATION_APPLICATION_ROLLED_BACK(HttpStatus.CONFLICT, "회차 전체 반영을 끝내지 못해 이번 반영을 모두 되돌렸습니다. 보류 사유를 확인한 뒤 다시 반영해 주세요."),
     VALIDATION_NOT_FOUND(HttpStatus.NOT_FOUND, "검수 요청을 찾을 수 없습니다.");
     private final HttpStatus status;
     private final String message;

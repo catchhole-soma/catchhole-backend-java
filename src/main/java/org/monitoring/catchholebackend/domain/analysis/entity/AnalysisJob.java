@@ -512,6 +512,20 @@ public class AnalysisJob extends BaseEntity {
         }
     }
 
+    /**
+     * GH312 S3: 검수 release Job의 회차 전체 확정이 두 도메인을 모두 반영한 뒤에만 호출한다. 추출 완료 트랜잭션(RUNNING) 또는
+     * 보류 뒤 작가의 명시 반영(SUCCEEDED)에서 SEALED 기록 위에만 표시하며, 보류·되돌림에서는 호출하지 않는다.
+     */
+    public void completeReviewReleaseApplication() {
+        if (!isAutomaticReview() || !isOrderedProvisional() || journalStatus != AnalysisJournalStatus.SEALED
+                || (status != AnalysisJobStatus.RUNNING && status != AnalysisJobStatus.SUCCEEDED)) {
+            throw new IllegalStateException("추출이 완료되지 않아 회차 전체 확정을 기록할 수 없습니다.");
+        }
+        if (automaticAppliedAt == null) {
+            automaticAppliedAt = LocalDateTime.now();
+        }
+    }
+
     public void initializeOrderedRun(UUID runId, long generation, int sequence, UUID predecessorId, JsonNode base) {
         if (status != AnalysisJobStatus.PENDING || analysisRunId != null || (episode == null && !isSettingBookSource())
                 || jobType != AnalysisJobType.SETTING_EXTRACTION || runId == null || generation < 1

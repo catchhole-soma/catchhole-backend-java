@@ -43,11 +43,23 @@ public class ValidationReviewMapper {
                 new ValidationReviewSummaryResponse.Counts(c.settingTotal(),c.settingPending(),c.settingNeedsFix(),c.settingNotConflict(),c.typoTotal(),c.typoPending(),c.typoNeedsFix(),c.typoKeepOriginal()),
                 review.judgmentLocked(),review.lockReason(),review.canCompleteReview(),review.completionMode(),review.holdReasons(),review.allowedActions(),
                 review.completion()==null?null:new ValidationReviewSummaryResponse.Completion(review.completion().completionId(),review.completion().trigger(),review.completion().completedAt(),review.completion().extractionJobId()),
-                review.releaseHold()==null?null:new ValidationReviewSummaryResponse.ReleaseHold(review.releaseHold().code(),review.releaseHold().at()));
+                review.releaseHold()==null?null:new ValidationReviewSummaryResponse.ReleaseHold(review.releaseHold().code(),review.releaseHold().at()),
+                review.application()==null?null:new ValidationReviewSummaryResponse.Application(review.application().status(),review.application().attempt(),review.application().holdReasons(),
+                        review.application().appliedAt(),review.application().extractionJobGeneration()),review.extractionState());
     }
     public ValidationReviewCompletionResponse toCompletionResponse(ValidationReviewCompletion c) {
         return new ValidationReviewCompletionResponse(c.getId(),c.getTrigger(),c.getReport().getId(),c.getReportVersion(),c.getExtractionJob().getId(),c.getCompletedAt());
     }
+    /** 회차 전체 확정 receipt. 보류 사유 JSONB(Jackson 2)는 응답 record 목록으로 바꿔 MVC 경계에 노출하지 않는다. */
+    public ValidationSettingsApplicationResponse toApplicationResponse(ValidationSettingsApplication a) {
+        return new ValidationSettingsApplicationResponse(a.getId(),a.getStatus(),a.getTrigger(),a.getAttempt(),toHoldReasons(a.getHoldReasons()),a.getAppliedAt(),
+                a.getExtractionJob().getId(),a.getExtractionJobGeneration(),a.getLastErrorCode(),a.getReportVersion());
+    }
+    public List<ValidationApplicationHoldReason> toHoldReasons(JsonNode reasons) {
+        return reasons==null||reasons.isNull()?List.of():List.copyOf(HOLDS.convertValue(reasons,new com.fasterxml.jackson.core.type.TypeReference<List<ValidationApplicationHoldReason>>(){}));
+    }
+    public JsonNode toHoldReasonTree(List<ValidationApplicationHoldReason> reasons) {return HOLDS.valueToTree(reasons);}
+    private static final com.fasterxml.jackson.databind.ObjectMapper HOLDS=new com.fasterxml.jackson.databind.ObjectMapper();
     private static String text(JsonNode n,String field) {return n.path(field).isTextual()?n.path(field).asText():null;}
     private static Integer number(JsonNode n,String field) {return n.path(field).isIntegralNumber()?n.path(field).asInt():null;}
 }

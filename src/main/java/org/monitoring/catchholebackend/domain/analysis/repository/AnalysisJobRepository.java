@@ -439,6 +439,16 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             """)
     boolean existsValidationStagingForEpisodes(@Param("episodeIds") java.util.Collection<UUID> episodeIds);
 
+    /**
+     * GH312 S3: 회차의 현재 검수 report에 검토 종료 receipt가 있으면(release 회차) true다. 이 회차의 확정 설정은
+     * 회차 전체 확정만 쓰므로 사람의 개별·그룹 확정·승격 경로를 막는 데 사용한다.
+     */
+    @Query("""
+            select count(r) > 0 from ValidationReport r where r.episode.id in :episodeIds and r.current = true
+              and exists (select c.id from ValidationReviewCompletion c where c.report.id = r.id)
+            """)
+    boolean existsReleasedValidationForEpisodes(@Param("episodeIds") java.util.Collection<UUID> episodeIds);
+
     /** GH312: 공개 생성 차단과 release Job 재시도 판정용. 검토 종료 여부와 무관하게 현재 검수 report가 있으면 true다. */
     @Query("select count(r) > 0 from ValidationReport r where r.episode.id in :episodeIds and r.current = true")
     boolean existsCurrentValidationReportForEpisodes(@Param("episodeIds") java.util.Collection<UUID> episodeIds);

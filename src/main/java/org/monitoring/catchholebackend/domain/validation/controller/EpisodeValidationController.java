@@ -32,7 +32,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/works/{workId}/episode-validations")
-@Tag(name = "EpisodeValidation", description = "신규 회차 검수 접수·전용 실행·결과·작가 판단·검토 종료와 설정 추출 release. 회차 전체 확정은 후속입니다.")
+@Tag(name = "EpisodeValidation", description = "신규 회차 검수 접수·전용 실행·결과·작가 판단·검토 종료와 설정 추출 release·회차 전체 확정.")
 @SecurityRequirement(name = "bearerAuth")
 public class EpisodeValidationController {
     private final EpisodeValidationService service;
@@ -42,6 +42,7 @@ public class EpisodeValidationController {
     private final org.monitoring.catchholebackend.domain.validation.service.ValidationCorrectionService corrections;
     private final ValidationReviewService reviews;
     private final ValidationReviewCompletionService completions;
+    private final org.monitoring.catchholebackend.domain.validation.service.ValidationSettingsApplicationService applications;
     @PostMapping
     @Operation(operationId = "startEpisodeValidation", summary = "신규 회차 검수 접수", description = "현재 원고 버전과 단일 append 업로드 자격을 확인하고 고정 기준과 오류 검사/검토 대기를 저장합니다. 설정 추출 Job/후보를 만들지 않으며 같은 입력은 같은 식별자를 반환합니다.")
     @ApiResponses({@ApiResponse(responseCode = "200", description = "접수 또는 동일 입력의 재전송"),
@@ -122,7 +123,7 @@ public class EpisodeValidationController {
     }
 
     @GetMapping("/{reportId}/review")
-    @Operation(operationId="getValidationReviewSummary", summary="작가 검토 요약", description="분기별 판단 수, 판단 잠금, 검토 종료 경로·보류 사유와 검토 종료 receipt를 반환합니다. 조회는 검토 종료나 설정 추출을 시작하지 않습니다.")
+    @Operation(operationId="getValidationReviewSummary", summary="작가 검토 요약", description="분기별 판단 수, 판단 잠금, 검토 종료 경로·보류 사유, 검토 종료 receipt와 설정 추출 상태·회차 전체 확정 결과를 반환합니다. 조회는 검토 종료·설정 추출·반영을 시작하지 않습니다.")
     @ApiResponses({@ApiResponse(responseCode="200", description="조회 성공"),
             @ApiResponse(responseCode="404", description="작품 소유권 또는 검수 요청 없음")})
     public CommonResponse<ValidationReviewSummaryResponse> review(@AuthenticationPrincipal MemberPrincipal member,@PathVariable UUID workId,@PathVariable UUID reportId) {
@@ -138,5 +139,16 @@ public class EpisodeValidationController {
     public CommonResponse<ValidationReviewCompletionResponse> completeReview(@AuthenticationPrincipal MemberPrincipal member,@PathVariable UUID workId,@PathVariable UUID reportId,
             @Valid @RequestBody ValidationReviewCompletionRequest request) {
         return CommonResponse.success("검토를 완료하고 설정 추출을 시작했습니다.",completions.completeValidationReview(member.memberId(),workId,reportId,request));
+    }
+
+    @PostMapping("/{reportId}/settings-application")
+    @Operation(operationId="applyValidationSettings", summary="검토 완료 회차의 설정 전체 반영", description="검토를 완료한 회차의 설정 추출 결과를 다시 평가해 캐릭터·세계관 후보를 한 번에 반영합니다. 하나라도 반영할 수 없으면 아무것도 반영하지 않고 보류 receipt(HELD_REVIEW)를 200으로 반환합니다. 같은 키·같은 입력은 같은 receipt, 이미 반영한 회차는 다른 키로도 같은 APPLIED receipt를 반환합니다. 검수 회차의 개별·그룹 확정은 이 요청으로만 대신합니다.")
+    @ApiResponses({@ApiResponse(responseCode="200", description="반영(APPLIED), 보류(HELD_REVIEW) 또는 같은 요청 재전송"),
+            @ApiResponse(responseCode="400", description="필드 검증 실패"),
+            @ApiResponse(responseCode="404", description="작품 소유권 또는 검수 요청 없음"),
+            @ApiResponse(responseCode="409", description="추출·비교 진행 중(VALIDATION_APPLICATION_NOT_READY), 검토 종료 전이거나 현재 검수 아님, report version 충돌, 같은 키 다른 입력")})
+    public CommonResponse<org.monitoring.catchholebackend.domain.validation.dto.response.ValidationSettingsApplicationResponse> applySettings(@AuthenticationPrincipal MemberPrincipal member,@PathVariable UUID workId,@PathVariable UUID reportId,
+            @Valid @RequestBody org.monitoring.catchholebackend.domain.validation.dto.request.ValidationSettingsApplicationRequest request) {
+        return CommonResponse.success("회차 설정 반영 결과를 저장했습니다.",applications.applySettings(member.memberId(),workId,reportId,request));
     }
 }

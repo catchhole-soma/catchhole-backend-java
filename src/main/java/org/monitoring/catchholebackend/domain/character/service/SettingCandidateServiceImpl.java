@@ -273,6 +273,8 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         candidate.validateReviewContentEditable();
         validateComparisonNotProcessing(candidate);
         if (request.reviewedApplicationMode() != null) {
+            // 저장한 반영 방식은 다음 확정의 입력이다. release 회차는 회차 전체 확정만 반영하므로 이 선택 저장도 막는다(GH312 S3).
+            analysisConfirmation.assertManualWriteAllowed(candidate);
             validateExplicitReviewRequest(candidate, request);
         }
         boolean manualFinalReview = isSingleJobManualReviewGroup(candidate);
@@ -439,6 +441,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         reviewSources.validate(work, null, sourceAnalysisJobId, true);
         reviewSources.assertCharacter(work, null, sourceAnalysisJobId, candidateId, true);
         SettingCandidate candidate = getCandidateInWork(candidateId, work);
+        analysisConfirmation.assertManualWriteAllowed(candidate);
         if (candidate.getReviewStatus() == SettingCandidateReviewStatus.CONFIRMED) {
             return SettingCandidateConfirmResult.confirmed(
                     settingCandidateMapper.toReviewStatusResponse(candidate)
@@ -574,6 +577,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                         work.getId(), request.batchId(), decisions.keySet()
                 , sourceAnalysisJobId))
         );
+        candidates.forEach(analysisConfirmation::assertManualWriteAllowed);
         String decisionHash = groupDecisionHash(request);
         if (candidates.size() == decisions.size()
                 && candidates.stream().noneMatch(SettingCandidate::isPendingReview)) {

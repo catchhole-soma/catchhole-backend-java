@@ -41,6 +41,11 @@ public class WorldSettingAnalysisConfirmation {
         sourceGuard.assertCurrent(candidate.getAnalysisJob(), candidate.getSourceEpisode());
     }
 
+    /** GH312 S3: release 회차의 사람 확정 진입점. 회차 전체 확정만 이 회차의 확정 설정을 쓴다. */
+    public void assertManualWriteAllowed(WorldSettingCandidate candidate) {
+        sourceGuard.assertManualWriteAllowed(candidate.getAnalysisJob(), candidate.getSourceEpisode());
+    }
+
     public AutomaticReviewHoldReason automaticHold(WorldSettingCandidate candidate, WorldSetting actual) {
         if (candidate.getAnalysisJob().isSettingBookSource()
                 && !org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingExtractionAssertion.isAsserted(candidate.getRawExtractionJson())) {
