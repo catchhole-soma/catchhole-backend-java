@@ -30,4 +30,16 @@ class ValidationReviewCompletionMigrationContractTest {
                 .doesNotContain("validation_reports ADD")
                 .doesNotContain("ALTER TABLE validation_reports");
     }
+
+    @Test
+    @DisplayName("자동 검토 종료 보류 사유는 report의 nullable 코드·시각 쌍으로만 추가한다")
+    void addsNullableReleaseHoldPair() throws IOException {
+        String sql = new ClassPathResource("db/migration/V98__add_validation_report_release_hold.sql").getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(sql)
+                .contains("ALTER TABLE validation_reports ADD COLUMN release_hold_code VARCHAR(60), ADD COLUMN release_hold_at TIMESTAMP")
+                .contains("CHECK ((release_hold_code IS NULL) = (release_hold_at IS NULL))")
+                .doesNotContain("NOT NULL")
+                .doesNotContain("ck_validation_report_status");
+    }
 }

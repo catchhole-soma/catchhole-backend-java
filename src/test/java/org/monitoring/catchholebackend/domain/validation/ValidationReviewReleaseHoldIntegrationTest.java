@@ -2,6 +2,8 @@ package org.monitoring.catchholebackend.domain.validation;
 
 import static org.assertj.core.api.Assertions.*;
 
+import java.util.UUID;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -17,6 +19,8 @@ import org.springframework.test.context.TestPropertySource;
 @TestPropertySource(locations="classpath:validation-execution-fixture.properties")
 @DisplayName("GH312 S2 자동 검토 종료 보류와 명시 재시도")
 class ValidationReviewReleaseHoldIntegrationTest extends ValidationReviewCompletionServiceFixture {
+    @org.springframework.beans.factory.annotation.Autowired org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobService analysisJobService;
+    @org.springframework.beans.factory.annotation.Autowired org.monitoring.catchholebackend.domain.episode.service.EpisodeService episodeService;
     @BeforeEach void chunks() {jdbc.execute("create table if not exists episode_chunks (id uuid primary key, episode_id uuid)");}
 
     @Test @DisplayName("자동 종료의 추출 생성 조건이 막히면 검사 결과만 저장하고 receipt·Job은 남기지 않는다")
@@ -28,6 +32,9 @@ class ValidationReviewReleaseHoldIntegrationTest extends ValidationReviewComplet
         var held=reviews.getValidationReview(f.member(),f.work(),f.report());
         assertThat(held.executionStatus()).isEqualTo(ValidationExecutionStatus.COMPLETED);assertThat(held.completionMode()).isEqualTo(ValidationReviewCompletionMode.AUTOMATIC_ELIGIBLE);
         assertThat(held.canCompleteReview()).isTrue();assertThat(held.allowedActions()).containsExactly(ValidationReviewAction.COMPLETE_REVIEW);assertThat(held.completion()).isNull();
+        assertThat(held.holdReasons()).containsExactly(ValidationReviewHoldReason.RELEASE_HELD);
+        assertThat(held.releaseHold().code()).isEqualTo("AI_TOKEN_QUOTA_EXHAUSTED");assertThat(held.releaseHold().at()).isNotNull();
+        assertThat(jdbc.queryForObject("select release_hold_code from validation_reports where id = ?",String.class,f.report())).isEqualTo("AI_TOKEN_QUOTA_EXHAUSTED");
         assertThat(run.sameReceipt(run.replay(results))).as("worker replay returns the stored receipt").isTrue();assertThat(analysisJobs(f)).isZero();
         long version=held.reportVersion();var request=new ValidationReviewCompletionRequest(version,"after-quota");
         assertThatThrownBy(()->completions.completeValidationReview(f.member(),f.work(),f.report(),request)).isInstanceOf(AppException.class)
@@ -38,6 +45,27 @@ class ValidationReviewReleaseHoldIntegrationTest extends ValidationReviewComplet
         assertThat(analysisJobs(f)).isEqualTo(1);assertThat(receipts(f)).isEqualTo(1);
         var done=reviews.getValidationReview(f.member(),f.work(),f.report());assertThat(done.completionMode()).isEqualTo(ValidationReviewCompletionMode.COMPLETED);
         assertThat(done.completion().extractionJobId()).isEqualTo(receipt.extractionJobId());
+        assertThat(done.releaseHold()).isNull();assertThat(done.holdReasons()).doesNotContain(ValidationReviewHoldReason.RELEASE_HELD);
+        assertThat(jdbc.queryForMap("select release_hold_code,release_hold_at from validation_reports where id = ?",f.report()).values()).containsOnlyNulls();
+    }
+
+    @Test @DisplayName("원고 교체 뒤 재검수한 report는 회차의 새 업로드 batch에 묶이고 정상 0건 자동 종료가 그 batch로 추출 Job을 만든다")
+    void recheckAfterReplacementReleasesInCurrentBatch() {
+        var f=fixture();var originalBatch=reportBatch(f);replace(f,"수정한 합성 원고");
+        var currentBatch=currentEpisodeBatch(f);assertThat(currentBatch).as("file replacement creates a new upload batch").isNotEqualTo(originalBatch);
+        assertThat(reportBatch(f)).as("the invalidated report keeps its intake batch").isEqualTo(originalBatch);
+        var next=recheck(f,"after-replacement");assertThat(reportBatch(next)).isEqualTo(currentBatch);
+        assertThat(admissions.get(f.member(),f.work(),next.report()).batchId()).isEqualTo(currentBatch);
+        var run=runToCompletion(next,false);assertThat(run.done().get("extractionJobId")).as(String.valueOf(run.done())).isNotNull();
+        assertThat(analysisJobs(f)).isEqualTo(1);assertThat(receipts(f)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from analysis_jobs where work_id=? and job_type='SETTING_EXTRACTION' and batch_id=? and episode_id=?",Long.class,f.work(),currentBatch,f.target())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select report_id from validation_review_completions where work_id=?",UUID.class,f.work())).isEqualTo(next.report());
+        var batches=analysisJobService.getAnalysisBatches(f.member(),f.work(),0,20).content();
+        var current=batches.stream().filter(b->b.batchId().equals(currentBatch)).findFirst().orElseThrow();
+        assertThat(current.validationReports()).extracting(v->v.reportId()).containsExactly(next.report());
+        assertThat(batches).extracting(b->b.batchId()).as("a batch holding only the retired report is not listed (it would read as FAILED)").doesNotContain(originalBatch);
+        var episode=episodeService.getEpisodes(f.member(),f.work()).stream().filter(e->e.id().equals(f.target())).findFirst().orElseThrow();
+        assertThat(episode.validationReportId()).isEqualTo(next.report());
     }
 
     @Test @DisplayName("커밋된 정상 0건 자동 종료는 receipt와 release Job을 함께 남긴다")

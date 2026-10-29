@@ -40,9 +40,9 @@ class ValidationReviewCompletionPostgresIntegrationTest extends ValidationReview
         return outcomes;
     }
 
-    @Test @DisplayName("실제 Flyway V97·JPA validate에서 자동 종료 receipt와 release Job이 FK·제약과 함께 저장된다")
+    @Test @DisplayName("실제 Flyway V97·V98·JPA validate에서 자동 종료 receipt와 release Job이 FK·제약과 함께 저장된다")
     void flywayV97AndJpaValidateStoreAutomaticReceipt() {
-        assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where version='97' and success",Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where version in ('97','98') and success",Integer.class)).isEqualTo(2);
         assertThat(jdbc.queryForObject("select indexdef from pg_indexes where indexname='uk_validation_review_completions_key'",String.class)).contains("UNIQUE").contains("WHERE (idempotency_key IS NOT NULL)");
         var f=fixture();var run=runToCompletion(f,false);
         assertThat(run.done().get("extractionJobId")).isNotNull();assertThat(receipts(f)).isEqualTo(1);assertThat(analysisJobs(f)).isEqualTo(1);
@@ -77,7 +77,9 @@ class ValidationReviewCompletionPostgresIntegrationTest extends ValidationReview
         assertThat(run.done().get("reviewCompletionId")).isNull();assertThat(receipts(f)).isZero();assertThat(analysisJobs(f)).isZero();
         assertThat(jdbc.queryForObject("select first_analysis_started_at from members where id=?",java.sql.Timestamp.class,f.member())).isNull();
         assertThat(reviews.getValidationReview(f.member(),f.work(),f.report()).completionMode()).isEqualTo(ValidationReviewCompletionMode.AUTOMATIC_ELIGIBLE);
+        assertThat(jdbc.queryForObject("select release_hold_code from validation_reports where id=? and release_hold_at is not null",String.class,f.report())).isEqualTo("AI_TOKEN_QUOTA_EXHAUSTED");
         refillTokens(f);completions.completeValidationReview(f.member(),f.work(),f.report(),new ValidationReviewCompletionRequest(reportVersion(f),"after-quota"));
         assertThat(receipts(f)).isEqualTo(1);assertThat(analysisJobs(f)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from validation_reports where id=? and release_hold_code is null and release_hold_at is null",Integer.class,f.report())).isEqualTo(1);
     }
 }

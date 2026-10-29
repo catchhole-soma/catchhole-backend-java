@@ -46,6 +46,7 @@ abstract class ValidationReviewCompletionServiceFixture {
     @Autowired ValidationResultService results;
     @Autowired ValidationReviewService reviews;
     @Autowired ValidationReviewCompletionService completions;
+    @Autowired ValidationRecheckService rechecks;
     @Autowired AiTokenService accounts;
     @Autowired ObjectStorageService hashes;
     @MockitoBean ObjectStorage storage;
@@ -109,6 +110,19 @@ abstract class ValidationReviewCompletionServiceFixture {
     /** 남은 사용량을 0으로 만들어 공개 생성 경로의 최소 예약 확인(AI_TOKEN_QUOTA_EXHAUSTED)이 막히게 한다. */
     void exhaustTokens(Fixture f) {accounts.ensureAnalysisCanStart(f.member());jdbc.update("update ai_token_accounts set used_tokens = granted_tokens where member_id = ?",f.member());}
     void refillTokens(Fixture f) {jdbc.update("update ai_token_accounts set used_tokens = 0 where member_id = ?",f.member());}
+    /** 커밋된 파일 교체. AFTER_COMMIT 원문 파기도 합성 저장소로 함께 끝난다. */
+    void replace(Fixture f,String text) {
+        episodes.replaceEpisodeFile(f.member(),f.work(),f.target(),new MockMultipartFile("file","replaced.txt","text/plain",text.getBytes(StandardCharsets.UTF_8)));
+    }
+    /** 교체한 현재 원고로 명시 재검수를 접수하고 새 report의 fixture를 반환한다. */
+    Fixture recheck(Fixture f,String key) {
+        var state=tx.execute(s->{var r=em.find(ValidationReport.class,f.report());var e=em.find(Episode.class,f.target());
+            return new Object[]{r.getVersion(),r.getBaselineFingerprint(),e.getContentHash(),e.getContentS3Key(),e.getContentS3Version(),e.getContentRevision()};});
+        var next=rechecks.recheckValidation(f.member(),f.work(),f.report(),new ValidationRecheckRequest(key,(Long)state[0],(String)state[2],(String)state[3],(String)state[4],(Long)state[5],(String)state[1],null));
+        return new Fixture(f.member(),f.work(),f.target(),next.reportId(),(String)state[2]);
+    }
+    UUID reportBatch(Fixture f) {return tx.execute(s->em.find(ValidationReport.class,f.report()).getBatch().getId());}
+    UUID currentEpisodeBatch(Fixture f) {return jdbc.queryForObject("select batch_id from upload_files where id=(select source_file_id from episodes where id=?)",UUID.class,f.target());}
     long analysisJobs(Fixture f) {return jdbc.queryForObject("select count(*) from analysis_jobs where work_id = ?",Long.class,f.work());}
     long receipts(Fixture f) {return jdbc.queryForObject("select count(*) from validation_review_completions where work_id = ?",Long.class,f.work());}
 }
