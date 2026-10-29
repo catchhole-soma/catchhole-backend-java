@@ -121,8 +121,79 @@ public class ValidationBaselineService {
                 : Objects.equals(job.getRunSequence(), 0) ? job.getRunBaseState() : null;
         if (recorded == null || !recorded.path("characters").isObject() || !recorded.path("worldSettings").isObject()
                 || !Objects.equals(job.getInputStateHash(), journal.hash(recorded)) || hasTargetEvidence(recorded.path("characters"), report.getSourceEpisodeNo())
-                || hasTargetEvidence(recorded.path("worldSettings"), report.getSourceEpisodeNo())) return null;
+                || hasTargetEvidence(recorded.path("worldSettings"), report.getSourceEpisodeNo())
+                || !recordedSourcesAvailable(recorded.path("characters"), "characters", report)
+                || !recordedSourcesAvailable(recorded.path("worldSettings"), "worldSettings", report)) return null;
         return recorded;
+    }
+
+    /** Work 잠금 아래 과거 입력 자체의 출처를 확인한다. 현재 manifest로 옛 출처를 재연결하지 않는다. */
+    private boolean recordedSourcesAvailable(JsonNode node, String domain, ValidationReport report) {
+        if (node == null || !node.isContainerNode()) return true;
+        if (node.isObject()) {
+            try {
+                if (node.path("sourceAnalysisJobId").isTextual()
+                        && !recordedJobAvailable(em.find(AnalysisJob.class, UUID.fromString(node.path("sourceAnalysisJobId").asText())), report)) return false;
+                if (node.path("sourceCandidateId").isTextual() && !recordedCandidateAvailable(node.path("sourceCandidateId").asText(), domain, report)) return false;
+                for (JsonNode id : node.path("sourceCandidateIds")) if (!id.isTextual() || !recordedCandidateAvailable(id.asText(), domain, report)) return false;
+                if (node.path("sourceKind").isTextual() && (node.has("sourceHash") || node.has("contentHash") || node.has("sourceEpisodeId")
+                        || node.has("episodeId") || node.has("sourceSettingBookRevisionId") || node.has("revisionId"))
+                        && !recordedSourceAvailable(node, report)) return false;
+            } catch (IllegalArgumentException malformedIdentity) { return false; }
+            var fields = node.fields();
+            while (fields.hasNext()) {
+                var field = fields.next();
+                // 작품 설정의 임의 JSON key를 서버 provenance로 해석하지 않는다.
+                if (!List.of("valueJson", "propertiesJson").contains(field.getKey()) && !recordedSourcesAvailable(field.getValue(), domain, report)) return false;
+            }
+        } else for (JsonNode child : node) if (!recordedSourcesAvailable(child, domain, report)) return false;
+        return true;
+    }
+
+    private boolean recordedCandidateAvailable(String id, String domain, ValidationReport report) {
+        AnalysisJob source;
+        if (domain.equals("characters")) {
+            var candidate = characters.findByIdAndWorkId(UUID.fromString(id), report.getWork().getId()).orElse(null);
+            source = candidate == null ? null : candidate.getAnalysisJob();
+        } else {
+            var candidate = em.find(WorldSettingCandidate.class, UUID.fromString(id));
+            source = candidate == null || !candidate.getWork().getId().equals(report.getWork().getId()) ? null : candidate.getAnalysisJob();
+        }
+        return recordedJobAvailable(source, report);
+    }
+
+    private boolean recordedJobAvailable(AnalysisJob source, ValidationReport report) {
+        if (source == null || !source.getWork().getId().equals(report.getWork().getId()) || source.getSourceContentS3Key() == null
+                || source.isSettingBookSource() && (source.getSourceSettingBook() == null || source.getSourceSettingBookRevision() == null)) return false;
+        var identity = JsonNodeFactory.instance.objectNode(); AnalysisSourceMetadata.put(identity, source);
+        identity.put("contentS3Key", source.getSourceContentS3Key()).put("contentS3Version", source.getSourceContentS3Version());
+        return recordedSourceAvailable(identity, report);
+    }
+
+    private boolean recordedSourceAvailable(JsonNode source, ValidationReport report) {
+        String hash = source.has("sourceHash") ? nullableText(source, "sourceHash") : nullableText(source, "contentHash");
+        if (hash == null) return false;
+        Object[] actual;
+        if ("EPISODE".equals(source.path("sourceKind").asText())) {
+            String id = source.has("sourceEpisodeId") ? nullableText(source, "sourceEpisodeId") : nullableText(source, "episodeId");
+            if (id == null) return false;
+            var episodeId = UUID.fromString(id);
+            // 정리 중인 retained 원문도 이전 application input의 수명을 보증하지 않는다.
+            if (purges.existsByEpisodeId(episodeId)) return false;
+            actual = em.createQuery("select e.contentHash,e.contentS3Key,e.contentS3Version,e.episodeNo,cast(e.status as string) from Episode e where e.id=:id and e.work.id=:work", Object[].class)
+                    .setParameter("id", episodeId).setParameter("work", report.getWork().getId()).getResultStream().findFirst().orElse(null);
+            JsonNode number = source.has("sourceEpisodeNo") ? source.path("sourceEpisodeNo") : source.path("episodeNo");
+            if (actual == null || "ARCHIVED".equals(actual[4]) || !number.isIntegralNumber() || !Objects.equals(actual[3], number.asInt())
+                    || number.asInt() >= report.getSourceEpisodeNo()) return false;
+        } else if ("SETTING_BOOK".equals(source.path("sourceKind").asText())) {
+            String id = source.has("sourceSettingBookRevisionId") ? nullableText(source, "sourceSettingBookRevisionId") : nullableText(source, "revisionId");
+            if (id == null) return false;
+            actual = em.createQuery("select r.contentHash,r.contentS3Key,r.contentS3Version,cast(r.referenceTimeKind as string),r.referenceEpisodeNo from SettingBookRevision r where r.id=:id and r.settingBook.batch.work.id=:work", Object[].class)
+                    .setParameter("id", UUID.fromString(id)).setParameter("work", report.getWork().getId()).getResultStream().findFirst().orElse(null);
+            if (actual == null || "EPISODE".equals(actual[3]) && (int) actual[4] >= report.getSourceEpisodeNo()) return false;
+        } else return false;
+        return hash.equals(actual[0]) && (!source.has("contentS3Key") || Objects.equals(actual[1], nullableText(source, "contentS3Key")))
+                && (!source.has("contentS3Version") || Objects.equals(actual[2], nullableText(source, "contentS3Version")));
     }
 
     private boolean hasTargetEvidence(JsonNode node, int targetNo) {

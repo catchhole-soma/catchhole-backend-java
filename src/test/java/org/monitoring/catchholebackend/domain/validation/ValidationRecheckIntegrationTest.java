@@ -6,6 +6,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.util.*;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
@@ -120,6 +122,28 @@ class ValidationRecheckIntegrationTest extends ValidationRecheckFixture {
         assertThat(stored(result).getBaselineSeed().path("worldSettings").toString()).contains("북부").doesNotContain("101화가 반영한 현재값");
         assertThat(stored(result).getBaselineSeed().path("sources").findValuesAsText("episodeNo")).doesNotContain("101");
         assertThat(job.getAutomaticAppliedAt()).isNotNull(); assertThat(em.createQuery("select count(j) from AnalysisJob j",Long.class).getSingleResult()).isEqualTo(1);
+    }
+    @ParameterizedTest @ValueSource(booleans={false,true})
+    void unchangedRecordedEpisodeAndBookSourcesStillPrepareDiagnostic(boolean bookSource) throws Exception {
+        AnalysisJob source;
+        if(bookSource) {
+            var batch=org.monitoring.catchholebackend.domain.upload.entity.UploadBatch.create(work,member,org.monitoring.catchholebackend.domain.upload.type.UploadType.SETTING_BOOK,org.monitoring.catchholebackend.domain.upload.type.UploadSourceType.FILE);em.persist(batch);
+            var book=org.monitoring.catchholebackend.domain.upload.entity.UploadFile.create(batch,org.monitoring.catchholebackend.domain.upload.type.UploadFileRole.SETTING_BOOK,"synthetic-book.txt","text/plain","synthetic/book",1);em.persist(book);
+            var revision=org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision.create(book,1,new org.monitoring.catchholebackend.global.storage.StoredTextObject("synthetic/book-r1","v1","b".repeat(64),1),org.monitoring.catchholebackend.domain.upload.type.SettingBookReferenceTimeKind.WORK_START,null);em.persist(revision);book.linkCurrentRevision(revision);
+            source=AnalysisJob.createSettingBook(work,book,revision);
+        } else source=AnalysisJob.create(work,null,prior,AnalysisJobType.SETTING_EXTRACTION);
+        em.persist(source);source.succeed(null,0,0);
+        var confirmed=WorldSettingCandidate.create(work,bookSource?null:prior,source,WorldSettingCategory.RACE,"합성 종족","서식지","북부",JsonNodeFactory.instance.arrayNode(),BigDecimal.ONE,null);
+        ReflectionTestUtils.setField(confirmed,"reviewStatus",WorldSettingReviewStatus.CONFIRMED);ReflectionTestUtils.setField(confirmed,"targetWorldSetting",world);
+        ReflectionTestUtils.setField(confirmed,"finalCategory",WorldSettingCategory.RACE);ReflectionTestUtils.setField(confirmed,"finalSubjectName","합성 종족");
+        ReflectionTestUtils.setField(confirmed,"finalSettingName","서식지");ReflectionTestUtils.setField(confirmed,"finalValue","북부");ReflectionTestUtils.setField(confirmed,"finalOperation",WorldSettingOperation.ADD);em.persist(confirmed);em.flush();
+        var first=start();var applied=appliedJob();states.confirmedSettingsChanged(work.getId());em.flush();
+        var result=postOk(recheckPath(first),recheck(first,"unchanged-source"));
+        assertThat(result.path("mode").asText()).isEqualTo("DIAGNOSTIC_ONLY");assertThat(result.path("baselineStatus").asText()).isEqualTo("READY");
+        assertThat(stored(result).getBaselineSeed().path("worldSettings").toString()).contains(source.getSourceContentHash(),confirmed.getId().toString());
+        assertThat(result.path("previousApplicationReceipt").path("applicationId").asText()).isEqualTo(applied.getId().toString());
+        assertThat(em.createQuery("select count(j) from AnalysisJob j",Long.class).getSingleResult()).isEqualTo(2);
+        assertThat(em.createQuery("select count(c) from WorldSettingCandidate c",Long.class).getSingleResult()).isEqualTo(1);
     }
     @Test void purgedPreApplicationInputCannotRestoreDiagnosticBaseline() throws Exception {
         var first=start(); var job=appliedJob();

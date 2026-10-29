@@ -70,6 +70,7 @@ class ValidationRecheckPostgresIntegrationTest {
     @Autowired AnalysisRunStateService states;
     @Autowired AnalysisStateJournal journal;
     @Autowired WorldSettingService worldEdits;
+    @Autowired ObjectStorageService storedText;
     @MockitoBean ObjectStorage storage;
     TransactionTemplate tx;
     record Fixture(Long member,UUID work,UUID target,UUID prior,UUID world,UUID character,ValidationStartRequest request) {}
@@ -176,5 +177,57 @@ class ValidationRecheckPostgresIntegrationTest {
         recheck(f,first,new ValidationRecheckRequest("after-correction",current.reportVersion(),f.request().expectedContentHash(),f.request().expectedContentS3Key(),f.request().expectedContentS3Version(),0L,null,receipt.correctionId()));
         tx.executeWithoutResult(s->{works.getOwnedWorkForUpdate(f.work(),f.member());workPurge.purgeWorkData(f.work());em.clear();em.remove(em.find(Member.class,f.member()));});
         for(String table:List.of("validation_corrections","validation_reports","validation_request_keys","validation_baseline_sources","works","members"))assertThat(jdbc.queryForObject("select count(*) from "+table,Integer.class)).as(table).isZero();
+    }
+
+    @Test void diagnosticCannotRebindPreInputDuringPriorSourceReplacement() throws Exception {
+        var f=fixture();String sourceA="앞 회차 A의 합성 확정 근거";String hashA=storedText.contentHash(sourceA);
+        tx.executeWithoutResult(s->{
+            works.getOwnedWorkForUpdate(f.work(),f.member());var work=em.find(Work.class,f.work());var prior=em.find(Episode.class,f.prior());
+            prior.updateContentStorage("synthetic/100/A","synthetic-A",hashA);when(storage.getText("synthetic/100/A")).thenReturn(sourceA);
+            var sourceJob=org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.create(work,null,prior,org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION);
+            em.persist(sourceJob);sourceJob.succeed(null,0,0);
+            var confirmed=org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate.create(work,prior,sourceJob,WorldSettingCategory.RACE,"합성 종족","서식지","북부",JsonNodeFactory.instance.arrayNode().add(JsonNodeFactory.instance.objectNode().put("quote",sourceA)),java.math.BigDecimal.ONE,null);
+            org.springframework.test.util.ReflectionTestUtils.setField(confirmed,"reviewStatus",org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.CONFIRMED);
+            org.springframework.test.util.ReflectionTestUtils.setField(confirmed,"targetWorldSetting",em.find(WorldSetting.class,f.world()));
+            org.springframework.test.util.ReflectionTestUtils.setField(confirmed,"finalCategory",WorldSettingCategory.RACE);
+            org.springframework.test.util.ReflectionTestUtils.setField(confirmed,"finalSubjectName","합성 종족");
+            org.springframework.test.util.ReflectionTestUtils.setField(confirmed,"finalSettingName","서식지");
+            org.springframework.test.util.ReflectionTestUtils.setField(confirmed,"finalValue","북부");
+            org.springframework.test.util.ReflectionTestUtils.setField(confirmed,"finalOperation",org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation.ADD);
+            em.persist(confirmed);
+        });
+        var first=start(f);
+        UUID appliedId=tx.execute(s->{
+            var work=works.getOwnedWorkForUpdate(f.work(),f.member());
+            var applied=org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.create(work,null,em.find(Episode.class,f.target()),org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION);
+            applied.configureReviewMode(org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC);states.initializeRun(List.of(applied));
+            applied.claim("synthetic-no-llm","합성 확정 완료",java.time.LocalDateTime.now().plusMinutes(1));assertThat(states.prepareInput(applied)).isTrue();
+            assertThat(applied.getAutomaticInputState().path("worldSettings").toString()).contains(hashA);
+            states.seal(applied);applied.completeAutomaticApplication();applied.succeed(null,0,0);return applied.getId();
+        });
+        var cleanupStarted=new CountDownLatch(1);var allowCleanup=new CountDownLatch(1);
+        when(storage.purgePrefixesExcluding(anyCollection(),anyCollection())).thenAnswer(call->{cleanupStarted.countDown();await(allowCleanup);return new ObjectStoragePurgeResult(1,1,0);});
+        ValidationStagingResponse diagnostic;
+        try(var pool=Executors.newSingleThreadExecutor()) {
+            var replacement=pool.submit(()->episodes.replaceEpisodeFile(f.member(),f.work(),f.prior(),file("앞 회차 B의 합성 근거")));
+            await(cleanupStarted);
+            try {
+                assertThat(jdbc.queryForObject("select count(*) from episode_source_purge_requests where episode_id=?",Integer.class,f.prior())).isEqualTo(1);
+                tx.executeWithoutResult(s->{var applied=em.find(org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.class,appliedId);
+                    assertThat(applied.isCompletedOrderedAnalysis()).isTrue();assertThat(journal.hash(applied.getAutomaticInputState())).isEqualTo(applied.getInputStateHash());});
+                diagnostic=recheck(f,first,request(f,first,"during-prior-replacement"));
+            } finally {allowCleanup.countDown();}
+            replacement.get(20,TimeUnit.SECONDS);
+        }
+        assertThat(diagnostic.mode().name()).isEqualTo("DIAGNOSTIC_ONLY");
+        assertThat(diagnostic.baselineStatus().name()).isEqualTo("FAILED");assertThat(diagnostic.holdReason()).isEqualTo("DIAGNOSTIC_BASELINE_UNAVAILABLE");
+        assertThat(jdbc.queryForObject("select baseline_seed is null and baseline_entries is null from validation_reports where id=?",Boolean.class,diagnostic.reportId())).isTrue();
+        assertThat(jdbc.queryForObject("select count(*) from validation_baseline_sources where report_id=?",Integer.class,diagnostic.reportId())).isZero();
+        tx.executeWithoutResult(s->assertThat(em.find(org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.class,appliedId).getAutomaticInputState().path("sourceEvidencePurged").asBoolean()).isTrue());
+        var afterPurge=recheck(f,diagnostic,request(f,diagnostic,"after-prior-redaction"));
+        assertThat(afterPurge.holdReason()).isEqualTo("DIAGNOSTIC_BASELINE_UNAVAILABLE");assertThat(afterPurge.extractionJobId()).isNull();assertThat(afterPurge.candidateGeneration()).isNull();
+        assertThat(jdbc.queryForObject("select count(*) from analysis_jobs",Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select count(*) from world_setting_candidates",Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from setting_candidates",Integer.class)).isZero();
     }
 }
