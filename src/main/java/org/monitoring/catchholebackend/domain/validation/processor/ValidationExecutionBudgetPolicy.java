@@ -17,6 +17,7 @@ import static org.monitoring.catchholebackend.domain.validation.exception.Valida
 @Component @RequiredArgsConstructor
 public class ValidationExecutionBudgetPolicy {
     private final ValidationExecutionProperties properties;
+    private final org.monitoring.catchholebackend.global.config.chat.ChatProperties retrieval;
     private final ValidationExecutionMapper mapper;
     private final AnalysisStateJournal journal;
     private final AiTokenUsageRepository usages;
@@ -31,9 +32,10 @@ public class ValidationExecutionBudgetPolicy {
         var models=(ObjectNode)configuration.path("models");
         if(properties.roles().containsKey(ValidationRole.QUERY_EMBEDDING)&&!models.has("QUERY_EMBEDDING")) {
             if(usages.findAllByValidationJobId(job.getId()).stream().anyMatch(u->u.getPurpose()==AiTokenPurpose.VALIDATION_QUERY_EMBEDDING)||results.hasSuccessfulVectorReceipt(job.getReport().getId()))throw error(VALIDATION_PUBLICATION_CONFLICT);
-            models.putObject("QUERY_EMBEDDING").put("model",properties.queryEmbeddingModel());
+            models.putObject("QUERY_EMBEDDING").put("model",properties.queryEmbeddingModel()).put("version",retrieval.retrievalEmbeddingVersion()).put("dimensions",1536);
         } else if(models.has("QUERY_EMBEDDING")) {
             if(properties.queryEmbeddingModel()!=null&&!properties.queryEmbeddingModel().equals(models.path("QUERY_EMBEDDING").path("model").asText()))throw error(VALIDATION_PUBLICATION_CONFLICT);
+            if(!retrieval.retrievalEmbeddingVersion().equals(models.path("QUERY_EMBEDDING").path("version").asText()))throw error(VALIDATION_PUBLICATION_CONFLICT);
             // Removing a runtime role does not silently replace its previously frozen model.
         }
         if(journal.hash(previous).equals(journal.hash(next)))return;

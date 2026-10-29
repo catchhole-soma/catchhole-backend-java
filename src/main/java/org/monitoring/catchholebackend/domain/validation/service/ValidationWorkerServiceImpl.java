@@ -34,6 +34,7 @@ public class ValidationWorkerServiceImpl implements ValidationWorkerService {
     private final ValidationExecutionBudgetPolicy budgetPolicy;
     private final AnalysisStateJournal journal;
     private final ValidationExecutionProperties properties;
+    private final org.monitoring.catchholebackend.global.config.chat.ChatProperties retrieval;
     private final EntityManager em;
     private final ValidationDataService data;
     private final ValidationBaselineService baselines;
@@ -51,6 +52,7 @@ public class ValidationWorkerServiceImpl implements ValidationWorkerService {
         var models=configuration.putObject("models");for(var role:properties.roles().keySet()) {
             var model=models.putObject(role.name()).put("model",role==ValidationRole.QUERY_EMBEDDING?properties.queryEmbeddingModel():"gpt-6.1-terra");
             if(role.reasoningEffort()!=null)model.put("reasoningEffort",role.reasoningEffort());
+            else model.put("version",retrieval.retrievalEmbeddingVersion()).put("dimensions",1536);
         }
         var job=jobs.save(ValidationJob.queue(r,journal.hash(input),manifest,configuration));r.attachValidationJob(job);
     }

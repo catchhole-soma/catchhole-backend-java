@@ -38,7 +38,14 @@ public final class ValidationExecutionContract {
     @Schema(name="ValidationExecutionRetryV1",description="같은 입력에서 미완료만 다시 접수하는 공개 CAS 요청")
     public record Retry(@NotNull @Min(0) Long expectedReportVersion,@NotBlank @Size(max=100) String idempotencyKey) {}
     @Schema(name="ValidationExecutionReserveV1",description="서버가 고정한 역할·모델의 실제 호출 예약")
-    public record Reserve(@NotNull @Valid Scope scope,@NotNull UUID requestId,@NotNull ValidationRole role,@NotBlank String model,@Min(1) long reservedTokens) {}
+    public record Reserve(@NotNull @Valid Scope scope,@NotNull UUID requestId,@NotNull ValidationRole role,@NotBlank String model,@Min(1) long reservedTokens,@Valid QueryInput queryInput) {
+        public Reserve(Scope scope,UUID requestId,ValidationRole role,String model,long reservedTokens) {this(scope,requestId,role,model,reservedTokens,null);}
+    }
+    @Schema(name="ValidationQueryInputV1",description="실제 embedding 호출 전에 고정하는 입력 hash와 기존 색인 identity. 질의본문은 저장하지 않습니다.")
+    public record QueryInput(@Min(1) @Max(1) int contractVersion,@NotBlank @Pattern(regexp="[a-f0-9]{64}") String inputDigest,
+            @NotBlank @Pattern(regexp="[a-f0-9]{64}") String queryHash,@NotBlank String indexModel,
+            @NotBlank @Size(max=50) String indexVersion,@Min(1536) @Max(1536) int indexDimensions,
+            @NotBlank @Pattern(regexp="[a-f0-9]{64}") String manifestHash) {}
     public enum UsageKind { SETTLE, UNKNOWN, RELEASE }
     @Schema(name="ValidationExecutionUsageV1",description="원래 예약 lease·세대로 늦은 실제 사용량도 정산하는 요청")
     public record Usage(@NotNull @Valid Scope scope,@NotNull UsageKind kind,Long inputTokens,Long cachedInputTokens,Long outputTokens,AiTokenUsageOutcome outcome) {}

@@ -105,7 +105,7 @@ public class ValidationResultServiceImpl implements ValidationResultService {
             }
             // Verify every CAS first; no old completion survives a partially applied follow-up.
             for(int i=0;i<affected.size();i++) {var check=affected.get(i);results.save(ValidationCheckHistory.supersede(check,c.reason()));var state=decisions.state(mapper.toTree(c.changes().get(i).state()),decisions.subjects(p));check.revise(state,journal.hash(state),c.reason());}
-            results.checkpoint(j.getReport().getId(),ValidationBranch.SETTING).ifPresent(ValidationCheckpoint::invalidate);
+            results.checkpoint(j.getReport().getId(),ValidationBranch.SETTING).ifPresent(ValidationCheckpoint::advanceForQuestionRevision);
             saveEvidence(j,"REVISION",c.citations());return new PublicationResult(Map.of("checks",affected.stream().map(mapper::toCheckResponse).toList()),true);
         });
     }

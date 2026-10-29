@@ -573,10 +573,14 @@
         "branch": "SETTING",
         "expectedVersion": 0,
         "payload": {
+          "checkpointVersion": 1,
+          "inputDigest": "95c2c10f544ee6c9c0bc7e5cc38cc9fea3d499ce853debfb76676c7b79099711",
           "phase": "PLANNING",
-          "validatedStages": [
-            "PLANNER:TSEG1"
-          ]
+          "planning": {
+            "book_origins": {},
+            "evidence": []
+          },
+          "runtime": null
         },
         "citations": []
       },
@@ -604,7 +608,8 @@
         "requestId": "00000000-0000-4000-8000-000000000009",
         "role": "PLANNER",
         "model": "gpt-6.1-terra",
-        "reservedTokens": 120
+        "reservedTokens": 120,
+        "queryInput": null
       },
       "settle": {
         "scope": {
@@ -853,7 +858,8 @@
         "outcome": null,
         "inputTokens": null,
         "cachedInputTokens": null,
-        "outputTokens": null
+        "outputTokens": null,
+        "queryInput": null
       },
       "dataInput": {
         "formatVersion": 1,
@@ -2024,11 +2030,10 @@
       "replay": "Original immutable RETRY response_snapshot, no new generation/budget refresh",
       "optionalEmbedding": "First explicit role+model introduction only if no earlier embedding calls or successful vector receipt, using existing retrieval-compatible text-embedding-3-small; used model is never silently replaced",
       "requiredTask3EmbeddingPreflight": {
-        "actualReserveBoundedNow": true,
-        "queuePreflight": "Finish with typed receipt/checkpoint restoration, not VECTOR string presence",
-        "deny": "Actually new embedding required + exhausted cap => 409/hold",
-        "allow": "Compatible successful vector receipt reused + only JUDGE pending, even if embedding cap exhausted",
-        "issueCompletion": "Mandatory before final GH310 completion"
+        "implemented": true,
+        "deny": "Actually required new embedding with exhausted cumulative cap returns 409 before queueing.",
+        "allow": "Verified compatible successful query receipt with only JUDGE remaining is admitted with zero extra embedding calls.",
+        "proofSource": "Original immutable validation_call_input and authenticated typed semantic checkpoint; never model output or a VECTOR string alone."
       }
     },
     "clueAuthority": {
@@ -2056,7 +2061,7 @@
       "INPUT: frozen manifest + modelSourceCatalogue",
       "ENTRIES pages: canonical modelSettings + authorCorrectionProofs (global stable S-refs)",
       "full T1 READ_SOURCE: validated text + clueVersion=1/modelClues",
-      "SETTING/TYPO prepare independently; save target stages/checkpoint immediately; BOOK_SOURCE success discovers only that book; pendingBookRefs do not block other stages",
+      "SETTING/TYPO run independently; persist each validated target stage and book stage immediately. Finish each ready book before the next; pendingBookRefs never become empty books.",
       "publish each validated semantic stage, then MERGED_PLAN before first JUDGE; restore stable server check IDs/revisions",
       "publish DECIDED + original evidence_bundle/current server checkInputDigest, or successful TYPO segment",
       "complete: server required-grid/check/no-check/typo aggregation"
@@ -2167,7 +2172,7 @@
       "publication": "PLANNER/RELATED_SELECTION/COVERAGE/checkpoint save without reading unrelated books. BOOK_SOURCE reads only its missing source. Citations still require actual bytes for their exact refs.",
       "commit": "Under Work, merge discoveries monotonically with the latest grid and revalidate all frozen source metadata/current input/lease. Different known dimensions or source changes are conflicts.",
       "completion": "Any pending book blocks MERGED_PLAN, SETTING completion, and NO_CHECK success. After all book lengths are known, a fully covered target segment remains successful while other segments are incomplete.",
-      "retry": "Restore successful planner/book stage IDs/payload/receipt and checkpoint; read only unfinished books. Actual provider extra-calls=0 for restored successes must be verified by Task3.",
+      "retry": "Restore successful stage payloads/server book segments/receipt IDs; read only unfinished book rules. Actual Worker/provider-count tests prove saved planner and successful first-book processing calls0; first book full reads0 in zero-question resume.",
       "vector": "gridCases.successful-first-book-with-unreadable-pending-second"
     },
     "comparisonEvidenceBoundary": {
@@ -2188,6 +2193,63 @@
       "canonicalSettings": "settings[] must exactly equal the server-issued known entry projection; text/quote inside that authenticated state are ordinary domain keys",
       "otherCopies": "text/quote in undeclared payload/checkpoint objects are invalid; typed spans/context still require exact supplied citation and actual source hash/position checks",
       "depthLimit": 50
+    },
+    "queryEmbeddingIdentity": {
+      "queryInput": {
+        "contractVersion": 1,
+        "inputDigest": "95c2c10f544ee6c9c0bc7e5cc38cc9fea3d499ce853debfb76676c7b79099711",
+        "queryHash": "42988821a7dfb3d23e5f700c7f31f05136cb8daba84fdbafdb838d5ebadf0d72",
+        "indexModel": "text-embedding-3-small",
+        "indexVersion": "v1",
+        "indexDimensions": 1536,
+        "manifestHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "reservation": "QUERY_EMBEDDING requires queryInput; every generation role requires null. Immutable validation_call_input belongs to the original ValidationJob usage request. Replaying a requestId with another identity is rejected.",
+      "proof": {
+        "contractVersion": 1,
+        "inputDigest": "95c2c10f544ee6c9c0bc7e5cc38cc9fea3d499ce853debfb76676c7b79099711",
+        "queryHash": "42988821a7dfb3d23e5f700c7f31f05136cb8daba84fdbafdb838d5ebadf0d72",
+        "indexModel": "text-embedding-3-small",
+        "indexVersion": "v1",
+        "indexDimensions": 1536,
+        "manifestHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "requestId": "00000000-0000-4000-8000-000000000009"
+      },
+      "queryHashVersion": 1,
+      "queryHashRule": "SHA-256 of the exact UTF-8 query sent to the provider; no trim, Unicode normalization or case folding.",
+      "vectors": [
+        {
+          "query": "합성 의수",
+          "sha256": "29ff11f55dc0bc9706677fe59610090a32b59f548b0fe15f4175cc206f770037"
+        },
+        {
+          "query": "  합성 의수  ",
+          "sha256": "42988821a7dfb3d23e5f700c7f31f05136cb8daba84fdbafdb838d5ebadf0d72"
+        },
+        {
+          "query": "의수\n조건",
+          "sha256": "7ceba7132ea93edce6edb2acf90763f111dcef63e8779d8a6b9bce8b2e64ea8a"
+        }
+      ],
+      "modelSnapshot": {
+        "model": "text-embedding-3-small",
+        "version": "v1",
+        "dimensions": 1536
+      },
+      "versionSource": "Existing chat.retrieval-embedding-version, including explicit override; dimensions are existing retrieval_chunks vector(1536).",
+      "reuse": "Authenticated v1 semantic checkpoint receipt for the current exact VECTOR obligation, SUCCEEDED/READY with complete authenticated index scope at the original lookup, original SETTLED SUCCESS query usage with exactly matching queryInput, current input/manifest/model/version/dimensions. JUDGE-only retry consumes zero extra embedding calls.",
+      "deny": "Originally failed/partial/not-ready or incompatible/changed-query/input/manifest/index proof cannot bypass an exhausted role cap; retry responds 409 VALIDATION_EXECUTION_LIMIT_EXCEEDED before queueing.",
+      "indexLifecycle": "A verified successful original VECTOR lookup is frozen with its evidence. Temporary live-index rebuild/FAILED/embedding-null does not create a new lookup obligation for JUDGE-only resume; current input/source/hash and original proof compatibility are still revalidated."
+    },
+    "semanticCheckpoint": {
+      "version": 1,
+      "authority": "Current server checkId/revision/checkInputDigest/outcome/state.lookup_obligations, not checkpoint completion flags.",
+      "phase": "PLANNING or JUDGING; evidence exists in only one phase location.",
+      "planning": "Only book_origins and exact evidence needed by actual book questions. BOOK_SOURCE and BOOK_COVERAGE stages and server book segments are the restoration source; no whole-book text copy.",
+      "runtime": "Typed global receipts plus question own_receipt_refs, remaining LookupIntent/bool queue, targetContexts/additional_target_context text spans, baseline selections and observed check revisions. No stage payload or saved decision duplication.",
+      "revision": "All affected checks revise atomically. The same-input checkpoint version advances while authenticated receipts remain. Source/report invalidation still deletes all copies. Reclaim after revise-before-checkpoint reconstructs missing obligations from current server checks.",
+      "books": "Finish and publish each book before reading another. Resume successful stages with zero provider calls; unfinished book rules use the existing lease-scoped READ_SOURCE range and exact source verification.",
+      "transport": "131072-byte publication ceiling and exact citation validation are unchanged; no hidden text fields or increased limits."
     }
   }
 }

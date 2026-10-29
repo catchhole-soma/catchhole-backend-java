@@ -65,6 +65,14 @@ public class AiTokenUsage extends BaseEntity {
     private org.monitoring.catchholebackend.domain.validation.entity.ValidationJob validationJob;
     @Column(name = "validation_lease_token", updatable = false) private UUID validationLeaseToken;
     @Column(name = "validation_generation", updatable = false) private Long validationGeneration;
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    @Column(name = "validation_call_input",columnDefinition="jsonb",updatable=false)
+    private com.fasterxml.jackson.databind.JsonNode validationCallInput;
+    public void bindValidationCallInput(com.fasterxml.jackson.databind.JsonNode input) {
+        if(validationJob==null||validationCallInput!=null)throw new AppException(AiTokenErrorCode.AI_TOKEN_RESERVATION_CONFLICT);
+        validationCallInput=input==null?null:input.deepCopy();
+    }
+
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 50)

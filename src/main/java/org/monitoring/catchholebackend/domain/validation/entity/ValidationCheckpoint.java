@@ -15,6 +15,8 @@ public class ValidationCheckpoint extends BaseEntity {
     @Column(name="checkpoint_version",nullable=false) private long version;
     @JdbcTypeCode(SqlTypes.JSON) @Column(nullable=false,columnDefinition="jsonb") private JsonNode payload;
     public static ValidationCheckpoint create(ValidationReport r,ValidationBranch b) { var x=new ValidationCheckpoint();x.report=r;x.branch=b;return x; }
+    /** Same immutable input: only current check revisions grant completion, receipts remain reusable. */
+    public void advanceForQuestionRevision() {version++;}
     public void invalidate() {payload=com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();version++;}
     public void publish(JsonNode payload) { this.payload=payload.deepCopy();version++; }
 }

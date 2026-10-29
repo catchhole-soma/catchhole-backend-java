@@ -135,9 +135,12 @@ class ValidationWorkerIntegrationTest extends ValidationRecheckFixture {
         internal(path(job,"/units"),job,publish,200);
         var progress=mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(base()+"/"+job.path("scope").path("reportId").asText()+"/results").header("Authorization","Bearer "+token)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(progress).doesNotContain("evidence_bundle","lookup_intents","leaseToken","checkInputDigest","catalogue");noExtraction();
+        internal(path(job,"/checkpoint"),job,Map.of("scope",scope(job),"idempotencyKey","before-revision-cp","branch","SETTING","expectedVersion",0,"payload",Map.of("phase","JUDGING","savedReceipt","authenticated-original"),"citations",List.of()),200);
         var changes=new ArrayList<Object>();changes.add(Map.of("checkId",check.path("checkId").asText(),"expectedRevision",1,"expectedInputDigest",check.path("checkInputDigest").asText(),"state",Map.of("draft",draft,"lookup_obligations",List.of(lookup("NEW-1","NEW_CLUE","TARGET_CONTEXT")),"new_clue","같은 속성의 새 단서")));
         var revised=internal(path(job,"/revisions"),job,Map.of("scope",scope(job),"idempotencyKey","follow-up","reason","NEW_CLUE","changes",changes,"citations",List.of(citation)),200);
         assertThat(revised.path("checks").path(0).path("revision").asLong()).isEqualTo(2);assertThat(revised.path("checks").path(0).path("outcome").isNull()).isTrue();
+        var resumed=mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(WORKER+path(job,"/checkpoint")).header("X-Internal-Api-Key",KEY).header("X-Worker-Lease-Token",job.path("leaseToken").asText())).andExpect(status().isOk()).andReturn();
+        assertThat(json.readTree(resumed.getResponse().getContentAsString()).at("/data/branches/SETTING/payload/savedReceipt").asText()).isEqualTo("authenticated-original");
         internal(path(job,"/units"),job,publish,409);
         var old=new LinkedHashMap<>(publish);old.put("idempotencyKey","late-old-revision");internal(path(job,"/units"),job,old,409);
         assertThat(em.createNativeQuery("select count(*) from validation_check_history").getSingleResult()).isEqualTo(1L);
@@ -279,7 +282,8 @@ class ValidationWorkerIntegrationTest extends ValidationRecheckFixture {
         org.mockito.Mockito.when(executionProperties.setting()).thenReturn(new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.Limits(21,101,61,1001,101,1,0,1,1));
         var current=get(UUID.fromString(report.path("reportId").asText()));postOk("/"+report.path("reportId").asText()+"/retries",Map.of("expectedReportVersion",current.path("reportVersion").asLong(),"idempotencyKey","explicit-embedding"));var next=claim();
         assertThat(next.path("models").path("QUERY_EMBEDDING").path("model").asText()).isEqualTo("text-embedding-3-small");assertThat(next.path("budgets").path("setting").path("segmentChars").asInt()).isEqualTo(100);assertThat(next.path("budgets").path("setting").path("searchLimit").asInt()).isEqualTo(10);assertThat(next.path("budgets").path("setting").path("modelCalls").asInt()).isEqualTo(21);
-        internal(path(next,"/usage/reserve"),next,Map.of("scope",scope(next),"requestId",UUID.randomUUID(),"role","QUERY_EMBEDDING","model","text-embedding-3-small","reservedTokens",20),200);noExtraction();
+        var queryInput=Map.of("contractVersion",1,"inputDigest",next.at("/scope/inputDigest").asText(),"queryHash","a".repeat(64),"indexModel","text-embedding-3-small","indexVersion",next.at("/models/QUERY_EMBEDDING/version").asText(),"indexDimensions",1536,"manifestHash",next.path("manifestHash").asText());
+        internal(path(next,"/usage/reserve"),next,Map.of("scope",scope(next),"requestId",UUID.randomUUID(),"role","QUERY_EMBEDDING","model","text-embedding-3-small","reservedTokens",20,"queryInput",queryInput),200);noExtraction();
     }
     @Test @DisplayName("다른 회원과 작품은 저장 결과·고정 원문을 읽지 못한다") void anotherMemberOrWorkCannotReadResultsOrScopedSources() throws Exception {
         var report=start();var job=claim();var other=org.monitoring.catchholebackend.domain.member.entity.Member.register("other-"+UUID.randomUUID()+"@example.invalid","synthetic","01098765432","다른 작가");em.persist(other);String otherToken=tokens.generateAccessToken(other);
@@ -318,4 +322,16 @@ class ValidationWorkerIntegrationTest extends ValidationRecheckFixture {
         internal(path(job,"/plans"),job,publication(job,"TYPO","TYPO_SEGMENT","TSEG1",Map.of("segments",List.of(Map.of("segment_ref","TSEG1","status","NO_CHECK","reason","제안 검증 우회 시도")))),400);
         assertThat(em.createNativeQuery("select count(*) from validation_stages").getSingleResult()).isEqualTo(0L);assertThat(em.createNativeQuery("select count(*) from validation_publications").getSingleResult()).isEqualTo(0L);assertThat(get(UUID.fromString(report.path("reportId").asText())).path("reportVersion")).isEqualTo(before.path("reportVersion"));noExtraction();
     }
+    @Test @DisplayName("embedding 예약은 원 query identity와 실제 Job에 고정된다")
+    void queryReservationIdentityCannotBeRebound() throws Exception {
+        var roles=new java.util.EnumMap<org.monitoring.catchholebackend.domain.validation.type.ValidationRole,org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget>(executionProperties.roles());
+        roles.put(org.monitoring.catchholebackend.domain.validation.type.ValidationRole.QUERY_EMBEDDING,new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget(1,100));
+        when(executionProperties.roles()).thenReturn(roles);when(executionProperties.queryEmbeddingModel()).thenReturn("text-embedding-3-small");
+        start();var job=claim();UUID request=UUID.randomUUID();
+        var proof=new LinkedHashMap<String,Object>(Map.of("contractVersion",1,"inputDigest",job.at("/scope/inputDigest").asText(),"queryHash","a".repeat(64),"indexModel","text-embedding-3-small","indexVersion","v1","indexDimensions",1536,"manifestHash",job.path("manifestHash").asText()));
+        var body=new LinkedHashMap<String,Object>(Map.of("scope",scope(job),"requestId",request,"role","QUERY_EMBEDDING","model","text-embedding-3-small","reservedTokens",30,"queryInput",proof));
+        internal(path(job,"/usage/reserve"),job,body,200);proof.put("queryHash","b".repeat(64));
+        internal(path(job,"/usage/reserve"),job,body,409);noExtraction();
+    }
+
 }
