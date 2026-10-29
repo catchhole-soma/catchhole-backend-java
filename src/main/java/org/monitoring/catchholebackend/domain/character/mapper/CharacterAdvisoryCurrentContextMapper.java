@@ -100,7 +100,11 @@ public final class CharacterAdvisoryCurrentContextMapper {
         List<Object> history = new ArrayList<>();
         for (JsonNode fact : owner.path("historyFacts")) {
             exact(fact, Set.of("factId", "sourceCandidateId", "factType", "factKey", "factValue", "valueJson", "operation", "temporalScope",
-                    "removedSnapshotEntries", "narrativeTime", "supportingSource"));
+                    "removedSnapshotEntries", "narrativeTime", "supportingSource"), Set.of("effectiveFromEpisodeNo"));
+            if (fact.has("effectiveFromEpisodeNo")) {
+                Integer effectiveEpisode = integer(fact, "effectiveFromEpisodeNo");
+                if (effectiveEpisode != null && effectiveEpisode < 1) throw invalid();
+            }
             uuid(fact.get("factId"), true);
             UUID id = uuid(fact.get("sourceCandidateId"), true);
             enumeration(CharacterFactType.class, text(fact, "factType", false));
@@ -116,6 +120,8 @@ public final class CharacterAdvisoryCurrentContextMapper {
             }
             validateNarrativeTime(fact.get("narrativeTime"));
             var frozen = (com.fasterxml.jackson.databind.node.ObjectNode) fact.deepCopy();
+            // Validation baseline metadata stays in the frozen state/hash, outside the comparison prompt contract.
+            frozen.remove("effectiveFromEpisodeNo");
             frozen.set("supportingSource", safeOrigin(fact.get("supportingSource"), id));
             history.add(values.convertValue(frozen, Object.class));
             if (history.size() > 4096) throw invalid();
