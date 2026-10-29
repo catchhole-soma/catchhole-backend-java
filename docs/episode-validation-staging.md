@@ -33,7 +33,8 @@ Work 잠금 안에서 report와 대상의 **접수 당시 batch/episodeNo/hash/k
 | `batchId`, `episodeId` | 접수 당시 업로드와 대상 회차 |
 | `validationJobId` | `null` — 오류 검사 Worker 미구현 |
 | `extractionJobId`, `candidateGeneration`, `candidateDigest` | 모두 `null` — 설정 추출을 시작하지 않음 |
-| `extractionStatus`, `candidateStatus`, `errorReviewStatus` | 모두 `NOT_STARTED` |
+| `extractionStatus`, `candidateStatus` | 모두 `NOT_STARTED` — 설정 추출을 시작하지 않음 |
+| `errorReviewStatus` | GH312 S1 작가 판단 진행(`NOT_STARTED`/`PENDING`/`READY`/`INVALIDATED`). READY도 추출을 시작하지 않는다. `docs/validation-review-v1.md` |
 | `baselineStatus` | `PENDING`, `READY`, `FAILED`, `INVALIDATED` |
 | `status` | `PREPARING_BASELINE`, `WAITING_FOR_ERROR_REVIEW`, `HELD_INCOMPLETE`, `INVALIDATED` |
 | `holdReason` | `BASELINE_EVIDENCE_INVALID`, `BASELINE_SOURCE_UNAVAILABLE`, `BASELINE_SEED_INVALID`, `SOURCE_EVIDENCE_PURGED` 등 |

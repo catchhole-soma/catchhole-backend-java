@@ -4,6 +4,7 @@
 Python 전용 EpisodeValidationWorker는 이 계약으로 실제 검사 실행·의미 상태 저장·같은 입력 재개를 연결한다. 작가 판단·검토 종료·추출 허가는 GH312,
 화면과 다음 회차 등록 제한은 GH314다. 이 단위에서 추출 Job·후보·설정 자동 확정·자동 철회는 생성하지 않는다.
 합성 요청 예시는 `docs/contracts/validation-execution-v1.json`이다.
+GH312 S1의 작가 판단 저장·조회와 검토 요약(추출 release 없음)은 `docs/validation-review-v1.md`를 따른다.
 
 ## 이력과 버전
 
@@ -117,7 +118,7 @@ Work 잠금 안에서 그 입력에 저장한 출처 ID/hash와 실제 후보·J
 `ValidationStagingEvents.ReportInvalidated(UUID workId, UUID reportId)`는 Work 잠금 안의 동기 이벤트다.
 `ValidationBaselineService`가 seed/entries/sources를 지운 뒤 발행한다. 후속 Job·checkpoint·결과·인용 소유자는
 같은 트랜잭션에서 이 이벤트를 소비해 무효화/본문 삭제를 연결해야 한다. source·setting 변경과 퇴역이 같은 경계를 사용한다.
-작품/회원 파기는 결과/check history/evidence/checkpoint/publication → 검수 usage → 검수 Job → correction/baseline source/request key → report 순서로 자식을 지운다.
+작품/회원 파기는 작가 판단 이력/판단 → 결과/check history/evidence/checkpoint/publication → 검수 usage → 검수 Job → correction/baseline source/request key → report 순서로 자식을 지운다.
 
 파일 교체 파기 요청의 retainedContentKey는 새 원문을 보존한다. `blocksSource(episodeId,key)`는 삭제/다른 key만 막고,
 늦은 정리의 `EpisodeSourceChanged(workId,episodeId,retainedContentKey)`도 보존 key의 새 report를 지우지 않는다.
@@ -238,7 +239,7 @@ T1 자체 문맥·인용 저장은 유지한다.
 필수 PLANNER/selection/COVERAGE/book/CL이 모두 저장되고 미해결 질문이 없는 NO_CHECK segment로 결정한다.
 계획/선정/원문 읽기만 성공한 것은 성공 결과 수에 넣지 않는다.
 성공 처리 0+미완료는 FAILED, 일부 성공+필수 미완료는 PARTIAL, 양쪽 모든 grid와 현재 질문이 완료되어야 COMPLETED다.
-어느 경우에도 추출 Job·후보·자동 확정은 0이며 작가 판단 API를 추가하지 않는다.
+어느 경우에도 추출 Job·후보·자동 확정은 0이다. 작가 판단은 GH312 S1의 별도 API(`docs/validation-review-v1.md`)로만 저장하며 실행 상태를 바꾸지 않는다.
 
 ## 게시·파기·재시도
 
@@ -257,7 +258,7 @@ current/revision/contentRevision/lease/출처 metadata를 다시 검사한다. S
 유효 saved seed의 준비 중단은 원래 hash/fingerprint·target/source 수명을 검증하고 기존 materialize로 복구한다.
 seedless/invalidated/purged 입력을 그 경로로 복원하지 않고 Task 1의 명시적 새 baseline 접수를 사용한다.
 
-ReportInvalidated는 baseline과 같은 트랜잭션에서 stage/check/history/finding/evidence/checkpoint/publication 및 grid의
+ReportInvalidated는 baseline과 같은 트랜잭션에서 작가 판단 이력/판단(finding보다 먼저)과 stage/check/history/finding/evidence/checkpoint/publication 및 grid의
 복사본문을 삭제하고 실제 Job을 취소한다. 원장은 원래 소유권을 유지해 늦은 실제 정산을 받을 수 있다.
 Work/회원 파기는 RESERVED/UNKNOWN 호출도 기존 worker drain에 포함하고 계정 hold를 해제한 뒤 FK 자식을 먼저 지운다.
 물리 파기 완료 뒤에는 기존 Job/원장도 없으며 그 이후 정산 소유권을 새 Job에 옮기지 않는다.
