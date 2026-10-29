@@ -939,6 +939,12 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 
 이 방식을 선택한 이유는 이슈 생성 시 재현 절차, 요구사항, 완료 기준 같은 필수 정보를 누락하지 않도록 하기 위함이다.
 
+### 분석 상태 재사용 (#294)
+
+- `AnalysisRunStateService.prepareState(job)`의 `PreparedState`는 Job 잠금을 보유한 한 번의 처리에서만 지역 변수로 사용한다. 전역·ThreadLocal·요청 간 캐시로 보관하지 않는다. `projectedState()`는 읽기 전용 view이며 append 뒤에는 다시 얻는다.
+- 입력·선행 회차를 한 번 검증하고, append는 새 event만 기존 projection에 순서대로 적용한다. 중복 event의 동일 내용은 멱등 처리하고 충돌·잘못된 경로는 부분 반영 없이 거절한다. lease·원문·journal 상태 검증과 개별 이력·근거는 유지한다.
+- `AnalysisHumanRejectionPolicy.beginMatching()`도 같은 처리 안에서만 사용한다. 최신 references를 매번 확인하고, anchor 조회는 작품·후보 ID 및 도메인별로 재사용한다. 실제 후보 또는 원문 상태를 요청 간에 공유하지 않는다.
+
 ### Tests
 
 - 백엔드 변경 후 기본 검증 명령은 다음과 같다.
