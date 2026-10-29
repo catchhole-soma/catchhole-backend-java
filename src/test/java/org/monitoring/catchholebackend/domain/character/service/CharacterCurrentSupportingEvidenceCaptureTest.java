@@ -15,6 +15,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.NullSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
@@ -23,6 +24,7 @@ import org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshot
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.mapper.CharacterAnalysisStateMapper;
+import org.monitoring.catchholebackend.domain.character.mapper.CharacterFactComparisonWorkerMapper;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotAccessor;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSnapshotSourceRepository;
@@ -364,6 +366,31 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
         assertThat(historical.path("factValue").asText()).isEqualTo("정상");
         assertThat(historical.path("sourceCandidateId").asText()).isEqualTo(candidate.getId().toString());
         assertUnavailableQuote(historical.path("supportingSource"));
+    }
+
+    @ParameterizedTest @NullSource @ValueSource(ints = {4})
+    @DisplayName("실제 capture의 이력 효력 회차가 있어도 기존 설정 추출 비교 문맥을 생성한다")
+    void capturedHistoryCanBecomeWorkerComparisonContext(Integer effectiveEpisode) {
+        character.replaceCurrentSnapshots(null, null, null, null, null, null, null);
+        currentFacts(List.of());
+        ReflectionTestUtils.setField(fact, "id", UUID.randomUUID());
+        ReflectionTestUtils.setField(fact, "effectiveFromEpisodeNo", effectiveEpisode);
+        when(factRepository.findAllByWorkCharacterIdOrderByCreatedAtDesc(character.getId())).thenReturn(List.of(fact));
+        var frozen = owner();
+        var before = frozen.deepCopy();
+        assertThat(frozen.path("historyFacts").get(0).get("effectiveFromEpisodeNo"))
+                .isEqualTo(json.valueToTree(effectiveEpisode));
+
+        var response = new CharacterFactComparisonWorkerMapper()
+                .toAdvisoryCurrentContext(origin, frozen, character.getId(), null, null);
+
+        var history = json.valueToTree(response).path("historyFacts");
+        assertThat(history).hasSize(1);
+        assertThat(history.get(0).path("factId").asText()).isEqualTo(fact.getId().toString());
+        assertThat(history.get(0).path("factValue").asText()).isEqualTo("정상");
+        assertThat(history.get(0).path("supportingSource").path("availability").asText()).isEqualTo("VERIFIED");
+        assertThat(history.get(0).has("effectiveFromEpisodeNo")).isFalse();
+        assertThat(frozen).isEqualTo(before);
     }
 
     @Test @DisplayName("신규 capture의 위치 없는 인용 오류는 확정 상태를 가졌어도 엄격히 거절한다")
