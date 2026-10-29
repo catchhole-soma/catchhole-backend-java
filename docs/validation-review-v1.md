@@ -114,14 +114,17 @@ receipt(AUTOMATIC, key 없음)와 Job을 만들고 `/complete` 응답(Worker rec
 
 **자동 종료 보류**: 추출 생성 조건(예: `AI_TOKEN_QUOTA_EXHAUSTED`, 원문 파기 대기, 진행 중 Job)이 `AppException`으로 막히면 첫 트랜잭션 전체를 rollback하고
 같은 `/complete`를 receipt 없이 다시 실행해 검사 결과만 저장한다(경고 로그 `자동 검토 종료를 보류했습니다`). 검사 결과가 추출 조건 때문에 유실되지 않게 하기 위함이다.
-이 report는 receipt 없는 `AUTOMATIC_ELIGIBLE`로 남고 `canCompleteReview=true`·`COMPLETE_REVIEW`를 노출해 작가가 명시 요청으로 같은 판정을 다시 시도한다.
+두 번째 트랜잭션은 V98 `validation_reports.release_hold_code`(그 오류 코드)·`release_hold_at`을 기록하고, 이후 어느 경로든 receipt를 만들면 둘을 비운다.
+이 report는 receipt 없는 `AUTOMATIC_ELIGIBLE`로 남는다. `/review`는 `releaseHold{code, at}`과 `holdReasons=[RELEASE_HELD]`를 보여 주지만
+`RELEASE_HELD`는 경로를 막지 않으므로 `canCompleteReview=true`·`COMPLETE_REVIEW`를 유지해 작가가 명시 요청으로 같은 판정을 다시 시도한다(#314가 사유를 표시).
 
 ### 명시 경로 (`POST /{reportId}/review-completion`)
 
 Work 잠금·소유권(`WORK_NOT_FOUND`) → 같은 `(work, key)` receipt가 있으면 hash가 같을 때 저장 receipt 200, 다르면 `VALIDATION_IDEMPOTENCY_CONFLICT` →
 report 없음 `VALIDATION_NOT_FOUND` → 다른 키로 이미 종료 `VALIDATION_REVIEW_ALREADY_COMPLETED` → `expectedReportVersion` 불일치 `VALIDATION_REPORT_VERSION_CONFLICT` →
 gate가 `EXPLICIT_REQUIRED`(또는 보류된 `AUTOMATIC_ELIGIBLE`)가 아니면 `VALIDATION_REVIEW_NOT_COMPLETABLE`(context `completionMode`, `holdReasons`) →
-현재 원문·기준·작품·회원 scalar 재검증(`VALIDATION_SOURCE_VERSION_CONFLICT`) → Job·receipt(EXPLICIT). 추출 생성 조건 오류는 그 코드 그대로 409/404이며 아무것도 저장하지 않는다.
+현재 원문·기준·작품·회원 scalar 재검증(`VALIDATION_SOURCE_VERSION_CONFLICT`) → Job·receipt(EXPLICIT).
+두 경로 모두 Job 생성 직전 `report.batch`가 회차의 현재 원본 업로드 batch인지 다시 확인하고 아니면 `VALIDATION_SOURCE_VERSION_CONFLICT`다(무효화가 동작하면 도달하지 않는 방어 검사). 추출 생성 조건 오류는 그 코드 그대로 409/404이며 아무것도 저장하지 않는다.
 DIAGNOSTIC_ONLY·INVALIDATED·HELD_INCOMPLETE·기준 미준비·실행 미완료는 항상 `NOT_COMPLETABLE`이다.
 
 ### 추출 차단 술어
@@ -151,11 +154,16 @@ DIAGNOSTIC_ONLY·INVALIDATED·HELD_INCOMPLETE·기준 미준비·실행 미완�
 작품/회원 파기(`WorkPurgeDataRepository`)는 `validation_review_completions`를 가장 먼저 지운 뒤 판단 이력 → … → `validation_reports`, 이후 `analysis_jobs`를 지운다.
 receipt는 report와 analysis Job을 모두 참조하기 때문이다. `ValidationExecutionRepository.purge`(무효화)는 receipt를 지우지 않는다.
 
-### 알려진 한계 (S2 시점)
+### 잠금 순서
 
-- 원고 파일 교체는 새 upload batch를 만들지만 재검수 report는 접수 당시 batch를 복사한다. 그래서 교체 후 재검수한 report의 release는
-  공개 생성 경로의 batch 소속 검사에서 `ANALYSIS_JOB_TARGET_NOT_FOUND`(404, 자동 경로는 보류)로 막힌다. batch 출처 결정은 후속에서 정한다.
-- 배치 목록·원고 목록의 검수 projection은 receipt 뒤에도 `ERROR_REVIEW_PENDING`을 표시한다(S4).
+release는 검수 계약대로 Work를 먼저 잠근 뒤 공개 생성 경로의 최초 분석 시각 기록(`AnalysisGuideService.markAnalysisStarted`)에서 회원 row를 잠근다(Work → 회원).
+공개 `createAnalysisJobs`는 회원 → Work 순서이고 설정집 업로드·재분석은 이미 Work → 회원 순서다. 이 기존 불일치는 S4에서 정리한다.
+
+### 알려진 한계 (S2 시점, S4에서 다룸)
+
+- 배치 목록·원고 목록의 검수 projection은 receipt 뒤에도 `ERROR_REVIEW_PENDING`을 표시한다.
+- 같은 원문인 FAILED ordered release Job이 남은 채 다른 이유(기준 변경 등)로 재검수하면, 새 report의 release는 공개 생성 경로의
+  `ANALYSIS_ORDERED_JOB_RETRY_REQUIRED`로 막히고 옛 Job 재시도는 receipt 연결이 없어 막힌다(미검증 이론상 경우, GH201의 설정 변경 거절이 대부분 예방한다).
 
 ## 무효화·파기
 
@@ -168,7 +176,7 @@ receipt는 report와 analysis Job을 모두 참조하기 때문이다. `Validati
 
 H2: `./gradlew test --tests '*ValidationReview*' --tests '*ValidationJudgmentMigrationContractTest' --tests '*ValidationReviewCompletionMigrationContractTest'`.
 `ValidationReviewReleaseHoldIntegrationTest`는 테스트 트랜잭션 없이 자동 종료 보류의 rollback을 확인한다.
-PostgreSQL(V97 Flyway·JPA validate·동시 명시 요청·보류 rollback)은 새 loopback `gh310_execution_test`에서만 실행한다.
+PostgreSQL(V97·V98 Flyway·JPA validate·동시 명시 요청·보류 rollback과 사유 기록)은 새 loopback `gh310_execution_test`에서만 실행한다.
 
 ```bash
 GH310_EXECUTION_POSTGRES_JDBC_URL=jdbc:postgresql://127.0.0.1:<disposable-port>/gh310_execution_test ./gradlew test --tests '*ValidationReviewCompletionPostgresIntegrationTest'

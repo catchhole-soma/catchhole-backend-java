@@ -35,6 +35,9 @@ JSON dirty checking의 flush가 내용 변화 없이 CAS를 바꾸는 현상을 
 원고 revision은 원문 수정·저장 위치 변경·파일 교체·파기마다 증가한다. 제목만 수정하면 유지한다.
 동일 hash/key/version으로 돌아온 A→B→A도 이전 report 입력을 되살리지 않는다.
 회차 상세 `contentRevision`과 원고 fingerprint를 함께 읽고 재검수에 전달한다.
+재검수 report의 `batchId`는 이전 report가 아니라 재검수 시점 회차의 현재 원본 업로드 batch(`Episode.sourceFileId`의 UploadFile batch)다.
+파일 교체는 새 batch를 만들므로 교체 뒤 재검수 report와 그 검토 종료 release Job은 새 batch에 속한다(GH312 S2). 무효화된 옛 report는 접수 batch를 유지한다.
+분석 배치 목록은 Job 또는 현재 report가 있는 batch만 올리며, 표시되는 batch의 요청 시각은 모든 접수 이력을 집계한다.
 
 ## 공개 접수 API
 
