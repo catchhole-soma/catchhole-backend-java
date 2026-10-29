@@ -29,13 +29,18 @@ public class ValidationReviewGate {
     }
     /** 현재 report의 검토 종료 receipt 요약. */
     public record Completion(UUID completionId,ValidationReviewTrigger trigger,LocalDateTime completedAt,UUID extractionJobId) {}
-    public record Input(boolean current,ValidationPreparationStatus baselineStatus,ValidationReportStatus status,ValidationReportMode mode,ValidationExecutionStatus execution,Counts counts,boolean executionEnabled,Completion completion) {
+    /** /complete의 자동 검토 종료가 되돌려진 이유와 시각. */
+    public record ReleaseHold(String code,LocalDateTime at) {}
+    public record Input(boolean current,ValidationPreparationStatus baselineStatus,ValidationReportStatus status,ValidationReportMode mode,ValidationExecutionStatus execution,Counts counts,boolean executionEnabled,Completion completion,ReleaseHold releaseHold) {
         public Input(boolean current,ValidationPreparationStatus baselineStatus,ValidationReportStatus status,ValidationReportMode mode,ValidationExecutionStatus execution,Counts counts,boolean executionEnabled) {
-            this(current,baselineStatus,status,mode,execution,counts,executionEnabled,null);
+            this(current,baselineStatus,status,mode,execution,counts,executionEnabled,null,null);
+        }
+        public Input(boolean current,ValidationPreparationStatus baselineStatus,ValidationReportStatus status,ValidationReportMode mode,ValidationExecutionStatus execution,Counts counts,boolean executionEnabled,Completion completion) {
+            this(current,baselineStatus,status,mode,execution,counts,executionEnabled,completion,null);
         }
     }
     public record Review(ValidationExecutionStatus executionStatus,Counts counts,ValidationReviewLockReason lockReason,ValidationReviewCompletionMode completionMode,
-            List<ValidationReviewHoldReason> holdReasons,List<ValidationReviewAction> allowedActions,ValidationPreparationStatus errorReviewStatus,Completion completion) {
+            List<ValidationReviewHoldReason> holdReasons,List<ValidationReviewAction> allowedActions,ValidationPreparationStatus errorReviewStatus,Completion completion,ReleaseHold releaseHold) {
         public boolean judgmentLocked() {return lockReason!=null;}
         /** 명시 검토 완료 endpoint가 받는 상태. AUTOMATIC_ELIGIBLE은 /complete의 자동 종료가 추출 생성 조건에 막혀 보류됐을 때만 남는다. */
         public boolean canCompleteReview() {return completionMode==ValidationReviewCompletionMode.EXPLICIT_REQUIRED||completionMode==ValidationReviewCompletionMode.AUTOMATIC_ELIGIBLE;}
@@ -87,6 +92,8 @@ public class ValidationReviewGate {
         if(in.mode()==ValidationReportMode.DIAGNOSTIC_ONLY)holds.add(ValidationReviewHoldReason.DIAGNOSTIC_ONLY);
         var mode=completed?ValidationReviewCompletionMode.COMPLETED:!holds.isEmpty()?ValidationReviewCompletionMode.BLOCKED
                 :counts.total()==0?ValidationReviewCompletionMode.AUTOMATIC_ELIGIBLE:ValidationReviewCompletionMode.EXPLICIT_REQUIRED;
+        // 자동 종료 보류는 경로를 막지 않는 안내다. 판정 뒤에 붙여 명시 검토 완료(COMPLETE_REVIEW)를 그대로 연다.
+        var releaseHold=in.current()&&!completed?in.releaseHold():null;if(releaseHold!=null)holds.add(ValidationReviewHoldReason.RELEASE_HELD);
         var lock=lockReason(in.current(),in.baselineStatus(),in.status(),in.execution(),completed);var actions=new ArrayList<ValidationReviewAction>();
         if(lock==null&&counts.total()>0)actions.add(ValidationReviewAction.SAVE_JUDGMENT);
         if(mode==ValidationReviewCompletionMode.EXPLICIT_REQUIRED||mode==ValidationReviewCompletionMode.AUTOMATIC_ELIGIBLE)actions.add(ValidationReviewAction.COMPLETE_REVIEW);
@@ -94,7 +101,7 @@ public class ValidationReviewGate {
         if(in.current()&&invalid)actions.add(ValidationReviewAction.RECHECK);
         var status=invalid?ValidationPreparationStatus.INVALIDATED:in.execution()!=COMPLETED?ValidationPreparationStatus.NOT_STARTED
                 :mode!=ValidationReviewCompletionMode.BLOCKED?ValidationPreparationStatus.READY:ValidationPreparationStatus.PENDING;
-        return new Review(in.execution(),counts,lock,mode,List.copyOf(holds),List.copyOf(actions),status,completion);
+        return new Review(in.execution(),counts,lock,mode,List.copyOf(holds),List.copyOf(actions),status,completion,releaseHold);
     }
     /** 판단 저장은 현재 READY 기준의 실행 종료·중단 뒤, 검토 종료 전에만 가능하다. 재시도 queue/실행 중에는 다시 읽기 전용이다. */
     public static ValidationReviewLockReason lockReason(boolean current,ValidationPreparationStatus baseline,ValidationReportStatus status,ValidationExecutionStatus execution,boolean reviewCompleted) {
@@ -105,6 +112,9 @@ public class ValidationReviewGate {
         return execution==NOT_STARTED?ValidationReviewLockReason.EXECUTION_NOT_STARTED:execution==CANCELED?ValidationReviewLockReason.EXECUTION_CANCELED:ValidationReviewLockReason.EXECUTION_IN_PROGRESS;
     }
     public ValidationExecutionStatus execution(ValidationReport r) { return jobs.findByReportId(r.getId()).map(ValidationJob::getStatus).orElse(NOT_STARTED); }
-    private Input input(ValidationReport r,ValidationExecutionStatus execution,Counts counts,Completion completion) { return new Input(r.isCurrent(),r.getBaselineStatus(),r.getStatus(),r.getMode(),execution,counts,properties.enabled(),completion); }
+    private Input input(ValidationReport r,ValidationExecutionStatus execution,Counts counts,Completion completion) {
+        var hold=r.getReleaseHoldCode()==null?null:new ReleaseHold(r.getReleaseHoldCode(),r.getReleaseHoldAt());
+        return new Input(r.isCurrent(),r.getBaselineStatus(),r.getStatus(),r.getMode(),execution,counts,properties.enabled(),completion,hold);
+    }
     private static boolean invalidated(boolean current,ValidationPreparationStatus baseline,ValidationReportStatus status) { return !current||status==ValidationReportStatus.INVALIDATED||baseline==ValidationPreparationStatus.INVALIDATED; }
 }

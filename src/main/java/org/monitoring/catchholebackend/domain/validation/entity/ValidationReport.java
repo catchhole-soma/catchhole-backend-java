@@ -50,6 +50,9 @@ public class ValidationReport extends BaseEntity {
     @Enumerated(EnumType.STRING) @Column(name = "baseline_status", nullable = false, length = 20) private ValidationPreparationStatus baselineStatus;
     @Enumerated(EnumType.STRING) @Column(name = "status", nullable = false, length = 40) private ValidationReportStatus status;
     @Column(name = "hold_reason", length = 100) private String holdReason;
+    /** /complete의 자동 검토 종료가 추출 생성 조건(AppException 코드)에 막혀 되돌려진 이유. 검토 종료 receipt를 만들면 비운다(GH312). */
+    @Column(name = "release_hold_code", length = 60) private String releaseHoldCode;
+    @Column(name = "release_hold_at") private java.time.LocalDateTime releaseHoldAt;
     @OneToOne(mappedBy = "report", fetch = FetchType.LAZY) private ValidationJob validationJob;
     public void attachValidationJob(ValidationJob job) { validationJob=job; advanceVersion(); }
 
@@ -61,9 +64,10 @@ public class ValidationReport extends BaseEntity {
         r.requestHash = requestHash; r.baselineStatus = ValidationPreparationStatus.PENDING; r.status = ValidationReportStatus.PREPARING_BASELINE;
         return r;
     }
-    public static ValidationReport recheck(ValidationReport previous, String requestHash,
+    /** 재검수 report는 이전 report가 아니라 재검수 시점 회차의 현재 원본 업로드 batch에 묶는다. 파일 교체는 새 batch를 만든다(GH312). */
+    public static ValidationReport recheck(ValidationReport previous, UploadBatch currentBatch, String requestHash,
             org.monitoring.catchholebackend.domain.validation.dto.response.ValidationApplicationReference application) {
-        var report = create(previous.work, previous.episode, previous.batch, requestHash);
+        var report = create(previous.work, previous.episode, currentBatch, requestHash);
         report.previousReportId = previous.id; report.revision = previous.revision + 1;
         report.baselineRevision = previous.baselineRevision + 1;
         if (application != null) {
@@ -74,6 +78,8 @@ public class ValidationReport extends BaseEntity {
         return report;
     }
     public void retire() { if (current) { current = false; version++; } purge(); }
+    public void holdAutomaticRelease(String code) { releaseHoldCode = code.length() > 60 ? code.substring(0, 60) : code; releaseHoldAt = java.time.LocalDateTime.now(); }
+    public void clearReleaseHold() { releaseHoldCode = null; releaseHoldAt = null; }
     /** Work 잠금 아래 의미 있는 report 변경마다 증가한다. JSON dirty-check/조회 flush와 분리한다. */
     public void advanceVersion() { version++; }
     public void captureSeed(JsonNode seed, String hash, String confirmedHash) {

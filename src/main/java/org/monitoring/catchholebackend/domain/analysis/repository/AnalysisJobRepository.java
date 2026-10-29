@@ -221,6 +221,10 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             """)
     List<AnalysisJob> findAllWithTargetsByWorkIdOrderByCreatedAtDesc(@Param("workId") UUID workId);
 
+    /**
+     * GH312: 파일 교체 뒤 재검수 report는 회차의 새 업로드 batch에 묶이므로 퇴역 report만 남은 옛 batch는 목록에 올리지 않는다.
+     * 표시되는 batch의 최초·최근 요청 시각은 계속 모든 접수 이력을 집계한다.
+     */
     @Query(value = """
             with requests as (
                 select batch_id, created_at from analysis_jobs where work_id = :workId and batch_id is not null
@@ -228,11 +232,13 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
                 union all select batch_id, created_at from validation_reports where work_id = :workId
             ) select cast(b.id as varchar) as batchId, b.upload_type as uploadType, min(r.created_at) as firstRequestedAt,
                 max(r.created_at) as lastRequestedAt from upload_batches b join requests r on r.batch_id = b.id
+                where exists (select 1 from analysis_jobs j where j.batch_id = b.id and j.job_type not in ('WORLD_SETTING_COMPARISON','CHARACTER_FACT_COMPARISON'))
+                   or exists (select 1 from validation_reports v where v.batch_id = b.id and v.is_current = true)
                 group by b.id, b.upload_type order by max(r.created_at) desc, b.id desc
             """, countQuery = """
             select count(*) from upload_batches b where b.work_id = :workId and (
                 exists (select 1 from analysis_jobs j where j.batch_id = b.id and j.job_type not in ('WORLD_SETTING_COMPARISON','CHARACTER_FACT_COMPARISON'))
-                or exists (select 1 from validation_reports r where r.batch_id = b.id))
+                or exists (select 1 from validation_reports r where r.batch_id = b.id and r.is_current = true))
             """, nativeQuery = true)
     Page<AnalysisBatchPageRow> findBatchPage(
             @Param("workId") UUID workId,

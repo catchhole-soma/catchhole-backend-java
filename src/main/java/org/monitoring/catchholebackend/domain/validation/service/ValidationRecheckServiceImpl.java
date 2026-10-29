@@ -34,6 +34,7 @@ public class ValidationRecheckServiceImpl implements ValidationRecheckService {
     private final EntityManager em;
     private final ValidationWorkerService workers;
     private final org.monitoring.catchholebackend.domain.validation.processor.ValidationReviewGate reviewGate;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationExecutionAccess access;
 
     @Override @Transactional
     public ValidationStagingResponse recheckValidation(Long memberId,UUID workId,UUID reportId,ValidationRecheckRequest request) {
@@ -74,8 +75,11 @@ public class ValidationRecheckServiceImpl implements ValidationRecheckService {
                 && Objects.equals(target.getContentHash(),previous.getSourceContentHash()) && Objects.equals(target.getContentS3Key(),previous.getSourceContentS3Key())
                 && Objects.equals(target.getContentS3Version(),previous.getSourceContentS3Version())) throw error(ValidationErrorCode.VALIDATION_RECHECK_INPUT_UNCHANGED);
         var application=previousApplication(workId,target.getId());
+        // GH312: 파일 교체 뒤에는 회차의 현재 원본이 새 batch에 있다. release Job이 같은 batch로 생성되도록 새 report를 그 batch에 묶는다.
+        var currentBatch=access.currentUploadBatch(target.getId()).filter(b->b.getWork().getId().equals(workId))
+                .orElseThrow(()->error(ValidationErrorCode.VALIDATION_TARGET_INVALID));
         baselines.retire(previous); em.flush(); // partial unique current index: old pointer must leave before the insert.
-        var next=reports.save(ValidationReport.recheck(previous,hash,application));
+        var next=reports.save(ValidationReport.recheck(previous,currentBatch,hash,application));
         baselines.prepare(next); workers.queuePrepared(next); keys.save(ValidationRequestKey.create(work,request.idempotencyKey(),next,"RECHECK",hash)); em.flush();
         return staging(next);
     }

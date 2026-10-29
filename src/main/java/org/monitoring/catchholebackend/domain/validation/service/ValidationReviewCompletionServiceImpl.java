@@ -66,8 +66,10 @@ public class ValidationReviewCompletionServiceImpl implements ValidationReviewCo
 
     /** 실제 공개 생성 경로로 Job을 만든 뒤 receipt를 저장하고 report version을 한 번 올린다. receipt는 올리기 전 version을 기록한다. */
     private ValidationReviewCompletion release(ValidationReport r,ValidationReviewTrigger trigger,String key,String hash) {
+        // 무효화가 동작하면 도달하지 않는다. report batch가 회차의 현재 원본 batch가 아니면 다른 업로드로 추출하지 않는다.
+        if(!access.currentUploadBatch(r.getEpisode().getId()).map(b->b.getId().equals(r.getBatch().getId())).orElse(false))throw error(VALIDATION_SOURCE_VERSION_CONFLICT);
         var job=analysisJobs.createReviewReleaseExtractionJob(r.getMember().getId(),r.getWork().getId(),r.getBatch().getId(),r.getEpisode().getId());
         var completion=completions.save(ValidationReviewCompletion.complete(r,trigger,key,hash,job));
-        r.advanceVersion();em.flush();return completion;
+        r.clearReleaseHold();r.advanceVersion();em.flush();return completion;
     }
 }

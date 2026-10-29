@@ -42,7 +42,8 @@ public class ValidationReviewMapper {
         return new ValidationReviewSummaryResponse(r.getId(),r.getVersion(),review.executionStatus(),r.getMode(),
                 new ValidationReviewSummaryResponse.Counts(c.settingTotal(),c.settingPending(),c.settingNeedsFix(),c.settingNotConflict(),c.typoTotal(),c.typoPending(),c.typoNeedsFix(),c.typoKeepOriginal()),
                 review.judgmentLocked(),review.lockReason(),review.canCompleteReview(),review.completionMode(),review.holdReasons(),review.allowedActions(),
-                review.completion()==null?null:new ValidationReviewSummaryResponse.Completion(review.completion().completionId(),review.completion().trigger(),review.completion().completedAt(),review.completion().extractionJobId()));
+                review.completion()==null?null:new ValidationReviewSummaryResponse.Completion(review.completion().completionId(),review.completion().trigger(),review.completion().completedAt(),review.completion().extractionJobId()),
+                review.releaseHold()==null?null:new ValidationReviewSummaryResponse.ReleaseHold(review.releaseHold().code(),review.releaseHold().at()));
     }
     public ValidationReviewCompletionResponse toCompletionResponse(ValidationReviewCompletion c) {
         return new ValidationReviewCompletionResponse(c.getId(),c.getTrigger(),c.getReport().getId(),c.getReportVersion(),c.getExtractionJob().getId(),c.getCompletedAt());

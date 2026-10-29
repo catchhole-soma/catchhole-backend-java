@@ -10,10 +10,13 @@ public record ValidationReviewSummaryResponse(UUID reportId, long reportVersion,
         Counts counts, boolean judgmentLocked, ValidationReviewLockReason lockReason, boolean canCompleteReview,
         ValidationReviewCompletionMode completionMode, List<ValidationReviewHoldReason> holdReasons,
         @Schema(description = "화면 안내용 행동. 실제 요청은 서버가 다시 검증합니다.") List<ValidationReviewAction> allowedActions,
-        @Schema(description = "현재 report의 검토 종료 receipt. 종료 전이거나 퇴역한 report는 null", nullable = true) Completion completion) {
+        @Schema(description = "현재 report의 검토 종료 receipt. 종료 전이거나 퇴역한 report는 null", nullable = true) Completion completion,
+        @Schema(description = "정상 0건 자동 검토 종료가 추출 생성 조건에 막혀 되돌려진 이유. 없으면 null이며 명시 검토 완료로 다시 시도합니다.", nullable = true) ReleaseHold releaseHold) {
     @Schema(description = "현재 revision 항목 수. 판단을 저장한 적 없는 항목은 Pending")
     public record Counts(long settingTotal, long settingPending, long settingNeedsFix, long settingNotConflict,
             long typoTotal, long typoPending, long typoNeedsFix, long typoKeepOriginal) {}
     @Schema(description = "검토 종료 receipt 요약")
     public record Completion(UUID completionId, ValidationReviewTrigger trigger, LocalDateTime completedAt, UUID extractionJobId) {}
+    @Schema(description = "자동 검토 종료 보류")
+    public record ReleaseHold(@Schema(description = "되돌린 오류 코드", example = "AI_TOKEN_QUOTA_EXHAUSTED") String code, LocalDateTime at) {}
 }
