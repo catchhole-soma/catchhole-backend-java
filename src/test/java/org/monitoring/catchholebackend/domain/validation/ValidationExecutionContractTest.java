@@ -45,4 +45,34 @@ class ValidationExecutionContractTest {
         var mapper=new ValidationDataMapper(journal);assertThat(json.<JsonNode>valueToTree(mapper.toValidationSettings(f.path("entries"),sources))).isEqualTo(f.path("expected"));
         assertThat(mapper.toValidationSourceCatalogue(sources)).isEqualTo(f.path("sourceCatalogue"));
     }
+    @Test @DisplayName("정상 세계관의 text와 quote 속성은 원문 인용 필드로 오인하지 않는다")
+    void canonicalWorldTextAndQuotePropertiesAreNotSourceContexts() throws Exception {
+        var f=fixture();var entries=f.path("projectionVector").path("entries").deepCopy();
+        var properties=(com.fasterxml.jackson.databind.node.ObjectNode)entries.path(1).path("state").path("propertiesJson");
+        properties.put("text","합성 세계 설정 값").put("quote","합성 이름 속성");
+        var mapper=new ValidationDataMapper(journal);var settings=mapper.toValidationSettings(entries,Map.of());
+        var payload=(com.fasterxml.jackson.databind.node.ObjectNode)f.path("requests").path("settingUnit").path("payload").deepCopy();
+        ((com.fasterxml.jackson.databind.node.ObjectNode)payload.path("evidence_bundle")).set("settings",json.valueToTree(settings.values()));
+        var validator=payloadValidator();var prepared=payloadContext(entries);var citations=payloadCitations();
+        assertThatCode(()->validator.payload(prepared,payload,citations)).doesNotThrowAnyException();
+        ((com.fasterxml.jackson.databind.node.ObjectNode)payload.path("evidence_bundle").path("settings").path(1).path("state").path("propertiesJson")).put("text","검증되지 않은 복사본문");
+        assertThatThrownBy(()->validator.payload(prepared,payload,citations)).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class);
+    }
+    @Test @DisplayName("정의된 인용 경로 밖 복사와 필수 context 인용 누락은 계속 거절한다")
+    void undeclaredCopiesAndMissingContextCitationsRemainInvalid() throws Exception {
+        var payload=(com.fasterxml.jackson.databind.node.ObjectNode)fixture().path("requests").path("settingUnit").path("payload").deepCopy();var prepared=payloadContext(json.createArrayNode());var validator=payloadValidator();var citations=payloadCitations();
+        payload.putObject("untrusted").put("text","😀가😀가");
+        assertThatThrownBy(()->validator.payload(prepared,payload,citations)).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class);
+        payload.remove("untrusted");
+        assertThatThrownBy(()->validator.payload(prepared,payload,List.of(citations.getFirst()))).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class);
+    }
+    ValidationPublicationValidator payloadValidator() {
+        var data=mock(ValidationDataService.class);when(data.readValidationData(anyLong(),any(),any(),any(),any(),any())).thenAnswer(call->{var request=call.getArgument(3,org.monitoring.catchholebackend.domain.validation.dto.request.ValidationDataRequest.class);String text="😀가😀가";int start=request.start()==null?0:request.start(),end=request.end()==null?4:request.end();return json.createObjectNode().put("status","READY").put("start",start).put("end",end).put("text",text.substring(text.offsetByCodePoints(0,start),text.offsetByCodePoints(0,end)));});
+        var mapper=new ValidationDataMapper(journal);return new ValidationPublicationValidator(data,new ValidationDecisionValidator(mapper,journal),new ValidationClueCollector(),mapper);
+    }
+    ValidationPublicationValidator.Prepared payloadContext(JsonNode entries) throws Exception {
+        var citations=payloadCitations();String hash=citations.getFirst().sourceHash();var c=new ValidationPublicationValidator.Context(UUID.randomUUID(),UUID.randomUUID(),new Scope(1,UUID.randomUUID(),1,hash),1L,UUID.randomUUID(),hash,hash,json.createObjectNode(),entries,Map.of());
+        return new ValidationPublicationValidator.Prepared(c,ValidationBranch.SETTING,json.createObjectNode(),new HashMap<>(Map.of("T1",json.createObjectNode().put("contentHash",hash))),entries.size());
+    }
+    List<Citation> payloadCitations() throws Exception {return json.convertValue(fixture().path("requests").path("settingUnit").path("citations"),new com.fasterxml.jackson.core.type.TypeReference<>(){});}
 }

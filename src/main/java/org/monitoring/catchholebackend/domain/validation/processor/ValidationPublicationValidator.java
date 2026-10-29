@@ -64,21 +64,50 @@ public class ValidationPublicationValidator {
             var actual=read(p.context(),"READ_SOURCE",c.sourceRef(),c.sourceHash(),c.sourceVersion(),c.start(),c.end());
             if(!c.quote().equals(actual.path("text").asText())||actual.path("start").asInt()!=c.start()||actual.path("end").asInt()!=c.end())throw error(VALIDATION_RESULT_INVALID);
         }
-        validateQuotes(payload,exact,0);
+        validateQuotes(p,payload,exact,0);
     }
-    private void validateQuotes(JsonNode n,Set<String> citations,int depth) {
+    private void validateQuotes(Prepared p,JsonNode n,Set<String> citations,int depth) {
         if(depth>50)throw error(VALIDATION_RESULT_INVALID);
-        if(n.isObject()&&n.has("quote")) {
-            String ref=n.path(n.has("source_ref")?"source_ref":"sourceRef").asText();
-            if(!n.path("start").isIntegralNumber()||!n.path("end").isIntegralNumber()||!citations.contains(signature(ref,n.path("start").asInt(),n.path("end").asInt(),n.path("quote").asText())))throw error(VALIDATION_RESULT_INVALID);
+        if(n.isArray()) {for(var child:n)validateQuotes(p,child,citations,depth+1);return;}
+        if(!n.isObject())return;
+        for(var field:n.properties())switch(field.getKey()) {
+            case "target_spans","spans","evidence" -> {
+                if(!field.getValue().isArray())throw error(VALIDATION_RESULT_INVALID);
+                for(var span:field.getValue())validateCopy(p,span,citations,depth+1,false);
+            }
+            case "target_context","additional_target_context" -> {
+                if(!field.getValue().isArray())throw error(VALIDATION_RESULT_INVALID);
+                for(var context:field.getValue())validateCopy(p,context,citations,depth+1,true);
+            }
+            case "span" -> validateCopy(p,field.getValue(),citations,depth+1,false);
+            case "settings" -> {
+                if(!field.getValue().isArray())throw error(VALIDATION_RESULT_INVALID);
+                var known=mapper.toValidationSettings(p.context().entries(),p.context().sourceReferences());
+                for(var setting:field.getValue()) {
+                    var actual=known.get(setting.path("entry_ref").asText());
+                    if(actual==null||!decisions.same(actual,setting))throw error(VALIDATION_RESULT_INVALID);
+                    validateDepth(setting,depth+2);
+                }
+            }
+            // Copies outside the typed span/context paths cannot hide in arbitrary checkpoint JSON.
+            case "quote","text" -> throw error(VALIDATION_RESULT_INVALID);
+            default -> validateQuotes(p,field.getValue(),citations,depth+1);
         }
-        if(n.isObject()&&n.has("text")) {
-            if(!n.path("text").isTextual()||!n.path("start").isIntegralNumber())throw error(VALIDATION_RESULT_INVALID);
-            String text=n.path("text").asText();String ref=n.path(n.has("source_ref")?"source_ref":"sourceRef").asText("T1");int start=n.path("start").asInt();
-            int end=start+text.codePointCount(0,text.length());
-            if(!citations.contains(signature(ref,start,end,text)))throw error(VALIDATION_RESULT_INVALID);
+    }
+    private void validateCopy(Prepared p,JsonNode n,Set<String> citations,int depth,boolean context) {
+        if(depth>50||!n.isObject()||!n.path("start").isIntegralNumber())throw error(VALIDATION_RESULT_INVALID);
+        String field=context?"text":"quote",ref=n.path(n.has("source_ref")?"source_ref":"sourceRef").asText(context?"T1":"");
+        if(!n.path(field).isTextual()||!context&&!n.path("end").isIntegralNumber())throw error(VALIDATION_RESULT_INVALID);
+        String value=n.path(field).asText();int start=n.path("start").asInt(),end=context?start+value.codePointCount(0,value.length()):n.path("end").asInt();
+        if(!citations.contains(signature(ref,start,end,value)))throw error(VALIDATION_RESULT_INVALID);
+        for(var extra:n.properties())if(!Set.of(field,"source_ref","sourceRef","start","end").contains(extra.getKey())) {
+            if(Set.of("text","quote").contains(extra.getKey()))throw error(VALIDATION_RESULT_INVALID);
+            validateQuotes(p,extra.getValue(),citations,depth+1);
         }
-        if(n.isContainerNode())for(var child:n)validateQuotes(child,citations,depth+1);
+    }
+    private void validateDepth(JsonNode n,int depth) {
+        if(depth>50)throw error(VALIDATION_RESULT_INVALID);
+        if(n.isContainerNode())for(var child:n)validateDepth(child,depth+1);
     }
     public void stage(Prepared p,ValidationStageKind kind,String ref,JsonNode body,List<ValidationStage> stored) {
         if(!contains(p.grid(),kind,ref))throw error(VALIDATION_RESULT_INVALID);
