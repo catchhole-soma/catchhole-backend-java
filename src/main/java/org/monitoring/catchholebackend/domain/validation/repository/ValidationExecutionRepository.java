@@ -22,6 +22,7 @@ public class ValidationExecutionRepository {
         return false;
     }
     private boolean vector(com.fasterxml.jackson.databind.JsonNode decision) {if(decision==null)return false;for(var r:decision.path("evidence_bundle").path("receipts"))if("SUCCEEDED".equals(r.path("status").asText())&&"VECTOR".equals(r.path("intent").path("operation").asText()))return true;return false;}
+    /** report 복사본을 지운다. 검토 종료 receipt는 무효화·퇴역 뒤에도 이력으로 남기며 작품/회원 파기만 지운다(GH312). */
     public void purge(UUID r) {
         for(String entity:List.of("ValidationJudgmentHistory","ValidationJudgment","ValidationCheckHistory","ValidationEvidence","ValidationFinding","ValidationCheckpoint","ValidationPublication","ValidationCheck","ValidationStage"))
             em.createQuery("delete from "+entity+" x where x.report.id=:r").setParameter("r",r).executeUpdate();

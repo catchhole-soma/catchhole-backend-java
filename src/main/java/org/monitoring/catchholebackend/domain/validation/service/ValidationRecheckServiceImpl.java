@@ -99,6 +99,6 @@ public class ValidationRecheckServiceImpl implements ValidationRecheckService {
         if(!world.isEmpty()) {var c=world.getFirst();return new ValidationApplicationReference("WORLD_SETTING_CONFIRMATION",c.getId(),c.getAnalysisJob()==null?null:c.getAnalysisJob().getId(),c.getReviewedAt());}
         return null;
     }
-    private ValidationStagingResponse staging(ValidationReport report) {return ValidationStagingResponse.from(report,reviewGate.errorReviewStatus(report));}
+    private ValidationStagingResponse staging(ValidationReport report) {var extraction=reviewGate.extraction(report);return ValidationStagingResponse.from(report,reviewGate.errorReviewStatus(report),extraction.jobId(),extraction.status());}
     private AppException error(ValidationErrorCode code) {return new AppException(code);}
 }

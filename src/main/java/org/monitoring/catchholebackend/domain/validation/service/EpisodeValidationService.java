@@ -105,6 +105,6 @@ public class EpisodeValidationService {
         workers.queuePrepared(report);
         return staging(report);
     }
-    private ValidationStagingResponse staging(ValidationReport report) { return ValidationStagingResponse.from(report, reviewGate.errorReviewStatus(report)); }
+    private ValidationStagingResponse staging(ValidationReport report) { var extraction = reviewGate.extraction(report); return ValidationStagingResponse.from(report, reviewGate.errorReviewStatus(report), extraction.jobId(), extraction.status()); }
     private AppException error(ValidationErrorCode code) { return new AppException(code); }
 }

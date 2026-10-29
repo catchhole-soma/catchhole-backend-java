@@ -24,6 +24,7 @@ public class AnalysisCandidateSourceGuard {
             job.getTargetEpisodes().forEach(e -> targets.add(e.getId()));
             if (job.getEpisode() != null) targets.add(job.getEpisode().getId());
         }
+        // GH312: 현재 검수 report에 검토 종료 receipt가 있으면 후보 쓰기를 허용한다. release 회차의 수동 확정 제한은 S3 범위다.
         if (!targets.isEmpty() && jobs.existsValidationStagingForEpisodes(targets)) {
             throw new AppException(org.monitoring.catchholebackend.domain.validation.exception.ValidationErrorCode.VALIDATION_ERROR_REVIEW_PENDING);
         }

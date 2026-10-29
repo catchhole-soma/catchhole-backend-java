@@ -423,7 +423,18 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             """)
     boolean existsUnfinishedOrderedAnalysis(@Param("workId") UUID workId);
 
-    @Query("select count(r) > 0 from ValidationReport r where r.episode.id in :episodeIds")
+    /**
+     * GH312: 회차의 현재 검수 report에 검토 종료 receipt가 없으면 true다. claim의 {@link AnalysisJobEligibility#DOMAIN},
+     * 늦은 lease callback, 후보 반영 출처 검사와 같은 규칙이며 퇴역 report와 receipt는 판단에 쓰지 않는다.
+     */
+    @Query("""
+            select count(r) > 0 from ValidationReport r where r.episode.id in :episodeIds and r.current = true
+              and not exists (select c.id from ValidationReviewCompletion c where c.report.id = r.id)
+            """)
     boolean existsValidationStagingForEpisodes(@Param("episodeIds") java.util.Collection<UUID> episodeIds);
+
+    /** GH312: 공개 생성 차단과 release Job 재시도 판정용. 검토 종료 여부와 무관하게 현재 검수 report가 있으면 true다. */
+    @Query("select count(r) > 0 from ValidationReport r where r.episode.id in :episodeIds and r.current = true")
+    boolean existsCurrentValidationReportForEpisodes(@Param("episodeIds") java.util.Collection<UUID> episodeIds);
 
 }

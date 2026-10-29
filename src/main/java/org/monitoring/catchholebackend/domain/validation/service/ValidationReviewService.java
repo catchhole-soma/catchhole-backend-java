@@ -6,7 +6,7 @@ import org.monitoring.catchholebackend.domain.validation.dto.response.*;
 import org.monitoring.catchholebackend.domain.validation.type.*;
 import org.monitoring.catchholebackend.global.common.response.PageResponse;
 
-/** GH312 S1 작가 판단 저장·조회. 마지막 판단 저장도 검토 완료나 설정 추출을 시작하지 않는다. */
+/** GH312 작가 판단 저장·조회. 마지막 판단 저장도 검토 완료나 설정 추출을 시작하지 않는다(검토 종료는 ValidationReviewCompletionService). */
 public interface ValidationReviewService {
     PageResponse<ValidationFindingSummaryResponse> getValidationFindings(Long memberId,UUID workId,UUID reportId,ValidationBranch branch,ValidationJudgmentValue judgment,String outcome,int page,int size);
     ValidationFindingDetailResponse getValidationFinding(Long memberId,UUID workId,UUID reportId,UUID findingId);

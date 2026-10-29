@@ -20,7 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import static org.monitoring.catchholebackend.domain.validation.processor.ValidationExecutionAccess.error;
 import static org.monitoring.catchholebackend.domain.validation.exception.ValidationErrorCode.*;
 
-/** 판단 쓰기는 Work → report → 판단 순서로 잠근 한 트랜잭션이며 추출 Job·후보·확정은 만들지 않는다. */
+/** 판단 쓰기는 Work → report → 판단 순서로 잠근 한 트랜잭션이며 검토 종료·추출 Job·후보·확정은 만들지 않는다. */
 @Service @RequiredArgsConstructor @Transactional(readOnly=true)
 public class ValidationReviewServiceImpl implements ValidationReviewService {
     private static final int MAX_PAGE_SIZE=100;
@@ -31,6 +31,7 @@ public class ValidationReviewServiceImpl implements ValidationReviewService {
     private final ValidationJudgmentHistoryRepository histories;
     private final ValidationReviewRepository reviews;
     private final ValidationReviewGate gate;
+    private final ValidationReviewCompletionRepository completions;
     private final ValidationReviewMapper mapper;
     private final EntityManager em;
 
@@ -69,7 +70,8 @@ public class ValidationReviewServiceImpl implements ValidationReviewService {
         var f=reviews.finding(reportId,findingId).orElseThrow(()->error(VALIDATION_FINDING_NOT_FOUND));
         if(!request.judgment().allowedIn(f.getBranch()))throw error(VALIDATION_JUDGMENT_INVALID);
         var job=jobs.findByReportId(reportId).orElse(null);if(job!=null)em.refresh(job);
-        if(ValidationReviewGate.lockReason(r.isCurrent(),r.getBaselineStatus(),r.getStatus(),job==null?ValidationExecutionStatus.NOT_STARTED:job.getStatus())!=null)throw error(VALIDATION_JUDGMENT_LOCKED);
+        // GH312: 검토 종료 receipt 뒤의 판단 변경은 release된 추출 입력과 어긋나므로 잠근다.
+        if(ValidationReviewGate.lockReason(r.isCurrent(),r.getBaselineStatus(),r.getStatus(),job==null?ValidationExecutionStatus.NOT_STARTED:job.getStatus(),completions.existsByReportId(reportId))!=null)throw error(VALIDATION_JUDGMENT_LOCKED);
         if(!Objects.equals(request.expectedCheckRevision(),f.getCheckRevision())||f.getCheckId()!=null&&!reviews.checkRevision(f.getCheckId()).map(c->c.equals(f.getCheckRevision())).orElse(false))throw error(VALIDATION_JUDGMENT_STALE);
         var existing=judgments.findByFindingId(findingId);
         long expected=request.expectedJudgmentVersion()==null?0:request.expectedJudgmentVersion();

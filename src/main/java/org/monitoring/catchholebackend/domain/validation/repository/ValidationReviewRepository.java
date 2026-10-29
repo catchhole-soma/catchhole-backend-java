@@ -31,6 +31,8 @@ public class ValidationReviewRepository {
     public Optional<Long> checkRevision(UUID check) { return em.createQuery("select c.revision from ValidationCheck c where c.id=:c",Long.class).setParameter("c",check).getResultStream().findFirst(); }
     public List<ValidationCheckHistory> checkHistory(UUID check) { return em.createQuery("select h from ValidationCheckHistory h where h.check.id=:c order by h.revision",ValidationCheckHistory.class).setParameter("c",check).getResultList(); }
     public List<ValidationFinding> checkFindings(UUID check) { return em.createQuery("select f from ValidationFinding f where f.checkId=:c order by f.checkRevision,f.createdAt,f.id",ValidationFinding.class).setParameter("c",check).getResultList(); }
+    /** release Job의 상태만 읽는다. 큰 JSON 입력/journal 컬럼은 읽지 않는다. */
+    public Optional<Object[]> extractionJobState(UUID job) { return em.createQuery("select j.status,j.journalStatus from AnalysisJob j where j.id=:j",Object[].class).setParameter("j",job).getResultStream().findFirst(); }
     public List<ValidationEvidence> evidence(UUID r,String owner) { return em.createQuery("select e from ValidationEvidence e where e.report.id=:r and e.ownerRef=:o order by e.createdAt,e.id",ValidationEvidence.class).setParameter("r",r).setParameter("o",owner).getResultList(); }
     private <T> TypedQuery<T> bind(TypedQuery<T> q,UUID r,ValidationBranch branch,ValidationJudgmentValue judgment,String outcome) {
         q.setParameter("r",r);if(branch!=null)q.setParameter("branch",branch);if(judgment!=null)q.setParameter("judgment",judgment);if(outcome!=null)q.setParameter("outcome",outcome);return q;

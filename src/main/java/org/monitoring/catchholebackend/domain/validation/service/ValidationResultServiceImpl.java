@@ -6,9 +6,11 @@ import jakarta.persistence.EntityManager;
 import java.util.*;
 import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome;
 import org.monitoring.catchholebackend.domain.validation.dto.ValidationExecutionContract.*;
+import org.monitoring.catchholebackend.domain.validation.dto.response.ValidationReviewCompletionResponse;
 import org.monitoring.catchholebackend.domain.validation.entity.*;
 import org.monitoring.catchholebackend.domain.validation.mapper.ValidationExecutionMapper;
 import org.monitoring.catchholebackend.domain.validation.processor.*;
@@ -16,6 +18,7 @@ import org.monitoring.catchholebackend.domain.validation.processor.ValidationPub
 import org.monitoring.catchholebackend.domain.validation.repository.*;
 import org.monitoring.catchholebackend.domain.validation.type.*;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
+import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -23,7 +26,7 @@ import static org.monitoring.catchholebackend.domain.validation.processor.Valida
 import static org.monitoring.catchholebackend.domain.validation.exception.ValidationErrorCode.*;
 
 /** External reads sit between two brief transactions; final source/lease checks occur under Work. */
-@Service @RequiredArgsConstructor
+@Slf4j @Service @RequiredArgsConstructor
 public class ValidationResultServiceImpl implements ValidationResultService {
     private final PlatformTransactionManager transactions;
     private final ValidationExecutionAccess access;
@@ -38,6 +41,7 @@ public class ValidationResultServiceImpl implements ValidationResultService {
     private final ValidationUsageService usage;
     private final AnalysisStateJournal journal;
     private final ValidationJudgmentRepository judgments;
+    private final ValidationReviewCompletionService reviewCompletions;
     private final EntityManager em;
 
     @Override public Map<String,Object> publishValidationPlan(UUID id,UUID lease,Publish c) {
@@ -121,18 +125,32 @@ public class ValidationResultServiceImpl implements ValidationResultService {
         });
     }
     @Override public Map<String,Object> completeValidationJob(UUID id,UUID lease,Complete c) {
-        return transaction(junk->{
-            var j=access.lock(id);var existing=receipt(j,"COMPLETE",c.idempotencyKey(),c);
-            // A finish replay is allowed only for this still-current, unexpired lease/generation.
-            if(!Objects.equals(j.getLeaseToken(),lease)||j.getLeaseExpiresAt()==null||!java.time.Instant.now().isBefore(j.getLeaseExpiresAt())||!mapper.toScope(j).equals(c.scope()))throw error(VALIDATION_LEASE_CONFLICT);
-            access.current(j.getReport());if(existing!=null)return existing;
-            access.require(j,lease,c.scope());validator.recheck(context(j,lease));
-            boolean setting=complete(j,ValidationBranch.SETTING),typo=complete(j,ValidationBranch.TYPO);
-            var status=setting&&typo?ValidationExecutionStatus.COMPLETED:successCount(j)>0?ValidationExecutionStatus.PARTIAL:ValidationExecutionStatus.FAILED;
-            if(c.failureCode()!=null&&!safeCode(c.failureCode()))throw error(VALIDATION_RESULT_INVALID);
-            j.finish(status,status==ValidationExecutionStatus.COMPLETED?null:c.failureCode()==null?"REQUIRED_PROCESSING_INCOMPLETE":c.failureCode());j.getReport().advanceVersion();usage.releaseReservedValidationUsage(j,AiTokenUsageOutcome.USAGE_UNAVAILABLE);
-            var response=progressView(j);saveReceipt(j,"COMPLETE",c.idempotencyKey(),c,response);return response;
-        });
+        var releasing=new boolean[1];
+        try { return transaction(junk->complete(id,lease,c,true,releasing)); }
+        catch(AppException e) {
+            if(!releasing[0])throw e;
+            // GH312: 자동 검토 종료의 추출 생성 조건(토큰·진행 중 Job·원문 파기 대기 등)이 막히면 receipt·Job 없이 검사 결과만 저장한다.
+            // 첫 트랜잭션은 전부 되돌렸으므로 부분 상태가 없고, 작가는 같은 판정을 명시 검토 완료로 다시 시도한다.
+            log.warn("자동 검토 종료를 보류했습니다. validationJobId={}, code={}",id,e.getResultCode().getCode());
+            return transaction(junk->complete(id,lease,c,false,new boolean[1]));
+        }
+    }
+    private Map<String,Object> complete(UUID id,UUID lease,Complete c,boolean automaticRelease,boolean[] releasing) {
+        var j=access.lock(id);var existing=receipt(j,"COMPLETE",c.idempotencyKey(),c);
+        // A finish replay is allowed only for this still-current, unexpired lease/generation.
+        if(!Objects.equals(j.getLeaseToken(),lease)||j.getLeaseExpiresAt()==null||!java.time.Instant.now().isBefore(j.getLeaseExpiresAt())||!mapper.toScope(j).equals(c.scope()))throw error(VALIDATION_LEASE_CONFLICT);
+        access.current(j.getReport());if(existing!=null)return existing;
+        access.require(j,lease,c.scope());validator.recheck(context(j,lease));
+        boolean setting=complete(j,ValidationBranch.SETTING),typo=complete(j,ValidationBranch.TYPO);
+        var status=setting&&typo?ValidationExecutionStatus.COMPLETED:successCount(j)>0?ValidationExecutionStatus.PARTIAL:ValidationExecutionStatus.FAILED;
+        if(c.failureCode()!=null&&!safeCode(c.failureCode()))throw error(VALIDATION_RESULT_INVALID);
+        j.finish(status,status==ValidationExecutionStatus.COMPLETED?null:c.failureCode()==null?"REQUIRED_PROCESSING_INCOMPLETE":c.failureCode());j.getReport().advanceVersion();usage.releaseReservedValidationUsage(j,AiTokenUsageOutcome.USAGE_UNAVAILABLE);
+        // GH312: 정상 0건 완료는 같은 트랜잭션에서 검토 종료 receipt와 추출 Job을 만들고 Worker receipt에 함께 기록한다.
+        Optional<ValidationReviewCompletionResponse> released=Optional.empty();
+        if(automaticRelease) {releasing[0]=true;released=reviewCompletions.completeValidationReviewAutomatically(j);releasing[0]=false;}
+        var response=progressView(j);response.put("reviewCompletionId",released.map(ValidationReviewCompletionResponse::completionId).orElse(null));
+        response.put("extractionJobId",released.map(ValidationReviewCompletionResponse::extractionJobId).orElse(null));
+        saveReceipt(j,"COMPLETE",c.idempotencyKey(),c,response);return response;
     }
     @Override public Map<String,Object> getValidationProgress(Long member,UUID work,UUID report) {
         return transaction(junk->{works.getOwnedWork(work,member);var r=reports.findByIdAndWorkId(report,work).orElseThrow(()->error(VALIDATION_NOT_FOUND));

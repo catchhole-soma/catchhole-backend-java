@@ -19,6 +19,9 @@ import org.monitoring.catchholebackend.domain.validation.dto.response.Validation
 import org.monitoring.catchholebackend.domain.validation.dto.response.ValidationStagingResponse;
 import org.monitoring.catchholebackend.domain.validation.service.EpisodeValidationService;
 import org.monitoring.catchholebackend.domain.validation.service.ValidationReviewService;
+import org.monitoring.catchholebackend.domain.validation.service.ValidationReviewCompletionService;
+import org.monitoring.catchholebackend.domain.validation.dto.request.ValidationReviewCompletionRequest;
+import org.monitoring.catchholebackend.domain.validation.dto.response.ValidationReviewCompletionResponse;
 import org.monitoring.catchholebackend.domain.validation.type.ValidationBranch;
 import org.monitoring.catchholebackend.domain.validation.type.ValidationJudgmentValue;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
@@ -29,7 +32,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/works/{workId}/episode-validations")
-@Tag(name = "EpisodeValidation", description = "신규 회차 검수 접수·전용 실행·결과·작가 판단. 검토 완료와 설정 추출 허가는 후속입니다.")
+@Tag(name = "EpisodeValidation", description = "신규 회차 검수 접수·전용 실행·결과·작가 판단·검토 종료와 설정 추출 release. 회차 전체 확정은 후속입니다.")
 @SecurityRequirement(name = "bearerAuth")
 public class EpisodeValidationController {
     private final EpisodeValidationService service;
@@ -38,6 +41,7 @@ public class EpisodeValidationController {
     private final org.monitoring.catchholebackend.domain.validation.service.ValidationRecheckService rechecks;
     private final org.monitoring.catchholebackend.domain.validation.service.ValidationCorrectionService corrections;
     private final ValidationReviewService reviews;
+    private final ValidationReviewCompletionService completions;
     @PostMapping
     @Operation(operationId = "startEpisodeValidation", summary = "신규 회차 검수 접수", description = "현재 원고 버전과 단일 append 업로드 자격을 확인하고 고정 기준과 오류 검사/검토 대기를 저장합니다. 설정 추출 Job/후보를 만들지 않으며 같은 입력은 같은 식별자를 반환합니다.")
     @ApiResponses({@ApiResponse(responseCode = "200", description = "접수 또는 동일 입력의 재전송"),
@@ -118,10 +122,21 @@ public class EpisodeValidationController {
     }
 
     @GetMapping("/{reportId}/review")
-    @Operation(operationId="getValidationReviewSummary", summary="작가 검토 요약", description="분기별 판단 수, 판단 잠금, 검토 종료 경로와 보류 사유를 반환합니다. AUTOMATIC_ELIGIBLE·EXPLICIT_REQUIRED도 설정 추출을 시작하지 않습니다.")
+    @Operation(operationId="getValidationReviewSummary", summary="작가 검토 요약", description="분기별 판단 수, 판단 잠금, 검토 종료 경로·보류 사유와 검토 종료 receipt를 반환합니다. 조회는 검토 종료나 설정 추출을 시작하지 않습니다.")
     @ApiResponses({@ApiResponse(responseCode="200", description="조회 성공"),
             @ApiResponse(responseCode="404", description="작품 소유권 또는 검수 요청 없음")})
     public CommonResponse<ValidationReviewSummaryResponse> review(@AuthenticationPrincipal MemberPrincipal member,@PathVariable UUID workId,@PathVariable UUID reportId) {
         return CommonResponse.success(reviews.getValidationReview(member.memberId(),workId,reportId));
+    }
+
+    @PostMapping("/{reportId}/review-completion")
+    @Operation(operationId="completeValidationReview", summary="검토 완료 후 설정 추출", description="검사가 정상 완료되고 설정 항목은 모두 충돌 아님, 오탈자는 모두 확인·수정 대기 없음일 때 검토 종료 receipt와 설정 추출 Job을 함께 만듭니다. 마지막 판단 저장은 이 요청을 대신하지 않습니다. 같은 키·같은 입력은 같은 receipt를 반환합니다.")
+    @ApiResponses({@ApiResponse(responseCode="200", description="검토 종료 또는 같은 요청 재전송"),
+            @ApiResponse(responseCode="400", description="필드 검증 실패"),
+            @ApiResponse(responseCode="404", description="작품 소유권 또는 검수 요청 없음"),
+            @ApiResponse(responseCode="409", description="report version 충돌, 검토 종료 불가(context.holdReasons), 이미 종료, 같은 키 다른 입력, 원고 버전 변경 또는 추출 생성 조건 실패")})
+    public CommonResponse<ValidationReviewCompletionResponse> completeReview(@AuthenticationPrincipal MemberPrincipal member,@PathVariable UUID workId,@PathVariable UUID reportId,
+            @Valid @RequestBody ValidationReviewCompletionRequest request) {
+        return CommonResponse.success("검토를 완료하고 설정 추출을 시작했습니다.",completions.completeValidationReview(member.memberId(),workId,reportId,request));
     }
 }
