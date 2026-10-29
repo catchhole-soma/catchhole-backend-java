@@ -49,7 +49,7 @@ class AutomaticComparisonFailureJournalTest {
     private final SettingCandidateRepository characters = mock(SettingCandidateRepository.class);
     private final WorldSettingCandidateRepository worlds = mock(WorldSettingCandidateRepository.class);
     private final AnalysisStateJournal journal = new AnalysisStateJournal();
-    private final AnalysisHumanRejectionPolicy rejections = mock(AnalysisHumanRejectionPolicy.class);
+    private final AnalysisHumanRejectionPolicy rejections = new AnalysisHumanRejectionPolicy(characters, worlds, journal);
     private final SettingCandidate character = mock(SettingCandidate.class);
     private final WorldSettingCandidate world = mock(WorldSettingCandidate.class);
     private final UUID candidateId = UUID.randomUUID();
@@ -72,6 +72,12 @@ class AutomaticComparisonFailureJournalTest {
         when(job.getInputStateHash()).thenReturn("a".repeat(64));
         stateJournal.putArray("changes");
         when(job.getStateJournal()).thenReturn(stateJournal);
+        when(states.prepareState(job)).thenAnswer(call -> new AnalysisRunStateService.PreparedState() {
+            public JsonNode projectedState() { return states.getProjectedState(job); }
+            public void append(List<AnalysisStateChange> changes) {
+                states.appendValidatedChanges(job, job.getInputStateHash(), changes);
+            }
+        });
         when(states.getProjectedState(job)).thenReturn(journal.emptyState());
         doAnswer(call -> {
             changes.addAll(call.<List<AnalysisStateChange>>getArgument(2));

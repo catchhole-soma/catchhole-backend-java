@@ -151,6 +151,94 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
     }
 
     @Override
+    public PreparedState prepareState(AnalysisJob job) {
+        JsonNode input = getInputState(job);
+        if (job.getInputStateHash() == null || !journal.hash(input).equals(job.getInputStateHash())
+                || job.getJournalStatus() == AnalysisJournalStatus.INVALIDATED
+                || job.getJournalStatus() == AnalysisJournalStatus.INCOMPLETE) {
+            throw conflict();
+        }
+        return new PreparedStateImpl(job, input);
+    }
+
+    /** singleton/ThreadLocal 캐시가 아니다. 호출자가 Job 잠금 아래 지역 변수로 소유한다. */
+    private final class PreparedStateImpl implements PreparedState {
+        private final AnalysisJob job;
+        private final JsonNode input;
+        private final JsonNode automaticInput;
+        private final String inputHash;
+        private final Map<String, AnalysisStateChange> applied = new LinkedHashMap<>();
+        private JsonNode record;
+        private long recordRevision;
+        private JsonNode projected;
+
+        private PreparedStateImpl(AnalysisJob job, JsonNode input) {
+            this.job = job;
+            this.input = input;
+            this.automaticInput = job.getAutomaticInputState();
+            this.inputHash = job.getInputStateHash();
+            reload();
+        }
+
+        private void reload() {
+            JsonNode nextRecord = job.getStateJournal();
+            List<AnalysisStateChange> changes = nextRecord == null ? List.of() : readChanges(requireEnvelope(job, nextRecord));
+            JsonNode nextProjected = apply(input, changes);
+            Map<String, AnalysisStateChange> nextApplied = new LinkedHashMap<>();
+            changes.forEach(change -> nextApplied.put(change.eventId(), change));
+            record = nextRecord;
+            recordRevision = job.getStateJournalRevision();
+            projected = nextProjected;
+            applied.clear();
+            applied.putAll(nextApplied);
+        }
+
+        private void refresh() {
+            if (!Objects.equals(inputHash, job.getInputStateHash()) || !job.hasCurrentSourceVersion()
+                    || automaticInput != job.getAutomaticInputState()
+                    || job.getJournalStatus() == AnalysisJournalStatus.INVALIDATED
+                    || job.getJournalStatus() == AnalysisJournalStatus.INCOMPLETE) {
+                throw conflict();
+            }
+            // 다른 도메인 helper가 같은 요청에서 변경을 추가했어도 이전 projection을 반환하지 않는다.
+            if (recordRevision != job.getStateJournalRevision()) reload();
+        }
+
+        @Override
+        public JsonNode projectedState() {
+            refresh();
+            return projected;
+        }
+
+        @Override
+        public void append(List<AnalysisStateChange> changes) {
+            requireWritable(job);
+            refresh();
+            if (job.getJournalStatus() != AnalysisJournalStatus.PENDING || !job.hasCurrentSourceVersion()) {
+                throw conflict();
+            }
+            requireEnvelope(job, record);
+            Map<String, AnalysisStateChange> added = new LinkedHashMap<>();
+            for (AnalysisStateChange change : changes) {
+                AnalysisStateChange old = applied.get(change.eventId());
+                if (old == null) old = added.putIfAbsent(change.eventId(), change);
+                if (old != null && !old.equals(change)) throw conflict();
+            }
+            if (added.isEmpty()) return;
+            List<AnalysisStateChange> delta = List.copyOf(added.values());
+            // 새 변경만 검증한다. 실패하면 기존 projection과 영속 journal 모두 그대로 남는다.
+            JsonNode next = apply(projected, delta);
+            ObjectNode updated = record.deepCopy();
+            ((com.fasterxml.jackson.databind.node.ArrayNode) updated.path("changes")).addAll(journal.toJson(delta));
+            job.replacePendingJournal(updated);
+            record = updated;
+            recordRevision = job.getStateJournalRevision();
+            projected = next;
+            applied.putAll(added);
+        }
+    }
+
+    @Override
     @Transactional(noRollbackFor = org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException.class)
     public boolean prepareInput(AnalysisJob job) {
         if (!job.isOrderedProvisional()) {
@@ -461,7 +549,10 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
     }
 
     private JsonNode requireEnvelope(AnalysisJob job) {
-        JsonNode record = job.getStateJournal();
+        return requireEnvelope(job, job.getStateJournal());
+    }
+
+    private JsonNode requireEnvelope(AnalysisJob job, JsonNode record) {
         if (record == null || !record.isObject() || record.path("sourceEvidencePurged").asBoolean(false)
                 || record.path("formatVersion").asInt(-1) != AnalysisStateJournal.FORMAT_VERSION
                 || !record.path("runId").asText().equals(job.getAnalysisRunId().toString())

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -51,19 +53,22 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
         if (!job.isOrderedProvisional()) {
             return;
         }
+        var prepared = runStateService.prepareState(job);
+        var matching = rejectionPolicy.beginMatching();
+        Map<String, SettingCandidate> discoveries = new HashMap<>();
         for (SettingCandidate candidate : candidateRepository
                 .findAllByAnalysisJobIdAndProvisionalSubjectKeyIsNotNull(job.getId())) {
             if (candidate.getReviewStatus() != SettingCandidateReviewStatus.PENDING_REVIEW) {
                 continue;
             }
             String key = candidate.getProvisionalSubjectKey();
-            JsonNode current = runStateService.getProjectedState(job).path("characters").path(key);
+            JsonNode current = prepared.projectedState().path("characters").path(key);
             if (current.isMissingNode()) {
-                SettingCandidate discovery = getCurrentDiscovery(job, key);
+                SettingCandidate discovery = discoveries.computeIfAbsent(key, ref -> getCurrentDiscovery(job, ref));
                 java.util.Optional<JsonNode> rejected = discovery.isUserModified() ? java.util.Optional.empty()
-                        : rejectionPolicy.match(discovery, runStateService.getProjectedState(job));
+                        : matching.match(discovery, prepared.projectedState());
                 if (rejected.isPresent()) {
-                    preserveRejectedDiscovery(job, discovery, candidate, rejected.get());
+                    preserveRejectedDiscovery(job, prepared, discovery, candidate, rejected.get());
                     continue;
                 }
                 ObjectNode identity = mapper.toProvisionalState(
@@ -74,7 +79,7 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
                 if (discovery.getEvidenceSpans() != null) {
                     identity.set("identityEvidence", discovery.getEvidenceSpans().deepCopy());
                 }
-                runStateService.appendValidatedChanges(job, job.getInputStateHash(), List.of(
+                prepared.append(List.of(
                         new AnalysisStateChange("character-discovery:" + discovery.getId(),
                                 List.of("characters", key), identity, false, "IDENTITY",
                                 List.of(discovery.getId()))
@@ -91,16 +96,16 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
             if (!candidate.isCharacterDiscovery() && !candidate.isUserModified()
                     && candidate.getReviewStatus() == SettingCandidateReviewStatus.PENDING_REVIEW
                     && candidate.getComparisonStatus() == CharacterFactComparisonStatus.PENDING) {
-                rejectionPolicy.match(candidate, runStateService.getProjectedState(job)).ifPresent(reference -> {
+                matching.match(candidate, prepared.projectedState()).ifPresent(reference -> {
                     candidate.preservePriorHumanRejection(reference);
-                    runStateService.appendValidatedChanges(job, job.getInputStateHash(),
+                    prepared.append(
                             List.of(rejectionPolicy.referenceChange(candidate.getId(), reference)));
                 });
             }
         }
     }
 
-    private void preserveRejectedDiscovery(AnalysisJob job, SettingCandidate discovery,
+    private void preserveRejectedDiscovery(AnalysisJob job, AnalysisRunStateService.PreparedState prepared, SettingCandidate discovery,
             SettingCandidate candidate, JsonNode rejection) {
         discovery.holdForRejectedDiscoveryAnchor(rejection);
         List<AnalysisStateChange> changes = new ArrayList<>();
@@ -122,7 +127,7 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
             changes.add(new AnalysisStateChange(eventId, List.of("references", eventId), reference, false,
                     "REVIEW_REQUIRED", List.of(candidate.getId())));
         }
-        runStateService.appendValidatedChanges(job, job.getInputStateHash(), changes);
+        prepared.append(changes);
     }
 
     @Override
@@ -189,13 +194,23 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
         runStateService.appendValidatedChanges(job, job.getInputStateHash(), references);
     }
 
+    public AnalysisRunStateService.PreparedState prepareState(AnalysisJob job) {
+        return runStateService.prepareState(job);
+    }
+
     public JsonNode getTarget(AnalysisJob job, UUID actualCharacterId, String provisionalSubjectKey) {
+        return getTarget(job, actualCharacterId, provisionalSubjectKey, null);
+    }
+
+    public JsonNode getTarget(AnalysisJob job, UUID actualCharacterId, String provisionalSubjectKey,
+            AnalysisRunStateService.PreparedState prepared) {
         if (!job.isOrderedProvisional() || (actualCharacterId == null) == (provisionalSubjectKey == null)) {
             throw invalidTarget();
         }
         String ref = actualCharacterId == null ? provisionalSubjectKey
                 : CharacterAnalysisStateMapper.persistedRef(actualCharacterId);
-        JsonNode target = runStateService.getProjectedState(job).path("characters").path(ref);
+        JsonNode target = (prepared == null ? runStateService.getProjectedState(job) : prepared.projectedState())
+                .path("characters").path(ref);
         if (!target.isObject() || !target.path("slots").isObject()
                 || !target.path("name").isTextual()
                 || actualCharacterId != null
@@ -218,6 +233,14 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
             AnalysisJob job, SettingCandidate candidate, CharacterSnapshotEntry proposed,
             List<CharacterSnapshotSlot> removals, List<UUID> dependencies, String incompatibleSnapshotRef
     ) {
+        recordDecision(job, candidate, proposed, removals, dependencies, incompatibleSnapshotRef, null);
+    }
+
+    public void recordDecision(
+            AnalysisJob job, SettingCandidate candidate, CharacterSnapshotEntry proposed,
+            List<CharacterSnapshotSlot> removals, List<UUID> dependencies, String incompatibleSnapshotRef,
+            AnalysisRunStateService.PreparedState prepared
+    ) {
         if (!job.isOrderedProvisional()) {
             return;
         }
@@ -225,7 +248,7 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
                 ? CharacterAnalysisStateMapper.persistedRef(candidate.getMatchedCharacterId())
                 : candidate.getProvisionalSubjectKey();
         CharacterFactOperation operation = Objects.requireNonNull(candidate.getSuggestedOperation());
-        JsonNode priorTarget = getTarget(job, candidate.getMatchedCharacterId(), candidate.getProvisionalSubjectKey());
+        JsonNode priorTarget = getTarget(job, candidate.getMatchedCharacterId(), candidate.getProvisionalSubjectKey(), prepared);
         String eventPrefix = "character-decision:" + candidate.getId();
         List<AnalysisStateChange> changes = new ArrayList<>();
         List<UUID> sources = List.of(candidate.getId());
@@ -239,7 +262,7 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
                 org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(
                         candidate.getAnalysisJob(), candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope()), List.of(), false)
                 ? org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason.SETTING_TIME_CONFIRMATION_REQUIRED
-                : applied ? projectedHold(candidate, proposed, removals, priorTarget) : null;
+                : applied ? projectedHold(candidate, proposed, removals, priorTarget, prepared) : null;
         if (hold != null) {
             candidate.recordAutomaticReviewHold(hold);
             applied = false;
@@ -267,7 +290,7 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
                 }
             }
             JsonNode baseline = runStateService.getInputState(job).path("characters").path(ref);
-            ObjectNode restoredNarrative = narrativeWithoutHeldContributions(job, ref, baseline, heldIds);
+            ObjectNode restoredNarrative = narrativeWithoutHeldContributions(job, ref, baseline, heldIds, prepared);
             JsonNode restoredTime = restoredNarrative.path("currentNarrativeTime");
             if (!Objects.equals(org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.value(priorTarget.path("currentNarrativeTime")),
                     org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.value(restoredTime))) {
@@ -365,7 +388,8 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
             changes.add(new AnalysisStateChange(eventPrefix + ":history", List.of("characters", ref, "historyFacts"), history,
                     false, operation.name(), sources));
         }
-        runStateService.appendValidatedChanges(job, job.getInputStateHash(), changes);
+        if (prepared == null) runStateService.appendValidatedChanges(job, job.getInputStateHash(), changes);
+        else prepared.append(changes);
     }
 
     private org.monitoring.catchholebackend.domain.character.type.CharacterFactType comparisonFactType(SettingCandidate candidate) {
@@ -378,10 +402,11 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
     }
 
     /** Rebuild only temporal observations and history; unrelated slot restoration keeps its existing policy. */
-    private ObjectNode narrativeWithoutHeldContributions(AnalysisJob job, String ref, JsonNode baseline, List<UUID> newlyHeld) {
+    private ObjectNode narrativeWithoutHeldContributions(AnalysisJob job, String ref, JsonNode baseline, List<UUID> newlyHeld,
+            AnalysisRunStateService.PreparedState prepared) {
         var excluded = new java.util.HashSet<String>();
         newlyHeld.forEach(id -> excluded.add(id.toString()));
-        for (JsonNode reference : runStateService.getProjectedState(job).path("references")) {
+        for (JsonNode reference : (prepared == null ? runStateService.getProjectedState(job) : prepared.projectedState()).path("references")) {
             if (ref.equals(reference.path("targetRef").asText()) && reference.hasNonNull("automaticReviewHoldReason")) {
                 reference.path("sourceCandidateIds").forEach(id -> excluded.add(id.asText()));
             }
@@ -469,7 +494,8 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
     }
 
     private org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason projectedHold(
-            SettingCandidate candidate, CharacterSnapshotEntry proposed, List<CharacterSnapshotSlot> removals, JsonNode target) {
+            SettingCandidate candidate, CharacterSnapshotEntry proposed, List<CharacterSnapshotSlot> removals, JsonNode target,
+            AnalysisRunStateService.PreparedState prepared) {
         var incoming = org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(
                 candidate.getAnalysisJob(), candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope());
         if (org.monitoring.catchholebackend.domain.analysis.processor.SettingBookTemporalPolicy.requiresReview(incoming, List.of(), false)) {
@@ -478,7 +504,7 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
         if (candidate.getAnalysisJob().isAutomaticReview()) {
             String ref = candidate.getProvisionalSubjectKey() == null
                     ? CharacterAnalysisStateMapper.persistedRef(candidate.getMatchedCharacterId()) : candidate.getProvisionalSubjectKey();
-            for (JsonNode reference : runStateService.getProjectedState(candidate.getAnalysisJob()).path("references")) {
+            for (JsonNode reference : (prepared == null ? runStateService.getProjectedState(candidate.getAnalysisJob()) : prepared.projectedState()).path("references")) {
                 if ("characters".equals(reference.path("domain").asText()) && ref.equals(reference.path("targetRef").asText())
                         && proposed.slot().factType().name().equals(reference.path("factType").asText())
                         && proposed.slot().factKey().equals(reference.path("factKey").asText())

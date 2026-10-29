@@ -62,7 +62,7 @@ class OrderedWorldSettingWorkerTest {
     private final WorldSettingWorkerMapper mapper = new WorldSettingWorkerMapper();
     private final OrderedWorldSettingWorker worker = new OrderedWorldSettingWorker(new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisFailureDiagnosticsSanitizer(org.mockito.Mockito.mock(org.springframework.jdbc.core.JdbcTemplate.class)), stateService, journal,
             new AnalysisRunContextMapper(new org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper(new org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver())), candidates, batches, decisions, sources, settings, mapper,
-            new WorldSettingAnalysisStateMapper(), mock(AnalysisHumanRejectionPolicy.class));
+            new WorldSettingAnalysisStateMapper(), new AnalysisHumanRejectionPolicy(mock(org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository.class), candidates, journal));
     private AnalysisJob job;
     private WorldSettingCandidate candidate;
     private WorldSettingComparisonBatch batch;
@@ -107,6 +107,12 @@ class OrderedWorldSettingWorkerTest {
                 .putArray("currentSourceTimes").addObject().put("sourceKind", "EPISODE")
                 .put("sourceEpisodeNo", 1).put("temporalScope", "PRESENT");
         state.set(initial);
+        when(stateService.prepareState(job)).thenAnswer(call -> new AnalysisRunStateService.PreparedState() {
+            public JsonNode projectedState() { return stateService.getProjectedState(job); }
+            public void append(List<AnalysisStateChange> changes) {
+                stateService.appendValidatedChanges(job, job.getInputStateHash(), changes);
+            }
+        });
         when(stateService.getProjectedState(job)).thenAnswer(invocation -> state.get().deepCopy());
         doAnswer(invocation -> {
             List<AnalysisStateChange> changes = invocation.getArgument(2);
@@ -511,6 +517,28 @@ class OrderedWorldSettingWorkerTest {
         assertThat(failed.getComparisonDiagnostics()).allSatisfy(entry -> assertThat(entry.path("attempt").asInt()).isGreaterThanOrEqualTo(2));
         for (int index = 0; index < 8; index++) assertThat(failed.getComparisonDiagnostics().toString()).contains("RECOVERY_INVALID_" + index);
         assertThat(state.get().path("worldSettings").path(key).path("propertiesJson").path("서식지").asText()).isEqualTo("북부의 설원");
+    }
+
+    @Test
+    @DisplayName("앞 후보가 등록한 새 세계관 대상을 뒤 후보가 같은 준비 상태에서 참조한다")
+    void laterResolutionSeesNewIdentityWithoutPreparingAgain() {
+        var first = pendingCandidate("새 대상", "첫 설정", false);
+        var second = pendingCandidate("같은 대상", "다른 설정", false);
+        stubPending(List.of(first, second));
+        String newRef = WorldSettingAnalysisStateMapper.provisionalRef(first.getId());
+        var request = new org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorkerWorldSettingSubjectResolutionRequest(List.of(
+                new org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorkerWorldSettingSubjectResolutionRequest.SubjectResolutionInput(
+                        first.getId(), List.of()),
+                new org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorkerWorldSettingSubjectResolutionRequest.SubjectResolutionInput(
+                        second.getId(), List.of(), List.of(newRef), false)));
+        var result = worker.resolveSubjects(job, request);
+        assertThat(result.resolutions()).extracting(value -> value.canonicalSubjectKey())
+                .containsExactly(newRef, newRef);
+        assertThat(state.get().path("worldSettings").has(newRef)).isTrue();
+        verify(stateService, times(1)).prepareState(job);
+        verify(stateService, times(1)).appendValidatedChanges(eq(job), eq(job.getInputStateHash()), any());
+        assertThat(state.get().path("worldSettings").path(key).path("propertiesJson").path("서식지").asText())
+                .isEqualTo("북부");
     }
 
     @Test

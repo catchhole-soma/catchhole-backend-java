@@ -6,7 +6,9 @@ import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -41,17 +43,18 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
     @Override
     public JsonNode capture(Work work) {
         ObjectNode references = JsonNodeFactory.instance.objectNode();
+        MatchingSession matching = beginMatching();
         for (SettingCandidate candidate : characters.findAllByWorkIdAndReviewStatusOrderByCreatedAtDesc(
                 work.getId(), SettingCandidateReviewStatus.DISMISSED)) {
             if (candidate.isUserModified()) {
-                characterDescriptor(candidate).ifPresent(descriptor -> putReference(references, "characters",
+                characterDescriptor(candidate, matching).ifPresent(descriptor -> putReference(references, "characters",
                         candidate.getId(), candidate.getAnalysisJob(), descriptor));
             }
         }
         for (WorldSettingCandidate candidate : worldSettings.findAllByWorkIdAndReviewStatusOrderByCreatedAtDesc(
                 work.getId(), WorldSettingReviewStatus.DISMISSED)) {
             if (candidate.getReviewedBy() != null && candidate.getFinalOperation() == WorldSettingOperation.EXCLUDE) {
-                worldDescriptor(candidate).ifPresent(descriptor -> putReference(references, "worldSettings",
+                worldDescriptor(candidate, matching).ifPresent(descriptor -> putReference(references, "worldSettings",
                         candidate.getId(), candidate.getAnalysisJob(), descriptor));
             }
         }
@@ -59,11 +62,38 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
     }
 
     public Optional<JsonNode> match(SettingCandidate candidate, JsonNode state) {
-        return characterDescriptor(candidate).flatMap(descriptor -> find("characters", descriptor, state));
+        return beginMatching().match(candidate, state);
     }
 
     public Optional<JsonNode> match(WorldSettingCandidate candidate, JsonNode state) {
-        return worldDescriptor(candidate).flatMap(descriptor -> find("worldSettings", descriptor, state));
+        return beginMatching().match(candidate, state);
+    }
+
+    /** 한 요청의 후보 순회에서만 사용한다. 현재 references는 각 match 호출에서 다시 읽는다. */
+    public MatchingSession beginMatching() {
+        return new MatchingSession();
+    }
+
+    public final class MatchingSession {
+        private final Map<AnchorKey, Optional<SettingCandidate>> characterAnchors = new HashMap<>();
+        private final Map<AnchorKey, Optional<WorldSettingCandidate>> worldAnchors = new HashMap<>();
+
+        private MatchingSession() {}
+
+        public Optional<JsonNode> match(SettingCandidate candidate, JsonNode state) {
+            List<JsonNode> references = rejectionReferences("characters", state);
+            if (references.isEmpty()) return Optional.empty();
+            return characterDescriptor(candidate, this).flatMap(descriptor -> find(descriptor, references));
+        }
+
+        public Optional<JsonNode> match(WorldSettingCandidate candidate, JsonNode state) {
+            List<JsonNode> references = rejectionReferences("worldSettings", state);
+            if (references.isEmpty()) return Optional.empty();
+            return worldDescriptor(candidate, this).flatMap(descriptor -> find(descriptor, references));
+        }
+    }
+
+    private record AnchorKey(UUID workId, UUID candidateId) {
     }
 
     public AnalysisStateChange referenceChange(UUID sourceId, JsonNode rejection) {
@@ -77,16 +107,23 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
                 "EXCLUDE", List.of(sourceId));
     }
 
-    private Optional<JsonNode> find(String domain, ObjectNode descriptor, JsonNode state) {
-        if (state == null) {
-            return Optional.empty();
-        }
-        String fingerprint = journal.hash(descriptor);
+    private List<JsonNode> rejectionReferences(String domain, JsonNode state) {
+        if (state == null) return List.of();
+        List<JsonNode> references = new ArrayList<>();
         for (JsonNode reference : state.path("references")) {
             if (KIND.equals(reference.path("kind").asText())
                     && POLICY.equals(reference.path("policy").asText())
-                    && domain.equals(reference.path("domain").asText())
-                    && fingerprint.equals(reference.path("fingerprint").asText())) {
+                    && domain.equals(reference.path("domain").asText())) {
+                references.add(reference);
+            }
+        }
+        return references;
+    }
+
+    private Optional<JsonNode> find(ObjectNode descriptor, List<JsonNode> references) {
+        String fingerprint = journal.hash(descriptor);
+        for (JsonNode reference : references) {
+            if (fingerprint.equals(reference.path("fingerprint").asText())) {
                 return Optional.of(reference.deepCopy());
             }
         }
@@ -107,12 +144,12 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
         reference.put("rejectedSourceHash", source.getSourceContentHash());
     }
 
-    private Optional<ObjectNode> characterDescriptor(SettingCandidate candidate) {
+    private Optional<ObjectNode> characterDescriptor(SettingCandidate candidate, MatchingSession matching) {
         if (candidate.isCharacterDiscovery()) {
             return discoveryDescriptor(candidate);
         }
         ObjectNode result = source(candidate.getAnalysisJob(), candidate.getEvidenceSpans());
-        JsonNode identity = characterIdentity(candidate);
+        JsonNode identity = characterIdentity(candidate, matching);
         if (result == null || identity == null || !sameSource(candidate.getAnalysisJob(), candidate.getEpisode(), candidate.getSourceSettingBook(), candidate.getSourceSettingBookRevision())) {
             return Optional.empty();
         }
@@ -147,7 +184,7 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
         return Optional.of(result);
     }
 
-    private JsonNode characterIdentity(SettingCandidate candidate) {
+    private JsonNode characterIdentity(SettingCandidate candidate, MatchingSession matching) {
         if (candidate.getMatchedCharacterId() != null) {
             return JsonNodeFactory.instance.objectNode().put("actualCharacterId", candidate.getMatchedCharacterId().toString());
         }
@@ -155,7 +192,9 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
         if (anchorId == null) {
             return null;
         }
-        SettingCandidate anchor = characters.findByIdAndWorkId(anchorId, candidate.getWork().getId()).orElse(null);
+        AnchorKey key = new AnchorKey(candidate.getWork().getId(), anchorId);
+        SettingCandidate anchor = matching.characterAnchors.computeIfAbsent(key,
+                lookup -> characters.findByIdAndWorkId(lookup.candidateId(), lookup.workId())).orElse(null);
         if (anchor == null || !anchor.isCharacterDiscovery()) {
             return null;
         }
@@ -167,9 +206,9 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
         return identity;
     }
 
-    private Optional<ObjectNode> worldDescriptor(WorldSettingCandidate candidate) {
+    private Optional<ObjectNode> worldDescriptor(WorldSettingCandidate candidate, MatchingSession matching) {
         ObjectNode result = source(candidate.getAnalysisJob(), candidate.getEvidenceSpans());
-        JsonNode identity = worldIdentity(candidate);
+        JsonNode identity = worldIdentity(candidate, matching);
         if (result == null || identity == null || !sameSource(candidate.getAnalysisJob(), candidate.getSourceEpisode(), candidate.getSourceSettingBook(), candidate.getSourceSettingBookRevision())) {
             return Optional.empty();
         }
@@ -181,7 +220,7 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
         return Optional.of(result);
     }
 
-    private JsonNode worldIdentity(WorldSettingCandidate candidate) {
+    private JsonNode worldIdentity(WorldSettingCandidate candidate, MatchingSession matching) {
         if (candidate.getTargetWorldSetting() != null) {
             return JsonNodeFactory.instance.objectNode().put("actualWorldSettingId", candidate.getTargetWorldSetting().getId().toString());
         }
@@ -193,7 +232,9 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
         if (anchorId == null) {
             return null;
         }
-        WorldSettingCandidate anchor = worldSettings.findByIdAndWorkId(anchorId, candidate.getWork().getId()).orElse(null);
+        AnchorKey key = new AnchorKey(candidate.getWork().getId(), anchorId);
+        WorldSettingCandidate anchor = matching.worldAnchors.computeIfAbsent(key,
+                lookup -> worldSettings.findByIdAndWorkId(lookup.candidateId(), lookup.workId())).orElse(null);
         if (anchor == null) {
             return null;
         }
