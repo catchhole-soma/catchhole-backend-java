@@ -158,3 +158,8 @@ relationship:
   processing:
     scheduling-enabled: ${RELATIONSHIP_PROCESSING_SCHEDULING_ENABLED:true}
     fixed-delay-ms: ${RELATIONSHIP_PROCESSING_FIXED_DELAY_MS:10000}
+
+# 검수 예산은 명시 설정 전까지 두지 않는다. 일반 API는 실행 비활성으로 기동한다.
+validation:
+  execution:
+    enabled: ${VALIDATION_EXECUTION_ENABLED:false}

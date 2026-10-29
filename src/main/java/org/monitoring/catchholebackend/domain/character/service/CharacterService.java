@@ -42,6 +42,11 @@ public interface CharacterService {
             CharacterUpdateRequest request
     );
 
+    /** 검수 정정은 전체 편집 입력에서 지정한 현재 slot만 바뀌는지 저장 전에 확인한다. */
+    CharacterDetailResponse correctCharacterSetting(Long memberId, UUID workId, UUID characterId,
+            CharacterUpdateRequest request, long expectedSnapshotVersion,
+            org.monitoring.catchholebackend.domain.character.type.CharacterFactType factType, String factKey);
+
     /**
      * 화면의 삭제 요청을 처리하되 캐릭터와 설정 이력은 삭제하지 않고 ARCHIVED 상태로 전환한다.
      */

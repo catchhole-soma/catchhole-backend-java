@@ -151,8 +151,20 @@ public class CharacterServiceImpl implements CharacterService {
             UUID characterId,
             CharacterUpdateRequest request
     ) {
+        return updateCharacter(memberId, workId, characterId, request, null, null);
+    }
+
+    @Override @Transactional
+    public CharacterDetailResponse correctCharacterSetting(Long memberId, UUID workId, UUID characterId,
+            CharacterUpdateRequest request, long expectedSnapshotVersion, CharacterFactType factType, String factKey) {
+        return updateCharacter(memberId, workId, characterId, request, expectedSnapshotVersion, new CharacterSnapshotSlot(factType, factKey));
+    }
+
+    private CharacterDetailResponse updateCharacter(Long memberId, UUID workId, UUID characterId,
+            CharacterUpdateRequest request, Long expectedSnapshotVersion, CharacterSnapshotSlot correctionSlot) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
         WorkCharacter character = getActiveCharacterForUpdate(work.getId(), characterId);
+        if (expectedSnapshotVersion != null && character.getSnapshotVersion() != expectedSnapshotVersion) throw correctionConflict();
         String name = request.name().trim();
         boolean nameChanged = !Objects.equals(character.getName(), name);
         if (nameChanged && workCharacterRepository.existsByWorkIdAndNameAndStatusAndIdNot(
@@ -178,6 +190,16 @@ public class CharacterServiceImpl implements CharacterService {
         Map<CharacterSnapshotSlot, DesiredFact> desiredFacts = toDesiredFacts(request, schemas, snapshotEntries);
         String roleLabel = normalizeNullableText(request.roleLabel());
         UUID firstAppearanceEpisodeId = firstAppearanceEpisode == null ? null : firstAppearanceEpisode.getId();
+        if (correctionSlot != null) {
+            Set<CharacterSnapshotSlot> changedSlots = new HashSet<>();
+            snapshotEntries.forEach((slot, value) -> {
+                if (slot.factType() != CharacterFactType.TIME && (!desiredFacts.containsKey(slot) || !isSameValue(value, desiredFacts.get(slot)))) changedSlots.add(slot);
+            });
+            desiredFacts.forEach((slot, value) -> { if (!snapshotEntries.containsKey(slot)) changedSlots.add(slot); });
+            if (nameChanged || !Objects.equals(character.getRoleLabel(), roleLabel)
+                    || !Objects.equals(character.getFirstAppearanceEpisodeId(), firstAppearanceEpisodeId)
+                    || !snapshotEntries.containsKey(correctionSlot) || !changedSlots.equals(Set.of(correctionSlot))) throw correctionConflict();
+        }
         boolean changed = nameChanged
                 || !Objects.equals(character.getRoleLabel(), roleLabel)
                 || !Objects.equals(character.getFirstAppearanceEpisodeId(), firstAppearanceEpisodeId)
@@ -196,6 +218,10 @@ public class CharacterServiceImpl implements CharacterService {
         applyManualCorrections(character, snapshotEntries, desiredFacts);
         automaticImages.refreshCharacterImages(List.of(character));
         return toDetailResponse(character, firstAppearanceEpisode, schemas);
+    }
+
+    private AppException correctionConflict() {
+        return new AppException(org.monitoring.catchholebackend.domain.validation.exception.ValidationErrorCode.VALIDATION_CORRECTION_CONFLICT);
     }
 
     @Override

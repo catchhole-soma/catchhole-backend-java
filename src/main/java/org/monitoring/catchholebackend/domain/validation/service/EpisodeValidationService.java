@@ -32,6 +32,7 @@ public class EpisodeValidationService {
     private final ValidationRequestKeyRepository keys;
     private final AnalysisStateJournal journal;
     private final EntityManager em;
+    private final ValidationWorkerService workers;
 
     @Transactional
     public ValidationStagingResponse start(Long memberId, UUID workId, ValidationStartRequest request) {
@@ -42,10 +43,16 @@ public class EpisodeValidationService {
                 .put("version", request.expectedContentS3Version());
         String hash = journal.hash(input);
         var keyed = keys.findByWorkIdAndRequestKey(workId, request.idempotencyKey());
-        if (keyed.isPresent()) return sameInput(keyed.get().getReport(), hash);
-        var prior = reports.findByEpisodeId(request.episodeId());
+        if (keyed.isPresent()) {
+            if (!"START".equals(keyed.get().getRequestKind()) || !hash.equals(keyed.get().getRequestHash())) throw error(ValidationErrorCode.VALIDATION_IDEMPOTENCY_CONFLICT);
+            workers.queuePrepared(keyed.get().getReport());
+            return ValidationStagingResponse.from(keyed.get().getReport());
+        }
+        var prior = reports.findByEpisodeIdAndCurrentTrue(request.episodeId());
         if (prior.isPresent()) {
             if (!prior.get().getWork().getId().equals(workId)) throw error(ValidationErrorCode.VALIDATION_TARGET_INVALID);
+            // 최초 접수의 새 키 복구는 최초 report에만 허용한다. 재검수 입력을 start로 대체하지 않는다.
+            if (prior.get().getRevision() != 1) throw error(ValidationErrorCode.VALIDATION_TARGET_INVALID);
             var response = sameInput(prior.get(), hash);
             keys.save(ValidationRequestKey.create(work, request.idempotencyKey(), prior.get()));
             return response;
@@ -73,7 +80,9 @@ public class EpisodeValidationService {
         if (!priorEpisode && !hasComparisonMaterial(workId)) throw error(ValidationErrorCode.VALIDATION_COMPARISON_MATERIAL_REQUIRED);
         var report = reports.save(ValidationReport.create(work, episode, file.getBatch(), hash));
         baselines.prepare(report);
+        workers.queuePrepared(report);
         keys.save(ValidationRequestKey.create(work, request.idempotencyKey(), report));
+        em.flush();
         return ValidationStagingResponse.from(report);
     }
 
@@ -92,6 +101,7 @@ public class EpisodeValidationService {
     }
     private ValidationStagingResponse sameInput(ValidationReport report, String hash) {
         if (!report.getRequestHash().equals(hash)) throw error(ValidationErrorCode.VALIDATION_IDEMPOTENCY_CONFLICT);
+        workers.queuePrepared(report);
         return ValidationStagingResponse.from(report);
     }
     private AppException error(ValidationErrorCode code) { return new AppException(code); }

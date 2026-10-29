@@ -37,6 +37,7 @@ public class WorkPurgeServiceImpl implements WorkPurgeService, MemberWorkPurgeCo
     private final AiTokenService aiTokenService;
     private final WorkPurgeMapper purgeMapper;
     private final WorkPurgeProperties properties;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationExecutionLifecycle validations;
     private final org.monitoring.catchholebackend.domain.chat.service.ChatServiceImpl chatService;
 
     @Override
@@ -90,7 +91,8 @@ public class WorkPurgeServiceImpl implements WorkPurgeService, MemberWorkPurgeCo
                 workId,
                 ACTIVE_JOB_STATUSES
         );
-        boolean runningJobCanceled = activeJobs.stream()
+        boolean validationRunning = validations.cancelForWorkPurge(workId);
+        boolean runningJobCanceled = validationRunning || activeJobs.stream()
                 .anyMatch(job -> job.getStatus() == AnalysisJobStatus.RUNNING);
         activeJobs.forEach(job -> {
             job.cancelForWorkPurge();

@@ -100,7 +100,7 @@ public class AnalysisBatchSummaryRepository {
     public List<ValidationRow> readValidations(UUID workId, List<UUID> batchIds) {
         if (batchIds.isEmpty()) return List.of();
         List<ValidationRow> result = new ArrayList<>();
-        for (Object[] row : query("select batch_id,id,episode_id,source_episode_no,status,baseline_status,hold_reason,updated_at from validation_reports where work_id = :workId and batch_id in (:batchIds) order by created_at desc,id desc", workId, batchIds)) {
+        for (Object[] row : query("select batch_id,id,episode_id,source_episode_no,status,baseline_status,hold_reason,updated_at from validation_reports where is_current = true and work_id = :workId and batch_id in (:batchIds) order by created_at desc,id desc", workId, batchIds)) {
             result.add(new ValidationRow(uuid(row[0]), new org.monitoring.catchholebackend.domain.validation.dto.response.ValidationRequestSummaryResponse(
                     uuid(row[1]), uuid(row[2]), number(row[3]), org.monitoring.catchholebackend.domain.validation.type.ValidationReportStatus.valueOf((String)row[4]),
                     org.monitoring.catchholebackend.domain.validation.type.ValidationPreparationStatus.valueOf((String)row[5]), (String)row[6]), time(row[7])));

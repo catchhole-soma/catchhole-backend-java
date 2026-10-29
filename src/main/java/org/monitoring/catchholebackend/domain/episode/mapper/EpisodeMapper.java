@@ -59,7 +59,7 @@ public class EpisodeMapper {
                 episode.getCharCount(),
                 episode.getStatus(),
                 episode.getCreatedAt(),
-                episode.getUpdatedAt()
+                episode.getUpdatedAt(), episode.getContentRevision()
         );
     }
 

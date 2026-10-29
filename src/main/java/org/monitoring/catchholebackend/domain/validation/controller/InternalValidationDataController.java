@@ -20,9 +20,12 @@ public class InternalValidationDataController {
     private final ValidationDataMapper mapper;
 
     @PostMapping
-    @Operation(summary = "고정 검수 기준과 원문 읽기", description = "내부 API key로 인증한 서버가 회원·작품·report와 예상 fingerprint를 고정합니다. 추출·검토 완료·결과 저장 또는 Worker lease를 생성하지 않습니다.")
+    @Operation(summary = "고정 검수 기준과 원문 읽기", description = "내부 API key로 인증한 서버가 회원·작품·report와 예상 fingerprint를 고정합니다. 전용 Job이 있으면 해당 Job ID와 실제 claim lease를 읽기 전후 확인합니다. 추출·결과·lease를 이 경로에서 생성하지 않습니다.")
     public CommonResponse<Map<String, Object>> readValidationData(@RequestHeader("X-Validation-Member-Id") Long memberId,
-            @PathVariable UUID workId, @PathVariable UUID reportId, @Valid @RequestBody ValidationDataRequest request) {
-        return CommonResponse.success(mapper.toTransport(service.readValidationData(memberId, workId, reportId, request)));
+            @PathVariable UUID workId, @PathVariable UUID reportId,
+            @RequestHeader(value="X-Validation-Job-Id",required=false) UUID jobId,
+            @RequestHeader(value="X-Worker-Lease-Token",required=false) UUID leaseToken,
+            @Valid @RequestBody ValidationDataRequest request) {
+        return CommonResponse.success(mapper.toTransport(service.readValidationData(memberId, workId, reportId, request, jobId, leaseToken)));
     }
 }
