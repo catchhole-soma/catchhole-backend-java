@@ -38,3 +38,8 @@ COMMENT ON COLUMN validation_settings_applications.request_hash IS 'Hash of {rep
 COMMENT ON COLUMN validation_settings_applications.last_error_code IS 'AppException code (or UNEXPECTED_ERROR) of the attempt whose application transaction was rolled back.';
 COMMENT ON COLUMN validation_settings_applications.report_version IS 'Report version after this attempt advanced it, so replays return the same response.';
 COMMENT ON COLUMN validation_settings_applications.status IS 'HELD_REVIEW or APPLIED. FAILED is reserved and not written in S3; rolled-back attempts stay HELD_REVIEW with UNKNOWN_ERROR.';
+-- The automatic stage of a held release job is finished without writing settings. automatic_applied_at stays NULL
+-- (it is the actual-application evidence used by diagnostic rechecks); this marker opens direct candidate review and saved decisions.
+ALTER TABLE analysis_jobs ADD COLUMN review_application_held_at TIMESTAMP;
+ALTER TABLE analysis_jobs ADD CONSTRAINT ck_analysis_job_review_application_held CHECK (review_application_held_at IS NULL OR automatic_applied_at IS NULL);
+COMMENT ON COLUMN analysis_jobs.review_application_held_at IS 'GH312 S3: release job whose whole-episode settings application is HELD_REVIEW. Cleared when APPLIED sets automatic_applied_at.';

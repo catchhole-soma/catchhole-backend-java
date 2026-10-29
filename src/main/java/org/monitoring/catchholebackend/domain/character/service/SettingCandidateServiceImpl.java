@@ -273,8 +273,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         candidate.validateReviewContentEditable();
         validateComparisonNotProcessing(candidate);
         if (request.reviewedApplicationMode() != null) {
-            // 저장한 반영 방식은 다음 확정의 입력이다. release 회차는 회차 전체 확정만 반영하므로 이 선택 저장도 막는다(GH312 S3).
-            analysisConfirmation.assertManualWriteAllowed(candidate);
+            // 저장한 반영 방식은 확정이 아니라 결정 초안이다. release 회차는 회차 전체 확정이 이 결정을 반영한다(GH312 S3).
             validateExplicitReviewRequest(candidate, request);
         }
         boolean manualFinalReview = isSingleJobManualReviewGroup(candidate);
@@ -566,6 +565,20 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         reviewSources.validate(work, request.batchId(), sourceAnalysisJobId, true);
         uploadBatchRepository.findByIdAndWorkId(request.batchId(), work.getId())
                 .orElseThrow(() -> new AppException(CharacterErrorCode.SETTING_CANDIDATE_BATCH_NOT_FOUND));
+        return confirmSettingCandidateGroupCore(memberId, work, request, sourceAnalysisJobId, true);
+    }
+
+    /**
+     * 공개 그룹 확정의 검증·반영 본문. 호출자가 Work를 잠갔다. manualConfirmation=false는 GH312 S3 회차 전체 확정이
+     * 저장된 작가 결정을 같은 규칙으로 반영할 때만 쓰며 release 회차의 사람 확정 차단 하나만 건너뛴다.
+     */
+    private SettingCandidateGroupConfirmResult confirmSettingCandidateGroupCore(
+            Long memberId,
+            Work work,
+            SettingCandidateGroupConfirmRequest request,
+            UUID sourceAnalysisJobId,
+            boolean manualConfirmation
+    ) {
         Map<UUID, SettingCandidateGroupConfirmDecision> decisions = new LinkedHashMap<>();
         request.candidates().forEach(decision -> {
             if (decisions.putIfAbsent(decision.candidateId(), decision) != null) {
@@ -577,7 +590,7 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
                         work.getId(), request.batchId(), decisions.keySet()
                 , sourceAnalysisJobId))
         );
-        candidates.forEach(analysisConfirmation::assertManualWriteAllowed);
+        if (manualConfirmation) candidates.forEach(analysisConfirmation::assertManualWriteAllowed);
         String decisionHash = groupDecisionHash(request);
         if (candidates.size() == decisions.size()
                 && candidates.stream().noneMatch(SettingCandidate::isPendingReview)) {
@@ -929,6 +942,50 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
 
     @Override
     public String applicationDomain() { return "characters"; }
+
+    /** 반영 방식을 저장한 후보 또는 작가가 연결·등록 이름을 정한 인물 발견이 있는 그룹(공개 그룹 확정과 같은 group key). */
+    @Override
+    public List<List<UUID>> reviewedDecisionGroups(AnalysisJob job) {
+        Map<String, List<UUID>> groups = new LinkedHashMap<>();
+        Set<String> decided = new HashSet<>();
+        for (SettingCandidate candidate : SettingCandidateChronology.sorted(
+                settingCandidateRepository.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(job.getId()))) {
+            if (!candidate.isPendingReview()) continue;
+            String key = groupKey(candidate);
+            groups.computeIfAbsent(key, ignored -> new ArrayList<>()).add(candidate.getId());
+            if (hasReviewedDecision(candidate)) decided.add(key);
+        }
+        return groups.entrySet().stream().filter(entry -> decided.contains(entry.getKey()))
+                .map(entry -> List.copyOf(entry.getValue())).toList();
+    }
+
+    public static boolean hasReviewedDecision(SettingCandidate candidate) {
+        return candidate.getReviewedApplicationMode() != null || candidate.isCharacterDiscovery() && candidate.isUserModified();
+    }
+
+    /**
+     * 화면의 그룹 확정과 같은 요청을 저장 상태에서 만든다. 저장한 반영 방식(없으면 제안 반영), 직접 수정 값 반영,
+     * 후보 updatedAt을 그대로 보내므로 검증·반영은 공개 그룹 확정 본문이 담당한다. 확정이 그룹 key를 바꿀 수 있어 매번 다시 묶는다.
+     */
+    @Override
+    @Transactional
+    public void applyReviewedDecisions(AnalysisJob job) {
+        Long memberId = job.getWork().getMember().getId();
+        for (int round = 0; ; round++) {
+            List<List<UUID>> groups = reviewedDecisionGroups(job);
+            if (groups.isEmpty()) return;
+            if (round > 10_000) throw new IllegalStateException("작가 결정 그룹 반영이 끝나지 않습니다.");
+            List<SettingCandidateGroupConfirmDecision> decisions = groups.getFirst().stream()
+                    .map(id -> settingCandidateRepository.findById(id).orElseThrow(() -> new AppException(CharacterErrorCode.SETTING_CANDIDATE_NOT_FOUND)))
+                    .map(candidate -> new SettingCandidateGroupConfirmDecision(candidate.getId(),
+                            candidate.getReviewedApplicationMode() == null ? CharacterFactConfirmApplicationMode.APPLY_PROPOSAL : candidate.getReviewedApplicationMode(),
+                            null, !candidate.isCharacterDiscovery() && candidate.isUserModified(), candidate.getUpdatedAt()))
+                    .toList();
+            var result = confirmSettingCandidateGroupCore(memberId, job.getWork(),
+                    new SettingCandidateGroupConfirmRequest(job.getBatch().getId(), decisions), job.getId(), false);
+            if (result.recomparisonRequired()) throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STALE);
+        }
+    }
 
     @Override
     @Transactional

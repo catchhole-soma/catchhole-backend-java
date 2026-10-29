@@ -96,13 +96,16 @@ public class ValidationSettingsApplicationServiceImpl implements ValidationSetti
     }
 
     /**
-     * 기존 자동 반영 규칙을 캐릭터 → 세계관 순서로 같은 트랜잭션에서 실행한다. contributor의 보류 기록·검증 실패 흡수는 그대로지만
+     * 캐릭터 → 세계관 순서로 같은 트랜잭션에서 도메인마다 작가 결정 그룹을 공개 그룹 확정 본문으로 먼저 반영하고 나머지를 기존 자동 반영 규칙으로 반영한다.
+     * 확정된 후보는 검토 대기가 아니므로 자동 반영이 다시 반영하거나 보류하지 않는다. contributor의 검증 실패 흡수는 그대로지만
      * 실행 뒤 검토 대기 후보가 하나라도 남거나 예외가 나면 이 트랜잭션은 부분 반영이므로 VALIDATION_APPLICATION_ROLLED_BACK으로 전체를 되돌린다.
+     * receipt는 도메인 쓰기 전에 APPLIED로 기록한다. 같은 트랜잭션이라 실패하면 함께 되돌려지고, 확정 설정 변경의 report 무효화는 APPLIED report를 건너뛴다.
      */
     private ValidationSettingsApplication applyPlan(ValidationSettingsApplication receipt,ValidationApplicationGate.Decision decision,ValidationReviewTrigger trigger,String key,String hash) {
         var job=decision.plan().job();List<ValidationApplicationHoldReason> left;
+        var r=receipt.getReport();r.advanceVersion();receipt.apply(trigger,key,hash,r.getVersion());var saved=save(receipt);
         try {
-            for(var contributor:orderedContributors())contributor.applyAutomatically(job);
+            for(var contributor:orderedContributors()) {contributor.applyReviewedDecisions(job);contributor.applyAutomatically(job);}
             em.flush();left=gate.leftovers(job);
         } catch(AppException e) {
             if(ValidationSettingsApplicationService.isRolledBack(e))throw e;
@@ -112,12 +115,15 @@ public class ValidationSettingsApplicationServiceImpl implements ValidationSetti
             throw rolledBack(List.of(ValidationApplicationHoldReason.episode(ValidationApplicationHoldCode.UNKNOWN_ERROR,"UNEXPECTED_ERROR")),"UNEXPECTED_ERROR");
         }
         if(!left.isEmpty())throw rolledBack(left,null);
-        job.completeReviewReleaseApplication();
-        var r=receipt.getReport();r.advanceVersion();receipt.apply(trigger,key,hash,r.getVersion());
-        return save(receipt);
+        job.completeReviewReleaseApplication();em.flush();
+        return saved;
     }
+    /** 보류는 확정 설정을 쓰지 않는다. 추출이 SEALED면 release Job의 자동 단계를 끝내 작가가 후보를 직접 검토·결정할 수 있게 한다(automaticAppliedAt은 null). */
     private ValidationSettingsApplication hold(ValidationSettingsApplication receipt,ValidationReviewTrigger trigger,String key,String hash,List<ValidationApplicationHoldReason> reasons,String errorCode) {
         var r=receipt.getReport();r.advanceVersion();receipt.hold(trigger,key,hash,mapper.toHoldReasonTree(reasons),errorCode,r.getVersion());
+        var job=receipt.getCompletion().getExtractionJob();
+        if(job.getJournalStatus()==org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.SEALED&&job.getAutomaticAppliedAt()==null
+                &&(job.getStatus()==org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING||job.getStatus()==org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.SUCCEEDED))job.holdReviewReleaseApplication();
         return save(receipt);
     }
     private ValidationSettingsApplication save(ValidationSettingsApplication receipt) {var saved=receipt.getId()==null?applications.save(receipt):receipt;em.flush();return saved;}

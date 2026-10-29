@@ -20,8 +20,9 @@ import org.springframework.stereotype.Component;
 import static org.monitoring.catchholebackend.domain.validation.type.ValidationApplicationHoldCode.*;
 
 /**
- * GH312 S3 회차 전체 확정의 사전 평가. 상태를 바꾸지 않는다. 기존 자동 반영 규칙(contributor)이 그대로 받아들일 후보만 READY로 보고
- * 하나라도 아니면 HELD다. 반영 단계의 실제 보류는 {@link #leftovers}가 같은 트랜잭션에서 다시 확인해 전체를 되돌리게 한다.
+ * GH312 S3 회차 전체 확정의 사전 평가. 상태를 바꾸지 않는다. 작가가 결정을 저장한 후보의 그룹은 공개 그룹 확정 규칙으로,
+ * 나머지는 기존 자동 반영 규칙(contributor)으로 판정해 모두 반영 가능할 때만 READY다. 결정 없는 검토 대상은 DECISION_PENDING이다.
+ * 반영 단계의 실제 보류는 {@link #leftovers}가 같은 트랜잭션에서 다시 확인해 전체를 되돌리게 한다.
  */
 @Component @RequiredArgsConstructor
 public class ValidationApplicationGate {
@@ -33,6 +34,7 @@ public class ValidationApplicationGate {
     private final WorkCharacterRepository workCharacters;
     private final SettingCandidateSchemaResolver schemaResolver;
     private final CharacterSettingValueValidator values;
+    private final List<org.monitoring.catchholebackend.domain.analysis.service.AnalysisAutomaticApplicationContributor> contributors;
 
     public enum Kind { READY, HELD, NOT_READY }
     /** READY의 반영 순서. 캐릭터 발견 → 캐릭터 설정(원문 순서) → 세계관(원문 순서)이며 기존 contributor의 순서와 같다. */
@@ -59,14 +61,21 @@ public class ValidationApplicationGate {
         var characterIds=new ArrayList<UUID>();var worldIds=new ArrayList<UUID>();
         if(sealed) {
             var schemaList=schemas.findAllActiveForWork(r.getWork().getId());
+            // 결정 그룹은 반영과 같은 contributor 판정을 쓴다. 공개 그룹 확정 본문은 완료(SUCCEEDED) 분석에서만 늦은 검토 경로를 타므로
+            // 추출 완료 트랜잭션(RUNNING) 안에서는 결정 그룹을 반영하지 않고 명시 반영으로 넘긴다(정상 흐름에서는 이때 결정이 없다).
+            var reviewed=new HashSet<UUID>();for(var contributor:contributors)contributor.reviewedDecisionGroups(job).forEach(reviewed::addAll);
+            boolean completing=job.getStatus()==AnalysisJobStatus.RUNNING;
             var ordered=SettingCandidateChronology.sorted(characters.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(job.getId()));
             var applicationOrder=new ArrayList<SettingCandidate>();ordered.stream().filter(SettingCandidate::isCharacterDiscovery).forEach(applicationOrder::add);ordered.stream().filter(c->!c.isCharacterDiscovery()).forEach(applicationOrder::add);
             for(var c:applicationOrder) {
-                if(!c.isPendingReview())continue;var hold=character(c,schemaList);
+                if(!c.isPendingReview())continue;
+                var hold=!reviewed.contains(c.getId())?undecided(character(c,schemaList),c.getComparisonStatus()==CharacterFactComparisonStatus.FAILED&&!c.canDeferFailedComparison())
+                        :completing?hold(CANDIDATE_CHANGED,c,"SAVED_DECISION_NEEDS_EXPLICIT_APPLICATION"):reviewedCharacter(c,schemaList);
                 if(hold==null)characterIds.add(c.getId());else reasons.add(hold);
             }
             for(var w:worlds.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(job.getId()).stream().sorted(WorldSettingCandidateChronology.comparator()).toList()) {
-                if(!w.isPendingReview())continue;var hold=world(w);
+                if(!w.isPendingReview())continue;
+                var hold=!reviewed.contains(w.getId())?undecided(world(w),false):completing?hold(CANDIDATE_CHANGED,w,"SAVED_DECISION_NEEDS_EXPLICIT_APPLICATION"):reviewedWorld(w);
                 if(hold==null)worldIds.add(w.getId());else reasons.add(hold);
             }
         }
@@ -84,9 +93,12 @@ public class ValidationApplicationGate {
         return List.copyOf(out);
     }
 
-    /** SettingCandidateServiceImpl.applyAutomatically의 수용 조건과 같은 순서의 사전 판정. null이면 반영 계획에 넣는다. */
+    /**
+     * 결정 그룹 밖 후보: SettingCandidateServiceImpl.applyAutomatically의 수용 조건과 같은 순서의 사전 판정. null이면 자동 반영 계획이다.
+     * 반환 코드는 {@link #undecided}가 결정으로 해소할 수 있는 사유를 DECISION_PENDING으로 바꾼다.
+     */
     private ValidationApplicationHoldReason character(SettingCandidate c,List<org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema> schemaList) {
-        if(c.isUserModified()||c.getReviewedApplicationMode()!=null)return hold(AUTHOR_EDIT_PENDING,c,null);
+        if(c.isUserModified())return hold(REVIEW_REQUIRED,c,"AUTHOR_EDIT_WITHOUT_APPLICATION_MODE");
         if(unknownName(c.getEntityName())||c.getMatchStatus()==SettingCandidateMatchStatus.AMBIGUOUS
                 ||c.getMatchedCharacterId()==null&&c.getProvisionalSubjectKey()==null)return hold(SUBJECT_UNRESOLVED,c,c.getMatchStatus()==null?null:c.getMatchStatus().name());
         // 미연결 발견의 이름이 이미 등록 인물이면 자동 반영은 같은 대상 확인을 요구한다.
@@ -108,9 +120,44 @@ public class ValidationApplicationGate {
         return null;
     }
 
-    /** WorldSettingCandidateServiceImpl.isAutomaticCandidate와 같은 조건의 사전 판정. */
+    /**
+     * 결정 그룹의 캐릭터 후보: 공개 그룹 확정(완료 분석의 늦은 검토)이 받아들이는지. 결정 있는 후보는 저장한 반영 방식·수정 값으로,
+     * 결정 없는 같은 그룹 후보는 제안 반영(APPLY_PROPOSAL)으로 확정되므로 자동 판정과 같은 조건을 요구한다.
+     */
+    private ValidationApplicationHoldReason reviewedCharacter(SettingCandidate c,List<org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema> schemaList) {
+        boolean decided=org.monitoring.catchholebackend.domain.character.service.SettingCandidateServiceImpl.hasReviewedDecision(c);
+        if(!decided)return undecided(character(c,schemaList),c.getComparisonStatus()==CharacterFactComparisonStatus.FAILED&&!c.canDeferFailedComparison());
+        if(c.getMatchStatus()==SettingCandidateMatchStatus.AMBIGUOUS||c.getMatchedCharacterId()==null&&unknownName(c.getEntityName()))
+            return hold(SUBJECT_UNRESOLVED,c,c.getMatchStatus()==null?null:c.getMatchStatus().name());
+        if(c.isCharacterDiscovery())return null;
+        try {
+            var match=schemaResolver.resolve(c.getAttributeName(),c.getValueType(),schemaList);
+            var validation=values.evaluateCandidate(c,match.matchedSchema().getFactType(),match.matchedSchema().getValueType());
+            if(validation.isInvalid())return hold(VALUE_INVALID,c,validation.errorCode().name());
+        } catch(AppException e) {return hold(VALUE_INVALID,c,e.getResultCode().getCode());}
+        var status=c.getComparisonStatus();
+        if(status==CharacterFactComparisonStatus.PENDING||status==CharacterFactComparisonStatus.PROCESSING)return hold(COMPARISON_PENDING,c,status.name());
+        if(status==CharacterFactComparisonStatus.FAILED&&!c.canDeferFailedComparison())return hold(COMPARISON_FAILED,c,c.getComparisonFailureCode()==null?null:c.getComparisonFailureCode().name());
+        return null;
+    }
+
+    /** 결정 그룹의 세계관 후보: 결정 있는 후보는 비교가 끝났으면 반영, 결정 없는 같은 그룹 후보는 AI 제안 그대로 확정 가능한지 본다. */
+    private ValidationApplicationHoldReason reviewedWorld(WorldSettingCandidate w) {
+        if(w.getFinalOperation()==null)return undecided(world(w),false);
+        if(w.getComparisonStatus()==WorldSettingComparisonStatus.PENDING||w.getComparisonStatus()==WorldSettingComparisonStatus.PROCESSING)return hold(COMPARISON_PENDING,w,w.getComparisonStatus().name());
+        return null;
+    }
+
+    /** 결정으로 해소할 수 있는 사유는 DECISION_PENDING(detail=원래 코드[:detail])이다. 진행 중 비교·사용량 중단·재비교 필요 실패는 그대로 둔다. */
+    private static ValidationApplicationHoldReason undecided(ValidationApplicationHoldReason hold,boolean nonDeferrableFailure) {
+        if(hold==null||!DECIDABLE.contains(hold.code())||hold.code()==COMPARISON_FAILED&&nonDeferrableFailure)return hold;
+        var detail=hold.detail()==null||hold.detail().equals(hold.code().name())?hold.code().name():hold.code().name()+":"+hold.detail();
+        return new ValidationApplicationHoldReason(DECISION_PENDING,hold.candidateType(),hold.candidateId(),detail);
+    }
+    private static final Set<ValidationApplicationHoldCode> DECIDABLE=EnumSet.of(REVIEW_REQUIRED,COMPARISON_FAILED,VALUE_INVALID,SUBJECT_UNRESOLVED,SCOPE_UNRESOLVED);
+
+    /** 결정 그룹 밖 세계관 후보: WorldSettingCandidateServiceImpl.isAutomaticCandidate와 같은 조건의 사전 판정. */
     private ValidationApplicationHoldReason world(WorldSettingCandidate w) {
-        if(w.getFinalOperation()!=null)return hold(AUTHOR_EDIT_PENDING,w,w.getFinalOperation().name());
         var status=w.getComparisonStatus();
         if(status==WorldSettingComparisonStatus.PENDING||status==WorldSettingComparisonStatus.PROCESSING)return hold(COMPARISON_PENDING,w,status.name());
         if(status==WorldSettingComparisonStatus.FAILED)return hold(w.getComparisonFailureCode()==AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED?TOKEN_QUOTA:COMPARISON_FAILED,w,w.getComparisonFailureCode()==null?null:w.getComparisonFailureCode().name());

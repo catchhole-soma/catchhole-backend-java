@@ -9,20 +9,23 @@ public enum ValidationApplicationHoldCode {
     SOURCE_CHANGED,
     /** 비교가 아직 끝나지 않았거나 캐릭터 연결을 기다린다. */
     COMPARISON_PENDING,
-    /** 비교 실패 또는 재비교 필요. */
+    /** 결정으로 해소할 수 없는 비교 실패(재비교·재개 필요). */
     COMPARISON_FAILED,
     /** 비교가 AI 사용량 소진으로 중단됐다. */
     TOKEN_QUOTA,
-    /** AI 비교가 검토 필요·병합 충돌을 제안했거나 자동 반영 보류 사유가 있다. detail에 원래 사유를 둔다. */
+    /** 결정 없는 후보의 DECISION_PENDING detail로 쓰는 원래 사유: AI 검토 필요·병합 충돌·자동 반영 보류. */
     REVIEW_REQUIRED,
-    /** 후보 값이 현재 schema 계약에 맞지 않는다(valueValidation INVALID). */
+    /** 후보 값이 현재 schema 계약에 맞지 않는다(valueValidation INVALID). 결정을 저장한 후보는 이 코드로, 결정이 없으면 DECISION_PENDING으로 보류한다. */
     VALUE_INVALID,
-    /** 대상 인물·세계관 주체를 특정할 수 없다(미상·모호·연결 대기·주체 해소 실패). */
+    /** 대상 인물·세계관 주체를 특정할 수 없다(미상·모호·연결 대기·주체 해소 실패). 결정이 없으면 DECISION_PENDING detail이다. */
     SUBJECT_UNRESOLVED,
-    /** 세계관 범위를 정할 수 없거나 기존 범위와 다르다. */
+    /** 세계관 범위를 정할 수 없거나 기존 범위와 다르다. 결정이 없으면 DECISION_PENDING detail이다. */
     SCOPE_UNRESOLVED,
-    /** 작가가 값·반영 방식·최종 결정을 직접 저장한 후보. S3의 회차 전체 확정은 자동 반영 규칙으로 판정 가능한 후보만 반영한다. */
-    AUTHOR_EDIT_PENDING,
+    /**
+     * 자동 반영 규칙으로 반영할 수 없는 후보(검토 필요·비교 실패·값 형식 오류·대상/범위 미정·반영 방식 없는 직접 수정)에 작가의 저장된 결정이 없다.
+     * detail은 원래 사유 코드다. 캐릭터 반영 방식 저장(PATCH)이나 세계관 최종 결정 초안 저장 뒤 다시 반영하면 그 결정대로 확정한다.
+     */
+    DECISION_PENDING,
     /** 계획 뒤 실제 반영 단계에서 기존 자동 반영 규칙이 후보를 보류했다(현재 설정 변경·의존·보호 등). detail에 원래 사유를 둔다. */
     CANDIDATE_CHANGED,
     /** 반영 트랜잭션이 예외로 전부 되돌려졌다. detail과 lastErrorCode에 오류 코드를 둔다. */

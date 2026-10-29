@@ -35,6 +35,7 @@ public class ValidationRecheckServiceImpl implements ValidationRecheckService {
     private final ValidationWorkerService workers;
     private final org.monitoring.catchholebackend.domain.validation.processor.ValidationReviewGate reviewGate;
     private final org.monitoring.catchholebackend.domain.validation.processor.ValidationExecutionAccess access;
+    private final ValidationSettingsApplicationRepository settingsApplications;
 
     @Override @Transactional
     public ValidationStagingResponse recheckValidation(Long memberId,UUID workId,UUID reportId,ValidationRecheckRequest request) {
@@ -71,7 +72,10 @@ public class ValidationRecheckServiceImpl implements ValidationRecheckService {
                 || previous.getBaselineFingerprint()==null && previous.getBaselineSeed()!=null) {
             throw error(ValidationErrorCode.VALIDATION_SOURCE_VERSION_CONFLICT);
         }
-        if(previous.getBaselineFingerprint()!=null && previous.getStatus()!=ValidationReportStatus.INVALIDATED && target.getContentRevision()==previous.getSourceContentRevision()
+        // GH312 S3: 회차 전체 확정 APPLIED report는 무효화하지 않으므로, 확정으로 바뀐 기준 입력을 진단 재검수할 수 있게 같은 원고도 허용한다.
+        if(previous.getBaselineFingerprint()!=null && previous.getStatus()!=ValidationReportStatus.INVALIDATED
+                && !settingsApplications.existsByReportIdAndStatus(previous.getId(),org.monitoring.catchholebackend.domain.validation.type.ValidationApplicationStatus.APPLIED)
+                && target.getContentRevision()==previous.getSourceContentRevision()
                 && Objects.equals(target.getContentHash(),previous.getSourceContentHash()) && Objects.equals(target.getContentS3Key(),previous.getSourceContentS3Key())
                 && Objects.equals(target.getContentS3Version(),previous.getSourceContentS3Version())) throw error(ValidationErrorCode.VALIDATION_RECHECK_INPUT_UNCHANGED);
         var application=previousApplication(workId,target.getId());
