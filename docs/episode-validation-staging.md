@@ -34,8 +34,9 @@ Work 잠금 안에서 report와 대상의 **접수 당시 batch/episodeNo/hash/k
 |---|---|
 | `reportId`, `baselineId` | 같은 검수 원장 UUID |
 | `batchId`, `episodeId` | 접수 당시 업로드와 대상 회차 |
-| `validationJobId` | `null` — 오류 검사 Worker 미구현 |
-| `extractionJobId`, `candidateGeneration`, `candidateDigest` | 모두 `null` — 설정 추출을 시작하지 않음 |
+| `validationJobId`, `executionStatus` | GH310 전용 검사 실행. 실행 전 `null`/`NOT_STARTED` |
+| `extractionJobId` | 검토 종료 전 `null`. GH312 S2 검토 종료 receipt가 만든 release Job ID(`docs/validation-review-v1.md`) |
+| `candidateGeneration`, `candidateDigest` | 계속 `null` |
 | `extractionStatus`, `candidateStatus` | 접수 시 모두 `NOT_STARTED` — 설정 추출을 시작하지 않음(검토 종료 뒤 값은 `docs/validation-review-v1.md`) |
 | `errorReviewStatus` | GH312 S1 작가 판단 진행(`NOT_STARTED`/`PENDING`/`READY`/`INVALIDATED`). READY도 추출을 시작하지 않는다. `docs/validation-review-v1.md` |
 | `baselineStatus` | `PENDING`, `READY`, `FAILED`, `INVALIDATED` |
@@ -43,6 +44,7 @@ Work 잠금 안에서 report와 대상의 **접수 당시 batch/episodeNo/hash/k
 | `holdReason` | `BASELINE_EVIDENCE_INVALID`, `BASELINE_SOURCE_UNAVAILABLE`, `BASELINE_SEED_INVALID`, `SOURCE_EVIDENCE_PURGED` 등 |
 | `confirmedStateHash`, `baselineHash` | 고정 확정 state/기준 seed hash |
 | `sourcePreparationStatus` | `NOT_PREPARED` — 검색/원문 전체 검사 완료를 주장하지 않음 |
+| `reviewStage` | GH312 S4 파생 검수 단계. 원고 목록·배치 요약·이력과 같은 계산식(`docs/validation-review-v1.md`) |
 
 현재 JSON의 `reviewComplete`/`approved`나 빈 findings 같은 클라이언트 값은 승인 증거가 아니며 추출을 시작하지 않는다. release API도 없다. 미래 상태/버튼 이름은 아래 제품 원칙이며 현재 DTO 필드나 실행 가능한 계약으로 오해하지 않는다.
 
@@ -64,9 +66,9 @@ Work 잠금 안에서 report와 대상의 **접수 당시 batch/episodeNo/hash/k
 
 ## Job 없는 목록
 
-원고 목록은 report의 얇은 회차별 상태 projection으로 `ERROR_REVIEW_PREPARING/PENDING/HELD/INVALIDATED`와 `validationReportId`를 표시한다. `latestAnalysisJobId`는 null이다. 회차 상세의 `status`는 기존 원고 처리 상태이며 검사 완료를 의미하지 않는다.
+원고 목록은 report의 얇은 회차별 상태 projection으로 `ERROR_REVIEW_PREPARING/PENDING/HELD/INVALIDATED`와 `validationReportId`를 표시한다. `latestAnalysisJobId`는 null이다. 회차 상세의 `status`는 기존 원고 처리 상태이며 검사 완료를 의미하지 않는다. 같은 projection의 `validationReviewStage`가 검토 종료·추출·회차 전체 확정 단계를 함께 제공한다(GH312 S4).
 
-분석 배치 목록은 접수 당시 배치의 no-job report도 포함하고 별도 `validationReports`를 반환한다. 가짜 Job/group 또는 추출 성공 건수를 만들지 않는다. 기존 일반 자동/수동/순차/설정집 Job의 완료·반영·metrics 의미와 후행 claim 조건은 유지한다.
+분석 배치 목록은 접수 당시 배치의 no-job report도 포함하고 별도 `validationReports`를 반환한다. 가짜 Job/group 또는 추출 성공 건수를 만들지 않는다. 기존 일반 자동/수동/순차/설정집 Job의 완료·반영·metrics 의미와 후행 claim 조건은 유지한다. 각 `validationReports[]` 항목은 `reviewStage`를 포함하고, 회차 전체 확정이 보류된 release Job은 배치 Job 집계에서 실패가 아니라 성공으로 센다(GH312 S4).
 
 ## 후속 제품 원칙 — 아직 실행 가능한 release 계약 아님
 
@@ -97,7 +99,7 @@ Swagger/API 수동 확인은 별도 개발 DB와 합성 원고로 한다. 현재
 5. 추출 전 파일 교체를 호출해 성공하고 기존 report가 INVALIDATED, 복사 기준이 정리되었는지 확인한다. 원고 정정 후 새 검수 세대 전체 동선은 아직 제공하지 않는다.
 6. 검수 report가 없는 별도 회차/작품에서 기존 설정 구축 자동·직접 검토·순차·설정집 분석이 정상인지 회귀 확인한다.
 
-오류 Worker와 실제 검토 완료 release가 없으므로 이 수동 확인으로 원문 검사부터 최종 설정 확정까지 완료되었다고 주장하지 않는다.
+이 절차는 #303 접수·차단 확인용이다. 검사 실행·작가 검토·release·회차 전체 확정까지의 확인은 `docs/validation-review-v1.md`의 "작가가 해볼 시나리오"를 따른다.
 
 ### 기존 비교 완료와 기준 변경의 직렬화
 
