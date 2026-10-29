@@ -107,6 +107,12 @@ class CatchHoleBackendApplicationTests {
     private org.monitoring.catchholebackend.domain.validation.repository.ValidationCorrectionRepository validationCorrectionRepository;
 
     @MockitoBean
+    private org.monitoring.catchholebackend.domain.validation.repository.ValidationJudgmentRepository validationJudgmentRepository;
+
+    @MockitoBean
+    private org.monitoring.catchholebackend.domain.validation.repository.ValidationJudgmentHistoryRepository validationJudgmentHistoryRepository;
+
+    @MockitoBean
     private org.monitoring.catchholebackend.domain.episode.repository.EpisodeUploadPolicyRepository episodeUploadPolicyRepository;
 
     @MockitoBean

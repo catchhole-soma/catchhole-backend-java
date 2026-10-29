@@ -1,0 +1,77 @@
+package org.monitoring.catchholebackend.domain.validation;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.monitoring.catchholebackend.domain.validation.type.ValidationExecutionStatus.*;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.monitoring.catchholebackend.domain.validation.processor.ValidationReviewGate;
+import org.monitoring.catchholebackend.domain.validation.processor.ValidationReviewGate.*;
+import org.monitoring.catchholebackend.domain.validation.type.*;
+
+@DisplayName("작가 검토 종료 경로와 판단 잠금 계산")
+class ValidationReviewGateTest {
+    static final Counts DECIDED=new Counts(2,0,0,2,1,0,0,1);
+    Review evaluate(boolean current,ValidationPreparationStatus baseline,ValidationReportStatus status,ValidationReportMode mode,ValidationExecutionStatus execution,Counts counts) {
+        return ValidationReviewGate.evaluate(new Input(current,baseline,status,mode,execution,counts,true));
+    }
+    Review ready(ValidationReportMode mode,ValidationExecutionStatus execution,Counts counts) {return evaluate(true,ValidationPreparationStatus.READY,ValidationReportStatus.WAITING_FOR_ERROR_REVIEW,mode,execution,counts);}
+
+    @Test @DisplayName("정상 완료 0건은 자동 추출 후보, 모두 판단한 항목은 명시 검토 완료 대상이다")
+    void completedReportsChooseAutomaticOrExplicitPath() {
+        var automatic=ready(ValidationReportMode.BEFORE_CONFIRMATION,COMPLETED,Counts.EMPTY);
+        assertThat(automatic.completionMode()).isEqualTo(ValidationReviewCompletionMode.AUTOMATIC_ELIGIBLE);assertThat(automatic.canCompleteReview()).isFalse();
+        assertThat(automatic.holdReasons()).isEmpty();assertThat(automatic.errorReviewStatus()).isEqualTo(ValidationPreparationStatus.READY);
+        var explicit=ready(ValidationReportMode.BEFORE_CONFIRMATION,COMPLETED,DECIDED);
+        assertThat(explicit.completionMode()).isEqualTo(ValidationReviewCompletionMode.EXPLICIT_REQUIRED);assertThat(explicit.canCompleteReview()).isTrue();
+        assertThat(explicit.allowedActions()).containsExactly(ValidationReviewAction.SAVE_JUDGMENT,ValidationReviewAction.COMPLETE_REVIEW);
+    }
+
+    @Test @DisplayName("진단 report는 판단을 마쳐도 검토 종료 경로를 열지 않는다")
+    void diagnosticOnlyIsAlwaysBlocked() {
+        for(var counts:new Counts[]{Counts.EMPTY,DECIDED}) {
+            var review=ready(ValidationReportMode.DIAGNOSTIC_ONLY,COMPLETED,counts);
+            assertThat(review.completionMode()).isEqualTo(ValidationReviewCompletionMode.BLOCKED);assertThat(review.holdReasons()).containsExactly(ValidationReviewHoldReason.DIAGNOSTIC_ONLY);
+            assertThat(review.allowedActions()).doesNotContain(ValidationReviewAction.COMPLETE_REVIEW);assertThat(review.errorReviewStatus()).isEqualTo(ValidationPreparationStatus.PENDING);
+        }
+        assertThat(ready(ValidationReportMode.DIAGNOSTIC_ONLY,COMPLETED,DECIDED).judgmentLocked()).isFalse();
+    }
+
+    @Test @DisplayName("미검토·수정 필요·미완료 실행 사유를 함께 보고한다")
+    void blockedReasonsAccumulate() {
+        var review=ready(ValidationReportMode.BEFORE_CONFIRMATION,PARTIAL,new Counts(2,1,1,0,1,0,0,1));
+        assertThat(review.holdReasons()).containsExactly(ValidationReviewHoldReason.EXECUTION_NOT_COMPLETED,ValidationReviewHoldReason.PENDING_JUDGMENTS,ValidationReviewHoldReason.NEEDS_FIX_PENDING);
+        assertThat(review.allowedActions()).containsExactly(ValidationReviewAction.SAVE_JUDGMENT,ValidationReviewAction.RETRY);assertThat(review.errorReviewStatus()).isEqualTo(ValidationPreparationStatus.NOT_STARTED);
+    }
+
+    @Test @DisplayName("무효 report와 준비되지 않은 기준은 판단을 잠그고 재검수만 안내한다")
+    void invalidatedAndUnpreparedReportsLockJudgments() {
+        var invalid=evaluate(true,ValidationPreparationStatus.INVALIDATED,ValidationReportStatus.INVALIDATED,ValidationReportMode.BEFORE_CONFIRMATION,CANCELED,Counts.EMPTY);
+        assertThat(invalid.lockReason()).isEqualTo(ValidationReviewLockReason.REPORT_INVALIDATED);assertThat(invalid.holdReasons()).contains(ValidationReviewHoldReason.REPORT_INVALIDATED);
+        assertThat(invalid.allowedActions()).containsExactly(ValidationReviewAction.RECHECK);assertThat(invalid.errorReviewStatus()).isEqualTo(ValidationPreparationStatus.INVALIDATED);
+        var retired=evaluate(false,ValidationPreparationStatus.INVALIDATED,ValidationReportStatus.INVALIDATED,ValidationReportMode.BEFORE_CONFIRMATION,COMPLETED,DECIDED);
+        assertThat(retired.allowedActions()).isEmpty();assertThat(retired.completionMode()).isEqualTo(ValidationReviewCompletionMode.BLOCKED);
+        var held=evaluate(true,ValidationPreparationStatus.FAILED,ValidationReportStatus.HELD_INCOMPLETE,ValidationReportMode.DIAGNOSTIC_ONLY,NOT_STARTED,Counts.EMPTY);
+        assertThat(held.lockReason()).isEqualTo(ValidationReviewLockReason.BASELINE_NOT_READY);assertThat(held.holdReasons()).contains(ValidationReviewHoldReason.BASELINE_NOT_READY,ValidationReviewHoldReason.DIAGNOSTIC_ONLY);
+    }
+
+    @ParameterizedTest @EnumSource(ValidationExecutionStatus.class) @DisplayName("판단 저장은 COMPLETED·PARTIAL·FAILED에서만 열린다")
+    void judgmentWindowFollowsExecutionStatus(ValidationExecutionStatus execution) {
+        var reason=ValidationReviewGate.lockReason(true,ValidationPreparationStatus.READY,ValidationReportStatus.WAITING_FOR_ERROR_REVIEW,execution);
+        switch(execution) {
+            case COMPLETED,PARTIAL,FAILED->assertThat(reason).isNull();
+            case NOT_STARTED->assertThat(reason).isEqualTo(ValidationReviewLockReason.EXECUTION_NOT_STARTED);
+            case CANCELED->assertThat(reason).isEqualTo(ValidationReviewLockReason.EXECUTION_CANCELED);
+            default->assertThat(reason).isEqualTo(ValidationReviewLockReason.EXECUTION_IN_PROGRESS);
+        }
+    }
+
+    @Test @DisplayName("분기마다 허용 판단을 분리한다")
+    void allowedJudgmentsPerBranch() {
+        assertThat(ValidationJudgmentValue.allowedFor(ValidationBranch.SETTING)).containsExactly(ValidationJudgmentValue.PENDING,ValidationJudgmentValue.NEEDS_FIX,ValidationJudgmentValue.NOT_CONFLICT);
+        assertThat(ValidationJudgmentValue.allowedFor(ValidationBranch.TYPO)).containsExactly(ValidationJudgmentValue.PENDING,ValidationJudgmentValue.NEEDS_FIX,ValidationJudgmentValue.KEEP_ORIGINAL);
+        assertThat(ValidationJudgmentValue.KEEP_ORIGINAL.allowedIn(ValidationBranch.SETTING)).isFalse();assertThat(ValidationJudgmentValue.NOT_CONFLICT.allowedIn(ValidationBranch.TYPO)).isFalse();
+    }
+}
