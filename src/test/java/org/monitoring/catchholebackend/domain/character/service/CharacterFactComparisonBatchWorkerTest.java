@@ -4,6 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.same;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -27,6 +31,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobLeaseService;
+import org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
@@ -96,6 +101,8 @@ class CharacterFactComparisonBatchWorkerTest {
     @Mock
     private CharacterAnalysisStateService analysisStateService;
     @Mock
+    private AnalysisRunStateService.PreparedState preparedState;
+    @Mock
     private CharacterFactComparisonJobCoordinator comparisonJobCoordinator;
 
     @Mock private CharacterAnalysisStateSource analysisStateSource;
@@ -131,6 +138,9 @@ class CharacterFactComparisonBatchWorkerTest {
         when(analysisStateSource.captureCharacter(any(WorkCharacter.class))).thenAnswer(invocation ->
                 new org.monitoring.catchholebackend.domain.character.mapper.CharacterAnalysisStateMapper()
                         .toState(invocation.getArgument(0), Map.of(), Map.of()));
+        when(analysisStateService.prepareState(any())).thenReturn(preparedState);
+        when(analysisStateService.getTarget(any(), any(), any(), any())).thenAnswer(invocation ->
+                analysisStateService.getTarget(invocation.getArgument(0), invocation.getArgument(1), invocation.getArgument(2)));
         Member member = Member.register("batch-worker@example.com", "password", "01012345678", "작가");
         work = Work.create(member, "묶음 비교 작품", WorkGenre.FANTASY, "테스트");
         ReflectionTestUtils.setField(work, "id", UUID.randomUUID());
@@ -272,7 +282,7 @@ class CharacterFactComparisonBatchWorkerTest {
                 .path("factKey").asText()).isEqualTo("status.앞회차_0");
         assertThat(state.path("slots")).hasSize(1);
         org.mockito.Mockito.verify(analysisStateService).recordDecision(eq(analysisJob), eq(candidate),
-                any(), any(), any());
+                any(), any(), any(), isNull(), same(preparedState));
     }
 
     @Test
@@ -608,7 +618,7 @@ class CharacterFactComparisonBatchWorkerTest {
         assertThat(List.of(first, second)).allSatisfy(row ->
                 assertThat(row.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.FAILED));
         assertThat(batches.get(claim.comparisonBatchId()).getStatus()).isEqualTo(CharacterFactComparisonBatchStatus.FAILED);
-        org.mockito.Mockito.verify(analysisStateService, org.mockito.Mockito.never()).recordDecision(any(), any(), any(), any(), any());
+        org.mockito.Mockito.verify(analysisStateService, org.mockito.Mockito.never()).recordDecision(any(), any(), any(), any(), any(), any(), any());
         first.retryFailedOrderedComparison();
         assertThat(first.getMatchedCharacterId()).isEqualTo(character.getId());
         assertThat(first.getCharacterComparisonBatch()).isNull();
@@ -634,7 +644,7 @@ class CharacterFactComparisonBatchWorkerTest {
         assertThat(failed.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.FAILED);
         assertThat(batches.get(claim.comparisonBatchId()).getStatus()).isEqualTo(CharacterFactComparisonBatchStatus.COMPLETED);
         org.mockito.Mockito.verify(analysisStateService, org.mockito.Mockito.times(1))
-                .recordDecision(eq(analysisJob), eq(first), any(), any(), any());
+                .recordDecision(eq(analysisJob), eq(first), any(), any(), any(), isNull(), same(preparedState));
         assertThat(failed.getAttributeValue()).isEqualTo("생명력 5%");
     }
 
@@ -655,7 +665,7 @@ class CharacterFactComparisonBatchWorkerTest {
         assertThat(List.of(failed, later)).allSatisfy(candidate ->
                 assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.PROCESSING));
         org.mockito.Mockito.verify(analysisStateService, org.mockito.Mockito.never())
-                .recordDecision(any(), any(), any(), any(), any());
+                .recordDecision(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -1290,7 +1300,9 @@ class CharacterFactComparisonBatchWorkerTest {
         }
         var originalEvidence = candidates.stream().map(row -> row.getEvidenceSpans().deepCopy()).toList();
         var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
+        verify(schemaRepository, times(1)).findAllActiveForWork(work.getId());
         var context = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken);
+        verify(schemaRepository, times(2)).findAllActiveForWork(work.getId());
 
         assertThat(claim.candidates()).hasSize(25);
         assertThat(claim.candidates()).extracting(WorkerCharacterFactComparisonBatchPayload.Candidate::rawFactKey)
@@ -1304,8 +1316,13 @@ class CharacterFactComparisonBatchWorkerTest {
                 .mapToObj(index -> historyOnly("C" + index, "status.상태_" + index)).toList();
         worker.complete(analysisJobId, claim.comparisonBatchId(), leaseToken,
                 new WorkerCharacterFactComparisonBatchCompleteRequest(context.contextToken(), decisions, List.of(), Map.of()));
+        verify(schemaRepository, times(3)).findAllActiveForWork(work.getId());
+        verify(analysisStateService, times(1)).prepareState(analysisJob);
+        verify(analysisStateService, times(25)).getTarget(eq(analysisJob), eq(character.getId()), isNull(), same(preparedState));
+        verify(analysisStateService, times(25)).recordDecision(eq(analysisJob), any(), any(), any(), any(), isNull(), same(preparedState));
         assertThat(candidates).allMatch(row -> row.getComparisonStatus() == CharacterFactComparisonStatus.COMPLETED);
         assertThat(worker.claimNext(analysisJobId, leaseToken)).isEmpty();
+        verify(schemaRepository, times(3)).findAllActiveForWork(work.getId());
     }
 
     @Test

@@ -72,6 +72,12 @@ class AnalysisHumanRejectionPolicyTest {
             state.set(journal.apply(state.get(), changes));
             return null;
         }).when(states).appendValidatedChanges(eq(nextJob), any(), any());
+        when(states.prepareState(nextJob)).thenAnswer(call -> new AnalysisRunStateService.PreparedState() {
+            @Override public JsonNode projectedState() { return states.getProjectedState(nextJob); }
+            @Override public void append(List<AnalysisStateChange> changes) {
+                states.appendValidatedChanges(nextJob, nextJob.getInputStateHash(), changes);
+            }
+        });
     }
 
     @Test
@@ -224,6 +230,114 @@ class AnalysisHumanRejectionPolicyTest {
         assertThat(policy.match(extracted, state.get())).isPresent();
         ReflectionTestUtils.setField(newAnchor, "evidenceSpans", evidence(30));
         assertThat(policy.match(extracted, state.get())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("해당 도메인의 반려 정책이 없으면 후보와 발견 원문을 조회하지 않는다")
+    void matchingSkipsDescriptorsWhenDomainHasNoHumanRejection() {
+        var character = mock(SettingCandidate.class);
+        var world = mock(WorldSettingCandidate.class);
+        var matching = policy.beginMatching();
+        ObjectNode current = journal.emptyState();
+        ObjectNode reference = current.withObject("references").putObject("other");
+        reference.put("kind", AnalysisHumanRejectionPolicy.KIND);
+        reference.put("policy", AnalysisHumanRejectionPolicy.POLICY);
+        reference.put("domain", "worldSettings");
+        assertThat(matching.match(character, current)).isEmpty();
+        reference.put("domain", "characters");
+        assertThat(matching.match(world, current)).isEmpty();
+        reference.put("policy", "UNSUPPORTED");
+        assertThat(matching.match(character, current)).isEmpty();
+        assertThat(policy.match(character, null)).isEmpty();
+        assertThat(policy.match(world, journal.emptyState())).isEmpty();
+        verifyNoInteractions(character, world, characters, worlds);
+    }
+
+    @Test
+    @DisplayName("한 요청의 같은 발견 인물은 한 번 조회하고 반려 결과는 독립 복사로 반환한다")
+    void matchingReusesCharacterAnchorWithoutSharingReturnedReference() {
+        SettingCandidate anchor = discovery(priorJob, 1);
+        SettingCandidate rejected = character(priorJob, "북부 출신", 4);
+        provisional(rejected, anchor);
+        rejected.recordUserModification();
+        rejected.dismiss();
+        capture(List.of(rejected), List.of());
+        SettingCandidate first = character(nextJob, "북부 출신", 4);
+        SettingCandidate second = character(nextJob, "북부 출신", 4);
+        provisional(first, anchor);
+        provisional(second, anchor);
+        clearInvocations(characters, worlds);
+        var matching = policy.beginMatching();
+
+        JsonNode reference = matching.match(first, state.get()).orElseThrow();
+        ((ObjectNode) reference).put("fingerprint", "changed outside the session");
+        assertThat(matching.match(second, state.get())).isPresent();
+        verify(characters, times(1)).findByIdAndWorkId(anchor.getId(), work.getId());
+        verifyNoInteractions(worlds);
+        assertThat(policy.match(first, state.get())).isPresent();
+        verify(characters, times(2)).findByIdAndWorkId(anchor.getId(), work.getId());
+    }
+
+    @Test
+    @DisplayName("같은 세계관 발견 후보를 재사용해도 각 호출의 최신 반려 기록을 읽는다")
+    void worldMatchingReusesAnchorAndObservesReferenceChanges() {
+        WorldSettingCandidate anchor = world(priorJob, "북부", 1);
+        WorldSettingCandidate rejected = world(priorJob, "북부", 4);
+        provisional(rejected, anchor);
+        rejected.dismiss(null, work.getMember());
+        capture(List.of(), List.of(rejected));
+        JsonNode capturedReferences = state.get().path("references").deepCopy();
+        WorldSettingCandidate first = world(nextJob, "북부", 4);
+        WorldSettingCandidate second = world(nextJob, "북부", 4);
+        provisional(first, anchor);
+        provisional(second, anchor);
+        clearInvocations(characters, worlds);
+        var matching = policy.beginMatching();
+        ObjectNode current = journal.emptyState();
+
+        assertThat(matching.match(first, current)).isEmpty();
+        verifyNoInteractions(worlds);
+        current.set("references", capturedReferences);
+        assertThat(matching.match(first, current)).isPresent();
+        assertThat(matching.match(second, current)).isPresent();
+        current.withObject("references").removeAll();
+        assertThat(matching.match(second, current)).isEmpty();
+        verify(worlds, times(1)).findByIdAndWorkId(anchor.getId(), work.getId());
+        verifyNoInteractions(characters);
+    }
+
+    @Test
+    @DisplayName("발견 후보 캐시는 작품별로 나뉘며 조회 실패도 요청 안에서만 재사용한다")
+    void missingAnchorCacheIsWorkScopedAndDoesNotOutliveSession() {
+        WorldSettingCandidate anchor = world(priorJob, "북부", 1);
+        WorldSettingCandidate rejected = world(priorJob, "북부", 4);
+        provisional(rejected, anchor);
+        rejected.dismiss(null, work.getMember());
+        capture(List.of(), List.of(rejected));
+        WorldSettingCandidate candidate = world(nextJob, "북부", 4);
+        provisional(candidate, anchor);
+        Work otherWork = Work.create(work.getMember(), "다른 작품", WorkGenre.FANTASY, "설명");
+        ReflectionTestUtils.setField(otherWork, "id", UUID.randomUUID());
+        WorldSettingCandidate foreignAnchor = world(nextJob, "북부", 4);
+        provisional(foreignAnchor, anchor);
+        ReflectionTestUtils.setField(foreignAnchor, "work", otherWork);
+        when(worlds.findByIdAndWorkId(anchor.getId(), otherWork.getId())).thenReturn(Optional.empty());
+        clearInvocations(worlds);
+        var matching = policy.beginMatching();
+
+        assertThat(matching.match(candidate, state.get())).isPresent();
+        assertThat(matching.match(foreignAnchor, state.get())).isEmpty();
+        assertThat(matching.match(foreignAnchor, state.get())).isEmpty();
+        verify(worlds, times(1)).findByIdAndWorkId(anchor.getId(), work.getId());
+        verify(worlds, times(1)).findByIdAndWorkId(anchor.getId(), otherWork.getId());
+        assertThat(policy.beginMatching().match(foreignAnchor, state.get())).isEmpty();
+        verify(worlds, times(2)).findByIdAndWorkId(anchor.getId(), otherWork.getId());
+    }
+
+    private void provisional(WorldSettingCandidate candidate, WorldSettingCandidate anchor) {
+        ReflectionTestUtils.setField(candidate, "provisionalSubjectKey", "provisional-world:" + anchor.getId());
+        ReflectionTestUtils.setField(candidate, "resolvedTargetWorldSettingIds", JsonNodeFactory.instance.arrayNode());
+        when(worlds.findByIdAndWorkId(anchor.getId(), work.getId())).thenReturn(Optional.of(anchor));
     }
 
     private void provisional(SettingCandidate candidate, SettingCandidate anchor) {

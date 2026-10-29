@@ -66,6 +66,12 @@ class CharacterDiscoveryRejectionTest {
         ReflectionTestUtils.setField(episode, "id", UUID.randomUUID());
         priorJob = job();
         job = job();
+        when(states.prepareState(job)).thenAnswer(call -> new AnalysisRunStateService.PreparedState() {
+            public JsonNode projectedState() { return states.getProjectedState(job); }
+            public void append(List<AnalysisStateChange> changes) {
+                states.appendValidatedChanges(job, job.getInputStateHash(), changes);
+            }
+        });
         when(states.getProjectedState(job)).thenAnswer(call -> projected.get().deepCopy());
         doAnswer(call -> {
             List<AnalysisStateChange> changes = call.getArgument(2);
@@ -96,6 +102,8 @@ class CharacterDiscoveryRejectionTest {
         service.prepareProvisionalCandidates(job);
 
         assertThat(projected.get().toString()).isEqualTo(firstProjection);
+        org.mockito.Mockito.verify(candidates, org.mockito.Mockito.times(2))
+                .findByIdAndWorkId(repeated.getId(), work.getId());
         assertThat(projected.get().path("characters").has(repeated.getProvisionalSubjectKey())).isFalse();
         assertThat(projected.get().path("characters").has(namesake.getProvisionalSubjectKey())).isTrue();
         assertThat(repeated.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.NOT_REQUIRED);
