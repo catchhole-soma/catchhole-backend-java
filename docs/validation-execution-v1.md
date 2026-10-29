@@ -70,6 +70,8 @@ V91에서 이미 파기해 fingerprint가 없거나 최초 캡처 실패로 seed
 - 세계관: targetId, expectedVersion과 기존 WorldSettingPropertyUpdateRequest를 받는다.
   기준의 대상 identity·전체 properties·version과 실제 현재값을 대조하고 기존 서비스가 current scope/path,
   목적 scope/path·충돌·수동 보호를 검증한다. 영수증은 실제 저장한 before/after와 version을 기록한다.
+  old/new 경로는 편집 전후 `WorldSetting.getStoredPropertyPath`가 반환한 실제 저장 이름을 사용한다.
+  공백·대소문자·NFC alias 요청 문자열을 그대로 정정 scope에 저장하거나 별도 정규화기로 다시 해석하지 않는다.
 
 현재 baseline과 일치하지 않는 과거 항목, worldHistory, 다른 대상, 모호한 범위와 stale version은
 `VALIDATION_CORRECTION_CONFLICT` 또는 report version 충돌로 거절한다. BASELINE_ONLY 철회는 지원하지 않는다.
@@ -88,10 +90,15 @@ Python의 GH306 단수 `explicitAuthorCorrection`은 자유 문자열 질문 sco
 `previousApplicationReceipt`는 실제 `automaticAppliedAt` Job, CONFIRMED 캐릭터 후보 또는 CONFIRMED 세계관 후보 ID를
 구분한다. 단순 SUCCEEDED를 확정으로 추정하지 않는다. 캐릭터 후보에는 별도 확정 시각이 없어 `appliedAt=null`이다.
 개별 후보 확정은 해당 이력의 증거이며 회차 전체 APPLIED 완료를 뜻하지 않는다.
+Job이 없는 legacy 캐릭터 확정도 직접 회차의 실제 후보 ID를 보존하고 null Job receipt로 진단을 보류한다.
 해당 원고/target membership의 PENDING/RUNNING 추출·비교 Job이 있으면 재검수를 거절해 진행 중 실행을 끊지 않는다.
 
 검증 가능한 확정 전 입력이 있을 때만 진단 기준을 준비한다. 현재 지원하는 이력은 hash가 일치하는
 SEALED ordered 자동 입력 또는 첫 순번 수동 runBaseState다. 현재/후행 회차 provenance가 있으면 거절한다.
+Work 잠금 안에서 그 입력에 저장한 출처 ID/hash와 실제 후보·Job의 저장 위치·현재 수명도 검증한다.
+참조 회차의 파기가 대기 중이면 retained 원문 key가 있어도 진단을 보류한다. 완료된 후행 Job의 이전 입력도
+지연 파기 때 redacted될 수 있기 때문이다. 현재 원문의 manifest로 과거 출처를 다시 연결하지 않는다.
+이 진단 전용 검증은 새 원문에서 직접 캡처한 일반 기준의 retained-key 허용을 바꾸지 않는다.
 그 입력의 실제 정정 receipt가 있다면 검증한 단일 slot/path만 순서대로 정정하며 다른 live 현재값을 섞지 않는다.
 확정 전 자료가 없거나 입력 출처가 파기되어 hash를 검증할 수 없으면
 `HELD_INCOMPLETE + DIAGNOSTIC_BASELINE_UNAVAILABLE`로 남긴다. 현재 설정 fallback이나 과거 상태 추측을 하지 않는다.
