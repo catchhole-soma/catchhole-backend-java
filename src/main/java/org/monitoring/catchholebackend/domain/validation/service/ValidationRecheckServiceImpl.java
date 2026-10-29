@@ -88,7 +88,7 @@ public class ValidationRecheckServiceImpl implements ValidationRecheckService {
         var automatic=em.createQuery("select j from AnalysisJob j where j.work.id=:work and j.automaticAppliedAt is not null and (j.episode.id=:episode or exists (select t.id from AnalysisJob owner join owner.targetEpisodes t where owner.id=j.id and t.id=:episode)) order by j.automaticAppliedAt desc,j.id desc",AnalysisJob.class)
                 .setParameter("work",workId).setParameter("episode",episodeId).setMaxResults(1).getResultList();
         if(!automatic.isEmpty()) {var j=automatic.getFirst();return new ValidationApplicationReference("AUTOMATIC_APPLICATION",j.getId(),j.getId(),j.getAutomaticAppliedAt());}
-        var character=em.createQuery("select c from SettingCandidate c where c.work.id=:work and c.reviewStatus='CONFIRMED' and (c.episode.id=:episode or c.analysisJob.episode.id=:episode) order by c.id desc",SettingCandidate.class)
+        var character=em.createQuery("select c from SettingCandidate c left join c.analysisJob j where c.work.id=:work and c.reviewStatus='CONFIRMED' and (c.episode.id=:episode or j.episode.id=:episode) order by c.id desc",SettingCandidate.class)
                 .setParameter("work",workId).setParameter("episode",episodeId).setMaxResults(1).getResultList();
         if(!character.isEmpty()) {var c=character.getFirst();return new ValidationApplicationReference("CHARACTER_CONFIRMATION",c.getId(),c.getAnalysisJob()==null?null:c.getAnalysisJob().getId(),null);}
         var world=em.createQuery("select c from WorldSettingCandidate c where c.work.id=:work and c.reviewStatus='CONFIRMED' and (c.sourceEpisode.id=:episode or c.analysisJob.episode.id=:episode) order by c.reviewedAt desc,c.id desc",WorldSettingCandidate.class)

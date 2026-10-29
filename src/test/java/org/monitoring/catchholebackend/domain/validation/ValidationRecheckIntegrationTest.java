@@ -83,6 +83,27 @@ class ValidationRecheckIntegrationTest extends ValidationRecheckFixture {
         assertThat(confirmed.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.CONFIRMED);
         assertThat(em.createQuery("select count(j) from AnalysisJob j",Long.class).getSingleResult()).isEqualTo(1);
     }
+    @Test void legacyCharacterConfirmationWithoutJobStillRequiresHeldDiagnostic() throws Exception {
+        var first=start();
+        var confirmed=org.monitoring.catchholebackend.domain.character.entity.SettingCandidate.create(work,target,null,null,
+                org.monitoring.catchholebackend.domain.character.type.SettingEntityType.CHARACTER,"합성 인물","합성 인물",character.getId(),
+                org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus.MATCHED,"age","20",
+                org.monitoring.catchholebackend.domain.character.type.SettingValueType.NUMBER,JsonNodeFactory.instance.objectNode().put("value",20),
+                JsonNodeFactory.instance.arrayNode(),BigDecimal.ONE,null);
+        ReflectionTestUtils.setField(confirmed,"reviewStatus",org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CONFIRMED);em.persist(confirmed);
+        states.confirmedSettingsChanged(work.getId());world.updateProperty("서식지","서식지","live fallback을 금지할 값");em.flush();
+        var result=postOk(recheckPath(first),recheck(first,"legacy-no-job"));
+        assertThat(result.path("mode").asText()).isEqualTo("DIAGNOSTIC_ONLY");
+        assertThat(result.path("previousApplicationReceipt").path("kind").asText()).isEqualTo("CHARACTER_CONFIRMATION");
+        assertThat(result.path("previousApplicationReceipt").path("applicationId").asText()).isEqualTo(confirmed.getId().toString());
+        assertThat(result.path("previousApplicationReceipt").path("analysisJobId").isNull()).isTrue();
+        assertThat(result.path("status").asText()).isEqualTo("HELD_INCOMPLETE");assertThat(result.path("holdReason").asText()).isEqualTo("DIAGNOSTIC_BASELINE_UNAVAILABLE");
+        assertThat(stored(result).getBaselineSeed()).isNull();assertThat(stored(result).getBaselineEntries()).isNull();
+        assertThat(result.path("extractionJobId").isNull()).isTrue();assertThat(result.path("candidateGeneration").isNull()).isTrue();
+        assertThat(em.createQuery("select count(j) from AnalysisJob j",Long.class).getSingleResult()).isZero();
+        assertThat(em.createQuery("select count(c) from SettingCandidate c",Long.class).getSingleResult()).isEqualTo(1);
+        assertThat(em.createQuery("select count(c) from WorldSettingCandidate c",Long.class).getSingleResult()).isZero();
+    }
 
     AnalysisJob appliedJob() {
         var job=AnalysisJob.create(work,null,target,AnalysisJobType.SETTING_EXTRACTION);
