@@ -39,5 +39,28 @@ class ValidationDecisionValidatorTest {
         ((ObjectNode)state.path("draft")).set("lookup_intents",f.path("requests").path("revisions").path("changes").path(0).path("state").path("lookup_obligations"));
         assertThatThrownBy(()->validator.state(state,Set.of())).isInstanceOf(AppException.class);
     }
+    @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.CsvSource({"CONFLICT,DIRECT_CONTRADICTION","SUSPECTED_CONFLICT,CHANGE_NOT_FOUND"})
+    @DisplayName("현재 회차를 E 참조로 포장해도 과거 설정 충돌의 근거가 되지 않는다")
+    void targetOnlyEvidenceCannotAuthorizeConflict(String outcome,String basis) {
+        conflictBundle("T1",outcome,basis);
+        assertThatThrownBy(()->validator.validate(prepared,check,outcome,body)).isInstanceOf(AppException.class);
+    }
+    @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.CsvSource({"CONFLICT,DIRECT_CONTRADICTION","SUSPECTED_CONFLICT,CHANGE_NOT_FOUND"})
+    @DisplayName("검증된 고정 과거 출처의 E 참조는 충돌 비교 근거로 유지한다")
+    void frozenPriorEvidenceAllowsConflict(String outcome,String basis) {
+        conflictBundle("R1",outcome,basis);
+        assertThatCode(()->validator.validate(prepared,check,outcome,body)).doesNotThrowAnyException();
+    }
+    void conflictBundle(String source,String outcome,String basis) {
+        var refs=Map.<String,JsonNode>of("T1",json.createObjectNode().put("sourceKind","EPISODE").put("episodeNo",101),"R1",json.createObjectNode().put("sourceKind","EPISODE").put("episodeNo",100));
+        var c=prepared.context();prepared=new ValidationPublicationValidator.Prepared(new ValidationPublicationValidator.Context(c.jobId(),c.lease(),c.scope(),c.member(),c.work(),c.baselineHash(),c.targetHash(),c.configuration(),c.entries(),refs),prepared.branch(),prepared.grid(),prepared.sources(),0);
+        var bundle=(ObjectNode)body.path("evidence_bundle");bundle.set("source_catalogue",mapper.toValidationSourceCatalogue(refs));
+        ((ArrayNode)bundle.path("evidence")).addObject().put("ref","E1").put("source_ref",source).put("source_kind","EPISODE").put("start",0).put("end",2).put("quote","😀가");
+        var receipt=((ArrayNode)bundle.path("receipts")).addObject().put("ref","L3").put("status","SUCCEEDED").put("limited",false);
+        receipt.set("intent",json.createObjectNode().put("ref","CHANGES-1").put("kind","CHANGES_EXCEPTIONS").put("operation","KEYWORD").put("purpose","합성 변경 조회").set("evidence_refs",json.createArrayNode().add("E1")));
+        receipt.set("evidence_refs",json.createArrayNode().add("E1"));
+        for(var assessment:body.path("completion"))((ObjectNode)assessment).set("receipt_refs",json.createArrayNode().add("L1").add("L2").add("L3"));
+        body.put("outcome",outcome).put("basis",basis).put("impact","CAUTION").put("impact_reason","합성 비교 차이");body.set("evidence_refs",json.createArrayNode().add("T1").add("E1"));
+    }
     void invalid() {assertThatThrownBy(()->validator.validate(prepared,check,"NO_CONFLICT",body)).isInstanceOf(AppException.class);}
 }

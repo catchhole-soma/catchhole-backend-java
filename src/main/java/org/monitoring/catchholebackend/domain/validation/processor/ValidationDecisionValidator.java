@@ -34,9 +34,10 @@ public class ValidationDecisionValidator {
         Set<String> neededSettings=new HashSet<>();for(var entry:knownSettings.entrySet())for(var subject:question.path("subject_refs"))if(subject.asText().equals(entry.getValue().path("subject_ref").asText()))neededSettings.add(entry.getKey());
         for(var intent:check.getState().path("lookup_obligations"))if("BASELINE".equals(intent.path("operation").asText()))for(var ref:intent.path("evidence_refs"))neededSettings.add(ref.asText());
         if(!facts.equals(neededSettings))throw error(VALIDATION_RESULT_INVALID);known.addAll(facts);
-        Set<String> evidence=new HashSet<>();for(var row:bundle.path("evidence")) {
+        Set<String> evidence=new HashSet<>(),comparisonEvidence=new HashSet<>();for(var row:bundle.path("evidence")) {
             String ref=row.path("ref").asText();var source=p.context().sourceReferences().get(row.path("source_ref").asText());
             if(!ref.matches("E[1-9][0-9]*")||!evidence.add(ref)||source==null||!source.path("sourceKind").asText().equals(row.path("source_kind").asText())||!row.has("quote"))throw error(VALIDATION_RESULT_INVALID);
+            if(!"T1".equals(row.path("source_ref").asText()))comparisonEvidence.add(ref);
         }known.addAll(evidence);
         Set<String> receiptRefs=new HashSet<>();var receipts=new HashMap<String,JsonNode>();boolean baseline=false,target=false;
         for(var receipt:bundle.path("receipts")) {
@@ -56,7 +57,7 @@ public class ValidationDecisionValidator {
         if(!Set.of(expected,"DB_RAW_DISAGREEMENT").contains(decision.path("basis").asText()))throw error(VALIDATION_RESULT_INVALID);
         if(outcome.equals("NO_CONFLICT")) {if(decision.hasNonNull("impact")||decision.hasNonNull("impact_reason"))throw error(VALIDATION_RESULT_INVALID);}
         else if(!Set.of("SEVERE","CAUTION","REFERENCE").contains(decision.path("impact").asText())||!nonblank(decision,"impact_reason"))throw error(VALIDATION_RESULT_INVALID);
-        if(Set.of("CONFLICT","SUSPECTED_CONFLICT").contains(outcome)&&textSet(decision.path("evidence_refs")).stream().noneMatch(ref->facts.contains(ref)||evidence.contains(ref)))throw error(VALIDATION_RESULT_INVALID);
+        if(Set.of("CONFLICT","SUSPECTED_CONFLICT").contains(outcome)&&textSet(decision.path("evidence_refs")).stream().noneMatch(ref->facts.contains(ref)||comparisonEvidence.contains(ref)))throw error(VALIDATION_RESULT_INVALID);
         if(!decision.path("disagreements").isArray()||"DB_RAW_DISAGREEMENT".equals(decision.path("basis").asText())&&decision.path("disagreements").isEmpty())throw error(VALIDATION_RESULT_INVALID);
         for(var disagreement:decision.path("disagreements")) {
             if(!facts.contains(disagreement.path("fact_ref").asText())||!evidence.contains(disagreement.path("evidence_ref").asText())||!nonblank(disagreement,"reason"))throw error(VALIDATION_RESULT_INVALID);
