@@ -37,14 +37,14 @@ public class AnalysisBatchSummaryRepository {
                 select j.id, j.batch_id, j.episode_id, j.job_type, j.source_kind,
                        j.source_setting_book_id, j.status, j.analysis_mode, j.analysis_run_id,
                        j.run_generation, j.run_sequence, j.journal_status, j.review_mode,
-                       j.automatic_applied_at, j.failure_code, j.checkpoint_stage, j.created_at, j.updated_at
+                       j.automatic_applied_at, j.review_application_held_at, j.failure_code, j.checkpoint_stage, j.created_at, j.updated_at
                 from analysis_jobs j
                 where j.work_id = :workId and j.batch_id in (:batchIds)
                   and j.job_type not in ('WORLD_SETTING_COMPARISON', 'CHARACTER_FACT_COMPARISON')
             ), expanded as (
                 select j.id, j.batch_id, j.job_type, j.source_kind, j.status, j.analysis_mode,
                        j.analysis_run_id, j.run_generation, j.run_sequence, j.journal_status,
-                       j.review_mode, j.automatic_applied_at, j.failure_code, j.checkpoint_stage,
+                       j.review_mode, j.automatic_applied_at, j.review_application_held_at, j.failure_code, j.checkpoint_stage,
                        j.created_at, j.updated_at,
                        case when j.source_kind = 'SETTING_BOOK' then j.source_setting_book_id
                             else coalesce(t.episode_id, j.episode_id) end as target_id,
@@ -71,7 +71,8 @@ public class AnalysisBatchSummaryRepository {
                             then 'CANCELED'
                             when analysis_mode = 'ORDERED_PROVISIONAL' and status = 'SUCCEEDED'
                               and (journal_status is null or journal_status <> 'SEALED'
-                                or (review_mode = 'AUTOMATIC' and automatic_applied_at is null))
+                                or (review_mode = 'AUTOMATIC' and automatic_applied_at is null
+                                    and review_application_held_at is null))
                             then 'FAILED' else status end as listed_status,
                        case when analysis_mode = 'CONFIRMED_ONLY' and job_type = 'SETTING_EXTRACTION'
                               and status = 'FAILED' and failure_code = 'AI_TOKEN_QUOTA_EXHAUSTED'
