@@ -196,12 +196,18 @@ release 회차(현재 report에 검토 종료 receipt)의 캐릭터·세계관 �
 1. report 무효(`INVALIDATED`) → `REPORT_INVALIDATED`. report batch가 회차의 현재 원본 업로드 batch가 아니면 `SOURCE_CHANGED`(detail `UPLOAD_BATCH`).
 2. 추출 성공은 receipt가 가리키는 Job의 journal `SEALED` + 상태 `RUNNING`(완료 트랜잭션 안) 또는 `SUCCEEDED`다. 그 전의 `PENDING/RUNNING`은 `NOT_READY`(receipt를 쓰지 않음),
    실패·취소·`INCOMPLETE/INVALIDATED`는 `EXTRACTION_NOT_FINISHED`, 원문 버전이 현재 회차와 다르면 `SOURCE_CHANGED`(detail `EXTRACTION_SOURCE`).
-3. 그 Job의 검토 대기 후보 전체를 기존 자동 반영 규칙(`SettingCandidateServiceImpl.applyAutomatically`, `WorldSettingCandidateServiceImpl.isAutomaticCandidate`)과 같은 조건으로 판정한다.
-   제외·확정 후보는 건너뛴다.
+3. 그 Job의 검토 대기 후보를 둘로 나눠 판정한다. 제외·확정 후보는 건너뛴다.
+   - **작가 결정 그룹**(contributor의 `reviewedDecisionGroups`): 캐릭터는 `reviewedApplicationMode`를 저장한 후보 또는 작가가 연결·등록 이름을 정한 인물 발견이 있는
+     공개 그룹 확정 단위(group key: 연결 인물 ID 또는 정규화 이름), 세계관은 최종 결정 초안(`final*`)이 있는 후보의 분류·대상 그룹과 같은 비교 결정의 원본 후보다.
+     결정 있는 후보는 비교 진행 중(`COMPARISON_PENDING`), 캐릭터 값 형식 오류(`VALUE_INVALID`), 모호·미상 대상(`SUBJECT_UNRESOLVED`), 재비교가 필요한 실패(`COMPARISON_FAILED`)만 보류한다.
+     같은 그룹의 결정 없는 후보는 AI 제안 그대로(APPLY_PROPOSAL) 확정되므로 아래 자동 판정을 그대로 요구한다.
+   - **나머지**: 기존 자동 반영 규칙(`SettingCandidateServiceImpl.applyAutomatically`, `WorldSettingCandidateServiceImpl.isAutomaticCandidate`)과 같은 조건이다.
+   - 결정 없는 후보의 검토 필요·비교 실패·값 형식 오류·대상/범위 미정·반영 방식 없는 직접 수정은 `DECISION_PENDING`(detail=원래 코드[:detail])이다.
+     진행 중 비교·사용량 중단·재비교가 필요한 캐릭터 실패는 결정으로 풀 수 없으므로 원래 코드를 유지한다.
 
 | 코드 | 감지 조건 |
 | --- | --- |
-| `AUTHOR_EDIT_PENDING` | 캐릭터 `userModified`/`reviewedApplicationMode`, 세계관 `finalOperation` 초안. S3는 자동 반영 규칙으로 판정할 수 있는 후보만 반영한다 |
+| `DECISION_PENDING` | 위 결정 가능한 사유가 있는데 작가의 저장된 결정이 없다. 캐릭터 반영 방식 저장(PATCH)·세계관 결정 초안 저장(PATCH /decisions) 뒤 다시 반영하면 그 결정대로 확정한다 |
 | `SUBJECT_UNRESOLVED` | 미상·AMBIGUOUS·실제/임시 대상 없음·연결 대기·이미 등록된 이름의 미연결 발견, 세계관 주체 해소 AMBIGUOUS/FAILED 또는 `SUBJECT_UNRESOLVED` |
 | `SCOPE_UNRESOLVED` | 세계관 `SCOPE_UNRESOLVED`/`SCOPE_MISMATCH` |
 | `VALUE_INVALID` | 조회의 `valueValidation INVALID`와 같은 판정(schema 해석 실패 포함). detail은 CharacterErrorCode |
@@ -212,20 +218,35 @@ release 회차(현재 report에 검토 종료 receipt)의 캐릭터·세계관 �
 
 ### 반영
 
-READY면 같은 트랜잭션에서 기존 contributor의 `applyAutomatically`를 캐릭터 → 세계관 순서로 실행한다. 두 contributor와 그 아래 확정 내부
-(Fact·snapshot·provenance, 신규 인물, 세계관 그룹 확정 core, 이미지 갱신, 서사 시점 확정)는 **변경 없이 재사용**한다. 추출한 별도 메서드는 없다.
-contributor는 검증 실패를 보류 표시로 흡수하므로, 실행 뒤 그 Job에 검토 대기 후보가 하나라도 남거나 어떤 예외라도 나면
-`VALIDATION_APPLICATION_ROLLED_BACK` 신호로 트랜잭션 전체(두 도메인 쓰기·보류 표시·확정 설정 변경 무효화 포함)를 되돌린다.
-남은 후보가 없을 때만 `AnalysisJob.completeReviewReleaseApplication()`이 `automaticAppliedAt`을 기록하고 receipt를 APPLIED로 바꾼 뒤 `report.advanceVersion()`한다.
-보류는 확정 설정을 쓰지 않고 receipt(HELD_REVIEW, attempt+1)와 `report.advanceVersion()`만 기록한다. 후보에는 보류 표시를 남기지 않아 해소 뒤 재평가가 같은 규칙을 다시 적용한다.
+READY면 같은 트랜잭션에서 receipt를 먼저 APPLIED로 기록(`report.advanceVersion()`, flush)한 뒤 캐릭터 → 세계관 순서로 도메인마다
+① 작가 결정 그룹을 `applyReviewedDecisions`로 반영하고 ② 나머지를 기존 contributor의 `applyAutomatically`로 반영한다.
+①은 저장 상태에서 화면의 그룹 확정과 같은 요청(저장한 반영 방식 또는 APPLY_PROPOSAL, 직접 수정 값 반영, 후보 updatedAt / 세계관 `final*`과 conflictResolved=true, 결정 없는 같은 그룹 후보는 AI 제안)을 만들어
+공개 그룹 확정에서 떼어낸 내부 본문(`confirmSettingCandidateGroupCore`, 세계관 `confirmCandidateGroupCore(..., releaseApplication)`)을 호출한다. 공개 메서드는 Work 잠금·출처 검증 뒤 같은 본문을
+`manualConfirmation=true`로 호출하며 동작은 그대로다. 내부 호출은 release 회차의 사람 확정 차단 하나만 건너뛴다. 확정이 group key를 바꿀 수 있어 그룹은 매번 다시 묶는다.
+①에서 확정된 후보는 검토 대기가 아니므로 ②가 다시 반영하거나 보류하지 않는다. contributor와 그 아래 확정 내부(Fact·snapshot·provenance, 신규 인물,
+세계관 그룹 확정 core, 이미지 갱신, 서사 시점 확정)는 변경 없이 재사용한다.
+contributor는 검증 실패를 보류 표시로 흡수하므로, 실행 뒤 그 Job에 검토 대기 후보가 하나라도 남거나 어떤 예외(그룹 확정의 재비교 필요 포함)라도 나면
+`VALIDATION_APPLICATION_ROLLED_BACK` 신호로 트랜잭션 전체(APPLIED receipt·두 도메인 쓰기·보류 표시 포함)를 되돌린다.
+남은 후보가 없을 때만 `AnalysisJob.completeReviewReleaseApplication()`이 `automaticAppliedAt`을 기록하고 보류 표지를 비운다.
+보류는 확정 설정을 쓰지 않고 receipt(HELD_REVIEW, attempt+1)와 `report.advanceVersion()`만 기록하며, 추출이 SEALED면 Job에 `review_application_held_at`(V99)을 남긴다.
+후보에는 보류 표시를 남기지 않아 해소 뒤 재평가가 같은 규칙을 다시 적용한다.
 
 - **APPLIED 표지**: job `automaticAppliedAt`(이미 SEALED), 반영 후보 CONFIRMED/자동 EXCLUDE의 DISMISSED와 `reviewedAutomatically`, receipt APPLIED·`applied_at`.
   `automaticApplicationPending`은 Job이 SUCCEEDED가 된 뒤 파생값으로 false다.
-- **보류 상태**: Job은 `SUCCEEDED + SEALED`이고 `automaticAppliedAt`은 null이다. 후보는 검토 대기로 남고 자동 반영 대기가 아니므로 기존 목록 집계의 직접 확인 수에 포함된다.
+- **보류 상태**: Job은 `SUCCEEDED + SEALED`, `automaticAppliedAt` null, `review_application_held_at` 있음이다. `AnalysisJob.isCompletedOrderedAnalysis()`와
+  `AnalysisReviewState.completedOrdered()`(`automaticStageFinished`)가 이 표지를 자동 단계 종료로 읽으므로 후보의 `manualReviewAvailable`, 반영 방식 저장, 세계관 결정 초안 저장이
+  자동 반영이 끝난 회차와 같게 열린다. 확정은 여전히 막혀 있고(아래) 저장한 결정은 회차 전체 확정이 반영한다. 후보는 자동 반영 대기가 아니므로 직접 확인 수에 포함된다.
   `automaticAppliedAt`은 재검수의 DIAGNOSTIC_ONLY 근거이므로 APPLIED 전에는 기록하지 않는다. SEALED는 추출 기록 완료 표지라 보류에도 유지한다.
-- 확정 설정 변경은 기존 정책대로 `ConfirmedSettingsChanged`로 이 작품의 report 기준 복사본을 무효화한다. 따라서 APPLIED 뒤 이 report는 INVALIDATED이고 `RECHECK`만 안내한다.
+- **자기 반영으로 무효화하지 않음**: 확정 설정 변경의 `ConfirmedSettingsChanged`는 기존처럼 작품의 report를 무효화하지만 `ValidationBaselineService`가 APPLIED receipt가 있는
+  report를 건너뛴다. APPLIED는 도메인 쓰기보다 먼저 같은 트랜잭션에 기록하므로 리스너가 그 행을 읽고, 실패하면 함께 되돌려진다(트랜잭션 표지나 이벤트 payload가 아닌 데이터 기준).
+  이 report의 기준은 확정 전 검사에 이미 쓰였고 검토 종료·반영까지 끝난 이력이라 이후 설정 변경으로도 무효화하지 않는다. 같은 작품의 다른 report, 원문·설정집 변경 경로는 기존과 같다.
+  따라서 APPLIED 뒤 report는 `WAITING_FOR_ERROR_REVIEW`·COMPLETED로 남고 남은 행동이 없다.
 
 ### 자동 경로 (추출 완료)
+
+추출 완료 트랜잭션 안에서는 Job이 아직 RUNNING이라 공개 그룹 확정의 늦은 검토 경로를 탈 수 없다. 이때 작가 결정 그룹이 있으면(정상 흐름에서는 추출 중 후보 변경이 막혀 없다)
+`CANDIDATE_CHANGED`(detail `SAVED_DECISION_NEEDS_EXPLICIT_APPLICATION`)로 보류하고 명시 반영이 처리한다.
+
 
 `AnalysisJobWorkerServiceImpl.completeAnalysisJob`이 seal 직후 `isReleaseJob`(현재 report의 receipt가 이 Job을 가리킴)이면 두 contributor 대신 `applyAutomatically`를 호출한다.
 일반 회차(report 없음·legacy·설정집)는 기존 contributor 경로 그대로다. 반영이 되돌려지면 S2의 자동 종료 보류처럼 첫 트랜잭션을 전부 되돌리고
@@ -243,10 +264,10 @@ report 없음 `VALIDATION_NOT_FOUND` → 현재 report의 검토 종료 receipt 
 ### 수동 확정 차단
 
 `AnalysisCandidateSourceGuard.assertManualWriteAllowed`는 대상 회차의 현재 report에 검토 종료 receipt가 있으면 `VALIDATION_RELEASE_MANUAL_CONFIRM_BLOCKED`(409)다.
-캐릭터 개별 확정·그룹 확정(최종 결과 승인·신규 인물 포함)·`reviewedApplicationMode` 저장 PATCH, 승격 서비스 `promote`/`promoteNewCharacterGroup`,
+캐릭터 개별 확정·그룹 확정(최종 결과 승인·신규 인물 포함), 승격 서비스 `promote`/`promoteNewCharacterGroup`,
 세계관 개별 확정·사람의 그룹 확정(`automatic=false`)이 후보를 읽은 직후 호출한다. 확정 재전송도 막힌다.
-값 수정 PATCH(선택 없음)·캐릭터 연결·세계관 결정 초안·제외·재비교·재개는 막지 않는다. 다만 작가가 저장한 수정값·결정 초안은 S3의 회차 전체 확정이 반영하지 않으므로
-(`AUTHOR_EDIT_PENDING`) 현재 해소 수단은 제외와 재비교·재개다.
+값 수정·반영 방식 저장 PATCH(`reviewedApplicationMode`), 캐릭터 연결, 세계관 결정 초안, 제외·재비교·재개는 확정 설정을 쓰지 않는 결정 저장이라 막지 않으며,
+저장한 결정은 다음 회차 전체 확정이 그룹 확정과 같은 규칙으로 반영한다.
 
 ### 조회
 
@@ -258,19 +279,25 @@ report 없음 `VALIDATION_NOT_FOUND` → 현재 report의 검토 종료 receipt 
 ### 재검수
 
 APPLIED는 `automaticAppliedAt`을 남기므로 `ValidationRecheckServiceImpl`의 기존 판정 그대로 다음 재검수가 `DIAGNOSTIC_ONLY`이고
-`previousApplicationReceipt.kind=AUTOMATIC_APPLICATION`(release Job)이다. 진단 report는 검토 종료가 항상 `NOT_COMPLETABLE`이라 S2 release·S3 반영이 없다.
-보류 회차는 확정 이력이 없으므로 재검수가 BEFORE_CONFIRMATION이다.
+`previousApplicationReceipt.kind=AUTOMATIC_APPLICATION`(release Job)이다. APPLIED report는 무효화되지 않으므로 같은 원고의 `VALIDATION_RECHECK_INPUT_UNCHANGED` 검사에서만
+APPLIED receipt를 입력 변경으로 본다(확정이 기준 입력을 바꿨다). 진단 report는 검토 종료가 항상 `NOT_COMPLETABLE`이라 S2 release·S3 반영이 없다.
+보류 회차는 확정 이력이 없으므로 재검수가 BEFORE_CONFIRMATION이다(보류 표지는 `previousApplication`에 쓰지 않는다).
+
+보류 뒤 원고를 교체하면 기존 원문 교체 정리가 이전 release Job의 불변 기록을 INVALIDATED로 만들고 검토 전 후보를 원문과 함께 파기한다(남는 미확정 후보 없음).
+재검수 → 정상 0건 자동 검토 종료가 새 batch에 새 release Job을 만들고 그 Job이 APPLIED된다. 퇴역 report의 HELD receipt는 이력으로 남는다
+(`heldEpisodeReplacedAndRecheckedAppliesNewRelease`, H2 확인).
 
 ### 잠금 순서
 
 자동 경로는 기존 완료 순서(Work → Job → 후보·캐릭터·세계관)다. 명시 경로는 Work → report refresh → contributor의 캐릭터·세계관 잠금 순서이며 release Job 행은
 Work 잠금으로 직렬화한다(완료된 Job에는 Worker 쓰기가 없다).
 
-### 알려진 한계 (S3 시점)
+### 알려진 한계 (S4)
 
-- 보류 중 release Job은 `SUCCEEDED + SEALED + automaticAppliedAt null`이라 배치 요약의 기존 정규화가 `FAILED`로 표시하고 원고 목록도 미완료로 본다(S4 projection 정리 대상).
-- 기존 후보 화면의 `manualReviewAvailable`은 `automaticAppliedAt`을 요구하므로 보류 후보에 false다. 작가 수정값·결정 초안의 회차 전체 반영 경로는 후속 결정이 필요하다.
-- 보류 회차를 재검수하면 새 report의 release Job 생성이 같은 원문의 기존 SUCCEEDED release Job과 어떻게 상호작용하는지 검증하지 않았다.
+- 보류 중 release Job은 `automatic_applied_at`이 null이라 배치 요약 SQL(`AnalysisBatchSummaryRepository`)의 기존 정규화가 `FAILED`로 표시한다. 보류 표지를 반영한 표시는 S4 projection 정리 대상이다.
+- 보류(HELD_REVIEW) 동안 배치·원고 목록이 무엇을 보여 줄지(검토 필요/반영 대기 등)는 S4에서 정한다. 현재 목록은 검수 projection(`ERROR_REVIEW_PENDING`)과 위 FAILED를 그대로 쓴다.
+- 같은 비교 결정의 원본 후보가 결정 초안으로 서로 다른 분류·대상 그룹에 나뉘거나, 같은 임시 인물의 별칭 후보가 다른 group key에 있으면 그룹 확정 본문이 거절해
+  전체가 되돌려지고 `UNKNOWN_ERROR`(오류 코드 detail)로 보류된다. 작가가 그룹을 맞추면 다시 반영할 수 있다.
 
 ## 무효화·파기
 
