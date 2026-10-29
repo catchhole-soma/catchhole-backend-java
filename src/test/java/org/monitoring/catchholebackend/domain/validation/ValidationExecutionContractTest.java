@@ -34,15 +34,16 @@ class ValidationExecutionContractTest {
             var context=new ValidationPublicationValidator.Context(job,lease,new Scope(1,report,1,hash),1L,work,hash,hash,example.path("configuration"),example.has("baselineEntries")?example.path("baselineEntries"):json.createArrayNode(),Map.of());
             var input=json.createObjectNode().put("status","READY").put("entryCount",example.path("entryCount").asInt());input.putObject("target").put("contentS3Version","v1");input.set("sources",example.path("sources"));
             when(service.readValidationData(anyLong(),any(),any(),any(),any(),any())).thenAnswer(call->{var request=call.getArgument(3,org.monitoring.catchholebackend.domain.validation.dto.request.ValidationDataRequest.class);if(request.operation().equals("INPUT"))return input;
+                for(var unavailable:example.path("unreadableSourceRefs"))if(unavailable.asText().equals(request.sourceRef()))return json.createObjectNode().put("status","SOURCE_UNREADABLE");
                 String text=request.sourceRef().equals("T1")?target:example.path("sourceTexts").path(request.sourceRef()).asText();return json.createObjectNode().put("status","READY").put("text",text).put("totalCodePoints",text.codePointCount(0,text.length()));});
             var validator=new ValidationPublicationValidator(service,decision,new ValidationClueCollector(),mapping);
-            if(example.has("expectedError"))assertThatThrownBy(()->prepareGrid(validator,context,ValidationBranch.SETTING,input)).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class);
-            else {assertThat(journal.canonicalJson(prepareGrid(validator,context,ValidationBranch.SETTING,input).grid())).as(example.path("name").asText()).isEqualTo(journal.canonicalJson(example.path("expectedSetting")));assertThat(journal.canonicalJson(prepareGrid(validator,context,ValidationBranch.TYPO,input).grid())).isEqualTo(journal.canonicalJson(example.path("expectedTypo")));}
+            if(example.has("expectedError"))assertThatThrownBy(()->prepareGrid(validator,context,ValidationBranch.SETTING,input,example.path("prepareBookRefs"))).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class);
+            else {assertThat(journal.canonicalJson(prepareGrid(validator,context,ValidationBranch.SETTING,input,example.path("prepareBookRefs")).grid())).as(example.path("name").asText()).isEqualTo(journal.canonicalJson(example.path("expectedSetting")));assertThat(journal.canonicalJson(prepareGrid(validator,context,ValidationBranch.TYPO,input,example.path("prepareBookRefs")).grid())).isEqualTo(journal.canonicalJson(example.path("expectedTypo")));}
         }
     }
-    ValidationPublicationValidator.Prepared prepareGrid(ValidationPublicationValidator validator,ValidationPublicationValidator.Context context,ValidationBranch branch,JsonNode input) {
+    ValidationPublicationValidator.Prepared prepareGrid(ValidationPublicationValidator validator,ValidationPublicationValidator.Context context,ValidationBranch branch,JsonNode input,JsonNode preparedBooks) {
         var prepared=validator.prepare(context,branch,null,null);
-        if(branch==ValidationBranch.SETTING)for(var source:input.path("sources"))if(source.path("sourceKind").asText().equals("SETTING_BOOK"))prepared=validator.prepare(context,branch,prepared.grid(),source.path("sourceRef").asText());
+        if(branch==ValidationBranch.SETTING)for(var source:input.path("sources"))if(source.path("sourceKind").asText().equals("SETTING_BOOK")&&(!preparedBooks.isArray()||java.util.stream.StreamSupport.stream(preparedBooks.spliterator(),false).anyMatch(ref->ref.asText().equals(source.path("sourceRef").asText()))))prepared=validator.prepare(context,branch,prepared.grid(),source.path("sourceRef").asText());
         return prepared;
     }
     @Test @DisplayName("서버 projection은 페이지와 무관한 S 참조와 원문 ref를 보존한다") void canonicalProjectionHasStableSubjectAndSourceRefs() throws Exception {

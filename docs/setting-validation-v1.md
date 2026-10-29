@@ -134,3 +134,11 @@ T1 전문 READ_SOURCE의 clueVersion=1/modelClues는 서버 CL refs·code point 
 전용 실행이 Python _settings/collect_clues로 조용히 fallback하지 않도록 v1 필드를 필수 검증한다.
 기존 nojob callable만 이전 fallback을 유지할 수 있다. 별도 Job/lease·저장·재시도/예산/완료 증명은
 `docs/validation-execution-v1.md`와 공통 fixture.execution을 따른다.
+
+
+SETTING gridVersion1의 `pendingBookRefs`는 아직 전문 길이를 확인하지 못한 필수 book이다. 서버는 모든
+BOOK_SOURCE 의무를 유지하고 해당 book의 성공 게시 때만 길이·BOOK_COVERAGE grid를 확정한다.
+다른 book 읽기 실패는 성공 target 단계/checkpoint·TYPO 저장을 막지 않으며 Worker는 회수 후 이를 재사용한다.
+pending을 빈 book/0 checks로 취급하지 않는다. 전체 source grid 확정 전 merge/SETTING 완료/NO_CHECK 성공은 불가하다.
+결과의 T1 출처 E-ref는 현재 문맥이며 외부 충돌 근거가 아니다. canonical 설정 state의 정상 text/quote 속성은 그대로
+전달하고, 원문 인용은 공통 fixture.execution.payloadCitationPaths의 계약 경로와 실제 citation으로 보낸다.

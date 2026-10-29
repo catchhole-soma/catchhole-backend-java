@@ -209,8 +209,18 @@ Worker가 required-grid 또는 done:true를 보내 완료를 대체할 수 없�
 - MERGED_PLAN: 저장된 모든 원 질문 originalRefs를 빠짐없이 연결한 질문 목록. 서버 UUID와 local Q-ref의 대응을 반환한다.
 - TYPO_SEGMENT: 분류(SPELLING/SPACING/TYPO)와 정확한 제안 또는 제안 0개의 완료 segment.
 
-SETTING과 TYPO grid는 독립 준비한다. target이 읽히지만 어떤 설정집이 읽히지 않으면 SETTING 준비만 실패하고
-TYPO는 동일 target으로 실행/저장할 수 있다. target 전문 실패나 빈 target은 어느 쪽도 정상 완료가 아니다.
+SETTING과 TYPO grid는 독립 준비한다. SETTING의 gridVersion=1은 frozen manifest의 모든 BOOK_SOURCE 의무를
+먼저 넣고, 전문을 아직 확인하지 못한 book은 `books=[{sourceRef:...}]`와 `pendingBookRefs`로 남긴다.
+미확정 book은 빈 책/0 checks가 아니다. PLANNER/RELATED_SELECTION/COVERAGE 및 checkpoint는 다른 book 전문을
+읽지 않고 저장한다. 성공 BOOK_SOURCE 게시가 그 book만 실제 전문 검증하여 totalCodePoints/plannedChecks/segments와
+해당 BOOK_COVERAGE 의무를 확정한다. 같은 Work 아래 최신 grid에 단조 병합하므로 동시 준비가 서로를 덮지 않는다.
+이미 성공한 stage/receipt와 checkpoint를 회수 후 복원하고 실패한 book만 다시 준비한다.
+
+pendingBookRefs가 하나라도 있으면 MERGED_PLAN·SETTING 완료·NO_CHECK 성공은 불가하고 전체 gridReady=false다.
+모든 book 길이가 확정되면 다른 target 구간이 미완료여도 그 구간의 모든 필수 처리가 끝난 NO_CHECK 성공은 유지한다.
+어떤 book이 일시적으로 읽히지 않아도 target의 성공 단계와 TYPO는 독립 저장할 수 있다.
+실제 source 변경/파기/불일치는 모든 frozen source metadata의 최종 재검증·전체 무효화로 거절하며 일시 실패와 섞지 않는다.
+target 전문 실패나 빈 target은 어느 쪽도 정상 완료가 아니다.
 Python의 BOOK_SOURCE.status=PROCESSED는 전체 book 검토 집계이므로 실제 전문 읽기와 혼동하지 않는다.
 Java의 BOOK_SOURCE 성공은 읽기이며 전체 target×book 검토는 별도 BOOK_COVERAGE grid가 증명한다.
 
@@ -218,7 +228,9 @@ Java의 BOOK_SOURCE 성공은 읽기이며 전체 target×book 검토는 별도 
 bundle의 question_ref/check_revision/question은 저장 질문과 일치해야 한다. canonical frozen settings,
 실제 E-ref/원문 위치, target_context와 additional_target_context의 인용, 알려진 fact/evidence refs,
 성공한 실제 비교·필수 읽기 receipts, 남은 lookup_obligations 0을 검증한다. 네 completion 사유만으로 완료하지 않는다.
-정상 NO_CONFLICT도 완료 check/receipts를 저장하며, 같은 target 내부 근거만으로 CONFLICT를 허용하지 않는다.
+정상 NO_CONFLICT도 완료 check/receipts를 저장한다. E-ref는 실제 source_ref로 분류한다. T1을 E1로 포장해도
+CONFLICT/SUSPECTED_CONFLICT의 외부 비교 근거가 될 수 없고 frozen fact 또는 검증된 T1 이외의 source만 인정한다.
+T1 자체 문맥·인용 저장은 유지한다.
 새 FOLLOW_UP은 영향을 받는 모든 check를 한 트랜잭션에서 revision 변경하고 옛 완료를 집계에서 제외한다.
 원 상태/판정과 changeReason은 check history에 남겨 #312가 변경된 질문을 구분할 수 있다.
 
@@ -231,7 +243,10 @@ bundle의 question_ref/check_revision/question은 저장 질문과 일치해야 
 ## 게시·파기·재시도
 
 게시 외피 전체는 131,072 UTF-8 bytes, citations는 1,000개, 의미 payload 깊이는 50을 넘기지 않는다.
-모든 quote와 원문 context text에는 정확한 source/hash/version/code point 인용 외피가 있어야 한다.
+target_spans/spans/evidence 행/typo span과 target_context/additional_target_context라는 계약 경로의 quote/text는
+정확한 source/hash/version/code point 인용 외피가 필요하다. settings[]는 서버 canonical projection 전체와 정확히
+일치해야 하며 그 내부 도메인 속성 이름 text/quote를 span으로 해석하지 않는다. 다른 임의 payload/checkpoint 경로의
+text/quote는 거절하므로 검증되지 않은 복사본문을 추가 필드에 숨길 수 없다. canonical 설정도 깊이 상한을 지킨다.
 I/O 전에 현재 lease/입력을 확인하고 실제 저장 원문 전체 hash·slice를 확인한 뒤, Work 잠금 안에서
 current/revision/contentRevision/lease/출처 metadata를 다시 검사한다. S3/provider I/O 동안 Work를 잠그지 않는다.
 같은 report/key의 exact payload는 원 receipt를 반환하고 다른 payload는 409다. 이미 바뀐 check revision의 unit은

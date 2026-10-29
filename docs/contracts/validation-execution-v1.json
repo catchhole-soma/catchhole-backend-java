@@ -1643,6 +1643,186 @@
             }
           ]
         }
+      },
+      {
+        "name": "successful-first-book-with-unreadable-pending-second",
+        "target": "가😀나",
+        "entryCount": 0,
+        "configuration": {
+          "budgets": {
+            "setting": {
+              "modelCalls": 20,
+              "lookups": 100,
+              "seconds": 60.0,
+              "inputTokens": 1000,
+              "outputTokens": 100,
+              "segmentChars": 2,
+              "contextChars": 1,
+              "cataloguePageSize": 2,
+              "searchLimit": 10
+            },
+            "typo": {
+              "modelCalls": 20,
+              "lookups": 100,
+              "seconds": 60.0,
+              "inputTokens": 1000,
+              "outputTokens": 100,
+              "segmentChars": 2,
+              "contextChars": 1,
+              "cataloguePageSize": 2,
+              "searchLimit": 10
+            }
+          }
+        },
+        "sources": [
+          {
+            "sourceKind": "SETTING_BOOK",
+            "sourceRef": "R1",
+            "contentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "contentS3Version": "v1"
+          },
+          {
+            "sourceKind": "SETTING_BOOK",
+            "sourceRef": "R2",
+            "contentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "contentS3Version": "v1"
+          }
+        ],
+        "sourceTexts": {
+          "R1": "😀가나",
+          "R2": "책"
+        },
+        "expectedSetting": {
+          "gridVersion": 1,
+          "units": [
+            {
+              "stage": "PLANNER",
+              "ref": "TSEG1"
+            },
+            {
+              "stage": "COVERAGE",
+              "ref": "TSEG1"
+            },
+            {
+              "stage": "PLANNER",
+              "ref": "TSEG2"
+            },
+            {
+              "stage": "COVERAGE",
+              "ref": "TSEG2"
+            },
+            {
+              "stage": "BOOK_SOURCE",
+              "ref": "R1"
+            },
+            {
+              "stage": "BOOK_COVERAGE",
+              "ref": "TSEG1:R1SEG1"
+            },
+            {
+              "stage": "BOOK_COVERAGE",
+              "ref": "TSEG1:R1SEG2"
+            },
+            {
+              "stage": "BOOK_COVERAGE",
+              "ref": "TSEG2:R1SEG1"
+            },
+            {
+              "stage": "BOOK_COVERAGE",
+              "ref": "TSEG2:R1SEG2"
+            },
+            {
+              "stage": "BOOK_SOURCE",
+              "ref": "R2"
+            },
+            {
+              "stage": "MERGED_PLAN",
+              "ref": "PLAN"
+            }
+          ],
+          "segments": [
+            {
+              "ref": "TSEG1",
+              "start": 0,
+              "end": 2,
+              "contextStart": 0,
+              "contextEnd": 3
+            },
+            {
+              "ref": "TSEG2",
+              "start": 2,
+              "end": 3,
+              "contextStart": 1,
+              "contextEnd": 3
+            }
+          ],
+          "books": [
+            {
+              "sourceRef": "R1",
+              "totalCodePoints": 3,
+              "plannedChecks": 4,
+              "segments": [
+                {
+                  "ref": "TSEG1",
+                  "start": 0,
+                  "end": 2,
+                  "contextStart": 0,
+                  "contextEnd": 3
+                },
+                {
+                  "ref": "TSEG2",
+                  "start": 2,
+                  "end": 3,
+                  "contextStart": 1,
+                  "contextEnd": 3
+                }
+              ]
+            },
+            {
+              "sourceRef": "R2"
+            }
+          ],
+          "clueVersion": 1,
+          "modelClues": [],
+          "pendingBookRefs": [
+            "R2"
+          ]
+        },
+        "expectedTypo": {
+          "gridVersion": 1,
+          "units": [
+            {
+              "stage": "TYPO_SEGMENT",
+              "ref": "TSEG1"
+            },
+            {
+              "stage": "TYPO_SEGMENT",
+              "ref": "TSEG2"
+            }
+          ],
+          "segments": [
+            {
+              "ref": "TSEG1",
+              "start": 0,
+              "end": 2,
+              "contextStart": 0,
+              "contextEnd": 3
+            },
+            {
+              "ref": "TSEG2",
+              "start": 2,
+              "end": 3,
+              "contextStart": 1,
+              "contextEnd": 3
+            }
+          ]
+        },
+        "prepareBookRefs": [
+          "R1"
+        ],
+        "unreadableSourceRefs": [
+          "R2"
+        ]
       }
     ],
     "projectionVector": {
@@ -1876,7 +2056,7 @@
       "INPUT: frozen manifest + modelSourceCatalogue",
       "ENTRIES pages: canonical modelSettings + authorCorrectionProofs (global stable S-refs)",
       "full T1 READ_SOURCE: validated text + clueVersion=1/modelClues",
-      "SETTING and TYPO prepare independently; failed book initialization blocks only SETTING",
+      "SETTING/TYPO prepare independently; save target stages/checkpoint immediately; BOOK_SOURCE success discovers only that book; pendingBookRefs do not block other stages",
       "publish each validated semantic stage, then MERGED_PLAN before first JUDGE; restore stable server check IDs/revisions",
       "publish DECIDED + original evidence_bundle/current server checkInputDigest, or successful TYPO segment",
       "complete: server required-grid/check/no-check/typo aggregation"
@@ -1972,6 +2152,42 @@
       ],
       "rawSourceRead": "No S3 under the Work recovery lock; leased source reader verifies actual bytes before models/publication"
     },
-    "plansBoundary": "SETTING only; TYPO_SEGMENT must use /units classification/suggestion/coverage validation. /plans TYPO returns 400 without any stage/publication/version write."
+    "plansBoundary": "SETTING only; TYPO_SEGMENT must use /units classification/suggestion/coverage validation. /plans TYPO returns 400 without any stage/publication/version write.",
+    "progressiveSourceGrid": {
+      "gridVersion": 1,
+      "serverAuthority": "All manifest BOOK_SOURCE obligations exist before book lengths are known; client required-grid or lengths never authorize completion",
+      "pendingBookRow": {
+        "sourceRef": "R2"
+      },
+      "readyBookRow": "Existing sourceRef/totalCodePoints/plannedChecks/segments, created only by successful full-source validation plus BOOK_SOURCE publication",
+      "pendingBookRefs": [
+        "R2"
+      ],
+      "semantics": "Pending is unknown length and required review, never an empty book or zero required checks",
+      "publication": "PLANNER/RELATED_SELECTION/COVERAGE/checkpoint save without reading unrelated books. BOOK_SOURCE reads only its missing source. Citations still require actual bytes for their exact refs.",
+      "commit": "Under Work, merge discoveries monotonically with the latest grid and revalidate all frozen source metadata/current input/lease. Different known dimensions or source changes are conflicts.",
+      "completion": "Any pending book blocks MERGED_PLAN, SETTING completion, and NO_CHECK success. After all book lengths are known, a fully covered target segment remains successful while other segments are incomplete.",
+      "retry": "Restore successful planner/book stage IDs/payload/receipt and checkpoint; read only unfinished books. Actual provider extra-calls=0 for restored successes must be verified by Task3.",
+      "vector": "gridCases.successful-first-book-with-unreadable-pending-second"
+    },
+    "comparisonEvidenceBoundary": {
+      "target": "T1 context or an E-ref whose actual source_ref is T1 remains valid context, but cannot authorize CONFLICT/SUSPECTED_CONFLICT",
+      "allowed": "A validated frozen fact or E-ref whose actual verified frozen source is not T1"
+    },
+    "payloadCitationPaths": {
+      "spans": [
+        "target_spans[]",
+        "spans[]",
+        "evidence[]",
+        "span"
+      ],
+      "contexts": [
+        "target_context[]",
+        "additional_target_context[]"
+      ],
+      "canonicalSettings": "settings[] must exactly equal the server-issued known entry projection; text/quote inside that authenticated state are ordinary domain keys",
+      "otherCopies": "text/quote in undeclared payload/checkpoint objects are invalid; typed spans/context still require exact supplied citation and actual source hash/position checks",
+      "depthLimit": 50
+    }
   }
 }
