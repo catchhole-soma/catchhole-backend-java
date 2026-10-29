@@ -105,7 +105,9 @@ class ValidationRecheckIntegrationTest extends ValidationRecheckFixture {
         states.purgeSourceEvidenceForWorkForUpdate(work.getId(),prior.getId(),100); em.flush();
         var result=postOk(recheckPath(first),recheck(first,"purged-diagnostic"));
         assertThat(result.path("mode").asText()).isEqualTo("DIAGNOSTIC_ONLY"); assertThat(result.path("holdReason").asText()).isEqualTo("DIAGNOSTIC_BASELINE_UNAVAILABLE");
-        assertThat(stored(result).getBaselineSeed()).isNull(); baselines.materialize(stored(result).getId()); assertThat(stored(result).getBaselineSeed()).isNull();
+        var held=stored(result);var version=held.getVersion();
+        assertThat(held.getBaselineSeed()).isNull(); baselines.materialize(held.getId()); assertThat(held.getBaselineSeed()).isNull();
+        assertThat(held.getHoldReason()).isEqualTo("DIAGNOSTIC_BASELINE_UNAVAILABLE");assertThat(held.getVersion()).isEqualTo(version);
         assertThat(job.getAutomaticAppliedAt()).isNotNull();
     }
     @Test void inProgressLegacyExtractionIsNotCutOffByDiagnosticAdmission() throws Exception {

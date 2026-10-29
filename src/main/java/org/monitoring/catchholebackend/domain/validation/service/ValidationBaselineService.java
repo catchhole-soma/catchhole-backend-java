@@ -277,6 +277,7 @@ public class ValidationBaselineService {
             em.refresh(report, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
         }
         if (report == null || !report.isCurrent() || report.getStatus() == ValidationReportStatus.INVALIDATED
+                || report.getBaselineSeed() == null
                 || report.getBaselineStatus() == ValidationPreparationStatus.READY) return;
         normalize(report);
     }
