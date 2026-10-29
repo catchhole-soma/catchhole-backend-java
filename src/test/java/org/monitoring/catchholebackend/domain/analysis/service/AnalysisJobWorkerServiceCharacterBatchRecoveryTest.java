@@ -101,6 +101,7 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
                 List.of(),
                 List.of(),
                 org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.work.repository.WorkRepository.class),
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.relationship.service.RelationshipGraphService.class),
                 analysisJobRepository,
                 analysisJobLeaseService,
                 workCharacterRepository,

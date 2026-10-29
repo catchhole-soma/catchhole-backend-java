@@ -1070,3 +1070,13 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 앞선 미확정 후보는 원래 freeze 시점에 optional `selection`을 함께 저장하고 replay에서는 `automaticInputState`만 읽는다. 기존 입력/hash를 backfill하거나 현재 후보로 재구성하지 않는다. 주체 해소의 MATCHED/actual·provisional 연결은 후속 내용 비교 실패와 구분해 보존하고, 모호/실패한 주체 연결·실패한 operation 대상은 권위 있는 링크로 복원하지 않는다. 원래 schema로 held/failed STATUS를 판별하고 active=false를 보존한다.
 - `X-Analysis-Reference-Selection: true`를 받은 응답에만 `selection`과 캐릭터 advisory의 `selectionNames`를 노출한다. 누락/false에는 필드 자체를 생략하며 모든 claim/context/주체 조회에 같은 boolean을 명시적으로 전달한다. metadata freeze·advisory hash/contextToken은 capability와 무관하고 구 overload는 false다. `selectionNames`는 기존 frozen 주체 별칭·원 후보 표기를 전달하는 선택 전용 metadata다.
 - AI는 EPISODE의 모델 입력만 같은 도메인·관련 주체로 투영하며 전체 transport/equality/source/lease/journal을 유지한다. 보류는 현재값·선택 대상·변경/의존 참조·과거 후보 자동 승인이 아니다. 1차 캐릭터 입력은 기존 이름/활성 STATUS와 별도 미확정 이름/STATUS 힌트, 세계관은 원문·metadata·정적 규칙만 사용하며 BOOK 입력과 기존 시점 보호를 유지한다.
+
+### GH323 회차별 일반 관계도
+
+- 일반 관계는 가족 규칙 파이프라인과 분리한 `relationship_graph_*` 이력을 사용한다. 기존 캐릭터·세계관 contributor 목록에 관계를 끼워 넣지 않는다. 핵심 반영 후 dedicated 관계 finalize를 같은 트랜잭션에서 실행한다.
+- `RELATIONSHIP_GRAPH_ENABLED`(base 기본 true)와 Worker `supportsRelationshipAnalysis`로 신규 작업을 활성화한다. 지원 광고와 응답 `relationshipAnalysisContract.formatVersion=1`이 둘 다 있을 때만 호출한다. 이미 활성화된 재시도는 구 Worker가 claim하지 않는다.
+- `RelationshipGraphContract`는 하나의 버전이 함께 바뀌는 Worker/공개 계약 record와 enum을 묶는 예외다. 세부 정책과 제한은 [docs/episode-relationships.md](docs/episode-relationships.md)를 단일 문서로 유지한다.
+- 과거 관계도는 회차까지 공개된 지식을 표현한다. 현재 프로필 이름/사진을 가져와 과거 화면에 합치지 않는다. 모델에는 O/H/N/R local refs만 전달하며, 근거는 원문 전체의 Unicode code point offset으로 검증한다.
+- 의미 분석 실패/내부 보류는 캐릭터·세계관 결과를 폐기하지 않는다. lease/권한/quota/원문/저장 오류를 FAILED 의미 처리로 우회하지 않는다. prepare의 S3 I/O는 DB 잠금 밖에서 읽고 돌아와 lease와 manifest를 재확인한다.
+- 재분석은 같은 회차와 후행 관계 상태를 무효화한다. 병렬 수동 작업도 동결 의존성 검증과 앞 회차 반영 시 후행 무효화를 적용한다. 후행 유료 분석이나 과거 백필은 자동으로 새로 시작하지 않는다.
+- 사용자 설명 정정과 삭제는 낭독 시점의 서사 변화가 아닌 오류 정정이다. 버전 충돌을 검사하며 삭제 slot을 자동 재생성하지 않는다. 원문 파기 시 후행 context에 복사된 HOLD 인용도 함께 지운다.

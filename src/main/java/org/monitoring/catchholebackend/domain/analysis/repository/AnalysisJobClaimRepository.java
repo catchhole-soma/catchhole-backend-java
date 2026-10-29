@@ -22,6 +22,7 @@ public class AnalysisJobClaimRepository {
             job.status = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING
             and job.jobType in :jobTypes and job.analysisMode in :modes and job.sourceKind in :sourceKinds
             and (:supportsCharacterComparisonGroups = true or job.characterComparisonInputHash is null)
+            and (:supportsRelationshipAnalysis = true or job.relationshipAnalysisEnabled = false)
             and
             """ + AnalysisJobEligibility.DOMAIN;
 
@@ -36,6 +37,7 @@ public class AnalysisJobClaimRepository {
                 .setParameter("modes", request.effectiveSupportedAnalysisModes())
                 .setParameter("sourceKinds", request.effectiveSupportedSourceKinds())
                 .setParameter("supportsCharacterComparisonGroups", Boolean.TRUE.equals(request.supportsCharacterComparisonGroups()))
+                .setParameter("supportsRelationshipAnalysis", Boolean.TRUE.equals(request.supportsRelationshipAnalysis()))
                 .setMaxResults(100)
                 .getResultList();
         for (UUID workId : workIds) {
@@ -53,8 +55,9 @@ public class AnalysisJobClaimRepository {
                             AnalysisJob.class)
                     .setParameter("jobTypes", request.allowedJobTypes())
                     .setParameter("modes", request.effectiveSupportedAnalysisModes())
-                .setParameter("sourceKinds", request.effectiveSupportedSourceKinds())
-                .setParameter("supportsCharacterComparisonGroups", Boolean.TRUE.equals(request.supportsCharacterComparisonGroups()))
+                    .setParameter("sourceKinds", request.effectiveSupportedSourceKinds())
+                    .setParameter("supportsCharacterComparisonGroups", Boolean.TRUE.equals(request.supportsCharacterComparisonGroups()))
+                    .setParameter("supportsRelationshipAnalysis", Boolean.TRUE.equals(request.supportsRelationshipAnalysis()))
                     .setParameter("workId", workId)
                     .setLockMode(LockModeType.PESSIMISTIC_WRITE)
                     .setMaxResults(1)
