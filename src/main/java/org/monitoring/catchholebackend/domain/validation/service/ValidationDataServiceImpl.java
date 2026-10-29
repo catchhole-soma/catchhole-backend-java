@@ -88,12 +88,14 @@ public class ValidationDataServiceImpl implements ValidationDataService {
     private void requireCurrentReport(Long member, UUID work, UUID report, ValidationDataRequest request) {
         var state = em.createQuery("""
                 select r.baselineHash, r.sourceContentHash, cast(r.baselineStatus as string),
-                       cast(r.status as string), cast(r.work.lifecycleStatus as string), cast(r.member.status as string)
+                       cast(r.status as string), cast(r.work.lifecycleStatus as string), cast(r.member.status as string),
+                       r.current, r.sourceContentRevision, r.episode.contentRevision
                 from ValidationReport r where r.id = :report and r.work.id = :work and r.member.id = :member
                 """, Object[].class).setParameter("report", report).setParameter("work", work).setParameter("member", member)
                 .getResultStream().findFirst().orElseThrow(() -> new AppException(ValidationErrorCode.VALIDATION_NOT_FOUND));
         if (!Objects.equals(state[0], request.expectedBaselineHash()) || !Objects.equals(state[1], request.expectedTargetHash())
-                || !"READY".equals(state[2]) || "INVALIDATED".equals(state[3]) || !"ACTIVE".equals(state[4]) || !"ACTIVE".equals(state[5])) throw changed();
+                || !"READY".equals(state[2]) || "INVALIDATED".equals(state[3]) || !"ACTIVE".equals(state[4]) || !"ACTIVE".equals(state[5])
+                || !Boolean.TRUE.equals(state[6]) || !Objects.equals(state[7],state[8])) throw changed();
     }
 
     private String sourceStatus(UUID work, int targetNo, JsonNode source, boolean target) {
@@ -102,10 +104,11 @@ public class ValidationDataServiceImpl implements ValidationDataService {
         if (kind.equals("EPISODE")) {
             UUID id = UUID.fromString(source.path("episodeId").asText());
             state = em.createQuery("""
-                    select e.contentS3Key, e.contentHash, e.contentS3Version, e.episodeNo, cast(e.status as string)
+                    select e.contentS3Key, e.contentHash, e.contentS3Version, e.episodeNo, cast(e.status as string), e.contentRevision
                     from Episode e where e.id = :id and e.work.id = :work
                     """, Object[].class).setParameter("id", id).setParameter("work", work).getResultStream().findFirst().orElse(null);
-            if (state == null || "ARCHIVED".equals(state[4]) || purges.existsByEpisodeId(id)) return "SOURCE_PURGED";
+            if (state == null || "ARCHIVED".equals(state[4]) || purges.blocksSource(id,source.path("contentS3Key").asText())) return "SOURCE_PURGED";
+            if (source.path("contentRevision").isNumber() && !Objects.equals(state[5],source.path("contentRevision").asLong())) return "SOURCE_CHANGED";
             if (!Objects.equals(state[3], source.path("episodeNo").asInt())
                     || target && (int) state[3] != targetNo || !target && (int) state[3] >= targetNo) return "SOURCE_CHANGED";
         } else if (kind.equals("SETTING_BOOK") && !target) {

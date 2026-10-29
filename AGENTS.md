@@ -478,6 +478,12 @@ domain/<domain>
 
 #### 오류 검사 우선 검수 정책 (#303)
 
+- GH310 재검수는 Work 잠금 아래 `current` report를 퇴역한 뒤 새 `revision`/`baselineRevision`을 만든다. baselineId=reportId이며 회차별 partial unique current와 revision unique를 유지한다. Episode/배치 목록·원문 reader는 현재 report만, 검토 전 추출 차단은 모든 report 이력을 확인한다. 일반 원고/설정 저장은 무효화만 하며 검사·추출을 자동 접수하지 않는다.
+- reportVersion은 JSON dirty checking의 flush와 분리한 명시적 CAS다. seed 캡처/준비 완료/보류/무효화/퇴역 및 후속 결과 변경은 Work 잠금 아래 증가시키고 조회·반복 파기는 증가시키지 않는다. Episode.contentRevision은 원문 쓰기·교체·파기마다 올려 같은 hash/key의 A→B→A도 거절한다. 해시가 실제로 없는 legacy/준비 실패 report만 null baseline hash로 새 기준을 준비하며 남아 있는 fingerprint는 우회하지 않는다.
+- 검수 기준 정정은 `ValidationCorrectionService`에서 실제 기존 편집과 원자 연결한다. 캐릭터 전체 편집의 현재 snapshot version/전체 slot CAS와 지정 slot 외 변경 금지, 세계관 version·전체 scope/path를 검증하고 일반 Character PATCH 호환은 유지한다. 일반 저장을 직접 정정으로 추정하지 않으며 현재와 다른 history/BASELINE_ONLY 정정은 거절한다. 서버의 실제 scope만 `explicitAuthorCorrections`로 전달한다.
+- DIAGNOSTIC_ONLY는 실제 자동 적용/후보 확정 식별값으로 서버가 결정하며 SUCCEEDED만으로 추정하지 않는다. 진행 중 추출·비교를 중간에 막지 않게 자격을 확인한다. 검증 가능한 확정 전 입력이 없거나 파기됐으면 DIAGNOSTIC_BASELINE_UNAVAILABLE로 보류하고 live 현재값/타겟 자기 근거로 보충하지 않는다. report 없는 legacy 회차 최초 진단 입구는 별도 범위다.
+- `ValidationStagingEvents.ReportInvalidated(workId,reportId)`는 Work 잠금 안의 동기 삭제 경계다. 후속 결과/인용/checkpoint도 같은 트랜잭션에 정리한다. 교체 정리의 retainedContentKey는 새 원문만 보존하며 contentRevision/hash/key/version 검증을 생략하지 않는다. 작품/회원 파기에서는 정정 사본부터 삭제한다. 상세 계약은 `docs/validation-execution-v1.md`를 따른다.
+
 - GH306의 `ValidationDataService`는 내부 API key와 신뢰 서버의 회원·작품·report 범위 및 expected baseline/target/source fingerprint를 검증해 저장 기준과 실제 원문만 읽는다. 원문 I/O 전후 scalar 조회로 교체·파기·무효화를 확인하고 live 현재값으로 보충하지 않는다. Spring Boot 4 HTTP 경계에는 Jackson 2 JsonNode를 직접 반환하지 않고 `ValidationDataMapper.toTransport`의 표준 JSON Map을 사용한다. 원문 위치는 Unicode code point이며 전문·부분 읽기의 범위를 유지한다. Worker lease·결과 저장·추출 release는 후속이고 이 read endpoint로 생성하지 않는다. 공통 계약은 `docs/setting-validation-v1.md`다.
 
 - `domain.validation`은 원고 저장 후 고정 기준과 오류 검사/작가 검토 대기를 관리한다. 이 기반 단계에서 추출 Job·후보·journal을 만들지 않는다. 검사 Worker/findings/검토 완료 release는 후속 작업이며 기준 READY나 client flag로 추출을 허용하지 않는다.

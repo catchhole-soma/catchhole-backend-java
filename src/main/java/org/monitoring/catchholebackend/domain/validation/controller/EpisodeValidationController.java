@@ -9,6 +9,9 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.auth.security.MemberPrincipal;
 import org.monitoring.catchholebackend.domain.validation.dto.request.ValidationStartRequest;
+import org.monitoring.catchholebackend.domain.validation.dto.request.ValidationRecheckRequest;
+import org.monitoring.catchholebackend.domain.validation.dto.request.ValidationCorrectionRequest;
+import org.monitoring.catchholebackend.domain.validation.dto.response.ValidationCorrectionReceipt;
 import org.monitoring.catchholebackend.domain.validation.dto.response.ValidationStagingResponse;
 import org.monitoring.catchholebackend.domain.validation.service.EpisodeValidationService;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
@@ -22,6 +25,8 @@ import org.springframework.web.bind.annotation.*;
 @SecurityRequirement(name = "bearerAuth")
 public class EpisodeValidationController {
     private final EpisodeValidationService service;
+    private final org.monitoring.catchholebackend.domain.validation.service.ValidationRecheckService rechecks;
+    private final org.monitoring.catchholebackend.domain.validation.service.ValidationCorrectionService corrections;
     @PostMapping
     @Operation(operationId = "startEpisodeValidation", summary = "신규 회차 검수 접수", description = "현재 원고 버전과 단일 append 업로드 자격을 확인하고 고정 기준과 오류 검사/검토 대기를 저장합니다. 설정 추출 Job/후보를 만들지 않으며 같은 입력은 같은 식별자를 반환합니다.")
     @ApiResponses({@ApiResponse(responseCode = "200", description = "접수 또는 동일 입력의 재전송"),
@@ -37,5 +42,26 @@ public class EpisodeValidationController {
     public CommonResponse<ValidationStagingResponse> get(@AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId, @PathVariable UUID reportId) {
         return CommonResponse.success(service.get(member.memberId(), workId, reportId));
+    }
+
+    @GetMapping("/current")
+    @Operation(operationId="getCurrentEpisodeValidation", summary="회차의 현재 검수 조회")
+    public CommonResponse<ValidationStagingResponse> current(@AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId, @RequestParam UUID episodeId) {
+        return CommonResponse.success(rechecks.getCurrentValidation(member.memberId(),workId,episodeId));
+    }
+
+    @PostMapping("/{reportId}/rechecks")
+    @Operation(operationId="recheckEpisodeValidation", summary="수정 후 새 검수 접수", description="원고·기준이 달라진 최신 회차를 명시적으로 다시 접수합니다. 같은 입력의 실패 재시도와 구분하며 추출 Job·후보를 만들지 않습니다.")
+    public CommonResponse<ValidationStagingResponse> recheck(@AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId,@PathVariable UUID reportId,@Valid @RequestBody ValidationRecheckRequest request) {
+        return CommonResponse.success(rechecks.recheckValidation(member.memberId(),workId,reportId,request));
+    }
+
+    @PostMapping("/{reportId}/corrections")
+    @Operation(operationId="correctValidationBaselineSetting", summary="실제 설정 수정과 검수 기준 정정 연결", description="기준 항목·현재 버전·대상 경로를 검증해 기존 설정 편집과 정정 영수증을 원자적으로 저장합니다. 일반 저장을 직접 정정으로 추정하지 않습니다.")
+    public CommonResponse<ValidationCorrectionReceipt> correct(@AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId,@PathVariable UUID reportId,@Valid @RequestBody ValidationCorrectionRequest request) {
+        return CommonResponse.success(corrections.correctSettingAndLinkBaseline(member.memberId(),workId,reportId,request));
     }
 }

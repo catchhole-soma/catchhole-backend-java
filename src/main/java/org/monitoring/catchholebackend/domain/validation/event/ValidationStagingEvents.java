@@ -6,6 +6,9 @@ import java.util.UUID;
 public final class ValidationStagingEvents {
     private ValidationStagingEvents() {}
     public record ConfirmedSettingsChanged(UUID workId) {}
-    public record EpisodeSourceChanged(UUID workId, UUID episodeId) {}
+    public record EpisodeSourceChanged(UUID workId, UUID episodeId, String retainedContentKey) {
+        public EpisodeSourceChanged(UUID workId, UUID episodeId) { this(workId,episodeId,null); }
+    }
     public record SettingBookSourceChanged(UUID workId, UUID settingBookId) {}
+    public record ReportInvalidated(UUID workId, UUID reportId) {}
 }

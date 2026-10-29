@@ -25,7 +25,18 @@ public class ValidationReport extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "work_id", nullable = false, updatable = false) private Work work;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "member_id", nullable = false, updatable = false) private Member member;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "batch_id", nullable = false, updatable = false) private UploadBatch batch;
-    @OneToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "episode_id", nullable = false, unique = true, updatable = false) private Episode episode;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "episode_id", nullable = false, updatable = false) private Episode episode;
+    @Column(name = "is_current", nullable = false) private boolean current = true;
+    @Column(name = "revision", nullable = false, updatable = false) private long revision = 1;
+    @Column(name = "baseline_revision", nullable = false, updatable = false) private long baselineRevision = 1;
+    @Column(name = "version", nullable = false) private long version;
+    @Column(name = "previous_report_id", updatable = false) private UUID previousReportId;
+    @Enumerated(EnumType.STRING) @Column(name = "mode", nullable = false, length = 30, updatable = false) private ValidationReportMode mode = ValidationReportMode.BEFORE_CONFIRMATION;
+    @Column(name = "previous_application_kind", length = 40, updatable = false) private String previousApplicationKind;
+    @Column(name = "previous_application_id", updatable = false) private UUID previousApplicationId;
+    @Column(name = "previous_application_job_id", updatable = false) private UUID previousApplicationJobId;
+    @Column(name = "previous_application_at", updatable = false) private java.time.LocalDateTime previousApplicationAt;
+    @Column(name = "source_content_revision", nullable = false, updatable = false) private long sourceContentRevision;
     @Column(name = "source_episode_no", nullable = false, updatable = false) private int sourceEpisodeNo;
     @Column(name = "source_content_hash", nullable = false, length = 64, updatable = false) private String sourceContentHash;
     @Column(name = "source_content_s3_key", nullable = false, length = 512, updatable = false) private String sourceContentS3Key;
@@ -33,6 +44,7 @@ public class ValidationReport extends BaseEntity {
     @Column(name = "request_hash", nullable = false, length = 64, updatable = false) private String requestHash;
     @JdbcTypeCode(SqlTypes.JSON) @Column(name = "baseline_seed", columnDefinition = "jsonb") private JsonNode baselineSeed;
     @Column(name = "baseline_hash", length = 64) private String baselineHash;
+    @Column(name = "baseline_fingerprint", length = 64) private String baselineFingerprint;
     @JdbcTypeCode(SqlTypes.JSON) @Column(name = "baseline_entries", columnDefinition = "jsonb") private JsonNode baselineEntries;
     @Column(name = "confirmed_state_hash", length = 64) private String confirmedStateHash;
     @Enumerated(EnumType.STRING) @Column(name = "baseline_status", nullable = false, length = 20) private ValidationPreparationStatus baselineStatus;
@@ -43,25 +55,45 @@ public class ValidationReport extends BaseEntity {
         ValidationReport r = new ValidationReport(); r.work = work; r.member = work.getMember(); r.episode = episode; r.batch = batch;
         r.sourceEpisodeNo = episode.getEpisodeNo(); r.sourceContentHash = episode.getContentHash();
         r.sourceContentS3Key = episode.getContentS3Key(); r.sourceContentS3Version = episode.getContentS3Version();
+        r.sourceContentRevision = episode.getContentRevision();
         r.requestHash = requestHash; r.baselineStatus = ValidationPreparationStatus.PENDING; r.status = ValidationReportStatus.PREPARING_BASELINE;
         return r;
     }
+    public static ValidationReport recheck(ValidationReport previous, String requestHash,
+            org.monitoring.catchholebackend.domain.validation.dto.response.ValidationApplicationReference application) {
+        var report = create(previous.work, previous.episode, previous.batch, requestHash);
+        report.previousReportId = previous.id; report.revision = previous.revision + 1;
+        report.baselineRevision = previous.baselineRevision + 1;
+        if (application != null) {
+            report.mode = ValidationReportMode.DIAGNOSTIC_ONLY; report.previousApplicationKind = application.kind();
+            report.previousApplicationId = application.applicationId(); report.previousApplicationJobId = application.analysisJobId();
+            report.previousApplicationAt = application.appliedAt();
+        }
+        return report;
+    }
+    public void retire() { if (current) { current = false; version++; } purge(); }
+    /** Work 잠금 아래 의미 있는 report 변경마다 증가한다. JSON dirty-check/조회 flush와 분리한다. */
+    public void advanceVersion() { version++; }
     public void captureSeed(JsonNode seed, String hash, String confirmedHash) {
         if (status == ValidationReportStatus.INVALIDATED || baselineSeed != null) return;
-        baselineSeed = seed.deepCopy(); baselineHash = hash; confirmedStateHash = confirmedHash;
+        baselineSeed = seed.deepCopy(); baselineHash = hash; baselineFingerprint = hash; confirmedStateHash = confirmedHash;
+        version++;
     }
     public void baselineReady(JsonNode entries) {
         if (status == ValidationReportStatus.INVALIDATED) return;
         baselineEntries = entries.deepCopy(); baselineStatus = ValidationPreparationStatus.READY;
         status = ValidationReportStatus.WAITING_FOR_ERROR_REVIEW; holdReason = null;
+        version++;
     }
     public void hold(String reason) {
         if (status == ValidationReportStatus.INVALIDATED) return;
         baselineEntries = null; baselineStatus = ValidationPreparationStatus.FAILED;
         status = ValidationReportStatus.HELD_INCOMPLETE; holdReason = reason;
+        version++;
     }
     /** 고정 대상 fingerprint는 무효 결과 식별용 감사 메타데이터다. 원문 복사본/출처 목록은 재사용하지 않는다. */
     public void purge() {
+        if (status != ValidationReportStatus.INVALIDATED || baselineSeed != null || baselineEntries != null) version++;
         baselineSeed = null; baselineEntries = null; baselineHash = null; confirmedStateHash = null;
         baselineStatus = ValidationPreparationStatus.INVALIDATED; status = ValidationReportStatus.INVALIDATED; holdReason = "SOURCE_EVIDENCE_PURGED";
     }

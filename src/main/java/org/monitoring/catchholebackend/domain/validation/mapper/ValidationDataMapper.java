@@ -20,7 +20,8 @@ public class ValidationDataMapper {
 
     public ObjectNode toResponse(ValidationReport report) {
         return JsonNodeFactory.instance.objectNode().put("formatVersion", 1)
-                .put("reportId", report.getId().toString()).put("baselineRevision", 1)
+                .put("reportId", report.getId().toString()).put("baselineRevision", report.getBaselineRevision())
+                .put("reportRevision", report.getRevision()).put("reportVersion", report.getVersion()).put("reportMode", report.getMode().name())
                 .put("baselineHash", report.getBaselineHash()).put("targetHash", report.getSourceContentHash())
                 .put("manifestHash", journal.hash(report.getBaselineSeed().path("sources"))).put("status", "READY");
     }
@@ -41,7 +42,7 @@ public class ValidationDataMapper {
         ArrayNode result = JsonNodeFactory.instance.arrayNode();
         for (int index = offset; index < Math.min(entries.size(), (long) offset + limit); index++) {
             ObjectNode entry = entries.get(index).deepCopy();
-            entry.put("entryRef", "B" + (index + 1)); result.add(entry);
+            entry.put("entryRef", "B" + (index + 1)).put("entryHash", journal.hash(entries.get(index))); result.add(entry);
         }
         return result;
     }

@@ -36,4 +36,5 @@ public interface AnalysisRunStateService {
     void invalidateRunsForSettingBookChangeForUpdate(UUID workId, UUID settingBookId, String reason);
 
     void purgeSourceEvidenceForWorkForUpdate(UUID workId, UUID episodeId, int sourceEpisodeNo);
+    void purgeSourceEvidenceForWorkForUpdate(UUID workId, UUID episodeId, int sourceEpisodeNo, String retainedContentKey);
 }
