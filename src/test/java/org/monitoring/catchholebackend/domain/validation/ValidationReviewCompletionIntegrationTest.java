@@ -70,7 +70,8 @@ class ValidationReviewCompletionIntegrationTest extends ValidationReviewFixture 
         assertThat(extraction.getStatus()).isEqualTo(AnalysisJobStatus.PENDING);assertThat(extraction.getEpisode().getId()).isEqualTo(target.getId());assertThat(extraction.getBatch().getId()).isEqualTo(batchId);
         assertThat(extraction.getReviewMode()).as("single new-episode upload default").isEqualTo(AnalysisReviewMode.AUTOMATIC);assertThat(extraction.getAnalysisMode()).isEqualTo(AnalysisMode.ORDERED_PROVISIONAL);
         var summary=review(report);
-        assertThat(summary.path("completionMode").asText()).isEqualTo("COMPLETED");assertThat(summary.path("canCompleteReview").asBoolean()).isFalse();assertThat(summary.path("allowedActions").size()).isZero();
+        assertThat(summary.path("completionMode").asText()).isEqualTo("COMPLETED");assertThat(summary.path("canCompleteReview").asBoolean()).isFalse();assertThat(texts(summary.path("allowedActions"))).as("GH312 S3: 반영 전에는 회차 전체 반영만 안내").containsExactly("APPLY_SETTINGS");
+        assertThat(summary.path("application").isNull()).isTrue();assertThat(summary.path("extractionState").asText()).isEqualTo("RUNNING");
         assertThat(summary.path("lockReason").asText()).isEqualTo("REVIEW_COMPLETED");assertThat(summary.path("completion").path("trigger").asText()).isEqualTo("AUTOMATIC");
         assertThat(summary.path("completion").path("completionId")).isEqualTo(receipt.path("reviewCompletionId"));assertThat(summary.path("completion").path("extractionJobId").asText()).isEqualTo(release.toString());
         var row=receiptRow(report);assertThat(row[2].toString()).isEqualTo("AUTOMATIC");assertThat(row[4]).isNull();

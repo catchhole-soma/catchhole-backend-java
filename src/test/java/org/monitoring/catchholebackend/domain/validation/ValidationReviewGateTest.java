@@ -75,7 +75,14 @@ class ValidationReviewGateTest {
         var receipt=new Completion(java.util.UUID.randomUUID(),ValidationReviewTrigger.EXPLICIT,java.time.LocalDateTime.now(),java.util.UUID.randomUUID());
         var completed=ValidationReviewGate.evaluate(new Input(true,ValidationPreparationStatus.READY,ValidationReportStatus.WAITING_FOR_ERROR_REVIEW,ValidationReportMode.BEFORE_CONFIRMATION,COMPLETED,DECIDED,true,receipt));
         assertThat(completed.completionMode()).isEqualTo(ValidationReviewCompletionMode.COMPLETED);assertThat(completed.lockReason()).isEqualTo(ValidationReviewLockReason.REVIEW_COMPLETED);
-        assertThat(completed.allowedActions()).isEmpty();assertThat(completed.canCompleteReview()).isFalse();assertThat(completed.completion()).isEqualTo(receipt);
+        // GH312 S3: 검토 종료 뒤 아직 반영하지 않았으면 회차 전체 반영만 안내하고, APPLIED 뒤에는 남은 행동이 없다.
+        assertThat(completed.allowedActions()).containsExactly(ValidationReviewAction.APPLY_SETTINGS);assertThat(completed.canCompleteReview()).isFalse();assertThat(completed.completion()).isEqualTo(receipt);
+        var applied=ValidationReviewGate.evaluate(new Input(true,ValidationPreparationStatus.READY,ValidationReportStatus.WAITING_FOR_ERROR_REVIEW,ValidationReportMode.BEFORE_CONFIRMATION,COMPLETED,DECIDED,true,receipt,null,
+                new ValidationReviewGate.Application(ValidationApplicationStatus.APPLIED,2,java.util.List.of(),java.time.LocalDateTime.now(),1),ValidationExtractionState.SUCCEEDED));
+        assertThat(applied.allowedActions()).isEmpty();assertThat(applied.application().status()).isEqualTo(ValidationApplicationStatus.APPLIED);assertThat(applied.extractionState()).isEqualTo(ValidationExtractionState.SUCCEEDED);
+        var held=ValidationReviewGate.evaluate(new Input(true,ValidationPreparationStatus.READY,ValidationReportStatus.WAITING_FOR_ERROR_REVIEW,ValidationReportMode.BEFORE_CONFIRMATION,COMPLETED,DECIDED,true,receipt,null,
+                new ValidationReviewGate.Application(ValidationApplicationStatus.HELD_REVIEW,1,java.util.List.of(),null,1),ValidationExtractionState.SUCCEEDED));
+        assertThat(held.allowedActions()).containsExactly(ValidationReviewAction.APPLY_SETTINGS);
         assertThat(completed.errorReviewStatus()).isEqualTo(ValidationPreparationStatus.READY);
         var invalidated=ValidationReviewGate.evaluate(new Input(true,ValidationPreparationStatus.INVALIDATED,ValidationReportStatus.INVALIDATED,ValidationReportMode.BEFORE_CONFIRMATION,COMPLETED,Counts.EMPTY,true,receipt));
         assertThat(invalidated.lockReason()).isEqualTo(ValidationReviewLockReason.REPORT_INVALIDATED);assertThat(invalidated.allowedActions()).containsExactly(ValidationReviewAction.RECHECK);
