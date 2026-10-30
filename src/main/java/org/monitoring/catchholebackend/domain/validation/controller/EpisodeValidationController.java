@@ -72,6 +72,16 @@ public class EpisodeValidationController {
         return CommonResponse.success(rechecks.getCurrentValidation(member.memberId(),workId,episodeId));
     }
 
+    @GetMapping("/eligibility")
+    @Operation(operationId="getEpisodeValidationEligibility", summary="신규 회차 검수 접수 전 자격 조회", description="접수(POST)와 같은 판정 코드로 회차의 검수 접수 가능 여부·사유(reasonCode)·최신 회차 여부·현재 검수 report와 작품 단위 다음 회차 등록 차단(nextEpisodeAdmission)을 반환합니다. 조회 전용이며 report·Job·요청 키를 만들지 않습니다. episodeId를 생략하면 다음 회차 등록 차단만 채웁니다. 접수 자격의 최종 권위는 접수 요청입니다.")
+    @ApiResponses({@ApiResponse(responseCode="200", description="조회 성공(접수 불가도 200의 reasonCode로 반환)"),
+            @ApiResponse(responseCode="400", description="episodeId 형식 오류"),
+            @ApiResponse(responseCode="404", description="작품 소유권 없음")})
+    public CommonResponse<org.monitoring.catchholebackend.domain.validation.dto.response.ValidationEligibilityResponse> eligibility(@AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId, @RequestParam(required=false) UUID episodeId) {
+        return CommonResponse.success(service.getEpisodeValidationEligibility(member.memberId(), workId, episodeId));
+    }
+
     @GetMapping("/history")
     @Operation(operationId="listEpisodeValidationHistory", summary="회차 검수 이력", description="회차의 모든 검수 report를 최신 revision부터 요약합니다. 각 행은 실행 상태, 현재 항목 수, 검토 종료·회차 전체 확정 receipt, 자동 종료 보류, 무효화 시각과 파생 검수 단계(reviewStage)만 담고 인용·근거·판정 내용은 반환하지 않습니다. 다른 작품의 회차는 빈 페이지입니다. page는 0부터, size는 1~100입니다.")
     @ApiResponses({@ApiResponse(responseCode="200", description="조회 성공"),
@@ -84,24 +94,38 @@ public class EpisodeValidationController {
 
     @PostMapping("/{reportId}/rechecks")
     @Operation(operationId="recheckEpisodeValidation", summary="수정 후 새 검수 접수", description="원고·기준이 달라진 최신 회차를 명시적으로 다시 접수합니다. 같은 입력의 실패 재시도와 구분하며 추출 Job·후보를 만들지 않습니다.")
+    @ApiResponses({@ApiResponse(responseCode="200", description="새 검수 접수 또는 같은 요청 재전송"),
+            @ApiResponse(responseCode="400", description="필드 검증 실패, 최신 활성 회차가 아니거나 진행 중 분석·원문 파기 대기가 있는 회차(VALIDATION_TARGET_INVALID)"),
+            @ApiResponse(responseCode="404", description="작품 소유권 또는 검수 요청 없음"),
+            @ApiResponse(responseCode="409", description="report version 충돌·현재 검수 아님, 원고·기준 버전 변경, 같은 입력(VALIDATION_RECHECK_INPUT_UNCHANGED), 정정 영수증 불일치, 같은 키 다른 입력")})
     public CommonResponse<ValidationStagingResponse> recheck(@AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,@PathVariable UUID reportId,@Valid @RequestBody ValidationRecheckRequest request) {
         return CommonResponse.success(rechecks.recheckValidation(member.memberId(),workId,reportId,request));
     }
 
     @GetMapping("/{reportId}/results")
-    @Operation(operationId="getValidationExecutionResults",summary="검수 진행 및 저장 결과 읽기 전용 조회")
+    @Operation(operationId="getValidationExecutionResults",summary="검수 진행 및 저장 결과 읽기 전용 조회",description="전용 검사 실행의 단계·check·저장된 공개 결과를 읽기만 합니다. 실행 전이면 NOT_STARTED와 빈 목록입니다. 전체 근거 bundle·catalogue·checkpoint·호출 원장은 반환하지 않습니다.")
+    @ApiResponses({@ApiResponse(responseCode="200", description="조회 성공"),
+            @ApiResponse(responseCode="404", description="작품 소유권 또는 검수 요청 없음")})
     public CommonResponse<java.util.Map<String,Object>> results(@AuthenticationPrincipal MemberPrincipal member,@PathVariable UUID workId,@PathVariable UUID reportId) {
         return CommonResponse.success(results.getValidationProgress(member.memberId(),workId,reportId));
     }
     @PostMapping("/{reportId}/retries")
-    @Operation(operationId="retryValidationExecution",summary="같은 입력의 미완료 검사 재시도")
+    @Operation(operationId="retryValidationExecution",summary="같은 입력의 미완료 검사 재시도",description="같은 원고·기준으로 중단(PARTIAL/FAILED)되었거나 아직 시작하지 않은 검사를 다시 queue합니다. 성공한 단계와 사용량은 보존하며 같은 키·같은 입력은 저장된 응답을 반환합니다. 원고가 바뀌었으면 재검수를 사용합니다.")
+    @ApiResponses({@ApiResponse(responseCode="200", description="재시도 접수 또는 같은 요청 재전송"),
+            @ApiResponse(responseCode="400", description="필드 검증 실패 또는 최신 활성 회차가 아님(VALIDATION_TARGET_INVALID)"),
+            @ApiResponse(responseCode="404", description="작품 소유권 또는 검수 요청 없음"),
+            @ApiResponse(responseCode="409", description="검수 실행 비활성, 이미 검토 완료, report version·원고 버전 충돌, 재시도할 수 없는 실행 상태, 실행 예산 부족, 같은 키 다른 입력")})
     public CommonResponse<ValidationStagingResponse> retry(@AuthenticationPrincipal MemberPrincipal member,@PathVariable UUID workId,@PathVariable UUID reportId,@Valid @RequestBody org.monitoring.catchholebackend.domain.validation.dto.ValidationExecutionContract.Retry request) {
         return CommonResponse.success(workers.retryValidation(member.memberId(),workId,reportId,request));
     }
 
     @PostMapping("/{reportId}/corrections")
     @Operation(operationId="correctValidationBaselineSetting", summary="실제 설정 수정과 검수 기준 정정 연결", description="기준 항목·현재 버전·대상 경로를 검증해 기존 설정 편집과 정정 영수증을 원자적으로 저장합니다. 일반 저장을 직접 정정으로 추정하지 않습니다.")
+    @ApiResponses({@ApiResponse(responseCode="200", description="정정 저장 또는 같은 요청 재전송"),
+            @ApiResponse(responseCode="400", description="필드 검증 실패 또는 설정 편집 값 오류"),
+            @ApiResponse(responseCode="404", description="작품 소유권·검수 요청·대상 설정 없음"),
+            @ApiResponse(responseCode="409", description="report version 충돌·현재 검수 아님, 기준 항목·설정 버전을 정확히 연결할 수 없음(VALIDATION_CORRECTION_CONFLICT), 같은 키 다른 입력")})
     public CommonResponse<ValidationCorrectionReceipt> correct(@AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,@PathVariable UUID reportId,@Valid @RequestBody ValidationCorrectionRequest request) {
         return CommonResponse.success(corrections.correctSettingAndLinkBaseline(member.memberId(),workId,reportId,request));

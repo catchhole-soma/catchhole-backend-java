@@ -67,6 +67,7 @@ public class EpisodeServiceImpl implements EpisodeService {
 
     private final EpisodeRepository episodeRepository;
     private final org.monitoring.catchholebackend.domain.validation.repository.ValidationReportRepository validationReports;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationNextEpisodeAdmission nextEpisodeAdmission;
     private final EpisodeSourcePurgeRequestRepository episodeSourcePurgeRequestRepository;
     private final WorkRepository workRepository;
     private final EpisodeMapper episodeMapper;
@@ -256,6 +257,9 @@ public class EpisodeServiceImpl implements EpisodeService {
     @Transactional
     public EpisodeUploadResponse uploadEpisodes(Long memberId, UUID workId, EpisodeUploadRequest uploadRequest, List<MultipartFile> sourceEpisodeFiles) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        // #314 B1: 확정 전 검수가 끝나지 않았으면 모든 업로드 방식에서 새 회차 등록을 막는다. 검수 접수와 같은 Work 잠금 아래에서
+        // 파싱·UploadBatch/UploadFile/Episode·저장소 쓰기 전에 판정한다. 파일 교체·감지·설정집 업로드는 이 경로가 아니다.
+        nextEpisodeAdmission.assertNextEpisodeAdmitted(work.getId());
         return episodeUploadProcessor.processEpisodeUpload(work, uploadRequest, sourceEpisodeFiles);
     }
 
