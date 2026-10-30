@@ -29,7 +29,7 @@ public class RelationshipGraphNode extends BaseEntity {
     @Column(nullable = false, length = 100)
     private String name;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false)
     private int firstEpisodeNo;
 
     public static RelationshipGraphNode create(
@@ -42,6 +42,10 @@ public class RelationshipGraphNode extends BaseEntity {
         value.name = name;
         value.firstEpisodeNo = episodeNo;
         return value;
+    }
+
+    public void observeAt(int episodeNo) {
+        firstEpisodeNo = Math.min(firstEpisodeNo, episodeNo);
     }
 
     public void link(UUID characterId, int episodeNo) {

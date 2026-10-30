@@ -34,9 +34,11 @@ import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRep
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobLeaseService;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodePurgeDataRepository;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
+import org.monitoring.catchholebackend.domain.relationship.entity.RelationshipGraphNode;
 import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipGraphAnalysisRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
@@ -306,7 +308,7 @@ class EpisodeRelationshipGraphIntegrationTest {
     @Test
     void earlierCompletionInvalidatesAlreadyAppliedLaterManualJob() {
         UUID first = job(1), second = job(2);
-        Context a = prepare(first), b = prepare(second);
+        Context b = prepare(second), a = prepare(first);
         apply(second, b, action(b, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
         apply(first, a, action(a, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
         assertThat(service.getRelationshipGraph(owner, workId, null).availableEpisodes())
@@ -319,6 +321,258 @@ class EpisodeRelationshipGraphIntegrationTest {
         assertThat(refreshed.observations().getFirst().sourceNodeRefs()).hasSize(1);
         assertThat(refreshed.observations().getFirst().targetNodeRefs()).hasSize(1);
         assertThat(refreshed.relationships()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("2화부터 준비해도 1화가 같은 인물 ID를 재사용하고 미래 프로필 연결을 숨긴다")
+    void reverseManualPreparationReusesNodesWithoutFutureIdentityLeak() {
+        UUID first = job(1), second = job(2);
+        Context future = prepare(second);
+        UUID ara =
+                boundNodeId(second, future.observations().getFirst().sourceNodeRefs().getFirst());
+        UUID bora =
+                boundNodeId(second, future.observations().getFirst().targetNodeRefs().getFirst());
+        tx.executeWithoutResult(
+                status -> {
+                    Work work = em.find(Work.class, workId);
+                    WorkCharacter character =
+                            WorkCharacter.create(
+                                    work,
+                                    "미래의 현재 프로필 이름",
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null);
+                    em.persist(character);
+                    em.find(RelationshipGraphNode.class, ara).link(character.getId(), 2);
+                    em.persist(
+                            RelationshipGraphNode.create(
+                                    UUID.randomUUID(), workId, null, "미래에만 등장한 인물", 2));
+                });
+
+        Context past = prepare(first);
+        assertThat(past.nodes()).extracting(n -> n.name()).containsExactlyInAnyOrder("아라", "보라");
+        assertThat(past.nodes()).allSatisfy(n -> assertThat(n.profileRegistered()).isFalse());
+        assertThat(boundNodeId(first, past.observations().getFirst().sourceNodeRefs().getFirst()))
+                .isEqualTo(ara);
+        assertThat(boundNodeId(first, past.observations().getFirst().targetNodeRefs().getFirst()))
+                .isEqualTo(bora);
+        assertThat(analyses.findById(second).orElseThrow().getContextToken())
+                .isEqualTo(future.contextToken());
+        assertThat(analyses.findById(second).orElseThrow().getStatus())
+                .isEqualTo(AnalysisStatus.PREPARED);
+        assertThat(
+                        boundNodeId(
+                                second,
+                                future.observations().getFirst().sourceNodeRefs().getFirst()))
+                .isEqualTo(ara);
+        apply(first, past, action(past, Operation.ADD, Kind.COMPANIONSHIP, "1화 동행"));
+        assertThatThrownBy(() -> service.getRelationshipAnalysis(second, lease))
+                .isInstanceOf(AppException.class);
+        assertThatThrownBy(() -> prepare(second)).isInstanceOf(AppException.class);
+        Graph firstGraph = service.getRelationshipGraph(owner, workId, 1);
+        assertThat(firstGraph.nodes()).extracting(n -> n.id()).containsExactlyInAnyOrder(ara, bora);
+        assertThat(firstGraph.nodes()).allSatisfy(n -> assertThat(n.profileRegistered()).isFalse());
+        assertThat(
+                        service.getRelationshipEdge(
+                                        owner, workId, firstGraph.edges().getFirst().id(), 1)
+                                .evidence())
+                .allSatisfy(e -> assertThat(e.episodeNo()).isEqualTo(1));
+
+        UUID retry = job(2);
+        Context refreshed = prepare(retry);
+        assertThat(refreshed.observations().getFirst().sourceNodeRefs()).hasSize(1);
+        assertThat(refreshed.observations().getFirst().targetNodeRefs()).hasSize(1);
+        assertThat(refreshed.relationships()).hasSize(1);
+        assertThat(refreshed.nodes())
+                .filteredOn(n -> n.name().equals("아라"))
+                .singleElement()
+                .satisfies(n -> assertThat(n.profileRegistered()).isTrue());
+        apply(retry, refreshed, action(refreshed, Operation.UPDATE, Kind.COMPANIONSHIP, "2화 동행"));
+        Graph latest = service.getRelationshipGraph(owner, workId, 2);
+        assertThat(latest.edges().getFirst().id()).isEqualTo(firstGraph.edges().getFirst().id());
+        assertThat(latest.nodes()).extracting(n -> n.id()).containsExactlyInAnyOrder(ara, bora);
+        assertThat(latest.nodes()).extracting(n -> n.name()).containsExactlyInAnyOrder("아라", "보라");
+        assertThat(service.getRelationshipGraph(owner, workId, 1).nodes())
+                .allSatisfy(n -> assertThat(n.profileRegistered()).isFalse());
+        tx.executeWithoutResult(
+                status -> {
+                    em.clear();
+                    assertThat(em.find(RelationshipGraphNode.class, ara).getFirstEpisodeNo())
+                            .isEqualTo(1);
+                    assertThat(
+                                    em.find(RelationshipGraphNode.class, ara)
+                                            .getCharacterLinkedEpisodeNo())
+                            .isEqualTo(2);
+                });
+    }
+
+    @Test
+    @DisplayName("역순 회차 재분석도 기존 관계 ID와 사용자 정정·삭제를 보존한다")
+    void reverseManualReanalysisKeepsCorrectionsAndSuppression() {
+        UUID second = job(2);
+        Context later = prepare(second);
+        apply(
+                second,
+                later,
+                action(later, Operation.ADD, Kind.COMPANIONSHIP, "동행한다"),
+                action(later, Operation.ADD, Kind.FRIENDSHIP, "친구다"));
+        Graph original = service.getRelationshipGraph(owner, workId, 2);
+        Edge companion =
+                original.edges().stream()
+                        .filter(e -> e.kind() == Kind.COMPANIONSHIP)
+                        .findFirst()
+                        .orElseThrow();
+        Edge friend =
+                original.edges().stream()
+                        .filter(e -> e.kind() == Kind.FRIENDSHIP)
+                        .findFirst()
+                        .orElseThrow();
+        service.correctRelationshipEdge(
+                owner, workId, companion.id(), new Correction(companion.version(), "사용자가 정정한 동행"));
+        service.deleteRelationshipEdge(owner, workId, friend.id(), friend.version());
+
+        UUID first = job(1);
+        Context earlier = prepare(first);
+        apply(
+                first,
+                earlier,
+                action(earlier, Operation.ADD, Kind.COMPANIONSHIP, "1화 동행"),
+                action(earlier, Operation.ADD, Kind.FRIENDSHIP, "1화 친구"));
+        Graph past = service.getRelationshipGraph(owner, workId, 1);
+        assertThat(past.edges())
+                .singleElement()
+                .satisfies(
+                        e -> {
+                            assertThat(e.id()).isEqualTo(companion.id());
+                            assertThat(e.summary()).isEqualTo("사용자가 정정한 동행");
+                        });
+        assertThat(past.nodes())
+                .extracting(n -> n.id())
+                .containsExactlyInAnyOrderElementsOf(
+                        original.nodes().stream().map(n -> n.id()).toList());
+
+        UUID retry = job(2);
+        Context refreshed = prepare(retry);
+        apply(
+                retry,
+                refreshed,
+                action(refreshed, Operation.UPDATE, Kind.COMPANIONSHIP, "2화 동행"),
+                action(refreshed, Operation.ADD, Kind.FRIENDSHIP, "다시 분석한 친구"));
+        assertThat(service.getRelationshipGraph(owner, workId, 2).edges())
+                .singleElement()
+                .satisfies(
+                        e -> {
+                            assertThat(e.id()).isEqualTo(companion.id());
+                            assertThat(e.summary()).isEqualTo("사용자가 정정한 동행");
+                        });
+    }
+
+    @Test
+    @DisplayName("미래에 만들어진 동명 노드가 여러 개면 병합하거나 새 노드를 만들지 않는다")
+    void ambiguousFutureNodesRemainUnresolved() {
+        UUID second = job(2);
+        Context future = prepare(second);
+        UUID original =
+                boundNodeId(second, future.observations().getFirst().sourceNodeRefs().getFirst());
+        UUID duplicate = UUID.randomUUID();
+        tx.executeWithoutResult(
+                status ->
+                        em.persist(RelationshipGraphNode.create(duplicate, workId, null, "아라", 2)));
+        Context past = prepare(job(1));
+        assertThat(past.observations().getFirst().sourceNodeRefs()).isEmpty();
+        assertThat(past.nodes()).extracting(n -> n.name()).containsExactly("보라");
+        tx.executeWithoutResult(
+                status -> {
+                    assertThat(em.find(RelationshipGraphNode.class, original).getFirstEpisodeNo())
+                            .isEqualTo(2);
+                    assertThat(em.find(RelationshipGraphNode.class, duplicate).getFirstEpisodeNo())
+                            .isEqualTo(2);
+                    assertThat(
+                                    em.createQuery(
+                                                    "select count(n) from RelationshipGraphNode n"
+                                                            + " where n.workId=:work",
+                                                    Long.class)
+                                            .setParameter("work", workId)
+                                            .getSingleResult())
+                            .isEqualTo(3);
+                });
+    }
+
+    @Test
+    @DisplayName("현재 고정 인물 ID와 다른 미래의 동명 프로필은 이름만으로 재사용하지 않는다")
+    void futureProfileConflictingWithFrozenIdentityRemainsUnresolved() {
+        UUID second = job(2);
+        Context future = prepare(second);
+        UUID nodeId =
+                boundNodeId(second, future.observations().getFirst().sourceNodeRefs().getFirst());
+        tx.executeWithoutResult(
+                status -> {
+                    WorkCharacter character =
+                            WorkCharacter.create(
+                                    em.find(Work.class, workId),
+                                    "아라",
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null);
+                    em.persist(character);
+                    em.find(RelationshipGraphNode.class, nodeId).link(character.getId(), 2);
+                });
+        var input = new ObjectMapper().createObjectNode();
+        input.putArray("characters")
+                .addObject()
+                .put("name", "아라")
+                .put("actualCharacterId", UUID.randomUUID().toString());
+        doReturn(input).when(runState).getInputState(any());
+        Context past = prepare(job(1, true));
+        assertThat(past.observations().getFirst().sourceNodeRefs()).isEmpty();
+        assertThat(past.nodes()).extracting(n -> n.name()).containsExactly("보라");
+        tx.executeWithoutResult(
+                status -> {
+                    assertThat(em.find(RelationshipGraphNode.class, nodeId).getFirstEpisodeNo())
+                            .isEqualTo(2);
+                    assertThat(
+                                    em.createQuery(
+                                                    "select count(n) from RelationshipGraphNode n"
+                                                            + " where n.workId=:work",
+                                                    Long.class)
+                                            .setParameter("work", workId)
+                                            .getSingleResult())
+                            .isEqualTo(2);
+                });
+
+        // A manual observation can make this node cutoff-safe. A later frozen identity
+        // conflict must still be rejected after it moves into the existing-node branch.
+        UUID manual = job(1);
+        Context named = prepare(manual);
+        assertThat(named.observations().getFirst().sourceNodeRefs()).hasSize(1);
+        assertThat(boundNodeId(manual, named.observations().getFirst().sourceNodeRefs().getFirst()))
+                .isEqualTo(nodeId);
+        Context retried = prepare(job(1, true));
+        assertThat(retried.observations().getFirst().sourceNodeRefs()).isEmpty();
+        assertThat(retried.nodes()).extracting(n -> n.name()).containsExactly("보라");
+    }
+
+    private UUID boundNodeId(UUID jobId, String ref) {
+        return UUID.fromString(
+                analyses.findById(jobId)
+                        .orElseThrow()
+                        .getBindings()
+                        .path("nodes")
+                        .path(ref)
+                        .path("id")
+                        .asText());
     }
 
     @Test

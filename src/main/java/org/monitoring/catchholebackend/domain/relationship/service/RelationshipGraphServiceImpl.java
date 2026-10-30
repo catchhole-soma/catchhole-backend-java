@@ -361,10 +361,12 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         // Keep cutoff-safe provisional identities even before they produce an event.
         // Parallel/manual
         // jobs, internal HOLD and reanalysis must not manufacture duplicate same-name node IDs.
+        List<RelationshipGraphNode> allNodes =
+                nodes.findAllByWorkIdOrderByFirstEpisodeNoAscIdAsc(workId);
+        Map<String, List<RelationshipGraphNode>> allByName =
+                allNodes.stream().collect(Collectors.groupingBy(RelationshipGraphNode::getName));
         List<RelationshipGraphNode> existing =
-                nodes.findAllByWorkIdOrderByFirstEpisodeNoAscIdAsc(workId).stream()
-                        .filter(n -> n.getFirstEpisodeNo() <= cutoff)
-                        .toList();
+                allNodes.stream().filter(n -> n.getFirstEpisodeNo() <= cutoff).toList();
         Map<String, List<RelationshipGraphNode>> byName = new LinkedHashMap<>();
         existing.forEach(n -> byName.computeIfAbsent(n.getName(), x -> new ArrayList<>()).add(n));
         JsonNode input =
@@ -377,7 +379,9 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         }
         known.forEach(
                 (name, identities) -> {
-                    if (identities.stream().distinct().count() > 1) byName.put(name, List.of());
+                    List<UUID> distinct = identities.stream().distinct().toList();
+                    if (conflictsWithKnownIdentity(byName.getOrDefault(name, List.of()), distinct))
+                        byName.put(name, List.of());
                 });
         // 새 이름은 현재 원문에서 확인한 것만 독립 도형 후보가 된다. 역할/대명사는 생성하지 않는다.
         for (Observation observation : request.observations())
@@ -387,6 +391,21 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                         known.getOrDefault(endpoint.name(), List.of()).stream().distinct().toList();
                 if (identities.size() > 1) {
                     byName.put(endpoint.name(), List.of());
+                    continue;
+                }
+                // An earlier manual job may see a name first prepared by a later job. Reuse
+                // only that explicitly observed name, without exposing other future identities
+                // or moving the independently recorded profile-link episode into the past.
+                List<RelationshipGraphNode> future =
+                        allByName.getOrDefault(endpoint.name(), List.of());
+                if (!future.isEmpty()) {
+                    if (future.size() != 1 || conflictsWithKnownIdentity(future, identities)) {
+                        byName.put(endpoint.name(), List.of());
+                        continue;
+                    }
+                    RelationshipGraphNode node = future.getFirst();
+                    node.observeAt(cutoff);
+                    byName.put(endpoint.name(), List.of(node));
                     continue;
                 }
                 var node =
@@ -541,6 +560,16 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                         relationships,
                         List.copyOf(held));
         return new BuiltContext(context, bindings);
+    }
+
+    private boolean conflictsWithKnownIdentity(
+            List<RelationshipGraphNode> candidates, List<UUID> identities) {
+        return identities.size() > 1
+                || identities.size() == 1
+                        && candidates.stream()
+                                .map(RelationshipGraphNode::getCharacterId)
+                                .filter(Objects::nonNull)
+                                .anyMatch(id -> !id.equals(identities.getFirst()));
     }
 
     private ContextObservation contextObservation(
