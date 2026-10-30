@@ -437,6 +437,22 @@ S2·S3에서 S4로 넘긴 항목의 결과다.
 - 409 응답은 `VALIDATION_NEXT_EPISODE_BLOCKED`, 문구 `이 회차의 검토와 설정 저장을 마친 뒤 다음 회차를 등록할 수 있어요.`, `error.context{reportId, episodeId, episodeNo, reviewStage}`다. 예시는 `docs/contracts/validation-review-v1.json`의 `errors.nextEpisodeBlocked`.
 - 막지 않는 경로: `detectEpisodes`(파싱만, 쓰기 없음), 어느 회차든 `replaceEpisodeFile`(수정 경로. report는 무효화되지만 current로 남아 차단은 유지되고 재검수로 이어진다), 설정집 업로드·편집, 회차 제목·원고 수정, 회차 삭제.
 
+#### B1 이전 자료 점검(배포 전 1회)
+
+B1 뒤에는 "확정 전 report가 APPLIED가 아닌 회차 뒤에 다른 회차가 있는 상태"를 업로드가 만들지 못한다. 그러나 B1 **이전**에 101화 report가 미확정인 채 102화가 올라간 작품이 있으면, 101화 원고를 교체하는 순간 report가 current·INVALIDATED가 되어 작품의 모든 업로드가 막히고, 101화는 최신 회차가 아니라 재검수(`NOT_LATEST_EPISODE`)도 검토 종료(무효 report)도 되지 않는다. 남는 복구는 102화 이후를 삭제한 뒤 재검수뿐이다. 이 경로는 코드로 풀지 않고 **검수 기능을 운영에 켜기 전에 자료를 점검**하는 것으로 처리한다(2026-10-30 현재 운영은 `VALIDATION_EXECUTION_ENABLED=false`이고 화면도 배포 전이라 해당 report가 없다).
+
+```sql
+-- 최신 활성 회차가 아닌 회차에 남은 확정 전 current report(APPLIED receipt 없음). 결과가 0행이어야 한다.
+select r.id as report_id, r.work_id, e.episode_no, r.status, r.baseline_status
+from validation_reports r
+join episodes e on e.id = r.episode_id and e.status <> 'ARCHIVED'
+where r.is_current and r.mode = 'BEFORE_CONFIRMATION'
+  and e.episode_no < (select max(e2.episode_no) from episodes e2 where e2.work_id = r.work_id and e2.status <> 'ARCHIVED')
+  and not exists (select 1 from validation_settings_applications a where a.report_id = r.id and a.status = 'APPLIED');
+```
+
+행이 있으면 작품 소유자와 확인해 (a) 뒤 회차를 삭제한 뒤 앞 회차를 재검수하거나, (b) 운영자가 그 report를 퇴역(`is_current=false`)시켜 다음 회차 등록을 연다. (b)는 해당 회차의 검수 결과를 포기하는 것이므로 기록을 남기고 수행한다. "최신 회차가 아닌 INVALIDATED report의 재검수 허용" 같은 일반 복구 정책은 제품 결정이 필요해 #314 후속으로 둔다.
+
 ### 잠금 순서
 
 업로드와 접수는 모두 `WorkRepository.getOwnedWorkForUpdate`(Work 행 `PESSIMISTIC_WRITE`)를 가장 먼저 잡고 그 안에서 판정과 쓰기를 한다. 두 판정 컴포넌트는 Work보다 먼저 회원·Job·후보를 잠그지 않는다(회원 → Work 순서 없음).
