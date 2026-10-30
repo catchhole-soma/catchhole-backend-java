@@ -50,7 +50,7 @@ class FrozenCurrentCaptureFailureIntegrationTest extends SettingBookAnalysisInte
         var frozen = pending.getAutomaticInputState().path("characters").path("character:" + owner.getId());
         var frozenSlot = frozen.path("slots").path("PROFILE:profile.오른손_감각");
         assertThat(frozenSlot.path("factValue").asText()).isEqualTo("정상");
-        assertThat(frozenSlot.path("supportingSources").get(0).path("unavailableReason").asText()).isEqualTo("QUOTE_NOT_FOUND");
+        assertThat(frozenSlot.path("supportingSources").get(0).path("unavailableReason").asText()).isEqualTo("OFFSETS_UNAVAILABLE");
         assertThat(frozenSlot.path("supportingSources").get(0).path("evidenceSpans")).isEmpty();
         assertThat(pending.getInputStateHash()).hasSize(64);
         em.persist(org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema.create(work,
@@ -100,11 +100,11 @@ class FrozenCurrentCaptureFailureIntegrationTest extends SettingBookAnalysisInte
     }
 
     @Test
-    @DisplayName("잘못된 CURRENT 인용의 첫 capture는 작업 실패·고아 예약 정리 후 다른 작품의 정상 claim을 허용한다")
+    @DisplayName("잘못된 CURRENT 원문 hash의 첫 capture는 작업 실패·고아 예약 정리 후 다른 작품의 정상 claim을 허용한다")
     void invalidOldestCaptureFailsWithoutQueueOrTokenLeak() throws Exception {
         var book = upload("다음 분석 원문");
         var pending = jobs.findById(UUID.fromString(book.path("latestAnalysisJob").path("id").asText())).orElseThrow();
-        invalidCurrentQuote();
+        invalidCurrentSource();
         // A reservation left by an interrupted old worker must not survive a failed new capture.
         UUID reservation = UUID.randomUUID();
         var account = em.createQuery("select a from AiTokenAccount a where a.member.id=:id", AiTokenAccount.class)
@@ -116,7 +116,7 @@ class FrozenCurrentCaptureFailureIntegrationTest extends SettingBookAnalysisInte
         em.flush();
         assertThat(pending.getStatus().name()).isEqualTo("FAILED");
         assertThat(pending.getJournalStatus().name()).isEqualTo("INCOMPLETE");
-        assertThat(pending.getFailureDiagnostics().reasonCode()).isEqualTo("CURRENT_EVIDENCE_OFFSET_INVALID");
+        assertThat(pending.getFailureDiagnostics().reasonCode()).isEqualTo("CURRENT_EVIDENCE_SOURCE_HASH_MISMATCH");
         assertThat(pending.getFailureDiagnostics().stage()).isEqualTo("CLAIM_INPUT");
         assertThat(pending.getFailureDiagnostics().httpStatus()).isNull();
         assertThat(pending.getLeaseToken()).isNull();
@@ -138,7 +138,7 @@ class FrozenCurrentCaptureFailureIntegrationTest extends SettingBookAnalysisInte
     void invalidPredecessorDoesNotUnlockOrderedSuccessor() throws Exception {
         AnalysisJob first = pendingEpisode(2), successor = pendingEpisode(3);
         states.initializeRun(List.of(first, successor));
-        invalidCurrentQuote();
+        invalidCurrentSource();
         em.flush();
         evidenceClaim("EPISODE", 204);
         assertThat(first.getStatus().name()).as("journal=%s step=%s sourceCurrent=%s", first.getJournalStatus(), first.getCurrentStep(), first.hasCurrentSourceVersion()).isEqualTo("FAILED");
@@ -213,9 +213,8 @@ class FrozenCurrentCaptureFailureIntegrationTest extends SettingBookAnalysisInte
         return job;
     }
 
-    private void invalidCurrentQuote() throws Exception {
-        var candidate = currentQuote(false);
-        ((ObjectNode)candidate.getEvidenceSpans().get(0)).put("start_offset", 0).put("end_offset", 1);
+    private void invalidCurrentSource() throws Exception {
+        currentQuote(true);
     }
 
     private SettingCandidate currentQuote(boolean technicalFailure) throws Exception {

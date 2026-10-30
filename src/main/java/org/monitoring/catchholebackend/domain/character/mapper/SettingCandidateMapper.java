@@ -2,6 +2,7 @@ package org.monitoring.catchholebackend.domain.character.mapper;
 
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisExplanationText;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -36,6 +37,7 @@ import org.springframework.stereotype.Component;
 public class SettingCandidateMapper {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final GeneralEvidenceProjection evidenceProjection;
     private final CharacterSnapshotAccessor snapshotAccessor;
     private final CharacterSnapshotSourceManager snapshotSourceManager;
     private final org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope reviewSources;
@@ -43,11 +45,32 @@ public class SettingCandidateMapper {
     public SettingCandidateMapper(
             CharacterSnapshotAccessor snapshotAccessor,
             CharacterSnapshotSourceManager snapshotSourceManager,
-            org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope reviewSources
+            org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope reviewSources,
+            GeneralEvidenceProjection evidenceProjection
     ) {
         this.snapshotAccessor = snapshotAccessor;
         this.snapshotSourceManager = snapshotSourceManager;
         this.reviewSources = reviewSources;
+        this.evidenceProjection = evidenceProjection;
+    }
+
+    // 공개 근거는 검증된 별도 필드만 사용하고 원본 AI 객체로 우회 노출하지 않는다.
+    private JsonNode withoutRawEvidence(JsonNode value) {
+        if (value == null) return null;
+        JsonNode copy = value.deepCopy();
+        if (copy.isObject()) {
+            var object = (com.fasterxml.jackson.databind.node.ObjectNode) copy;
+            var names = new java.util.ArrayList<String>();
+            object.fieldNames().forEachRemaining(names::add);
+            for (String name : names) {
+                object.set(name, name.equals("evidence_spans") || name.equals("evidenceSpans")
+                        ? objectMapper.createArrayNode() : withoutRawEvidence(object.get(name)));
+            }
+        } else if (copy.isArray()) {
+            var array = (com.fasterxml.jackson.databind.node.ArrayNode) copy;
+            for (int index = 0; index < array.size(); index++) array.set(index, withoutRawEvidence(array.get(index)));
+        }
+        return copy;
     }
 
     public SettingCandidateResponse toResponse(
@@ -126,10 +149,10 @@ public class SettingCandidateMapper {
                 candidate.getValueType(),
                 toJsonValue(candidate.getValueJson()),
                 toValueValidationResponse(valueValidation),
-                toJsonValue(candidate.getEvidenceSpans()),
+                toJsonValue(evidenceProjection.forCandidate(candidate)),
                 candidate.getConfidence(),
                 candidate.getReviewStatus(),
-                includeRawAiResult ? toJsonValue(candidate.getRawAiResultJson()) : null,
+                includeRawAiResult ? toJsonValue(withoutRawEvidence(candidate.getRawAiResultJson())) : null,
                 candidate.getComparisonStatus(),
                 candidate.getSuggestedOperation(),
                 candidate.getTemporalScope(),

@@ -8,10 +8,14 @@ import org.monitoring.catchholebackend.domain.character.dto.response.WorkerChara
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
 import org.springframework.stereotype.Component;
+import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection;
 
 @Component
+@RequiredArgsConstructor
 public class CharacterFactComparisonWorkerMapper {
 
+    private final GeneralEvidenceProjection evidenceProjection;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final CharacterAdvisoryCurrentContextMapper advisoryMapper = new CharacterAdvisoryCurrentContextMapper();
 
@@ -45,7 +49,7 @@ public class CharacterFactComparisonWorkerMapper {
                 candidate.getAttributeValue(),
                 candidate.getValueType(),
                 toJsonValue(candidate.getValueJson()),
-                toEvidenceSpans(candidate.getEvidenceSpans()),
+                toCandidateEvidenceSpans(candidate),
                 candidate.getConfidence(),
                 candidate.getMatchedCharacterId(),
                 matchedCharacterName,
@@ -73,6 +77,10 @@ public class CharacterFactComparisonWorkerMapper {
                         integerValue(span, "endOffset", "end_offset")
                 ))
                 .toList();
+    }
+
+    public List<WorkerCharacterFactComparisonCandidatePayload.EvidenceSpan> toCandidateEvidenceSpans(SettingCandidate candidate) {
+        return toEvidenceSpans(evidenceProjection.forCandidate(candidate));
     }
 
     private String textValue(JsonNode node, String fieldName) {

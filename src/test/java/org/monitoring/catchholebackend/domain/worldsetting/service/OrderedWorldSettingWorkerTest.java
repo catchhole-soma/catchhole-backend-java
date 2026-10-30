@@ -61,7 +61,7 @@ class OrderedWorldSettingWorkerTest {
     private final AtomicReference<JsonNode> state = new AtomicReference<>();
     private final WorldSettingWorkerMapper mapper = new WorldSettingWorkerMapper();
     private final OrderedWorldSettingWorker worker = new OrderedWorldSettingWorker(new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisFailureDiagnosticsSanitizer(org.mockito.Mockito.mock(org.springframework.jdbc.core.JdbcTemplate.class)), stateService, journal,
-            new AnalysisRunContextMapper(new org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper(new org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver())), candidates, batches, decisions, sources, settings, mapper,
+            new AnalysisRunContextMapper(new org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper(new org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver(), org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection.class))), candidates, batches, decisions, sources, settings, mapper,
             new WorldSettingAnalysisStateMapper(), mock(AnalysisHumanRejectionPolicy.class));
     private AnalysisJob job;
     private WorldSettingCandidate candidate;
@@ -712,7 +712,7 @@ class OrderedWorldSettingWorkerTest {
         assertThat(reference.has("targetRef")).isFalse();
         ReflectionTestUtils.setField(job, "automaticInputState", state.get().deepCopy());
         var contextMapper = new AnalysisRunContextMapper(new org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper(
-                new org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver()));
+                new org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver(), org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection.class)));
         assertThat(contextMapper.toResponse(job).unresolvedReferences()).singleElement().satisfies(payload -> {
             assertThat(payload.subjectName()).isEqualTo("원문의 설인");
             assertThat(payload.value()).isEqualTo(candidate.getExtractedValue());

@@ -25,7 +25,8 @@ public final class CharacterAdvisoryCurrentContextMapper {
     private final ObjectMapper values = new ObjectMapper();
     private final AnalysisStateJournal journal = new AnalysisStateJournal();
     private static final Set<String> REASONS = Set.of("LEGACY_INPUT_WITHOUT_FROZEN_EVIDENCE", "LEGACY_NO_MANIFEST",
-            "NO_RECORDED_QUOTE", "HUMAN_CURRENT_WITHOUT_SOURCE", "SOURCE_EVIDENCE_PURGED", "QUOTE_NOT_FOUND");
+            "NO_RECORDED_QUOTE", "HUMAN_CURRENT_WITHOUT_SOURCE", "SOURCE_EVIDENCE_PURGED", "QUOTE_NOT_FOUND",
+            "OFFSETS_UNAVAILABLE", "INVALID_OFFSETS", "EVIDENCE_UNAVAILABLE");
 
     public WorkerCharacterAdvisoryCurrentContextPayload toResponse(AnalysisJob job, JsonNode owner,
             UUID expectedActual, String expectedProvisional) {

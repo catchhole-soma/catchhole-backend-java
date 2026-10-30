@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.character.mapper;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +21,7 @@ public class CharacterFactMapper {
 
     private final CharacterSettingDisplayNameResolver characterSettingDisplayNameResolver;
     private final CharacterFactSourceResolver characterFactSourceResolver;
+    private final GeneralEvidenceProjection evidenceProjection;
 
     public CharacterFactSearchResponse toSearchResponse(
             CharacterFact fact,
@@ -82,12 +84,13 @@ public class CharacterFactMapper {
     }
 
     private List<String> extractEvidenceQuotes(SettingCandidate candidate) {
-        if (candidate == null || candidate.getEvidenceSpans() == null || !candidate.getEvidenceSpans().isArray()) {
+        JsonNode verified = evidenceProjection.forCandidate(candidate);
+        if (verified == null || !verified.isArray()) {
             return List.of();
         }
 
         List<String> quotes = new ArrayList<>();
-        for (JsonNode evidenceSpan : candidate.getEvidenceSpans()) {
+        for (JsonNode evidenceSpan : verified) {
             JsonNode quote = evidenceSpan.get("quote");
             if (quote != null && quote.isTextual()) {
                 quotes.add(quote.textValue());

@@ -92,7 +92,27 @@ Front `65fcf6f`다. 제품·회귀 코드는 아래 커밋으로 고정했다. �
 | AI | `7f74f9ed4c76b6a135d2d2c99bc516e6acce738b` | `16fbeb2c05fd008c28f98ec6b68fd9c061b55fdd` |
 | Front | `16b2b21a3730d710a33de688aa7a3da35e973698` | `c59325f0f559b95c6b66253b5c07aec66349aad8` |
 
-## GH304 기존 인용 확인 불가와 새 비교 — 2026-10-28
+## GH323 일반 인용 표시 정책 — 2026-10-29
+
+신규·기존 일반 설정 인용 모두 offset이 있는 span만 원문의 해당 Unicode 구간과 정확히 비교한다.
+offset이 없으면 원문 검색을 하지 않고 숨긴다. 범위·부분 위치·인용 불일치는 해당 span만 제외하며
+정상 span은 보존한다. 남은 span이 없으면 `UNAVAILABLE`과 빈 `evidenceSpans`를 전달하고
+후보값과 분석을 유지한다. reason은 `OFFSETS_UNAVAILABLE`, `INVALID_OFFSETS`,
+`EVIDENCE_UNAVAILABLE`로 구분하며 기존 legacy/파기 reason은 유지한다.
+
+원본 후보와 원시 AI 응답은 수정하지 않는다. 공개 후보·Fact·세계관 근거와 새 비교 후보에는
+정제된 span만 노출하고, 공개 raw payload의 중첩 인용도 숨긴다. 이미 고정된 입력과 hash는
+재작성하지 않으며 AI의 provider 투영에서 위치 없는 과거 인용을 숨긴다. 목록은 scalar manifest와
+요청 내 캐시를 사용하고 원문을 이미 읽은 상세는 재사용한다. 원문 hash/출처/권한/lease와
+별도 동일인·서사 시점 증명의 엄격 검증은 이 표시 정책과 분리해 유지한다.
+
+검증은 일반 span 필터·CURRENT capture·공개 mapper·단건/배치 비교·동결 입력 claim·
+출처 hash 실패·동일인/시점 증명 경계를 대상으로 실행했다. 관련 Java 테스트 472건 중
+471 passed / 1 skipped / 실패·오류 0이며 `./gradlew bootJar`도 성공했다.
+스킵은 별도 실제 Python→PostgreSQL·가짜 Discord 연결 선택 항목이다.
+이 기록은 코드 검증 결과이며 실제 10화 재개 결과는 런타임 교체 뒤 별도로 확인한다.
+
+## GH304 기존 인용 확인 불가와 새 비교 — 2026-10-28 (아래는 당시 기록)
 
 과거에 확정한 일반 quote가 원문과 다를 때 현재 설정값을 삭제하거나 확정 근거를 고치지 않는다.
 확정 Fact·이력·발견의 해당 source만 `UNAVAILABLE/QUOTE_NOT_FOUND`와 빈 복사 근거로 전달하고

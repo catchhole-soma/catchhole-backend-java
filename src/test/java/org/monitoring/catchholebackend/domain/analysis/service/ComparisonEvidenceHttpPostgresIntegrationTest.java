@@ -180,7 +180,7 @@ class ComparisonEvidenceHttpPostgresIntegrationTest {
         assertThat(current.path("factValue").asText()).isEqualTo("정상");
         var source = current.path("supportingSources").get(0);
         assertThat(source.path("availability").asText()).isEqualTo("UNAVAILABLE");
-        assertThat(source.path("unavailableReason").asText()).isEqualTo("QUOTE_NOT_FOUND");
+        assertThat(source.path("unavailableReason").asText()).isEqualTo("OFFSETS_UNAVAILABLE");
         assertThat(source.path("evidenceSpans")).isEmpty();
         var decision = json.createObjectNode().put("candidateRef", "C1").put("operation", "REVIEW_REQUIRED")
                 .put("resolvedCanonicalFactKey", "profile.감각").put("temporalScope", "PRESENT")

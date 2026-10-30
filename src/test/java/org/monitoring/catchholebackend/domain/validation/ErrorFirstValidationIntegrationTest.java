@@ -464,7 +464,7 @@ class ErrorFirstValidationIntegrationTest {
             assertThat(r.getStatus().name()).isEqualTo("WAITING_FOR_ERROR_REVIEW");
             var historical = r.getBaselineSeed().path("characters").elements().next().path("historyFacts").get(0);
             assertThat(historical.path("factValue").asText()).isEqualTo("수리공");
-            assertThat(historical.path("supportingSource").path("unavailableReason").asText()).isEqualTo("QUOTE_NOT_FOUND");
+            assertThat(historical.path("supportingSource").path("unavailableReason").asText()).isEqualTo("OFFSETS_UNAVAILABLE");
             assertThat(historical.path("supportingSource").path("evidenceSpans")).isEmpty();
         } else {
             assertThat(r.getStatus().name()).isEqualTo("HELD_INCOMPLETE");
