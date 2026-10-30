@@ -221,6 +221,10 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             """)
     List<AnalysisJob> findAllWithTargetsByWorkIdOrderByCreatedAtDesc(@Param("workId") UUID workId);
 
+    /**
+     * GH312: 파일 교체 뒤 재검수 report는 회차의 새 업로드 batch에 묶이므로 퇴역 report만 남은 옛 batch는 목록에 올리지 않는다.
+     * 표시되는 batch의 최초·최근 요청 시각은 계속 모든 접수 이력을 집계한다.
+     */
     @Query(value = """
             with requests as (
                 select batch_id, created_at from analysis_jobs where work_id = :workId and batch_id is not null
@@ -228,11 +232,13 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
                 union all select batch_id, created_at from validation_reports where work_id = :workId
             ) select cast(b.id as varchar) as batchId, b.upload_type as uploadType, min(r.created_at) as firstRequestedAt,
                 max(r.created_at) as lastRequestedAt from upload_batches b join requests r on r.batch_id = b.id
+                where exists (select 1 from analysis_jobs j where j.batch_id = b.id and j.job_type not in ('WORLD_SETTING_COMPARISON','CHARACTER_FACT_COMPARISON'))
+                   or exists (select 1 from validation_reports v where v.batch_id = b.id and v.is_current = true)
                 group by b.id, b.upload_type order by max(r.created_at) desc, b.id desc
             """, countQuery = """
             select count(*) from upload_batches b where b.work_id = :workId and (
                 exists (select 1 from analysis_jobs j where j.batch_id = b.id and j.job_type not in ('WORLD_SETTING_COMPARISON','CHARACTER_FACT_COMPARISON'))
-                or exists (select 1 from validation_reports r where r.batch_id = b.id))
+                or exists (select 1 from validation_reports r where r.batch_id = b.id and r.is_current = true))
             """, nativeQuery = true)
     Page<AnalysisBatchPageRow> findBatchPage(
             @Param("workId") UUID workId,
@@ -423,7 +429,28 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             """)
     boolean existsUnfinishedOrderedAnalysis(@Param("workId") UUID workId);
 
-    @Query("select count(r) > 0 from ValidationReport r where r.episode.id in :episodeIds")
+    /**
+     * GH312: 회차의 현재 검수 report에 검토 종료 receipt가 없으면 true다. claim의 {@link AnalysisJobEligibility#DOMAIN},
+     * 늦은 lease callback, 후보 반영 출처 검사와 같은 규칙이며 퇴역 report와 receipt는 판단에 쓰지 않는다.
+     */
+    @Query("""
+            select count(r) > 0 from ValidationReport r where r.episode.id in :episodeIds and r.current = true
+              and not exists (select c.id from ValidationReviewCompletion c where c.report.id = r.id)
+            """)
     boolean existsValidationStagingForEpisodes(@Param("episodeIds") java.util.Collection<UUID> episodeIds);
+
+    /**
+     * GH312 S3: 회차의 현재 검수 report에 검토 종료 receipt가 있으면(release 회차) true다. 이 회차의 확정 설정은
+     * 회차 전체 확정만 쓰므로 사람의 개별·그룹 확정·승격 경로를 막는 데 사용한다.
+     */
+    @Query("""
+            select count(r) > 0 from ValidationReport r where r.episode.id in :episodeIds and r.current = true
+              and exists (select c.id from ValidationReviewCompletion c where c.report.id = r.id)
+            """)
+    boolean existsReleasedValidationForEpisodes(@Param("episodeIds") java.util.Collection<UUID> episodeIds);
+
+    /** GH312: 공개 생성 차단과 release Job 재시도 판정용. 검토 종료 여부와 무관하게 현재 검수 report가 있으면 true다. */
+    @Query("select count(r) > 0 from ValidationReport r where r.episode.id in :episodeIds and r.current = true")
+    boolean existsCurrentValidationReportForEpisodes(@Param("episodeIds") java.util.Collection<UUID> episodeIds);
 
 }

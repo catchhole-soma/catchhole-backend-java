@@ -19,6 +19,10 @@ public interface EpisodeSourcePurgeRequestRepository
 
     boolean existsByEpisodeId(UUID episodeId);
 
+    /** 교체 정리가 대기 중이어도 명시적으로 보존한 새 원문 key는 파기 대상이 아니다. */
+    @Query("select count(p)>0 from EpisodeSourcePurgeRequest p where p.episode.id=:episodeId and (p.retainedContentKey is null or p.retainedContentKey<>:contentKey)")
+    boolean blocksSource(@Param("episodeId") UUID episodeId,@Param("contentKey") String contentKey);
+
     boolean existsByEpisodeIdIn(Collection<UUID> episodeIds);
 
     boolean existsByWorkIdAndPreviousEpisodeNo(UUID workId, int previousEpisodeNo);

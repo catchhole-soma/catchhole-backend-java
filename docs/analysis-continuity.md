@@ -92,7 +92,61 @@ Front `65fcf6f`다. 제품·회귀 코드는 아래 커밋으로 고정했다. �
 | AI | `7f74f9ed4c76b6a135d2d2c99bc516e6acce738b` | `16fbeb2c05fd008c28f98ec6b68fd9c061b55fdd` |
 | Front | `16b2b21a3730d710a33de688aa7a3da35e973698` | `c59325f0f559b95c6b66253b5c07aec66349aad8` |
 
-## GH304 기존 인용 확인 불가와 새 비교 — 2026-10-28
+## GH323 일반 인용 표시 정책 — 2026-10-29
+
+신규·기존 일반 설정 인용 모두 offset이 있는 span만 원문의 해당 Unicode 구간과 정확히 비교한다.
+offset이 없으면 원문 검색을 하지 않고 숨긴다. 범위·부분 위치·인용 불일치는 해당 span만 제외하며
+정상 span은 보존한다. 남은 span이 없으면 `UNAVAILABLE`과 빈 `evidenceSpans`를 전달하고
+후보값과 분석을 유지한다. reason은 `OFFSETS_UNAVAILABLE`, `INVALID_OFFSETS`,
+`EVIDENCE_UNAVAILABLE`로 구분하며 기존 legacy/파기 reason은 유지한다.
+
+원본 후보와 원시 AI 응답은 수정하지 않는다. 공개 후보·Fact·세계관 근거와 새 비교 후보에는
+정제된 span만 노출하고, 공개 raw payload의 중첩 인용도 숨긴다. 이미 고정된 입력과 hash는
+재작성하지 않으며 AI의 provider 투영에서 위치 없는 과거 인용을 숨긴다. 목록은 scalar manifest와
+요청 내 캐시를 사용하고 원문을 이미 읽은 상세는 재사용한다. 원문 hash/출처/권한/lease와
+별도 동일인·서사 시점 증명의 엄격 검증은 이 표시 정책과 분리해 유지한다.
+
+Worker 단건·묶음 비교 후보는 `GeneralEvidenceProjection.forProcessingCandidate`를 사용한다.
+검증 가능한 위치가 없으면 저장소를 읽지 않으며, 위치가 있는 개별 인용의 오류만 제외한다.
+반면 원문 저장소 실패는 `ANALYSIS_CURRENT_EVIDENCE_SOURCE_UNAVAILABLE`,
+고정 원문 hash·출처 연결·불완전 manifest 오류는 `ANALYSIS_CURRENT_EVIDENCE_INVALID`로
+전달해 빈 근거의 정상 비교로 진행하지 않는다. 공개 미리보기의 빈 결과 캐시와 처리용 검증 성공
+캐시를 분리한다. 출처 기록 자체가 없는 legacy 후보는 기존처럼 근거 없음으로 유지한다.
+
+검증은 일반 span 필터·CURRENT capture·공개 mapper·단건/배치 비교·동결 입력 claim·
+출처 hash 실패·동일인/시점 증명 경계를 대상으로 실행했다. 관련 Java 테스트 472건 중
+471 passed / 1 skipped / 실패·오류 0이며 `./gradlew bootJar`도 성공했다.
+스킵은 별도 실제 Python→PostgreSQL·가짜 Discord 연결 선택 항목이다.
+이후 격리 로컬 복사본에서 기존 10화 Job을 재개해 1~10화가 모두 SUCCEEDED/SEALED,
+관계 분석이 모두 APPLIED인 것을 확인했다. 기존 203개 작업 상태와 원본 후보·근거는 변경되지 않았다.
+10화까지 공개된 관계 원문 근거 159개에서 인용·회차·노드 정합성 오류는 없었으나,
+이 수치는 관계 의미 정확도나 누락 없는 추출을 보장하는 평가가 아니다.
+
+### 최신 main 통합 검증 — 2026-10-30
+
+`origin/main`의 `afbb8b95e5cbb9c835c4313b56fa8ba9fcbb0686`을 관계도 작업 브랜치에
+병합하고, 운영 미배포 관계도 migration을 V101로 옮겼다. 검수 실행·검토 종료 기능과
+관계도 작업을 모두 보존했으며 관계 API의 요청·응답 필드는 바꾸지 않았다.
+OpenAPI의 일반 이름 `Evidence` 충돌은 관계 근거 스키마에
+`RelationshipGraphEvidence`라는 고유 이름을 부여해 해소했다.
+
+전체 `./gradlew test bootJar --console=plain`은 5분 31초에 성공했다.
+JUnit XML 기준 4,365건 중 **4,065 passed / 300 skipped / 실패·오류 0**이다.
+처음 통합 실행에서 드러난 기존 공개 인용 fixture의 가짜 위치·누락된 출처 manifest를
+정상 원문과 hash로 맞추고, 미확인 인용은 숨긴다는 승인된 정책에 맞게 공개 응답 기대값을
+갱신한 뒤 전체 검증을 다시 수행했다. 원본 후보 보존 검증은 유지했다.
+
+새 Testcontainers PostgreSQL에 Flyway 101개를 V101까지 적용하고 JPA validate를 통과했다.
+관계도 통합은 H2 12건과 PostgreSQL 12건, 관계 규칙 6건이 모두 통과했다.
+최신 main의 대규모 캐릭터 준비·claim PostgreSQL 성능 경계 5건과
+검수 OpenAPI 계약 2건도 통과했다. 명시적으로 실행하는 브라우저 fixture 생성 테스트는
+이번 전체 실행에서 생략했다. 앞선 실제 브라우저 검증 결과를 새 운영 배포 검증으로 간주하지 않는다.
+
+기존 V92 관계도 migration을 적용한 개인 로컬 DB와 실행 중인 로컬 서버는 변경하거나
+재시작하지 않았다. 이번 빌드 산출물은 서버가 사용하는 별도 실행 JAR와 분리되어 있다.
+운영 적용 순서와 이전 로컬 스키마 주의 사항은 [관계도 계약](episode-relationships.md)을 따른다.
+
+## GH304 기존 인용 확인 불가와 새 비교 — 2026-10-28 (아래는 당시 기록)
 
 과거에 확정한 일반 quote가 원문과 다를 때 현재 설정값을 삭제하거나 확정 근거를 고치지 않는다.
 확정 Fact·이력·발견의 해당 source만 `UNAVAILABLE/QUOTE_NOT_FOUND`와 빈 복사 근거로 전달하고

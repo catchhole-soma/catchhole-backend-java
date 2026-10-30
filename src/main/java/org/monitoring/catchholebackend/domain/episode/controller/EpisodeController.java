@@ -82,7 +82,7 @@ public class EpisodeController {
     @Operation(
             operationId = "uploadEpisodes",
             summary = "회차 원고 업로드",
-            description = "로그인한 사용자가 본인 작품에 단일 회차, 단일 파일 다회차, 여러 파일 다회차 방식으로 원고를 업로드합니다.",
+            description = "로그인한 사용자가 본인 작품에 단일 회차, 단일 파일 다회차, 여러 파일 다회차 방식으로 원고를 업로드합니다. 확정 전 검수가 검토·설정 저장을 마치지 않았으면 모든 방식이 409 VALIDATION_NEXT_EPISODE_BLOCKED(context: reportId, episodeId, episodeNo, reviewStage)이며 아무것도 저장하지 않습니다.",
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true)
     )
     @ApiResponses({
@@ -90,7 +90,7 @@ public class EpisodeController {
             @ApiResponse(responseCode = "400", description = "요청 값 검증 실패 또는 업로드 파일 오류"),
             @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패"),
             @ApiResponse(responseCode = "404", description = "작품을 찾을 수 없음"),
-            @ApiResponse(responseCode = "409", description = "이미 등록된 회차 번호")
+            @ApiResponse(responseCode = "409", description = "이미 등록된 회차 번호 또는 검수 미완료로 다음 회차 등록 차단(VALIDATION_NEXT_EPISODE_BLOCKED)")
     })
     public CommonResponse<EpisodeUploadResponse> uploadEpisodes(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal memberPrincipal,

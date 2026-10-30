@@ -120,6 +120,8 @@ class CharacterPreparationPostgresPerformanceIntegrationTest {
     @Autowired CharacterAnalysisStateMapper stateMapper;
     @Autowired AnalysisStateJournal journal;
     @Autowired WorldSettingWorkerService worlds;
+    @org.springframework.test.context.bean.override.mockito.MockitoBean
+    org.monitoring.catchholebackend.global.storage.ObjectStorage objectStorage;
 
     /** Enabled only around the measured operation; setup and correctness readback are excluded. */
     public static class SqlCapture implements StatementInspector {
@@ -331,6 +333,8 @@ class CharacterPreparationPostgresPerformanceIntegrationTest {
     }
 
     private Fixture fixture(int candidateCount, boolean largeInput, boolean existingIdentity) {
+        org.mockito.Mockito.when(objectStorage.getText(org.mockito.ArgumentMatchers.anyString())).thenReturn(QUOTE);
+        String sourceHash = new org.monitoring.catchholebackend.global.storage.ObjectStorageService(objectStorage).contentHash(QUOTE);
         return tx().execute(status -> {
             String unique = UUID.randomUUID().toString();
             Member member = Member.register("gh294-" + unique + "@example.invalid", "test-only", null, "합성 작가");
@@ -343,7 +347,7 @@ class CharacterPreparationPostgresPerformanceIntegrationTest {
             List<AnalysisJob> run = new ArrayList<>();
             for (int number = 1; number <= 25; number++) {
                 Episode episode = Episode.create(work, null, number, "합성 회차", "gh294/" + unique + "/" + number,
-                        "synthetic-v1", "a".repeat(64), 200);
+                        "synthetic-v1", sourceHash, QUOTE.length());
                 em.persist(episode);
                 AnalysisJob job = AnalysisJob.create(work, null, episode, AnalysisJobType.SETTING_EXTRACTION);
                 job.configureReviewMode(AnalysisReviewMode.AUTOMATIC);

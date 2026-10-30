@@ -43,6 +43,7 @@ public class AnalysisJobLeaseServiceImpl implements AnalysisJobLeaseService {
         var targetIds = new java.util.HashSet<UUID>();
         analysisJob.getTargetEpisodes().forEach(e -> targetIds.add(e.getId()));
         if (analysisJob.getEpisode() != null) targetIds.add(analysisJob.getEpisode().getId());
+        // GH312: claim 조건과 같다. 현재 검수 report에 검토 종료 receipt가 없으면 늦은 callback도 거절한다.
         if (!targetIds.isEmpty() && analysisJobRepository.existsValidationStagingForEpisodes(targetIds)) {
             throw new AppException(org.monitoring.catchholebackend.domain.validation.exception.ValidationErrorCode.VALIDATION_ERROR_REVIEW_PENDING);
         }

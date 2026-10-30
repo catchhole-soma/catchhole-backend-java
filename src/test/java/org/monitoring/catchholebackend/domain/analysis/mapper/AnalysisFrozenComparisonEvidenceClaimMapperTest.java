@@ -20,7 +20,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 @DisplayName("claim의 작은 비교근거 계약은 ORDERED에만 명시되어 구 Worker의 silent downgrade를 막는다")
 class AnalysisFrozenComparisonEvidenceClaimMapperTest {
-    private final CharacterFactEvidenceMapper evidence = new CharacterFactEvidenceMapper(new CharacterFactSourceResolver());
+    private final CharacterFactEvidenceMapper evidence = new CharacterFactEvidenceMapper(new CharacterFactSourceResolver(), org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection.class));
     private final AnalysisJobWorkerMapper mapper = new AnalysisJobWorkerMapper(new CharacterSnapshotAccessor(),new AnalysisRunContextMapper(evidence),evidence);
     private final tools.jackson.databind.ObjectMapper wire = new tools.jackson.databind.ObjectMapper();
 

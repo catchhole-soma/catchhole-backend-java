@@ -67,6 +67,10 @@ public class Episode extends BaseEntity {
     @Column(name = "content_updated_at", nullable = false)
     private LocalDateTime contentUpdatedAt;
 
+    // 동일한 hash/key로 되돌린 A→B→A도 과거 검수 입력과 구별한다.
+    @Column(name = "content_revision", nullable = false)
+    private long contentRevision;
+
     // byte 크기가 아니라 공백을 제외한 Unicode code point 기준 본문 글자 수
     @Column(name = "char_count", nullable = false)
     private int charCount;
@@ -135,6 +139,7 @@ public class Episode extends BaseEntity {
             String contentHash,
             int charCount
     ) {
+        contentRevision++;
         validationUploadEligible = false;
         this.episodeNo = episodeNo;
         this.title = title;
@@ -147,6 +152,7 @@ public class Episode extends BaseEntity {
     }
 
     public void updateContentStorage(String contentS3Key, String contentS3Version, String contentHash) {
+        contentRevision++;
         validationUploadEligible = false;
         this.contentS3Key = contentS3Key;
         this.contentS3Version = contentS3Version;
@@ -161,6 +167,7 @@ public class Episode extends BaseEntity {
             String contentHash,
             int charCount
     ) {
+        contentRevision++;
         validationUploadEligible = false;
         this.sourceFileId = sourceFileId;
         this.contentS3Key = contentS3Key;
@@ -204,6 +211,7 @@ public class Episode extends BaseEntity {
     }
 
     public void archive() {
+        contentRevision++;
         validationUploadEligible = false;
         this.contentS3Key = null;
         this.contentS3Version = null;

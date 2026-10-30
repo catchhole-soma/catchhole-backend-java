@@ -46,6 +46,9 @@ public record EpisodeSummaryResponse(
 
         @Schema(description = "회차 수정 시각", example = "2026-06-11T16:30:00")
         LocalDateTime updatedAt,
-        @Schema(description = "설정 추출 전 오류 검수 요청 ID", nullable = true) UUID validationReportId
+        @Schema(description = "설정 추출 전 오류 검수 요청 ID", nullable = true) UUID validationReportId,
+        @Schema(description = "현재 검수 report의 파생 검수 단계(GH312 S4). 검수 회차가 아니면 null이며 analysisStatus의 ERROR_REVIEW_* 값은 기존 의미를 유지합니다.",
+                example = "APPLICATION_HELD", nullable = true)
+        org.monitoring.catchholebackend.domain.validation.type.ValidationReviewStage validationReviewStage
 ) {
 }

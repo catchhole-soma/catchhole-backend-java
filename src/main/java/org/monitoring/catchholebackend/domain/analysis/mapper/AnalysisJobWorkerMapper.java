@@ -127,7 +127,8 @@ public class AnalysisJobWorkerMapper {
                         analysisJob.getSourceSettingBookRevision().getReferenceTimeKind(),
                         analysisJob.getSourceSettingBookRevision().getReferenceEpisodeNo()) : null,
                 semanticCurrentContext,
-                analysisJob.isOrderedProvisional() ? new WorkerAnalysisJobPayload.ComparisonEvidenceContract(1) : null
+                analysisJob.isOrderedProvisional() ? new WorkerAnalysisJobPayload.ComparisonEvidenceContract(1) : null,
+                analysisJob.isRelationshipAnalysisEnabled() ? new WorkerAnalysisJobPayload.RelationshipAnalysisContract(1) : null
         );
     }
 

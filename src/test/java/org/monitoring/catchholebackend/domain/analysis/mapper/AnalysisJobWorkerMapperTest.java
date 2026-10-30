@@ -26,8 +26,8 @@ class AnalysisJobWorkerMapperTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final AnalysisJobWorkerMapper mapper = new AnalysisJobWorkerMapper(
-            new CharacterSnapshotAccessor(), new AnalysisRunContextMapper(new org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper(new org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver())),
-            new CharacterFactEvidenceMapper(new CharacterFactSourceResolver())
+            new CharacterSnapshotAccessor(), new AnalysisRunContextMapper(new org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper(new org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver(), org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection.class))),
+            new CharacterFactEvidenceMapper(new CharacterFactSourceResolver(), org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection.class))
     );
 
     @Test

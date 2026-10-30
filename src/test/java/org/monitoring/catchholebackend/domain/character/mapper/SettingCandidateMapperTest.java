@@ -45,11 +45,49 @@ import org.springframework.test.util.ReflectionTestUtils;
 class SettingCandidateMapperTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection evidenceProjection = mock(org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection.class);
+
+    @org.junit.jupiter.api.BeforeEach
+    void hideUnverifiedEvidence() {
+        when(evidenceProjection.forCandidate(org.mockito.ArgumentMatchers.any())).thenReturn(objectMapper.createArrayNode());
+    }
     private final SettingCandidateMapper mapper = new SettingCandidateMapper(
             new CharacterSnapshotAccessor(),
             mock(CharacterSnapshotSourceManager.class),
-            mock(org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope.class)
+            mock(org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope.class), evidenceProjection
     );
+
+    @Test
+    @DisplayName("공개 후보는 검증 근거만 표시하고 원본 AI 객체의 숨은 인용은 노출하지 않는다")
+    void publicEvidenceUsesProjectionWithoutMutatingStoredPayload() throws Exception {
+        var raw = objectMapper.readTree("""
+                {"raw_value":"17","evidence_spans":[{"quote":"위치 없는 인용"}],
+                 "nested":{"evidenceSpans":[{"quote":"다른 잘못된 인용"}],"keep":"유지"}}
+                """);
+        var unverified = objectMapper.readTree("[{\"quote\":\"위치 없는 인용\"}]");
+        SettingCandidate candidate = SettingCandidate.create(work(UUID.randomUUID()), null, null, null,
+                SettingEntityType.CHARACTER, "아리아", "age", "17", SettingValueType.NUMBER,
+                objectMapper.createObjectNode().put("value", 17), unverified, new BigDecimal("0.9"), raw);
+        var verified = objectMapper.createArrayNode().add(objectMapper.createObjectNode()
+                .put("quote", "열일곱").put("startOffset", 2).put("endOffset", 5));
+        when(evidenceProjection.forCandidate(candidate)).thenReturn(verified);
+
+        var response = mapper.toResponse(candidate, false, null, SettingCandidateValueValidation.valid(), "나이");
+        assertThat((com.fasterxml.jackson.databind.JsonNode) objectMapper.valueToTree(response.evidenceSpans())).isEqualTo(verified);
+        var publicRaw = objectMapper.valueToTree(response.rawAiResultJson());
+        assertThat(publicRaw.path("evidence_spans")).isEmpty();
+        assertThat(publicRaw.path("nested").path("evidenceSpans")).isEmpty();
+        assertThat(publicRaw.path("nested").path("keep").asText()).isEqualTo("유지");
+        assertThat(response.attributeValue()).isEqualTo("17");
+        assertThat(candidate.getEvidenceSpans()).isEqualTo(unverified);
+        assertThat(candidate.getRawAiResultJson()).isEqualTo(raw);
+        assertThat(raw.path("evidence_spans")).hasSize(1);
+
+        when(evidenceProjection.forCandidate(candidate)).thenReturn(objectMapper.createArrayNode());
+        var hidden = mapper.toResponse(candidate, false, null, SettingCandidateValueValidation.valid(), "나이");
+        assertThat(hidden.evidenceSpans()).isEqualTo(List.of());
+        assertThat(hidden.attributeValue()).isEqualTo("17");
+    }
 
     @Test
     @DisplayName("연결된 대상 이름은 목록과 상세에 표시하되 추출 이름과 원문 표현은 보존한다")
@@ -380,7 +418,7 @@ class SettingCandidateMapperTest {
         assertThat(response.matchedCharacterId()).isNull();
         assertThat(response.matchStatus()).isEqualTo(SettingCandidateMatchStatus.UNRESOLVED);
         assertThat(response.valueJson()).isNull();
-        assertThat(response.evidenceSpans()).isNull();
+        assertThat(response.evidenceSpans()).isEqualTo(List.of());
         assertThat(response.rawAiResultJson()).isNull();
     }
 
@@ -481,7 +519,7 @@ class SettingCandidateMapperTest {
         SettingCandidateMapper previewMapper = new SettingCandidateMapper(
                 new CharacterSnapshotAccessor(),
                 sourceManager,
-                mock(org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope.class)
+                mock(org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope.class), evidenceProjection
         );
 
         SettingCandidateResponse response = previewMapper.toResponse(

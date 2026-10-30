@@ -1,0 +1,264 @@
+{
+  "contractVersion": 1,
+  "scope": "GH312 author judgments, review completion/release, whole-episode settings application, history and derived reviewStage; GH314 B1 intake eligibility and next-episode admission; screens are GH314",
+  "synthetic": true,
+  "routes": {
+    "listValidationFindings": "GET /api/v1/works/{workId}/episode-validations/{reportId}/findings?branch=&judgment=&outcome=&page=0&size=20",
+    "getValidationFinding": "GET /api/v1/works/{workId}/episode-validations/{reportId}/findings/{findingId}",
+    "saveValidationJudgment": "PATCH /api/v1/works/{workId}/episode-validations/{reportId}/findings/{findingId}/judgment",
+    "getValidationReviewSummary": "GET /api/v1/works/{workId}/episode-validations/{reportId}/review",
+    "completeValidationReview": "POST /api/v1/works/{workId}/episode-validations/{reportId}/review-completion",
+    "applyValidationSettings": "POST /api/v1/works/{workId}/episode-validations/{reportId}/settings-application",
+    "listEpisodeValidationHistory": "GET /api/v1/works/{workId}/episode-validations/history?episodeId=&page=0&size=20",
+    "getEpisodeValidationEligibility": "GET /api/v1/works/{workId}/episode-validations/eligibility?episodeId="
+  },
+  "requests": {
+    "judgment": {
+      "judgment": "KEEP_ORIGINAL",
+      "expectedJudgmentVersion": 1,
+      "expectedCheckRevision": null
+    },
+    "reviewCompletion": {
+      "expectedReportVersion": 12,
+      "idempotencyKey": "synthetic-review-completion-1"
+    },
+    "settingsApplication": {
+      "expectedReportVersion": 15,
+      "idempotencyKey": "synthetic-settings-application-1"
+    }
+  },
+  "responses": {
+    "findingSummary": {
+      "findingId": "00000000-0000-4000-8000-000000000101",
+      "branch": "SETTING",
+      "unitRef": "Q1",
+      "checkId": "00000000-0000-4000-8000-000000000102",
+      "checkRevision": 2,
+      "outcome": "CONFLICT",
+      "judgment": {"value": "NOT_CONFLICT", "version": 1, "decidedAt": "2026-10-30T10:15:00"},
+      "changed": true,
+      "summary": {
+        "impact": "CAUTION",
+        "reason": "합성 충돌 판정",
+        "replacement": null,
+        "spans": [{"sourceRef": "T1", "start": 0, "end": 2, "quote": "처음"}]
+      }
+    },
+    "findingDetail": {
+      "findingId": "00000000-0000-4000-8000-000000000101",
+      "branch": "SETTING",
+      "unitRef": "Q1",
+      "checkId": "00000000-0000-4000-8000-000000000102",
+      "checkRevision": 2,
+      "currentCheckRevision": 2,
+      "outcome": "CONFLICT",
+      "stale": false,
+      "changed": true,
+      "payload": {"reason": "합성 충돌 판정", "basis": "DIRECT_CONTRADICTION", "impact": "CAUTION", "target_spans": [{"source_ref": "T1", "start": 0, "end": 2, "quote": "처음"}]},
+      "evidence": [{"sourceRef": "R1", "start": 0, "end": 2, "quote": "합성"}],
+      "judgment": {"value": "NOT_CONFLICT", "version": 1, "decidedAt": "2026-10-30T10:15:00"},
+      "allowedJudgments": ["PENDING", "NEEDS_FIX", "NOT_CONFLICT"],
+      "judgmentHistory": [
+        {"findingId": "00000000-0000-4000-8000-000000000103", "checkRevision": 1, "fromJudgment": "NOT_CONFLICT", "toJudgment": "PENDING", "reason": "REVISION_SUPERSEDED", "changeReason": "NEW_CLUE", "createdAt": "2026-10-30T10:05:00"},
+        {"findingId": "00000000-0000-4000-8000-000000000101", "checkRevision": 2, "fromJudgment": null, "toJudgment": "NOT_CONFLICT", "reason": "AUTHOR", "changeReason": null, "createdAt": "2026-10-30T10:15:00"}
+      ],
+      "priorRevisions": [
+        {"checkRevision": 1, "outcome": "CONFLICT", "changeReason": null, "findingId": "00000000-0000-4000-8000-000000000103", "judgment": {"value": "NOT_CONFLICT", "version": 1, "decidedAt": "2026-10-30T10:01:00"}}
+      ]
+    },
+    "reviewSummary": {
+      "reportId": "00000000-0000-4000-8000-000000000001",
+      "reportVersion": 15,
+      "executionStatus": "COMPLETED",
+      "mode": "BEFORE_CONFIRMATION",
+      "counts": {"settingTotal": 1, "settingPending": 0, "settingNeedsFix": 0, "settingNotConflict": 1, "typoTotal": 2, "typoPending": 0, "typoNeedsFix": 0, "typoKeepOriginal": 2},
+      "judgmentLocked": true,
+      "lockReason": "REVIEW_COMPLETED",
+      "canCompleteReview": false,
+      "completionMode": "COMPLETED",
+      "holdReasons": [],
+      "allowedActions": ["APPLY_SETTINGS"],
+      "completion": {"completionId": "00000000-0000-4000-8000-000000000201", "trigger": "EXPLICIT", "completedAt": "2026-10-30T10:20:00", "extractionJobId": "00000000-0000-4000-8000-000000000301"},
+      "releaseHold": null,
+      "application": {
+        "status": "HELD_REVIEW",
+        "attempt": 1,
+        "holdReasons": [{"code": "DECISION_PENDING", "candidateType": "CHARACTER", "candidateId": "00000000-0000-4000-8000-000000000401", "detail": "REVIEW_REQUIRED"}],
+        "appliedAt": null,
+        "extractionJobGeneration": 1
+      },
+      "extractionState": "SUCCEEDED",
+      "reviewStage": "APPLICATION_HELD"
+    },
+    "reviewCompletion": {
+      "completionId": "00000000-0000-4000-8000-000000000201",
+      "trigger": "EXPLICIT",
+      "reportId": "00000000-0000-4000-8000-000000000001",
+      "reportVersion": 12,
+      "extractionJobId": "00000000-0000-4000-8000-000000000301",
+      "completedAt": "2026-10-30T10:20:00"
+    },
+    "settingsApplication": {
+      "applicationId": "00000000-0000-4000-8000-000000000501",
+      "status": "HELD_REVIEW",
+      "trigger": "EXPLICIT",
+      "attempt": 2,
+      "holdReasons": [{"code": "UNKNOWN_ERROR", "candidateType": "EPISODE", "candidateId": null, "detail": "WORLD_SETTING_CANDIDATE_GROUP_INVALID"}],
+      "appliedAt": null,
+      "extractionJobId": "00000000-0000-4000-8000-000000000301",
+      "extractionJobGeneration": 1,
+      "lastErrorCode": "WORLD_SETTING_CANDIDATE_GROUP_INVALID",
+      "reportVersion": 16
+    },
+    "historyPage": {
+      "content": [
+        {
+          "reportId": "00000000-0000-4000-8000-000000000011",
+          "revision": 2,
+          "current": true,
+          "mode": "BEFORE_CONFIRMATION",
+          "status": "WAITING_FOR_ERROR_REVIEW",
+          "baselineStatus": "READY",
+          "requestedAt": "2026-10-30T11:00:00",
+          "executionStatus": "COMPLETED",
+          "counts": {"settingFindings": 0, "typoFindings": 0},
+          "completion": {"trigger": "AUTOMATIC", "completedAt": "2026-10-30T11:05:00"},
+          "application": {"status": "APPLIED", "appliedAt": "2026-10-30T11:07:00"},
+          "releaseHold": null,
+          "invalidatedAt": null,
+          "previousReportId": "00000000-0000-4000-8000-000000000001",
+          "reviewStage": "APPLIED"
+        },
+        {
+          "reportId": "00000000-0000-4000-8000-000000000001",
+          "revision": 1,
+          "current": false,
+          "mode": "BEFORE_CONFIRMATION",
+          "status": "INVALIDATED",
+          "baselineStatus": "INVALIDATED",
+          "requestedAt": "2026-10-30T10:00:00",
+          "executionStatus": "CANCELED",
+          "counts": {"settingFindings": 0, "typoFindings": 0},
+          "completion": {"trigger": "EXPLICIT", "completedAt": "2026-10-30T10:20:00"},
+          "application": {"status": "HELD_REVIEW", "appliedAt": null},
+          "releaseHold": null,
+          "invalidatedAt": "2026-10-30T10:40:00",
+          "previousReportId": null,
+          "reviewStage": "INVALIDATED"
+        }
+      ],
+      "page": 0,
+      "size": 20,
+      "totalElements": 2,
+      "totalPages": 1,
+      "hasNext": false
+    },
+    "batchValidationReport": {
+      "reportId": "00000000-0000-4000-8000-000000000011",
+      "episodeId": "00000000-0000-4000-8000-000000000002",
+      "sourceEpisodeNo": 101,
+      "status": "WAITING_FOR_ERROR_REVIEW",
+      "baselineStatus": "READY",
+      "holdReason": null,
+      "reviewStage": "APPLIED"
+    },
+    "eligibilityEligible": {
+      "episodeId": "00000000-0000-4000-8000-000000000003",
+      "eligible": true,
+      "reasonCode": "ELIGIBLE",
+      "message": "이 회차의 검수를 시작할 수 있습니다.",
+      "latestEpisode": true,
+      "currentReport": null,
+      "nextEpisodeAdmission": {"allowed": true, "blockingReportId": null, "blockingEpisodeId": null, "blockingEpisodeNo": null, "blockingReviewStage": null, "message": null}
+    },
+    "eligibilityNotLatestEpisode": {
+      "episodeId": "00000000-0000-4000-8000-000000000002",
+      "eligible": false,
+      "reasonCode": "NOT_LATEST_EPISODE",
+      "message": "마지막 회차 뒤에 단일 업로드한 새 원고만 검수를 시작할 수 있습니다.",
+      "latestEpisode": false,
+      "currentReport": null,
+      "nextEpisodeAdmission": {"allowed": true, "blockingReportId": null, "blockingEpisodeId": null, "blockingEpisodeNo": null, "blockingReviewStage": null, "message": null}
+    },
+    "eligibilityNextEpisodeBlocked": {
+      "episodeId": "00000000-0000-4000-8000-000000000003",
+      "eligible": false,
+      "reasonCode": "NEXT_EPISODE_BLOCKED",
+      "message": "이 회차의 검토와 설정 저장을 마친 뒤 다음 회차를 등록할 수 있어요.",
+      "latestEpisode": true,
+      "currentReport": null,
+      "nextEpisodeAdmission": {"allowed": false, "blockingReportId": "00000000-0000-4000-8000-000000000011", "blockingEpisodeId": "00000000-0000-4000-8000-000000000002", "blockingEpisodeNo": 101, "blockingReviewStage": "AWAITING_REVIEW", "message": "이 회차의 검토와 설정 저장을 마친 뒤 다음 회차를 등록할 수 있어요."}
+    },
+    "eligibilityWorkOnlyBlocked": {
+      "episodeId": null,
+      "eligible": null,
+      "reasonCode": null,
+      "message": null,
+      "latestEpisode": null,
+      "currentReport": null,
+      "nextEpisodeAdmission": {"allowed": false, "blockingReportId": "00000000-0000-4000-8000-000000000011", "blockingEpisodeId": "00000000-0000-4000-8000-000000000002", "blockingEpisodeNo": 101, "blockingReviewStage": "APPLICATION_HELD", "message": "이 회차의 검토와 설정 저장을 마친 뒤 다음 회차를 등록할 수 있어요."}
+    },
+    "eligibilityReportExists": {
+      "episodeId": "00000000-0000-4000-8000-000000000002",
+      "eligible": false,
+      "reasonCode": "REPORT_EXISTS",
+      "message": "이 회차에는 이미 검수가 있습니다. 새로 접수하지 말고 현재 검수를 확인해 주세요.",
+      "latestEpisode": true,
+      "currentReport": {"reportId": "00000000-0000-4000-8000-000000000011", "revision": 1, "mode": "BEFORE_CONFIRMATION", "reviewStage": "AWAITING_REVIEW"},
+      "nextEpisodeAdmission": {"allowed": false, "blockingReportId": "00000000-0000-4000-8000-000000000011", "blockingEpisodeId": "00000000-0000-4000-8000-000000000002", "blockingEpisodeNo": 101, "blockingReviewStage": "AWAITING_REVIEW", "message": "이 회차의 검토와 설정 저장을 마친 뒤 다음 회차를 등록할 수 있어요."}
+    }
+  },
+  "errors": {
+    "nextEpisodeBlocked": {
+      "success": false,
+      "message": "이 회차의 검토와 설정 저장을 마친 뒤 다음 회차를 등록할 수 있어요.",
+      "data": null,
+      "error": {
+        "code": "VALIDATION_NEXT_EPISODE_BLOCKED",
+        "status": 409,
+        "details": [],
+        "context": {"reportId": "00000000-0000-4000-8000-000000000011", "episodeId": "00000000-0000-4000-8000-000000000002", "episodeNo": 101, "reviewStage": "AWAITING_REVIEW"}
+      },
+      "timestamp": "2026-10-30T11:00:00"
+    }
+  },
+  "nextEpisodeAdmissionCases": [
+    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "PREPARING_BASELINE", "blocks": true},
+    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "VALIDATING", "blocks": true},
+    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "AWAITING_REVIEW", "blocks": true},
+    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "REVIEW_COMPLETED", "blocks": true},
+    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "EXTRACTION_FAILED", "blocks": true},
+    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "APPLICATION_HELD", "blocks": true},
+    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "HELD_INCOMPLETE", "blocks": true},
+    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "APPLIED", "blocks": false},
+    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "INVALIDATED", "blocks": true},
+    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "INVALIDATED", "application": "APPLIED", "blocks": false},
+    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "INVALIDATED", "application": "HELD_REVIEW", "blocks": true},
+    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "APPLICATION_HELD", "application": "HELD_REVIEW", "blocks": true},
+    {"mode": "DIAGNOSTIC_ONLY", "reviewStage": "VALIDATING", "blocks": false},
+    {"mode": "DIAGNOSTIC_ONLY", "reviewStage": "AWAITING_REVIEW", "blocks": false}
+  ],
+  "reviewStages": ["PREPARING_BASELINE", "VALIDATING", "AWAITING_REVIEW", "REVIEW_COMPLETED", "EXTRACTION_FAILED", "APPLICATION_HELD", "APPLIED", "HELD_INCOMPLETE", "INVALIDATED"],
+  "reviewStageCases": [
+    {"name": "기준 준비 중", "input": {"current": true, "status": "PREPARING_BASELINE", "baselineStatus": "PENDING", "execution": "NOT_STARTED", "reviewCompleted": false, "extraction": "NOT_STARTED", "application": null}, "expected": "PREPARING_BASELINE"},
+    {"name": "검사 대기", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "QUEUED", "reviewCompleted": false, "extraction": "NOT_STARTED", "application": null}, "expected": "VALIDATING"},
+    {"name": "항목 판단 중", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "COMPLETED", "reviewCompleted": false, "extraction": "NOT_STARTED", "application": null}, "expected": "AWAITING_REVIEW"},
+    {"name": "부분 검사 뒤 판단", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "PARTIAL", "reviewCompleted": false, "extraction": "NOT_STARTED", "application": null}, "expected": "AWAITING_REVIEW"},
+    {"name": "검토 종료 후 추출 중", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "COMPLETED", "reviewCompleted": true, "extraction": "RUNNING", "application": null}, "expected": "REVIEW_COMPLETED"},
+    {"name": "추출 실패", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "COMPLETED", "reviewCompleted": true, "extraction": "FAILED", "application": null}, "expected": "EXTRACTION_FAILED"},
+    {"name": "반영 보류", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "COMPLETED", "reviewCompleted": true, "extraction": "SUCCEEDED", "application": "HELD_REVIEW"}, "expected": "APPLICATION_HELD"},
+    {"name": "반영 완료", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "COMPLETED", "reviewCompleted": true, "extraction": "SUCCEEDED", "application": "APPLIED"}, "expected": "APPLIED"},
+    {"name": "기준 준비 보류", "input": {"current": true, "status": "HELD_INCOMPLETE", "baselineStatus": "FAILED", "execution": "NOT_STARTED", "reviewCompleted": false, "extraction": "NOT_STARTED", "application": null}, "expected": "HELD_INCOMPLETE"},
+    {"name": "원고 교체로 무효", "input": {"current": true, "status": "INVALIDATED", "baselineStatus": "INVALIDATED", "execution": "CANCELED", "reviewCompleted": false, "extraction": "NOT_STARTED", "application": null}, "expected": "INVALIDATED"},
+    {"name": "재검수로 퇴역한 반영 report", "input": {"current": false, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "COMPLETED", "reviewCompleted": true, "extraction": "SUCCEEDED", "application": "APPLIED"}, "expected": "INVALIDATED"}
+  ],
+  "invariants": {
+    "historyIsSummaryOnly": "history rows never contain quotes, evidence, payload or judgment lists",
+    "historyCountsAreCurrentRevision": "counts use the /review current-item rule and are 0 after purge",
+    "reviewStageIsDerived": "reviewStage is never stored; every projection calls ValidationReviewStages.resolve",
+    "existingFieldsUnchanged": "errorReviewStatus, extractionStatus, candidateStatus, Episode analysisStatus and batch status keep their S1-S3 meaning",
+    "eligibilitySharesStartPredicate": "GET /eligibility and POST /episode-validations read the same ValidationIntakeEligibility judgement; the lookup writes nothing",
+    "nextEpisodeBlockRule": "a work is blocked while an active (non-ARCHIVED) episode has a current BEFORE_CONFIRMATION report whose reviewStage is not APPLIED (INVALIDATED included) and whose whole-episode application receipt is not APPLIED; a report with an APPLIED receipt never blocks even after a later invalidation; DIAGNOSTIC_ONLY reports, retired (current=false) reports and reports of deleted episodes are not consulted",
+    "nextEpisodeBlockWritesNothing": "a blocked episode upload (every upload type) writes no UploadBatch, UploadFile, Episode or stored object; detect, file replacement, setting books and title edits are not blocked"
+  }
+}

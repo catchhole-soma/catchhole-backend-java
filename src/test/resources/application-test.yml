@@ -51,6 +51,9 @@ chat:
   metrics-enabled: false
   session-cleanup:
     scheduling-enabled: false
+  # 테스트 Context마다 5초 간격으로 돌던 ChatDispatcher.recover()가 PostgreSQL fixture의 TRUNCATE CASCADE와 교착했다(#314 B1).
+  # 기동 직후 1회만 돌도록 사실상 끈다. 복구 로직 자체는 전용 테스트가 직접 호출해 검증한다.
+  recovery-delay-ms: 3600000
 
 relationship:
   processing:

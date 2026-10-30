@@ -1,0 +1,6 @@
+[
+  {
+    "targets": ["rds-backup-exporter:9109"],
+    "labels": {"environment": "prod"}
+  }
+]

@@ -12,6 +12,18 @@ public class EpisodePurgeDataRepository {
     private final JdbcTemplate jdbcTemplate;
 
     public void purgeNarrativeTimeEvidence(UUID episodeId) {
+        // 후행 고정 문맥에 복사된 보류 인용까지 함께 파기한다. 실제 재분석을 자동 호출하지 않는다.
+        jdbcTemplate.update("""
+                update relationship_graph_events set evidence = null where analysis_id in (
+                    select a.id from relationship_graph_analyses a where a.work_id in (select work_id from episodes where id = ?)
+                    and a.episode_no >= (select min(episode_no) from relationship_graph_analyses where episode_id = ?))
+                """, episodeId, episodeId);
+        jdbcTemplate.update("""
+                update relationship_graph_analyses set context = null, bindings = null, decisions = null,
+                    evidence_purged = true, status = 'INVALIDATED'
+                where work_id in (select work_id from episodes where id = ?)
+                    and episode_no >= (select min(a.episode_no) from relationship_graph_analyses a where a.episode_id = ?)
+                """, episodeId, episodeId);
         for (String table : java.util.List.of("setting_candidates", "character_facts")) {
             String source = table.equals("setting_candidates") ? "episode_id" : "source_episode_id";
             java.util.List<java.util.Map<String,Object>> rows = jdbcTemplate.queryForList("select id, narrative_time from " + table + " where " + source + " = ? and narrative_time is not null", episodeId);

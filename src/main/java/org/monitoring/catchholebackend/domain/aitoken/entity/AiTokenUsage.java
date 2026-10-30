@@ -59,6 +59,21 @@ public class AiTokenUsage extends BaseEntity {
     @JoinColumn(name = "chat_run_id")
     private ChatRun chatRun;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @OnDelete(action = OnDeleteAction.CASCADE)
+    @JoinColumn(name = "validation_job_id")
+    private org.monitoring.catchholebackend.domain.validation.entity.ValidationJob validationJob;
+    @Column(name = "validation_lease_token", updatable = false) private UUID validationLeaseToken;
+    @Column(name = "validation_generation", updatable = false) private Long validationGeneration;
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    @Column(name = "validation_call_input",columnDefinition="jsonb",updatable=false)
+    private com.fasterxml.jackson.databind.JsonNode validationCallInput;
+    public void bindValidationCallInput(com.fasterxml.jackson.databind.JsonNode input) {
+        if(validationJob==null||validationCallInput!=null)throw new AppException(AiTokenErrorCode.AI_TOKEN_RESERVATION_CONFLICT);
+        validationCallInput=input==null?null:input.deepCopy();
+    }
+
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 50)
     private AiTokenPurpose purpose;
@@ -135,6 +150,27 @@ public class AiTokenUsage extends BaseEntity {
                 ? AiTokenChargePolicy.servicePaid() : AiTokenChargePolicy.forModel(model));
         usage.status = AiTokenUsageStatus.RESERVED;
         return usage;
+    }
+
+    public static AiTokenUsage reserveValidation(UUID id, org.monitoring.catchholebackend.domain.validation.entity.ValidationJob job,
+            AiTokenPurpose purpose, String model, long tokens) {
+        var u=new AiTokenUsage();u.requestId=id;u.validationJob=job;u.validationLeaseToken=job.getLeaseToken();u.validationGeneration=job.getGeneration();
+        u.work=job.getReport().getWork();u.member=job.getReport().getMember();u.purpose=purpose;u.attempt=job.getAttempt();u.modelName=model;
+        u.reservedTokens=tokens;u.freezeChargePolicy(AiTokenChargePolicy.forModel(model));u.status=AiTokenUsageStatus.RESERVED;return u;
+    }
+
+    /** Lease loss releases the hold, but retains genuine call ownership for late measured usage. */
+    public void markValidationUnknown(AiTokenUsageOutcome reason) {
+        if(validationJob==null)throw new AppException(AiTokenErrorCode.AI_TOKEN_RESERVATION_CONFLICT);
+        assertReserved();status=AiTokenUsageStatus.UNKNOWN;outcome=reason;
+    }
+
+    public void settleValidation(long input,long cached,long output,AiTokenUsageOutcome result) {
+        if(validationJob==null||(status!=AiTokenUsageStatus.RESERVED&&status!=AiTokenUsageStatus.UNKNOWN))
+            throw new AppException(AiTokenErrorCode.AI_TOKEN_RESERVATION_CONFLICT);
+        if(input<0||cached<0||output<0||cached>input||input>Long.MAX_VALUE-output
+                ||(result!=AiTokenUsageOutcome.SUCCESS&&result!=AiTokenUsageOutcome.FAILURE))throw new AppException(AiTokenErrorCode.AI_TOKEN_USAGE_INVALID);
+        inputTokens=input;cachedInputTokens=cached;outputTokens=output;chargedTokens=chargePolicy().convert(input+output);outcome=result;status=AiTokenUsageStatus.SETTLED;
     }
 
     // UNKNOWN releases the hold without claiming zero usage; a late measured report may settle it.

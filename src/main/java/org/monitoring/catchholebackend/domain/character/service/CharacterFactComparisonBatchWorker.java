@@ -1299,7 +1299,7 @@ public class CharacterFactComparisonBatchWorker {
                     candidate.getAttributeValue(),
                     candidate.getValueType(),
                     workerMapper.toJsonValue(candidate.getValueJson()),
-                    workerMapper.toEvidenceSpans(candidate.getEvidenceSpans()),
+                    workerMapper.toCandidateEvidenceSpans(candidate),
                     candidate.getConfidence(), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(candidate.getAnalysisJob()),
                     workerMapper.toJsonValue(candidate.getNarrativeTime())));
         }

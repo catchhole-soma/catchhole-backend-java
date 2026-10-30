@@ -19,7 +19,7 @@ import org.monitoring.catchholebackend.domain.character.processor.CharacterCurre
 class CharacterFactComparisonWorkerMapperTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final CharacterFactComparisonWorkerMapper mapper = new CharacterFactComparisonWorkerMapper();
+    private final CharacterFactComparisonWorkerMapper mapper = new CharacterFactComparisonWorkerMapper(org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection.class));
 
     @ParameterizedTest
     @ValueSource(strings = {"absent", "null", "1", "4", "2147483647"})

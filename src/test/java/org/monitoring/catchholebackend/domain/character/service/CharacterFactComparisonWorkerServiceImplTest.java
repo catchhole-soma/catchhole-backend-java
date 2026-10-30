@@ -108,7 +108,7 @@ class CharacterFactComparisonWorkerServiceImplTest {
                 new CharacterSnapshotAccessor(),
                 valueValidator,
                 new CharacterFactComparisonDecisionValidator(valueValidator),
-                new CharacterFactComparisonWorkerMapper(),
+                new CharacterFactComparisonWorkerMapper(org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection.class)),
                 batchWorker, analysisStateSource, analysisStateService
         );
         org.mockito.Mockito.lenient().when(analysisStateSource.captureCharacter(any(WorkCharacter.class))).thenAnswer(invocation ->

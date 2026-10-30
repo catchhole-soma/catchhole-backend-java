@@ -54,6 +54,7 @@ public record EpisodeResponse(
         LocalDateTime createdAt,
 
         @Schema(description = "회차 수정 시각", example = "2026-06-11T16:30:00")
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+        @Schema(description="원문 저장·교체·파기마다 증가하는 검수 입력 revision") long contentRevision
 ) {
 }

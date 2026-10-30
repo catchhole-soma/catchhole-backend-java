@@ -101,6 +101,7 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
                 List.of(),
                 List.of(),
                 org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.work.repository.WorkRepository.class),
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.relationship.service.RelationshipGraphService.class),
                 analysisJobRepository,
                 analysisJobLeaseService,
                 workCharacterRepository,
@@ -114,7 +115,10 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
                 characterBatchRepository,
                 worldCandidateRepository,
                 settingCandidateRepository,
-                characterComparisonJobCoordinator
+                characterComparisonJobCoordinator,
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.validation.service.ValidationSettingsApplicationService.class),
+                // 이 단위 테스트는 DB가 없다. 완료 경계는 Spring 트랜잭션 없이 callback만 실행하는 mock 관리자를 사용한다.
+                org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class)
         );
     }
 

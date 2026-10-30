@@ -309,10 +309,15 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
         assertThat(slot.path("supportingSources").get(0).path("sourceCandidateId").isNull()).isTrue();
     }
 
-    @Test @DisplayName("기존 Fact라도 명시 offset과 인용의 불일치는 거절한다")
-    void retainedFactWithExplicitOffsetQuoteMismatchStillFails() {
+    @Test @DisplayName("일반 인용의 명시 offset 불일치는 현재값을 보존하고 인용만 숨긴다")
+    void retainedFactWithExplicitOffsetQuoteMismatchHidesQuote() {
         ((ObjectNode)candidate.getEvidenceSpans().get(0)).put("quote","원문에 없는 회복");
-        assertThatThrownBy(this::owner).isInstanceOf(CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException.class);
+        var state = owner();
+        assertThat(state.path("slots").path(key).path("factValue").asText()).isEqualTo("정상");
+        var origin = state.path("slots").path(key).path("supportingSources").get(0);
+        assertThat(origin.path("availability").asText()).isEqualTo("UNAVAILABLE");
+        assertThat(origin.path("unavailableReason").asText()).isEqualTo("INVALID_OFFSETS");
+        assertThat(origin.path("evidenceSpans")).isEmpty();
     }
 
     @ParameterizedTest @ValueSource(booleans = {false, true})
@@ -381,7 +386,7 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
         assertThat(frozen.path("historyFacts").get(0).get("effectiveFromEpisodeNo"))
                 .isEqualTo(json.valueToTree(effectiveEpisode));
 
-        var response = new CharacterFactComparisonWorkerMapper()
+        var response = new CharacterFactComparisonWorkerMapper(org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection.class))
                 .toAdvisoryCurrentContext(origin, frozen, character.getId(), null, null);
 
         var history = json.valueToTree(response).path("historyFacts");
@@ -393,12 +398,27 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
         assertThat(frozen).isEqualTo(before);
     }
 
-    @Test @DisplayName("신규 capture의 위치 없는 인용 오류는 확정 상태를 가졌어도 엄격히 거절한다")
-    void strictCaptureRejectsQuoteOnlyMismatchRegardlessOfReviewStatus() {
-        candidate.confirm();
+    @Test @DisplayName("신규 후보도 위치 없는 인용은 숨기고 원본 후보는 보존한다")
+    void newCaptureOmitsUnlocatedQuoteWithoutChangingCandidate() {
         quoteOnlyMismatch();
-        assertThatThrownBy(() -> resolver.captureCandidate(resolver.begin(work), candidate))
-                .isInstanceOf(CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException.class);
+        var before = candidate.getEvidenceSpans().deepCopy();
+        var origin = resolver.captureCandidate(resolver.begin(work), candidate);
+        assertThat(origin.path("availability").asText()).isEqualTo("UNAVAILABLE");
+        assertThat(origin.path("unavailableReason").asText()).isEqualTo("OFFSETS_UNAVAILABLE");
+        assertThat(origin.path("evidenceSpans")).isEmpty();
+        assertThat(candidate.getEvidenceSpans()).isEqualTo(before);
+    }
+
+    @Test @DisplayName("신규 후보의 정상 인용과 위치 없는 말줄임표 인용이 섞여도 정상 근거를 보존한다")
+    void newCaptureKeepsValidSpanWhenAnotherSpanHasNoMatchingPosition() {
+        ((com.fasterxml.jackson.databind.node.ArrayNode) candidate.getEvidenceSpans()).addObject()
+                .put("quote", "...원문에 없는 표기").putNull("startOffset").putNull("endOffset");
+        var before = candidate.getEvidenceSpans().deepCopy();
+        var source = resolver.captureCandidate(resolver.begin(work), candidate);
+        assertThat(source.path("availability").asText()).isEqualTo("VERIFIED");
+        assertThat(source.path("evidenceSpans")).hasSize(1);
+        assertThat(source.path("evidenceSpans").get(0).path("quote").asText()).isEqualTo(content);
+        assertThat(candidate.getEvidenceSpans()).isEqualTo(before);
     }
 
     @Test @DisplayName("저장된 대표 시점의 일반 인용만 틀리면 시점 근거를 엄격히 검증하고 비교를 계속한다")
@@ -451,8 +471,8 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
         assertThat(frozen.path("identityEvidence").get(0).path("quote").asText()).isEqualTo(content);
     }
 
-    @ParameterizedTest @ValueSource(strings = {"halfOffset", "invalidOffsetType", "outOfRange", "malformedSpan", "malformedArray", "laterMalformed", "laterInvalidOffset", "foreignCharacter", "differentFactJob", "partialManifest"})
-    @DisplayName("일반 인용 불일치와 함께 있는 구조·offset·연결 오류는 unavailable로 낮추지 않는다")
+    @ParameterizedTest @ValueSource(strings = {"foreignCharacter", "differentFactJob", "partialManifest"})
+    @DisplayName("일반 인용 불일치와 함께 있는 출처 연결·manifest 오류는 완화하지 않는다")
     void retainedMismatchCannotHideInvalidStructureOrBinding(String invalid) {
         quoteOnlyMismatch();
         var span = (ObjectNode)candidate.getEvidenceSpans().get(0);
@@ -612,7 +632,7 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
     }
     private void assertUnavailableQuote(com.fasterxml.jackson.databind.JsonNode row) {
         assertThat(row.path("availability").asText()).isEqualTo("UNAVAILABLE");
-        assertThat(row.path("unavailableReason").asText()).isEqualTo("QUOTE_NOT_FOUND");
+        assertThat(row.path("unavailableReason").asText()).isEqualTo("OFFSETS_UNAVAILABLE");
         assertThat(row.path("evidenceSpans")).isEmpty();
     }
     private void retainedRepresentativeTime() {

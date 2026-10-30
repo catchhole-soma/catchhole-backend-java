@@ -13,9 +13,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.processor.SettingBookAutomaticEvidenceValidator;
+import org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.EvidenceValidationResult;
@@ -29,7 +29,6 @@ import org.springframework.stereotype.Component;
 /** Source reads occur only while an input or a new journal snapshot is frozen. */
 @Component
 @RequiredArgsConstructor
-@Slf4j
 public class CharacterCurrentSupportingEvidenceResolver {
     private final ObjectStorageService storage;
     private final SettingBookAutomaticEvidenceValidator quoteValidator;
@@ -72,34 +71,36 @@ public class CharacterCurrentSupportingEvidenceResolver {
     }
 
     public ObjectNode captureCandidate(Capture capture, SettingCandidate candidate) {
-        return captureCandidate(capture, candidate, false, candidate.getEvidenceSpans());
+        return captureCandidate(capture, candidate, candidate.getEvidenceSpans());
     }
 
     public ObjectNode captureRetainedCandidate(Capture capture, SettingCandidate candidate) {
-        return captureCandidate(capture, candidate, true, candidate.getEvidenceSpans());
+        return captureCandidate(capture, candidate, candidate.getEvidenceSpans());
     }
 
     public ArrayNode captureRetainedIdentityEvidence(Capture capture, SettingCandidate discovery) {
         ArrayNode result = JsonNodeFactory.instance.arrayNode();
-        if ("VERIFIED".equals(captureRetainedCandidate(capture, discovery).path("availability").asText())) {
-            result.addAll((ArrayNode) discovery.getEvidenceSpans().deepCopy());
-        }
+        ObjectNode origin = captureRetainedCandidate(capture, discovery);
+        result.addAll((ArrayNode) origin.path("evidenceSpans"));
         if (discovery.isReviewedAutomatically() && discovery.getAnalysisJob() != null
                 && discovery.getAnalysisJob().isSettingBookSource() && discovery.getRawAiResultJson() != null) {
             JsonNode proof = discovery.getRawAiResultJson().path("setting_book_identity_proof");
             for (JsonNode member : proof.path("members")) {
                 JsonNode span = member.path("profileEvidence");
-                if (member.path("targetRef").equals(proof.path("parentTargetRef")) && span.isObject()
-                        && "VERIFIED".equals(captureCandidate(capture, discovery, true,
-                                JsonNodeFactory.instance.arrayNode().add(span)).path("availability").asText())) {
-                    result.add(span.deepCopy());
+                if (member.path("targetRef").equals(proof.path("parentTargetRef")) && span.isObject()) {
+                    ArrayNode evidence = JsonNodeFactory.instance.arrayNode().add(span);
+                    // Identity proof is a separate semantic guarantee, not an optional quote preview.
+                    EvidenceValidationResult validation = quoteValidator.validate(original(capture, discovery.getAnalysisJob()), evidence);
+                    if (validation == EvidenceValidationResult.QUOTE_NOT_FOUND) continue;
+                    if (validation != EvidenceValidationResult.VALID) throw invalid();
+                    result.addAll((ArrayNode) captureCandidate(capture, discovery, evidence).path("evidenceSpans"));
                 }
             }
         }
         return result;
     }
 
-    private ObjectNode captureCandidate(Capture capture, SettingCandidate candidate, boolean retained, JsonNode evidence) {
+    private ObjectNode captureCandidate(Capture capture, SettingCandidate candidate, JsonNode evidence) {
         AnalysisJob job = candidate.getAnalysisJob();
         if (job == null) return unavailable(candidate.getId(), null, "LEGACY_NO_MANIFEST", candidate.hasUserEditedContent());
         if (!same(job.getWork().getId(), capture.workId) || !same(candidate.getWork().getId(), capture.workId)
@@ -116,31 +117,13 @@ public class CharacterCurrentSupportingEvidenceResolver {
             return row;
         }
         String content = original(capture, job);
-        EvidenceValidationResult validation = quoteValidator.validate(content, evidence);
-        if (retained && validation == EvidenceValidationResult.QUOTE_NOT_FOUND) {
-            ObjectNode row = unavailable(candidate.getId(), job.getId(), "QUOTE_NOT_FOUND", candidate.hasUserEditedContent());
-            row.set("source", source);
-            storageBinding(row, job);
-            row.set("narrativeTime", captureNarrativeTime(capture, candidate, candidate.getNarrativeTime()));
-            log.warn("기존 확정 근거의 일반 인용을 확인할 수 없습니다. sourceCandidateId={}, sourceAnalysisJobId={}, reason=QUOTE_NOT_FOUND, spanCount={}",
-                    candidate.getId(), job.getId(), evidence.size());
-            return row;
-        }
-        if (validation != EvidenceValidationResult.VALID) throw new InvalidEvidenceException(switch (validation) {
-            case MALFORMED_SPANS -> "CURRENT_EVIDENCE_STRUCTURE_INVALID";
-            case INVALID_OFFSETS -> "CURRENT_EVIDENCE_OFFSET_INVALID";
-            case QUOTE_NOT_FOUND -> "CURRENT_EVIDENCE_QUOTE_NOT_FOUND";
-            case VALID -> throw new IllegalStateException("근거 검증 분기가 올바르지 않습니다.");
-        });
-        ObjectNode row = base(candidate.getId(), job.getId(), candidate.hasUserEditedContent());
-        row.put("availability", "VERIFIED").putNull("unavailableReason");
+        ArrayNode spans = GeneralEvidenceProjection.verifiedSpans(content, evidence);
+        ObjectNode row = spans.isEmpty()
+                ? unavailable(candidate.getId(), job.getId(), GeneralEvidenceProjection.unavailableReason(evidence), candidate.hasUserEditedContent())
+                : base(candidate.getId(), job.getId(), candidate.hasUserEditedContent())
+                        .put("availability", "VERIFIED").putNull("unavailableReason");
         row.set("source", source);
-        ArrayNode spans = row.putArray("evidenceSpans");
-        for (JsonNode span : evidence) {
-            ObjectNode frozen = spans.addObject().put("quote", span.path("quote").asText());
-            copyOffset(frozen, span, "startOffset", "start_offset");
-            copyOffset(frozen, span, "endOffset", "end_offset");
-        }
+        row.set("evidenceSpans", spans);
         storageBinding(row, job);
         row.set("narrativeTime", captureNarrativeTime(capture, candidate, candidate.getNarrativeTime()));
         return row;
@@ -268,11 +251,6 @@ public class CharacterCurrentSupportingEvidenceResolver {
         row.put("quoteRelation", "SOURCE_CONTEXT_ONLY");
         row.putNull("narrativeTime");
         return row;
-    }
-
-    private void copyOffset(ObjectNode target, JsonNode source, String camel, String snake) {
-        JsonNode value = source.has(camel) ? source.get(camel) : source.get(snake);
-        if (value == null || value.isNull()) target.putNull(camel); else target.set(camel, value.deepCopy());
     }
 
     private boolean same(UUID left, UUID right) { return left != null && left.equals(right); }

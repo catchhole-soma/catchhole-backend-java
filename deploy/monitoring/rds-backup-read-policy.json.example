@@ -1,0 +1,27 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadConfiguredRdsBackupMetadata",
+      "Effect": "Allow",
+      "Action": "rds:DescribeDBInstances",
+      "Resource": "arn:aws:rds:ap-northeast-2:123456789012:db:replace-with-db-identifier"
+    },
+    {
+      "Sid": "ReadConfiguredRdsAutomatedSnapshots",
+      "Effect": "Allow",
+      "Action": "rds:DescribeDBSnapshots",
+      "Resource": [
+        "arn:aws:rds:ap-northeast-2:123456789012:db:replace-with-db-identifier",
+        "arn:aws:rds:ap-northeast-2:123456789012:snapshot:rds:replace-with-db-identifier-*"
+      ]
+    },
+    {
+      "Sid": "ReadRegionalCloudWatchStatistics",
+      "Effect": "Allow",
+      "Action": "cloudwatch:GetMetricStatistics",
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:RequestedRegion": "ap-northeast-2"}}
+    }
+  ]
+}

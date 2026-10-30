@@ -53,7 +53,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /** Only the newly provisioned disposable loopback gh303_test database may run destructive fixture cleanup. */
-@SpringBootTest(properties = {"spring.config.import=", "spring.docker.compose.enabled=false"})
+// chat.recovery-delay-ms: 이 클래스와 무관한 채팅 복구 scheduler가 fixture TRUNCATE와 겹쳐 읽지 않도록 Context 시작 1회만 돌게 한다.
+@SpringBootTest(properties = {"spring.config.import=", "spring.docker.compose.enabled=false", "chat.recovery-delay-ms=3600000"})
 @ActiveProfiles("test")
 @DirtiesContext
 @EnabledIfEnvironmentVariable(named = "GH303_ERROR_FIRST_POSTGRES_JDBC_URL", matches = "jdbc:postgresql://127\\.0\\.0\\.1:[0-9]+/gh303_error_first_test")
@@ -90,7 +91,7 @@ class ErrorFirstValidationPostgresIntegrationTest {
     @BeforeEach
     void isolatedFixture() {
         tx = new TransactionTemplate(transactions);
-        jdbc.execute("TRUNCATE TABLE works, members CASCADE");
+        org.monitoring.catchholebackend.support.PostgresFixtureCleanup.truncate(jdbc, "TRUNCATE TABLE works, members CASCADE");
         when(storage.putBytes(anyString(), any(byte[].class), anyString())).thenAnswer(call -> new StoredObject(call.getArgument(0), "synthetic-v1"));
         when(storage.putText(anyString(), anyString())).thenAnswer(call -> new StoredObject(call.getArgument(0), "synthetic-v1"));
         when(storage.purgePrefixes(anyCollection())).thenReturn(new ObjectStoragePurgeResult(1, 1, 0));

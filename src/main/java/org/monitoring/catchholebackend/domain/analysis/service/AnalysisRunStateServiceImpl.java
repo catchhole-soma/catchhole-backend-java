@@ -454,7 +454,12 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
     @Override
     @Transactional
     public void purgeSourceEvidenceForWorkForUpdate(UUID workId, UUID episodeId, int sourceEpisodeNo) {
-        eventPublisher.publishEvent(new org.monitoring.catchholebackend.domain.validation.event.ValidationStagingEvents.EpisodeSourceChanged(workId, episodeId));
+        purgeSourceEvidenceForWorkForUpdate(workId, episodeId, sourceEpisodeNo, null);
+    }
+
+    @Override @Transactional
+    public void purgeSourceEvidenceForWorkForUpdate(UUID workId, UUID episodeId, int sourceEpisodeNo, String retainedContentKey) {
+        eventPublisher.publishEvent(new org.monitoring.catchholebackend.domain.validation.event.ValidationStagingEvents.EpisodeSourceChanged(workId, episodeId, retainedContentKey));
         analysisJobRepository.findOrderedJobsForSourcePurgeForUpdate(workId, sourceEpisodeNo).forEach(job -> {
             if (!preservesCompletedSuccessor(job, episodeId)) {
                 invalidateMember(job, "원문 근거가 파기되어 기존 누적 입력을 재사용할 수 없습니다.");
