@@ -32,6 +32,8 @@ public enum ValidationErrorCode implements ResultCode {
     VALIDATION_APPLICATION_NOT_READY(HttpStatus.CONFLICT, "설정 추출이나 비교가 아직 진행 중입니다. 완료된 뒤 다시 반영해 주세요."),
     VALIDATION_APPLICATION_UNAVAILABLE(HttpStatus.CONFLICT, "검토를 완료한 현재 검수에서만 설정을 반영할 수 있습니다."),
     VALIDATION_APPLICATION_ROLLED_BACK(HttpStatus.CONFLICT, "회차 전체 반영을 끝내지 못해 이번 반영을 모두 되돌렸습니다. 보류 사유를 확인한 뒤 다시 반영해 주세요."),
+    /** #314 B1: 확정 전 검수(BEFORE_CONFIRMATION)가 APPLIED/INVALIDATED가 아닌 동안 새 회차 등록. context: reportId, episodeId, episodeNo, reviewStage */
+    VALIDATION_NEXT_EPISODE_BLOCKED(HttpStatus.CONFLICT, "이 회차의 검토와 설정 저장을 마친 뒤 다음 회차를 등록할 수 있어요."),
     VALIDATION_NOT_FOUND(HttpStatus.NOT_FOUND, "검수 요청을 찾을 수 없습니다.");
     private final HttpStatus status;
     private final String message;
