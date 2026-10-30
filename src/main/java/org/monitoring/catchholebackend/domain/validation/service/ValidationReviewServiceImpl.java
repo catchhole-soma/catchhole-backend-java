@@ -8,6 +8,7 @@ import org.monitoring.catchholebackend.domain.validation.dto.request.ValidationJ
 import org.monitoring.catchholebackend.domain.validation.dto.response.*;
 import org.monitoring.catchholebackend.domain.validation.entity.*;
 import org.monitoring.catchholebackend.domain.validation.mapper.ValidationReviewMapper;
+import org.monitoring.catchholebackend.domain.validation.processor.ValidationFindingTargets;
 import org.monitoring.catchholebackend.domain.validation.processor.ValidationReviewGate;
 import org.monitoring.catchholebackend.domain.validation.repository.*;
 import org.monitoring.catchholebackend.domain.validation.type.*;
@@ -34,6 +35,7 @@ public class ValidationReviewServiceImpl implements ValidationReviewService {
     private final ValidationReviewCompletionRepository completions;
     private final ValidationReviewMapper mapper;
     private final EntityManager em;
+    private final ValidationFindingTargets targets;
 
     @Override public PageResponse<ValidationFindingSummaryResponse> getValidationFindings(Long memberId,UUID workId,UUID reportId,ValidationBranch branch,ValidationJudgmentValue judgment,String outcome,
             ValidationImpact impact,ValidationSubjectType subjectType,int page,int size) {
@@ -42,7 +44,7 @@ public class ValidationReviewServiceImpl implements ValidationReviewService {
         return PageResponse.from(rows,rows.getContent().stream().map(x->mapper.toSummaryResponse(x.finding(),x.judgment(),revised.contains(x.finding().getCheckId()))).toList());
     }
     @Override public ValidationFindingDetailResponse getValidationFinding(Long memberId,UUID workId,UUID reportId,UUID findingId) {
-        report(memberId,workId,reportId);var f=reviews.finding(reportId,findingId).orElseThrow(()->error(VALIDATION_FINDING_NOT_FOUND));
+        var r=report(memberId,workId,reportId);var f=reviews.finding(reportId,findingId).orElseThrow(()->error(VALIDATION_FINDING_NOT_FOUND));
         List<ValidationFinding> related=List.of(f);List<ValidationCheckHistory> checkHistory=List.of();Long current=null;
         if(f.getCheckId()!=null) {
             current=reviews.checkRevision(f.getCheckId()).orElse(null);checkHistory=reviews.checkHistory(f.getCheckId());
@@ -61,8 +63,16 @@ public class ValidationReviewServiceImpl implements ValidationReviewService {
             var span=f.getPayload().path("span");
             evidence=evidence.stream().filter(e->e.getSourceRef().equals(span.path("source_ref").asText())&&e.getStart()<span.path("end").asInt()&&e.getEnd()>span.path("start").asInt()).toList();
         }
+        // #314 B2: 정정 연결 항목은 이 finding revision의 질문 상태(이전 revision이면 check 이력)와 report 고정 기준으로만 계산한다.
+        List<ValidationFindingTargets.Basis> basis=List.of();
+        if(f.getCheckId()!=null) {
+            var revision=f.getCheckRevision();
+            var state=Objects.equals(current,revision)?reviews.checkState(f.getCheckId(),revision).orElse(null)
+                    :checkHistory.stream().filter(h->h.getRevision()==revision).map(ValidationCheckHistory::getState).findFirst().orElse(null);
+            basis=targets.basis(r,state,f);
+        }
         return mapper.toDetailResponse(f,byFinding.get(f.getId()),current,!checkHistory.isEmpty(),evidence,
-                histories.findAllByFindingIdInOrderByCreatedAtAscIdAsc(related.stream().map(ValidationFinding::getId).toList()),reasons,List.copyOf(prior));
+                histories.findAllByFindingIdInOrderByCreatedAtAscIdAsc(related.stream().map(ValidationFinding::getId).toList()),reasons,List.copyOf(prior),basis);
     }
     @Override @Transactional
     public ValidationFindingSummaryResponse saveValidationJudgment(Long memberId,UUID workId,UUID reportId,UUID findingId,ValidationJudgmentRequest request) {

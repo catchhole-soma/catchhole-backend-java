@@ -30,7 +30,7 @@ public class ValidationReviewMapper {
         return j==null?new ValidationFindingSummaryResponse.Judgment(ValidationJudgmentValue.PENDING,0,null):new ValidationFindingSummaryResponse.Judgment(j.getJudgment(),j.getVersion(),j.getDecidedAt());
     }
     public ValidationFindingDetailResponse toDetailResponse(ValidationFinding f,ValidationJudgment j,Long currentRevision,boolean changed,List<ValidationEvidence> evidence,
-            List<ValidationJudgmentHistory> history,Map<Long,String> changeReasons,List<PriorRevision> prior) {
+            List<ValidationJudgmentHistory> history,Map<Long,String> changeReasons,List<PriorRevision> prior,List<org.monitoring.catchholebackend.domain.validation.processor.ValidationFindingTargets.Basis> basis) {
         var body=JsonNodeFactory.instance.objectNode();for(String field:DETAIL_FIELDS)if(f.getPayload().has(field))body.set(field,f.getPayload().path(field).deepCopy());
         // 완료 판정의 receipt ref는 비공개 호출 기록을 가리키므로 사유와 근거 ref만 남긴다.
         if(body.path("completion").isObject())for(var assessment:body.path("completion"))if(assessment.isObject())((ObjectNode)assessment).remove("receipt_refs");
@@ -40,7 +40,8 @@ public class ValidationReviewMapper {
                 evidence.stream().map(e->new Evidence(e.getSourceRef(),e.getStart(),e.getEnd(),e.getQuote())).distinct().toList(),toJudgmentResponse(j),ValidationJudgmentValue.allowedFor(f.getBranch()),
                 history.stream().map(h->new History(h.getFinding().getId(),h.getCheckRevision(),h.getFromJudgment(),h.getToJudgment(),h.getReason(),
                         h.getReason()==ValidationJudgmentHistoryReason.REVISION_SUPERSEDED?changeReasons.get(h.getCheckRevision()):null,h.getCreatedAt())).toList(),prior,
-                toSubjectResponse(f),f.getSettingName(),f.getSettingKey());
+                toSubjectResponse(f),f.getSettingName(),f.getSettingKey(),
+                basis.stream().map(b->new Basis(b.entryRef(),b.entryHash(),b.subjectType(),b.targetId(),b.subjectName(),b.factType(),b.factKey(),b.scopeName(),b.settingName(),b.currentVersion())).toList());
     }
     public ValidationReviewSummaryResponse toReviewResponse(ValidationReport r,ValidationReviewGate.Review review) {
         var c=review.counts();

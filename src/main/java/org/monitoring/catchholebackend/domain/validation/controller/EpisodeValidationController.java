@@ -149,7 +149,7 @@ public class EpisodeValidationController {
     }
 
     @GetMapping("/{reportId}/findings/{findingId}")
-    @Operation(operationId="getValidationFinding", summary="발견 항목 상세", description="공개 판정 내용, 저장 때 검증한 인용, 현재 판단·허용 판단, 판단 이력과 이전 revision의 변경 사유를 반환합니다. 이전 revision 항목은 stale=true입니다.")
+    @Operation(operationId="getValidationFinding", summary="발견 항목 상세", description="공개 판정 내용, 저장 때 검증한 인용, 현재 판단·허용 판단, 판단 이력과 이전 revision의 변경 사유를 반환합니다. 이전 revision 항목은 stale=true입니다. 설정 항목은 목록과 같은 대상·설정명과 정정 요청(POST /{reportId}/corrections)에 그대로 쓰는 고정 기준 항목(basis: entryRef·entryHash·대상 ID·당시 version, 맞는 slot/path)을 함께 반환합니다(#314 B2).")
     @ApiResponses({@ApiResponse(responseCode="200", description="조회 성공"),
             @ApiResponse(responseCode="404", description="작품 소유권·검수 요청·발견 항목 없음")})
     public CommonResponse<ValidationFindingDetailResponse> finding(@AuthenticationPrincipal MemberPrincipal member,@PathVariable UUID workId,@PathVariable UUID reportId,@PathVariable UUID findingId) {

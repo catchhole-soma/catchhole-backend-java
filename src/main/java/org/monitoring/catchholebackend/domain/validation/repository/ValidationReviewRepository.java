@@ -60,4 +60,8 @@ public class ValidationReviewRepository {
         q.setParameter("r",r);if(branch!=null)q.setParameter("branch",branch);if(judgment!=null)q.setParameter("judgment",judgment);if(outcome!=null)q.setParameter("outcome",outcome);
         if(impact!=null)q.setParameter("impact",impact);if(subjectType!=null)q.setParameter("subjectType",subjectType);return q;
     }
+    /** 상세의 정정 연결 항목 계산용 현재 revision 질문 상태. */
+    public Optional<com.fasterxml.jackson.databind.JsonNode> checkState(UUID check,long revision) {
+        return em.createQuery("select c.state from ValidationCheck c where c.id=:c and c.revision=:v",com.fasterxml.jackson.databind.JsonNode.class).setParameter("c",check).setParameter("v",revision).getResultStream().findFirst();
+    }
 }
