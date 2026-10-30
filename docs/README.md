@@ -13,6 +13,9 @@
 | [Database Migration](database-migration.md) | Flyway schema 관리 규칙, V1·V2 검증 및 최초 운영 전환 절차 |
 | [AI Token Usage](ai-token-usage.md) | AI 요청별 토큰 예약·정산, 사용자 한도와 운영 지급 정책 |
 | [Infrastructure Flow](infrastructure-flow.md) | 현재 운영 구조, 스케일링 전략, 미결정 인프라 선택지와 단계별 전환 계획 |
+| [ADR-0001 API 다중화](adr/0001-api-multi-instance-ecs-fargate.md) | #336 제안: 서버 장애 대응을 위한 ECS Fargate 다중 task·ALB 비교, #280과의 관계, 전환·검증 기준 |
+| [ADR-0002 공용 Redis](adr/0002-shared-redis.md) | #336 제안: 다중화 시 인증 데이터를 공유할 Redis 위치와 장애 영향 범위 |
+| [ADR-0003 중앙 로그·지표 수집](adr/0003-central-logs-and-metrics.md) | #336 제안: Loki·Alloy와 CloudWatch Logs 병행, 고정 수집 대상 해소 |
 | [2026-09-10 운영 현황](operations-status-2026-09-10.md) | #171 AWS·컨테이너 확인 결과, DB 연결 한도·백업·비용, 재확인 방법과 미확인 항목 |
 | [RDS 백업·삭제 보호](rds-backup-policy.md) | #172 RPO 15분·RTO 2시간 목표·보존 7일의 근거, 설정 재확인, 삭제 절차, T4·T5 확인 경로·권한 |
 | [RDS 자원·백업 알림](../deploy/RDS_BACKUP_MONITORING.md) | #174 연결 예산 29개와 DB 한도, 자원·백업 원천/임계값·수집 신뢰성, Discord 대응·운영 검증 상태 |
