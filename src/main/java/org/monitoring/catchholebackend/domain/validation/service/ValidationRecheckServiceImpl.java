@@ -68,9 +68,12 @@ public class ValidationRecheckServiceImpl implements ValidationRecheckService {
             var correction=corrections.findByIdAndWorkId(request.correctionReceiptId(),workId).orElseThrow(()->error(ValidationErrorCode.VALIDATION_CORRECTION_CONFLICT));
             if(!correction.getReport().getId().equals(reportId) || correction.getReportVersion()!=previous.getVersion()
                     || request.expectedBaselineHash()!=null && !request.expectedBaselineHash().equals(correction.getBaselineHash())) throw error(ValidationErrorCode.VALIDATION_CORRECTION_CONFLICT);
+        } else if(request.expectedBaselineHash()==null && previous.getBaselineFingerprint()!=null) {
+            // #314 B2: 같은 409를 유지하되 원고 버전 충돌(context 없음)과 구분할 수 있게 사유를 붙인다. 값은 staging의 baselineFingerprint다.
+            throw new AppException(ValidationErrorCode.VALIDATION_SOURCE_VERSION_CONFLICT,java.util.Map.of("reason","BASELINE_FINGERPRINT_REQUIRED"));
         } else if(!Objects.equals(request.expectedBaselineHash(),previous.getBaselineFingerprint())
                 || previous.getBaselineFingerprint()==null && previous.getBaselineSeed()!=null) {
-            throw error(ValidationErrorCode.VALIDATION_SOURCE_VERSION_CONFLICT);
+            throw new AppException(ValidationErrorCode.VALIDATION_SOURCE_VERSION_CONFLICT,java.util.Map.of("reason","BASELINE_FINGERPRINT_MISMATCH"));
         }
         // GH312 S3: 회차 전체 확정 APPLIED report는 무효화하지 않으므로, 확정으로 바뀐 기준 입력을 진단 재검수할 수 있게 같은 원고도 허용한다.
         if(previous.getBaselineFingerprint()!=null && previous.getStatus()!=ValidationReportStatus.INVALIDATED
