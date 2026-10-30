@@ -17,11 +17,11 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
-/** GH312 작가 검토 공개 API의 공식 OpenAPI. 출력은 build/ 아래에만 남긴다. */
+/** GH312 작가 검토·GH310 실행·#314 B1 접수 자격 공개 API의 공식 OpenAPI. 출력은 build/ 아래에만 남긴다. */
 @SpringBootTest(properties = "spring.config.import=")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-@DisplayName("GH312 작가 검토 API OpenAPI 계약")
+@DisplayName("GH312 작가 검토·#314 B1 접수 자격 API OpenAPI 계약")
 class EpisodeValidationOpenApiIntegrationTest {
     static final String BASE = "/api/v1/works/{workId}/episode-validations";
     @Autowired MockMvc mvc;
@@ -37,7 +37,13 @@ class EpisodeValidationOpenApiIntegrationTest {
             new Endpoint("post", BASE + "/{reportId}/settings-application", "applyValidationSettings", "ValidationSettingsApplicationResponse", List.of("400", "404", "409")),
             new Endpoint("get", BASE + "/history", "listEpisodeValidationHistory", "PageResponseValidationReportHistoryResponse", List.of("400", "404")),
             new Endpoint("get", BASE + "/{reportId}", "getEpisodeValidationStaging", "ValidationStagingResponse", List.of("404")),
-            new Endpoint("get", BASE + "/current", "getCurrentEpisodeValidation", "ValidationStagingResponse", List.of("404")));
+            new Endpoint("get", BASE + "/current", "getCurrentEpisodeValidation", "ValidationStagingResponse", List.of("404")),
+            // #314 B1: 접수 전 자격 조회와 GH310 endpoint의 대표 4xx
+            new Endpoint("get", BASE + "/eligibility", "getEpisodeValidationEligibility", "ValidationEligibilityResponse", List.of("400", "404")),
+            new Endpoint("get", BASE + "/{reportId}/results", "getValidationExecutionResults", "MapStringObject", List.of("404")),
+            new Endpoint("post", BASE + "/{reportId}/retries", "retryValidationExecution", "ValidationStagingResponse", List.of("400", "404", "409")),
+            new Endpoint("post", BASE + "/{reportId}/rechecks", "recheckEpisodeValidation", "ValidationStagingResponse", List.of("400", "404", "409")),
+            new Endpoint("post", BASE + "/{reportId}/corrections", "correctValidationBaselineSetting", "ValidationCorrectionReceipt", List.of("400", "404", "409")));
 
     JsonNode docs() throws Exception {
         String body = mvc.perform(get("/v3/api-docs")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
@@ -86,6 +92,28 @@ class EpisodeValidationOpenApiIntegrationTest {
         assertThat(schemas.path("ValidationReviewSummaryResponse").path("properties").path("counts").toString()).contains("ValidationReviewSummaryCounts");
         for (String generic : List.of("Counts", "Completion", "Application", "ReleaseHold", "Summary", "Span", "Evidence", "History", "Judgment", "PriorRevision"))
             assertThat(schemas.has(generic)).as("nested validation schema must not use the global name " + generic).isFalse();
+    }
+
+    @Test
+    @DisplayName("접수 자격 조회는 접수와 같은 사유 enum·작품 단위 다음 회차 차단 schema를 문서화하고 회차 업로드는 차단 409를 안내한다")
+    void documentsEligibilityAndNextEpisodeBlock() throws Exception {
+        var docs = docs();
+        var schemas = docs.path("components").path("schemas");
+        var eligibility = schemas.path("ValidationEligibilityResponse").path("properties");
+        assertThat(eligibility.has("episodeId") && eligibility.has("eligible") && eligibility.has("message") && eligibility.has("latestEpisode")).isTrue();
+        assertThat(enumValues(eligibility.path("reasonCode"))).containsExactly("ELIGIBLE", "REPORT_EXISTS", "EPISODE_NOT_FOUND", "NOT_SINGLE_APPEND_UPLOAD",
+                "NOT_LATEST_EPISODE", "SOURCE_PURGE_PENDING", "ANALYSIS_ALREADY_STARTED", "NEXT_EPISODE_BLOCKED", "COMPARISON_MATERIAL_REQUIRED");
+        assertThat(eligibility.path("currentReport").toString()).contains("ValidationEligibilityCurrentReport");
+        assertThat(eligibility.path("nextEpisodeAdmission").toString()).contains("ValidationEligibilityNextEpisodeAdmission");
+        assertThat(schemas.path("ValidationEligibilityCurrentReport").path("properties").has("reviewStage")).isTrue();
+        var admission = schemas.path("ValidationEligibilityNextEpisodeAdmission").path("properties");
+        for (String field : List.of("allowed", "blockingReportId", "blockingEpisodeId", "blockingEpisodeNo", "blockingReviewStage", "message"))
+            assertThat(admission.has(field)).as(field).isTrue();
+        var query = docs.path("paths").path(BASE + "/eligibility").path("get").path("parameters");
+        assertThat(query.toString()).contains("\"episodeId\"").contains("\"required\":false");
+        var upload = docs.path("paths").path("/api/v1/works/{workId}/episodes").path("post");
+        assertThat(upload.path("responses").path("409").path("description").asText()).contains("VALIDATION_NEXT_EPISODE_BLOCKED");
+        assertThat(upload.path("description").asText()).contains("VALIDATION_NEXT_EPISODE_BLOCKED");
     }
 
     List<String> enumValues(JsonNode property) {

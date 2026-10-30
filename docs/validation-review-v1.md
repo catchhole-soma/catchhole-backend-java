@@ -5,6 +5,7 @@ GH310 검수 실행이 저장한 finding에 작가 판단을 저장하고(S1) �
 **마지막 판단 저장은 어떤 경우에도 검토 종료나 추출을 시작하지 않는다.** 검토 종료는 `/complete`의 서버 자동 판정 또는
 `POST /review-completion` 명시 요청에서만 생기며, 그 전에는 AnalysisJob·후보·journal·확정이 0이다.
 추출 성공은 설정 확정이 아니다. 회차 전체 확정(아래 S3)만 release 회차의 확정 설정을 쓴다.
+#314 B1은 접수 전 자격 조회와 미완료 검수 동안의 다음 회차 등록 차단을 더한다(아래 "접수 자격 조회·다음 회차 차단 (#314 B1)").
 
 ## 저장 모델 (V96)
 
@@ -44,6 +45,7 @@ TYPO segment는 성공 저장 뒤 같은 payload 재전송이 receipt만 반환�
 | `POST /settings-application` | S3. `ValidationSettingsApplicationRequest{expectedReportVersion, idempotencyKey}` → `ValidationSettingsApplicationResponse` |
 
 S4의 회차 이력은 report가 아니라 회차 기준이라 접두사 없이 `GET /api/v1/works/{workId}/episode-validations/history?episodeId=&page=0&size=20`(`listEpisodeValidationHistory`)이다(아래 S4).
+B1의 접수 자격 조회도 같은 이유로 `GET /api/v1/works/{workId}/episode-validations/eligibility?episodeId=`(`getEpisodeValidationEligibility`)이다.
 공개 요청·응답 예시와 단계 계산 예시는 `docs/contracts/validation-review-v1.json`이고 `ValidationReviewContractTest`가 DTO와 왕복을 검사한다.
 
 목록 요약(`summary`)은 payload에서 `impact`(SETTING), `reason`, `replacement`(TYPO), 원문 위치 `spans`만 투영한다.
@@ -362,6 +364,7 @@ Job이 재개를 기다리는 순차 실패(journal PENDING/INCOMPLETE이면서 
 | 보류 → 결정 저장 → 명시 반영 | 반영 방식·세계관 결정 초안 저장 또는 허용된 제외 뒤 `POST /settings-application` | APPLICATION_HELD → APPLIED. 다시 보류되면 APPLICATION_HELD(attempt 증가) |
 | 확정 뒤 진단 재검수 | APPLIED 회차를 `POST /rechecks` | 이전 report INVALIDATED(이력의 application APPLIED) → 새 report(mode DIAGNOSTIC_ONLY) VALIDATING → AWAITING_REVIEW에서 멈춤. 검토 종료·추출·반영 없음 |
 | (참고) 추출 실패 | release Job 실패 | EXTRACTION_FAILED → 공개 재시도(같은 Job) → REVIEW_COMPLETED → APPLIED/APPLICATION_HELD |
+| 미완료 중 다음 회차 업로드(#314 B1) | APPLIED 전에 102화를 어떤 방식으로든 업로드 | 409 `VALIDATION_NEXT_EPISODE_BLOCKED`, context의 report로 이동. 회차 전체 확정(APPLIED) 또는 원고 교체(INVALIDATED) 뒤에는 업로드 성공 |
 
 ### 알려진 한계 (#314 또는 후속)
 
@@ -373,8 +376,78 @@ S2·S3에서 S4로 넘긴 항목의 결과다.
 - 보류 release Job의 배치 FAILED(S3): **수정.** 위 배치 요약 표시. `heldAndAppliedStagesAgreeAcrossProjections`.
 - 보류 동안 목록 표시(S3): **해결.** `reviewStage=APPLICATION_HELD`.
 - 같은 비교 결정의 원본 후보가 결정 초안으로 다른 분류·대상에 나뉘는 경우(S3): **동작 고정.** 반영은 `WORLD_SETTING_CANDIDATE_GROUP_INVALID`로 전부 되돌려 `UNKNOWN_ERROR`(detail 같은 코드) 보류, 쓰기 0이며 작가가 같은 대상으로 맞추면 APPLIED다(`splitSharedDecisionHoldsAsUnknownErrorUntilRegrouped`). 같은 임시 인물의 별칭 후보가 다른 group key에 있는 캐릭터 경우는 같은 그룹 확정 본문을 거치지만 테스트하지 않았다(미검증).
-- Front 계획의 `getEpisodeValidationEligibility`(접수 전 자격 조회)는 이 이슈에서 구현하지 않았다. 접수 자격은 계속 `POST /episode-validations`가 판정한다(#314 또는 후속).
-- 기존 GH310 endpoint(`/results`, `/retries`, `/rechecks`, `/corrections`)의 OpenAPI 4xx 응답 문서화는 이번 범위 밖이라 그대로다.
+- Front 계획의 `getEpisodeValidationEligibility`(접수 전 자격 조회): **해결(#314 B1).** 접수와 같은 판정 컴포넌트를 읽는 조회 전용 API다. 접수 자격의 권위는 계속 `POST /episode-validations`다(아래 B1).
+- 기존 GH310 endpoint(`/results`, `/retries`, `/rechecks`, `/corrections`)의 OpenAPI 4xx 응답: **해결(#314 B1).** `/results` 404, 나머지 셋 400·404·409를 문서화했고 `EpisodeValidationOpenApiIntegrationTest`가 확인한다.
+
+## 접수 자격 조회·다음 회차 차단 (#314 B1)
+
+### 접수 자격 조회
+
+`GET /api/v1/works/{workId}/episode-validations/eligibility?episodeId=` (`getEpisodeValidationEligibility`) → `ValidationEligibilityResponse`.
+조회 전용이다. report·요청 키·ValidationJob·AnalysisJob을 만들지 않고 report version도 바꾸지 않는다. 작품 소유자가 아니면 `WORK_NOT_FOUND`(404), `episodeId` 형식 오류는 400이다.
+접수 자격의 최종 권위는 계속 `POST /episode-validations`다. 화면은 업로드·접수 전에 이 응답으로 사유를 먼저 보여 준다.
+
+판정은 `processor.ValidationIntakeEligibility.judge` 하나다. `EpisodeValidationService.start`는 Work 잠금 뒤 같은 결과로 예외를 던지고, 자격 조회는 그 결과를 읽기만 한다(조건 중복 없음).
+요청마다 달라지는 값(멱등 키, `batchId`, 원고 hash/key/version)은 접수만 검사한다. 위에서부터 처음 맞는 사유를 쓴다.
+
+| 순서 | `reasonCode` | 조건 | 같은 입력의 접수 결과 |
+| --- | --- | --- | --- |
+| 1 | `REPORT_EXISTS` | 회차에 같은 작품의 현재 report가 있음 | 새 report 없음. 최초 report(revision 1)의 같은 입력은 새 키로도 같은 식별자, 다른 입력은 `VALIDATION_IDEMPOTENCY_CONFLICT`, 재검수 report면 `VALIDATION_TARGET_INVALID` |
+| 2 | `EPISODE_NOT_FOUND` | 작품에 없거나 보관된 회차, 다른 작품의 회차(그 report는 노출하지 않음) | `VALIDATION_TARGET_INVALID`(400) |
+| 3 | `NOT_SINGLE_APPEND_UPLOAD` | 원본이 회차 원고·`SINGLE_EPISODE` 1회차 batch가 아니거나 `Episode.validationUploadEligible=false`(마지막+1이 아닌 단일 업로드, 다회차, 교체·직접 수정 원고) | 같음 |
+| 4 | `NOT_LATEST_EPISODE` | 작품의 최신 활성 회차가 아님 | 같음 |
+| 5 | `SOURCE_PURGE_PENDING` | 회차 원문 파기 요청이 남아 있음 | 같음 |
+| 6 | `ANALYSIS_ALREADY_STARTED` | 회차에 일반 분석 Job이 있음(target-only legacy 관계 포함) | 같음 |
+| – | (접수만) | `batchId`가 회차 원본 batch와 다르면 `VALIDATION_TARGET_INVALID`, 원고 hash/key/version이 다르면 `VALIDATION_SOURCE_VERSION_CONFLICT`(409) | |
+| 7 | `NEXT_EPISODE_BLOCKED` | 작품의 다른 회차에 아래 차단 report가 있음 | `VALIDATION_NEXT_EPISODE_BLOCKED`(409, 업로드와 같은 context) |
+| 8 | `COMPARISON_MATERIAL_REQUIRED` | 앞 회차가 없고 활성 인물·세계관·현재 설정집이 없음 | `VALIDATION_COMPARISON_MATERIAL_REQUIRED`(400) |
+| 9 | `ELIGIBLE` | 그 밖 | 새 report 접수 |
+
+`message`는 거절 사유마다 접수 오류와 같은 문구다(2~6은 `VALIDATION_TARGET_INVALID` 문구 하나를 공유하므로 화면은 `reasonCode`로 구분한다). `ELIGIBLE`·`REPORT_EXISTS`만 별도 안내 문구다.
+`NEXT_EPISODE_BLOCKED`는 B1 이전에 이미 등록된 뒤 회차에서만 생긴다. B1 뒤에는 그런 회차의 업로드 자체가 막힌다. 접수(`start`) 쪽 동작 변경은 이 거절 하나다.
+
+| 필드 | 값 |
+| --- | --- |
+| `episodeId` | 조회한 회차. 생략하면 null |
+| `eligible` | `reasonCode == ELIGIBLE`. `episodeId`를 생략하면 null |
+| `reasonCode`, `message` | 위 표. `episodeId`를 생략하면 null |
+| `latestEpisode` | 최신 활성 회차인지. 없는 회차는 false, `episodeId`를 생략하면 null |
+| `currentReport{reportId, revision, mode, reviewStage}` | 회차의 현재 report(`REPORT_EXISTS`). 없으면 null |
+| `nextEpisodeAdmission{allowed, blockingReportId, blockingEpisodeId, blockingEpisodeNo, blockingReviewStage, message}` | 작품 단위 다음 회차 등록 가능 여부. 항상 채운다. 허용이면 blocking 값과 `message`가 null |
+
+`ValidationStagingResponse`에는 `nextEpisodeAdmission`을 추가하지 않았다. 단건·접수·재검수·재시도 응답과 RETRY 저장 snapshot마다 작품 단위 조회가 늘기 때문이며, 화면은 이 조회를 사용한다.
+
+### 다음 회차 등록 차단
+
+작품의 현재(is_current) report를 기준으로 판정한다.
+
+| 검수 report | 다음 회차 등록 |
+| --- | --- |
+| `mode=BEFORE_CONFIRMATION`이고 `reviewStage` ∈ `PREPARING_BASELINE`, `VALIDATING`, `AWAITING_REVIEW`, `REVIEW_COMPLETED`, `EXTRACTION_FAILED`, `APPLICATION_HELD`, `HELD_INCOMPLETE` | **차단** (409) |
+| `mode=BEFORE_CONFIRMATION`이고 `APPLIED` | 허용 |
+| `INVALIDATED`(원고 교체·기준 변경·파기 무효화, 재검수 퇴역) | 허용 |
+| `mode=DIAGNOSTIC_ONLY`(확정 뒤 진단 재검수)의 모든 단계 | 허용. 진단은 AWAITING_REVIEW에서 멈추는 설계라 막으면 다음 회차를 영원히 등록할 수 없다 |
+| report 없음 | 허용 |
+
+- 판정은 `processor.ValidationNextEpisodeAdmission` 하나다(`blocks(mode, reviewStage)`). 단계는 `ValidationReportRepository.findAdmissionStatesByWorkId` scalar projection이 `ValidationReviewStages.resolve`로 계산하며 finding·seed·entries를 읽지 않는다. 차단 report가 여럿이면(B1 이전 자료) 가장 앞 회차를 보여 준다.
+- 적용 위치는 `EpisodeServiceImpl.uploadEpisodes` 하나로, `SINGLE_EPISODE`·`MULTI_EPISODE_SINGLE_FILE`·`MULTI_EPISODE_MULTI_FILE` 모두 Work 잠금 직후 파싱·`UploadBatch`/`UploadFile`/`Episode`·저장소 쓰기 전에 판정한다. 막히면 DB 쓰기와 저장 객체가 0이다.
+- 409 응답은 `VALIDATION_NEXT_EPISODE_BLOCKED`, 문구 `이 회차의 검토와 설정 저장을 마친 뒤 다음 회차를 등록할 수 있어요.`, `error.context{reportId, episodeId, episodeNo, reviewStage}`다. 예시는 `docs/contracts/validation-review-v1.json`의 `errors.nextEpisodeBlocked`.
+- 막지 않는 경로: `detectEpisodes`(파싱만, 쓰기 없음), 어느 회차든 `replaceEpisodeFile`(수정 경로이며 기존대로 report를 무효화하므로 결과적으로 차단도 풀린다), 설정집 업로드·편집, 회차 제목·원고 수정, 회차 삭제.
+
+### 잠금 순서
+
+업로드와 접수는 모두 `WorkRepository.getOwnedWorkForUpdate`(Work 행 `PESSIMISTIC_WRITE`)를 가장 먼저 잡고 그 안에서 판정과 쓰기를 한다. 두 판정 컴포넌트는 Work보다 먼저 회원·Job·후보를 잠그지 않는다(회원 → Work 순서 없음).
+"N+1 업로드"와 "N 검수 접수"가 겹치면 결과는 둘 중 하나다. 업로드가 먼저 잠그면 N+1이 생기고 N 접수는 `NOT_LATEST_EPISODE`(`VALIDATION_TARGET_INVALID`), 접수가 먼저 잠그면 report가 생기고 업로드는 409·쓰기 0이다.
+
+### 검증
+
+- H2 `ValidationNextEpisodeAdmissionIntegrationTest`: 세 업로드 방식의 AWAITING_REVIEW·APPLICATION_HELD 차단과 쓰기 0(HTTP 409 context 포함), APPLIED 뒤 허용과 새 회차의 검수 자격, INVALIDATED·DIAGNOSTIC_ONLY 비차단, 감지·제목 수정·설정집 업로드·파일 교체 비차단, 모든 `reasonCode`에서 자격 조회와 같은 입력의 접수 결과 일치, 자격 조회의 쓰기 0.
+- PostgreSQL `ValidationNextEpisodeAdmissionPostgresIntegrationTest`(H2 메서드 상속): Work 행을 잠근 채 두 요청을 같은 잠금에 줄 세워 두 순서 모두 한쪽만 성공·교착 없음·부분 쓰기 없음을 확인하고, 커밋된 접수 뒤 세 방식 업로드 409를 확인한다.
+- 계약: `ValidationReviewContractTest`(자격 조회 예시·409 예시·차단 규칙 표), `EpisodeValidationOpenApiIntegrationTest`(operationId·schema·4xx).
+
+```bash
+GH310_EXECUTION_POSTGRES_JDBC_URL=jdbc:postgresql://127.0.0.1:<disposable-port>/gh310_execution_test ./gradlew test --tests '*ValidationNextEpisodeAdmission*'
+```
 
 ## 무효화·파기
 
