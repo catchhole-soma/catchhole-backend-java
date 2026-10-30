@@ -1,6 +1,8 @@
 package org.monitoring.catchholebackend.domain.validation.controller;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.responses.*;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -23,6 +25,8 @@ import org.monitoring.catchholebackend.domain.validation.service.ValidationRevie
 import org.monitoring.catchholebackend.domain.validation.dto.request.ValidationReviewCompletionRequest;
 import org.monitoring.catchholebackend.domain.validation.dto.response.ValidationReviewCompletionResponse;
 import org.monitoring.catchholebackend.domain.validation.type.ValidationBranch;
+import org.monitoring.catchholebackend.domain.validation.type.ValidationImpact;
+import org.monitoring.catchholebackend.domain.validation.type.ValidationSubjectType;
 import org.monitoring.catchholebackend.domain.validation.type.ValidationJudgmentValue;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
 import org.monitoring.catchholebackend.global.common.response.PageResponse;
@@ -132,14 +136,16 @@ public class EpisodeValidationController {
     }
 
     @GetMapping("/{reportId}/findings")
-    @Operation(operationId="listValidationFindings", summary="현재 발견 항목과 작가 판단 목록", description="현재 check revision의 설정 항목과 오탈자 제안만 생성 순서로 반환합니다. 판단을 저장한 적 없는 항목은 PENDING이며 근거 행은 상세에서만 제공합니다. page는 0부터, size는 1~100입니다.")
+    @Operation(operationId="listValidationFindings", summary="현재 발견 항목과 작가 판단 목록", description="현재 check revision의 설정 항목과 오탈자 제안만 생성 순서로 반환합니다. 판단을 저장한 적 없는 항목은 PENDING이며 근거 행은 상세에서만 제공합니다. 설정 항목은 고정 기준의 대상(subject)·설정명(settingName·settingKey)을 함께 반환합니다(#314 B2). 모든 필터는 서버에서 거르며 impact·subjectType 필터는 오탈자와 대상이 없는 항목을 제외합니다. 검토 요약(/review)의 집계는 필터와 무관합니다. page는 0부터, size는 1~100입니다.")
     @ApiResponses({@ApiResponse(responseCode="200", description="조회 성공"),
-            @ApiResponse(responseCode="400", description="페이지·필터 값 오류"),
+            @ApiResponse(responseCode="400", description="페이지·필터 값 오류(알 수 없는 branch·judgment·impact·subjectType 포함)"),
             @ApiResponse(responseCode="404", description="작품 소유권 또는 검수 요청 없음")})
     public CommonResponse<PageResponse<ValidationFindingSummaryResponse>> findings(@AuthenticationPrincipal MemberPrincipal member,@PathVariable UUID workId,@PathVariable UUID reportId,
             @RequestParam(required=false) ValidationBranch branch,@RequestParam(required=false) ValidationJudgmentValue judgment,@RequestParam(required=false) String outcome,
+            @Parameter(in=ParameterIn.QUERY,name="impact",description="설정 항목의 영향 등급(SEVERE·CAUTION·REFERENCE). 지정하면 오탈자 제안은 제외됩니다.") @RequestParam(required=false) ValidationImpact impact,
+            @Parameter(in=ParameterIn.QUERY,name="subjectType",description="설정 항목 대상 종류(CHARACTER·WORLD_SETTING). 지정하면 오탈자와 대상이 없는 설정 항목은 제외됩니다.") @RequestParam(required=false) ValidationSubjectType subjectType,
             @RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="20") int size) {
-        return CommonResponse.success(reviews.getValidationFindings(member.memberId(),workId,reportId,branch,judgment,outcome,page,size));
+        return CommonResponse.success(reviews.getValidationFindings(member.memberId(),workId,reportId,branch,judgment,outcome,impact,subjectType,page,size));
     }
 
     @GetMapping("/{reportId}/findings/{findingId}")

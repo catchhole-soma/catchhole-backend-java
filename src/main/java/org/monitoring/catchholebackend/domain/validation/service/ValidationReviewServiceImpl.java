@@ -35,9 +35,10 @@ public class ValidationReviewServiceImpl implements ValidationReviewService {
     private final ValidationReviewMapper mapper;
     private final EntityManager em;
 
-    @Override public PageResponse<ValidationFindingSummaryResponse> getValidationFindings(Long memberId,UUID workId,UUID reportId,ValidationBranch branch,ValidationJudgmentValue judgment,String outcome,int page,int size) {
+    @Override public PageResponse<ValidationFindingSummaryResponse> getValidationFindings(Long memberId,UUID workId,UUID reportId,ValidationBranch branch,ValidationJudgmentValue judgment,String outcome,
+            ValidationImpact impact,ValidationSubjectType subjectType,int page,int size) {
         report(memberId,workId,reportId);if(page<0||size<1||size>MAX_PAGE_SIZE)throw new AppException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
-        var rows=reviews.currentFindings(reportId,branch,judgment,outcome==null||outcome.isBlank()?null:outcome,PageRequest.of(page,size));var revised=reviews.revisedCheckIds(reportId);
+        var rows=reviews.currentFindings(reportId,branch,judgment,outcome==null||outcome.isBlank()?null:outcome,impact,subjectType,PageRequest.of(page,size));var revised=reviews.revisedCheckIds(reportId);
         return PageResponse.from(rows,rows.getContent().stream().map(x->mapper.toSummaryResponse(x.finding(),x.judgment(),revised.contains(x.finding().getCheckId()))).toList());
     }
     @Override public ValidationFindingDetailResponse getValidationFinding(Long memberId,UUID workId,UUID reportId,UUID findingId) {
