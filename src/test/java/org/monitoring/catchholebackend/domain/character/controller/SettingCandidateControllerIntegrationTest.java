@@ -39,6 +39,7 @@ import org.monitoring.catchholebackend.domain.character.repository.SettingCandid
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonWorkerService;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
@@ -1504,6 +1505,107 @@ class SettingCandidateControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("단건 연결로 같은 캐릭터를 다시 고르면 작가가 저장한 이력 전용 선택을 유지하고 다른 캐릭터로 옮기면 기존처럼 안전 선택을 다시 정한다")
+    void singleCharacterMatchToSameTargetKeepsSavedReviewedApplicationMode() throws Exception {
+        replaceWithCompletedOrderedAnalysisJob();
+        WorkCharacter target = workCharacterRepository.saveAndFlush(character(work, "아리아"));
+        WorkCharacter other = workCharacterRepository.saveAndFlush(character(work, "베른"));
+        SettingCandidate candidate = completedOrderedCandidateMatchedTo(target, "17");
+        saveHistoryOnlyDecision(candidate);
+
+        mockMvc.perform(patch("/api/v1/works/{workId}/setting-candidates/{candidateId}/character-match",
+                        work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "resolutionType", "MATCH_EXISTING", "matchedCharacterId", target.getId()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.reviewedApplicationMode").value("HISTORY_ONLY"));
+        assertThat(reviewedMode(candidate)).isEqualTo(CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+
+        mockMvc.perform(patch("/api/v1/works/{workId}/setting-candidates/{candidateId}/character-match",
+                        work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "resolutionType", "MATCH_EXISTING", "matchedCharacterId", other.getId()))))
+                .andExpect(status().isOk());
+        assertThat(reviewedMode(candidate)).isEqualTo(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+    }
+
+    @Test
+    @DisplayName("그룹 일괄 연결로 같은 캐릭터를 다시 고르면 저장한 이력 전용 선택은 유지하고 선택이 없던 후보만 안전 선택을 받는다")
+    void groupCharacterMatchToSameTargetKeepsSavedReviewedApplicationMode() throws Exception {
+        replaceWithCompletedOrderedAnalysisJob();
+        WorkCharacter target = workCharacterRepository.saveAndFlush(character(work, "아리아"));
+        SettingCandidate saved = completedOrderedCandidateMatchedTo(target, "17");
+        SettingCandidate fresh = completedOrderedCandidateMatchedTo(target, "18");
+        saveHistoryOnlyDecision(saved);
+
+        mockMvc.perform(patch("/api/v1/works/{workId}/setting-candidates/group-character-match", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "batchId", uploadBatch.getId(),
+                                "candidateIds", List.of(saved.getId(), fresh.getId()),
+                                "resolutionType", "MATCH_EXISTING",
+                                "matchedCharacterId", target.getId()))))
+                .andExpect(status().isOk());
+
+        assertThat(reviewedMode(saved)).isEqualTo(CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+        assertThat(reviewedMode(fresh)).isEqualTo(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+    }
+
+    @Test
+    @DisplayName("선택 연결로 같은 캐릭터를 다시 고르거나 재전송해도 저장한 이력 전용 선택은 유지하고 선택이 없던 후보만 안전 선택을 받는다")
+    void selectedCharacterMatchToSameTargetKeepsSavedReviewedApplicationMode() throws Exception {
+        replaceWithCompletedOrderedAnalysisJob();
+        WorkCharacter target = workCharacterRepository.saveAndFlush(character(work, "아리아"));
+        SettingCandidate saved = completedOrderedCandidateMatchedTo(target, "17");
+        SettingCandidate fresh = completedOrderedCandidateMatchedTo(target, "18");
+        saveHistoryOnlyDecision(saved);
+        Map<String, Object> request = Map.of(
+                "batchId", uploadBatch.getId(),
+                "candidateIds", List.of(saved.getId(), fresh.getId()),
+                "resolutionType", "MATCH_EXISTING",
+                "matchedCharacterId", target.getId());
+
+        for (int attempt = 0; attempt < 2; attempt++) {
+            selectedCharacterMatch(request)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.candidates[0].reviewedApplicationMode").value("HISTORY_ONLY"))
+                    .andExpect(jsonPath("$.data.candidates[1].reviewedApplicationMode").value("APPLY_PROPOSAL"));
+        }
+        assertThat(reviewedMode(saved)).isEqualTo(CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+        assertThat(reviewedMode(fresh)).isEqualTo(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+    }
+
+    @Test
+    @DisplayName("선택 연결로 같은 새 캐릭터 이름을 다시 지정해도 저장한 이력 전용 선택을 유지한다")
+    void selectedCharacterMatchCreateNewWithSameNameKeepsSavedReviewedApplicationMode() throws Exception {
+        replaceWithCompletedOrderedAnalysisJob();
+        SettingCandidate candidate = candidate(work, episode, analysisJob, "베른", "age", "17");
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                candidate, "comparisonStatus", CharacterFactComparisonStatus.COMPLETED);
+        org.springframework.test.util.ReflectionTestUtils.setField(candidate, "suggestedOperation", CharacterFactOperation.ADD);
+        org.springframework.test.util.ReflectionTestUtils.setField(candidate, "temporalScope", CharacterFactTemporalScope.PRESENT);
+        org.springframework.test.util.ReflectionTestUtils.setField(candidate, "proposedFactValue", "17");
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                candidate, "reviewedApplicationMode", CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+        org.springframework.test.util.ReflectionTestUtils.setField(candidate, "reviewedSnapshotVersion", 0L);
+        candidate = settingCandidateRepository.saveAndFlush(candidate);
+
+        selectedCharacterMatch(Map.of(
+                "batchId", uploadBatch.getId(),
+                "candidateIds", List.of(candidate.getId()),
+                "resolutionType", "CREATE_NEW",
+                "entityName", "베른"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidates[0].reviewedApplicationMode").value("HISTORY_ONLY"));
+        assertThat(reviewedMode(candidate)).isEqualTo(CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+    }
+
+    @Test
     @DisplayName("OpenAPI 문서에 선택 연결 경로와 고유 operationId를 노출한다")
     void openApiContainsSelectedCharacterMatchOperation() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))
@@ -2349,6 +2451,31 @@ class SettingCandidateControllerIntegrationTest {
                 .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(body)));
+    }
+
+    /** 완료된 순차 분석에서 대상과 같은 값의 PRESENT ADD 제안을 받은 후보(안전 선택 이어받기 조건)를 만든다. */
+    private SettingCandidate completedOrderedCandidateMatchedTo(WorkCharacter target, String value) {
+        SettingCandidate candidate = candidate(work, episode, analysisJob, "미상", "age", value);
+        candidate.matchExistingCharacter(target);
+        return settingCandidateRepository.saveAndFlush(comparisonCompleted(candidate, CharacterFactType.AGE, "age"));
+    }
+
+    private void saveHistoryOnlyDecision(SettingCandidate candidate) throws Exception {
+        SettingCandidate current = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
+        mockMvc.perform(patch("/api/v1/works/{workId}/setting-candidates/{candidateId}", work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "attributeName", "age",
+                                "attributeValue", current.getAttributeValue(),
+                                "reviewedApplicationMode", "HISTORY_ONLY",
+                                "expectedUpdatedAt", current.getUpdatedAt().toString()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.reviewedApplicationMode").value("HISTORY_ONLY"));
+    }
+
+    private CharacterFactConfirmApplicationMode reviewedMode(SettingCandidate candidate) {
+        return settingCandidateRepository.findById(candidate.getId()).orElseThrow().getReviewedApplicationMode();
     }
 
     private long comparisonJobCount() {

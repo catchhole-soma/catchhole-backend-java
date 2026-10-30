@@ -1832,7 +1832,9 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         candidates.forEach(candidate -> {
             candidate.recordUserModification();
             CharacterFactConfirmApplicationMode safeDecision = safeTargetOnlyDecisions.get(candidate.getId());
-            if (safeDecision != null) {
+            // 연결이 실제로 바뀌면 엔티티가 저장 선택을 지운다. 그런데도 남아 있으면 같은 대상 재연결이나
+            // 같은 이름 재지정(응답 유실 뒤 재전송 포함)이므로 작가가 저장한 선택을 자동 결정으로 덮지 않는다.
+            if (safeDecision != null && candidate.getReviewedApplicationMode() == null) {
                 candidate.recordReviewedApplicationMode(safeDecision, currentSnapshotVersion(candidate));
             }
         });
