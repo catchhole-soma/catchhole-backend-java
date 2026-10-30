@@ -97,7 +97,7 @@ public class EpisodeValidationController {
     }
 
     @PostMapping("/{reportId}/rechecks")
-    @Operation(operationId="recheckEpisodeValidation", summary="수정 후 새 검수 접수", description="원고·기준이 달라진 최신 회차를 명시적으로 다시 접수합니다. 같은 입력의 실패 재시도와 구분하며 추출 Job·후보를 만들지 않습니다.")
+    @Operation(operationId="recheckEpisodeValidation", summary="수정 후 새 검수 접수", description="원고·기준이 달라진 최신 회차를 명시적으로 다시 접수합니다. 같은 입력의 실패 재시도와 구분하며 추출 Job·후보를 만들지 않습니다. 회차 전체 확정(APPLIED) report는 같은 원고도 진단 재검수로 받으며 검토 요약 allowedActions의 RECHECK가 같은 조건을 알려 줍니다.")
     @ApiResponses({@ApiResponse(responseCode="200", description="새 검수 접수 또는 같은 요청 재전송"),
             @ApiResponse(responseCode="400", description="필드 검증 실패, 최신 활성 회차가 아니거나 진행 중 분석·원문 파기 대기가 있는 회차(VALIDATION_TARGET_INVALID)"),
             @ApiResponse(responseCode="404", description="작품 소유권 또는 검수 요청 없음"),

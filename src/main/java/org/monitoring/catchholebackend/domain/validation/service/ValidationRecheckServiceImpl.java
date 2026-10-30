@@ -25,7 +25,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class ValidationRecheckServiceImpl implements ValidationRecheckService {
     private final WorkRepository works;
     private final EpisodeRepository episodes;
-    private final EpisodeSourcePurgeRequestRepository purges;
     private final ValidationReportRepository reports;
     private final ValidationRequestKeyRepository keys;
     private final ValidationCorrectionRepository corrections;
@@ -34,10 +33,10 @@ public class ValidationRecheckServiceImpl implements ValidationRecheckService {
     private final EntityManager em;
     private final ValidationWorkerService workers;
     private final org.monitoring.catchholebackend.domain.validation.processor.ValidationReviewGate reviewGate;
-    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationExecutionAccess access;
     private final ValidationSettingsApplicationRepository settingsApplications;
     private final ValidationReviewCompletionRepository reviewCompletions;
     private final org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService runStates;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationRecheckAdmission admission;
 
     @Override @Transactional
     public ValidationStagingResponse recheckValidation(Long memberId,UUID workId,UUID reportId,ValidationRecheckRequest request) {
@@ -59,13 +58,12 @@ public class ValidationRecheckServiceImpl implements ValidationRecheckService {
         var target=episodes.findByIdAndWorkIdAndStatusNot(previous.getEpisode().getId(),workId,EpisodeStatus.ARCHIVED)
                 .orElseThrow(()->error(ValidationErrorCode.VALIDATION_TARGET_INVALID));
         em.refresh(target);
-        if(!episodes.findFirstByWorkIdAndStatusNotOrderByEpisodeNoDesc(workId,EpisodeStatus.ARCHIVED).map(e->e.getId().equals(target.getId())).orElse(false)
-                || purges.blocksSource(target.getId(),target.getContentS3Key())) throw error(ValidationErrorCode.VALIDATION_TARGET_INVALID);
+        // #314 B2: 회차 조건은 검토 요약의 APPLIED RECHECK 안내와 같은 ValidationRecheckAdmission 판정이다.
+        if(!admission.latestAvailableTarget(workId,target)) throw error(ValidationErrorCode.VALIDATION_TARGET_INVALID);
         if(!Objects.equals(target.getContentHash(),request.expectedContentHash()) || !Objects.equals(target.getContentS3Key(),request.expectedContentS3Key())
                 || !Objects.equals(target.getContentS3Version(),request.expectedContentS3Version())
                 || target.getContentRevision()!=request.expectedContentRevision()) throw error(ValidationErrorCode.VALIDATION_SOURCE_VERSION_CONFLICT);
-        if(em.createQuery("select count(j) from AnalysisJob j where j.work.id=:work and j.status in ('PENDING','RUNNING') and (j.episode.id=:episode or exists (select t.id from AnalysisJob owner join owner.targetEpisodes t where owner.id=j.id and t.id=:episode))",Long.class)
-                .setParameter("work",workId).setParameter("episode",target.getId()).getSingleResult()!=0) throw error(ValidationErrorCode.VALIDATION_TARGET_INVALID);
+        if(admission.analysisRunning(workId,target.getId())) throw error(ValidationErrorCode.VALIDATION_TARGET_INVALID);
         if(request.correctionReceiptId()!=null) {
             var correction=corrections.findByIdAndWorkId(request.correctionReceiptId(),workId).orElseThrow(()->error(ValidationErrorCode.VALIDATION_CORRECTION_CONFLICT));
             if(!correction.getReport().getId().equals(reportId) || correction.getReportVersion()!=previous.getVersion()
@@ -82,8 +80,7 @@ public class ValidationRecheckServiceImpl implements ValidationRecheckService {
                 && Objects.equals(target.getContentS3Version(),previous.getSourceContentS3Version())) throw error(ValidationErrorCode.VALIDATION_RECHECK_INPUT_UNCHANGED);
         var application=previousApplication(workId,target.getId());
         // GH312: 파일 교체 뒤에는 회차의 현재 원본이 새 batch에 있다. release Job이 같은 batch로 생성되도록 새 report를 그 batch에 묶는다.
-        var currentBatch=access.currentUploadBatch(target.getId()).filter(b->b.getWork().getId().equals(workId))
-                .orElseThrow(()->error(ValidationErrorCode.VALIDATION_TARGET_INVALID));
+        var currentBatch=admission.currentBatch(workId,target.getId()).orElseThrow(()->error(ValidationErrorCode.VALIDATION_TARGET_INVALID));
         closeStaleReleaseJob(previous);
         baselines.retire(previous); em.flush(); // partial unique current index: old pointer must leave before the insert.
         var next=reports.save(ValidationReport.recheck(previous,currentBatch,hash,application));
