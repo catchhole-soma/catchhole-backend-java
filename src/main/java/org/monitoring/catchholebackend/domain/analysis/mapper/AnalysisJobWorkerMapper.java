@@ -114,7 +114,7 @@ public class AnalysisJobWorkerMapper {
                         ))
                         .toList(),
                 toEpisodeResponse(episode),
-                analysisJob.isOrderedProvisional() ? analysisJob.getAnalysisMode() : null,
+                (analysisJob.isOrderedProvisional() || analysisJob.getJobType() == org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.RELATIONSHIP_EXTRACTION) ? analysisJob.getAnalysisMode() : null,
                 analysisRunContextMapper.toResponse(analysisJob, includeReferenceSelection),
                 analysisJob.isOrderedProvisional() ? toProvisionalCharacters(orderedInputState) : List.of(),
                 analysisJob.isAutomaticReview() ? analysisJob.getReviewMode() : null,

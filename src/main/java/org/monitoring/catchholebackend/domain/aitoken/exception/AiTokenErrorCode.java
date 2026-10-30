@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 public enum AiTokenErrorCode implements ResultCode {
 
     AI_TOKEN_QUOTA_EXHAUSTED(HttpStatus.CONFLICT, "기본 AI 토큰을 모두 사용했습니다."),
+    AI_TOKEN_JOB_BUDGET_EXCEEDED(HttpStatus.CONFLICT, "관계 분석 작업의 호출 한도를 초과했습니다."),
     AI_TOKEN_USAGE_INVALID(HttpStatus.BAD_REQUEST, "AI 토큰 사용량 값이 올바르지 않습니다."),
     AI_TOKEN_RESERVATION_NOT_FOUND(HttpStatus.NOT_FOUND, "AI 토큰 예약을 찾을 수 없습니다."),
     AI_TOKEN_RESERVATION_CONFLICT(HttpStatus.CONFLICT, "AI 토큰 예약 상태가 올바르지 않습니다."),

@@ -529,7 +529,8 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                         List.of(
                                 failedJob.getJobType(),
                                 AnalysisJobType.WORLD_SETTING_COMPARISON,
-                                AnalysisJobType.CHARACTER_FACT_COMPARISON
+                                AnalysisJobType.CHARACTER_FACT_COMPARISON,
+                                AnalysisJobType.RELATIONSHIP_EXTRACTION
                         ),
                         activeStatuses
                 ));
@@ -641,7 +642,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     }
 
     private void assertPublicJobType(AnalysisJobType jobType) {
-        if (hiddenComparisonJobTypes().contains(jobType)) {
+        if (jobType != AnalysisJobType.SETTING_EXTRACTION && jobType != AnalysisJobType.EPISODE_VALIDATION) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_TYPE_INVALID);
         }
     }
@@ -649,7 +650,8 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     private List<AnalysisJobType> hiddenComparisonJobTypes() {
         return List.of(
                 AnalysisJobType.WORLD_SETTING_COMPARISON,
-                AnalysisJobType.CHARACTER_FACT_COMPARISON
+                AnalysisJobType.CHARACTER_FACT_COMPARISON,
+                AnalysisJobType.RELATIONSHIP_EXTRACTION
         );
     }
 

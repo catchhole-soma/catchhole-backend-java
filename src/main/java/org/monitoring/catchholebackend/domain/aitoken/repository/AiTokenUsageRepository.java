@@ -12,6 +12,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface AiTokenUsageRepository extends JpaRepository<AiTokenUsage, UUID> {
+    List<AiTokenUsage> findAllByAnalysisJobId(UUID analysisJobId);
     List<AiTokenUsage> findAllByValidationJobId(UUID validationJobId);
     List<AiTokenUsage> findAllByChatRunId(UUID chatRunId);
     long countByChatRunIsNotNullAndStatus(AiTokenUsageStatus status);

@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
@@ -35,11 +36,13 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobLeaseService;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.global.config.ai.AiTokenProperties;
 import org.monitoring.catchholebackend.global.exception.AppException;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @DisplayName("모델별 사용량 원장의 예약·정산·해제")
 class AiTokenServiceImplTest {
@@ -68,6 +71,7 @@ class AiTokenServiceImplTest {
         when(leases.getRunningAnalysisJobForUpdate(jobId, lease)).thenReturn(job);
         when(jobs.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
         when(usages.findByRequestId(any())).thenAnswer(call -> Optional.ofNullable(ledger.get(call.getArgument(0))));
+        when(usages.findAllByAnalysisJobId(jobId)).thenAnswer(call -> java.util.List.copyOf(ledger.values()));
         when(usages.findAnalysisJobIdByRequestId(any())).thenAnswer(call ->
                 ledger.containsKey(call.getArgument(0)) ? Optional.of(jobId) : Optional.empty());
         when(usages.save(any())).thenAnswer(call -> {
@@ -207,6 +211,219 @@ class AiTokenServiceImplTest {
                     .isInstanceOfSatisfying(AppException.class,error->assertThat(error.getResultCode()).isEqualTo(AiTokenErrorCode.AI_TOKEN_USAGE_INVALID));
         }
         assertThat(ledger).isEmpty();assertThat(account.getReservedTokens()).isZero();
+    }
+
+    @Test
+    @DisplayName("서비스 부담 관계 백필은 잔액 0에서도 계정을 건드리지 않고 raw 사용량만 한 번 기록한다")
+    void servicePaidRelationshipTracksRawUsageWithoutTouchingMemberAccount() {
+        relationshipJob(true);
+        leaveBalance("0");
+        var request = relationshipRequest(AiTokenPurpose.RELATIONSHIP_EXTRACTION, 20_000);
+        var first = service.reserve(request, lease);
+        assertThat(service.reserve(request, lease)).isEqualTo(first);
+        var usage = ledger.get(request.requestId());
+        assertThat(usage.getReservedTokens()).isEqualTo(20_000);
+        assertThat(usage.getReservedCharge()).isZero();
+        assertThat(usage.getChargePolicyVersion()).isEqualTo("SERVICE_PAID_V1");
+        var measured = new AiTokenSettleRequest(16_000, 8_000, 4_000, AiTokenUsageOutcome.SUCCESS);
+        service.settle(request.requestId(), measured);
+        service.settle(request.requestId(), measured);
+        assertThat(usage.getChargedTokens()).isZero();
+        assertThat(usage.getInputTokens()).isEqualTo(16_000);
+        assertThat(usage.getCachedInputTokens()).isEqualTo(8_000);
+        assertThat(usage.getOutputTokens()).isEqualTo(4_000);
+        assertThat(account.getUsedTokens()).isEqualByComparingTo("50000");
+        assertThat(account.getReservedTokens()).isZero();
+        verifyNoInteractions(accounts);
+        assertThat(ledger).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("새 회차의 관계 작업은 서비스 부담이 아니면 기존 모델 요율과 잔액 검사를 유지한다")
+    void newRelationshipCatchupKeepsNormalChargePolicy() {
+        relationshipJob(false);
+        var request = relationshipRequest(AiTokenPurpose.RELATIONSHIP_COMPARISON, 100);
+        service.reserve(request, lease);
+        assertThat(account.getReservedTokens()).isEqualByComparingTo("100");
+        service.settle(request.requestId(), new AiTokenSettleRequest(20, 10, 1, AiTokenUsageOutcome.SUCCESS));
+        assertThat(account.getUsedTokens()).isEqualByComparingTo("21");
+        assertThat(ledger.get(request.requestId()).getChargePolicyVersion()).isEqualTo("MODEL_WEIGHTED_V1");
+        leaveBalance("0");
+        assertQuota(() -> service.reserve(relationshipRequest(AiTokenPurpose.RELATIONSHIP_EXTRACTION, 100), lease));
+    }
+
+    @Test
+    @DisplayName("관계 전용 작업은 관계 추출·비교 외의 모든 목적을 거절한다")
+    void relationshipJobCannotReserveOtherAnalysisDomains() {
+        relationshipJob(true);
+        for (var purpose : AiTokenPurpose.values()) {
+            if (purpose == AiTokenPurpose.RELATIONSHIP_EXTRACTION
+                    || purpose == AiTokenPurpose.RELATIONSHIP_COMPARISON) continue;
+            assertInvalidUsage(() -> service.reserve(relationshipRequest(purpose, 100), lease));
+        }
+        assertThat(ledger).isEmpty();
+        verifyNoInteractions(accounts);
+    }
+
+    @Test
+    @DisplayName("기존 전체 분석은 관계 purpose나 서비스 부담 플래그만으로 무료 처리되지 않는다")
+    void regularExtractionCannotUseServicePaidFlag() {
+        when(job.getJobType()).thenReturn(AnalysisJobType.SETTING_EXTRACTION);
+        when(job.isRelationshipServicePaid()).thenReturn(true);
+        var request = relationshipRequest(AiTokenPurpose.RELATIONSHIP_EXTRACTION, 100);
+        service.reserve(request, lease);
+        assertThat(ledger.get(request.requestId()).getReservedCharge()).isEqualByComparingTo("100");
+        assertThat(account.getReservedTokens()).isEqualByComparingTo("100");
+    }
+
+    @Test
+    @DisplayName("멱등 예약은 다른 작업·목적·모델·호출 순번·예약량의 동일 requestId 재사용을 거절한다")
+    void reservationIdentityCannotBeRebound() {
+        relationshipJob(true);
+        var original = relationshipRequest(AiTokenPurpose.RELATIONSHIP_EXTRACTION, 100);
+        service.reserve(original, lease);
+        assertConflict(() -> service.reserve(new AiTokenReserveRequest(original.requestId(), jobId,
+                AiTokenPurpose.RELATIONSHIP_COMPARISON, 1, original.modelName(), 100), lease));
+        assertConflict(() -> service.reserve(new AiTokenReserveRequest(original.requestId(), jobId,
+                original.purpose(), 2, original.modelName(), 100), lease));
+        assertConflict(() -> service.reserve(new AiTokenReserveRequest(original.requestId(), jobId,
+                original.purpose(), 1, "gpt-6.1-sol", 100), lease));
+        assertConflict(() -> service.reserve(new AiTokenReserveRequest(original.requestId(), jobId,
+                original.purpose(), 1, original.modelName(), 101), lease));
+        UUID otherId = UUID.randomUUID();
+        AnalysisJob otherJob = mock(AnalysisJob.class);
+        when(otherJob.getId()).thenReturn(otherId);
+        when(leases.getRunningAnalysisJobForUpdate(otherId, lease)).thenReturn(otherJob);
+        assertConflict(() -> service.reserve(new AiTokenReserveRequest(original.requestId(), otherId,
+                original.purpose(), 1, original.modelName(), 100), lease));
+        assertThat(ledger).hasSize(1);
+        verifyNoInteractions(accounts);
+    }
+
+    @Test
+    @DisplayName("관계 백필 lease 회수 뒤 늦은 사용량도 사용자 차감 없이 한 번 정산한다")
+    void servicePaidLateSettlementSurvivesLeaseRecovery() {
+        relationshipJob(true);
+        var request = relationshipRequest(AiTokenPurpose.RELATIONSHIP_EXTRACTION, 100);
+        service.reserve(request, lease);
+        when(usages.findAllByAnalysisJobIdAndStatus(jobId, AiTokenUsageStatus.RESERVED))
+                .thenAnswer(call -> ledger.values().stream()
+                        .filter(u -> u.getStatus() == AiTokenUsageStatus.RESERVED).toList());
+        service.releaseReservedForAnalysisJob(jobId, AiTokenUsageOutcome.WORKER_LEASE_EXPIRED);
+        service.releaseReservedForAnalysisJob(jobId, AiTokenUsageOutcome.WORKER_LEASE_EXPIRED);
+        var usage = ledger.get(request.requestId());
+        assertThat(usage.getStatus()).isEqualTo(AiTokenUsageStatus.UNKNOWN);
+        assertThat(usage.getInputTokens()).isNull();
+        service.release(request.requestId(), new AiTokenReleaseRequest(AiTokenUsageOutcome.USAGE_UNAVAILABLE));
+        var measured = new AiTokenSettleRequest(20, 10, 1, AiTokenUsageOutcome.FAILURE);
+        service.settle(request.requestId(), measured);
+        service.settle(request.requestId(), measured);
+        assertThat(usage.getStatus()).isEqualTo(AiTokenUsageStatus.SETTLED);
+        assertThat(usage.getChargedTokens()).isZero();
+        verifyNoInteractions(accounts);
+    }
+
+    @Test
+    @DisplayName("일반 관계 작업의 늦은 정산은 이미 풀린 예약을 다시 차감하지 않는다")
+    void chargedLateRelationshipUsageDoesNotReleaseAnotherCallsHold() {
+        relationshipJob(false);
+        var first = relationshipRequest(AiTokenPurpose.RELATIONSHIP_EXTRACTION, 100);
+        var second = relationshipRequest(AiTokenPurpose.RELATIONSHIP_COMPARISON, 100);
+        service.reserve(first, lease);
+        service.release(first.requestId(), new AiTokenReleaseRequest(AiTokenUsageOutcome.USAGE_UNAVAILABLE));
+        service.reserve(second, lease);
+        service.settle(first.requestId(), new AiTokenSettleRequest(20, 10, 1, AiTokenUsageOutcome.SUCCESS));
+        assertThat(account.getReservedTokens()).isEqualByComparingTo("100");
+        assertThat(account.getUsedTokens()).isEqualByComparingTo("21");
+    }
+
+    @Test
+    @DisplayName("관계 작업 정산 재전송은 동일 측정값만 멱등 허용한다")
+    void relationshipSettlementRejectsConflictingReplay() {
+        relationshipJob(true);
+        var request = relationshipRequest(AiTokenPurpose.RELATIONSHIP_EXTRACTION, 100);
+        service.reserve(request, lease);
+        service.settle(request.requestId(), new AiTokenSettleRequest(20, 10, 1, AiTokenUsageOutcome.SUCCESS));
+        assertConflict(() -> service.settle(request.requestId(),
+                new AiTokenSettleRequest(30, 10, 1, AiTokenUsageOutcome.SUCCESS)));
+        assertThat(ledger.get(request.requestId()).getInputTokens()).isEqualTo(20);
+    }
+
+    @Test
+    @DisplayName("작품 파기로 해제한 관계 원장은 다시 정산하지 않는다")
+    void relationshipPurgeCancellationRemainsTerminal() {
+        relationshipJob(true);
+        var request = relationshipRequest(AiTokenPurpose.RELATIONSHIP_EXTRACTION, 100);
+        service.reserve(request, lease);
+        service.release(request.requestId(), new AiTokenReleaseRequest(AiTokenUsageOutcome.WORK_PURGE_CANCELED));
+        assertThat(ledger.get(request.requestId()).getStatus()).isEqualTo(AiTokenUsageStatus.RELEASED);
+        assertConflict(() -> service.settle(request.requestId(),
+                new AiTokenSettleRequest(20, 10, 1, AiTokenUsageOutcome.SUCCESS)));
+        verifyNoInteractions(accounts);
+    }
+
+    @Test
+    @DisplayName("서비스 부담 예산은 lease 회수·UNKNOWN·실패 정산 뒤에도 누적되며 멱등 재전송은 허용한다")
+    void relationshipBudgetSurvivesReleaseAndAllowsExactReplay() {
+        relationshipJob(true);
+        ReflectionTestUtils.setField(service, "relationshipMaxReservedTokensPerJob", 200L);
+        var first = relationshipRequest(AiTokenPurpose.RELATIONSHIP_EXTRACTION, 100);
+        service.reserve(first, lease);
+        service.release(first.requestId(), new AiTokenReleaseRequest(AiTokenUsageOutcome.WORKER_LEASE_EXPIRED));
+        var second = relationshipRequest(AiTokenPurpose.RELATIONSHIP_COMPARISON, 100);
+        service.reserve(second, lease);
+        service.settle(second.requestId(), new AiTokenSettleRequest(20, 10, 1, AiTokenUsageOutcome.FAILURE));
+        assertThatCode(() -> service.reserve(second, lease)).doesNotThrowAnyException();
+        assertBudgetExceeded(() -> service.reserve(relationshipRequest(AiTokenPurpose.RELATIONSHIP_COMPARISON, 1), lease));
+        assertThat(ledger).hasSize(2);
+        verifyNoInteractions(accounts);
+    }
+
+    @Test
+    @DisplayName("관계 호출 예산은 정산량이 예약량보다 크면 실제 측정량으로 다음 호출을 막는다")
+    void relationshipBudgetUsesLargerMeasuredUsage() {
+        relationshipJob(true);
+        ReflectionTestUtils.setField(service, "relationshipMaxReservedTokensPerJob", 250L);
+        var first = relationshipRequest(AiTokenPurpose.RELATIONSHIP_EXTRACTION, 100);
+        service.reserve(first, lease);
+        service.settle(first.requestId(), new AiTokenSettleRequest(190, 10, 10, AiTokenUsageOutcome.SUCCESS));
+        assertBudgetExceeded(() -> service.reserve(relationshipRequest(AiTokenPurpose.RELATIONSHIP_COMPARISON, 100), lease));
+        assertThat(ledger).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("관계 작업의 비정상 예산 설정과 단건 초과는 원장을 만들기 전에 차단한다")
+    void invalidOrExcessiveRelationshipBudgetFailsClosed() {
+        relationshipJob(false);
+        assertBudgetExceeded(() -> service.reserve(relationshipRequest(AiTokenPurpose.RELATIONSHIP_EXTRACTION, 2_000_001), lease));
+        ReflectionTestUtils.setField(service, "relationshipMaxReservedTokensPerJob", 0L);
+        assertBudgetExceeded(() -> service.reserve(relationshipRequest(AiTokenPurpose.RELATIONSHIP_EXTRACTION, 1), lease));
+        assertThat(ledger).isEmpty();
+        verifyNoInteractions(accounts);
+    }
+
+    private void assertBudgetExceeded(Runnable action) {
+        assertThatThrownBy(action::run).isInstanceOfSatisfying(AppException.class,
+                error -> assertThat(error.getResultCode()).isEqualTo(AiTokenErrorCode.AI_TOKEN_JOB_BUDGET_EXCEEDED));
+    }
+
+    private void relationshipJob(boolean servicePaid) {
+        when(job.getJobType()).thenReturn(AnalysisJobType.RELATIONSHIP_EXTRACTION);
+        when(job.isRelationshipServicePaid()).thenReturn(servicePaid);
+    }
+
+    private AiTokenReserveRequest relationshipRequest(AiTokenPurpose purpose, long rawTokens) {
+        return new AiTokenReserveRequest(UUID.randomUUID(), jobId, purpose, 1, "gpt-6.1-terra", rawTokens);
+    }
+
+    private void assertConflict(Runnable action) {
+        assertThatThrownBy(action::run).isInstanceOfSatisfying(AppException.class,
+                error -> assertThat(error.getResultCode()).isEqualTo(AiTokenErrorCode.AI_TOKEN_RESERVATION_CONFLICT));
+    }
+
+    private void assertInvalidUsage(Runnable action) {
+        assertThatThrownBy(action::run).isInstanceOfSatisfying(AppException.class,
+                error -> assertThat(error.getResultCode()).isEqualTo(AiTokenErrorCode.AI_TOKEN_USAGE_INVALID));
     }
 
     private AiTokenReserveRequest request(String model, long rawTokens) {

@@ -102,6 +102,7 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
                 List.of(),
                 org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.work.repository.WorkRepository.class),
                 org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.relationship.service.RelationshipGraphService.class),
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.relationship.service.RelationshipBackfillCoordinator.class),
                 analysisJobRepository,
                 analysisJobLeaseService,
                 workCharacterRepository,
@@ -181,7 +182,7 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
 
         when(analysisJobRepository.findExpiredLeaseCandidates(
                 eq(AnalysisJobStatus.RUNNING),
-                eq(Set.of(AnalysisJobType.SETTING_EXTRACTION)),
+                eq(List.of(AnalysisJobType.SETTING_EXTRACTION)),
                 any(LocalDateTime.class),
                 any(Pageable.class)
         )).thenReturn(List.of(job));
@@ -253,7 +254,7 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
         staleJob.claim("test-model", "비교 중", LocalDateTime.now().minusMinutes(1));
         when(analysisJobRepository.findExpiredLeaseCandidates(
                 eq(AnalysisJobStatus.RUNNING),
-                eq(Set.of(AnalysisJobType.CHARACTER_FACT_COMPARISON)),
+                eq(List.of(AnalysisJobType.CHARACTER_FACT_COMPARISON)),
                 any(LocalDateTime.class),
                 any(Pageable.class)
         )).thenReturn(List.of(staleJob));

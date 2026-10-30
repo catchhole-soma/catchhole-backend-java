@@ -38,6 +38,8 @@ world-image:
     scheduling-enabled: false
 
 analysis:
+  relationship-backfill:
+    scheduling-enabled: false
   notifications:
     enabled: false
   metrics:

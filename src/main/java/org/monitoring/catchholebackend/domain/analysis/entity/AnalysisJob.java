@@ -77,6 +77,13 @@ public class AnalysisJob extends BaseEntity {
     @jakarta.persistence.Column(name="relationship_analysis_enabled", nullable=false)
     private boolean relationshipAnalysisEnabled;
     public void enableRelationshipAnalysis() {relationshipAnalysisEnabled=true;}
+    @Column(name="relationship_service_paid",nullable=false,updatable=false)
+    private boolean relationshipServicePaid;
+    @Column(name="relationship_generation",nullable=false)
+    private long relationshipGeneration;
+    public void configureRelationship(long generation, boolean paid) { relationshipGeneration=generation; relationshipServicePaid=paid; relationshipAnalysisEnabled=true; }
+    public void deferRelationshipAnalysis() { relationshipAnalysisEnabled=false; }
+
 
 
     @Id

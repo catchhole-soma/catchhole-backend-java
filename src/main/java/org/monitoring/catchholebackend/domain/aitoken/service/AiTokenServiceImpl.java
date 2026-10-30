@@ -1,6 +1,8 @@
 package org.monitoring.catchholebackend.domain.aitoken.service;
 
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
+import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.aitoken.dto.request.AiTokenExtensionCreateRequest;
@@ -30,6 +32,7 @@ import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenExtensionStatu
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenExtensionSource;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenFeedbackRewardOutcome;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenGrantType;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenPurpose;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageStatus;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
@@ -37,6 +40,7 @@ import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErro
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobLeaseService;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.exception.MemberErrorCode;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
@@ -44,6 +48,7 @@ import org.monitoring.catchholebackend.global.config.ai.AiTokenProperties;
 import org.monitoring.catchholebackend.global.common.response.PageResponse;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.data.domain.Page;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -66,6 +71,9 @@ public class AiTokenServiceImpl implements AiTokenService {
     private final MemberRepository memberRepository;
     private final AiTokenProperties properties;
     private final AiTokenMapper aiTokenMapper;
+
+    @Value("${analysis.relationship-backfill.max-reserved-tokens-per-job:2000000}")
+    private long relationshipMaxReservedTokensPerJob = 2_000_000L;
 
     @Override
     @Transactional
@@ -263,15 +271,28 @@ public class AiTokenServiceImpl implements AiTokenService {
                 request.analysisJobId(),
                 leaseToken
         );
-        if (request.purpose().name().startsWith("CHAT_") || request.purpose().name().startsWith("VALIDATION_") || request.purpose() == org.monitoring.catchholebackend.domain.aitoken.type.AiTokenPurpose.OPERATIONAL_BACKFILL) {
+        if (request.purpose().name().startsWith("CHAT_") || request.purpose().name().startsWith("VALIDATION_") || request.purpose() == AiTokenPurpose.OPERATIONAL_BACKFILL
+                || (analysisJob.getJobType() == AnalysisJobType.RELATIONSHIP_EXTRACTION
+                && request.purpose() != AiTokenPurpose.RELATIONSHIP_EXTRACTION
+                && request.purpose() != AiTokenPurpose.RELATIONSHIP_COMPARISON)) {
             throw new AppException(AiTokenErrorCode.AI_TOKEN_USAGE_INVALID);
         }
         AiTokenUsage existing = usageRepository.findByRequestId(request.requestId()).orElse(null);
         if (existing != null) {
-            if (existing.getChatRun() != null || existing.getValidationJob() != null) throw new AppException(AiTokenErrorCode.AI_TOKEN_RESERVATION_CONFLICT);
+            if (existing.getChatRun() != null || existing.getValidationJob() != null
+                    || existing.getAnalysisJob() == null
+                    || !Objects.equals(existing.getAnalysisJob().getId(), analysisJob.getId())
+                    || existing.getPurpose() != request.purpose()
+                    || existing.getAttempt() != request.attempt()
+                    || !Objects.equals(existing.getModelName(), request.modelName())
+                    || existing.getReservedTokens() != request.reservedTokens()) {
+                throw new AppException(AiTokenErrorCode.AI_TOKEN_RESERVATION_CONFLICT);
+            }
             return aiTokenMapper.toResponse(existing);
         }
-        AiTokenAccount account = getOrCreateAccount(analysisJob.getWork().getMember().getId());
+        if (analysisJob.getJobType() == AnalysisJobType.RELATIONSHIP_EXTRACTION) {
+            ensureRelationshipJobBudget(analysisJob.getId(), request.reservedTokens());
+        }
         AiTokenUsage usage = AiTokenUsage.reserve(
                 request.requestId(),
                 analysisJob,
@@ -280,9 +301,30 @@ public class AiTokenServiceImpl implements AiTokenService {
                 request.modelName(),
                 request.reservedTokens()
         );
-        account.reserve(usage.getReservedCharge());
+        if (!usage.isServicePaid()) {
+            getOrCreateAccount(analysisJob.getWork().getMember().getId()).reserve(usage.getReservedCharge());
+        }
         usageRepository.save(usage);
         return aiTokenMapper.toResponse(usage);
+    }
+
+    private void ensureRelationshipJobBudget(UUID analysisJobId, long requestedTokens) {
+        if (requestedTokens <= 0 || relationshipMaxReservedTokensPerJob <= 0
+                || requestedTokens > relationshipMaxReservedTokensPerJob) {
+            throw new AppException(AiTokenErrorCode.AI_TOKEN_JOB_BUDGET_EXCEEDED);
+        }
+        long remaining = relationshipMaxReservedTokensPerJob - requestedTokens;
+        // The job is already locked. Retain failed/unknown/released calls in the budget,
+        // so lease recovery cannot create an unbounded service-funded retry loop.
+        for (AiTokenUsage usage : usageRepository.findAllByAnalysisJobId(analysisJobId)) {
+            long measured = usage.getInputTokens() == null || usage.getOutputTokens() == null
+                    ? 0 : Math.addExact(usage.getInputTokens(), usage.getOutputTokens());
+            long committed = Math.max(usage.getReservedTokens(), measured);
+            if (committed > remaining) {
+                throw new AppException(AiTokenErrorCode.AI_TOKEN_JOB_BUDGET_EXCEEDED);
+            }
+            remaining -= committed;
+        }
     }
 
     @Override
@@ -291,19 +333,31 @@ public class AiTokenServiceImpl implements AiTokenService {
         AnalysisJob analysisJob = lockAnalysisJobForUsage(requestId);
         AiTokenUsage usage = getUsageForUpdate(requestId);
         if (usage.getStatus() == AiTokenUsageStatus.SETTLED) {
+            if (usage.isRelationshipAnalysis()
+                    && (!Objects.equals(usage.getInputTokens(), request.inputTokens())
+                    || !Objects.equals(usage.getCachedInputTokens(), request.cachedInputTokens())
+                    || !Objects.equals(usage.getOutputTokens(), request.outputTokens())
+                    || usage.getOutcome() != request.outcome())) {
+                throw new AppException(AiTokenErrorCode.AI_TOKEN_RESERVATION_CONFLICT);
+            }
             return;
         }
-        if (usage.getStatus() != AiTokenUsageStatus.RESERVED) {
+        boolean unknownRelationshipUsage = usage.isRelationshipAnalysis()
+                && usage.getStatus() == AiTokenUsageStatus.UNKNOWN;
+        if (usage.getStatus() != AiTokenUsageStatus.RESERVED && !unknownRelationshipUsage) {
             throw new AppException(AiTokenErrorCode.AI_TOKEN_RESERVATION_CONFLICT);
         }
-        AiTokenAccount account = getOrCreateAccount(usage.getMember().getId());
         usage.settle(
                 request.inputTokens(),
                 request.cachedInputTokens(),
                 request.outputTokens(),
                 request.outcome()
         );
-        account.settle(usage.getReservedCharge(), usage.getChargedTokens());
+        if (!usage.isServicePaid()) {
+            getOrCreateAccount(usage.getMember().getId()).settle(
+                    unknownRelationshipUsage ? BigDecimal.ZERO : usage.getReservedCharge(),
+                    usage.getChargedTokens());
+        }
         synchronizeTerminalJobTokenTotals(analysisJob);
     }
 
@@ -312,14 +366,16 @@ public class AiTokenServiceImpl implements AiTokenService {
     public void release(UUID requestId, AiTokenReleaseRequest request) {
         lockAnalysisJobForUsage(requestId);
         AiTokenUsage usage = getUsageForUpdate(requestId);
-        if (usage.getStatus() == AiTokenUsageStatus.RELEASED) {
+        if (usage.getStatus() == AiTokenUsageStatus.RELEASED
+                || (usage.isRelationshipAnalysis() && usage.getStatus() == AiTokenUsageStatus.UNKNOWN)) {
             return;
         }
         if (usage.getStatus() != AiTokenUsageStatus.RESERVED) {
             throw new AppException(AiTokenErrorCode.AI_TOKEN_RESERVATION_CONFLICT);
         }
-        AiTokenAccount account = getOrCreateAccount(usage.getMember().getId());
-        account.release(usage.getReservedCharge());
+        if (!usage.isServicePaid()) {
+            getOrCreateAccount(usage.getMember().getId()).release(usage.getReservedCharge());
+        }
         usage.release(request.outcome());
     }
 
@@ -333,8 +389,9 @@ public class AiTokenServiceImpl implements AiTokenService {
         }
         usageRepository.findAllByAnalysisJobIdAndStatus(analysisJobId, AiTokenUsageStatus.RESERVED)
                 .forEach(usage -> {
-                    AiTokenAccount account = getOrCreateAccount(usage.getMember().getId());
-                    account.release(usage.getReservedCharge());
+                    if (!usage.isServicePaid()) {
+                        getOrCreateAccount(usage.getMember().getId()).release(usage.getReservedCharge());
+                    }
                     usage.release(outcome);
                 });
     }

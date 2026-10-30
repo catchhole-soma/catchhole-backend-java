@@ -98,6 +98,10 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     private final RelationshipGraphRules rules;
     private final RelationshipGraphMapper mapper;
     private final TransactionTemplate transactions;
+    private final org.monitoring.catchholebackend.domain.relationship.repository
+                    .RelationshipBackfillWorkRepository
+            backfillWorks;
+    private final jakarta.persistence.EntityManager entityManager;
 
     @Override
     @Transactional
@@ -108,15 +112,18 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         for (var previous :
                 analyses.findAllByWorkIdOrderByEpisodeNoAscCreatedAtAscIdAsc(
                         job.getWork().getId())) {
-            if (previous.getEpisodeNo() >= job.getSourceEpisodeNo()) previous.invalidate();
+            if (previous.getGeneration() == job.getRelationshipGeneration()
+                    && previous.getEpisodeNo() >= job.getSourceEpisodeNo()) previous.invalidate();
         }
-        analyses.save(
+        var pending =
                 RelationshipGraphAnalysis.pending(
                         job.getId(),
                         job.getWork().getId(),
                         job.getEpisode().getId(),
                         job.getSourceEpisodeNo(),
-                        job.getSourceContentHash()));
+                        job.getSourceContentHash());
+        pending.assignGeneration(job.getRelationshipGeneration());
+        analyses.save(pending);
     }
 
     @Override
@@ -178,6 +185,29 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                         analysis.fail(FailureCode.INPUT_TOO_LARGE.name());
                     return mapper.toContext(analysis);
                 });
+    }
+
+    @Override
+    @Transactional
+    public void prepareCachedObservations(AnalysisJob job, Prepare request) {
+        requireEligible(job);
+        if (job.getJobType() != AnalysisJobType.RELATIONSHIP_EXTRACTION) invalid();
+        sourceGuard.assertCurrent(job, job.getEpisode());
+        var analysis = requiredAnalysis(job);
+        if (analysis.getStatus() != AnalysisStatus.PENDING) conflict();
+        BuiltContext built = buildContext(job, request);
+        analysis.prepareContext(
+                hash(mapper.toJson(request)),
+                built.context().contextToken(),
+                mapper.toJson(built.context()),
+                built.bindings(),
+                request.rejectedObservationCount() == null
+                        ? 0
+                        : request.rejectedObservationCount());
+        if (built.context().heldObservations().size() > 384
+                || built.context().nodes().size() > 1536
+                || built.context().relationships().size() > 1536)
+            analysis.fail(FailureCode.INPUT_TOO_LARGE.name());
     }
 
     private Context preparedRetry(RelationshipGraphAnalysis analysis, Prepare request) {
@@ -325,7 +355,8 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         for (var later :
                 analyses.findAllByWorkIdOrderByEpisodeNoAscCreatedAtAscIdAsc(
                         job.getWork().getId())) {
-            if (later.getEpisodeNo() > analysis.getEpisodeNo()) later.invalidate();
+            if (later.getGeneration() == analysis.getGeneration()
+                    && later.getEpisodeNo() > analysis.getEpisodeNo()) later.invalidate();
         }
     }
 
@@ -383,7 +414,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     private BuiltContext buildContext(AnalysisJob job, Prepare request) {
         UUID workId = job.getWork().getId();
         int cutoff = job.getSourceEpisodeNo();
-        var allAnalyses = latestAnalyses(workId);
+        var allAnalyses = latestAnalyses(workId, job.getRelationshipGeneration());
         Map<UUID, RelationshipGraphEvent> prior = latestEvents(workId, cutoff - 1, allAnalyses);
         Map<UUID, RelationshipGraphEdge> allEdges =
                 edges.findAllByWorkId(workId).stream()
@@ -406,6 +437,50 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
             if (character.path("actualCharacterId").isTextual())
                 known.computeIfAbsent(character.path("name").asText(), x -> new ArrayList<>())
                         .add(UUID.fromString(character.path("actualCharacterId").asText()));
+        }
+        if (job.getJobType() == AnalysisJobType.RELATIONSHIP_EXTRACTION) {
+            // Only episode-provenance names known by the selected reader cutoff. Current names,
+            // book facts with unknown narrative time, and future chapters never enter this input.
+            var historical =
+                    entityManager
+                            .createQuery(
+                                    "select c from SettingCandidate c join fetch c.episode e where"
+                                        + " c.work.id=:work and c.reviewStatus=:confirmed and"
+                                        + " c.matchedCharacterId is not null and"
+                                        + " e.episodeNo<=:cutoff and e.status<>:archived and exists"
+                                        + " (select ch.id from WorkCharacter ch where"
+                                        + " ch.id=c.matchedCharacterId and ch.work.id=:work)",
+                                    org.monitoring.catchholebackend.domain.character.entity
+                                            .SettingCandidate.class)
+                            .setParameter("work", workId)
+                            .setParameter("confirmed", SettingCandidateReviewStatus.CONFIRMED)
+                            .setParameter("cutoff", cutoff)
+                            .setParameter("archived", EpisodeStatus.ARCHIVED)
+                            .getResultList();
+            for (var candidate : historical) {
+                if (candidate.getAnalysisJob() == null
+                        || candidate.getEntityName() == null
+                        || candidate.getAnalysisJob().getEpisode() == null
+                        || !Objects.equals(candidate.getAnalysisJob().getWork().getId(), workId)
+                        || !Objects.equals(
+                                candidate.getAnalysisJob().getEpisode().getId(),
+                                candidate.getEpisode().getId())
+                        || !Objects.equals(
+                                candidate.getAnalysisJob().getSourceEpisodeNo(),
+                                candidate.getEpisode().getEpisodeNo())
+                        || !Objects.equals(
+                                candidate.getAnalysisJob().getSourceContentHash(),
+                                candidate.getEpisode().getContentHash())
+                        || !Objects.equals(
+                                candidate.getAnalysisJob().getSourceContentS3Key(),
+                                candidate.getEpisode().getContentS3Key())
+                        || !Objects.equals(
+                                candidate.getAnalysisJob().getSourceContentS3Version(),
+                                candidate.getEpisode().getContentS3Version())
+                        || purges.existsByEpisodeId(candidate.getEpisode().getId())) continue;
+                known.computeIfAbsent(candidate.getEntityName(), x -> new ArrayList<>())
+                        .add(candidate.getMatchedCharacterId());
+            }
         }
         known.forEach(
                 (name, identities) -> {
@@ -565,7 +640,9 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                 origin.put("observationRef", oldRef);
             }
         }
-        bindings.put("dependencyRevision", dependencyRevision(workId, cutoff));
+        bindings.put(
+                "dependencyRevision",
+                dependencyRevision(workId, cutoff, job.getRelationshipGeneration()));
         String token =
                 storage.contentHash(
                         job.getId() + "|" + request.sourceHash() + "|" + UUID.randomUUID());
@@ -885,8 +962,21 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     }
 
     private Map<Integer, RelationshipGraphAnalysis> latestAnalyses(UUID workId) {
+        return latestAnalyses(
+                workId,
+                backfillWorks
+                        .findById(workId)
+                        .map(
+                                org.monitoring.catchholebackend.domain.relationship.entity
+                                                .RelationshipBackfillWork
+                                        ::getPublishedGeneration)
+                        .orElse(0L));
+    }
+
+    private Map<Integer, RelationshipGraphAnalysis> latestAnalyses(UUID workId, long generation) {
         Map<Integer, RelationshipGraphAnalysis> result = new TreeMap<>();
-        analyses.findAllByWorkIdOrderByEpisodeNoAscCreatedAtAscIdAsc(workId)
+        analyses.findAllByWorkIdOrderByEpisodeNoAscCreatedAtAscIdAsc(workId).stream()
+                .filter(a -> a.getGeneration() == generation)
                 .forEach(a -> result.put(a.getEpisodeNo(), a));
         return result;
     }
@@ -969,9 +1059,9 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         return result;
     }
 
-    private String dependencyRevision(UUID workId, int cutoff) {
+    private String dependencyRevision(UUID workId, int cutoff, long generation) {
         List<Object> revision = new ArrayList<>();
-        for (var a : latestAnalyses(workId).values())
+        for (var a : latestAnalyses(workId, generation).values())
             if (a.getEpisodeNo() < cutoff) {
                 revision.add(
                         List.of(
@@ -1012,7 +1102,9 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     private void assertDependencyRevision(RelationshipGraphAnalysis analysis) {
         if (!Objects.equals(
                 analysis.getBindings().path("dependencyRevision").asText(),
-                dependencyRevision(analysis.getWorkId(), analysis.getEpisodeNo()))) conflict();
+                dependencyRevision(
+                        analysis.getWorkId(), analysis.getEpisodeNo(), analysis.getGeneration())))
+            conflict();
     }
 
     private EpisodeRef episodeRef(UUID id, int no) {
@@ -1029,7 +1121,8 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     }
 
     private void requireEligible(AnalysisJob job) {
-        if (job.getJobType() != AnalysisJobType.SETTING_EXTRACTION
+        if ((job.getJobType() != AnalysisJobType.SETTING_EXTRACTION
+                        && job.getJobType() != AnalysisJobType.RELATIONSHIP_EXTRACTION)
                 || job.isSettingBookSource()
                 || job.getEpisode() == null
                 || job.getSourceEpisodeNo() == null) invalid();
@@ -1046,6 +1139,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     private void requireCurrent(RelationshipGraphAnalysis analysis, AnalysisJob job) {
         if (analysis.getStatus() == AnalysisStatus.INVALIDATED
                 || analysis.isEvidencePurged()
+                || analysis.getGeneration() != job.getRelationshipGeneration()
                 || !analysis.getSourceHash().equals(job.getSourceContentHash())) conflict();
         sourceGuard.assertCurrent(job, job.getEpisode());
     }

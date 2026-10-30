@@ -40,7 +40,7 @@ public class AnalysisBatchSummaryRepository {
                        j.automatic_applied_at, j.review_application_held_at, j.failure_code, j.checkpoint_stage, j.created_at, j.updated_at
                 from analysis_jobs j
                 where j.work_id = :workId and j.batch_id in (:batchIds)
-                  and j.job_type not in ('WORLD_SETTING_COMPARISON', 'CHARACTER_FACT_COMPARISON')
+                  and j.job_type in ('SETTING_EXTRACTION', 'EPISODE_VALIDATION')
             ), expanded as (
                 select j.id, j.batch_id, j.job_type, j.source_kind, j.status, j.analysis_mode,
                        j.analysis_run_id, j.run_generation, j.run_sequence, j.journal_status,
