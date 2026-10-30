@@ -21,7 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @SpringBootTest(properties = "spring.config.import=")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-@DisplayName("GH312 작가 검토·#314 B1 접수 자격 API OpenAPI 계약")
+@DisplayName("GH312 작가 검토·#314 B1 접수 자격·B2 검수 공개 계약 API OpenAPI 계약")
 class EpisodeValidationOpenApiIntegrationTest {
     static final String BASE = "/api/v1/works/{workId}/episode-validations";
     @Autowired MockMvc mvc;
@@ -114,6 +114,48 @@ class EpisodeValidationOpenApiIntegrationTest {
         var upload = docs.path("paths").path("/api/v1/works/{workId}/episodes").path("post");
         assertThat(upload.path("responses").path("409").path("description").asText()).contains("VALIDATION_NEXT_EPISODE_BLOCKED");
         assertThat(upload.path("description").asText()).contains("VALIDATION_NEXT_EPISODE_BLOCKED");
+    }
+
+    @Test
+    @DisplayName("#314 B2: 목록 등급·대상 필터 enum, 항목 대상·설정명·정정 연결 schema, 재검수 기준 식별값과 409 사유를 문서화한다")
+    void documentsFindingTargetsFiltersAndRecheckFingerprint() throws Exception {
+        var docs = docs();
+        var schemas = docs.path("components").path("schemas");
+        var parameters = docs.path("paths").path(BASE + "/{reportId}/findings").path("get").path("parameters");
+        Map<String, JsonNode> byName = new HashMap<>();
+        parameters.forEach(p -> byName.put(p.path("name").asText(), p));
+        assertThat(byName).containsKeys("branch", "judgment", "outcome", "impact", "subjectType", "page", "size");
+        assertThat(byName.get("impact").path("required").asBoolean(false)).isFalse();
+        assertThat(enumValues(resolve(schemas, byName.get("impact").path("schema")))).containsExactly("SEVERE", "CAUTION", "REFERENCE");
+        assertThat(enumValues(resolve(schemas, byName.get("subjectType").path("schema")))).containsExactly("CHARACTER", "WORLD_SETTING");
+        assertThat(byName.get("impact").path("description").asText()).isNotBlank();
+        for (String owner : List.of("ValidationFindingSummaryResponse", "ValidationFindingDetailResponse")) {
+            var properties = schemas.path(owner).path("properties");
+            assertThat(properties.path("subject").toString()).as(owner).contains("ValidationFindingSubject");
+            assertThat(properties.has("settingName") && properties.has("settingKey")).as(owner).isTrue();
+        }
+        var subject = schemas.path("ValidationFindingSubject").path("properties");
+        assertThat(enumValues(subject.path("type"))).containsExactly("CHARACTER", "WORLD_SETTING");
+        assertThat(subject.has("id") && subject.has("name")).isTrue();
+        assertThat(schemas.path("ValidationFindingDetailResponse").path("properties").path("basis").toString()).contains("ValidationFindingBasis");
+        var basis = schemas.path("ValidationFindingBasis").path("properties");
+        for (String field : List.of("entryRef", "entryHash", "subjectType", "targetId", "subjectName", "factType", "factKey", "scopeName", "settingName", "currentVersion"))
+            assertThat(basis.has(field)).as(field).isTrue();
+        assertThat(schemas.path("ValidationFindingBasis").path("description").asText()).contains("expectedEntryHash").contains("baselineHash");
+        assertThat(schemas.has("Basis")).as("nested validation schema must not use the global name Basis").isFalse();
+        var recheck = schemas.path("ValidationRecheckRequest");
+        assertThat(recheck.path("description").asText()).isNotBlank();
+        assertThat(recheck.path("properties").path("expectedBaselineHash").path("description").asText())
+                .contains("baselineFingerprint").contains("BASELINE_FINGERPRINT_REQUIRED").contains("BASELINE_FINGERPRINT_MISMATCH").contains("correctionReceiptId");
+        var recheckOperation = docs.path("paths").path(BASE + "/{reportId}/rechecks").path("post");
+        assertThat(recheckOperation.path("responses").path("409").path("description").asText()).contains("BASELINE_FINGERPRINT_MISMATCH");
+        assertThat(recheckOperation.path("description").asText()).contains("baselineFingerprint").contains("RECHECK");
+        assertThat(enumValues(schemas.path("ValidationReviewSummaryResponse").path("properties").path("allowedActions").path("items"))).contains("RECHECK");
+    }
+
+    JsonNode resolve(JsonNode schemas, JsonNode schema) {
+        String ref = schema.path("$ref").asText("");
+        return ref.isEmpty() ? schema : schemas.path(ref.substring(ref.lastIndexOf('/') + 1));
     }
 
     List<String> enumValues(JsonNode property) {
