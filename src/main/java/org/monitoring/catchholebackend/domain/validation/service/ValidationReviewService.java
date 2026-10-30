@@ -8,7 +8,12 @@ import org.monitoring.catchholebackend.global.common.response.PageResponse;
 
 /** GH312 작가 판단 저장·조회. 마지막 판단 저장도 검토 완료나 설정 추출을 시작하지 않는다(검토 종료는 ValidationReviewCompletionService). */
 public interface ValidationReviewService {
-    PageResponse<ValidationFindingSummaryResponse> getValidationFindings(Long memberId,UUID workId,UUID reportId,ValidationBranch branch,ValidationJudgmentValue judgment,String outcome,int page,int size);
+    /** #314 B2: impact·subjectType 필터는 SQL에서 거르고 /review 집계에는 영향을 주지 않는다. */
+    PageResponse<ValidationFindingSummaryResponse> getValidationFindings(Long memberId,UUID workId,UUID reportId,ValidationBranch branch,ValidationJudgmentValue judgment,String outcome,
+            ValidationImpact impact,ValidationSubjectType subjectType,int page,int size);
+    default PageResponse<ValidationFindingSummaryResponse> getValidationFindings(Long memberId,UUID workId,UUID reportId,ValidationBranch branch,ValidationJudgmentValue judgment,String outcome,int page,int size) {
+        return getValidationFindings(memberId,workId,reportId,branch,judgment,outcome,null,null,page,size);
+    }
     ValidationFindingDetailResponse getValidationFinding(Long memberId,UUID workId,UUID reportId,UUID findingId);
     ValidationFindingSummaryResponse saveValidationJudgment(Long memberId,UUID workId,UUID reportId,UUID findingId,ValidationJudgmentRequest request);
     ValidationReviewSummaryResponse getValidationReview(Long memberId,UUID workId,UUID reportId);

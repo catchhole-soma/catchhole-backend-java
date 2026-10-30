@@ -50,11 +50,21 @@ public class ValidationDataMapper {
     public Map<String,JsonNode> toValidationSettings(JsonNode entries,Map<String,? extends JsonNode> sources) {
         var result=new LinkedHashMap<String,JsonNode>();var subjects=new LinkedHashMap<String,String>();int index=0;
         for(var row:entries) {
-            String ref="B"+(++index);var state=row.path("state");String identity=row.hasNonNull("subjectRef")?row.path("subjectRef").asText():"world:"+state.path("targetWorldSettingId").asText(ref);
+            String ref="B"+(++index);var state=row.path("state");String identity=subjectIdentity(row,ref);
             String subject=subjects.computeIfAbsent(identity,k->"S"+(subjects.size()+1));var item=JsonNodeFactory.instance.objectNode().put("entry_ref",ref).put("subject_ref",subject).put("domain",row.path("domain").asText());
             JsonNode name=state.hasNonNull("name")?state.path("name"):state.path("subjectName");item.set("name",name.isMissingNode()?NullNode.instance:name.deepCopy());item.set("aliases",state.has("aliases")?state.path("aliases").deepCopy():JsonNodeFactory.instance.arrayNode());
             item.set("state",toValidationModelState(state,sources));item.set("author_correction",NullNode.instance);result.put(ref,item);
         }return result;
+    }
+    /** 고정 기준 항목의 대상 identity. 같은 identity의 항목(세계관 대상과 그 확정 이력)은 같은 subject_ref를 받는다. */
+    public static String subjectIdentity(JsonNode row,String entryRef) {
+        return row.hasNonNull("subjectRef")?row.path("subjectRef").asText():"world:"+row.path("state").path("targetWorldSettingId").asText(entryRef);
+    }
+    /** toValidationSettings와 같은 규칙의 entry_ref(B1..) → subject_ref(S1..). 모델 투영 없이 대상 참조만 계산한다(#314 B2). */
+    public static LinkedHashMap<String,String> toSubjectRefs(JsonNode entries) {
+        var result=new LinkedHashMap<String,String>();var subjects=new LinkedHashMap<String,String>();int index=0;
+        if(entries!=null)for(var row:entries) {String ref="B"+(++index);result.put(ref,subjects.computeIfAbsent(subjectIdentity(row,ref),k->"S"+(subjects.size()+1)));}
+        return result;
     }
     public JsonNode toValidationModelState(JsonNode node,Map<String,? extends JsonNode> sources) {
         if(node.isObject()) {

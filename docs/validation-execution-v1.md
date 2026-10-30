@@ -48,6 +48,9 @@ JSON dirty checking의 flush가 내용 변화 없이 CAS를 바꾸는 현상을 
 `POST /{reportId}/rechecks`의 필수 입력은 `idempotencyKey`, `expectedReportVersion`,
 현재 `expectedContentHash/expectedContentS3Key/expectedContentRevision`이다. S3 version은 실제 nullable 값을 보낸다.
 `expectedBaselineHash` 또는 `correctionReceiptId`를 제공한다. 둘 다 보내면 서로 같은 기준이어야 한다.
+`expectedBaselineHash`의 값은 재검수할 report 단건 조회(`GET /{reportId}`)의 **`baselineFingerprint`**다. `baselineHash`가 아니다(원고 교체 등으로 무효화하면 `baselineHash`는 null이 되지만 fingerprint는 남는다).
+정정 receipt 없이 누락하면 409 `VALIDATION_SOURCE_VERSION_CONFLICT`에 `error.context.reason=BASELINE_FINGERPRINT_REQUIRED`, 다른 값이면 같은 409에 `BASELINE_FINGERPRINT_MISMATCH`다(#314 B2).
+원고 hash/key/version/revision 불일치는 같은 코드에 context가 비어 있으므로 화면은 `reason`으로 둘을 구분한다. 조건부 필수라 OpenAPI `required`로는 표시하지 않고 `@Schema` 설명에 적었다.
 키는 START/RECHECK가 공유하는 작품별 namespace이고 같은 키의 다른 operation/입력은 409다.
 같은 입력의 실패 재시도는 새 report를 만들지 않고 `VALIDATION_RECHECK_INPUT_UNCHANGED`로 별도 retry 경계를 안내한다.
 오래된 report·version은 `VALIDATION_REPORT_VERSION_CONFLICT`, 원고/기준 불일치는
@@ -88,6 +91,41 @@ before/after 값·entityVersion·정정 ID·기준 entry/hash/revision만 전달
 일반 저장이나 출처 파기 뒤에는 이 복사본으로 이전 주장을 되살리지 않는다.
 Python의 GH306 단수 `explicitAuthorCorrection`은 자유 문자열 질문 scope였으므로 실행 연결에서
 이 typed 경로 metadata를 실제 검사 항목에 매핑해야 한다. 임의의 전체 인물 예외로 확대하면 안 된다.
+
+### 발견 항목에서 정정 요청 만들기 (#314 B2)
+
+발견 항목 상세(`GET /{reportId}/findings/{findingId}`)의 `basis[]`와 report 단건 조회(`GET /{reportId}`)만으로 요청을 만든다. 값은 변환 없이 그대로 옮긴다.
+
+| `ValidationCorrectionRequest` | 출처 |
+| --- | --- |
+| `expectedReportVersion` | 단건 조회 `reportVersion`(판단 저장마다 오르므로 요청 직전 값) |
+| `baselineId`, `expectedBaselineRevision`, `expectedBaselineHash` | 단건 조회 `baselineId`(=reportId), `baselineRevision`, `baselineHash` |
+| `entryRef`, `expectedEntryHash` | `basis[i].entryRef`, `basis[i].entryHash`(저장 항목 자체의 hash) |
+| `character.targetId`, `character.expectedSnapshotVersion` | `basis[i].targetId`, `basis[i].currentVersion` (`subjectType=CHARACTER`) |
+| `character.factType`, `character.factKey` | `basis[i].factType`, `basis[i].factKey`. null이면 작가가 실제로 바꾼 slot 하나 |
+| `character.edit` | 작가가 그 slot 하나만 바꾼 전체 `CharacterUpdateRequest`(현재 캐릭터 상세 기준) |
+| `worldSetting.targetId`, `worldSetting.expectedVersion`, `edit.version` | `basis[i].targetId`, `basis[i].currentVersion` (`subjectType=WORLD_SETTING`) |
+| `worldSetting.edit.currentScopeName`, `currentSettingName` | `basis[i].scopeName`, `basis[i].settingName`. null이면 작가가 고른 현재 경로 |
+| `idempotencyKey` | 화면이 만든 정정 의도별 키 |
+
+```json
+{
+  "idempotencyKey": "synthetic-basis-correction-1",
+  "expectedReportVersion": 15,
+  "baselineId": "00000000-0000-4000-8000-000000000001",
+  "expectedBaselineRevision": 1,
+  "expectedBaselineHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "entryRef": "B1",
+  "expectedEntryHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "character": {"targetId": "00000000-0000-4000-8000-000000000601", "expectedSnapshotVersion": 3, "factType": "AGE", "factKey": "age",
+                "edit": {"name": "카일", "roleLabel": null, "currentAge": 21, "currentLevel": 1, "firstAppearanceEpisodeNo": null, "profile": [], "stats": [], "skills": [], "items": [], "statuses": []}},
+  "worldSetting": null
+}
+```
+
+같은 예시와 basis·단건 조회 값의 대응은 `docs/contracts/validation-review-v1.json`의 `correctionFromFindingBasis`이고 `ValidationReviewContractTest`가 검사한다.
+정정 receipt를 받은 뒤 재검수는 `correctionReceiptId`로 접수하며 `expectedBaselineHash`는 생략하거나 정정 전 fingerprint와 같은 값을 보낸다.
+basis는 고정 기준 값이고 정정은 기준과 현재 설정이 그대로일 때만 성공한다. 그 사이 설정이 바뀌면 위 규칙대로 `VALIDATION_CORRECTION_CONFLICT`다.
 
 ## 진단 재검수
 

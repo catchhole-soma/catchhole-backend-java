@@ -93,7 +93,8 @@ class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApp
         // 이 회차의 report는 자기 반영으로 무효화되지 않고 검토 종료·반영 완료로 남는다. 같은 작품의 다른 report는 기존처럼 무효화된다.
         assertThat(reportStatus(f.report())).isEqualTo("WAITING_FOR_ERROR_REVIEW");assertThat(heldAt(r.job())).isNull();
         assertThat(review.holdReasons()).doesNotContain(ValidationReviewHoldReason.REPORT_INVALIDATED);assertThat(review.completionMode()).isEqualTo(ValidationReviewCompletionMode.COMPLETED);
-        assertThat(review.completion()).isNotNull();assertThat(review.allowedActions()).isEmpty();
+        // #314 B2: 반영 뒤 남는 행동은 최신 회차의 진단 재검수 안내뿐이다.
+        assertThat(review.completion()).isNotNull();assertThat(review.allowedActions()).containsExactly(ValidationReviewAction.RECHECK);
         assertThat(admissions.get(f.member(),f.work(),f.report()).status()).isNotEqualTo(ValidationReportStatus.INVALIDATED);
         assertThat(reportStatus(other)).as("another episode's pending report is still invalidated").isEqualTo("INVALIDATED");
     }
