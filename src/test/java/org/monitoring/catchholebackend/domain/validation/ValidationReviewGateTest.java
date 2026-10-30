@@ -90,6 +90,20 @@ class ValidationReviewGateTest {
         assertThat(retired.completion()).as("retired receipts are history only").isNull();assertThat(retired.completionMode()).isEqualTo(ValidationReviewCompletionMode.BLOCKED);
     }
 
+    @Test @DisplayName("#314 B2: 회차 전체 확정 APPLIED 현재 report는 재검수 회차 조건을 만족할 때만 RECHECK를 안내한다")
+    void appliedReportOffersRecheckOnlyWhenEpisodeAdmits() {
+        var receipt=new Completion(java.util.UUID.randomUUID(),ValidationReviewTrigger.AUTOMATIC,java.time.LocalDateTime.now(),java.util.UUID.randomUUID());
+        var applied=new ValidationReviewGate.Application(ValidationApplicationStatus.APPLIED,1,java.util.List.of(),java.time.LocalDateTime.now(),1);
+        var held=new ValidationReviewGate.Application(ValidationApplicationStatus.HELD_REVIEW,1,java.util.List.of(),null,1);
+        java.util.function.BiFunction<ValidationReviewGate.Application,Boolean,java.util.List<ValidationReviewAction>> actions=(application,admitted)->ValidationReviewGate.evaluate(new Input(true,
+                ValidationPreparationStatus.READY,ValidationReportStatus.WAITING_FOR_ERROR_REVIEW,ValidationReportMode.BEFORE_CONFIRMATION,COMPLETED,DECIDED,true,receipt,null,application,ValidationExtractionState.SUCCEEDED,admitted)).allowedActions();
+        assertThat(actions.apply(applied,true)).containsExactly(ValidationReviewAction.RECHECK);
+        assertThat(actions.apply(applied,false)).as("not the latest episode, analysis running, or source purge pending").isEmpty();
+        assertThat(actions.apply(held,true)).as("only APPLIED is diagnostic; a held report still applies settings").containsExactly(ValidationReviewAction.APPLY_SETTINGS);
+        var retired=ValidationReviewGate.evaluate(new Input(false,ValidationPreparationStatus.READY,ValidationReportStatus.WAITING_FOR_ERROR_REVIEW,ValidationReportMode.BEFORE_CONFIRMATION,COMPLETED,DECIDED,true,receipt,null,applied,ValidationExtractionState.SUCCEEDED,true));
+        assertThat(retired.allowedActions()).as("a retired report is never rechecked").isEmpty();
+    }
+
     @Test @DisplayName("분기마다 허용 판단을 분리한다")
     void allowedJudgmentsPerBranch() {
         assertThat(ValidationJudgmentValue.allowedFor(ValidationBranch.SETTING)).containsExactly(ValidationJudgmentValue.PENDING,ValidationJudgmentValue.NEEDS_FIX,ValidationJudgmentValue.NOT_CONFLICT);
