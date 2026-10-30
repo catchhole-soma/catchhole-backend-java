@@ -364,7 +364,7 @@ Job이 재개를 기다리는 순차 실패(journal PENDING/INCOMPLETE이면서 
 | 보류 → 결정 저장 → 명시 반영 | 반영 방식·세계관 결정 초안 저장 또는 허용된 제외 뒤 `POST /settings-application` | APPLICATION_HELD → APPLIED. 다시 보류되면 APPLICATION_HELD(attempt 증가) |
 | 확정 뒤 진단 재검수 | APPLIED 회차를 `POST /rechecks` | 이전 report INVALIDATED(이력의 application APPLIED) → 새 report(mode DIAGNOSTIC_ONLY) VALIDATING → AWAITING_REVIEW에서 멈춤. 검토 종료·추출·반영 없음 |
 | (참고) 추출 실패 | release Job 실패 | EXTRACTION_FAILED → 공개 재시도(같은 Job) → REVIEW_COMPLETED → APPLIED/APPLICATION_HELD |
-| 미완료 중 다음 회차 업로드(#314 B1) | APPLIED 전에 102화를 어떤 방식으로든 업로드 | 409 `VALIDATION_NEXT_EPISODE_BLOCKED`, context의 report로 이동. 회차 전체 확정(APPLIED) 또는 원고 교체(INVALIDATED) 뒤에는 업로드 성공 |
+| 미완료 중 다음 회차 업로드(#314 B1) | APPLIED 전에 102화를 어떤 방식으로든 업로드 | 409 `VALIDATION_NEXT_EPISODE_BLOCKED`, context의 report로 이동. 원고 교체로 INVALIDATED여도 막히며 재검수 → 새 report가 APPLIED가 된 뒤(또는 확정 뒤 진단 재검수 중)에만 업로드 성공 |
 
 ### 알려진 한계 (#314 또는 후속)
 
@@ -419,20 +419,22 @@ S2·S3에서 S4로 넘긴 항목의 결과다.
 
 ### 다음 회차 등록 차단
 
-작품의 현재(is_current) report를 기준으로 판정한다.
+작품의 활성(보관되지 않은) 회차에 있는 현재(is_current) report를 기준으로 판정한다. 규칙은 "`BEFORE_CONFIRMATION` 현재 report의 `reviewStage`가 APPLIED가 아니면 차단"이다.
 
 | 검수 report | 다음 회차 등록 |
 | --- | --- |
 | `mode=BEFORE_CONFIRMATION`이고 `reviewStage` ∈ `PREPARING_BASELINE`, `VALIDATING`, `AWAITING_REVIEW`, `REVIEW_COMPLETED`, `EXTRACTION_FAILED`, `APPLICATION_HELD`, `HELD_INCOMPLETE` | **차단** (409) |
+| `mode=BEFORE_CONFIRMATION`이고 `INVALIDATED`(원고 교체·기준 변경·원문 파기 무효화로 current인 채 무효) | **차단** (409). 무효 report는 재검수가 퇴역시킬 때까지 current로 남아 그 회차의 추출을 계속 막는다. 다음 회차를 받으면 그 회차가 최신이 아니어서 재검수가 `VALIDATION_TARGET_INVALID`로 거절되고 v1에는 검수 포기 경로가 없어 추출할 길이 사라진다. 재검수 → 새 report APPLIED 뒤 허용 |
 | `mode=BEFORE_CONFIRMATION`이고 `APPLIED` | 허용 |
-| `INVALIDATED`(원고 교체·기준 변경·파기 무효화, 재검수 퇴역) | 허용 |
 | `mode=DIAGNOSTIC_ONLY`(확정 뒤 진단 재검수)의 모든 단계 | 허용. 진단은 AWAITING_REVIEW에서 멈추는 설계라 막으면 다음 회차를 영원히 등록할 수 없다 |
 | report 없음 | 허용 |
+
+판정에 쓰지 않는 report: 재검수로 퇴역한(`current=false`) report와 삭제(`ARCHIVED`)한 회차의 report다. 회차 삭제는 report를 퇴역시키지 않으므로 보관 회차를 제외하지 않으면 그 작품은 영원히 막힌다.
 
 - 판정은 `processor.ValidationNextEpisodeAdmission` 하나다(`blocks(mode, reviewStage)`). 단계는 `ValidationReportRepository.findAdmissionStatesByWorkId` scalar projection이 `ValidationReviewStages.resolve`로 계산하며 finding·seed·entries를 읽지 않는다. 차단 report가 여럿이면(B1 이전 자료) 가장 앞 회차를 보여 준다.
 - 적용 위치는 `EpisodeServiceImpl.uploadEpisodes` 하나로, `SINGLE_EPISODE`·`MULTI_EPISODE_SINGLE_FILE`·`MULTI_EPISODE_MULTI_FILE` 모두 Work 잠금 직후 파싱·`UploadBatch`/`UploadFile`/`Episode`·저장소 쓰기 전에 판정한다. 막히면 DB 쓰기와 저장 객체가 0이다.
 - 409 응답은 `VALIDATION_NEXT_EPISODE_BLOCKED`, 문구 `이 회차의 검토와 설정 저장을 마친 뒤 다음 회차를 등록할 수 있어요.`, `error.context{reportId, episodeId, episodeNo, reviewStage}`다. 예시는 `docs/contracts/validation-review-v1.json`의 `errors.nextEpisodeBlocked`.
-- 막지 않는 경로: `detectEpisodes`(파싱만, 쓰기 없음), 어느 회차든 `replaceEpisodeFile`(수정 경로이며 기존대로 report를 무효화하므로 결과적으로 차단도 풀린다), 설정집 업로드·편집, 회차 제목·원고 수정, 회차 삭제.
+- 막지 않는 경로: `detectEpisodes`(파싱만, 쓰기 없음), 어느 회차든 `replaceEpisodeFile`(수정 경로. report는 무효화되지만 current로 남아 차단은 유지되고 재검수로 이어진다), 설정집 업로드·편집, 회차 제목·원고 수정, 회차 삭제.
 
 ### 잠금 순서
 
@@ -441,7 +443,7 @@ S2·S3에서 S4로 넘긴 항목의 결과다.
 
 ### 검증
 
-- H2 `ValidationNextEpisodeAdmissionIntegrationTest`: 세 업로드 방식의 AWAITING_REVIEW·APPLICATION_HELD 차단과 쓰기 0(HTTP 409 context 포함), APPLIED 뒤 허용과 새 회차의 검수 자격, INVALIDATED·DIAGNOSTIC_ONLY 비차단, 감지·제목 수정·설정집 업로드·파일 교체 비차단, 모든 `reasonCode`에서 자격 조회와 같은 입력의 접수 결과 일치, 자격 조회의 쓰기 0.
+- H2 `ValidationNextEpisodeAdmissionIntegrationTest`: 세 업로드 방식의 AWAITING_REVIEW·APPLICATION_HELD 차단과 쓰기 0(HTTP 409 context 포함), APPLIED 뒤 허용과 새 회차의 검수 자격, 파일 교체로 INVALIDATED인 current report의 차단과 재검수 APPLIED 뒤 허용, DIAGNOSTIC_ONLY·삭제 회차 report 비차단, 감지·제목 수정·설정집 업로드·파일 교체 비차단, 모든 `reasonCode`에서 자격 조회와 같은 입력의 접수 결과 일치, 자격 조회의 쓰기 0.
 - PostgreSQL `ValidationNextEpisodeAdmissionPostgresIntegrationTest`(H2 메서드 상속): Work 행을 잠근 채 두 요청을 같은 잠금에 줄 세워 두 순서 모두 한쪽만 성공·교착 없음·부분 쓰기 없음을 확인하고, 커밋된 접수 뒤 세 방식 업로드 409를 확인한다.
 - 계약: `ValidationReviewContractTest`(자격 조회 예시·409 예시·차단 규칙 표), `EpisodeValidationOpenApiIntegrationTest`(operationId·schema·4xx).
 

@@ -11,9 +11,12 @@ import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.stereotype.Component;
 
 /**
- * 다음 회차 등록 차단(#314 B1)의 유일한 판정. 작품에 {@code mode=BEFORE_CONFIRMATION}·현재(is_current) report가 있고
- * 그 검수 단계가 APPLIED/INVALIDATED가 아니면 새 회차 등록을 막는다. DIAGNOSTIC_ONLY(확정 뒤 진단 재검수)는 AWAITING_REVIEW에서 멈추는 설계라 막지 않는다.
+ * 다음 회차 등록 차단(#314 B1)의 유일한 판정. 작품의 활성(보관되지 않은) 회차에 {@code mode=BEFORE_CONFIRMATION}·현재(is_current) report가 있고
+ * 그 검수 단계가 APPLIED가 아니면 새 회차 등록을 막는다. DIAGNOSTIC_ONLY(확정 뒤 진단 재검수)는 AWAITING_REVIEW에서 멈추는 설계라 막지 않는다.
  * 검수 단계는 {@link ValidationReviewStages#resolve} scalar 계산을 그대로 쓴다.
+ *
+ * <p>INVALIDATED도 막는다. 무효 report는 재검수가 퇴역시킬 때까지 current로 남아 그 회차의 추출을 계속 막는데, 다음 회차를 받으면
+ * 그 회차가 최신이 아니어서 재검수가 거절되고 추출할 길이 없어진다. 재검수로 퇴역한(current=false) report와 삭제(ARCHIVED)된 회차의 report는 보지 않는다.
  *
  * <p>호출자는 Work 행을 먼저 잠근 트랜잭션에서 호출한다. 회차 업로드와 {@code EpisodeValidationService.start}가 같은 Work 잠금으로 직렬화되어
  * "다음 회차 업로드"와 "최신 회차 검수 접수"가 엇갈리지 않는다. 이 컴포넌트는 Work보다 먼저 다른 행을 잠그지 않는다.
@@ -21,8 +24,8 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 public class ValidationNextEpisodeAdmission {
-    /** 차단하지 않는 검수 단계. 그 밖의 모든 단계(PREPARING_BASELINE~HELD_INCOMPLETE)는 다음 회차 등록을 막는다. */
-    public static final Set<ValidationReviewStage> ADMITTING_STAGES = EnumSet.of(ValidationReviewStage.APPLIED, ValidationReviewStage.INVALIDATED);
+    /** 차단하지 않는 검수 단계. 회차 전체 확정(APPLIED) 외의 모든 단계(INVALIDATED 포함)는 다음 회차 등록을 막는다. */
+    public static final Set<ValidationReviewStage> ADMITTING_STAGES = EnumSet.of(ValidationReviewStage.APPLIED);
 
     private final ValidationReportRepository reports;
 

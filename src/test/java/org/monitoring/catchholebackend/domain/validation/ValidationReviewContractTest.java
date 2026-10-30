@@ -71,7 +71,7 @@ class ValidationReviewContractTest {
         assertThat(blocked.path("message").asText()).isEqualTo(code.getMessage());
     }
 
-    @Test @DisplayName("다음 회차 차단 예시가 서버 규칙(BEFORE_CONFIRMATION이고 APPLIED·INVALIDATED가 아니면 차단)과 같다")
+    @Test @DisplayName("다음 회차 차단 예시가 서버 규칙(BEFORE_CONFIRMATION이고 APPLIED가 아니면 INVALIDATED도 차단)과 같다")
     void nextEpisodeAdmissionCasesMatchRule() throws Exception {
         var cases=fixture().path("nextEpisodeAdmissionCases");var covered=EnumSet.noneOf(ValidationReviewStage.class);
         for(var c:cases) {

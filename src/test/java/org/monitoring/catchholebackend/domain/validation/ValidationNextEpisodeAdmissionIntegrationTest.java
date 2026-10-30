@@ -185,14 +185,44 @@ class ValidationNextEpisodeAdmissionIntegrationTest extends ValidationSettingsAp
         assertThat(writes(f.work())).isEqualTo(before);
     }
 
-    @Test @DisplayName("무효화된 report는 다음 회차 등록을 막지 않는다")
-    void invalidatedReportDoesNotBlock() throws Exception {
-        var f=fixture();runToCompletion(f,true);replace(f,"수정한 합성 원고");
+    @Test @DisplayName("파일 교체로 무효화된 report는 재검수가 퇴역시키기 전까지 current로 남아 다음 회차를 막고, 재검수 report가 APPLIED가 되면 허용한다")
+    void invalidatedReportBlocksUntilRecheckApplies() throws Exception {
+        var f=fixture();runToCompletion(f,true);String replaced="수정한 합성 원고";replace(f,replaced);
         assertThat(stage(f)).isEqualTo(ValidationReviewStage.INVALIDATED);
-        assertThat(eligibility(f.member(),f.work(),null).path("nextEpisodeAdmission").path("allowed").asBoolean()).isTrue();
+        assertThat(jdbc.queryForObject("select is_current from validation_reports where id=?",Boolean.class,f.report())).as("only a recheck retires it").isTrue();
+        // 받아 주면 101이 최신 회차가 아니게 되어 재검수가 거절되고 101을 추출할 길이 없어진다.
+        assertBlockedEverywhere(f,ValidationReviewStage.INVALIDATED);
+        assertThat(eligibility(f.member(),f.work(),null).path("nextEpisodeAdmission").path("blockingReviewStage").asText()).isEqualTo("INVALIDATED");
+
+        var next=recheck(f,"after-fix");
+        assertThat(jdbc.queryForObject("select is_current from validation_reports where id=?",Boolean.class,f.report())).as("retired report is no longer consulted").isFalse();
+        assertThat(admissions.get(next.member(),next.work(),next.report()).mode()).isEqualTo(ValidationReportMode.BEFORE_CONFIRMATION);
+        assertThatThrownBy(()->upload(f.member(),f.work(),Mode.SINGLE,102)).as("the recheck report blocks until applied")
+                .isInstanceOfSatisfying(AppException.class,e->assertThat(e.getErrorContext()).containsEntry("reportId",next.report().toString()));
+        var run=runToCompletion(next,false);var release=(UUID)run.done().get("extractionJobId");assertThat(release).as(String.valueOf(run.done())).isNotNull();
+        sourceText=replaced;var payload=analysisWorker.claimAnalysisJob(claimRequest()).orElseThrow();assertThat(payload.analysisJobId()).isEqualTo(release);
+        inJob(release,job->world(job,"엘프","서식지","남부"));completeExtraction(release,payload.leaseToken());
+        assertThat(applicationRow(next).get("status")).isEqualTo("APPLIED");assertThat(stage(next)).isEqualTo(ValidationReviewStage.APPLIED);
+
         var uploaded=upload(f.member(),f.work(),Mode.MULTI_SINGLE_FILE,102);
         assertThat(uploaded.createdEpisodes()).extracting(e->e.episodeNo()).containsExactly(102,103);
         assertThat(uploaded.createdEpisodes()).allSatisfy(e->assertThat(uploadEligible(e.id())).as("multi upload is never a validation target").isFalse());
+    }
+
+    @Test @DisplayName("삭제(ARCHIVED)한 회차의 report는 퇴역하지 않아도 다음 회차 등록을 막지 않는다")
+    void deletedEpisodeReportDoesNotBlock() throws Exception {
+        var f=fixture();runToCompletion(f,true);
+        assertBlockedEverywhere(f,ValidationReviewStage.AWAITING_REVIEW);
+        episodes.deleteEpisode(f.member(),f.work(),f.target());
+        assertThat(jdbc.queryForObject("select status from episodes where id=?",String.class,f.target())).isEqualTo("ARCHIVED");
+        assertThat(jdbc.queryForObject("select is_current from validation_reports where id=?",Boolean.class,f.report())).as("deletion does not retire the report").isTrue();
+        var admission=eligibility(f.member(),f.work(),null).path("nextEpisodeAdmission");
+        assertThat(admission.path("allowed").asBoolean()).isTrue();assertThat(admission.path("blockingReportId").isNull()).isTrue();
+        // 커밋 뒤 원문 파기가 끝나 비워진 101화 번호로 새 원고를 단일 append 업로드한다.
+        var uploaded=upload(f.member(),f.work(),Mode.SINGLE,101);var next=uploaded.createdEpisodes().getFirst().id();
+        assertThat(uploadEligible(next)).isTrue();
+        assertThat(eligibility(f.member(),f.work(),next).path("reasonCode").asText()).as("eligibility reads the same admission query")
+                .isEqualTo(ValidationEligibilityReason.ELIGIBLE.name());
     }
 
     @Test @DisplayName("확정 뒤 진단 재검수(DIAGNOSTIC_ONLY)는 검토 대기에서 멈춰도 다음 회차 등록을 막지 않는다")

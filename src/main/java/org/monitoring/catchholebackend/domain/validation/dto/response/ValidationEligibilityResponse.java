@@ -21,7 +21,7 @@ public record ValidationEligibilityResponse(
     public record CurrentReport(UUID reportId, @Schema(example = "1") long revision, ValidationReportMode mode,
             @Schema(description = "파생 검수 단계", example = "AWAITING_REVIEW") ValidationReviewStage reviewStage) {}
 
-    @Schema(name = "ValidationEligibilityNextEpisodeAdmission", description = "다음 회차 등록 차단. 작품에 확정 전 검수(BEFORE_CONFIRMATION) 현재 report가 있고 검수 단계가 APPLIED·INVALIDATED가 아니면 allowed=false이며 모든 업로드 방식이 409 VALIDATION_NEXT_EPISODE_BLOCKED입니다. 진단 재검수(DIAGNOSTIC_ONLY)는 막지 않습니다.")
+    @Schema(name = "ValidationEligibilityNextEpisodeAdmission", description = "다음 회차 등록 차단. 작품의 활성 회차에 확정 전 검수(BEFORE_CONFIRMATION) 현재 report가 있고 검수 단계가 APPLIED가 아니면(INVALIDATED 포함, 재검수 뒤 APPLIED까지) allowed=false이며 모든 업로드 방식이 409 VALIDATION_NEXT_EPISODE_BLOCKED입니다. 진단 재검수(DIAGNOSTIC_ONLY)·재검수로 퇴역한 report·삭제된 회차의 report는 막지 않습니다.")
     public record NextEpisodeAdmission(
             @Schema(example = "false") boolean allowed,
             @Schema(description = "등록을 막는 report. 허용이면 null", nullable = true) UUID blockingReportId,
