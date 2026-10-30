@@ -209,6 +209,31 @@ class ValidationNextEpisodeAdmissionIntegrationTest extends ValidationSettingsAp
         assertThat(uploaded.createdEpisodes()).allSatisfy(e->assertThat(uploadEligible(e.id())).as("multi upload is never a validation target").isFalse());
     }
 
+    @Test @DisplayName("회차 전체 확정(APPLIED) 뒤 다음 회차를 받고 앞 회차 원고를 교체해 report가 무효가 되어도 이후 회차 등록을 막지 않는다")
+    void appliedThenReplacedEpisodeDoesNotBlockNextEpisode() throws Exception {
+        var r=release();var f=r.f();applicable(r);completeExtraction(r);
+        assertThat(applicationRow(f).get("status")).isEqualTo("APPLIED");
+        upload(f.member(),f.work(),Mode.SINGLE,102);
+        replace(f,"수정한 합성 원고");
+        // 원고 교체 정리(EpisodeSourceChanged)는 APPLIED report도 current인 채 INVALIDATED로 만들고 회차 전체 확정 receipt는 이력으로 남긴다.
+        var row=jdbc.queryForMap("select is_current,status,baseline_status from validation_reports where id=?",f.report());
+        assertThat(row.get("is_current")).isEqualTo(true);assertThat(row.get("status")).isEqualTo("INVALIDATED");assertThat(row.get("baseline_status")).isEqualTo("INVALIDATED");
+        assertThat(applicationRow(f).get("status")).as("the APPLIED receipt survives the invalidation").isEqualTo("APPLIED");
+        assertThat(stage(f)).as("history semantics stay INVALIDATED").isEqualTo(ValidationReviewStage.INVALIDATED);
+
+        var admission=eligibility(f.member(),f.work(),null).path("nextEpisodeAdmission");
+        assertThat(admission.path("allowed").asBoolean()).isTrue();assertThat(admission.path("blockingReportId").isNull()).isTrue();
+        var next=upload(f.member(),f.work(),Mode.SINGLE,103).createdEpisodes().getFirst().id();
+        assertThat(uploadEligible(next)).isTrue();
+        assertThat(eligibility(f.member(),f.work(),next).path("reasonCode").asText()).as("intake reads the same admission rule").isEqualTo("ELIGIBLE");
+
+        // 101은 최신 회차가 아니므로 진단 재검수는 기존 규칙대로 거절된다. 현재 report는 그대로 101의 이력이다.
+        var view=eligibility(f.member(),f.work(),f.target());
+        assertThat(view.path("reasonCode").asText()).isEqualTo("REPORT_EXISTS");assertThat(view.path("latestEpisode").asBoolean()).isFalse();
+        assertThatThrownBy(()->recheck(f,"diagnostic-after-replacement")).isInstanceOfSatisfying(AppException.class,
+                e->assertThat(e.getResultCode().getCode()).isEqualTo("VALIDATION_TARGET_INVALID"));
+    }
+
     @Test @DisplayName("삭제(ARCHIVED)한 회차의 report는 퇴역하지 않아도 다음 회차 등록을 막지 않는다")
     void deletedEpisodeReportDoesNotBlock() throws Exception {
         var f=fixture();runToCompletion(f,true);

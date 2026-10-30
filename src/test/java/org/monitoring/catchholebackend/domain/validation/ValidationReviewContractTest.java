@@ -71,13 +71,14 @@ class ValidationReviewContractTest {
         assertThat(blocked.path("message").asText()).isEqualTo(code.getMessage());
     }
 
-    @Test @DisplayName("다음 회차 차단 예시가 서버 규칙(BEFORE_CONFIRMATION이고 APPLIED가 아니면 INVALIDATED도 차단)과 같다")
+    @Test @DisplayName("다음 회차 차단 예시가 서버 규칙(BEFORE_CONFIRMATION이고 APPLIED가 아니면 INVALIDATED도 차단, APPLIED receipt가 있으면 허용)과 같다")
     void nextEpisodeAdmissionCasesMatchRule() throws Exception {
         var cases=fixture().path("nextEpisodeAdmissionCases");var covered=EnumSet.noneOf(ValidationReviewStage.class);
         for(var c:cases) {
             var mode=ValidationReportMode.valueOf(c.path("mode").asText());var stage=ValidationReviewStage.valueOf(c.path("reviewStage").asText());
-            assertThat(ValidationNextEpisodeAdmission.blocks(mode,stage)).as(mode+"/"+stage).isEqualTo(c.path("blocks").asBoolean());
-            if(mode==ValidationReportMode.BEFORE_CONFIRMATION)covered.add(stage);
+            var application=c.path("application").isMissingNode()||c.path("application").isNull()?null:ValidationApplicationStatus.valueOf(c.path("application").asText());
+            assertThat(ValidationNextEpisodeAdmission.blocks(mode,stage,application)).as(mode+"/"+stage+"/"+application).isEqualTo(c.path("blocks").asBoolean());
+            if(mode==ValidationReportMode.BEFORE_CONFIRMATION&&application==null)covered.add(stage);
         }
         assertThat(covered).as("every stage is listed for BEFORE_CONFIRMATION").containsExactlyInAnyOrder(ValidationReviewStage.values());
     }

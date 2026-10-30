@@ -232,6 +232,9 @@
     {"mode": "BEFORE_CONFIRMATION", "reviewStage": "HELD_INCOMPLETE", "blocks": true},
     {"mode": "BEFORE_CONFIRMATION", "reviewStage": "APPLIED", "blocks": false},
     {"mode": "BEFORE_CONFIRMATION", "reviewStage": "INVALIDATED", "blocks": true},
+    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "INVALIDATED", "application": "APPLIED", "blocks": false},
+    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "INVALIDATED", "application": "HELD_REVIEW", "blocks": true},
+    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "APPLICATION_HELD", "application": "HELD_REVIEW", "blocks": true},
     {"mode": "DIAGNOSTIC_ONLY", "reviewStage": "VALIDATING", "blocks": false},
     {"mode": "DIAGNOSTIC_ONLY", "reviewStage": "AWAITING_REVIEW", "blocks": false}
   ],
@@ -255,7 +258,7 @@
     "reviewStageIsDerived": "reviewStage is never stored; every projection calls ValidationReviewStages.resolve",
     "existingFieldsUnchanged": "errorReviewStatus, extractionStatus, candidateStatus, Episode analysisStatus and batch status keep their S1-S3 meaning",
     "eligibilitySharesStartPredicate": "GET /eligibility and POST /episode-validations read the same ValidationIntakeEligibility judgement; the lookup writes nothing",
-    "nextEpisodeBlockRule": "a work is blocked while an active (non-ARCHIVED) episode has a current BEFORE_CONFIRMATION report whose reviewStage is not APPLIED (INVALIDATED included); DIAGNOSTIC_ONLY reports, retired (current=false) reports and reports of deleted episodes are not consulted",
+    "nextEpisodeBlockRule": "a work is blocked while an active (non-ARCHIVED) episode has a current BEFORE_CONFIRMATION report whose reviewStage is not APPLIED (INVALIDATED included) and whose whole-episode application receipt is not APPLIED; a report with an APPLIED receipt never blocks even after a later invalidation; DIAGNOSTIC_ONLY reports, retired (current=false) reports and reports of deleted episodes are not consulted",
     "nextEpisodeBlockWritesNothing": "a blocked episode upload (every upload type) writes no UploadBatch, UploadFile, Episode or stored object; detect, file replacement, setting books and title edits are not blocked"
   }
 }

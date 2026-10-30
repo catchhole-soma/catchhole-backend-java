@@ -24,7 +24,7 @@
 
 먼저 원고를 업로드하고 회차 상세의 hash/key/version을 사용한다. 일반 분석을 먼저 시작하면 신규 검수 접수 자격이 없어진다. 서버가 기록한 신규 단일 append 업로드 자격, 최신 회차/소유권/배치, 현재 원문 버전, 이전 Job 유무(legacy target-only 관계 포함)를 검증한다. 첫 회차 번호는 1이고 활성 인물/세계관 설정 또는 설정집 revision 등의 비교 자료가 있어야 한다. 기존 원고에는 자격을 소급 부여하지 않는다.
 
-> #314 B1: 이 접수 자격은 `processor.ValidationIntakeEligibility` 하나가 판정하며 접수 전 자격 조회(`GET /eligibility`, `getEpisodeValidationEligibility`)가 같은 판정을 읽기만 한다. 활성 회차의 확정 전 검수(`BEFORE_CONFIRMATION`) 현재 report가 APPLIED가 아닌 동안(원고 교체로 INVALIDATED인 경우 포함, 재검수 report가 APPLIED될 때까지) 모든 업로드 방식의 다음 회차 등록은 409 `VALIDATION_NEXT_EPISODE_BLOCKED`(쓰기 0)다. 사유 표·차단 규칙·잠금 순서는 `docs/validation-review-v1.md`의 "접수 자격 조회·다음 회차 차단 (#314 B1)"을 따르며, 아래 "새 업로드 제한 정책을 구현하지 않는다"는 #303 시점 기록이다.
+> #314 B1: 이 접수 자격은 `processor.ValidationIntakeEligibility` 하나가 판정하며 접수 전 자격 조회(`GET /eligibility`, `getEpisodeValidationEligibility`)가 같은 판정을 읽기만 한다. 활성 회차의 확정 전 검수(`BEFORE_CONFIRMATION`) 현재 report가 APPLIED가 아닌 동안(원고 교체로 INVALIDATED인 경우 포함, 재검수 report가 APPLIED될 때까지. 회차 전체 확정 APPLIED receipt가 있는 report는 이후 무효화돼도 막지 않음) 모든 업로드 방식의 다음 회차 등록은 409 `VALIDATION_NEXT_EPISODE_BLOCKED`(쓰기 0)다. 사유 표·차단 규칙·잠금 순서는 `docs/validation-review-v1.md`의 "접수 자격 조회·다음 회차 차단 (#314 B1)"을 따르며, 아래 "새 업로드 제한 정책을 구현하지 않는다"는 #303 시점 기록이다.
 
 Work 잠금 안에서 report와 대상의 **접수 당시 batch/episodeNo/hash/key/version**을 저장하고, 기존 확정 state 캡처를 읽기 전용으로 재사용해 seed/세계관 이력/과거 source 목록과 정규화된 기준을 확보한다. `AnalysisJob`, 추출 run, 후보, provisional journal, 확정 설정/Fact/출처/서사 시점은 생성하지 않는다. 합성 Job도 만들지 않는다.
 
