@@ -22,7 +22,8 @@ import org.springframework.test.context.*;
  * 다음 회차 업로드와 최신 회차 검수 접수가 같은 Work 행 잠금으로 직렬화되는지 실제 행 잠금 대기로 확인한다.
  * Destructive fixture cleanup is guarded to a new disposable loopback DB, never .env/shared DB.
  */
-@SpringBootTest(properties={"spring.config.import=","spring.docker.compose.enabled=false"}) @ActiveProfiles("test")
+// chat.recovery-delay-ms: 이 클래스와 무관한 채팅 복구 scheduler가 fixture TRUNCATE와 겹쳐 읽지 않도록 Context 시작 1회만 돌게 한다.
+@SpringBootTest(properties={"spring.config.import=","spring.docker.compose.enabled=false","chat.recovery-delay-ms=3600000"}) @ActiveProfiles("test")
 @TestPropertySource(locations="classpath:validation-execution-fixture.properties")
 @EnabledIfEnvironmentVariable(named="GH310_EXECUTION_POSTGRES_JDBC_URL",matches="jdbc:postgresql://127\\.0\\.0\\.1:[0-9]+/gh310_execution_test")
 @DisplayName("격리 PostgreSQL의 다음 회차 등록 차단과 검수 접수 직렬화")
@@ -32,7 +33,7 @@ class ValidationNextEpisodeAdmissionPostgresIntegrationTest extends ValidationNe
         p.add("spring.datasource.driver-class-name",()->"org.postgresql.Driver");p.add("spring.jpa.hibernate.ddl-auto",()->"validate");p.add("spring.flyway.enabled",()->"true");
     }
     /** Worker claim은 DB 전체의 대기 Job을 고르므로 매 테스트 전에 합성 작품·회원 그래프를 모두 지운다. */
-    @BeforeEach void clean() {jdbc.execute("TRUNCATE TABLE works,members CASCADE");}
+    @BeforeEach void clean() {org.monitoring.catchholebackend.support.PostgresFixtureCleanup.truncate(jdbc,"TRUNCATE TABLE works,members CASCADE");}
 
     static void await(CountDownLatch latch) {try {if(!latch.await(15,TimeUnit.SECONDS))throw new AssertionError("synthetic latch timed out");}catch(InterruptedException ex){Thread.currentThread().interrupt();throw new AssertionError(ex);}}
     /** 이 DB에서 행 잠금을 기다리는 세션 수가 n이 될 때까지 기다린다. */
