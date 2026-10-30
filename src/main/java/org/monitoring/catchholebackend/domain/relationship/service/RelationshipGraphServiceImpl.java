@@ -38,6 +38,7 @@ import org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobLeaseS
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
+import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
@@ -89,6 +90,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     private final AnalysisRunStateService runState;
     private final AnalysisJobRepository jobs;
     private final SettingCandidateRepository candidates;
+    private final WorkCharacterRepository characters;
     private final EpisodeRepository episodes;
     private final EpisodeSourcePurgeRequestRepository purges;
     private final WorkRepository works;
@@ -317,7 +319,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                             evidence));
             edge.changed();
         }
-        linkNewlyConfirmedCharacters(job, analysis);
+        linkConfirmedCharacters(job, analysis, context);
         analysis.apply();
         // A later manual job may have prepared before this earlier episode completed.
         for (var later :
@@ -327,7 +329,8 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         }
     }
 
-    private void linkNewlyConfirmedCharacters(AnalysisJob job, RelationshipGraphAnalysis analysis) {
+    private void linkConfirmedCharacters(
+            AnalysisJob job, RelationshipGraphAnalysis analysis, Context context) {
         var confirmed =
                 candidates.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(job.getId()).stream()
                         .filter(
@@ -336,18 +339,45 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                                                         == SettingCandidateReviewStatus.CONFIRMED
                                                 && c.getMatchedCharacterId() != null)
                         .toList();
-        for (JsonNode bound : analysis.getBindings().path("nodes")) {
-            var node = nodes.findById(UUID.fromString(bound.path("id").asText())).orElseThrow();
-            if (node.getCharacterId() != null
-                    || node.getFirstEpisodeNo() != analysis.getEpisodeNo()) continue;
-            var matches =
+        Map<UUID, RelationshipGraphNode> currentNodes =
+                nodes.findAllByWorkIdOrderByFirstEpisodeNoAscIdAsc(job.getWork().getId()).stream()
+                        .filter(n -> n.getFirstEpisodeNo() <= analysis.getEpisodeNo())
+                        .collect(Collectors.toMap(RelationshipGraphNode::getId, n -> n));
+        Map<String, Long> nameCounts =
+                currentNodes.values().stream()
+                        .collect(
+                                Collectors.groupingBy(
+                                        RelationshipGraphNode::getName, Collectors.counting()));
+        Map<UUID, UUID> links = new HashMap<>();
+        for (ContextNode visible : context.nodes()) {
+            var node = currentNodes.get(nodeId(analysis, visible.ref()));
+            if (node == null
+                    || node.getCharacterId() != null
+                    || nameCounts.getOrDefault(node.getName(), 0L) != 1) continue;
+            Set<UUID> matches =
                     confirmed.stream()
                             .filter(c -> node.getName().equals(c.getEntityName()))
                             .map(c -> c.getMatchedCharacterId())
-                            .distinct()
-                            .toList();
-            if (matches.size() == 1) node.link(matches.getFirst(), analysis.getEpisodeNo());
+                            .collect(Collectors.toSet());
+            JsonNode frozen =
+                    analysis.getBindings()
+                            .path("nodes")
+                            .path(visible.ref())
+                            .path("knownCharacterId");
+            if (frozen.isTextual()) matches.add(UUID.fromString(frozen.asText()));
+            if (matches.size() == 1) links.put(node.getId(), matches.iterator().next());
         }
+        // Validate ownership in one query; never attach a stale/cross-work frozen identity.
+        Set<UUID> owned =
+                characters.findAllById(new HashSet<>(links.values())).stream()
+                        .filter(c -> c.getWork().getId().equals(job.getWork().getId()))
+                        .map(c -> c.getId())
+                        .collect(Collectors.toSet());
+        links.forEach(
+                (nodeId, characterId) -> {
+                    if (owned.contains(characterId))
+                        currentNodes.get(nodeId).link(characterId, analysis.getEpisodeNo());
+                });
     }
 
     private BuiltContext buildContext(AnalysisJob job, Prepare request) {
@@ -436,6 +466,10 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                                         && node.getCharacterLinkedEpisodeNo() <= cutoff));
                 ObjectNode binding = nodeBindings.putObject(ref);
                 binding.put("id", node.getId().toString());
+                List<UUID> identities =
+                        known.getOrDefault(node.getName(), List.of()).stream().distinct().toList();
+                if (group.size() == 1 && identities.size() == 1)
+                    binding.put("knownCharacterId", identities.getFirst().toString());
             }
         List<ContextObservation> observations =
                 request.observations().stream()

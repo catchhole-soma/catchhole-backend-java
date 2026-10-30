@@ -34,7 +34,11 @@ import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRep
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobLeaseService;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus;
+import org.monitoring.catchholebackend.domain.character.type.SettingEntityType;
+import org.monitoring.catchholebackend.domain.character.type.SettingValueType;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodePurgeDataRepository;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
@@ -52,6 +56,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -573,6 +578,230 @@ class EpisodeRelationshipGraphIntegrationTest {
                         .path(ref)
                         .path("id")
                         .asText());
+    }
+
+    @Test
+    @DisplayName("앞 회차 미등록 인물은 뒤 회차의 확정 프로필에 연결되고 과거에는 미등록으로 남는다")
+    void earlierStandaloneNodeLinksToLaterConfirmedProfile() {
+        UUID first = job(1);
+        Context initial = prepare(first);
+        apply(first, initial, action(initial, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
+        UUID nodeId =
+                boundNodeId(first, initial.observations().getFirst().sourceNodeRefs().getFirst());
+        UUID second = job(2);
+        Context later = prepare(second);
+        UUID characterId = character("아라");
+        confirmCandidate(second, characterId, "아라");
+        apply(second, later, action(later, Operation.UPDATE, Kind.COMPANIONSHIP, "함께 여행한다"));
+
+        assertProfileLink(nodeId, characterId, 1, 2);
+        assertThat(service.getRelationshipGraph(owner, workId, 1).nodes())
+                .filteredOn(n -> n.id().equals(nodeId))
+                .singleElement()
+                .satisfies(n -> assertThat(n.profileRegistered()).isFalse());
+        assertThat(service.getRelationshipGraph(owner, workId, 2).nodes())
+                .filteredOn(n -> n.id().equals(nodeId))
+                .singleElement()
+                .satisfies(n -> assertThat(n.profileRegistered()).isTrue());
+        tx.executeWithoutResult(
+                status ->
+                        service.finalizeRelationshipAnalysis(jobs.findById(second).orElseThrow()));
+        assertProfileLink(nodeId, characterId, 1, 2);
+    }
+
+    @Test
+    @DisplayName("관계 반영 뒤 수동 확정한 프로필은 다음 회차의 고정 인물 정보로 연결한다")
+    void frozenKnownIdentityLinksAfterEarlierManualConfirmation() {
+        UUID first = job(1);
+        Context initial = prepare(first);
+        apply(first, initial, action(initial, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
+        UUID nodeId =
+                boundNodeId(first, initial.observations().getFirst().sourceNodeRefs().getFirst());
+        UUID characterId = character("현재 프로필의 다른 이름");
+        confirmCandidate(first, characterId, "아라");
+        frozenCharacter("아라", characterId);
+        UUID second = job(2, true);
+        Context later = prepare(second);
+        assertProfileLink(nodeId, null, 1, null);
+        // The saved prepare input is authoritative even if a later reader supplies other state.
+        frozenCharacter("아라", character("또 다른 최신 프로필"));
+        apply(second, later, action(later, Operation.UPDATE, Kind.COMPANIONSHIP, "함께 여행한다"));
+
+        assertProfileLink(nodeId, characterId, 1, 2);
+        assertThat(service.getRelationshipGraph(owner, workId, 1).nodes())
+                .filteredOn(n -> n.id().equals(nodeId))
+                .singleElement()
+                .satisfies(n -> assertThat(n.profileRegistered()).isFalse());
+        assertThat(service.getRelationshipGraph(owner, workId, 2).nodes())
+                .filteredOn(n -> n.id().equals(nodeId))
+                .singleElement()
+                .satisfies(
+                        n -> {
+                            assertThat(n.profileRegistered()).isTrue();
+                            assertThat(n.name()).isEqualTo("아라");
+                        });
+    }
+
+    @Test
+    @DisplayName("고정 인물과 이번 확정 후보의 ID가 다르면 미등록 노드를 연결하지 않는다")
+    void conflictingFrozenAndConfirmedIdentitiesDoNotLink() {
+        UUID first = job(1);
+        Context initial = prepare(first);
+        apply(first, initial, action(initial, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
+        UUID nodeId =
+                boundNodeId(first, initial.observations().getFirst().sourceNodeRefs().getFirst());
+        frozenCharacter("아라", character("아라"));
+        UUID second = job(2, true);
+        Context later = prepare(second);
+        confirmCandidate(second, character("아라"), "아라");
+        apply(second, later, action(later, Operation.UPDATE, Kind.COMPANIONSHIP, "함께 여행한다"));
+        assertProfileLink(nodeId, null, 1, null);
+    }
+
+    @Test
+    @DisplayName("고정 인물 ID가 다른 작품의 프로필이면 미등록 노드에 연결하지 않는다")
+    void frozenIdentityFromAnotherWorkDoesNotLink() {
+        UUID first = job(1);
+        Context initial = prepare(first);
+        apply(first, initial, action(initial, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
+        UUID nodeId =
+                boundNodeId(first, initial.observations().getFirst().sourceNodeRefs().getFirst());
+        UUID foreignCharacter =
+                tx.execute(
+                        status -> {
+                            Work foreignWork =
+                                    Work.create(
+                                            em.find(Member.class, other),
+                                            "다른 작품",
+                                            WorkGenre.FANTASY,
+                                            null);
+                            em.persist(foreignWork);
+                            WorkCharacter character =
+                                    WorkCharacter.create(
+                                            foreignWork,
+                                            "아라",
+                                            null,
+                                            null,
+                                            null,
+                                            null,
+                                            null,
+                                            null,
+                                            null,
+                                            null,
+                                            null);
+                            em.persist(character);
+                            return character.getId();
+                        });
+        frozenCharacter("아라", foreignCharacter);
+        UUID second = job(2, true);
+        Context later = prepare(second);
+        apply(second, later, action(later, Operation.UPDATE, Kind.COMPANIONSHIP, "함께 여행한다"));
+        assertProfileLink(nodeId, null, 1, null);
+    }
+
+    @Test
+    @DisplayName("동명 노드가 여러 개면 확정 프로필이 하나여도 임의로 연결하지 않는다")
+    void ambiguousStandaloneNodesDoNotLinkToSingleConfirmedProfile() {
+        UUID first = job(1);
+        Context initial = prepare(first);
+        apply(first, initial, action(initial, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
+        UUID original =
+                boundNodeId(first, initial.observations().getFirst().sourceNodeRefs().getFirst());
+        UUID duplicate = UUID.randomUUID();
+        tx.executeWithoutResult(
+                status ->
+                        em.persist(RelationshipGraphNode.create(duplicate, workId, null, "아라", 1)));
+        UUID second = job(2);
+        Context later = prepare(second);
+        confirmCandidate(second, character("아라"), "아라");
+        apply(
+                second,
+                later,
+                new Decision(
+                        List.of("O1"),
+                        Operation.HOLD,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        TemporalScope.UNKNOWN,
+                        "동명 인물 구분이 필요하다"));
+        assertProfileLink(original, null, 1, null);
+        assertProfileLink(duplicate, null, 1, null);
+    }
+
+    private UUID character(String name) {
+        return tx.execute(
+                status -> {
+                    WorkCharacter character =
+                            WorkCharacter.create(
+                                    em.find(Work.class, workId),
+                                    name,
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null);
+                    em.persist(character);
+                    return character.getId();
+                });
+    }
+
+    private void confirmCandidate(UUID jobId, UUID characterId, String name) {
+        tx.executeWithoutResult(
+                status -> {
+                    AnalysisJob job = jobs.findById(jobId).orElseThrow();
+                    ObjectMapper json = new ObjectMapper();
+                    SettingCandidate candidate =
+                            SettingCandidate.create(
+                                    job.getWork(),
+                                    job.getEpisode(),
+                                    UUID.randomUUID(),
+                                    job,
+                                    SettingEntityType.CHARACTER,
+                                    name,
+                                    name,
+                                    characterId,
+                                    SettingCandidateMatchStatus.MATCHED,
+                                    "profile.설명",
+                                    "여행자",
+                                    SettingValueType.STRING,
+                                    json.createObjectNode().put("value", "여행자"),
+                                    json.createArrayNode(),
+                                    BigDecimal.ONE,
+                                    json.createObjectNode());
+                    candidate.confirm();
+                    em.persist(candidate);
+                });
+    }
+
+    private void frozenCharacter(String name, UUID characterId) {
+        var input = new ObjectMapper().createObjectNode();
+        input.putArray("characters")
+                .addObject()
+                .put("name", name)
+                .put("actualCharacterId", characterId.toString());
+        doReturn(input).when(runState).getInputState(any());
+    }
+
+    private void assertProfileLink(
+            UUID nodeId, UUID characterId, int firstEpisode, Integer linkedEpisode) {
+        tx.executeWithoutResult(
+                status -> {
+                    em.clear();
+                    RelationshipGraphNode node = em.find(RelationshipGraphNode.class, nodeId);
+                    assertThat(node.getFirstEpisodeNo()).isEqualTo(firstEpisode);
+                    assertThat(node.getCharacterId()).isEqualTo(characterId);
+                    assertThat(node.getCharacterLinkedEpisodeNo()).isEqualTo(linkedEpisode);
+                });
     }
 
     @Test
