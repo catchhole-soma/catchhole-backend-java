@@ -15,6 +15,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
+import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.global.storage.ObjectStorage;
+import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshotSource;
@@ -80,6 +87,12 @@ class CharacterFactControllerIntegrationTest {
 
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
+
+    @Autowired
+    private AnalysisJobRepository analysisJobRepository;
+
+    @MockitoBean
+    private ObjectStorage objectStorage;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -353,11 +366,17 @@ class CharacterFactControllerIntegrationTest {
     @DisplayName("상세는 후보 근거 인용문 순서를 유지하고 Fact 출처가 없으면 후보 회차를 사용한다")
     void detailReturnsEvidenceAndCandidateEpisodeFallback() throws Exception {
         WorkCharacter character = workCharacterRepository.save(character(work, "아리아"));
+        String firstQuote = "아리아는 물약을 꺼냈다.", secondQuote = "체력이 회복되었다.";
+        String source = firstQuote + "\n" + secondQuote;
+        AnalysisJob sourceJob = AnalysisJob.create(work, null, secondEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(sourceJob, "sourceContentHash", new ObjectStorageService(objectStorage).contentHash(source));
+        sourceJob = analysisJobRepository.saveAndFlush(sourceJob);
+        org.mockito.Mockito.when(objectStorage.getText(sourceJob.getSourceContentS3Key())).thenReturn(source);
         SettingCandidate candidate = settingCandidateRepository.save(SettingCandidate.create(
                 work,
                 secondEpisode,
                 UUID.randomUUID(),
-                null,
+                sourceJob,
                 SettingEntityType.CHARACTER,
                 "아리아",
                 "item.체력_물약",
@@ -367,12 +386,12 @@ class CharacterFactControllerIntegrationTest {
                 JsonNodeFactory.instance.arrayNode()
                         .add(JsonNodeFactory.instance.objectNode()
                                 .put("quote", "아리아는 물약을 꺼냈다.")
-                                .put("startOffset", 12)
-                                .put("endOffset", 25))
+                                .put("startOffset", 0)
+                                .put("endOffset", firstQuote.length()))
                         .add(JsonNodeFactory.instance.objectNode()
                                 .put("quote", "체력이 회복되었다.")
-                                .put("startOffset", 30)
-                                .put("endOffset", 40)),
+                                .put("startOffset", firstQuote.length() + 1)
+                                .put("endOffset", source.length())),
                 new BigDecimal("0.9100"),
                 JsonNodeFactory.instance.objectNode().put("raw", "숨김")
         ));
@@ -1082,6 +1101,7 @@ class CharacterFactControllerIntegrationTest {
         characterFactRepository.deleteAll();
         settingCandidateRepository.deleteAll();
         workCharacterRepository.deleteAll();
+        analysisJobRepository.deleteAll();
         episodeRepository.deleteAll();
         characterSettingSchemaRepository.deleteAll();
         workRepository.deleteAll();

@@ -54,8 +54,14 @@ import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.monitoring.catchholebackend.domain.validation.service.ValidationSettingsApplicationService;
 
+@lombok.extern.slf4j.Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -94,6 +100,8 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     private final WorldSettingCandidateRepository worldSettingCandidateRepository;
     private final SettingCandidateRepository settingCandidateRepository;
     private final CharacterFactComparisonJobCoordinator characterComparisonJobCoordinator;
+    private final ValidationSettingsApplicationService settingsApplications;
+    private final PlatformTransactionManager transactionManager;
 
     @Override
     @Transactional
@@ -230,11 +238,36 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.SUPPORTS)
     public void completeAnalysisJob(
             UUID analysisJobId,
             UUID leaseToken,
             WorkerAnalysisJobCompleteRequest request
+    ) {
+        // 바깥 트랜잭션에 참여하면 기존처럼 한 트랜잭션이다. 되돌림 신호는 재실행 없이 그대로 전달한다.
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            completeAnalysisJob(analysisJobId, leaseToken, request, null);
+            return;
+        }
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        try {
+            transaction.executeWithoutResult(status -> completeAnalysisJob(analysisJobId, leaseToken, request, null));
+        } catch (AppException exception) {
+            if (!ValidationSettingsApplicationService.isRolledBack(exception)) {
+                throw exception;
+            }
+            // GH312 S3: 검수 release Job의 회차 전체 확정이 되돌려졌다. 첫 트랜잭션은 완료·반영을 모두 되돌렸으므로
+            // 같은 완료를 반영 없이 다시 실행해 추출 결과와 보류 사유만 저장한다. 추출 성공은 설정 확정이 아니다.
+            log.warn("회차 전체 확정을 되돌리고 추출 완료만 저장합니다. analysisJobId={}", analysisJobId);
+            transaction.executeWithoutResult(status -> completeAnalysisJob(analysisJobId, leaseToken, request, exception));
+        }
+    }
+
+    private void completeAnalysisJob(
+            UUID analysisJobId,
+            UUID leaseToken,
+            WorkerAnalysisJobCompleteRequest request,
+            AppException rolledBackApplication
     ) {
         // 사용자 수정과 같은 Work → Job 잠금 순서로 두 도메인의 반영과 완료를 원자적으로 처리한다.
         analysisJobRepository.findById(analysisJobId).filter(AnalysisJob::isAutomaticReview)
@@ -262,7 +295,11 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 analysisJob.markJournalIncomplete();
             } else {
                 analysisRunStateService.seal(analysisJob);
-                if (analysisJob.isAutomaticReview()) {
+                if (analysisJob.isAutomaticReview() && settingsApplications.isReleaseJob(analysisJob)) {
+                    // GH312 S3: 검수 release Job은 기존 contributor 대신 회차 전체 확정이 두 도메인을 한 번에 반영하거나
+                    // 아무것도 쓰지 않고 보류를 기록한다. automaticAppliedAt은 APPLIED일 때만 이 서비스가 기록한다.
+                    settingsApplications.applyAutomatically(analysisJob, rolledBackApplication);
+                } else if (analysisJob.isAutomaticReview()) {
                     java.util.Set<String> domains = new java.util.HashSet<>();
                     for (AnalysisAutomaticApplicationContributor contributor : automaticApplicationContributors) {
                         if (!domains.add(contributor.applicationDomain())) {

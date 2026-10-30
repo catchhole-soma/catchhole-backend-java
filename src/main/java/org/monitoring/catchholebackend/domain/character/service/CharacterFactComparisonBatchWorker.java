@@ -143,6 +143,7 @@ public class CharacterFactComparisonBatchWorker {
             throw new OrderedCharacterComparisonClaimException();
         }
         analysisStateService.prepareProvisionalCandidates(analysisJob);
+        SchemaLookup schemas = new SchemaLookup();
 
         while (true) {
         List<CandidateTarget> selected;
@@ -153,7 +154,7 @@ public class CharacterFactComparisonBatchWorker {
                 if (!comparisonJobCoordinator.hasCurrentInput(analysisJob, scopeCandidates)) {
                     return Optional.empty();
                 }
-                selected = selectNextScopeGroup(scopeCandidates, supportsPersonBatches);
+                selected = selectNextScopeGroup(scopeCandidates, supportsPersonBatches, schemas);
                 if (selected.isEmpty()) {
                     return Optional.empty();
                 }
@@ -162,7 +163,7 @@ public class CharacterFactComparisonBatchWorker {
                 if (candidate.getComparisonStatus() != CharacterFactComparisonStatus.PENDING) {
                     return Optional.empty();
                 }
-                Optional<CanonicalTarget> target = findValidTarget(candidate);
+                Optional<CanonicalTarget> target = findValidTarget(candidate, schemas);
                 if (target.isEmpty()) {
                     candidate.quarantineInvalidComparison();
                     return Optional.empty();
@@ -170,7 +171,7 @@ public class CharacterFactComparisonBatchWorker {
                 selected = List.of(new CandidateTarget(candidate, target.get()));
             }
         } else {
-            selected = selectNextGroup(analysisJob, supportsPersonBatches);
+            selected = selectNextGroup(analysisJob, supportsPersonBatches, schemas);
             if (selected.isEmpty()) {
                 return Optional.empty();
             }
@@ -211,11 +212,12 @@ public class CharacterFactComparisonBatchWorker {
         );
         CharacterFactComparisonBatch batch = getBatchForUpdate(analysisJob, comparisonBatchId);
         requireProcessing(batch);
-        List<CandidateTarget> candidates = getProcessingBatchCandidates(batch);
+        SchemaLookup schemas = new SchemaLookup();
+        List<CandidateTarget> candidates = getProcessingBatchCandidates(batch, schemas);
         requireCurrentGroupInput(analysisJob);
         ComparisonCharacter character = getComparisonCharacter(batch,
                 batch.getMatchedCharacter() == null ? null : getBatchCharacterOrNull(batch, true));
-        BatchContext context = buildContext(batch, character, candidates);
+        BatchContext context = buildContext(batch, character, candidates, schemas);
         batch.recordContext(character.snapshotVersion(), context.contextToken());
         if (character.orderedState() != null) {
             batch.recordAnalysisContext(character.orderedState());
@@ -262,11 +264,12 @@ public class CharacterFactComparisonBatchWorker {
             return;
         }
         requireProcessing(batch);
-        List<CandidateTarget> candidates = getProcessingBatchCandidates(batch);
+        SchemaLookup schemas = new SchemaLookup();
+        List<CandidateTarget> candidates = getProcessingBatchCandidates(batch, schemas);
         requireCurrentGroupInput(analysisJob);
         ComparisonCharacter character = getComparisonCharacter(batch,
                 batch.getMatchedCharacter() == null ? null : getBatchCharacterOrNull(batch, true));
-        BatchContext context = buildContext(batch, character, candidates);
+        BatchContext context = buildContext(batch, character, candidates, schemas);
         if (batch.getContextHash() == null
                 || batch.getBaseSnapshotVersion() != character.snapshotVersion()
                 || !Objects.equals(batch.getContextHash(), request.contextToken())
@@ -323,6 +326,7 @@ public class CharacterFactComparisonBatchWorker {
 
         LocalDateTime comparedAt = LocalDateTime.now();
         JsonNode projectedTime = context.advisoryCurrentContext() == null ? null : workerMapper.toJsonNode(context.advisoryCurrentContext().currentNarrativeTime());
+        var prepared = analysisJob.isOrderedProvisional() ? analysisStateService.prepareState(analysisJob) : null;
         for (ValidatedDecision decision : validated) {
             WorkerCharacterFactComparisonBatchCompleteRequest.Decision requestDecision = decision.request();
             SettingCandidate candidate = decision.candidateTarget().candidate();
@@ -351,20 +355,17 @@ public class CharacterFactComparisonBatchWorker {
                 candidate.recordAutomaticReviewHold(org.monitoring.catchholebackend.domain.analysis.type.AutomaticReviewHoldReason.SETTING_TIME_CONFIRMATION_REQUIRED);
             }
             JsonNode currentTime = analysisJob.isOrderedProvisional()
-                    ? analysisStateService.getTarget(analysisJob, candidate.getMatchedCharacterId(), candidate.getProvisionalSubjectKey()).path("currentNarrativeTime")
+                    ? analysisStateService.getTarget(analysisJob, candidate.getMatchedCharacterId(), candidate.getProvisionalSubjectKey(), prepared).path("currentNarrativeTime")
                     : projectedTime;
             analysisStateService.recordNarrativeTimeSelection(candidate, requestDecision.advanceCurrentNarrativeTime(), currentTime);
             JsonNode nextTime = org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.selected(candidate, currentTime);
             if (nextTime != null) projectedTime = nextTime;
             var proposed = snapshotAccessor.entry(decision.resolvedSlot().factType(), decision.resolvedSlot().factKey(),
                     requestDecision.proposedFactValue(), decision.proposedValueJson());
-            if (requestDecision.operation() == CharacterFactOperation.REVIEW_REQUIRED && !isBlank(requestDecision.targetSnapshotRef())) {
-                analysisStateService.recordDecision(analysisJob, candidate, proposed,
-                        decision.removedSlots(), decision.dependencyCandidateIds(), requestDecision.targetSnapshotRef());
-            } else {
-                analysisStateService.recordDecision(analysisJob, candidate, proposed,
-                        decision.removedSlots(), decision.dependencyCandidateIds());
-            }
+            String incompatibleRef = requestDecision.operation() == CharacterFactOperation.REVIEW_REQUIRED
+                    && !isBlank(requestDecision.targetSnapshotRef()) ? requestDecision.targetSnapshotRef() : null;
+            analysisStateService.recordDecision(analysisJob, candidate, proposed,
+                    decision.removedSlots(), decision.dependencyCandidateIds(), incompatibleRef, prepared);
         }
         failures.forEach((ref, failure) -> {
             var candidate = findByRef(candidates, ref).candidate();
@@ -458,7 +459,8 @@ public class CharacterFactComparisonBatchWorker {
         if (batchCandidates.isEmpty()) {
             return false;
         }
-        List<CandidateTarget> targets = resolveBatchTargets(batch, batchCandidates, false);
+        SchemaLookup schemas = new SchemaLookup();
+        List<CandidateTarget> targets = resolveBatchTargets(batch, batchCandidates, false, schemas);
         requireCurrentGroupInput(batch.getAnalysisJob());
         ComparisonCharacter character = getComparisonCharacter(batch,
                 batch.getMatchedCharacter() == null ? null : getBatchCharacterOrNull(batch, true));
@@ -466,11 +468,11 @@ public class CharacterFactComparisonBatchWorker {
                 && batch.getBaseSnapshotVersion() != character.snapshotVersion()) {
             return false;
         }
-        BatchContext context = buildContext(batch, character, targets);
+        BatchContext context = buildContext(batch, character, targets, schemas);
         return Objects.equals(candidate.getComparisonContextHash(), context.contextToken());
     }
 
-    private List<CandidateTarget> selectNextGroup(AnalysisJob analysisJob, boolean supportsPersonBatches) {
+    private List<CandidateTarget> selectNextGroup(AnalysisJob analysisJob, boolean supportsPersonBatches, SchemaLookup schemas) {
         while (true) {
             List<SettingCandidate> seeds = settingCandidateRepository.findComparisonClaimCandidates(
                     analysisJob.getId(),
@@ -483,7 +485,7 @@ public class CharacterFactComparisonBatchWorker {
             }
             boolean quarantined = false;
             for (SettingCandidate seed : seeds) {
-                Optional<CanonicalTarget> target = findValidTarget(seed);
+                Optional<CanonicalTarget> target = findValidTarget(seed, schemas);
                 if (target.isEmpty()) {
                     if (analysisJob.isOrderedProvisional() && analysisJob.isAutomaticReview()) {
                         seed.deferComparisonPreparation(AutomaticReviewHoldReason.SETTING_VALUE_CONFIRMATION_REQUIRED);
@@ -522,7 +524,7 @@ public class CharacterFactComparisonBatchWorker {
                 List<CandidateTarget> selected = resolveBatchTargets(
                         null,
                         SettingCandidateChronology.sorted(lockedGroup),
-                        true
+                        true, schemas
                 ).stream().filter(value -> supportsPersonBatches
                         || value.target().factType() == target.get().factType()).toList();
                 if (analysisJob.isOrderedProvisional() && lockedGroup.stream().anyMatch(candidate ->
@@ -544,7 +546,7 @@ public class CharacterFactComparisonBatchWorker {
         }
     }
 
-    private List<CandidateTarget> selectNextScopeGroup(List<SettingCandidate> scopeCandidates, boolean supportsPersonBatches) {
+    private List<CandidateTarget> selectNextScopeGroup(List<SettingCandidate> scopeCandidates, boolean supportsPersonBatches, SchemaLookup schemas) {
         if (scopeCandidates.stream().anyMatch(candidate -> candidate.getComparisonStatus()
                 == CharacterFactComparisonStatus.PROCESSING)) {
             return List.of();
@@ -557,12 +559,12 @@ public class CharacterFactComparisonBatchWorker {
                 return List.of();
             }
             SettingCandidate first = pending.getFirst();
-            Optional<CanonicalTarget> target = findValidTarget(first);
+            Optional<CanonicalTarget> target = findValidTarget(first, schemas);
             if (target.isEmpty()) {
                 first.quarantineInvalidComparison();
                 continue;
             }
-            return resolveBatchTargets(null, pending, true).stream()
+            return resolveBatchTargets(null, pending, true, schemas).stream()
                     .filter(value -> supportsPersonBatches || value.target().factType() == target.get().factType()).toList();
         }
     }
@@ -570,11 +572,11 @@ public class CharacterFactComparisonBatchWorker {
     private List<CandidateTarget> resolveBatchTargets(
             CharacterFactComparisonBatch batch,
             List<SettingCandidate> candidates,
-            boolean quarantineInvalid
+            boolean quarantineInvalid, SchemaLookup schemas
     ) {
         List<CandidateTarget> resolved = new ArrayList<>();
         for (SettingCandidate candidate : candidates) {
-            Optional<CanonicalTarget> target = findValidTarget(candidate);
+            Optional<CanonicalTarget> target = findValidTarget(candidate, schemas);
             if (target.isEmpty()) {
                 if (quarantineInvalid && candidate.getComparisonStatus() == CharacterFactComparisonStatus.PENDING) {
                     if (candidate.getAnalysisJob().isOrderedProvisional() && candidate.getAnalysisJob().isAutomaticReview()) {
@@ -625,9 +627,9 @@ public class CharacterFactComparisonBatchWorker {
     private BatchContext buildContext(
             CharacterFactComparisonBatch batch,
             ComparisonCharacter character,
-            List<CandidateTarget> candidates
+            List<CandidateTarget> candidates, SchemaLookup schemas
     ) {
-        ContextInput context = prepareContext(batch, character, candidates);
+        ContextInput context = prepareContext(batch, character, candidates, schemas);
         return new BatchContext(context.responseEntries(), context.projection(),
                 sha256(context.fingerprint()), context.advisoryCurrentContext());
     }
@@ -635,13 +637,13 @@ public class CharacterFactComparisonBatchWorker {
     private ContextInput prepareContext(
             CharacterFactComparisonBatch batch,
             ComparisonCharacter character,
-            List<CandidateTarget> candidates
+            List<CandidateTarget> candidates, SchemaLookup schemas
     ) {
         Projection projection = character.orderedState() == null
                 ? loadPersistedProjection(character.entity(), batch.getCanonicalFactType())
                 : loadOrderedProjection(character.orderedState(), batch.getCanonicalFactType());
         if (character.orderedState() == null) {
-            applyPriorCompletedDecisions(batch, candidates, projection);
+            applyPriorCompletedDecisions(batch, candidates, projection, schemas);
         }
         candidates.forEach(value -> projection.registerDependency(value.candidate().getId()));
         Projection selected = batch.getCanonicalFactType() == null ? selectAllContextEntries(projection)
@@ -856,7 +858,7 @@ public class CharacterFactComparisonBatchWorker {
     private void applyPriorCompletedDecisions(
             CharacterFactComparisonBatch batch,
             List<CandidateTarget> currentCandidates,
-            Projection projection
+            Projection projection, SchemaLookup schemas
     ) {
         Set<UUID> currentIds = currentCandidates.stream()
                 .map(value -> value.candidate().getId())
@@ -883,7 +885,7 @@ public class CharacterFactComparisonBatchWorker {
                 continue;
             }
             projection.registerDependency(candidate.getId());
-            Optional<CanonicalTarget> target = findValidTarget(candidate);
+            Optional<CanonicalTarget> target = findValidTarget(candidate, schemas);
             if (target.isEmpty() || batch.getCanonicalFactType() != null
                     && target.get().factType() != batch.getCanonicalFactType()) {
                 continue;
@@ -1229,7 +1231,7 @@ public class CharacterFactComparisonBatchWorker {
         }
     }
 
-    private List<CandidateTarget> getProcessingBatchCandidates(CharacterFactComparisonBatch batch) {
+    private List<CandidateTarget> getProcessingBatchCandidates(CharacterFactComparisonBatch batch, SchemaLookup schemas) {
         List<SettingCandidate> candidates = SettingCandidateChronology.sorted(
                 settingCandidateRepository.findAllByCharacterComparisonBatchIdForUpdate(batch.getId())
         );
@@ -1238,7 +1240,7 @@ public class CharacterFactComparisonBatchWorker {
                 candidate.getComparisonStatus() != CharacterFactComparisonStatus.PROCESSING)) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT);
         }
-        List<CandidateTarget> targets = resolveBatchTargets(batch, candidates, false);
+        List<CandidateTarget> targets = resolveBatchTargets(batch, candidates, false, schemas);
         if (targets.size() != candidates.size()) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_WORKER_JOB_INVALID);
         }
@@ -1304,8 +1306,17 @@ public class CharacterFactComparisonBatchWorker {
         return List.copyOf(result);
     }
 
-    private CanonicalTarget resolveTarget(SettingCandidate candidate) {
-        List<CharacterSettingSchema> schemas = schemaRepository.findAllActiveForWork(candidate.getWork().getId());
+    /** 작업 하나의 후보·이전 결정 순회에서만 활성 schema를 재사용한다. */
+    private final class SchemaLookup {
+        private final Map<UUID, List<CharacterSettingSchema>> byWork = new HashMap<>();
+
+        private List<CharacterSettingSchema> forCandidate(SettingCandidate candidate) {
+            return byWork.computeIfAbsent(candidate.getWork().getId(),
+                    workId -> List.copyOf(schemaRepository.findAllActiveForWork(workId)));
+        }
+    }
+
+    private CanonicalTarget resolveTarget(SettingCandidate candidate, List<CharacterSettingSchema> schemas) {
         SettingCandidateSchemaMatch match = schemaResolver.resolve(
                 candidate.getAttributeName(),
                 candidate.getValueType(),
@@ -1324,9 +1335,9 @@ public class CharacterFactComparisonBatchWorker {
         );
     }
 
-    private Optional<CanonicalTarget> findValidTarget(SettingCandidate candidate) {
+    private Optional<CanonicalTarget> findValidTarget(SettingCandidate candidate, SchemaLookup schemas) {
         try {
-            return Optional.of(resolveTarget(candidate));
+            return Optional.of(resolveTarget(candidate, schemas.forCandidate(candidate)));
         } catch (AppException exception) {
             if (exception.getResultCode() instanceof CharacterErrorCode) {
                 return Optional.empty();

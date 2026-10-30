@@ -1,0 +1,129 @@
+package org.monitoring.catchholebackend.domain.validation.service;
+
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import jakarta.persistence.EntityManager;
+import java.util.*;
+import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal;
+import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
+import org.monitoring.catchholebackend.domain.episode.repository.*;
+import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
+import org.monitoring.catchholebackend.domain.validation.dto.request.ValidationRecheckRequest;
+import org.monitoring.catchholebackend.domain.validation.dto.response.*;
+import org.monitoring.catchholebackend.domain.validation.entity.*;
+import org.monitoring.catchholebackend.domain.validation.exception.ValidationErrorCode;
+import org.monitoring.catchholebackend.domain.validation.repository.*;
+import org.monitoring.catchholebackend.domain.validation.type.ValidationReportStatus;
+import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
+import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
+import org.monitoring.catchholebackend.global.exception.AppException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service @RequiredArgsConstructor @Transactional(readOnly=true)
+public class ValidationRecheckServiceImpl implements ValidationRecheckService {
+    private final WorkRepository works;
+    private final EpisodeRepository episodes;
+    private final EpisodeSourcePurgeRequestRepository purges;
+    private final ValidationReportRepository reports;
+    private final ValidationRequestKeyRepository keys;
+    private final ValidationCorrectionRepository corrections;
+    private final ValidationBaselineService baselines;
+    private final AnalysisStateJournal journal;
+    private final EntityManager em;
+    private final ValidationWorkerService workers;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationReviewGate reviewGate;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationExecutionAccess access;
+    private final ValidationSettingsApplicationRepository settingsApplications;
+    private final ValidationReviewCompletionRepository reviewCompletions;
+    private final org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService runStates;
+
+    @Override @Transactional
+    public ValidationStagingResponse recheckValidation(Long memberId,UUID workId,UUID reportId,ValidationRecheckRequest request) {
+        var work=works.getOwnedWorkForUpdate(workId,memberId);
+        var input=JsonNodeFactory.instance.objectNode().put("reportId",reportId.toString())
+                .put("expectedReportVersion",request.expectedReportVersion()).put("contentHash",request.expectedContentHash())
+                .put("key",request.expectedContentS3Key()).put("version",request.expectedContentS3Version())
+                .put("contentRevision",request.expectedContentRevision())
+                .put("baselineHash",request.expectedBaselineHash()).put("correctionReceiptId",request.correctionReceiptId()==null?null:request.correctionReceiptId().toString());
+        var hash=journal.hash(input); var keyed=keys.findByWorkIdAndRequestKey(workId,request.idempotencyKey());
+        if(keyed.isPresent()) {
+            if(!"RECHECK".equals(keyed.get().getRequestKind()) || !hash.equals(keyed.get().getRequestHash())) throw error(ValidationErrorCode.VALIDATION_IDEMPOTENCY_CONFLICT);
+            workers.queuePrepared(keyed.get().getReport());
+            return staging(keyed.get().getReport());
+        }
+        var previous=reports.findByIdAndWorkId(reportId,workId).orElseThrow(()->error(ValidationErrorCode.VALIDATION_NOT_FOUND));
+        em.flush(); em.refresh(previous);
+        if(!previous.isCurrent() || previous.getVersion()!=request.expectedReportVersion()) throw error(ValidationErrorCode.VALIDATION_REPORT_VERSION_CONFLICT);
+        var target=episodes.findByIdAndWorkIdAndStatusNot(previous.getEpisode().getId(),workId,EpisodeStatus.ARCHIVED)
+                .orElseThrow(()->error(ValidationErrorCode.VALIDATION_TARGET_INVALID));
+        em.refresh(target);
+        if(!episodes.findFirstByWorkIdAndStatusNotOrderByEpisodeNoDesc(workId,EpisodeStatus.ARCHIVED).map(e->e.getId().equals(target.getId())).orElse(false)
+                || purges.blocksSource(target.getId(),target.getContentS3Key())) throw error(ValidationErrorCode.VALIDATION_TARGET_INVALID);
+        if(!Objects.equals(target.getContentHash(),request.expectedContentHash()) || !Objects.equals(target.getContentS3Key(),request.expectedContentS3Key())
+                || !Objects.equals(target.getContentS3Version(),request.expectedContentS3Version())
+                || target.getContentRevision()!=request.expectedContentRevision()) throw error(ValidationErrorCode.VALIDATION_SOURCE_VERSION_CONFLICT);
+        if(em.createQuery("select count(j) from AnalysisJob j where j.work.id=:work and j.status in ('PENDING','RUNNING') and (j.episode.id=:episode or exists (select t.id from AnalysisJob owner join owner.targetEpisodes t where owner.id=j.id and t.id=:episode))",Long.class)
+                .setParameter("work",workId).setParameter("episode",target.getId()).getSingleResult()!=0) throw error(ValidationErrorCode.VALIDATION_TARGET_INVALID);
+        if(request.correctionReceiptId()!=null) {
+            var correction=corrections.findByIdAndWorkId(request.correctionReceiptId(),workId).orElseThrow(()->error(ValidationErrorCode.VALIDATION_CORRECTION_CONFLICT));
+            if(!correction.getReport().getId().equals(reportId) || correction.getReportVersion()!=previous.getVersion()
+                    || request.expectedBaselineHash()!=null && !request.expectedBaselineHash().equals(correction.getBaselineHash())) throw error(ValidationErrorCode.VALIDATION_CORRECTION_CONFLICT);
+        } else if(!Objects.equals(request.expectedBaselineHash(),previous.getBaselineFingerprint())
+                || previous.getBaselineFingerprint()==null && previous.getBaselineSeed()!=null) {
+            throw error(ValidationErrorCode.VALIDATION_SOURCE_VERSION_CONFLICT);
+        }
+        // GH312 S3: 회차 전체 확정 APPLIED report는 무효화하지 않으므로, 확정으로 바뀐 기준 입력을 진단 재검수할 수 있게 같은 원고도 허용한다.
+        if(previous.getBaselineFingerprint()!=null && previous.getStatus()!=ValidationReportStatus.INVALIDATED
+                && !settingsApplications.existsByReportIdAndStatus(previous.getId(),org.monitoring.catchholebackend.domain.validation.type.ValidationApplicationStatus.APPLIED)
+                && target.getContentRevision()==previous.getSourceContentRevision()
+                && Objects.equals(target.getContentHash(),previous.getSourceContentHash()) && Objects.equals(target.getContentS3Key(),previous.getSourceContentS3Key())
+                && Objects.equals(target.getContentS3Version(),previous.getSourceContentS3Version())) throw error(ValidationErrorCode.VALIDATION_RECHECK_INPUT_UNCHANGED);
+        var application=previousApplication(workId,target.getId());
+        // GH312: 파일 교체 뒤에는 회차의 현재 원본이 새 batch에 있다. release Job이 같은 batch로 생성되도록 새 report를 그 batch에 묶는다.
+        var currentBatch=access.currentUploadBatch(target.getId()).filter(b->b.getWork().getId().equals(workId))
+                .orElseThrow(()->error(ValidationErrorCode.VALIDATION_TARGET_INVALID));
+        closeStaleReleaseJob(previous);
+        baselines.retire(previous); em.flush(); // partial unique current index: old pointer must leave before the insert.
+        var next=reports.save(ValidationReport.recheck(previous,currentBatch,hash,application));
+        baselines.prepare(next); workers.queuePrepared(next); keys.save(ValidationRequestKey.create(work,request.idempotencyKey(),next,"RECHECK",hash)); em.flush();
+        return staging(next);
+    }
+
+    @Override public ValidationStagingResponse getCurrentValidation(Long memberId,UUID workId,UUID episodeId) {
+        works.getOwnedWork(workId,memberId);
+        return staging(reports.findByEpisodeIdAndCurrentTrue(episodeId).filter(r->r.getWork().getId().equals(workId))
+                .orElseThrow(()->error(ValidationErrorCode.VALIDATION_NOT_FOUND)));
+    }
+
+    /**
+     * GH312 S4: 퇴역할 report의 검토 종료 receipt가 만든 release Job이 재개를 기다리는 순차 실패(FAILED 또는 SUCCEEDED+INCOMPLETE)로 남으면,
+     * 새 report의 release가 공개 생성 경로의 ANALYSIS_ORDERED_JOB_RETRY_REQUIRED에 막히고 옛 Job은 현재 receipt 연결이 없어 재시도도 막힌다.
+     * 기존 순차 무효화 경로(invalidateFrom, Work → Job 잠금)로 그 Job만 닫는다. 진행 중 Job은 위에서 이미 재검수를 거절했다.
+     */
+    private void closeStaleReleaseJob(ValidationReport previous) {
+        reviewCompletions.findByReportId(previous.getId()).map(ValidationReviewCompletion::getExtractionJob)
+                .filter(job->job.isOrderedProvisional()
+                        &&(job.getJournalStatus()==org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.PENDING||job.getJournalStatus()==org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.INCOMPLETE)
+                        &&(job.getStatus()==org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.FAILED
+                            ||job.getStatus()==org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.SUCCEEDED&&job.getJournalStatus()==org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.INCOMPLETE))
+                .ifPresent(job->runStates.invalidateFrom(job,"재검수로 이전 검토 종료의 설정 추출을 이어갈 수 없습니다."));
+    }
+
+    private ValidationApplicationReference previousApplication(UUID workId,UUID episodeId) {
+        // A successful extraction is not an application receipt. Only actual application/confirmation rows count.
+        var automatic=em.createQuery("select j from AnalysisJob j where j.work.id=:work and j.automaticAppliedAt is not null and (j.episode.id=:episode or exists (select t.id from AnalysisJob owner join owner.targetEpisodes t where owner.id=j.id and t.id=:episode)) order by j.automaticAppliedAt desc,j.id desc",AnalysisJob.class)
+                .setParameter("work",workId).setParameter("episode",episodeId).setMaxResults(1).getResultList();
+        if(!automatic.isEmpty()) {var j=automatic.getFirst();return new ValidationApplicationReference("AUTOMATIC_APPLICATION",j.getId(),j.getId(),j.getAutomaticAppliedAt());}
+        var character=em.createQuery("select c from SettingCandidate c left join c.analysisJob j where c.work.id=:work and c.reviewStatus='CONFIRMED' and (c.episode.id=:episode or j.episode.id=:episode) order by c.id desc",SettingCandidate.class)
+                .setParameter("work",workId).setParameter("episode",episodeId).setMaxResults(1).getResultList();
+        if(!character.isEmpty()) {var c=character.getFirst();return new ValidationApplicationReference("CHARACTER_CONFIRMATION",c.getId(),c.getAnalysisJob()==null?null:c.getAnalysisJob().getId(),null);}
+        var world=em.createQuery("select c from WorldSettingCandidate c where c.work.id=:work and c.reviewStatus='CONFIRMED' and (c.sourceEpisode.id=:episode or c.analysisJob.episode.id=:episode) order by c.reviewedAt desc,c.id desc",WorldSettingCandidate.class)
+                .setParameter("work",workId).setParameter("episode",episodeId).setMaxResults(1).getResultList();
+        if(!world.isEmpty()) {var c=world.getFirst();return new ValidationApplicationReference("WORLD_SETTING_CONFIRMATION",c.getId(),c.getAnalysisJob()==null?null:c.getAnalysisJob().getId(),c.getReviewedAt());}
+        return null;
+    }
+    private ValidationStagingResponse staging(ValidationReport report) {var extraction=reviewGate.extraction(report);return ValidationStagingResponse.from(report,reviewGate.errorReviewStatus(report),extraction.jobId(),extraction.status(),extraction.candidateStatus(),reviewGate.reviewStage(report));}
+    private AppException error(ValidationErrorCode code) {return new AppException(code);}
+}

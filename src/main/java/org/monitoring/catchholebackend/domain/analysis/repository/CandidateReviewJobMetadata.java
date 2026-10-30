@@ -12,12 +12,12 @@ import org.monitoring.catchholebackend.domain.upload.type.SettingBookReferenceTi
 /** 목록 요청이 필요로 하는 원본·비교 Job의 scalar 값만 보존한다. */
 public record CandidateReviewJobMetadata(UUID id, UUID workId, UUID batchId, AnalysisJobType jobType,
         AnalysisMode analysisMode, AnalysisReviewMode reviewMode, AnalysisJobStatus status,
-        AnalysisJournalStatus journalStatus, LocalDateTime automaticAppliedAt, AnalysisSourceKind sourceKind,
+        AnalysisJournalStatus journalStatus, LocalDateTime automaticAppliedAt, LocalDateTime reviewApplicationHeldAt, AnalysisSourceKind sourceKind,
         UUID episodeId, Integer sourceEpisodeNo, Integer episodeNo, UUID settingBookId, String settingBookName,
         UUID revisionId, Integer revisionNo, String contentHash, SettingBookReferenceTimeKind referenceTimeKind,
         Integer referenceEpisodeNo, String characterComparisonInputHash, boolean currentSourceVersion, boolean latestOrigin) {
     public AnalysisReviewState reviewState() {
-        return new AnalysisReviewState(analysisMode, reviewMode, status, journalStatus, automaticAppliedAt, currentSourceVersion);
+        return new AnalysisReviewState(analysisMode, reviewMode, status, journalStatus, automaticAppliedAt, currentSourceVersion, reviewApplicationHeldAt);
     }
     public boolean settingBookSource() { return sourceKind == AnalysisSourceKind.SETTING_BOOK; }
     public boolean actionable() { return !settingBookSource() || currentSourceVersion && latestOrigin; }

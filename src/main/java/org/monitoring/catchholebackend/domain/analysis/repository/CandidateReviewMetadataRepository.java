@@ -17,7 +17,7 @@ public interface CandidateReviewMetadataRepository extends Repository<AnalysisJo
     @Query("""
             select new org.monitoring.catchholebackend.domain.analysis.repository.CandidateReviewJobMetadata(
                 job.id, job.work.id, job.batch.id, job.jobType, job.analysisMode, job.reviewMode, job.status,
-                job.journalStatus, job.automaticAppliedAt, job.sourceKind, episode.id, job.sourceEpisodeNo,
+                job.journalStatus, job.automaticAppliedAt, job.reviewApplicationHeldAt, job.sourceKind, episode.id, job.sourceEpisodeNo,
                 episode.episodeNo, book.id, book.originalFilename, revision.id, revision.revisionNo,
                 job.sourceContentHash, revision.referenceTimeKind, revision.referenceEpisodeNo, job.characterComparisonInputHash,
                 case when job.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.SETTING_BOOK then

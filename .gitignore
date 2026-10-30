@@ -86,3 +86,7 @@ docs/.obsidian/
 # Worker private scrape targets
 deploy/monitoring/targets/workers/*.json
 deploy/monitoring/targets/workers/*.json.next
+
+# RDS monitoring runtime configuration and generated alert payloads
+deploy/monitoring/targets/rds-backup/*.json
+deploy/monitoring/rds-backup-alerts/generated/

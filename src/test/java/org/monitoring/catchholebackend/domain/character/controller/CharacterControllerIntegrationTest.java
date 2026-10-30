@@ -30,6 +30,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshotSource;
@@ -2790,11 +2792,16 @@ class CharacterControllerIntegrationTest {
         int firstEndOffset = firstStartOffset + firstQuote.length();
         int secondStartOffset = analysisSource.indexOf(secondQuote);
         int secondEndOffset = secondStartOffset + secondQuote.length();
+        AnalysisJob sourceJob = AnalysisJob.create(work, null, firstEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(sourceJob, "sourceContentS3Key", analysisSourceKey);
+        ReflectionTestUtils.setField(sourceJob, "sourceContentHash",
+                new org.monitoring.catchholebackend.global.storage.ObjectStorageService(objectStorage).contentHash(analysisSource));
+        sourceJob = analysisJobRepository.saveAndFlush(sourceJob);
         SettingCandidate candidate = SettingCandidate.create(
                 work,
                 firstEpisode,
                 UUID.randomUUID(),
-                null,
+                sourceJob,
                 SettingEntityType.CHARACTER,
                 "수아",
                 "age",
@@ -2879,8 +2886,8 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("캐릭터 Fact 원문 조회 실패 시 출처와 인용문은 유지한다")
-    void getCharacterFactEvidenceKeepsQuotesWhenSourceReadFails() throws Exception {
+    @DisplayName("캐릭터 Fact 원문 조회 실패 시 출처를 유지하고 확인 불가 인용만 숨긴다")
+    void getCharacterFactEvidenceHidesQuotesWhenSourceReadFails() throws Exception {
         WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "수아", null, null));
         SettingCandidate candidate = settingCandidateRepository.saveAndFlush(SettingCandidate.create(
                 work,
@@ -2924,9 +2931,7 @@ class CharacterControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content").doesNotExist())
                 .andExpect(jsonPath("$.data.episode.episodeNo").value(1))
-                .andExpect(jsonPath("$.data.evidenceSpans[0].quote").value("수아는 스물세 살이었다."))
-                .andExpect(jsonPath("$.data.evidenceSpans[0].startOffset").doesNotExist())
-                .andExpect(jsonPath("$.data.evidenceSpans[0].endOffset").doesNotExist());
+                .andExpect(jsonPath("$.data.evidenceSpans").isEmpty());
     }
 
     @Test

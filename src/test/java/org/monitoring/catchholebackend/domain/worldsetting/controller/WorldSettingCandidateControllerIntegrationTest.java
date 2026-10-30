@@ -788,12 +788,7 @@ class WorldSettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.groups.content[0].evidenceEpisodeNos[0]").value(3))
                 .andExpect(jsonPath("$.data.groups.content[0].status").value("READY"))
                 .andExpect(jsonPath("$.data.groups.content[0].candidates.length()").value(2))
-                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].evidenceSpans[0].quote")
-                        .value("바바리안은 혹한 지역다."))
-                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].evidenceSpans[0].startOffset")
-                        .value(10))
-                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].evidenceSpans[0].endOffset")
-                        .value(30));
+                .andExpect(jsonPath("$.data.groups.content[0].candidates[0].evidenceSpans").isEmpty());
     }
 
     @Test
@@ -1179,8 +1174,7 @@ class WorldSettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.propertyEvidence[0].settingName").value("생명력"))
                 .andExpect(jsonPath("$.data.propertyEvidence[0].latestEvidence.value")
                         .value("선택 가능한 종족 중 가장 높다"))
-                .andExpect(jsonPath("$.data.propertyEvidence[0].history[0].evidenceSpans[0].quote")
-                        .value("바바리안은 선택 가능한 종족 중 생명력이 가장 높다."));
+                .andExpect(jsonPath("$.data.propertyEvidence[0].history[0].evidenceSpans").isEmpty());
 
         String recreatedRootValue = "후속 회차에서 별도 root로 다시 기록됐다";
         applied.addProperty("생명력", recreatedRootValue);

@@ -75,7 +75,7 @@ public final class RelationshipGraphContract {
     @Schema(description = "원문의 인물 표기. 이름이 확인되지 않으면 name은 null입니다.")
     public record Endpoint(String name, String mention) {}
 
-    @Schema(description = "검증한 원문 인용과 전역 Unicode code point 위치")
+    @Schema(name = "RelationshipGraphEvidence", description = "검증한 원문 인용과 전역 Unicode code point 위치")
     public record Evidence(int startOffset, int endOffset, String quote) {}
 
     @Schema(description = "추출된 관계 관측. 실제 관계 확정과 구분합니다.")

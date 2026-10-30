@@ -92,7 +92,8 @@ class AnalysisJobOrderedRetryTest {
         service = new AnalysisJobServiceImpl(runStateService, org.mockito.Mockito.mock(AnalysisGuideService.class), jobRepository, org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchSummaryRepository.class), workRepository,
                 batchRepository, fileRepository, new AnalysisJobMapper(), new org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisJobProgressMapper(), batchMapper,
                 episodeRepository, purgeRepository, characterRepository, worldRepository, tokenService,
-                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator.class));
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator.class),
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.validation.repository.ValidationReviewCompletionRepository.class));
         Member member = Member.register("retry@example.com", "password", "01012345678", "작가");
         ReflectionTestUtils.setField(member, "id", MEMBER_ID);
         work = Work.create(member, "누적 작품", WorkGenre.FANTASY, "설명");
@@ -426,7 +427,8 @@ class AnalysisJobOrderedRetryTest {
         assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
         assertThat(job.getJournalStatus()).isEqualTo(AnalysisJournalStatus.INVALIDATED);
         verifyNoInteractions(characterRepository, worldRepository, tokenService,
-                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator.class));
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator.class),
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.validation.repository.ValidationReviewCompletionRepository.class));
     }
 
     @ParameterizedTest
@@ -477,7 +479,8 @@ class AnalysisJobOrderedRetryTest {
 
         assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
         verifyNoInteractions(characterRepository, worldRepository, tokenService,
-                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator.class));
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator.class),
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.validation.repository.ValidationReviewCompletionRepository.class));
     }
 
     @Test
@@ -491,7 +494,8 @@ class AnalysisJobOrderedRetryTest {
 
         assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
         verifyNoInteractions(characterRepository, worldRepository, tokenService,
-                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator.class));
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator.class),
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.validation.repository.ValidationReviewCompletionRepository.class));
     }
 
     @Test
@@ -518,7 +522,8 @@ class AnalysisJobOrderedRetryTest {
                 .isInstanceOf(AppException.class);
 
         verifyNoInteractions(runStateService, characterRepository, worldRepository, tokenService,
-                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator.class));
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonJobCoordinator.class),
+                org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.validation.repository.ValidationReviewCompletionRepository.class));
         verify(jobRepository, never()).save(any());
     }
 

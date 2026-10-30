@@ -14,7 +14,8 @@
 | [AI Token Usage](ai-token-usage.md) | AI 요청별 토큰 예약·정산, 사용자 한도와 운영 지급 정책 |
 | [Infrastructure Flow](infrastructure-flow.md) | 현재 운영 구조, 스케일링 전략, 미결정 인프라 선택지와 단계별 전환 계획 |
 | [2026-09-10 운영 현황](operations-status-2026-09-10.md) | #171 AWS·컨테이너 확인 결과, DB 연결 한도·백업·비용, 재확인 방법과 미확인 항목 |
-| [RDS 백업·삭제 보호](rds-backup-policy.md) | #172 RPO 15분·RTO 12시간·보존 7일의 근거, 설정 재확인, 삭제 절차, T4·T5 확인 경로·권한 |
+| [RDS 백업·삭제 보호](rds-backup-policy.md) | #172 RPO 15분·RTO 2시간 목표·보존 7일의 근거, 설정 재확인, 삭제 절차, T4·T5 확인 경로·권한 |
+| [RDS 자원·백업 알림](../deploy/RDS_BACKUP_MONITORING.md) | #174 연결 예산 29개와 DB 한도, 자원·백업 원천/임계값·수집 신뢰성, Discord 대응·운영 검증 상태 |
 | [Load Tests](load-tests/README.md) | 운영 조회·실제 TXT 분석 10·50·100건 계획과 결과, 실행기 사용법, 측정·중단 기준 |
 | [Global](global.md) | 공통 응답, 예외 처리, 보안, 설정, 스토리지 기반 구조 |
 | [Auth](auth.md) | 회원가입, 로그인, JWT/refresh token, 세션 API 흐름 |

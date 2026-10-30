@@ -74,6 +74,7 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
             SettingCandidate candidate,
             CharacterFactConfirmApplicationMode applicationMode
     ) {
+        analysisConfirmation.assertManualWriteAllowed(candidate);
         automaticImages.refreshCharacterImages(List.of(promote(candidate, applicationMode, new HashSet<>(), Map.of(), new LinkedHashMap<>(), false, ValidatedIdentities.empty())));
         if (candidate.getAnalysisJob() != null) finalizeNarrativeTimes(candidate.getAnalysisJob());
     }
@@ -248,6 +249,8 @@ public class SettingCandidatePromotionServiceImpl implements SettingCandidatePro
         if (promotions.isEmpty()) {
             throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
         }
+        // 신규 대상 생성은 사람의 그룹 확정에서만 호출된다. release 회차는 회차 전체 확정만 반영한다(GH312 S3).
+        promotions.forEach(p -> analysisConfirmation.assertManualWriteAllowed(p.candidate()));
         promotions.forEach(p -> analysisConfirmation.assertReviewSourceCurrent(p.candidate()));
         SettingCandidate representative = promotions.getFirst().candidate();
         validationEvents.publishEvent(new org.monitoring.catchholebackend.domain.validation.event.ValidationStagingEvents.ConfirmedSettingsChanged(representative.getWork().getId()));
