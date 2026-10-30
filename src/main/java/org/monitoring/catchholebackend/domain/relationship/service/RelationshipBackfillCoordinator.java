@@ -290,7 +290,7 @@ public class RelationshipBackfillCoordinator {
                 AnalysisJob previous =
                         item.getJobId() == null
                                 ? null
-                                : jobs.findById(item.getJobId()).orElse(null);
+                                : jobs.findByIdForUpdate(item.getJobId()).orElse(null);
                 AnalysisJob job = previous;
                 if (job != null
                         && job.getStatus() == AnalysisJobStatus.PENDING
