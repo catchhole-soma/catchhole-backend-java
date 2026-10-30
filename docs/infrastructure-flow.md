@@ -9,7 +9,7 @@ CatchHole의 현재 운영 인프라 구성과 스케일링 전략, 향후 인�
 
 확인 시각·방법, DB 연결 한도, 백업 설정, 비용과 미확인 항목은 [2026-09-10 운영 현황](operations-status-2026-09-10.md)에 기록합니다. 수동 생성 리소스는 저장소 정의만으로 운영 적용을 단정하지 않으며, 조회하지 않은 항목은 `확인 필요`로 구분합니다.
 
-2026-09-11의 백업·삭제 보호 재확인 결과와 현재 RPO 15분·RTO 12시간·자동 백업 7일의 판단 기준은 [RDS 백업·삭제 보호 정책](rds-backup-policy.md)에 기록합니다. 복구 시간은 미실측 목표이며 알림·복원 훈련 완료를 뜻하지 않습니다.
+2026-09-11의 백업·삭제 보호 재확인 결과와 현재 RPO 15분·RTO 2시간 목표·자동 백업 7일의 판단 기준은 [RDS 백업·삭제 보호 정책](rds-backup-policy.md)에 기록합니다. 복구 시간은 미실측 목표이며 알림·복원 훈련 완료를 뜻하지 않습니다. 2026-10-26 재확인한 DB 한도·챗봇을 포함한 연결 예산과 #174 자원/백업 감시의 개별 적용·검증 상태는 [RDS 자원·백업 알림](../deploy/RDS_BACKUP_MONITORING.md)을 따릅니다.
 
 ## 1. 현재 구조(As-Is)
 
@@ -179,7 +179,7 @@ AWS Secrets Manager 또는 Systems Manager Parameter Store에서 애플리케이
 | Amazon EC2 | API·Worker 두 서버 실행 확인 | 각각 `t3.medium`, gp3 30GiB; API 3개·Worker 7개 컨테이너 |
 | Docker Compose | 역할별 구현됨 | 백엔드 `deploy/compose.api.prod.yml`, 인공지능 작업 저장소 `deploy/compose.worker.prod.yml` |
 | Caddy | 구현됨 | `deploy/Caddyfile` |
-| PostgreSQL + pgvector | RDS 설정·읽기 전용 SQL 확인 | PostgreSQL 16.14, pgvector 0.8.2; DB `max_connections=181`, 애플리케이션 연결 예산 27개 |
+| PostgreSQL + pgvector | RDS 설정·읽기 전용 SQL 확인 | PostgreSQL 16.14, pgvector 0.8.2; DB `max_connections=181`, 예약 5개 제외 일반 상한 176; 2026-10-26 상시 앱 연결 예산 29개, 백필 동시 실행 시 31개 |
 | Redis | 구현됨 | API 서버 Compose 내부 전용, 64MB `noeviction`, 비영속 |
 | 가입 인증 발송 | 운영 EMAIL·SMTP 설정 확인 | PHONE·SOLAPI 구현 유지; 이번 현황 점검에서는 실제 발송·가입을 실행하지 않음 |
 | AWS S3 | 애플리케이션 연동 구현됨 | Spring AWS SDK, Python boto3 |
@@ -368,7 +368,7 @@ Worker 확장 신호 예시는 다음과 같습니다.
 - PostgreSQL은 이미 EC2 밖의 RDS로 분리되어 있습니다. 현재 Single-AZ 구성을 기준으로 비용·가용성·복구 목표를 평가합니다.
 - RDS 백업 정책 점검(#172)과 복구 훈련(#175) 결과를 확인한 뒤 Multi-AZ 등 추가 가용성 구성을 판단합니다.
 - connection 수, slow query, lock wait, index 사용률을 확인한 뒤 인스턴스 크기와 index를 조정합니다.
-- 현재 연결 예산은 Backend 10 + 분석 Worker 5×3 + 재비교 Worker 2×1 = 27개입니다. 실제 DB 한도·예약 연결은 운영 현황표에 별도로 기록하고 증설 시 함께 재평가합니다.
+- 2026-10-26 확인한 상시 연결 예산은 Backend 10 + 분석 Worker 5×3 + 재비교 Worker 2×1 + 챗봇 검색 2 = **29개**입니다. 일회성 검색 백필을 함께 실행하면 **31개**이며 관리자·별도 도구·배포 중복 연결은 추가로 소비합니다. 실제 DB 한도 181에서 예약 5를 제외한 일반 상한은 176이고, 단순 차이를 성능 여유로 해석하지 않습니다. [#174 기준선·알림 근거](../deploy/RDS_BACKUP_MONITORING.md)를 따르며 풀·replica·DB 한도 변경 시 예산과 규칙을 함께 재평가합니다.
 - vector 검색은 데이터 크기와 recall/latency 측정 후 적절한 pgvector index와 검색 파라미터를 선택합니다.
 - read replica, connection proxy, read/write 경로 분리는 실제 병목이 확인된 뒤 도입합니다.
 - Flyway는 계속 schema 변경의 단일 주체로 유지합니다.

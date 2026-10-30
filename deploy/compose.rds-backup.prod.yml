@@ -1,0 +1,31 @@
+# Opt-in overlay for #174. Use with the existing monitoring/tracing Compose files.
+services:
+  prometheus:
+    volumes:
+      - type: bind
+        source: ./monitoring/targets/rds-backup
+        target: /etc/prometheus/rds-backup-targets
+        read_only: true
+        bind:
+          create_host_path: false
+
+  rds-backup-exporter:
+    image: catchhole-rds-backup-exporter:gh174
+    build:
+      context: ./monitoring/rds-backup-exporter
+    restart: unless-stopped
+    environment:
+      DB_IDENTIFIER: ${RDS_BACKUP_DB_IDENTIFIER:?RDS_BACKUP_DB_IDENTIFIER is required}
+      AWS_REGION: ${AWS_REGION:?AWS_REGION is required}
+      ENVIRONMENT: prod
+      POLL_INTERVAL_SECONDS: "60"
+      ENABLE_SNAPSHOT_COLLECTION: "true"
+      ENABLE_RESOURCE_COLLECTION: "true"
+      LISTEN_PORT: "9109"
+    mem_limit: 192m
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: journald
+    # No host ports or AWS access keys. The SDK uses the existing EC2 role.
