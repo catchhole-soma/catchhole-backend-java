@@ -16,7 +16,10 @@ public record ValidationFindingDetailResponse(UUID findingId, ValidationBranch b
         ValidationFindingSummaryResponse.Judgment judgment,
         List<ValidationJudgmentValue> allowedJudgments,
         @Schema(description = "이 항목과 같은 질문 이전 revision 항목의 판단 이력") List<History> judgmentHistory,
-        @Schema(description = "설정 항목의 이전 revision과 당시 판단·변경 사유") List<PriorRevision> priorRevisions) {
+        @Schema(description = "설정 항목의 이전 revision과 당시 판단·변경 사유") List<PriorRevision> priorRevisions,
+        @Schema(description = "#314 B2. 목록과 같은 대상. 오탈자·대상 없는 질문은 null", nullable = true) ValidationFindingSummaryResponse.Subject subject,
+        @Schema(description = "#314 B2. 목록과 같은 설정 표시명", example = "나이", nullable = true) String settingName,
+        @Schema(description = "#314 B2. 목록과 같은 설정 키", example = "AGE:age", nullable = true) String settingKey) {
     @Schema(name = "ValidationFindingEvidence", description = "저장 때 검증한 인용. Unicode code point 위치")
     public record Evidence(String sourceRef, int start, int end, String quote) {}
     @Schema(name = "ValidationFindingJudgmentHistory", description = "판단 전이 이력. REVISION_SUPERSEDED는 changeReason을 함께 제공")
