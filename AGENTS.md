@@ -1062,7 +1062,7 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 
 ## 일회성 작품 대화 (#241)
 
-- `chat.session-cleanup.scheduling-enabled`는 기본 true이며 test 프로파일에서는 false다. 만료 시각을 조정한 테스트 fixture를 백그라운드 정리가 먼저 지우지 않도록 하고 만료 서비스는 직접 검증한다.
+- `chat.session-cleanup.scheduling-enabled`는 기본 true이며 test 프로파일에서는 false다. 만료 시각을 조정한 테스트 fixture를 백그라운드 정리가 먼저 지우지 않도록 하고 만료 서비스는 직접 검증한다. `chat.recovery-delay-ms`도 test 프로파일에서는 3,600,000ms로 두어 `ChatDispatcher.recover()`가 기동 직후 한 번만 돈다. 캐시된 여러 test Context가 같은 일회용 PostgreSQL을 5초마다 읽으면서 다른 클래스의 fixture `TRUNCATE ... CASCADE`와 교착했기 때문이며(#314 B1), PG fixture 정리는 `support/PostgresFixtureCleanup`으로 다른 세션을 기다리고 교착(40P01)만 재시도한다.
 - `docs/chat-sessions-v1.md`를 Java/AI/Front에 동기화한다. 명시적 종료 또는 마지막 질문/답변 후 2시간 만료이며 읽기/탭 닫힘은 TTL을 바꾸지 않는다.
 - 세션 종료는 본문·인용 삭제와 새 호출/게시 차단을 소유하고 기존 실행 원장의 늦은 정산은 유지한다. 원문 무효화와 작품/회원 파기에 같은 경계를 적용한다.
 - 과거 대화는 지칭 해석용 비신뢰 문맥이다. 최대 6턴/답변 1,000/전체 8,000 UTF-16 단위와 생략 안내를 유지하고 이번 요청의 RDB·근거를 다시 조회한다. 사용자 입력의 세션/작품 ID를 권한으로 신뢰하지 않는다.
