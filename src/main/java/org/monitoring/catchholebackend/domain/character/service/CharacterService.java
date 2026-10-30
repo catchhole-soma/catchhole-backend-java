@@ -22,7 +22,8 @@ public interface CharacterService {
 
     /**
      * 검색어가 비어 있으면 위 목록과 같다. 앞뒤 공백을 제거한 검색어가 있으면 활성 캐릭터 이름의
-     * 대소문자 무시 부분 일치(LIKE 메타문자는 literal)로 거르고 이름 오름차순, ID 오름차순으로 조회한다.
+     * 대소문자 무시 부분 일치(LIKE 메타문자는 literal)로 거르고 DB collation과 무관한 한국어 이름순
+     * (같은 이름은 ID 순)으로 조회한다. 일치 결과가 1,000명을 넘으면 DB 이름순 페이지로 대신한다.
      */
     PageResponse<CharacterSummaryResponse> getCharacters(
             Long memberId,

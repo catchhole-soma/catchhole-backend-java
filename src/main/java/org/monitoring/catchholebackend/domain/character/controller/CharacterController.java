@@ -56,7 +56,8 @@ public class CharacterController {
             summary = "캐릭터 목록 조회",
             description = "본인 작품의 ACTIVE 캐릭터 카드를 페이지 조회합니다. 보관된 캐릭터는 제외합니다. "
                     + "검색어가 없으면 updatedAt DESC, id DESC 순서이고, 검색어가 있으면 이름 부분 일치"
-                    + "(대소문자 무시, %·_·\\는 literal 문자) 결과를 name ASC, id ASC 순서로 조회합니다."
+                    + "(대소문자 무시, %·_·\\는 literal 문자) 결과를 한국어 이름순(영문은 대소문자 무시, 한글은 가나다순, "
+                    + "같은 이름은 id 순)으로 조회합니다. 일치 결과가 1,000명을 넘으면 DB 이름순으로 조회합니다."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "캐릭터 목록 조회 성공"),

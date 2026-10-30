@@ -68,7 +68,8 @@ public interface WorkCharacterRepository extends JpaRepository<WorkCharacter, UU
 
     /**
      * 이름 부분 일치 검색이다. 호출자는 {@code LikePatternEscaper}로 escape한 검색어를 넘긴다.
-     * 이름을 아는 작가가 훑기 쉽도록 이름 오름차순, 같은 이름은 ID 오름차순으로 고정한다.
+     * 여기의 이름순은 DB collation을 따르므로 화면 정렬 기준이 아니다. 서비스가 일치 결과를 한국어 Collator로
+     * 다시 정렬하며, 일치 수가 메모리 정렬 상한을 넘을 때만 이 순서로 DB 페이지를 그대로 사용한다.
      */
     @Query("""
             select character

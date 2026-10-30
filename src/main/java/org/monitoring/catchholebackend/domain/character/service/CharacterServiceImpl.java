@@ -9,9 +9,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.math.BigDecimal;
+import java.text.Collator;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -56,6 +59,7 @@ import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.global.common.response.PageResponse;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -64,6 +68,9 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class CharacterServiceImpl implements CharacterService {
+
+    /** 이름 검색을 메모리에서 가나다순 정렬할 최대 일치 수. 초과 시 동작은 {@link #searchCharacterPage} 참고. */
+    private static final int NAME_SEARCH_IN_MEMORY_LIMIT = 1_000;
 
     private static final Map<CharacterFactType, String> KEY_PREFIXES = Map.of(
             CharacterFactType.PROFILE, "profile.",
@@ -102,12 +109,47 @@ public class CharacterServiceImpl implements CharacterService {
         if (normalizedQuery.isEmpty()) {
             return getCharacterPage(work.getId(), CharacterStatus.ACTIVE, page, size);
         }
-        return toCharacterPage(work.getId(), workCharacterRepository.searchByWorkIdAndStatusAndName(
-                work.getId(),
+        return searchCharacterPage(work.getId(), LikePatternEscaper.escape(normalizedQuery), page, size);
+    }
+
+    /**
+     * 이름 검색 결과는 DB collation이 아니라 한국어 Collator(같은 이름은 ID 문자열 순)로 정렬한다.
+     * PostgreSQL 기본 collation(en_US.utf8, glibc)은 길이가 다른 한글 이름을 가나다순으로 정렬하지 않기 때문이다.
+     * 한 작품의 캐릭터는 수백 명 규모라 일치 결과를 모두 읽어 메모리에서 페이지를 나눈다.
+     * 일치 결과가 {@link #NAME_SEARCH_IN_MEMORY_LIMIT}를 넘으면 요청당 메모리를 제한하려고 DB 페이지 조회로 돌아가며,
+     * 그때는 DB collation의 이름순이다. 넓은 검색어를 거절하면 검색 자체가 막히므로 정렬 품질만 낮추는 쪽을 택했고,
+     * 어느 경로든 totalElements·totalPages·hasNext는 실제 일치 수 기준이다.
+     */
+    private PageResponse<CharacterSummaryResponse> searchCharacterPage(
+            UUID workId,
+            String escapedQuery,
+            int page,
+            int size
+    ) {
+        // 첫 페이지 내용이 요청 크기보다 작으면 Spring Data는 count 쿼리를 생략하므로 보통 쿼리는 한 번이다.
+        Page<WorkCharacter> matches = workCharacterRepository.searchByWorkIdAndStatusAndName(
+                workId,
                 CharacterStatus.ACTIVE,
-                LikePatternEscaper.escape(normalizedQuery),
-                PageRequest.of(page, size)
-        ));
+                escapedQuery,
+                PageRequest.of(0, NAME_SEARCH_IN_MEMORY_LIMIT + 1)
+        );
+        PageRequest pageable = PageRequest.of(page, size);
+        if (matches.getTotalElements() > NAME_SEARCH_IN_MEMORY_LIMIT) {
+            return toCharacterPage(workId, workCharacterRepository.searchByWorkIdAndStatusAndName(
+                    workId,
+                    CharacterStatus.ACTIVE,
+                    escapedQuery,
+                    pageable
+            ));
+        }
+        Collator collator = Collator.getInstance(Locale.KOREAN);
+        List<WorkCharacter> sorted = matches.getContent().stream()
+                .sorted(Comparator.comparing(WorkCharacter::getName, collator)
+                        .thenComparing(character -> character.getId().toString()))
+                .toList();
+        int from = (int) Math.min(pageable.getOffset(), sorted.size());
+        int to = Math.min(from + size, sorted.size());
+        return toCharacterPage(workId, new PageImpl<>(sorted.subList(from, to), pageable, sorted.size()));
     }
 
     @Override
