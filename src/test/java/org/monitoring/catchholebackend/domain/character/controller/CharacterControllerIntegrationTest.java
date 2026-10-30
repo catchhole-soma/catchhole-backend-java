@@ -343,6 +343,131 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("캐릭터 이름 검색어는 앞뒤 공백을 제거하고 대소문자 구분 없이 활성 캐릭터만 부분 일치로 찾는다")
+    void getCharactersFiltersByNameQueryIgnoringCase() throws Exception {
+        WorkCharacter upper = workCharacterRepository.saveAndFlush(character(work, "Aria Blade", null, null));
+        WorkCharacter lower = workCharacterRepository.saveAndFlush(character(work, "maria", null, null));
+        workCharacterRepository.saveAndFlush(character(work, "베른", null, null));
+        WorkCharacter archived = workCharacterRepository.save(character(work, "ARIANNE", null, null));
+        archived.archive();
+        workCharacterRepository.saveAndFlush(archived);
+        workCharacterRepository.saveAndFlush(character(otherWork, "aria", null, null));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("query", "  ARI ")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(2))
+                .andExpect(jsonPath("$.data.content.length()").value(2))
+                .andExpect(jsonPath("$.data.content[0].id").value(upper.getId().toString()))
+                .andExpect(jsonPath("$.data.content[1].id").value(lower.getId().toString()));
+    }
+
+    @Test
+    @DisplayName("캐릭터 이름 검색어의 %, _, \\ 문자는 와일드카드가 아니라 글자 그대로 찾는다")
+    void getCharactersEscapesLikeWildcardsInQuery() throws Exception {
+        WorkCharacter percent = workCharacterRepository.saveAndFlush(character(work, "백%기사", null, null));
+        WorkCharacter underscore = workCharacterRepository.saveAndFlush(character(work, "밑_줄", null, null));
+        WorkCharacter backslash = workCharacterRepository.saveAndFlush(character(work, "역\\선", null, null));
+        workCharacterRepository.saveAndFlush(character(work, "일반 기사", null, null));
+
+        for (var expected : List.of(
+                Map.entry("%", percent),
+                Map.entry("_", underscore),
+                Map.entry("\\", backslash),
+                Map.entry("백%", percent)
+        )) {
+            mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                            .queryParam("query", expected.getKey())
+                            .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.totalElements").value(1))
+                    .andExpect(jsonPath("$.data.content[0].id").value(expected.getValue().getId().toString()));
+        }
+    }
+
+    @Test
+    @DisplayName("검색어가 있으면 최근 수정순 대신 이름 오름차순으로 페이지를 나눈다")
+    void getCharactersWithQueryOrdersByName() throws Exception {
+        WorkCharacter third = workCharacterRepository.saveAndFlush(character(work, "다나", null, null));
+        WorkCharacter first = workCharacterRepository.saveAndFlush(character(work, "가나", null, null));
+        WorkCharacter second = workCharacterRepository.saveAndFlush(character(work, "나비", null, null));
+        updateCharacterUpdatedAt(third.getId(), LocalDateTime.of(2026, 8, 12, 12, 0));
+        updateCharacterUpdatedAt(first.getId(), LocalDateTime.of(2026, 8, 10, 12, 0));
+        updateCharacterUpdatedAt(second.getId(), LocalDateTime.of(2026, 8, 11, 12, 0));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("query", "나")
+                        .queryParam("size", "2")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(2))
+                .andExpect(jsonPath("$.data.content[0].id").value(first.getId().toString()))
+                .andExpect(jsonPath("$.data.content[1].id").value(second.getId().toString()))
+                .andExpect(jsonPath("$.data.totalElements").value(3))
+                .andExpect(jsonPath("$.data.hasNext").value(true));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("query", "나")
+                        .queryParam("page", "1")
+                        .queryParam("size", "2")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].id").value(third.getId().toString()))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
+    }
+
+    @Test
+    @DisplayName("공백뿐인 검색어는 검색어 없는 목록과 같이 최근 수정순을 유지한다")
+    void getCharactersWithoutQueryKeepsUpdatedAtOrder() throws Exception {
+        WorkCharacter older = workCharacterRepository.saveAndFlush(character(work, "가람", null, null));
+        WorkCharacter newer = workCharacterRepository.saveAndFlush(character(work, "하늘", null, null));
+        updateCharacterUpdatedAt(older.getId(), LocalDateTime.of(2026, 8, 10, 12, 0));
+        updateCharacterUpdatedAt(newer.getId(), LocalDateTime.of(2026, 8, 12, 12, 0));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("query", "   ")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(2))
+                .andExpect(jsonPath("$.data.content[0].id").value(newer.getId().toString()))
+                .andExpect(jsonPath("$.data.content[1].id").value(older.getId().toString()));
+    }
+
+    @Test
+    @DisplayName("캐릭터 목록 카드에 역할 표시명을 포함하고 없으면 생략한다")
+    void getCharactersIncludesRoleLabel() throws Exception {
+        WorkCharacter withRole = workCharacterRepository.saveAndFlush(character(work, "가람", null, null));
+        WorkCharacter withoutRole = workCharacterRepository.saveAndFlush(WorkCharacter.create(
+                work, "나래", null, null, null, null, null, null, null, null, null
+        ));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("query", "가람")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].id").value(withRole.getId().toString()))
+                .andExpect(jsonPath("$.data.content[0].roleLabel").value("주인공"));
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("query", "나래")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].id").value(withoutRole.getId().toString()))
+                .andExpect(jsonPath("$.data.content[0].roleLabel").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("캐릭터 이름 검색어가 100자를 넘으면 검증 오류로 응답한다")
+    void getCharactersRejectsTooLongQuery() throws Exception {
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("query", "가".repeat(101))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"));
+    }
+
+    @Test
     @DisplayName("숫자가 아닌 페이지 파라미터를 잘못된 요청으로 응답한다")
     void getCharactersRejectsMalformedPageRequest() throws Exception {
         mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
@@ -2972,6 +3097,11 @@ class CharacterControllerIntegrationTest {
                         "$.paths['/api/v1/works/{workId}/characters'].get.parameters"
                                 + "[?(@.name == 'size' && @.in == 'query')]"
                 ).exists())
+                .andExpect(jsonPath(
+                        "$.paths['/api/v1/works/{workId}/characters'].get.parameters"
+                                + "[?(@.name == 'query' && @.in == 'query')]"
+                ).exists())
+                .andExpect(jsonPath("$.components.schemas.CharacterSummaryResponse.properties.roleLabel").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/works/{workId}/characters/archived'].get").exists())
                 .andExpect(jsonPath(
                         "$.paths['/api/v1/works/{workId}/characters/archived'].get.parameters"

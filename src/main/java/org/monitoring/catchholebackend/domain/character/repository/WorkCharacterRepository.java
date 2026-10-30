@@ -66,6 +66,25 @@ public interface WorkCharacterRepository extends JpaRepository<WorkCharacter, UU
             Pageable pageable
     );
 
+    /**
+     * 이름 부분 일치 검색이다. 호출자는 {@code LikePatternEscaper}로 escape한 검색어를 넘긴다.
+     * 이름을 아는 작가가 훑기 쉽도록 이름 오름차순, 같은 이름은 ID 오름차순으로 고정한다.
+     */
+    @Query("""
+            select character
+            from WorkCharacter character
+            where character.work.id = :workId
+              and character.status = :status
+              and lower(character.name) like lower(concat('%', :pattern, '%')) escape '\\'
+            order by character.name asc, character.id asc
+            """)
+    Page<WorkCharacter> searchByWorkIdAndStatusAndName(
+            @Param("workId") UUID workId,
+            @Param("status") CharacterStatus status,
+            @Param("pattern") String escapedPattern,
+            Pageable pageable
+    );
+
     boolean existsByWorkIdAndNameAndStatusAndIdNot(
             UUID workId,
             String name,

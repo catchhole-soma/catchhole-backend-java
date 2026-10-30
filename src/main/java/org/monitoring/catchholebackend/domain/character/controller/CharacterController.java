@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Size;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.auth.security.MemberPrincipal;
@@ -53,14 +54,15 @@ public class CharacterController {
     @Operation(
             operationId = "getCharacters",
             summary = "캐릭터 목록 조회",
-            description = "본인 작품의 ACTIVE 캐릭터 카드를 updatedAt DESC, id DESC 순서로 페이지 조회합니다. "
-                    + "보관된 캐릭터는 제외합니다."
+            description = "본인 작품의 ACTIVE 캐릭터 카드를 페이지 조회합니다. 보관된 캐릭터는 제외합니다. "
+                    + "검색어가 없으면 updatedAt DESC, id DESC 순서이고, 검색어가 있으면 이름 부분 일치"
+                    + "(대소문자 무시, %·_·\\는 literal 문자) 결과를 name ASC, id ASC 순서로 조회합니다."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "캐릭터 목록 조회 성공"),
             @ApiResponse(
                     responseCode = "400",
-                    description = "페이지 번호 또는 크기 검증 실패",
+                    description = "페이지 번호·크기 또는 검색어 길이 검증 실패",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
             ),
             @ApiResponse(
@@ -95,9 +97,18 @@ public class CharacterController {
             @RequestParam(defaultValue = "24")
             @Min(value = 1, message = "페이지 크기는 1 이상이어야 합니다.")
             @Max(value = 24, message = "페이지 크기는 24 이하여야 합니다.")
-            int size
+            int size,
+            @Parameter(
+                    name = "query",
+                    in = ParameterIn.QUERY,
+                    description = "캐릭터 이름 부분 일치 검색어. 앞뒤 공백을 제거하며 비어 있으면 전체 목록",
+                    example = "아리"
+            )
+            @RequestParam(required = false)
+            @Size(max = 100, message = "검색어는 100자 이하로 입력해 주세요.")
+            String query
     ) {
-        return CommonResponse.success(characterService.getCharacters(member.memberId(), workId, page, size));
+        return CommonResponse.success(characterService.getCharacters(member.memberId(), workId, query, page, size));
     }
 
     @GetMapping("/archived")

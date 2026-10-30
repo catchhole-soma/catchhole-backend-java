@@ -38,6 +38,7 @@ import org.monitoring.catchholebackend.domain.character.processor.CharacterSnaps
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotEntry;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSlot;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSnapshotSourceManager;
+import org.monitoring.catchholebackend.domain.character.processor.LikePatternEscaper;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaMatch;
 import org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
@@ -92,11 +93,21 @@ public class CharacterServiceImpl implements CharacterService {
     public PageResponse<CharacterSummaryResponse> getCharacters(
             Long memberId,
             UUID workId,
+            String query,
             int page,
             int size
     ) {
         Work work = workRepository.getOwnedWork(workId, memberId);
-        return getCharacterPage(work.getId(), CharacterStatus.ACTIVE, page, size);
+        String normalizedQuery = query == null ? "" : query.trim();
+        if (normalizedQuery.isEmpty()) {
+            return getCharacterPage(work.getId(), CharacterStatus.ACTIVE, page, size);
+        }
+        return toCharacterPage(work.getId(), workCharacterRepository.searchByWorkIdAndStatusAndName(
+                work.getId(),
+                CharacterStatus.ACTIVE,
+                LikePatternEscaper.escape(normalizedQuery),
+                PageRequest.of(page, size)
+        ));
     }
 
     @Override
@@ -119,12 +130,15 @@ public class CharacterServiceImpl implements CharacterService {
             int page,
             int size
     ) {
-        Page<WorkCharacter> characters = workCharacterRepository
+        return toCharacterPage(workId, workCharacterRepository
                 .findAllByWorkIdAndStatusOrderByUpdatedAtDescIdDesc(
                         workId,
                         status,
                         PageRequest.of(page, size)
-                );
+                ));
+    }
+
+    private PageResponse<CharacterSummaryResponse> toCharacterPage(UUID workId, Page<WorkCharacter> characters) {
         Map<UUID, Integer> firstAppearanceEpisodeNosById = findFirstAppearanceEpisodeNosById(
                 characters.getContent(),
                 workId

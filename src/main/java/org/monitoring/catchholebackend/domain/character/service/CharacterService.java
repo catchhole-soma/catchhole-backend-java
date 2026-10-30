@@ -16,7 +16,21 @@ public interface CharacterService {
      * 첫 등장 회차 ID가 유효하면 카드에 표시할 회차 번호를 함께 응답한다.
      * 첫 등장 회차가 없거나 현재 작품에서 유효하지 않으면 해당 값만 null로 응답한다.
      */
-    PageResponse<CharacterSummaryResponse> getCharacters(Long memberId, UUID workId, int page, int size);
+    default PageResponse<CharacterSummaryResponse> getCharacters(Long memberId, UUID workId, int page, int size) {
+        return getCharacters(memberId, workId, null, page, size);
+    }
+
+    /**
+     * 검색어가 비어 있으면 위 목록과 같다. 앞뒤 공백을 제거한 검색어가 있으면 활성 캐릭터 이름의
+     * 대소문자 무시 부분 일치(LIKE 메타문자는 literal)로 거르고 이름 오름차순, ID 오름차순으로 조회한다.
+     */
+    PageResponse<CharacterSummaryResponse> getCharacters(
+            Long memberId,
+            UUID workId,
+            String query,
+            int page,
+            int size
+    );
 
     /**
      * 작품 소유권을 확인한 뒤 보관된 캐릭터 카드 목록을 페이지 단위로 조회한다.

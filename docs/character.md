@@ -599,12 +599,14 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/v1/works/{workId}/characters` | `ACTIVE` 캐릭터 카드 목록을 최신 생성순으로 조회합니다. |
+| `GET` | `/api/v1/works/{workId}/characters` | `ACTIVE` 캐릭터 카드 목록을 최근 수정순(`updatedAt DESC, id DESC`)으로 조회합니다. 선택 `query`(최대 100자)는 앞뒤 공백을 제거한 이름 부분 일치 검색어이며, 값이 있으면 이름 오름차순(`name ASC, id ASC`)으로 조회합니다. 카드는 `roleLabel`(역할 표시명, nullable)을 포함합니다. |
 | `GET` | `/api/v1/works/{workId}/characters/archived` | `ARCHIVED` 캐릭터 카드 목록을 최신 생성순으로 조회합니다. |
 | `GET` | `/api/v1/works/{workId}/characters/{characterId}` | `WorkCharacter` snapshot과 slot별 provenance를 조합해 현재 설정을 조회합니다. `TIME`은 화면 목록에서 제외합니다. |
 | `PATCH` | `/api/v1/works/{workId}/characters/{characterId}` | 기본 정보와 현재 설정 전체를 수정하고 변경된 설정을 수동 정정 Fact로 기록합니다. |
 | `DELETE` | `/api/v1/works/{workId}/characters/{characterId}` | 삭제 버튼 요청을 처리하되 데이터를 지우지 않고 상태를 `ARCHIVED`로 전환합니다. |
 | `PATCH` | `/api/v1/works/{workId}/characters/{characterId}/restore` | 보관된 캐릭터의 설정 이력을 유지한 채 상태를 `ACTIVE`로 복구합니다. |
+
+캐릭터 이름 검색(`query`)은 같은 작품의 `ACTIVE` 캐릭터만 대상으로 `LOWER(name) LIKE LOWER(...)` 부분 일치를 사용합니다. 설정 검색과 같은 `LikePatternEscaper`로 `%`, `_`, `\\`를 literal 문자로 처리하고, 공백뿐인 검색어는 검색어 없는 목록과 같습니다. 검토 화면에서 작가가 이름을 알고 있는 인물을 고르는 용도라 검색 결과는 이름 오름차순이며, 검색어가 없을 때의 최근 수정순은 바꾸지 않습니다. 유사명·보관 인물 구분은 카드의 첫 등장 회차·`roleLabel`·나이/레벨로 합니다(같은 작품의 `ACTIVE` 완전 동명은 서버가 거절합니다). 작품당 캐릭터 수가 늘어 검색 p95가 문제가 되면 `pg_trgm` 인덱스를 함께 검토합니다.
 
 상세 설정 항목은 canonical `key`, `displayName`, 편집 정책, 사용자용 `value`, `valueType`, 복합값의 `properties`, `sourceFacts[]`, `isSynthesized`를 제공합니다. `sourceFacts[]`에는 현재값을 구성한 모든 Fact의 ID·근거 여부·출처 회차가 들어갑니다. 기본 정보의 나이·레벨도 `currentAgeSourceFacts[]`, `currentLevelSourceFacts[]`를 제공합니다. 기존 `characterFactId`, `hasEvidence`, `currentAgeFact`, `currentLevelFact`는 첫 source를 가리키는 deprecated 호환 필드입니다. raw JSON snapshot과 내부 envelope는 응답하지 않습니다.
 
