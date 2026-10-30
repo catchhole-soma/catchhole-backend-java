@@ -643,6 +643,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 | `GET` | `/api/v1/works/{workId}/setting-candidates/{candidateId}` | 필수 `batchId` 범위에 속한 특정 설정 후보 상세를 조회합니다. 다른 묶음 후보는 404로 숨깁니다. |
 | `PATCH` | `/api/v1/works/{workId}/setting-candidates/{candidateId}` | `PENDING_REVIEW` 후보 한 건의 사용자용 설정명·표시값만 보정합니다. 캐릭터 식별 정보와 값 타입·최초 근거는 유지합니다. |
 | `PATCH` | `/api/v1/works/{workId}/setting-candidates/group-character-match` | 같은 이름 그룹의 모든 대기 후보를 하나의 기존 캐릭터에 연결하거나 동일 이름의 신규 캐릭터 등록 예정 상태로 한 트랜잭션에서 변경합니다. |
+| `PATCH` | `/api/v1/works/{workId}/setting-candidates/selected-character-match` | 작가가 고른 `PENDING_REVIEW` 후보(1~100개)만 하나의 기존 캐릭터에 연결하거나 같은 이름의 신규 캐릭터 등록 예정 상태로 한 트랜잭션에서 변경합니다. 같은 이름 묶음·묶음 전체 포함을 요구하지 않으며 한 건이라도 처리할 수 없으면 전체를 거절하고 `error.context.candidateIds`에 해당 후보 ID를 담습니다. |
 | `POST` | `/api/v1/works/{workId}/setting-candidates/group-confirm` | 같은 이름 그룹의 모든 대기 후보와 후보별 적용 방식을 검증한 뒤 한 트랜잭션으로 확정합니다. 새 캐릭터 그룹은 캐릭터 하나만 생성합니다. |
 | `POST` | `/api/v1/works/{workId}/setting-candidates/{candidateId}/confirm` | 구버전 클라이언트 호환용 단건 확정 API입니다. 신규 Frontend는 그룹 확정 API만 사용합니다. |
 | `POST` | `/api/v1/works/{workId}/setting-candidates/{candidateId}/dismiss` | 설정 후보를 `DISMISSED` 상태로 전환합니다. |
@@ -656,7 +657,9 @@ Spring API는 `SettingCandidate` 생성 API를 제공하지 않습니다. 후보
 | `PATCH` | `/api/v1/works/{workId}/setting-candidates/{candidateId}/character-match` | `PENDING_REVIEW` 후보의 캐릭터 연결 상태를 기존 캐릭터 연결 또는 새 캐릭터 확정으로 해소합니다. |
 
 일반 후보 수정 API에서는 캐릭터 이름을 변경하지 않습니다. 한 후보만 연결을 바꾸려면 단건
-`character-match`, 현재 이름 그룹 전체를 함께 바꾸려면 `group-character-match`를 사용합니다.
+`character-match`, 현재 이름 그룹 전체를 함께 바꾸려면 `group-character-match`, 여러 묶음에
+흩어져 있거나 한 묶음의 일부인 후보를 작가가 골라 한 대상으로 모으려면 `selected-character-match`를
+사용합니다.
 그룹 목록에서는 `미상` 그룹을 나머지 캐릭터 그룹 뒤에 반환합니다.
 
 요청 예시:
@@ -821,6 +824,43 @@ flowchart TD
     L --> O["CONFIRMED"]
     M --> O
 ```
+
+#### 선택 후보 일괄 연결 (`selected-character-match`)
+
+`PATCH /api/v1/works/{workId}/setting-candidates/selected-character-match`는 작가가 검토 화면에서 체크한 캐릭터 후보만 하나의 대상에 연결합니다. 요청은 `batchId`, `candidateIds`(1~100개, 중복 불가), `resolutionType`(`MATCH_EXISTING` 또는 `CREATE_NEW`), `matchedCharacterId`, `entityName`이며 선택적 `sourceAnalysisJobId`는 다른 후보 변경 API와 같은 원본 추출 범위입니다. 응답은 그룹 일괄 연결과 같은 `SettingCandidateGroupActionResponse`이고 `groupKey`는 연결 뒤 후보들이 속한 묶음(`existing:<characterId>` 또는 새 이름의 정규화 key), `candidates`는 요청 순서입니다.
+
+```mermaid
+flowchart TD
+    A["선택 연결 요청<br/>batchId·후보 ID 1~100개·연결 방식"] --> B["작품 소유권 확인과 작품 행 잠금<br/>getOwnedWorkForUpdate"]
+    B --> C["원본 추출 작업·업로드 묶음 확인<br/>없으면 404"]
+    C --> D{"같은 후보 ID가 두 번 이상 있는가"}
+    D -->|"예"| X1["400 SETTING_CANDIDATE_SELECTION_INVALID<br/>context.candidateIds = 중복 ID"]
+    D -->|"아니오"| E["자동 반영 대기·순차 분석 진행 확인<br/>해당하면 409이며 후보를 잠그지 않음"]
+    E --> F["요청한 후보 행만 잠금<br/>회차·생성 시각·ID 순서"]
+    F --> G{"이 묶음에서 찾지 못한 ID가 있는가"}
+    G -->|"예"| X2["400 SETTING_CANDIDATE_SELECTION_INVALID<br/>context.candidateIds = 찾지 못한 ID"]
+    G -->|"아니오"| H{"검토 대기가 아닌 후보가 있는가"}
+    H -->|"예"| X3["409 SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT<br/>context.candidateIds = 확정·무시된 후보"]
+    H -->|"아니오"| I{"2차 비교 처리 중인 후보가 있는가"}
+    I -->|"예"| X4["409 SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT<br/>context.candidateIds = 처리 중 후보"]
+    I -->|"아니오"| J["연결 전 비교 범위 기억<br/>scopeRefs"]
+    J --> K["기존 캐릭터를 한 번 잠가 ACTIVE 검증<br/>또는 새 이름 필수·동명 검사<br/>applyCharacterMatch"]
+    K --> L["선택한 후보만 연결·표시 이름 변경<br/>사용자 수정 표시와 안전한 저장 선택 이어받기"]
+    L --> M{"순차 분석 후보인가"}
+    M -->|"예"| N["재비교 필요로 표시<br/>비교 Job을 만들지 않음"]
+    M -->|"아니오"| O["합류한 묶음의 비교 Job 예약<br/>같은 입력의 활성 Job이 있으면 재사용"]
+    O --> P["떠난 묶음의 비교 입력 다시 예약"]
+    N --> Q["200 응답<br/>groupKey·entityName·요청 순서 후보 목록"]
+    P --> Q
+```
+
+상세 처리 기준
+
+- 같은 이름 묶음·묶음 전체 포함을 요구하지 않습니다. `미상`처럼 서로 다른 인물이 한 이름으로 묶인 경우 작가가 직접 고른 후보만 바꿔야 하고, 그룹 전체 일치를 요구하면 다른 인물의 후보까지 함께 연결됩니다. 묶음 전체를 한 번에 옮기는 경로는 기존 `group-character-match`가 유지합니다.
+- 전부 성공하거나 전부 거절합니다. 일부만 반영되면 화면의 선택과 서버 상태가 어긋나 작가가 무엇이 연결됐는지 다시 확인해야 하므로, 모든 검증을 변경 전에 끝내고 한 트랜잭션에서 적용합니다. 거절 사유가 후보에 있는 경우 `error.context.candidateIds`에 그 후보 ID만 요청 순서대로 담아 Front가 해당 행만 표시하게 합니다.
+- 선택하지 않은 후보의 연결·표시 이름·사용자 수정 표시는 바뀌지 않습니다. 순차 분석(`ORDERED_PROVISIONAL`) 후보는 비교 Job을 만들지 않으므로 선택 밖 후보의 비교 상태·저장 선택·`updatedAt`도 그대로입니다. 구 방식(`CONFIRMED_ONLY`) 후보는 단건·그룹 연결과 같은 기존 계약대로 떠난 묶음과 합류한 묶음의 비교 입력을 다시 예약하므로, 그 묶음에 남은 대기 후보의 완료된 비교 제안·저장 선택이 재비교 대기로 바뀔 수 있습니다.
+- 이미 같은 기존 캐릭터에 연결된 후보는 엔티티가 비교 제안을 지우지 않으므로 섞여 있어도 성공하고, 같은 요청을 다시 보내면 후보 상태·비교 Job 수가 바뀌지 않습니다. `CREATE_NEW`는 기존 그룹 연결과 같이 이름이 필수이고 실제 캐릭터는 그룹 확정 때만 만듭니다.
+- 거절 순서는 중복 ID → 자동 반영 대기·순차 분석 진행 → 찾지 못한 ID → 검토 대기 아님 → 비교 처리 중 → 대상 캐릭터·새 이름 검증입니다. 대상 검증 실패(`SETTING_CANDIDATE_MATCHED_CHARACTER_REQUIRED/INVALID`, `SETTING_CANDIDATE_NEW_CHARACTER_NAME_REQUIRED`, `SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED`)는 특정 후보의 문제가 아니므로 context를 붙이지 않습니다.
 
 #### 같은 인물의 모든 FactType 묶음 비교
 

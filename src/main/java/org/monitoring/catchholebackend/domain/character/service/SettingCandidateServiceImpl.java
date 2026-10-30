@@ -18,6 +18,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -38,6 +39,7 @@ import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandi
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateGroupConfirmRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateGroupConfirmDecision;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateGroupCharacterMatchRequest;
+import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateSelectedCharacterMatchRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateUpdateRequest;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateListResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateGroupActionResponse;
@@ -377,6 +379,72 @@ public class SettingCandidateServiceImpl implements SettingCandidateService,
         settingCandidateRepository.flush();
         List<CharacterSettingSchema> schemas = characterSettingSchemaRepository.findAllActiveForWork(work.getId());
         return toGroupActionResponse(groupKey(candidates.getFirst()), candidates, schemas);
+    }
+
+    @Override
+    @Transactional
+    public SettingCandidateGroupActionResponse updateSettingCandidateSelectedCharacterMatch(
+            Long memberId,
+            UUID workId,
+            SettingCandidateSelectedCharacterMatchRequest request,
+            UUID sourceAnalysisJobId
+    ) {
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        reviewSources.validate(work, request.batchId(), sourceAnalysisJobId, true);
+        uploadBatchRepository.findByIdAndWorkId(request.batchId(), work.getId())
+                .orElseThrow(() -> new AppException(CharacterErrorCode.SETTING_CANDIDATE_BATCH_NOT_FOUND));
+        List<UUID> requestedIds = request.candidateIds();
+        rejectSelectedCandidates(CharacterErrorCode.SETTING_CANDIDATE_SELECTION_INVALID, duplicatedIds(requestedIds));
+        validateReviewMutationAllowed(work, requestedIds);
+        // 그룹 일치 검증 대신 요청한 행만 잠근다. 작가가 고른 후보 밖의 그룹 구성은 이 요청의 결정 범위가 아니다.
+        Map<UUID, SettingCandidate> lockedById = new HashMap<>();
+        settingCandidateRepository.findAllByIdsAndBatchForUpdate(
+                work.getId(), request.batchId(), requestedIds, sourceAnalysisJobId
+        ).forEach(candidate -> lockedById.put(candidate.getId(), candidate));
+        rejectSelectedCandidates(CharacterErrorCode.SETTING_CANDIDATE_SELECTION_INVALID, requestedIds.stream()
+                .filter(id -> !lockedById.containsKey(id))
+                .toList());
+        List<SettingCandidate> candidates = requestedIds.stream().map(lockedById::get).toList();
+        rejectSelectedCandidates(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT, candidates.stream()
+                .filter(candidate -> !candidate.isPendingReview())
+                .map(SettingCandidate::getId)
+                .toList());
+        rejectSelectedCandidates(CharacterErrorCode.SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT, candidates.stream()
+                .filter(candidate -> candidate.getComparisonStatus() == CharacterFactComparisonStatus.PROCESSING)
+                .map(SettingCandidate::getId)
+                .toList());
+        List<CharacterFactComparisonJobCoordinator.ScopeRef> previousScopes =
+                characterComparisonJobCoordinator.scopeRefs(candidates);
+        applyCharacterMatch(
+                candidates,
+                work,
+                request.resolutionType(),
+                request.matchedCharacterId(),
+                request.entityName()
+        );
+        candidates.forEach(candidate -> enqueueComparisonJobIfNeeded(memberId, candidate));
+        enqueuePreviousScopes(memberId, previousScopes, candidates);
+        settingCandidateRepository.flush();
+        List<CharacterSettingSchema> schemas = characterSettingSchemaRepository.findAllActiveForWork(work.getId());
+        return toGroupActionResponse(groupKey(candidates.getFirst()), candidates, schemas);
+    }
+
+    private List<UUID> duplicatedIds(List<UUID> ids) {
+        Set<UUID> seen = new HashSet<>();
+        Set<UUID> duplicated = new LinkedHashSet<>();
+        for (UUID id : ids) {
+            if (!seen.add(id)) {
+                duplicated.add(id);
+            }
+        }
+        return List.copyOf(duplicated);
+    }
+
+    /** 선택 연결은 전부 성공하거나 전부 거절하며, 화면이 문제 행만 표시하도록 해당 후보 ID를 context에 담는다. */
+    private void rejectSelectedCandidates(CharacterErrorCode errorCode, List<UUID> candidateIds) {
+        if (!candidateIds.isEmpty()) {
+            throw new AppException(errorCode, Map.of("candidateIds", candidateIds));
+        }
     }
 
     @Override

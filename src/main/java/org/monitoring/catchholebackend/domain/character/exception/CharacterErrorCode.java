@@ -23,6 +23,7 @@ public enum CharacterErrorCode implements ResultCode {
     CHARACTER_TIMELINE_CURSOR_INVALID(HttpStatus.BAD_REQUEST, "다음 이력을 불러오지 못했습니다. 화면을 새로고침해 주세요."),
     SETTING_CANDIDATE_BATCH_NOT_FOUND(HttpStatus.NOT_FOUND, "설정 후보 검토 묶음을 찾을 수 없습니다."),
     SETTING_CANDIDATE_NOT_FOUND(HttpStatus.NOT_FOUND, "설정 후보를 찾을 수 없습니다."),
+    SETTING_CANDIDATE_SELECTION_INVALID(HttpStatus.BAD_REQUEST, "선택한 설정 후보 목록이 올바르지 않습니다. 화면을 새로고침해 주세요."),
     SETTING_CANDIDATE_NOT_EDITABLE(HttpStatus.CONFLICT, "검토 대기 상태의 설정 후보만 수정할 수 있습니다."),
     SETTING_CANDIDATE_CONTENT_NOT_EDITABLE(HttpStatus.BAD_REQUEST, "캐릭터 발견 후보는 설정 내용을 수정할 수 없습니다."),
     SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT(HttpStatus.CONFLICT, "지금은 이 설정을 검토할 수 없습니다. 화면을 새로고침해 주세요."),
