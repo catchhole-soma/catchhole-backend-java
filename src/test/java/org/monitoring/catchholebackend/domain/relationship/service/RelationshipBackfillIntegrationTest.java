@@ -8,7 +8,13 @@ import static org.monitoring.catchholebackend.domain.relationship.dto.Relationsh
 import jakarta.persistence.EntityManager;
 
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.monitoring.catchholebackend.domain.aitoken.entity.AiTokenUsage;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenPurpose;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageStatus;
 import org.monitoring.catchholebackend.domain.analysis.dto.request.*;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisJobPayload;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
@@ -206,6 +212,42 @@ class RelationshipBackfillIntegrationTest {
                 });
     }
 
+    UUID priorRelationshipUsage(UUID episodeId, AiTokenUsageStatus status) {
+        return tx.execute(
+                t -> {
+                    var episode = em.find(Episode.class, episodeId);
+                    var job =
+                            AnalysisJob.create(
+                                    episode.getWork(),
+                                    null,
+                                    episode,
+                                    status == AiTokenUsageStatus.UNKNOWN
+                                            ? AnalysisJobType.RELATIONSHIP_EXTRACTION
+                                            : AnalysisJobType.SETTING_EXTRACTION);
+                    em.persist(job);
+                    var usage =
+                            AiTokenUsage.reserve(
+                                    UUID.randomUUID(),
+                                    job,
+                                    AiTokenPurpose.RELATIONSHIP_EXTRACTION,
+                                    1,
+                                    "gpt-6.1-terra",
+                                    100);
+                    if (status == AiTokenUsageStatus.SETTLED)
+                        usage.settle(40, 0, 20, AiTokenUsageOutcome.SUCCESS);
+                    else if (status != AiTokenUsageStatus.RESERVED)
+                        usage.release(AiTokenUsageOutcome.WORKER_LEASE_EXPIRED);
+                    assertThat(usage.getStatus()).isEqualTo(status);
+                    em.persist(usage);
+                    job.succeed(null, 0, 0);
+                    return job.getId();
+                });
+    }
+
+    boolean servicePaidJob(UUID jobId) {
+        return tx.execute(t -> em.find(AnalysisJob.class, jobId).isRelationshipServicePaid());
+    }
+
     RelationshipBackfillWork state() {
         return tx.execute(t -> em.find(RelationshipBackfillWork.class, workId));
     }
@@ -375,6 +417,7 @@ class RelationshipBackfillIntegrationTest {
         assertThat(state().active()).isTrue();
         var last = claim();
         assertThat(last.episode().episodeNo()).isEqualTo(3);
+        assertThat(servicePaidJob(last.analysisJobId())).isFalse();
         finish(last);
         assertThat(state().getPublishedGeneration()).isEqualTo(1);
         assertThat(graph.getRelationshipGraph(owner, workId, 1).edges()).hasSize(1);
@@ -389,13 +432,109 @@ class RelationshipBackfillIntegrationTest {
     }
 
     @Test
+    @DisplayName("선정 시점 뒤 이미 완료된 일반 분석을 bootstrap이 수집하면 운영 부담으로 재구축한다")
+    void bootstrapCompletedTailIsServicePaid() {
+        episode(1);
+        var two = episode(2);
+        jdbc.update("update episodes set created_at=? where id=?", selectedAt.plusSeconds(1), two);
+        priorRelationshipUsage(two, AiTokenUsageStatus.SETTLED);
+        coordinator.bootstrap();
+        assertThat(items()).hasSize(2).allMatch(RelationshipBackfillItem::isServicePaid);
+        finish(claim());
+        var tail = claim();
+        assertThat(tail.episode().episodeNo()).isEqualTo(2);
+        assertThat(servicePaidJob(tail.analysisJobId())).isTrue();
+    }
+
+    @ParameterizedTest
+    @EnumSource(AiTokenUsageStatus.class)
+    @DisplayName("동일 원문의 이전 관계 원장이 있으면 상태와 무관하게 WAITING 항목을 서비스 부담으로 승격한다")
+    void existingRelationshipUsagePromotesWaitingItem(AiTokenUsageStatus status) {
+        episode(1);
+        coordinator.bootstrap();
+        var two = episode(2);
+        coreComplete(two);
+        assertThat(items().getLast().isServicePaid()).isFalse();
+        var originalJob = priorRelationshipUsage(two, status);
+        coreComplete(two);
+        assertThat(items().getLast().isServicePaid()).isTrue();
+        assertThat(servicePaidJob(originalJob)).isFalse();
+        finish(claim());
+        var tail = claim();
+        assertThat(servicePaidJob(tail.analysisJobId())).isTrue();
+        assertThat(
+                        tx.<AiTokenUsageStatus>execute(
+                                t ->
+                                        em.createQuery(
+                                                        "select u.status from AiTokenUsage u where"
+                                                            + " u.analysisJob.id=:job",
+                                                        AiTokenUsageStatus.class)
+                                                .setParameter("job", originalJob)
+                                                .getSingleResult()))
+                .isEqualTo(status);
+    }
+
+    @Test
+    @DisplayName("다른 원문이나 일반 설정 목적의 원장은 새 관계 분석을 무료로 바꾸지 않는다")
+    void differentSourceOrPurposeDoesNotPromote() {
+        episode(1);
+        coordinator.bootstrap();
+        for (int no = 2; no <= 5; no++) {
+            var id = episode(no);
+            priorRelationshipUsage(id, AiTokenUsageStatus.SETTLED);
+            final int mismatch = no;
+            tx.executeWithoutResult(
+                    t -> {
+                        var episode = em.find(Episode.class, id);
+                        episode.updateContentStorage(
+                                mismatch == 2 ? "another/key" : episode.getContentS3Key(),
+                                mismatch == 3 ? "v2" : episode.getContentS3Version(),
+                                mismatch == 4
+                                        ? storage.contentHash("다른 원문")
+                                        : episode.getContentHash());
+                        if (mismatch == 5) {
+                            // The frozen source number is immutable; change only this isolated test
+                            // receipt.
+                            jdbc.update(
+                                    "update analysis_jobs set source_episode_no=99 where"
+                                        + " episode_id=?",
+                                    id);
+                        }
+                    });
+            coreComplete(id);
+            assertThat(items().getLast().isServicePaid()).isFalse();
+        }
+        var six = episode(6);
+        tx.executeWithoutResult(
+                t -> {
+                    var e = em.find(Episode.class, six);
+                    var j =
+                            AnalysisJob.create(
+                                    e.getWork(), null, e, AnalysisJobType.SETTING_EXTRACTION);
+                    em.persist(j);
+                    em.persist(
+                            AiTokenUsage.reserve(
+                                    UUID.randomUUID(),
+                                    j,
+                                    AiTokenPurpose.SETTING_EXTRACTION,
+                                    1,
+                                    "gpt-6.1-terra",
+                                    100));
+                    j.succeed(null, 0, 0);
+                });
+        coreComplete(six);
+        assertThat(items().getLast().isServicePaid()).isFalse();
+    }
+
+    @Test
     @DisplayName("중간 회차가 늦게 추가되면 뒤 회차의 관측은 보존하고 비교만 다시 순서대로 수행한다")
     void lateMiddleRecomparesWithoutReextracting() {
         episode(1);
-        episode(3);
         coordinator.bootstrap();
+        coreComplete(episode(3));
         finish(claim());
         var oldThree = claim();
+        assertThat(servicePaidJob(oldThree.analysisJobId())).isFalse();
         var c3 = prepare(oldThree);
         UUID two = episode(2);
         coreComplete(two);
@@ -407,12 +546,107 @@ class RelationshipBackfillIntegrationTest {
         var replay = claim();
         assertThat(replay.episode().episodeNo()).isEqualTo(3);
         assertThat(replay.analysisJobId()).isNotEqualTo(oldThree.analysisJobId());
+        assertThat(servicePaidJob(replay.analysisJobId())).isTrue();
+        assertThat(servicePaidJob(oldThree.analysisJobId())).isFalse();
         var saved =
                 graph.getRelationshipAnalysis(replay.analysisJobId(), replay.leaseToken())
                         .orElseThrow();
         assertThat(saved.status()).isEqualTo(AnalysisStatus.PREPARED);
         assertThat(saved.relationships().getFirst().lastChangedEpisodeNo()).isEqualTo(2);
         finish(replay, saved);
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWork.State.COMPLETE);
+        verify(storage, times(3)).getText(anyString());
+    }
+
+    @Test
+    @DisplayName("이미 성공한 사용자 부담 후행 회차도 중간 삽입으로 재비교할 때는 서비스 부담이다")
+    void completedUserPaidTailRebuildIsServicePaid() {
+        episode(1);
+        episode(4);
+        coordinator.bootstrap();
+        coreComplete(episode(3));
+        finish(claim());
+        var oldThree = claim();
+        assertThat(servicePaidJob(oldThree.analysisJobId())).isFalse();
+        finish(oldThree);
+        coreComplete(episode(2));
+        assertThat(items().get(2).isServicePaid()).isTrue();
+        finish(claim());
+        var replay = claim();
+        assertThat(replay.episode().episodeNo()).isEqualTo(3);
+        assertThat(servicePaidJob(replay.analysisJobId())).isTrue();
+        assertThat(servicePaidJob(oldThree.analysisJobId())).isFalse();
+        assertThat(
+                        graph.getRelationshipAnalysis(replay.analysisJobId(), replay.leaseToken())
+                                .orElseThrow()
+                                .status())
+                .isEqualTo(AnalysisStatus.PREPARED);
+    }
+
+    @Test
+    @DisplayName("lease 회수 뒤 서비스 부담으로 승격하면 원 유료 작업을 보존하고 새 작업으로 관측을 재사용한다")
+    void promotedPendingJobIsReplacedWithoutChangingOriginalBilling() {
+        episode(1);
+        coordinator.bootstrap();
+        var two = episode(2);
+        coreComplete(two);
+        finish(claim());
+        var original = claim();
+        prepare(original);
+        assertThat(servicePaidJob(original.analysisJobId())).isFalse();
+        priorRelationshipUsage(two, AiTokenUsageStatus.RESERVED);
+        coreComplete(two);
+        assertThat(items().getLast().isServicePaid()).isTrue();
+        tx.executeWithoutResult(
+                t ->
+                        em.find(AnalysisJob.class, original.analysisJobId())
+                                .renewLease(LocalDateTime.now().minusSeconds(1)));
+        var replacement = claim();
+        assertThat(replacement.analysisJobId()).isNotEqualTo(original.analysisJobId());
+        assertThat(servicePaidJob(replacement.analysisJobId())).isTrue();
+        assertThat(servicePaidJob(original.analysisJobId())).isFalse();
+        assertThat(
+                        tx.<AnalysisJobStatus>execute(
+                                t ->
+                                        em.find(AnalysisJob.class, original.analysisJobId())
+                                                .getStatus()))
+                .isEqualTo(AnalysisJobStatus.CANCELED);
+        assertThat(
+                        graph.getRelationshipAnalysis(
+                                        replacement.analysisJobId(), replacement.leaseToken())
+                                .orElseThrow()
+                                .status())
+                .isEqualTo(AnalysisStatus.PREPARED);
+        finish(replacement);
+        verify(storage, times(2)).getText(anyString());
+    }
+
+    @Test
+    @DisplayName("중간 회차 삽입과 lease 회수가 겹쳐도 후행의 오래된 비교 문맥을 재사용하지 않는다")
+    void expiredLaterContextIsRebuiltAfterMiddleInsertion() {
+        episode(1);
+        episode(3);
+        coordinator.bootstrap();
+        finish(claim());
+        var original = claim();
+        prepare(original);
+        tx.executeWithoutResult(
+                t ->
+                        em.find(AnalysisJob.class, original.analysisJobId())
+                                .renewLease(LocalDateTime.now().minusSeconds(1)));
+        coreComplete(episode(2));
+        var second = claim();
+        assertThat(second.episode().episodeNo()).isEqualTo(2);
+        finish(second);
+        var replay = claim();
+        assertThat(replay.episode().episodeNo()).isEqualTo(3);
+        assertThat(replay.analysisJobId()).isNotEqualTo(original.analysisJobId());
+        assertThat(servicePaidJob(replay.analysisJobId())).isTrue();
+        var context =
+                graph.getRelationshipAnalysis(replay.analysisJobId(), replay.leaseToken())
+                        .orElseThrow();
+        assertThat(context.relationships().getFirst().lastChangedEpisodeNo()).isEqualTo(2);
+        finish(replay, context);
         assertThat(state().getState()).isEqualTo(RelationshipBackfillWork.State.COMPLETE);
         verify(storage, times(3)).getText(anyString());
     }

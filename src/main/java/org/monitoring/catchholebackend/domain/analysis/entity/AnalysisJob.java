@@ -843,6 +843,17 @@ public class AnalysisJob extends BaseEntity {
         clearLease();
     }
 
+    /** Keep the original billing policy and usage receipts when a service-funded replay replaces it. */
+    public void supersedeRelationshipAnalysis() {
+        if (jobType != AnalysisJobType.RELATIONSHIP_EXTRACTION || status != AnalysisJobStatus.PENDING) {
+            throw new IllegalStateException("대기 중인 관계 전용 작업만 운영 재분석으로 대체할 수 있습니다.");
+        }
+        status = AnalysisJobStatus.CANCELED;
+        currentStep = "서비스 부담 관계 재분석으로 대체됨";
+        completedAt = LocalDateTime.now();
+        clearLease();
+    }
+
     /** 기존 확정 설정 경로에서 세계관 비교 전용 API로 재개할 토큰 중단인지 판별한다. */
     public boolean isResumableTokenInterruption() {
         return !isOrderedProvisional()

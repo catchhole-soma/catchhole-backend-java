@@ -57,7 +57,7 @@ public class RelationshipBackfillItem {
     @Column(updatable = false, length = 255)
     private String sourceVersion;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false)
     private boolean servicePaid;
 
     private UUID jobId;
@@ -109,5 +109,24 @@ public class RelationshipBackfillItem {
 
     public void requeue() {
         state = State.WAITING;
+    }
+
+    public void promoteToServicePaid() {
+        servicePaid = true;
+    }
+
+    /** Rebuilding a completed comparison is operational work, not a new user request. */
+    public void requeueForRebuild() {
+        markForRebuild();
+        requeue();
+    }
+
+    public void markForRebuild() {
+        promoteToServicePaid();
+        reason = "DEPENDENCY_CHANGED";
+    }
+
+    public boolean requiresFreshComparison() {
+        return "DEPENDENCY_CHANGED".equals(reason);
     }
 }

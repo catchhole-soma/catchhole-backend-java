@@ -8,7 +8,9 @@ import jakarta.persistence.LockModeType;
 
 import lombok.RequiredArgsConstructor;
 
+import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenUsageRepository;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
+import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenPurpose;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome;
 import org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobClaimRequest;
 import org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobCompleteRequest;
@@ -76,6 +78,7 @@ public class RelationshipBackfillCoordinator {
     private final RelationshipGraphAnalysisRepository analyses;
     private final RelationshipGraphMapper mapper;
     private final AiTokenService tokens;
+    private final AiTokenUsageRepository tokenUsages;
 
     @Value("${analysis.relationship-backfill.enabled:false}")
     private boolean enabled;
@@ -130,7 +133,21 @@ public class RelationshipBackfillCoordinator {
         works.findByIdForUpdate(job.getWork().getId()).orElseThrow();
         var state = workStates.findById(job.getWork().getId()).orElse(null);
         if (state == null || !state.active()) return;
-        enqueue(state, job.getEpisode(), false);
+        var episode = job.getEpisode();
+        // A rolling inline worker may already have reserved or reported relationship usage.
+        // Even an unknown/released call can settle later, so do not charge the rebuild again.
+        boolean alreadyAnalyzed =
+                tokenUsages.existsByAnalysisSourceAndPurposeIn(
+                        job.getWork().getId(),
+                        episode.getId(),
+                        episode.getEpisodeNo(),
+                        episode.getContentHash(),
+                        episode.getContentS3Key(),
+                        episode.getContentS3Version(),
+                        List.of(
+                                AiTokenPurpose.RELATIONSHIP_EXTRACTION,
+                                AiTokenPurpose.RELATIONSHIP_COMPARISON));
+        enqueue(state, episode, alreadyAnalyzed);
     }
 
     private RelationshipBackfillWork initializeWork(Work work) {
@@ -167,8 +184,7 @@ public class RelationshipBackfillCoordinator {
                         .setParameter("status", AnalysisJobStatus.SUCCEEDED)
                         .getResultList())
             if (!core.getEpisode().getCreatedAt().isBefore(manifest.selectedAt())
-                    && sameSource(core, core.getEpisode()))
-                enqueue(state, core.getEpisode(), false);
+                    && sameSource(core, core.getEpisode())) enqueue(state, core.getEpisode(), true);
         return state;
     }
 
@@ -177,12 +193,17 @@ public class RelationshipBackfillCoordinator {
                 || episode.getContentHash() == null
                 || episode.getContentS3Key() == null) return;
         var items = items(state.getWorkId());
-        if (items.stream()
-                .anyMatch(
-                        i ->
-                                i.getEpisodeId().equals(episode.getId())
-                                        && i.getSourceHash().equals(episode.getContentHash())))
+        var existing =
+                items.stream()
+                        .filter(
+                                i ->
+                                        i.getEpisodeId().equals(episode.getId())
+                                                && sameSource(i, episode))
+                        .findFirst();
+        if (existing.isPresent()) {
+            if (paid) existing.get().promoteToServicePaid();
             return;
+        }
         // A replacement is a new source, not permission to silently reinterpret a paid snapshot.
         if (items.stream().anyMatch(i -> i.getEpisodeId().equals(episode.getId()))) {
             state.block("SOURCE_REPLACED");
@@ -191,12 +212,14 @@ public class RelationshipBackfillCoordinator {
         em.persist(RelationshipBackfillItem.create(episode, state.getBuildingGeneration(), paid));
         // A missing middle chapter can arrive while a later relation is being built. Reuse its
         // frozen observations, but redo comparison after the inserted chapter before publication.
-        items.stream()
-                .filter(
-                        i ->
-                                i.getEpisodeNo() > episode.getEpisodeNo()
-                                        && i.getState() == RelationshipBackfillItem.State.SUCCEEDED)
-                .forEach(RelationshipBackfillItem::requeue);
+        for (var item : items) {
+            if (item.getEpisodeNo() <= episode.getEpisodeNo() || item.getJobId() == null) continue;
+            if (item.getState() == RelationshipBackfillItem.State.SUCCEEDED)
+                item.requeueForRebuild();
+            else if (item.getState() == RelationshipBackfillItem.State.WAITING
+                    || item.getState() == RelationshipBackfillItem.State.RUNNING)
+                item.markForRebuild();
+        }
     }
 
     public Optional<WorkerAnalysisJobPayload> claim(WorkerAnalysisJobClaimRequest request) {
@@ -269,6 +292,14 @@ public class RelationshipBackfillCoordinator {
                                 ? null
                                 : jobs.findById(item.getJobId()).orElse(null);
                 AnalysisJob job = previous;
+                if (job != null
+                        && job.getStatus() == AnalysisJobStatus.PENDING
+                        && (item.requiresFreshComparison()
+                                || (item.isServicePaid() && !job.isRelationshipServicePaid()))) {
+                    tokens.releaseReservedForAnalysisJob(
+                            job.getId(), AiTokenUsageOutcome.WORKER_LEASE_EXPIRED);
+                    job.supersedeRelationshipAnalysis();
+                }
                 if (job == null || job.getStatus() != AnalysisJobStatus.PENDING) {
                     job =
                             AnalysisJob.create(
@@ -352,7 +383,7 @@ public class RelationshipBackfillCoordinator {
                         i ->
                                 i.getEpisodeNo() < item.getEpisodeNo()
                                         && i.getState() == RelationshipBackfillItem.State.WAITING))
-            item.requeue();
+            item.requeueForRebuild();
         publishIfReady(state);
     }
 
