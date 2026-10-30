@@ -561,7 +561,8 @@ domain/<domain>
 - 원문 파기는 기존 후보 근거뿐 아니라 영향 이후 ordered journal·S0·자동 시작 문맥에 복사된 identity evidence·참고 주장과 비교 context도 정리한다. S0는 실행 중 불변이다. 근거 삭제는 무효화된 입력 또는 정상 완료된 후행 기록에만 허용하며, 완료 상태·정산·설정값을 바꾸지 않는다. 커밋 후 원문 파기 재시도도 완료 후행을 다시 무효화하지 않는다. 당시 hash는 감사용으로 보존하되 `sourceEvidencePurged` 기록은 다시 replay하지 않는다.
 - `ORDERED_PROVISIONAL`은 회차별 고정 입력으로 캐릭터 비교를 원 Job 안에서 끝낸 뒤 `CHARACTER_COMPARISONS_FINISHED`를 기록한다. 같은 batch의 후속 회차가 앞 회차 저장을 기다리므로 그룹 handoff barrier를 사용하지 않으며 ordered 후보는 legacy 그룹 숨김 Job에 섞지 않는다.
 - Worker 실패는 `AnalysisFailureCode`로 분류해 `analysis_jobs.failure_code`와 후보별 비교 실패 코드에 저장한다. `error_message`는 운영 진단용 원문이며 공개 DTO의 실패 문구는 코드별 안전한 사용자 메시지만 사용한다. URL, 내부 API 경로, stack trace가 공개 응답에 섞이지 않게 한다.
-- 기존 확정 Fact·이력·발견의 일반 인용만 `QUOTE_NOT_FOUND`이면 값과 원출처를 보존하고 복사 문맥의 근거를 `UNAVAILABLE`로 비운다. 신규 근거·offset·원문 hash/manifest·작품/Job 연결·서사 시점 검증은 완화하지 않는다. 원문 확인 불가를 값 삭제나 VERIFIED 승격으로 해석하지 않기 위한 경계다.
+- GH323 후속 일반 설정 인용은 신규·기존을 구분하지 않고 확인 가능한 Unicode offset 구간만 노출한다. offset이 둘 다 없으면 원문 문자열 검색을 하지 않고 `OFFSETS_UNAVAILABLE`로 숨긴다. 불완전·범위 초과·원문과 다른 위치는 해당 span만 제외하고 정상 span은 보존하며, 모두 제외되면 `UNAVAILABLE`과 빈 evidenceSpans로 후보·분석을 계속한다. 일반 인용의 위치 오류를 회차 전체 실패로 확장하지 않기 위한 정책이다. raw 후보·기존 frozen 입력/hash는 감사용으로 보존하고 새 capture와 공개/모델 투영만 정제한다. 원문 hash/manifest·작품/Job 연결·lease 및 별도 동일인·서사 시점 증명 검증은 그대로 유지한다.
+- `GeneralEvidenceProjection`은 일반 인용 표시용 순수 offset 검증과 읽기 전용 출처 projection을 공유한다. 공개 목록은 `GeneralEvidenceSourceRepository`의 scalar manifest와 HTTP 요청 내 캐시로 같은 원문을 한 번만 읽고 AnalysisJob의 큰 JSON을 초기화하지 않는다. 공개 근거를 읽을 수 없으면 인용을 숨기되 처리 단계의 원문 hash/저장소 오류를 정상 성공으로 낮추지 않는다. Worker 후보는 `forProcessingCandidate`를 사용하고 공개 미리보기의 실패 캐시를 재사용하지 않는다. 검증할 offset이 없는 경우는 저장소 조회 없이 제외하고, 검증 중 원문 읽기 실패·hash/출처 불일치는 기존 처리 오류로 전달한다.
 - Worker의 선택적 `failureDiagnostics`는 v1 고정 코드·단계·실제 HTTP/요청/trace 식별자만 받는다. 새 HTTP 필드는 Jackson 3 `JsonNode`, 저장 모델은 typed `AnalysisFailureDiagnostics`를 사용하고 nonthrowing sanitizer가 잘못된 부가 진단과 검증되지 않은 원인 ID를 버린다. 진단 오류로 본래 `/fail` 상태 전이를 거절하거나 기존 `AnalysisFailureCode`의 격리·재시도 정책을 바꾸지 않는다. 후보의 `comparison_failure_analysis_job_id`/`comparison_failure_batch_id`는 서버가 승인한 실제 실행에서 같은 실패 전이에 고정하며 원 추출 Job으로 재비교 실행을 추정하지 않는다. 이 필드와 현재 진단은 새 시도에서 비우고 과거 outbox snapshot은 바꾸지 않는다.
 
 - `WORLD_CANDIDATES_PUBLISHED` 이후 `SETTING_EXTRACTION`이 `AI_TOKEN_QUOTA_EXHAUSTED`로 중단되면 완료된 1차 추출·비교와 `Episode.ANALYZED`를 보존하고, 남은 세계관 후보만 같은 코드의 재개 가능한 중단 상태로 표시한다. 미해결 토큰 중단 후보나 해당 후보의 활성 `WORLD_SETTING_COMPARISON` Job이 남아 있는 동안 새 전체 분석 생성과 다른 실패 Job을 통한 우회 재시도를 차단하고 배치 단위 세계관 비교 재개 API로만 복구한다. 후보가 모두 완료·기각되고 활성 복구 Job이 사라지면 새 분석 생성은 다시 허용한다.
@@ -1104,3 +1105,13 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 실제 Python 실행 연결 검증은 ValidationExecutionHttpPostgresIntegrationTest와 AI tests/support/validation_execution_http_client.py를 사용한다. GH310_AI_CHECKOUT/GH310_PYTHON 및 guarded loopback DB를 명시하고 provider/S3만 합성한다. 성공 모델 추가 호출0과 추출/후보0을 실제 counter/DB로 확인하며 모델 품질·운영 배포 결과로 보고하지 않는다.
 
 - 성공 VECTOR 조회의 JUDGE-only 재개는 live index 재구축 자체에 의존하지 않는다. 원래 완전 READY receipt·원 호출 identity·현재 input/check 의무와 leased source/hash 검증을 유지하고, 원래 실패/부분/미준비 receipt는 재사용하지 않는다.
+
+### GH323 회차별 일반 관계도
+
+- 일반 관계는 가족 규칙 파이프라인과 분리한 `relationship_graph_*` 이력을 사용한다. 기존 캐릭터·세계관 contributor 목록에 관계를 끼워 넣지 않는다. 핵심 반영 후 dedicated 관계 finalize를 같은 트랜잭션에서 실행한다.
+- `RELATIONSHIP_GRAPH_ENABLED`(base 기본 true)와 Worker `supportsRelationshipAnalysis`로 신규 작업을 활성화한다. 지원 광고와 응답 `relationshipAnalysisContract.formatVersion=1`이 둘 다 있을 때만 호출한다. 이미 활성화된 재시도는 구 Worker가 claim하지 않는다.
+- `RelationshipGraphContract`는 하나의 버전이 함께 바뀌는 Worker/공개 계약 record와 enum을 묶는 예외다. 세부 정책과 제한은 [docs/episode-relationships.md](docs/episode-relationships.md)를 단일 문서로 유지한다.
+- 과거 관계도는 회차까지 공개된 지식을 표현한다. 현재 프로필 이름/사진을 가져와 과거 화면에 합치지 않는다. 모델에는 O/H/N/R local refs만 전달하며, 근거는 원문 전체의 Unicode code point offset으로 검증한다.
+- 의미 분석 실패/내부 보류는 캐릭터·세계관 결과를 폐기하지 않는다. lease/권한/quota/원문/저장 오류를 FAILED 의미 처리로 우회하지 않는다. prepare의 S3 I/O는 DB 잠금 밖에서 읽고 돌아와 lease와 manifest를 재확인한다.
+- 재분석은 같은 회차와 후행 관계 상태를 무효화한다. 병렬 수동 작업도 동결 의존성 검증과 앞 회차 반영 시 후행 무효화를 적용한다. 후행 유료 분석이나 과거 백필은 자동으로 새로 시작하지 않는다.
+- 사용자 설명 정정과 삭제는 낭독 시점의 서사 변화가 아닌 오류 정정이다. 버전 충돌을 검사하며 삭제 slot을 자동 재생성하지 않는다. 원문 파기 시 후행 context에 복사된 HOLD 인용도 함께 지운다.

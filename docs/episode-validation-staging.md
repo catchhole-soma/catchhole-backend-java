@@ -82,7 +82,7 @@ Work 잠금 안에서 report와 대상의 **접수 당시 batch/episodeNo/hash/k
 
 오류 검사 우선 스키마는 미배포 `V91__add_validation_staging.sql`로 추가한다. 최신 main의 #304가 사용한 V89·V90은 그대로 보존하며, 과거 #303의 V89는 격리 임시 DB에만 적용되었다. 새 검증은 새 빈 DB에서 전체 Flyway/JPA validate로 실행한다. 공유 `analysis_jobs`에 candidate-first 정책 컬럼을 추가하지 않는다. Python 추출 payload/모델/기존 자동 반영 계약은 그대로다.
 
-#304의 근거 검증·진단 계약도 유지한다. 기존 확정값의 일반 인용만 찾지 못하면 `QUOTE_NOT_FOUND`의 빈 근거로 값을 보존하고, 구조·offset·hash 오류는 기준 보류로 처리한다. 고정 원문 읽기 실패는 기존 `ANALYSIS_CURRENT_EVIDENCE_SOURCE_UNAVAILABLE` 코드일 때만 `BASELINE_SOURCE_UNAVAILABLE`로 보류하며, DB 오류와 다른 예외는 삼키지 않는다.
+#304의 출처 검증·진단 계약을 유지하며 일반 인용 표시는 GH323 후속 정책을 따른다. 위치가 없거나 정확히 일치하지 않는 일반 인용만 숨기고 값과 정상 근거를 보존한다. 원문 hash·출처 연결 및 별도 시점 증명의 오류는 기준 보류로 처리한다. 고정 원문 읽기 실패는 기존 `ANALYSIS_CURRENT_EVIDENCE_SOURCE_UNAVAILABLE` 코드일 때만 `BASELINE_SOURCE_UNAVAILABLE`로 보류하며, DB 오류와 다른 예외는 삼키지 않는다.
 
 기본 검증은 `./gradlew test bootJar`. 실제 새 PostgreSQL은 명시적인 새 loopback DB에서만 실행한다.
 

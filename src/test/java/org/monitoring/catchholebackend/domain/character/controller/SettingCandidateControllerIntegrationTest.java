@@ -872,7 +872,7 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.attributeNamePrefix").doesNotExist())
                 .andExpect(jsonPath("$.data.valueType").value("NUMBER"))
                 .andExpect(jsonPath("$.data.valueJson.value").value(17))
-                .andExpect(jsonPath("$.data.evidenceSpans[0].paragraph_index").value(1))
+                .andExpect(jsonPath("$.data.evidenceSpans").isEmpty())
                 .andExpect(jsonPath("$.data.rawAiResultJson.raw_value").value("17"));
     }
 
@@ -983,7 +983,7 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.valueType").value("NUMBER"))
                 .andExpect(jsonPath("$.data.valueJson.value").value(23))
                 .andExpect(jsonPath("$.data.valueJson.source").doesNotExist())
-                .andExpect(jsonPath("$.data.evidenceSpans[0].paragraph_index").value(1))
+                .andExpect(jsonPath("$.data.evidenceSpans").isEmpty())
                 .andExpect(jsonPath("$.data.reviewStatus").value("PENDING_REVIEW"))
                 .andExpect(jsonPath("$.data.rawAiResultJson.raw_value").value("17"));
 
@@ -1064,7 +1064,7 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.valueJson.name").value("화염 검술"))
                 .andExpect(jsonPath("$.data.valueJson.level").value(5))
                 .andExpect(jsonPath("$.data.valueJson.effect").value("화염 공격"))
-                .andExpect(jsonPath("$.data.evidenceSpans[0].paragraph_index").value(1))
+                .andExpect(jsonPath("$.data.evidenceSpans").isEmpty())
                 .andExpect(jsonPath("$.data.rawAiResultJson.raw_value").value(" Lv.5 "));
 
         SettingCandidate saved = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
@@ -1119,7 +1119,7 @@ class SettingCandidateControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.valueJson.name").value("화염 검술"))
                 .andExpect(jsonPath("$.data.valueJson.level").doesNotExist())
                 .andExpect(jsonPath("$.data.valueJson.effect").doesNotExist())
-                .andExpect(jsonPath("$.data.evidenceSpans[0].paragraph_index").value(1))
+                .andExpect(jsonPath("$.data.evidenceSpans").isEmpty())
                 .andExpect(jsonPath("$.data.rawAiResultJson.raw_value").value("Lv.3"));
 
         SettingCandidate saved = settingCandidateRepository.findById(candidate.getId()).orElseThrow();

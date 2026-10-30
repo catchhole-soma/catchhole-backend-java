@@ -585,7 +585,7 @@ class AnalysisFailureNotificationPostgresIntegrationTest {
             var previous = em.find(SettingCandidate.class, retained);
             var source = resolver.captureRetainedCandidate(resolver.begin(previous.getWork()), previous);
             assertThat(source.path("availability").asText()).isEqualTo("UNAVAILABLE");
-            assertThat(source.path("unavailableReason").asText()).isEqualTo("QUOTE_NOT_FOUND");
+            assertThat(source.path("unavailableReason").asText()).isEqualTo("OFFSETS_UNAVAILABLE");
             assertThat(source.path("evidenceSpans")).isEmpty();
             var candidate = em.find(SettingCandidate.class, incoming);
             candidate.completeComparison(CharacterFactOperation.REVIEW_REQUIRED, null, null, null, null, null,

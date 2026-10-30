@@ -74,6 +74,10 @@ import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 @EntityListeners(org.monitoring.catchholebackend.domain.analysis.event.AnalysisMetricsEntityListener.class)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class AnalysisJob extends BaseEntity {
+    @jakarta.persistence.Column(name="relationship_analysis_enabled", nullable=false)
+    private boolean relationshipAnalysisEnabled;
+    public void enableRelationshipAnalysis() {relationshipAnalysisEnabled=true;}
+
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

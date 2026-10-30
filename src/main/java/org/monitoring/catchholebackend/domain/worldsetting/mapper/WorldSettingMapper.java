@@ -6,6 +6,7 @@ import org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorldSet
 
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisExplanationText;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -43,6 +44,7 @@ import org.springframework.stereotype.Component;
 @Component
 @lombok.RequiredArgsConstructor
 public class WorldSettingMapper {
+    private final GeneralEvidenceProjection evidenceProjection;
     private final org.monitoring.catchholebackend.domain.analysis.service.CandidateReviewSourceScope reviewSources;
 
     public WorldSettingCandidateSummaryResponse toSummaryResponse(
@@ -220,7 +222,7 @@ public class WorldSettingMapper {
                 candidate.getScopeName(),
                 candidate.getSettingName(),
                 candidate.getExtractedValue(),
-                toEvidenceSpans(candidate.getEvidenceSpans()),
+                toEvidenceSpans(evidenceProjection.forWorldCandidate(candidate)),
                 candidate.getExtractionConfidence(),
                 targetWorldSetting == null ? null : targetWorldSetting.getId(),
                 targetWorldSetting == null ? null : targetWorldSetting.getSubjectName(),
@@ -540,7 +542,7 @@ public class WorldSettingMapper {
                 candidate.getFinalValue(),
                 (candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getId()),
                 (candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getEpisodeNo()),
-                toEvidenceSpans(candidate.getEvidenceSpans()),
+                toEvidenceSpans(evidenceProjection.forWorldCandidate(candidate)),
                 candidate.getReviewedAt(), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(candidate.getAnalysisJob()));
     }
 

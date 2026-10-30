@@ -129,9 +129,9 @@ class CharacterFactComparisonBatchWorkerTest {
                 new CharacterSnapshotAccessor(),
                 valueValidator,
                 new CharacterFactComparisonDecisionValidator(valueValidator),
-                new CharacterFactComparisonWorkerMapper(),
+                new CharacterFactComparisonWorkerMapper(org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection.class)),
                 analysisStateService, analysisStateSource,
-                new org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisRunContextMapper(new org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper(new org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver())),
+                new org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisRunContextMapper(new org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper(new org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver(), org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection.class))),
                 comparisonJobCoordinator
         );
 

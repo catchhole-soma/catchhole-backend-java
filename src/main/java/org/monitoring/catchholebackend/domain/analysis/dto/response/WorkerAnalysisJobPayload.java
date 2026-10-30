@@ -82,7 +82,10 @@ public record WorkerAnalysisJobPayload(
         WorkerSemanticCurrentContextPayload semanticCurrentContext,
         @JsonInclude(JsonInclude.Include.NON_NULL)
         @Schema(description = "누적 비교의 고정 supporting-evidence 계약 확인. 구 server의 silent downgrade를 허용하지 않습니다.")
-        ComparisonEvidenceContract comparisonEvidenceContract
+        ComparisonEvidenceContract comparisonEvidenceContract,
+        @JsonInclude(JsonInclude.Include.NON_NULL) @Schema(description="독립 관계 분석 계약. 존재할 때만 관계 단계를 실행합니다.")
+        RelationshipAnalysisContract relationshipAnalysisContract
 ) {
     public record ComparisonEvidenceContract(int formatVersion) {}
+    public record RelationshipAnalysisContract(int formatVersion) {}
 }

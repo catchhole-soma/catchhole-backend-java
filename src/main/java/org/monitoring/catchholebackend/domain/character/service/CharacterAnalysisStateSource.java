@@ -114,7 +114,8 @@ public class CharacterAnalysisStateSource implements AnalysisStateSource {
             ObjectNode frozen = current.deepCopy();
             ObjectNode origin = supportingEvidence.captureRetainedCandidate(capture, source);
             if ("VERIFIED".equals(origin.path("availability").asText())
-                    || "QUOTE_NOT_FOUND".equals(origin.path("unavailableReason").asText())) {
+                    || java.util.Set.of("QUOTE_NOT_FOUND", "OFFSETS_UNAVAILABLE", "INVALID_OFFSETS", "EVIDENCE_UNAVAILABLE")
+                            .contains(origin.path("unavailableReason").asText())) {
                 ObjectNode point = frozen.deepCopy(); point.remove("sourceCandidateId");
                 if (!point.equals(origin.path("narrativeTime").path("referenceTime"))) throw new org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException();
             }

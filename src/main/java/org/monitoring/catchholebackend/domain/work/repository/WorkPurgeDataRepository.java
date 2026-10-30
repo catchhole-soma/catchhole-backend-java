@@ -25,6 +25,10 @@ public class WorkPurgeDataRepository {
      */
     public WorkPurgeDatabaseResult purgeWorkData(UUID workId) {
         int deletedCount = 0;
+        deletedCount += update("delete from relationship_graph_events where work_id = ?", workId);
+        deletedCount += update("delete from relationship_graph_edges where work_id = ?", workId);
+        deletedCount += update("delete from relationship_graph_nodes where work_id = ?", workId);
+        deletedCount += update("delete from relationship_graph_analyses where work_id = ?", workId);
         // GH312: 회차 전체 확정 receipt는 검토 종료 receipt·report·analysis Job을, 검토 종료 receipt는 report와 analysis Job을 참조하므로 이 순서로 먼저 지운다.
         deletedCount += update("delete from validation_settings_applications where work_id = ?", workId);
         deletedCount += update("delete from validation_review_completions where work_id = ?", workId);

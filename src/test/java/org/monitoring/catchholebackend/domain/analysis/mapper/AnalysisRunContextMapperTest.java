@@ -20,7 +20,7 @@ import org.monitoring.catchholebackend.domain.character.processor.CharacterFactS
 @DisplayName("누적 분석의 고정 입력 참고 목록")
 class AnalysisRunContextMapperTest {
     private final AnalysisRunContextMapper mapper = new AnalysisRunContextMapper(
-            new CharacterFactEvidenceMapper(mock(CharacterFactSourceResolver.class)));
+            new CharacterFactEvidenceMapper(mock(CharacterFactSourceResolver.class), mock(org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection.class)));
 
     @Test
     @DisplayName("DB JSON 객체 키 순서가 바뀌어도 claim과 다음 비교에 같은 참고 목록을 전달한다")

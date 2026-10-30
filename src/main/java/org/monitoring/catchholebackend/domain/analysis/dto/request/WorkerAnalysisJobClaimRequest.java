@@ -32,8 +32,20 @@ public record WorkerAnalysisJobClaimRequest(
         @Schema(description = "claim 전용 전체 고정 CURRENT 문맥 지원. true인 누적 모드에만 전달합니다.", nullable = true)
         Boolean supportsSemanticCurrentContext,
         @Schema(description = "고정 원문 근거와 같은 인물의 전체 CURRENT 비교 문맥 지원. true인 Worker만 누적 작업을 claim합니다.", nullable = true)
-        Boolean supportsFrozenComparisonEvidence
+        Boolean supportsFrozenComparisonEvidence,
+        @Schema(description = "독립 회차 관계 분석 v1 지원", nullable = true)
+        Boolean supportsRelationshipAnalysis
 ) {
+    public WorkerAnalysisJobClaimRequest(String modelName, String currentStep, Set<AnalysisJobType> allowedJobTypes,
+            Set<AnalysisMode> supportedAnalysisModes, Boolean supportsCharacterComparisonGroups,
+            Set<org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind> supportedSourceKinds,
+            Boolean supportsSettingBookReferenceTime, Boolean supportsSemanticCurrentContext,
+            Boolean supportsFrozenComparisonEvidence) {
+        this(modelName, currentStep, allowedJobTypes, supportedAnalysisModes, supportsCharacterComparisonGroups,
+                supportedSourceKinds, supportsSettingBookReferenceTime, supportsSemanticCurrentContext,
+                supportsFrozenComparisonEvidence, null);
+    }
+
     public WorkerAnalysisJobClaimRequest(String modelName, String currentStep, Set<AnalysisJobType> allowedJobTypes,
             Set<AnalysisMode> supportedAnalysisModes, Boolean supportsCharacterComparisonGroups,
             Set<org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind> supportedSourceKinds,

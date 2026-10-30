@@ -1400,7 +1400,7 @@ class AutomaticAnalysisIntegrationTest {
             assertThat(failed.getComparisonStatus()).isEqualTo(WorldSettingComparisonStatus.FAILED);
             assertThat(failed.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.PENDING_REVIEW);
             assertThat(failed.getComparisonDiagnostics().size()).isEqualTo(2);
-            var response = new org.monitoring.catchholebackend.domain.worldsetting.mapper.WorldSettingMapper(org.mockito.Mockito.mock(CandidateReviewSourceScope.class)).toCandidateResponse(failed);
+            var response = new org.monitoring.catchholebackend.domain.worldsetting.mapper.WorldSettingMapper(org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection.class), org.mockito.Mockito.mock(CandidateReviewSourceScope.class)).toCandidateResponse(failed);
             assertThat(response.comparisonDiagnostics()).hasSize(2);
             assertThat(response.comparisonDiagnostics().getLast().rule()).isEqualTo("PROPOSED_PATH_MISMATCH");
             assertThat(jobs.findById(first.analysisJobId()).orElseThrow().getJournalStatus()).isEqualTo(AnalysisJournalStatus.SEALED);

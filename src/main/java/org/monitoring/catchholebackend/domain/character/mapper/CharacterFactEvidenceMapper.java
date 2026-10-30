@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.character.mapper;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Component;
 public class CharacterFactEvidenceMapper {
 
     private final CharacterFactSourceResolver characterFactSourceResolver;
+    private final GeneralEvidenceProjection evidenceProjection;
 
     public CharacterFactEvidenceResponse toResponse(CharacterFact fact, String content) {
         SettingCandidate candidate = fact.getSettingCandidate();
@@ -28,7 +30,7 @@ public class CharacterFactEvidenceMapper {
                 candidate == null ? null : candidate.getId(),
                 toEpisodeResponse(episode),
                 content,
-                toEvidenceSpans(candidate == null ? null : candidate.getEvidenceSpans()), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(fact.getExtractedByJob()));
+                toEvidenceSpans(evidenceProjection.forCandidate(candidate, content)), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(fact.getExtractedByJob()));
     }
 
     private CharacterFactEvidenceEpisodeResponse toEpisodeResponse(Episode episode) {

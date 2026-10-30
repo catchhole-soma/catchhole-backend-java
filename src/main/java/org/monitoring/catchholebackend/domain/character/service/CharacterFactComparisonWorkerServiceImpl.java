@@ -518,7 +518,7 @@ public class CharacterFactComparisonWorkerServiceImpl implements CharacterFactCo
                 candidate.getAttributeName(),
                 candidate.getAttributeValue(),
                 workerMapper.toJsonValue(candidate.getValueJson()),
-                workerMapper.toEvidenceSpans(candidate.getEvidenceSpans()),
+                workerMapper.toCandidateEvidenceSpans(candidate),
                 candidate.getComparisonStatus(),
                 candidate.getSuggestedOperation(),
                 candidate.getProposedFactValue(),

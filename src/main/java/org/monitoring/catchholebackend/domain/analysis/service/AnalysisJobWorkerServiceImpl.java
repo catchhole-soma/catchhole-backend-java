@@ -73,6 +73,9 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     private final List<AnalysisJournalContributor> analysisJournalContributors;
     private final List<AnalysisAutomaticApplicationContributor> automaticApplicationContributors;
     private final WorkRepository workRepository;
+    private final org.monitoring.catchholebackend.domain.relationship.service.RelationshipGraphService relationshipGraphService;
+    @org.springframework.beans.factory.annotation.Value("${relationship.graph.enabled:true}")
+    private boolean relationshipGraphEnabled = true;
 
     private static final int EXPIRED_LEASE_SCAN_SIZE = 20;
     private static final int MAX_CLAIM_ATTEMPTS = 3;
@@ -148,6 +151,13 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             targetEpisode.markChunking();
         }
 
+        if (relationshipGraphEnabled && Boolean.TRUE.equals(request.supportsRelationshipAnalysis())
+                && analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION && !analysisJob.isSettingBookSource()
+                && analysisJob.getEpisode() != null && analysisJob.getSourceEpisodeNo() != null
+                && analysisJob.getSourceContentHash() != null && analysisJob.getSourceContentS3Key() != null) {
+            analysisJob.enableRelationshipAnalysis();
+            relationshipGraphService.beginRelationshipAnalysis(analysisJob);
+        }
         UUID workId = analysisJob.getWork().getId();
         // canonical key·alias·value type 계약은 Job 종류와 무관하게 동일해야 한다.
         // 비교 전용 Worker도 claim payload만으로 같은 스키마를 해석할 수 있도록 항상 제공한다.
@@ -304,6 +314,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 }
             }
         }
+        relationshipGraphService.finalizeRelationshipAnalysis(analysisJob);
         if (!isHiddenComparisonJob(analysisJob)) {
             findTargetEpisodes(analysisJob).forEach(Episode::markAnalyzed);
         }
