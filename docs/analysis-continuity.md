@@ -106,6 +106,13 @@ offset이 없으면 원문 검색을 하지 않고 숨긴다. 범위·부분 위
 요청 내 캐시를 사용하고 원문을 이미 읽은 상세는 재사용한다. 원문 hash/출처/권한/lease와
 별도 동일인·서사 시점 증명의 엄격 검증은 이 표시 정책과 분리해 유지한다.
 
+Worker 단건·묶음 비교 후보는 `GeneralEvidenceProjection.forProcessingCandidate`를 사용한다.
+검증 가능한 위치가 없으면 저장소를 읽지 않으며, 위치가 있는 개별 인용의 오류만 제외한다.
+반면 원문 저장소 실패는 `ANALYSIS_CURRENT_EVIDENCE_SOURCE_UNAVAILABLE`,
+고정 원문 hash·출처 연결·불완전 manifest 오류는 `ANALYSIS_CURRENT_EVIDENCE_INVALID`로
+전달해 빈 근거의 정상 비교로 진행하지 않는다. 공개 미리보기의 빈 결과 캐시와 처리용 검증 성공
+캐시를 분리한다. 출처 기록 자체가 없는 legacy 후보는 기존처럼 근거 없음으로 유지한다.
+
 검증은 일반 span 필터·CURRENT capture·공개 mapper·단건/배치 비교·동결 입력 claim·
 출처 hash 실패·동일인/시점 증명 경계를 대상으로 실행했다. 관련 Java 테스트 472건 중
 471 passed / 1 skipped / 실패·오류 0이며 `./gradlew bootJar`도 성공했다.

@@ -9,15 +9,18 @@ import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
 import org.monitoring.catchholebackend.domain.analysis.repository.GeneralEvidenceSourceRepository;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
+import org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
+import org.monitoring.catchholebackend.global.exception.AppException;
 import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 
-/** Read-only display projection. Raw extraction evidence and semantic proof validators stay unchanged. */
+/** Read-only evidence projection with separate public-preview and processing failure policies. */
 @Component
 @RequiredArgsConstructor
 public class GeneralEvidenceProjection {
@@ -28,6 +31,43 @@ public class GeneralEvidenceProjection {
     public ArrayNode forCandidate(SettingCandidate candidate) {
         return candidate == null ? empty() : forSource(candidate.getWork().getId(),
                 candidate.getAnalysisJob(), candidate.getEvidenceSpans());
+    }
+
+    /** Processing may omit bad spans, but must not turn a source failure into successful empty evidence. */
+    public ArrayNode forProcessingCandidate(SettingCandidate candidate) {
+        if (candidate == null || !hasLocatedSpan(candidate.getEvidenceSpans())) return empty();
+        AnalysisJob job = candidate.getAnalysisJob();
+        // Legacy candidates can have no retained source manifest.
+        if (job == null) return empty();
+        Cache cache = requestCache();
+        var source = source(job, cache);
+        if (source == null || !Objects.equals(candidate.getWork().getId(), source.workId())) {
+            throw new InvalidEvidenceException("CURRENT_EVIDENCE_BINDING_INVALID", job);
+        }
+        if (source.key() == null && source.hash() == null) return empty();
+        if (source.key() == null || source.key().isBlank() || source.hash() == null
+                || !source.hash().matches("[0-9a-f]{64}")) {
+            throw new InvalidEvidenceException("CURRENT_EVIDENCE_MANIFEST_INVALID", job);
+        }
+        String binding = source.key() + "\n" + source.version() + "\n" + source.hash();
+        // A public preview may already have cached an unavailable source in this request.
+        // Only successfully verified processing reads can satisfy a processing projection.
+        String content = cache.processingContents.computeIfAbsent(binding, ignored -> {
+            String loaded;
+            String hash;
+            try {
+                loaded = storage.getText(source.key());
+                if (loaded == null) throw new IllegalStateException("Source unavailable");
+                hash = storage.contentHash(loaded);
+            } catch (RuntimeException failure) {
+                throw new AppException(AnalysisJobErrorCode.ANALYSIS_CURRENT_EVIDENCE_SOURCE_UNAVAILABLE);
+            }
+            if (!source.hash().equals(hash)) {
+                throw new InvalidEvidenceException("CURRENT_EVIDENCE_SOURCE_HASH_MISMATCH", job);
+            }
+            return loaded;
+        });
+        return verifiedSpans(content, candidate.getEvidenceSpans());
     }
 
     public ArrayNode forWorldCandidate(WorldSettingCandidate candidate) {
@@ -147,5 +187,6 @@ public class GeneralEvidenceProjection {
     private static final class Cache {
         private final Map<UUID, GeneralEvidenceSourceRepository.Source> sources = new HashMap<>();
         private final Map<String, String> contents = new HashMap<>();
+        private final Map<String, String> processingContents = new HashMap<>();
     }
 }

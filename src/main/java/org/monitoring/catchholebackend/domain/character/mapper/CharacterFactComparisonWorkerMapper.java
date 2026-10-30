@@ -80,7 +80,7 @@ public class CharacterFactComparisonWorkerMapper {
     }
 
     public List<WorkerCharacterFactComparisonCandidatePayload.EvidenceSpan> toCandidateEvidenceSpans(SettingCandidate candidate) {
-        return toEvidenceSpans(evidenceProjection.forCandidate(candidate));
+        return toEvidenceSpans(evidenceProjection.forProcessingCandidate(candidate));
     }
 
     private String textValue(JsonNode node, String fieldName) {
