@@ -1,9 +1,9 @@
 {
   "contractVersion": 1,
-  "scope": "GH312 author judgments, review completion/release, whole-episode settings application, history and derived reviewStage; GH314 B1 intake eligibility and next-episode admission; screens are GH314",
+  "scope": "GH312 author judgments, review completion/release, whole-episode settings application, history and derived reviewStage; GH314 B1 intake eligibility and next-episode admission; GH314 B2 finding subject/setting, impact/subjectType filters, correction basis, APPLIED recheck action and recheck baseline fingerprint; screens are GH314",
   "synthetic": true,
   "routes": {
-    "listValidationFindings": "GET /api/v1/works/{workId}/episode-validations/{reportId}/findings?branch=&judgment=&outcome=&page=0&size=20",
+    "listValidationFindings": "GET /api/v1/works/{workId}/episode-validations/{reportId}/findings?branch=&judgment=&outcome=&impact=&subjectType=&page=0&size=20",
     "getValidationFinding": "GET /api/v1/works/{workId}/episode-validations/{reportId}/findings/{findingId}",
     "saveValidationJudgment": "PATCH /api/v1/works/{workId}/episode-validations/{reportId}/findings/{findingId}/judgment",
     "getValidationReviewSummary": "GET /api/v1/works/{workId}/episode-validations/{reportId}/review",
@@ -42,7 +42,48 @@
         "reason": "합성 충돌 판정",
         "replacement": null,
         "spans": [{"sourceRef": "T1", "start": 0, "end": 2, "quote": "처음"}]
-      }
+      },
+      "subject": {"type": "CHARACTER", "id": "00000000-0000-4000-8000-000000000601", "name": "카일"},
+      "settingName": "나이",
+      "settingKey": "AGE:age"
+    },
+    "findingSummaryWorld": {
+      "findingId": "00000000-0000-4000-8000-000000000104",
+      "branch": "SETTING",
+      "unitRef": "Q2",
+      "checkId": "00000000-0000-4000-8000-000000000105",
+      "checkRevision": 1,
+      "outcome": "SUSPECTED_CONFLICT",
+      "judgment": {"value": "PENDING", "version": 0, "decidedAt": null},
+      "changed": false,
+      "summary": {
+        "impact": "SEVERE",
+        "reason": "합성 의심 판정",
+        "replacement": null,
+        "spans": [{"sourceRef": "T1", "start": 3, "end": 5, "quote": "합성"}]
+      },
+      "subject": {"type": "WORLD_SETTING", "id": "00000000-0000-4000-8000-000000000602", "name": "북부 왕국"},
+      "settingName": "마법 / 사용 조건",
+      "settingKey": "[\"마법\",\"사용 조건\"]"
+    },
+    "findingSummaryTypo": {
+      "findingId": "00000000-0000-4000-8000-000000000106",
+      "branch": "TYPO",
+      "unitRef": "TSEG1",
+      "checkId": null,
+      "checkRevision": null,
+      "outcome": "SPELLING",
+      "judgment": {"value": "PENDING", "version": 0, "decidedAt": null},
+      "changed": false,
+      "summary": {
+        "impact": null,
+        "reason": "합성 맞춤법 제안",
+        "replacement": "원교",
+        "spans": [{"sourceRef": "T1", "start": 6, "end": 8, "quote": "원고"}]
+      },
+      "subject": null,
+      "settingName": null,
+      "settingKey": null
     },
     "findingDetail": {
       "findingId": "00000000-0000-4000-8000-000000000101",
@@ -64,6 +105,15 @@
       ],
       "priorRevisions": [
         {"checkRevision": 1, "outcome": "CONFLICT", "changeReason": null, "findingId": "00000000-0000-4000-8000-000000000103", "judgment": {"value": "NOT_CONFLICT", "version": 1, "decidedAt": "2026-10-30T10:01:00"}}
+      ],
+      "subject": {"type": "CHARACTER", "id": "00000000-0000-4000-8000-000000000601", "name": "카일"},
+      "settingName": "나이",
+      "settingKey": "AGE:age",
+      "basis": [
+        {"entryRef": "B1", "entryHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "subjectType": "CHARACTER", "targetId": "00000000-0000-4000-8000-000000000601", "subjectName": "카일",
+         "factType": "AGE", "factKey": "age", "scopeName": null, "settingName": null, "currentVersion": 3},
+        {"entryRef": "B2", "entryHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "subjectType": "WORLD_SETTING", "targetId": "00000000-0000-4000-8000-000000000602", "subjectName": "북부 왕국",
+         "factType": null, "factKey": null, "scopeName": null, "settingName": null, "currentVersion": 4}
       ]
     },
     "reviewSummary": {
@@ -89,6 +139,24 @@
       },
       "extractionState": "SUCCEEDED",
       "reviewStage": "APPLICATION_HELD"
+    },
+    "reviewSummaryApplied": {
+      "reportId": "00000000-0000-4000-8000-000000000001",
+      "reportVersion": 17,
+      "executionStatus": "COMPLETED",
+      "mode": "BEFORE_CONFIRMATION",
+      "counts": {"settingTotal": 1, "settingPending": 0, "settingNeedsFix": 0, "settingNotConflict": 1, "typoTotal": 2, "typoPending": 0, "typoNeedsFix": 0, "typoKeepOriginal": 2},
+      "judgmentLocked": true,
+      "lockReason": "REVIEW_COMPLETED",
+      "canCompleteReview": false,
+      "completionMode": "COMPLETED",
+      "holdReasons": [],
+      "allowedActions": ["RECHECK"],
+      "completion": {"completionId": "00000000-0000-4000-8000-000000000201", "trigger": "EXPLICIT", "completedAt": "2026-10-30T10:20:00", "extractionJobId": "00000000-0000-4000-8000-000000000301"},
+      "releaseHold": null,
+      "application": {"status": "APPLIED", "attempt": 2, "holdReasons": [], "appliedAt": "2026-10-30T10:30:00", "extractionJobGeneration": 1},
+      "extractionState": "SUCCEEDED",
+      "reviewStage": "APPLIED"
     },
     "reviewCompletion": {
       "completionId": "00000000-0000-4000-8000-000000000201",
@@ -208,7 +276,52 @@
       "nextEpisodeAdmission": {"allowed": false, "blockingReportId": "00000000-0000-4000-8000-000000000011", "blockingEpisodeId": "00000000-0000-4000-8000-000000000002", "blockingEpisodeNo": 101, "blockingReviewStage": "AWAITING_REVIEW", "message": "이 회차의 검토와 설정 저장을 마친 뒤 다음 회차를 등록할 수 있어요."}
     }
   },
+  "correctionFromFindingBasis": {
+    "description": "#314 B2. Values copied verbatim: staging fields from GET /{reportId}, entry/target/version/slot from findingDetail.basis[0]; edit is the author's full CharacterUpdateRequest that changes only that slot.",
+    "staging": {"baselineId": "00000000-0000-4000-8000-000000000001", "baselineRevision": 1, "baselineHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "reportVersion": 15, "baselineFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+    "request": {
+      "idempotencyKey": "synthetic-basis-correction-1",
+      "expectedReportVersion": 15,
+      "baselineId": "00000000-0000-4000-8000-000000000001",
+      "expectedBaselineRevision": 1,
+      "expectedBaselineHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "entryRef": "B1",
+      "expectedEntryHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "character": {
+        "targetId": "00000000-0000-4000-8000-000000000601",
+        "expectedSnapshotVersion": 3,
+        "factType": "AGE",
+        "factKey": "age",
+        "edit": {"name": "카일", "roleLabel": null, "currentAge": 21, "currentLevel": 1, "firstAppearanceEpisodeNo": null, "profile": [], "stats": [], "skills": [], "items": [], "statuses": []}
+      },
+      "worldSetting": null
+    },
+    "recheckWithReceipt": {
+      "idempotencyKey": "synthetic-recheck-after-correction",
+      "expectedReportVersion": 16,
+      "expectedContentHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "expectedContentS3Key": "synthetic/episode-101.txt",
+      "expectedContentS3Version": "synthetic-version-1",
+      "expectedContentRevision": 1,
+      "expectedBaselineHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "correctionReceiptId": "00000000-0000-4000-8000-000000000701"
+    }
+  },
   "errors": {
+    "recheckBaselineFingerprintRequired": {
+      "success": false,
+      "message": "원고 버전이 변경되었습니다. 현재 원고를 다시 확인해 주세요.",
+      "data": null,
+      "error": {"code": "VALIDATION_SOURCE_VERSION_CONFLICT", "status": 409, "details": [], "context": {"reason": "BASELINE_FINGERPRINT_REQUIRED"}},
+      "timestamp": "2026-10-30T11:00:00"
+    },
+    "recheckBaselineFingerprintMismatch": {
+      "success": false,
+      "message": "원고 버전이 변경되었습니다. 현재 원고를 다시 확인해 주세요.",
+      "data": null,
+      "error": {"code": "VALIDATION_SOURCE_VERSION_CONFLICT", "status": 409, "details": [], "context": {"reason": "BASELINE_FINGERPRINT_MISMATCH"}},
+      "timestamp": "2026-10-30T11:00:00"
+    },
     "nextEpisodeBlocked": {
       "success": false,
       "message": "이 회차의 검토와 설정 저장을 마친 뒤 다음 회차를 등록할 수 있어요.",
@@ -259,6 +372,13 @@
     "existingFieldsUnchanged": "errorReviewStatus, extractionStatus, candidateStatus, Episode analysisStatus and batch status keep their S1-S3 meaning",
     "eligibilitySharesStartPredicate": "GET /eligibility and POST /episode-validations read the same ValidationIntakeEligibility judgement; the lookup writes nothing",
     "nextEpisodeBlockRule": "a work is blocked while an active (non-ARCHIVED) episode has a current BEFORE_CONFIRMATION report whose reviewStage is not APPLIED (INVALIDATED included) and whose whole-episode application receipt is not APPLIED; a report with an APPLIED receipt never blocks even after a later invalidation; DIAGNOSTIC_ONLY reports, retired (current=false) reports and reports of deleted episodes are not consulted",
-    "nextEpisodeBlockWritesNothing": "a blocked episode upload (every upload type) writes no UploadBatch, UploadFile, Episode or stored object; detect, file replacement, setting books and title edits are not blocked"
+    "nextEpisodeBlockWritesNothing": "a blocked episode upload (every upload type) writes no UploadBatch, UploadFile, Episode or stored object; detect, file replacement, setting books and title edits are not blocked",
+    "findingTargetIsFrozen": "subject/settingName/settingKey/impact are copied once when a SETTING finding is saved, from the question state of that revision and the report's frozen baselineEntries; current character/world values are never read; TYPO findings keep them null",
+    "findingSubjectRule": "subject = first question subject_ref (else the BASELINE lookup entries), preferring a characters/worldSettings entry, then baseline order; id is null unless the entry identity is an actual character/world setting id; names are never used to link",
+    "findingSettingRule": "settingKey/settingName are set only when property_or_rule equals (NFC, lower case, whitespace ignored) exactly one frozen slot key/factKey/schema display name or world settingName/'scope/settingName' of that subject; findings saved before V102 keep them null",
+    "findingFiltersAreSql": "impact and subjectType filter in SQL on the copied columns; they exclude TYPO findings and findings without a subject; /review counts ignore every list filter",
+    "basisIsCorrectionInput": "findingDetail.basis lists the linked characters/worldSettings entries of the question (subject_refs and BASELINE lookups) with entryRef/entryHash/targetId/currentVersion; slot fields are set only on the subject entry when settingKey is set",
+    "appliedRecheckAction": "allowedActions has RECHECK for a current APPLIED report exactly when ValidationRecheckAdmission admits its episode (latest active, no source purge pending, no PENDING/RUNNING extraction/comparison job, current upload batch) — the same rule recheckValidation enforces",
+    "recheckBaselineHashIsFingerprint": "expectedBaselineHash is the staging baselineFingerprint (never baselineHash); required unless correctionReceiptId is sent or the fingerprint itself is null; missing → 409 VALIDATION_SOURCE_VERSION_CONFLICT context.reason=BASELINE_FINGERPRINT_REQUIRED, different → BASELINE_FINGERPRINT_MISMATCH; manuscript conflicts keep an empty context"
   }
 }

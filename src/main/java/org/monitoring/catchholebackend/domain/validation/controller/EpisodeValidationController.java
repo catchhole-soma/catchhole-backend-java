@@ -1,6 +1,8 @@
 package org.monitoring.catchholebackend.domain.validation.controller;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.responses.*;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -23,6 +25,8 @@ import org.monitoring.catchholebackend.domain.validation.service.ValidationRevie
 import org.monitoring.catchholebackend.domain.validation.dto.request.ValidationReviewCompletionRequest;
 import org.monitoring.catchholebackend.domain.validation.dto.response.ValidationReviewCompletionResponse;
 import org.monitoring.catchholebackend.domain.validation.type.ValidationBranch;
+import org.monitoring.catchholebackend.domain.validation.type.ValidationImpact;
+import org.monitoring.catchholebackend.domain.validation.type.ValidationSubjectType;
 import org.monitoring.catchholebackend.domain.validation.type.ValidationJudgmentValue;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
 import org.monitoring.catchholebackend.global.common.response.PageResponse;
@@ -93,11 +97,11 @@ public class EpisodeValidationController {
     }
 
     @PostMapping("/{reportId}/rechecks")
-    @Operation(operationId="recheckEpisodeValidation", summary="수정 후 새 검수 접수", description="원고·기준이 달라진 최신 회차를 명시적으로 다시 접수합니다. 같은 입력의 실패 재시도와 구분하며 추출 Job·후보를 만들지 않습니다.")
+    @Operation(operationId="recheckEpisodeValidation", summary="수정 후 새 검수 접수", description="원고·기준이 달라진 최신 회차를 명시적으로 다시 접수합니다. 같은 입력의 실패 재시도와 구분하며 추출 Job·후보를 만들지 않습니다. expectedBaselineHash에는 GET /{reportId}의 baselineFingerprint를 그대로 보냅니다(정정 receipt로 접수하면 생략 가능). 회차 전체 확정(APPLIED) report는 같은 원고도 진단 재검수로 받으며 검토 요약 allowedActions의 RECHECK가 같은 조건을 알려 줍니다.")
     @ApiResponses({@ApiResponse(responseCode="200", description="새 검수 접수 또는 같은 요청 재전송"),
             @ApiResponse(responseCode="400", description="필드 검증 실패, 최신 활성 회차가 아니거나 진행 중 분석·원문 파기 대기가 있는 회차(VALIDATION_TARGET_INVALID)"),
             @ApiResponse(responseCode="404", description="작품 소유권 또는 검수 요청 없음"),
-            @ApiResponse(responseCode="409", description="report version 충돌·현재 검수 아님, 원고·기준 버전 변경, 같은 입력(VALIDATION_RECHECK_INPUT_UNCHANGED), 정정 영수증 불일치, 같은 키 다른 입력")})
+            @ApiResponse(responseCode="409", description="report version 충돌·현재 검수 아님, 원고·기준 버전 변경(VALIDATION_SOURCE_VERSION_CONFLICT. 기준 식별값 누락은 context.reason=BASELINE_FINGERPRINT_REQUIRED, 불일치는 BASELINE_FINGERPRINT_MISMATCH이고 원고 불일치는 context가 비어 있음), 같은 입력(VALIDATION_RECHECK_INPUT_UNCHANGED), 정정 영수증 불일치, 같은 키 다른 입력")})
     public CommonResponse<ValidationStagingResponse> recheck(@AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId,@PathVariable UUID reportId,@Valid @RequestBody ValidationRecheckRequest request) {
         return CommonResponse.success(rechecks.recheckValidation(member.memberId(),workId,reportId,request));
@@ -132,18 +136,20 @@ public class EpisodeValidationController {
     }
 
     @GetMapping("/{reportId}/findings")
-    @Operation(operationId="listValidationFindings", summary="현재 발견 항목과 작가 판단 목록", description="현재 check revision의 설정 항목과 오탈자 제안만 생성 순서로 반환합니다. 판단을 저장한 적 없는 항목은 PENDING이며 근거 행은 상세에서만 제공합니다. page는 0부터, size는 1~100입니다.")
+    @Operation(operationId="listValidationFindings", summary="현재 발견 항목과 작가 판단 목록", description="현재 check revision의 설정 항목과 오탈자 제안만 생성 순서로 반환합니다. 판단을 저장한 적 없는 항목은 PENDING이며 근거 행은 상세에서만 제공합니다. 설정 항목은 고정 기준의 대상(subject)·설정명(settingName·settingKey)을 함께 반환합니다(#314 B2). 모든 필터는 서버에서 거르며 impact·subjectType 필터는 오탈자와 대상이 없는 항목을 제외합니다. 검토 요약(/review)의 집계는 필터와 무관합니다. page는 0부터, size는 1~100입니다.")
     @ApiResponses({@ApiResponse(responseCode="200", description="조회 성공"),
-            @ApiResponse(responseCode="400", description="페이지·필터 값 오류"),
+            @ApiResponse(responseCode="400", description="페이지·필터 값 오류(알 수 없는 branch·judgment·impact·subjectType 포함)"),
             @ApiResponse(responseCode="404", description="작품 소유권 또는 검수 요청 없음")})
     public CommonResponse<PageResponse<ValidationFindingSummaryResponse>> findings(@AuthenticationPrincipal MemberPrincipal member,@PathVariable UUID workId,@PathVariable UUID reportId,
             @RequestParam(required=false) ValidationBranch branch,@RequestParam(required=false) ValidationJudgmentValue judgment,@RequestParam(required=false) String outcome,
+            @Parameter(in=ParameterIn.QUERY,name="impact",description="설정 항목의 영향 등급(SEVERE·CAUTION·REFERENCE). 지정하면 오탈자 제안은 제외됩니다.") @RequestParam(required=false) ValidationImpact impact,
+            @Parameter(in=ParameterIn.QUERY,name="subjectType",description="설정 항목 대상 종류(CHARACTER·WORLD_SETTING). 지정하면 오탈자와 대상이 없는 설정 항목은 제외됩니다.") @RequestParam(required=false) ValidationSubjectType subjectType,
             @RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="20") int size) {
-        return CommonResponse.success(reviews.getValidationFindings(member.memberId(),workId,reportId,branch,judgment,outcome,page,size));
+        return CommonResponse.success(reviews.getValidationFindings(member.memberId(),workId,reportId,branch,judgment,outcome,impact,subjectType,page,size));
     }
 
     @GetMapping("/{reportId}/findings/{findingId}")
-    @Operation(operationId="getValidationFinding", summary="발견 항목 상세", description="공개 판정 내용, 저장 때 검증한 인용, 현재 판단·허용 판단, 판단 이력과 이전 revision의 변경 사유를 반환합니다. 이전 revision 항목은 stale=true입니다.")
+    @Operation(operationId="getValidationFinding", summary="발견 항목 상세", description="공개 판정 내용, 저장 때 검증한 인용, 현재 판단·허용 판단, 판단 이력과 이전 revision의 변경 사유를 반환합니다. 이전 revision 항목은 stale=true입니다. 설정 항목은 목록과 같은 대상·설정명과 정정 요청(POST /{reportId}/corrections)에 그대로 쓰는 고정 기준 항목(basis: entryRef·entryHash·대상 ID·당시 version, 맞는 slot/path)을 함께 반환합니다(#314 B2).")
     @ApiResponses({@ApiResponse(responseCode="200", description="조회 성공"),
             @ApiResponse(responseCode="404", description="작품 소유권·검수 요청·발견 항목 없음")})
     public CommonResponse<ValidationFindingDetailResponse> finding(@AuthenticationPrincipal MemberPrincipal member,@PathVariable UUID workId,@PathVariable UUID reportId,@PathVariable UUID findingId) {

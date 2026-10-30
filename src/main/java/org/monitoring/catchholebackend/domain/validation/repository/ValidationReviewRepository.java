@@ -14,11 +14,13 @@ public class ValidationReviewRepository {
     public record JudgmentCount(ValidationBranch branch,ValidationJudgmentValue judgment,long count) {}
     private static final String CURRENT=" from ValidationFinding f left join ValidationJudgment j on j.finding=f where f.report.id=:r"
             +" and (f.checkId is null or exists (select c.id from ValidationCheck c where c.id=f.checkId and c.revision=f.checkRevision))";
-    public Page<FindingRow> currentFindings(UUID r,ValidationBranch branch,ValidationJudgmentValue judgment,String outcome,Pageable page) {
+    /** 필터는 모두 SQL 조건이다. impact·subjectType은 V102 비정규화 컬럼으로 거르며 오탈자·대상 미연결 항목은 그 필터에서 제외된다(#314 B2). */
+    public Page<FindingRow> currentFindings(UUID r,ValidationBranch branch,ValidationJudgmentValue judgment,String outcome,ValidationImpact impact,ValidationSubjectType subjectType,Pageable page) {
         String where=CURRENT+(branch==null?"":" and f.branch=:branch")+(outcome==null?"":" and f.outcome=:outcome")
-                +(judgment==null?"":judgment==ValidationJudgmentValue.PENDING?" and (j.id is null or j.judgment=:judgment)":" and j.judgment=:judgment");
-        var rows=bind(em.createQuery("select f,j"+where+" order by f.createdAt,f.id",Object[].class),r,branch,judgment,outcome).setFirstResult((int)page.getOffset()).setMaxResults(page.getPageSize()).getResultList();
-        long total=bind(em.createQuery("select count(f)"+where,Long.class),r,branch,judgment,outcome).getSingleResult();
+                +(judgment==null?"":judgment==ValidationJudgmentValue.PENDING?" and (j.id is null or j.judgment=:judgment)":" and j.judgment=:judgment")
+                +(impact==null?"":" and f.impact=:impact")+(subjectType==null?"":" and f.subjectType=:subjectType");
+        var rows=bind(em.createQuery("select f,j"+where+" order by f.createdAt,f.id",Object[].class),r,branch,judgment,outcome,impact,subjectType).setFirstResult((int)page.getOffset()).setMaxResults(page.getPageSize()).getResultList();
+        long total=bind(em.createQuery("select count(f)"+where,Long.class),r,branch,judgment,outcome,impact,subjectType).getSingleResult();
         return new PageImpl<>(rows.stream().map(x->new FindingRow((ValidationFinding)x[0],(ValidationJudgment)x[1])).toList(),page,total);
     }
     /** 판단 행이 없는 현재 항목은 PENDING으로 센다. */
@@ -54,7 +56,12 @@ public class ValidationReviewRepository {
                 .forEach(x->counts.computeIfAbsent((UUID)x[0],k->new long[2])[x[1]==ValidationBranch.SETTING?0:1]+=(Long)x[2]);
         return counts;
     }
-    private <T> TypedQuery<T> bind(TypedQuery<T> q,UUID r,ValidationBranch branch,ValidationJudgmentValue judgment,String outcome) {
-        q.setParameter("r",r);if(branch!=null)q.setParameter("branch",branch);if(judgment!=null)q.setParameter("judgment",judgment);if(outcome!=null)q.setParameter("outcome",outcome);return q;
+    private <T> TypedQuery<T> bind(TypedQuery<T> q,UUID r,ValidationBranch branch,ValidationJudgmentValue judgment,String outcome,ValidationImpact impact,ValidationSubjectType subjectType) {
+        q.setParameter("r",r);if(branch!=null)q.setParameter("branch",branch);if(judgment!=null)q.setParameter("judgment",judgment);if(outcome!=null)q.setParameter("outcome",outcome);
+        if(impact!=null)q.setParameter("impact",impact);if(subjectType!=null)q.setParameter("subjectType",subjectType);return q;
+    }
+    /** 상세의 정정 연결 항목 계산용 현재 revision 질문 상태. */
+    public Optional<com.fasterxml.jackson.databind.JsonNode> checkState(UUID check,long revision) {
+        return em.createQuery("select c.state from ValidationCheck c where c.id=:c and c.revision=:v",com.fasterxml.jackson.databind.JsonNode.class).setParameter("c",check).setParameter("v",revision).getResultStream().findFirst();
     }
 }

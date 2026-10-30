@@ -22,6 +22,7 @@ public class ValidationReviewGate {
     private final ValidationSettingsApplicationRepository applications;
     private final org.monitoring.catchholebackend.domain.validation.mapper.ValidationReviewMapper mapper;
     private final ValidationExecutionProperties properties;
+    private final ValidationRecheckAdmission recheckAdmission;
 
     public record Counts(long settingTotal,long settingPending,long settingNeedsFix,long settingNotConflict,long typoTotal,long typoPending,long typoNeedsFix,long typoKeepOriginal) {
         public static final Counts EMPTY=new Counts(0,0,0,0,0,0,0,0);
@@ -35,8 +36,12 @@ public class ValidationReviewGate {
     public record ReleaseHold(String code,LocalDateTime at) {}
     /** 현재 report의 회차 전체 확정 receipt 요약(GH312 S3). 시도 전에는 null이다. */
     public record Application(ValidationApplicationStatus status,long attempt,List<org.monitoring.catchholebackend.domain.validation.dto.response.ValidationApplicationHoldReason> holdReasons,LocalDateTime appliedAt,long extractionJobGeneration) {}
+    /**
+     * appliedRecheckAdmitted(#314 B2): 회차 전체 확정 APPLIED인 현재 report의 회차가 ValidationRecheckAdmission 조건(최신 활성 회차·원문 파기 대기 없음·진행 중 추출/비교 없음·현재 batch)을
+     * 만족하는지. 서버가 같은 원고의 진단 재검수를 받는 조건과 같으며 APPLIED가 아니면 계산하지 않는다(false).
+     */
     public record Input(boolean current,ValidationPreparationStatus baselineStatus,ValidationReportStatus status,ValidationReportMode mode,ValidationExecutionStatus execution,Counts counts,boolean executionEnabled,Completion completion,ReleaseHold releaseHold,
-            Application application,ValidationExtractionState extractionState) {
+            Application application,ValidationExtractionState extractionState,boolean appliedRecheckAdmitted) {
         public Input(boolean current,ValidationPreparationStatus baselineStatus,ValidationReportStatus status,ValidationReportMode mode,ValidationExecutionStatus execution,Counts counts,boolean executionEnabled) {
             this(current,baselineStatus,status,mode,execution,counts,executionEnabled,null,null);
         }
@@ -45,6 +50,10 @@ public class ValidationReviewGate {
         }
         public Input(boolean current,ValidationPreparationStatus baselineStatus,ValidationReportStatus status,ValidationReportMode mode,ValidationExecutionStatus execution,Counts counts,boolean executionEnabled,Completion completion,ReleaseHold releaseHold) {
             this(current,baselineStatus,status,mode,execution,counts,executionEnabled,completion,releaseHold,null,ValidationExtractionState.NOT_STARTED);
+        }
+        public Input(boolean current,ValidationPreparationStatus baselineStatus,ValidationReportStatus status,ValidationReportMode mode,ValidationExecutionStatus execution,Counts counts,boolean executionEnabled,Completion completion,ReleaseHold releaseHold,
+                Application application,ValidationExtractionState extractionState) {
+            this(current,baselineStatus,status,mode,execution,counts,executionEnabled,completion,releaseHold,application,extractionState,false);
         }
     }
     public record Review(ValidationExecutionStatus executionStatus,Counts counts,ValidationReviewLockReason lockReason,ValidationReviewCompletionMode completionMode,
@@ -64,8 +73,10 @@ public class ValidationReviewGate {
     }
 
     public Review evaluate(ValidationReport r) {
-        var execution=execution(r);var completion=completion(r).orElse(null);
-        return evaluate(input(r,execution,counts(r.getId()),completion,completion==null?null:application(r).orElse(null),completion==null?ValidationExtractionState.NOT_STARTED:extraction(r).state()));
+        var execution=execution(r);var completion=completion(r).orElse(null);var application=completion==null?null:application(r).orElse(null);
+        // #314 B2: 회차 조건 조회는 APPLIED 현재 report에서만 한다. 재검수 요청과 같은 ValidationRecheckAdmission 판정이다.
+        boolean recheck=application!=null&&application.status()==ValidationApplicationStatus.APPLIED&&!invalidated(r.isCurrent(),r.getBaselineStatus(),r.getStatus())&&recheckAdmission.admitsEpisode(r);
+        return evaluate(input(r,execution,counts(r.getId()),completion,application,completion==null?ValidationExtractionState.NOT_STARTED:extraction(r).state(),recheck));
     }
     /** GH312 S3: 현재 report의 회차 전체 확정 receipt. 퇴역 report의 receipt는 읽지 않는다. */
     public Optional<Application> application(ValidationReport r) {
@@ -75,7 +86,7 @@ public class ValidationReviewGate {
     /** 실행이 끝나기 전에는 판단 개수를 읽지 않는다. */
     public ValidationPreparationStatus errorReviewStatus(ValidationReport r) {
         var execution=execution(r);if(invalidated(r.isCurrent(),r.getBaselineStatus(),r.getStatus()))return ValidationPreparationStatus.INVALIDATED;
-        if(execution!=COMPLETED)return ValidationPreparationStatus.NOT_STARTED;return evaluate(input(r,execution,counts(r.getId()),completion(r).orElse(null),null,ValidationExtractionState.NOT_STARTED)).errorReviewStatus();
+        if(execution!=COMPLETED)return ValidationPreparationStatus.NOT_STARTED;return evaluate(input(r,execution,counts(r.getId()),completion(r).orElse(null),null,ValidationExtractionState.NOT_STARTED,false)).errorReviewStatus();
     }
     /** GH312: 퇴역한 report의 receipt는 이력일 뿐 검토 요약·추출 허가에 쓰지 않는다. */
     public Optional<Completion> completion(ValidationReport r) {
@@ -123,9 +134,11 @@ public class ValidationReviewGate {
         if(lock==null&&counts.total()>0)actions.add(ValidationReviewAction.SAVE_JUDGMENT);
         if(mode==ValidationReviewCompletionMode.EXPLICIT_REQUIRED||mode==ValidationReviewCompletionMode.AUTOMATIC_ELIGIBLE)actions.add(ValidationReviewAction.COMPLETE_REVIEW);
         if(in.executionEnabled()&&!invalid&&!completed&&(in.execution()==PARTIAL||in.execution()==FAILED||in.execution()==NOT_STARTED&&in.baselineStatus()==ValidationPreparationStatus.READY))actions.add(ValidationReviewAction.RETRY);
-        if(in.current()&&invalid)actions.add(ValidationReviewAction.RECHECK);
-        // GH312 S3: 검토 종료 뒤 아직 반영하지 않은 유효 report만 안내한다. 무효 report의 반영은 REPORT_INVALIDATED로 보류될 뿐이므로 재검수를 안내한다.
         var application=completed?in.application():null;
+        // 무효 현재 report는 재검수 안내(실제 회차 조건은 요청이 검사). #314 B2: 회차 전체 확정 APPLIED 현재 report는 서버가 진단 재검수를 받는 회차 조건일 때만 안내한다.
+        if(in.current()&&invalid)actions.add(ValidationReviewAction.RECHECK);
+        else if(in.current()&&application!=null&&application.status()==ValidationApplicationStatus.APPLIED&&in.appliedRecheckAdmitted())actions.add(ValidationReviewAction.RECHECK);
+        // GH312 S3: 검토 종료 뒤 아직 반영하지 않은 유효 report만 안내한다. 무효 report의 반영은 REPORT_INVALIDATED로 보류될 뿐이므로 재검수를 안내한다.
         if(completed&&!invalid&&(application==null||application.status()!=ValidationApplicationStatus.APPLIED))actions.add(ValidationReviewAction.APPLY_SETTINGS);
         var status=invalid?ValidationPreparationStatus.INVALIDATED:in.execution()!=COMPLETED?ValidationPreparationStatus.NOT_STARTED
                 :mode!=ValidationReviewCompletionMode.BLOCKED?ValidationPreparationStatus.READY:ValidationPreparationStatus.PENDING;
@@ -149,9 +162,9 @@ public class ValidationReviewGate {
         return execution==NOT_STARTED?ValidationReviewLockReason.EXECUTION_NOT_STARTED:execution==CANCELED?ValidationReviewLockReason.EXECUTION_CANCELED:ValidationReviewLockReason.EXECUTION_IN_PROGRESS;
     }
     public ValidationExecutionStatus execution(ValidationReport r) { return jobs.findByReportId(r.getId()).map(ValidationJob::getStatus).orElse(NOT_STARTED); }
-    private Input input(ValidationReport r,ValidationExecutionStatus execution,Counts counts,Completion completion,Application application,ValidationExtractionState extractionState) {
+    private Input input(ValidationReport r,ValidationExecutionStatus execution,Counts counts,Completion completion,Application application,ValidationExtractionState extractionState,boolean appliedRecheckAdmitted) {
         var hold=r.getReleaseHoldCode()==null?null:new ReleaseHold(r.getReleaseHoldCode(),r.getReleaseHoldAt());
-        return new Input(r.isCurrent(),r.getBaselineStatus(),r.getStatus(),r.getMode(),execution,counts,properties.enabled(),completion,hold,application,extractionState);
+        return new Input(r.isCurrent(),r.getBaselineStatus(),r.getStatus(),r.getMode(),execution,counts,properties.enabled(),completion,hold,application,extractionState,appliedRecheckAdmitted);
     }
     private static boolean invalidated(boolean current,ValidationPreparationStatus baseline,ValidationReportStatus status) { return !current||status==ValidationReportStatus.INVALIDATED||baseline==ValidationPreparationStatus.INVALIDATED; }
 }
