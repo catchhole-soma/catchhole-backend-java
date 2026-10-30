@@ -6,6 +6,7 @@ GH310 검수 실행이 저장한 finding에 작가 판단을 저장하고(S1) �
 `POST /review-completion` 명시 요청에서만 생기며, 그 전에는 AnalysisJob·후보·journal·확정이 0이다.
 추출 성공은 설정 확정이 아니다. 회차 전체 확정(아래 S3)만 release 회차의 확정 설정을 쓴다.
 #314 B1은 접수 전 자격 조회와 미완료 검수 동안의 다음 회차 등록 차단을 더한다(아래 "접수 자격 조회·다음 회차 차단 (#314 B1)").
+#314 B2는 정책을 바꾸지 않고 서버가 이미 가진 정보를 공개 계약에 더한다: 항목의 대상·설정명, 등급·대상 서버 필터, 정정 연결 기준 항목, APPLIED report의 재검수 안내, 재검수 기준 식별값 계약(아래 "검수 공개 계약 보강 (#314 B2)").
 
 ## 저장 모델 (V96)
 
@@ -37,8 +38,8 @@ TYPO segment는 성공 저장 뒤 같은 payload 재전송이 receipt만 반환�
 
 | 경로 | 요청/응답 |
 | --- | --- |
-| `GET /findings?branch=&judgment=&outcome=&page=0&size=20` | `PageResponse<ValidationFindingSummaryResponse>`. 현재 항목만 생성 순서로 반환한다. page는 0부터, size는 1~100(범위 밖 400). `judgment=PENDING`은 행 없음도 포함한다. evidence 행·단계·bundle은 읽지 않는다 |
-| `GET /findings/{findingId}` | `ValidationFindingDetailResponse`: 공개 판정 내용(`payload`), 저장 때 검증한 인용(`evidence`, 재검증 없음), 현재 `judgment`, `allowedJudgments`, `judgmentHistory`, SETTING의 `priorRevisions`(이전 revision의 outcome·당시 판단·check history `changeReason`), `stale` |
+| `GET /findings?branch=&judgment=&outcome=&impact=&subjectType=&page=0&size=20` | `PageResponse<ValidationFindingSummaryResponse>`. 현재 항목만 생성 순서로 반환한다. page는 0부터, size는 1~100(범위 밖 400). `judgment=PENDING`은 행 없음도 포함한다. evidence 행·단계·bundle은 읽지 않는다. B2의 `impact`·`subjectType`과 행의 `subject`·`settingName`·`settingKey`는 아래 B2 절 |
+| `GET /findings/{findingId}` | `ValidationFindingDetailResponse`: 공개 판정 내용(`payload`), 저장 때 검증한 인용(`evidence`, 재검증 없음), 현재 `judgment`, `allowedJudgments`, `judgmentHistory`, SETTING의 `priorRevisions`(이전 revision의 outcome·당시 판단·check history `changeReason`), `stale`. B2의 `subject`·`settingName`·`settingKey`·`basis`(정정 연결) |
 | `PATCH /findings/{findingId}/judgment` | `ValidationJudgmentRequest{judgment, expectedJudgmentVersion, expectedCheckRevision}` → `ValidationFindingSummaryResponse` |
 | `GET /review` | `ValidationReviewSummaryResponse` (S2: `completion` 포함) |
 | `POST /review-completion` | S2. `ValidationReviewCompletionRequest{expectedReportVersion, idempotencyKey}` → `ValidationReviewCompletionResponse` |
@@ -80,7 +81,7 @@ JPA `@Version`은 사용하지 않는다. 검사 순서와 오류는 다음과 �
 - `canCompleteReview` = `EXPLICIT_REQUIRED` 또는 receipt 없는 `AUTOMATIC_ELIGIBLE`(아래 자동 종료 보류). `allowedActions`의 `COMPLETE_REVIEW`도 같다.
 - `judgmentLocked`/`lockReason` ∈ `REPORT_INVALIDATED, BASELINE_NOT_READY, EXECUTION_NOT_STARTED, EXECUTION_IN_PROGRESS, EXECUTION_CANCELED, REVIEW_COMPLETED`.
 - `allowedActions`는 화면 안내용이다. `SAVE_JUDGMENT`(잠금 없음+현재 항목 존재), `COMPLETE_REVIEW`, `RETRY`(실행 활성화+유효 report+PARTIAL/FAILED 또는 Job 없는 READY 기준),
-  `RECHECK`(현재 포인터가 무효 report), `APPLY_SETTINGS`(S3: 검토 종료 receipt가 있고 무효 report가 아니며 회차 전체 확정이 APPLIED가 아님).
+  `RECHECK`(현재 포인터가 무효 report, 또는 #314 B2: 회차 전체 확정 APPLIED인 현재 report이고 회차가 재검수 요청과 같은 `ValidationRecheckAdmission` 조건을 만족), `APPLY_SETTINGS`(S3: 검토 종료 receipt가 있고 무효 report가 아니며 회차 전체 확정이 APPLIED가 아님).
   최신 회차·seed·예산·추출 진행 같은 실제 조건은 각 요청에서 서버가 다시 검증한다.
 - DIAGNOSTIC_ONLY report는 판단 저장은 가능하지만 항상 `BLOCKED(DIAGNOSTIC_ONLY)`다. 이미 반영된 회차의 진단은 새 추출을 만들지 않는다.
 
@@ -240,7 +241,7 @@ contributor는 검증 실패를 보류 표시로 흡수하므로, 실행 뒤 그
 - **자기 반영으로 무효화하지 않음**: 확정 설정 변경의 `ConfirmedSettingsChanged`는 기존처럼 작품의 report를 무효화하지만 `ValidationBaselineService`가 APPLIED receipt가 있는
   report를 건너뛴다. APPLIED는 도메인 쓰기보다 먼저 같은 트랜잭션에 기록하므로 리스너가 그 행을 읽고, 실패하면 함께 되돌려진다(트랜잭션 표지나 이벤트 payload가 아닌 데이터 기준).
   이 report의 기준은 확정 전 검사에 이미 쓰였고 검토 종료·반영까지 끝난 이력이라 이후 설정 변경으로도 무효화하지 않는다. 같은 작품의 다른 report, 원문·설정집 변경 경로는 기존과 같다.
-  따라서 APPLIED 뒤 report는 `WAITING_FOR_ERROR_REVIEW`·COMPLETED로 남고 남은 행동이 없다.
+  따라서 APPLIED 뒤 report는 `WAITING_FOR_ERROR_REVIEW`·COMPLETED로 남는다. 남은 행동은 진단 재검수뿐이며 #314 B2부터 서버가 받는 회차 조건일 때 `allowedActions`에 `RECHECK`가 있다.
 
 ### 자동 경로 (추출 완료)
 
@@ -378,6 +379,8 @@ S2·S3에서 S4로 넘긴 항목의 결과다.
 - 같은 비교 결정의 원본 후보가 결정 초안으로 다른 분류·대상에 나뉘는 경우(S3): **동작 고정.** 반영은 `WORLD_SETTING_CANDIDATE_GROUP_INVALID`로 전부 되돌려 `UNKNOWN_ERROR`(detail 같은 코드) 보류, 쓰기 0이며 작가가 같은 대상으로 맞추면 APPLIED다(`splitSharedDecisionHoldsAsUnknownErrorUntilRegrouped`). 같은 임시 인물의 별칭 후보가 다른 group key에 있는 캐릭터 경우는 같은 그룹 확정 본문을 거치지만 테스트하지 않았다(미검증).
 - Front 계획의 `getEpisodeValidationEligibility`(접수 전 자격 조회): **해결(#314 B1).** 접수와 같은 판정 컴포넌트를 읽는 조회 전용 API다. 접수 자격의 권위는 계속 `POST /episode-validations`다(아래 B1).
 - 기존 GH310 endpoint(`/results`, `/retries`, `/rechecks`, `/corrections`)의 OpenAPI 4xx 응답: **해결(#314 B1).** `/results` 404, 나머지 셋 400·404·409를 문서화했고 `EpisodeValidationOpenApiIntegrationTest`가 확인한다.
+- findings 목록의 등급(impact)·대상(subjectType) 서버 필터(B1 한계): **해결(#314 B2).** 아래 B2 절.
+- findings의 대상·설정명, 정정 연결 기준 항목, APPLIED report의 RECHECK 안내, 재검수 `expectedBaselineHash` 계약(F1·F2·V1 공백 ①④⑤⑥): **해결(#314 B2).** 남은 한계는 B2 절의 "알려진 한계".
 
 ## 접수 자격 조회·다음 회차 차단 (#314 B1)
 
@@ -467,6 +470,79 @@ where r.is_current and r.mode = 'BEFORE_CONFIRMATION'
 ```bash
 GH310_EXECUTION_POSTGRES_JDBC_URL=jdbc:postgresql://127.0.0.1:<disposable-port>/gh310_execution_test ./gradlew test --tests '*ValidationNextEpisodeAdmission*'
 ```
+
+## 검수 공개 계약 보강 (#314 B2)
+
+정책 변경 없이 서버가 이미 저장한 값을 공개 계약에 더했다. 기존 필드는 이름·의미를 바꾸지 않고 필드만 추가했다. 비교 자료 목록·검사 시각(F1 공백 ③)은 범위 밖이다.
+
+### 저장 모델 (V102)
+
+`validation_findings`에 nullable 컬럼 6개를 추가했다. 목록이 행마다 payload·check 상태·고정 기준 JSON을 읽지 않고 표시·필터하기 위한 사본이다.
+
+| 컬럼 | 의미 |
+| --- | --- |
+| `impact` | SETTING 판정 payload의 `impact`(`type.ValidationImpact` = SEVERE/CAUTION/REFERENCE, 검수 Worker 계약과 `ValidationDecisionValidator`가 허용하는 세 값). TYPO는 null |
+| `subject_type`, `subject_id`, `subject_name` | 질문이 가리키는 고정 기준 항목의 대상(`type.ValidationSubjectType` = CHARACTER/WORLD_SETTING), 실제 캐릭터·세계관 ID, 고정 기준 당시 이름 |
+| `setting_key`, `setting_name` | 질문 속성이 그 대상의 고정 slot/path 하나와 정확히 맞을 때만. 캐릭터 `"AGE:age"`(slot key), 세계관 저장 경로 키 `["범위","설정명"]`/`[null,"설정명"]`(`WorldSettingAnalysisStateMapper.pathKey`). 표시명은 캐릭터 schema 표시명(`CharacterSettingDisplayNameResolver`), 세계관 `"범위 / 설정명"` 또는 `"설정명"` |
+
+CHECK: impact·subject_type은 SETTING에서만 세 값/두 값, 대상이 없으면 나머지 대상·설정 컬럼도 null, `setting_key`와 `setting_name`은 함께 null이거나 함께 값이다.
+
+### 계산 규칙 (`processor.ValidationFindingTargets`)
+
+`ValidationResultServiceImpl.publishValidationUnit`이 SETTING finding을 저장하는 순간 **그 check revision의 질문 상태와 report의 고정 기준(`baselineEntries`)만** 읽어 한 번 기록한다. 현재 캐릭터·세계관 값은 읽지 않으며 이후 설정 변경으로 다시 계산하지 않는다(판정과 같은 고정 기준).
+
+1. 항목 참조: `B<n>`은 `baselineEntries` 순번, `S<n>`은 `ValidationDataMapper.toSubjectRefs`(모델 투영 `toValidationSettings`와 같은 identity 규칙: 같은 대상의 세계관 항목과 확정 이력은 같은 S-ref)다.
+2. 대표 대상: 질문 `draft.subject_refs`의 첫 참조, 없으면 BASELINE 조회 의무의 `evidence_refs` 항목. 같은 대상의 항목이 여럿이면 정정 가능한 domain(characters·worldSettings)을 먼저, 그다음 기준 순서. 항목 identity가 `character:<uuid>`/`world:<uuid>`가 아니면(임시 대상·대상 없는 이력) `subject.id`는 null이고 **이름으로 연결하지 않는다**(A5).
+3. 설정: 질문 `property_or_rule`이 대표 대상의 고정 slot/path 하나와 정확히(NFC·소문자·공백 무시) 같을 때만. 캐릭터는 slot key·factKey·schema 표시명, 세계관은 설정명·`범위/설정명`과 비교한다. 0개 또는 2개 이상이면 null이다. `property_or_rule`은 모델이 쓴 자유 문구이므로 근사·부분 일치로 slot을 추정하지 않는다.
+
+### 공개 API
+
+- 목록·상세 공통: `subject{type, id, name}`(nullable), `settingName`, `settingKey`(nullable). TYPO와 대상이 없는 질문은 모두 null이다.
+- `GET /findings`의 `impact`·`subjectType`: 기존 `branch`·`judgment`·`outcome`과 함께 SQL 조건으로 거른다(`ValidationReviewRepository.currentFindings`). 지정하면 TYPO와 대상이 없는 SETTING 항목은 빠진다. 알 수 없는 값은 `REQUEST_INVALID_ARGUMENT`(400). `/review` 집계는 어떤 목록 필터와도 무관하다.
+- 상세 `basis[]`: 질문이 비교한 고정 기준 항목(`subject_refs`의 모든 항목 + BASELINE 조회 항목, `ValidationDecisionValidator`가 `evidence_bundle.settings`로 요구하는 집합) 중 실제 대상에 연결된 characters·worldSettings 항목을 기준 순서로 담는다.
+  `{entryRef, entryHash, subjectType, targetId, subjectName, factType, factKey, scopeName, settingName, currentVersion}`. slot/path(`factType/factKey`, `scopeName/settingName`)는 finding의 `settingKey`가 그 항목(대표 대상)을 가리킬 때만 채운다.
+  상세는 finding revision의 질문 상태(이전 revision이면 check 이력)를 읽어 계산하며, report 기준이 파기된 뒤에는 finding도 함께 지워지므로 빈 basis를 보지 않는다. 정정 요청 매핑은 `docs/validation-execution-v1.md` "명시적 기준 정정"의 B2 표다.
+- `ValidationStagingResponse`에는 필드를 추가하지 않았다. 정정 요청의 `baselineId`·`expectedBaselineRevision`·`expectedBaselineHash`·`expectedReportVersion`은 이미 있는 단건 조회의 `baselineId`·`baselineRevision`·`baselineHash`·`reportVersion`이다.
+
+### APPLIED report의 재검수 안내
+
+`processor.ValidationRecheckAdmission`이 재검수의 회차 조건(보관되지 않은 최신 활성 회차, 원문 파기 대기 없음, 회차의 PENDING/RUNNING 추출·비교 Job 없음, 같은 작품의 현재 원본 업로드 batch)을 한 곳에서 판정한다.
+`ValidationRecheckServiceImpl.recheckValidation`은 기존 순서·오류 코드(`VALIDATION_TARGET_INVALID`) 그대로 이 판정을 호출하고, `ValidationReviewGate.evaluate`는 회차 전체 확정 APPLIED인 현재 report에서만 같은 판정을 조회해 참이면 `allowedActions`에 `RECHECK`를 넣는다.
+APPLIED report는 `VALIDATION_RECHECK_INPUT_UNCHANGED` 대상이 아니므로 그 밖의 요청 값(reportVersion·원고 hash/key/version/revision·기준 식별값)만 맞으면 진단 재검수(DIAGNOSTIC_ONLY)가 접수된다. 화면은 `reviewStage`+`latestEpisode`로 추측하지 않고 이 값을 쓴다.
+무효 report의 `RECHECK`(기존)는 바꾸지 않았다(회차 조건은 요청이 검사).
+
+### 재검수 기준 식별값
+
+`ValidationRecheckRequest.expectedBaselineHash`는 단건 조회의 `baselineFingerprint`다(무효화 뒤 `baselineHash`는 null이지만 fingerprint는 남는다). `correctionReceiptId`를 보내면 생략할 수 있고, fingerprint 자체가 null인 report(최초 기준 캡처 실패·V91 이전 파기)만 null을 보낸다.
+조건부라 OpenAPI `required`로 표시하지 않고 `@Schema` 설명과 409 사유로 계약을 고정했다. 기존 오류 코드·상태는 그대로 `VALIDATION_SOURCE_VERSION_CONFLICT`(409)이며 `error.context.reason`을 더했다.
+
+| 경우 | 응답 |
+| --- | --- |
+| 정정 receipt 없이 `expectedBaselineHash` 누락(null)인데 report에 fingerprint가 있음 | 409, `context.reason=BASELINE_FINGERPRINT_REQUIRED` |
+| 다른 값, 또는 seed가 있는데 fingerprint가 없는 비정상 report | 409, `context.reason=BASELINE_FINGERPRINT_MISMATCH` |
+| 원고 hash/key/version/revision 불일치 | 409, context 없음(기존) |
+
+예시는 `docs/contracts/validation-review-v1.json`의 `errors.recheckBaselineFingerprintRequired/Mismatch`, `correctionFromFindingBasis.recheckWithReceipt`다.
+
+### 검증
+
+- H2 `ValidationFindingTargetIntegrationTest`: 목록·상세의 대상·설정명(schema 표시명, 세계관 root 경로, 자유 문구 미매칭, 대상 없는 질문, 오탈자 null)과 저장 컬럼, impact·subjectType 필터 조합·400·`/review` 집계 불변, 캐릭터·세계관 basis만으로 만든 `/corrections` 성공, 여러 대상 질문의 basis.
+- H2 `ValidationAppliedRecheckActionIntegrationTest`(release Job 실제 claim·완료): APPLIED 최신 회차 RECHECK 안내 → 진단 재검수 성공, 다음 회차 등록 또는 진행 중 Job이면 RECHECK 없음 + 재검수 `VALIDATION_TARGET_INVALID`. `ValidationReviewGateTest`의 APPLIED 안내 표.
+- H2 `ValidationRecheckBaselineFingerprintIntegrationTest`: 누락·불일치 사유, 원고 충돌 빈 context, staging fingerprint로 성공.
+- PostgreSQL `ValidationFindingTargetPostgresIntegrationTest`(H2 메서드 상속): V102 Flyway·JPA validate·CHECK, V102 이전 행 백필 SQL 재실행 결과가 쓰기 경로와 같음(설정 키 제외), 필터 JPQL.
+- 계약: `ValidationReviewContractTest`(대상·설정 키 예시, APPLIED 요약, 정정 요청 매핑, 재검수 409 예시), `EpisodeValidationOpenApiIntegrationTest`(필터 enum·`ValidationFindingSubject`·`ValidationFindingBasis`·재검수 설명), `ValidationFindingTargetMigrationContractTest`.
+
+```bash
+GH310_EXECUTION_POSTGRES_JDBC_URL=jdbc:postgresql://127.0.0.1:<disposable-port>/gh310_execution_test ./gradlew test --tests '*ValidationFindingTarget*'
+```
+
+### 알려진 한계
+
+- `settingKey`·`settingName`은 질문의 `property_or_rule`(모델 자유 문구)이 고정 slot/path 하나와 정확히 같을 때만 채운다. "손 사용"처럼 규칙·행동을 묻는 질문은 대상만 있고 설정명은 null이다. 검수 Worker 계약에 구조화된 slot/path 참조가 생기기 전까지 근사 매칭으로 추정하지 않는다(AI 후속 후보).
+- V102 이전에 저장된 finding은 백필이 등급·대상만 채우고 `settingKey`·`settingName`은 null이다(표시명 규칙이 Java schema 해석기라 SQL로 재현하지 않음). 2026-10-30 기준 운영은 검수 실행이 꺼져 있어 해당 행이 없다.
+- `basis`는 실제 대상에 연결된 characters·worldSettings 항목만 담는다. 세계관 확정 이력(worldHistory) 항목과 임시 대상은 정정 요청이 받지 않으므로 제외한다. slot/path가 null인 basis로 정정할 때는 작가가 편집한 slot의 factType/factKey(세계관은 현재 경로)를 Front가 요청에 넣는다.
+- 정정은 고정 기준과 현재 설정이 그대로일 때만 성공한다(기존 `VALIDATION_CORRECTION_CONFLICT` 규칙). 기준 이후 설정이 바뀐 APPLIED report의 basis는 표시용이며 정정은 409다.
+- 무효 report의 `RECHECK` 안내는 기존대로 회차 조건을 조회하지 않는다. 최신 회차가 아니면 요청이 `VALIDATION_TARGET_INVALID`다.
 
 ## 무효화·파기
 
