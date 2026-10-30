@@ -43,5 +43,13 @@ public class ValidationExecutionAccess {
         if(jobId==null||token==null||!jobId.equals(row[0])||!token.equals(row[1])||!"RUNNING".equals(row[3])||!java.time.Instant.now().isBefore((java.time.Instant)row[2]))
             throw error(ValidationErrorCode.VALIDATION_LEASE_CONFLICT);
     }
+    /**
+     * 회차의 현재 원본 업로드 batch. 접수와 공개 분석 생성은 Episode.sourceFileId의 UploadFile batch를 회차 소속으로 보며
+     * 파일 교체는 새 batch·UploadFile을 만들고 sourceFileId를 옮긴다. 영속성 문맥의 오래된 Episode 대신 DB 값을 읽는다.
+     */
+    public Optional<org.monitoring.catchholebackend.domain.upload.entity.UploadBatch> currentUploadBatch(UUID episodeId) {
+        return em.createQuery("select f.batch from UploadFile f where f.id=(select e.sourceFileId from Episode e where e.id=:e)",org.monitoring.catchholebackend.domain.upload.entity.UploadBatch.class)
+                .setParameter("e",episodeId).getResultStream().findFirst();
+    }
     public static AppException error(ValidationErrorCode code) { return new AppException(code); }
 }

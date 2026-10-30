@@ -2,8 +2,9 @@
 
 이 문서는 변경 입력의 명시적 재검수·실제 설정 정정과 Java 전용 검수 Job/lease·결과 저장 계약을 정의한다.
 Python 전용 EpisodeValidationWorker는 이 계약으로 실제 검사 실행·의미 상태 저장·같은 입력 재개를 연결한다. 작가 판단·검토 종료·추출 허가는 GH312,
-화면과 다음 회차 등록 제한은 GH314다. 이 단위에서 추출 Job·후보·설정 자동 확정·자동 철회는 생성하지 않는다.
+화면과 다음 회차 등록 제한은 GH314다. 검토 종료 전에는 이 단위가 추출 Job·후보·설정 자동 확정·자동 철회를 생성하지 않는다.
 합성 요청 예시는 `docs/contracts/validation-execution-v1.json`이다.
+GH312의 작가 판단 저장·조회(S1), 검토 종료 receipt·설정 추출 release(S2), 회차 전체 확정(S3)은 `docs/validation-review-v1.md`를 따른다.
 
 ## 이력과 버전
 
@@ -34,6 +35,9 @@ JSON dirty checking의 flush가 내용 변화 없이 CAS를 바꾸는 현상을 
 원고 revision은 원문 수정·저장 위치 변경·파일 교체·파기마다 증가한다. 제목만 수정하면 유지한다.
 동일 hash/key/version으로 돌아온 A→B→A도 이전 report 입력을 되살리지 않는다.
 회차 상세 `contentRevision`과 원고 fingerprint를 함께 읽고 재검수에 전달한다.
+재검수 report의 `batchId`는 이전 report가 아니라 재검수 시점 회차의 현재 원본 업로드 batch(`Episode.sourceFileId`의 UploadFile batch)다.
+파일 교체는 새 batch를 만들므로 교체 뒤 재검수 report와 그 검토 종료 release Job은 새 batch에 속한다(GH312 S2). 무효화된 옛 report는 접수 batch를 유지한다.
+분석 배치 목록은 Job 또는 현재 report가 있는 batch만 올리며, 표시되는 batch의 요청 시각은 모든 접수 이력을 집계한다.
 
 ## 공개 접수 API
 
@@ -111,13 +115,15 @@ Work 잠금 안에서 그 입력에 저장한 출처 ID/hash와 실제 후보·J
 `findStatesByEpisodeIdIn`(Episode 목록), `AnalysisBatchSummaryRepository.readValidations`(배치 요약),
 `ValidationDataServiceImpl.requireCurrentReport`(읽기 전후 scalar 검증)다.
 호환 `findByEpisodeId`도 현재 report만 반환한다. 배치 요청 이력의 min/max 시각 SQL은 모든 접수를 집계하고,
-`AnalysisJobEligibility`·`AnalysisJobRepository.existsValidationStagingForEpisodes`의 추출 차단은 모든 이력을 검사한다.
+`AnalysisJobEligibility`·`AnalysisJobRepository.existsValidationStagingForEpisodes`의 추출 차단은 현재 report에 검토 종료 receipt가 없으면 막는다(GH312 S2).
+퇴역 report와 그 receipt는 판단에 쓰지 않으며, 공개 생성은 현재 report가 있으면 receipt가 있어도 계속 막는다.
 이력 수를 현재 검수 수로 합치거나 기존 Job 성공 수로 가장하지 않는다.
 
 `ValidationStagingEvents.ReportInvalidated(UUID workId, UUID reportId)`는 Work 잠금 안의 동기 이벤트다.
 `ValidationBaselineService`가 seed/entries/sources를 지운 뒤 발행한다. 후속 Job·checkpoint·결과·인용 소유자는
 같은 트랜잭션에서 이 이벤트를 소비해 무효화/본문 삭제를 연결해야 한다. source·setting 변경과 퇴역이 같은 경계를 사용한다.
-작품/회원 파기는 결과/check history/evidence/checkpoint/publication → 검수 usage → 검수 Job → correction/baseline source/request key → report 순서로 자식을 지운다.
+작품/회원 파기는 검토 종료 receipt → 작가 판단 이력/판단 → 결과/check history/evidence/checkpoint/publication → 검수 usage → 검수 Job → correction/baseline source/request key → report 순서로 자식을 지우고,
+receipt가 참조하는 `analysis_jobs`는 그 뒤에 지운다. 무효화 경계(`ReportInvalidated`)는 receipt를 이력으로 남긴다.
 
 파일 교체 파기 요청의 retainedContentKey는 새 원문을 보존한다. `blocksSource(episodeId,key)`는 삭제/다른 key만 막고,
 늦은 정리의 `EpisodeSourceChanged(workId,episodeId,retainedContentKey)`도 보존 key의 새 report를 지우지 않는다.
@@ -238,7 +244,9 @@ T1 자체 문맥·인용 저장은 유지한다.
 필수 PLANNER/selection/COVERAGE/book/CL이 모두 저장되고 미해결 질문이 없는 NO_CHECK segment로 결정한다.
 계획/선정/원문 읽기만 성공한 것은 성공 결과 수에 넣지 않는다.
 성공 처리 0+미완료는 FAILED, 일부 성공+필수 미완료는 PARTIAL, 양쪽 모든 grid와 현재 질문이 완료되어야 COMPLETED다.
-어느 경우에도 추출 Job·후보·자동 확정은 0이며 작가 판단 API를 추가하지 않는다.
+검토 종료 전에는 어느 경우에도 추출 Job·후보·자동 확정이 0이다. 정상 0건 COMPLETED만 같은 트랜잭션에서 검토 종료 receipt와 release Job 하나를 만들고
+`/complete` 응답에 `reviewCompletionId`·`extractionJobId`를 기록한다(추출 생성 조건이 막히면 receipt 없이 결과만 저장, GH312 S2).
+작가 판단은 GH312의 별도 API(`docs/validation-review-v1.md`)로만 저장하며 실행 상태를 바꾸지 않는다.
 
 ## 게시·파기·재시도
 
@@ -257,7 +265,7 @@ current/revision/contentRevision/lease/출처 metadata를 다시 검사한다. S
 유효 saved seed의 준비 중단은 원래 hash/fingerprint·target/source 수명을 검증하고 기존 materialize로 복구한다.
 seedless/invalidated/purged 입력을 그 경로로 복원하지 않고 Task 1의 명시적 새 baseline 접수를 사용한다.
 
-ReportInvalidated는 baseline과 같은 트랜잭션에서 stage/check/history/finding/evidence/checkpoint/publication 및 grid의
+ReportInvalidated는 baseline과 같은 트랜잭션에서 작가 판단 이력/판단(finding보다 먼저)과 stage/check/history/finding/evidence/checkpoint/publication 및 grid의
 복사본문을 삭제하고 실제 Job을 취소한다. 원장은 원래 소유권을 유지해 늦은 실제 정산을 받을 수 있다.
 Work/회원 파기는 RESERVED/UNKNOWN 호출도 기존 worker drain에 포함하고 계정 hold를 해제한 뒤 FK 자식을 먼저 지운다.
 물리 파기 완료 뒤에는 기존 Job/원장도 없으며 그 이후 정산 소유권을 새 Job에 옮기지 않는다.
@@ -356,4 +364,4 @@ GH310_EXECUTION_POSTGRES_JDBC_URL/GH310_AI_CHECKOUT/GH310_PYTHON을 명시한다
 provider와 S3만 합성이고, 이 검증을 실제 모델 의미 품질이나 운영 배포 결과로 해석하지 않는다.
 저장 계획/정상 판정 crash 뒤 provider 추가 호출0, 영향 revision만 재판정, 첫 책 성공 보존,
 정상0건/PARTIAL0finding/FAILED 구분, query proof 재사용/거절, 변경·파기·만료 후 게시0와 실제 정산을 확인한다.
-모든 상태에서 추출 Job/후보/자동 확정·철회는 0이다. 작가 판단·추출 release #312, UI #314는 별도다.
+검토 종료 전 모든 상태에서 추출 Job/후보/자동 확정·철회는 0이다. 정상 0건 COMPLETED의 자동 release Job 1개와 작가 판단·명시 검토 종료는 #312, UI는 #314다.

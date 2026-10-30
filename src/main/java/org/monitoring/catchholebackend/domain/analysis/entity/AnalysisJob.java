@@ -184,6 +184,13 @@ public class AnalysisJob extends BaseEntity {
     @Column(name = "automatic_applied_at")
     private LocalDateTime automaticAppliedAt;
 
+    /**
+     * GH312 S3: 검수 release Job의 자동 단계는 끝났지만 회차 전체 확정이 보류된 시각. 이때 아무 설정도 반영하지 않았으므로
+     * automatic_applied_at(실제 반영·진단 재검수 근거)은 null이다. 후보 직접 검토·결정 저장은 이 값으로 완료된 분석처럼 연다. APPLIED면 비운다.
+     */
+    @Column(name = "review_application_held_at")
+    private LocalDateTime reviewApplicationHeldAt;
+
     @Column(name = "analysis_run_id", updatable = false)
     private UUID analysisRunId;
 
@@ -479,7 +486,7 @@ public class AnalysisJob extends BaseEntity {
     public boolean isCompletedOrderedAnalysis() {
         return isOrderedProvisional() && status == AnalysisJobStatus.SUCCEEDED
                 && journalStatus == AnalysisJournalStatus.SEALED
-                && (!isAutomaticReview() || automaticAppliedAt != null);
+                && (!isAutomaticReview() || automaticAppliedAt != null || reviewApplicationHeldAt != null);
     }
 
     public boolean isAutomaticApplicationPending() {
@@ -509,6 +516,32 @@ public class AnalysisJob extends BaseEntity {
         }
         if (automaticAppliedAt == null) {
             automaticAppliedAt = LocalDateTime.now();
+        }
+    }
+
+    /**
+     * GH312 S3: 검수 release Job의 회차 전체 확정이 두 도메인을 모두 반영한 뒤에만 호출한다. 추출 완료 트랜잭션(RUNNING) 또는
+     * 보류 뒤 작가의 명시 반영(SUCCEEDED)에서 SEALED 기록 위에만 표시하며, 보류·되돌림에서는 호출하지 않는다.
+     */
+    public void completeReviewReleaseApplication() {
+        if (!isAutomaticReview() || !isOrderedProvisional() || journalStatus != AnalysisJournalStatus.SEALED
+                || (status != AnalysisJobStatus.RUNNING && status != AnalysisJobStatus.SUCCEEDED)) {
+            throw new IllegalStateException("추출이 완료되지 않아 회차 전체 확정을 기록할 수 없습니다.");
+        }
+        if (automaticAppliedAt == null) {
+            automaticAppliedAt = LocalDateTime.now();
+        }
+        reviewApplicationHeldAt = null;
+    }
+
+    /** GH312 S3: 회차 전체 확정 보류. 아무것도 반영하지 않은 채 자동 단계를 마쳐 작가가 후보를 검토·결정할 수 있게 한다. */
+    public void holdReviewReleaseApplication() {
+        if (!isAutomaticReview() || !isOrderedProvisional() || journalStatus != AnalysisJournalStatus.SEALED || automaticAppliedAt != null
+                || (status != AnalysisJobStatus.RUNNING && status != AnalysisJobStatus.SUCCEEDED)) {
+            throw new IllegalStateException("추출이 완료되지 않았거나 이미 반영한 Job은 보류할 수 없습니다.");
+        }
+        if (reviewApplicationHeldAt == null) {
+            reviewApplicationHeldAt = LocalDateTime.now();
         }
     }
 

@@ -33,6 +33,7 @@ public class EpisodeValidationService {
     private final AnalysisStateJournal journal;
     private final EntityManager em;
     private final ValidationWorkerService workers;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationReviewGate reviewGate;
 
     @Transactional
     public ValidationStagingResponse start(Long memberId, UUID workId, ValidationStartRequest request) {
@@ -46,7 +47,7 @@ public class EpisodeValidationService {
         if (keyed.isPresent()) {
             if (!"START".equals(keyed.get().getRequestKind()) || !hash.equals(keyed.get().getRequestHash())) throw error(ValidationErrorCode.VALIDATION_IDEMPOTENCY_CONFLICT);
             workers.queuePrepared(keyed.get().getReport());
-            return ValidationStagingResponse.from(keyed.get().getReport());
+            return staging(keyed.get().getReport());
         }
         var prior = reports.findByEpisodeIdAndCurrentTrue(request.episodeId());
         if (prior.isPresent()) {
@@ -83,12 +84,12 @@ public class EpisodeValidationService {
         workers.queuePrepared(report);
         keys.save(ValidationRequestKey.create(work, request.idempotencyKey(), report));
         em.flush();
-        return ValidationStagingResponse.from(report);
+        return staging(report);
     }
 
     public ValidationStagingResponse get(Long memberId, UUID workId, UUID reportId) {
         works.getOwnedWork(workId, memberId);
-        return ValidationStagingResponse.from(reports.findByIdAndWorkId(reportId, workId)
+        return staging(reports.findByIdAndWorkId(reportId, workId)
                 .orElseThrow(() -> error(ValidationErrorCode.VALIDATION_NOT_FOUND)));
     }
     private boolean hasComparisonMaterial(UUID workId) {
@@ -102,7 +103,8 @@ public class EpisodeValidationService {
     private ValidationStagingResponse sameInput(ValidationReport report, String hash) {
         if (!report.getRequestHash().equals(hash)) throw error(ValidationErrorCode.VALIDATION_IDEMPOTENCY_CONFLICT);
         workers.queuePrepared(report);
-        return ValidationStagingResponse.from(report);
+        return staging(report);
     }
+    private ValidationStagingResponse staging(ValidationReport report) { var extraction = reviewGate.extraction(report); return ValidationStagingResponse.from(report, reviewGate.errorReviewStatus(report), extraction.jobId(), extraction.status(), extraction.candidateStatus(), reviewGate.reviewStage(report)); }
     private AppException error(ValidationErrorCode code) { return new AppException(code); }
 }

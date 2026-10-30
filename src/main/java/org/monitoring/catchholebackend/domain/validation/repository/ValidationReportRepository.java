@@ -10,6 +10,16 @@ public interface ValidationReportRepository extends JpaRepository<ValidationRepo
     Optional<ValidationReport> findByEpisodeIdAndCurrentTrue(UUID episodeId);
     List<ValidationReport> findAllByWorkId(UUID workId);
 
-    @org.springframework.data.jpa.repository.Query("select new org.monitoring.catchholebackend.domain.validation.repository.ValidationReportState(r.episode.id, r.id, r.status) from ValidationReport r where r.current = true and r.episode.id in :episodeIds")
+    /** GH312 S4: 검수 단계 계산에 필요한 실행·검토 종료·release Job·회차 전체 확정 상태를 scalar로 함께 읽는다. 행마다 엔티티를 읽지 않는다. */
+    @org.springframework.data.jpa.repository.Query("""
+            select new org.monitoring.catchholebackend.domain.validation.repository.ValidationReportState(
+                r.episode.id, r.id, r.status, r.baselineStatus, r.current, j.status, c.id, aj.status, aj.journalStatus, a.status)
+            from ValidationReport r
+            left join ValidationJob j on j.report = r
+            left join ValidationReviewCompletion c on c.report = r
+            left join c.extractionJob aj
+            left join ValidationSettingsApplication a on a.report = r
+            where r.current = true and r.episode.id in :episodeIds
+            """)
     List<ValidationReportState> findStatesByEpisodeIdIn(@org.springframework.data.repository.query.Param("episodeIds") Collection<UUID> episodeIds);
 }

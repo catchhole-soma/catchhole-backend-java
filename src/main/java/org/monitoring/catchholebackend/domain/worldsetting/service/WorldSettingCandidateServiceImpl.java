@@ -95,6 +95,73 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         return "worldSettings";
     }
 
+    /** 최종 결정 초안이 있는 후보의 분류·대상 그룹과, 함께 확정해야 하는 같은 비교 결정의 원본 후보. */
+    @Override
+    public List<List<UUID>> reviewedDecisionGroups(AnalysisJob job) {
+        List<WorldSettingCandidate> pending = worldSettingCandidateRepository.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(job.getId()).stream()
+                .filter(WorldSettingCandidate::isPendingReview)
+                .sorted(org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingCandidateChronology.comparator()).toList();
+        Set<String> decided = new java.util.LinkedHashSet<>();
+        pending.stream().filter(candidate -> candidate.getFinalOperation() != null).map(this::groupKey).forEach(decided::add);
+        if (decided.isEmpty()) return List.of();
+        Map<UUID, Set<UUID>> sourcesByDecision = new LinkedHashMap<>();
+        Set<UUID> decisionIds = pending.stream().map(WorldSettingCandidate::getComparisonDecision).filter(Objects::nonNull)
+                .map(WorldSettingComparisonDecision::getId).collect(java.util.stream.Collectors.toSet());
+        if (!decisionIds.isEmpty()) {
+            for (WorldSettingComparisonDecisionSource source : comparisonDecisionSourceRepository.findAllByComparisonDecisionIdIn(decisionIds)) {
+                sourcesByDecision.computeIfAbsent(source.getComparisonDecision().getId(), ignored -> new HashSet<>()).add(source.getCandidate().getId());
+            }
+        }
+        Map<UUID, WorldSettingCandidate> pendingById = new LinkedHashMap<>();
+        pending.forEach(candidate -> pendingById.put(candidate.getId(), candidate));
+        List<List<UUID>> groups = new ArrayList<>();
+        Set<UUID> taken = new HashSet<>();
+        for (String key : decided) {
+            Set<UUID> members = new java.util.LinkedHashSet<>();
+            pending.stream().filter(candidate -> groupKey(candidate).equals(key)).forEach(candidate -> members.add(candidate.getId()));
+            for (boolean grown = true; grown; ) {
+                grown = false;
+                for (UUID id : List.copyOf(members)) {
+                    var decision = pendingById.get(id).getComparisonDecision();
+                    if (decision == null) continue;
+                    for (UUID source : sourcesByDecision.getOrDefault(decision.getId(), Set.of())) {
+                        if (pendingById.containsKey(source) && members.add(source)) grown = true;
+                    }
+                }
+            }
+            members.removeAll(taken);
+            if (members.isEmpty()) continue;
+            taken.addAll(members);
+            groups.add(pending.stream().map(WorldSettingCandidate::getId).filter(members::contains).toList());
+        }
+        return groups;
+    }
+
+    /** 저장된 최종 결정 초안(없으면 AI 제안)으로 화면의 그룹 확정과 같은 요청을 만들고 공개 그룹 확정 본문으로 반영한다. */
+    @Override
+    @Transactional
+    public void applyReviewedDecisions(AnalysisJob job) {
+        for (int round = 0; ; round++) {
+            List<List<UUID>> groups = reviewedDecisionGroups(job);
+            if (groups.isEmpty()) return;
+            if (round > 10_000) throw new IllegalStateException("작가 결정 그룹 반영이 끝나지 않습니다.");
+            var decisions = groups.getFirst().stream()
+                    .map(id -> worldSettingCandidateRepository.findById(id).orElseThrow(() -> new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_SELECTION_INVALID)))
+                    .map(this::reviewedDecision).toList();
+            var result = confirmCandidateGroupCore(job.getWork(), new WorldSettingCandidateGroupConfirmRequest(job.getBatch().getId(), decisions),
+                    false, job.isSettingBookSource() ? job.getId() : null, true);
+            if (result.recomparisonRequired()) throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_RECOMPARISON_REQUIRED);
+        }
+    }
+
+    /** 저장된 최종값은 작가가 서로 다른 추출 내용을 정리한 결과이므로 conflictResolved=true로 보낸다. */
+    private WorldSettingCandidateGroupConfirmRequest.Decision reviewedDecision(WorldSettingCandidate candidate) {
+        if (candidate.getFinalOperation() == null) return automaticDecision(candidate);
+        return new WorldSettingCandidateGroupConfirmRequest.Decision(candidate.getId(), candidate.getFinalOperation(), candidate.getFinalCategory(),
+                candidate.getFinalSubjectName(), candidate.getFinalScopeName(), candidate.getFinalSettingName(), candidate.getFinalValue(),
+                true, candidate.getReviewNote());
+    }
+
     @Override
     @Transactional
     public void applyAutomatically(AnalysisJob job) {
@@ -595,6 +662,7 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
         reviewSources.validate(work, null, sourceAnalysisJobId, true);
         reviewSources.assertWorld(work, null, sourceAnalysisJobId, candidateId, true);
         WorldSettingCandidate candidate = getCandidateForUpdate(candidateId, work.getId());
+        analysisConfirmation.assertManualWriteAllowed(candidate);
         requireSingletonComparisonDecision(candidate);
 
         if (candidate.getReviewStatus() == WorldSettingReviewStatus.CONFIRMED) {
@@ -820,11 +888,20 @@ public class WorldSettingCandidateServiceImpl implements WorldSettingCandidateSe
     private WorldSettingCandidateGroupConfirmResult confirmCandidateGroupCore(
             Work work, WorldSettingCandidateGroupConfirmRequest request, boolean automatic
     , UUID sourceAnalysisJobId) {
+        return confirmCandidateGroupCore(work, request, automatic, sourceAnalysisJobId, false);
+    }
+
+    /** releaseApplication=true는 GH312 S3 회차 전체 확정이 저장된 작가 결정을 반영할 때만 쓰며 release 회차의 사람 확정 차단만 건너뛴다. */
+    private WorldSettingCandidateGroupConfirmResult confirmCandidateGroupCore(
+            Work work, WorldSettingCandidateGroupConfirmRequest request, boolean automatic,
+            UUID sourceAnalysisJobId, boolean releaseApplication) {
         Map<UUID, WorldSettingCandidateGroupConfirmRequest.Decision> decisionsById =
                 decisionsById(request.candidates());
         List<WorldSettingCandidate> candidates = (sourceAnalysisJobId == null ? worldSettingCandidateRepository.findAllByIdsAndBatchForUpdate(work.getId(), request.batchId(), decisionsById.keySet()) : worldSettingCandidateRepository
                 .findAllByIdsAndBatchForUpdate(work.getId(), request.batchId(), decisionsById.keySet(), sourceAnalysisJobId));
         validateRequestedCandidates(candidates, decisionsById.size());
+        // 사람의 그룹 확정만 막는다. 자동 반영(automatic)은 회차 전체 확정이 같은 트랜잭션에서 조율한다(GH312 S3).
+        if (!automatic && !releaseApplication) candidates.forEach(analysisConfirmation::assertManualWriteAllowed);
         validateCompleteComparisonDecisionMembership(candidates, decisionsById.keySet());
         String selectedGroupKey = validateSameCandidateGroup(candidates);
 

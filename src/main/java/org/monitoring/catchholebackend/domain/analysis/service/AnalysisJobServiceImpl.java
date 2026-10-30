@@ -36,6 +36,9 @@ import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode;
 import org.monitoring.catchholebackend.domain.upload.type.UploadType;
+import org.monitoring.catchholebackend.domain.validation.entity.ValidationReviewCompletion;
+import org.monitoring.catchholebackend.domain.validation.exception.ValidationErrorCode;
+import org.monitoring.catchholebackend.domain.validation.repository.ValidationReviewCompletionRepository;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
@@ -89,6 +92,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
     private final WorldSettingCandidateRepository worldSettingCandidateRepository;
     private final AiTokenService aiTokenService;
     private final CharacterFactComparisonJobCoordinator characterComparisonJobCoordinator;
+    private final ValidationReviewCompletionRepository reviewCompletions;
 
     @Override
     @Transactional
@@ -97,6 +101,30 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
             UUID workId,
             AnalysisJobCreateRequest request
     ) {
+        CreatedJobs created = createJobs(memberId, workId, request, true);
+        return created.jobs().stream()
+                .map(savedJob -> analysisJobMapper.toResponse(
+                        savedJob,
+                        created.uploadFiles(),
+                        List.of(savedJob.getEpisode())
+                ))
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public AnalysisJob createReviewReleaseExtractionJob(Long memberId, UUID workId, UUID batchId, UUID episodeId) {
+        // GH312: 단일 신규 회차 업로드의 기본 요청과 같다. reviewMode 생략은 SETTING_EXTRACTION의 AUTOMATIC이고
+        // 자동 반영은 ORDERED_PROVISIONAL로 고정되므로 새 모드나 별도 Job 구성 코드를 만들지 않는다.
+        return createJobs(memberId, workId,
+                new AnalysisJobCreateRequest(AnalysisJobType.SETTING_EXTRACTION, batchId, episodeId), false).jobs().getFirst();
+    }
+
+    /**
+     * 공개 생성과 검토 종료 release가 공유하는 실제 생성 경로다. 둘의 차이는 검수 report 차단 하나뿐이며,
+     * release는 같은 트랜잭션에 방금 만든 검토 종료 receipt를 가진 호출자만 사용한다.
+     */
+    private CreatedJobs createJobs(Long memberId, UUID workId, AnalysisJobCreateRequest request, boolean publicRequest) {
         assertPublicJobType(request.jobType());
         if (request.effectiveAnalysisMode() == AnalysisMode.ORDERED_PROVISIONAL
                 && request.jobType() != AnalysisJobType.SETTING_EXTRACTION) {
@@ -125,7 +153,8 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         if (targetEpisodes.isEmpty()) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_TARGET_NOT_FOUND);
         }
-        assertNoValidationReviewPending(targetEpisodes);
+        // GH312: 현재 검수 report가 있는 회차는 검토 종료 뒤에도 공개 생성으로 추출을 만들지 않는다. release 서비스만 만든다.
+        if (publicRequest) assertNoCurrentValidationReport(targetEpisodes);
         assertNoSourcePurgeInProgress(targetEpisodes);
 
         if (targetEpisodes.stream().anyMatch(targetEpisode -> hasActiveAnalysisJob(batch, targetEpisode))) {
@@ -164,14 +193,10 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         } else {
             analysisJobRepository.saveAll(analysisJobs);
         }
-        return analysisJobs.stream()
-                .map(savedJob -> analysisJobMapper.toResponse(
-                        savedJob,
-                        uploadFiles,
-                        List.of(savedJob.getEpisode())
-                ))
-                .toList();
+        return new CreatedJobs(analysisJobs, uploadFiles);
     }
+
+    private record CreatedJobs(List<AnalysisJob> jobs, List<UploadFile> uploadFiles) {}
 
     @Override
     public List<AnalysisJobResponse> getAnalysisJobs(Long memberId, UUID workId) {
@@ -307,9 +332,9 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         AnalysisJob failedJob = analysisJobRepository.findByIdAndWorkId(analysisJobId, work.getId())
                 .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND));
         assertPublicJobType(failedJob.getJobType());
-        assertNoValidationReviewPending(getTargetEpisodes(failedJob));
+        Optional<ValidationReviewCompletion> release = assertValidationReleaseRetry(failedJob);
         if (failedJob.isOrderedProvisional()) {
-            return List.of(toResponse(resumeOrderedJob(work, failedJob.getId())));
+            return List.of(toResponse(relinkRelease(release, resumeOrderedJob(work, failedJob.getId()))));
         }
         if (failedJob.getStatus() != AnalysisJobStatus.FAILED) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
@@ -333,15 +358,36 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         assertNoActiveJobOfDifferentType(failedJob, retryEpisodes);
 
         return retryEpisodes.stream()
-                .map(episode -> getOrCreateRetryJob(work, failedJob, episode))
+                .map(episode -> relinkRelease(release, getOrCreateRetryJob(work, failedJob, episode)))
                 .map(this::toResponse)
                 .toList();
     }
 
-    private void assertNoValidationReviewPending(List<Episode> episodes) {
-        if (!episodes.isEmpty() && analysisJobRepository.existsValidationStagingForEpisodes(episodes.stream().map(Episode::getId).toList())) {
-            throw new AppException(org.monitoring.catchholebackend.domain.validation.exception.ValidationErrorCode.VALIDATION_ERROR_REVIEW_PENDING);
+    /** GH312: 공개 생성은 현재 검수 report가 있는 회차를 검토 종료 여부와 무관하게 막는다. */
+    private void assertNoCurrentValidationReport(List<Episode> episodes) {
+        if (!episodes.isEmpty() && analysisJobRepository.existsCurrentValidationReportForEpisodes(episodes.stream().map(Episode::getId).toList())) {
+            throw new AppException(ValidationErrorCode.VALIDATION_ERROR_REVIEW_PENDING);
         }
+    }
+
+    /**
+     * GH312: 현재 검수 report가 있는 회차의 재시도는 그 report의 검토 종료 receipt가 가리키는 release Job만 허용한다.
+     * 다른 실패 Job과 검토 종료 전 Job은 기존처럼 막고, report가 없는 회차는 기존 재시도 규칙을 따른다.
+     */
+    private Optional<ValidationReviewCompletion> assertValidationReleaseRetry(AnalysisJob failedJob) {
+        List<UUID> episodeIds = getTargetEpisodes(failedJob).stream().map(Episode::getId).toList();
+        if (episodeIds.isEmpty() || !analysisJobRepository.existsCurrentValidationReportForEpisodes(episodeIds)) {
+            return Optional.empty();
+        }
+        return Optional.of(reviewCompletions.findCurrentByExtractionJobId(failedJob.getId())
+                .filter(completion -> episodeIds.equals(List.of(completion.getEpisode().getId())))
+                .orElseThrow(() -> new AppException(ValidationErrorCode.VALIDATION_ERROR_REVIEW_PENDING)));
+    }
+
+    /** GH312: 재시도가 새 Job을 만들면 같은 트랜잭션에서 검토 종료 receipt의 연결 Job과 세대를 옮긴다. 같은 Job 재개는 유지한다. */
+    private AnalysisJob relinkRelease(Optional<ValidationReviewCompletion> release, AnalysisJob job) {
+        release.ifPresent(completion -> completion.relinkExtractionJob(job));
+        return job;
     }
 
     private AnalysisJob resumeOrderedJob(Work work, UUID jobId) {

@@ -25,7 +25,10 @@ public class WorkPurgeDataRepository {
      */
     public WorkPurgeDatabaseResult purgeWorkData(UUID workId) {
         int deletedCount = 0;
-        for (String table : List.of("validation_check_history","validation_evidence","validation_findings","validation_checkpoints","validation_publications","validation_checks","validation_stages"))
+        // GH312: 회차 전체 확정 receipt는 검토 종료 receipt·report·analysis Job을, 검토 종료 receipt는 report와 analysis Job을 참조하므로 이 순서로 먼저 지운다.
+        deletedCount += update("delete from validation_settings_applications where work_id = ?", workId);
+        deletedCount += update("delete from validation_review_completions where work_id = ?", workId);
+        for (String table : List.of("validation_judgment_history","validation_judgments","validation_check_history","validation_evidence","validation_findings","validation_checkpoints","validation_publications","validation_checks","validation_stages"))
             deletedCount += update("delete from " + table + " where report_id in (select id from validation_reports where work_id = ?)",workId);
         deletedCount += update("delete from ai_token_usages where validation_job_id in (select j.id from validation_jobs j join validation_reports r on r.id=j.report_id where r.work_id = ?)",workId);
         deletedCount += update("delete from validation_jobs where report_id in (select id from validation_reports where work_id = ?)",workId);

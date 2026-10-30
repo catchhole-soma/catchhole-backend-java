@@ -41,6 +41,7 @@ public class ValidationBaselineService {
     private final EntityManager em;
     private final ValidationCorrectionRepository corrections;
     private final ApplicationEventPublisher events;
+    private final ValidationSettingsApplicationRepository applications;
 
     public void prepare(ValidationReport report) {
         if (!report.isCurrent() || report.getBaselineSeed() != null || report.getStatus() == ValidationReportStatus.INVALIDATED) return;
@@ -406,7 +407,12 @@ public class ValidationBaselineService {
     @EventListener
     public void purge(ValidationStagingEvents.ConfirmedSettingsChanged event) {
         corrections.deleteAllByWorkId(event.workId());
-        reports.findAllByWorkId(event.workId()).forEach(this::purge);
+        // GH312 S3: 회차 전체 확정이 APPLIED로 기록한 report는 그 확정(또는 이후 설정 변경)으로 무효화하지 않는다. 이 report의 기준은
+        // 이미 확정 전 검사로 쓰였고 검토 종료·반영까지 끝난 이력이다. APPLIED는 도메인 쓰기보다 먼저 같은 트랜잭션에 기록되며
+        // 반영이 실패하면 함께 되돌려진다. 같은 작품의 다른 report는 기존처럼 무효화한다. 원문·설정집 변경 경로는 바꾸지 않는다.
+        reports.findAllByWorkId(event.workId()).stream()
+                .filter(report -> !applications.existsByReportIdAndStatus(report.getId(), org.monitoring.catchholebackend.domain.validation.type.ValidationApplicationStatus.APPLIED))
+                .forEach(this::purge);
     }
     /** Work 잠금 아래 호출한다. 결과 저장소도 같은 트랜잭션의 ReportInvalidated를 소비한다. */
     public void retire(ValidationReport report) { report.retire(); purge(report); }

@@ -1008,7 +1008,7 @@ public class WorldSettingCandidate extends BaseEntity {
 
     public boolean isManualReviewAvailable(AnalysisReviewState state) {
         return isPendingReview() && state != null && state.automatic()
-                && state.automaticAppliedAt() != null
+                && state.automaticStageFinished()
                 && comparisonStatus != WorldSettingComparisonStatus.PENDING
                 && comparisonStatus != WorldSettingComparisonStatus.PROCESSING;
     }

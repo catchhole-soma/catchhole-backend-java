@@ -38,6 +38,8 @@ public class ValidationWorkerServiceImpl implements ValidationWorkerService {
     private final EntityManager em;
     private final ValidationDataService data;
     private final ValidationBaselineService baselines;
+    private final ValidationReviewGate reviewGate;
+    private final ValidationReviewCompletionRepository completions;
 
     @Override @Transactional public void queuePrepared(ValidationReport r) {
         if(!properties.enabled()||!r.isCurrent()||r.getBaselineStatus()!=ValidationPreparationStatus.READY||r.getBaselineSeed()==null||r.getBaselineEntries()==null||jobs.findByReportId(r.getId()).isPresent())return;
@@ -83,10 +85,13 @@ public class ValidationWorkerServiceImpl implements ValidationWorkerService {
         var existing=keys.findByWorkIdAndRequestKey(work,c.idempotencyKey());
         if(existing.isPresent()) {
             var k=existing.get();if(!"RETRY".equals(k.getRequestKind())||!hash.equals(k.getRequestHash()))throw error(VALIDATION_IDEMPOTENCY_CONFLICT);
-            return k.getResponseSnapshot()==null?ValidationStagingResponse.from(k.getReport()):mapper.toStagingResponse(k.getResponseSnapshot());
+            return k.getResponseSnapshot()==null?staging(k.getReport()):mapper.toStagingResponse(k.getResponseSnapshot());
         }
         if(!properties.enabled())throw error(VALIDATION_RUNTIME_DISABLED);
-        var r=reports.findByIdAndWorkId(report,work).orElseThrow(()->error(VALIDATION_NOT_FOUND));em.refresh(r);access.currentInput(r,false);
+        var r=reports.findByIdAndWorkId(report,work).orElseThrow(()->error(VALIDATION_NOT_FOUND));em.refresh(r);
+        // GH312: 검토 종료 receipt가 있으면 같은 입력에서 다시 실행할 미완료 범위가 없다. 새 입력은 재검수로 접수한다.
+        if(completions.existsByReportId(report))throw error(VALIDATION_REVIEW_ALREADY_COMPLETED);
+        access.currentInput(r,false);
         if(r.getVersion()!=c.expectedReportVersion())throw error(VALIDATION_REPORT_VERSION_CONFLICT);
         if(!episodes.findFirstByWorkIdAndStatusNotOrderByEpisodeNoDesc(work,org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ARCHIVED).map(e->e.getId().equals(r.getEpisode().getId())).orElse(false))throw error(VALIDATION_TARGET_INVALID);
         data.validateSavedValidationSeed(member,work,report);
@@ -99,7 +104,8 @@ public class ValidationWorkerServiceImpl implements ValidationWorkerService {
             if(j.getStatus()!=ValidationExecutionStatus.PARTIAL&&j.getStatus()!=ValidationExecutionStatus.FAILED)throw error(VALIDATION_PUBLICATION_CONFLICT);
             budgetPolicy.refreshForRetry(j);usage.ensureValidationRetryCapacity(j);usage.releaseReservedValidationUsage(j,AiTokenUsageOutcome.USAGE_UNAVAILABLE);j.retry();r.advanceVersion();
         }
-        var response=ValidationStagingResponse.from(r);var key=ValidationRequestKey.create(owner,c.idempotencyKey(),r,"RETRY",hash);key.recordRetryResponse(mapper.toTree(response));keys.save(key);em.flush();return response;
+        var response=staging(r);var key=ValidationRequestKey.create(owner,c.idempotencyKey(),r,"RETRY",hash);key.recordRetryResponse(mapper.toTree(response));keys.save(key);em.flush();return response;
     }
+    private ValidationStagingResponse staging(ValidationReport r) {var extraction=reviewGate.extraction(r);return ValidationStagingResponse.from(r,reviewGate.errorReviewStatus(r),extraction.jobId(),extraction.status(),extraction.candidateStatus(),reviewGate.reviewStage(r));}
     private Duration lease(ValidationJob j) {return Duration.ofMillis(j.getConfiguration().path("leaseMillis").asLong());}
 }
