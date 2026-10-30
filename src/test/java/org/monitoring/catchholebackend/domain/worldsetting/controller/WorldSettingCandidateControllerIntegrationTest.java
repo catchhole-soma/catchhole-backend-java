@@ -247,6 +247,59 @@ class WorldSettingCandidateControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("같은 그룹 3건 중 2건만 결정 초안을 저장하면 나머지 1건의 최종값·검토 상태·수정 시각은 그대로다(Front 선택 연결이 의존하는 계약)")
+    void updateDecisionSubsetLeavesUnselectedCandidateUnchanged() throws Exception {
+        WorldSettingCandidate first = completedAddCandidate(WorldSettingCategory.MONSTER, "구울", "이동 방식", "네 발로 걷는다");
+        WorldSettingCandidate second = completedAddCandidate(WorldSettingCategory.MONSTER, "구울", "약점", "햇빛에 약하다");
+        WorldSettingCandidate untouched = completedAddCandidate(WorldSettingCategory.MONSTER, "구울", "서식지", "폐광");
+        candidateRepository.saveAllAndFlush(List.of(first, second, untouched));
+        WorldSettingCandidate before = candidateRepository.findById(untouched.getId()).orElseThrow();
+
+        mockMvc.perform(patch("/api/v1/works/{workId}/world-setting-candidates/decisions", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of(
+                                "batchId", uploadBatch.getId(),
+                                "candidates", List.of(
+                                        java.util.Map.of(
+                                                "candidateId", first.getId(),
+                                                "operation", "ADD",
+                                                "category", "LOCATION",
+                                                "subjectName", "미궁",
+                                                "settingName", "이동 방식",
+                                                "value", "네 발로 걷는다"
+                                        ),
+                                        java.util.Map.of(
+                                                "candidateId", second.getId(),
+                                                "operation", "ADD",
+                                                "category", "LOCATION",
+                                                "subjectName", "미궁",
+                                                "settingName", "약점",
+                                                "value", "햇빛에 약하다"
+                                        )
+                                )
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groupKey").value("LOCATION|미궁"))
+                .andExpect(jsonPath("$.data.candidates.length()").value(2));
+
+        WorldSettingCandidate after = candidateRepository.findById(untouched.getId()).orElseThrow();
+        assertThat(after.getFinalOperation()).isEqualTo(before.getFinalOperation());
+        assertThat(after.getFinalCategory()).isEqualTo(before.getFinalCategory());
+        assertThat(after.getFinalSubjectName()).isEqualTo(before.getFinalSubjectName());
+        assertThat(after.getFinalScopeName()).isEqualTo(before.getFinalScopeName());
+        assertThat(after.getFinalSettingName()).isEqualTo(before.getFinalSettingName());
+        assertThat(after.getFinalValue()).isEqualTo(before.getFinalValue());
+        assertThat(after.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.PENDING_REVIEW);
+        assertThat(after.getUpdatedAt()).isEqualTo(before.getUpdatedAt());
+        assertThat(candidateRepository.findAllById(List.of(first.getId(), second.getId())))
+                .allSatisfy(candidate -> {
+                    assertThat(candidate.getFinalCategory()).isEqualTo(WorldSettingCategory.LOCATION);
+                    assertThat(candidate.getFinalSubjectName()).isEqualTo("미궁");
+                });
+    }
+
+    @Test
     @DisplayName("묶음 비교 후보의 최종 분류와 대상 초안이 검토 목록 그룹에 우선 반영된다")
     void reviewListGroupsComparisonDecisionCandidateByFinalDraft() throws Exception {
         RootMoveFixture fixture = rootMoveFixture();
