@@ -11,19 +11,19 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface RelationshipBackfillService {
-    void bootstrap();
+    void bootstrapRelationshipBackfill();
 
-    boolean deferInline(AnalysisJob job);
+    boolean deferInlineRelationshipAnalysis(AnalysisJob job);
 
-    long publishedGeneration(UUID workId);
+    long getPublishedRelationshipGeneration(UUID workId);
 
-    void coreCompleted(AnalysisJob job);
+    void enqueueCompletedCoreAnalysis(AnalysisJob job);
 
-    Optional<WorkerAnalysisJobPayload> claim(WorkerAnalysisJobClaimRequest request);
+    Optional<WorkerAnalysisJobPayload> claimRelationshipJob(WorkerAnalysisJobClaimRequest request);
 
-    WorkerAnalysisJobHeartbeatResponse heartbeat(UUID id, UUID lease);
+    WorkerAnalysisJobHeartbeatResponse renewRelationshipJobLease(UUID id, UUID lease);
 
-    void complete(UUID id, UUID lease, WorkerAnalysisJobCompleteRequest request);
+    void completeRelationshipJob(UUID id, UUID lease, WorkerAnalysisJobCompleteRequest request);
 
-    void fail(UUID id, UUID lease, WorkerAnalysisJobFailRequest request);
+    void failRelationshipJob(UUID id, UUID lease, WorkerAnalysisJobFailRequest request);
 }

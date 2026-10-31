@@ -153,12 +153,12 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             targetEpisode.markChunking();
         }
 
-        boolean deferredRelationship = relationshipBackfill.deferInline(analysisJob);
+        boolean deferredRelationship = relationshipBackfill.deferInlineRelationshipAnalysis(analysisJob);
         if (!deferredRelationship && relationshipGraphEnabled && Boolean.TRUE.equals(request.supportsRelationshipAnalysis())
                 && analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION && !analysisJob.isSettingBookSource()
                 && analysisJob.getEpisode() != null && analysisJob.getSourceEpisodeNo() != null
                 && analysisJob.getSourceContentHash() != null && analysisJob.getSourceContentS3Key() != null) {
-            analysisJob.configureRelationship(relationshipBackfill.publishedGeneration(analysisJob.getWork().getId()), false);
+            analysisJob.configureRelationship(relationshipBackfill.getPublishedRelationshipGeneration(analysisJob.getWork().getId()), false);
             relationshipGraphService.beginRelationshipAnalysis(analysisJob);
         }
         UUID workId = analysisJob.getWork().getId();
@@ -320,8 +320,8 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         }
         // A rolling-deploy inline lease may finish after this work joined the private build.
         // Its core settings succeed, while the relation observation is queued in the ordered lane.
-        if (!relationshipBackfill.deferInline(analysisJob)) relationshipGraphService.finalizeRelationshipAnalysis(analysisJob);
-        relationshipBackfill.coreCompleted(analysisJob);
+        if (!relationshipBackfill.deferInlineRelationshipAnalysis(analysisJob)) relationshipGraphService.finalizeRelationshipAnalysis(analysisJob);
+        relationshipBackfill.enqueueCompletedCoreAnalysis(analysisJob);
         if (!isHiddenComparisonJob(analysisJob)) {
             findTargetEpisodes(analysisJob).forEach(Episode::markAnalyzed);
         }

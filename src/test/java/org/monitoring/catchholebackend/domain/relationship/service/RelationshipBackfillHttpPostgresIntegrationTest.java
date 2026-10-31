@@ -102,8 +102,8 @@ class RelationshipBackfillHttpPostgresIntegrationTest {
         when(manifest.selectedAt()).thenReturn(LocalDateTime.now().plusMinutes(1));
         when(manifest.matches(any())).thenAnswer(call -> fixture.owner().equals(((Member) call.getArgument(0)).getId()));
 
-        coordinator.bootstrap();
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
+        coordinator.bootstrapRelationshipBackfill();
         assertThat(count("relationship_backfill_works", fixture.selectedWork())).isEqualTo(1);
         assertThat(count("relationship_backfill_works", fixture.excludedWork())).isZero();
         assertThat(count("relationship_backfill_items", fixture.selectedWork())).isEqualTo(2);
@@ -176,7 +176,7 @@ class RelationshipBackfillHttpPostgresIntegrationTest {
             core.claim("synthetic-core", "합성 완료 경계", LocalDateTime.now().plusMinutes(5));
             core.succeed("{}", 0, 0);
             em.persist(core);
-            coordinator.coreCompleted(core);
+            coordinator.enqueueCompletedCoreAnalysis(core);
         });
     }
 

@@ -136,7 +136,7 @@ class RelationshipBackfillIntegrationTest {
     }
 
     WorkerAnalysisJobPayload claim() {
-        return coordinator.claim(request).orElseThrow();
+        return coordinator.claimRelationshipJob(request).orElseThrow();
     }
 
     Context prepare(WorkerAnalysisJobPayload p) {
@@ -194,7 +194,7 @@ class RelationshipBackfillIntegrationTest {
                                 null);
         graph.completeRelationshipAnalysis(
                 p.analysisJobId(), p.leaseToken(), new Complete(1, c.contextToken(), List.of(d)));
-        coordinator.complete(
+        coordinator.completeRelationshipJob(
                 p.analysisJobId(),
                 p.leaseToken(),
                 new WorkerAnalysisJobCompleteRequest(null, null, null));
@@ -208,8 +208,8 @@ class RelationshipBackfillIntegrationTest {
                             AnalysisJob.create(
                                     e.getWork(), null, e, AnalysisJobType.SETTING_EXTRACTION);
                     em.persist(j);
-                    assertThat(coordinator.deferInline(j)).isTrue();
-                    coordinator.coreCompleted(j);
+                    assertThat(coordinator.deferInlineRelationshipAnalysis(j)).isTrue();
+                    coordinator.enqueueCompletedCoreAnalysis(j);
                     j.succeed(null, 0, 0);
                 });
     }
@@ -324,7 +324,7 @@ class RelationshipBackfillIntegrationTest {
         UUID one = episode(1), two = episode(2);
         confirmedName(one, "아라", "미래에 바뀐 호칭");
         confirmedName(two, "보라", "미래의 정체");
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
         var first = claim();
         var c1 = prepare(first);
         assertThat(c1.nodes())
@@ -368,8 +368,8 @@ class RelationshipBackfillIntegrationTest {
                                             source.length()));
                             return w.getId();
                         });
-        coordinator.bootstrap();
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
+        coordinator.bootstrapRelationshipBackfill();
         assertThat(items()).hasSize(2).allMatch(RelationshipBackfillItem::isServicePaid);
         assertThat(
                         tx.<RelationshipBackfillWork>execute(
@@ -379,7 +379,7 @@ class RelationshipBackfillIntegrationTest {
         assertThat(p.episode().episodeNo()).isEqualTo(1);
         assertThat(p.characterSettingSchemas()).isEmpty();
         assertThat(p.knownCharacters()).isEmpty();
-        assertThat(coordinator.claim(request)).isEmpty();
+        assertThat(coordinator.claimRelationshipJob(request)).isEmpty();
         finish(p);
         assertThat(tx.<EpisodeStatus>execute(t -> em.find(Episode.class, one).getStatus()))
                 .isEqualTo(EpisodeStatus.UPLOADED);
@@ -410,7 +410,7 @@ class RelationshipBackfillIntegrationTest {
     void newEpisodeJoinsAndInlineReturns() {
         episode(1);
         episode(2);
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
         finish(claim());
         UUID three = episode(3);
         coreComplete(three);
@@ -429,7 +429,7 @@ class RelationshipBackfillIntegrationTest {
                     var j =
                             AnalysisJob.create(
                                     e.getWork(), null, e, AnalysisJobType.SETTING_EXTRACTION);
-                    assertThat(coordinator.deferInline(j)).isFalse();
+                    assertThat(coordinator.deferInlineRelationshipAnalysis(j)).isFalse();
                 });
     }
 
@@ -440,7 +440,7 @@ class RelationshipBackfillIntegrationTest {
         var two = episode(2);
         jdbc.update("update episodes set created_at=? where id=?", selectedAt.plusSeconds(1), two);
         priorRelationshipUsage(two, AiTokenUsageStatus.SETTLED);
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
         assertThat(items()).hasSize(2).allMatch(RelationshipBackfillItem::isServicePaid);
         finish(claim());
         var tail = claim();
@@ -453,7 +453,7 @@ class RelationshipBackfillIntegrationTest {
     @DisplayName("동일 원문의 이전 관계 원장이 있으면 상태와 무관하게 WAITING 항목을 서비스 부담으로 승격한다")
     void existingRelationshipUsagePromotesWaitingItem(AiTokenUsageStatus status) {
         episode(1);
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
         var two = episode(2);
         coreComplete(two);
         assertThat(items().getLast().isServicePaid()).isFalse();
@@ -480,7 +480,7 @@ class RelationshipBackfillIntegrationTest {
     @DisplayName("다른 원문이나 일반 설정 목적의 원장은 새 관계 분석을 무료로 바꾸지 않는다")
     void differentSourceOrPurposeDoesNotPromote() {
         episode(1);
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
         for (int no = 2; no <= 5; no++) {
             var id = episode(no);
             priorRelationshipUsage(id, AiTokenUsageStatus.SETTLED);
@@ -532,7 +532,7 @@ class RelationshipBackfillIntegrationTest {
     @DisplayName("중간 회차가 늦게 추가되면 뒤 회차의 관측은 보존하고 비교만 다시 순서대로 수행한다")
     void lateMiddleRecomparesWithoutReextracting() {
         episode(1);
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
         coreComplete(episode(3));
         finish(claim());
         var oldThree = claim();
@@ -565,7 +565,7 @@ class RelationshipBackfillIntegrationTest {
     void completedUserPaidTailRebuildIsServicePaid() {
         episode(1);
         episode(4);
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
         coreComplete(episode(3));
         finish(claim());
         var oldThree = claim();
@@ -589,7 +589,7 @@ class RelationshipBackfillIntegrationTest {
     @DisplayName("lease 회수 뒤 서비스 부담으로 승격하면 원 유료 작업을 보존하고 새 작업으로 관측을 재사용한다")
     void promotedPendingJobIsReplacedWithoutChangingOriginalBilling() {
         episode(1);
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
         var two = episode(2);
         coreComplete(two);
         finish(claim());
@@ -628,7 +628,7 @@ class RelationshipBackfillIntegrationTest {
     void expiredLaterContextIsRebuiltAfterMiddleInsertion() {
         episode(1);
         episode(3);
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
         finish(claim());
         var original = claim();
         prepare(original);
@@ -720,7 +720,7 @@ class RelationshipBackfillIntegrationTest {
         var publicEdge = graph.getRelationshipGraph(owner, workId, null).edges().getFirst();
         graph.correctRelationshipEdge(
                 owner, workId, publicEdge.id(), new Correction(publicEdge.version(), "작가 정정"));
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
         finish(claim());
         assertThat(graph.getRelationshipGraph(owner, workId, null).selectedEpisode().episodeNo())
                 .isEqualTo(1);
@@ -738,13 +738,13 @@ class RelationshipBackfillIntegrationTest {
     void sourceReplacementBlocks() {
         UUID one = episode(1);
         episode(2);
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
         tx.executeWithoutResult(
                 t ->
                         em.find(Episode.class, one)
                                 .updateContentStorage(
                                         "replaced", "v2", storage.contentHash("바뀐 원문")));
-        assertThat(coordinator.claim(request)).isEmpty();
+        assertThat(coordinator.claimRelationshipJob(request)).isEmpty();
         assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.BLOCKED);
         assertThat(items().getFirst().getReason()).isEqualTo("SOURCE_CHANGED");
         assertThat(state().getPublishedGeneration()).isZero();
@@ -754,7 +754,7 @@ class RelationshipBackfillIntegrationTest {
     @DisplayName("비교 저장 후 원문이 바뀌면 실제 반영 전에 거절하고 회차 실패와 분리한다")
     void sourceChangeBetweenDecisionAndFinalize() {
         UUID one = episode(1);
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
         var p = claim();
         var c = prepare(p);
         var o = c.observations().getFirst();
@@ -783,7 +783,7 @@ class RelationshipBackfillIntegrationTest {
                         em.find(Episode.class, one)
                                 .updateContentStorage(
                                         "replaced", "v2", storage.contentHash("바뀐 원문")));
-        assertThatThrownBy(() -> coordinator.complete(p.analysisJobId(), p.leaseToken(), null))
+        assertThatThrownBy(() -> coordinator.completeRelationshipJob(p.analysisJobId(), p.leaseToken(), null))
                 .isInstanceOf(AppException.class);
         assertThat(
                         jdbc.queryForObject(
@@ -798,7 +798,7 @@ class RelationshipBackfillIntegrationTest {
                                 workId))
                 .isZero();
         assertThat(items().getFirst().getState()).isEqualTo(RelationshipBackfillItemState.RUNNING);
-        coordinator.fail(
+        coordinator.failRelationshipJob(
                 p.analysisJobId(),
                 p.leaseToken(),
                 new WorkerAnalysisJobFailRequest(AnalysisFailureCode.UNEXPECTED_ERROR, "원문 변경"));
@@ -812,7 +812,7 @@ class RelationshipBackfillIntegrationTest {
     void archiveAfterPreparedBlocksPublication() {
         UUID one = episode(1);
         episode(2);
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
         var p = claim();
         prepare(p);
         tx.executeWithoutResult(
@@ -821,7 +821,7 @@ class RelationshipBackfillIntegrationTest {
                             .renewLease(LocalDateTime.now().minusSeconds(1));
                     em.find(Episode.class, one).archive();
                 });
-        assertThat(coordinator.claim(request)).isEmpty();
+        assertThat(coordinator.claimRelationshipJob(request)).isEmpty();
         assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.BLOCKED);
         assertThat(items().getFirst().getReason()).isEqualTo("SOURCE_ARCHIVED_AFTER_START");
         assertThat(state().getPublishedGeneration()).isZero();
@@ -832,7 +832,7 @@ class RelationshipBackfillIntegrationTest {
     void archiveBeforeClaimSkipsSafely() {
         UUID one = episode(1);
         episode(2);
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
         tx.executeWithoutResult(t -> em.find(Episode.class, one).archive());
         var p = claim();
         assertThat(p.episode().episodeNo()).isEqualTo(2);
@@ -847,7 +847,7 @@ class RelationshipBackfillIntegrationTest {
     @DisplayName("lease가 만료되면 같은 고정 문맥으로 재개하며 구 lease와 중복 완료를 구분한다")
     void leaseResumeAndIdempotentCompletion() {
         episode(1);
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
         var first = claim();
         Context c = prepare(first);
         tx.executeWithoutResult(
@@ -862,10 +862,10 @@ class RelationshipBackfillIntegrationTest {
                                 .orElseThrow()
                                 .contextToken())
                 .isEqualTo(c.contextToken());
-        assertThatThrownBy(() -> coordinator.heartbeat(first.analysisJobId(), first.leaseToken()))
+        assertThatThrownBy(() -> coordinator.renewRelationshipJobLease(first.analysisJobId(), first.leaseToken()))
                 .isInstanceOf(AppException.class);
         finish(second, c);
-        coordinator.complete(second.analysisJobId(), second.leaseToken(), null);
+        coordinator.completeRelationshipJob(second.analysisJobId(), second.leaseToken(), null);
         assertThat(graph.getRelationshipGraph(owner, workId, null).edges()).hasSize(1);
         verify(storage, times(1)).getText(anyString());
     }
@@ -875,13 +875,13 @@ class RelationshipBackfillIntegrationTest {
     void failedRelationBlocksOnlyRelation() {
         UUID one = episode(1);
         episode(2);
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
         var p = claim();
-        coordinator.fail(
+        coordinator.failRelationshipJob(
                 p.analysisJobId(),
                 p.leaseToken(),
                 new WorkerAnalysisJobFailRequest(AnalysisFailureCode.UNEXPECTED_ERROR, "합성 실패"));
-        assertThat(coordinator.claim(request)).isEmpty();
+        assertThat(coordinator.claimRelationshipJob(request)).isEmpty();
         assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.BLOCKED);
         assertThat(tx.<EpisodeStatus>execute(t -> em.find(Episode.class, one).getStatus()))
                 .isEqualTo(EpisodeStatus.UPLOADED);
@@ -894,10 +894,10 @@ class RelationshipBackfillIntegrationTest {
     @DisplayName("일시 정지 동안에도 관리 작품은 inline을 섞지 않고 새 회차를 대기열에 보존한다")
     void pauseKeepsManagedTail() {
         episode(1);
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
         ReflectionTestUtils.setField(coordinator, "enabled", false);
         coreComplete(episode(2));
-        assertThat(coordinator.claim(request)).isEmpty();
+        assertThat(coordinator.claimRelationshipJob(request)).isEmpty();
         assertThat(items()).hasSize(2);
         ReflectionTestUtils.setField(coordinator, "enabled", true);
         finish(claim());
@@ -910,9 +910,9 @@ class RelationshipBackfillIntegrationTest {
     void validationStagingWaits() {
         UUID one = episode(1);
         episode(2);
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
         doReturn(true).when(jobs).existsValidationStagingForEpisodes(List.of(one));
-        assertThat(coordinator.claim(request)).isEmpty();
+        assertThat(coordinator.claimRelationshipJob(request)).isEmpty();
         assertThat(items()).allMatch(i -> i.getState() == RelationshipBackfillItemState.WAITING);
         doReturn(false).when(jobs).existsValidationStagingForEpisodes(List.of(one));
         assertThat(claim().episode().episodeNo()).isEqualTo(1);

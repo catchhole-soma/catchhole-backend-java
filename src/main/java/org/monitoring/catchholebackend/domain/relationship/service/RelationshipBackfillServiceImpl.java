@@ -34,8 +34,6 @@ import org.monitoring.catchholebackend.domain.episode.repository.EpisodeSourcePu
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.member.type.MemberStatus;
 import org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.AnalysisStatus;
-import org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.Observation;
-import org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.Prepare;
 import org.monitoring.catchholebackend.domain.relationship.entity.RelationshipBackfillCampaign;
 import org.monitoring.catchholebackend.domain.relationship.entity.RelationshipBackfillItem;
 import org.monitoring.catchholebackend.domain.relationship.entity.RelationshipBackfillWork;
@@ -63,7 +61,7 @@ import java.util.UUID;
 /** Durable, cohort-scoped relation lane. Work locks serialize admission with core completion. */
 @Service
 @RequiredArgsConstructor
-@Transactional
+@Transactional(readOnly = true)
 public class RelationshipBackfillServiceImpl implements RelationshipBackfillService {
     private final EntityManager em;
     private final RelationshipBackfillManifest manifest;
@@ -86,7 +84,8 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
     private boolean enabled;
 
     @Override
-    public void bootstrap() {
+    @Transactional
+    public void bootstrapRelationshipBackfill() {
         if (!enabled) return;
         var campaign = campaignLock();
         if (campaign.isInitialized()) return;
@@ -104,7 +103,8 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
 
     /** Called under the ordinary analysis Work lock, before advertising inline capability. */
     @Override
-    public boolean deferInline(AnalysisJob job) {
+    @Transactional
+    public boolean deferInlineRelationshipAnalysis(AnalysisJob job) {
         if (job.getJobType() != AnalysisJobType.SETTING_EXTRACTION || job.isSettingBookSource())
             return false;
         Work work = works.findByIdForUpdate(job.getWork().getId()).orElseThrow();
@@ -121,7 +121,7 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
     }
 
     @Override
-    public long publishedGeneration(UUID workId) {
+    public long getPublishedRelationshipGeneration(UUID workId) {
         return workStates
                 .findById(workId)
                 .map(RelationshipBackfillWork::getPublishedGeneration)
@@ -132,7 +132,8 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
      * Core settings have already committed within the same transaction; no LLM work occurs here.
      */
     @Override
-    public void coreCompleted(AnalysisJob job) {
+    @Transactional
+    public void enqueueCompletedCoreAnalysis(AnalysisJob job) {
         if (job.getJobType() != AnalysisJobType.SETTING_EXTRACTION
                 || job.isSettingBookSource()
                 || job.getEpisode() == null) return;
@@ -229,7 +230,8 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
     }
 
     @Override
-    public Optional<WorkerAnalysisJobPayload> claim(WorkerAnalysisJobClaimRequest request) {
+    @Transactional
+    public Optional<WorkerAnalysisJobPayload> claimRelationshipJob(WorkerAnalysisJobClaimRequest request) {
         if (!enabled
                 || !request.allowedJobTypes().contains(AnalysisJobType.RELATIONSHIP_EXTRACTION)
                 || !Boolean.TRUE.equals(request.supportsRelationshipAnalysis())
@@ -333,21 +335,10 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
                 || old.getContext() == null
                 || !Objects.equals(old.getSourceHash(), job.getSourceContentHash())
                 || old.isEvidencePurged()) return;
-        var context = mapper.toContext(old);
         var request =
-                new Prepare(
-                        1,
+                mapper.toPrepareCachedObservations(
                         job.getSourceContentHash(),
-                        context.observations().stream()
-                                .map(
-                                        o ->
-                                                new Observation(
-                                                        o.ref(),
-                                                        o.source(),
-                                                        o.target(),
-                                                        o.summary(),
-                                                        o.evidence()))
-                                .toList(),
+                        mapper.toContext(old),
                         old.getRejectedObservationCount());
         // Source-bound observations were already verified. build a fresh comparison context using
         // the same normal guard, outside a provider call. A changed dependency never reuses
@@ -356,15 +347,17 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
     }
 
     @Override
-    public WorkerAnalysisJobHeartbeatResponse heartbeat(UUID id, UUID lease) {
+    @Transactional
+    public WorkerAnalysisJobHeartbeatResponse renewRelationshipJobLease(UUID id, UUID lease) {
         var job = running(id, lease);
         var expires = LocalDateTime.now().plusSeconds(60);
         job.renewLease(expires);
-        return new WorkerAnalysisJobHeartbeatResponse(lease, expires);
+        return workerMapper.toHeartbeatResponse(job);
     }
 
     @Override
-    public void complete(UUID id, UUID lease, WorkerAnalysisJobCompleteRequest request) {
+    @Transactional
+    public void completeRelationshipJob(UUID id, UUID lease, WorkerAnalysisJobCompleteRequest request) {
         leases.lockWorkForUpdate(id);
         var receipt = item(id);
         if (receipt.getState() == RelationshipBackfillItemState.SUCCEEDED
@@ -397,7 +390,8 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
     }
 
     @Override
-    public void fail(UUID id, UUID lease, WorkerAnalysisJobFailRequest request) {
+    @Transactional
+    public void failRelationshipJob(UUID id, UUID lease, WorkerAnalysisJobFailRequest request) {
         leases.lockWorkForUpdate(id);
         var receipt = item(id);
         if (receipt.getState() == RelationshipBackfillItemState.FAILED

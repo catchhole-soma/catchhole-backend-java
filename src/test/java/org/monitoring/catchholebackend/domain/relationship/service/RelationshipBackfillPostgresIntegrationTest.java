@@ -66,7 +66,7 @@ class RelationshipBackfillPostgresIntegrationTest extends RelationshipBackfillIn
     @DisplayName("만료 복구가 작품 잠금을 기다리는 동안 커밋된 heartbeat 임대를 회수하지 않는다")
     void recoveryRefreshesExpiredCandidateAfterConcurrentHeartbeatCommits() throws Exception {
         episode(1);
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
         var claimed = claim();
         var originalExpiry = LocalDateTime.now().plusSeconds(5);
         int originalAttempts =
@@ -95,7 +95,7 @@ class RelationshipBackfillPostgresIntegrationTest extends RelationshipBackfillIn
                                                     // The real callback validates the still-live
                                                     // lease and owns both Work and AnalysisJob locks.
                                                     var renewed =
-                                                            coordinator.heartbeat(
+                                                            coordinator.renewRelationshipJobLease(
                                                                     claimed.analysisJobId(),
                                                                     claimed.leaseToken());
                                                     em.flush();
@@ -120,7 +120,7 @@ class RelationshipBackfillPostgresIntegrationTest extends RelationshipBackfillIn
                                                                     "select pg_backend_pid()",
                                                                     Integer.class));
                                                     jdbc.execute("set local lock_timeout = '10s'");
-                                                    return coordinator.claim(request);
+                                                    return coordinator.claimRelationshipJob(request);
                                                 }));
 
                 // Reaching this lock wait proves recovery already loaded the expired job into

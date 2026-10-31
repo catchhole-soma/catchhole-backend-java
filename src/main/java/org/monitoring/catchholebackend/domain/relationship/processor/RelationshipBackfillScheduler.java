@@ -18,6 +18,6 @@ public class RelationshipBackfillScheduler {
 
     @Scheduled(fixedDelayString = "${analysis.relationship-backfill.fixed-delay-ms:10000}")
     public void bootstrap() {
-        coordinator.bootstrap();
+        coordinator.bootstrapRelationshipBackfill();
     }
 }
