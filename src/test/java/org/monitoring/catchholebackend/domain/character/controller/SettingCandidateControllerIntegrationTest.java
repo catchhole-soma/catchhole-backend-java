@@ -16,6 +16,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -37,6 +38,8 @@ import org.monitoring.catchholebackend.domain.character.repository.CharacterSnap
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.character.service.CharacterFactComparisonWorkerService;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactComparisonStatus;
+import org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactType;
@@ -68,6 +71,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -237,20 +241,7 @@ class SettingCandidateControllerIntegrationTest {
     @Test
     @DisplayName("직접 고른 저장 방식을 재조회해 복원하고 응답 시각으로 선택 변경을 이어갈 수 있다")
     void persistsExplicitDecisionAndAcceptsResponseTimestamp() throws Exception {
-        analysisJobRepository.delete(analysisJob);
-        analysisJob = AnalysisJob.create(work, uploadBatch, episode, AnalysisJobType.SETTING_EXTRACTION);
-        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "analysisMode",
-                org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL);
-        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "status",
-                org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.SUCCEEDED);
-        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "journalStatus",
-                org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.SEALED);
-        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "automaticAppliedAt", LocalDateTime.now());
-        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "sourceEpisodeNo", episode.getEpisodeNo());
-        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "sourceContentHash", episode.getContentHash());
-        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "sourceContentS3Key", episode.getContentS3Key());
-        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "sourceContentS3Version", episode.getContentS3Version());
-        analysisJob = analysisJobRepository.saveAndFlush(analysisJob);
+        replaceWithCompletedOrderedAnalysisJob();
         WorkCharacter character = workCharacterRepository.saveAndFlush(character(work, "아리아"));
         SettingCandidate candidate = candidate(work, episode, analysisJob, "아리아", "age", "17");
         candidate.matchExistingCharacter(character);
@@ -1198,6 +1189,439 @@ class SettingCandidateControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("선택 연결은 미상 묶음 3건 중 고른 2건만 기존 캐릭터에 연결하고 나머지 1건의 모든 값을 유지한다")
+    void selectedCharacterMatchChangesOnlyRequestedCandidates() throws Exception {
+        WorkCharacter target = workCharacterRepository.saveAndFlush(character(work, "아리아"));
+        SettingCandidate first = settingCandidateRepository.saveAndFlush(
+                candidate(work, episode, analysisJob, "미상", "age", "17"));
+        SettingCandidate second = settingCandidateRepository.saveAndFlush(
+                candidate(work, episode, analysisJob, "미상", "level", "3"));
+        SettingCandidate untouched = settingCandidateRepository.saveAndFlush(
+                candidate(work, episode, analysisJob, "미상", "age", "40"));
+        SettingCandidate before = settingCandidateRepository.findById(untouched.getId()).orElseThrow();
+
+        selectedCharacterMatch(Map.of(
+                "batchId", uploadBatch.getId(),
+                "candidateIds", List.of(second.getId(), first.getId()),
+                "resolutionType", "MATCH_EXISTING",
+                "matchedCharacterId", target.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("선택한 캐릭터 설정 후보 연결이 수정되었습니다."))
+                .andExpect(jsonPath("$.data.groupKey").value("existing:" + target.getId()))
+                .andExpect(jsonPath("$.data.entityName").value("아리아"))
+                .andExpect(jsonPath("$.data.candidates.length()").value(2))
+                .andExpect(jsonPath("$.data.candidates[0].id").value(second.getId().toString()))
+                .andExpect(jsonPath("$.data.candidates[1].id").value(first.getId().toString()))
+                .andExpect(jsonPath("$.data.candidates[*].matchedCharacterId")
+                        .value(containsInAnyOrder(target.getId().toString(), target.getId().toString())))
+                .andExpect(jsonPath("$.data.candidates[*].matchStatus").value(containsInAnyOrder("MATCHED", "MATCHED")));
+
+        SettingCandidate after = settingCandidateRepository.findById(untouched.getId()).orElseThrow();
+        assertThat(after.getMatchedCharacterId()).isNull();
+        assertThat(after.getEntityName()).isEqualTo("미상");
+        assertThat(after.getMatchStatus()).isEqualTo(before.getMatchStatus());
+        assertThat(after.isUserModified()).isFalse();
+        assertThat(after.getReviewedApplicationMode()).isEqualTo(before.getReviewedApplicationMode());
+        assertThat(after.getComparisonStatus()).isEqualTo(before.getComparisonStatus());
+        assertThat(after.getUpdatedAt()).isEqualTo(before.getUpdatedAt());
+        mockMvc.perform(get("/api/v1/works/{workId}/setting-candidates", work.getId())
+                        .param("batchId", uploadBatch.getId().toString())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groups.content[*].entityName").value(containsInAnyOrder("아리아", "미상")))
+                .andExpect(jsonPath("$.data.groups.content[*].candidateCount").value(containsInAnyOrder(2, 1)));
+    }
+
+    @Test
+    @DisplayName("선택 연결은 서로 다른 이름 묶음에서 고른 후보도 한 캐릭터에 함께 연결한다")
+    void selectedCharacterMatchAcceptsCandidatesFromDifferentGroups() throws Exception {
+        WorkCharacter target = workCharacterRepository.saveAndFlush(character(work, "아리아"));
+        SettingCandidate unknown = settingCandidateRepository.saveAndFlush(
+                candidate(work, episode, analysisJob, "미상", "age", "17"));
+        SettingCandidate named = settingCandidateRepository.saveAndFlush(
+                candidate(work, episode, analysisJob, "베른", "level", "3"));
+
+        selectedCharacterMatch(Map.of(
+                "batchId", uploadBatch.getId(),
+                "candidateIds", List.of(unknown.getId(), named.getId()),
+                "resolutionType", "MATCH_EXISTING",
+                "matchedCharacterId", target.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groupKey").value("existing:" + target.getId()))
+                .andExpect(jsonPath("$.data.candidates[*].entityName").value(containsInAnyOrder("아리아", "아리아")));
+
+        assertThat(settingCandidateRepository.findAllById(List.of(unknown.getId(), named.getId())))
+                .allSatisfy(candidate -> {
+                    assertThat(candidate.getMatchedCharacterId()).isEqualTo(target.getId());
+                    assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.MATCHED);
+                });
+    }
+
+    @Test
+    @DisplayName("선택 연결은 검토 대기가 아닌 후보가 섞이면 전체를 거절하고 그 후보 ID만 context에 담는다")
+    void selectedCharacterMatchRejectsNonPendingWithCandidateIdsContext() throws Exception {
+        WorkCharacter target = workCharacterRepository.saveAndFlush(character(work, "아리아"));
+        SettingCandidate pending = settingCandidateRepository.saveAndFlush(
+                candidate(work, episode, analysisJob, "미상", "age", "17"));
+        SettingCandidate confirmed = candidate(work, episode, analysisJob, "미상", "level", "3");
+        confirmed.confirm();
+        confirmed = settingCandidateRepository.saveAndFlush(confirmed);
+        SettingCandidate dismissed = candidate(work, episode, analysisJob, "미상", "age", "40");
+        dismissed.dismiss();
+        dismissed = settingCandidateRepository.saveAndFlush(dismissed);
+
+        selectedCharacterMatch(Map.of(
+                "batchId", uploadBatch.getId(),
+                "candidateIds", List.of(pending.getId(), confirmed.getId(), dismissed.getId()),
+                "resolutionType", "MATCH_EXISTING",
+                "matchedCharacterId", target.getId()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT"))
+                .andExpect(jsonPath("$.error.context.candidateIds.length()").value(2))
+                .andExpect(jsonPath("$.error.context.candidateIds[0]").value(confirmed.getId().toString()))
+                .andExpect(jsonPath("$.error.context.candidateIds[1]").value(dismissed.getId().toString()));
+
+        SettingCandidate unchanged = settingCandidateRepository.findById(pending.getId()).orElseThrow();
+        assertThat(unchanged.getMatchedCharacterId()).isNull();
+        assertThat(unchanged.isUserModified()).isFalse();
+    }
+
+    @Test
+    @DisplayName("선택 연결은 비교 처리 중인 후보가 섞이면 전체를 거절하고 그 후보 ID만 context에 담는다")
+    void selectedCharacterMatchRejectsProcessingComparisonWithCandidateIdsContext() throws Exception {
+        WorkCharacter target = workCharacterRepository.saveAndFlush(character(work, "아리아"));
+        SettingCandidate pending = settingCandidateRepository.saveAndFlush(
+                candidate(work, episode, analysisJob, "미상", "age", "17"));
+        SettingCandidate processing = candidate(work, episode, analysisJob, "미상", "level", "3");
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                processing, "comparisonStatus", CharacterFactComparisonStatus.PROCESSING);
+        processing = settingCandidateRepository.saveAndFlush(processing);
+
+        selectedCharacterMatch(Map.of(
+                "batchId", uploadBatch.getId(),
+                "candidateIds", List.of(pending.getId(), processing.getId()),
+                "resolutionType", "MATCH_EXISTING",
+                "matchedCharacterId", target.getId()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT"))
+                .andExpect(jsonPath("$.error.context.candidateIds.length()").value(1))
+                .andExpect(jsonPath("$.error.context.candidateIds[0]").value(processing.getId().toString()));
+
+        assertThat(settingCandidateRepository.findById(pending.getId()).orElseThrow().getMatchedCharacterId()).isNull();
+    }
+
+    @Test
+    @DisplayName("선택 연결은 중복 ID를 선택 목록 오류로 거절하고 중복된 ID를 context에 담는다")
+    void selectedCharacterMatchRejectsDuplicateIdsAsSelectionInvalid() throws Exception {
+        WorkCharacter target = workCharacterRepository.saveAndFlush(character(work, "아리아"));
+        SettingCandidate candidate = settingCandidateRepository.saveAndFlush(
+                candidate(work, episode, analysisJob, "미상", "age", "17"));
+
+        selectedCharacterMatch(Map.of(
+                "batchId", uploadBatch.getId(),
+                "candidateIds", List.of(candidate.getId(), candidate.getId()),
+                "resolutionType", "MATCH_EXISTING",
+                "matchedCharacterId", target.getId()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_SELECTION_INVALID"))
+                .andExpect(jsonPath("$.error.context.candidateIds.length()").value(1))
+                .andExpect(jsonPath("$.error.context.candidateIds[0]").value(candidate.getId().toString()));
+
+        assertThat(settingCandidateRepository.findById(candidate.getId()).orElseThrow().getMatchedCharacterId()).isNull();
+    }
+
+    @Test
+    @DisplayName("선택 연결은 묶음에 없는 후보 ID를 선택 목록 오류로 거절하고 찾지 못한 ID를 context에 담는다")
+    void selectedCharacterMatchRejectsUnknownIdsAsSelectionInvalid() throws Exception {
+        WorkCharacter target = workCharacterRepository.saveAndFlush(character(work, "아리아"));
+        SettingCandidate candidate = settingCandidateRepository.saveAndFlush(
+                candidate(work, episode, analysisJob, "미상", "age", "17"));
+        UUID missing = UUID.randomUUID();
+
+        selectedCharacterMatch(Map.of(
+                "batchId", uploadBatch.getId(),
+                "candidateIds", List.of(candidate.getId(), missing),
+                "resolutionType", "MATCH_EXISTING",
+                "matchedCharacterId", target.getId()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_SELECTION_INVALID"))
+                .andExpect(jsonPath("$.error.context.candidateIds.length()").value(1))
+                .andExpect(jsonPath("$.error.context.candidateIds[0]").value(missing.toString()));
+
+        assertThat(settingCandidateRepository.findById(candidate.getId()).orElseThrow().getMatchedCharacterId()).isNull();
+    }
+
+    @Test
+    @DisplayName("선택 연결은 빈 목록과 100개를 넘는 후보 목록을 요청 검증 오류로 거절한다")
+    void selectedCharacterMatchRejectsMoreThanHundred() throws Exception {
+        for (List<UUID> candidateIds : List.of(
+                java.util.stream.Stream.generate(UUID::randomUUID).limit(101).toList(),
+                List.<UUID>of()
+        )) {
+            selectedCharacterMatch(Map.of(
+                    "batchId", uploadBatch.getId(),
+                    "candidateIds", candidateIds,
+                    "resolutionType", "MATCH_EXISTING",
+                    "matchedCharacterId", UUID.randomUUID()))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"));
+        }
+    }
+
+    @Test
+    @DisplayName("같은 대상으로 선택 연결을 다시 보내도 성공하며 후보 상태·비교 작업 수가 바뀌지 않고 설정 이력을 만들지 않는다")
+    void selectedCharacterMatchIsIdempotentForSameTarget() throws Exception {
+        WorkCharacter target = workCharacterRepository.saveAndFlush(character(work, "아리아"));
+        SettingCandidate age = settingCandidateRepository.saveAndFlush(
+                candidate(work, episode, analysisJob, "미상", "age", "17"));
+        SettingCandidate level = settingCandidateRepository.saveAndFlush(
+                candidate(work, episode, analysisJob, "미상", "level", "3"));
+        Map<String, Object> request = Map.of(
+                "batchId", uploadBatch.getId(),
+                "candidateIds", List.of(age.getId(), level.getId()),
+                "resolutionType", "MATCH_EXISTING",
+                "matchedCharacterId", target.getId());
+
+        selectedCharacterMatch(request).andExpect(status().isOk());
+        long comparisonJobsAfterFirst = comparisonJobCount();
+        List<SettingCandidate> afterFirst = settingCandidateRepository.findAllById(List.of(age.getId(), level.getId()));
+
+        selectedCharacterMatch(request)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groupKey").value("existing:" + target.getId()))
+                .andExpect(jsonPath("$.data.candidates[*].matchStatus").value(containsInAnyOrder("MATCHED", "MATCHED")));
+
+        assertThat(comparisonJobsAfterFirst).isEqualTo(1L);
+        assertThat(comparisonJobCount()).isEqualTo(comparisonJobsAfterFirst);
+        assertThat(characterFactRepository.count()).isZero();
+        for (SettingCandidate first : afterFirst) {
+            SettingCandidate second = settingCandidateRepository.findById(first.getId()).orElseThrow();
+            assertThat(second.getMatchedCharacterId()).isEqualTo(target.getId());
+            assertThat(second.getEntityName()).isEqualTo(first.getEntityName());
+            assertThat(second.getMatchStatus()).isEqualTo(first.getMatchStatus());
+            assertThat(second.getComparisonStatus()).isEqualTo(first.getComparisonStatus());
+            assertThat(second.getReviewStatus()).isEqualTo(SettingCandidateReviewStatus.PENDING_REVIEW);
+            assertThat(second.getUpdatedAt()).isEqualTo(first.getUpdatedAt());
+        }
+    }
+
+    @Test
+    @DisplayName("선택 연결의 CREATE_NEW는 고른 후보만 같은 이름의 새 캐릭터 등록 예정으로 지정하고 캐릭터를 만들지 않는다")
+    void selectedCharacterMatchCreateNewMarksUnresolvedWithName() throws Exception {
+        SettingCandidate age = settingCandidateRepository.saveAndFlush(
+                candidate(work, episode, analysisJob, "미상", "age", "17"));
+        SettingCandidate level = settingCandidateRepository.saveAndFlush(
+                candidate(work, episode, analysisJob, "미상", "level", "3"));
+        SettingCandidate untouched = settingCandidateRepository.saveAndFlush(
+                candidate(work, episode, analysisJob, "미상", "age", "40"));
+
+        selectedCharacterMatch(Map.of(
+                "batchId", uploadBatch.getId(),
+                "candidateIds", List.of(age.getId(), level.getId()),
+                "resolutionType", "CREATE_NEW",
+                "entityName", "  아리아  "))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groupKey").value("아리아"))
+                .andExpect(jsonPath("$.data.entityName").value("아리아"))
+                .andExpect(jsonPath("$.data.candidates[*].matchStatus").value(containsInAnyOrder("UNRESOLVED", "UNRESOLVED")))
+                .andExpect(jsonPath("$.data.candidates[0].matchedCharacterId").doesNotExist());
+
+        assertThat(settingCandidateRepository.findAllById(List.of(age.getId(), level.getId())))
+                .allSatisfy(candidate -> {
+                    assertThat(candidate.getEntityName()).isEqualTo("아리아");
+                    assertThat(candidate.getMatchedCharacterId()).isNull();
+                    assertThat(candidate.getMatchStatus()).isEqualTo(SettingCandidateMatchStatus.UNRESOLVED);
+                });
+        assertThat(settingCandidateRepository.findById(untouched.getId()).orElseThrow().getEntityName()).isEqualTo("미상");
+        assertThat(workCharacterRepository.count()).isZero();
+    }
+
+    @Test
+    @DisplayName("선택 연결의 CREATE_NEW는 이름 없이 요청하거나 기존 캐릭터와 같은 이름이면 후보를 바꾸지 않고 거절한다")
+    void selectedCharacterMatchCreateNewRequiresUniqueName() throws Exception {
+        workCharacterRepository.saveAndFlush(character(work, "아리아"));
+        SettingCandidate candidate = settingCandidateRepository.saveAndFlush(
+                candidate(work, episode, analysisJob, "미상", "age", "17"));
+
+        selectedCharacterMatch(Map.of(
+                "batchId", uploadBatch.getId(),
+                "candidateIds", List.of(candidate.getId()),
+                "resolutionType", "CREATE_NEW"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_NEW_CHARACTER_NAME_REQUIRED"));
+        selectedCharacterMatch(Map.of(
+                "batchId", uploadBatch.getId(),
+                "candidateIds", List.of(candidate.getId()),
+                "resolutionType", "CREATE_NEW",
+                "entityName", "아리아"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("SETTING_CANDIDATE_CHARACTER_NAME_DUPLICATED"));
+
+        SettingCandidate unchanged = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
+        assertThat(unchanged.getEntityName()).isEqualTo("미상");
+        assertThat(unchanged.isUserModified()).isFalse();
+    }
+
+    @Test
+    @DisplayName("완료된 순차 분석 후보를 선택 연결하면 비교 작업을 만들지 않고 재비교 필요로 표시하며 고르지 않은 후보의 저장 선택은 유지한다")
+    void selectedCharacterMatchMarksOrderedCandidateRecomparisonRequired() throws Exception {
+        replaceWithCompletedOrderedAnalysisJob();
+        WorkCharacter target = workCharacterRepository.saveAndFlush(character(work, "아리아"));
+        SettingCandidate age = settingCandidateRepository.saveAndFlush(
+                candidate(work, episode, analysisJob, "미상", "age", "17"));
+        SettingCandidate level = settingCandidateRepository.saveAndFlush(
+                candidate(work, episode, analysisJob, "미상", "level", "3"));
+        SettingCandidate sibling = candidate(work, episode, analysisJob, "미상", "age", "40");
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                sibling, "comparisonStatus", CharacterFactComparisonStatus.COMPLETED);
+        org.springframework.test.util.ReflectionTestUtils.setField(sibling, "reviewedApplicationMode",
+                org.monitoring.catchholebackend.domain.character.type.CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+        sibling = settingCandidateRepository.saveAndFlush(sibling);
+        SettingCandidate siblingBefore = settingCandidateRepository.findById(sibling.getId()).orElseThrow();
+        long comparisonJobsBefore = comparisonJobCount();
+
+        selectedCharacterMatch(Map.of(
+                "batchId", uploadBatch.getId(),
+                "candidateIds", List.of(age.getId(), level.getId()),
+                "resolutionType", "MATCH_EXISTING",
+                "matchedCharacterId", target.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidates[*].comparisonStatus")
+                        .value(containsInAnyOrder("RECOMPARISON_REQUIRED", "RECOMPARISON_REQUIRED")));
+
+        assertThat(settingCandidateRepository.findAllById(List.of(age.getId(), level.getId())))
+                .allSatisfy(candidate -> {
+                    assertThat(candidate.getMatchedCharacterId()).isEqualTo(target.getId());
+                    assertThat(candidate.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.RECOMPARISON_REQUIRED);
+                    assertThat(candidate.getComparisonErrorMessage()).contains("완료된 다른 회차는 유지");
+                });
+        assertThat(comparisonJobCount()).isEqualTo(comparisonJobsBefore);
+        SettingCandidate siblingAfter = settingCandidateRepository.findById(sibling.getId()).orElseThrow();
+        assertThat(siblingAfter.getMatchedCharacterId()).isNull();
+        assertThat(siblingAfter.getEntityName()).isEqualTo("미상");
+        assertThat(siblingAfter.getComparisonStatus()).isEqualTo(CharacterFactComparisonStatus.COMPLETED);
+        assertThat(siblingAfter.getReviewedApplicationMode()).isEqualTo(siblingBefore.getReviewedApplicationMode());
+        assertThat(siblingAfter.getUpdatedAt()).isEqualTo(siblingBefore.getUpdatedAt());
+    }
+
+    @Test
+    @DisplayName("단건 연결로 같은 캐릭터를 다시 고르면 작가가 저장한 이력 전용 선택을 유지하고 다른 캐릭터로 옮기면 기존처럼 안전 선택을 다시 정한다")
+    void singleCharacterMatchToSameTargetKeepsSavedReviewedApplicationMode() throws Exception {
+        replaceWithCompletedOrderedAnalysisJob();
+        WorkCharacter target = workCharacterRepository.saveAndFlush(character(work, "아리아"));
+        WorkCharacter other = workCharacterRepository.saveAndFlush(character(work, "베른"));
+        SettingCandidate candidate = completedOrderedCandidateMatchedTo(target, "17");
+        saveHistoryOnlyDecision(candidate);
+
+        mockMvc.perform(patch("/api/v1/works/{workId}/setting-candidates/{candidateId}/character-match",
+                        work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "resolutionType", "MATCH_EXISTING", "matchedCharacterId", target.getId()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.reviewedApplicationMode").value("HISTORY_ONLY"));
+        assertThat(reviewedMode(candidate)).isEqualTo(CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+
+        mockMvc.perform(patch("/api/v1/works/{workId}/setting-candidates/{candidateId}/character-match",
+                        work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "resolutionType", "MATCH_EXISTING", "matchedCharacterId", other.getId()))))
+                .andExpect(status().isOk());
+        assertThat(reviewedMode(candidate)).isEqualTo(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+    }
+
+    @Test
+    @DisplayName("그룹 일괄 연결로 같은 캐릭터를 다시 고르면 저장한 이력 전용 선택은 유지하고 선택이 없던 후보만 안전 선택을 받는다")
+    void groupCharacterMatchToSameTargetKeepsSavedReviewedApplicationMode() throws Exception {
+        replaceWithCompletedOrderedAnalysisJob();
+        WorkCharacter target = workCharacterRepository.saveAndFlush(character(work, "아리아"));
+        SettingCandidate saved = completedOrderedCandidateMatchedTo(target, "17");
+        SettingCandidate fresh = completedOrderedCandidateMatchedTo(target, "18");
+        saveHistoryOnlyDecision(saved);
+
+        mockMvc.perform(patch("/api/v1/works/{workId}/setting-candidates/group-character-match", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "batchId", uploadBatch.getId(),
+                                "candidateIds", List.of(saved.getId(), fresh.getId()),
+                                "resolutionType", "MATCH_EXISTING",
+                                "matchedCharacterId", target.getId()))))
+                .andExpect(status().isOk());
+
+        assertThat(reviewedMode(saved)).isEqualTo(CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+        assertThat(reviewedMode(fresh)).isEqualTo(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+    }
+
+    @Test
+    @DisplayName("선택 연결로 같은 캐릭터를 다시 고르거나 재전송해도 저장한 이력 전용 선택은 유지하고 선택이 없던 후보만 안전 선택을 받는다")
+    void selectedCharacterMatchToSameTargetKeepsSavedReviewedApplicationMode() throws Exception {
+        replaceWithCompletedOrderedAnalysisJob();
+        WorkCharacter target = workCharacterRepository.saveAndFlush(character(work, "아리아"));
+        SettingCandidate saved = completedOrderedCandidateMatchedTo(target, "17");
+        SettingCandidate fresh = completedOrderedCandidateMatchedTo(target, "18");
+        saveHistoryOnlyDecision(saved);
+        Map<String, Object> request = Map.of(
+                "batchId", uploadBatch.getId(),
+                "candidateIds", List.of(saved.getId(), fresh.getId()),
+                "resolutionType", "MATCH_EXISTING",
+                "matchedCharacterId", target.getId());
+
+        for (int attempt = 0; attempt < 2; attempt++) {
+            selectedCharacterMatch(request)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.candidates[0].reviewedApplicationMode").value("HISTORY_ONLY"))
+                    .andExpect(jsonPath("$.data.candidates[1].reviewedApplicationMode").value("APPLY_PROPOSAL"));
+        }
+        assertThat(reviewedMode(saved)).isEqualTo(CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+        assertThat(reviewedMode(fresh)).isEqualTo(CharacterFactConfirmApplicationMode.APPLY_PROPOSAL);
+    }
+
+    @Test
+    @DisplayName("선택 연결로 같은 새 캐릭터 이름을 다시 지정해도 저장한 이력 전용 선택을 유지한다")
+    void selectedCharacterMatchCreateNewWithSameNameKeepsSavedReviewedApplicationMode() throws Exception {
+        replaceWithCompletedOrderedAnalysisJob();
+        SettingCandidate candidate = candidate(work, episode, analysisJob, "베른", "age", "17");
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                candidate, "comparisonStatus", CharacterFactComparisonStatus.COMPLETED);
+        org.springframework.test.util.ReflectionTestUtils.setField(candidate, "suggestedOperation", CharacterFactOperation.ADD);
+        org.springframework.test.util.ReflectionTestUtils.setField(candidate, "temporalScope", CharacterFactTemporalScope.PRESENT);
+        org.springframework.test.util.ReflectionTestUtils.setField(candidate, "proposedFactValue", "17");
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                candidate, "reviewedApplicationMode", CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+        org.springframework.test.util.ReflectionTestUtils.setField(candidate, "reviewedSnapshotVersion", 0L);
+        candidate = settingCandidateRepository.saveAndFlush(candidate);
+
+        selectedCharacterMatch(Map.of(
+                "batchId", uploadBatch.getId(),
+                "candidateIds", List.of(candidate.getId()),
+                "resolutionType", "CREATE_NEW",
+                "entityName", "베른"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidates[0].reviewedApplicationMode").value("HISTORY_ONLY"));
+        assertThat(reviewedMode(candidate)).isEqualTo(CharacterFactConfirmApplicationMode.HISTORY_ONLY);
+    }
+
+    @Test
+    @DisplayName("OpenAPI 문서에 선택 연결 경로와 고유 operationId를 노출한다")
+    void openApiContainsSelectedCharacterMatchOperation() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(
+                        "$.paths['/api/v1/works/{workId}/setting-candidates/selected-character-match'].patch.operationId"
+                ).value("updateSettingCandidateSelectedCharacterMatch"))
+                .andExpect(jsonPath(
+                        "$.components.schemas.SettingCandidateSelectedCharacterMatchRequest.properties.candidateIds.minItems"
+                ).value(1))
+                .andExpect(jsonPath(
+                        "$.components.schemas.SettingCandidateSelectedCharacterMatchRequest.properties.candidateIds.maxItems"
+                ).value(100));
+    }
+
+    @Test
     @DisplayName("설정 후보를 기존 캐릭터에 연결한다")
     void updateSettingCandidateCharacterMatchConnectsExistingCharacter() throws Exception {
         WorkCharacter character = workCharacterRepository.save(character(work, "이안"));
@@ -2017,6 +2441,65 @@ class SettingCandidateControllerIntegrationTest {
                 new BigDecimal("0.8000"),
                 rawAiResultJson(attributeValue)
         );
+    }
+
+    private ResultActions selectedCharacterMatch(Object body) throws Exception {
+        return mockMvc.perform(patch(
+                        "/api/v1/works/{workId}/setting-candidates/selected-character-match",
+                        work.getId()
+                )
+                .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(body)));
+    }
+
+    /** 완료된 순차 분석에서 대상과 같은 값의 PRESENT ADD 제안을 받은 후보(안전 선택 이어받기 조건)를 만든다. */
+    private SettingCandidate completedOrderedCandidateMatchedTo(WorkCharacter target, String value) {
+        SettingCandidate candidate = candidate(work, episode, analysisJob, "미상", "age", value);
+        candidate.matchExistingCharacter(target);
+        return settingCandidateRepository.saveAndFlush(comparisonCompleted(candidate, CharacterFactType.AGE, "age"));
+    }
+
+    private void saveHistoryOnlyDecision(SettingCandidate candidate) throws Exception {
+        SettingCandidate current = settingCandidateRepository.findById(candidate.getId()).orElseThrow();
+        mockMvc.perform(patch("/api/v1/works/{workId}/setting-candidates/{candidateId}", work.getId(), candidate.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "attributeName", "age",
+                                "attributeValue", current.getAttributeValue(),
+                                "reviewedApplicationMode", "HISTORY_ONLY",
+                                "expectedUpdatedAt", current.getUpdatedAt().toString()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.reviewedApplicationMode").value("HISTORY_ONLY"));
+    }
+
+    private CharacterFactConfirmApplicationMode reviewedMode(SettingCandidate candidate) {
+        return settingCandidateRepository.findById(candidate.getId()).orElseThrow().getReviewedApplicationMode();
+    }
+
+    private long comparisonJobCount() {
+        return analysisJobRepository.findAll().stream()
+                .filter(job -> job.getJobType() == AnalysisJobType.CHARACTER_FACT_COMPARISON)
+                .count();
+    }
+
+    /** 완료·봉인된 순차(ORDERED_PROVISIONAL) 원본 분석으로 기본 분석 작업을 교체한다. */
+    private void replaceWithCompletedOrderedAnalysisJob() {
+        analysisJobRepository.delete(analysisJob);
+        analysisJob = AnalysisJob.create(work, uploadBatch, episode, AnalysisJobType.SETTING_EXTRACTION);
+        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "analysisMode",
+                org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL);
+        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "status",
+                org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.SUCCEEDED);
+        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "journalStatus",
+                org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.SEALED);
+        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "automaticAppliedAt", LocalDateTime.now());
+        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "sourceEpisodeNo", episode.getEpisodeNo());
+        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "sourceContentHash", episode.getContentHash());
+        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "sourceContentS3Key", episode.getContentS3Key());
+        org.springframework.test.util.ReflectionTestUtils.setField(analysisJob, "sourceContentS3Version", episode.getContentS3Version());
+        analysisJob = analysisJobRepository.saveAndFlush(analysisJob);
     }
 
     private SettingCandidate comparisonCompleted(

@@ -62,6 +62,10 @@ _Avoid_: Feedback reset, recurring feedback reward
 운영자가 Token Extension Request를 승인할 때 승인 시점의 `AI_TOKEN_DEFAULT_GRANT`를 계정 누적 지급량에 더하고 요청 ID와 함께 남기는 지급 원장이다. 확정 사용량을 초기화하지 않는다.
 _Avoid_: Quota reset, configurable approval amount
 
+**Selected Character Match**:
+선택 연결. 작가가 검토 화면에서 고른 캐릭터 설정 후보만 하나의 기존 캐릭터 또는 새 캐릭터 등록 예정 이름에 한 번에 연결하는 동작이다. 같은 이름 묶음 전체를 옮기는 그룹 일괄 연결과 달리 고르지 않은 후보는 연결을 바꾸지 않으며, 한 후보라도 처리할 수 없으면 전체를 거절한다.
+_Avoid_: Partial group match, bulk confirm
+
 **World Setting Candidate**:
 회차 원문에서 추출되어 확정 세계관에 반영되기 전 사용자의 검토를 기다리는 설정 하나다.
 _Avoid_: World setting, extracted fact

@@ -20,6 +20,7 @@ import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandi
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateConfirmRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateGroupConfirmRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateGroupCharacterMatchRequest;
+import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateSelectedCharacterMatchRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateUpdateRequest;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateListResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateGroupActionResponse;
@@ -264,6 +265,57 @@ public class SettingCandidateController {
         return CommonResponse.success(
                 "캐릭터 설정 후보 그룹 연결이 수정되었습니다.",
                 settingCandidateService.updateSettingCandidateGroupCharacterMatch(member.memberId(), workId, request, sourceAnalysisJobId)
+        );
+    }
+
+    @PatchMapping(value = "/selected-character-match", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(
+            operationId = "updateSettingCandidateSelectedCharacterMatch",
+            summary = "캐릭터 설정 후보 선택 연결",
+            description = "작가가 선택한 검토 대기 후보들만 하나의 기존 캐릭터에 연결하거나 같은 이름의 새 캐릭터 등록 예정으로 지정합니다. "
+                    + "같은 묶음 여부나 묶음 전체 포함 여부는 요구하지 않으며, 선택하지 않은 후보는 변경하지 않습니다. "
+                    + "한 후보라도 처리할 수 없으면 전체를 거절합니다. 선택 목록 오류·검토 대기 아님·비교 처리 중 거절은 "
+                    + "error.context.candidateIds에 해당 후보 ID를 담습니다. 응답 groupKey는 연결 뒤 후보들이 속한 묶음이고 "
+                    + "candidates는 요청 순서를 따릅니다. 이미 같은 캐릭터에 연결된 후보를 다시 보내도 성공하며 상태는 바뀌지 않습니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "선택한 설정 후보 연결 성공"),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "요청 값 검증 실패(후보 1~100개, 이름 100자 이하), 중복·누락 후보(SETTING_CANDIDATE_SELECTION_INVALID) "
+                            + "또는 연결 방식별 필수 값 누락",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "액세스 토큰 없음, 만료 또는 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "작품, 업로드 묶음 또는 원본 분석 작업을 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            ),
+            @ApiResponse(
+                    responseCode = "409",
+                    description = "검토 대기 상태가 아닌 후보(SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT), 비교 처리 중 후보"
+                            + "(SETTING_CANDIDATE_COMPARISON_STATUS_CONFLICT), 자동 반영 진행 중(ANALYSIS_AUTOMATIC_APPLICATION_PENDING), "
+                            + "순차 분석 진행·재개 대기, 연결 대상 캐릭터가 유효하지 않음 또는 새 캐릭터 이름 중복",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
+            )
+    })
+    public CommonResponse<SettingCandidateGroupActionResponse> updateSettingCandidateSelectedCharacterMatch(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @Parameter(description = "설정 후보가 속한 작품 ID", example = "0198a3f0-0000-7000-8000-000000000001")
+            @PathVariable UUID workId,
+            @Valid @RequestBody SettingCandidateSelectedCharacterMatchRequest request,
+            @Parameter(description = "원본 SETTING_EXTRACTION 분석 작업 ID. 생략 시 회차 후보만 조회/검토하며, 구형 설정집 분석 이력은 읽기 전용입니다.")
+            @RequestParam(required = false) UUID sourceAnalysisJobId) {
+        return CommonResponse.success(
+                "선택한 캐릭터 설정 후보 연결이 수정되었습니다.",
+                settingCandidateService.updateSettingCandidateSelectedCharacterMatch(
+                        member.memberId(), workId, request, sourceAnalysisJobId
+                )
         );
     }
 

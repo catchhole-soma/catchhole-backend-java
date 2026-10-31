@@ -140,7 +140,7 @@ class AutomaticApplicationPendingIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"character-edit", "character-match", "character-group-match", "character-confirm",
+    @ValueSource(strings = {"character-edit", "character-match", "character-group-match", "character-selected-match", "character-confirm",
             "character-group-confirm", "character-dismiss", "character-recompare", "world-edit", "world-confirm",
             "world-group-confirm", "world-dismiss", "world-group-dismiss", "world-recompare", "world-resume"})
     @DisplayName("자동 반영 전 단건·그룹 조작은 무효화와 변경 없이 동일한 409로 거절한다")
@@ -300,6 +300,7 @@ class AutomaticApplicationPendingIntegrationTest {
             case "character-edit" -> body(patch(chars + "/" + character.getId()), Map.of("attributeName", "정신", "attributeValue", "36"));
             case "character-match" -> body(patch(chars + "/" + character.getId() + "/character-match"), Map.of("resolutionType", "CREATE_NEW", "entityName", "에르웬"));
             case "character-group-match" -> body(patch(chars + "/group-character-match"), Map.of("batchId", batch.getId(), "candidateIds", List.of(character.getId()), "resolutionType", "CREATE_NEW", "entityName", "에르웬"));
+            case "character-selected-match" -> body(patch(chars + "/selected-character-match"), Map.of("batchId", batch.getId(), "candidateIds", List.of(character.getId()), "resolutionType", "CREATE_NEW", "entityName", "에르웬"));
             case "character-confirm" -> body(post(chars + "/" + character.getId() + "/confirm"), Map.of("applicationMode", "APPLY_PROPOSAL"));
             case "character-group-confirm" -> body(post(chars + "/group-confirm"), Map.of("batchId", batch.getId(), "candidates", List.of(Map.of("candidateId", character.getId(), "applicationMode", "APPLY_PROPOSAL"))));
             case "character-dismiss" -> post(chars + "/" + character.getId() + "/dismiss");

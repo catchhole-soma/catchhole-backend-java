@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.character.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -340,6 +341,206 @@ class CharacterControllerIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.error.details.length()").value(2));
+    }
+
+    @Test
+    @DisplayName("캐릭터 이름 검색어는 앞뒤 공백을 제거하고 대소문자 구분 없이 활성 캐릭터만 부분 일치로 찾는다")
+    void getCharactersFiltersByNameQueryIgnoringCase() throws Exception {
+        WorkCharacter upper = workCharacterRepository.saveAndFlush(character(work, "Aria Blade", null, null));
+        WorkCharacter lower = workCharacterRepository.saveAndFlush(character(work, "maria", null, null));
+        workCharacterRepository.saveAndFlush(character(work, "베른", null, null));
+        WorkCharacter archived = workCharacterRepository.save(character(work, "ARIANNE", null, null));
+        archived.archive();
+        workCharacterRepository.saveAndFlush(archived);
+        workCharacterRepository.saveAndFlush(character(otherWork, "aria", null, null));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("query", "  ARI ")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(2))
+                .andExpect(jsonPath("$.data.content.length()").value(2))
+                .andExpect(jsonPath("$.data.content[0].id").value(upper.getId().toString()))
+                .andExpect(jsonPath("$.data.content[1].id").value(lower.getId().toString()));
+    }
+
+    @Test
+    @DisplayName("캐릭터 이름 검색어의 %, _, \\ 문자는 와일드카드가 아니라 글자 그대로 찾는다")
+    void getCharactersEscapesLikeWildcardsInQuery() throws Exception {
+        WorkCharacter percent = workCharacterRepository.saveAndFlush(character(work, "백%기사", null, null));
+        WorkCharacter underscore = workCharacterRepository.saveAndFlush(character(work, "밑_줄", null, null));
+        WorkCharacter backslash = workCharacterRepository.saveAndFlush(character(work, "역\\선", null, null));
+        workCharacterRepository.saveAndFlush(character(work, "일반 기사", null, null));
+
+        for (var expected : List.of(
+                Map.entry("%", percent),
+                Map.entry("_", underscore),
+                Map.entry("\\", backslash),
+                Map.entry("백%", percent)
+        )) {
+            mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                            .queryParam("query", expected.getKey())
+                            .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.totalElements").value(1))
+                    .andExpect(jsonPath("$.data.content[0].id").value(expected.getValue().getId().toString()));
+        }
+    }
+
+    @Test
+    @DisplayName("검색어가 있으면 최근 수정순 대신 이름 오름차순으로 페이지를 나눈다")
+    void getCharactersWithQueryOrdersByName() throws Exception {
+        WorkCharacter third = workCharacterRepository.saveAndFlush(character(work, "다나", null, null));
+        WorkCharacter first = workCharacterRepository.saveAndFlush(character(work, "가나", null, null));
+        WorkCharacter second = workCharacterRepository.saveAndFlush(character(work, "나비", null, null));
+        updateCharacterUpdatedAt(third.getId(), LocalDateTime.of(2026, 8, 12, 12, 0));
+        updateCharacterUpdatedAt(first.getId(), LocalDateTime.of(2026, 8, 10, 12, 0));
+        updateCharacterUpdatedAt(second.getId(), LocalDateTime.of(2026, 8, 11, 12, 0));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("query", "나")
+                        .queryParam("size", "2")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(2))
+                .andExpect(jsonPath("$.data.content[0].id").value(first.getId().toString()))
+                .andExpect(jsonPath("$.data.content[1].id").value(second.getId().toString()))
+                .andExpect(jsonPath("$.data.totalElements").value(3))
+                .andExpect(jsonPath("$.data.hasNext").value(true));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("query", "나")
+                        .queryParam("page", "1")
+                        .queryParam("size", "2")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].id").value(third.getId().toString()))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
+    }
+
+    @Test
+    @DisplayName("검색 결과는 DB collation과 무관하게 영문은 대소문자 구분 없이, 한글은 가나다순으로 정렬하고 페이지 메타데이터는 실제 일치 수를 따른다")
+    void getCharactersWithQuerySortsNamesInKoreanOrderIndependentOfDatabaseCollation() throws Exception {
+        // 공통 접미사는 모든 이름을 한 검색어로 찾기 위한 것이며 이름 사이의 상대 순서를 바꾸지 않는다.
+        List<String> expectedOrder = List.of(
+                "Alice 기사", "bob 기사", "Carol 기사", "가나 다 기사", "가람 기사", "가람하늘 기사", "나래 기사", "다온 기사"
+        );
+        for (String name : List.of(
+                "다온 기사", "가람하늘 기사", "bob 기사", "나래 기사", "Carol 기사", "가람 기사", "가나 다 기사", "Alice 기사"
+        )) {
+            workCharacterRepository.saveAndFlush(character(work, name, null, null));
+        }
+
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("query", "기사")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[*].name", contains(expectedOrder.toArray())));
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("query", "기사")
+                        .queryParam("page", "1")
+                        .queryParam("size", "3")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[*].name", contains(expectedOrder.subList(3, 6).toArray())))
+                .andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.size").value(3))
+                .andExpect(jsonPath("$.data.totalElements").value(8))
+                .andExpect(jsonPath("$.data.totalPages").value(3))
+                .andExpect(jsonPath("$.data.hasNext").value(true));
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("query", "기사")
+                        .queryParam("page", "2")
+                        .queryParam("size", "3")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[*].name", contains(expectedOrder.subList(6, 8).toArray())))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("query", "기사")
+                        .queryParam("page", "5")
+                        .queryParam("size", "3")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(0))
+                .andExpect(jsonPath("$.data.totalElements").value(8))
+                .andExpect(jsonPath("$.data.totalPages").value(3))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
+    }
+
+    @Test
+    @DisplayName("일치 결과가 메모리 정렬 상한 1,000명을 넘으면 DB 페이지 조회로 돌아가도 페이지 메타데이터는 실제 일치 수를 따른다")
+    void getCharactersWithBroadQueryFallsBackToDatabasePagingAboveInMemoryLimit() throws Exception {
+        workCharacterRepository.saveAllAndFlush(java.util.stream.IntStream.rangeClosed(1, 1_001)
+                .mapToObj(number -> character(work, "인물 %04d".formatted(number), null, null))
+                .toList());
+
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("query", "인물")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(24))
+                .andExpect(jsonPath("$.data.totalElements").value(1_001))
+                .andExpect(jsonPath("$.data.totalPages").value(42))
+                .andExpect(jsonPath("$.data.hasNext").value(true));
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("query", "인물")
+                        .queryParam("page", "41")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(17))
+                .andExpect(jsonPath("$.data.totalElements").value(1_001))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
+    }
+
+    @Test
+    @DisplayName("공백뿐인 검색어는 검색어 없는 목록과 같이 최근 수정순을 유지한다")
+    void getCharactersWithoutQueryKeepsUpdatedAtOrder() throws Exception {
+        WorkCharacter older = workCharacterRepository.saveAndFlush(character(work, "가람", null, null));
+        WorkCharacter newer = workCharacterRepository.saveAndFlush(character(work, "하늘", null, null));
+        updateCharacterUpdatedAt(older.getId(), LocalDateTime.of(2026, 8, 10, 12, 0));
+        updateCharacterUpdatedAt(newer.getId(), LocalDateTime.of(2026, 8, 12, 12, 0));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("query", "   ")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(2))
+                .andExpect(jsonPath("$.data.content[0].id").value(newer.getId().toString()))
+                .andExpect(jsonPath("$.data.content[1].id").value(older.getId().toString()));
+    }
+
+    @Test
+    @DisplayName("캐릭터 목록 카드에 역할 표시명을 포함하고 없으면 생략한다")
+    void getCharactersIncludesRoleLabel() throws Exception {
+        WorkCharacter withRole = workCharacterRepository.saveAndFlush(character(work, "가람", null, null));
+        WorkCharacter withoutRole = workCharacterRepository.saveAndFlush(WorkCharacter.create(
+                work, "나래", null, null, null, null, null, null, null, null, null
+        ));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("query", "가람")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].id").value(withRole.getId().toString()))
+                .andExpect(jsonPath("$.data.content[0].roleLabel").value("주인공"));
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("query", "나래")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].id").value(withoutRole.getId().toString()))
+                .andExpect(jsonPath("$.data.content[0].roleLabel").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("캐릭터 이름 검색어가 100자를 넘으면 검증 오류로 응답한다")
+    void getCharactersRejectsTooLongQuery() throws Exception {
+        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
+                        .queryParam("query", "가".repeat(101))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"));
     }
 
     @Test
@@ -2972,6 +3173,11 @@ class CharacterControllerIntegrationTest {
                         "$.paths['/api/v1/works/{workId}/characters'].get.parameters"
                                 + "[?(@.name == 'size' && @.in == 'query')]"
                 ).exists())
+                .andExpect(jsonPath(
+                        "$.paths['/api/v1/works/{workId}/characters'].get.parameters"
+                                + "[?(@.name == 'query' && @.in == 'query')]"
+                ).exists())
+                .andExpect(jsonPath("$.components.schemas.CharacterSummaryResponse.properties.roleLabel").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/works/{workId}/characters/archived'].get").exists())
                 .andExpect(jsonPath(
                         "$.paths['/api/v1/works/{workId}/characters/archived'].get.parameters"
