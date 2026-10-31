@@ -13,7 +13,7 @@ import org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysi
 import org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobFailRequest;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisJobHeartbeatResponse;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisJobPayload;
-import org.monitoring.catchholebackend.domain.relationship.service.RelationshipBackfillCoordinator;
+import org.monitoring.catchholebackend.domain.relationship.service.RelationshipBackfillService;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
 import org.monitoring.catchholebackend.global.config.security.SecurityConstant;
 import org.springframework.http.ResponseEntity;
@@ -32,7 +32,7 @@ import java.util.UUID;
 @Tag(name = "Internal Relationship Backfill Worker")
 @SecurityRequirement(name = "internalApiKey")
 public class RelationshipBackfillWorkerController {
-    private final RelationshipBackfillCoordinator coordinator;
+    private final RelationshipBackfillService coordinator;
 
     @PostMapping("/claim")
     @Operation(summary = "관계 전용 회차 순서 작업 선점")

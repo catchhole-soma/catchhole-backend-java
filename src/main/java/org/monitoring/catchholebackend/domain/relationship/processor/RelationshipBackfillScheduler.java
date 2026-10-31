@@ -2,7 +2,7 @@ package org.monitoring.catchholebackend.domain.relationship.processor;
 
 import lombok.RequiredArgsConstructor;
 
-import org.monitoring.catchholebackend.domain.relationship.service.RelationshipBackfillCoordinator;
+import org.monitoring.catchholebackend.domain.relationship.service.RelationshipBackfillService;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
         name = {"enabled", "scheduling-enabled"},
         havingValue = "true")
 public class RelationshipBackfillScheduler {
-    private final RelationshipBackfillCoordinator coordinator;
+    private final RelationshipBackfillService coordinator;
 
     @Scheduled(fixedDelayString = "${analysis.relationship-backfill.fixed-delay-ms:10000}")
     public void bootstrap() {

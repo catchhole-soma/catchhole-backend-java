@@ -40,6 +40,8 @@ import org.monitoring.catchholebackend.domain.relationship.entity.RelationshipBa
 import org.monitoring.catchholebackend.domain.relationship.entity.RelationshipBackfillItem;
 import org.monitoring.catchholebackend.domain.relationship.entity.RelationshipBackfillWork;
 import org.monitoring.catchholebackend.domain.relationship.mapper.RelationshipGraphMapper;
+import org.monitoring.catchholebackend.domain.relationship.type.RelationshipBackfillItemState;
+import org.monitoring.catchholebackend.domain.relationship.type.RelationshipBackfillWorkState;
 import org.monitoring.catchholebackend.domain.relationship.processor.RelationshipBackfillManifest;
 import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipBackfillWorkRepository;
 import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipGraphAnalysisRepository;
@@ -62,7 +64,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 @Transactional
-public class RelationshipBackfillCoordinator {
+public class RelationshipBackfillServiceImpl implements RelationshipBackfillService {
     private final EntityManager em;
     private final RelationshipBackfillManifest manifest;
     private final RelationshipBackfillWorkRepository workStates;
@@ -83,6 +85,7 @@ public class RelationshipBackfillCoordinator {
     @Value("${analysis.relationship-backfill.enabled:false}")
     private boolean enabled;
 
+    @Override
     public void bootstrap() {
         if (!enabled) return;
         var campaign = campaignLock();
@@ -100,6 +103,7 @@ public class RelationshipBackfillCoordinator {
     }
 
     /** Called under the ordinary analysis Work lock, before advertising inline capability. */
+    @Override
     public boolean deferInline(AnalysisJob job) {
         if (job.getJobType() != AnalysisJobType.SETTING_EXTRACTION || job.isSettingBookSource())
             return false;
@@ -116,6 +120,7 @@ public class RelationshipBackfillCoordinator {
         return false;
     }
 
+    @Override
     public long publishedGeneration(UUID workId) {
         return workStates
                 .findById(workId)
@@ -126,6 +131,7 @@ public class RelationshipBackfillCoordinator {
     /**
      * Core settings have already committed within the same transaction; no LLM work occurs here.
      */
+    @Override
     public void coreCompleted(AnalysisJob job) {
         if (job.getJobType() != AnalysisJobType.SETTING_EXTRACTION
                 || job.isSettingBookSource()
@@ -214,14 +220,15 @@ public class RelationshipBackfillCoordinator {
         // frozen observations, but redo comparison after the inserted chapter before publication.
         for (var item : items) {
             if (item.getEpisodeNo() <= episode.getEpisodeNo() || item.getJobId() == null) continue;
-            if (item.getState() == RelationshipBackfillItem.State.SUCCEEDED)
+            if (item.getState() == RelationshipBackfillItemState.SUCCEEDED)
                 item.requeueForRebuild();
-            else if (item.getState() == RelationshipBackfillItem.State.WAITING
-                    || item.getState() == RelationshipBackfillItem.State.RUNNING)
+            else if (item.getState() == RelationshipBackfillItemState.WAITING
+                    || item.getState() == RelationshipBackfillItemState.RUNNING)
                 item.markForRebuild();
         }
     }
 
+    @Override
     public Optional<WorkerAnalysisJobPayload> claim(WorkerAnalysisJobClaimRequest request) {
         if (!enabled
                 || !request.allowedJobTypes().contains(AnalysisJobType.RELATIONSHIP_EXTRACTION)
@@ -253,11 +260,11 @@ public class RelationshipBackfillCoordinator {
             var state = workStates.findById(work.getId()).orElseThrow();
             // A core completion can change this row while claim waits for the Work lock.
             em.refresh(state);
-            if (state.getState() != RelationshipBackfillWork.State.BUILDING) continue;
+            if (state.getState() != RelationshipBackfillWorkState.BUILDING) continue;
             for (var item : items(work.getId())) {
-                if (item.getState() == RelationshipBackfillItem.State.SKIPPED
-                        || item.getState() == RelationshipBackfillItem.State.SUCCEEDED) continue;
-                if (item.getState() == RelationshipBackfillItem.State.RUNNING) {
+                if (item.getState() == RelationshipBackfillItemState.SKIPPED
+                        || item.getState() == RelationshipBackfillItemState.SUCCEEDED) continue;
+                if (item.getState() == RelationshipBackfillItemState.RUNNING) {
                     var stale =
                             item.getJobId() == null
                                     ? null
@@ -269,7 +276,7 @@ public class RelationshipBackfillCoordinator {
                         state.block("JOB_TERMINATED");
                     }
                 }
-                if (item.getState() != RelationshipBackfillItem.State.WAITING) break;
+                if (item.getState() != RelationshipBackfillItemState.WAITING) break;
                 var episode = episodes.findById(item.getEpisodeId()).orElse(null);
                 if (episode == null || episode.getStatus() == EpisodeStatus.ARCHIVED) {
                     if (item.getJobId() != null) {
@@ -348,6 +355,7 @@ public class RelationshipBackfillCoordinator {
         graph.prepareCachedObservations(job, request);
     }
 
+    @Override
     public WorkerAnalysisJobHeartbeatResponse heartbeat(UUID id, UUID lease) {
         var job = running(id, lease);
         var expires = LocalDateTime.now().plusSeconds(60);
@@ -355,10 +363,11 @@ public class RelationshipBackfillCoordinator {
         return new WorkerAnalysisJobHeartbeatResponse(lease, expires);
     }
 
+    @Override
     public void complete(UUID id, UUID lease, WorkerAnalysisJobCompleteRequest request) {
         leases.lockWorkForUpdate(id);
         var receipt = item(id);
-        if (receipt.getState() == RelationshipBackfillItem.State.SUCCEEDED
+        if (receipt.getState() == RelationshipBackfillItemState.SUCCEEDED
                 && Objects.equals(receipt.getLeaseToken(), lease)
                 && jobs.findById(id)
                         .map(j -> j.getStatus() == AnalysisJobStatus.SUCCEEDED)
@@ -382,15 +391,16 @@ public class RelationshipBackfillCoordinator {
                 .anyMatch(
                         i ->
                                 i.getEpisodeNo() < item.getEpisodeNo()
-                                        && i.getState() == RelationshipBackfillItem.State.WAITING))
+                                        && i.getState() == RelationshipBackfillItemState.WAITING))
             item.requeueForRebuild();
         publishIfReady(state);
     }
 
+    @Override
     public void fail(UUID id, UUID lease, WorkerAnalysisJobFailRequest request) {
         leases.lockWorkForUpdate(id);
         var receipt = item(id);
-        if (receipt.getState() == RelationshipBackfillItem.State.FAILED
+        if (receipt.getState() == RelationshipBackfillItemState.FAILED
                 && Objects.equals(receipt.getLeaseToken(), lease)) return;
         var job = running(id, lease);
         var item = item(id);
@@ -421,6 +431,8 @@ public class RelationshipBackfillCoordinator {
             if (!candidate.isLeaseExpired(LocalDateTime.now())) continue;
             works.findByIdForUpdate(candidate.getWork().getId());
             var job = jobs.findByIdForUpdate(candidate.getId()).orElseThrow();
+            // 잠금을 기다리는 동안 heartbeat가 갱신했을 수 있으므로 1차 캐시도 새로 읽는다.
+            em.refresh(job);
             if (job.getStatus() != AnalysisJobStatus.RUNNING
                     || !job.isLeaseExpired(LocalDateTime.now())) continue;
             tokens.releaseReservedForAnalysisJob(
@@ -438,18 +450,18 @@ public class RelationshipBackfillCoordinator {
     }
 
     private void publishIfReady(RelationshipBackfillWork state) {
-        if (state.getState() != RelationshipBackfillWork.State.BUILDING) return;
+        if (state.getState() != RelationshipBackfillWorkState.BUILDING) return;
         var all = items(state.getWorkId());
         if (all.isEmpty()
                 || all.stream()
                         .anyMatch(
                                 i ->
-                                        i.getState() != RelationshipBackfillItem.State.SUCCEEDED
+                                        i.getState() != RelationshipBackfillItemState.SUCCEEDED
                                                 && i.getState()
-                                                        != RelationshipBackfillItem.State.SKIPPED)
+                                                        != RelationshipBackfillItemState.SKIPPED)
                 || coreActiveAtOrBefore(state.getWorkId(), Integer.MAX_VALUE)) return;
         for (var item : all)
-            if (item.getState() == RelationshipBackfillItem.State.SUCCEEDED) {
+            if (item.getState() == RelationshipBackfillItemState.SUCCEEDED) {
                 var episode = episodes.findById(item.getEpisodeId()).orElse(null);
                 if (episode == null
                         || !sameSource(item, episode)
@@ -475,8 +487,8 @@ public class RelationshipBackfillCoordinator {
             throw new AppException(RELATIONSHIP_GRAPH_CONFLICT);
         var item = item(id);
         var state = workStates.findById(item.getWorkId()).orElseThrow();
-        if (state.getState() != RelationshipBackfillWork.State.BUILDING
-                || item.getState() != RelationshipBackfillItem.State.RUNNING)
+        if (state.getState() != RelationshipBackfillWorkState.BUILDING
+                || item.getState() != RelationshipBackfillItemState.RUNNING)
             throw new AppException(RELATIONSHIP_GRAPH_CONFLICT);
         return job;
     }

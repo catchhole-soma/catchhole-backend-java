@@ -11,19 +11,16 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import org.monitoring.catchholebackend.domain.relationship.type.RelationshipBackfillWorkState;
+import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
+
 import java.util.UUID;
 
 @Entity
 @Table(name = "relationship_backfill_works")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class RelationshipBackfillWork {
-    public enum State {
-        BUILDING,
-        BLOCKED,
-        COMPLETE
-    }
-
+public class RelationshipBackfillWork extends BaseEntity {
     @Id private UUID workId;
 
     @Column(nullable = false, length = 80)
@@ -37,7 +34,7 @@ public class RelationshipBackfillWork {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    private State state;
+    private RelationshipBackfillWorkState state;
 
     @Column(length = 80)
     private String blockedReason;
@@ -47,22 +44,22 @@ public class RelationshipBackfillWork {
         w.workId = workId;
         w.campaignKey = campaignKey;
         w.buildingGeneration = 1;
-        w.state = State.BUILDING;
+        w.state = RelationshipBackfillWorkState.BUILDING;
         return w;
     }
 
     public boolean active() {
-        return state != State.COMPLETE;
+        return state != RelationshipBackfillWorkState.COMPLETE;
     }
 
     public void block(String reason) {
-        state = State.BLOCKED;
+        state = RelationshipBackfillWorkState.BLOCKED;
         blockedReason = reason;
     }
 
     public void publish() {
         publishedGeneration = buildingGeneration;
-        state = State.COMPLETE;
+        state = RelationshipBackfillWorkState.COMPLETE;
         blockedReason = null;
     }
 }

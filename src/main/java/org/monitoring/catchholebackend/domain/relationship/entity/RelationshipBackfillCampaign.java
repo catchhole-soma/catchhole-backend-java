@@ -9,11 +9,13 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
+
 @Entity
 @Table(name = "relationship_backfill_campaigns")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class RelationshipBackfillCampaign {
+public class RelationshipBackfillCampaign extends BaseEntity {
     @Id
     @Column(length = 80)
     private String id;

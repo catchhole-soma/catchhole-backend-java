@@ -81,7 +81,7 @@ class RelationshipBackfillHttpPostgresIntegrationTest {
     @Autowired EntityManager em;
     @Autowired JdbcTemplate sql;
     @Autowired PlatformTransactionManager transactions;
-    @Autowired RelationshipBackfillCoordinator coordinator;
+    @Autowired RelationshipBackfillService coordinator;
     @Autowired ObjectStorageService storage;
     @Autowired JwtTokenProvider jwt;
     @MockitoBean ObjectStorage objects;

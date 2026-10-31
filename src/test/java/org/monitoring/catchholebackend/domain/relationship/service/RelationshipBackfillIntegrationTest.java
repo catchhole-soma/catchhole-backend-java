@@ -24,6 +24,8 @@ import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.relationship.entity.*;
+import org.monitoring.catchholebackend.domain.relationship.type.RelationshipBackfillItemState;
+import org.monitoring.catchholebackend.domain.relationship.type.RelationshipBackfillWorkState;
 import org.monitoring.catchholebackend.domain.relationship.processor.RelationshipBackfillManifest;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
@@ -49,7 +51,7 @@ import java.util.*;
         })
 @ActiveProfiles("test")
 class RelationshipBackfillIntegrationTest {
-    @Autowired RelationshipBackfillCoordinator coordinator;
+    @Autowired RelationshipBackfillService coordinator;
     @Autowired RelationshipGraphService graph;
     @Autowired EntityManager em;
     @Autowired TransactionTemplate tx;
@@ -397,7 +399,7 @@ class RelationshipBackfillIntegrationTest {
                 .isZero();
         assertThat(graph.getRelationshipGraph(owner, workId, null).edges()).isEmpty();
         finish(claim());
-        assertThat(state().getState()).isEqualTo(RelationshipBackfillWork.State.COMPLETE);
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.COMPLETE);
         assertThat(graph.getRelationshipGraph(owner, workId, null).selectedEpisode().episodeNo())
                 .isEqualTo(2);
         assertThat(graph.getRelationshipGraph(owner, workId, null).edges()).hasSize(1);
@@ -554,7 +556,7 @@ class RelationshipBackfillIntegrationTest {
         assertThat(saved.status()).isEqualTo(AnalysisStatus.PREPARED);
         assertThat(saved.relationships().getFirst().lastChangedEpisodeNo()).isEqualTo(2);
         finish(replay, saved);
-        assertThat(state().getState()).isEqualTo(RelationshipBackfillWork.State.COMPLETE);
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.COMPLETE);
         verify(storage, times(3)).getText(anyString());
     }
 
@@ -647,7 +649,7 @@ class RelationshipBackfillIntegrationTest {
                         .orElseThrow();
         assertThat(context.relationships().getFirst().lastChangedEpisodeNo()).isEqualTo(2);
         finish(replay, context);
-        assertThat(state().getState()).isEqualTo(RelationshipBackfillWork.State.COMPLETE);
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.COMPLETE);
         verify(storage, times(3)).getText(anyString());
     }
 
@@ -743,7 +745,7 @@ class RelationshipBackfillIntegrationTest {
                                 .updateContentStorage(
                                         "replaced", "v2", storage.contentHash("바뀐 원문")));
         assertThat(coordinator.claim(request)).isEmpty();
-        assertThat(state().getState()).isEqualTo(RelationshipBackfillWork.State.BLOCKED);
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.BLOCKED);
         assertThat(items().getFirst().getReason()).isEqualTo("SOURCE_CHANGED");
         assertThat(state().getPublishedGeneration()).isZero();
     }
@@ -795,12 +797,12 @@ class RelationshipBackfillIntegrationTest {
                                 Long.class,
                                 workId))
                 .isZero();
-        assertThat(items().getFirst().getState()).isEqualTo(RelationshipBackfillItem.State.RUNNING);
+        assertThat(items().getFirst().getState()).isEqualTo(RelationshipBackfillItemState.RUNNING);
         coordinator.fail(
                 p.analysisJobId(),
                 p.leaseToken(),
                 new WorkerAnalysisJobFailRequest(AnalysisFailureCode.UNEXPECTED_ERROR, "원문 변경"));
-        assertThat(state().getState()).isEqualTo(RelationshipBackfillWork.State.BLOCKED);
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.BLOCKED);
         assertThat(tx.<EpisodeStatus>execute(t -> em.find(Episode.class, one).getStatus()))
                 .isEqualTo(EpisodeStatus.UPLOADED);
     }
@@ -820,7 +822,7 @@ class RelationshipBackfillIntegrationTest {
                     em.find(Episode.class, one).archive();
                 });
         assertThat(coordinator.claim(request)).isEmpty();
-        assertThat(state().getState()).isEqualTo(RelationshipBackfillWork.State.BLOCKED);
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.BLOCKED);
         assertThat(items().getFirst().getReason()).isEqualTo("SOURCE_ARCHIVED_AFTER_START");
         assertThat(state().getPublishedGeneration()).isZero();
     }
@@ -835,8 +837,8 @@ class RelationshipBackfillIntegrationTest {
         var p = claim();
         assertThat(p.episode().episodeNo()).isEqualTo(2);
         finish(p);
-        assertThat(items().getFirst().getState()).isEqualTo(RelationshipBackfillItem.State.SKIPPED);
-        assertThat(state().getState()).isEqualTo(RelationshipBackfillWork.State.COMPLETE);
+        assertThat(items().getFirst().getState()).isEqualTo(RelationshipBackfillItemState.SKIPPED);
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.COMPLETE);
         assertThat(graph.getRelationshipGraph(owner, workId, null).edges()).hasSize(1);
         verify(storage, times(1)).getText(anyString());
     }
@@ -880,7 +882,7 @@ class RelationshipBackfillIntegrationTest {
                 p.leaseToken(),
                 new WorkerAnalysisJobFailRequest(AnalysisFailureCode.UNEXPECTED_ERROR, "합성 실패"));
         assertThat(coordinator.claim(request)).isEmpty();
-        assertThat(state().getState()).isEqualTo(RelationshipBackfillWork.State.BLOCKED);
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.BLOCKED);
         assertThat(tx.<EpisodeStatus>execute(t -> em.find(Episode.class, one).getStatus()))
                 .isEqualTo(EpisodeStatus.UPLOADED);
         coreComplete(episode(3));
@@ -900,7 +902,7 @@ class RelationshipBackfillIntegrationTest {
         ReflectionTestUtils.setField(coordinator, "enabled", true);
         finish(claim());
         finish(claim());
-        assertThat(state().getState()).isEqualTo(RelationshipBackfillWork.State.COMPLETE);
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.COMPLETE);
     }
 
     @Test
@@ -911,7 +913,7 @@ class RelationshipBackfillIntegrationTest {
         coordinator.bootstrap();
         doReturn(true).when(jobs).existsValidationStagingForEpisodes(List.of(one));
         assertThat(coordinator.claim(request)).isEmpty();
-        assertThat(items()).allMatch(i -> i.getState() == RelationshipBackfillItem.State.WAITING);
+        assertThat(items()).allMatch(i -> i.getState() == RelationshipBackfillItemState.WAITING);
         doReturn(false).when(jobs).existsValidationStagingForEpisodes(List.of(one));
         assertThat(claim().episode().episodeNo()).isEqualTo(1);
     }

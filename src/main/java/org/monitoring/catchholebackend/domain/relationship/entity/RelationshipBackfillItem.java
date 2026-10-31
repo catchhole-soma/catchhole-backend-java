@@ -13,6 +13,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
+import org.monitoring.catchholebackend.domain.relationship.type.RelationshipBackfillItemState;
+import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 
 import java.util.UUID;
 
@@ -25,15 +27,7 @@ import java.util.UUID;
                         columnNames = {"work_id", "episode_id", "generation", "source_hash"}))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class RelationshipBackfillItem {
-    public enum State {
-        WAITING,
-        RUNNING,
-        SUCCEEDED,
-        FAILED,
-        SKIPPED
-    }
-
+public class RelationshipBackfillItem extends BaseEntity {
     @Id private UUID id;
 
     @Column(nullable = false, updatable = false)
@@ -65,7 +59,7 @@ public class RelationshipBackfillItem {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    private State state;
+    private RelationshipBackfillItemState state;
 
     @Column(length = 80)
     private String reason;
@@ -81,34 +75,34 @@ public class RelationshipBackfillItem {
         i.sourceKey = e.getContentS3Key();
         i.sourceVersion = e.getContentS3Version();
         i.servicePaid = paid;
-        i.state = State.WAITING;
+        i.state = RelationshipBackfillItemState.WAITING;
         return i;
     }
 
     public void running(UUID id, UUID lease) {
         jobId = id;
         leaseToken = lease;
-        state = State.RUNNING;
+        state = RelationshipBackfillItemState.RUNNING;
         reason = null;
     }
 
     public void succeeded() {
-        state = State.SUCCEEDED;
+        state = RelationshipBackfillItemState.SUCCEEDED;
         reason = null;
     }
 
     public void fail(String reason) {
-        state = State.FAILED;
+        state = RelationshipBackfillItemState.FAILED;
         this.reason = reason;
     }
 
     public void skip(String reason) {
-        state = State.SKIPPED;
+        state = RelationshipBackfillItemState.SKIPPED;
         this.reason = reason;
     }
 
     public void requeue() {
-        state = State.WAITING;
+        state = RelationshipBackfillItemState.WAITING;
     }
 
     public void promoteToServicePaid() {

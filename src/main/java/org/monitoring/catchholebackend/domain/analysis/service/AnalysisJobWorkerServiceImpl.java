@@ -74,7 +74,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     private final List<AnalysisAutomaticApplicationContributor> automaticApplicationContributors;
     private final WorkRepository workRepository;
     private final org.monitoring.catchholebackend.domain.relationship.service.RelationshipGraphService relationshipGraphService;
-    private final org.monitoring.catchholebackend.domain.relationship.service.RelationshipBackfillCoordinator relationshipBackfill;
+    private final org.monitoring.catchholebackend.domain.relationship.service.RelationshipBackfillService relationshipBackfill;
 
     @org.springframework.beans.factory.annotation.Value("${relationship.graph.enabled:true}")
     private boolean relationshipGraphEnabled = true;
