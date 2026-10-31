@@ -178,8 +178,12 @@ class ValidationExecutionHttpPostgresIntegrationTest {
     }
     @Test @DisplayName("실제 필요한 새 VECTOR의 cap이 소진되면 retry queue 전에 거절한다")
     void retryPreflightsActuallyMissingEmbeddingBeforeQueueing() throws Exception {
-        var f=fixture();var response=python("vector-missing-crash");assertThat(response.at("/result/crashed").asBoolean()).isTrue();
-        // No index was ready, so the failed read has no reusable receipt. Consume the synthetic role cap.
+        // GH344: VECTOR is only planned while the index is ready, so the plan is stored first; the worker crashes
+        // right after that plan, before any lookup, and the index is rebuilt afterwards.
+        var f=fixture();readyIndex(f);var response=python("vector-missing-crash");assertThat(response.at("/result/crashed").asBoolean()).isTrue();
+        assertThat(jdbc.queryForObject("select count(*) from validation_checks where report_id=?",Integer.class,f.report())).isPositive();
+        jdbc.update("update retrieval_chunks set status='FAILED',embedding=null");
+        // The stored VECTOR obligation never ran, so there is no reusable receipt. Consume the synthetic role cap.
         consumeEmbedding(f);
         var job=tx.execute(s->em.createQuery("select j from ValidationJob j where j.report.id=:r",org.monitoring.catchholebackend.domain.validation.entity.ValidationJob.class).setParameter("r",f.report()).getSingleResult());
         results.completeValidationJob(job.getId(),job.getLeaseToken(),new Complete(new Scope(1,f.report(),job.getGeneration(),job.getInputDigest()),"synthetic-stop", "VECTOR_NOT_READY"));
