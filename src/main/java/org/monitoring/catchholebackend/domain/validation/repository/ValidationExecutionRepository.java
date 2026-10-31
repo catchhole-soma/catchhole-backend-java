@@ -23,13 +23,17 @@ public class ValidationExecutionRepository {
     }
     private boolean vector(com.fasterxml.jackson.databind.JsonNode decision) {if(decision==null)return false;for(var r:decision.path("evidence_bundle").path("receipts"))if("SUCCEEDED".equals(r.path("status").asText())&&"VECTOR".equals(r.path("intent").path("operation").asText()))return true;return false;}
     /**
-     * GH349: 이전 grid 빌더로 만든 SETTING 분기 사본을 지운다. SETTING stage·checkpoint, 질문 check와 그 revision 이력,
-     * TYPO 밖의 인용 사본, 그리고 같은 key 재전송이 새 stage/checkpoint 대신 옛 receipt를 돌려주지 않도록 SETTING plan·checkpoint
-     * receipt를 지운다. TYPO stage/checkpoint/receipt, check 판정 unit·revision·완료 receipt, finding/judgment와 사용량 원장은 남긴다.
-     * SETTING finding이 하나라도 있으면 그 check를 지울 수 없으므로 아무것도 지우지 않고 false를 반환한다.
+     * GH349: 이전 grid 빌더로 만든 배포 전 미완료 run의 SETTING 분기 사본을 지운다. 재검사가 다시 만들므로 SETTING finding과 그 작가
+     * 판단·판단 이력도 지운다. FK 순서: 판단 이력 → 판단 → finding → SETTING plan·checkpoint receipt → TYPO 밖의 인용 사본 →
+     * check 이력 → check → SETTING checkpoint → SETTING stage. receipt는 같은 key·본문 재전송이 새 stage/checkpoint 대신 옛 receipt를
+     * 돌려주지 않게 지운다. TYPO 분기 전부(finding·판단·stage·checkpoint·receipt), check 판정 unit·revision·완료 receipt,
+     * 정정 receipt와 사용량 원장은 남긴다.
      */
-    public boolean discardSettingBranch(UUID r) {
-        if(em.createQuery("select count(x) from ValidationFinding x where x.report.id=:r and x.branch=:b",Long.class).setParameter("r",r).setParameter("b",ValidationBranch.SETTING).getSingleResult()>0)return false;
+    public void discardSettingBranch(UUID r) {
+        em.createQuery("delete from ValidationJudgmentHistory x where x.report.id=:r and x.finding.id in (select f.id from ValidationFinding f where f.report.id=:r and f.branch=:b)")
+                .setParameter("r",r).setParameter("b",ValidationBranch.SETTING).executeUpdate();
+        for(String entity:List.of("ValidationJudgment","ValidationFinding"))
+            em.createQuery("delete from "+entity+" x where x.report.id=:r and x.branch=:b").setParameter("r",r).setParameter("b",ValidationBranch.SETTING).executeUpdate();
         var receipts=new ArrayList<UUID>();
         for(var p:em.createQuery("select x from ValidationPublication x where x.report.id=:r",ValidationPublication.class).setParameter("r",r).getResultList())
             if("SETTING".equals(p.getResponse().path("branch").asText()))receipts.add(p.getId());
@@ -39,7 +43,6 @@ public class ValidationExecutionRepository {
         em.createQuery("delete from ValidationCheck x where x.report.id=:r").setParameter("r",r).executeUpdate();
         for(String entity:List.of("ValidationCheckpoint","ValidationStage"))
             em.createQuery("delete from "+entity+" x where x.report.id=:r and x.branch=:b").setParameter("r",r).setParameter("b",ValidationBranch.SETTING).executeUpdate();
-        return true;
     }
     /** report 복사본을 지운다. 검토 종료 receipt는 무효화·퇴역 뒤에도 이력으로 남기며 작품/회원 파기만 지운다(GH312). */
     public void purge(UUID r) {

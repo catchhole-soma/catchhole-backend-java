@@ -104,9 +104,10 @@ public class ValidationWorkerServiceImpl implements ValidationWorkerService {
             j=jobs.findForUpdate(j.getId()).orElseThrow();em.refresh(j);
             if(j.getStatus()!=ValidationExecutionStatus.PARTIAL&&j.getStatus()!=ValidationExecutionStatus.FAILED)throw error(VALIDATION_PUBLICATION_CONFLICT);
             budgetPolicy.refreshForRetry(j);
-            // GH349: 이전 빌더의 SETTING grid는 현재 grid와 base가 달라 모든 SETTING 게시가 충돌한다. SETTING 분기 사본을 버리고 새 grid로 다시 실행한다.
+            // GH349: 이전 빌더의 SETTING grid는 현재 grid와 base가 달라 모든 SETTING 게시가 충돌한다. SETTING 분기 사본(finding·판단 포함)을
+            // 버리고 새 grid로 다시 실행한다. report version은 아래 retry 전이에서 한 번 올린다.
             var stored=j.getRequiredGrid()==null?null:j.getRequiredGrid().get("SETTING");
-            if(stored!=null&&!ValidationPublicationValidator.currentSettingGrid(stored)&&results.discardSettingBranch(r.getId())) {j.discardSettingGrid();em.flush();}
+            if(stored!=null&&!ValidationPublicationValidator.currentSettingGrid(stored)) {results.discardSettingBranch(r.getId());j.discardSettingGrid();em.flush();}
             usage.ensureValidationRetryCapacity(j);usage.releaseReservedValidationUsage(j,AiTokenUsageOutcome.USAGE_UNAVAILABLE);j.retry();r.advanceVersion();
         }
         var response=staging(r);var key=ValidationRequestKey.create(owner,c.idempotencyKey(),r,"RETRY",hash);key.recordRetryResponse(mapper.toTree(response));keys.save(key);em.flush();return response;
