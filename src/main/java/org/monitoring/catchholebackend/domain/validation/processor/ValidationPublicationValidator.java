@@ -17,7 +17,11 @@ import static org.monitoring.catchholebackend.domain.validation.exception.Valida
 /** No Work lock or write transaction spans source I/O. Only trusted source refs are readable. */
 @Component @RequiredArgsConstructor
 public class ValidationPublicationValidator {
-    public static final int MAX_PAYLOAD_BYTES=131072;
+    /**
+     * 게시 명령 한 건의 UTF-8 상한. #349 후속: MERGED_PLAN은 모든 구간의 질문 초안을 한 번에 담아 30회차 작품의 65개 질문이
+     * 131,072 bytes를 넘겼다(운영 2026-10-31). 질문 수에 비례하는 유일한 게시이므로 1 MiB로 올린다. 판정·COVERAGE 게시는 수십 KB다.
+     */
+    public static final int MAX_PAYLOAD_BYTES=1048576;
     /**
      * GH349 SETTING grid 빌더 버전. 저장 grid가 이와 다르면 공개 retry가 SETTING 분기를 버리고 다시 만든다.
      * 3은 v2와 모양이 같고 기계 주체 매칭에서 1글자 name·alias를 빼는 규칙만 다르다(배포 전 v2 grid도 retry로 전환한다).
