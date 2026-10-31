@@ -321,12 +321,20 @@ Python의 BOOK_SOURCE.status=PROCESSED는 전체 book 검토 집계이므로 실
 Java의 BOOK_SOURCE 성공은 읽기이며 전체 target×book 검토는 별도 BOOK_COVERAGE grid가 증명한다.
 
 각 DECIDED unit에는 현재 Python ValidationDecision과 `evidence_bundle`을 함께 보낸다.
-bundle의 question_ref/check_revision/question은 저장 질문과 일치해야 한다. canonical frozen settings,
+bundle의 question_ref/check_revision/question은 저장 질문과 일치해야 한다. 질문 대상 frozen settings의 ref 집합,
 실제 E-ref/원문 위치, target_context와 additional_target_context의 인용, 알려진 fact/evidence refs,
 성공한 실제 비교·필수 읽기 receipts, 남은 lookup_obligations 0을 검증한다. 네 completion 사유만으로 완료하지 않는다.
 정상 NO_CONFLICT도 완료 check/receipts를 저장한다. E-ref는 실제 source_ref로 분류한다. T1을 E1로 포장해도
 CONFLICT/SUSPECTED_CONFLICT의 외부 비교 근거가 될 수 없고 frozen fact 또는 검증된 T1 이외의 source만 인정한다.
 T1 자체 문맥·인용 저장은 유지한다.
+
+bundle `settings[]` 행은 `{"entry_ref": "B12", "subject_ref": "S3"}`다(#349 후속). `entry_ref`는 현재 고정 기준의 항목이고
+`subject_ref`는 그 항목의 canonical `subject_ref`와 같아야 하며 ref는 중복되지 않는다. ref 집합은 질문 subject_refs의 모든 항목과
+BASELINE 조회 의무의 evidence_refs를 합친 집합과 같아야 한다. 다른 키는 무시하므로 이전 Worker가 보내던 canonical 전체 행도 통과한다.
+예전에는 행마다 canonical projection 전체와 hash가 같아야 했는데, 게시 외피 전체가 131,072 bytes로 제한되는 반면 운영 캐릭터 항목
+하나가 362 KB여서 그 대상의 JUDGE는 게시할 수 없었다(`VALIDATION_RESULT_INVALID`). bundle은 공개 응답에 나가지 않고 서버는 ref 집합(finding
+대상 계산)과 receipts(VECTOR 사용 표시)만 쓰므로 내용 사본이 필요 없다. evidence·receipts·target_context 규칙과 게시 상한은 그대로다.
+
 새 FOLLOW_UP은 영향을 받는 모든 check를 한 트랜잭션에서 revision 변경하고 옛 완료를 집계에서 제외한다.
 원 상태/판정과 changeReason은 check history에 남겨 #312가 변경된 질문을 구분할 수 있다.
 
@@ -342,8 +350,9 @@ T1 자체 문맥·인용 저장은 유지한다.
 
 게시 외피 전체는 131,072 UTF-8 bytes, citations는 1,000개, 의미 payload 깊이는 50을 넘기지 않는다.
 target_spans/spans/evidence 행/typo span과 target_context/additional_target_context라는 계약 경로의 quote/text는
-정확한 source/hash/version/code point 인용 외피가 필요하다. settings[]는 서버 canonical projection 전체와 정확히
-일치해야 하며 그 내부 도메인 속성 이름 text/quote를 span으로 해석하지 않는다. 다른 임의 payload/checkpoint 경로의
+정확한 source/hash/version/code point 인용 외피가 필요하다. settings[] 행은 현재 고정 기준 항목의 entry_ref·subject_ref와
+맞아야 한다. 서버 canonical projection 전체와 같은 행은 그 내부 도메인 속성 이름 text/quote를 span으로 해석하지 않고, 그 밖의 행은
+추가 키도 일반 payload처럼 검사한다. 다른 임의 payload/checkpoint 경로의
 text/quote는 거절하므로 검증되지 않은 복사본문을 추가 필드에 숨길 수 없다. canonical 설정도 깊이 상한을 지킨다.
 I/O 전에 현재 lease/입력을 확인하고 실제 저장 원문 전체 hash·slice를 확인한 뒤, Work 잠금 안에서
 current/revision/contentRevision/lease/출처 metadata를 다시 검사한다. S3/provider I/O 동안 Work를 잠그지 않는다.

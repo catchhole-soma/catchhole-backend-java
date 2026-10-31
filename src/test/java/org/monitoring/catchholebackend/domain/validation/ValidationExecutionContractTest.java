@@ -64,6 +64,17 @@ class ValidationExecutionContractTest {
         ((com.fasterxml.jackson.databind.node.ObjectNode)payload.path("evidence_bundle").path("settings").path(1).path("state").path("propertiesJson")).put("text","검증되지 않은 복사본문");
         assertThatThrownBy(()->validator.payload(prepared,payload,citations)).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class);
     }
+    @Test @DisplayName("ref만 담은 settings 행은 받고 대상이 다르거나 추가 키에 복사본문을 숨기면 거절한다")
+    void refOnlySettingRowsPassAndHiddenCopiesFail() throws Exception {
+        var f=fixture();var payload=(com.fasterxml.jackson.databind.node.ObjectNode)f.path("requests").path("settingUnit").path("payload").deepCopy();
+        var row=((com.fasterxml.jackson.databind.node.ObjectNode)payload.path("evidence_bundle")).putArray("settings").addObject().put("entry_ref","B2").put("subject_ref","S2");
+        var validator=payloadValidator();var prepared=payloadContext(f.path("projectionVector").path("entries"));var citations=payloadCitations();
+        assertThatCode(()->validator.payload(prepared,payload,citations)).doesNotThrowAnyException();
+        row.put("subject_ref","S1");
+        assertThatThrownBy(()->validator.payload(prepared,payload,citations)).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class);
+        row.put("subject_ref","S2").put("quote","검증되지 않은 복사본문");
+        assertThatThrownBy(()->validator.payload(prepared,payload,citations)).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class);
+    }
     @Test @DisplayName("정의된 인용 경로 밖 복사와 필수 context 인용 누락은 계속 거절한다")
     void undeclaredCopiesAndMissingContextCitationsRemainInvalid() throws Exception {
         var payload=(com.fasterxml.jackson.databind.node.ObjectNode)fixture().path("requests").path("settingUnit").path("payload").deepCopy();var prepared=payloadContext(json.createArrayNode());var validator=payloadValidator();var citations=payloadCitations();

@@ -149,9 +149,9 @@ public class ValidationPublicationValidator {
                 if(!field.getValue().isArray())throw error(VALIDATION_RESULT_INVALID);
                 var known=mapper.toValidationSettings(p.context().entries(),p.context().sourceReferences());
                 for(var setting:field.getValue()) {
-                    var actual=known.get(setting.path("entry_ref").asText());
-                    if(actual==null||!decisions.same(actual,setting))throw error(VALIDATION_RESULT_INVALID);
-                    validateDepth(setting,depth+2);
+                    // GH349: 행은 ref만 요구한다. 서버 canonical 전체 행(이전 Worker)은 원문이 아닌 고정 기준이라 text/quote 속성을 span으로 보지 않고,
+                    // 그 밖의 행은 추가 키가 다른 payload처럼 인용 검사를 받아 검증되지 않은 복사본문을 settings에 숨길 수 없다.
+                    if(decisions.same(decisions.setting(known,setting),setting))validateDepth(setting,depth+2);else validateQuotes(p,setting,citations,depth+2);
                 }
             }
             // Copies outside the typed span/context paths cannot hide in arbitrary checkpoint JSON.

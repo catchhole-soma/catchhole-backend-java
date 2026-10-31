@@ -204,6 +204,8 @@ DATABASE_POOL_MINIMUM_IDLE=2
 
 검수 grid v3 배포(#349 후속): SETTING grid가 `gridVersion` 3이 된다. 모양은 v2와 같고 기계 주체 매칭에서 1글자 이름·별칭을 빼는 규칙만 다르다. 배포 전에 v2 SETTING grid가 저장된 Job(첫 운영 실행의 Job 포함)도 배포 뒤 첫 SETTING 게시에서 `VALIDATION_SOURCE_VERSION_CONFLICT`로 끝나고, 공개 retry가 v1과 같은 루틴으로 SETTING 분기 사본을 버리고 v3 grid로 자동 전환한다(설정 분기 finding과 판단은 재검사로 다시 생성, 오탈자 분기는 유지). 위 절의 진단 조회는 v1·v2 grid Job을 함께 찾는다. AI 검수 Worker는 `gridVersion` 3을 받는 버전(2와 3을 모두 받는다)을 먼저 또는 함께 배포하고, `RUNNING` 검수 Job이 없을 때 배포하는 것이 좋다.
 
+검수 판정 bundle 배포(#349 후속): 판정 게시(`/units`)의 `evidence_bundle.settings`가 항목 전체 사본 대신 `entry_ref`·`subject_ref`만 담는다. 운영 캐릭터 항목 하나가 게시 상한(131,072 bytes)을 넘어 그 대상의 판정이 `VALIDATION_RESULT_INVALID`로 끝났기 때문이다. 새 서버는 이전 Worker의 전체 행도 받는다. Backend와 AI를 검수 Job이 `RUNNING`이 아닐 때 함께 배포한다(새 Worker는 새 서버가 필요).
+
 끄기: 같은 lock 아래에서 `VALIDATION_EXECUTION_ENABLED=false`로 바꾸거나 두 값을 함께 지운 뒤 4~5와 같이 backend를 재생성한다. 꺼진 앱은 새 Job 생성을 하지 않고 검수 Worker의 claim과 retry를 `VALIDATION_RUNTIME_DISABLED`로 거절한다. 이미 만든 Job과 리포트는 지우지 않는다.
 
 실패 신호: 예산 JSON 없이 `true`로 켜면 기동 로그에 `검수 실행 제한을 명시적으로 설정해야 합니다.`가 남고 health가 실패한다. 일부 예산이 빠졌거나 범위를 벗어나면 `검수 실행 예산을 명시적으로 설정해야 합니다.` 또는 `검수 역할 예산이 필요합니다.`, JSON이 깨졌으면 기동 초기의 JSON 파싱 오류가 남는다. 이때는 백업한 `api.env`로 되돌리고 backend를 다시 재생성한다.

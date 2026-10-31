@@ -43,8 +43,8 @@ class ValidationFindingTargetIntegrationTest extends ValidationReviewFixture {
             var check=checks.get(i);var question=questions.get(i);
             var decision=conflict(check,false);decision.put("impact",question.impact());
             @SuppressWarnings("unchecked") var bundle=(Map<String,Object>)decision.get("evidence_bundle");bundle.put("question",drafts.get(i));
-            // 검증기는 질문 대상의 고정 기준 항목 투영 전체(ENTRIES.modelSettings)를 그대로 요구한다.
-            var settings=new ArrayList<Object>();model.forEach((ref,setting)->{if(question.subjects().contains(setting.path("subject_ref").asText()))settings.add(json.convertValue(setting,Map.class));});
+            // 검증기는 질문 대상의 고정 기준 항목 전부를 entry_ref·subject_ref 행으로 요구한다(GH349, 내용 사본은 받지 않아도 된다).
+            var settings=new ArrayList<Object>();model.forEach((ref,setting)->{if(question.subjects().contains(setting.path("subject_ref").asText()))settings.add(Map.of("entry_ref",ref,"subject_ref",setting.path("subject_ref").asText()));});
             bundle.put("settings",settings);
             var command=unit(job,"SETTING",check.path("localRef").asText(),"CONFLICT",decision);command.put("idempotencyKey","unit-"+check.path("localRef").asText());
             command.put("checkId",check.path("checkId").asText());command.put("expectedCheckRevision",check.path("revision").asLong());command.put("checkInputDigest",check.path("checkInputDigest").asText());
