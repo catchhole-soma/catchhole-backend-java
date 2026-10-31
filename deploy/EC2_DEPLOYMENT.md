@@ -166,7 +166,7 @@ DATABASE_POOL_MINIMUM_IDLE=2
 
 켜는 순서:
 
-1. 저장소에서 `jq -c . deploy/validation-execution.prod.example.json`으로 한 줄 JSON을 만든다. 결과에 `$`가 없어야 Compose 보간과 충돌하지 않는다.
+1. 저장소에서 `jq -c . deploy/validation-execution.prod.example.json`으로 한 줄 JSON을 만든다. 결과에 `$`가 없어야 Compose 보간과 충돌하지 않는다. 예시의 `roles.QUERY_EMBEDDING`과 `query-embedding-model`은 AI 검수 Worker를 `--query-embedding`으로 실행해 의미 검색을 켤 때만 필요하다. 켜지 않으면 두 값을 함께 빼도 된다. 역할만 남기고 모델을 빼면 기동이 실패한다.
 2. 자동 배포·챗봇 bootstrap과 같은 `.api-deploy.lock`을 잡은 셸에서 3~5를 끝낸다. `api.env`는 비공개로 백업하고 `BACKEND_IMAGE` 등 다른 값은 바꾸지 않는다.
 
    ```bash
@@ -199,6 +199,8 @@ DATABASE_POOL_MINIMUM_IDLE=2
    ```
 
 6. 켜기 전에 이미 접수된 리포트는 Job이 없다. 앱은 기동할 때 과거 리포트를 일괄로 queue하지 않으므로 작가가 화면의 "다시 시도"(retry)를 눌러 Job을 만든다.
+
+검수 grid v2 배포(#349): SETTING grid가 전체 설정 페이지 선별에서 주체 매칭과 `SUBJECT_RESOLUTION` 단계로 바뀐다. 운영 예산 키(`RELATED_SELECTION` 역할 포함)는 그대로다. 배포 전에 SETTING grid가 저장된 Job은 배포 뒤 `VALIDATION_SOURCE_VERSION_CONFLICT`로 끝나고 같은 입력 retry도 저장 grid를 유지해 풀리지 않으므로, `RUNNING` 검수 Job이 없을 때 배포하고 [검수 실행 문서](../docs/validation-execution-v1.md)의 "grid v2와 SUBJECT_RESOLUTION" 절 조회로 남은 v1 grid Job을 먼저 확인한다. AI 검수 Worker도 같은 계약 버전으로 함께 배포한다.
 
 끄기: 같은 lock 아래에서 `VALIDATION_EXECUTION_ENABLED=false`로 바꾸거나 두 값을 함께 지운 뒤 4~5와 같이 backend를 재생성한다. 꺼진 앱은 새 Job 생성을 하지 않고 검수 Worker의 claim과 retry를 `VALIDATION_RUNTIME_DISABLED`로 거절한다. 이미 만든 Job과 리포트는 지우지 않는다.
 
