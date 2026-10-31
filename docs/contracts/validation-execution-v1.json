@@ -1224,16 +1224,6 @@
               "contextEnd": 5
             }
           ],
-          "books": [
-            {
-              "sourceRef": "R1",
-              "totalCodePoints": 0,
-              "plannedChecks": 0,
-              "segments": []
-            }
-          ],
-          "clueVersion": 1,
-          "modelClues": [],
           "segmentSubjects": [
             {
               "segmentRef": "TSEG1",
@@ -1248,6 +1238,16 @@
               "subjectRefs": []
             }
           ],
+          "books": [
+            {
+              "sourceRef": "R1",
+              "totalCodePoints": 0,
+              "plannedChecks": 0,
+              "segments": []
+            }
+          ],
+          "clueVersion": 1,
+          "modelClues": [],
           "pendingBookRefs": []
         },
         "expectedTypo": {
@@ -1419,6 +1419,16 @@
               "contextEnd": 3
             }
           ],
+          "segmentSubjects": [
+            {
+              "segmentRef": "TSEG1",
+              "subjectRefs": []
+            },
+            {
+              "segmentRef": "TSEG2",
+              "subjectRefs": []
+            }
+          ],
           "books": [
             {
               "sourceRef": "R1",
@@ -1458,16 +1468,6 @@
           ],
           "clueVersion": 1,
           "modelClues": [],
-          "segmentSubjects": [
-            {
-              "segmentRef": "TSEG1",
-              "subjectRefs": []
-            },
-            {
-              "segmentRef": "TSEG2",
-              "subjectRefs": []
-            }
-          ],
           "pendingBookRefs": []
         },
         "expectedTypo": {
@@ -1595,6 +1595,14 @@
               "contextEnd": 18
             }
           ],
+          "segmentSubjects": [
+            {
+              "segmentRef": "TSEG1",
+              "subjectRefs": [
+                "S1"
+              ]
+            }
+          ],
           "clueVersion": 1,
           "modelClues": [
             {
@@ -1646,14 +1654,6 @@
                 "end": 18,
                 "quote": "사흘"
               }
-            }
-          ],
-          "segmentSubjects": [
-            {
-              "segmentRef": "TSEG1",
-              "subjectRefs": [
-                "S1"
-              ]
             }
           ],
           "books": [],
@@ -1798,6 +1798,16 @@
               "contextEnd": 3
             }
           ],
+          "segmentSubjects": [
+            {
+              "segmentRef": "TSEG1",
+              "subjectRefs": []
+            },
+            {
+              "segmentRef": "TSEG2",
+              "subjectRefs": []
+            }
+          ],
           "books": [
             {
               "sourceRef": "R1",
@@ -1826,16 +1836,6 @@
           ],
           "clueVersion": 1,
           "modelClues": [],
-          "segmentSubjects": [
-            {
-              "segmentRef": "TSEG1",
-              "subjectRefs": []
-            },
-            {
-              "segmentRef": "TSEG2",
-              "subjectRefs": []
-            }
-          ],
           "pendingBookRefs": [
             "R2"
           ]
