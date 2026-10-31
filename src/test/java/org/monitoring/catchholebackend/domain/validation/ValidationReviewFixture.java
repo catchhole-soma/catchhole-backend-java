@@ -23,12 +23,11 @@ abstract class ValidationReviewFixture extends ValidationWorkerFixture {
     Map<String,Object> cite(int start,int end,String quote) {return Map.of("sourceRef","T1","sourceHash",target.getContentHash(),"sourceVersion",target.getContentS3Version(),"start",start,"end",end,"quote",quote);}
     Map<String,Object> priorCite() {return Map.of("sourceRef","R1","sourceHash",priorHash,"sourceVersion",prior.getContentS3Version(),"start",0,"end",2,"quote","합성");}
     UUID reportId(JsonNode job) {return UUID.fromString(job.path("scope").path("reportId").asText());}
-    /** Saves planner/selection/coverage and returns the server-issued checks for Q1..Qn. */
+    /** Saves planner/subject-resolution/coverage and returns the server-issued checks for Q1..Qn. */
     List<JsonNode> plan(JsonNode job,int count) throws Exception {
         var drafts=new ArrayList<Object>();for(int i=1;i<=count;i++)drafts.add(draft("local-"+i,List.of(SPAN)));
         var planner=publication(job,"SETTING","PLANNER","TSEG1",batch("TSEG1",drafts));planner.put("citations",List.of(cite(0,2,"처음")));internal(path(job,"/plans"),job,planner,200);
-        int entries=stored(get(reportId(job))).getBaselineEntries().size();var selected=new ArrayList<Object>();for(int i=1;i<=entries;i++)selected.add(Map.of("entry_ref","B"+i,"selected",false,"reason","합성 비선정"));
-        savePlan(job,"RELATED_SELECTION","TSEG1:PAGE1",Map.of("entries",selected));savePlan(job,"COVERAGE","TSEG1",batch("TSEG1",List.of()));
+        savePlan(job,"SUBJECT_RESOLUTION","TSEG1",Map.of("mentions",List.of()));savePlan(job,"COVERAGE","TSEG1",batch("TSEG1",List.of()));
         var questions=new ArrayList<Object>();for(int i=1;i<=count;i++)questions.add(Map.of("localRef","Q"+i,"originalRefs",List.of("PLANNER:TSEG1:local-"+i),"state",Map.of("draft",drafts.get(i-1))));
         var merged=publication(job,"SETTING","MERGED_PLAN","PLAN",Map.of("questions",questions));merged.put("citations",List.of(cite(0,2,"처음")));
         var checks=new ArrayList<JsonNode>();internal(path(job,"/plans"),job,merged,200).path("checks").forEach(checks::add);return checks;

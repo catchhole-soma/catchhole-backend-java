@@ -34,8 +34,7 @@ class ValidationFindingTargetIntegrationTest extends ValidationReviewFixture {
         var drafts=new ArrayList<Map<String,Object>>();
         for(int i=0;i<questions.size();i++) {var d=draft("local-"+(i+1),List.of(SPAN));d.put("subject_refs",questions.get(i).subjects());d.put("property_or_rule",questions.get(i).property());drafts.add(d);}
         var planner=publication(job,"SETTING","PLANNER","TSEG1",batch("TSEG1",drafts));planner.put("citations",List.of(cite(0,2,"처음")));internal(path(job,"/plans"),job,planner,200);
-        int entries=stored(get(report)).getBaselineEntries().size();var selected=new ArrayList<Object>();for(int i=1;i<=entries;i++)selected.add(Map.of("entry_ref","B"+i,"selected",false,"reason","합성 비선정"));
-        savePlan(job,"RELATED_SELECTION","TSEG1:PAGE1",Map.of("entries",selected));savePlan(job,"COVERAGE","TSEG1",batch("TSEG1",List.of()));
+        savePlan(job,"SUBJECT_RESOLUTION","TSEG1",Map.of("mentions",List.of()));savePlan(job,"COVERAGE","TSEG1",batch("TSEG1",List.of()));
         var merged=new ArrayList<Object>();for(int i=0;i<drafts.size();i++)merged.add(Map.of("localRef","Q"+(i+1),"originalRefs",List.of("PLANNER:TSEG1:local-"+(i+1)),"state",Map.of("draft",drafts.get(i))));
         var plan=publication(job,"SETTING","MERGED_PLAN","PLAN",Map.of("questions",merged));plan.put("citations",List.of(cite(0,2,"처음")));
         var checks=new ArrayList<JsonNode>();internal(path(job,"/plans"),job,plan,200).path("checks").forEach(checks::add);
