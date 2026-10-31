@@ -200,7 +200,7 @@ DATABASE_POOL_MINIMUM_IDLE=2
 
 6. 켜기 전에 이미 접수된 리포트는 Job이 없다. 앱은 기동할 때 과거 리포트를 일괄로 queue하지 않으므로 작가가 화면의 "다시 시도"(retry)를 눌러 Job을 만든다.
 
-검수 grid v2 배포(#349): SETTING grid가 전체 설정 페이지 선별에서 주체 매칭과 `SUBJECT_RESOLUTION` 단계로 바뀐다. 운영 예산 키(`RELATED_SELECTION` 역할 포함)는 그대로다. 배포 전에 SETTING grid가 저장된 Job은 배포 뒤 `VALIDATION_SOURCE_VERSION_CONFLICT`로 끝나고 같은 입력 retry도 저장 grid를 유지해 풀리지 않으므로, `RUNNING` 검수 Job이 없을 때 배포하고 [검수 실행 문서](../docs/validation-execution-v1.md)의 "grid v2와 SUBJECT_RESOLUTION" 절 조회로 남은 v1 grid Job을 먼저 확인한다. AI 검수 Worker도 같은 계약 버전으로 함께 배포한다.
+검수 grid v2 배포(#349): SETTING grid가 전체 설정 페이지 선별에서 주체 매칭과 `SUBJECT_RESOLUTION` 단계로 바뀐다. 운영 예산 키(`RELATED_SELECTION` 역할 포함)는 그대로다. 배포 전에 SETTING grid가 저장된 Job은 배포 뒤 첫 SETTING 게시에서 `VALIDATION_SOURCE_VERSION_CONFLICT`로 끝나고, 작가가 화면에서 "다시 시도"(공개 retry)를 누르면 서버가 SETTING 분기 사본을 버리고 v2 grid로 자동 전환한다(TYPO 결과·finding·사용량 누계는 유지). 이미 SETTING finding이 있는 Job은 전환되지 않는다. `RUNNING` 검수 Job이 없을 때 배포하는 것이 좋고, [검수 실행 문서](../docs/validation-execution-v1.md)의 "grid v2와 SUBJECT_RESOLUTION" 절 조회는 남은 v1 grid Job 진단용이다. AI 검수 Worker도 같은 계약 버전으로 함께 배포한다.
 
 끄기: 같은 lock 아래에서 `VALIDATION_EXECUTION_ENABLED=false`로 바꾸거나 두 값을 함께 지운 뒤 4~5와 같이 backend를 재생성한다. 꺼진 앱은 새 Job 생성을 하지 않고 검수 Worker의 claim과 retry를 `VALIDATION_RUNTIME_DISABLED`로 거절한다. 이미 만든 Job과 리포트는 지우지 않는다.
 

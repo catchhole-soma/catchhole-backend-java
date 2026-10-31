@@ -273,15 +273,29 @@ grid v1은 target segment마다 전체 catalogue를 `cataloguePageSize`씩 나�
 - `RELATED_SELECTION`은 저장 이력 읽기용 stage enum과 역할 이름으로만 남는다. v2 grid에 그 단위가 없으므로 게시는 VALIDATION_RESULT_INVALID다.
   `cataloguePageSize`는 ENTRIES 읽기 페이지 크기로 계속 유효한 예산 키다.
 
-호환: 서버는 게시마다 grid를 다시 계산하고 extendGrid가 저장 grid의 base와 비교한다. 배포 전에 SETTING grid가 저장된 Job
-(실행 중이거나 lease 회수·실패·부분 완료 뒤 retry를 기다리는 Job)은 배포 뒤 SETTING 게시가 VALIDATION_SOURCE_VERSION_CONFLICT로 거절된다.
-현재 같은 입력 retry(`ValidationJob.retry`)는 같은 Job의 저장 grid를 유지하므로 이 충돌을 풀지 못하고, 같은 원고의 재검수는
-VALIDATION_RECHECK_INPUT_UNCHANGED로 거절된다. 배포는 RUNNING 검수 Job이 없을 때 하고, 배포 전 아래 조회로 v1 SETTING grid를 가진
-미완료 Job을 확인한다. 이런 report의 복구 방법은 별도로 정한다.
+호환 — 공개 retry가 v1 Job을 자동 전환한다. 서버는 게시마다 grid를 다시 계산하고 extendGrid는 저장 grid의 base와 그대로 엄격히
+비교한다. 그래서 배포 전에 SETTING grid가 저장된 Job은 배포 뒤 첫 SETTING 게시가 VALIDATION_SOURCE_VERSION_CONFLICT로 끝난다.
+작가의 공개 retry(`retryValidation`, PARTIAL·FAILED)는 저장 SETTING grid가 현재 빌더의 것(gridVersion 2, `segmentSubjects` 있음)이
+아니면 같은 트랜잭션에서 SETTING 분기 사본을 버린 뒤 기존 retry를 그대로 진행하고, 다음 실행의 첫 SETTING 게시가 v2 grid를 새로 만든다.
+
+- 지우는 것: SETTING stage(v1 RELATED_SELECTION page 포함)와 SETTING checkpoint, 질문 check와 check revision 이력, TYPO 밖의
+  인용 사본(stage·`CHECK:`·`REVISION`·`CHECKPOINT:SETTING` owner), SETTING plan·checkpoint receipt. receipt를 지우는 이유는
+  Worker의 idempotency key가 본문 hash라서 같은 본문(예: BOOK_SOURCE 읽기 결과)을 다시 보내면 옛 receipt가 재생되어 새 stage와
+  grid 갱신이 생기지 않기 때문이다. Job의 `requiredGrid`에서는 SETTING만 빼고 `gridReady=false`로 둔다.
+- 남기는 것: TYPO stage·checkpoint·receipt와 TYPO grid, finding·judgment, check 판정 unit·revision·완료 receipt,
+  사용량 원장과 역할 cap 누계. 예약 해제·UNKNOWN 처리는 기존 retry와 같다.
+- 전환하지 않는 경우: SETTING finding이 이미 있는 Job은 그 check가 finding의 FK 대상이라 지울 수 없으므로 아무것도 지우지 않고
+  v1 grid 그대로 retry된다. 이 Job은 계속 충돌하며 복구 방법은 별도로 정한다. 재검수 경로는 바꾸지 않는다(같은 원고는
+  VALIDATION_RECHECK_INPUT_UNCHANGED).
+
+배포는 RUNNING 검수 Job이 없을 때 하는 것이 좋다. 실행 중이던 Job은 첫 SETTING 게시에서 끝나고 공개 retry로 전환된다.
+아래 조회는 진단용이다(`setting_findings`가 1 이상이면 retry 전환 대상이 아니다).
 
 ```sql
-select id, report_id, status from validation_jobs
-where required_grid -> 'SETTING' ->> 'gridVersion' = '1' and status in ('QUEUED', 'RUNNING', 'PARTIAL', 'FAILED');
+select j.id, j.report_id, j.status,
+       (select count(*) from validation_findings f where f.report_id = j.report_id and f.branch = 'SETTING') as setting_findings
+from validation_jobs j
+where j.required_grid -> 'SETTING' ->> 'gridVersion' = '1' and j.status in ('QUEUED', 'RUNNING', 'PARTIAL', 'FAILED');
 ```
 
 SETTING과 TYPO grid는 독립 준비한다. SETTING의 gridVersion=2는 frozen manifest의 모든 BOOK_SOURCE 의무를
