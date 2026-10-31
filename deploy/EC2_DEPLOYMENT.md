@@ -155,6 +155,59 @@ DATABASE_POOL_MINIMUM_IDLE=2
 
 2026-10-26 실행 설정 기준 Spring Backend의 HikariCP 최대 연결 수는 10개다. 분석·비교 Worker의 SQLAlchemy 17개와 챗봇 검색 2개를 합친 **상시 앱 풀 예산은 29개**이며, 일회성 검색 백필 실행 시 별도 2개를 더해 31개다. 관리자 도구·별도 작업·추가 replica의 연결은 별도로 계산한다. 일반 Spring 기동 Flyway는 주 DataSource를 사용하며, 실제 API의 별도 Flyway 연결 override가 없음을 확인했다. DB 한도 181·예약 5, 최근 연결 기준선과 경보 근거는 [RDS 자원·백업 알림](RDS_BACKUP_MONITORING.md)을 따른다.
 
+## 검수 실행 켜기 (#344)
+
+검수 실행은 `api.env`의 `VALIDATION_EXECUTION_ENABLED`와 `SPRING_APPLICATION_JSON` 두 값으로 켜고 끈다. Compose는 두 값을 backend 컨테이너에 그대로 넘기며 기본값은 `false`와 빈 문자열이다. 꺼진 동안에는 검수 리포트가 접수돼도 Job이 생기지 않는다. 예산 수치는 애플리케이션 YAML·Java 코드에 기본값으로 두지 않고 [`validation-execution.prod.example.json`](validation-execution.prod.example.json)을 한 줄 JSON으로 넣는다. 이 수치는 2026-10-30~31 실제 모델 검증(#331·#341·#343)에서 사용한 초기 운영값이며 계약은 [검수 실행 문서](../docs/validation-execution-v1.md)의 "실행 설정과 사용량"을 따른다.
+
+전제 조건:
+
+- AI Worker 서버 Compose의 `ai-validation-worker`가 켜져 있어야 실제 검사가 수행된다. 켜지 않으면 Job은 대기 상태로 남는다. 절차는 AI 저장소의 `deploy/WORKER_EC2_DEPLOYMENT.md`를 따른다.
+- 켜기 전에 [검수 검토 문서](../docs/validation-review-v1.md)의 "B1 이전 자료 점검(배포 전 1회)" SQL이 0행인지 확인한다. 행이 있으면 같은 절의 처리 방법을 먼저 수행한다.
+
+켜는 순서:
+
+1. 저장소에서 `jq -c . deploy/validation-execution.prod.example.json`으로 한 줄 JSON을 만든다. 결과에 `$`가 없어야 Compose 보간과 충돌하지 않는다.
+2. 자동 배포·챗봇 bootstrap과 같은 `.api-deploy.lock`을 잡은 셸에서 3~5를 끝낸다. `api.env`는 비공개로 백업하고 `BACKEND_IMAGE` 등 다른 값은 바꾸지 않는다.
+
+   ```bash
+   cd /opt/catchhole
+   sudo -u ubuntu flock -w 300 .api-deploy.lock bash
+   cp -p api.env "api.env.bak-$(date +%Y%m%d%H%M%S)"
+   ```
+
+3. `api.env`에 두 값을 함께 넣는다. 이미 있는 키는 중복으로 추가하지 않고 수정한다. JSON은 따옴표로 감싸지 않는다. Compose env-file은 값을 그대로 읽는다.
+
+   ```dotenv
+   VALIDATION_EXECUTION_ENABLED=true
+   SPRING_APPLICATION_JSON={"validation":{"execution":{"lease-duration":"60s",...}}}
+   ```
+
+4. 값을 출력하지 않는 검사로 확인한 뒤 backend만 재생성한다.
+
+   ```bash
+   docker compose --env-file api.env -f compose.api.prod.yml config --quiet
+   docker compose --env-file api.env -f compose.api.prod.yml up -d backend
+   docker compose --env-file api.env -f compose.api.prod.yml exec -T backend printenv VALIDATION_EXECUTION_ENABLED
+   ```
+
+5. health를 확인한 뒤 lock 셸을 종료한다.
+
+   ```bash
+   curl -fsS http://127.0.0.1:8080/actuator/health
+   curl -fsS https://api.catchhole.com/actuator/health
+   exit
+   ```
+
+6. 켜기 전에 이미 접수된 리포트는 Job이 없다. 앱은 기동할 때 과거 리포트를 일괄로 queue하지 않으므로 작가가 화면의 "다시 시도"(retry)를 눌러 Job을 만든다.
+
+끄기: 같은 lock 아래에서 `VALIDATION_EXECUTION_ENABLED=false`로 바꾸거나 두 값을 함께 지운 뒤 4~5와 같이 backend를 재생성한다. 꺼진 앱은 새 Job 생성을 하지 않고 검수 Worker의 claim과 retry를 `VALIDATION_RUNTIME_DISABLED`로 거절한다. 이미 만든 Job과 리포트는 지우지 않는다.
+
+실패 신호: 예산 JSON 없이 `true`로 켜면 기동 로그에 `검수 실행 제한을 명시적으로 설정해야 합니다.`가 남고 health가 실패한다. 일부 예산이 빠졌거나 범위를 벗어나면 `검수 실행 예산을 명시적으로 설정해야 합니다.` 또는 `검수 역할 예산이 필요합니다.`, JSON이 깨졌으면 기동 초기의 JSON 파싱 오류가 남는다. 이때는 백업한 `api.env`로 되돌리고 backend를 다시 재생성한다.
+
+```bash
+docker compose --env-file api.env -f compose.api.prod.yml logs --tail=200 backend
+```
+
 ## Amazon RDS와 연결 session 시간대
 
 Amazon RDS의 PostgreSQL session 시간대는 `Asia/Seoul`로 고정한다. Amazon RDS 콘솔의 **파라미터 그룹**에서 실제 PostgreSQL 주 버전과 같은 패밀리의 사용자 정의 DB 파라미터 그룹을 만들고 `timezone=Asia/Seoul`로 설정한다. 예를 들어 PostgreSQL 16을 사용하면 `postgres16` 패밀리를 선택한다. 기본 DB 파라미터 그룹은 직접 수정하지 않는다.

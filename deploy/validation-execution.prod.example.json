@@ -1,0 +1,52 @@
+{
+  "validation": {
+    "execution": {
+      "lease-duration": "60s",
+      "max-lease-recoveries": 2,
+      "setting": {
+        "model-calls": 100,
+        "lookups": 200,
+        "seconds": 1800,
+        "input-tokens": 40000,
+        "output-tokens": 20000,
+        "segment-chars": 2000,
+        "context-chars": 300,
+        "catalogue-page-size": 50,
+        "search-limit": 10
+      },
+      "typo": {
+        "model-calls": 20,
+        "lookups": 20,
+        "seconds": 900,
+        "input-tokens": 20000,
+        "output-tokens": 12000,
+        "segment-chars": 2000,
+        "context-chars": 100,
+        "catalogue-page-size": 50,
+        "search-limit": 10
+      },
+      "roles": {
+        "PLANNER": {
+          "max-calls": 40,
+          "max-reserved-tokens": 2400000
+        },
+        "RELATED_SELECTION": {
+          "max-calls": 40,
+          "max-reserved-tokens": 2400000
+        },
+        "COVERAGE": {
+          "max-calls": 40,
+          "max-reserved-tokens": 2400000
+        },
+        "JUDGE": {
+          "max-calls": 40,
+          "max-reserved-tokens": 2400000
+        },
+        "TYPO": {
+          "max-calls": 20,
+          "max-reserved-tokens": 640000
+        }
+      }
+    }
+  }
+}
