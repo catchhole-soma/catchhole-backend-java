@@ -314,6 +314,10 @@ Work/회원 파기는 RESERVED/UNKNOWN 호출도 기존 worker drain에 포함�
 setting/typo의 model-calls/lookups/seconds/input-tokens/output-tokens/segment-chars/context-chars/catalogue-page-size/search-limit와
 다섯 역할 roles.*.max-calls/max-reserved-tokens를 모두 명시한다. production 수치 기본값을 만들지 않는다.
 정확한 Map enum 키를 보존하는 외부 YAML 또는 SPRING_APPLICATION_JSON을 사용할 수 있다.
+운영은 `deploy/validation-execution.prod.example.json`을 `jq -c`로 만든 한 줄을 `api.env`의 `SPRING_APPLICATION_JSON`에 넣고
+`VALIDATION_EXECUTION_ENABLED=true`와 함께 켜며, 운영 Compose가 두 값을 backend에 그대로 넘긴다(#344, 절차는 `deploy/EC2_DEPLOYMENT.md`).
+이 수치는 2026-10-30~31 실제 모델 검증(#331·#341·#343)에서 쓴 초기 운영값이며 코드 기본값이 아니다.
+`ValidationExecutionProdExampleTest`가 예시 파일이 활성 검증을 통과해 바인딩되는지 확인한다.
 테스트 수치는 `src/test/resources/validation-execution-fixture.properties`이며 운영 권장값이 아니다.
 비활성 앱은 예산 없이 정상 기동하며 과거 report를 시작 시 일괄 queue하지 않는다. 활성화 뒤 기존 waiting report는
 명시 START/RECHECK의 동일 접수 복구 또는 공개 retry로 시작한다.
