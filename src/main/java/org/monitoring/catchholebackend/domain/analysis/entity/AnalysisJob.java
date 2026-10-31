@@ -77,6 +77,13 @@ public class AnalysisJob extends BaseEntity {
     @jakarta.persistence.Column(name="relationship_analysis_enabled", nullable=false)
     private boolean relationshipAnalysisEnabled;
     public void enableRelationshipAnalysis() {relationshipAnalysisEnabled=true;}
+    @Column(name="relationship_service_paid",nullable=false,updatable=false)
+    private boolean relationshipServicePaid;
+    @Column(name="relationship_generation",nullable=false)
+    private long relationshipGeneration;
+    public void configureRelationship(long generation, boolean paid) { relationshipGeneration=generation; relationshipServicePaid=paid; relationshipAnalysisEnabled=true; }
+    public void deferRelationshipAnalysis() { relationshipAnalysisEnabled=false; }
+
 
 
     @Id
@@ -833,6 +840,17 @@ public class AnalysisJob extends BaseEntity {
         this.failureDiagnostics = null;
         this.completedAt = LocalDateTime.now();
         recordResultReady(metricsAttemptNo, completedAt, "canceled");
+        clearLease();
+    }
+
+    /** Keep the original billing policy and usage receipts when a service-funded replay replaces it. */
+    public void supersedeRelationshipAnalysis() {
+        if (jobType != AnalysisJobType.RELATIONSHIP_EXTRACTION || status != AnalysisJobStatus.PENDING) {
+            throw new IllegalStateException("대기 중인 관계 전용 작업만 운영 재분석으로 대체할 수 있습니다.");
+        }
+        status = AnalysisJobStatus.CANCELED;
+        currentStep = "서비스 부담 관계 재분석으로 대체됨";
+        completedAt = LocalDateTime.now();
         clearLease();
     }
 

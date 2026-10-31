@@ -102,6 +102,11 @@ ai-token:
   minimum-comparison-reservation: ${AI_TOKEN_MINIMUM_COMPARISON_RESERVATION:128256}
 
 analysis:
+  relationship-backfill:
+    enabled: ${RELATIONSHIP_BACKFILL_ENABLED:false}
+    scheduling-enabled: ${RELATIONSHIP_BACKFILL_SCHEDULING_ENABLED:true}
+    fixed-delay-ms: ${RELATIONSHIP_BACKFILL_FIXED_DELAY_MS:10000}
+    max-reserved-tokens-per-job: ${RELATIONSHIP_BACKFILL_MAX_RESERVED_TOKENS_PER_JOB:2000000}
   notifications:
     enabled: ${ANALYSIS_FAILURE_NOTIFICATIONS_ENABLED:false}
     discord-webhook-url: ${ANALYSIS_FAILURE_DISCORD_WEBHOOK_URL:}

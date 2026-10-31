@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisCharacterSettingSchemaPayload;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisEpisodePayload;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisJobPayload;
+import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisJobHeartbeatResponse;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisKnownCharacterPayload;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisProvenancePayload;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisProvisionalCharacterPayload;
@@ -37,6 +38,11 @@ public class AnalysisJobWorkerMapper {
     private final CharacterSnapshotAccessor snapshotAccessor;
     private final AnalysisRunContextMapper analysisRunContextMapper;
     private final CharacterFactEvidenceMapper characterFactEvidenceMapper;
+
+    public WorkerAnalysisJobHeartbeatResponse toHeartbeatResponse(AnalysisJob analysisJob) {
+        return new WorkerAnalysisJobHeartbeatResponse(
+                analysisJob.getLeaseToken(), analysisJob.getLeaseExpiresAt());
+    }
 
     public WorkerAnalysisJobPayload toResponse(
             AnalysisJob analysisJob,
@@ -114,7 +120,7 @@ public class AnalysisJobWorkerMapper {
                         ))
                         .toList(),
                 toEpisodeResponse(episode),
-                analysisJob.isOrderedProvisional() ? analysisJob.getAnalysisMode() : null,
+                (analysisJob.isOrderedProvisional() || analysisJob.getJobType() == org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.RELATIONSHIP_EXTRACTION) ? analysisJob.getAnalysisMode() : null,
                 analysisRunContextMapper.toResponse(analysisJob, includeReferenceSelection),
                 analysisJob.isOrderedProvisional() ? toProvisionalCharacters(orderedInputState) : List.of(),
                 analysisJob.isAutomaticReview() ? analysisJob.getReviewMode() : null,

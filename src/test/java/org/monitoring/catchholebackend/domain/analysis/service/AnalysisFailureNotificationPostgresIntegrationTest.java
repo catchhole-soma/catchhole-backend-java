@@ -26,6 +26,7 @@ import org.monitoring.catchholebackend.domain.character.processor.CharacterCurre
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation;
 import org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope;
 import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
+import org.monitoring.catchholebackend.support.PostgresFixtureCleanup;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -82,7 +83,7 @@ class AnalysisFailureNotificationPostgresIntegrationTest {
     @BeforeEach
     void seed() {
         // Testcontainers가 새로 만든 전용 DB만 정리한다.
-        jdbc.execute("TRUNCATE TABLE works, members CASCADE");
+        PostgresFixtureCleanup.truncate(jdbc, "TRUNCATE TABLE works, members CASCADE");
         jdbc.update("""
                 INSERT INTO members(id,email,password_hash,phone_verified,email_verified,display_name,status,role,created_at,updated_at)
                 VALUES (1,'notification@example.test','test-only',false,true,'합성 작가','ACTIVE','AUTHOR',now(),now())

@@ -5,7 +5,9 @@ import static org.monitoring.catchholebackend.domain.relationship.dto.Relationsh
 import static org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.Edge;
 import static org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.EdgeStatus;
 import static org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.Node;
+import static org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.Observation;
 import static org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.Operation;
+import static org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.Prepare;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -60,6 +62,24 @@ public class RelationshipGraphMapper {
                 source.nodes(),
                 source.relationships(),
                 source.heldObservations());
+    }
+
+    public Prepare toPrepareCachedObservations(
+            String sourceHash, Context context, int rejectedObservationCount) {
+        return new Prepare(
+                1,
+                sourceHash,
+                context.observations().stream()
+                        .map(
+                                observation ->
+                                        new Observation(
+                                                observation.ref(),
+                                                observation.source(),
+                                                observation.target(),
+                                                observation.summary(),
+                                                observation.evidence()))
+                        .toList(),
+                rejectedObservationCount);
     }
 
     public Node toNode(RelationshipGraphNode node, String name, int cutoff) {
