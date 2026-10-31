@@ -90,9 +90,7 @@ abstract class ValidationReviewCompletionServiceFixture {
     /** 설정 질문 0건과 오탈자 구간 하나로 실행을 끝낸다. typoFinding이면 판단할 오탈자 제안 하나를 남긴다. */
     Run runToCompletion(Fixture f,boolean typoFinding) {
         var j=claim();assertThat(j).isNotNull();
-        int entries=tx.execute(s->em.find(ValidationReport.class,f.report()).getBaselineEntries().size());var selected=new ArrayList<Object>();
-        for(int i=1;i<=entries;i++)selected.add(Map.of("entry_ref","B"+i,"selected",false,"reason","합성 비선정"));
-        plan(j,ValidationStageKind.PLANNER,"TSEG1",batch(List.of()));plan(j,ValidationStageKind.RELATED_SELECTION,"TSEG1:PAGE1",Map.of("entries",selected));
+        plan(j,ValidationStageKind.PLANNER,"TSEG1",batch(List.of()));plan(j,ValidationStageKind.SUBJECT_RESOLUTION,"TSEG1",Map.of("mentions",List.of()));
         plan(j,ValidationStageKind.COVERAGE,"TSEG1",batch(List.of()));plan(j,ValidationStageKind.MERGED_PLAN,"PLAN",Map.of("questions",List.of()));
         Map<String,Object> typo=typoFinding
                 ?Map.of("segments",List.of(Map.of("segment_ref","TSEG1","status","PLANNED","reason","제안 있음")),"suggestions",List.of(Map.of("category","SPELLING","reason","맞춤법 제안","replacement","원교","span",Map.of("source_ref","T1","start",6,"end",8,"quote","원고"))))

@@ -62,14 +62,15 @@ class ValidationExecutionProdExampleTest {
         assertThat(properties.maxLeaseRecoveries()).isEqualTo(2);
         assertThat(properties.setting()).isEqualTo(SETTING);
         assertThat(properties.typo()).isEqualTo(TYPO);
+        // RELATED_SELECTION 역할 예산은 grid v2의 SUBJECT_RESOLUTION 단계가 사용한다(#349).
         assertThat(properties.roles()).containsOnlyKeys(ValidationRole.PLANNER, ValidationRole.RELATED_SELECTION,
-                ValidationRole.COVERAGE, ValidationRole.JUDGE, ValidationRole.TYPO);
+                ValidationRole.COVERAGE, ValidationRole.JUDGE, ValidationRole.TYPO, ValidationRole.QUERY_EMBEDDING);
         for (var role : new ValidationRole[] {ValidationRole.PLANNER, ValidationRole.RELATED_SELECTION,
                 ValidationRole.COVERAGE, ValidationRole.JUDGE})
             assertThat(properties.roles().get(role)).as(role.name()).isEqualTo(new RoleBudget(40, 2_400_000));
         assertThat(properties.roles().get(ValidationRole.TYPO)).isEqualTo(new RoleBudget(20, 640_000));
-        assertThat(properties.roles()).doesNotContainKey(ValidationRole.QUERY_EMBEDDING);
-        assertThat(properties.queryEmbeddingModel()).isNull();
+        assertThat(properties.roles().get(ValidationRole.QUERY_EMBEDDING)).isEqualTo(new RoleBudget(40, 400_000));
+        assertThat(properties.queryEmbeddingModel()).isEqualTo("text-embedding-3-small");
     }
 
     @Test
@@ -97,6 +98,24 @@ class ValidationExecutionProdExampleTest {
 
         assertThatThrownBy(() -> bind(properties)).isInstanceOf(BindException.class)
                 .rootCause().isInstanceOf(IllegalArgumentException.class).hasMessage("검수 역할 예산이 필요합니다.");
+    }
+
+    @Test
+    @DisplayName("선택 임베딩 역할은 모델과 함께 빼면 활성 기동하고 모델만 빼면 실패한다")
+    void queryEmbeddingRoleIsOptionalButNeedsItsModel() throws IOException {
+        var withoutEmbedding = flattenedExample();
+        assertThat(withoutEmbedding.keySet().removeIf(key -> key.startsWith("validation.execution.roles.QUERY_EMBEDDING.")
+                || key.equals("validation.execution.query-embedding-model"))).isTrue();
+        withoutEmbedding.put("validation.execution.enabled", true);
+        var bound = bind(withoutEmbedding);
+        assertThat(bound.roles()).doesNotContainKey(ValidationRole.QUERY_EMBEDDING);
+        assertThat(bound.queryEmbeddingModel()).isNull();
+
+        var roleWithoutModel = flattenedExample();
+        assertThat(roleWithoutModel.remove("validation.execution.query-embedding-model")).isEqualTo("text-embedding-3-small");
+        roleWithoutModel.put("validation.execution.enabled", true);
+        assertThatThrownBy(() -> bind(roleWithoutModel)).isInstanceOf(BindException.class)
+                .rootCause().isInstanceOf(IllegalArgumentException.class).hasMessage("기존 검색 색인과 호환되는 명시적 임베딩 모델이 필요합니다.");
     }
 
     @Test

@@ -96,7 +96,8 @@ public class ValidationUsageServiceImpl implements ValidationUsageService {
             if(stages.stream().noneMatch(s->s.getBranch()==branch&&s.isSuccessful()&&s.getStage().name().equals(row.path("stage").asText())&&s.getRef().equals(row.path("ref").asText()))) {
                 switch(row.path("stage").asText()) {
                     case "PLANNER" -> needed.add(ValidationRole.PLANNER);
-                    case "RELATED_SELECTION" -> needed.add(ValidationRole.RELATED_SELECTION);
+                    // GH349 SUBJECT_RESOLUTION은 기존 RELATED_SELECTION 역할의 모델·예산을 쓴다. RELATED_SELECTION 단위는 배포 전 v1 grid에만 남는다.
+                    case "SUBJECT_RESOLUTION","RELATED_SELECTION" -> needed.add(ValidationRole.RELATED_SELECTION);
                     case "COVERAGE","BOOK_COVERAGE" -> needed.add(ValidationRole.COVERAGE);
                     case "TYPO_SEGMENT" -> needed.add(ValidationRole.TYPO);
                     default -> { }

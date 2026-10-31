@@ -40,6 +40,7 @@ public class ValidationWorkerServiceImpl implements ValidationWorkerService {
     private final ValidationBaselineService baselines;
     private final ValidationReviewGate reviewGate;
     private final ValidationReviewCompletionRepository completions;
+    private final ValidationExecutionRepository results;
 
     @Override @Transactional public void queuePrepared(ValidationReport r) {
         if(!properties.enabled()||!r.isCurrent()||r.getBaselineStatus()!=ValidationPreparationStatus.READY||r.getBaselineSeed()==null||r.getBaselineEntries()==null||jobs.findByReportId(r.getId()).isPresent())return;
@@ -102,7 +103,12 @@ public class ValidationWorkerServiceImpl implements ValidationWorkerService {
         else {
             j=jobs.findForUpdate(j.getId()).orElseThrow();em.refresh(j);
             if(j.getStatus()!=ValidationExecutionStatus.PARTIAL&&j.getStatus()!=ValidationExecutionStatus.FAILED)throw error(VALIDATION_PUBLICATION_CONFLICT);
-            budgetPolicy.refreshForRetry(j);usage.ensureValidationRetryCapacity(j);usage.releaseReservedValidationUsage(j,AiTokenUsageOutcome.USAGE_UNAVAILABLE);j.retry();r.advanceVersion();
+            budgetPolicy.refreshForRetry(j);
+            // GH349: 이전 빌더의 SETTING grid는 현재 grid와 base가 달라 모든 SETTING 게시가 충돌한다. SETTING 분기 사본(finding·판단 포함)을
+            // 버리고 새 grid로 다시 실행한다. report version은 아래 retry 전이에서 한 번 올린다.
+            var stored=j.getRequiredGrid()==null?null:j.getRequiredGrid().get("SETTING");
+            if(stored!=null&&!ValidationPublicationValidator.currentSettingGrid(stored)) {results.discardSettingBranch(r.getId());j.discardSettingGrid();em.flush();}
+            usage.ensureValidationRetryCapacity(j);usage.releaseReservedValidationUsage(j,AiTokenUsageOutcome.USAGE_UNAVAILABLE);j.retry();r.advanceVersion();
         }
         var response=staging(r);var key=ValidationRequestKey.create(owner,c.idempotencyKey(),r,"RETRY",hash);key.recordRetryResponse(mapper.toTree(response));keys.save(key);em.flush();return response;
     }

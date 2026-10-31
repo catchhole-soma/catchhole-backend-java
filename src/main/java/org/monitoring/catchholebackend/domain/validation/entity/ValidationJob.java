@@ -41,6 +41,11 @@ public class ValidationJob extends BaseEntity {
         ((com.fasterxml.jackson.databind.node.ObjectNode)requiredGrid).set(branch.name(),grid.deepCopy());
         gridReady=requiredGrid.has("SETTING")&&requiredGrid.has("TYPO")&&requiredGrid.path("SETTING").path("pendingBookRefs").isEmpty();
     }
+    /** GH349: 이전 빌더의 SETTING grid를 버려 다음 SETTING 게시가 현재 grid를 새로 만들게 한다. TYPO grid는 유지한다. */
+    public void discardSettingGrid() {
+        if(requiredGrid!=null) {var kept=(com.fasterxml.jackson.databind.node.ObjectNode)requiredGrid.deepCopy();kept.remove("SETTING");requiredGrid=kept.isEmpty()?null:kept;}
+        gridReady=false;
+    }
     public void finish(ValidationExecutionStatus result,String reason) { status=result;failureCode=reason; }
     public void cancel() { status=ValidationExecutionStatus.CANCELED;leaseToken=null;leaseExpiresAt=null;requiredGrid=null;gridReady=false;failureCode="SOURCE_EVIDENCE_PURGED"; }
 }

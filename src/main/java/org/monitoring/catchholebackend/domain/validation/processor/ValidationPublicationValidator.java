@@ -18,6 +18,8 @@ import static org.monitoring.catchholebackend.domain.validation.exception.Valida
 @Component @RequiredArgsConstructor
 public class ValidationPublicationValidator {
     public static final int MAX_PAYLOAD_BYTES=131072;
+    /** GH349 SETTING grid 빌더 버전. 저장 grid가 이와 다르면 공개 retry가 SETTING 분기를 버리고 다시 만든다. */
+    public static final int SETTING_GRID_VERSION=2;
     private final ValidationDataService data;
     private final ValidationDecisionValidator decisions;
     private final ValidationClueCollector clues;
@@ -30,17 +32,16 @@ public class ValidationPublicationValidator {
         if(target.path("text").asText().isEmpty())throw error(VALIDATION_RESULT_INVALID);
         var limits=c.configuration().path("budgets").path(branch==ValidationBranch.SETTING?"setting":"typo");
         int core=limits.path("segmentChars").asInt(),context=limits.path("contextChars").asInt();
-        var grid=JsonNodeFactory.instance.objectNode().put("gridVersion",1);var units=grid.putArray("units");
+        // GH349: SETTING grid v2는 전수 catalogue page 대신 구간별 주체 매칭과 SUBJECT_RESOLUTION 단계를 요구한다. TYPO grid는 v1 그대로다.
+        var grid=JsonNodeFactory.instance.objectNode().put("gridVersion",branch==ValidationBranch.SETTING?SETTING_GRID_VERSION:1);var units=grid.putArray("units");
         ArrayNode segments=segments(target.path("totalCodePoints").asInt(),core,context);grid.set("segments",segments);
         var sources=new LinkedHashMap<String,JsonNode>();sources.put("T1",target);
         if(branch==ValidationBranch.TYPO)for(var s:segments)unit(units,"TYPO_SEGMENT",s.path("ref").asText());
         else {
-            grid.put("clueVersion",1).set("modelClues",clues.collectValidationClues(target.path("text").asText(),mapper.toValidationNames(c.entries())));
-            int count=input.path("entryCount").asInt(),page=limits.path("cataloguePageSize").asInt();
-            for(var s:segments) {
-                String ref=s.path("ref").asText();unit(units,"PLANNER",ref);unit(units,"COVERAGE",ref);
-                for(int offset=0,index=1;offset<count;offset+=page,index++)unit(units,"RELATED_SELECTION",ref+":PAGE"+index);
-            }
+            String text=target.path("text").asText();
+            grid.put("clueVersion",1).set("modelClues",clues.collectValidationClues(text,mapper.toValidationNames(c.entries())));
+            grid.set("segmentSubjects",segmentSubjects(text,segments,mapper.toValidationSettings(c.entries(),c.sourceReferences()).values()));
+            for(var s:segments) {String ref=s.path("ref").asText();unit(units,"PLANNER",ref);unit(units,"SUBJECT_RESOLUTION",ref);unit(units,"COVERAGE",ref);}
             var books=grid.putArray("books");
             for(var source:input.path("sources"))if("SETTING_BOOK".equals(source.path("sourceKind").asText())) {
                 String ref=source.path("sourceRef").asText();var previous=bookOrNull(savedGrid,ref);var b=books.addObject().put("sourceRef",ref);
@@ -71,6 +72,28 @@ public class ValidationPublicationValidator {
         }
         bookUnits(merged);return new Prepared(prepared.context(),prepared.branch(),merged,prepared.sources(),prepared.entryCount());
     }
+    /**
+     * GH349 기계 주체 매칭. 구간 문맥 원문 text[contextStart:contextEnd](code point)에 항목의 비어 있지 않은 name 또는 aliases 문자열이
+     * 정규화 없이 그대로 들어 있으면 그 항목의 subject_ref를 고른다. name이 null이고 aliases가 비면 매칭하지 않는다.
+     * subjectRefs는 S 번호 순이며 중복이 없다. segmentSubjects는 gridBase에 포함되므로 catalogue가 바뀌면 extendGrid가 충돌로 거절한다.
+     */
+    private static ArrayNode segmentSubjects(String text,JsonNode segments,Collection<JsonNode> settings) {
+        var result=JsonNodeFactory.instance.arrayNode();
+        for(var segment:segments) {
+            int from=text.offsetByCodePoints(0,segment.path("contextStart").asInt()),to=text.offsetByCodePoints(from,segment.path("contextEnd").asInt()-segment.path("contextStart").asInt());
+            String window=text.substring(from,to);var refs=new TreeSet<String>(Comparator.comparingInt(ValidationPublicationValidator::subjectNumber));
+            for(var setting:settings)if(mentioned(window,setting))refs.add(setting.path("subject_ref").asText());
+            var subjects=result.addObject().put("segmentRef",segment.path("ref").asText()).putArray("subjectRefs");refs.forEach(subjects::add);
+        }
+        return result;
+    }
+    private static boolean mentioned(String window,JsonNode setting) {
+        if(literal(setting.path("name"))&&window.contains(setting.path("name").asText()))return true;
+        for(var alias:setting.path("aliases"))if(literal(alias)&&window.contains(alias.asText()))return true;
+        return false;
+    }
+    private static boolean literal(JsonNode value) {return value.isTextual()&&!value.asText().isEmpty();}
+    private static int subjectNumber(String ref) {return Integer.parseInt(ref.substring(1));}
     private ObjectNode gridBase(JsonNode grid) {
         var base=(ObjectNode)grid.deepCopy();base.remove(List.of("books","pendingBookRefs"));var units=base.putArray("units");
         for(var row:grid.path("units"))if(!Set.of("BOOK_SOURCE","BOOK_COVERAGE","MERGED_PLAN").contains(row.path("stage").asText()))units.add(row);
@@ -85,6 +108,8 @@ public class ValidationPublicationValidator {
         }
         unit(units,"MERGED_PLAN","PLAN");
     }
+    /** 저장 SETTING grid가 현재 빌더(gridVersion 2, segmentSubjects 포함)가 만든 것인지. */
+    public static boolean currentSettingGrid(JsonNode grid) {return grid.path("gridVersion").asInt()==SETTING_GRID_VERSION&&grid.has("segmentSubjects");}
     public static boolean sourcesReady(JsonNode grid) {return grid!=null&&grid.path("pendingBookRefs").isEmpty();}
     public void recheck(Context c) {read(c,"VALIDATE",null,null,null,null,null);}
     public void payload(Prepared p,JsonNode payload,List<Citation> citations) {
@@ -152,25 +177,17 @@ public class ValidationPublicationValidator {
             return;
         }
         String segment=ref.split(":")[0];
-        if(kind==ValidationStageKind.RELATED_SELECTION) {
-            int page=Integer.parseInt(ref.substring(ref.lastIndexOf("PAGE")+4));int size=p.context().configuration().path("budgets").path("setting").path("cataloguePageSize").asInt();
-            var expected=new HashSet<String>();for(int i=(page-1)*size;i<Math.min(page*size,p.entryCount());i++)expected.add("B"+(i+1));
-            var actual=new HashSet<String>();if(!body.path("entries").isArray())throw error(VALIDATION_RESULT_INVALID);
-            for(var e:body.path("entries"))if(!e.path("selected").isBoolean()||e.path("reason").asText().isBlank()||!actual.add(e.path("entry_ref").asText()))throw error(VALIDATION_RESULT_INVALID);
-            if(!actual.equals(expected))throw error(VALIDATION_RESULT_INVALID);return;
-        }
+        // RELATED_SELECTION은 배포 전 저장 이력용 enum 값으로만 남는다. v2 grid에는 그 단위가 없어 위 contains()에서 거절된다.
+        if(kind==ValidationStageKind.SUBJECT_RESOLUTION) {subjectResolution(body,decisions.subjects(p));return;}
         if(kind==ValidationStageKind.TYPO_SEGMENT) {batchSegments(body,segment);return;}
         batchSegments(body,segment);
         if(!body.path("questions").isArray()||!body.path("rules").isArray())throw error(VALIDATION_RESULT_INVALID);
         Set<String> expected=new HashSet<>();
-        if(kind==ValidationStageKind.COVERAGE)for(var required:p.grid().path("units"))if("RELATED_SELECTION".equals(required.path("stage").asText())&&required.path("ref").asText().startsWith(segment+":"))
-            if(stored.stream().noneMatch(s->s.isSuccessful()&&s.getStage()==ValidationStageKind.RELATED_SELECTION&&s.getRef().equals(required.path("ref").asText())))throw error(VALIDATION_RESULT_INVALID);
         if(kind==ValidationStageKind.BOOK_COVERAGE) {
             String source=ref.substring(ref.indexOf(':')+1,ref.indexOf("SEG",ref.indexOf(':')));
             if(stored.stream().noneMatch(s->s.isSuccessful()&&s.getStage()==ValidationStageKind.BOOK_SOURCE&&s.getRef().equals(source)))throw error(VALIDATION_RESULT_INVALID);
         }
-        if(kind==ValidationStageKind.COVERAGE)for(var s:stored)if(s.isSuccessful()&&s.getStage()==ValidationStageKind.RELATED_SELECTION&&s.getRef().startsWith(segment+":"))
-            for(var e:s.getPayload().path("entries"))if(e.path("selected").asBoolean())expected.add(e.path("entry_ref").asText());
+        if(kind==ValidationStageKind.COVERAGE)expected.addAll(relevantEntryRefs(p,segment,stored));
         if(kind==ValidationStageKind.BOOK_COVERAGE)expected.add(ref.substring(ref.indexOf(':')+1));
         var actual=new HashSet<String>();for(var r:body.path("rules"))if(!Set.of("CHECKED","NOT_APPLICABLE").contains(r.path("status").asText())||r.path("reason").asText().isBlank()||!actual.add(r.path("entry_ref").asText()))throw error(VALIDATION_RESULT_INVALID);
         if(!actual.equals(expected))throw error(VALIDATION_RESULT_INVALID);
@@ -191,6 +208,31 @@ public class ValidationPublicationValidator {
             }
         }
         if("PLANNED".equals(body.path("segments").path(0).path("status").asText())!=any)throw error(VALIDATION_RESULT_INVALID);
+    }
+    /** GH349 SUBJECT_RESOLUTION payload: mentions[]마다 비어 있지 않은 유일 mention·reason, subject_ref는 null 또는 고정 주체(S1..)다. */
+    private static void subjectResolution(JsonNode body,Set<String> subjects) {
+        if(!body.path("mentions").isArray())throw error(VALIDATION_RESULT_INVALID);
+        var mentions=new HashSet<String>();
+        for(var m:body.path("mentions")) {
+            var subject=m.path("subject_ref");
+            if(!m.path("mention").isTextual()||m.path("mention").asText().isBlank()||!mentions.add(m.path("mention").asText())
+                    ||!m.path("reason").isTextual()||m.path("reason").asText().isBlank()
+                    ||!(subject.isNull()||subject.isTextual()&&subjects.contains(subject.asText())))throw error(VALIDATION_RESULT_INVALID);
+        }
+    }
+    /**
+     * GH349 COVERAGE가 처리해야 할 고정 항목: 구간의 기계 일치 주체(grid segmentSubjects)와 저장된 성공 SUBJECT_RESOLUTION이
+     * 해소한 주체(subject_ref≠null)의 합집합에 속한 모든 항목. SUBJECT_RESOLUTION이 없으면 COVERAGE를 받지 않는다.
+     */
+    private static Set<String> relevantEntryRefs(Prepared p,String segment,List<ValidationStage> stored) {
+        var resolution=stored.stream().filter(s->s.isSuccessful()&&s.getBranch()==ValidationBranch.SETTING&&s.getStage()==ValidationStageKind.SUBJECT_RESOLUTION&&s.getRef().equals(segment))
+                .findFirst().orElseThrow(()->error(VALIDATION_RESULT_INVALID));
+        var subjects=new HashSet<String>();
+        for(var row:p.grid().path("segmentSubjects"))if(segment.equals(row.path("segmentRef").asText()))for(var subject:row.path("subjectRefs"))subjects.add(subject.asText());
+        for(var mention:resolution.getPayload().path("mentions"))if(mention.path("subject_ref").isTextual())subjects.add(mention.path("subject_ref").asText());
+        var entries=new HashSet<String>();
+        org.monitoring.catchholebackend.domain.validation.mapper.ValidationDataMapper.toSubjectRefs(p.context().entries()).forEach((entry,subject)->{if(subjects.contains(subject))entries.add(entry);});
+        return entries;
     }
     public static void batchSegments(JsonNode body,String ref) {
         var s=body.path("segments");if(!s.isArray()||s.size()!=1||!ref.equals(s.path(0).path("segment_ref").asText())

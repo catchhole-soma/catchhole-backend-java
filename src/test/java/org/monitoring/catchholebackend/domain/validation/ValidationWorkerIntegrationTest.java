@@ -94,9 +94,7 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
         var citation=Map.of("sourceRef","T1","sourceHash",target.getContentHash(),"sourceVersion",target.getContentS3Version(),"start",0,"end",2,"quote","처음");
         var draft=draft("local-1",List.of(span));
         var planner=publication(job,"SETTING","PLANNER","TSEG1",batch("TSEG1",List.of(draft)));planner.put("citations",List.of(citation));internal(path(job,"/plans"),job,planner,200);
-        int entries=stored(get(UUID.fromString(job.path("scope").path("reportId").asText()))).getBaselineEntries().size();
-        List<Object> selected=new ArrayList<>();for(int i=1;i<=entries;i++)selected.add(Map.of("entry_ref","B"+i,"selected",false,"reason","합성"));
-        savePlan(job,"RELATED_SELECTION","TSEG1:PAGE1",Map.of("entries",selected));savePlan(job,"COVERAGE","TSEG1",batch("TSEG1",List.of()));
+        savePlan(job,"SUBJECT_RESOLUTION","TSEG1",Map.of("mentions",List.of()));savePlan(job,"COVERAGE","TSEG1",batch("TSEG1",List.of()));
         var plan=publication(job,"SETTING","MERGED_PLAN","PLAN",Map.of("questions",List.of(Map.of("localRef","Q1","originalRefs",List.of("PLANNER:TSEG1:local-1"),"state",Map.of("draft",draft)))));plan.put("citations",List.of(citation));
         var saved=internal(path(job,"/plans"),job,plan,200);var check=saved.path("checks").path(0);assertThat(check.path("checkId").isTextual()).isTrue();
         var assessment=Map.of("reason","실제 확인","evidence_refs",List.of("T1"),"receipt_refs",List.of("L1","L2"));
@@ -171,8 +169,7 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
         source();String priorHash=java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest("합성 앞 원고".getBytes(java.nio.charset.StandardCharsets.UTF_8)));prior.updateContentStorage(prior.getContentS3Key(),prior.getContentS3Version(),priorHash);em.flush();start();var job=claim();
         var span=Map.of("source_ref","T1","start",0,"end",2,"quote","처음");var draft=draft("local-1",List.of(span));var citation=Map.of("sourceRef","T1","sourceHash",target.getContentHash(),"sourceVersion",target.getContentS3Version(),"start",0,"end",2,"quote","처음");
         var planner=publication(job,"SETTING","PLANNER","TSEG1",batch("TSEG1",List.of(draft)));planner.put("citations",List.of(citation));internal(path(job,"/plans"),job,planner,200);
-        int count=stored(get(UUID.fromString(job.path("scope").path("reportId").asText()))).getBaselineEntries().size();var selection=new ArrayList<Object>();for(int i=1;i<=count;i++)selection.add(Map.of("entry_ref","B"+i,"selected",false,"reason","합성 비선정"));
-        savePlan(job,"RELATED_SELECTION","TSEG1:PAGE1",Map.of("entries",selection));savePlan(job,"COVERAGE","TSEG1",batch("TSEG1",List.of()));
+        savePlan(job,"SUBJECT_RESOLUTION","TSEG1",Map.of("mentions",List.of()));savePlan(job,"COVERAGE","TSEG1",batch("TSEG1",List.of()));
         var plan=publication(job,"SETTING","MERGED_PLAN","PLAN",Map.of("questions",List.of(Map.of("localRef","Q1","originalRefs",List.of("PLANNER:TSEG1:local-1"),"state",Map.of("draft",draft)))));plan.put("citations",List.of(citation));var check=internal(path(job,"/plans"),job,plan,200).path("checks").path(0);
         var bundle=evidenceBundle(draft);String quote=sourceRef.equals("T1")?"처음":"합성";bundle.put("evidence",List.of(Map.of("ref","E1","source_ref",sourceRef,"source_kind","EPISODE","start",0,"end",2,"quote",quote)));
         var assessment=Map.of("reason","실제 고정 자료 확인","evidence_refs",List.of("T1","E1"),"receipt_refs",List.of("L1","L2"));
@@ -218,11 +215,25 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
     }
     @Test @DisplayName("서버 발급 CL의 누락은 독립 보완 완료가 아니다") void coverageCannotOmitServerIssuedMechanicalClues() throws Exception {
         targetText("😀20\u00a0살 월요일");start();var job=claim();savePlan(job,"PLANNER","TSEG1",batch("TSEG1",List.of()));
-        int count=stored(get(UUID.fromString(job.path("scope").path("reportId").asText()))).getBaselineEntries().size();var selections=new ArrayList<Object>();for(int i=1;i<=count;i++)selections.add(Map.of("entry_ref","B"+i,"selected",false,"reason","합성"));
-        savePlan(job,"RELATED_SELECTION","TSEG1:PAGE1",Map.of("entries",selections));
+        savePlan(job,"SUBJECT_RESOLUTION","TSEG1",Map.of("mentions",List.of()));
         internal(path(job,"/plans"),job,publication(job,"SETTING","COVERAGE","TSEG1",batch("TSEG1",List.of())),400);
         var body=new LinkedHashMap<String,Object>(batch("TSEG1",List.of()));body.put("clue_checks",List.of(Map.of("entry_ref","CL1","status","CHECKED","reason","수량 확인"),Map.of("entry_ref","CL2","status","NOT_APPLICABLE","reason","요일 문맥 확인")));
         savePlan(job,"COVERAGE","TSEG1",body);noExtraction();
+    }
+    @Test @DisplayName("grid v2는 page 선별 대신 SUBJECT_RESOLUTION 뒤 원고에 이름이 나온 주체의 모든 항목을 COVERAGE 규칙으로 요구한다")
+    void coverageRequiresSubjectResolutionAndEveryEntryOfMentionedSubjects() throws Exception {
+        targetText("합성 인물이 웃었다");start();var job=claim();savePlan(job,"PLANNER","TSEG1",batch("TSEG1",List.of()));
+        internal(path(job,"/plans"),job,publication(job,"SETTING","RELATED_SELECTION","TSEG1:PAGE1",Map.of("entries",List.of())),400);
+        internal(path(job,"/plans"),job,publication(job,"SETTING","COVERAGE","TSEG1",batch("TSEG1",List.of())),400);
+        internal(path(job,"/plans"),job,publication(job,"SETTING","SUBJECT_RESOLUTION","TSEG1",Map.of("mentions",List.of(Map.of("mention","그","subject_ref","S99","reason","없는 주체")))),400);
+        savePlan(job,"SUBJECT_RESOLUTION","TSEG1",Map.of("mentions",List.of()));
+        var entries=stored(get(UUID.fromString(job.path("scope").path("reportId").asText()))).getBaselineEntries();
+        var subjects=org.monitoring.catchholebackend.domain.validation.mapper.ValidationDataMapper.toSubjectRefs(entries);var mentioned=new HashSet<String>();
+        for(int i=0;i<entries.size();i++) {var state=entries.get(i).path("state");if("합성 인물".equals(state.path(state.hasNonNull("name")?"name":"subjectName").asText()))mentioned.add(subjects.get("B"+(i+1)));}
+        var rules=new ArrayList<Object>();subjects.forEach((entry,subject)->{if(mentioned.contains(subject))rules.add(Map.of("entry_ref",entry,"status","CHECKED","reason","합성 규칙 확인"));});
+        assertThat(rules).isNotEmpty();assertThat(rules.size()).isLessThan(entries.size());
+        internal(path(job,"/plans"),job,publication(job,"SETTING","COVERAGE","TSEG1",batch("TSEG1",List.of())),400);
+        var coverage=new LinkedHashMap<String,Object>(batch("TSEG1",List.of()));coverage.put("rules",rules);savePlan(job,"COVERAGE","TSEG1",coverage);noExtraction();
     }
     @Test @DisplayName("새 공개 재시도만 최신 회차를 검사하고 원 receipt와 기존 lease는 보존한다") void publicRetryRequiresLatestEpisodeButOriginalReceiptAndLeaseRecoveryDoNot() throws Exception {
         var report=start();var job=claim();internal(path(job,"/complete"),job,Map.of("scope",scope(job),"idempotencyKey","old-stop","failureCode","MODEL_CALL_FAILED"),200);

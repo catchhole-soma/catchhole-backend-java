@@ -31,9 +31,8 @@ abstract class ValidationWorkerFixture extends ValidationRecheckFixture {
     JsonNode savePlan(JsonNode job,String stage,String ref,Object body) throws Exception {return internal(path(job,"/plans"),job,publication(job,"SETTING",stage,ref,body),200);}
     void prePlan(JsonNode job,List<?> questions) throws Exception {
         savePlan(job,"PLANNER","TSEG1",batch("TSEG1",questions));
-        int entries=stored(get(UUID.fromString(job.path("scope").path("reportId").asText()))).getBaselineEntries().size();
-        List<Object> selected=new ArrayList<>();for(int i=1;i<=entries;i++)selected.add(Map.of("entry_ref","B"+i,"selected",false,"reason","합성 비선정"));
-        savePlan(job,"RELATED_SELECTION","TSEG1:PAGE1",Map.of("entries",selected));savePlan(job,"COVERAGE","TSEG1",batch("TSEG1",List.of()));
+        // GH349 grid v2: 합성 원고에 고정 주체 이름이 없고 해소한 지칭도 없으므로 COVERAGE 필수 규칙은 비어 있다.
+        savePlan(job,"SUBJECT_RESOLUTION","TSEG1",Map.of("mentions",List.of()));savePlan(job,"COVERAGE","TSEG1",batch("TSEG1",List.of()));
     }
     Map<String,Object> unit(JsonNode job,String branch,String ref,String outcome,Object body) {
         return new LinkedHashMap<>(Map.of("scope",scope(job),"idempotencyKey","unit-"+branch+"-"+ref,"branch",branch,"ref",ref,"outcome",outcome,"payload",body,"citations",List.of()));
