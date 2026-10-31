@@ -276,20 +276,23 @@ grid v1은 target segment마다 전체 catalogue를 `cataloguePageSize`씩 나�
 호환 — 공개 retry가 v1 Job을 자동 전환한다. 서버는 게시마다 grid를 다시 계산하고 extendGrid는 저장 grid의 base와 그대로 엄격히
 비교한다. 그래서 배포 전에 SETTING grid가 저장된 Job은 배포 뒤 첫 SETTING 게시가 VALIDATION_SOURCE_VERSION_CONFLICT로 끝난다.
 작가의 공개 retry(`retryValidation`, PARTIAL·FAILED)는 저장 SETTING grid가 현재 빌더의 것(gridVersion 2, `segmentSubjects` 있음)이
-아니면 같은 트랜잭션에서 SETTING 분기 사본을 버린 뒤 기존 retry를 그대로 진행하고, 다음 실행의 첫 SETTING 게시가 v2 grid를 새로 만든다.
+아니면 같은 트랜잭션에서 SETTING 분기 사본을 버린 뒤 기존 retry를 그대로 진행하고(공개 report version은 그 retry 전이에서 전진한다),
+다음 실행의 첫 SETTING 게시가 v2 grid를 새로 만든다. v1 grid는 배포 전 미완료 run의 산출물이므로 **전환 시 설정 분기 finding과 그 판단은
+삭제되고 재검사로 다시 생성된다(오탈자 분기는 유지).**
 
-- 지우는 것: SETTING stage(v1 RELATED_SELECTION page 포함)와 SETTING checkpoint, 질문 check와 check revision 이력, TYPO 밖의
-  인용 사본(stage·`CHECK:`·`REVISION`·`CHECKPOINT:SETTING` owner), SETTING plan·checkpoint receipt. receipt를 지우는 이유는
+- 지우는 것(FK 순서): SETTING finding의 작가 판단 이력 → 판단 → SETTING finding(#314 B2 대상·등급 사본 컬럼 포함) →
+  SETTING plan·checkpoint receipt → TYPO 밖의 인용 사본(stage·`CHECK:`·`REVISION`·`CHECKPOINT:SETTING` owner) → check revision
+  이력 → 질문 check → SETTING checkpoint → SETTING stage(v1 RELATED_SELECTION page 포함). receipt를 지우는 이유는
   Worker의 idempotency key가 본문 hash라서 같은 본문(예: BOOK_SOURCE 읽기 결과)을 다시 보내면 옛 receipt가 재생되어 새 stage와
   grid 갱신이 생기지 않기 때문이다. Job의 `requiredGrid`에서는 SETTING만 빼고 `gridReady=false`로 둔다.
-- 남기는 것: TYPO stage·checkpoint·receipt와 TYPO grid, finding·judgment, check 판정 unit·revision·완료 receipt,
-  사용량 원장과 역할 cap 누계. 예약 해제·UNKNOWN 처리는 기존 retry와 같다.
-- 전환하지 않는 경우: SETTING finding이 이미 있는 Job은 그 check가 finding의 FK 대상이라 지울 수 없으므로 아무것도 지우지 않고
-  v1 grid 그대로 retry된다. 이 Job은 계속 충돌하며 복구 방법은 별도로 정한다. 재검수 경로는 바꾸지 않는다(같은 원고는
-  VALIDATION_RECHECK_INPUT_UNCHANGED).
+- 남기는 것: TYPO 분기 전부(finding·판단·판단 이력·stage·checkpoint·receipt·grid), 정정 receipt(`validation_corrections`),
+  check 판정 unit·revision·완료 receipt(옛 check ID를 담은 응답 사본이며 새 check와 key가 겹치지 않는다), 사용량 원장과 역할 cap 누계,
+  report 자체의 상태. 예약 해제·UNKNOWN 처리는 기존 retry와 같다.
+- 검토 종료 receipt가 있는 report는 retry 자체가 VALIDATION_REVIEW_ALREADY_COMPLETED로 막히므로 전환되지 않는다. 재검수 경로는
+  바꾸지 않는다(같은 원고는 VALIDATION_RECHECK_INPUT_UNCHANGED).
 
 배포는 RUNNING 검수 Job이 없을 때 하는 것이 좋다. 실행 중이던 Job은 첫 SETTING 게시에서 끝나고 공개 retry로 전환된다.
-아래 조회는 진단용이다(`setting_findings`가 1 이상이면 retry 전환 대상이 아니다).
+아래 조회는 진단용이다(`setting_findings`는 전환 때 지워지고 재검사로 다시 만들어질 설정 finding 수다).
 
 ```sql
 select j.id, j.report_id, j.status,
