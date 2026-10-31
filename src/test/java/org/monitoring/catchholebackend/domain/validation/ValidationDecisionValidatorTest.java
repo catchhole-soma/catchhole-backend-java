@@ -62,5 +62,30 @@ class ValidationDecisionValidatorTest {
         for(var assessment:body.path("completion"))((ObjectNode)assessment).set("receipt_refs",json.createArrayNode().add("L1").add("L2").add("L3"));
         body.put("outcome",outcome).put("basis",basis).put("impact","CAUTION").put("impact_reason","합성 비교 차이");body.set("evidence_refs",json.createArrayNode().add("T1").add("E1"));
     }
+    @Test @DisplayName("bundle settings는 질문 대상 항목의 entry_ref·subject_ref만으로 완료한다") void refsOnlySettingsAccepted() {
+        subjectS1(row("B1","S1"),row("B3","S1"));assertThatCode(()->validator.validate(prepared,check,"NO_CONFLICT",body)).doesNotThrowAnyException();
+    }
+    @Test @DisplayName("추가 키는 판정에 쓰지 않아 이전 Worker의 전체 행과 내용이 다른 행도 통과한다") void extraSettingKeysIgnored() {
+        var full=mapper.toValidationSettings(f.path("projectionVector").path("entries"),Map.of());
+        subjectS1(full.get("B1"),((ObjectNode)full.get("B3").deepCopy()).put("name","다른 이름"));assertThatCode(()->validator.validate(prepared,check,"NO_CONFLICT",body)).doesNotThrowAnyException();
+    }
+    @Test @DisplayName("고정 기준과 다른 subject_ref, 없는 entry_ref, 중복 ref는 거절한다") void wrongSettingRowsRejected() {
+        subjectS1(row("B1","S1"),row("B3","S2"));invalid();
+        subjectS1(row("B1","S1"),json.createObjectNode().put("entry_ref","B3"));invalid();
+        subjectS1(row("B1","S1"),row("B3","S1"),row("B9","S1"));invalid();
+        subjectS1(row("B1","S1"),row("B3","S1"),row("B1","S1"));invalid();
+    }
+    @Test @DisplayName("settings ref 집합은 질문 대상의 모든 항목과 같아야 한다") void settingRefSetMustEqualNeeded() {
+        subjectS1(row("B1","S1"));invalid();
+        subjectS1(row("B1","S1"),row("B2","S2"),row("B3","S1"));invalid();
+    }
+    ObjectNode row(String entry,String subject) {return json.createObjectNode().put("entry_ref",entry).put("subject_ref",subject);}
+    /** projectionVector 고정 기준(B1·B3=S1, B2=S2)과 S1 질문으로 바꾼다. 질문에 필요한 settings는 B1·B3이다. */
+    void subjectS1(JsonNode... rows) {
+        var c=prepared.context();prepared=new ValidationPublicationValidator.Prepared(new ValidationPublicationValidator.Context(c.jobId(),c.lease(),c.scope(),c.member(),c.work(),c.baselineHash(),c.targetHash(),c.configuration(),f.path("projectionVector").path("entries"),c.sourceReferences()),prepared.branch(),prepared.grid(),prepared.sources(),0);
+        var draft=(ObjectNode)state.path("draft");draft.set("subject_refs",json.createArrayNode().add("S1"));
+        check=ValidationCheck.create(mock(ValidationReport.class),"Q1",json.createArrayNode().add("PLANNER:TSEG1:local-1"),state,journal.hash(state));
+        var bundle=(ObjectNode)body.path("evidence_bundle");bundle.set("question",draft.deepCopy());bundle.set("settings",json.createArrayNode().addAll(List.of(rows)));
+    }
     void invalid() {assertThatThrownBy(()->validator.validate(prepared,check,"NO_CONFLICT",body)).isInstanceOf(AppException.class);}
 }

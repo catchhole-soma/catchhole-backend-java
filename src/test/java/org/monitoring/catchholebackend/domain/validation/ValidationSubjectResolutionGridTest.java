@@ -73,10 +73,27 @@ class ValidationSubjectResolutionGridTest {
         }
         @Test @DisplayName("subjectRefs는 S 번호 순이며 같은 주체를 한 번만 담는다")
         void subjectRefsAreNumericallySortedAndUnique() {
-            var rows=new ArrayList<ObjectNode>();String[] names={"갑","을","병","정","무","기","경","신","임","계"};
-            for(int i=0;i<names.length;i++)rows.add(entry("s"+i,names[i]));rows.add(entry("s1","을","을"));
-            var p=prepare("계가 을을 만났다",entries(rows.toArray(ObjectNode[]::new)));
+            var rows=new ArrayList<ObjectNode>();String[] names={"갑돌","을순","병철","정희","무영","기남","경자","신우","임호","계월"};
+            for(int i=0;i<names.length;i++)rows.add(entry("s"+i,names[i]));rows.add(entry("s1","을순","을순"));
+            var p=prepare("계월이 을순을 만났다",entries(rows.toArray(ObjectNode[]::new)));
             assertThat(subjects(p,"TSEG1")).containsExactly("S2","S10");
+        }
+        @Test @DisplayName("1글자 이름은 구간 문맥에 있어도 고르지 않고 2글자 이름은 고른다")
+        void oneCodePointNameIgnoredTwoCodePointNameMatched() {
+            var p=prepare("한이 하람을 불렀다",entries(entry("han","한"),entry("haram","하람")));
+            assertThat(subjects(p,"TSEG1")).as("한은 원고에 있지만 1글자라 기계 일치가 아니다").containsExactly("S2");
+        }
+        @Test @DisplayName("1글자 별칭은 무시하고 같은 항목의 2글자 별칭은 일치로 본다")
+        void oneCodePointAliasIgnoredTwoCodePointAliasMatched() {
+            var rows=entries(entry("doyun","도윤","윤","검매"));
+            assertThat(subjects(prepare("윤이 웃었다",rows),"TSEG1")).isEmpty();
+            assertThat(subjects(prepare("검매가 웃었다",rows),"TSEG1")).containsExactly("S1");
+        }
+        @Test @DisplayName("길이는 code point로 세므로 UTF-16 두 단위인 이모지 1글자 이름도 무시한다")
+        void surrogatePairNameCountsAsOneCodePoint() {
+            assertThat("😀".length()).isEqualTo(2);
+            var p=prepare("😀가 😀😀를 보았다",entries(entry("emoji","😀"),entry("pair","😀😀")));
+            assertThat(subjects(p,"TSEG1")).containsExactly("S2");
         }
         @Test @DisplayName("정규화 없이 정확히 같은 문자열만 일치로 본다")
         void comparisonIsExactWithoutNormalization() {
@@ -92,11 +109,11 @@ class ValidationSubjectResolutionGridTest {
             assertThat(subjects(p,"TSEG2")).as("서윤은 경계에 걸쳐 일치하지 않고 😀서만 일치한다").containsExactly("S2");
             assertThat(subjects(p,"TSEG3")).containsExactly("S1","S2");
         }
-        @Test @DisplayName("SETTING grid v2는 구간마다 PLANNER·SUBJECT_RESOLUTION·COVERAGE만 두고 TYPO grid는 v1 그대로다")
+        @Test @DisplayName("SETTING grid(gridVersion 3)는 구간마다 PLANNER·SUBJECT_RESOLUTION·COVERAGE만 두고 TYPO grid는 v1 그대로다")
         void settingGridV2UnitsAndUnchangedTypo() {
             var rows=entries(entry("seoyun","서윤"),entry("doyun","도윤"),entry("minsu","민수"));
             var setting=prepare("서윤😀😀도윤",2,0,rows,ValidationBranch.SETTING).grid();
-            assertThat(setting.path("gridVersion").asInt()).isEqualTo(2);
+            assertThat(setting.path("gridVersion").asInt()).isEqualTo(3);assertThat(ValidationPublicationValidator.currentSettingGrid(setting)).isTrue();
             var units=new ArrayList<String>();setting.path("units").forEach(u->units.add(u.path("stage").asText()+":"+u.path("ref").asText()));
             assertThat(units).containsExactly("PLANNER:TSEG1","SUBJECT_RESOLUTION:TSEG1","COVERAGE:TSEG1","PLANNER:TSEG2","SUBJECT_RESOLUTION:TSEG2","COVERAGE:TSEG2",
                     "PLANNER:TSEG3","SUBJECT_RESOLUTION:TSEG3","COVERAGE:TSEG3","MERGED_PLAN:PLAN");
@@ -173,7 +190,7 @@ class ValidationSubjectResolutionGridTest {
 
     @Nested @DisplayName("grid 병합")
     class GridMerge {
-        @Test @DisplayName("segmentSubjects가 다르거나 배포 전 v1 grid면 같은 실행으로 이어 가지 않는다")
+        @Test @DisplayName("segmentSubjects가 다르거나 배포 전 v1·v2 grid면 같은 실행으로 이어 가지 않고 retry 전환 대상이다")
         void differentSegmentSubjectsConflict() {
             var p=prepare("서윤은 그녀를 보았다",entries(entry("seoyun","서윤"),entry("doyun","도윤")));
             assertThatCode(()->validator.extendGrid(p,p.grid().deepCopy())).doesNotThrowAnyException();
@@ -182,6 +199,10 @@ class ValidationSubjectResolutionGridTest {
             var v1=(ObjectNode)p.grid().deepCopy();v1.put("gridVersion",1);v1.remove("segmentSubjects");
             var units=v1.putArray("units");units.addObject().put("stage","PLANNER").put("ref","TSEG1");units.addObject().put("stage","COVERAGE").put("ref","TSEG1");units.addObject().put("stage","RELATED_SELECTION").put("ref","TSEG1:PAGE1");units.addObject().put("stage","MERGED_PLAN").put("ref","PLAN");
             assertThatThrownBy(()->validator.extendGrid(p,v1)).isInstanceOf(AppException.class).extracting("resultCode").isEqualTo(ValidationErrorCode.VALIDATION_SOURCE_VERSION_CONFLICT);
+            // v2는 모양이 같고 1글자 이름 규칙만 달라 segmentSubjects가 같아도 버전이 다르면 이어 가지 않는다.
+            var v2=(ObjectNode)p.grid().deepCopy();v2.put("gridVersion",2);
+            assertThatThrownBy(()->validator.extendGrid(p,v2)).isInstanceOf(AppException.class).extracting("resultCode").isEqualTo(ValidationErrorCode.VALIDATION_SOURCE_VERSION_CONFLICT);
+            assertThat(ValidationPublicationValidator.currentSettingGrid(v1)).isFalse();assertThat(ValidationPublicationValidator.currentSettingGrid(v2)).isFalse();
         }
     }
 }

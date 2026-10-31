@@ -27,10 +27,7 @@ public class ValidationDecisionValidator {
         if(!same(frozen.toValidationSourceCatalogue(p.context().sourceReferences()),bundle.path("source_catalogue")))throw error(VALIDATION_RESULT_INVALID);
         Set<String> facts=new HashSet<>(),known=new HashSet<>();known.add("T1");
         if(!bundle.path("settings").isArray()||!bundle.path("evidence").isArray()||!bundle.path("receipts").isArray()||!bundle.path("target_context").isArray()||bundle.path("target_context").isEmpty()||!bundle.path("additional_target_context").isArray())throw error(VALIDATION_RESULT_INVALID);
-        for(var setting:bundle.path("settings")) {
-            String ref=setting.path("entry_ref").asText();var actual=knownSettings.get(ref);
-            if(actual==null||!same(actual,setting)||!facts.add(ref))throw error(VALIDATION_RESULT_INVALID);
-        }
+        for(var setting:bundle.path("settings")) {setting(knownSettings,setting);if(!facts.add(setting.path("entry_ref").asText()))throw error(VALIDATION_RESULT_INVALID);}
         Set<String> neededSettings=new HashSet<>();for(var entry:knownSettings.entrySet())for(var subject:question.path("subject_refs"))if(subject.asText().equals(entry.getValue().path("subject_ref").asText()))neededSettings.add(entry.getKey());
         for(var intent:check.getState().path("lookup_obligations"))if("BASELINE".equals(intent.path("operation").asText()))for(var ref:intent.path("evidence_refs"))neededSettings.add(ref.asText());
         if(!facts.equals(neededSettings))throw error(VALIDATION_RESULT_INVALID);known.addAll(facts);
@@ -79,6 +76,15 @@ public class ValidationDecisionValidator {
                 ||!Set.of("NARRATION","DIALOGUE","THOUGHT","HYPOTHETICAL","UNKNOWN").contains(q.path("assertion_mode").asText())||!nonblank(q,"property_or_rule")||!nonblank(q,"time_context")||!nonblank(q,"check_intent")||!nonblank(q,"reason")||!q.path("lookup_intents").isArray())throw error(VALIDATION_RESULT_INVALID);
         for(var span:q.path("target_spans"))if(!"T1".equals(span.path("source_ref").asText())||!span.path("quote").isTextual()||!span.path("start").isIntegralNumber()||!span.path("end").isIntegralNumber())throw error(VALIDATION_RESULT_INVALID);
         for(var intent:q.path("lookup_intents"))validateIntent(intent);
+    }
+    /**
+     * GH349: bundle settings 행은 {entry_ref, subject_ref}다. entry_ref는 현재 고정 기준 항목이고 subject_ref가 그 항목과 같아야 한다.
+     * 다른 키는 판정에 쓰지 않으므로 이전 Worker의 전체 canonical 행도 통과한다. 전체 행 hash 비교는 하지 않는다(운영 항목 한 행이 게시 상한을 넘었다).
+     */
+    public JsonNode setting(Map<String,JsonNode> knownSettings,JsonNode row) {
+        var actual=knownSettings.get(row.path("entry_ref").asText());
+        if(actual==null||!actual.path("subject_ref").equals(row.path("subject_ref")))throw error(VALIDATION_RESULT_INVALID);
+        return actual;
     }
     public Set<String> subjects(Prepared p) {var refs=new HashSet<String>();for(var value:frozen.toValidationSettings(p.context().entries(),p.context().sourceReferences()).values())refs.add(value.path("subject_ref").asText());return refs;}
     public void validateIntent(JsonNode intent) {

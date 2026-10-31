@@ -258,11 +258,14 @@ Worker가 required-grid 또는 done:true를 보내 완료를 대체할 수 없�
 grid v1은 target segment마다 전체 catalogue를 `cataloguePageSize`씩 나눈 `RELATED_SELECTION:TSEGn:PAGEk`를 요구해
 호출 수가 `entryCount / pageSize × segments`로 늘고 COVERAGE 입력이 선택 항목 수에 비례해 커졌다(1,200건 작품의 COVERAGE가
 입력 한도를 넘었다). SETTING grid v2(`gridVersion: 2`)는 관련 설정을 항목이 아니라 **주체** 단위로 고른다. TYPO grid는 v1 그대로다.
+현재 빌더는 **v3**(`gridVersion: 3`)이다. v3는 v2와 모양(아래 필드·units)이 같고 기계 주체 매칭에서 1글자 name·alias를 빼는 규칙만
+다르다. 규칙이 바뀌면 같은 원고의 `segmentSubjects`와 COVERAGE 필수 rules가 달라지므로 grid 의미 변경으로 보고 버전을 올렸다.
 
 - `segmentSubjects`: segment 순서대로 `{segmentRef, subjectRefs}`. 서버가 segment 문맥 원문 `text[contextStart:contextEnd]`(code point)에
   항목의 비어 있지 않은 `name` 또는 `aliases` 문자열이 정규화 없이 그대로 들어 있으면 그 항목의 `subject_ref`를 고른다.
-  name이 null이고 aliases가 비면 매칭하지 않는다. `subjectRefs`는 S 번호 순이며 중복이 없다. gridBase에 포함되므로 catalogue가 다르면
-  기존처럼 VALIDATION_SOURCE_VERSION_CONFLICT다.
+  name이 null이고 aliases가 비면 매칭하지 않는다. v3부터 2 code point 미만인 name·alias는 매칭에 쓰지 않으며(1글자 이름이 거의 모든
+  원고와 일치해 무관한 주체를 끌어왔다) 그런 주체는 SUBJECT_RESOLUTION이 문맥으로 해소한다. `subjectRefs`는 S 번호 순이며 중복이 없다.
+  gridBase에 포함되므로 catalogue가 다르면 기존처럼 VALIDATION_SOURCE_VERSION_CONFLICT다.
 - units: segment마다 `PLANNER`, `SUBJECT_RESOLUTION`, `COVERAGE` 순서이며 book 단위와 MERGED_PLAN은 그대로다. RELATED_SELECTION 단위는 없다.
 - SUBJECT_RESOLUTION payload: `mentions`는 배열(빈 배열 허용), `mention`·`reason`은 비어 있지 않고 `mention`은 payload 안에서 유일하며,
   `subject_ref`는 키가 있어야 하고 null 또는 catalogue의 S-ref다. 이미 기계 일치한 주체를 다시 가리켜도 된다. 그 밖은 VALIDATION_RESULT_INVALID다.
@@ -270,14 +273,15 @@ grid v1은 target segment마다 전체 catalogue를 `cataloguePageSize`씩 나�
 - COVERAGE: 같은 segment의 성공 SUBJECT_RESOLUTION이 저장돼 있어야 받는다. 필수 `rules` 집합은 `subject_ref`가
   `segmentSubjects[segment] ∪ {해소된 subject_ref ≠ null}`에 속한 모든 catalogue 항목의 entry ref이며 비어 있으면 `rules: []`다.
   CL·segments·질문·span 검증은 그대로다. PLANNER/COVERAGE 질문의 subject_refs는 계속 전체 주체 집합으로 검증한다.
-- `RELATED_SELECTION`은 저장 이력 읽기용 stage enum과 역할 이름으로만 남는다. v2 grid에 그 단위가 없으므로 게시는 VALIDATION_RESULT_INVALID다.
+- `RELATED_SELECTION`은 저장 이력 읽기용 stage enum과 역할 이름으로만 남는다. v2·v3 grid에 그 단위가 없으므로 게시는 VALIDATION_RESULT_INVALID다.
   `cataloguePageSize`는 ENTRIES 읽기 페이지 크기로 계속 유효한 예산 키다.
 
-호환 — 공개 retry가 v1 Job을 자동 전환한다. 서버는 게시마다 grid를 다시 계산하고 extendGrid는 저장 grid의 base와 그대로 엄격히
+호환 — 공개 retry가 v1·v2 Job을 자동 전환한다. 서버는 게시마다 grid를 다시 계산하고 extendGrid는 저장 grid의 base와 그대로 엄격히
 비교한다. 그래서 배포 전에 SETTING grid가 저장된 Job은 배포 뒤 첫 SETTING 게시가 VALIDATION_SOURCE_VERSION_CONFLICT로 끝난다.
-작가의 공개 retry(`retryValidation`, PARTIAL·FAILED)는 저장 SETTING grid가 현재 빌더의 것(gridVersion 2, `segmentSubjects` 있음)이
+작가의 공개 retry(`retryValidation`, PARTIAL·FAILED)는 저장 SETTING grid가 현재 빌더의 것(gridVersion 3, `segmentSubjects` 있음)이
 아니면 같은 트랜잭션에서 SETTING 분기 사본을 버린 뒤 기존 retry를 그대로 진행하고(공개 report version은 그 retry 전이에서 전진한다),
-다음 실행의 첫 SETTING 게시가 v2 grid를 새로 만든다. v1 grid는 배포 전 미완료 run의 산출물이므로 **전환 시 설정 분기 finding과 그 판단은
+다음 실행의 첫 SETTING 게시가 v3 grid를 새로 만든다. 1글자 이름 규칙 전에 저장된 v2 grid도 같은 루틴으로 전환한다(모양이 같아도
+버전이 다르면 gridBase가 달라 게시가 충돌한다). v1·v2 grid는 배포 전 미완료 run의 산출물이므로 **전환 시 설정 분기 finding과 그 판단은
 삭제되고 재검사로 다시 생성된다(오탈자 분기는 유지).**
 
 - 지우는 것(FK 순서): SETTING finding의 작가 판단 이력 → 판단 → SETTING finding(#314 B2 대상·등급 사본 컬럼 포함) →
@@ -298,10 +302,10 @@ grid v1은 target segment마다 전체 catalogue를 `cataloguePageSize`씩 나�
 select j.id, j.report_id, j.status,
        (select count(*) from validation_findings f where f.report_id = j.report_id and f.branch = 'SETTING') as setting_findings
 from validation_jobs j
-where j.required_grid -> 'SETTING' ->> 'gridVersion' = '1' and j.status in ('QUEUED', 'RUNNING', 'PARTIAL', 'FAILED');
+where j.required_grid -> 'SETTING' ->> 'gridVersion' in ('1', '2') and j.status in ('QUEUED', 'RUNNING', 'PARTIAL', 'FAILED');
 ```
 
-SETTING과 TYPO grid는 독립 준비한다. SETTING의 gridVersion=2는 frozen manifest의 모든 BOOK_SOURCE 의무를
+SETTING과 TYPO grid는 독립 준비한다. SETTING의 gridVersion=3은 frozen manifest의 모든 BOOK_SOURCE 의무를
 먼저 넣고, 전문을 아직 확인하지 못한 book은 `books=[{sourceRef:...}]`와 `pendingBookRefs`로 남긴다.
 미확정 book은 빈 책/0 checks가 아니다. PLANNER/SUBJECT_RESOLUTION/COVERAGE 및 checkpoint는 다른 book 전문을
 읽지 않고 저장한다. 성공 BOOK_SOURCE 게시가 그 book만 실제 전문 검증하여 totalCodePoints/plannedChecks/segments와
@@ -317,12 +321,20 @@ Python의 BOOK_SOURCE.status=PROCESSED는 전체 book 검토 집계이므로 실
 Java의 BOOK_SOURCE 성공은 읽기이며 전체 target×book 검토는 별도 BOOK_COVERAGE grid가 증명한다.
 
 각 DECIDED unit에는 현재 Python ValidationDecision과 `evidence_bundle`을 함께 보낸다.
-bundle의 question_ref/check_revision/question은 저장 질문과 일치해야 한다. canonical frozen settings,
+bundle의 question_ref/check_revision/question은 저장 질문과 일치해야 한다. 질문 대상 frozen settings의 ref 집합,
 실제 E-ref/원문 위치, target_context와 additional_target_context의 인용, 알려진 fact/evidence refs,
 성공한 실제 비교·필수 읽기 receipts, 남은 lookup_obligations 0을 검증한다. 네 completion 사유만으로 완료하지 않는다.
 정상 NO_CONFLICT도 완료 check/receipts를 저장한다. E-ref는 실제 source_ref로 분류한다. T1을 E1로 포장해도
 CONFLICT/SUSPECTED_CONFLICT의 외부 비교 근거가 될 수 없고 frozen fact 또는 검증된 T1 이외의 source만 인정한다.
 T1 자체 문맥·인용 저장은 유지한다.
+
+bundle `settings[]` 행은 `{"entry_ref": "B12", "subject_ref": "S3"}`다(#349 후속). `entry_ref`는 현재 고정 기준의 항목이고
+`subject_ref`는 그 항목의 canonical `subject_ref`와 같아야 하며 ref는 중복되지 않는다. ref 집합은 질문 subject_refs의 모든 항목과
+BASELINE 조회 의무의 evidence_refs를 합친 집합과 같아야 한다. 다른 키는 무시하므로 이전 Worker가 보내던 canonical 전체 행도 통과한다.
+예전에는 행마다 canonical projection 전체와 hash가 같아야 했는데, 게시 외피 전체가 131,072 bytes로 제한되는 반면 운영 캐릭터 항목
+하나가 362 KB여서 그 대상의 JUDGE는 게시할 수 없었다(`VALIDATION_RESULT_INVALID`). bundle은 공개 응답에 나가지 않고 서버는 ref 집합(finding
+대상 계산)과 receipts(VECTOR 사용 표시)만 쓰므로 내용 사본이 필요 없다. evidence·receipts·target_context 규칙과 게시 상한은 그대로다.
+
 새 FOLLOW_UP은 영향을 받는 모든 check를 한 트랜잭션에서 revision 변경하고 옛 완료를 집계에서 제외한다.
 원 상태/판정과 changeReason은 check history에 남겨 #312가 변경된 질문을 구분할 수 있다.
 
@@ -338,8 +350,9 @@ T1 자체 문맥·인용 저장은 유지한다.
 
 게시 외피 전체는 131,072 UTF-8 bytes, citations는 1,000개, 의미 payload 깊이는 50을 넘기지 않는다.
 target_spans/spans/evidence 행/typo span과 target_context/additional_target_context라는 계약 경로의 quote/text는
-정확한 source/hash/version/code point 인용 외피가 필요하다. settings[]는 서버 canonical projection 전체와 정확히
-일치해야 하며 그 내부 도메인 속성 이름 text/quote를 span으로 해석하지 않는다. 다른 임의 payload/checkpoint 경로의
+정확한 source/hash/version/code point 인용 외피가 필요하다. settings[] 행은 현재 고정 기준 항목의 entry_ref·subject_ref와
+맞아야 한다. 서버 canonical projection 전체와 같은 행은 그 내부 도메인 속성 이름 text/quote를 span으로 해석하지 않고, 그 밖의 행은
+추가 키도 일반 payload처럼 검사한다. 다른 임의 payload/checkpoint 경로의
 text/quote는 거절하므로 검증되지 않은 복사본문을 추가 필드에 숨길 수 없다. canonical 설정도 깊이 상한을 지킨다.
 I/O 전에 현재 lease/입력을 확인하고 실제 저장 원문 전체 hash·slice를 확인한 뒤, Work 잠금 안에서
 current/revision/contentRevision/lease/출처 metadata를 다시 검사한다. S3/provider I/O 동안 Work를 잠그지 않는다.
