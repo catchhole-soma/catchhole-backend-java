@@ -18,6 +18,8 @@ import static org.monitoring.catchholebackend.domain.validation.exception.Valida
 @Component @RequiredArgsConstructor
 public class ValidationPublicationValidator {
     public static final int MAX_PAYLOAD_BYTES=131072;
+    /** GH349 SETTING grid 빌더 버전. 저장 grid가 이와 다르면 공개 retry가 SETTING 분기를 버리고 다시 만든다. */
+    public static final int SETTING_GRID_VERSION=2;
     private final ValidationDataService data;
     private final ValidationDecisionValidator decisions;
     private final ValidationClueCollector clues;
@@ -31,7 +33,7 @@ public class ValidationPublicationValidator {
         var limits=c.configuration().path("budgets").path(branch==ValidationBranch.SETTING?"setting":"typo");
         int core=limits.path("segmentChars").asInt(),context=limits.path("contextChars").asInt();
         // GH349: SETTING grid v2는 전수 catalogue page 대신 구간별 주체 매칭과 SUBJECT_RESOLUTION 단계를 요구한다. TYPO grid는 v1 그대로다.
-        var grid=JsonNodeFactory.instance.objectNode().put("gridVersion",branch==ValidationBranch.SETTING?2:1);var units=grid.putArray("units");
+        var grid=JsonNodeFactory.instance.objectNode().put("gridVersion",branch==ValidationBranch.SETTING?SETTING_GRID_VERSION:1);var units=grid.putArray("units");
         ArrayNode segments=segments(target.path("totalCodePoints").asInt(),core,context);grid.set("segments",segments);
         var sources=new LinkedHashMap<String,JsonNode>();sources.put("T1",target);
         if(branch==ValidationBranch.TYPO)for(var s:segments)unit(units,"TYPO_SEGMENT",s.path("ref").asText());
@@ -106,6 +108,8 @@ public class ValidationPublicationValidator {
         }
         unit(units,"MERGED_PLAN","PLAN");
     }
+    /** 저장 SETTING grid가 현재 빌더(gridVersion 2, segmentSubjects 포함)가 만든 것인지. */
+    public static boolean currentSettingGrid(JsonNode grid) {return grid.path("gridVersion").asInt()==SETTING_GRID_VERSION&&grid.has("segmentSubjects");}
     public static boolean sourcesReady(JsonNode grid) {return grid!=null&&grid.path("pendingBookRefs").isEmpty();}
     public void recheck(Context c) {read(c,"VALIDATE",null,null,null,null,null);}
     public void payload(Prepared p,JsonNode payload,List<Citation> citations) {
