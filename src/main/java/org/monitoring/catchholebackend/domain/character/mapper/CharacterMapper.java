@@ -49,7 +49,8 @@ public class CharacterMapper {
                 character.getCurrentAge(),
                 currentLevel == null ? null : "레벨",
                 currentLevel == null ? null : currentLevel.toString(),
-                firstAppearanceEpisodeNo, image
+                firstAppearanceEpisodeNo, image,
+                character.getRoleLabel()
         );
     }
 

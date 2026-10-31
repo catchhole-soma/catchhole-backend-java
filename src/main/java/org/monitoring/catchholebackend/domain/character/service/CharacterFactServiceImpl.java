@@ -16,6 +16,7 @@ import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.exception.CharacterErrorCode;
 import org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper;
 import org.monitoring.catchholebackend.domain.character.mapper.CharacterFactMapper;
+import org.monitoring.catchholebackend.domain.character.processor.LikePatternEscaper;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterFactRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository;
 import org.monitoring.catchholebackend.domain.character.repository.CharacterSnapshotSourceRepository;
@@ -66,8 +67,8 @@ public class CharacterFactServiceImpl implements CharacterFactService {
                 workId,
                 CharacterStatus.ACTIVE,
                 factTypes,
-                escapeLikePattern(normalizedQuery),
-                escapeLikePattern(normalizeFactKeyQuery(normalizedQuery)),
+                LikePatternEscaper.escape(normalizedQuery),
+                LikePatternEscaper.escape(normalizeFactKeyQuery(normalizedQuery)),
                 findDisplayNameSchemaKeys(normalizedQuery, factTypes, schemas),
                 scope == CharacterFactSearchScope.ALL,
                 scope == CharacterFactSearchScope.CURRENT,
@@ -208,12 +209,5 @@ public class CharacterFactServiceImpl implements CharacterFactService {
     private String normalizeDisplayName(String value) {
         return value.replaceAll("[\\s_]+", "")
                 .toLowerCase(Locale.ROOT);
-    }
-
-    private String escapeLikePattern(String query) {
-        return query
-                .replace("\\", "\\\\")
-                .replace("%", "\\%")
-                .replace("_", "\\_");
     }
 }

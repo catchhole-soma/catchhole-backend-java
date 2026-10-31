@@ -6,6 +6,7 @@ import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandi
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateConfirmRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateGroupConfirmRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateGroupCharacterMatchRequest;
+import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateSelectedCharacterMatchRequest;
 import org.monitoring.catchholebackend.domain.character.dto.request.SettingCandidateUpdateRequest;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateListResponse;
 import org.monitoring.catchholebackend.domain.character.dto.response.SettingCandidateGroupActionResponse;
@@ -80,6 +81,18 @@ public interface SettingCandidateService {
             Long memberId,
             UUID workId,
             SettingCandidateGroupCharacterMatchRequest request, UUID sourceAnalysisJobId);
+
+    /**
+     * 작가가 선택한 검토 대기 후보만 하나의 기존 또는 신규 캐릭터로 연결한다.
+     * 같은 이름 묶음·묶음 전체 포함을 요구하지 않으며 선택하지 않은 후보는 변경하지 않는다.
+     * 한 후보라도 처리할 수 없으면 전체를 거절하고 오류 context의 candidateIds에 해당 후보 ID를 담는다.
+     */
+    SettingCandidateGroupActionResponse updateSettingCandidateSelectedCharacterMatch(
+            Long memberId,
+            UUID workId,
+            SettingCandidateSelectedCharacterMatchRequest request,
+            UUID sourceAnalysisJobId
+    );
 
     /**
      * 작품 소유권과 설정 후보 소속을 확인한 뒤 후보의 캐릭터 연결 상태를 해소한다.

@@ -25,6 +25,9 @@ public record CharacterSummaryResponse(
         Integer firstAppearanceEpisodeNo,
 
         @Schema(description = "대표 이미지와 독립 선택 버전")
-        WorldSettingImageResponse image
+        WorldSettingImageResponse image,
+
+        @Schema(description = "역할 표시명", example = "주인공", nullable = true)
+        String roleLabel
 ) {
 }
