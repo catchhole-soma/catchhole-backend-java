@@ -102,20 +102,36 @@ class ValidationLegacyGridRetryIntegrationTest extends ValidationWorkerFixture {
         assertThat(count("select count(*) from validation_publications where request_key='PLANNER:TSEG1'")).isEqualTo(1);
         assertThat(job().getRequiredGrid().path("SETTING")).isEqualTo(before);assertThat(job().getStatus()).isEqualTo(ValidationExecutionStatus.QUEUED);noExtraction();
     }
-    @Test @DisplayName("SETTING finding이 있는 v1 Job은 판정과 그 check를 지우지 않으므로 retry가 SETTING 사본을 그대로 둔다")
-    void legacyJobWithSettingFindingKeepsSettingCopies() throws Exception {
+    @Test @DisplayName("SETTING finding·판단·판단 이력이 있어도 retry가 전환하며 그것들을 지우고 TYPO finding·판단과 정정 receipt는 남긴다")
+    void legacyJobWithSettingFindingsIsUpgradedAndDiscardsSettingJudgments() throws Exception {
         source();start();var job=claim();
         var span=Map.of("source_ref","T1","start",0,"end",2,"quote","처음");
         var citation=Map.of("sourceRef","T1","sourceHash",target.getContentHash(),"sourceVersion",target.getContentS3Version(),"start",0,"end",2,"quote","처음");
         var draft=draft("local-1",List.of(span));var planner=publication(job,"SETTING","PLANNER","TSEG1",batch("TSEG1",List.of(draft)));planner.put("citations",List.of(citation));internal(path(job,"/plans"),job,planner,200);
         savePlan(job,"SUBJECT_RESOLUTION","TSEG1",Map.of("mentions",List.of()));savePlan(job,"COVERAGE","TSEG1",batch("TSEG1",List.of()));
         var plan=publication(job,"SETTING","MERGED_PLAN","PLAN",Map.of("questions",List.of(Map.of("localRef","Q1","originalRefs",List.of("PLANNER:TSEG1:local-1"),"state",Map.of("draft",draft)))));plan.put("citations",List.of(citation));
-        var check=internal(path(job,"/plans"),job,plan,200).path("checks").path(0);
-        em.persist(ValidationFinding.create(job().getReport(),ValidationBranch.SETTING,"Q1",UUID.fromString(check.path("checkId").asText()),1L,"CONFLICT",json.createObjectNode().put("reason","합성 충돌")));
-        storeLegacySettingGrid();long stages=count("select count(*) from validation_stages where branch='SETTING'");
-        finish(job);retry(job,"keep-finding");
-        assertThat(count("select count(*) from validation_stages where branch='SETTING'")).isEqualTo(stages);
-        assertThat(count("select count(*) from validation_checks")).isEqualTo(1);assertThat(count("select count(*) from validation_findings")).isEqualTo(1);
-        assertThat(job().getRequiredGrid().path("SETTING").path("gridVersion").asInt()).isEqualTo(1);noExtraction();
+        var check=internal(path(job,"/plans"),job,plan,200).path("checks").path(0);var report=job().getReport();
+        var setting=ValidationFinding.create(report,ValidationBranch.SETTING,"Q1",UUID.fromString(check.path("checkId").asText()),1L,"CONFLICT",json.createObjectNode().put("reason","합성 충돌"));em.persist(setting);
+        var typo=ValidationFinding.create(report,ValidationBranch.TYPO,"TSEG1",null,null,"SPELLING",json.createObjectNode().put("reason","합성 맞춤법"));em.persist(typo);
+        for(var finding:List.of(setting,typo)) {var judgment=ValidationJudgment.decide(finding,ValidationJudgmentValue.NEEDS_FIX);em.persist(judgment);em.persist(ValidationJudgmentHistory.author(judgment,null));}
+        storeLegacySettingGrid();finish(job);
+        long corrections=count("select count(*) from validation_corrections where report_id='"+reportId(job)+"'");long version=get(reportId(job)).path("reportVersion").asLong();
+
+        retry(job,"upgrade-with-findings");
+        assertThat(count("select count(*) from validation_findings where branch='SETTING'")).isZero();
+        assertThat(count("select count(*) from validation_judgments where branch='SETTING'")).isZero();
+        assertThat(count("select count(*) from validation_findings where branch='TYPO'")).isEqualTo(1);
+        assertThat(count("select count(*) from validation_judgments where branch='TYPO'")).isEqualTo(1);
+        assertThat(count("select count(*) from validation_judgment_history")).as("SETTING 판단 이력만 지운다").isEqualTo(1);
+        assertThat(count("select count(*) from validation_judgment_history where finding_id='"+typo.getId()+"'")).isEqualTo(1);
+        assertThat(count("select count(*) from validation_checks")+count("select count(*) from validation_check_history")).isZero();
+        assertThat(count("select count(*) from validation_stages where branch='SETTING'")).isZero();
+        assertThat(count("select count(*) from validation_corrections where report_id='"+reportId(job)+"'")).isEqualTo(corrections);
+        assertThat(get(reportId(job)).path("reportVersion").asLong()).as("삭제 뒤 공개 report version이 전진한다").isGreaterThan(version);
+        assertThat(job().getRequiredGrid()).isNull();
+
+        var next=claim();planner.put("scope",scope(next));internal(path(next,"/plans"),next,planner,200);
+        var grid=job().getRequiredGrid().path("SETTING");assertThat(grid.path("gridVersion").asInt()).isEqualTo(2);assertThat(grid.has("segmentSubjects")).isTrue();
+        assertThat(count("select count(*) from validation_stages where branch='SETTING' and stage='PLANNER'")).isEqualTo(1);noExtraction();
     }
 }
