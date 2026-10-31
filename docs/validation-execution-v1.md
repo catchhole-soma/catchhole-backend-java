@@ -331,7 +331,7 @@ T1 자체 문맥·인용 저장은 유지한다.
 bundle `settings[]` 행은 `{"entry_ref": "B12", "subject_ref": "S3"}`다(#349 후속). `entry_ref`는 현재 고정 기준의 항목이고
 `subject_ref`는 그 항목의 canonical `subject_ref`와 같아야 하며 ref는 중복되지 않는다. ref 집합은 질문 subject_refs의 모든 항목과
 BASELINE 조회 의무의 evidence_refs를 합친 집합과 같아야 한다. 다른 키는 무시하므로 이전 Worker가 보내던 canonical 전체 행도 통과한다.
-예전에는 행마다 canonical projection 전체와 hash가 같아야 했는데, 게시 외피 전체가 131,072 bytes로 제한되는 반면 운영 캐릭터 항목
+예전에는 행마다 canonical projection 전체와 hash가 같아야 했는데, 게시 외피 전체가 상한(당시 131,072 bytes, 지금은 1,048,576 bytes)으로 제한되는 반면 운영 캐릭터 항목
 하나가 362 KB여서 그 대상의 JUDGE는 게시할 수 없었다(`VALIDATION_RESULT_INVALID`). bundle은 공개 응답에 나가지 않고 서버는 ref 집합(finding
 대상 계산)과 receipts(VECTOR 사용 표시)만 쓰므로 내용 사본이 필요 없다. evidence·receipts·target_context 규칙과 게시 상한은 그대로다.
 
@@ -348,7 +348,7 @@ BASELINE 조회 의무의 evidence_refs를 합친 집합과 같아야 한다. �
 
 ## 게시·파기·재시도
 
-게시 외피 전체는 131,072 UTF-8 bytes, citations는 1,000개, 의미 payload 깊이는 50을 넘기지 않는다.
+게시 외피 전체는 1,048,576 UTF-8 bytes(#349 후속: MERGED_PLAN이 모든 구간의 질문 초안을 한 번에 담아 65개 질문이 옛 131,072 bytes를 넘겼다), citations는 1,000개, 의미 payload 깊이는 50을 넘기지 않는다.
 target_spans/spans/evidence 행/typo span과 target_context/additional_target_context라는 계약 경로의 quote/text는
 정확한 source/hash/version/code point 인용 외피가 필요하다. settings[] 행은 현재 고정 기준 항목의 entry_ref·subject_ref와
 맞아야 한다. 서버 canonical projection 전체와 같은 행은 그 내부 도메인 속성 이름 text/quote를 span으로 해석하지 않고, 그 밖의 행은
@@ -439,7 +439,7 @@ source/report 파기와 입력 교체는 이 보존 경로를 쓰지 않고 기�
 checkpoint v1은 성공 stage/decision을 중복 복사하지 않는다. 전역 receipts와 질문별 refs, 남은 queue,
 필요한 실제 근거/추가 문맥/현재 관측 revision만 보존한다. evidence는 phase별 한 곳에 둔다.
 성공 BOOK_SOURCE와 서버 segments로 준비 상태를 복원하고, 미완료 rule은 인증된 READ_SOURCE 범위로 읽는다.
-질문이 없는 큰 책 전체를 checkpoint로 복사하지 않는다. 131072-byte 상한과 인용 검증은 그대로다.
+질문이 없는 큰 책 전체를 checkpoint로 복사하지 않는다. 1,048,576-byte 상한과 인용 검증은 그대로다.
 오탈자는 ClassifiedTypoSuggestion의 SPELLING/SPACING/TYPO와 정확한 span을 보존하고 실패 구간만 실행한다.
 
 두 분기는 독립 asyncio task이며 한 분기의 provider/role cap 실패나 질문 0개는 다른 분기를 취소하지 않는다.
