@@ -45,8 +45,13 @@
         "TYPO": {
           "max-calls": 20,
           "max-reserved-tokens": 640000
+        },
+        "QUERY_EMBEDDING": {
+          "max-calls": 40,
+          "max-reserved-tokens": 400000
         }
-      }
+      },
+      "query-embedding-model": "text-embedding-3-small"
     }
   }
 }
