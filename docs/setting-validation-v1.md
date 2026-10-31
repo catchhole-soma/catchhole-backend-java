@@ -69,7 +69,7 @@ BOOK_SOURCE의 예정/완료 점검 수와 BOOK_COVERAGE의 구간/규칙 처리
 검수 과금/Worker 원장 연결은 GH310의 책임이다. 기존 추출용 MeteredTextGenerationClient를 재사용하기 위해 가짜 AnalysisJob/lease를 생성하지 않는다.
 
 1. 실제 target 전문과 고정 항목 페이지를 준비한다. 순수 분할기의 모든 핵심 구간이 전문을 덮고 앞뒤 문맥을 별도로 유지한다.
-2. Terra medium이 질문을 계획한다. Terra high는 첫 질문 없이 원고와 전체 카탈로그 페이지에서 대상을 독립 선정하고 선택한 제약·이력·조건에서 별도 질문을 만든다.
+2. Terra medium이 질문을 계획한다. 독립 보완은 첫 질문을 보지 않고 구간의 관련 주체를 고른다. 서버 grid v2(#349)가 이름·별칭 정확 일치 주체를 주고, Terra high는 대명사·호칭·별명 같은 비문자 언급만 기존 주체로 해소(SUBJECT_RESOLUTION)한다. 두 주체 집합의 설정만으로 COVERAGE가 제약·이력·조건의 별도 질문을 만든다. 전체 카탈로그 페이지 선별은 하지 않는다.
 3. 날짜/수량/요일/반복 명칭의 결정적 단서를 독립 수집한다. 보완은 선택 규칙·구간·단서마다 CHECKED/NOT_APPLICABLE/UNPROCESSED를 구분한다. 이 기록이 의미상 누락 0을 보증하지 않는다.
 4. 같은 제공 대상·속성/규칙·서사 시점·조건·서술 방식의 질문만 병합한다. 모든 위치·원 질문 참조·조회 의무를 보존하며 ID 미해결 질문은 보수적으로 별도 유지한다.
 5. 질문별 실제 고정 DB/target 조회 영수증과 추가 조회를 묶는다. Terra medium은 FOLLOW_UP 또는 DECIDED를 반환한다. 새 단서가 영향을 주는 기존 질문을 재개하고 revision/input_digest를 갱신한다.
@@ -92,7 +92,7 @@ DB↔원문 불일치는 두 참조를 유지하고 명시 정정의 정확한 �
 ## 모델·예산·오탈자 공통 계약
 
 모든 역할 모델은 `gpt-6.1-terra`다. PLANNER medium, RELATED_SELECTION/COVERAGE high, JUDGE medium, TYPO low다.
-RELATED_SELECTION은 독립 누락 보완 역할의 호출이며 다섯 번째 별도 모델 선택이 아니다.
+RELATED_SELECTION 역할은 독립 누락 보완의 SUBJECT_RESOLUTION 단계 호출(grid v2, #349)에 쓰며 다섯 번째 별도 모델 선택이 아니다. 역할 이름·모델·예산 키는 그대로다.
 frozen `LlmCallOptions`를 count/생성 양쪽에 동일하게 전달하고 공유 client 기본 속성을 바꾸지 않는다.
 기존 추출/챗봇의 모델·추론 기본값은 유지한다. 실제 Terra provider 품질 호출은 이번 검증에서 실행하지 않았다.
 

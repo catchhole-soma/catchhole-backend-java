@@ -242,20 +242,51 @@ CL v1은 기존 Python 세 정규식과 반복 이름의 의미를 보존한다.
 
 ## 의미 단계와 완료 증명
 
-서버가 실제 전문 길이와 frozen entry count, 설정집 길이, 고정 segment/context/page 크기로 필수 grid를 계산한다.
+서버가 실제 전문 길이와 frozen catalogue의 주체 이름·별칭, 설정집 길이, 고정 segment/context 크기로 필수 grid를 계산한다.
 Worker가 required-grid 또는 done:true를 보내 완료를 대체할 수 없다.
 
 - PLANNER: target segment별 QuestionBatch.
-- RELATED_SELECTION: target segment × 전체 catalogue page별 RelatedSelection.entries.
-- COVERAGE: target segment별 QuestionBatch. 선정한 모든 rule과 정확한 서버 CL 집합의 CHECKED/NOT_APPLICABLE 기록을 요구한다.
+- SUBJECT_RESOLUTION: target segment별 지칭 해소 `{mentions:[{mention, subject_ref, reason}]}`(grid v2, #349).
+- COVERAGE: target segment별 QuestionBatch. 관련 주체의 모든 rule과 정확한 서버 CL 집합의 CHECKED/NOT_APPLICABLE 기록을 요구한다.
 - BOOK_SOURCE: 설정집 전문을 읽었다는 source_read_status=READY와 실제 planned_checks 기록. 빈 책도 읽기 성공+0 checks를 저장한다.
 - BOOK_COVERAGE: 각 target segment × 각 book segment의 QuestionBatch/rule 처리.
 - MERGED_PLAN: 저장된 모든 원 질문 originalRefs를 빠짐없이 연결한 질문 목록. 서버 UUID와 local Q-ref의 대응을 반환한다.
 - TYPO_SEGMENT: 분류(SPELLING/SPACING/TYPO)와 정확한 제안 또는 제안 0개의 완료 segment.
 
-SETTING과 TYPO grid는 독립 준비한다. SETTING의 gridVersion=1은 frozen manifest의 모든 BOOK_SOURCE 의무를
+### grid v2와 SUBJECT_RESOLUTION (#349)
+
+grid v1은 target segment마다 전체 catalogue를 `cataloguePageSize`씩 나눈 `RELATED_SELECTION:TSEGn:PAGEk`를 요구해
+호출 수가 `entryCount / pageSize × segments`로 늘고 COVERAGE 입력이 선택 항목 수에 비례해 커졌다(1,200건 작품의 COVERAGE가
+입력 한도를 넘었다). SETTING grid v2(`gridVersion: 2`)는 관련 설정을 항목이 아니라 **주체** 단위로 고른다. TYPO grid는 v1 그대로다.
+
+- `segmentSubjects`: segment 순서대로 `{segmentRef, subjectRefs}`. 서버가 segment 문맥 원문 `text[contextStart:contextEnd]`(code point)에
+  항목의 비어 있지 않은 `name` 또는 `aliases` 문자열이 정규화 없이 그대로 들어 있으면 그 항목의 `subject_ref`를 고른다.
+  name이 null이고 aliases가 비면 매칭하지 않는다. `subjectRefs`는 S 번호 순이며 중복이 없다. gridBase에 포함되므로 catalogue가 다르면
+  기존처럼 VALIDATION_SOURCE_VERSION_CONFLICT다.
+- units: segment마다 `PLANNER`, `SUBJECT_RESOLUTION`, `COVERAGE` 순서이며 book 단위와 MERGED_PLAN은 그대로다. RELATED_SELECTION 단위는 없다.
+- SUBJECT_RESOLUTION payload: `mentions`는 배열(빈 배열 허용), `mention`·`reason`은 비어 있지 않고 `mention`은 payload 안에서 유일하며,
+  `subject_ref`는 키가 있어야 하고 null 또는 catalogue의 S-ref다. 이미 기계 일치한 주체를 다시 가리켜도 된다. 그 밖은 VALIDATION_RESULT_INVALID다.
+  모델 호출은 기존 RELATED_SELECTION 역할(모델·추론·예산 키)을 쓴다.
+- COVERAGE: 같은 segment의 성공 SUBJECT_RESOLUTION이 저장돼 있어야 받는다. 필수 `rules` 집합은 `subject_ref`가
+  `segmentSubjects[segment] ∪ {해소된 subject_ref ≠ null}`에 속한 모든 catalogue 항목의 entry ref이며 비어 있으면 `rules: []`다.
+  CL·segments·질문·span 검증은 그대로다. PLANNER/COVERAGE 질문의 subject_refs는 계속 전체 주체 집합으로 검증한다.
+- `RELATED_SELECTION`은 저장 이력 읽기용 stage enum과 역할 이름으로만 남는다. v2 grid에 그 단위가 없으므로 게시는 VALIDATION_RESULT_INVALID다.
+  `cataloguePageSize`는 ENTRIES 읽기 페이지 크기로 계속 유효한 예산 키다.
+
+호환: 서버는 게시마다 grid를 다시 계산하고 extendGrid가 저장 grid의 base와 비교한다. 배포 전에 SETTING grid가 저장된 Job
+(실행 중이거나 lease 회수·실패·부분 완료 뒤 retry를 기다리는 Job)은 배포 뒤 SETTING 게시가 VALIDATION_SOURCE_VERSION_CONFLICT로 거절된다.
+현재 같은 입력 retry(`ValidationJob.retry`)는 같은 Job의 저장 grid를 유지하므로 이 충돌을 풀지 못하고, 같은 원고의 재검수는
+VALIDATION_RECHECK_INPUT_UNCHANGED로 거절된다. 배포는 RUNNING 검수 Job이 없을 때 하고, 배포 전 아래 조회로 v1 SETTING grid를 가진
+미완료 Job을 확인한다. 이런 report의 복구 방법은 별도로 정한다.
+
+```sql
+select id, report_id, status from validation_jobs
+where required_grid -> 'SETTING' ->> 'gridVersion' = '1' and status in ('QUEUED', 'RUNNING', 'PARTIAL', 'FAILED');
+```
+
+SETTING과 TYPO grid는 독립 준비한다. SETTING의 gridVersion=2는 frozen manifest의 모든 BOOK_SOURCE 의무를
 먼저 넣고, 전문을 아직 확인하지 못한 book은 `books=[{sourceRef:...}]`와 `pendingBookRefs`로 남긴다.
-미확정 book은 빈 책/0 checks가 아니다. PLANNER/RELATED_SELECTION/COVERAGE 및 checkpoint는 다른 book 전문을
+미확정 book은 빈 책/0 checks가 아니다. PLANNER/SUBJECT_RESOLUTION/COVERAGE 및 checkpoint는 다른 book 전문을
 읽지 않고 저장한다. 성공 BOOK_SOURCE 게시가 그 book만 실제 전문 검증하여 totalCodePoints/plannedChecks/segments와
 해당 BOOK_COVERAGE 의무를 확정한다. 같은 Work 아래 최신 grid에 단조 병합하므로 동시 준비가 서로를 덮지 않는다.
 이미 성공한 stage/receipt와 checkpoint를 회수 후 복원하고 실패한 book만 다시 준비한다.
@@ -279,8 +310,8 @@ T1 자체 문맥·인용 저장은 유지한다.
 원 상태/판정과 changeReason은 check history에 남겨 #312가 변경된 질문을 구분할 수 있다.
 
 종료 상태는 현재 revision의 완료 check(NO_CONFLICT 포함), 완료 typo segment(제안 0개 포함),
-필수 PLANNER/selection/COVERAGE/book/CL이 모두 저장되고 미해결 질문이 없는 NO_CHECK segment로 결정한다.
-계획/선정/원문 읽기만 성공한 것은 성공 결과 수에 넣지 않는다.
+필수 PLANNER/SUBJECT_RESOLUTION/COVERAGE/book/CL이 모두 저장되고 미해결 질문이 없는 NO_CHECK segment로 결정한다.
+계획/주체 해소/원문 읽기만 성공한 것은 성공 결과 수에 넣지 않는다.
 성공 처리 0+미완료는 FAILED, 일부 성공+필수 미완료는 PARTIAL, 양쪽 모든 grid와 현재 질문이 완료되어야 COMPLETED다.
 검토 종료 전에는 어느 경우에도 추출 Job·후보·자동 확정이 0이다. 정상 0건 COMPLETED만 같은 트랜잭션에서 검토 종료 receipt와 release Job 하나를 만들고
 `/complete` 응답에 `reviewCompletionId`·`extractionJobId`를 기록한다(추출 생성 조건이 막히면 receipt 없이 결과만 저장, GH312 S2).
@@ -318,12 +349,14 @@ setting/typo의 model-calls/lookups/seconds/input-tokens/output-tokens/segment-c
 `VALIDATION_EXECUTION_ENABLED=true`와 함께 켜며, 운영 Compose가 두 값을 backend에 그대로 넘긴다(#344, 절차는 `deploy/EC2_DEPLOYMENT.md`).
 이 수치는 2026-10-30~31 실제 모델 검증(#331·#341·#343)에서 쓴 초기 운영값이며 코드 기본값이 아니다.
 `ValidationExecutionProdExampleTest`가 예시 파일이 활성 검증을 통과해 바인딩되는지 확인한다.
+예시에는 선택 QUERY_EMBEDDING cap과 `query-embedding-model: text-embedding-3-small`이 들어 있으며 Worker가 `--query-embedding`으로
+실행될 때만 쓰인다. 쓰지 않으면 두 값을 함께 빼도 된다(역할만 남기고 모델을 빼면 기동이 실패한다).
 테스트 수치는 `src/test/resources/validation-execution-fixture.properties`이며 운영 권장값이 아니다.
 비활성 앱은 예산 없이 정상 기동하며 과거 report를 시작 시 일괄 queue하지 않는다. 활성화 뒤 기존 waiting report는
 명시 START/RECHECK의 동일 접수 복구 또는 공개 retry로 시작한다.
 
 모든 generation 역할은 Terra이며 PLANNER medium / RELATED_SELECTION high / COVERAGE high / JUDGE medium / TYPO low다.
-RELATED_SELECTION은 독립 보완의 실제 transport 역할이고 BOOK_COVERAGE는 COVERAGE 역할을 사용한다.
+RELATED_SELECTION 역할은 grid v2의 SUBJECT_RESOLUTION 단계 호출에 쓰는 transport 역할이고 BOOK_COVERAGE는 COVERAGE 역할을 사용한다.
 count와 generation의 동일 옵션/schema는 Task3 adapter가 기존 검사기에서 유지해야 한다.
 QUERY_EMBEDDING은 선택 사항이며 명시 모델 text-embedding-3-small과 별도 cap을 함께 설정할 때만 예약한다.
 이는 기존 색인 계약의 모델 호환성이고 벡터 readiness나 검색 성공을 보장하지 않는다.
@@ -367,7 +400,7 @@ version은 기존 chat.retrieval-embedding-version override를 snapshot하고 �
 
 `EpisodeValidationWorker.claim_next/process_claimed/aclose`는 기존 호출형 inspect/check_typos와 별도다.
 `ValidationExecutionClient`가 CommonResponse.data/실제 lease/scope를 사용하며, Python은 validation DB에 쓰지 않는다.
-PLANNER/전체 RELATED_SELECTION page/COVERAGE/각 BOOK_SOURCE/각 BOOK_COVERAGE를 검증 직후 게시한다.
+PLANNER/SUBJECT_RESOLUTION/COVERAGE/각 BOOK_SOURCE/각 BOOK_COVERAGE를 검증 직후 게시한다.
 MERGED_PLAN은 첫 JUDGE 전에 서버 check UUID/revision/checkInputDigest를 발급받고 정상 NO_CONFLICT도 즉시 저장한다.
 FOLLOW_UP은 영향 질문 전부를 원자 revise한 다음 새 판단을 실행한다. 같은 입력의 checkpoint는 version만 전진하고
 원래 receipt와 근거를 보존한다. revision 저장 직후 crash는 서버 현재 의무와 이전 runtime revision 차이로 복원한다.
