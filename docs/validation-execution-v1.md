@@ -261,8 +261,9 @@ grid v1은 target segment마다 전체 catalogue를 `cataloguePageSize`씩 나�
 
 - `segmentSubjects`: segment 순서대로 `{segmentRef, subjectRefs}`. 서버가 segment 문맥 원문 `text[contextStart:contextEnd]`(code point)에
   항목의 비어 있지 않은 `name` 또는 `aliases` 문자열이 정규화 없이 그대로 들어 있으면 그 항목의 `subject_ref`를 고른다.
-  name이 null이고 aliases가 비면 매칭하지 않는다. `subjectRefs`는 S 번호 순이며 중복이 없다. gridBase에 포함되므로 catalogue가 다르면
-  기존처럼 VALIDATION_SOURCE_VERSION_CONFLICT다.
+  name이 null이고 aliases가 비면 매칭하지 않는다. 2 code point 미만인 name·alias는 매칭에 쓰지 않으며(1글자 이름이 거의 모든 원고와
+  일치해 무관한 주체를 끌어왔다) 그런 주체는 SUBJECT_RESOLUTION이 문맥으로 해소한다. `subjectRefs`는 S 번호 순이며 중복이 없다.
+  gridBase에 포함되므로 catalogue가 다르면 기존처럼 VALIDATION_SOURCE_VERSION_CONFLICT다.
 - units: segment마다 `PLANNER`, `SUBJECT_RESOLUTION`, `COVERAGE` 순서이며 book 단위와 MERGED_PLAN은 그대로다. RELATED_SELECTION 단위는 없다.
 - SUBJECT_RESOLUTION payload: `mentions`는 배열(빈 배열 허용), `mention`·`reason`은 비어 있지 않고 `mention`은 payload 안에서 유일하며,
   `subject_ref`는 키가 있어야 하고 null 또는 catalogue의 S-ref다. 이미 기계 일치한 주체를 다시 가리켜도 된다. 그 밖은 VALIDATION_RESULT_INVALID다.

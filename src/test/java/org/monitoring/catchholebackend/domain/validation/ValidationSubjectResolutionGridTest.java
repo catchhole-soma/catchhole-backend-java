@@ -73,10 +73,27 @@ class ValidationSubjectResolutionGridTest {
         }
         @Test @DisplayName("subjectRefs는 S 번호 순이며 같은 주체를 한 번만 담는다")
         void subjectRefsAreNumericallySortedAndUnique() {
-            var rows=new ArrayList<ObjectNode>();String[] names={"갑","을","병","정","무","기","경","신","임","계"};
-            for(int i=0;i<names.length;i++)rows.add(entry("s"+i,names[i]));rows.add(entry("s1","을","을"));
-            var p=prepare("계가 을을 만났다",entries(rows.toArray(ObjectNode[]::new)));
+            var rows=new ArrayList<ObjectNode>();String[] names={"갑돌","을순","병철","정희","무영","기남","경자","신우","임호","계월"};
+            for(int i=0;i<names.length;i++)rows.add(entry("s"+i,names[i]));rows.add(entry("s1","을순","을순"));
+            var p=prepare("계월이 을순을 만났다",entries(rows.toArray(ObjectNode[]::new)));
             assertThat(subjects(p,"TSEG1")).containsExactly("S2","S10");
+        }
+        @Test @DisplayName("1글자 이름은 구간 문맥에 있어도 고르지 않고 2글자 이름은 고른다")
+        void oneCodePointNameIgnoredTwoCodePointNameMatched() {
+            var p=prepare("한이 하람을 불렀다",entries(entry("han","한"),entry("haram","하람")));
+            assertThat(subjects(p,"TSEG1")).as("한은 원고에 있지만 1글자라 기계 일치가 아니다").containsExactly("S2");
+        }
+        @Test @DisplayName("1글자 별칭은 무시하고 같은 항목의 2글자 별칭은 일치로 본다")
+        void oneCodePointAliasIgnoredTwoCodePointAliasMatched() {
+            var rows=entries(entry("doyun","도윤","윤","검매"));
+            assertThat(subjects(prepare("윤이 웃었다",rows),"TSEG1")).isEmpty();
+            assertThat(subjects(prepare("검매가 웃었다",rows),"TSEG1")).containsExactly("S1");
+        }
+        @Test @DisplayName("길이는 code point로 세므로 UTF-16 두 단위인 이모지 1글자 이름도 무시한다")
+        void surrogatePairNameCountsAsOneCodePoint() {
+            assertThat("😀".length()).isEqualTo(2);
+            var p=prepare("😀가 😀😀를 보았다",entries(entry("emoji","😀"),entry("pair","😀😀")));
+            assertThat(subjects(p,"TSEG1")).containsExactly("S2");
         }
         @Test @DisplayName("정규화 없이 정확히 같은 문자열만 일치로 본다")
         void comparisonIsExactWithoutNormalization() {

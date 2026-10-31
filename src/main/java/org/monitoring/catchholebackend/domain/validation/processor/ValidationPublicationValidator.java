@@ -20,6 +20,8 @@ public class ValidationPublicationValidator {
     public static final int MAX_PAYLOAD_BYTES=131072;
     /** GH349 SETTING grid 빌더 버전. 저장 grid가 이와 다르면 공개 retry가 SETTING 분기를 버리고 다시 만든다. */
     public static final int SETTING_GRID_VERSION=2;
+    /** GH349 기계 주체 매칭에 쓰는 name·alias의 최소 code point 길이. */
+    private static final int MIN_MECHANICAL_CODE_POINTS=2;
     private final ValidationDataService data;
     private final ValidationDecisionValidator decisions;
     private final ValidationClueCollector clues;
@@ -75,6 +77,7 @@ public class ValidationPublicationValidator {
     /**
      * GH349 기계 주체 매칭. 구간 문맥 원문 text[contextStart:contextEnd](code point)에 항목의 비어 있지 않은 name 또는 aliases 문자열이
      * 정규화 없이 그대로 들어 있으면 그 항목의 subject_ref를 고른다. name이 null이고 aliases가 비면 매칭하지 않는다.
+     * 2 code point 미만인 name·alias는 거의 모든 원고에 들어 있어 무관한 주체를 끌어오므로 무시한다(해소는 SUBJECT_RESOLUTION이 맡는다).
      * subjectRefs는 S 번호 순이며 중복이 없다. segmentSubjects는 gridBase에 포함되므로 catalogue가 바뀌면 extendGrid가 충돌로 거절한다.
      */
     private static ArrayNode segmentSubjects(String text,JsonNode segments,Collection<JsonNode> settings) {
@@ -92,7 +95,7 @@ public class ValidationPublicationValidator {
         for(var alias:setting.path("aliases"))if(literal(alias)&&window.contains(alias.asText()))return true;
         return false;
     }
-    private static boolean literal(JsonNode value) {return value.isTextual()&&!value.asText().isEmpty();}
+    private static boolean literal(JsonNode value) {return value.isTextual()&&value.asText().codePointCount(0,value.asText().length())>=MIN_MECHANICAL_CODE_POINTS;}
     private static int subjectNumber(String ref) {return Integer.parseInt(ref.substring(1));}
     private ObjectNode gridBase(JsonNode grid) {
         var base=(ObjectNode)grid.deepCopy();base.remove(List.of("books","pendingBookRefs"));var units=base.putArray("units");
