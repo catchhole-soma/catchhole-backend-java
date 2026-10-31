@@ -8,6 +8,7 @@ import java.util.*;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.validation.entity.*;
+import org.monitoring.catchholebackend.domain.validation.processor.ValidationPublicationValidator;
 import org.monitoring.catchholebackend.domain.validation.type.*;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -15,10 +16,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 배포 전(grid v1) SETTING grid를 가진 Job의 공개 retry. 모든 원고·수치는 합성 fixture다. */
+/** 배포 전(grid v1·v2) SETTING grid를 가진 Job의 공개 retry. 모든 원고·수치는 합성 fixture다. */
 @SpringBootTest(properties="spring.config.import=") @AutoConfigureMockMvc @ActiveProfiles("test") @Transactional
 @TestPropertySource(locations="classpath:validation-execution-fixture.properties")
-@DisplayName("v1 SETTING grid Job의 공개 retry 전환 (#349)")
+@DisplayName("이전 SETTING grid(v1·v2) Job의 공개 retry 전환 (#349)")
 class ValidationLegacyGridRetryIntegrationTest extends ValidationWorkerFixture {
     ValidationJob job() {return em.createQuery("select j from ValidationJob j",ValidationJob.class).getSingleResult();}
     long count(String sql) {return ((Number)em.createNativeQuery(sql).getSingleResult()).longValue();}
@@ -31,6 +32,11 @@ class ValidationLegacyGridRetryIntegrationTest extends ValidationWorkerFixture {
         j.initializeGrid(ValidationBranch.SETTING,legacy);
         var page=json.createObjectNode();page.putArray("entries").addObject().put("entry_ref","B1").put("selected",false).put("reason","합성 비선정");
         em.persist(ValidationStage.create(j.getReport(),ValidationBranch.SETTING,ValidationStageKind.RELATED_SELECTION,"TSEG1:PAGE1","a".repeat(64),page,true));em.flush();
+    }
+    /** 저장 SETTING grid를 1글자 이름 규칙 전의 v2로 되돌린다. 모양(segmentSubjects·SUBJECT_RESOLUTION 단위)은 현재 grid와 같다. */
+    void storeV2SettingGrid() {
+        var j=job();var v2=(ObjectNode)j.getRequiredGrid().path("SETTING").deepCopy();v2.put("gridVersion",2);
+        j.initializeGrid(ValidationBranch.SETTING,v2);em.flush();
     }
     void checkpoint(JsonNode job,String branch) throws Exception {
         internal(path(job,"/checkpoint"),job,Map.of("scope",scope(job),"idempotencyKey","checkpoint-"+branch,"branch",branch,"expectedVersion",0,"payload",Map.of("phase","PLANNING"),"citations",List.of()),200);
@@ -47,7 +53,7 @@ class ValidationLegacyGridRetryIntegrationTest extends ValidationWorkerFixture {
         return Map.of("requestId",call);
     }
 
-    @Test @DisplayName("부분 완료 v1 Job의 retry는 SETTING 사본만 버리고 다음 실행이 v2 grid를 만들며 TYPO와 사용량 누계는 남는다")
+    @Test @DisplayName("부분 완료 v1 Job의 retry는 SETTING 사본만 버리고 다음 실행이 v3 grid를 만들며 TYPO와 사용량 누계는 남는다")
     void partialLegacyJobRetryDiscardsSettingCopiesAndRebuildsV2Grid() throws Exception {
         source();start();var job=claim();
         internal(path(job,"/units"),job,unit(job,"TYPO","TSEG1","COMPLETED",typoEmpty()),200);checkpoint(job,"TYPO");checkpoint(job,"SETTING");
@@ -75,7 +81,7 @@ class ValidationLegacyGridRetryIntegrationTest extends ValidationWorkerFixture {
         savePlan(next,"PLANNER","TSEG1",planner);
         assertThat(count("select count(*) from validation_stages where branch='SETTING' and stage='PLANNER'")).as("같은 key의 같은 본문도 옛 receipt가 아니라 새 stage로 저장된다").isEqualTo(1);
         var grid=job().getRequiredGrid().path("SETTING");
-        assertThat(grid.path("gridVersion").asInt()).isEqualTo(2);assertThat(grid.has("segmentSubjects")).isTrue();
+        assertThat(grid.path("gridVersion").asInt()).isEqualTo(3);assertThat(grid.has("segmentSubjects")).isTrue();
         var units=new ArrayList<String>();grid.path("units").forEach(u->units.add(u.path("stage").asText()+":"+u.path("ref").asText()));
         assertThat(units).contains("SUBJECT_RESOLUTION:TSEG1").noneMatch(u->u.startsWith("RELATED_SELECTION"));
         savePlan(next,"SUBJECT_RESOLUTION","TSEG1",Map.of("mentions",List.of()));savePlan(next,"COVERAGE","TSEG1",batch("TSEG1",List.of()));noExtraction();
@@ -88,15 +94,39 @@ class ValidationLegacyGridRetryIntegrationTest extends ValidationWorkerFixture {
         assertThat(count("select count(*) from validation_stages")).isZero();
         var j=job();assertThat(j.getStatus()).isEqualTo(ValidationExecutionStatus.QUEUED);assertThat(j.getRequiredGrid()).isNull();assertThat(j.isGridReady()).isFalse();
         var next=claim();savePlan(next,"PLANNER","TSEG1",batch("TSEG1",List.of()));
-        assertThat(job().getRequiredGrid().path("SETTING").path("gridVersion").asInt()).isEqualTo(2);noExtraction();
+        assertThat(job().getRequiredGrid().path("SETTING").path("gridVersion").asInt()).isEqualTo(3);noExtraction();
     }
-    @Test @DisplayName("현재 grid v2 Job의 retry는 기존처럼 SETTING stage·checkpoint·grid를 보존한다")
+    @Test @DisplayName("저장된 v2 SETTING grid도 retry에서 SETTING 사본을 버리고 다음 실행이 v3 grid를 만들며 TYPO는 남는다")
+    void v2GridJobRetryDiscardsSettingCopiesAndRebuildsV3Grid() throws Exception {
+        source();start();var job=claim();
+        internal(path(job,"/units"),job,unit(job,"TYPO","TSEG1","COMPLETED",typoEmpty()),200);checkpoint(job,"TYPO");checkpoint(job,"SETTING");
+        var planner=batch("TSEG1",List.of());savePlan(job,"PLANNER","TSEG1",planner);savePlan(job,"SUBJECT_RESOLUTION","TSEG1",Map.of("mentions",List.of()));
+        storeV2SettingGrid();
+        assertThat(ValidationPublicationValidator.currentSettingGrid(job().getRequiredGrid().path("SETTING"))).isFalse();
+        assertThat(internal(path(job,"/plans"),job,publication(job,"SETTING","COVERAGE","TSEG1",batch("TSEG1",List.of())),409).path("code").asText())
+                .as("v2 grid는 현재 grid와 버전이 달라 SETTING 게시가 충돌한다").isEqualTo("VALIDATION_SOURCE_VERSION_CONFLICT");
+        assertThat(finish(job)).isEqualTo("PARTIAL");
+
+        retry(job,"upgrade-v2");
+        assertThat(count("select count(*) from validation_stages where branch='SETTING'")).isZero();
+        assertThat(count("select count(*) from validation_stages where branch='TYPO'")).isEqualTo(1);
+        assertThat(count("select count(*) from validation_checkpoints where branch='SETTING'")).isZero();
+        assertThat(count("select count(*) from validation_checkpoints where branch='TYPO'")).isEqualTo(1);
+        var j=job();assertThat(j.getStatus()).isEqualTo(ValidationExecutionStatus.QUEUED);
+        assertThat(j.getRequiredGrid().has("SETTING")).isFalse();assertThat(j.getRequiredGrid().has("TYPO")).isTrue();
+
+        var next=claim();savePlan(next,"PLANNER","TSEG1",planner);
+        var grid=job().getRequiredGrid().path("SETTING");
+        assertThat(grid.path("gridVersion").asInt()).isEqualTo(3);assertThat(grid.has("segmentSubjects")).isTrue();
+        savePlan(next,"SUBJECT_RESOLUTION","TSEG1",Map.of("mentions",List.of()));savePlan(next,"COVERAGE","TSEG1",batch("TSEG1",List.of()));noExtraction();
+    }
+    @Test @DisplayName("현재 grid v3 Job의 retry는 기존처럼 SETTING stage·checkpoint·grid를 보존한다")
     void currentGridRetryKeepsSettingStages() throws Exception {
         source();start();var job=claim();
         internal(path(job,"/units"),job,unit(job,"TYPO","TSEG1","COMPLETED",typoEmpty()),200);checkpoint(job,"SETTING");
         savePlan(job,"PLANNER","TSEG1",batch("TSEG1",List.of()));savePlan(job,"SUBJECT_RESOLUTION","TSEG1",Map.of("mentions",List.of()));
         assertThat(finish(job)).isEqualTo("PARTIAL");var before=job().getRequiredGrid().path("SETTING").deepCopy();
-        retry(job,"keep-v2");
+        retry(job,"keep-v3");
         assertThat(count("select count(*) from validation_stages where branch='SETTING'")).isEqualTo(2);
         assertThat(count("select count(*) from validation_checkpoints where branch='SETTING'")).isEqualTo(1);
         assertThat(count("select count(*) from validation_publications where request_key='PLANNER:TSEG1'")).isEqualTo(1);
@@ -131,7 +161,7 @@ class ValidationLegacyGridRetryIntegrationTest extends ValidationWorkerFixture {
         assertThat(job().getRequiredGrid()).isNull();
 
         var next=claim();planner.put("scope",scope(next));internal(path(next,"/plans"),next,planner,200);
-        var grid=job().getRequiredGrid().path("SETTING");assertThat(grid.path("gridVersion").asInt()).isEqualTo(2);assertThat(grid.has("segmentSubjects")).isTrue();
+        var grid=job().getRequiredGrid().path("SETTING");assertThat(grid.path("gridVersion").asInt()).isEqualTo(3);assertThat(grid.has("segmentSubjects")).isTrue();
         assertThat(count("select count(*) from validation_stages where branch='SETTING' and stage='PLANNER'")).isEqualTo(1);noExtraction();
     }
 }

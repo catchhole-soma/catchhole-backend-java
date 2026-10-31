@@ -258,11 +258,13 @@ Worker가 required-grid 또는 done:true를 보내 완료를 대체할 수 없�
 grid v1은 target segment마다 전체 catalogue를 `cataloguePageSize`씩 나눈 `RELATED_SELECTION:TSEGn:PAGEk`를 요구해
 호출 수가 `entryCount / pageSize × segments`로 늘고 COVERAGE 입력이 선택 항목 수에 비례해 커졌다(1,200건 작품의 COVERAGE가
 입력 한도를 넘었다). SETTING grid v2(`gridVersion: 2`)는 관련 설정을 항목이 아니라 **주체** 단위로 고른다. TYPO grid는 v1 그대로다.
+현재 빌더는 **v3**(`gridVersion: 3`)이다. v3는 v2와 모양(아래 필드·units)이 같고 기계 주체 매칭에서 1글자 name·alias를 빼는 규칙만
+다르다. 규칙이 바뀌면 같은 원고의 `segmentSubjects`와 COVERAGE 필수 rules가 달라지므로 grid 의미 변경으로 보고 버전을 올렸다.
 
 - `segmentSubjects`: segment 순서대로 `{segmentRef, subjectRefs}`. 서버가 segment 문맥 원문 `text[contextStart:contextEnd]`(code point)에
   항목의 비어 있지 않은 `name` 또는 `aliases` 문자열이 정규화 없이 그대로 들어 있으면 그 항목의 `subject_ref`를 고른다.
-  name이 null이고 aliases가 비면 매칭하지 않는다. 2 code point 미만인 name·alias는 매칭에 쓰지 않으며(1글자 이름이 거의 모든 원고와
-  일치해 무관한 주체를 끌어왔다) 그런 주체는 SUBJECT_RESOLUTION이 문맥으로 해소한다. `subjectRefs`는 S 번호 순이며 중복이 없다.
+  name이 null이고 aliases가 비면 매칭하지 않는다. v3부터 2 code point 미만인 name·alias는 매칭에 쓰지 않으며(1글자 이름이 거의 모든
+  원고와 일치해 무관한 주체를 끌어왔다) 그런 주체는 SUBJECT_RESOLUTION이 문맥으로 해소한다. `subjectRefs`는 S 번호 순이며 중복이 없다.
   gridBase에 포함되므로 catalogue가 다르면 기존처럼 VALIDATION_SOURCE_VERSION_CONFLICT다.
 - units: segment마다 `PLANNER`, `SUBJECT_RESOLUTION`, `COVERAGE` 순서이며 book 단위와 MERGED_PLAN은 그대로다. RELATED_SELECTION 단위는 없다.
 - SUBJECT_RESOLUTION payload: `mentions`는 배열(빈 배열 허용), `mention`·`reason`은 비어 있지 않고 `mention`은 payload 안에서 유일하며,
@@ -271,14 +273,15 @@ grid v1은 target segment마다 전체 catalogue를 `cataloguePageSize`씩 나�
 - COVERAGE: 같은 segment의 성공 SUBJECT_RESOLUTION이 저장돼 있어야 받는다. 필수 `rules` 집합은 `subject_ref`가
   `segmentSubjects[segment] ∪ {해소된 subject_ref ≠ null}`에 속한 모든 catalogue 항목의 entry ref이며 비어 있으면 `rules: []`다.
   CL·segments·질문·span 검증은 그대로다. PLANNER/COVERAGE 질문의 subject_refs는 계속 전체 주체 집합으로 검증한다.
-- `RELATED_SELECTION`은 저장 이력 읽기용 stage enum과 역할 이름으로만 남는다. v2 grid에 그 단위가 없으므로 게시는 VALIDATION_RESULT_INVALID다.
+- `RELATED_SELECTION`은 저장 이력 읽기용 stage enum과 역할 이름으로만 남는다. v2·v3 grid에 그 단위가 없으므로 게시는 VALIDATION_RESULT_INVALID다.
   `cataloguePageSize`는 ENTRIES 읽기 페이지 크기로 계속 유효한 예산 키다.
 
-호환 — 공개 retry가 v1 Job을 자동 전환한다. 서버는 게시마다 grid를 다시 계산하고 extendGrid는 저장 grid의 base와 그대로 엄격히
+호환 — 공개 retry가 v1·v2 Job을 자동 전환한다. 서버는 게시마다 grid를 다시 계산하고 extendGrid는 저장 grid의 base와 그대로 엄격히
 비교한다. 그래서 배포 전에 SETTING grid가 저장된 Job은 배포 뒤 첫 SETTING 게시가 VALIDATION_SOURCE_VERSION_CONFLICT로 끝난다.
-작가의 공개 retry(`retryValidation`, PARTIAL·FAILED)는 저장 SETTING grid가 현재 빌더의 것(gridVersion 2, `segmentSubjects` 있음)이
+작가의 공개 retry(`retryValidation`, PARTIAL·FAILED)는 저장 SETTING grid가 현재 빌더의 것(gridVersion 3, `segmentSubjects` 있음)이
 아니면 같은 트랜잭션에서 SETTING 분기 사본을 버린 뒤 기존 retry를 그대로 진행하고(공개 report version은 그 retry 전이에서 전진한다),
-다음 실행의 첫 SETTING 게시가 v2 grid를 새로 만든다. v1 grid는 배포 전 미완료 run의 산출물이므로 **전환 시 설정 분기 finding과 그 판단은
+다음 실행의 첫 SETTING 게시가 v3 grid를 새로 만든다. 1글자 이름 규칙 전에 저장된 v2 grid도 같은 루틴으로 전환한다(모양이 같아도
+버전이 다르면 gridBase가 달라 게시가 충돌한다). v1·v2 grid는 배포 전 미완료 run의 산출물이므로 **전환 시 설정 분기 finding과 그 판단은
 삭제되고 재검사로 다시 생성된다(오탈자 분기는 유지).**
 
 - 지우는 것(FK 순서): SETTING finding의 작가 판단 이력 → 판단 → SETTING finding(#314 B2 대상·등급 사본 컬럼 포함) →
@@ -299,10 +302,10 @@ grid v1은 target segment마다 전체 catalogue를 `cataloguePageSize`씩 나�
 select j.id, j.report_id, j.status,
        (select count(*) from validation_findings f where f.report_id = j.report_id and f.branch = 'SETTING') as setting_findings
 from validation_jobs j
-where j.required_grid -> 'SETTING' ->> 'gridVersion' = '1' and j.status in ('QUEUED', 'RUNNING', 'PARTIAL', 'FAILED');
+where j.required_grid -> 'SETTING' ->> 'gridVersion' in ('1', '2') and j.status in ('QUEUED', 'RUNNING', 'PARTIAL', 'FAILED');
 ```
 
-SETTING과 TYPO grid는 독립 준비한다. SETTING의 gridVersion=2는 frozen manifest의 모든 BOOK_SOURCE 의무를
+SETTING과 TYPO grid는 독립 준비한다. SETTING의 gridVersion=3은 frozen manifest의 모든 BOOK_SOURCE 의무를
 먼저 넣고, 전문을 아직 확인하지 못한 book은 `books=[{sourceRef:...}]`와 `pendingBookRefs`로 남긴다.
 미확정 book은 빈 책/0 checks가 아니다. PLANNER/SUBJECT_RESOLUTION/COVERAGE 및 checkpoint는 다른 book 전문을
 읽지 않고 저장한다. 성공 BOOK_SOURCE 게시가 그 book만 실제 전문 검증하여 totalCodePoints/plannedChecks/segments와

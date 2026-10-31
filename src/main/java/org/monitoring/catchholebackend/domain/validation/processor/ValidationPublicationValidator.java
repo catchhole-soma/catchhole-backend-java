@@ -18,8 +18,11 @@ import static org.monitoring.catchholebackend.domain.validation.exception.Valida
 @Component @RequiredArgsConstructor
 public class ValidationPublicationValidator {
     public static final int MAX_PAYLOAD_BYTES=131072;
-    /** GH349 SETTING grid 빌더 버전. 저장 grid가 이와 다르면 공개 retry가 SETTING 분기를 버리고 다시 만든다. */
-    public static final int SETTING_GRID_VERSION=2;
+    /**
+     * GH349 SETTING grid 빌더 버전. 저장 grid가 이와 다르면 공개 retry가 SETTING 분기를 버리고 다시 만든다.
+     * 3은 v2와 모양이 같고 기계 주체 매칭에서 1글자 name·alias를 빼는 규칙만 다르다(배포 전 v2 grid도 retry로 전환한다).
+     */
+    public static final int SETTING_GRID_VERSION=3;
     /** GH349 기계 주체 매칭에 쓰는 name·alias의 최소 code point 길이. */
     private static final int MIN_MECHANICAL_CODE_POINTS=2;
     private final ValidationDataService data;
@@ -34,7 +37,7 @@ public class ValidationPublicationValidator {
         if(target.path("text").asText().isEmpty())throw error(VALIDATION_RESULT_INVALID);
         var limits=c.configuration().path("budgets").path(branch==ValidationBranch.SETTING?"setting":"typo");
         int core=limits.path("segmentChars").asInt(),context=limits.path("contextChars").asInt();
-        // GH349: SETTING grid v2는 전수 catalogue page 대신 구간별 주체 매칭과 SUBJECT_RESOLUTION 단계를 요구한다. TYPO grid는 v1 그대로다.
+        // GH349: SETTING grid v2·v3는 전수 catalogue page 대신 구간별 주체 매칭과 SUBJECT_RESOLUTION 단계를 요구한다. TYPO grid는 v1 그대로다.
         var grid=JsonNodeFactory.instance.objectNode().put("gridVersion",branch==ValidationBranch.SETTING?SETTING_GRID_VERSION:1);var units=grid.putArray("units");
         ArrayNode segments=segments(target.path("totalCodePoints").asInt(),core,context);grid.set("segments",segments);
         var sources=new LinkedHashMap<String,JsonNode>();sources.put("T1",target);
@@ -111,7 +114,7 @@ public class ValidationPublicationValidator {
         }
         unit(units,"MERGED_PLAN","PLAN");
     }
-    /** 저장 SETTING grid가 현재 빌더(gridVersion 2, segmentSubjects 포함)가 만든 것인지. */
+    /** 저장 SETTING grid가 현재 빌더(gridVersion SETTING_GRID_VERSION, segmentSubjects 포함)가 만든 것인지. */
     public static boolean currentSettingGrid(JsonNode grid) {return grid.path("gridVersion").asInt()==SETTING_GRID_VERSION&&grid.has("segmentSubjects");}
     public static boolean sourcesReady(JsonNode grid) {return grid!=null&&grid.path("pendingBookRefs").isEmpty();}
     public void recheck(Context c) {read(c,"VALIDATE",null,null,null,null,null);}
@@ -180,7 +183,7 @@ public class ValidationPublicationValidator {
             return;
         }
         String segment=ref.split(":")[0];
-        // RELATED_SELECTION은 배포 전 저장 이력용 enum 값으로만 남는다. v2 grid에는 그 단위가 없어 위 contains()에서 거절된다.
+        // RELATED_SELECTION은 배포 전 저장 이력용 enum 값으로만 남는다. v2·v3 grid에는 그 단위가 없어 위 contains()에서 거절된다.
         if(kind==ValidationStageKind.SUBJECT_RESOLUTION) {subjectResolution(body,decisions.subjects(p));return;}
         if(kind==ValidationStageKind.TYPO_SEGMENT) {batchSegments(body,segment);return;}
         batchSegments(body,segment);
