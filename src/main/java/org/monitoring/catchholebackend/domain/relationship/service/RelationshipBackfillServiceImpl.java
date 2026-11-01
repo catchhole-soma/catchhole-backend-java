@@ -180,18 +180,26 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
                         RelationshipBackfillWork.create(work.getId(), manifest.campaignKey()));
         initial.forEach(e -> enqueue(state, e, true));
         // A newly finished core job between cohort selection and API rollout must join the tail.
-        for (AnalysisJob core :
+        // Query only episodes: historical Job JSON snapshots must not enter this persistence context.
+        for (Episode episode :
                 em.createQuery(
-                                "select j from AnalysisJob j where j.work.id=:work and"
-                                    + " j.jobType=:type and j.status=:status and j.episode is not"
-                                    + " null",
-                                AnalysisJob.class)
+                                "select e from Episode e where e.createdAt>=:selectedAt and exists"
+                                    + " (select j.id from AnalysisJob j where j.episode=e and"
+                                    + " j.work.id=:work and j.jobType=:type and j.status=:status and"
+                                    + " (j.sourceContentHash=e.contentHash or (j.sourceContentHash is"
+                                    + " null and e.contentHash is null)) and"
+                                    + " (j.sourceContentS3Key=e.contentS3Key or"
+                                    + " (j.sourceContentS3Key is null and e.contentS3Key is null)) and"
+                                    + " (j.sourceContentS3Version=e.contentS3Version or"
+                                    + " (j.sourceContentS3Version is null and e.contentS3Version is"
+                                    + " null)))",
+                                Episode.class)
+                        .setParameter("selectedAt", manifest.selectedAt())
                         .setParameter("work", work.getId())
                         .setParameter("type", AnalysisJobType.SETTING_EXTRACTION)
                         .setParameter("status", AnalysisJobStatus.SUCCEEDED)
                         .getResultList())
-            if (!core.getEpisode().getCreatedAt().isBefore(manifest.selectedAt())
-                    && sameSource(core, core.getEpisode())) enqueue(state, core.getEpisode(), true);
+            enqueue(state, episode, true);
         return state;
     }
 
@@ -546,11 +554,5 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
                 && Objects.equals(i.getSourceHash(), e.getContentHash())
                 && Objects.equals(i.getSourceKey(), e.getContentS3Key())
                 && Objects.equals(i.getSourceVersion(), e.getContentS3Version());
-    }
-
-    private boolean sameSource(AnalysisJob j, Episode e) {
-        return Objects.equals(j.getSourceContentHash(), e.getContentHash())
-                && Objects.equals(j.getSourceContentS3Key(), e.getContentS3Key())
-                && Objects.equals(j.getSourceContentS3Version(), e.getContentS3Version());
     }
 }
