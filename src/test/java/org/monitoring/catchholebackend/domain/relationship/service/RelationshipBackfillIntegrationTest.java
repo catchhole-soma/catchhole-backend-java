@@ -7,6 +7,9 @@ import static org.monitoring.catchholebackend.domain.relationship.dto.Relationsh
 
 import jakarta.persistence.EntityManager;
 
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import org.hibernate.Session;
+import org.hibernate.engine.spi.EntityKey;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -42,6 +45,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.function.Consumer;
 
 @SpringBootTest(
         properties = {
@@ -446,6 +450,91 @@ class RelationshipBackfillIntegrationTest {
         var tail = claim();
         assertThat(tail.episode().episodeNo()).isEqualTo(2);
         assertThat(servicePaidJob(tail.analysisJobId())).isTrue();
+    }
+
+    @Test
+    @DisplayName("백필 초기화는 대형 설정 JSON이 있는 성공 Job을 로드하지 않고 선정 경계·후행 회차를 한 번 접수한다")
+    void bootstrapDoesNotHydrateCoreJobSnapshots() {
+        selectedAt = LocalDateTime.now().plusMinutes(1).withNano(0);
+        when(manifest.selectedAt()).thenReturn(selectedAt);
+        UUID older = episode(1), boundary = episode(2), later = episode(3);
+        jdbc.update("update episodes set created_at=? where id=?", selectedAt.minusSeconds(1), older);
+        jdbc.update("update episodes set created_at=? where id=?", selectedAt, boundary);
+        jdbc.update("update episodes set created_at=? where id=?", selectedAt.plusSeconds(1), later);
+        var snapshot = JsonNodeFactory.instance.objectNode().put("syntheticPayload", "x".repeat(128 * 1024));
+        snapshot.putArray("changes");
+        snapshot.put("outputStateHash", "a".repeat(64));
+        for (var episodeId : List.of(older, older, boundary, later, later)) {
+            successfulCoreJob(
+                    episodeId,
+                    job -> {
+                        job.configureReviewMode(AnalysisReviewMode.AUTOMATIC);
+                        job.initializeOrderedRun(UUID.randomUUID(), 1, 0, null, snapshot);
+                        job.captureAutomaticInput(snapshot);
+                        job.prepareOrderedInput("b".repeat(64));
+                        job.replacePendingJournal(snapshot);
+                        job.sealJournal();
+                    });
+        }
+
+        tx.executeWithoutResult(t -> {
+            coordinator.bootstrapRelationshipBackfill();
+            // 비동기 결과 지표의 별도 Job 조회와 분리해 bootstrap의 영속성 문맥만 검사한다.
+            assertThat(em.unwrap(Session.class).getStatistics().getEntityKeys())
+                    .extracting(key -> ((EntityKey) key).getEntityName())
+                    .as("원문 manifest만 필요할 때 설정 JSONB를 가진 Job 엔티티를 읽지 않는다")
+                    .doesNotContain(AnalysisJob.class.getName());
+        });
+        assertThat(items()).extracting(RelationshipBackfillItem::getEpisodeId)
+                .containsExactly(older, boundary, later);
+    }
+
+    @Test
+    @DisplayName("후행 수집은 현재 원문 key·hash·nullable version이 같은 성공 분석만 회차당 한 번 접수한다")
+    void bootstrapTailRequiresMatchingSuccessfulSource() {
+        selectedAt = LocalDateTime.now().plusMinutes(1).withNano(0);
+        when(manifest.selectedAt()).thenReturn(selectedAt);
+        UUID older = episode(1), boundary = episode(2), later = episode(3), nullVersion = episode(4);
+        UUID wrongKey = episode(5), wrongHash = episode(6), wrongVersion = episode(7);
+        UUID nullJobVersion = episode(8), nullEpisodeVersion = episode(9), unfinished = episode(10);
+        UUID otherJobType = episode(11);
+        for (var episodeId : List.of(later, nullVersion, wrongKey, wrongHash, wrongVersion,
+                nullJobVersion, nullEpisodeVersion, unfinished, otherJobType)) {
+            jdbc.update("update episodes set created_at=? where id=?", selectedAt.plusSeconds(1), episodeId);
+        }
+        jdbc.update("update episodes set created_at=? where id=?", selectedAt, boundary);
+        jdbc.update("update episodes set content_s3_version=null where id in (?, ?)", nullVersion, nullEpisodeVersion);
+        successfulCoreJob(boundary, job -> {});
+        successfulCoreJob(later, job -> {});
+        successfulCoreJob(later, job -> {});
+        successfulCoreJob(nullVersion, job -> {});
+        successfulCoreJob(wrongKey, job -> ReflectionTestUtils.setField(job, "sourceContentS3Key", "synthetic/stale"));
+        successfulCoreJob(wrongHash, job -> ReflectionTestUtils.setField(job, "sourceContentHash", "0".repeat(64)));
+        successfulCoreJob(wrongVersion, job -> ReflectionTestUtils.setField(job, "sourceContentS3Version", "v2"));
+        successfulCoreJob(nullJobVersion, job -> ReflectionTestUtils.setField(job, "sourceContentS3Version", null));
+        successfulCoreJob(nullEpisodeVersion, job -> ReflectionTestUtils.setField(job, "sourceContentS3Version", "v1"));
+        var unfinishedJob = successfulCoreJob(unfinished, job -> {});
+        jdbc.update("update analysis_jobs set status='FAILED' where id=?", unfinishedJob);
+        successfulCoreJob(otherJobType, job -> ReflectionTestUtils.setField(job, "jobType", AnalysisJobType.CHARACTER_FACT_COMPARISON));
+
+        coordinator.bootstrapRelationshipBackfill();
+        coordinator.bootstrapRelationshipBackfill();
+
+        assertThat(items()).extracting(RelationshipBackfillItem::getEpisodeId)
+                .containsExactly(older, boundary, later, nullVersion);
+        assertThat(items()).allMatch(RelationshipBackfillItem::isServicePaid);
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.BUILDING);
+    }
+
+    private UUID successfulCoreJob(UUID episodeId, Consumer<AnalysisJob> customize) {
+        return tx.execute(t -> {
+            var episode = em.find(Episode.class, episodeId);
+            var job = AnalysisJob.create(episode.getWork(), null, episode, AnalysisJobType.SETTING_EXTRACTION);
+            customize.accept(job);
+            job.succeed(null, 0, 0);
+            em.persist(job);
+            return job.getId();
+        });
     }
 
     @ParameterizedTest
