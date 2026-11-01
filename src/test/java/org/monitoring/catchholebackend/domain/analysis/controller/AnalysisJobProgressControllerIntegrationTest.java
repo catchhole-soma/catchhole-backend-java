@@ -3,6 +3,7 @@ package org.monitoring.catchholebackend.domain.analysis.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -26,6 +27,31 @@ import org.springframework.test.context.ActiveProfiles;
 @ActiveProfiles("test")
 @DisplayName("분석 진행 상태 묶음 HTTP 계약")
 class AnalysisJobProgressControllerIntegrationTest extends AnalysisProgressApiFixture {
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository jobs;
+
+    @Test
+    @DisplayName("관계 백필은 공개 생성·상세·재시도와 최신 회차 분석 상태에 노출하지 않는다")
+    void relationshipBackfillStaysOutsidePublicAnalysisBoundary() throws Exception {
+        var core = job(1);
+        var backfill = AnalysisJob.create(work, batch, core.getEpisode(), AnalysisJobType.RELATIONSHIP_EXTRACTION);
+        em.persist(backfill);
+        em.flush();
+        String base = "/api/v1/works/" + work.getId() + "/analysis-jobs";
+        mvc.perform(post(base).header("Authorization", authorization)
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"jobType\":\"RELATIONSHIP_EXTRACTION\",\"batchId\":\"" + batch.getId() + "\",\"episodeId\":\"" + core.getEpisode().getId() + "\"}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("ANALYSIS_JOB_TYPE_INVALID"));
+        mvc.perform(get(base + "/" + backfill.getId()).header("Authorization", authorization))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("ANALYSIS_JOB_TYPE_INVALID"));
+        mvc.perform(post(base + "/" + backfill.getId() + "/retry").header("Authorization", authorization))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("ANALYSIS_JOB_TYPE_INVALID"));
+        assertThat(jobs.findAllWithTargetsByWorkIdOrderByCreatedAtDesc(work.getId()))
+                .extracting(AnalysisJob::getId).containsExactly(core.getId());
+        assertThat(jobs.findAllRelevantForEpisodeSummaries(List.of(batch.getId()), List.of(core.getEpisode().getId())))
+                .extracting(AnalysisJob::getId).containsExactly(core.getId());
+    }
+
     @ParameterizedTest
     @ValueSource(ints = {1, 30, 100})
     @DisplayName("허용한 크기의 작업을 작은 상태 응답으로 조회한다")
@@ -92,7 +118,7 @@ class AnalysisJobProgressControllerIntegrationTest extends AnalysisProgressApiFi
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"WORLD_SETTING_COMPARISON", "CHARACTER_FACT_COMPARISON"})
+    @ValueSource(strings = {"WORLD_SETTING_COMPARISON", "CHARACTER_FACT_COMPARISON", "RELATIONSHIP_EXTRACTION"})
     @DisplayName("내부 비교 작업은 기존 공개 상세 정책과 같이 거절한다")
     void rejectsInternalJobTypes(String type) throws Exception {
         var hidden = AnalysisJob.create(work, batch, episode(1), AnalysisJobType.valueOf(type)); em.persist(hidden); em.flush();

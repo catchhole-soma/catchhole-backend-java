@@ -213,9 +213,9 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             left join fetch analysisJob.episode
             left join fetch analysisJob.targetEpisodes
             where analysisJob.work.id = :workId
-              and analysisJob.jobType not in (
-                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON,
-                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.CHARACTER_FACT_COMPARISON
+              and analysisJob.jobType in (
+                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION,
+                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.EPISODE_VALIDATION
               )
             order by analysisJob.createdAt desc
             """)
@@ -228,16 +228,16 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
     @Query(value = """
             with requests as (
                 select batch_id, created_at from analysis_jobs where work_id = :workId and batch_id is not null
-                  and job_type not in ('WORLD_SETTING_COMPARISON','CHARACTER_FACT_COMPARISON')
+                  and job_type in ('SETTING_EXTRACTION','EPISODE_VALIDATION')
                 union all select batch_id, created_at from validation_reports where work_id = :workId
             ) select cast(b.id as varchar) as batchId, b.upload_type as uploadType, min(r.created_at) as firstRequestedAt,
                 max(r.created_at) as lastRequestedAt from upload_batches b join requests r on r.batch_id = b.id
-                where exists (select 1 from analysis_jobs j where j.batch_id = b.id and j.job_type not in ('WORLD_SETTING_COMPARISON','CHARACTER_FACT_COMPARISON'))
+                where exists (select 1 from analysis_jobs j where j.batch_id = b.id and j.job_type in ('SETTING_EXTRACTION','EPISODE_VALIDATION'))
                    or exists (select 1 from validation_reports v where v.batch_id = b.id and v.is_current = true)
                 group by b.id, b.upload_type order by max(r.created_at) desc, b.id desc
             """, countQuery = """
             select count(*) from upload_batches b where b.work_id = :workId and (
-                exists (select 1 from analysis_jobs j where j.batch_id = b.id and j.job_type not in ('WORLD_SETTING_COMPARISON','CHARACTER_FACT_COMPARISON'))
+                exists (select 1 from analysis_jobs j where j.batch_id = b.id and j.job_type in ('SETTING_EXTRACTION','EPISODE_VALIDATION'))
                 or exists (select 1 from validation_reports r where r.batch_id = b.id and r.is_current = true))
             """, nativeQuery = true)
     Page<AnalysisBatchPageRow> findBatchPage(
@@ -306,9 +306,9 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             join fetch analysisJob.episode
             where analysisJob.batch.id in :batchIds
               and analysisJob.episode.id in :episodeIds
-              and analysisJob.jobType not in (
-                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON,
-                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.CHARACTER_FACT_COMPARISON
+              and analysisJob.jobType in (
+                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION,
+                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.EPISODE_VALIDATION
               )
             order by analysisJob.createdAt desc
             """)

@@ -71,3 +71,8 @@ management:
     distribution:
       percentiles-histogram:
         http.server.requests: true
+
+# 고정된 선정 계정만 등록한다. 캠페인 상태는 DB에 남아 재배포 시 이어진다.
+analysis:
+  relationship-backfill:
+    enabled: ${RELATIONSHIP_BACKFILL_ENABLED:true}

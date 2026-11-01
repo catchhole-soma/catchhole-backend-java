@@ -395,7 +395,8 @@ public class EpisodeServiceImpl implements EpisodeService {
                         batchId,
                         Set.of(
                                 AnalysisJobType.WORLD_SETTING_COMPARISON,
-                                AnalysisJobType.CHARACTER_FACT_COMPARISON
+                                AnalysisJobType.CHARACTER_FACT_COMPARISON,
+                                AnalysisJobType.RELATIONSHIP_EXTRACTION
                         )
                 )
                 .orElse(null);

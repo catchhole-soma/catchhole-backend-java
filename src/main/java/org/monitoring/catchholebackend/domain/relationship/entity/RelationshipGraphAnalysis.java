@@ -28,6 +28,13 @@ public class RelationshipGraphAnalysis extends BaseEntity {
     @Id private UUID id;
 
     @Column(nullable = false, updatable = false)
+    private long generation;
+
+    public void assignGeneration(long generation) {
+        this.generation = generation;
+    }
+
+    @Column(nullable = false, updatable = false)
     private UUID workId;
 
     @Column(nullable = false, updatable = false)

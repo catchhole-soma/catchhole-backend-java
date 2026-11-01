@@ -23,6 +23,7 @@ import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenPurpose;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageStatus;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.chat.entity.ChatRun;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
@@ -126,7 +127,8 @@ public class AiTokenUsage extends BaseEntity {
         this.attempt = attempt;
         this.modelName = modelName;
         this.reservedTokens = reservedTokens;
-        freezeChargePolicy(AiTokenChargePolicy.forModel(modelName));
+        freezeChargePolicy(isRelationshipAnalysis() && job.isRelationshipServicePaid()
+                ? AiTokenChargePolicy.servicePaid() : AiTokenChargePolicy.forModel(modelName));
         this.status = AiTokenUsageStatus.RESERVED;
     }
 
@@ -199,10 +201,15 @@ public class AiTokenUsage extends BaseEntity {
 
     public long settle(long inputTokens, long cachedInputTokens, long outputTokens,
                        AiTokenUsageOutcome outcome) {
-        assertReserved();
+        if (status != AiTokenUsageStatus.RESERVED
+                && !(isRelationshipAnalysis() && status == AiTokenUsageStatus.UNKNOWN)) {
+            throw new AppException(AiTokenErrorCode.AI_TOKEN_RESERVATION_CONFLICT);
+        }
         if (inputTokens < 0 || cachedInputTokens < 0 || outputTokens < 0
                 || inputTokens > Long.MAX_VALUE - outputTokens
-                || outcome == AiTokenUsageOutcome.USAGE_UNAVAILABLE || cachedInputTokens > inputTokens) {
+                || outcome == AiTokenUsageOutcome.USAGE_UNAVAILABLE || cachedInputTokens > inputTokens
+                || (isRelationshipAnalysis() && outcome != AiTokenUsageOutcome.SUCCESS
+                && outcome != AiTokenUsageOutcome.FAILURE)) {
             throw new AppException(AiTokenErrorCode.AI_TOKEN_USAGE_INVALID);
         }
         this.inputTokens = inputTokens;
@@ -222,7 +229,18 @@ public class AiTokenUsage extends BaseEntity {
             throw new AppException(AiTokenErrorCode.AI_TOKEN_USAGE_INVALID);
         }
         this.outcome = outcome;
-        this.status = AiTokenUsageStatus.RELEASED;
+        // A completed provider call can arrive after the lease was reclaimed. Preserve
+        // its request identity and unknown cost without keeping the member's hold.
+        this.status = isRelationshipAnalysis() && outcome != AiTokenUsageOutcome.WORK_PURGE_CANCELED
+                ? AiTokenUsageStatus.UNKNOWN : AiTokenUsageStatus.RELEASED;
+    }
+
+    public boolean isRelationshipAnalysis() {
+        return analysisJob != null && analysisJob.getJobType() == AnalysisJobType.RELATIONSHIP_EXTRACTION;
+    }
+
+    public boolean isServicePaid() {
+        return AiTokenChargePolicy.servicePaid().version().equals(chargePolicyVersion);
     }
 
     private void assertReserved() {

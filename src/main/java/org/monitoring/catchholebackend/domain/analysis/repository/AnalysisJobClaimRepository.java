@@ -19,7 +19,8 @@ public class AnalysisJobClaimRepository {
     private final EntityManager entityManager;
 
     private static final String ELIGIBLE = """
-            job.status = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING
+            job.jobType <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.RELATIONSHIP_EXTRACTION
+            and job.status = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING
             and job.jobType in :jobTypes and job.analysisMode in :modes and job.sourceKind in :sourceKinds
             and (:supportsCharacterComparisonGroups = true or job.characterComparisonInputHash is null)
             and (:supportsRelationshipAnalysis = true or job.relationshipAnalysisEnabled = false)

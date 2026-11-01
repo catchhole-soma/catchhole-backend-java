@@ -14,6 +14,12 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface RelationshipGraphService {
+    void prepareCachedObservations(
+            org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob job,
+            org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract
+                            .Prepare
+                    request);
+
     void beginRelationshipAnalysis(AnalysisJob job);
 
     Optional<Context> getRelationshipAnalysis(UUID jobId, UUID lease);

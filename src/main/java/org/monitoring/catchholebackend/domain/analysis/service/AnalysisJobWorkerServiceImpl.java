@@ -74,6 +74,8 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     private final List<AnalysisAutomaticApplicationContributor> automaticApplicationContributors;
     private final WorkRepository workRepository;
     private final org.monitoring.catchholebackend.domain.relationship.service.RelationshipGraphService relationshipGraphService;
+    private final org.monitoring.catchholebackend.domain.relationship.service.RelationshipBackfillService relationshipBackfill;
+
     @org.springframework.beans.factory.annotation.Value("${relationship.graph.enabled:true}")
     private boolean relationshipGraphEnabled = true;
 
@@ -151,11 +153,12 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             targetEpisode.markChunking();
         }
 
-        if (relationshipGraphEnabled && Boolean.TRUE.equals(request.supportsRelationshipAnalysis())
+        boolean deferredRelationship = relationshipBackfill.deferInlineRelationshipAnalysis(analysisJob);
+        if (!deferredRelationship && relationshipGraphEnabled && Boolean.TRUE.equals(request.supportsRelationshipAnalysis())
                 && analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION && !analysisJob.isSettingBookSource()
                 && analysisJob.getEpisode() != null && analysisJob.getSourceEpisodeNo() != null
                 && analysisJob.getSourceContentHash() != null && analysisJob.getSourceContentS3Key() != null) {
-            analysisJob.enableRelationshipAnalysis();
+            analysisJob.configureRelationship(relationshipBackfill.getPublishedRelationshipGeneration(analysisJob.getWork().getId()), false);
             relationshipGraphService.beginRelationshipAnalysis(analysisJob);
         }
         UUID workId = analysisJob.getWork().getId();
@@ -210,6 +213,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 analysisJobId,
                 leaseToken
         );
+        rejectRelationshipOnly(analysisJob);
         LocalDateTime leaseExpiresAt = LocalDateTime.now().plus(LEASE_DURATION);
         analysisJob.renewLease(leaseExpiresAt);
         return new WorkerAnalysisJobHeartbeatResponse(leaseToken, leaseExpiresAt);
@@ -222,6 +226,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 analysisJobId,
                 leaseToken
         );
+        rejectRelationshipOnly(analysisJob);
         analysisJob.updateCurrentStep(request.currentStep());
         analysisJob.updateCheckpointStage(request.checkpointStage());
         if (analysisJob.getJobType() == AnalysisJobType.SETTING_EXTRACTION
@@ -270,13 +275,12 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             AppException rolledBackApplication
     ) {
         // 사용자 수정과 같은 Work → Job 잠금 순서로 두 도메인의 반영과 완료를 원자적으로 처리한다.
-        analysisJobRepository.findById(analysisJobId).filter(AnalysisJob::isAutomaticReview)
-                .ifPresent(job -> workRepository.findByIdForUpdate(job.getWork().getId())
-                        .orElseThrow(() -> new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_NOT_FOUND)));
+        analysisJobLeaseService.lockWorkForUpdate(analysisJobId);
         AnalysisJob analysisJob = analysisJobLeaseService.getRunningAnalysisJobForUpdate(
                 analysisJobId,
                 leaseToken
         );
+        rejectRelationshipOnly(analysisJob);
         validateCompletion(analysisJob);
         if (analysisJob.isOrderedProvisional()) {
             analysisJournalContributors.forEach(contributor -> contributor.finalizeChanges(analysisJob));
@@ -314,7 +318,10 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 }
             }
         }
-        relationshipGraphService.finalizeRelationshipAnalysis(analysisJob);
+        // A rolling-deploy inline lease may finish after this work joined the private build.
+        // Its core settings succeed, while the relation observation is queued in the ordered lane.
+        if (!relationshipBackfill.deferInlineRelationshipAnalysis(analysisJob)) relationshipGraphService.finalizeRelationshipAnalysis(analysisJob);
+        relationshipBackfill.enqueueCompletedCoreAnalysis(analysisJob);
         if (!isHiddenComparisonJob(analysisJob)) {
             findTargetEpisodes(analysisJob).forEach(Episode::markAnalyzed);
         }
@@ -329,6 +336,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 analysisJobId,
                 leaseToken
         );
+        rejectRelationshipOnly(analysisJob);
         finishFailure(analysisJob, request);
     }
 
@@ -454,7 +462,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
     ) {
         List<AnalysisJob> expiredJobs = analysisJobRepository.findExpiredLeaseCandidates(
                 AnalysisJobStatus.RUNNING,
-                jobTypes,
+                jobTypes.stream().filter(t -> t != AnalysisJobType.RELATIONSHIP_EXTRACTION).toList(),
                 now,
                 PageRequest.of(0, EXPIRED_LEASE_SCAN_SIZE)
         );
@@ -706,6 +714,9 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         }
     }
 
+    private void rejectRelationshipOnly(AnalysisJob job) {
+        if(job.getJobType()==AnalysisJobType.RELATIONSHIP_EXTRACTION)throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
+    }
     private boolean isHiddenComparisonJob(AnalysisJob analysisJob) {
         return analysisJob.getJobType() == AnalysisJobType.WORLD_SETTING_COMPARISON
                 || analysisJob.getJobType() == AnalysisJobType.CHARACTER_FACT_COMPARISON;

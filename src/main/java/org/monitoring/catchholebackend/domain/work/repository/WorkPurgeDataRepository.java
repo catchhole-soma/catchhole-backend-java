@@ -25,6 +25,8 @@ public class WorkPurgeDataRepository {
      */
     public WorkPurgeDatabaseResult purgeWorkData(UUID workId) {
         int deletedCount = 0;
+        deletedCount += update("delete from relationship_backfill_items where work_id = ?", workId);
+        deletedCount += update("delete from relationship_backfill_works where work_id = ?", workId);
         deletedCount += update("delete from relationship_graph_events where work_id = ?", workId);
         deletedCount += update("delete from relationship_graph_edges where work_id = ?", workId);
         deletedCount += update("delete from relationship_graph_nodes where work_id = ?", workId);
