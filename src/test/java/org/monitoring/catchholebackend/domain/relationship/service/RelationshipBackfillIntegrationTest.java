@@ -1131,6 +1131,86 @@ class RelationshipBackfillIntegrationTest {
                 .isEqualTo(AnalysisStatus.FAILED);
     }
 
+    @Test
+    @DisplayName("느린 관측 재준비 뒤 일반 claim은 같은 토큰과 시도 횟수로 새 60초 lease를 반환한다")
+    void normalClaimRenewsLeaseAfterCachedPreparation() {
+        episode(1);
+        episode(3);
+        coordinator.bootstrapRelationshipBackfill();
+        finish(claim());
+        var previous = claim();
+        var context = prepare(previous);
+        coreComplete(episode(2));
+        finish(previous, context);
+        finish(claim());
+        var prepared = expireLeaseAfterCachedPreparation();
+
+        var replay = claim();
+
+        assertThat(replay.episode().episodeNo()).isEqualTo(3);
+        assertThat(replay.analysisJobId()).isNotEqualTo(previous.analysisJobId());
+        assertFreshPreparedClaim(replay, prepared.get());
+        assertThat(items().getLast().getRecoveryAttemptCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("느린 실패 복구 준비 뒤 claim은 복구 예산과 토큰을 유지한 새 60초 lease를 반환한다")
+    void recoveryClaimRenewsLeaseAfterCachedPreparation() {
+        episode(1);
+        coordinator.bootstrapRelationshipBackfill();
+        var previous = claim();
+        failPreparedComparison(previous, FailureCode.COMPARISON_FAILED);
+        var prepared = expireLeaseAfterCachedPreparation();
+
+        var recovered = coordinator.claimRelationshipJob(recoveryRequest(true)).orElseThrow();
+
+        assertThat(recovered.analysisJobId()).isNotEqualTo(previous.analysisJobId());
+        assertFreshPreparedClaim(recovered, prepared.get());
+        assertThat(items().getFirst().getRecoveryAttemptCount()).isEqualTo(1);
+    }
+
+    private record PreparedClaim(UUID leaseToken, int claimAttempts, LocalDateTime finishedAt) {}
+
+    private java.util.concurrent.atomic.AtomicReference<PreparedClaim> expireLeaseAfterCachedPreparation() {
+        var prepared = new java.util.concurrent.atomic.AtomicReference<PreparedClaim>();
+        doAnswer(call -> {
+            call.callRealMethod();
+            AnalysisJob job = call.getArgument(0);
+            LocalDateTime finishedAt = LocalDateTime.now();
+            prepared.set(new PreparedClaim(job.getLeaseToken(), job.getClaimAttemptCount(), finishedAt));
+            // Simulate preparation consuming the initial lease without sleeping or changing tokens.
+            job.renewLease(finishedAt.minusSeconds(1));
+            return null;
+        }).when(graph).prepareCachedObservations(any(), any());
+        return prepared;
+    }
+
+    private void assertFreshPreparedClaim(WorkerAnalysisJobPayload payload, PreparedClaim prepared) {
+        assertThat(prepared).isNotNull();
+        assertThat(payload.leaseToken()).isEqualTo(prepared.leaseToken());
+        assertThat(payload.claimAttemptCount()).isEqualTo(prepared.claimAttempts()).isEqualTo(1);
+        assertThat(payload.leaseExpiresAt()).isAfterOrEqualTo(prepared.finishedAt().plusSeconds(60));
+        assertThat(payload.leaseExpiresAt()).isBeforeOrEqualTo(LocalDateTime.now().plusSeconds(60));
+        tx.executeWithoutResult(t -> {
+            var job = em.find(AnalysisJob.class, payload.analysisJobId());
+            assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.RUNNING);
+            assertThat(job.getLeaseToken()).isEqualTo(payload.leaseToken());
+            assertThat(job.getClaimAttemptCount()).isEqualTo(1);
+            assertThat(job.getLeaseExpiresAt()).isCloseTo(payload.leaseExpiresAt(),
+                    within(1, java.time.temporal.ChronoUnit.MILLIS));
+        });
+        // Check reclaim before heartbeat so an early heartbeat cannot hide an already expired claim.
+        assertThat(coordinator.claimRelationshipJob(recoveryRequest(true))).isEmpty();
+        var heartbeat = coordinator.renewRelationshipJobLease(payload.analysisJobId(), payload.leaseToken());
+        assertThat(heartbeat.leaseToken()).isEqualTo(payload.leaseToken());
+        assertThat(heartbeat.leaseExpiresAt()).isAfterOrEqualTo(payload.leaseExpiresAt());
+        assertThat(tx.<Integer>execute(t ->
+                em.find(AnalysisJob.class, payload.analysisJobId()).getClaimAttemptCount())).isEqualTo(1);
+        verify(tokens, never()).releaseReservedForAnalysisJob(eq(payload.analysisJobId()), any());
+        verify(graph).prepareCachedObservations(any(), any());
+        finish(payload);
+    }
+
     enum RecoveryRejection {
         MALFORMED_CACHE, EMPTY_CACHE, SOURCE_CHANGED, OUTSIDE_COHORT, USER_PAID, USER_PAID_JOB, WRONG_FAILURE,
         GENERATION_CHANGED, ACTIVE_CORE, SOURCE_PURGING, VALIDATION_PENDING, LATER_SUCCESS
