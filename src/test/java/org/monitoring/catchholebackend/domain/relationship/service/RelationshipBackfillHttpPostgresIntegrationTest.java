@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.monitoring.catchholebackend.domain.aitoken.entity.AiTokenAccount;
@@ -87,11 +88,98 @@ class RelationshipBackfillHttpPostgresIntegrationTest {
     @MockitoBean ObjectStorage objects;
     @MockitoBean RelationshipBackfillManifest manifest;
     private final ObjectMapper json = new ObjectMapper();
-    private final Map<String, String> sources = Map.of(
+    private final Map<String, String> sources = new java.util.HashMap<>(Map.of(
             "synthetic/1", "아라와 보라는 함께 길을 떠났다.",
             "synthetic/2", "아라와 보라는 서로를 믿고 함께 싸웠다.",
-            "synthetic/3", "아라는 보라를 걱정하며 함께 돌아왔다.");
+            "synthetic/3", "아라는 보라를 걱정하며 함께 돌아왔다."));
     record Fixture(Long owner, UUID selectedWork, UUID excludedWork, String authorization) {}
+
+    @BeforeEach
+    void resetSyntheticCampaign() {
+        new TransactionTemplate(transactions).executeWithoutResult(status -> {
+            em.createQuery("delete from RelationshipBackfillItem").executeUpdate();
+            em.createQuery("delete from RelationshipBackfillWork").executeUpdate();
+            em.createQuery("delete from RelationshipBackfillCampaign").executeUpdate();
+        });
+    }
+
+    @Test
+    @DisplayName("실제 Python의 부분 비교와 복구 실패를 보존하고 다음 회차의 독립 쌍·공개 정보·outbox를 함께 검증한다")
+    void partialPairsContinueThroughRealPythonAndAlertOnce() throws Exception {
+        sources.replaceAll((key, value) -> "아라와 보라와 다라는 함께 길을 떠났다.");
+        when(objects.getText(anyString())).thenAnswer(call -> sources.get(call.getArgument(0)));
+        Fixture fixture = seed();
+        when(manifest.campaignKey()).thenReturn("relationship-backfill-20261030-v1");
+        when(manifest.selectedAt()).thenReturn(LocalDateTime.now().plusMinutes(1));
+        when(manifest.matches(any())).thenAnswer(call -> fixture.owner().equals(((Member) call.getArgument(0)).getId()));
+        coordinator.bootstrapRelationshipBackfill();
+        addCompletedCoreTail(fixture);
+        for (int no : List.of(1, 2, 3)) runWorker(fixture, no, true, true);
+        assertThat(state(fixture)).isEqualTo("COMPLETE:1");
+        assertThat(sql.queryForList("select state from relationship_backfill_items where work_id=? order by episode_no",
+                String.class, fixture.selectedWork())).containsExactly("SUCCEEDED", "PARTIAL", "PARTIAL");
+        assertThat(sql.queryForObject("select count(*) from analysis_jobs where work_id=? and job_type='RELATIONSHIP_EXTRACTION' and status='SUCCEEDED'",
+                Integer.class, fixture.selectedWork())).isEqualTo(3);
+        assertThat(sql.queryForObject("select count(*) from analysis_failure_notifications where work_id=?",
+                Integer.class, fixture.selectedWork())).isEqualTo(1);
+        var notification = sql.queryForMap("select failure_kind,failure_count,failure_diagnostics::text as diagnostics from analysis_failure_notifications where work_id=?",
+                fixture.selectedWork());
+        assertThat(notification.get("failure_kind")).isEqualTo("RELATIONSHIP_COMPARISON");
+        assertThat(notification.get("failure_count")).isEqualTo(1);
+        assertThat(notification.get("diagnostics").toString()).contains("RELATIONSHIP_OBSERVATION_REFS_INVALID")
+                .doesNotContain("아라", "보라", "다라", "observationRefs", "summary");
+        JsonNode result = graph(fixture, 3);
+        assertThat(result.path("updateIncomplete").asBoolean()).isTrue();
+        assertThat(result.path("incompleteEpisodeNos").toString()).isEqualTo("[2,3]");
+        assertThat(result.path("edges").size()).isEqualTo(2);
+        int stale = 0, current = 0;
+        for (JsonNode edge : result.path("edges")) {
+            if (edge.path("updateIncomplete").asBoolean()) {
+                stale++;
+                assertThat(edge.path("lastVerifiedEpisodeNo").asInt()).isEqualTo(1);
+            } else {
+                current++;
+                assertThat(edge.path("lastVerifiedEpisodeNo").asInt()).isEqualTo(3);
+            }
+        }
+        assertThat(stale).isEqualTo(1); assertThat(current).isEqualTo(1);
+        assertThat(graph(fixture, 1).path("updateIncomplete").asBoolean()).isFalse();
+        runLiveBrowserIfConfigured(fixture);
+    }
+
+    private void runLiveBrowserIfConfigured(Fixture fixture) throws Exception {
+        String frontend = System.getenv("GH359_FRONT_CHECKOUT");
+        if (frontend == null || frontend.isBlank()) return;
+        Path directory = Files.createTempDirectory("gh359-relationship-browser-",
+                java.nio.file.attribute.PosixFilePermissions.asFileAttribute(java.nio.file.attribute.PosixFilePermissions.fromString("rwx------")));
+        Path input = directory.resolve("fixture.json");
+        Files.createFile(input, java.nio.file.attribute.PosixFilePermissions.asFileAttribute(
+                java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")));
+        Files.write(input, json.writeValueAsBytes(Map.of("testOnly", true,
+                "apiBaseUrl", "http://127.0.0.1:" + port,
+                "accessToken", fixture.authorization().substring("Bearer ".length()),
+                "workId", fixture.selectedWork(), "selectedEpisodeNo", 3,
+                "incompleteEpisodeNos", List.of(2, 3), "lastVerifiedEpisodeNo", 1, "earlierEpisodeNo", 1)));
+        String node = System.getenv("GH359_NODE");
+        var builder = new ProcessBuilder(node == null || node.isBlank() ? "node" : node,
+                "scripts/verify-relationship-partial-live.mjs", input.toString())
+                .directory(Path.of(frontend).toFile()).redirectErrorStream(true)
+                .redirectOutput(directory.resolve("browser.log").toFile());
+        for (String key : List.of("LLM_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "DATABASE_URL",
+                "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN")) builder.environment().remove(key);
+        Process process = null;
+        try {
+            process = builder.start();
+            assertThat(process.waitFor(120, TimeUnit.SECONDS)).as("실제 관계 화면 검증 시간 제한; 비공개 기록: %s", directory).isTrue();
+            assertThat(process.exitValue()).as("실제 관계 화면 검증 실패; 비공개 기록: %s", directory).isZero();
+        } finally {
+            if (process != null) {
+                process.descendants().forEach(ProcessHandle::destroyForcibly);
+                process.destroyForcibly();
+            }
+            Files.deleteIfExists(input);
+        }
+    }
 
     @Test
     @DisplayName("선정 작품의 1·2화와 도중 추가된 3화를 순서대로 반영하고 완성 전 공개하지 않는다")
@@ -197,6 +285,10 @@ class RelationshipBackfillHttpPostgresIntegrationTest {
     }
 
     private void runWorker(Fixture fixture, int episode, boolean expectedClaim) throws Exception {
+        runWorker(fixture, episode, expectedClaim, false);
+    }
+
+    private void runWorker(Fixture fixture, int episode, boolean expectedClaim, boolean partialScenario) throws Exception {
         String python = System.getenv("GH332_PYTHON");
         assertThat(python).as("GH332_PYTHON must point to a prepared test interpreter").isNotBlank();
         Path checkout = Path.of(System.getenv("GH332_AI_CHECKOUT"));
@@ -210,7 +302,7 @@ class RelationshipBackfillHttpPostgresIntegrationTest {
         try {
             try (var input = process.getOutputStream()) {
                 input.write(json.writeValueAsBytes(Map.of("workId", fixture.selectedWork(), "expectedEpisodeNo", episode,
-                        "expectedClaim", expectedClaim, "sources", sources)));
+                        "expectedClaim", expectedClaim, "sources", sources, "partialScenario", partialScenario)));
             }
             assertThat(process.waitFor(45, TimeUnit.SECONDS)).as("Python timeout; %s", output).isTrue();
             assertThat(process.exitValue()).as("Python log: %s", Files.readString(output.resolve("python.log"))).isZero();

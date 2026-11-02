@@ -67,6 +67,7 @@ class EpisodeRelationshipGraphIntegrationTest {
     @Autowired EntityManager em;
     @Autowired TransactionTemplate tx;
     @Autowired AnalysisJobRepository jobs;
+    @Autowired org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobClaimRepository claims;
     @Autowired RelationshipGraphAnalysisRepository analyses;
     @Autowired EpisodePurgeDataRepository purge;
     @MockitoBean AnalysisJobLeaseService leases;
@@ -211,6 +212,61 @@ class EpisodeRelationshipGraphIntegrationTest {
                 id, lease, new Complete(1, context.contextToken(), List.of(decisions)));
         tx.executeWithoutResult(
                 status -> service.finalizeRelationshipAnalysis(jobs.findById(id).orElseThrow()));
+    }
+
+    @Test
+    @DisplayName("원문 추출 실패의 계약을 보존하고 실패 뒤 첫 관계도 완료 구간으로 오인하지 않는다")
+    void failedExtractionRetainsFrozenCapabilityAndDoesNotVerifyLaterFirstEdge() {
+        UUID first = job(1);
+        tx.executeWithoutResult(t -> jobs.findById(first).orElseThrow().enableRelationshipPartialResults());
+        service.failRelationshipAnalysis(first, lease, new Fail(1, storage.contentHash(source), null, FailureCode.EXTRACTION_FAILED));
+        Context failed = service.getRelationshipAnalysis(first, lease).orElseThrow();
+        assertThat(failed.supportsPartialResults()).isTrue();
+        assertThat(failed.status()).isEqualTo(AnalysisStatus.FAILED);
+        assertThat(failed.failures()).isEmpty();
+        UUID second = job(2);
+        Context prepared = prepare(second);
+        apply(second, prepared, action(prepared, Operation.ADD, Kind.COMPANIONSHIP, "함께 이동한다"));
+        Graph result = service.getRelationshipGraph(owner, workId, 2);
+        assertThat(result.updateIncomplete()).isTrue();
+        assertThat(result.incompleteEpisodeNos()).containsExactly(1);
+        assertThat(result.edges()).singleElement().satisfies(edge -> {
+            assertThat(edge.updateIncomplete()).isTrue();
+            assertThat(edge.lastVerifiedEpisodeNo()).isZero();
+        });
+    }
+
+    @Test
+    @DisplayName("유효한 부분 실패가 있는 작품만 새 부분 완료 Worker 지원을 요구한다")
+    void ordinaryClaimRequiresPartialCapabilityOnlyForLivePartialPrefix() {
+        tx.executeWithoutResult(t -> em.createQuery("select j from AnalysisJob j where j.status=:pending", AnalysisJob.class)
+                .setParameter("pending", org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING)
+                .getResultList().forEach(AnalysisJob::cancelForWorkPurge));
+        UUID first = job(1);
+        tx.executeWithoutResult(t -> jobs.findById(first).orElseThrow().enableRelationshipPartialResults());
+        Context context = prepare(first);
+        service.completeRelationshipAnalysis(first, lease, new Complete(1, context.contextToken(), List.of(),
+                List.of(new org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.GroupFailure(
+                        List.of("O1"), "RELATIONSHIP_ENDPOINTS_UNGROUNDED"))));
+        tx.executeWithoutResult(t -> {
+            var completed = jobs.findById(first).orElseThrow();
+            service.finalizeRelationshipAnalysis(completed);
+            completed.succeed(null, 0, 0);
+        });
+        UUID next = job(2);
+        var legacy = new org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobClaimRequest(
+                "synthetic", null, java.util.Set.of(AnalysisJobType.SETTING_EXTRACTION), null, false,
+                null, false, false, false, true, false, false);
+        var modern = new org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobClaimRequest(
+                "synthetic", null, java.util.Set.of(AnalysisJobType.SETTING_EXTRACTION), null, false,
+                null, false, false, false, true, false, true);
+        var legacyResult = tx.execute(t -> claims.findClaimableJob(legacy));
+        assertThat(legacyResult).isEmpty();
+        UUID modernId = tx.execute(t -> claims.findClaimableJob(modern).orElseThrow().getId());
+        assertThat(modernId).isEqualTo(next);
+        tx.executeWithoutResult(t -> analyses.findById(first).orElseThrow().invalidate());
+        UUID legacyId = tx.execute(t -> claims.findClaimableJob(legacy).orElseThrow().getId());
+        assertThat(legacyId).isEqualTo(next);
     }
 
     @Test

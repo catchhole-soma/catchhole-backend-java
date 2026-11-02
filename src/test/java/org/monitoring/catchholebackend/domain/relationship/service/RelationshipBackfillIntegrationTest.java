@@ -67,7 +67,7 @@ class RelationshipBackfillIntegrationTest {
     @MockitoBean AiTokenService tokens;
     UUID workId;
     Long owner;
-    final String source = "아라와 보라는 함께 길을 떠났다.";
+    String source = "아라와 보라는 함께 길을 떠났다.";
     LocalDateTime selectedAt;
     final WorkerAnalysisJobClaimRequest request =
             new WorkerAnalysisJobClaimRequest(
@@ -142,6 +142,100 @@ class RelationshipBackfillIntegrationTest {
 
     WorkerAnalysisJobPayload claim() {
         return coordinator.claimRelationshipJob(request).orElseThrow();
+    }
+
+    WorkerAnalysisJobClaimRequest partialRequest() {
+        return new WorkerAnalysisJobClaimRequest("gpt-6.1-terra", null,
+                Set.of(AnalysisJobType.RELATIONSHIP_EXTRACTION), Set.of(AnalysisMode.CONFIRMED_ONLY), false,
+                Set.of(AnalysisSourceKind.EPISODE), false, false, false, true, true, true);
+    }
+
+    Context prepareTwoPairs(WorkerAnalysisJobPayload payload) {
+        return graph.prepareRelationshipAnalysis(payload.analysisJobId(), payload.leaseToken(),
+                new Prepare(1, storage.contentHash(source), List.of(
+                        new Observation("O1", new Endpoint("아라", "아라"), new Endpoint("보라", "보라"),
+                                "함께 이동한다", List.of(new Evidence(0, source.length(), source))),
+                        new Observation("O2", new Endpoint("아라", "아라"), new Endpoint("다라", "다라"),
+                                "함께 이동한다", List.of(new Evidence(0, source.length(), source)))), 0));
+    }
+
+    Decision pairDecision(Context context, String ref) {
+        var observation = context.observations().stream().filter(o -> o.ref().equals(ref)).findFirst().orElseThrow();
+        String sourceRef = observation.sourceNodeRefs().getFirst(), targetRef = observation.targetNodeRefs().getFirst();
+        var existing = context.relationships().stream().filter(r -> Set.of(r.sourceNodeRef(), r.targetNodeRef())
+                .equals(Set.of(sourceRef, targetRef))).findFirst();
+        return existing.map(r -> new Decision(List.of(ref), Operation.MERGE, r.ref(), r.sourceNodeRef(), r.targetNodeRef(),
+                        r.axis(), r.kind(), r.label(), r.summary(), r.direction(), TemporalScope.PRESENT, null))
+                .orElseGet(() -> new Decision(List.of(ref), Operation.ADD, null, sourceRef, targetRef, Axis.INTERACTION,
+                        Kind.COOPERATION, "협력", "함께 이동한다", Direction.MUTUAL, TemporalScope.PRESENT, null));
+    }
+
+    @Test
+    @DisplayName("한 인물 쌍 실패를 보존하고 독립 쌍을 진행·공개하되 같은 쌍의 후행 변경을 차단한다")
+    void partialPairPublishesIndependentProgressAndPreservesPrefix() {
+        source = "아라와 보라와 다라는 함께 길을 떠났다.";
+        when(storage.getText(anyString())).thenReturn(source);
+        episode(1); episode(2); episode(3);
+        coordinator.bootstrapRelationshipBackfill();
+        for (int no = 1; no <= 3; no++) {
+            var payload = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+            assertThat(payload.relationshipAnalysisContract().supportsPartialResults()).isTrue();
+            var context = prepareTwoPairs(payload);
+            var decisions = no == 1 ? List.of(pairDecision(context, "O1"), pairDecision(context, "O2"))
+                    : List.of(pairDecision(context, "O2"));
+            var failures = no == 1 ? List.<GroupFailure>of() : List.of(new GroupFailure(List.of("O1"),
+                    no == 2 ? "RELATIONSHIP_ENDPOINTS_UNGROUNDED" : "RELATIONSHIP_PREDECESSOR_INCOMPLETE"));
+            assertThat(context.blockedPairs()).hasSize(no == 3 ? 1 : 0);
+            var complete = new Complete(1, context.contextToken(), decisions, failures);
+            graph.completeRelationshipAnalysis(payload.analysisJobId(), payload.leaseToken(), complete);
+            // Restart between graph completion and Job completion must preserve the failure receipt.
+            assertThat(graph.getRelationshipAnalysis(payload.analysisJobId(), payload.leaseToken()).orElseThrow().failures())
+                    .isEqualTo(failures);
+            graph.completeRelationshipAnalysis(payload.analysisJobId(), payload.leaseToken(), complete);
+            coordinator.completeRelationshipJob(payload.analysisJobId(), payload.leaseToken(), null);
+            coordinator.completeRelationshipJob(payload.analysisJobId(), payload.leaseToken(), null);
+            if (no == 2) assertThat(coordinator.claimRelationshipJob(request)).isEmpty();
+        }
+        assertThat(items()).extracting(RelationshipBackfillItem::getState).containsExactly(
+                RelationshipBackfillItemState.SUCCEEDED, RelationshipBackfillItemState.PARTIAL, RelationshipBackfillItemState.PARTIAL);
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.COMPLETE);
+        var result = graph.getRelationshipGraph(owner, workId, 3);
+        assertThat(result.updateIncomplete()).isTrue();
+        assertThat(result.incompleteEpisodeNos()).containsExactly(2, 3);
+        assertThat(result.analysisStatus()).isEqualTo("PARTIAL");
+        assertThat(result.edges()).hasSize(2);
+        assertThat(result.edges().stream().filter(Edge::updateIncomplete)).singleElement()
+                .extracting(Edge::lastVerifiedEpisodeNo).isEqualTo(1);
+        assertThat(result.edges().stream().filter(e -> !e.updateIncomplete())).singleElement()
+                .extracting(Edge::lastVerifiedEpisodeNo).isEqualTo(3);
+        var past = graph.getRelationshipGraph(owner, workId, 1);
+        assertThat(past.updateIncomplete()).isFalse();
+        assertThat(past.incompleteEpisodeNos()).isEmpty();
+        assertThat(past.edges()).allSatisfy(e -> assertThat(e.lastVerifiedEpisodeNo()).isEqualTo(1));
+    }
+
+    @Test
+    @DisplayName("구 동결 문맥은 새 Worker 재선점에서도 계약을 승격하지 않고 새 부분 계약은 구 Worker에 배정하지 않는다")
+    void frozenCapabilitySurvivesReclaimInBothDirections() {
+        episode(1); episode(2);
+        coordinator.bootstrapRelationshipBackfill();
+        var legacy = claim();
+        var saved = prepare(legacy);
+        tx.executeWithoutResult(t -> em.find(AnalysisJob.class, legacy.analysisJobId())
+                .renewLease(LocalDateTime.now().minusMinutes(1)));
+        var modern = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+        assertThat(modern.analysisJobId()).isEqualTo(legacy.analysisJobId());
+        assertThat(modern.relationshipAnalysisContract().supportsPartialResults()).isFalse();
+        assertThat(graph.getRelationshipAnalysis(modern.analysisJobId(), modern.leaseToken()).orElseThrow()).isEqualTo(saved);
+        finish(modern, saved);
+        var next = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+        prepare(next);
+        tx.executeWithoutResult(t -> em.find(AnalysisJob.class, next.analysisJobId())
+                .renewLease(LocalDateTime.now().minusMinutes(1)));
+        assertThat(coordinator.claimRelationshipJob(request)).isEmpty();
+        var resumed = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+        assertThat(resumed.analysisJobId()).isEqualTo(next.analysisJobId());
+        assertThat(resumed.relationshipAnalysisContract().supportsPartialResults()).isTrue();
     }
 
     Context prepare(WorkerAnalysisJobPayload p) {

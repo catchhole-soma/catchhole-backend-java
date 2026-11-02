@@ -267,12 +267,12 @@ class AnalysisFailureNotificationPostgresIntegrationTest {
     }
 
     @Test
-    @DisplayName("관계 실패의 공통 단계·원인 40조합을 PostgreSQL outbox와 발송 선점까지 보존한다")
+    @DisplayName("관계 실패의 공통 단계·원인 42조합을 PostgreSQL outbox와 발송 선점까지 보존한다")
     void relationshipDiagnosticsSurvivePostgresNotificationSnapshotAndClaim() {
         var contract = json.readTree(getClass().getResourceAsStream(
                 "/contracts/relationship-failure-diagnostics-v1.json"));
         assertThat(contract.path("stages").size()).isEqualTo(2);
-        assertThat(contract.path("reasonCodes").size()).isEqualTo(20);
+        assertThat(contract.path("reasonCodes").size()).isEqualTo(21);
         jdbc.update("UPDATE analysis_jobs SET job_type='RELATIONSHIP_EXTRACTION',relationship_service_paid=true WHERE id=?", job);
         int combinations = 0;
         for (var stage : contract.path("stages")) {
@@ -318,7 +318,7 @@ class AnalysisFailureNotificationPostgresIntegrationTest {
                 combinations++;
             }
         }
-        assertThat(count()).isEqualTo(combinations).isEqualTo(40);
+        assertThat(count()).isEqualTo(combinations).isEqualTo(42);
         assertThat(notifications.claimNext()).isEmpty();
     }
 
