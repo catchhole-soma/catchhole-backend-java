@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.relationship.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
@@ -131,7 +132,35 @@ public final class RelationshipGraphContract {
             List<ContextObservation> observations,
             List<ContextNode> nodes,
             List<ContextRelationship> relationships,
-            List<ContextObservation> heldObservations) {}
+            List<ContextObservation> heldObservations,
+            @JsonInclude(JsonInclude.Include.NON_DEFAULT) boolean supportsPartialResults,
+            @JsonInclude(JsonInclude.Include.NON_EMPTY) List<BlockedPair> blockedPairs,
+            @JsonInclude(JsonInclude.Include.NON_NULL) List<GroupFailure> failures) {
+        public Context {
+            blockedPairs = blockedPairs == null ? List.of() : List.copyOf(blockedPairs);
+            failures = supportsPartialResults ? (failures == null ? List.of() : List.copyOf(failures))
+                    : failures == null || failures.isEmpty() ? null : List.copyOf(failures);
+        }
+        public Context(int formatVersion, String sourceHash, String contextToken, AnalysisStatus status,
+                int sourceEpisodeNo, List<ContextObservation> observations, List<ContextNode> nodes,
+                List<ContextRelationship> relationships, List<ContextObservation> heldObservations) {
+            this(formatVersion, sourceHash, contextToken, status, sourceEpisodeNo, observations, nodes,
+                    relationships, heldObservations, false, List.of(), List.of());
+        }
+        public Context(int formatVersion, String sourceHash, String contextToken, AnalysisStatus status,
+                int sourceEpisodeNo, List<ContextObservation> observations, List<ContextNode> nodes,
+                List<ContextRelationship> relationships, List<ContextObservation> heldObservations,
+                boolean supportsPartialResults, List<BlockedPair> blockedPairs) {
+            this(formatVersion, sourceHash, contextToken, status, sourceEpisodeNo, observations, nodes,
+                    relationships, heldObservations, supportsPartialResults, blockedPairs, List.of());
+        }
+    }
+
+    @Schema(description = "앞 회차의 기술적 미완료 때문에 현재 변경할 수 없는 인물 쌍")
+    public record BlockedPair(String sourceNodeRef, String targetNodeRef, int firstFailedEpisodeNo) {}
+
+    @Schema(description = "정상 결정과 분리하여 보존하는 인물 쌍 전체의 비교 실패. 원문은 받지 않습니다.")
+    public record GroupFailure(List<String> observationRefs, String reasonCode) {}
 
     @Schema(description = "새 관측 전체를 빠짐없이 처리하는 관계 비교 결정")
     public record Decision(
@@ -149,7 +178,15 @@ public final class RelationshipGraphContract {
             String reason) {}
 
     @Schema(description = "관계 비교 결과 저장")
-    public record Complete(int formatVersion, String contextToken, List<Decision> decisions) {}
+    public record Complete(int formatVersion, String contextToken, List<Decision> decisions,
+            @JsonInclude(JsonInclude.Include.NON_EMPTY) List<GroupFailure> failures) {
+        public Complete {
+            failures = failures == null ? List.of() : List.copyOf(failures);
+        }
+        public Complete(int formatVersion, String contextToken, List<Decision> decisions) {
+            this(formatVersion, contextToken, decisions, List.of());
+        }
+    }
 
     @Schema(description = "핵심 설정 분석과 분리한 관계 분석 실패")
     public record Fail(
@@ -173,9 +210,19 @@ public final class RelationshipGraphContract {
             Direction direction,
             EdgeStatus status,
             long version,
-            int evidenceCount) {}
+            int evidenceCount,
+            @Schema(description = "이 인물 쌍의 기술적 분석 완료가 이어진 마지막 회차. 실제 관계 변경 회차가 아니며 0은 확인 가능한 완료 구간이 없다는 뜻입니다.")
+            int lastVerifiedEpisodeNo,
+            @Schema(description = "선택 범위에서 이 인물 쌍 또는 원문 전체의 기술적 갱신을 완료하지 못했는지 여부")
+            boolean updateIncomplete) {
+        public Edge(UUID id, UUID sourceNodeId, UUID targetNodeId, Axis axis, Kind kind, String label,
+                String summary, Direction direction, EdgeStatus status, long version, int evidenceCount) {
+            this(id, sourceNodeId, targetNodeId, axis, kind, label, summary, direction, status, version,
+                    evidenceCount, 0, false);
+        }
+    }
 
-    @Schema(description = "회차까지 드러난 관계도. partial은 일부 분석을 완료하지 못했음을 의미합니다.")
+    @Schema(description = "선택 회차까지 드러난 관계도. updateIncomplete는 기술적 갱신 누락이며, 기존 partial은 의미상 보류도 포함합니다.")
     public record Graph(
             EpisodeRef selectedEpisode,
             List<EpisodeRef> availableEpisodes,
@@ -185,7 +232,19 @@ public final class RelationshipGraphContract {
             boolean truncated,
             long totalEdgeCount,
             String analysisStatus,
-            boolean partial) {}
+            @Schema(description = "기존 호환 표시. 기술적 미완료뿐 아니라 의미상 내부 보류도 포함합니다.")
+            boolean partial,
+            @Schema(description = "선택 회차까지 기술적 갱신 누락이 있는지 여부. 정상적인 의미상 보류와 구분합니다.")
+            boolean updateIncomplete,
+            @Schema(description = "선택 회차와 공개 세대 안에서 기술적 갱신을 완료하지 못한 회차 번호. 내부 인물·근거 참조는 포함하지 않습니다.")
+            List<Integer> incompleteEpisodeNos) {
+        public Graph(EpisodeRef selectedEpisode, List<EpisodeRef> availableEpisodes, String revision,
+                List<Node> nodes, List<Edge> edges, boolean truncated, long totalEdgeCount,
+                String analysisStatus, boolean partial) {
+            this(selectedEpisode, availableEpisodes, revision, nodes, edges, truncated, totalEdgeCount,
+                    analysisStatus, partial, false, List.of());
+        }
+    }
 
     @Schema(description = "관계가 드러난 회차의 원문 근거")
     public record PublicEvidence(

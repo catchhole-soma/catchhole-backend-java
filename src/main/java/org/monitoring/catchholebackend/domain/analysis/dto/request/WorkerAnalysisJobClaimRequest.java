@@ -36,8 +36,20 @@ public record WorkerAnalysisJobClaimRequest(
         @Schema(description = "독립 회차 관계 분석 v1 지원", nullable = true)
         Boolean supportsRelationshipAnalysis,
         @Schema(description = "보존 관측을 사용하는 서비스 부담 관계 비교 1회 복구 지원. 생략하거나 false면 복구 작업을 claim하지 않습니다.", nullable = true)
-        Boolean supportsRelationshipRecovery
+        Boolean supportsRelationshipRecovery,
+        @Schema(description = "인물 쌍별 기술적 미완료와 선행 실패 보호 계약 지원", nullable = true)
+        Boolean supportsRelationshipPartialResults
 ) {
+    public WorkerAnalysisJobClaimRequest(String modelName, String currentStep, Set<AnalysisJobType> allowedJobTypes,
+            Set<AnalysisMode> supportedAnalysisModes, Boolean supportsCharacterComparisonGroups,
+            Set<org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind> supportedSourceKinds,
+            Boolean supportsSettingBookReferenceTime, Boolean supportsSemanticCurrentContext,
+            Boolean supportsFrozenComparisonEvidence, Boolean supportsRelationshipAnalysis,
+            Boolean supportsRelationshipRecovery) {
+        this(modelName, currentStep, allowedJobTypes, supportedAnalysisModes, supportsCharacterComparisonGroups,
+                supportedSourceKinds, supportsSettingBookReferenceTime, supportsSemanticCurrentContext,
+                supportsFrozenComparisonEvidence, supportsRelationshipAnalysis, supportsRelationshipRecovery, null);
+    }
     public WorkerAnalysisJobClaimRequest(String modelName, String currentStep, Set<AnalysisJobType> allowedJobTypes,
             Set<AnalysisMode> supportedAnalysisModes, Boolean supportsCharacterComparisonGroups,
             Set<org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind> supportedSourceKinds,

@@ -233,7 +233,7 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
         // frozen observations, but redo comparison after the inserted chapter before publication.
         for (var item : items) {
             if (item.getEpisodeNo() <= episode.getEpisodeNo() || item.getJobId() == null) continue;
-            if (item.getState() == RelationshipBackfillItemState.SUCCEEDED)
+            if (item.isFinished())
                 item.requeueForRebuild();
             else if (item.getState() == RelationshipBackfillItemState.WAITING
                     || item.getState() == RelationshipBackfillItemState.RUNNING)
@@ -274,6 +274,9 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
             var state = workStates.findById(work.getId()).orElseThrow();
             // A core completion can change this row while claim waits for the Work lock.
             em.refresh(state);
+            if (!Boolean.TRUE.equals(request.supportsRelationshipPartialResults())
+                    && items(work.getId()).stream().anyMatch(i -> i.getState() == RelationshipBackfillItemState.PARTIAL))
+                continue;
             if (campaign.isInitialized()
                     && state.getState() == RelationshipBackfillWorkState.BLOCKED
                     && Boolean.TRUE.equals(request.supportsRelationshipRecovery())) {
@@ -283,7 +286,7 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
             if (state.getState() != RelationshipBackfillWorkState.BUILDING) continue;
             for (var item : items(work.getId())) {
                 if (item.getState() == RelationshipBackfillItemState.SKIPPED
-                        || item.getState() == RelationshipBackfillItemState.SUCCEEDED) continue;
+                        || item.isFinished()) continue;
                 // The same recovery Job can be reclaimed after lease expiry during a rolling deploy.
                 if (item.getRecoveryAttemptCount() > 0
                         && !Boolean.TRUE.equals(request.supportsRelationshipRecovery())) break;
@@ -322,6 +325,8 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
                                 ? null
                                 : jobs.findByIdForUpdate(item.getJobId()).orElse(null);
                 AnalysisJob job = previous;
+                if (job != null && job.isRelationshipPartialResultsEnabled()
+                        && !Boolean.TRUE.equals(request.supportsRelationshipPartialResults())) break;
                 if (job != null
                         && job.getStatus() == AnalysisJobStatus.PENDING
                         && (item.requiresFreshComparison()
@@ -335,6 +340,7 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
                             AnalysisJob.create(
                                     work, null, episode, AnalysisJobType.RELATIONSHIP_EXTRACTION);
                     job.configureRelationship(state.getBuildingGeneration(), item.isServicePaid());
+                    if (Boolean.TRUE.equals(request.supportsRelationshipPartialResults())) job.enableRelationshipPartialResults();
                     job = jobs.saveAndFlush(job);
                 }
                 job.claim(request.modelName(), "인물 관계 분석", LocalDateTime.now().plusSeconds(60));
@@ -363,7 +369,7 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
             return Optional.empty();
         var all = items(work.getId());
         var first = all.stream()
-                .filter(i -> i.getState() != RelationshipBackfillItemState.SUCCEEDED
+                .filter(i -> !i.isFinished()
                         && i.getState() != RelationshipBackfillItemState.SKIPPED)
                 .findFirst();
         if (first.isEmpty()) return Optional.empty();
@@ -377,7 +383,7 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
                 // beginRelationshipAnalysis invalidates later graphs. Never leave a successful
                 // later item pointing to an invalidated graph after this narrow recovery.
                 || all.subList(all.indexOf(item) + 1, all.size()).stream()
-                        .anyMatch(i -> i.getState() == RelationshipBackfillItemState.SUCCEEDED)
+                        .anyMatch(RelationshipBackfillItem::isFinished)
                 || coreActiveAtOrBefore(work.getId(), Integer.MAX_VALUE))
             return Optional.empty();
         var episode = episodes.findById(item.getEpisodeId()).orElse(null);
@@ -418,6 +424,7 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
         state.resumeRecovery();
         var job = AnalysisJob.create(work, null, episode, AnalysisJobType.RELATIONSHIP_EXTRACTION);
         job.configureRelationship(state.getBuildingGeneration(), true);
+        if (Boolean.TRUE.equals(request.supportsRelationshipPartialResults())) job.enableRelationshipPartialResults();
         job = jobs.saveAndFlush(job);
         job.claim(request.modelName(), "인물 관계 비교 복구", LocalDateTime.now().plusSeconds(60));
         item.running(job.getId(), job.getLeaseToken());
@@ -500,7 +507,7 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
     public void completeRelationshipJob(UUID id, UUID lease, WorkerAnalysisJobCompleteRequest request) {
         leases.lockWorkForUpdate(id);
         var receipt = item(id);
-        if (receipt.getState() == RelationshipBackfillItemState.SUCCEEDED
+        if (receipt.isFinished()
                 && Objects.equals(receipt.getLeaseToken(), lease)
                 && jobs.findById(id)
                         .map(j -> j.getStatus() == AnalysisJobStatus.SUCCEEDED)
@@ -519,7 +526,8 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
                 request == null ? null : request.summaryJson(),
                 Math.toIntExact(usage[0]),
                 Math.toIntExact(usage[1]));
-        item.succeeded();
+        if (analyses.findById(id).orElseThrow().hasFailures()) item.partial();
+        else item.succeeded();
         if (items(item.getWorkId()).stream()
                 .anyMatch(
                         i ->
@@ -590,12 +598,12 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
                 || all.stream()
                         .anyMatch(
                                 i ->
-                                        i.getState() != RelationshipBackfillItemState.SUCCEEDED
+                                        !i.isFinished()
                                                 && i.getState()
                                                         != RelationshipBackfillItemState.SKIPPED)
                 || coreActiveAtOrBefore(state.getWorkId(), Integer.MAX_VALUE)) return;
         for (var item : all)
-            if (item.getState() == RelationshipBackfillItemState.SUCCEEDED) {
+            if (item.isFinished()) {
                 var episode = episodes.findById(item.getEpisodeId()).orElse(null);
                 if (episode == null
                         || !sameSource(item, episode)

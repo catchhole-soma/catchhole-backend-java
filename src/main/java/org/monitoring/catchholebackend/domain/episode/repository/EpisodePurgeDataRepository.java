@@ -19,7 +19,7 @@ public class EpisodePurgeDataRepository {
                     and a.episode_no >= (select min(episode_no) from relationship_graph_analyses where episode_id = ?))
                 """, episodeId, episodeId);
         jdbcTemplate.update("""
-                update relationship_graph_analyses set context = null, bindings = null, decisions = null,
+                update relationship_graph_analyses set context = null, bindings = null, decisions = null, failures = null,
                     evidence_purged = true, status = 'INVALIDATED'
                 where work_id in (select work_id from episodes where id = ?)
                     and episode_no >= (select min(a.episode_no) from relationship_graph_analyses a where a.episode_id = ?)

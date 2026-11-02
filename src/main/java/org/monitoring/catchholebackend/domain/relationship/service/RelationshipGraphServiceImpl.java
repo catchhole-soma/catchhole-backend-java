@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.relationship.service;
 
 import static org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.AnalysisStatus;
+import static org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.BlockedPair;
 import static org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.Complete;
 import static org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.Context;
 import static org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.ContextNode;
@@ -104,6 +105,9 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     private final jakarta.persistence.EntityManager entityManager;
 
     @Override
+    public boolean hasRelationshipAnalysis(UUID jobId) { return analyses.existsById(jobId); }
+
+    @Override
     @Transactional
     public void beginRelationshipAnalysis(AnalysisJob job) {
         if (!job.isRelationshipAnalysisEnabled() || analyses.existsById(job.getId())) return;
@@ -136,7 +140,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                         a -> {
                             requireCurrent(a, job);
                             assertResumableDependency(a);
-                            return mapper.toContext(a);
+                            return mapper.toContext(a, job.isRelationshipPartialResultsEnabled());
                         });
     }
 
@@ -250,7 +254,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         if (analysis.getStatus() != AnalysisStatus.PREPARED) conflict();
         assertDependencyRevision(analysis);
         rules.validateComplete(mapper.toContext(analysis), request);
-        analysis.complete(mapper.toJson(request.decisions()), completionHash);
+        analysis.complete(mapper.toJson(request.decisions()), mapper.toJson(request.failures()), completionHash);
     }
 
     @Override
@@ -681,6 +685,20 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                 });
         List<ContextNode> neededNodes =
                 contextNodes.values().stream().filter(n -> neededRefs.contains(n.ref())).toList();
+        List<BlockedPair> blockedPairs = new ArrayList<>();
+        Map<String, Integer> failedPairs = failedPairEpisodes(allAnalyses, cutoff - 1, validPriorIds);
+        for (var observation : observations) {
+            if (RelationshipGraphRules.pair(observation) == null) continue;
+            String sourceRef = observation.sourceNodeRefs().getFirst(), targetRef = observation.targetNodeRefs().getFirst();
+            String key = RelationshipGraphRules.pair(nodeBindings.path(sourceRef).path("id").asText(),
+                    nodeBindings.path(targetRef).path("id").asText());
+            Integer first = failedPairs.get(key);
+            if (first != null && blockedPairs.stream().noneMatch(b -> RelationshipGraphRules.pair(
+                    b.sourceNodeRef(), b.targetNodeRef()).equals(RelationshipGraphRules.pair(sourceRef, targetRef))))
+                blockedPairs.add(new BlockedPair(sourceRef, targetRef, first));
+        }
+        // An old Worker cannot safely reason over a prefix with a missing pair update.
+        if (!job.isRelationshipPartialResultsEnabled() && !blockedPairs.isEmpty()) conflict();
         Context context =
                 new Context(
                         1,
@@ -691,8 +709,37 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                         observations,
                         neededNodes,
                         relationships,
-                        List.copyOf(held));
+                        List.copyOf(held),
+                        job.isRelationshipPartialResultsEnabled(),
+                        List.copyOf(blockedPairs));
         return new BuiltContext(context, bindings);
+    }
+
+    /** Persisted N refs are local to a context. Cross-episode dependencies use actual node IDs. */
+    private Map<String, Integer> failedPairEpisodes(Map<Integer, RelationshipGraphAnalysis> all,
+            int cutoff, Set<UUID> valid) {
+        Map<String, Integer> result = new HashMap<>();
+        for (var analysis : all.values()) {
+            if (analysis.getEpisodeNo() > cutoff || !valid.contains(analysis.getId()) || !analysis.hasFailures()) continue;
+            Context context = mapper.toContext(analysis);
+            Map<String, ContextObservation> observations = context.observations().stream()
+                    .collect(Collectors.toMap(ContextObservation::ref, value -> value));
+            for (var failure : mapper.failures(analysis)) {
+                for (String ref : failure.observationRefs()) {
+                    var observation = observations.get(ref);
+                    if (observation == null || RelationshipGraphRules.pair(observation) == null) conflict();
+                    String source = analysis.getBindings().path("nodes")
+                            .path(observation.sourceNodeRefs().getFirst()).path("id").asText();
+                    String target = analysis.getBindings().path("nodes")
+                            .path(observation.targetNodeRefs().getFirst()).path("id").asText();
+                    // A damaged persisted binding is not authority to advance the dependent pair.
+                    try { UUID.fromString(source); UUID.fromString(target); }
+                    catch (IllegalArgumentException malformed) { conflict(); }
+                    result.merge(RelationshipGraphRules.pair(source, target), analysis.getEpisodeNo(), Math::min);
+                }
+            }
+        }
+        return result;
     }
 
     private boolean conflictsWithKnownIdentity(
@@ -763,6 +810,9 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         int cutoff = selected == null ? 0 : selected.episodeNo();
         Map<UUID, RelationshipGraphEvent> latest = latestEvents(read, cutoff);
         Map<UUID, List<PublicEvidence>> evidence = evidence(read, cutoff);
+        int verificationCutoff = episodeNo != null ? episodeNo : read.analyses().keySet().stream()
+                .mapToInt(Integer::intValue).max().orElse(cutoff);
+        Map<String, Integer> failedPairs = failedPairEpisodes(read.analyses(), verificationCutoff, read.validIds());
         List<Edge> output = new ArrayList<>();
         Map<UUID, Node> outputNodes = new LinkedHashMap<>();
         List<RelationshipGraphEvent> visible =
@@ -771,9 +821,11 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                         .toList();
         for (var event : visible.stream().limit(200).toList()) {
             var edge = read.edges().get(event.getEdgeId());
+            var progress = pairProgress(read, edge, event, verificationCutoff, failedPairs);
             output.add(
                     mapper.toEdge(
-                            edge, event, evidence.getOrDefault(edge.getId(), List.of()).size()));
+                            edge, event, evidence.getOrDefault(edge.getId(), List.of()).size(),
+                            progress.lastVerifiedEpisodeNo(), progress.updateIncomplete()));
             outputNodes.put(
                     edge.getSourceNodeId(),
                     mapper.toNode(
@@ -817,6 +869,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                                             a.getStatus() != AnalysisStatus.APPLIED
                                                     || !read.validIds().contains(a.getId())
                                                     || a.getRejectedObservationCount() > 0
+                                                    || a.hasFailures()
                                                     || mapper.decisions(a).stream()
                                                             .filter(
                                                                     d ->
@@ -836,6 +889,11 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                                                                                             + ref)));
             if (status.equals("COMPLETED") && partial) status = "PARTIAL";
         }
+        List<Integer> incompleteEpisodes = considered.stream()
+                .filter(a -> a.getStatus() == AnalysisStatus.FAILED || a.getStatus() == AnalysisStatus.INVALIDATED
+                        || a.getStatus() == AnalysisStatus.APPLIED && (!read.validIds().contains(a.getId())
+                            || a.hasFailures() || a.getRejectedObservationCount() > 0))
+                .map(RelationshipGraphAnalysis::getEpisodeNo).distinct().sorted().toList();
         String revision =
                 hash(
                         mapper.toJson(
@@ -843,7 +901,8 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                                         output,
                                         List.copyOf(outputNodes.values()),
                                         available,
-                                        status)));
+                                        status,
+                                        incompleteEpisodes)));
         return new Graph(
                 selected,
                 available,
@@ -853,7 +912,31 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                 visible.size() > 200,
                 visible.size(),
                 status,
-                partial);
+                partial,
+                !incompleteEpisodes.isEmpty(),
+                incompleteEpisodes);
+    }
+
+    private record PairProgress(int lastVerifiedEpisodeNo, boolean updateIncomplete) {}
+
+    private PairProgress pairProgress(ReadState read, RelationshipGraphEdge edge,
+            RelationshipGraphEvent event, int cutoff, Map<String, Integer> failedPairs) {
+        String pair = RelationshipGraphRules.pair(edge.getSourceNodeId().toString(), edge.getTargetNodeId().toString());
+        Integer pairFailure = failedPairs.get(pair);
+        int verified = 0;
+        boolean incomplete = false, advancing = true;
+        for (var analysis : read.analyses().values()) {
+            if (analysis.getEpisodeNo() > cutoff) continue;
+            boolean gap = analysis.getStatus() == AnalysisStatus.FAILED
+                    || analysis.getStatus() == AnalysisStatus.INVALIDATED
+                    || analysis.getStatus() == AnalysisStatus.APPLIED && (!read.validIds().contains(analysis.getId())
+                        || analysis.getRejectedObservationCount() > 0)
+                    || pairFailure != null && analysis.getEpisodeNo() >= pairFailure;
+            if (gap) { incomplete = true; advancing = false; }
+            if (analysis.getStatus() != AnalysisStatus.APPLIED) advancing = false;
+            if (advancing) verified = Math.max(verified, analysis.getEpisodeNo());
+        }
+        return new PairProgress(verified, incomplete);
     }
 
     @Override
@@ -870,8 +953,12 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         var event = latestEvents(read, cutoff).get(edgeId);
         if (event == null) throw new AppException(RELATIONSHIP_GRAPH_NOT_FOUND);
         List<PublicEvidence> evidence = evidence(read, cutoff).getOrDefault(edgeId, List.of());
+        int verificationCutoff = episodeNo != null ? episodeNo : read.analyses().keySet().stream()
+                .mapToInt(Integer::intValue).max().orElse(cutoff);
+        var progress = pairProgress(read, edge, event, verificationCutoff,
+                failedPairEpisodes(read.analyses(), verificationCutoff, read.validIds()));
         return new Detail(
-                mapper.toEdge(edge, event, evidence.size()),
+                mapper.toEdge(edge, event, evidence.size(), progress.lastVerifiedEpisodeNo(), progress.updateIncomplete()),
                 mapper.toNode(
                         read.nodes().get(edge.getSourceNodeId()), event.getSourceName(), cutoff),
                 mapper.toNode(

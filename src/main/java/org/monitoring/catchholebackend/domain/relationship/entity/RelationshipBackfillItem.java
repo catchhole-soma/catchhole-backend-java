@@ -94,6 +94,15 @@ public class RelationshipBackfillItem extends BaseEntity {
         reason = null;
     }
 
+    public void partial() {
+        state = RelationshipBackfillItemState.PARTIAL;
+        reason = "COMPARISON_INCOMPLETE";
+    }
+
+    public boolean isFinished() {
+        return state == RelationshipBackfillItemState.SUCCEEDED || state == RelationshipBackfillItemState.PARTIAL;
+    }
+
     public void fail(String reason) {
         state = RelationshipBackfillItemState.FAILED;
         this.reason = reason;

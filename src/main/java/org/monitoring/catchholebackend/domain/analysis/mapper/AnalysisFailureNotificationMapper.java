@@ -21,7 +21,8 @@ public class AnalysisFailureNotificationMapper {
         String reason = diagnostic == null ? "UNKNOWN" : allowed(diagnostic.reasonCode(), AnalysisFailureDiagnostics.REASONS);
         boolean candidate = isCandidate(event);
         String safeEnvironment = "prod".equals(environment) ? "운영" : "local".equals(environment) ? "로컬" : "기타";
-        var sourceJob = event.sourceAnalysisJobId() != null ? event.sourceAnalysisJobId() : candidate ? event.jobId() : null;
+        var sourceJob = event.sourceAnalysisJobId() != null ? event.sourceAnalysisJobId()
+                : candidate && !"RELATIONSHIP_COMPARISON".equals(event.failureKind()) ? event.jobId() : null;
         var execution = event.executionJobId() != null ? event.executionJobId()
                 : "ANALYSIS_JOB".equals(event.failureKind()) ? event.jobId() : null;
         StringBuilder message = new StringBuilder();
@@ -31,7 +32,9 @@ public class AnalysisFailureNotificationMapper {
         line(message, "원인: " + explanation(reason) + " (" + reason + ")");
         line(message, "실패 코드: " + code.name() + " / " + code.getPublicMessage());
         line(message, "대상 회차: " + targetEpisodes(event) + " / "
-                + (candidate ? "실패 항목: " + Math.max(1, event.failureCount()) + "개" : "실패 작업: 1건"));
+                + ("RELATIONSHIP_COMPARISON".equals(event.failureKind())
+                    ? "업데이트 미완료 인물 쌍: " + Math.max(1, event.failureCount()) + "개"
+                    : candidate ? "실패 항목: " + Math.max(1, event.failureCount()) + "개" : "실패 작업: 1건"));
         line(message, "재시도: " + retry(reason, code));
         line(message, "실행 Job ID: " + known(execution));
         line(message, "원본 추출 Job ID: " + known(sourceJob));
@@ -62,10 +65,12 @@ public class AnalysisFailureNotificationMapper {
     }
 
     private static boolean isCandidate(AnalysisFailureNotification event) {
-        return "CHARACTER_COMPARISON".equals(event.failureKind()) || "WORLD_COMPARISON".equals(event.failureKind());
+        return "CHARACTER_COMPARISON".equals(event.failureKind()) || "WORLD_COMPARISON".equals(event.failureKind())
+                || "RELATIONSHIP_COMPARISON".equals(event.failureKind());
     }
 
     private static String title(AnalysisFailureNotification event) {
+        if ("RELATIONSHIP_COMPARISON".equals(event.failureKind())) return "인물 관계 일부 업데이트 미완료";
         if ("CHARACTER_COMPARISON".equals(event.failureKind())) return "캐릭터 비교 항목 실패";
         if ("WORLD_COMPARISON".equals(event.failureKind())) return "세계관 비교 항목 실패";
         if ("CHARACTER_FACT_COMPARISON".equals(event.jobType())) return "캐릭터 재비교 실행 실패";
@@ -126,6 +131,7 @@ public class AnalysisFailureNotificationMapper {
                     -> "관계 비교 결과 검증 실패";
             case "RELATIONSHIP_INPUT_TOO_LARGE" -> "관계 분석 입력 한도 초과";
             case "RELATIONSHIP_CONTEXT_INVALID" -> "고정 관계 문맥 검증 실패";
+            case "RELATIONSHIP_PREDECESSOR_INCOMPLETE" -> "앞 회차의 관계 갱신 미완료";
             case "INTERNAL_API_HTTP_ERROR" -> "내부 API HTTP 오류";
             case "INTERNAL_API_TRANSPORT_ERROR" -> "내부 API 연결 실패";
             case "LLM_OUTPUT_TRUNCATED" -> "AI 응답 길이 제한";

@@ -7,6 +7,7 @@ import static org.monitoring.catchholebackend.domain.relationship.dto.Relationsh
 import static org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.Node;
 import static org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.Observation;
 import static org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.Operation;
+import static org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.GroupFailure;
 import static org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.Prepare;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -38,7 +39,16 @@ public class RelationshipGraphMapper {
         return Arrays.asList(fromJson(analysis.getDecisions(), Decision[].class));
     }
 
+    public List<GroupFailure> failures(RelationshipGraphAnalysis analysis) {
+        if (analysis.getFailures() == null) return List.of();
+        return Arrays.asList(fromJson(analysis.getFailures(), GroupFailure[].class));
+    }
+
     public Context toContext(RelationshipGraphAnalysis analysis) {
+        return toContext(analysis, false);
+    }
+
+    public Context toContext(RelationshipGraphAnalysis analysis, boolean partialResultsForUnprepared) {
         Context source =
                 analysis.getContext() == null
                         ? new Context(
@@ -50,7 +60,7 @@ public class RelationshipGraphMapper {
                                 List.of(),
                                 List.of(),
                                 List.of(),
-                                List.of())
+                                List.of(), partialResultsForUnprepared, List.of())
                         : fromJson(analysis.getContext(), Context.class);
         return new Context(
                 1,
@@ -61,7 +71,10 @@ public class RelationshipGraphMapper {
                 source.observations(),
                 source.nodes(),
                 source.relationships(),
-                source.heldObservations());
+                source.heldObservations(),
+                source.supportsPartialResults(),
+                source.blockedPairs(),
+                failures(analysis));
     }
 
     public Prepare toPrepareCachedObservations(
@@ -94,6 +107,11 @@ public class RelationshipGraphMapper {
 
     public Edge toEdge(
             RelationshipGraphEdge edge, RelationshipGraphEvent event, int evidenceCount) {
+        return toEdge(edge, event, evidenceCount, event.getEpisodeNo(), false);
+    }
+
+    public Edge toEdge(RelationshipGraphEdge edge, RelationshipGraphEvent event, int evidenceCount,
+            int lastVerifiedEpisodeNo, boolean updateIncomplete) {
         return new Edge(
                 edge.getId(),
                 edge.getSourceNodeId(),
@@ -107,7 +125,9 @@ public class RelationshipGraphMapper {
                 event.getDirection(),
                 event.getStatus(),
                 edge.getVersion(),
-                evidenceCount);
+                evidenceCount,
+                lastVerifiedEpisodeNo,
+                updateIncomplete);
     }
 
     public RelationshipGraphEvent toEvent(

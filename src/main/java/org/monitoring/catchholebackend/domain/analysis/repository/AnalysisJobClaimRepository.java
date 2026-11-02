@@ -24,6 +24,16 @@ public class AnalysisJobClaimRepository {
             and job.jobType in :jobTypes and job.analysisMode in :modes and job.sourceKind in :sourceKinds
             and (:supportsCharacterComparisonGroups = true or job.characterComparisonInputHash is null)
             and (:supportsRelationshipAnalysis = true or job.relationshipAnalysisEnabled = false)
+            and (:supportsRelationshipPartialResults = true or job.relationshipPartialResultsEnabled = false)
+            and (:supportsRelationshipPartialResults = true
+                or job.jobType <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION
+                or not exists (select a.id from RelationshipGraphAnalysis a
+                    where a.workId = job.work.id
+                    and a.status = org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract$AnalysisStatus.APPLIED
+                    and a.failureCode = 'PARTIAL_COMPARISON_FAILED'
+                    and ((a.generation = 0 and not exists (select b.workId from RelationshipBackfillWork b where b.workId = job.work.id))
+                        or exists (select b.workId from RelationshipBackfillWork b where b.workId = job.work.id
+                            and (a.generation = b.publishedGeneration or a.generation = b.buildingGeneration)))))
             and
             """ + AnalysisJobEligibility.DOMAIN;
 
@@ -39,6 +49,7 @@ public class AnalysisJobClaimRepository {
                 .setParameter("sourceKinds", request.effectiveSupportedSourceKinds())
                 .setParameter("supportsCharacterComparisonGroups", Boolean.TRUE.equals(request.supportsCharacterComparisonGroups()))
                 .setParameter("supportsRelationshipAnalysis", Boolean.TRUE.equals(request.supportsRelationshipAnalysis()))
+                .setParameter("supportsRelationshipPartialResults", Boolean.TRUE.equals(request.supportsRelationshipPartialResults()))
                 .setMaxResults(100)
                 .getResultList();
         for (UUID workId : workIds) {
@@ -59,6 +70,7 @@ public class AnalysisJobClaimRepository {
                     .setParameter("sourceKinds", request.effectiveSupportedSourceKinds())
                     .setParameter("supportsCharacterComparisonGroups", Boolean.TRUE.equals(request.supportsCharacterComparisonGroups()))
                     .setParameter("supportsRelationshipAnalysis", Boolean.TRUE.equals(request.supportsRelationshipAnalysis()))
+                    .setParameter("supportsRelationshipPartialResults", Boolean.TRUE.equals(request.supportsRelationshipPartialResults()))
                     .setParameter("workId", workId)
                     .setLockMode(LockModeType.PESSIMISTIC_WRITE)
                     .setMaxResults(1)

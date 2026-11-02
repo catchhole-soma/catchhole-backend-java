@@ -72,6 +72,11 @@ public class RelationshipGraphAnalysis extends BaseEntity {
     @Column(columnDefinition = "jsonb")
     private JsonNode decisions;
 
+    // 같은 인물 쌍의 새 관측 참조와 허용된 실패 코드만 보존한다. null은 이전 저장 형태, 빈 배열은 부분 실패 없음이다.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private JsonNode failures;
+
     @Column(nullable = false)
     private int rejectedObservationCount;
 
@@ -132,7 +137,13 @@ public class RelationshipGraphAnalysis extends BaseEntity {
     }
 
     public void complete(JsonNode decisions, String hash) {
+        complete(decisions, null, hash);
+    }
+
+    public void complete(JsonNode decisions, JsonNode failures, String hash) {
         this.decisions = decisions;
+        this.failures = failures;
+        this.failureCode = hasFailures() ? "PARTIAL_COMPARISON_FAILED" : null;
         completionHash = hash;
         status = AnalysisStatus.COMPLETED;
     }
@@ -145,6 +156,8 @@ public class RelationshipGraphAnalysis extends BaseEntity {
     public void apply() {
         status = AnalysisStatus.APPLIED;
     }
+
+    public boolean hasFailures() { return failures != null && !failures.isEmpty(); }
 
     public void invalidate() {
         status = AnalysisStatus.INVALIDATED;

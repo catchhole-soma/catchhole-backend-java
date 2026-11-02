@@ -87,5 +87,9 @@ public record WorkerAnalysisJobPayload(
         RelationshipAnalysisContract relationshipAnalysisContract
 ) {
     public record ComparisonEvidenceContract(int formatVersion) {}
-    public record RelationshipAnalysisContract(int formatVersion) {}
+    public record RelationshipAnalysisContract(int formatVersion,
+            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_DEFAULT)
+            boolean supportsPartialResults) {
+        public RelationshipAnalysisContract(int formatVersion) { this(formatVersion, false); }
+    }
 }
