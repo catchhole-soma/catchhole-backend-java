@@ -768,6 +768,10 @@ public class WorldSettingCandidate extends BaseEntity {
     }
 
     public void deferSubjectResolution(AnalysisFailureCode failureCode) {
+        deferSubjectResolution(failureCode, null);
+    }
+
+    public void deferSubjectResolution(AnalysisFailureCode failureCode, AnalysisFailureDiagnostics diagnostics) {
         if (analysisJob == null || !analysisJob.isOrderedProvisional() || !analysisJob.isAutomaticReview()
                 || failureCode == null || !failureCode.isCandidateComparisonFailure() || hasSubjectResolution()) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_WORKER_JOB_INVALID);
@@ -783,7 +787,8 @@ public class WorldSettingCandidate extends BaseEntity {
         captureComparisonAttempt();
         captureComparisonMetrics();
         comparisonFailureCode = failureCode;
-        comparisonFailureDiagnostics = null;
+        comparisonFailureDiagnostics = diagnostics != null ? diagnostics : new AnalysisFailureDiagnostics(1, "SPRING", "WORLD_CONTEXT",
+                "WORLD_SUBJECT_RESOLUTION_FAILED", "UNKNOWN", null, null, null, null, null, null, null);
         comparisonFailureAnalysisJobId = analysisJob == null ? null : analysisJob.getId();
         comparisonFailureBatchId = comparisonBatch == null ? null : comparisonBatch.getId();
         comparisonErrorMessage = AutomaticReviewHoldReason.SUBJECT_RESOLUTION_FAILED.getMessage();
@@ -804,7 +809,8 @@ public class WorldSettingCandidate extends BaseEntity {
         captureComparisonAttempt();
         captureComparisonMetrics();
         comparisonFailureCode = AnalysisFailureCode.COMPARISON_VALIDATION_FAILED;
-        comparisonFailureDiagnostics = null;
+        comparisonFailureDiagnostics = new AnalysisFailureDiagnostics(1, "SPRING", "WORLD_CONTEXT",
+                "WORLD_COMPARISON_INPUT_TOO_LARGE", "UNKNOWN", null, null, null, null, null, null, null);
         comparisonFailureAnalysisJobId = analysisJob == null ? null : analysisJob.getId();
         comparisonFailureBatchId = comparisonBatch == null ? null : comparisonBatch.getId();
         comparisonErrorMessage = AutomaticReviewHoldReason.COMPARISON_INPUT_TOO_LARGE.getMessage();

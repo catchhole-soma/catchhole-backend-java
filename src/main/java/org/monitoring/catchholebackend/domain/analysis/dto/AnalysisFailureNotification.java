@@ -9,11 +9,30 @@ public record AnalysisFailureNotification(UUID id, UUID workId, Long memberId, U
         UUID episodeId, Integer episodeNo, String failureKind, String failureCode,
         int failureCount, LocalDateTime occurredAt, int attempts, UUID leaseToken,
         AnalysisFailureDiagnostics failureDiagnostics, UUID executionJobId, UUID sourceAnalysisJobId,
-        UUID comparisonBatchId, String jobType, List<Integer> targetEpisodeNos) {
+        UUID comparisonBatchId, String jobType, List<Integer> targetEpisodeNos, String candidateReviewStatus, List<UUID> failedCandidateIds, Boolean continuesAfterCandidateFailure) {
     public AnalysisFailureNotification {
+        failedCandidateIds = failedCandidateIds == null ? List.of() : List.copyOf(failedCandidateIds);
         targetEpisodeNos = targetEpisodeNos == null ? null : List.copyOf(targetEpisodeNos);
     }
 
+    public AnalysisFailureNotification(UUID id, UUID workId, Long memberId, UUID jobId,
+            UUID episodeId, Integer episodeNo, String failureKind, String failureCode,
+            int failureCount, LocalDateTime occurredAt, int attempts, UUID leaseToken,
+            AnalysisFailureDiagnostics failureDiagnostics, UUID executionJobId, UUID sourceAnalysisJobId,
+            UUID comparisonBatchId, String jobType, List<Integer> targetEpisodeNos, String candidateReviewStatus, List<UUID> failedCandidateIds) {
+        this(id, workId, memberId, jobId, episodeId, episodeNo, failureKind, failureCode, failureCount,
+                occurredAt, attempts, leaseToken, failureDiagnostics, executionJobId, sourceAnalysisJobId,
+                comparisonBatchId, jobType, targetEpisodeNos, candidateReviewStatus, failedCandidateIds, null);
+    }
+    public AnalysisFailureNotification(UUID id, UUID workId, Long memberId, UUID jobId,
+            UUID episodeId, Integer episodeNo, String failureKind, String failureCode,
+            int failureCount, LocalDateTime occurredAt, int attempts, UUID leaseToken,
+            AnalysisFailureDiagnostics failureDiagnostics, UUID executionJobId, UUID sourceAnalysisJobId,
+            UUID comparisonBatchId, String jobType, List<Integer> targetEpisodeNos) {
+        this(id, workId, memberId, jobId, episodeId, episodeNo, failureKind, failureCode, failureCount,
+                occurredAt, attempts, leaseToken, failureDiagnostics, executionJobId, sourceAnalysisJobId,
+                comparisonBatchId, jobType, targetEpisodeNos, null, List.of());
+    }
     /** 배포 전 outbox row와 진단을 모르는 호출자의 호환 경계. 실행을 추정하지 않는다. */
     public AnalysisFailureNotification(UUID id, UUID workId, Long memberId, UUID jobId,
             UUID episodeId, Integer episodeNo, String failureKind, String failureCode,
