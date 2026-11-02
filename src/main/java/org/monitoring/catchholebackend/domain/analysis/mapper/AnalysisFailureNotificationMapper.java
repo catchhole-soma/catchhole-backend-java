@@ -67,7 +67,8 @@ public class AnalysisFailureNotificationMapper {
             if (Boolean.TRUE.equals(event.continuesAfterCandidateFailure())) detail.append(coreStopped
                     ? "영향: 이 설정은 검토 목록에 보관 · 회차 분석은 별도 오류로 중단\n"
                     : "영향: 이 설정만 자동 반영 중단 · 나머지 분석 계속\n");
-            detail.append(isCandidate(event) ? "실패 후보: " + Math.max(1, event.failureCount()) + "개"
+            detail.append(isRelationshipComparison(event) ? "업데이트 미완료 인물 쌍: " + Math.max(1, event.failureCount()) + "개"
+                    : isCandidate(event) ? "실패 후보: " + Math.max(1, event.failureCount()) + "개"
                     : isRelationshipPartial(event) ? "관계도 부분 실패: 1건" : "실패 작업: 1건").append('\n');
             if (d != null) for (var excerpt : d.excerpts()) {
                 if (subjectFailure && "subjectOptions".equals(excerpt.field())) continue;
@@ -122,6 +123,7 @@ public class AnalysisFailureNotificationMapper {
     }
 
     private static String outcome(AnalysisFailureNotification event) {
+        if (isRelationshipComparison(event)) return "일부 인물 쌍 업데이트 미완료 · 정상 관계 반영 · 후속 분석 계속";
         if (isRelationshipPartial(event)) return "관계도만 실패 · 나머지 분석 계속";
         if (isCandidate(event)) return switch (event.candidateReviewStatus() == null ? "" : event.candidateReviewStatus()) {
             case "PENDING_REVIEW" -> "후보 저장됨 · 비교 실패(FAILED) · 검토 대기(PENDING_REVIEW)";
@@ -243,7 +245,7 @@ public class AnalysisFailureNotificationMapper {
             var diagnostic = validDiagnostic(event);
             String reason = diagnostic == null ? "UNKNOWN" : allowed(diagnostic.reasonCode(), AnalysisFailureDiagnostics.REASONS);
             var code = failureCode(event);
-            String count = isCandidate(event) ? Math.max(1, event.failureCount()) + "개 항목" : isRelationshipPartial(event) ? "관계도 부분 실패 1건" : "작업 1건";
+            String count = isRelationshipComparison(event) ? "업데이트 미완료 인물 쌍 " + Math.max(1, event.failureCount()) + "개" : isCandidate(event) ? Math.max(1, event.failureCount()) + "개 항목" : isRelationshipPartial(event) ? "관계도 부분 실패 1건" : "작업 1건";
             line(message, "\n" + (i + 1) + ". " + title(event) + " · " + targetEpisodes(event) + " · " + count);
             line(message, stage(diagnostic == null ? null : diagnostic.stage()) + " / "
                     + (code == AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED ? "AI 토큰 부족" : explanation(reason)) + " (" + reason + ")");
@@ -295,7 +297,8 @@ public class AnalysisFailureNotificationMapper {
         String reason = diagnostic == null ? "UNKNOWN" : allowed(diagnostic.reasonCode(), AnalysisFailureDiagnostics.REASONS);
         boolean candidate = isCandidate(event);
         String safeEnvironment = "prod".equals(environment) ? "운영" : "local".equals(environment) ? "로컬" : "기타";
-        var sourceJob = event.sourceAnalysisJobId() != null ? event.sourceAnalysisJobId() : candidate ? event.jobId() : null;
+        var sourceJob = event.sourceAnalysisJobId() != null ? event.sourceAnalysisJobId()
+                : candidate ? event.jobId() : null;
         var execution = event.executionJobId() != null ? event.executionJobId()
                 : "ANALYSIS_JOB".equals(event.failureKind()) ? event.jobId() : null;
         StringBuilder message = new StringBuilder();
@@ -305,7 +308,8 @@ public class AnalysisFailureNotificationMapper {
         line(message, "원인: " + (code == AnalysisFailureCode.AI_TOKEN_QUOTA_EXHAUSTED ? "AI 토큰 부족" : explanation(reason)) + " (" + reason + ")");
         line(message, "실패 코드: " + code.name() + " / " + code.getPublicMessage());
         line(message, "대상 회차: " + targetEpisodes(event) + " / "
-                + (candidate ? "실패 항목: " + Math.max(1, event.failureCount()) + "개" : isRelationshipPartial(event) ? "관계도 부분 실패: 1건" : "실패 작업: 1건"));
+                + (isRelationshipComparison(event) ? "업데이트 미완료 인물 쌍: " + Math.max(1, event.failureCount()) + "개"
+                    : candidate ? "실패 항목: " + Math.max(1, event.failureCount()) + "개" : isRelationshipPartial(event) ? "관계도 부분 실패: 1건" : "실패 작업: 1건"));
         if (isRelationshipPartial(event)) line(message, "처리 결과: " + outcome(event));
         line(message, "재시도: " + retry(reason, code));
         line(message, "실행 Job ID: " + known(execution));
@@ -340,8 +344,12 @@ public class AnalysisFailureNotificationMapper {
         return "CHARACTER_COMPARISON".equals(event.failureKind()) || "WORLD_COMPARISON".equals(event.failureKind());
     }
 
+    private static boolean isRelationshipComparison(AnalysisFailureNotification event) {
+        return "RELATIONSHIP_COMPARISON".equals(event.failureKind());
+    }
+
     private static boolean isRelationshipPartial(AnalysisFailureNotification event) {
-        return "RELATIONSHIP_PARTIAL".equals(event.failureKind());
+        return "RELATIONSHIP_PARTIAL".equals(event.failureKind()) || isRelationshipComparison(event);
     }
 
     private static boolean isJob(AnalysisFailureNotification event) {
@@ -349,6 +357,7 @@ public class AnalysisFailureNotificationMapper {
     }
 
     private static String title(AnalysisFailureNotification event) {
+        if (isRelationshipComparison(event)) return "인물 관계 일부 업데이트 미완료";
         if (isRelationshipPartial(event)) return "관계도 부분 실패";
         if ("CHARACTER_COMPARISON".equals(event.failureKind())) return "캐릭터 비교 항목 실패";
         if ("WORLD_COMPARISON".equals(event.failureKind())) return "세계관 비교 항목 실패";
@@ -425,6 +434,7 @@ public class AnalysisFailureNotificationMapper {
             case "WORLD_COMPARISON_INPUT_TOO_LARGE" -> "세계관 비교 입력 한도 초과";
             case "RELATIONSHIP_INPUT_TOO_LARGE" -> "관계 분석 입력 한도 초과";
             case "RELATIONSHIP_CONTEXT_INVALID" -> "고정 관계 문맥 검증 실패";
+            case "RELATIONSHIP_PREDECESSOR_INCOMPLETE" -> "앞 회차의 관계 갱신 미완료";
             case "INTERNAL_API_HTTP_ERROR" -> "내부 API HTTP 오류";
             case "INTERNAL_API_TRANSPORT_ERROR" -> "내부 API 연결 실패";
             case "LLM_OUTPUT_TRUNCATED" -> "AI 응답 길이 제한";

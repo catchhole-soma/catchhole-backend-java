@@ -269,3 +269,16 @@ Worker는 관계 fail 요청의 optional `failureDiagnostics`로 기존 허용 �
 - 최종 Python 전체: 5,111 통과 / 143 건너뜀 / 실패 0 (28.32초, 기존 Starlette 경고 1개).
 - 독립 리뷰에서 발견한 구 Worker 단계 오표시를 RED→GREEN으로 수정했고 재검토 추가 지적 없음. 양 저장소 `git diff --check` 통과.
 - #357 전용 worktree에 구현했으며 커밋·배포·실제 Discord 발송·과거 알림 변경은 수행하지 않음.
+
+
+## GH359 인물 쌍별 부분 완료와의 통합
+
+V111은 `APPLIED + PARTIAL_COMPARISON_FAILED`의 직접 실패를
+`RELATIONSHIP_COMPARISON`으로 기록한다. V110의 일반 분석 중 관계 전체 실패
+(`RELATIONSHIP_PARTIAL`)와 별개이며, 실패 Job·후보 개수로 세지 않는다.
+reason별 미완료 인물 쌍 개수와 정상 관계 반영·후속 분석 계속을 표시한다.
+선행 실패의 후속 파급(`RELATIONSHIP_PREDECESSOR_INCOMPLETE`)은 재알림하지 않는다.
+
+두 관계 사건 모두 DB가 관리하는 `failure_notification_attempt_id`로 기존 발송 묶음에
+연결한다. V111 정제 함수는 V109의 검사·제한된 발췌·세계관 원인 허용목록을 유지한다.
+인물 쌍 사건 자체는 고정 reason·개수·안전한 식별자만 생성하며 원문·인물 이름을 넣지 않는다.

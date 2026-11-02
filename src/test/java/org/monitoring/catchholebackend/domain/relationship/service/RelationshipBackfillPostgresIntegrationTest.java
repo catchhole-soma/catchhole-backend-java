@@ -64,6 +64,46 @@ class RelationshipBackfillPostgresIntegrationTest extends RelationshipBackfillIn
         properties.add("spring.docker.compose.enabled", () -> "false");
     }
 
+    @Override
+    @Test
+    @DisplayName("부분 완료는 정상 관계와 outbox를 원자 반영하고 파급 실패·재전송은 중복 알림하지 않는다")
+    void partialPairPublishesIndependentProgressAndPreservesPrefix() {
+        super.partialPairPublishesIndependentProgressAndPreservesPrefix();
+        assertThat(jdbc.queryForObject("select count(*) from analysis_failure_notifications where work_id=?",
+                Integer.class, workId)).isEqualTo(1);
+        var row = jdbc.queryForMap("select failure_count,failure_kind,failure_diagnostics::text as diagnostic from analysis_failure_notifications where work_id=?", workId);
+        assertThat(row.get("failure_count")).isEqualTo(1);
+        assertThat(row.get("failure_kind")).isEqualTo("RELATIONSHIP_COMPARISON");
+        assertThat(row.get("diagnostic").toString()).contains("RELATIONSHIP_ENDPOINTS_UNGROUNDED")
+                .doesNotContain("아라", "보라", "다라", "observationRefs");
+        assertThat(jdbc.queryForObject("""
+                select n.execution_attempt_id is not null
+                    and n.execution_attempt_id=j.failure_notification_attempt_id
+                    and d.execution_attempt_id=n.execution_attempt_id
+                from analysis_failure_notifications n
+                join analysis_jobs j on j.id=n.execution_job_id
+                join analysis_failure_notification_deliveries d on d.id=n.delivery_id
+                where n.work_id=?
+                """, Boolean.class, workId)).isTrue();
+        // Exercise SQL writers too: only the bounded fixed reason is copied. A rolled-back graph
+        // publication must roll back its outbox rows in the same database transaction.
+        tx.executeWithoutResult(status -> {
+            String failures = "[{\"reasonCode\":\"RELATIONSHIP_ENDPOINTS_UNGROUNDED\",\"quote\":\"PRIVATE_MANUSCRIPT\"},"
+                    + "{\"reasonCode\":\"RELATIONSHIP_ENDPOINTS_UNGROUNDED\",\"leaseToken\":\"PRIVATE_SECRET\"},"
+                    + "{\"reasonCode\":\"RELATIONSHIP_PREDECESSOR_INCOMPLETE\"},{\"reasonCode\":\"PRIVATE_REASON\"}]";
+            jdbc.update("update relationship_graph_analyses set status='COMPLETED',failures=?::jsonb where work_id=? and episode_no=2", failures, workId);
+            jdbc.update("update relationship_graph_analyses set status='APPLIED' where work_id=? and episode_no=2", workId);
+            var added = jdbc.queryForMap("select failure_count,failure_diagnostics::text as diagnostic from analysis_failure_notifications where work_id=? and source_transaction=txid_current()", workId);
+            assertThat(added.get("failure_count")).isEqualTo(2);
+            assertThat(jdbc.queryForObject("select count(distinct delivery_id) from analysis_failure_notifications where work_id=?",
+                    Integer.class, workId)).isEqualTo(1);
+            assertThat(added.get("diagnostic").toString()).doesNotContain("PRIVATE", "PREDECESSOR");
+            status.setRollbackOnly();
+        });
+        assertThat(jdbc.queryForObject("select count(*) from analysis_failure_notifications where work_id=?",
+                Integer.class, workId)).isEqualTo(1);
+    }
+
     @Test
     @DisplayName("만료 복구가 작품 잠금을 기다리는 동안 커밋된 heartbeat 임대를 회수하지 않는다")
     void recoveryRefreshesExpiredCandidateAfterConcurrentHeartbeatCommits() throws Exception {

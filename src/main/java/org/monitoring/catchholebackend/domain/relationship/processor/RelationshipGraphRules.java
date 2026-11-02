@@ -26,10 +26,31 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.List;
+import org.monitoring.catchholebackend.domain.analysis.dto.AnalysisFailureDiagnostics;
 
 /** LLM 제안에 권한을 부여하지 않고, 고정 입력에 실제 있던 주체·관계·출처만 허용한다. */
 @Component
 public class RelationshipGraphRules {
+    public static final String PREDECESSOR_INCOMPLETE = "RELATIONSHIP_PREDECESSOR_INCOMPLETE";
+    public static boolean isPartialFailureReason(String reason) {
+        return PREDECESSOR_INCOMPLETE.equals(reason)
+                || reason != null && reason.startsWith("RELATIONSHIP_")
+                && !"RELATIONSHIP_CONTEXT_INVALID".equals(reason)
+                && AnalysisFailureDiagnostics.REASONS.contains(reason);
+    }
+
+    /** Identity only: direction/axis/kind remain inside one comparison group. */
+    public static String pair(String source, String target) {
+        return source.compareTo(target) < 0 ? source + "|" + target : target + "|" + source;
+    }
+
+    public static String pair(ContextObservation observation) {
+        if (observation.sourceNodeRefs().size() != 1 || observation.targetNodeRefs().size() != 1)
+            return null;
+        String source = observation.sourceNodeRefs().getFirst(), target = observation.targetNodeRefs().getFirst();
+        return source.equals(target) ? null : pair(source, target);
+    }
     public void validatePrepare(Prepare request, String source) {
         if (request == null
                 || request.formatVersion() != 1
@@ -93,6 +114,7 @@ public class RelationshipGraphRules {
         Map<String, ContextObservation> observations = new LinkedHashMap<>();
         context.observations().forEach(o -> observations.put(o.ref(), o));
         context.heldObservations().forEach(o -> observations.put(o.ref(), o));
+        Set<String> failed = validateFailures(context, request);
         Map<String, ContextRelationship> relationships = new HashMap<>();
         context.relationships().forEach(r -> relationships.put(r.ref(), r));
         Set<String> covered = new HashSet<>(),
@@ -111,11 +133,21 @@ public class RelationshipGraphRules {
                     || decision.observationRefs().stream().noneMatch(r -> r.startsWith("O")))
                 invalid();
             for (String ref : decision.observationRefs()) {
-                if (!observations.containsKey(ref)) invalid();
+                if (!observations.containsKey(ref) || failed.contains(ref)) invalid();
                 covered.add(ref);
             }
             if (decision.operation() == Operation.HOLD
                     || decision.operation() == Operation.EXCLUDE) {
+                if (context.supportsPartialResults()) {
+                    Set<String> pairs = new HashSet<>();
+                    decision.observationRefs().forEach(ref -> pairs.add(pair(observations.get(ref))));
+                    if (pairs.contains(null)) {
+                        // Unresolved evidence cannot consume another observation's identity or a
+                        // historical hold. Keep each new unresolved observation independently.
+                        if (decision.operation() != Operation.HOLD || decision.observationRefs().size() != 1
+                                || !decision.observationRefs().getFirst().startsWith("O")) invalid();
+                    } else if (pairs.size() != 1) invalid();
+                }
                 for (String ref : decision.observationRefs()) {
                     if (applied.contains(ref) || !disposition.add(ref)) invalid();
                 }
@@ -203,7 +235,43 @@ public class RelationshipGraphRules {
                                 || !existing.summary().equals(decision.summary()))) invalid();
             }
         }
-        if (context.observations().stream().anyMatch(o -> !covered.contains(o.ref()))) invalid();
+        if (context.observations().stream().anyMatch(o -> !covered.contains(o.ref()) && !failed.contains(o.ref()))) invalid();
+    }
+
+    private Set<String> validateFailures(Context context, Complete request) {
+        if ((!context.supportsPartialResults() && !request.failures().isEmpty())
+                || request.failures().size() > 384) invalid();
+        Map<String, Set<String>> groups = new LinkedHashMap<>();
+        for (var observation : context.observations()) {
+            String pair = pair(observation);
+            if (pair != null) groups.computeIfAbsent(pair, key -> new HashSet<>()).add(observation.ref());
+        }
+        Set<String> blocked = new HashSet<>();
+        Set<String> nodes = new HashSet<>();
+        context.nodes().forEach(node -> nodes.add(node.ref()));
+        for (var value : context.blockedPairs()) {
+            if (!context.supportsPartialResults() || value.sourceNodeRef() == null || value.targetNodeRef() == null
+                    || value.sourceNodeRef().equals(value.targetNodeRef())
+                    || !nodes.contains(value.sourceNodeRef()) || !nodes.contains(value.targetNodeRef())
+                    || value.firstFailedEpisodeNo() < 1 || value.firstFailedEpisodeNo() >= context.sourceEpisodeNo()
+                    || !blocked.add(pair(value.sourceNodeRef(), value.targetNodeRef()))) invalid();
+        }
+        Set<String> failed = new HashSet<>(), failedPairs = new HashSet<>();
+        for (var failure : request.failures()) {
+            if (failure == null || !isPartialFailureReason(failure.reasonCode())
+                    || failure.observationRefs() == null || failure.observationRefs().isEmpty()) invalid();
+            Set<String> refs = new HashSet<>(failure.observationRefs());
+            if (refs.size() != failure.observationRefs().size()) invalid();
+            String failedPair = groups.entrySet().stream()
+                    .filter(entry -> entry.getValue().equals(refs)).map(Map.Entry::getKey).findFirst().orElse(null);
+            if (failedPair == null || !failedPairs.add(failedPair)
+                    || blocked.contains(failedPair) != PREDECESSOR_INCOMPLETE.equals(failure.reasonCode())) invalid();
+            failed.addAll(refs);
+        }
+        for (String blockedPair : blocked) {
+            if (groups.containsKey(blockedPair) && !failedPairs.contains(blockedPair)) invalid();
+        }
+        return failed;
     }
 
     public static String canonical(

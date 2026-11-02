@@ -4,6 +4,7 @@ public enum RelationshipBackfillItemState {
     WAITING,
     RUNNING,
     SUCCEEDED,
+    PARTIAL,
     FAILED,
     SKIPPED
 }

@@ -56,6 +56,22 @@ class AnalysisFailureNotificationMapperTest {
     }
 
     @Test
+    @DisplayName("인물 쌍 부분 완료는 실제 embed에서 후보 실패나 작업 중단으로 세지 않는다")
+    void pairPartialPayloadPreservesPairCountsAndIndependentProgress() {
+        var partial = event("RELATIONSHIP_COMPARISON", "RELATIONSHIP_EXTRACTION", 2,
+                diagnostic("RELATIONSHIP_COMPARE", "RELATIONSHIP_ENDPOINTS_UNGROUNDED", null), List.of(3));
+        var delivery = new org.monitoring.catchholebackend.domain.analysis.dto.AnalysisFailureNotificationDelivery(
+                ID, EXECUTION, List.of(partial));
+        var payload = mapper.toPayload(delivery, "prod");
+        assertThat(payload.content()).contains("관계도 부분 실패", "실패 작업: 0건", "비교 실패 후보: 0개")
+                .doesNotContain("회차 분석 중단");
+        assertThat(payload.embeds().getFirst().title()).contains("인물 관계 일부 업데이트 미완료");
+        assertThat(payload.embeds().getFirst().description())
+                .contains("업데이트 미완료 인물 쌍: 2개", "정상 관계 반영", "후속 분석 계속")
+                .doesNotContain("작업 FAILED", "검토 대기", "실패 후보:", "관계도만 실패");
+    }
+
+    @Test
     void groupedWholeJobFailureTakesPrecedenceOverEarlierRelationshipPartialFailure() {
         var partial = event("RELATIONSHIP_PARTIAL", "SETTING_EXTRACTION", 1,
                 diagnostic("RELATIONSHIP_COMPARE", "RELATIONSHIP_MERGE_CONTENT_CHANGED", null), List.of(59));
@@ -257,6 +273,18 @@ class AnalysisFailureNotificationMapperTest {
                 .doesNotContain("실패 항목", "대상 회차: 59화");
     }
 
+    @Test
+    @DisplayName("전용 관계 작업을 원본 설정 추출 작업으로 추정하지 않는다")
+    void dedicatedRelationshipPartialDoesNotInventExtractionJob() {
+        var event = new AnalysisFailureNotification(ID, WORK, 2L, EXECUTION, EPISODE, 3,
+                "RELATIONSHIP_COMPARISON", "COMPARISON_VALIDATION_FAILED", 1, OCCURRED, 1, null,
+                diagnostic("RELATIONSHIP_COMPARE", "RELATIONSHIP_ENDPOINTS_UNGROUNDED", null),
+                EXECUTION, null, null, "RELATIONSHIP_EXTRACTION", List.of(3));
+        assertThat(mapper.toMessage(event, "prod"))
+                .contains("실행 Job ID: " + EXECUTION)
+                .doesNotContain("원본 추출 Job ID:");
+    }
+
     @ParameterizedTest
     @CsvSource({"ANALYSIS_JOB,SETTING_EXTRACTION,회차 설정 추출 실패",
             "ANALYSIS_JOB,EPISODE_VALIDATION,회차 검수 실패",
@@ -289,13 +317,14 @@ class AnalysisFailureNotificationMapperTest {
     }
 
     @Test
-    @DisplayName("공통 관계 원인 20개를 고정 설명으로 표시하고 무조건 재시도를 권하지 않는다")
+    @DisplayName("공통 관계 원인 21개를 고정 설명으로 표시하고 무조건 재시도를 권하지 않는다")
     void describesEveryRelationshipReasonWithBoundedRecoveryGuidance() {
         var contract = new tools.jackson.databind.ObjectMapper().readTree(getClass().getResourceAsStream(
                 "/contracts/relationship-failure-diagnostics-v1.json"));
-        assertThat(contract.path("reasonCodes").size()).isEqualTo(20);
+        assertThat(contract.path("reasonCodes").size()).isEqualTo(21);
         for (var value : contract.path("reasonCodes")) {
             String reason = value.stringValue();
+
             String message = mapper.toMessage(event("ANALYSIS_JOB", "RELATIONSHIP_EXTRACTION", 1,
                     diagnostic("RELATIONSHIP_COMPARE", reason, null), List.of(59)), "prod");
             assertThat(message).contains("(" + reason + ")",
@@ -310,6 +339,15 @@ class AnalysisFailureNotificationMapperTest {
         String message = mapper.toMessage(event("WORLD_COMPARISON", "WORLD_SETTING_COMPARISON", 17,
                 diagnostic("WORLD_COMPARE", "LLM_TIMEOUT", null), List.of(59)), "prod");
         assertThat(message).contains("실패 항목: 17개", "세계관 비교", "LLM_TIMEOUT").doesNotContain("실패 작업");
+    }
+
+    @Test
+    @DisplayName("관계 부분 완료는 실패 작업 대신 미완료 인물 쌍 수를 표시한다")
+    void relationshipPartialReportsIncompletePairsInsteadOfFailedJob() {
+        String message = mapper.toMessage(event("RELATIONSHIP_COMPARISON", "RELATIONSHIP_EXTRACTION", 2,
+                diagnostic("RELATIONSHIP_COMPARE", "RELATIONSHIP_ENDPOINTS_UNGROUNDED", null), List.of(3)), "prod");
+        assertThat(message).contains("인물 관계 일부 업데이트 미완료", "업데이트 미완료 인물 쌍: 2개", "대상 회차: 3화")
+                .doesNotContain("실패 작업: 1건", "실패 항목:");
     }
 
     @ParameterizedTest

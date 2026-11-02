@@ -14,6 +14,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface RelationshipGraphService {
+    boolean hasRelationshipAnalysis(UUID jobId);
     /** Check fresh cached-observation preparation without writes while the caller holds the Work lock. */
     boolean canPrepareCachedObservations(AnalysisJob job, Prepare request);
 

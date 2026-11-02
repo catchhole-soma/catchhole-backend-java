@@ -134,7 +134,8 @@ public class AnalysisJobWorkerMapper {
                         analysisJob.getSourceSettingBookRevision().getReferenceEpisodeNo()) : null,
                 semanticCurrentContext,
                 analysisJob.isOrderedProvisional() ? new WorkerAnalysisJobPayload.ComparisonEvidenceContract(1) : null,
-                analysisJob.isRelationshipAnalysisEnabled() ? new WorkerAnalysisJobPayload.RelationshipAnalysisContract(1) : null
+                analysisJob.isRelationshipAnalysisEnabled() ? new WorkerAnalysisJobPayload.RelationshipAnalysisContract(
+                        1, analysisJob.isRelationshipPartialResultsEnabled()) : null
         );
     }
 

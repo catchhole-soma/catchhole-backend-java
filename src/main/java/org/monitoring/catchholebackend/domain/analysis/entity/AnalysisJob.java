@@ -76,6 +76,10 @@ import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 public class AnalysisJob extends BaseEntity {
     @jakarta.persistence.Column(name="relationship_analysis_enabled", nullable=false)
     private boolean relationshipAnalysisEnabled;
+    // 새 Worker가 선점할 때 고정하는 부분 완료 계약. 재선점으로 기존 문맥을 승격하거나 해제하지 않는다.
+    @Column(nullable = false)
+    private boolean relationshipPartialResultsEnabled;
+    public void enableRelationshipPartialResults() { relationshipPartialResultsEnabled = true; }
     public void enableRelationshipAnalysis() {relationshipAnalysisEnabled=true;}
     @Column(name="relationship_service_paid",nullable=false,updatable=false)
     private boolean relationshipServicePaid;

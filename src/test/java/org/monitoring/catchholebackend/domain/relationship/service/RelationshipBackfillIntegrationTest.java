@@ -13,6 +13,10 @@ import org.hibernate.engine.spi.EntityKey;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.aitoken.entity.AiTokenUsage;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenPurpose;
@@ -22,6 +26,8 @@ import org.monitoring.catchholebackend.domain.analysis.dto.request.*;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisJobPayload;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobWorkerService;
+import org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService;
 import org.monitoring.catchholebackend.domain.analysis.type.*;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.entity.EpisodeSourcePurgeRequest;
@@ -31,6 +37,13 @@ import org.monitoring.catchholebackend.domain.relationship.entity.*;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipBackfillItemState;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipBackfillWorkState;
 import org.monitoring.catchholebackend.domain.relationship.processor.RelationshipBackfillManifest;
+import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
+import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
+import org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision;
+import org.monitoring.catchholebackend.domain.upload.type.UploadType;
+import org.monitoring.catchholebackend.domain.upload.type.UploadSourceType;
+import org.monitoring.catchholebackend.domain.upload.type.UploadFileRole;
+import org.monitoring.catchholebackend.global.storage.StoredTextObject;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.global.exception.AppException;
@@ -57,6 +70,8 @@ import java.util.function.Consumer;
 @ActiveProfiles("test")
 class RelationshipBackfillIntegrationTest {
     @Autowired RelationshipBackfillService coordinator;
+    @Autowired AnalysisJobWorkerService coreWorker;
+    @Autowired AnalysisRunStateService coreRunState;
     @MockitoSpyBean RelationshipGraphService graph;
     @Autowired EntityManager em;
     @Autowired TransactionTemplate tx;
@@ -67,7 +82,7 @@ class RelationshipBackfillIntegrationTest {
     @MockitoBean AiTokenService tokens;
     UUID workId;
     Long owner;
-    final String source = "아라와 보라는 함께 길을 떠났다.";
+    String source = "아라와 보라는 함께 길을 떠났다.";
     LocalDateTime selectedAt;
     final WorkerAnalysisJobClaimRequest request =
             new WorkerAnalysisJobClaimRequest(
@@ -142,6 +157,224 @@ class RelationshipBackfillIntegrationTest {
 
     WorkerAnalysisJobPayload claim() {
         return coordinator.claimRelationshipJob(request).orElseThrow();
+    }
+
+    WorkerAnalysisJobClaimRequest partialRequest() {
+        return new WorkerAnalysisJobClaimRequest("gpt-6.1-terra", null,
+                Set.of(AnalysisJobType.RELATIONSHIP_EXTRACTION), Set.of(AnalysisMode.CONFIRMED_ONLY), false,
+                Set.of(AnalysisSourceKind.EPISODE), false, false, false, true, true, true);
+    }
+
+    Context prepareTwoPairs(WorkerAnalysisJobPayload payload) {
+        return graph.prepareRelationshipAnalysis(payload.analysisJobId(), payload.leaseToken(),
+                new Prepare(1, storage.contentHash(source), List.of(
+                        new Observation("O1", new Endpoint("아라", "아라"), new Endpoint("보라", "보라"),
+                                "함께 이동한다", List.of(new Evidence(0, source.length(), source))),
+                        new Observation("O2", new Endpoint("아라", "아라"), new Endpoint("다라", "다라"),
+                                "함께 이동한다", List.of(new Evidence(0, source.length(), source)))), 0));
+    }
+
+    Decision pairDecision(Context context, String ref) {
+        var observation = context.observations().stream().filter(o -> o.ref().equals(ref)).findFirst().orElseThrow();
+        String sourceRef = observation.sourceNodeRefs().getFirst(), targetRef = observation.targetNodeRefs().getFirst();
+        var existing = context.relationships().stream().filter(r -> Set.of(r.sourceNodeRef(), r.targetNodeRef())
+                .equals(Set.of(sourceRef, targetRef))).findFirst();
+        return existing.map(r -> new Decision(List.of(ref), Operation.MERGE, r.ref(), r.sourceNodeRef(), r.targetNodeRef(),
+                        r.axis(), r.kind(), r.label(), r.summary(), r.direction(), TemporalScope.PRESENT, null))
+                .orElseGet(() -> new Decision(List.of(ref), Operation.ADD, null, sourceRef, targetRef, Axis.INTERACTION,
+                        Kind.COOPERATION, "협력", "함께 이동한다", Direction.MUTUAL, TemporalScope.PRESENT, null));
+    }
+
+    @Test
+    @DisplayName("한 인물 쌍 실패를 보존하고 독립 쌍을 진행·공개하되 같은 쌍의 후행 변경을 차단한다")
+    void partialPairPublishesIndependentProgressAndPreservesPrefix() {
+        source = "아라와 보라와 다라는 함께 길을 떠났다.";
+        when(storage.getText(anyString())).thenReturn(source);
+        episode(1); episode(2); episode(3);
+        coordinator.bootstrapRelationshipBackfill();
+        for (int no = 1; no <= 3; no++) {
+            var payload = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+            assertThat(payload.relationshipAnalysisContract().supportsPartialResults()).isTrue();
+            var context = prepareTwoPairs(payload);
+            var decisions = no == 1 ? List.of(pairDecision(context, "O1"), pairDecision(context, "O2"))
+                    : List.of(pairDecision(context, "O2"));
+            var failures = no == 1 ? List.<GroupFailure>of() : List.of(new GroupFailure(List.of("O1"),
+                    no == 2 ? "RELATIONSHIP_ENDPOINTS_UNGROUNDED" : "RELATIONSHIP_PREDECESSOR_INCOMPLETE"));
+            assertThat(context.blockedPairs()).hasSize(no == 3 ? 1 : 0);
+            var complete = new Complete(1, context.contextToken(), decisions, failures);
+            graph.completeRelationshipAnalysis(payload.analysisJobId(), payload.leaseToken(), complete);
+            // Restart between graph completion and Job completion must preserve the failure receipt.
+            assertThat(graph.getRelationshipAnalysis(payload.analysisJobId(), payload.leaseToken()).orElseThrow().failures())
+                    .isEqualTo(failures);
+            graph.completeRelationshipAnalysis(payload.analysisJobId(), payload.leaseToken(), complete);
+            coordinator.completeRelationshipJob(payload.analysisJobId(), payload.leaseToken(), null);
+            coordinator.completeRelationshipJob(payload.analysisJobId(), payload.leaseToken(), null);
+            if (no == 2) assertThat(coordinator.claimRelationshipJob(request)).isEmpty();
+        }
+        assertThat(items()).extracting(RelationshipBackfillItem::getState).containsExactly(
+                RelationshipBackfillItemState.SUCCEEDED, RelationshipBackfillItemState.PARTIAL, RelationshipBackfillItemState.PARTIAL);
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.COMPLETE);
+        var result = graph.getRelationshipGraph(owner, workId, 3);
+        assertThat(result.updateIncomplete()).isTrue();
+        assertThat(result.incompleteEpisodeNos()).containsExactly(2, 3);
+        assertThat(result.analysisStatus()).isEqualTo("PARTIAL");
+        assertThat(result.edges()).hasSize(2);
+        assertThat(result.edges().stream().filter(Edge::updateIncomplete)).singleElement()
+                .extracting(Edge::lastVerifiedEpisodeNo).isEqualTo(1);
+        assertThat(result.edges().stream().filter(e -> !e.updateIncomplete())).singleElement()
+                .extracting(Edge::lastVerifiedEpisodeNo).isEqualTo(3);
+        var past = graph.getRelationshipGraph(owner, workId, 1);
+        assertThat(past.updateIncomplete()).isFalse();
+        assertThat(past.incompleteEpisodeNos()).isEmpty();
+        assertThat(past.edges()).allSatisfy(e -> assertThat(e.lastVerifiedEpisodeNo()).isEqualTo(1));
+    }
+
+    @Test
+    @DisplayName("구 동결 문맥은 새 Worker 재선점에서도 계약을 승격하지 않고 새 부분 계약은 구 Worker에 배정하지 않는다")
+    void frozenCapabilitySurvivesReclaimInBothDirections() {
+        episode(1); episode(2);
+        coordinator.bootstrapRelationshipBackfill();
+        var legacy = claim();
+        var saved = prepare(legacy);
+        tx.executeWithoutResult(t -> em.find(AnalysisJob.class, legacy.analysisJobId())
+                .renewLease(LocalDateTime.now().minusMinutes(1)));
+        var modern = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+        assertThat(modern.analysisJobId()).isEqualTo(legacy.analysisJobId());
+        assertThat(modern.relationshipAnalysisContract().supportsPartialResults()).isFalse();
+        assertThat(graph.getRelationshipAnalysis(modern.analysisJobId(), modern.leaseToken()).orElseThrow()).isEqualTo(saved);
+        finish(modern, saved);
+        var next = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+        prepare(next);
+        tx.executeWithoutResult(t -> em.find(AnalysisJob.class, next.analysisJobId())
+                .renewLease(LocalDateTime.now().minusMinutes(1)));
+        assertThat(coordinator.claimRelationshipJob(request)).isEmpty();
+        var resumed = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+        assertThat(resumed.analysisJobId()).isEqualTo(next.analysisJobId());
+        assertThat(resumed.relationshipAnalysisContract().supportsPartialResults()).isTrue();
+    }
+
+    private static java.util.stream.Stream<Arguments> legacyCoreBackfillCases() {
+        return java.util.stream.Stream.of(RelationshipBackfillWorkState.BUILDING, RelationshipBackfillWorkState.BLOCKED)
+                .flatMap(state -> java.util.stream.Stream.of(Arguments.of(state, false), Arguments.of(state, null)));
+    }
+
+    @ParameterizedTest
+    @MethodSource("legacyCoreBackfillCases")
+    @DisplayName("활성 백필의 관계를 이관하는 일반 분석은 구 Worker도 선점하고 관계 전용 작업은 보호한다")
+    void legacyCoreClaimDefersRelationshipsInActiveBackfill(RelationshipBackfillWorkState workState, Boolean partialSupport) {
+        seedPartialClaimPrefix(true);
+        if (workState == RelationshipBackfillWorkState.BLOCKED)
+            tx.executeWithoutResult(t -> em.find(RelationshipBackfillWork.class, workId).block("ANALYSIS_FAILED"));
+        // Disabling new backfill dispatch does not undo an existing work's inline deferral.
+        ReflectionTestUtils.setField(coordinator, "enabled", false);
+        UUID core = pendingCoreJob(3, false);
+        var payload = coreWorker.claimAnalysisJob(coreClaimRequest(partialSupport)).orElseThrow();
+        assertThat(payload.analysisJobId()).isEqualTo(core);
+        assertThat(payload.relationshipAnalysisContract()).isNull();
+        tx.executeWithoutResult(t -> {
+            var job = em.find(AnalysisJob.class, core);
+            assertThat(job.isRelationshipAnalysisEnabled()).isFalse();
+            assertThat(job.isRelationshipPartialResultsEnabled()).isFalse();
+        });
+        ReflectionTestUtils.setField(coordinator, "enabled", true);
+        assertThat(coordinator.claimRelationshipJob(relationshipClaimRequest(partialSupport))).isEmpty();
+        if (workState == RelationshipBackfillWorkState.BUILDING) {
+            var relationship = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+            assertThat(relationship.episode().episodeNo()).isEqualTo(2);
+            assertThat(relationship.relationshipAnalysisContract().supportsPartialResults()).isTrue();
+        }
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(booleans = false)
+    @DisplayName("부분 관계 실패가 있어도 관계 분석을 하지 않는 설정집은 구 Worker가 선점한다")
+    void legacySettingBookClaimIgnoresRelationshipPartialPrefix(Boolean partialSupport) {
+        seedPartialClaimPrefix(false);
+        UUID bookJob = tx.execute(t -> {
+            var work = em.find(Work.class, workId);
+            var batch = UploadBatch.create(work, work.getMember(), UploadType.SETTING_BOOK, UploadSourceType.FILE);
+            em.persist(batch);
+            var book = UploadFile.create(batch, UploadFileRole.SETTING_BOOK, "합성 설정.txt", "text/plain", "s3://synthetic/book", 10);
+            book.markParsed();
+            em.persist(book);
+            var revision = SettingBookRevision.create(book, 1,
+                    new StoredTextObject("synthetic/book-revision", "v1", storage.contentHash(source), source.length()));
+            em.persist(revision);
+            book.linkCurrentRevision(revision);
+            var job = AnalysisJob.createSettingBook(work, book, revision);
+            coreRunState.initializeRun(List.of(job));
+            return job.getId();
+        });
+        var payload = coreWorker.claimAnalysisJob(coreClaimRequest(partialSupport)).orElseThrow();
+        assertThat(payload.analysisJobId()).isEqualTo(bookJob);
+        assertThat(payload.sourceKind()).isEqualTo(AnalysisSourceKind.SETTING_BOOK);
+        assertThat(payload.relationshipAnalysisContract()).isNull();
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(booleans = false)
+    @DisplayName("백필 완료 뒤 재개하는 inline 관계 분석은 부분 완료 지원 Worker만 선점한다")
+    void completedBackfillStillRequiresPartialSupportForInlineClaim(Boolean partialSupport) {
+        seedPartialClaimPrefix(false);
+        UUID core = pendingCoreJob(2, false);
+        assertThat(coreWorker.claimAnalysisJob(coreClaimRequest(partialSupport))).isEmpty();
+        var payload = coreWorker.claimAnalysisJob(coreClaimRequest(true)).orElseThrow();
+        assertThat(payload.analysisJobId()).isEqualTo(core);
+        assertThat(payload.relationshipAnalysisContract().supportsPartialResults()).isTrue();
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(booleans = false)
+    @DisplayName("활성 백필 예외도 이미 고정된 Job의 부분 완료 계약을 해제하지 않는다")
+    void activeBackfillDoesNotBypassFrozenJobPartialCapability(Boolean partialSupport) {
+        seedPartialClaimPrefix(true);
+        UUID core = pendingCoreJob(3, true);
+        assertThat(coreWorker.claimAnalysisJob(coreClaimRequest(partialSupport))).isEmpty();
+        var payload = coreWorker.claimAnalysisJob(coreClaimRequest(true)).orElseThrow();
+        assertThat(payload.analysisJobId()).isEqualTo(core);
+        assertThat(payload.relationshipAnalysisContract()).isNull();
+        tx.executeWithoutResult(t -> assertThat(em.find(AnalysisJob.class, core).isRelationshipPartialResultsEnabled()).isTrue());
+    }
+
+    private WorkerAnalysisJobClaimRequest coreClaimRequest(Boolean partialSupport) {
+        return new WorkerAnalysisJobClaimRequest("synthetic", null, Set.of(AnalysisJobType.SETTING_EXTRACTION),
+                Set.of(AnalysisMode.CONFIRMED_ONLY, AnalysisMode.ORDERED_PROVISIONAL), true,
+                Set.of(AnalysisSourceKind.EPISODE, AnalysisSourceKind.SETTING_BOOK), true, false, true,
+                true, true, partialSupport);
+    }
+
+    private WorkerAnalysisJobClaimRequest relationshipClaimRequest(Boolean partialSupport) {
+        return new WorkerAnalysisJobClaimRequest("synthetic", null, Set.of(AnalysisJobType.RELATIONSHIP_EXTRACTION),
+                Set.of(AnalysisMode.CONFIRMED_ONLY), false, Set.of(AnalysisSourceKind.EPISODE), false, false,
+                false, true, true, partialSupport);
+    }
+
+    private UUID pendingCoreJob(int episodeNo, boolean frozenPartialContract) {
+        UUID episodeId = episode(episodeNo);
+        return tx.execute(t -> {
+            var job = AnalysisJob.create(em.find(Work.class, workId), null, em.find(Episode.class, episodeId), AnalysisJobType.SETTING_EXTRACTION);
+            if (frozenPartialContract) job.enableRelationshipPartialResults();
+            em.persist(job);
+            return job.getId();
+        });
+    }
+
+    private void seedPartialClaimPrefix(boolean active) {
+        tx.executeWithoutResult(t -> em.createQuery("select j from AnalysisJob j where j.status=:pending", AnalysisJob.class)
+                .setParameter("pending", AnalysisJobStatus.PENDING).getResultList().forEach(AnalysisJob::cancelForWorkPurge));
+        episode(1);
+        if (active) episode(2);
+        coordinator.bootstrapRelationshipBackfill();
+        var relationship = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+        var context = prepare(relationship);
+        graph.completeRelationshipAnalysis(relationship.analysisJobId(), relationship.leaseToken(),
+                new Complete(1, context.contextToken(), List.of(),
+                        List.of(new GroupFailure(List.of("O1"), "RELATIONSHIP_ENDPOINTS_UNGROUNDED"))));
+        coordinator.completeRelationshipJob(relationship.analysisJobId(), relationship.leaseToken(), null);
+        assertThat(state().active()).isEqualTo(active);
     }
 
     Context prepare(WorkerAnalysisJobPayload p) {
@@ -1358,5 +1591,240 @@ class RelationshipBackfillIntegrationTest {
         assertThat(items()).allMatch(i -> i.getState() == RelationshipBackfillItemState.WAITING);
         doReturn(false).when(jobs).existsValidationStagingForEpisodes(List.of(one));
         assertThat(claim().episode().episodeNo()).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    @DisplayName("부분 계약은 무관한 미해소 HOLD 누적을 제외하고 legacy 문맥 상한은 유지한다")
+    void unresolvedHeldBacklogDoesNotBlockPartialPair(boolean partial) {
+        seedUnresolvedHeldBacklog();
+        var third = coordinator.claimRelationshipJob(partial ? partialRequest() : request).orElseThrow();
+        var context = prepare(third);
+        assertThat(context.observations()).hasSize(1);
+        assertThat(context.observations().getFirst().sourceNodeRefs()).hasSize(1);
+        assertThat(context.observations().getFirst().targetNodeRefs()).hasSize(1);
+        if (partial) {
+            assertThat(context.heldObservations()).isEmpty();
+            assertThat(context.status()).isEqualTo(AnalysisStatus.PREPARED);
+            finish(third, context);
+            assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.COMPLETE);
+            // Excluding old HOLDs from this input never consumes or deletes their source decisions.
+            assertThat(graph.getRelationshipGraph(owner, workId, 3).partial()).isTrue();
+        } else {
+            assertThat(context.heldObservations()).hasSize(385);
+            assertThat(context.status()).isEqualTo(AnalysisStatus.FAILED);
+            tx.executeWithoutResult(t -> assertThat(em.find(RelationshipGraphAnalysis.class, third.analysisJobId())
+                    .getFailureCode()).isEqualTo("INPUT_TOO_LARGE"));
+        }
+    }
+
+    private void seedUnresolvedHeldBacklog() {
+        source = "아라는 그녀와 이야기를 나눴다. 아라와 보라는 함께 길을 떠났다.";
+        when(storage.getText(anyString())).thenReturn(source);
+        episode(1); episode(2); episode(3);
+        coordinator.bootstrapRelationshipBackfill();
+        for (int count : new int[] {200, 185}) {
+            var job = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+            var observations = java.util.stream.IntStream.rangeClosed(1, count).mapToObj(index -> new Observation(
+                    "O" + index, new Endpoint("아라", "아라"), new Endpoint(null, "그녀"),
+                    "인물 미확정 합성 근거 " + index, List.of(new Evidence(0, source.length(), source)))).toList();
+            var context = graph.prepareRelationshipAnalysis(job.analysisJobId(), job.leaseToken(),
+                    new Prepare(1, storage.contentHash(source), observations, 0));
+            var holds = observations.stream().map(o -> hold(o.ref())).toList();
+            graph.completeRelationshipAnalysis(job.analysisJobId(), job.leaseToken(), new Complete(1, context.contextToken(), holds));
+            coordinator.completeRelationshipJob(job.analysisJobId(), job.leaseToken(), null);
+        }
+    }
+
+    private Decision hold(String ref) {
+        return new Decision(List.of(ref), Operation.HOLD, null, null, null, null, null, null, null, null,
+                TemporalScope.UNKNOWN, "인물 연결 미확정");
+    }
+
+    @Test
+    @DisplayName("과거 partial 문맥의 무관한 HOLD 초과 실패는 새 문맥으로 한 번 복구하고 원본을 보존한다")
+    void oversizedHistoricalPartialContextRecoversWithProjectedHistory() {
+        seedUnresolvedHeldBacklog();
+        var previous = claim();
+        var failed = prepare(previous);
+        assertThat(failed.status()).isEqualTo(AnalysisStatus.FAILED);
+        assertThat(failed.heldObservations()).hasSize(385);
+        restoreHistoricalPartialCapability(previous.analysisJobId());
+        coordinator.failRelationshipJob(previous.analysisJobId(), previous.leaseToken(),
+                new WorkerAnalysisJobFailRequest(AnalysisFailureCode.COMPARISON_VALIDATION_FAILED, "합성 실패"));
+        assertThat(coordinator.claimRelationshipJob(recoveryRequest(true))).isEmpty();
+        assertThat(items().getLast().getRecoveryAttemptCount()).isZero();
+        var recovered = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+        assertThat(recovered.analysisJobId()).isNotEqualTo(previous.analysisJobId());
+        var context = graph.getRelationshipAnalysis(recovered.analysisJobId(), recovered.leaseToken()).orElseThrow();
+        assertThat(context.status()).isEqualTo(AnalysisStatus.PREPARED);
+        assertThat(context.heldObservations()).isEmpty();
+        assertThat(context.supportsPartialResults()).isTrue();
+        finish(recovered, context);
+        assertThat(items().getLast().getRecoveryAttemptCount()).isEqualTo(1);
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.COMPLETE);
+        tx.executeWithoutResult(t -> {
+            var cached = em.find(RelationshipGraphAnalysis.class, previous.analysisJobId());
+            assertThat(cached.getContext().path("heldObservations")).hasSize(385);
+            assertThat(cached.getFailureCode()).isEqualTo("INPUT_TOO_LARGE");
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    @DisplayName("부분 문맥은 양쪽 인물이 같은 R과 해소된 H만 포함하고 다른 쌍의 H는 저장에 남긴다")
+    void contextProjectsExactPairsBeforeHistoryLimits(boolean partial) {
+        source = "아라와 보라와 다라와 그녀는 함께 길을 떠났다.";
+        when(storage.getText(anyString())).thenReturn(source);
+        episode(1); episode(2); episode(3);
+        coordinator.bootstrapRelationshipBackfill();
+        var first = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+        var evidence = List.of(new Evidence(0, source.length(), source));
+        var input = new Prepare(1, storage.contentHash(source), List.of(
+                new Observation("O1", new Endpoint("아라", "아라"), new Endpoint("보라", "보라"), "동행한다", evidence),
+                new Observation("O2", new Endpoint("아라", "아라"), new Endpoint("다라", "다라"), "동행한다", evidence),
+                new Observation("O3", new Endpoint("아라", "아라"), new Endpoint("보라", "보라"), "보류 근거", evidence),
+                new Observation("O4", new Endpoint("아라", "아라"), new Endpoint("다라", "다라"), "보류 근거", evidence),
+                new Observation("O5", new Endpoint("아라", "아라"), new Endpoint(null, "그녀"), "미해소 근거", evidence)), 0);
+        var initial = graph.prepareRelationshipAnalysis(first.analysisJobId(), first.leaseToken(), input);
+        graph.completeRelationshipAnalysis(first.analysisJobId(), first.leaseToken(), new Complete(1, initial.contextToken(),
+                List.of(pairDecision(initial, "O1"), pairDecision(initial, "O2"), hold("O3"), hold("O4"), hold("O5"))));
+        coordinator.completeRelationshipJob(first.analysisJobId(), first.leaseToken(), null);
+        var second = coordinator.claimRelationshipJob(partial ? partialRequest() : request).orElseThrow();
+        var context = prepare(second);
+        assertThat(context.relationships()).hasSize(partial ? 1 : 2);
+        assertThat(context.heldObservations()).hasSize(partial ? 1 : 3);
+        if (partial) {
+            assertThat(context.nodes()).extracting(ContextNode::name).containsExactlyInAnyOrder("아라", "보라");
+            assertThat(context.heldObservations().getFirst().target().name()).isEqualTo("보라");
+        }
+        graph.completeRelationshipAnalysis(second.analysisJobId(), second.leaseToken(), new Complete(1,
+                context.contextToken(), List.of(pairDecision(context, "O1"))));
+        coordinator.completeRelationshipJob(second.analysisJobId(), second.leaseToken(), null);
+        var third = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+        var next = graph.prepareRelationshipAnalysis(third.analysisJobId(), third.leaseToken(), new Prepare(1,
+                storage.contentHash(source), List.of(new Observation("O1", new Endpoint("아라", "아라"),
+                new Endpoint("다라", "다라"), "함께 이동한다", evidence)), 0));
+        assertThat(next.heldObservations()).hasSize(1);
+        assertThat(next.heldObservations().getFirst().target().name()).isEqualTo("다라");
+    }
+
+    private enum PairContextScope { PARTIAL, LEGACY, HISTORICAL_PARTIAL }
+
+    static java.util.stream.Stream<Arguments> relationshipCorrectionScopes() {
+        return java.util.stream.Stream.of(
+                Arguments.of(PairContextScope.PARTIAL, false, false, false),
+                Arguments.of(PairContextScope.PARTIAL, false, true, false),
+                Arguments.of(PairContextScope.PARTIAL, true, false, true),
+                Arguments.of(PairContextScope.PARTIAL, true, true, true),
+                Arguments.of(PairContextScope.LEGACY, false, false, true),
+                Arguments.of(PairContextScope.HISTORICAL_PARTIAL, false, false, true));
+    }
+
+    @ParameterizedTest
+    @MethodSource("relationshipCorrectionScopes")
+    @DisplayName("새 부분 문맥은 독립 쌍 정정을 허용하고 같은 쌍 및 기존 고정 문맥의 충돌 보호는 유지한다")
+    void correctionDependencyUsesFrozenPairScope(PairContextScope scope, boolean samePair, boolean delete, boolean conflicts) {
+        source = "아라와 보라와 다라와 라라는 함께 길을 떠났다.";
+        when(storage.getText(anyString())).thenReturn(source);
+        UUID one = episode(1);
+        episode(2);
+        var old = tx.execute(t -> {
+            var e = em.find(Episode.class, one);
+            var job = AnalysisJob.create(e.getWork(), null, e, AnalysisJobType.SETTING_EXTRACTION);
+            job.enableRelationshipAnalysis();
+            em.persist(job);
+            em.flush();
+            job.claim("test", "test", LocalDateTime.now().plusMinutes(1));
+            graph.beginRelationshipAnalysis(job);
+            return new AbstractMap.SimpleEntry<>(job.getId(), job.getLeaseToken());
+        });
+        var initial = graph.prepareRelationshipAnalysis(old.getKey(), old.getValue(), disjointPairInput());
+        graph.completeRelationshipAnalysis(old.getKey(), old.getValue(), new Complete(1, initial.contextToken(),
+                List.of(pairDecision(initial, "O1"), pairDecision(initial, "O2"))));
+        tx.executeWithoutResult(t -> {
+            var job = em.find(AnalysisJob.class, old.getKey());
+            graph.finalizeRelationshipAnalysis(job);
+            job.succeed(null, 0, 0);
+        });
+        coordinator.bootstrapRelationshipBackfill();
+        var first = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+        var rebuilt = graph.prepareRelationshipAnalysis(first.analysisJobId(), first.leaseToken(), disjointPairInput());
+        graph.completeRelationshipAnalysis(first.analysisJobId(), first.leaseToken(), new Complete(1, rebuilt.contextToken(),
+                List.of(pairDecision(rebuilt, "O1"), pairDecision(rebuilt, "O2"))));
+        coordinator.completeRelationshipJob(first.analysisJobId(), first.leaseToken(), null);
+        var second = coordinator.claimRelationshipJob(scope == PairContextScope.PARTIAL ? partialRequest() : request).orElseThrow();
+        var context = prepare(second);
+        assertThat(context.relationships()).hasSize(1);
+        assertThat(context.nodes()).extracting(ContextNode::name).containsExactlyInAnyOrder("아라", "보라");
+        if (scope == PairContextScope.PARTIAL) assertLegacyReaderAndMissingPairRevision(second);
+        if (scope == PairContextScope.HISTORICAL_PARTIAL) restoreHistoricalPartialCapability(second.analysisJobId());
+        assertThat(graph.getRelationshipAnalysis(second.analysisJobId(), second.leaseToken()).orElseThrow().contextToken())
+                .isEqualTo(context.contextToken());
+        var current = graph.getRelationshipGraph(owner, workId, null);
+        var names = samePair ? List.of("아라", "보라") : List.of("다라", "라라");
+        var pairNodes = current.nodes().stream().filter(n -> names.contains(n.name())).map(Node::id).toList();
+        var edge = current.edges().stream().filter(e -> pairNodes.contains(e.sourceNodeId())
+                && pairNodes.contains(e.targetNodeId())).findFirst().orElseThrow();
+        if (delete) graph.deleteRelationshipEdge(owner, workId, edge.id(), edge.version());
+        else graph.correctRelationshipEdge(owner, workId, edge.id(), new Correction(edge.version(), "사용자 정정"));
+        var complete = new Complete(1, context.contextToken(), List.of(pairDecision(context, "O1")));
+        if (conflicts) {
+            assertThatThrownBy(() -> graph.getRelationshipAnalysis(second.analysisJobId(), second.leaseToken())).isInstanceOf(AppException.class);
+            assertThatThrownBy(() -> prepare(second)).isInstanceOf(AppException.class);
+            assertThatThrownBy(() -> graph.completeRelationshipAnalysis(second.analysisJobId(), second.leaseToken(), complete))
+                    .isInstanceOf(AppException.class);
+        } else {
+            assertThat(graph.getRelationshipAnalysis(second.analysisJobId(), second.leaseToken()).orElseThrow().contextToken())
+                    .isEqualTo(context.contextToken());
+            graph.completeRelationshipAnalysis(second.analysisJobId(), second.leaseToken(), complete);
+            graph.completeRelationshipAnalysis(second.analysisJobId(), second.leaseToken(), complete);
+            coordinator.completeRelationshipJob(second.analysisJobId(), second.leaseToken(), null);
+            assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.COMPLETE);
+        }
+    }
+
+    private void assertLegacyReaderAndMissingPairRevision(WorkerAnalysisJobPayload job) {
+        tx.executeWithoutResult(t -> {
+            var analysis = em.find(RelationshipGraphAnalysis.class, job.analysisJobId());
+            var bindings = (com.fasterxml.jackson.databind.node.ObjectNode) analysis.getBindings().deepCopy();
+            assertThat(bindings.path("dependencyRevision").asText())
+                    .isNotEqualTo(bindings.path("pairDependencyRevision").asText());
+            // An old server ignores the additive fields and validates only the unchanged broad hash.
+            bindings.remove(List.of("dependencyPairScopeVersion", "pairDependencyRevision"));
+            ReflectionTestUtils.setField(analysis, "bindings", bindings);
+            em.flush();
+            assertThat(graph.getRelationshipAnalysis(job.analysisJobId(), job.leaseToken())).isPresent();
+            t.setRollbackOnly();
+        });
+        tx.executeWithoutResult(t -> {
+            var analysis = em.find(RelationshipGraphAnalysis.class, job.analysisJobId());
+            var bindings = (com.fasterxml.jackson.databind.node.ObjectNode) analysis.getBindings().deepCopy();
+            bindings.remove("pairDependencyRevision");
+            ReflectionTestUtils.setField(analysis, "bindings", bindings);
+            em.flush();
+            assertThatThrownBy(() -> graph.getRelationshipAnalysis(job.analysisJobId(), job.leaseToken()))
+                    .isInstanceOf(AppException.class);
+            t.setRollbackOnly();
+        });
+    }
+
+    // Model the persisted pre-scope partial format without changing its token or broad dependency hash.
+    private void restoreHistoricalPartialCapability(UUID jobId) {
+        tx.executeWithoutResult(t -> {
+            em.find(AnalysisJob.class, jobId).enableRelationshipPartialResults();
+            var analysis = em.find(RelationshipGraphAnalysis.class, jobId);
+            var context = analysis.getContext().deepCopy();
+            ((com.fasterxml.jackson.databind.node.ObjectNode) context).put("supportsPartialResults", true);
+            ReflectionTestUtils.setField(analysis, "context", context);
+            assertThat(analysis.getBindings().has("dependencyPairScopeVersion")).isFalse();
+        });
+    }
+
+    private Prepare disjointPairInput() {
+        var evidence = List.of(new Evidence(0, source.length(), source));
+        return new Prepare(1, storage.contentHash(source), List.of(
+                new Observation("O1", new Endpoint("아라", "아라"), new Endpoint("보라", "보라"), "함께 이동한다", evidence),
+                new Observation("O2", new Endpoint("다라", "다라"), new Endpoint("라라", "라라"), "함께 이동한다", evidence)), 0);
     }
 }

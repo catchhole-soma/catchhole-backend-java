@@ -18,12 +18,29 @@ public class AnalysisJobClaimRepository {
 
     private final EntityManager entityManager;
 
+    // 작품의 부분 관계 결과는 inline 관계 분석을 맡을 때만 새 Worker를 요구한다.
+    // 활성 백필의 이관 조건은 deferInlineRelationshipAnalysis와 같으며 Work 잠금 뒤 다시 검사한다.
+    // 이미 Job에 고정된 partial 계약 보호는 이 예외와 별개로 유지한다.
     private static final String ELIGIBLE = """
             job.jobType <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.RELATIONSHIP_EXTRACTION
             and job.status = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING
             and job.jobType in :jobTypes and job.analysisMode in :modes and job.sourceKind in :sourceKinds
             and (:supportsCharacterComparisonGroups = true or job.characterComparisonInputHash is null)
             and (:supportsRelationshipAnalysis = true or job.relationshipAnalysisEnabled = false)
+            and (:supportsRelationshipPartialResults = true or job.relationshipPartialResultsEnabled = false)
+            and (:supportsRelationshipPartialResults = true
+                or job.jobType <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION
+                or job.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.SETTING_BOOK
+                or exists (select deferred.workId from RelationshipBackfillWork deferred
+                    where deferred.workId = job.work.id
+                    and deferred.state <> org.monitoring.catchholebackend.domain.relationship.type.RelationshipBackfillWorkState.COMPLETE)
+                or not exists (select a.id from RelationshipGraphAnalysis a
+                    where a.workId = job.work.id
+                    and a.status = org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract$AnalysisStatus.APPLIED
+                    and a.failureCode = 'PARTIAL_COMPARISON_FAILED'
+                    and ((a.generation = 0 and not exists (select b.workId from RelationshipBackfillWork b where b.workId = job.work.id))
+                        or exists (select b.workId from RelationshipBackfillWork b where b.workId = job.work.id
+                            and (a.generation = b.publishedGeneration or a.generation = b.buildingGeneration)))))
             and
             """ + AnalysisJobEligibility.DOMAIN;
 
@@ -39,6 +56,7 @@ public class AnalysisJobClaimRepository {
                 .setParameter("sourceKinds", request.effectiveSupportedSourceKinds())
                 .setParameter("supportsCharacterComparisonGroups", Boolean.TRUE.equals(request.supportsCharacterComparisonGroups()))
                 .setParameter("supportsRelationshipAnalysis", Boolean.TRUE.equals(request.supportsRelationshipAnalysis()))
+                .setParameter("supportsRelationshipPartialResults", Boolean.TRUE.equals(request.supportsRelationshipPartialResults()))
                 .setMaxResults(100)
                 .getResultList();
         for (UUID workId : workIds) {
@@ -59,6 +77,7 @@ public class AnalysisJobClaimRepository {
                     .setParameter("sourceKinds", request.effectiveSupportedSourceKinds())
                     .setParameter("supportsCharacterComparisonGroups", Boolean.TRUE.equals(request.supportsCharacterComparisonGroups()))
                     .setParameter("supportsRelationshipAnalysis", Boolean.TRUE.equals(request.supportsRelationshipAnalysis()))
+                    .setParameter("supportsRelationshipPartialResults", Boolean.TRUE.equals(request.supportsRelationshipPartialResults()))
                     .setParameter("workId", workId)
                     .setLockMode(LockModeType.PESSIMISTIC_WRITE)
                     .setMaxResults(1)

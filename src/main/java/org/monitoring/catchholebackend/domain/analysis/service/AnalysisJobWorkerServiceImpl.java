@@ -159,6 +159,9 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                 && analysisJob.getEpisode() != null && analysisJob.getSourceEpisodeNo() != null
                 && analysisJob.getSourceContentHash() != null && analysisJob.getSourceContentS3Key() != null) {
             analysisJob.configureRelationship(relationshipBackfill.getPublishedRelationshipGeneration(analysisJob.getWork().getId()), false);
+            if (Boolean.TRUE.equals(request.supportsRelationshipPartialResults())
+                    && !relationshipGraphService.hasRelationshipAnalysis(analysisJob.getId()))
+                analysisJob.enableRelationshipPartialResults();
             relationshipGraphService.beginRelationshipAnalysis(analysisJob);
         }
         UUID workId = analysisJob.getWork().getId();
