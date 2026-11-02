@@ -584,6 +584,9 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                                                 o.sourceNodeRefs().stream(),
                                                 o.targetNodeRefs().stream()))
                         .collect(Collectors.toSet());
+        Set<String> relevantPairs = observations.stream().map(RelationshipGraphRules::pair)
+                .filter(Objects::nonNull).collect(Collectors.toSet());
+        boolean pairScoped = job.isRelationshipPartialResultsEnabled();
         ObjectNode relationBindings = bindings.putObject("relationships");
         List<ContextRelationship> relationships = new ArrayList<>();
         Set<UUID> validPriorIds = validIds(allAnalyses, cutoff - 1);
@@ -601,7 +604,9 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                     target = refs.get(edge.getTargetNodeId());
             if (source == null
                     || target == null
-                    || (!relevant.contains(source) && !relevant.contains(target))) continue;
+                    || (pairScoped
+                            ? !relevantPairs.contains(RelationshipGraphRules.pair(source, target))
+                            : !relevant.contains(source) && !relevant.contains(target))) continue;
             String ref = "R" + (relationships.size() + 1);
             relationBindings.put(ref, edge.getId().toString());
             relationships.add(
@@ -655,7 +660,11 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                                 byName,
                                 refs,
                                 previous.getEpisodeNo());
-                if (java.util.stream.Stream.concat(
+                // Unresolved and other-pair HOLDs remain in their original analysis. They do not
+                // consume this pair's input budget or become decisions of an unrelated group.
+                if (pairScoped) {
+                    if (!relevantPairs.contains(RelationshipGraphRules.pair(mapped))) continue;
+                } else if (java.util.stream.Stream.concat(
                                 mapped.sourceNodeRefs().stream(), mapped.targetNodeRefs().stream())
                         .noneMatch(relevant::contains)) continue;
                 held.add(mapped);
@@ -666,9 +675,14 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                 origin.put("observationRef", oldRef);
             }
         }
-        bindings.put(
-                "dependencyRevision",
-                dependencyRevision(workId, cutoff, job.getRelationshipGeneration()));
+        // Old servers still read the broad hash during rolling deployment/rollback. New servers
+        // use the separately versioned pair hash; existing frozen contexts retain their old scope.
+        bindings.put("dependencyRevision", dependencyRevision(workId, cutoff, job.getRelationshipGeneration(), null));
+        if (pairScoped) {
+            bindings.put("dependencyPairScopeVersion", 1);
+            bindings.put("pairDependencyRevision", dependencyRevision(workId, cutoff,
+                    job.getRelationshipGeneration(), stableComparisonPairs(observations, bindings)));
+        }
         String token =
                 storage.contentHash(
                         job.getId() + "|" + request.sourceHash() + "|" + UUID.randomUUID());
@@ -1168,7 +1182,20 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         return result;
     }
 
-    private String dependencyRevision(UUID workId, int cutoff, long generation) {
+    private Set<String> stableComparisonPairs(List<ContextObservation> observations, JsonNode bindings) {
+        Set<String> result = new HashSet<>();
+        for (var observation : observations) {
+            if (RelationshipGraphRules.pair(observation) == null) continue;
+            String source = bindings.path("nodes").path(observation.sourceNodeRefs().getFirst()).path("id").asText();
+            String target = bindings.path("nodes").path(observation.targetNodeRefs().getFirst()).path("id").asText();
+            try { UUID.fromString(source); UUID.fromString(target); }
+            catch (IllegalArgumentException malformed) { conflict(); }
+            result.add(RelationshipGraphRules.pair(source, target));
+        }
+        return result;
+    }
+
+    private String dependencyRevision(UUID workId, int cutoff, long generation, Set<String> comparisonPairs) {
         List<Object> revision = new ArrayList<>();
         for (var a : latestAnalyses(workId, generation).values())
             if (a.getEpisodeNo() < cutoff) {
@@ -1178,8 +1205,9 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                                 a.getStatus() == AnalysisStatus.APPLIED,
                                 sourceAvailable(a)));
             }
-        // User corrections/deletions between prepare and completion make the frozen comparison
-        // stale.
+        // Partial comparison depends only on corrections/deletions of its resolved pairs.
+        // Include suppressed/other-generation edges of those pairs too: edge identity and user
+        // suppression are shared across generations. Legacy frozen hashes retain the broad scope.
         Set<UUID> relevantEdges =
                 events
                         .findAllByWorkIdAndEpisodeNoLessThanEqualOrderByEpisodeNoAscCreatedAtAscIdAsc(
@@ -1189,6 +1217,8 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                         .collect(Collectors.toSet());
         edges.findAllByWorkId(workId).stream()
                 .filter(e -> relevantEdges.contains(e.getId()))
+                .filter(e -> comparisonPairs == null || comparisonPairs.contains(
+                        RelationshipGraphRules.pair(e.getSourceNodeId().toString(), e.getTargetNodeId().toString())))
                 .sorted(Comparator.comparing(RelationshipGraphEdge::getId))
                 .forEach(
                         e ->
@@ -1209,10 +1239,19 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     }
 
     private void assertDependencyRevision(RelationshipGraphAnalysis analysis) {
+        JsonNode scope = analysis.getBindings().path("dependencyPairScopeVersion");
+        Set<String> comparisonPairs = null;
+        String revisionField = "dependencyRevision";
+        if (!scope.isMissingNode()) {
+            if (!scope.isInt() || scope.intValue() != 1 || !mapper.toContext(analysis).supportsPartialResults()) conflict();
+            revisionField = "pairDependencyRevision";
+            if (!analysis.getBindings().path(revisionField).isTextual()) conflict();
+            comparisonPairs = stableComparisonPairs(mapper.toContext(analysis).observations(), analysis.getBindings());
+        }
         if (!Objects.equals(
-                analysis.getBindings().path("dependencyRevision").asText(),
+                analysis.getBindings().path(revisionField).asText(),
                 dependencyRevision(
-                        analysis.getWorkId(), analysis.getEpisodeNo(), analysis.getGeneration())))
+                        analysis.getWorkId(), analysis.getEpisodeNo(), analysis.getGeneration(), comparisonPairs)))
             conflict();
     }
 

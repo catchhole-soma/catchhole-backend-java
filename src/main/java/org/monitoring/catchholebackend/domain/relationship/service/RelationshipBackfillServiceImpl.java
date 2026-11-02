@@ -399,6 +399,8 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
         em.refresh(previous);
         if (previous.getJobType() != AnalysisJobType.RELATIONSHIP_EXTRACTION
                 || previous.getStatus() != AnalysisJobStatus.FAILED
+                || previous.isRelationshipPartialResultsEnabled()
+                        && !Boolean.TRUE.equals(request.supportsRelationshipPartialResults())
                 || previous.getFailureCode() != AnalysisFailureCode.COMPARISON_VALIDATION_FAILED
                 || !previous.isRelationshipServicePaid()
                 || previous.getSourceKind() != AnalysisSourceKind.EPISODE
@@ -461,9 +463,12 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
                     || !Objects.equals(context.contextToken(), cached.getContextToken())
                     || context.observations() == null || context.observations().isEmpty()
                     || context.observations().size() > 384
-                    || context.nodes() == null || context.nodes().size() > 1536
-                    || context.relationships() == null || context.relationships().size() > 1536
-                    || context.heldObservations() == null || context.heldObservations().size() > 384
+                    || context.nodes() == null || context.relationships() == null || context.heldObservations() == null
+                    // Older partial contexts included unrelated history before applying these
+                    // limits. Only their validated new O is reused; current pair-scoped preparation
+                    // is previewed below before consuming the one recovery attempt.
+                    || !context.supportsPartialResults() && (context.nodes().size() > 1536
+                            || context.relationships().size() > 1536 || context.heldObservations().size() > 384)
                     || context.observations().stream().anyMatch(o -> o == null
                             || o.source() == null || o.target() == null || o.evidence() == null))
                 return Optional.empty();
