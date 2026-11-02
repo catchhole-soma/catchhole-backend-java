@@ -9,6 +9,11 @@ import jakarta.persistence.PersistenceContext;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import java.util.Optional;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import org.monitoring.catchholebackend.domain.analysis.dto.AnalysisFailureNotification;
+import org.monitoring.catchholebackend.domain.analysis.dto.AnalysisFailureNotificationDelivery;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -108,12 +113,97 @@ class AnalysisFailureNotificationPostgresIntegrationTest {
     void capturesEveryFailureCodeWithoutRawError(AnalysisFailureCode code) {
         jdbc.update("UPDATE analysis_jobs SET status='FAILED', failure_code=?, error_message=? WHERE id=?",
                 code.name(), "private-source https://secret.example.test/token", job);
-        var event = notifications.claimNext().orElseThrow();
+        var event = claimNotification().orElseThrow();
         assertThat(event.failureCode()).isEqualTo(code.name());
         assertThat(event.memberId()).isEqualTo(1L);
         assertThat(event.episodeNo()).isEqualTo(3);
         assertThat(event.toString()).doesNotContain("private-source", "secret.example.test");
-        assertThat(notifications.claimNext()).isEmpty();
+        assertThat(claimNotification()).isEmpty();
+    }
+
+    @Test
+    void capturesRelationshipPartialFailureWhileCoreJobKeepsRunning() {
+        insertRelationship();
+        jdbc.update("UPDATE relationship_graph_analyses SET status='FAILED',failure_code='INPUT_TOO_LARGE' WHERE id=?", job);
+        assertThat(count()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT status FROM analysis_jobs WHERE id=?", String.class, job)).isEqualTo("RUNNING");
+        var event = claimNotification().orElseThrow();
+        assertThat(event.failureKind()).isEqualTo("RELATIONSHIP_PARTIAL");
+        assertThat(event.failureDiagnostics().reasonCode()).isEqualTo("RELATIONSHIP_INPUT_TOO_LARGE");
+        assertThat(event.failureDiagnostics().stage()).isEqualTo("RELATIONSHIP_EXTRACTION");
+        assertThat(event.executionJobId()).isEqualTo(job);
+        assertThat(event.jobType()).isEqualTo("SETTING_EXTRACTION");
+        jdbc.update("UPDATE relationship_graph_analyses SET status='FAILED' WHERE id=?", job);
+        assertThat(count()).isEqualTo(1);
+    }
+
+    @Test
+    void legacyRelationshipContextLimitIsReportedAsComparisonAfterContextWasPrepared() {
+        insertRelationship();
+        jdbc.update("UPDATE relationship_graph_analyses SET status='PREPARED',context_token='synthetic-context' WHERE id=?", job);
+        assertThat(count()).isZero();
+        jdbc.update("UPDATE relationship_graph_analyses SET status='FAILED',failure_code='INPUT_TOO_LARGE' WHERE id=?", job);
+        var event = claimNotification().orElseThrow();
+        assertThat(event.failureDiagnostics().reasonCode()).isEqualTo("RELATIONSHIP_INPUT_TOO_LARGE");
+        assertThat(event.failureDiagnostics().stage()).isEqualTo("RELATIONSHIP_COMPARE");
+    }
+
+    @Test
+    void groupsRelationshipPartialFailureWithLaterWholeJobFailureWithoutDoubleCountingJobs() {
+        insertRelationship();
+        jdbc.update("UPDATE relationship_graph_analyses SET status='FAILED',failure_code='COMPARISON_FAILED' WHERE id=?", job);
+        failJob();
+        assertThat(count()).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(DISTINCT delivery_id) FROM analysis_failure_notifications", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForList("SELECT failure_kind FROM analysis_failure_notifications", String.class))
+                .containsExactlyInAnyOrder("RELATIONSHIP_PARTIAL", "ANALYSIS_JOB");
+    }
+
+    @Test
+    void excludesDedicatedRelationshipJobsAndRollsBackPartialFailureEvents() {
+        insertRelationship();
+        new TransactionTemplate(transactions).executeWithoutResult(status -> {
+            jdbc.update("UPDATE relationship_graph_analyses SET status='FAILED',failure_code='EXTRACTION_FAILED' WHERE id=?", job);
+            assertThat(count()).isEqualTo(1);
+            status.setRollbackOnly();
+        });
+        assertThat(count()).isZero();
+        jdbc.update("UPDATE analysis_jobs SET job_type='RELATIONSHIP_EXTRACTION' WHERE id=?", job);
+        jdbc.update("UPDATE relationship_graph_analyses SET status='FAILED',failure_code='EXTRACTION_FAILED' WHERE id=?", job);
+        assertThat(count()).isZero();
+        failJob();
+        assertThat(count()).isEqualTo(1);
+        assertThat(claimNotification().orElseThrow().failureKind()).isEqualTo("ANALYSIS_JOB");
+    }
+
+    private void insertRelationship() {
+        jdbc.update("UPDATE analysis_jobs SET relationship_analysis_enabled=true WHERE id=?", job);
+        jdbc.update("""
+                INSERT INTO relationship_graph_analyses(id,work_id,episode_id,episode_no,source_hash,status,created_at,updated_at)
+                VALUES (?,?,?,3,repeat('a',64),'PENDING',now(),now())
+                """, job, work, episode);
+    }
+
+    @Test
+    void snapshotsRelationshipDetailsAndClearsThemBeforeAnotherAttempt() {
+        insertRelationship();
+        var d = (ObjectNode) json.readTree(diagnostics("RELATIONSHIP_COMPARE", "RELATIONSHIP_MERGE_CONTENT_CHANGED", null));
+        d.put("rawError", "UNAPPROVED_ERROR");
+        d.putArray("excerpts").addObject().put("kind", "RESPONSE").put("field", "relationshipSummary").put("text", "합성 관계 설명");
+        jdbc.update("UPDATE relationship_graph_analyses SET status='FAILED',failure_code='COMPARISON_FAILED',failure_diagnostics=?::jsonb WHERE id=?", d.toString(), job);
+        var first = stored("RELATIONSHIP_PARTIAL");
+        assertThat(first.path("failure_diagnostics").path("reasonCode").asString()).isEqualTo("RELATIONSHIP_MERGE_CONTENT_CHANGED");
+        assertThat(first.path("failure_diagnostics").path("excerpts").get(0).path("text").asString()).isEqualTo("합성 관계 설명");
+        assertThat(first.toString()).doesNotContain("UNAPPROVED_ERROR");
+        jdbc.update("UPDATE relationship_graph_analyses SET failure_diagnostics=null WHERE id=?", job);
+        assertThat(stored("RELATIONSHIP_PARTIAL")).isEqualTo(first);
+        // Resetting a saved failed analysis must not carry the prior attempt's details.
+        jdbc.update("UPDATE relationship_graph_analyses SET failure_diagnostics=?::jsonb WHERE id=?", d.toString(), job);
+        jdbc.update("UPDATE relationship_graph_analyses SET status='PENDING' WHERE id=?", job);
+        assertThat(jdbc.queryForObject("SELECT failure_diagnostics FROM relationship_graph_analyses WHERE id=?", String.class, job)).isNull();
+        jdbc.update("UPDATE relationship_graph_analyses SET status='FAILED',failure_code='INPUT_TOO_LARGE' WHERE id=?", job);
+        assertThat(count()).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM analysis_failure_notifications WHERE failure_diagnostics->>'reasonCode'='RELATIONSHIP_INPUT_TOO_LARGE'", Integer.class)).isEqualTo(1);
     }
 
     @Test
@@ -133,7 +223,7 @@ class AnalysisFailureNotificationPostgresIntegrationTest {
         new TransactionTemplate(transactions).executeWithoutResult(status -> {
             failJob();
             try (var executor = Executors.newSingleThreadExecutor()) {
-                assertThat(executor.submit(notifications::claimNext).get()).isEmpty();
+                assertThat(executor.submit(this::claimNotification).get()).isEmpty();
             } catch (Exception ex) { throw new AssertionError(ex); }
             status.setRollbackOnly();
         });
@@ -203,39 +293,39 @@ class AnalysisFailureNotificationPostgresIntegrationTest {
         failJob();
         insertWorld("FAILED");
         try (var executor = Executors.newFixedThreadPool(2)) {
-            var first = executor.submit(notifications::claimNext);
-            var second = executor.submit(notifications::claimNext);
+            var first = executor.submit(this::claimNotification);
+            var second = executor.submit(this::claimNotification);
             assertThat(first.get().orElseThrow().id()).isNotEqualTo(second.get().orElseThrow().id());
         }
         jdbc.update("UPDATE analysis_failure_notifications SET available_at=now()-interval '1 minute'");
-        var oldLease = notifications.claimNext().orElseThrow();
+        var oldLease = claimNotification().orElseThrow();
         jdbc.update("UPDATE analysis_failure_notifications SET available_at=now()-interval '1 minute' WHERE id=?", oldLease.id());
         // 다른 row는 처리 완료하여 같은 알림을 재선점한다.
         jdbc.update("UPDATE analysis_failure_notifications SET delivered_at=now() WHERE id<>?", oldLease.id());
-        var newLease = notifications.claimNext().orElseThrow();
+        var newLease = claimNotification().orElseThrow();
         assertThat(newLease.id()).isEqualTo(oldLease.id());
         assertThat(newLease.leaseToken()).isNotEqualTo(oldLease.leaseToken());
-        notifications.markDelivered(oldLease);
+        notifications.markDelivered(claimedDeliveries.get(oldLease.leaseToken()));
         assertThat(jdbc.queryForObject("SELECT delivered_at IS NULL FROM analysis_failure_notifications WHERE id=?", Boolean.class, oldLease.id())).isTrue();
-        notifications.markDelivered(newLease);
-        assertThat(notifications.claimNext()).isEmpty();
+        notifications.markDelivered(claimedDeliveries.get(newLease.leaseToken()));
+        assertThat(claimNotification()).isEmpty();
     }
 
     @Test
     @DisplayName("전송 장애는 대기에 남고 재시도 이후에만 완료되며 오래된 발송 완료 이력만 정리한다")
     void retainsUndeliveredEventsAndCleansOnlyDeliveredHistory() {
         failJob();
-        var event = notifications.claimNext().orElseThrow();
-        notifications.postpone(event, Duration.ofMinutes(1));
-        assertThat(notifications.claimNext()).isEmpty();
+        var event = claimNotification().orElseThrow();
+        notifications.postpone(claimedDeliveries.get(event.leaseToken()), Duration.ofMinutes(1));
+        assertThat(claimNotification()).isEmpty();
         notifications.deleteDeliveredHistory();
         assertThat(count()).isEqualTo(1);
         jdbc.update("UPDATE analysis_failure_notifications SET available_at=now()-interval '1 minute'");
-        var retry = notifications.claimNext().orElseThrow();
+        var retry = claimNotification().orElseThrow();
         assertThat(retry.id()).isEqualTo(event.id());
         assertThat(retry.attempts()).isEqualTo(2);
-        notifications.markDelivered(retry);
-        assertThat(notifications.claimNext()).isEmpty();
+        notifications.markDelivered(claimedDeliveries.get(retry.leaseToken()));
+        assertThat(claimNotification()).isEmpty();
         jdbc.update("UPDATE analysis_failure_notifications SET delivered_at=now()-interval '31 days'");
         notifications.deleteDeliveredHistory();
         assertThat(count()).isZero();
@@ -257,7 +347,7 @@ class AnalysisFailureNotificationPostgresIntegrationTest {
                 diagnostics("FINALIZE", "INTERNAL_API_HTTP_ERROR", 500), job);
         assertThat(count()).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM analysis_failure_notifications WHERE failure_diagnostics->>'reasonCode'='CURRENT_EVIDENCE_SOURCE_HASH_MISMATCH'", Integer.class)).isEqualTo(1);
-        var delayed = notifications.claimNext().orElseThrow();
+        var delayed = claimNotification().orElseThrow();
         assertThat(delayed.id().toString()).isEqualTo(event.path("id").asString());
         assertThat(delayed.failureDiagnostics().reasonCode()).isEqualTo("CURRENT_EVIDENCE_SOURCE_HASH_MISMATCH");
         assertThat(delayed.executionJobId()).isEqualTo(job);
@@ -285,7 +375,7 @@ class AnalysisFailureNotificationPostgresIntegrationTest {
                 jdbc.update("UPDATE analysis_jobs SET status='FAILED',failure_code='COMPARISON_VALIDATION_FAILED',failure_diagnostics=?::jsonb WHERE id=?",
                         diagnostic.toString(), job);
 
-                var notification = notifications.claimNext().orElseThrow();
+                var notification = claimNotification().orElseThrow();
                 assertThat(notification.workId()).isEqualTo(work);
                 assertThat(notification.jobId()).isEqualTo(job);
                 assertThat(notification.episodeId()).isEqualTo(episode);
@@ -305,7 +395,7 @@ class AnalysisFailureNotificationPostgresIntegrationTest {
                 assertThat(snapshot).doesNotContain("PRIVATE", "errorMessage", "leaseToken");
                 assertThat(json.readTree(snapshot).path("stage").asString()).isEqualTo(stage.stringValue());
                 assertThat(json.readTree(snapshot).path("reasonCode").asString()).isEqualTo(reason.stringValue());
-                notifications.markDelivered(notification);
+                notifications.markDelivered(claimedDeliveries.get(notification.leaseToken()));
 
                 // A retry clears live diagnostics, while the failure-time snapshot stays immutable.
                 jdbc.update("UPDATE analysis_jobs SET status='RUNNING' WHERE id=?", job);
@@ -319,7 +409,7 @@ class AnalysisFailureNotificationPostgresIntegrationTest {
             }
         }
         assertThat(count()).isEqualTo(combinations).isEqualTo(40);
-        assertThat(notifications.claimNext()).isEmpty();
+        assertThat(claimNotification()).isEmpty();
     }
 
     @Test
@@ -347,7 +437,7 @@ class AnalysisFailureNotificationPostgresIntegrationTest {
         jdbc.update("DELETE FROM analysis_jobs WHERE id=?", causeJob);
         jdbc.update("UPDATE setting_candidates SET comparison_status='PENDING',comparison_failure_diagnostics=NULL,comparison_failure_analysis_job_id=NULL,comparison_failure_batch_id=NULL");
         assertThat(stored("CHARACTER_COMPARISON")).isEqualTo(event);
-        var delayed = notifications.claimNext().orElseThrow();
+        var delayed = claimNotification().orElseThrow();
         assertThat(delayed.executionJobId()).isEqualTo(execution);
         assertThat(delayed.sourceAnalysisJobId()).isEqualTo(job);
         assertThat(delayed.failureDiagnostics().sourceAnalysisJobId()).isEqualTo(causeJob);
@@ -398,7 +488,7 @@ class AnalysisFailureNotificationPostgresIntegrationTest {
     void claimsLegacyRowWithoutEnrichingFromCurrentJob() {
         jdbc.update("INSERT INTO analysis_failure_notifications(work_id,analysis_job_id,episode_id,episode_no,failure_kind,failure_code,source_transaction) VALUES (?,?,?,3,'CHARACTER_COMPARISON','UNEXPECTED_ERROR',txid_current())", work, job, episode);
         jdbc.update("UPDATE analysis_jobs SET failure_diagnostics=?::jsonb WHERE id=?", diagnostics("FINALIZE", "INTERNAL_API_HTTP_ERROR", 500), job);
-        var legacy = notifications.claimNext().orElseThrow();
+        var legacy = claimNotification().orElseThrow();
         assertThat(legacy.jobId()).isEqualTo(job);
         assertThat(legacy.failureDiagnostics()).isNull();
         assertThat(legacy.executionJobId()).isNull();
@@ -655,6 +745,239 @@ class AnalysisFailureNotificationPostgresIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT status='RUNNING' AND failure_code IS NULL AND source_kind='EPISODE' FROM analysis_jobs WHERE id=?", Boolean.class, job)).isTrue();
         assertThat(jdbc.queryForObject("SELECT review_status FROM setting_candidates WHERE id=?", String.class, retained)).isEqualTo("CONFIRMED");
         assertThat(count()).isZero();
+    }
+
+    @Test
+    @DisplayName("서로 다른 트랜잭션의 후보와 작업 실패는 같은 실행 시도로 묶고 재시도는 분리한다")
+    void groupsCandidateAndJobSnapshotsButSeparatesExecutionAttempts() {
+        UUID candidate = insertWorld("PROCESSING");
+        failWorld(candidate, job, null, diagnostics("WORLD_CONTEXT", "WORLD_SUBJECT_RESOLUTION_FAILED", null));
+        failJob();
+        var candidateRow = stored("WORLD_COMPARISON");
+        var jobRow = stored("ANALYSIS_JOB");
+        assertThat(candidateRow.path("execution_attempt_id").isTextual()).isTrue();
+        assertThat(candidateRow.path("delivery_id").isTextual()).isTrue();
+        assertThat(candidateRow.path("delivery_id")).isEqualTo(jobRow.path("delivery_id"));
+        assertThat(candidateRow.path("failure_diagnostics").path("reasonCode").asString())
+                .isEqualTo("WORLD_SUBJECT_RESOLUTION_FAILED");
+        jdbc.update("UPDATE analysis_jobs SET status='RUNNING' WHERE id=?", job);
+        failJob();
+        assertThat(jdbc.queryForObject("SELECT count(DISTINCT execution_attempt_id) FROM analysis_failure_notifications", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(DISTINCT delivery_id) FROM analysis_failure_notifications", Integer.class)).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("묶음은 대기 후 전체를 선점하고 최초 선점 뒤 새 실패를 섞지 않는다")
+    void claimsStableDeliveryAfterQuietWindow() {
+        failWorld(insertWorld("PROCESSING"), job, null, diagnostics("WORLD_COMPARE", "LLM_TIMEOUT", null));
+        failJob();
+        assertThat(notifications.claimDelivery()).isEmpty();
+        readyDeliveries();
+        var first = notifications.claimDelivery().orElseThrow();
+        assertThat(first.notifications()).hasSize(2);
+        assertThat(notifications.claimDelivery()).isEmpty();
+        failWorld(insertWorld("PROCESSING"), job, null, diagnostics("WORLD_COMPARE", "LLM_TIMEOUT", null));
+        readyDeliveries();
+        var followup = notifications.claimDelivery().orElseThrow();
+        assertThat(followup.notifications()).hasSize(1);
+        assertThat(followup.id()).isNotEqualTo(first.id());
+        assertThat(followup.executionAttemptId()).isEqualTo(first.executionAttemptId());
+        jdbc.update("UPDATE analysis_failure_notifications SET available_at=now()-interval '1 minute' WHERE delivery_id=?", first.id());
+        var retry = notifications.claimDelivery().orElseThrow();
+        assertThat(retry.id()).isEqualTo(first.id());
+        assertThat(retry.notifications()).extracting(n -> n.id()).containsExactlyElementsOf(first.notifications().stream().map(n -> n.id()).toList());
+        assertThat(retry.leaseToken()).isNotEqualTo(first.leaseToken());
+    }
+
+    private void readyDeliveries() {
+        jdbc.update("UPDATE analysis_failure_notification_deliveries SET ready_at=now()-interval '1 minute'");
+    }
+
+    private final Map<UUID, AnalysisFailureNotificationDelivery> claimedDeliveries = new ConcurrentHashMap<>();
+
+    /** 기존 단일 snapshot 회귀도 실제 묶음 발송 경계를 사용한다. 벽시계 대기만 생략한다. */
+    private Optional<AnalysisFailureNotification> claimNotification() {
+        readyDeliveries();
+        return notifications.claimDelivery().map(delivery -> {
+            claimedDeliveries.put(delivery.leaseToken(), delivery);
+            return delivery.notifications().getFirst();
+        });
+    }
+
+    @Test
+    @DisplayName("두 발송자는 동일 묶음을 나누지 않으며 오래된 선점으로 일부라도 완료할 수 없다")
+    void deliveryClaimsAndAcknowledgementsAreAtomic() throws Exception {
+        failWorld(insertWorld("PROCESSING"), job, null, diagnostics("WORLD_COMPARE", "LLM_TIMEOUT", null));
+        failJob();
+        readyDeliveries();
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var a = executor.submit(notifications::claimDelivery);
+            var b = executor.submit(notifications::claimDelivery);
+            var results = java.util.List.of(a.get(), b.get());
+            assertThat(results.stream().filter(Optional::isPresent).count()).isEqualTo(1);
+            var old = results.stream().flatMap(Optional::stream).findFirst().orElseThrow();
+            assertThat(old.notifications()).hasSize(2);
+            notifications.postpone(old, Duration.ofMinutes(1));
+            assertThat(notifications.claimDelivery()).isEmpty();
+            jdbc.update("UPDATE analysis_failure_notifications SET available_at=now()-interval '1 minute'");
+            var current = notifications.claimDelivery().orElseThrow();
+            assertThat(current.id()).isEqualTo(old.id());
+            assertThat(current.notifications()).allSatisfy(n -> assertThat(n.attempts()).isEqualTo(2));
+            notifications.markDelivered(old);
+            notifications.postpone(old, Duration.ofHours(1));
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM analysis_failure_notifications WHERE delivered_at IS NULL AND lease_token=?", Integer.class, current.leaseToken())).isEqualTo(2);
+            notifications.markDelivered(current);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM analysis_failure_notifications WHERE delivered_at IS NOT NULL", Integer.class)).isEqualTo(2);
+        }
+    }
+
+    @Test
+    @DisplayName("큰 실패는 최대 4개 기록씩 같은 실행 시도를 가진 후속 묶음으로 나누고 legacy 실행은 추정하지 않는다")
+    void boundsDeliverySizeWithoutMixingUnlinkedEvents() {
+        for (int i = 0; i < 5; i++) failWorld(insertWorld("PROCESSING"), job, null, diagnostics("WORLD_COMPARE", "LLM_TIMEOUT", null));
+        insertWorld("FAILED");
+        readyDeliveries();
+        var deliveries = new java.util.ArrayList<AnalysisFailureNotificationDelivery>();
+        Optional<AnalysisFailureNotificationDelivery> next;
+        while ((next = notifications.claimDelivery()).isPresent()) deliveries.add(next.get());
+        assertThat(deliveries).hasSize(3);
+        assertThat(deliveries.stream().mapToInt(d -> d.notifications().size()).sum()).isEqualTo(6);
+        assertThat(deliveries.stream().filter(d -> d.executionAttemptId() != null).map(d -> d.executionAttemptId()).distinct().count()).isEqualTo(1);
+        assertThat(deliveries.stream().filter(d -> d.executionAttemptId() == null).findFirst().orElseThrow().notifications()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("한 트랜잭션 안의 두 실행 시도도 다른 실패 snapshot과 묶음으로 기록한다")
+    void separatesAttemptsEvenInsideOneTransaction() {
+        new TransactionTemplate(transactions).executeWithoutResult(status -> {
+            failJob();
+            jdbc.update("UPDATE analysis_jobs SET status='RUNNING' WHERE id=?", job);
+            failJob();
+        });
+        assertThat(count()).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(DISTINCT execution_attempt_id) FROM analysis_failure_notifications", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(DISTINCT delivery_id) FROM analysis_failure_notifications", Integer.class)).isEqualTo(2);
+    }
+
+    @Test @DisplayName("후보 실패는 검토 대기와 실제 값의 snapshot을 남기고 작업 실패와 구분한다")
+    void snapshotsCandidateDispositionAndChecks() {
+        var candidate = insertWorld("PROCESSING");
+        var d = ((ObjectNode) json.readTree(diagnostics("WORLD_CONTEXT", "WORLD_SUBJECT_RESOLUTION_FAILED", null)));
+        d.putArray("checks").addObject().put("field", "selectedSubjectRefs").put("rule", "IN_SET")
+                .put("expected", "S1,S2").put("actual", "S9").put("itemIndex", 1);
+        failWorld(candidate, job, null, d.toString());
+        var snapshot = stored("WORLD_COMPARISON");
+        assertThat(snapshot.path("candidate_review_status").asString()).isEqualTo("PENDING_REVIEW");
+        assertThat(snapshot.path("failed_candidate_ids").toString()).contains(candidate.toString());
+        assertThat(snapshot.path("failure_diagnostics").path("checks").get(0).path("actual").asString()).isEqualTo("S9");
+        assertThat(jdbc.queryForObject("SELECT status FROM analysis_jobs WHERE id=?", String.class, job)).isEqualTo("RUNNING");
+    }
+
+    @Test
+    void keepsDifferentCandidateReviewOutcomesSeparateAndSnapshotsIds() {
+        var pending = insertCharacter("PROCESSING");
+        var confirmed = insertCharacter("PROCESSING");
+        jdbc.update("UPDATE setting_candidates SET review_status='CONFIRMED' WHERE id=?", confirmed);
+        new TransactionTemplate(transactions).executeWithoutResult(status -> {
+            failCharacter(pending, job, null, null);
+            failCharacter(confirmed, job, null, null);
+        });
+        assertThat(count()).isEqualTo(2);
+        assertThat(jdbc.queryForList("SELECT candidate_review_status FROM analysis_failure_notifications", String.class))
+                .containsExactlyInAnyOrder("PENDING_REVIEW", "CONFIRMED");
+        // A later review must not rewrite what was true when the failure occurred.
+        jdbc.update("UPDATE setting_candidates SET review_status='DISMISSED' WHERE id=?", pending);
+        assertThat(jdbc.queryForObject("SELECT candidate_review_status FROM analysis_failure_notifications WHERE ?=ANY(failed_candidate_ids)", String.class, pending))
+                .isEqualTo("PENDING_REVIEW");
+    }
+
+    @Test
+    void dropsUnsafeChecksWithoutRejectingFailureTransition() {
+        var candidate = insertWorld("PROCESSING");
+        var d = (ObjectNode) json.readTree(diagnostics("WORLD_CONTEXT", "WORLD_SUBJECT_REFERENCE_INVALID", null));
+        d.putArray("checks").addObject().put("field", "selectedSubjectRefs").put("rule", "IN_SET")
+                .put("expected", "S1").put("actual", "PRIVATE raw response @everyone");
+        failWorld(candidate, job, null, d.toString());
+        assertThat(stored("WORLD_COMPARISON").toString()).doesNotContain("PRIVATE", "@everyone", "checks");
+        assertThat(count()).isEqualTo(1);
+    }
+
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void rechecksEligibilityAfterLockBeforeReplacingAnotherLease() {
+        failJob();
+        jdbc.update("UPDATE analysis_failure_notification_deliveries SET ready_at=localtimestamp-interval '1 minute'");
+        var previousLease = UUID.randomUUID();
+        var observedJdbc = org.mockito.Mockito.spy(jdbc);
+        // Deterministic boundary: selection saw a ready row, but by the claim
+        // statement a previous dispatcher has committed its still-live lease.
+        org.mockito.Mockito.doAnswer(invocation -> {
+            var selected = invocation.callRealMethod();
+            jdbc.update("UPDATE analysis_failure_notifications SET lease_token=?, available_at=localtimestamp+interval '1 minute'", previousLease);
+            return selected;
+        }).when(observedJdbc).query(org.mockito.ArgumentMatchers.startsWith("SELECT d.id"), org.mockito.ArgumentMatchers.any(org.springframework.jdbc.core.RowMapper.class));
+        var result = new TransactionTemplate(transactions).execute(status -> new AnalysisFailureNotificationRepository(observedJdbc).claimDelivery());
+        assertThat(result).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT lease_token FROM analysis_failure_notifications", UUID.class)).isEqualTo(previousLease);
+        assertThat(jdbc.queryForObject("SELECT attempts FROM analysis_failure_notifications", Integer.class)).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"PROCESSING", "REQUESTED"})
+    void snapshotsApprovedExcerptsAndPurgesCopiesWithManuscript(String requestStatus) {
+        var candidate = insertWorld("PROCESSING");
+        var d = (ObjectNode) json.readTree(diagnostics("WORLD_CONTEXT", "WORLD_SUBJECT_REFERENCE_INVALID", null));
+        d.put("subjectName", "백탑");
+        var snippets = d.putArray("excerpts");
+        snippets.addObject().put("kind", "SOURCE").put("field", "evidenceQuote").put("text", "합성 원문 구절").put("truncated", false);
+        snippets.addObject().put("kind", "EXPECTED").put("field", "subjectOptions").put("text", "백탑, 왕궁").put("truncated", false);
+        failWorld(candidate, job, null, d.toString());
+        assertThat(stored("WORLD_COMPARISON").path("failure_diagnostics").path("excerpts").get(0).path("text").asString()).isEqualTo("합성 원문 구절");
+        assertThat(stored("WORLD_COMPARISON").path("failure_diagnostics").path("subjectName").asString()).isEqualTo("백탑");
+        assertThat(stored("WORLD_COMPARISON").path("failure_diagnostics").path("excerpts").get(1).path("text").asString()).isEqualTo("백탑, 왕궁");
+        jdbc.update("UPDATE analysis_jobs SET failure_diagnostics=?::jsonb WHERE id=?", d.toString(), job);
+        var character = insertCharacter("PROCESSING");
+        jdbc.update("UPDATE setting_candidates SET comparison_failure_diagnostics=?::jsonb WHERE id=?", d.toString(), character);
+        UUID characterBatch = UUID.randomUUID(), worldBatch = UUID.randomUUID();
+        jdbc.update("INSERT INTO character_fact_comparison_batches(id,work_id,analysis_job_id,canonical_fact_type,status,candidate_count,base_snapshot_version,created_at,updated_at) VALUES (?,?,?,'PROFILE','FAILED',1,0,now(),now())", characterBatch, work, job);
+        jdbc.update("INSERT INTO world_setting_comparison_batches(id,work_id,source_episode_id,analysis_job_id,category,subject_resolution_type,canonical_subject_key,canonical_subject_name,resolved_target_world_setting_ids,status,candidate_count,created_at,updated_at) VALUES (?,?,?,?,'LOCATION','NEW','synthetic','합성','[]','FAILED',1,now(),now())", worldBatch, work, episode, job);
+        jdbc.update("UPDATE character_fact_comparison_batches SET failure_diagnostics=?::jsonb WHERE id=?", d.toString(), characterBatch);
+        jdbc.update("UPDATE world_setting_comparison_batches SET failure_diagnostics=?::jsonb WHERE id=?", d.toString(), worldBatch);
+        insertRelationship();
+        jdbc.update("UPDATE relationship_graph_analyses SET failure_diagnostics=?::jsonb WHERE id=?", d.toString(), job);
+        UUID purgeRequest = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO episode_source_purge_requests(id, episode_id, work_id, previous_episode_no, retained_content_key,
+                    status, requested_at, created_at, updated_at)
+                VALUES (?, ?, ?, 3, 'synthetic/retained', ?, localtimestamp, localtimestamp, localtimestamp)
+                """, purgeRequest, episode, work, requestStatus);
+        jdbc.update("DELETE FROM episode_source_purge_requests WHERE id=?", purgeRequest);
+        assertThat(stored("WORLD_COMPARISON").path("failure_diagnostics").has("excerpts")).isFalse();
+        assertThat(stored("WORLD_COMPARISON").path("failure_diagnostics").path("reasonCode").asString()).isEqualTo("WORLD_SUBJECT_REFERENCE_INVALID");
+        assertThat(jdbc.queryForObject("SELECT comparison_failure_diagnostics ?? 'excerpts' FROM world_setting_candidates WHERE id=?", Boolean.class, candidate)).isFalse();
+        assertThat(jdbc.queryForObject("SELECT failure_diagnostics ?? 'excerpts' FROM analysis_jobs WHERE id=?", Boolean.class, job)).isFalse();
+        assertThat(jdbc.queryForObject("SELECT comparison_failure_diagnostics ?? 'excerpts' FROM setting_candidates WHERE id=?", Boolean.class, character)).isFalse();
+        assertThat(jdbc.queryForObject("SELECT failure_diagnostics ?? 'excerpts' FROM character_fact_comparison_batches WHERE id=?", Boolean.class, characterBatch)).isFalse();
+        assertThat(jdbc.queryForObject("SELECT failure_diagnostics ?? 'excerpts' FROM world_setting_comparison_batches WHERE id=?", Boolean.class, worldBatch)).isFalse();
+        assertThat(jdbc.queryForObject("SELECT failure_diagnostics ?? 'excerpts' FROM relationship_graph_analyses WHERE id=?", Boolean.class, job)).isFalse();
+    }
+
+    @Test
+    void recordsContinuedProcessingOnlyForTheExplicitAutomaticDeferralPath() {
+        jdbc.update("""
+                UPDATE analysis_jobs SET review_mode='AUTOMATIC', analysis_mode='ORDERED_PROVISIONAL',
+                    analysis_run_id=?, run_generation=1, run_sequence=0, run_base_state='{}'::jsonb,
+                    source_content_hash=repeat('a',64), source_content_s3_key='synthetic/no-read', journal_status='PENDING'
+                WHERE id=?
+                """, UUID.randomUUID(), job);
+        var deferred = insertWorld("PROCESSING");
+        jdbc.update("UPDATE world_setting_candidates SET preparation_failure_stage='SUBJECT_RESOLUTION', automatic_review_hold_reason='SUBJECT_RESOLUTION_FAILED' WHERE id=?", deferred);
+        failWorld(deferred, job, null, diagnostics("WORLD_CONTEXT", "WORLD_SUBJECT_RESOLUTION_FAILED", null));
+        assertThat(stored("WORLD_COMPARISON").path("continues_after_candidate_failure").asBoolean()).isTrue();
+        assertThat(jdbc.queryForObject("SELECT status FROM analysis_jobs WHERE id=?", String.class, job)).isEqualTo("RUNNING");
+        var unrelated = insertWorld("PROCESSING");
+        failWorld(unrelated, job, null, null);
+        assertThat(jdbc.queryForObject("SELECT continues_after_candidate_failure FROM analysis_failure_notifications WHERE ?=ANY(failed_candidate_ids)", Boolean.class, unrelated)).isNull();
     }
 
     private String diagnostics(String stage, String reason, Integer httpStatus) {

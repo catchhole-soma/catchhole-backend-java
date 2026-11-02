@@ -284,6 +284,28 @@ class EpisodeRelationshipGraphIntegrationTest {
     }
 
     @Test
+    void isolatedFailureKeepsOnlyApprovedDiagnosticsAndPreservesFirstReport() {
+        UUID id = job(1);
+        var initialStatus = jobs.findById(id).orElseThrow().getStatus();
+        var json = tools.jackson.databind.json.JsonMapper.builder()
+                .disable(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();
+        var request = json.readValue("""
+                {"formatVersion":1,"sourceHash":"%s","contextToken":null,"failureCode":"EXTRACTION_FAILED",
+                 "failureDiagnostics":{"schemaVersion":1,"origin":"WORKER","stage":"RELATIONSHIP_EXTRACTION",
+                 "reasonCode":"RELATIONSHIP_DISPLAY_REFERENCE_LEAK","rawError":"UNAPPROVED_ERROR",
+                 "excerpts":[{"kind":"RESPONSE","field":"relationshipSummary","text":"O1과 함께 이동한다."}]}}
+                """.formatted(storage.contentHash(source)), Fail.class);
+        service.failRelationshipAnalysis(id, lease, request);
+        // An old worker retry cannot erase the first report's diagnostics.
+        service.failRelationshipAnalysis(id, lease, new Fail(1, storage.contentHash(source), null, FailureCode.EXTRACTION_FAILED));
+        var stored = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules().valueToTree(analyses.findById(id).orElseThrow());
+        assertThat(stored.path("failureDiagnostics").path("reasonCode").asText()).isEqualTo("RELATIONSHIP_DISPLAY_REFERENCE_LEAK");
+        assertThat(stored.path("failureDiagnostics").path("excerpts").get(0).path("text").asText()).isEqualTo("O1과 함께 이동한다.");
+        assertThat(stored.toString()).doesNotContain("UNAPPROVED_ERROR");
+        assertThat(jobs.findById(id).orElseThrow().getStatus()).isEqualTo(initialStatus);
+    }
+
+    @Test
     void earlierCompletionInvalidatesLaterPreparedContext() {
         UUID first = job(1), second = job(2);
         Context a = prepare(first), b = prepare(second);

@@ -548,15 +548,20 @@ class OrderedWorldSettingWorkerTest {
         var failed = pendingCandidate("연결 실패", "근거가 있는 설정", false);
         var healthy = pendingCandidate("정상", "정상 설정", false);
         stubPending(List.of(failed, healthy));
+        var observed = new org.monitoring.catchholebackend.domain.analysis.dto.AnalysisFailureDiagnostics(
+                1, "WORKER", "WORLD_CONTEXT", "WORLD_SUBJECT_REFERENCE_INVALID", "UNKNOWN", null, null, null, null, null, null, null,
+                List.of(new org.monitoring.catchholebackend.domain.analysis.dto.AnalysisFailureCheck("selectedSubjectRefs", "IN_SET", "S1", "S9", 1)));
+        var inputDiagnostic = new tools.jackson.databind.json.JsonMapper().valueToTree(observed);
         var result = worker.resolveSubjects(job,
                 new org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorkerWorldSettingSubjectResolutionRequest(List.of(
                         new org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorkerWorldSettingSubjectResolutionRequest.SubjectResolutionInput(
-                                failed.getId(), List.of(), List.of(), false, AnalysisFailureCode.COMPARISON_VALIDATION_FAILED),
+                                failed.getId(), List.of(), List.of(), false, AnalysisFailureCode.COMPARISON_VALIDATION_FAILED, inputDiagnostic),
                         new org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorkerWorldSettingSubjectResolutionRequest.SubjectResolutionInput(
                                 healthy.getId(), List.of(), List.of(key), false))));
         assertThat(result.resolutions()).extracting(value -> value.resolutionType())
                 .containsExactly(WorldSettingSubjectResolutionType.FAILED, WorldSettingSubjectResolutionType.EXISTING);
         assertThat(failed.canDeferFailedComparison()).isTrue();
+        assertThat(failed.getComparisonFailureDiagnostics()).isEqualTo(observed);
         assertThat(failed.getCanonicalSubjectKey()).isEqualTo("failed:" + failed.getId());
         assertThat(failed.getResolvedTargetWorldSettingIds()).isEmpty();
         assertThat(failed.getResolvedProvisionalSubjectKeys()).isEmpty();

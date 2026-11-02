@@ -21,8 +21,12 @@ public record WorkerWorldSettingSubjectResolutionRequest(
             List<@NotNull UUID> targetWorldSettingIds,
             @Size(max = 20) List<String> provisionalSubjectKeys,
             Boolean ambiguous,
-            AnalysisFailureCode failureCode
+            AnalysisFailureCode failureCode, tools.jackson.databind.JsonNode failureDiagnostics
     ) {
+        public SubjectResolutionInput(UUID candidateId, List<UUID> targetWorldSettingIds,
+                List<String> provisionalSubjectKeys, Boolean ambiguous, AnalysisFailureCode failureCode) {
+            this(candidateId, targetWorldSettingIds, provisionalSubjectKeys, ambiguous, failureCode, null);
+        }
         public SubjectResolutionInput(UUID candidateId, List<UUID> targetWorldSettingIds,
                 List<String> provisionalSubjectKeys, Boolean ambiguous) {
             this(candidateId, targetWorldSettingIds, provisionalSubjectKeys, ambiguous, null);
