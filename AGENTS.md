@@ -62,6 +62,7 @@
 ### Application Metrics
 
 - 회차 분석 실패 알림은 `analysis_failure_notifications`의 transactional outbox를 사용한다. V90의 PostgreSQL trigger는 회차 Job/캐릭터·세계관 후보가 새로 FAILED가 될 때 안전한 진단·실행 종류·실행/원본 추출/비교 묶음·대상 회차를 실패 당시 snapshot으로 기록한다. 발송 때 현재 Job·후보·FK로 과거 원인을 재구성하지 않으며 원시 오류·원문·연락처는 복사하지 않는다.
+- 새 실패 단계·원인·작업 종류를 허용할 때는 Java 허용목록뿐 아니라 후속 Flyway migration의 outbox 정제 허용목록과 알림 표시를 함께 맞춘다. 공통 진단 fixture를 실제 PostgreSQL 실패 저장→snapshot→발송 선점까지 검증해 Java에서 보존한 코드가 DB에서 `UNKNOWN`으로 바뀌지 않게 하며, 기존 migration과 과거 outbox는 수정하지 않는다.
 - 후보 실패는 기존 트랜잭션·원본 Job·회차·종류·코드에 실행·묶음·정리한 진단 전체가 같은 경우만 합친다. reason이 같아도 단계·관측 HTTP·원천 코드·원인 근거 ID가 다르면 나눠 대표 진단이 전체 개수를 설명하는 것처럼 표시하지 않는다. 진단과 서버 실행 링크가 모두 없는 구 writer만 기존 그룹 의미를 유지한다.
 - 새 시도의 현재 진단·후보 실행 링크는 애플리케이션과 DB 상태 전이에서 함께 비워 rolling/rollback의 구 SQL writer도 이전 시도를 재사용하지 않게 한다. 과거 outbox는 유지한다. 실행 실패의 기본 수는 실패 작업 1건이며 후보 사건만 실패 항목 수를 쓴다. 다회차 실행은 실제 membership의 회차를 쓰고 여러 원본 추출 Job을 하나로 추정하지 않는다.
 - 입력 hash가 유효한 숨김 캐릭터 그룹은 직접 실패와 lease 회수 한도 초과에서 후보 실행 링크를 같은 트랜잭션으로 먼저 flush한 뒤 Job을 FAILED로 바꾼다. 첫 비교 묶음 전에는 이 링크만으로 전체 대상 회차·유일한 원본 출처를 snapshot할 수 있기 때문이다. stale 입력은 현재 후보를 바꾸지 않으며 이후 live 상태로 과거 outbox를 보완하지 않는다.
