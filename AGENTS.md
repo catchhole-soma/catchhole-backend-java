@@ -1136,6 +1136,7 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 ### GH359 관계 비교의 부분 완료
 
 - `supportsRelationshipPartialResults=true` Worker만 새 Job의 `relationshipPartialResultsEnabled`를 활성화한다. claim과 고정 Context의 `supportsPartialResults`가 모두 true일 때만 부분 계약을 사용한다. formatVersion은 1이고, 기존 PREPARED/COMPLETED/FAILED 문맥은 새 Worker의 재선점으로 승격하지 않는다. capability는 다시 false로 낮추지 않으며 구 Worker는 해당 Job과 현재 공개·생성 세대에 유효한 부분 실패가 있는 작품의 후속 관계 작업을 claim하지 않는다.
+- 새 부분 Context는 신규 O의 양쪽 인물이 하나씩 해소된 무방향 쌍에 필요한 R/H만 상한 검사 전에 포함한다. 미해소·다른 쌍의 H는 원래 이력에 보존한다. 사용자 정정/삭제 의존성도 해당 stable node UUID 쌍으로 한정하며 binding의 `dependencyPairScopeVersion=1`로 고정한다. marker가 없는 기존 frozen Context는 기존 전체 의존성 해시를 유지해 배포로 재해석하지 않는다. 과거 partial의 무관한 문맥 초과 실패는 기존 1회 복구 조건 안에서 새 관측만 꺼내 현재 문맥 preview를 통과할 때 복구한다.
 - `Complete.failures`는 고정 새 O의 같은 무방향 인물 쌍 전체와 허용된 기술적 reasonCode만 받는다. 정상 결정과 실패의 출처는 겹치지 않고 전체 새 O를 덮어야 한다. lease·권한·quota·고정 문맥·원문·저장·provider 장애를 격리 실패로 받지 않는다. 실패를 HOLD로 바꾸지 않으며 일반 검증을 완화하지 않는다.
 - `relationship_graph_analyses.failures`와 APPLIED의 `PARTIAL_COMPARISON_FAILED` 마커를 보존한다. 실행 Job은 정상 종료해도 회차 항목은 PARTIAL이고 결과 완전 성공이 아니다. 같은 쌍의 이후 새 O는 안정된 node UUID로 계산한 `blockedPairs`에 따라 `RELATIONSHIP_PREDECESSOR_INCOMPLETE`로 남기고 독립 쌍은 진행한다. 순서 재구성·원문 파기·무효화 경계는 유지한다.
 - 기술 실패가 있는 APPLIED 전이는 V107 trigger가 기존 outbox에 안전한 reason별 인물 쌍 개수만 기록한다. 선행 실패의 파급은 재알림하지 않는다. 전체 추출 실패는 FAILED/BLOCKED이며 빈 결과를 정상 완료로 가장하지 않는다.
