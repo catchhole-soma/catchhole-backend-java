@@ -24,6 +24,7 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.*;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
+import org.monitoring.catchholebackend.domain.episode.entity.EpisodeSourcePurgeRequest;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.relationship.entity.*;
@@ -56,7 +57,7 @@ import java.util.function.Consumer;
 @ActiveProfiles("test")
 class RelationshipBackfillIntegrationTest {
     @Autowired RelationshipBackfillService coordinator;
-    @Autowired RelationshipGraphService graph;
+    @MockitoSpyBean RelationshipGraphService graph;
     @Autowired EntityManager em;
     @Autowired TransactionTemplate tx;
     @Autowired JdbcTemplate jdbc;
@@ -977,6 +978,278 @@ class RelationshipBackfillIntegrationTest {
         coreComplete(episode(3));
         assertThat(items()).hasSize(3);
         assertThat(state().getPublishedGeneration()).isZero();
+    }
+
+    WorkerAnalysisJobClaimRequest recoveryRequest(Boolean supported) {
+        return new WorkerAnalysisJobClaimRequest(
+                request.modelName(), request.currentStep(), request.allowedJobTypes(),
+                request.supportedAnalysisModes(), request.supportsCharacterComparisonGroups(),
+                request.supportedSourceKinds(), request.supportsSettingBookReferenceTime(),
+                request.supportsSemanticCurrentContext(), request.supportsFrozenComparisonEvidence(),
+                request.supportsRelationshipAnalysis(), supported);
+    }
+
+    void failPreparedComparison(WorkerAnalysisJobPayload payload, FailureCode failure) {
+        Context context = graph.getRelationshipAnalysis(payload.analysisJobId(), payload.leaseToken())
+                .orElseGet(() -> prepare(payload));
+        graph.failRelationshipAnalysis(payload.analysisJobId(), payload.leaseToken(),
+                new Fail(1, context.sourceHash(), context.contextToken(), failure));
+        coordinator.failRelationshipJob(payload.analysisJobId(), payload.leaseToken(),
+                new WorkerAnalysisJobFailRequest(
+                        AnalysisFailureCode.COMPARISON_VALIDATION_FAILED, "합성 관계 비교 실패"));
+    }
+
+    long relationshipJobCount() {
+        return jdbc.queryForObject(
+                "select count(*) from analysis_jobs where work_id=? and job_type='RELATIONSHIP_EXTRACTION'",
+                Long.class, workId);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = FailureCode.class, names = {"COMPARISON_FAILED", "INPUT_TOO_LARGE"})
+    @DisplayName("실패한 관계 비교는 검증한 관측만 재사용하고 기존 정산을 보존한 채 후행까지 공개한다")
+    void recoverPreparedComparisonWithoutReextractingOrRebilling(FailureCode failure) {
+        episode(1);
+        episode(2);
+        coordinator.bootstrapRelationshipBackfill();
+        var original = claim();
+        failPreparedComparison(original, failure);
+        UUID usageId = tx.execute(t -> {
+            var usage = AiTokenUsage.reserve(UUID.randomUUID(),
+                    em.find(AnalysisJob.class, original.analysisJobId()),
+                    AiTokenPurpose.RELATIONSHIP_COMPARISON, 1, "gpt-6.1-terra", 100);
+            usage.settle(40, 0, 20, AiTokenUsageOutcome.SUCCESS);
+            em.persist(usage);
+            return usage.getRequestId();
+        });
+        LocalDateTime originalCompletedAt = tx.execute(t ->
+                em.find(AnalysisJob.class, original.analysisJobId()).getCompletedAt());
+        clearInvocations(storage, tokens);
+
+        var recovered = coordinator.claimRelationshipJob(recoveryRequest(true)).orElseThrow();
+        assertThat(recovered.analysisJobId()).isNotEqualTo(original.analysisJobId());
+        assertThat(servicePaidJob(recovered.analysisJobId())).isTrue();
+        assertThat(items().getFirst().getRecoveryAttemptCount()).isEqualTo(1);
+        var cached = graph.getRelationshipAnalysis(recovered.analysisJobId(), recovered.leaseToken())
+                .orElseThrow();
+        assertThat(cached.status()).isEqualTo(AnalysisStatus.PREPARED);
+        assertThat(cached.observations()).hasSize(1);
+        finish(recovered, cached);
+        verify(storage, never()).getText(anyString());
+        finish(claim());
+
+        assertThat(items()).allMatch(i -> i.getState() == RelationshipBackfillItemState.SUCCEEDED);
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.COMPLETE);
+        assertThat(state().getPublishedGeneration()).isEqualTo(state().getBuildingGeneration());
+        assertThat(graph.getRelationshipGraph(owner, workId, null).edges()).hasSize(1);
+        tx.executeWithoutResult(t -> {
+            var old = em.find(AnalysisJob.class, original.analysisJobId());
+            assertThat(old.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
+            assertThat(old.getFailureCode()).isEqualTo(AnalysisFailureCode.COMPARISON_VALIDATION_FAILED);
+            assertThat(old.getCompletedAt()).isEqualTo(originalCompletedAt);
+            assertThat(old.isRelationshipServicePaid()).isTrue();
+            var usage = em.find(AiTokenUsage.class, usageId);
+            assertThat(usage.getAnalysisJob().getId()).isEqualTo(original.analysisJobId());
+            assertThat(usage.getStatus()).isEqualTo(AiTokenUsageStatus.SETTLED);
+            assertThat(usage.getOutcome()).isEqualTo(AiTokenUsageOutcome.SUCCESS);
+            assertThat(usage.getInputTokens()).isEqualTo(40L);
+            assertThat(usage.getOutputTokens()).isEqualTo(20L);
+            assertThat(usage.getReservedCharge()).isZero();
+            assertThat(usage.getChargedTokens()).isZero();
+        });
+        verify(tokens, never()).releaseReservedForAnalysisJob(eq(original.analysisJobId()), any());
+        verify(tokens, never()).ensureAnalysisCanStart(anyLong());
+    }
+
+    @Test
+    @DisplayName("구 Worker는 실패 복구를 시작하지 못하고 한 번 복구한 실패는 새 Job으로 반복하지 않는다")
+    void recoveryRequiresCapabilityAndPersistsSingleAttempt() {
+        episode(1);
+        coordinator.bootstrapRelationshipBackfill();
+        var original = claim();
+        failPreparedComparison(original, FailureCode.COMPARISON_FAILED);
+        assertThat(coordinator.claimRelationshipJob(request)).isEmpty();
+        assertThat(coordinator.claimRelationshipJob(recoveryRequest(false))).isEmpty();
+        assertThat(items().getFirst().getRecoveryAttemptCount()).isZero();
+        assertThat(relationshipJobCount()).isEqualTo(1);
+
+        var recovered = coordinator.claimRelationshipJob(recoveryRequest(true)).orElseThrow();
+        failPreparedComparison(recovered, FailureCode.COMPARISON_FAILED);
+        for (int attempt = 0; attempt < 3; attempt++) {
+            assertThat(coordinator.claimRelationshipJob(recoveryRequest(true))).isEmpty();
+            assertThat(items().getFirst().getRecoveryAttemptCount()).isEqualTo(1);
+            assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.BLOCKED);
+        }
+        assertThat(relationshipJobCount()).isEqualTo(2);
+        assertThat(items().getFirst().getJobId()).isEqualTo(recovered.analysisJobId());
+    }
+
+    @Test
+    @DisplayName("복구 Job의 lease 재선점도 새 Worker만 가능하며 복구 예산을 다시 사용하지 않는다")
+    void recoveryLeaseCannotBeReclaimedByLegacyWorker() {
+        episode(1);
+        coordinator.bootstrapRelationshipBackfill();
+        var original = claim();
+        failPreparedComparison(original, FailureCode.COMPARISON_FAILED);
+        var recovered = coordinator.claimRelationshipJob(recoveryRequest(true)).orElseThrow();
+        tx.executeWithoutResult(t -> em.find(AnalysisJob.class, recovered.analysisJobId())
+                .renewLease(LocalDateTime.now().minusSeconds(1)));
+        clearInvocations(storage);
+
+        assertThat(coordinator.claimRelationshipJob(request)).isEmpty();
+        assertThat(coordinator.claimRelationshipJob(recoveryRequest(false))).isEmpty();
+        assertThat(items().getFirst().getState()).isEqualTo(RelationshipBackfillItemState.WAITING);
+        var resumed = coordinator.claimRelationshipJob(recoveryRequest(true)).orElseThrow();
+        assertThat(resumed.analysisJobId()).isEqualTo(recovered.analysisJobId());
+        assertThat(resumed.leaseToken()).isNotEqualTo(recovered.leaseToken());
+        assertThat(items().getFirst().getRecoveryAttemptCount()).isEqualTo(1);
+        assertThat(relationshipJobCount()).isEqualTo(2);
+        finish(resumed);
+        verify(storage, never()).getText(anyString());
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.COMPLETE);
+    }
+
+    @Test
+    @DisplayName("관측 재준비에 실패하면 복구 예산과 Job 생성 및 이전 그래프 무효화를 모두 되돌린다")
+    void failedMandatoryCachePreparationRollsBackRecovery() {
+        episode(1);
+        coordinator.bootstrapRelationshipBackfill();
+        var original = claim();
+        failPreparedComparison(original, FailureCode.COMPARISON_FAILED);
+        doThrow(new IllegalStateException("합성 재준비 실패"))
+                .when(graph).prepareCachedObservations(any(), any());
+
+        assertThatThrownBy(() -> coordinator.claimRelationshipJob(recoveryRequest(true)))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.BLOCKED);
+        assertThat(items().getFirst().getRecoveryAttemptCount()).isZero();
+        assertThat(items().getFirst().getState()).isEqualTo(RelationshipBackfillItemState.FAILED);
+        assertThat(items().getFirst().getJobId()).isEqualTo(original.analysisJobId());
+        assertThat(relationshipJobCount()).isEqualTo(1);
+        assertThat(tx.<AnalysisStatus>execute(t ->
+                em.find(RelationshipGraphAnalysis.class, original.analysisJobId()).getStatus()))
+                .isEqualTo(AnalysisStatus.FAILED);
+    }
+
+    enum RecoveryRejection {
+        MALFORMED_CACHE, EMPTY_CACHE, SOURCE_CHANGED, OUTSIDE_COHORT, USER_PAID, USER_PAID_JOB, WRONG_FAILURE,
+        GENERATION_CHANGED, ACTIVE_CORE, SOURCE_PURGING, VALIDATION_PENDING, LATER_SUCCESS
+    }
+
+    @ParameterizedTest
+    @EnumSource(RecoveryRejection.class)
+    @DisplayName("복구가 현재 원문·대상·비용·순서·검수 경계를 우회하지 않는다")
+    void recoveryDoesNotOverrideProtectedState(RecoveryRejection reason) {
+        UUID one = episode(1);
+        episode(2);
+        coordinator.bootstrapRelationshipBackfill();
+        var original = claim();
+        failPreparedComparison(original, FailureCode.COMPARISON_FAILED);
+        tx.executeWithoutResult(t -> {
+            var item = em.find(RelationshipBackfillItem.class, items().getFirst().getId());
+            var old = em.find(AnalysisJob.class, original.analysisJobId());
+            var analysis = em.find(RelationshipGraphAnalysis.class, original.analysisJobId());
+            switch (reason) {
+                case MALFORMED_CACHE -> {
+                    var malformed = analysis.getContext().deepCopy();
+                    ((com.fasterxml.jackson.databind.node.ObjectNode) malformed)
+                            .put("observations", "not-an-observation-array");
+                    ReflectionTestUtils.setField(analysis, "context", malformed);
+                }
+                case EMPTY_CACHE -> {
+                    var empty = analysis.getContext().deepCopy();
+                    ((com.fasterxml.jackson.databind.node.ObjectNode) empty)
+                            .set("observations", JsonNodeFactory.instance.arrayNode());
+                    ReflectionTestUtils.setField(analysis, "context", empty);
+                }
+                case SOURCE_CHANGED -> em.find(Episode.class, one)
+                        .updateContentStorage("replacement", "v2", storage.contentHash("변경된 원문"));
+                case OUTSIDE_COHORT -> doReturn(false).when(manifest).matches(any());
+                case USER_PAID -> {
+                    ReflectionTestUtils.setField(item, "servicePaid", false);
+                }
+                case USER_PAID_JOB -> jdbc.update(
+                        "update analysis_jobs set relationship_service_paid=false where id=?",
+                        original.analysisJobId());
+                case WRONG_FAILURE -> old.fail(AnalysisFailureCode.UNEXPECTED_ERROR, "복구 대상이 아닌 실패");
+                case GENERATION_CHANGED -> ReflectionTestUtils.setField(
+                        em.find(RelationshipBackfillWork.class, workId), "buildingGeneration", 2L);
+                case ACTIVE_CORE -> em.persist(AnalysisJob.create(
+                        old.getWork(), null, em.find(Episode.class, one), AnalysisJobType.SETTING_EXTRACTION));
+                case SOURCE_PURGING -> em.persist(EpisodeSourcePurgeRequest.requestReplacement(
+                        em.find(Episode.class, one), null, "retained"));
+                case VALIDATION_PENDING -> doReturn(true).when(jobs)
+                        .existsValidationStagingForEpisodes(List.of(one));
+                case LATER_SUCCESS -> em.find(RelationshipBackfillItem.class, items().getLast().getId())
+                        .succeeded();
+            }
+        });
+        clearInvocations(storage);
+
+        assertThat(coordinator.claimRelationshipJob(recoveryRequest(true))).isEmpty();
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.BLOCKED);
+        assertThat(items().getFirst().getRecoveryAttemptCount()).isZero();
+        assertThat(items().getFirst().getJobId()).isEqualTo(original.analysisJobId());
+        assertThat(relationshipJobCount()).isEqualTo(1);
+        verify(storage, never()).getText(anyString());
+    }
+
+    @Test
+    @DisplayName("새 문맥 상한을 넘는 복구는 노드를 바꾸거나 다른 작품의 대기열을 막지 않는다")
+    void oversizedRecoveryPreviewPreservesStateAndOtherWorkProgress() {
+        episode(1);
+        coordinator.bootstrapRelationshipBackfill();
+        var original = claim();
+        failPreparedComparison(original, FailureCode.COMPARISON_FAILED);
+        UUID futureNode = tx.execute(t -> {
+            var ara = em.createQuery(
+                            "select n from RelationshipGraphNode n where n.workId=:work and n.name=:name",
+                            RelationshipGraphNode.class)
+                    .setParameter("work", workId).setParameter("name", "아라").getSingleResult();
+            // A later observation already owns this identity. A read-only preview must not
+            // move its first appearance into the failed chapter when rejecting the recovery.
+            ReflectionTestUtils.setField(ara, "firstEpisodeNo", 10);
+            for (int index = 0; index < 1535; index++)
+                em.persist(RelationshipGraphNode.create(UUID.randomUUID(), workId, null, "보라", 1));
+            return ara.getId();
+        });
+        clearInvocations(storage);
+        assertThat(coordinator.claimRelationshipJob(recoveryRequest(true))).isEmpty();
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.BLOCKED);
+        assertThat(items().getFirst().getRecoveryAttemptCount()).isZero();
+        assertThat(items().getFirst().getJobId()).isEqualTo(original.analysisJobId());
+        assertThat(relationshipJobCount()).isEqualTo(1);
+        assertThat(tx.<AnalysisStatus>execute(t ->
+                em.find(RelationshipGraphAnalysis.class, original.analysisJobId()).getStatus()))
+                .isEqualTo(AnalysisStatus.FAILED);
+        assertThat(tx.<Integer>execute(t ->
+                em.find(RelationshipGraphNode.class, futureNode).getFirstEpisodeNo())).isEqualTo(10);
+        assertThat(jdbc.queryForObject(
+                "select count(*) from relationship_graph_nodes where work_id=?", Long.class, workId))
+                .isEqualTo(1537);
+
+        UUID otherWorkId = tx.execute(t -> {
+            var work = Work.create(em.find(Member.class, owner), "다른 합성 백필", WorkGenre.FANTASY, null);
+            em.persist(work);
+            em.flush();
+            em.detach(work);
+            // Work uses generated IDs. Re-key this fresh fixture before adding dependants
+            // so the blocked work is always inspected first by UUID.compareTo ordering.
+            UUID laterWorkId = new UUID(Long.MAX_VALUE, Long.MAX_VALUE);
+            assertThat(laterWorkId.compareTo(workId)).isPositive();
+            jdbc.update("update works set id=? where id=?", laterWorkId, work.getId());
+            work = em.find(Work.class, laterWorkId);
+            var episode = Episode.create(work, null, 1, "1화", "synthetic/" + UUID.randomUUID(),
+                    "v1", storage.contentHash(source), source.length());
+            em.persist(episode);
+            em.persist(RelationshipBackfillWork.create(work.getId(), manifest.campaignKey()));
+            em.persist(RelationshipBackfillItem.create(episode, 1, true));
+            return work.getId();
+        });
+        var other = coordinator.claimRelationshipJob(recoveryRequest(true)).orElseThrow();
+        assertThat(other.workId()).isEqualTo(otherWorkId);
+        assertThat(items().getFirst().getRecoveryAttemptCount()).isZero();
+        verify(storage, never()).getText(anyString());
     }
 
     @Test
