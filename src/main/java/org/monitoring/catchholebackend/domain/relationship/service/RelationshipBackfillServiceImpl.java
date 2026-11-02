@@ -341,6 +341,8 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
                 item.running(job.getId(), job.getLeaseToken());
                 graph.beginRelationshipAnalysis(job);
                 reuseObservations(previous, job);
+                // Cached preparation runs under the claim lock and can consume the initial lease.
+                job.renewLease(LocalDateTime.now().plusSeconds(60));
                 return Optional.of(
                         workerMapper.toResponse(job, episode, List.of(), List.of(), List.of()));
             }
@@ -423,6 +425,7 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
         graph.prepareCachedObservations(job, prepared.get());
         if (analyses.findById(job.getId()).orElseThrow().getStatus() != AnalysisStatus.PREPARED)
             throw new AppException(RELATIONSHIP_GRAPH_INCOMPLETE);
+        job.renewLease(LocalDateTime.now().plusSeconds(60));
         return Optional.of(workerMapper.toResponse(job, episode, List.of(), List.of(), List.of()));
     }
 
