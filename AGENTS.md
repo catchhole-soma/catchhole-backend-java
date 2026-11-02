@@ -1132,3 +1132,12 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 이 고정 캠페인의 서비스 부담 실패 항목만 회차 항목당 한 번 비교를 자동 복구할 수 있다. `COMPARISON_VALIDATION_FAILED` Job과 `COMPARISON_FAILED`/`INPUT_TOO_LARGE` 관계 이력, 검증된 보존 관측, 현재 동일 원문·세대·활성 소유자/작품을 함께 요구한다. 원문 파기·검수·일반 분석 대기·후행 성공을 우회하지 않으며 일반 사용자 부담 Job은 복구하지 않는다. DB의 `recoveryAttemptCount`는 재배포·lease 회수·순서 재비교에서 초기화하지 않는다.
 - 복구 최초 claim과 같은 복구 Job의 lease 재claim은 `supportsRelationshipRecovery=true` Worker만 받는다. 누락/null/false는 기존 동작이므로 Java를 먼저 배포하고 새 AI Worker가 기능을 광고한 뒤에만 복구가 시작된다. 캠페인→작품→이전 Job 잠금 안에서 기존 그래프의 쓰기 없는 문맥 preview를 먼저 검사해 준비 불가 작품이 다른 작품을 막지 않게 한다. 이후 예산 소비·새 서비스 부담 Job·관측 재준비는 한 트랜잭션이며 실패 시 모두 rollback한다. 원문 재추출/이전 비교 결정 재사용과 기존 Job·원장 수정은 하지 않는다.
 - `analysis.relationship-backfill.enabled`는 local 기본false, prod 기본true다. 끄면 새 bootstrap/claim을 멈추고 진행 중 완료와 관리 작품의 순서 보존은 유지한다. 자세한 계약/배포/장애 한계는 `docs/relationship-cohort-backfill.md`에 양쪽 저장소 동일하게 남긴다.
+
+### GH359 관계 비교의 부분 완료
+
+- `supportsRelationshipPartialResults=true` Worker만 새 Job의 `relationshipPartialResultsEnabled`를 활성화한다. claim과 고정 Context의 `supportsPartialResults`가 모두 true일 때만 부분 계약을 사용한다. formatVersion은 1이고, 기존 PREPARED/COMPLETED/FAILED 문맥은 새 Worker의 재선점으로 승격하지 않는다. capability는 다시 false로 낮추지 않으며 구 Worker는 해당 Job과 현재 공개·생성 세대에 유효한 부분 실패가 있는 작품의 후속 관계 작업을 claim하지 않는다.
+- `Complete.failures`는 고정 새 O의 같은 무방향 인물 쌍 전체와 허용된 기술적 reasonCode만 받는다. 정상 결정과 실패의 출처는 겹치지 않고 전체 새 O를 덮어야 한다. lease·권한·quota·고정 문맥·원문·저장·provider 장애를 격리 실패로 받지 않는다. 실패를 HOLD로 바꾸지 않으며 일반 검증을 완화하지 않는다.
+- `relationship_graph_analyses.failures`와 APPLIED의 `PARTIAL_COMPARISON_FAILED` 마커를 보존한다. 실행 Job은 정상 종료해도 회차 항목은 PARTIAL이고 결과 완전 성공이 아니다. 같은 쌍의 이후 새 O는 안정된 node UUID로 계산한 `blockedPairs`에 따라 `RELATIONSHIP_PREDECESSOR_INCOMPLETE`로 남기고 독립 쌍은 진행한다. 순서 재구성·원문 파기·무효화 경계는 유지한다.
+- 기술 실패가 있는 APPLIED 전이는 V107 trigger가 기존 outbox에 안전한 reason별 인물 쌍 개수만 기록한다. 선행 실패의 파급은 재알림하지 않는다. 전체 추출 실패는 FAILED/BLOCKED이며 빈 결과를 정상 완료로 가장하지 않는다.
+- 공개 `updateIncomplete`/`incompleteEpisodeNos`는 기술적 누락만, 기존 `partial`은 의미상 HOLD도 포함한다. edge `lastVerifiedEpisodeNo`는 같은 쌍의 첫 실패 또는 위치를 특정할 수 없는 원문 누락 앞까지의 기술적 완료 구간이며 관계 변경 회차가 아니다. 0은 완료 구간이 없다는 뜻이다. 현재 공개 세대와 선택 회차를 넘는 실패·미래 이름을 노출하지 않는다.
+- 실제 연동 검증은 `RelationshipBackfillHttpPostgresIntegrationTest`에서 `GH332_AI_CHECKOUT`/`GH332_PYTHON`으로 로컬 Python Worker를 사용한다. `GH359_FRONT_CHECKOUT`을 추가하면 그 테스트가 만든 Spring·PostgreSQL에 실제 프런트 SDK·브라우저를 연결하며 `GH359_NODE`는 선택적인 Node 실행 경로다. 테스트 JWT는 0600 임시 파일로만 전달하고 종료 시 지운다. HTTP 응답을 대체하거나 운영·유료 LLM·외부 Discord에 연결하지 않는다. CI에는 환경 opt-in 없이 실행되는 PostgreSQL 부분 완료·outbox 회귀 테스트도 유지한다.
