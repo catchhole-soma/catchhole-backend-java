@@ -52,12 +52,52 @@ class AnalysisFailureNotificationMapperTest {
             "ANALYSIS_JOB,EPISODE_VALIDATION,회차 검수 실패",
             "ANALYSIS_JOB,CHARACTER_FACT_COMPARISON,캐릭터 재비교 실행 실패",
             "ANALYSIS_JOB,WORLD_SETTING_COMPARISON,세계관 재비교 실행 실패",
+            "ANALYSIS_JOB,RELATIONSHIP_EXTRACTION,인물 관계 분석 실패",
             "CHARACTER_COMPARISON,CHARACTER_FACT_COMPARISON,캐릭터 비교 항목 실패",
             "WORLD_COMPARISON,WORLD_SETTING_COMPARISON,세계관 비교 항목 실패"})
     @DisplayName("추출·재비교 실행·비교 후보의 사건 제목을 구분한다")
     void distinguishesExecutionAndCandidateKinds(String kind, String type, String title) {
         assertThat(mapper.toMessage(event(kind, type, 1, null, List.of(59)), "local"))
                 .contains("[로컬] " + title);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"RELATIONSHIP_EXTRACTION,인물 관계 추출,RELATIONSHIP_CONTEXT_INVALID",
+            "RELATIONSHIP_COMPARE,인물 관계 비교,RELATIONSHIP_DUPLICATE_SLOT"})
+    @DisplayName("관계 전용 실패의 제목·단계·안전한 원인 코드를 보존하고 추출 Job을 추정하지 않는다")
+    void formatsRelationshipFailureWithoutInventingOriginalExtraction(String stage, String label, String reason) {
+        var diagnostic = new AnalysisFailureDiagnostics(1, "WORKER", stage, reason, "UNKNOWN",
+                null, REQUEST, TRACE, null, null, null, null);
+        var relationship = new AnalysisFailureNotification(ID, WORK, 2L, EXECUTION, EPISODE, 59,
+                "ANALYSIS_JOB", "COMPARISON_VALIDATION_FAILED", 1, OCCURRED, 1, null,
+                diagnostic, EXECUTION, null, null, "RELATIONSHIP_EXTRACTION", List.of(59));
+
+        assertThat(mapper.toMessage(relationship, "prod"))
+                .contains("[운영] 인물 관계 분석 실패", "단계: " + label, "(" + reason + ")",
+                        "대상 회차: 59화", "실패 작업: 1건", "실행 Job ID: " + EXECUTION,
+                        "원본 추출 Job ID: 확인 불가", "비교 묶음 ID: 확인 불가")
+                .doesNotContain("종류 확인 불가", "단계: 확인 불가", "실패 항목", "HTTP:");
+    }
+
+    @Test
+    @DisplayName("공통 관계 원인 20개를 고정 설명으로 표시하고 무조건 재시도를 권하지 않는다")
+    void describesEveryRelationshipReasonWithBoundedRecoveryGuidance() {
+        var contract = new tools.jackson.databind.ObjectMapper().readTree(getClass().getResourceAsStream(
+                "/contracts/relationship-failure-diagnostics-v1.json"));
+        assertThat(contract.path("reasonCodes").size()).isEqualTo(20);
+        for (var value : contract.path("reasonCodes")) {
+            String reason = value.stringValue();
+            String explanation = switch (reason) {
+                case "RELATIONSHIP_INPUT_TOO_LARGE" -> "관계 분석 입력 한도 초과";
+                case "RELATIONSHIP_CONTEXT_INVALID" -> "고정 관계 문맥 검증 실패";
+                default -> "관계 비교 결과 검증 실패";
+            };
+            String message = mapper.toMessage(event("ANALYSIS_JOB", "RELATIONSHIP_EXTRACTION", 1,
+                    diagnostic("RELATIONSHIP_COMPARE", reason, null), List.of(59)), "prod");
+            assertThat(message).contains("원인: " + explanation + " (" + reason + ")",
+                            "재시도: 원인 확인 후 제한된 복구 여부 판단")
+                    .doesNotContain("원인: 확인 불가", "재시도 가능");
+        }
     }
 
     @Test
