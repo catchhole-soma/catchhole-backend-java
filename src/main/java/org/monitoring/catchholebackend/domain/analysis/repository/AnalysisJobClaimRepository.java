@@ -18,6 +18,9 @@ public class AnalysisJobClaimRepository {
 
     private final EntityManager entityManager;
 
+    // 작품의 부분 관계 결과는 inline 관계 분석을 맡을 때만 새 Worker를 요구한다.
+    // 활성 백필의 이관 조건은 deferInlineRelationshipAnalysis와 같으며 Work 잠금 뒤 다시 검사한다.
+    // 이미 Job에 고정된 partial 계약 보호는 이 예외와 별개로 유지한다.
     private static final String ELIGIBLE = """
             job.jobType <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.RELATIONSHIP_EXTRACTION
             and job.status = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING
@@ -27,6 +30,10 @@ public class AnalysisJobClaimRepository {
             and (:supportsRelationshipPartialResults = true or job.relationshipPartialResultsEnabled = false)
             and (:supportsRelationshipPartialResults = true
                 or job.jobType <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION
+                or job.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.SETTING_BOOK
+                or exists (select deferred.workId from RelationshipBackfillWork deferred
+                    where deferred.workId = job.work.id
+                    and deferred.state <> org.monitoring.catchholebackend.domain.relationship.type.RelationshipBackfillWorkState.COMPLETE)
                 or not exists (select a.id from RelationshipGraphAnalysis a
                     where a.workId = job.work.id
                     and a.status = org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract$AnalysisStatus.APPLIED
