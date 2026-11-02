@@ -54,6 +54,9 @@ public class RelationshipBackfillItem extends BaseEntity {
     @Column(nullable = false)
     private boolean servicePaid;
 
+    @Column(nullable = false)
+    private int recoveryAttemptCount;
+
     private UUID jobId;
     private UUID leaseToken;
 
@@ -103,6 +106,18 @@ public class RelationshipBackfillItem extends BaseEntity {
 
     public void requeue() {
         state = RelationshipBackfillItemState.WAITING;
+    }
+
+    /** Persist the one service-funded comparison recovery across new Jobs and deployments. */
+    public void requeueForRecovery() {
+        if (state != RelationshipBackfillItemState.FAILED
+                || !servicePaid
+                || recoveryAttemptCount != 0)
+            throw new IllegalStateException("서비스 부담 관계 복구는 실패 항목당 한 번만 허용됩니다.");
+        recoveryAttemptCount++;
+        state = RelationshipBackfillItemState.WAITING;
+        reason = null;
+        leaseToken = null;
     }
 
     public void promoteToServicePaid() {

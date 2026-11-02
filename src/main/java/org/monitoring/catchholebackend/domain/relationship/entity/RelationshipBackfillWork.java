@@ -57,6 +57,14 @@ public class RelationshipBackfillWork extends BaseEntity {
         blockedReason = reason;
     }
 
+    public void resumeRecovery() {
+        if (state != RelationshipBackfillWorkState.BLOCKED
+                || !"ANALYSIS_FAILED".equals(blockedReason))
+            throw new IllegalStateException("분석 실패로 차단된 관계 작품만 복구할 수 있습니다.");
+        state = RelationshipBackfillWorkState.BUILDING;
+        blockedReason = null;
+    }
+
     public void publish() {
         publishedGeneration = buildingGeneration;
         state = RelationshipBackfillWorkState.COMPLETE;
