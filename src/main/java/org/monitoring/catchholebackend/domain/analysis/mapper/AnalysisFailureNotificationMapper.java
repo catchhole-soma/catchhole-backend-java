@@ -70,6 +70,7 @@ public class AnalysisFailureNotificationMapper {
         if ("WORLD_COMPARISON".equals(event.failureKind())) return "세계관 비교 항목 실패";
         if ("CHARACTER_FACT_COMPARISON".equals(event.jobType())) return "캐릭터 재비교 실행 실패";
         if ("WORLD_SETTING_COMPARISON".equals(event.jobType())) return "세계관 재비교 실행 실패";
+        if ("RELATIONSHIP_EXTRACTION".equals(event.jobType())) return "인물 관계 분석 실패";
         if ("SETTING_EXTRACTION".equals(event.jobType())) return "회차 설정 추출 실패";
         if ("EPISODE_VALIDATION".equals(event.jobType())) return "회차 검수 실패";
         return "회차 작업 실패 (종류 확인 불가)";
@@ -96,6 +97,8 @@ public class AnalysisFailureNotificationMapper {
             case "CHARACTER_COMPARE" -> "캐릭터 비교";
             case "WORLD_CONTEXT" -> "기존 세계관 비교 문맥 준비";
             case "WORLD_COMPARE" -> "세계관 비교";
+            case "RELATIONSHIP_EXTRACTION" -> "인물 관계 추출";
+            case "RELATIONSHIP_COMPARE" -> "인물 관계 비교";
             case "FINALIZE" -> "결과 저장·완료";
             default -> "확인 불가";
         };
@@ -111,6 +114,18 @@ public class AnalysisFailureNotificationMapper {
             case "CURRENT_EVIDENCE_SOURCE_READ_FAILED" -> "원문 저장소 읽기 실패";
             case "CURRENT_EVIDENCE_STRUCTURE_INVALID" -> "근거 구조 검증 실패";
             case "COMPARISON_RESULT_INVALID" -> "비교 결과 검증 실패";
+            case "RELATIONSHIP_OBSERVATION_REFS_INVALID", "RELATIONSHIP_OBSERVATION_ORDER_INVALID",
+                    "RELATIONSHIP_DISPOSITION_CONFLICT", "RELATIONSHIP_DISPLAY_REFERENCE_LEAK",
+                    "RELATIONSHIP_DISPOSITION_CONTENT_INVALID", "RELATIONSHIP_NONPRESENT_MUTATION",
+                    "RELATIONSHIP_MUTATION_CONTENT_MISSING", "RELATIONSHIP_SELF_RELATIONSHIP",
+                    "RELATIONSHIP_ENDPOINTS_UNGROUNDED", "RELATIONSHIP_DUPLICATE_SLOT",
+                    "RELATIONSHIP_ADD_SLOT_EXISTS", "RELATIONSHIP_EXISTING_REF_MISMATCH",
+                    "RELATIONSHIP_DUPLICATE_TARGET", "RELATIONSHIP_INACTIVE_TARGET",
+                    "RELATIONSHIP_MERGE_CONTENT_CHANGED", "RELATIONSHIP_OBSERVATION_COVERAGE_MISSING",
+                    "RELATIONSHIP_RESPONSE_JSON_INVALID", "RELATIONSHIP_RESPONSE_SCHEMA_INVALID"
+                    -> "관계 비교 결과 검증 실패";
+            case "RELATIONSHIP_INPUT_TOO_LARGE" -> "관계 분석 입력 한도 초과";
+            case "RELATIONSHIP_CONTEXT_INVALID" -> "고정 관계 문맥 검증 실패";
             case "INTERNAL_API_HTTP_ERROR" -> "내부 API HTTP 오류";
             case "INTERNAL_API_TRANSPORT_ERROR" -> "내부 API 연결 실패";
             case "LLM_OUTPUT_TRUNCATED" -> "AI 응답 길이 제한";
@@ -122,6 +137,8 @@ public class AnalysisFailureNotificationMapper {
     }
 
     private static String retry(String reason, AnalysisFailureCode code) {
+        // The caller has already restricted this value to the diagnostic allowlist.
+        if (reason.startsWith("RELATIONSHIP_")) return "원인 확인 후 제한된 복구 여부 판단";
         return switch (reason) {
             case "CURRENT_EVIDENCE_BINDING_INVALID", "CURRENT_EVIDENCE_MANIFEST_INVALID", "CURRENT_EVIDENCE_OFFSET_INVALID",
                     "CURRENT_EVIDENCE_QUOTE_NOT_FOUND", "CURRENT_EVIDENCE_SOURCE_HASH_MISMATCH", "CURRENT_EVIDENCE_STRUCTURE_INVALID"

@@ -179,12 +179,26 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                             request.rejectedObservationCount() == null
                                     ? 0
                                     : request.rejectedObservationCount());
-                    if (built.context().heldObservations().size() > 384
-                            || built.context().nodes().size() > 1536
-                            || built.context().relationships().size() > 1536)
+                    if (exceedsContextLimit(built.context()))
                         analysis.fail(FailureCode.INPUT_TOO_LARGE.name());
                     return mapper.toContext(analysis);
                 });
+    }
+
+    @Override
+    public boolean canPrepareCachedObservations(AnalysisJob job, Prepare request) {
+        requireEligible(job);
+        if (job.getJobType() != AnalysisJobType.RELATIONSHIP_EXTRACTION) invalid();
+        sourceGuard.assertCurrent(job, job.getEpisode());
+        try {
+            // Recovery admission holds the Work lock. Build the same current dependencies without
+            // saving nodes or moving an existing node's first observation into the past.
+            return !exceedsContextLimit(buildContext(job, request, false).context());
+        } catch (IllegalArgumentException | NullPointerException malformedContext) {
+            // Historical malformed context must not starve unrelated works or trigger extraction.
+            // Database/source-guard failures still propagate and roll back the entire claim.
+            return false;
+        }
     }
 
     @Override
@@ -204,10 +218,14 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                 request.rejectedObservationCount() == null
                         ? 0
                         : request.rejectedObservationCount());
-        if (built.context().heldObservations().size() > 384
-                || built.context().nodes().size() > 1536
-                || built.context().relationships().size() > 1536)
+        if (exceedsContextLimit(built.context()))
             analysis.fail(FailureCode.INPUT_TOO_LARGE.name());
+    }
+
+    private boolean exceedsContextLimit(Context context) {
+        return context.heldObservations().size() > 384
+                || context.nodes().size() > 1536
+                || context.relationships().size() > 1536;
     }
 
     private Context preparedRetry(RelationshipGraphAnalysis analysis, Prepare request) {
@@ -412,6 +430,10 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     }
 
     private BuiltContext buildContext(AnalysisJob job, Prepare request) {
+        return buildContext(job, request, true);
+    }
+
+    private BuiltContext buildContext(AnalysisJob job, Prepare request, boolean persistNodes) {
         UUID workId = job.getWork().getId();
         int cutoff = job.getSourceEpisodeNo();
         var allAnalyses = latestAnalyses(workId, job.getRelationshipGeneration());
@@ -509,18 +531,18 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                         continue;
                     }
                     RelationshipGraphNode node = future.getFirst();
-                    node.observeAt(cutoff);
+                    if (persistNodes) node.observeAt(cutoff);
                     byName.put(endpoint.name(), List.of(node));
                     continue;
                 }
                 var node =
-                        nodes.save(
-                                RelationshipGraphNode.create(
-                                        UUID.randomUUID(),
-                                        workId,
-                                        identities.size() == 1 ? identities.getFirst() : null,
-                                        endpoint.name(),
-                                        cutoff));
+                        RelationshipGraphNode.create(
+                                UUID.randomUUID(),
+                                workId,
+                                identities.size() == 1 ? identities.getFirst() : null,
+                                endpoint.name(),
+                                cutoff);
+                if (persistNodes) node = nodes.save(node);
                 byName.put(endpoint.name(), List.of(node));
             }
         Map<UUID, String> refs = new LinkedHashMap<>();

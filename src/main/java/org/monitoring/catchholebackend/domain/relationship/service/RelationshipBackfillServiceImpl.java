@@ -34,15 +34,17 @@ import org.monitoring.catchholebackend.domain.episode.repository.EpisodeSourcePu
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.member.type.MemberStatus;
 import org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.AnalysisStatus;
+import org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.Prepare;
 import org.monitoring.catchholebackend.domain.relationship.entity.RelationshipBackfillCampaign;
 import org.monitoring.catchholebackend.domain.relationship.entity.RelationshipBackfillItem;
 import org.monitoring.catchholebackend.domain.relationship.entity.RelationshipBackfillWork;
+import org.monitoring.catchholebackend.domain.relationship.entity.RelationshipGraphAnalysis;
 import org.monitoring.catchholebackend.domain.relationship.mapper.RelationshipGraphMapper;
-import org.monitoring.catchholebackend.domain.relationship.type.RelationshipBackfillItemState;
-import org.monitoring.catchholebackend.domain.relationship.type.RelationshipBackfillWorkState;
 import org.monitoring.catchholebackend.domain.relationship.processor.RelationshipBackfillManifest;
 import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipBackfillWorkRepository;
 import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipGraphAnalysisRepository;
+import org.monitoring.catchholebackend.domain.relationship.type.RelationshipBackfillItemState;
+import org.monitoring.catchholebackend.domain.relationship.type.RelationshipBackfillWorkState;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.work.type.WorkLifecycleStatus;
@@ -63,6 +65,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class RelationshipBackfillServiceImpl implements RelationshipBackfillService {
+    private static final String RECOVERY_CAMPAIGN_KEY = "relationship-backfill-20261030-v1";
+
     private final EntityManager em;
     private final RelationshipBackfillManifest manifest;
     private final RelationshipBackfillWorkRepository workStates;
@@ -248,7 +252,7 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
             return Optional.empty();
         // All API replicas share this campaign lock. The database partial unique index is a second
         // guard.
-        campaignLock();
+        var campaign = campaignLock();
         recoverExpired();
         if (em.createQuery(
                                 "select count(j) from AnalysisJob j where j.jobType=:type and"
@@ -270,10 +274,19 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
             var state = workStates.findById(work.getId()).orElseThrow();
             // A core completion can change this row while claim waits for the Work lock.
             em.refresh(state);
+            if (campaign.isInitialized()
+                    && state.getState() == RelationshipBackfillWorkState.BLOCKED
+                    && Boolean.TRUE.equals(request.supportsRelationshipRecovery())) {
+                var recovered = claimRecoveredRelationshipJob(request, work, state);
+                if (recovered.isPresent()) return recovered;
+            }
             if (state.getState() != RelationshipBackfillWorkState.BUILDING) continue;
             for (var item : items(work.getId())) {
                 if (item.getState() == RelationshipBackfillItemState.SKIPPED
                         || item.getState() == RelationshipBackfillItemState.SUCCEEDED) continue;
+                // The same recovery Job can be reclaimed after lease expiry during a rolling deploy.
+                if (item.getRecoveryAttemptCount() > 0
+                        && !Boolean.TRUE.equals(request.supportsRelationshipRecovery())) break;
                 if (item.getState() == RelationshipBackfillItemState.RUNNING) {
                     var stale =
                             item.getJobId() == null
@@ -334,6 +347,122 @@ public class RelationshipBackfillServiceImpl implements RelationshipBackfillServ
             publishIfReady(state);
         }
         return Optional.empty();
+    }
+
+    private Optional<WorkerAnalysisJobPayload> claimRecoveredRelationshipJob(
+            WorkerAnalysisJobClaimRequest request, Work work, RelationshipBackfillWork state) {
+        if (!RECOVERY_CAMPAIGN_KEY.equals(manifest.campaignKey())
+                || !RECOVERY_CAMPAIGN_KEY.equals(state.getCampaignKey())
+                || !manifest.matches(work.getMember())
+                || work.getCreatedAt() == null
+                || work.getCreatedAt().isAfter(manifest.selectedAt())
+                || !"ANALYSIS_FAILED".equals(state.getBlockedReason())
+                || state.getPublishedGeneration() >= state.getBuildingGeneration())
+            return Optional.empty();
+        var all = items(work.getId());
+        var first = all.stream()
+                .filter(i -> i.getState() != RelationshipBackfillItemState.SUCCEEDED
+                        && i.getState() != RelationshipBackfillItemState.SKIPPED)
+                .findFirst();
+        if (first.isEmpty()) return Optional.empty();
+        var item = first.get();
+        if (item.getState() != RelationshipBackfillItemState.FAILED
+                || !"ANALYSIS_FAILED".equals(item.getReason())
+                || !item.isServicePaid()
+                || item.getRecoveryAttemptCount() != 0
+                || item.getJobId() == null
+                || item.getGeneration() != state.getBuildingGeneration()
+                // beginRelationshipAnalysis invalidates later graphs. Never leave a successful
+                // later item pointing to an invalidated graph after this narrow recovery.
+                || all.subList(all.indexOf(item) + 1, all.size()).stream()
+                        .anyMatch(i -> i.getState() == RelationshipBackfillItemState.SUCCEEDED)
+                || coreActiveAtOrBefore(work.getId(), Integer.MAX_VALUE))
+            return Optional.empty();
+        var episode = episodes.findById(item.getEpisodeId()).orElse(null);
+        if (episode == null
+                || episode.getStatus() == EpisodeStatus.ARCHIVED
+                || !Objects.equals(episode.getWork().getId(), work.getId())
+                || !sameSource(item, episode)
+                || purges.existsByEpisodeId(episode.getId())
+                || jobs.existsValidationStagingForEpisodes(List.of(episode.getId())))
+            return Optional.empty();
+        var previous = jobs.findByIdForUpdate(item.getJobId()).orElse(null);
+        if (previous == null) return Optional.empty();
+        em.refresh(previous);
+        if (previous.getJobType() != AnalysisJobType.RELATIONSHIP_EXTRACTION
+                || previous.getStatus() != AnalysisJobStatus.FAILED
+                || previous.getFailureCode() != AnalysisFailureCode.COMPARISON_VALIDATION_FAILED
+                || !previous.isRelationshipServicePaid()
+                || previous.getSourceKind() != AnalysisSourceKind.EPISODE
+                || previous.getEpisode() == null
+                || !Objects.equals(previous.getWork().getId(), work.getId())
+                || !Objects.equals(previous.getEpisode().getId(), episode.getId())
+                || !Objects.equals(previous.getSourceEpisodeNo(), item.getEpisodeNo())
+                || !Objects.equals(previous.getSourceContentHash(), item.getSourceHash())
+                || !Objects.equals(previous.getSourceContentS3Key(), item.getSourceKey())
+                || !Objects.equals(previous.getSourceContentS3Version(), item.getSourceVersion())
+                || previous.getRelationshipGeneration() != item.getGeneration()
+                || previous.getLeaseToken() != null
+                || previous.getLeaseExpiresAt() != null)
+            return Optional.empty();
+        var cached = analyses.findById(previous.getId()).orElse(null);
+        var prepared = recoveryObservations(cached, item);
+        if (prepared.isEmpty() || !graph.canPrepareCachedObservations(previous, prepared.get()))
+            return Optional.empty();
+
+        // Admission, durable budget, new Job and mandatory cached preparation commit together.
+        // Keep the old Job and its immutable usage ledger as the history of the failed attempt.
+        item.requeueForRecovery();
+        state.resumeRecovery();
+        var job = AnalysisJob.create(work, null, episode, AnalysisJobType.RELATIONSHIP_EXTRACTION);
+        job.configureRelationship(state.getBuildingGeneration(), true);
+        job = jobs.saveAndFlush(job);
+        job.claim(request.modelName(), "인물 관계 비교 복구", LocalDateTime.now().plusSeconds(60));
+        item.running(job.getId(), job.getLeaseToken());
+        graph.beginRelationshipAnalysis(job);
+        graph.prepareCachedObservations(job, prepared.get());
+        if (analyses.findById(job.getId()).orElseThrow().getStatus() != AnalysisStatus.PREPARED)
+            throw new AppException(RELATIONSHIP_GRAPH_INCOMPLETE);
+        return Optional.of(workerMapper.toResponse(job, episode, List.of(), List.of(), List.of()));
+    }
+
+    private Optional<Prepare> recoveryObservations(
+            RelationshipGraphAnalysis cached, RelationshipBackfillItem item) {
+        if (cached == null
+                || cached.getStatus() != AnalysisStatus.FAILED
+                || !("COMPARISON_FAILED".equals(cached.getFailureCode())
+                        || "INPUT_TOO_LARGE".equals(cached.getFailureCode()))
+                || cached.getContext() == null
+                || cached.getBindings() == null
+                || cached.getRequestHash() == null
+                || cached.getContextToken() == null
+                || cached.isEvidencePurged()
+                || !Objects.equals(cached.getWorkId(), item.getWorkId())
+                || !Objects.equals(cached.getEpisodeId(), item.getEpisodeId())
+                || cached.getEpisodeNo() != item.getEpisodeNo()
+                || cached.getGeneration() != item.getGeneration()
+                || !Objects.equals(cached.getSourceHash(), item.getSourceHash())
+                || cached.getContext().path("formatVersion").asInt(-1) != 1)
+            return Optional.empty();
+        try {
+            var context = mapper.toContext(cached);
+            if (!Objects.equals(context.sourceHash(), item.getSourceHash())
+                    || context.sourceEpisodeNo() != item.getEpisodeNo()
+                    || !Objects.equals(context.contextToken(), cached.getContextToken())
+                    || context.observations() == null || context.observations().isEmpty()
+                    || context.observations().size() > 384
+                    || context.nodes() == null || context.nodes().size() > 1536
+                    || context.relationships() == null || context.relationships().size() > 1536
+                    || context.heldObservations() == null || context.heldObservations().size() > 384
+                    || context.observations().stream().anyMatch(o -> o == null
+                            || o.source() == null || o.target() == null || o.evidence() == null))
+                return Optional.empty();
+            return Optional.of(mapper.toPrepareCachedObservations(
+                    item.getSourceHash(), context, cached.getRejectedObservationCount()));
+        } catch (IllegalArgumentException malformedContext) {
+            // A malformed historical cache is ineligible, not permission to extract the source again.
+            return Optional.empty();
+        }
     }
 
     private void reuseObservations(AnalysisJob previous, AnalysisJob job) {

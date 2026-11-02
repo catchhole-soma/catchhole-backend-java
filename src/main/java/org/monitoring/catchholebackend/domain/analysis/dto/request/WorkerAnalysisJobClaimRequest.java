@@ -34,8 +34,20 @@ public record WorkerAnalysisJobClaimRequest(
         @Schema(description = "고정 원문 근거와 같은 인물의 전체 CURRENT 비교 문맥 지원. true인 Worker만 누적 작업을 claim합니다.", nullable = true)
         Boolean supportsFrozenComparisonEvidence,
         @Schema(description = "독립 회차 관계 분석 v1 지원", nullable = true)
-        Boolean supportsRelationshipAnalysis
+        Boolean supportsRelationshipAnalysis,
+        @Schema(description = "보존 관측을 사용하는 서비스 부담 관계 비교 1회 복구 지원. 생략하거나 false면 복구 작업을 claim하지 않습니다.", nullable = true)
+        Boolean supportsRelationshipRecovery
 ) {
+    public WorkerAnalysisJobClaimRequest(String modelName, String currentStep, Set<AnalysisJobType> allowedJobTypes,
+            Set<AnalysisMode> supportedAnalysisModes, Boolean supportsCharacterComparisonGroups,
+            Set<org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind> supportedSourceKinds,
+            Boolean supportsSettingBookReferenceTime, Boolean supportsSemanticCurrentContext,
+            Boolean supportsFrozenComparisonEvidence, Boolean supportsRelationshipAnalysis) {
+        this(modelName, currentStep, allowedJobTypes, supportedAnalysisModes, supportsCharacterComparisonGroups,
+                supportedSourceKinds, supportsSettingBookReferenceTime, supportsSemanticCurrentContext,
+                supportsFrozenComparisonEvidence, supportsRelationshipAnalysis, null);
+    }
+
     public WorkerAnalysisJobClaimRequest(String modelName, String currentStep, Set<AnalysisJobType> allowedJobTypes,
             Set<AnalysisMode> supportedAnalysisModes, Boolean supportsCharacterComparisonGroups,
             Set<org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind> supportedSourceKinds,

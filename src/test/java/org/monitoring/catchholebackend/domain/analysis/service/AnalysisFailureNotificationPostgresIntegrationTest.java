@@ -267,6 +267,62 @@ class AnalysisFailureNotificationPostgresIntegrationTest {
     }
 
     @Test
+    @DisplayName("관계 실패의 공통 단계·원인 40조합을 PostgreSQL outbox와 발송 선점까지 보존한다")
+    void relationshipDiagnosticsSurvivePostgresNotificationSnapshotAndClaim() {
+        var contract = json.readTree(getClass().getResourceAsStream(
+                "/contracts/relationship-failure-diagnostics-v1.json"));
+        assertThat(contract.path("stages").size()).isEqualTo(2);
+        assertThat(contract.path("reasonCodes").size()).isEqualTo(20);
+        jdbc.update("UPDATE analysis_jobs SET job_type='RELATIONSHIP_EXTRACTION',relationship_service_paid=true WHERE id=?", job);
+        int combinations = 0;
+        for (var stage : contract.path("stages")) {
+            for (var reason : contract.path("reasonCodes")) {
+                var diagnostic = ((ObjectNode) json.readTree(diagnostics(
+                        stage.stringValue(), reason.stringValue(), 409)))
+                        .put("origin", "WORKER")
+                        .put("errorMessage", "PRIVATE_MANUSCRIPT")
+                        .put("leaseToken", "PRIVATE_TOKEN");
+                jdbc.update("UPDATE analysis_jobs SET status='FAILED',failure_code='COMPARISON_VALIDATION_FAILED',failure_diagnostics=?::jsonb WHERE id=?",
+                        diagnostic.toString(), job);
+
+                var notification = notifications.claimNext().orElseThrow();
+                assertThat(notification.workId()).isEqualTo(work);
+                assertThat(notification.jobId()).isEqualTo(job);
+                assertThat(notification.episodeId()).isEqualTo(episode);
+                assertThat(notification.executionJobId()).isEqualTo(job);
+                assertThat(notification.sourceAnalysisJobId()).isNull();
+                assertThat(notification.jobType()).isEqualTo("RELATIONSHIP_EXTRACTION");
+                assertThat(notification.failureCode()).isEqualTo("COMPARISON_VALIDATION_FAILED");
+                assertThat(notification.failureDiagnostics().origin()).isEqualTo("WORKER");
+                assertThat(notification.failureDiagnostics().stage()).isEqualTo(stage.stringValue());
+                assertThat(notification.failureDiagnostics().reasonCode()).isEqualTo(reason.stringValue());
+                assertThat(notification.failureDiagnostics().httpStatus()).isEqualTo(409);
+                assertThat(notification.failureDiagnostics().sourceErrorCode()).isEqualTo("COMMON_INTERNAL_SERVER_ERROR");
+                assertThat(notification.targetEpisodeNos()).containsExactly(3);
+                String snapshot = jdbc.queryForObject(
+                        "SELECT failure_diagnostics::text FROM analysis_failure_notifications WHERE id=?",
+                        String.class, notification.id());
+                assertThat(snapshot).doesNotContain("PRIVATE", "errorMessage", "leaseToken");
+                assertThat(json.readTree(snapshot).path("stage").asString()).isEqualTo(stage.stringValue());
+                assertThat(json.readTree(snapshot).path("reasonCode").asString()).isEqualTo(reason.stringValue());
+                notifications.markDelivered(notification);
+
+                // A retry clears live diagnostics, while the failure-time snapshot stays immutable.
+                jdbc.update("UPDATE analysis_jobs SET status='RUNNING' WHERE id=?", job);
+                assertThat(jdbc.queryForObject(
+                        "SELECT failure_diagnostics IS NULL FROM analysis_jobs WHERE id=?",
+                        Boolean.class, job)).isTrue();
+                assertThat(jdbc.queryForObject(
+                        "SELECT failure_diagnostics::text FROM analysis_failure_notifications WHERE id=?",
+                        String.class, notification.id())).isEqualTo(snapshot);
+                combinations++;
+            }
+        }
+        assertThat(count()).isEqualTo(combinations).isEqualTo(40);
+        assertThat(notifications.claimNext()).isEmpty();
+    }
+
+    @Test
     @DisplayName("같은 실행·묶음·원인 후보만 합치며 원본 추출과 원인 근거 Job을 별도로 보존한다")
     void groupsCoherentCandidateDiagnosticsAndKeepsDifferentJobRoles() {
         UUID execution = UUID.randomUUID(), batch = UUID.randomUUID(), causeJob = UUID.randomUUID();

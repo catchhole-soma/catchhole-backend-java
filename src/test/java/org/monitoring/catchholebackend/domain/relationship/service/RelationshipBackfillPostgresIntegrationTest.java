@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
+import org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.FailureCode;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipBackfillItemState;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipBackfillWorkState;
 import org.springframework.test.annotation.DirtiesContext;
@@ -25,6 +26,7 @@ import org.testcontainers.utility.DockerImageName;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -183,6 +185,42 @@ class RelationshipBackfillPostgresIntegrationTest extends RelationshipBackfillIn
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new AssertionError("Interrupted while holding the heartbeat transaction", e);
+        }
+    }
+
+    @Test
+    @DisplayName("동시에 도착한 복구 claim은 새 Job과 영구 복구 예산을 정확히 한 번만 만든다")
+    void concurrentRecoveryClaimsConsumeOneDurableAttempt() throws Exception {
+        episode(1);
+        coordinator.bootstrapRelationshipBackfill();
+        var original = claim();
+        failPreparedComparison(original, FailureCode.COMPARISON_FAILED);
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+        try (var threads = Executors.newFixedThreadPool(2)) {
+            java.util.concurrent.Callable<java.util.Optional<org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisJobPayload>> call =
+                    () -> {
+                        ready.countDown();
+                        awaitLatch(start);
+                        return coordinator.claimRelationshipJob(recoveryRequest(true));
+                    };
+            var first = threads.submit(call);
+            var second = threads.submit(call);
+            try {
+                assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+                start.countDown();
+                var results = List.of(first.get(15, TimeUnit.SECONDS), second.get(15, TimeUnit.SECONDS));
+                assertThat(results.stream().filter(java.util.Optional::isPresent)).hasSize(1);
+                var recovered = results.stream().flatMap(java.util.Optional::stream).findFirst().orElseThrow();
+                assertThat(recovered.analysisJobId()).isNotEqualTo(original.analysisJobId());
+                assertThat(relationshipJobCount()).isEqualTo(2);
+                assertThat(items().getFirst().getRecoveryAttemptCount()).isEqualTo(1);
+                assertThat(items().getFirst().getJobId()).isEqualTo(recovered.analysisJobId());
+                finish(recovered);
+                assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.COMPLETE);
+            } finally {
+                start.countDown();
+            }
         }
     }
 }

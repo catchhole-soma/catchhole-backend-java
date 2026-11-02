@@ -14,6 +14,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface RelationshipGraphService {
+    /** Check fresh cached-observation preparation without writes while the caller holds the Work lock. */
+    boolean canPrepareCachedObservations(AnalysisJob job, Prepare request);
+
     void prepareCachedObservations(
             org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob job,
             org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract

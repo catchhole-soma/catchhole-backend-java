@@ -81,6 +81,26 @@ class AnalysisFailureDiagnosticsSanitizerTest {
         assertMalformedFieldDiscarded(missing, field);
     }
 
+    @Test
+    @DisplayName("관계 실패의 단계와 고정 원인 코드를 공통 계약 그대로 보존한다")
+    void relationshipDiagnosticCodesSurviveSanitization() throws Exception {
+        var contract = mapper.readTree(getClass().getResourceAsStream(
+                "/contracts/relationship-failure-diagnostics-v1.json"));
+        for (var stage : contract.path("stages")) {
+            for (var reason : contract.path("reasonCodes")) {
+                var input = mapper.createObjectNode()
+                        .put("schemaVersion", 1).put("origin", "WORKER")
+                        .put("stage", stage.stringValue()).put("reasonCode", reason.stringValue())
+                        .put("errorMessage", "PRIVATE_MANUSCRIPT")
+                        .put("leaseToken", "PRIVATE_TOKEN");
+                var result = sanitizer.sanitize(input, workId);
+                assertThat(result.stage()).isEqualTo(stage.stringValue());
+                assertThat(result.reasonCode()).isEqualTo(reason.stringValue());
+                assertThat(mapper.writeValueAsString(result)).doesNotContain("PRIVATE", "leaseToken", "errorMessage");
+            }
+        }
+    }
+
     private void assertMalformedFieldDiscarded(ObjectNode input, String field) {
         var result = sanitizer.sanitize(input, workId);
         if (field.equals("schemaVersion") || field.equals("origin")) {

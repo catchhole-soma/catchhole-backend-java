@@ -62,6 +62,7 @@
 ### Application Metrics
 
 - 회차 분석 실패 알림은 `analysis_failure_notifications`의 transactional outbox를 사용한다. V90의 PostgreSQL trigger는 회차 Job/캐릭터·세계관 후보가 새로 FAILED가 될 때 안전한 진단·실행 종류·실행/원본 추출/비교 묶음·대상 회차를 실패 당시 snapshot으로 기록한다. 발송 때 현재 Job·후보·FK로 과거 원인을 재구성하지 않으며 원시 오류·원문·연락처는 복사하지 않는다.
+- 새 실패 단계·원인·작업 종류를 허용할 때는 Java 허용목록뿐 아니라 후속 Flyway migration의 outbox 정제 허용목록과 알림 표시를 함께 맞춘다. 공통 진단 fixture를 실제 PostgreSQL 실패 저장→snapshot→발송 선점까지 검증해 Java에서 보존한 코드가 DB에서 `UNKNOWN`으로 바뀌지 않게 하며, 기존 migration과 과거 outbox는 수정하지 않는다.
 - 후보 실패는 기존 트랜잭션·원본 Job·회차·종류·코드에 실행·묶음·정리한 진단 전체가 같은 경우만 합친다. reason이 같아도 단계·관측 HTTP·원천 코드·원인 근거 ID가 다르면 나눠 대표 진단이 전체 개수를 설명하는 것처럼 표시하지 않는다. 진단과 서버 실행 링크가 모두 없는 구 writer만 기존 그룹 의미를 유지한다.
 - 새 시도의 현재 진단·후보 실행 링크는 애플리케이션과 DB 상태 전이에서 함께 비워 rolling/rollback의 구 SQL writer도 이전 시도를 재사용하지 않게 한다. 과거 outbox는 유지한다. 실행 실패의 기본 수는 실패 작업 1건이며 후보 사건만 실패 항목 수를 쓴다. 다회차 실행은 실제 membership의 회차를 쓰고 여러 원본 추출 Job을 하나로 추정하지 않는다.
 - 입력 hash가 유효한 숨김 캐릭터 그룹은 직접 실패와 lease 회수 한도 초과에서 후보 실행 링크를 같은 트랜잭션으로 먼저 flush한 뒤 Job을 FAILED로 바꾼다. 첫 비교 묶음 전에는 이 링크만으로 전체 대상 회차·유일한 원본 출처를 snapshot할 수 있기 때문이다. stale 입력은 현재 후보를 바꾸지 않으며 이후 live 상태로 과거 outbox를 보완하지 않는다.
@@ -1128,4 +1129,6 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 기존 공개 generation을 보존하며 별도 generation을 완성한 뒤 공개한다. 원문 key/version/hash/회차 번호를 재검증하고 변경·파기·실패 시 후행 관계를 임의로 건너뛰어 공개하지 않는다.
 - 선정 작품의 일반 캐릭터·세계관 분석은 그대로 수행하고 관계만 전용 대기열로 이관한다. 진행 중 들어오는 성공 회차는 순서대로 합류한다. 기존 family 규칙과 사용자의 관계 수정·삭제 억제는 유지한다.
 - 고정 과거 백필은 서버의 `relationshipServicePaid=true`만 서비스 부담으로 처리한다. raw 사용량은 보존하되 사용자 토큰 계정을 조회·생성·차감하지 않는다. 배포 때 이미 성공한 회차, 동일 원문의 관계 호출 원장이 있는 회차, 중간 삽입에 따른 후행 재비교도 서비스 부담으로 승격한다. 일반/관계 전용 Job의 원장을 상태 제한 없이 확인하며 실행 중 Job·기존 원장은 소급 변경하지 않는다. 새 회차의 최초 관계 분석만 기존 과금이다. 관계 전용 Job의 목적은 추출/비교 둘뿐이고 Job당 누적 raw 예약 상한은 기본2,000,000이다.
+- 이 고정 캠페인의 서비스 부담 실패 항목만 회차 항목당 한 번 비교를 자동 복구할 수 있다. `COMPARISON_VALIDATION_FAILED` Job과 `COMPARISON_FAILED`/`INPUT_TOO_LARGE` 관계 이력, 검증된 보존 관측, 현재 동일 원문·세대·활성 소유자/작품을 함께 요구한다. 원문 파기·검수·일반 분석 대기·후행 성공을 우회하지 않으며 일반 사용자 부담 Job은 복구하지 않는다. DB의 `recoveryAttemptCount`는 재배포·lease 회수·순서 재비교에서 초기화하지 않는다.
+- 복구 최초 claim과 같은 복구 Job의 lease 재claim은 `supportsRelationshipRecovery=true` Worker만 받는다. 누락/null/false는 기존 동작이므로 Java를 먼저 배포하고 새 AI Worker가 기능을 광고한 뒤에만 복구가 시작된다. 캠페인→작품→이전 Job 잠금 안에서 기존 그래프의 쓰기 없는 문맥 preview를 먼저 검사해 준비 불가 작품이 다른 작품을 막지 않게 한다. 이후 예산 소비·새 서비스 부담 Job·관측 재준비는 한 트랜잭션이며 실패 시 모두 rollback한다. 원문 재추출/이전 비교 결정 재사용과 기존 Job·원장 수정은 하지 않는다.
 - `analysis.relationship-backfill.enabled`는 local 기본false, prod 기본true다. 끄면 새 bootstrap/claim을 멈추고 진행 중 완료와 관리 작품의 순서 보존은 유지한다. 자세한 계약/배포/장애 한계는 `docs/relationship-cohort-backfill.md`에 양쪽 저장소 동일하게 남긴다.
