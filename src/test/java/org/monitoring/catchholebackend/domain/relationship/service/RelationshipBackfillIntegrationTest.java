@@ -13,6 +13,10 @@ import org.hibernate.engine.spi.EntityKey;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.aitoken.entity.AiTokenUsage;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenPurpose;
@@ -22,6 +26,8 @@ import org.monitoring.catchholebackend.domain.analysis.dto.request.*;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisJobPayload;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobWorkerService;
+import org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService;
 import org.monitoring.catchholebackend.domain.analysis.type.*;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.entity.EpisodeSourcePurgeRequest;
@@ -31,6 +37,13 @@ import org.monitoring.catchholebackend.domain.relationship.entity.*;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipBackfillItemState;
 import org.monitoring.catchholebackend.domain.relationship.type.RelationshipBackfillWorkState;
 import org.monitoring.catchholebackend.domain.relationship.processor.RelationshipBackfillManifest;
+import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
+import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
+import org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision;
+import org.monitoring.catchholebackend.domain.upload.type.UploadType;
+import org.monitoring.catchholebackend.domain.upload.type.UploadSourceType;
+import org.monitoring.catchholebackend.domain.upload.type.UploadFileRole;
+import org.monitoring.catchholebackend.global.storage.StoredTextObject;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.global.exception.AppException;
@@ -57,6 +70,8 @@ import java.util.function.Consumer;
 @ActiveProfiles("test")
 class RelationshipBackfillIntegrationTest {
     @Autowired RelationshipBackfillService coordinator;
+    @Autowired AnalysisJobWorkerService coreWorker;
+    @Autowired AnalysisRunStateService coreRunState;
     @MockitoSpyBean RelationshipGraphService graph;
     @Autowired EntityManager em;
     @Autowired TransactionTemplate tx;
@@ -236,6 +251,130 @@ class RelationshipBackfillIntegrationTest {
         var resumed = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
         assertThat(resumed.analysisJobId()).isEqualTo(next.analysisJobId());
         assertThat(resumed.relationshipAnalysisContract().supportsPartialResults()).isTrue();
+    }
+
+    private static java.util.stream.Stream<Arguments> legacyCoreBackfillCases() {
+        return java.util.stream.Stream.of(RelationshipBackfillWorkState.BUILDING, RelationshipBackfillWorkState.BLOCKED)
+                .flatMap(state -> java.util.stream.Stream.of(Arguments.of(state, false), Arguments.of(state, null)));
+    }
+
+    @ParameterizedTest
+    @MethodSource("legacyCoreBackfillCases")
+    @DisplayName("활성 백필의 관계를 이관하는 일반 분석은 구 Worker도 선점하고 관계 전용 작업은 보호한다")
+    void legacyCoreClaimDefersRelationshipsInActiveBackfill(RelationshipBackfillWorkState workState, Boolean partialSupport) {
+        seedPartialClaimPrefix(true);
+        if (workState == RelationshipBackfillWorkState.BLOCKED)
+            tx.executeWithoutResult(t -> em.find(RelationshipBackfillWork.class, workId).block("ANALYSIS_FAILED"));
+        // Disabling new backfill dispatch does not undo an existing work's inline deferral.
+        ReflectionTestUtils.setField(coordinator, "enabled", false);
+        UUID core = pendingCoreJob(3, false);
+        var payload = coreWorker.claimAnalysisJob(coreClaimRequest(partialSupport)).orElseThrow();
+        assertThat(payload.analysisJobId()).isEqualTo(core);
+        assertThat(payload.relationshipAnalysisContract()).isNull();
+        tx.executeWithoutResult(t -> {
+            var job = em.find(AnalysisJob.class, core);
+            assertThat(job.isRelationshipAnalysisEnabled()).isFalse();
+            assertThat(job.isRelationshipPartialResultsEnabled()).isFalse();
+        });
+        ReflectionTestUtils.setField(coordinator, "enabled", true);
+        assertThat(coordinator.claimRelationshipJob(relationshipClaimRequest(partialSupport))).isEmpty();
+        if (workState == RelationshipBackfillWorkState.BUILDING) {
+            var relationship = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+            assertThat(relationship.episode().episodeNo()).isEqualTo(2);
+            assertThat(relationship.relationshipAnalysisContract().supportsPartialResults()).isTrue();
+        }
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(booleans = false)
+    @DisplayName("부분 관계 실패가 있어도 관계 분석을 하지 않는 설정집은 구 Worker가 선점한다")
+    void legacySettingBookClaimIgnoresRelationshipPartialPrefix(Boolean partialSupport) {
+        seedPartialClaimPrefix(false);
+        UUID bookJob = tx.execute(t -> {
+            var work = em.find(Work.class, workId);
+            var batch = UploadBatch.create(work, work.getMember(), UploadType.SETTING_BOOK, UploadSourceType.FILE);
+            em.persist(batch);
+            var book = UploadFile.create(batch, UploadFileRole.SETTING_BOOK, "합성 설정.txt", "text/plain", "s3://synthetic/book", 10);
+            book.markParsed();
+            em.persist(book);
+            var revision = SettingBookRevision.create(book, 1,
+                    new StoredTextObject("synthetic/book-revision", "v1", storage.contentHash(source), source.length()));
+            em.persist(revision);
+            book.linkCurrentRevision(revision);
+            var job = AnalysisJob.createSettingBook(work, book, revision);
+            coreRunState.initializeRun(List.of(job));
+            return job.getId();
+        });
+        var payload = coreWorker.claimAnalysisJob(coreClaimRequest(partialSupport)).orElseThrow();
+        assertThat(payload.analysisJobId()).isEqualTo(bookJob);
+        assertThat(payload.sourceKind()).isEqualTo(AnalysisSourceKind.SETTING_BOOK);
+        assertThat(payload.relationshipAnalysisContract()).isNull();
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(booleans = false)
+    @DisplayName("백필 완료 뒤 재개하는 inline 관계 분석은 부분 완료 지원 Worker만 선점한다")
+    void completedBackfillStillRequiresPartialSupportForInlineClaim(Boolean partialSupport) {
+        seedPartialClaimPrefix(false);
+        UUID core = pendingCoreJob(2, false);
+        assertThat(coreWorker.claimAnalysisJob(coreClaimRequest(partialSupport))).isEmpty();
+        var payload = coreWorker.claimAnalysisJob(coreClaimRequest(true)).orElseThrow();
+        assertThat(payload.analysisJobId()).isEqualTo(core);
+        assertThat(payload.relationshipAnalysisContract().supportsPartialResults()).isTrue();
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(booleans = false)
+    @DisplayName("활성 백필 예외도 이미 고정된 Job의 부분 완료 계약을 해제하지 않는다")
+    void activeBackfillDoesNotBypassFrozenJobPartialCapability(Boolean partialSupport) {
+        seedPartialClaimPrefix(true);
+        UUID core = pendingCoreJob(3, true);
+        assertThat(coreWorker.claimAnalysisJob(coreClaimRequest(partialSupport))).isEmpty();
+        var payload = coreWorker.claimAnalysisJob(coreClaimRequest(true)).orElseThrow();
+        assertThat(payload.analysisJobId()).isEqualTo(core);
+        assertThat(payload.relationshipAnalysisContract()).isNull();
+        tx.executeWithoutResult(t -> assertThat(em.find(AnalysisJob.class, core).isRelationshipPartialResultsEnabled()).isTrue());
+    }
+
+    private WorkerAnalysisJobClaimRequest coreClaimRequest(Boolean partialSupport) {
+        return new WorkerAnalysisJobClaimRequest("synthetic", null, Set.of(AnalysisJobType.SETTING_EXTRACTION),
+                Set.of(AnalysisMode.CONFIRMED_ONLY, AnalysisMode.ORDERED_PROVISIONAL), true,
+                Set.of(AnalysisSourceKind.EPISODE, AnalysisSourceKind.SETTING_BOOK), true, false, true,
+                true, true, partialSupport);
+    }
+
+    private WorkerAnalysisJobClaimRequest relationshipClaimRequest(Boolean partialSupport) {
+        return new WorkerAnalysisJobClaimRequest("synthetic", null, Set.of(AnalysisJobType.RELATIONSHIP_EXTRACTION),
+                Set.of(AnalysisMode.CONFIRMED_ONLY), false, Set.of(AnalysisSourceKind.EPISODE), false, false,
+                false, true, true, partialSupport);
+    }
+
+    private UUID pendingCoreJob(int episodeNo, boolean frozenPartialContract) {
+        UUID episodeId = episode(episodeNo);
+        return tx.execute(t -> {
+            var job = AnalysisJob.create(em.find(Work.class, workId), null, em.find(Episode.class, episodeId), AnalysisJobType.SETTING_EXTRACTION);
+            if (frozenPartialContract) job.enableRelationshipPartialResults();
+            em.persist(job);
+            return job.getId();
+        });
+    }
+
+    private void seedPartialClaimPrefix(boolean active) {
+        tx.executeWithoutResult(t -> em.createQuery("select j from AnalysisJob j where j.status=:pending", AnalysisJob.class)
+                .setParameter("pending", AnalysisJobStatus.PENDING).getResultList().forEach(AnalysisJob::cancelForWorkPurge));
+        episode(1);
+        if (active) episode(2);
+        coordinator.bootstrapRelationshipBackfill();
+        var relationship = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+        var context = prepare(relationship);
+        graph.completeRelationshipAnalysis(relationship.analysisJobId(), relationship.leaseToken(),
+                new Complete(1, context.contextToken(), List.of(),
+                        List.of(new GroupFailure(List.of("O1"), "RELATIONSHIP_ENDPOINTS_UNGROUNDED"))));
+        coordinator.completeRelationshipJob(relationship.analysisJobId(), relationship.leaseToken(), null);
+        assertThat(state().active()).isEqualTo(active);
     }
 
     Context prepare(WorkerAnalysisJobPayload p) {
