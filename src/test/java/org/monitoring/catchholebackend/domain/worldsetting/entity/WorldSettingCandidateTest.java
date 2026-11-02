@@ -254,6 +254,26 @@ class WorldSettingCandidateTest {
         assertThat(candidate.getRawComparisonJson()).isNull();
     }
 
+    @Test
+    @DisplayName("세계관 준비 실패는 주어 해석과 입력 한도의 원인을 구분해 보존한다")
+    void preservesPreparationFailureDiagnostics() {
+        Fixture fixture = fixture();
+        org.springframework.test.util.ReflectionTestUtils.setField(fixture.analysisJob(), "analysisMode",
+                org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL);
+        fixture.analysisJob().configureReviewMode(
+                org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC);
+        var subject = candidate(fixture);
+        subject.deferSubjectResolution(AnalysisFailureCode.COMPARISON_VALIDATION_FAILED);
+        assertThat(subject.getComparisonFailureDiagnostics()).isNotNull();
+        assertThat(subject.getComparisonFailureDiagnostics().reasonCode()).isEqualTo("WORLD_SUBJECT_RESOLUTION_FAILED");
+        assertThat(subject.getComparisonFailureDiagnostics().stage()).isEqualTo("WORLD_CONTEXT");
+        var oversized = candidate(fixture);
+        oversized.deferComparisonInputLimit();
+        assertThat(oversized.getComparisonFailureDiagnostics()).isNotNull();
+        assertThat(oversized.getComparisonFailureDiagnostics().reasonCode()).isEqualTo("WORLD_COMPARISON_INPUT_TOO_LARGE");
+        assertThat(oversized.getComparisonFailureCode()).isEqualTo(AnalysisFailureCode.COMPARISON_VALIDATION_FAILED);
+    }
+
     private WorldSettingCandidate candidate(Fixture fixture) {
         return WorldSettingCandidate.create(
                 fixture.work(),

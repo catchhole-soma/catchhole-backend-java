@@ -7,6 +7,8 @@ import static org.mockito.Mockito.*;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.List;
+import org.monitoring.catchholebackend.domain.analysis.dto.AnalysisFailureNotificationDelivery;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,45 +26,48 @@ class AnalysisFailureNotificationDispatcherTest {
             UUID.randomUUID(), UUID.randomUUID(), 3, "WORLD_COMPARISON", "LLM_PROVIDER_ERROR", 2,
             LocalDateTime.of(2026, 10, 23, 15, 0), 1, UUID.randomUUID());
 
+    final AnalysisFailureNotificationDelivery delivery = new AnalysisFailureNotificationDelivery(
+            UUID.randomUUID(), UUID.randomUUID(), List.of(event));
+
     @Test
     @DisplayName("전송 확인을 받은 뒤에만 발송 완료로 기록한다")
     void acknowledgesOnlySuccessfulDelivery() {
-        when(repository.claimNext()).thenReturn(Optional.of(event));
-        when(client.send(anyString())).thenReturn(new DiscordWebhookClient.Delivery(true, Duration.ZERO));
+        when(repository.claimDelivery()).thenReturn(Optional.of(delivery));
+        when(client.send(any(DiscordWebhookClient.Message.class))).thenReturn(new DiscordWebhookClient.Delivery(true, Duration.ZERO));
         try (var dispatcher = new AnalysisFailureNotificationDispatcher(repository, client, mapper, "prod")) {
             dispatcher.dispatchNext();
         }
         var order = inOrder(client, repository);
-        order.verify(repository).claimNext();
-        order.verify(client).send(contains("세계관 비교 항목 실패"));
-        order.verify(repository).markDelivered(event);
-        verify(repository, never()).postpone(any(), any());
+        order.verify(repository).claimDelivery();
+        order.verify(client).send(argThat((DiscordWebhookClient.Message m) -> m.embeds().getFirst().title().contains("세계관 비교 항목 실패")));
+        order.verify(repository).markDelivered(delivery);
+        verify(repository, never()).postpone(any(AnalysisFailureNotificationDelivery.class), any());
     }
 
     @Test
     @DisplayName("429 이후에는 대기 기록을 보존하고 다른 알림의 즉시 전송도 멈춘다")
     void retainsFailureAndPausesWholeDestination() {
-        when(repository.claimNext()).thenReturn(Optional.of(event));
-        when(client.send(anyString())).thenReturn(new DiscordWebhookClient.Delivery(false, Duration.ofSeconds(17)));
+        when(repository.claimDelivery()).thenReturn(Optional.of(delivery));
+        when(client.send(any(DiscordWebhookClient.Message.class))).thenReturn(new DiscordWebhookClient.Delivery(false, Duration.ofSeconds(17)));
         try (var dispatcher = new AnalysisFailureNotificationDispatcher(repository, client, mapper, "prod")) {
             dispatcher.dispatchNext();
             dispatcher.dispatchNext();
         }
-        verify(repository).postpone(event, Duration.ofSeconds(17));
-        verify(repository, times(1)).claimNext();
-        verify(repository, never()).markDelivered(any());
+        verify(repository).postpone(delivery, Duration.ofSeconds(17));
+        verify(repository, times(1)).claimDelivery();
+        verify(repository, never()).markDelivered(any(AnalysisFailureNotificationDelivery.class));
     }
 
     @Test
     @DisplayName("발송 완료 기록이 실패해도 분석 경로에 예외를 전파하지 않는다")
     void isolatesAcknowledgementFailure() {
-        when(repository.claimNext()).thenReturn(Optional.of(event));
-        when(client.send(anyString())).thenReturn(new DiscordWebhookClient.Delivery(true, Duration.ZERO));
-        doThrow(new IllegalStateException("secret raw error")).when(repository).markDelivered(event);
+        when(repository.claimDelivery()).thenReturn(Optional.of(delivery));
+        when(client.send(any(DiscordWebhookClient.Message.class))).thenReturn(new DiscordWebhookClient.Delivery(true, Duration.ZERO));
+        doThrow(new IllegalStateException("secret raw error")).when(repository).markDelivered(delivery);
         try (var dispatcher = new AnalysisFailureNotificationDispatcher(repository, client, mapper, "prod")) {
             dispatcher.dispatchNext();
         }
-        verify(repository, never()).postpone(any(), any());
+        verify(repository, never()).postpone(any(AnalysisFailureNotificationDelivery.class), any());
     }
 
     @Test

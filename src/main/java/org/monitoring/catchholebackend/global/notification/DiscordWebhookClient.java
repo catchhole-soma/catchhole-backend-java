@@ -12,6 +12,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 /** 예외·응답 본문·웹훅 URL을 로그나 호출자에게 전달하지 않는다. */
 public class DiscordWebhookClient implements AutoCloseable {
+    public record Embed(String title, String description) {}
+    public record Message(String content, List<Embed> embeds) {}
     public record Delivery(boolean delivered, Duration pause) {}
     private final URI uri;
     private final HttpClient client;
@@ -24,8 +26,12 @@ public class DiscordWebhookClient implements AutoCloseable {
     }
 
     public Delivery send(String content) {
+        return send(new Message(content, List.of()));
+    }
+
+    public Delivery send(Message message) {
         try {
-            String body = json.writeValueAsString(Map.of("content", content,
+            String body = json.writeValueAsString(Map.of("content", message.content(), "embeds", message.embeds(),
                     "allowed_mentions", Map.of("parse", List.of())));
             HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(5))
                     .header("Content-Type", "application/json")

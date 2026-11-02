@@ -158,7 +158,7 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
                         || !input.provisionalSubjectKeys().isEmpty()) {
                     throw invalid();
                 }
-                candidate.deferSubjectResolution(input.failureCode());
+                candidate.deferSubjectResolution(input.failureCode(), failureDiagnosticsSanitizer.sanitize(input.failureDiagnostics(), job.getWork().getId()));
                 result.add(new WorkerWorldSettingSubjectResolutionResponse.ResolvedSubject(candidate.getId(),
                         WorldSettingSubjectResolutionType.FAILED, candidate.getCanonicalSubjectKey(),
                         candidate.getSubjectName(), List.of(), List.of()));

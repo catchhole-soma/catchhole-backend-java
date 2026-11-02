@@ -238,17 +238,23 @@ class ComparisonEvidenceHttpPostgresIntegrationTest {
         server.start();
         try (var client = new DiscordWebhookClient(URI.create("http://127.0.0.1:"+server.getAddress().getPort()+"/synthetic-discord"));
              var dispatcher = new AnalysisFailureNotificationDispatcher(notifications, client, new AnalysisFailureNotificationMapper(), "test")) {
+            sql.update("UPDATE analysis_failure_notification_deliveries SET ready_at=now()-interval '1 minute'");
             dispatcher.dispatchNext(); dispatcher.dispatchNext();
-            for (int i=0;i<2;i++) {
+            for (int i=0;i<1;i++) {
                 String body = bodies.poll(5, TimeUnit.SECONDS);
                 assertThat(body).isNotNull();
                 var wire = json.readTree(body);
                 assertThat(wire.path("allowed_mentions").path("parse")).isEmpty();
-                String message = wire.path("content").asText();
-                assertThat(message).contains("CURRENT_EVIDENCE_SOURCE_HASH_MISMATCH", "HTTP: 409", "기존 캐릭터 비교 문맥 준비", f.origin.toString(), f.job.toString())
+                String message = wire.path("content").asText() + wire.path("embeds").toString();
+                assertThat(message).contains("실패 작업: 1건", "비교 실패 후보: 1개", "CURRENT_EVIDENCE_SOURCE_HASH_MISMATCH", "HTTP: 409", "기존 캐릭터 비교 문맥 준비", f.origin.toString(), f.job.toString())
                         .doesNotContain("고정 해시와", "PRIVATE", "synthetic-gh304-key", "http://", "@everyone");
-                assertThat(message.length()).isLessThanOrEqualTo(2000);
+                assertThat(wire.path("content").asText().length()).isLessThanOrEqualTo(2000);
+                assertThat(wire.path("embeds").size()).isEqualTo(2);
+                int embedLength = 0;
+                for (var embed : wire.path("embeds")) embedLength += embed.path("title").asText().length() + embed.path("description").asText().length();
+                assertThat(embedLength).isLessThanOrEqualTo(6000);
             }
+            assertThat(bodies).isEmpty();
         } finally { server.stop(0); }
         assertThat(sql.queryForObject("SELECT count(*) FROM analysis_failure_notifications WHERE execution_job_id=? AND delivered_at IS NOT NULL", Integer.class, f.job)).isEqualTo(2);
         assertPreserved(f);
@@ -266,9 +272,11 @@ class ComparisonEvidenceHttpPostgresIntegrationTest {
         post(batchRoute(f,batch)+"/fail", lease, Map.of("failureCode", "LLM_NETWORK_ERROR", "errorMessage", "synthetic legacy failure"), 200);
         assertThat(sql.queryForObject("SELECT comparison_failure_diagnostics IS NULL AND comparison_failure_analysis_job_id=? FROM setting_candidates WHERE id=?", Boolean.class, f.job, f.incoming)).isTrue();
         assertThat(sql.queryForObject("SELECT execution_job_id=? AND failure_diagnostics IS NULL FROM analysis_failure_notifications WHERE execution_job_id=?", Boolean.class, f.job, f.job)).isTrue();
-        var event = notifications.claimNext().orElseThrow();
+        sql.update("UPDATE analysis_failure_notification_deliveries SET ready_at=now()-interval '1 minute'");
+        var delivery = notifications.claimDelivery().orElseThrow();
+        var event = delivery.notifications().getFirst();
         assertThat(event.executionJobId()).isEqualTo(f.job);
-        notifications.markDelivered(event);
+        notifications.markDelivered(delivery);
         assertPreserved(f);
     }
 

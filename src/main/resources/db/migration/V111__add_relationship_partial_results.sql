@@ -1,8 +1,9 @@
--- 관계 실패 진단의 고정 코드만 추가한다. 기존 outbox와 V90 migration은 변경하지 않는다.
+-- GH359: V107–V110의 실행별 발송·검사·발췌 정제를 유지하며 부분 결과를 추가한다.
 CREATE OR REPLACE FUNCTION safe_analysis_failure_notification_diagnostics(input jsonb) RETURNS jsonb AS $$
 DECLARE
     result jsonb;
     field text;
+    checks jsonb;
 BEGIN
     IF jsonb_typeof(input) IS DISTINCT FROM 'object'
         OR jsonb_typeof(input->'schemaVersion') IS DISTINCT FROM 'number'
@@ -13,7 +14,7 @@ BEGIN
         'stage', CASE WHEN input->>'stage' IN (
             'CHARACTER_COMPARE', 'CHARACTER_CONTEXT', 'CLAIM_INPUT',
             'EXTRACTION', 'FINALIZE', 'UNKNOWN',
-            'RELATIONSHIP_EXTRACTION', 'RELATIONSHIP_COMPARE',
+            'RELATIONSHIP_EXTRACTION', 'RELATIONSHIP_COMPARE', 'RELATIONSHIP_RESUME',
             'WORLD_COMPARE', 'WORLD_CONTEXT'
         ) THEN input->>'stage' ELSE 'UNKNOWN' END,
         'reasonCode', CASE WHEN input->>'reasonCode' IN (
@@ -41,8 +42,9 @@ BEGIN
             'RELATIONSHIP_RESPONSE_JSON_INVALID',
             'RELATIONSHIP_RESPONSE_SCHEMA_INVALID',
             'RELATIONSHIP_INPUT_TOO_LARGE',
-            'RELATIONSHIP_CONTEXT_INVALID',
-            'RELATIONSHIP_PREDECESSOR_INCOMPLETE'
+            'RELATIONSHIP_CONTEXT_INVALID', 'RELATIONSHIP_PREVIOUS_FAILURE', 'RELATIONSHIP_PREDECESSOR_INCOMPLETE',
+            'WORLD_SUBJECT_RESOLUTION_FAILED', 'WORLD_COMPARISON_INPUT_TOO_LARGE',
+            'WORLD_SUBJECT_COVERAGE_INVALID', 'WORLD_SUBJECT_REFERENCE_INVALID', 'WORLD_SUBJECT_RESPONSE_INVALID'
         ) THEN input->>'reasonCode' ELSE 'UNKNOWN' END,
         'sourceErrorCode', CASE WHEN input->>'sourceErrorCode' IN (
             'AI_TOKEN_QUOTA_EXHAUSTED', 'ANALYSIS_CURRENT_EVIDENCE_INVALID', 'ANALYSIS_CURRENT_EVIDENCE_SOURCE_UNAVAILABLE',
@@ -83,10 +85,16 @@ BEGIN
             result := result || jsonb_build_object('sourceEpisodeNo', (input->>'sourceEpisodeNo')::integer);
         END IF;
     END IF;
+    checks := safe_analysis_failure_checks(input->'checks');
+    IF checks <> '[]'::jsonb THEN result := result || jsonb_build_object('checks', checks); END IF;
+    IF jsonb_typeof(input->'subjectName') = 'string' AND input->>'subjectName' ~ '[^[:space:]]' THEN
+        result := result || jsonb_build_object('subjectName', left(input->>'subjectName', 60));
+    END IF;
+    checks := safe_analysis_failure_excerpts(input->'excerpts');
+    IF checks <> '[]'::jsonb THEN result := result || jsonb_build_object('excerpts', checks); END IF;
     RETURN result;
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
-
 
 ALTER TABLE analysis_jobs ADD COLUMN relationship_partial_results_enabled boolean NOT NULL DEFAULT false;
 ALTER TABLE relationship_graph_analyses ADD COLUMN failures jsonb;
@@ -104,12 +112,13 @@ CREATE FUNCTION record_relationship_partial_notification() RETURNS TRIGGER AS $$
 DECLARE
     reason record;
     diagnostic jsonb;
-    kind text;
+    owning_job analysis_jobs%ROWTYPE;
 BEGIN
     IF NEW.status <> 'APPLIED' OR jsonb_typeof(NEW.failures) IS DISTINCT FROM 'array' THEN RETURN NEW; END IF;
     IF TG_OP = 'UPDATE' AND OLD.status = 'APPLIED' THEN RETURN NEW; END IF;
-    SELECT job_type INTO kind FROM analysis_jobs WHERE id = NEW.id AND work_id = NEW.work_id;
-    IF kind NOT IN ('SETTING_EXTRACTION','RELATIONSHIP_EXTRACTION') OR kind IS NULL THEN RETURN NEW; END IF;
+    SELECT * INTO owning_job FROM analysis_jobs WHERE id = NEW.id AND work_id = NEW.work_id
+        AND episode_id = NEW.episode_id AND source_kind = 'EPISODE';
+    IF NOT FOUND OR owning_job.job_type NOT IN ('SETTING_EXTRACTION','RELATIONSHIP_EXTRACTION') THEN RETURN NEW; END IF;
     FOR reason IN
         SELECT value->>'reasonCode' AS code, count(*)::integer AS groups
         FROM jsonb_array_elements(NEW.failures)
@@ -131,11 +140,13 @@ BEGIN
         INSERT INTO analysis_failure_notifications
             (work_id,analysis_job_id,episode_id,episode_no,failure_kind,failure_code,failure_count,
              source_transaction,failure_diagnostics,execution_job_id,source_analysis_job_id,
-             job_type,target_episode_nos,diagnostic_group_key)
+             job_type,target_episode_nos,diagnostic_group_key,execution_attempt_id)
         VALUES (NEW.work_id,NEW.id,NEW.episode_id,NEW.episode_no,'RELATIONSHIP_COMPARISON',
             'COMPARISON_VALIDATION_FAILED',reason.groups,txid_current(),diagnostic,NEW.id,
-            CASE WHEN kind = 'SETTING_EXTRACTION' THEN NEW.id ELSE NULL END,
-            kind,ARRAY[NEW.episode_no],md5(reason.code))
+            CASE WHEN owning_job.job_type = 'SETTING_EXTRACTION' THEN NEW.id ELSE NULL END,
+            owning_job.job_type,ARRAY[NEW.episode_no],
+            md5(jsonb_build_object('attempt',owning_job.failure_notification_attempt_id,'diagnostics',diagnostic)::text),
+            owning_job.failure_notification_attempt_id)
         ON CONFLICT ON CONSTRAINT uq_analysis_failure_notification DO NOTHING;
     END LOOP;
     RETURN NEW;

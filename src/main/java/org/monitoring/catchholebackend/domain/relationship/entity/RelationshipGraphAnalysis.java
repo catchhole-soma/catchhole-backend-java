@@ -83,6 +83,10 @@ public class RelationshipGraphAnalysis extends BaseEntity {
     @Column(length = 40)
     private String failureCode;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private JsonNode failureDiagnostics;
+
     @Column(nullable = false)
     private boolean evidencePurged;
 
@@ -133,6 +137,8 @@ public class RelationshipGraphAnalysis extends BaseEntity {
         this.context = context;
         this.bindings = bindings;
         this.rejectedObservationCount = rejected;
+        failureCode = null;
+        failureDiagnostics = null;
         status = AnalysisStatus.PREPARED;
     }
 
@@ -150,7 +156,13 @@ public class RelationshipGraphAnalysis extends BaseEntity {
 
     public void fail(String code) {
         failureCode = code;
+        failureDiagnostics = null;
         status = AnalysisStatus.FAILED;
+    }
+
+    public void fail(String code, JsonNode diagnostics) {
+        fail(code);
+        failureDiagnostics = diagnostics;
     }
 
     public void apply() {

@@ -15,6 +15,32 @@ class AnalysisFailureDiagnosticsSanitizerTest {
     private final AnalysisFailureDiagnosticsSanitizer sanitizer = new AnalysisFailureDiagnosticsSanitizer(mock(JdbcTemplate.class));
     private final UUID workId = UUID.randomUUID();
 
+    @Test
+    void preservesBoundedApprovedExcerptsAndDropsUnrelatedFields() {
+        var input = mapper.createObjectNode().put("schemaVersion", 1).put("origin", "WORKER");
+        var excerpts = input.putArray("excerpts");
+        excerpts.addObject().put("kind", "SOURCE").put("field", "evidenceQuote").put("text", "가".repeat(200));
+        excerpts.addObject().put("kind", "RESPONSE").put("field", "authorization").put("text", "SECRET");
+        var result = mapper.valueToTree(sanitizer.sanitize(input, workId));
+        assertThat(result.path("excerpts").size()).isEqualTo(1);
+        assertThat(result.path("excerpts").get(0).path("text").asString()).isEqualTo("가".repeat(120));
+        assertThat(result.path("excerpts").get(0).path("truncated").asBoolean()).isTrue();
+        assertThat(result.toString()).doesNotContain("SECRET");
+    }
+
+    @Test @DisplayName("기대값과 실제값은 고정 필드의 수치·참조만 보존하고 비정상 값은 버린다")
+    void preservesObservedChecksWithoutRawText() throws Exception {
+        var input = mapper.readTree("""
+                {"schemaVersion":1,"origin":"WORKER","stage":"RELATIONSHIP_COMPARE","reasonCode":"RELATIONSHIP_INPUT_TOO_LARGE",
+                 "checks":[{"field":"inputTokens","rule":"MAX","expected":"64000","actual":"72001"},
+                           {"field":"selectedSubjectRefs","rule":"IN_SET","expected":"S1,S2","actual":"Bearer_PRIVATE"}]}
+                """);
+        var result = mapper.valueToTree(sanitizer.sanitize(input, workId));
+        assertThat(result.path("checks").size()).isEqualTo(1);
+        assertThat(result.path("checks").get(0).path("actual").asString()).isEqualTo("72001");
+        assertThat(result.toString()).doesNotContain("Bearer_PRIVATE");
+    }
+
     @Test @DisplayName("합성 공통 계약의 안전한 필드를 보존하고 미검증 식별자를 제거한다")
     void foreignSourceIdentifiersAreRemovedWithoutRejectingFailure() throws Exception {
         var input = mapper.readTree(getClass().getResourceAsStream("/contracts/analysis-failure-diagnostics-v1.json"));

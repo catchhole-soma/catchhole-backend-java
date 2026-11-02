@@ -76,6 +76,15 @@ class RelationshipBackfillPostgresIntegrationTest extends RelationshipBackfillIn
         assertThat(row.get("failure_kind")).isEqualTo("RELATIONSHIP_COMPARISON");
         assertThat(row.get("diagnostic").toString()).contains("RELATIONSHIP_ENDPOINTS_UNGROUNDED")
                 .doesNotContain("아라", "보라", "다라", "observationRefs");
+        assertThat(jdbc.queryForObject("""
+                select n.execution_attempt_id is not null
+                    and n.execution_attempt_id=j.failure_notification_attempt_id
+                    and d.execution_attempt_id=n.execution_attempt_id
+                from analysis_failure_notifications n
+                join analysis_jobs j on j.id=n.execution_job_id
+                join analysis_failure_notification_deliveries d on d.id=n.delivery_id
+                where n.work_id=?
+                """, Boolean.class, workId)).isTrue();
         // Exercise SQL writers too: only the bounded fixed reason is copied. A rolled-back graph
         // publication must roll back its outbox rows in the same database transaction.
         tx.executeWithoutResult(status -> {
@@ -86,6 +95,8 @@ class RelationshipBackfillPostgresIntegrationTest extends RelationshipBackfillIn
             jdbc.update("update relationship_graph_analyses set status='APPLIED' where work_id=? and episode_no=2", workId);
             var added = jdbc.queryForMap("select failure_count,failure_diagnostics::text as diagnostic from analysis_failure_notifications where work_id=? and source_transaction=txid_current()", workId);
             assertThat(added.get("failure_count")).isEqualTo(2);
+            assertThat(jdbc.queryForObject("select count(distinct delivery_id) from analysis_failure_notifications where work_id=?",
+                    Integer.class, workId)).isEqualTo(1);
             assertThat(added.get("diagnostic").toString()).doesNotContain("PRIVATE", "PREDECESSOR");
             status.setRollbackOnly();
         });

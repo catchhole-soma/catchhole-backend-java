@@ -190,7 +190,12 @@ public final class RelationshipGraphContract {
 
     @Schema(description = "핵심 설정 분석과 분리한 관계 분석 실패")
     public record Fail(
-            int formatVersion, String sourceHash, String contextToken, FailureCode failureCode) {}
+            int formatVersion, String sourceHash, String contextToken, FailureCode failureCode,
+            tools.jackson.databind.JsonNode failureDiagnostics) {
+        public Fail(int formatVersion, String sourceHash, String contextToken, FailureCode failureCode) {
+            this(formatVersion, sourceHash, contextToken, failureCode, null);
+        }
+    }
 
     @Schema(description = "관계도 회차 선택")
     public record EpisodeRef(UUID id, int episodeNo, String title) {}

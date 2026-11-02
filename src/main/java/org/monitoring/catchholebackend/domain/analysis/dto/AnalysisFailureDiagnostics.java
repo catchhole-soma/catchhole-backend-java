@@ -1,14 +1,38 @@
 package org.monitoring.catchholebackend.domain.analysis.dto;
 
 import java.util.Set;
+import java.util.List;
 import java.util.UUID;
 
-/** 원문·오류 메시지 없이 전달하는 선택적 실패 원인 계약. 실행 식별자는 서버 엔티티가 소유한다. */
+/** 고정 진단과 사용자가 허용한 짧은 발췌. 실행 식별자는 서버 엔티티가 소유한다. */
 public record AnalysisFailureDiagnostics(
         int schemaVersion, String origin, String stage, String reasonCode, String sourceErrorCode,
         Integer httpStatus, String requestId, String traceId, UUID sourceAnalysisJobId,
-        UUID sourceCandidateId, UUID sourceEpisodeId, Integer sourceEpisodeNo
+        UUID sourceCandidateId, UUID sourceEpisodeId, Integer sourceEpisodeNo, List<AnalysisFailureCheck> checks, List<AnalysisFailureExcerpt> excerpts, String subjectName
 ) {
+    public AnalysisFailureDiagnostics {
+        if (subjectName != null && subjectName.isBlank()) subjectName = null;
+        if (subjectName != null && subjectName.codePointCount(0, subjectName.length()) > 60)
+            subjectName = subjectName.substring(0, subjectName.offsetByCodePoints(0, 60));
+        excerpts = excerpts == null ? List.of() : excerpts.stream().limit(3).filter(java.util.Objects::nonNull).filter(AnalysisFailureExcerpt::isSafe).toList();
+        checks = checks == null ? List.of() : checks.stream().limit(3).filter(java.util.Objects::nonNull).filter(AnalysisFailureCheck::isSafe).toList();
+    }
+    public AnalysisFailureDiagnostics(int schemaVersion, String origin, String stage, String reasonCode, String sourceErrorCode,
+            Integer httpStatus, String requestId, String traceId, UUID sourceAnalysisJobId, UUID sourceCandidateId,
+            UUID sourceEpisodeId, Integer sourceEpisodeNo, List<AnalysisFailureCheck> checks, List<AnalysisFailureExcerpt> excerpts) {
+        this(schemaVersion, origin, stage, reasonCode, sourceErrorCode, httpStatus, requestId, traceId,
+                sourceAnalysisJobId, sourceCandidateId, sourceEpisodeId, sourceEpisodeNo, checks, excerpts, null);
+    }
+    public AnalysisFailureDiagnostics(int schemaVersion, String origin, String stage, String reasonCode, String sourceErrorCode,
+            Integer httpStatus, String requestId, String traceId, UUID sourceAnalysisJobId, UUID sourceCandidateId,
+            UUID sourceEpisodeId, Integer sourceEpisodeNo, List<AnalysisFailureCheck> checks) {
+        this(schemaVersion, origin, stage, reasonCode, sourceErrorCode, httpStatus, requestId, traceId,
+                sourceAnalysisJobId, sourceCandidateId, sourceEpisodeId, sourceEpisodeNo, checks, List.of());
+    }
+    public AnalysisFailureDiagnostics(int schemaVersion, String origin, String stage, String reasonCode, String sourceErrorCode,
+            Integer httpStatus, String requestId, String traceId, UUID sourceAnalysisJobId, UUID sourceCandidateId, UUID sourceEpisodeId, Integer sourceEpisodeNo) {
+        this(schemaVersion, origin, stage, reasonCode, sourceErrorCode, httpStatus, requestId, traceId, sourceAnalysisJobId, sourceCandidateId, sourceEpisodeId, sourceEpisodeNo, List.of());
+    }
     public static final Set<String> ORIGINS = Set.of("SPRING", "PROVIDER", "WORKER");
     public static final Set<String> STAGES = Set.of("CHARACTER_COMPARE",
             "CHARACTER_CONTEXT",
@@ -17,10 +41,15 @@ public record AnalysisFailureDiagnostics(
             "FINALIZE",
             "RELATIONSHIP_EXTRACTION",
             "RELATIONSHIP_COMPARE",
+            "RELATIONSHIP_RESUME",
             "UNKNOWN",
             "WORLD_COMPARE",
             "WORLD_CONTEXT");
     public static final Set<String> REASONS = Set.of("COMPARISON_RESULT_INVALID",
+            "WORLD_SUBJECT_RESOLUTION_FAILED",
+            "WORLD_SUBJECT_COVERAGE_INVALID", "WORLD_SUBJECT_REFERENCE_INVALID", "WORLD_SUBJECT_RESPONSE_INVALID",
+            "WORLD_COMPARISON_INPUT_TOO_LARGE",
+            "RELATIONSHIP_PREVIOUS_FAILURE",
             "RELATIONSHIP_OBSERVATION_REFS_INVALID",
             "RELATIONSHIP_OBSERVATION_ORDER_INVALID",
             "RELATIONSHIP_DISPOSITION_CONFLICT",
@@ -103,6 +132,6 @@ public record AnalysisFailureDiagnostics(
 
     public AnalysisFailureDiagnostics withoutSourceIdentifiers() {
         return new AnalysisFailureDiagnostics(schemaVersion, origin, stage, reasonCode, sourceErrorCode,
-                httpStatus, requestId, traceId, null, null, null, null);
+                httpStatus, requestId, traceId, null, null, null, null, checks, excerpts, subjectName);
     }
 }

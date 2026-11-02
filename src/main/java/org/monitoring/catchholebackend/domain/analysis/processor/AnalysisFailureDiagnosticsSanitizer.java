@@ -31,7 +31,10 @@ public class AnalysisFailureDiagnosticsSanitizer {
                         : "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"),
                 bounded(input, "traceId", "[0-9a-f]{32}"), uuid(input, "sourceAnalysisJobId"),
                 uuid(input, "sourceCandidateId"), uuid(input, "sourceEpisodeId"),
-                number(input, "sourceEpisodeNo", 1, Integer.MAX_VALUE));
+                number(input, "sourceEpisodeNo", 1, Integer.MAX_VALUE),
+                org.monitoring.catchholebackend.domain.analysis.dto.AnalysisFailureCheck.fromJson(input.path("checks")),
+                org.monitoring.catchholebackend.domain.analysis.dto.AnalysisFailureExcerpt.fromJson(input.path("excerpts")),
+                input.path("subjectName").isTextual() ? input.path("subjectName").stringValue() : null);
         return verifiedSource(result, workId) ? result : result.withoutSourceIdentifiers();
     }
 

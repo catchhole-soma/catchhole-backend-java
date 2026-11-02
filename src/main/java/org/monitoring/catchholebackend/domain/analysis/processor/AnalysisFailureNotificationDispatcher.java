@@ -42,10 +42,10 @@ public class AnalysisFailureNotificationDispatcher implements AutoCloseable {
     public void dispatchNext() {
         if (Instant.now().isBefore(nextSendAt)) return;
         try {
-            var pending = repository.claimNext();
+            var pending = repository.claimDelivery();
             if (pending.isEmpty()) return;
             var event = pending.get();
-            var delivery = client.send(mapper.toMessage(event, environment));
+            var delivery = client.send(mapper.toPayload(event, environment));
             if (delivery.delivered()) {
                 repository.markDelivered(event);
                 nextSendAt = Instant.now().plus(delivery.pause());
