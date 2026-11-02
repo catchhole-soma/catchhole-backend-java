@@ -97,6 +97,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     private final ObjectStorageService storage;
     private final RelationshipGraphRules rules;
     private final RelationshipGraphMapper mapper;
+    private final org.monitoring.catchholebackend.domain.analysis.processor.AnalysisFailureDiagnosticsSanitizer failureDiagnosticsSanitizer;
     private final TransactionTemplate transactions;
     private final org.monitoring.catchholebackend.domain.relationship.repository
                     .RelationshipBackfillWorkRepository
@@ -269,7 +270,8 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         }
         if (analysis.getStatus() != AnalysisStatus.PENDING
                 && analysis.getStatus() != AnalysisStatus.PREPARED) conflict();
-        analysis.fail(request.failureCode().name());
+        var diagnostics = failureDiagnosticsSanitizer.sanitize(request.failureDiagnostics(), job.getWork().getId());
+        analysis.fail(request.failureCode().name(), diagnostics == null ? null : mapper.toJson(diagnostics));
     }
 
     @Override
