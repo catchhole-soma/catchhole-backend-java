@@ -173,6 +173,10 @@ class ValidationExecutionHttpPostgresIntegrationTest {
         var p=json.valueToTree(progress(f));assertThat(p.path("findings").size()).isEqualTo(1);
         assertThat(p.path("completedChecks").asInt()).isEqualTo(1);assertThat(response.at("/calls/QUERY_EMBEDDING").asInt()).isZero();
         assertThat(jdbc.queryForObject("select count(*) from validation_evidence where report_id=? and source_ref='R1'",Integer.class,f.report())).isZero();
+        // 판정 작성 제목(2026-11-03): 실제 Worker가 게시한 headline이 검증을 지나 finding에 저장되고 작가 화면 값이 된다.
+        var payload=json.readTree(jdbc.queryForObject("select payload::text from validation_findings where report_id=? and branch='SETTING'",String.class,f.report()));
+        assertThat(payload.path("headline").asText()).isEqualTo("합성 대상의 확인 항목이 기존 설정과 달라요");
+        assertThat(org.monitoring.catchholebackend.domain.validation.processor.ValidationFindingLabels.headline(payload)).isEqualTo("합성 대상의 확인 항목이 기존 설정과 달라요");
         org.mockito.Mockito.verify(storage,org.mockito.Mockito.never()).getText(org.mockito.ArgumentMatchers.startsWith("synthetic/prior/"));noExtraction();
     }
     @Test @DisplayName("판정 한 질문의 provider 실패는 그 질문만 INCOMPLETE로 저장하고 작가 재시도는 그 질문만 다시 판정한다(③)")

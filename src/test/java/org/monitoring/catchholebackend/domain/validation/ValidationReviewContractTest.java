@@ -15,6 +15,7 @@ import org.monitoring.catchholebackend.domain.validation.exception.ValidationErr
 import org.monitoring.catchholebackend.domain.validation.processor.ValidationIntakeEligibility;
 import org.monitoring.catchholebackend.domain.validation.processor.ValidationNextEpisodeAdmission;
 import org.monitoring.catchholebackend.domain.validation.processor.ValidationReviewStages;
+import org.monitoring.catchholebackend.domain.validation.processor.ValidationFindingLabels;
 import org.monitoring.catchholebackend.domain.validation.type.*;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
 import org.monitoring.catchholebackend.global.common.response.PageResponse;
@@ -38,6 +39,7 @@ class ValidationReviewContractTest {
         Map<String,JavaType> responses=new LinkedHashMap<>();
         for(String name:List.of("findingSummary","findingSummaryWorld","findingSummaryTypo"))responses.put(name,types.constructType(ValidationFindingSummaryResponse.class));
         responses.put("findingDetail",types.constructType(ValidationFindingDetailResponse.class));
+        responses.put("findingSourceContext",types.constructType(ValidationSourceContextResponse.class));
         for(String name:List.of("reviewSummary","reviewSummaryApplied"))responses.put(name,types.constructType(ValidationReviewSummaryResponse.class));
         responses.put("reviewCompletion",types.constructType(ValidationReviewCompletionResponse.class));
         responses.put("settingsApplication",types.constructType(ValidationSettingsApplicationResponse.class));
@@ -52,7 +54,7 @@ class ValidationReviewContractTest {
         assertThat(f.path("errors").size()).as("every error example is round-tripped").isEqualTo(3);
         roundTrips("correctionFromFindingBasis.request",f.path("correctionFromFindingBasis").path("request"),types.constructType(ValidationCorrectionRequest.class));
         roundTrips("correctionFromFindingBasis.recheckWithReceipt",f.path("correctionFromFindingBasis").path("recheckWithReceipt"),types.constructType(ValidationRecheckRequest.class));
-        assertThat(f.path("routes").size()).isEqualTo(8);
+        assertThat(f.path("routes").size()).isEqualTo(9);
     }
 
     @Test @DisplayName("접수 자격 예시는 서버 판정 문구와 같고 409 차단 context가 같은 report를 가리킨다")
@@ -129,6 +131,67 @@ class ValidationReviewContractTest {
     }
 
     List<String> texts(JsonNode array) {var out=new ArrayList<String>();array.forEach(n->out.add(n.asText()));return out;}
+
+    @Test @DisplayName("오류 리포트 문맥 블록: 예시 블록은 이번 원고 → 설정값 → 이전 회차 순이고 줄 위치·표기가 서버 규칙과 같다")
+    void findingBlocksFollowServerRules() throws Exception {
+        var responses=fixture().path("responses");var detail=responses.path("findingDetail");
+        var kinds=new ArrayList<String>();detail.path("blocks").forEach(b->kinds.add(b.path("kind").asText()));
+        assertThat(kinds).containsExactly("TARGET","SETTING","EPISODE");
+        for(var kind:kinds)assertThat(ValidationFindingBlockKind.valueOf(kind)).isNotNull();
+        var spans=detail.path("payload").path("target_spans");var target=detail.path("blocks").path(0);
+        assertThat(target.path("start")).isEqualTo(spans.path(0).path("start"));assertThat(target.path("quote")).isEqualTo(spans.path(0).path("quote"));
+        assertThat(target.path("label").asText()).isEqualTo(detail.path("targetEpisodeNo").asInt()+"화 · "+(target.path("start").asInt()+1)+"~"+target.path("end").asInt()+"자");
+        var setting=detail.path("blocks").path(1);var settingQuote=detail.path("basisQuotes").path(0);
+        assertThat(setting.path("label")).isEqualTo(settingQuote.path("label"));assertThat(setting.path("quote")).isEqualTo(settingQuote.path("quote"));
+        assertThat(setting.path("context").isNull()&&setting.path("contextStatus").isNull()&&setting.path("sourceRef").isNull()).isTrue();
+        var episode=detail.path("blocks").path(2);var episodeQuote=detail.path("basisQuotes").path(1);
+        assertThat(episode.path("sourceRef")).isEqualTo(episodeQuote.path("sourceRef"));assertThat(episode.path("start")).isEqualTo(episodeQuote.path("start"));
+        assertThat(episode.path("label").asText()).isEqualTo(episodeQuote.path("label").asText()+" · "+(episode.path("start").asInt()+1)+"~"+episode.path("end").asInt()+"자");
+        for(var block:detail.path("blocks")) {
+            assertThat(block.path("label").asText()).doesNotContainPattern("(?<![A-Za-z0-9])(T1|R[0-9]+|E[0-9]+|B[0-9]+)(?![0-9])");
+            if(block.path("context").isNull())continue;
+            assertThat(ValidationSourceContextStatus.valueOf(block.path("contextStatus").asText())).isEqualTo(ValidationSourceContextStatus.READY);
+            var context=block.path("context");assertThat(context.path("sourceRef")).isEqualTo(block.path("sourceRef"));
+            assertThat(context.path("start").asInt()).isLessThanOrEqualTo(block.path("start").asInt());assertThat(context.path("end").asInt()).isGreaterThanOrEqualTo(block.path("end").asInt());
+            consistentLines(context);
+        }
+        consistentLines(responses.path("findingSourceContext"));
+    }
+    @Test @DisplayName("판정 작성 제목: 예시 headline은 서버 규칙(80 code point·내부 참조 없음)을 따르고 이전 결과·오탈자는 null, 합친 블록의 quotes는 판정 위치 전부다")
+    void headlineAndMergedBlockExamplesFollowServerRules() throws Exception {
+        var responses=fixture().path("responses");var detail=responses.path("findingDetail");
+        assertThat(ValidationFindingLabels.headline(json.createObjectNode().put("headline",detail.path("headline").asText()))).isEqualTo(detail.path("headline").asText());
+        assertThat(responses.path("findingSummary").path("headline")).isEqualTo(detail.path("headline"));
+        assertThat(responses.path("findingSummaryWorld").path("headline").isNull()).as("older result without a judge title").isTrue();
+        assertThat(responses.path("findingSummaryTypo").path("headline").isNull()).isTrue();
+        assertThat(detail.path("payload").has("headline")).as("top-level only").isFalse();
+        var target=detail.path("blocks").path(0);var spans=detail.path("payload").path("target_spans");
+        assertThat(target.path("quotes").size()).as("one merged block for both target spans").isEqualTo(spans.size()).isEqualTo(2);
+        for(int i=0;i<spans.size();i++) {
+            assertThat(target.path("quotes").path(i).path("quote")).isEqualTo(spans.path(i).path("quote"));
+            assertThat(target.path("quotes").path(i).path("start")).isEqualTo(spans.path(i).path("start"));assertThat(target.path("quotes").path(i).path("end")).isEqualTo(spans.path(i).path("end"));
+        }
+        assertThat(target.path("end")).isEqualTo(spans.path(1).path("end"));
+        for(var block:detail.path("blocks")) {
+            assertThat(block.path("quotes").isArray()&&!block.path("quotes").isEmpty()).isTrue();
+            assertThat(block.path("quotes").path(0).path("quote")).isEqualTo(block.path("quote"));
+            if("SETTING".equals(block.path("kind").asText()))for(var q:block.path("quotes"))assertThat(q.path("start").isNull()&&q.path("end").isNull()).isTrue();
+            else for(var q:block.path("quotes")) {assertThat(q.path("start").asInt()).isGreaterThanOrEqualTo(block.path("start").asInt());assertThat(q.path("end").asInt()).isLessThanOrEqualTo(block.path("end").asInt());}
+        }
+        var invariants=fixture().path("invariants");
+        for(String name:List.of("findingHeadline","findingBlockMerge","findingSubjectRule"))assertThat(invariants.path(name).asText()).as(name).isNotBlank();
+    }
+    void consistentLines(JsonNode context) {
+        int previous=-1;
+        for(var line:context.path("lines")) {
+            String text=line.path("text").asText();
+            assertThat(line.path("end").asInt()-line.path("start").asInt()).as(text).isEqualTo(text.codePointCount(0,text.length()));
+            assertThat(line.path("start").asInt()).isGreaterThan(previous);assertThat(text).doesNotContain("\r","\n");previous=line.path("end").asInt();
+        }
+        assertThat(context.path("start")).isEqualTo(context.path("lines").path(0).path("start"));
+        assertThat(context.path("end")).isEqualTo(context.path("lines").path(context.path("lines").size()-1).path("end"));
+        assertThat(context.path("end").asInt()).isLessThanOrEqualTo(context.path("totalCodePoints").asInt());
+    }
 
     @Test @DisplayName("과거 이력 응답은 요약만 담고 인용·근거·판정 내용이 없다")
     void historyIsSummaryOnly() throws Exception {

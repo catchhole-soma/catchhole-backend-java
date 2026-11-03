@@ -121,6 +121,46 @@ class ValidationExecutionContractTest {
         var beyond=new ArrayList<>(citations);beyond.set(0,new Citation(first.sourceRef(),first.sourceHash(),first.sourceVersion(),3,9,"가"));
         assertThatThrownBy(()->validator.payload(prepared,payload,beyond)).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class);
     }
+    @Test @DisplayName("판정 근거 문장 벡터: Worker가 게시하는 E·B 인용은 서버 규칙을 통과하고 버린 인용은 서버도 받지 않는다(오류 리포트 가독성)")
+    void basisQuoteVectorsMatchServerRules() throws Exception {
+        var flow=fixture().path("judgeFlow").path("basisQuotes");
+        assertThat(flow.path("maxItems").asInt()).isEqualTo(ValidationBasisQuotes.MAX_ITEMS);
+        assertThat(flow.path("maxQuoteCodePoints").asInt()).isEqualTo(ValidationBasisQuotes.MAX_QUOTE_CODE_POINTS);
+        assertThat(flow.path("vectors").size()).isGreaterThanOrEqualTo(6);
+        for(var v:flow.path("vectors")) {
+            String name=v.path("name").asText();var published=v.path("published");var evidence=v.path("evidence");var setting=v.path("setting");
+            if(!published.isNull()) {
+                String quote=published.path("quote").asText();
+                assertThat(ValidationBasisQuotes.codePoints(quote)).as(name).isBetween(1,ValidationBasisQuotes.MAX_QUOTE_CODE_POINTS);
+                if(ValidationBasisQuotes.isSettingQuote(published)) {
+                    assertThat(published.path("source_ref").isNull()&&published.path("start").isNull()&&published.path("end").isNull()).as(name).isTrue();
+                    assertThat(ValidationBasisQuotes.containing(setting,quote)).as(name).isNotEmpty();
+                } else {
+                    assertThat(published.path("source_ref").asText()).as(name).isEqualTo(evidence.path("source_ref").asText()).isNotEqualTo("T1");
+                    int start=published.path("start").asInt(),end=published.path("end").asInt(),from=evidence.path("start").asInt();
+                    assertThat(start).as(name).isGreaterThanOrEqualTo(from);assertThat(end).as(name).isLessThanOrEqualTo(evidence.path("end").asInt());
+                    assertThat(ValidationBasisQuotes.slice(evidence.path("quote").asText(),start-from,end-from)).as(name).isEqualTo(quote);
+                }
+            } else if(!setting.isNull()) {
+                assertThat(ValidationBasisQuotes.containing(setting,v.path("answer").path("quote").asText().strip())).as(name+": a dropped setting quote is not a value leaf").isEmpty();
+            } else {
+                boolean target="T1".equals(evidence.path("source_ref").asText());
+                assertThat(target||!evidence.path("quote").asText().contains(v.path("answer").path("quote").asText().strip())).as(name+": a dropped evidence quote is the target or not in the chunk").isTrue();
+            }
+        }
+    }
+    @Test @DisplayName("판정 작성 제목(headline)은 인용 경로가 아닌 글이라 게시 인용 검사를 그대로 통과한다")
+    void headlineIsPlainTextForCitationChecks() throws Exception {
+        var flow=fixture().path("judgeFlow").path("headline");
+        assertThat(flow.path("maxCodePoints").asInt()).isEqualTo(ValidationDecisionValidator.MAX_HEADLINE_CODE_POINTS);
+        assertThat(fixture().path("judgeFlow").path("authorText").path("fields").toString()).contains("headline");
+        var payload=(com.fasterxml.jackson.databind.node.ObjectNode)fixture().path("requests").path("settingUnit").path("payload").deepCopy();
+        payload.put("headline",flow.path("vectors").path(0).path("headline").asText());
+        var validator=payloadValidator();var prepared=payloadContext(json.createArrayNode());var citations=payloadCitations();
+        assertThatCode(()->validator.payload(prepared,payload,citations)).doesNotThrowAnyException();
+        payload.putNull("headline");
+        assertThatCode(()->validator.payload(prepared,payload,citations)).doesNotThrowAnyException();
+    }
     @Test @DisplayName("질문 하나의 INCOMPLETE unit 예시가 DTO로 왕복하고 인용 검사를 통과한다(③)")
     void incompleteQuestionUnitExampleRoundTripsAndIsCited() throws Exception {
         var failure=fixture().path("judgeFlow").path("questionFailure");var unit=failure.path("unit");

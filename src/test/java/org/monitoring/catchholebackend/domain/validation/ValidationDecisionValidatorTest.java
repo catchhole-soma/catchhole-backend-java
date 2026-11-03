@@ -78,6 +78,24 @@ class ValidationDecisionValidatorTest {
         for(var assessment:body.path("completion"))((ObjectNode)assessment).set("receipt_refs",json.createArrayNode().add("L1").add("L2").add("L3"));
         body.put("outcome",outcome).put("basis",basis).put("impact","CAUTION").put("impact_reason","합성 비교 차이");body.set("evidence_refs",json.createArrayNode().add("T1").add("E1"));
     }
+    @Test @DisplayName("판정 작성 제목 벡터: 없거나 null이면 통과, 글은 공백 아닌 80 code point 이하, 문제없음은 제목을 둘 수 없다(공통 계약 headline)")
+    void headlineVectorsFollowTheSharedContract() throws Exception {
+        var flow=f.path("judgeFlow").path("headline");
+        assertThat(flow.path("maxCodePoints").asInt()).isEqualTo(ValidationDecisionValidator.MAX_HEADLINE_CODE_POINTS);
+        assertThat(flow.path("vectors").size()).isGreaterThanOrEqualTo(10);
+        for(var v:flow.path("vectors")) {
+            fixture();String outcome=v.path("outcome").asText(),name=v.path("name").asText();
+            switch(outcome) {
+                case "CONFLICT" -> conflictBundle("R1","CONFLICT","DIRECT_CONTRADICTION");
+                case "SUSPECTED_CONFLICT" -> conflictBundle("R1","SUSPECTED_CONFLICT","CHANGE_NOT_FOUND");
+                case "NEEDS_CONTEXT" -> body.put("outcome","NEEDS_CONTEXT").put("basis","AMBIGUOUS_MEANING").put("impact","REFERENCE").put("impact_reason","합성 확인 필요");
+                default -> assertThat(outcome).isEqualTo("NO_CONFLICT");
+            }
+            if(!v.path("omit").asBoolean())body.set("headline",v.path("headline"));else body.remove("headline");
+            if(v.path("valid").asBoolean())assertThatCode(()->validator.validate(prepared,check,outcome,body)).as(name).doesNotThrowAnyException();
+            else assertThatThrownBy(()->validator.validate(prepared,check,outcome,body)).as(name).isInstanceOf(AppException.class);
+        }
+    }
     @Test @DisplayName("bundle settings는 질문 대상 항목의 entry_ref·subject_ref만으로 완료한다") void refsOnlySettingsAccepted() {
         subjectS1(row("B1","S1"),row("B3","S1"));assertThatCode(()->validator.validate(prepared,check,"NO_CONFLICT",body)).doesNotThrowAnyException();
     }
