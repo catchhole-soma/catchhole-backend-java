@@ -11,8 +11,23 @@ public record AnalysisStateChange(
         JsonNode value,
         boolean remove,
         String operation,
-        List<UUID> sourceCandidateIds
+        List<UUID> sourceCandidateIds,
+        ValueMode valueMode
 ) {
+    /** DB journal의 값 적용 방식이며 ADD/UPDATE 등의 도메인 판단과는 별개다. */
+    public enum ValueMode { REPLACE, APPEND_HISTORY }
+
+    public AnalysisStateChange(String eventId, List<String> path, JsonNode value, boolean remove,
+            String operation, List<UUID> sourceCandidateIds) {
+        this(eventId, path, value, remove, operation, sourceCandidateIds, ValueMode.REPLACE);
+    }
+
+    public static AnalysisStateChange appendHistory(String eventId, String characterRef, JsonNode additions,
+            String operation, List<UUID> sourceCandidateIds) {
+        return new AnalysisStateChange(eventId, List.of("characters", characterRef, "historyFacts"), additions,
+                false, operation, sourceCandidateIds, ValueMode.APPEND_HISTORY);
+    }
+
     public AnalysisStateChange {
         if (eventId == null || eventId.isBlank() || operation == null || operation.isBlank()) {
             throw new IllegalArgumentException("변경 식별자와 연산은 필수입니다.");
@@ -26,7 +41,16 @@ public record AnalysisStateChange(
         if (remove ? value != null && !value.isNull() : value == null || value.isNull()) {
             throw new IllegalArgumentException("제거 여부와 변경값이 일치하지 않습니다.");
         }
+        if (valueMode == null || valueMode == ValueMode.APPEND_HISTORY
+                && (remove || path.size() != 3 || !"characters".equals(path.getFirst())
+                    || !"historyFacts".equals(path.getLast()) || !value.isArray())) {
+            throw new IllegalArgumentException("이력 추가는 캐릭터의 이력 배열에만 적용할 수 있습니다.");
+        }
         value = remove ? null : value.deepCopy();
+    }
+
+    public boolean appendsHistory() {
+        return valueMode == ValueMode.APPEND_HISTORY;
     }
 
     @Override

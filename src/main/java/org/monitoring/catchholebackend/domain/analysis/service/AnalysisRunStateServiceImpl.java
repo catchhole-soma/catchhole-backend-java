@@ -230,6 +230,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
             JsonNode next = apply(projected, delta);
             ObjectNode updated = record.deepCopy();
             ((com.fasterxml.jackson.databind.node.ArrayNode) updated.path("changes")).addAll(journal.toJson(delta));
+            upgradeStorageVersion(updated, delta);
             job.replacePendingJournal(updated);
             record = updated;
             recordRevision = job.getStateJournalRevision();
@@ -373,6 +374,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
         List<AnalysisStateChange> merged = List.copyOf(current.values());
         apply(getInputState(job), merged);
         record.set("changes", journal.toJson(merged));
+        upgradeStorageVersion(record, merged);
         job.replacePendingJournal(record);
     }
 
@@ -527,7 +529,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
 
     private ObjectNode envelope(AnalysisJob job) {
         ObjectNode record = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
-        record.put("formatVersion", AnalysisStateJournal.FORMAT_VERSION);
+        record.put("formatVersion", AnalysisStateJournal.LEGACY_STORAGE_VERSION);
         record.put("runId", job.getAnalysisRunId().toString());
         record.put("workId", job.getWork().getId().toString());
         record.put("generation", job.getRunGeneration());
@@ -554,7 +556,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
 
     private JsonNode requireEnvelope(AnalysisJob job, JsonNode record) {
         if (record == null || !record.isObject() || record.path("sourceEvidencePurged").asBoolean(false)
-                || record.path("formatVersion").asInt(-1) != AnalysisStateJournal.FORMAT_VERSION
+                || !supportedStorageVersion(record.path("formatVersion"))
                 || !record.path("runId").asText().equals(job.getAnalysisRunId().toString())
                 || !record.path("workId").asText().equals(job.getWork().getId().toString())
                 || record.path("generation").asLong(-1) != job.getRunGeneration()
@@ -565,6 +567,18 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
             throw conflict();
         }
         return record;
+    }
+
+    private boolean supportedStorageVersion(JsonNode version) {
+        return version.isIntegralNumber() && version.canConvertToInt() && (version.asInt(-1) == AnalysisStateJournal.LEGACY_STORAGE_VERSION
+                || version.asInt(-1) == AnalysisStateJournal.HISTORY_APPEND_STORAGE_VERSION);
+    }
+
+    private void upgradeStorageVersion(ObjectNode record, List<AnalysisStateChange> changes) {
+        if (changes.stream().anyMatch(AnalysisStateChange::appendsHistory)) {
+            // v1 Java는 v2 envelope를 거절한다. 추가 배열을 전체 대체로 오해하게 두지 않는다.
+            record.put("formatVersion", AnalysisStateJournal.HISTORY_APPEND_STORAGE_VERSION);
+        }
     }
 
     private boolean matchesEnvelopeSource(JsonNode record, AnalysisJob job) {
@@ -583,7 +597,12 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
 
     private List<AnalysisStateChange> readChanges(JsonNode record) {
         try {
-            return journal.fromJson(record.path("changes"));
+            List<AnalysisStateChange> changes = journal.fromJson(record.path("changes"));
+            if (record.path("formatVersion").asInt() == AnalysisStateJournal.LEGACY_STORAGE_VERSION
+                    && changes.stream().anyMatch(AnalysisStateChange::appendsHistory)) {
+                throw conflict();
+            }
+            return changes;
         } catch (IllegalArgumentException exception) {
             throw conflict();
         }

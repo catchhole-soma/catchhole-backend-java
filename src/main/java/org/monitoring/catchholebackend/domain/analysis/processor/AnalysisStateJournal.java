@@ -21,7 +21,10 @@ import org.springframework.stereotype.Component;
 @Component
 public class AnalysisStateJournal {
 
+    /** Worker transport의 고정 입력/해시 계약. DB journal 저장 버전과 분리한다. */
     public static final int FORMAT_VERSION = 1;
+    public static final int LEGACY_STORAGE_VERSION = 1;
+    public static final int HISTORY_APPEND_STORAGE_VERSION = 2;
 
     public ObjectNode emptyState() {
         ObjectNode root = JsonNodeFactory.instance.objectNode();
@@ -59,6 +62,13 @@ public class AnalysisStateJournal {
                     throw new IllegalArgumentException("제거할 설정이 존재하지 않습니다.");
                 }
                 object.remove(key);
+            } else if (change.appendsHistory()) {
+                JsonNode current = object.get(key);
+                if (current != null && !current.isArray()) {
+                    throw new IllegalArgumentException("추가할 이력의 기존 값이 배열이 아닙니다.");
+                }
+                ArrayNode history = current == null ? object.putArray(key) : (ArrayNode) current;
+                history.addAll((ArrayNode) change.value());
             } else {
                 object.set(key, change.value());
             }
@@ -76,6 +86,7 @@ public class AnalysisStateJournal {
             node.set("value", change.value());
             node.put("remove", change.remove());
             node.put("operation", change.operation());
+            if (change.appendsHistory()) node.put("valueMode", change.valueMode().name());
             ArrayNode sources = node.putArray("sourceCandidateIds");
             change.sourceCandidateIds().forEach(id -> sources.add(id.toString()));
         }
@@ -133,9 +144,16 @@ public class AnalysisStateJournal {
                 }
                 sources.add(UUID.fromString(item.textValue()));
             }
+            AnalysisStateChange.ValueMode mode = AnalysisStateChange.ValueMode.REPLACE;
+            if (node.has("valueMode")) {
+                if (!node.path("valueMode").isTextual()) {
+                    throw new IllegalArgumentException("변경값 적용 방식이 올바르지 않습니다.");
+                }
+                mode = AnalysisStateChange.ValueMode.valueOf(node.path("valueMode").textValue());
+            }
             result.add(new AnalysisStateChange(node.path("eventId").textValue(), path,
                     node.get("value"), node.path("remove").booleanValue(),
-                    node.path("operation").textValue(), sources));
+                    node.path("operation").textValue(), sources, mode));
         }
         return List.copyOf(result);
     }
