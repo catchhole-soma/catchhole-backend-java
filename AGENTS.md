@@ -572,7 +572,7 @@ domain/<domain>
 - `ORDERED_PROVISIONAL`은 회차별 고정 입력으로 캐릭터 비교를 원 Job 안에서 끝낸 뒤 `CHARACTER_COMPARISONS_FINISHED`를 기록한다. 같은 batch의 후속 회차가 앞 회차 저장을 기다리므로 그룹 handoff barrier를 사용하지 않으며 ordered 후보는 legacy 그룹 숨김 Job에 섞지 않는다.
 - Worker 실패는 `AnalysisFailureCode`로 분류해 `analysis_jobs.failure_code`와 후보별 비교 실패 코드에 저장한다. `error_message`는 운영 진단용 원문이며 공개 DTO의 실패 문구는 코드별 안전한 사용자 메시지만 사용한다. URL, 내부 API 경로, stack trace가 공개 응답에 섞이지 않게 한다.
 - GH323 후속 일반 설정 인용은 신규·기존을 구분하지 않고 확인 가능한 Unicode offset 구간만 노출한다. offset이 둘 다 없으면 원문 문자열 검색을 하지 않고 `OFFSETS_UNAVAILABLE`로 숨긴다. 불완전·범위 초과·원문과 다른 위치는 해당 span만 제외하고 정상 span은 보존하며, 모두 제외되면 `UNAVAILABLE`과 빈 evidenceSpans로 후보·분석을 계속한다. 일반 인용의 위치 오류를 회차 전체 실패로 확장하지 않기 위한 정책이다. raw 후보·기존 frozen 입력/hash는 감사용으로 보존하고 새 capture와 공개/모델 투영만 정제한다. 원문 hash/manifest·작품/Job 연결·lease 및 별도 동일인·서사 시점 증명 검증은 그대로 유지한다.
-- `GeneralEvidenceProjection`은 일반 인용 표시용 순수 offset 검증과 읽기 전용 출처 projection을 공유한다. 공개 목록은 `GeneralEvidenceSourceRepository`의 scalar manifest와 HTTP 요청 내 캐시로 같은 원문을 한 번만 읽고 AnalysisJob의 큰 JSON을 초기화하지 않는다. 공개 근거를 읽을 수 없으면 인용을 숨기되 처리 단계의 원문 hash/저장소 오류를 정상 성공으로 낮추지 않는다. Worker 후보는 `forProcessingCandidate`를 사용하고 공개 미리보기의 실패 캐시를 재사용하지 않는다. 검증할 offset이 없는 경우는 저장소 조회 없이 제외하고, 검증 중 원문 읽기 실패·hash/출처 불일치는 기존 처리 오류로 전달한다.
+- `GeneralEvidenceProjection`의 공개 목록/미리보기는 scalar manifest·원문 참조 무효화와 HTTP 요청 내 캐시로 확인 가능한 인용만 표시한다. #363 이후 Worker의 `forProcessingCandidate`와 시점 projection은 저장 시 DB 청크로 확인한 검증 기록을 재사용하며 S3를 읽거나 공개 미리보기 캐시를 재사용하지 않는다. 검증된 입력·원문 결속이 없으면 해당 근거만 제외한다. 원문이 필요한 추출/자동 확정의 저장소·hash 오류는 이 비교 준비 정책과 구분한다. 삭제·기존 데이터·시점 계약은 아래 캐릭터 비교 근거 수명 규칙을 따른다.
 - Worker의 선택적 `failureDiagnostics`는 v1 고정 코드·단계·실제 HTTP/요청/trace 식별자만 받는다. 새 HTTP 필드는 Jackson 3 `JsonNode`, 저장 모델은 typed `AnalysisFailureDiagnostics`를 사용하고 nonthrowing sanitizer가 잘못된 부가 진단과 검증되지 않은 원인 ID를 버린다. 진단 오류로 본래 `/fail` 상태 전이를 거절하거나 기존 `AnalysisFailureCode`의 격리·재시도 정책을 바꾸지 않는다. 후보의 `comparison_failure_analysis_job_id`/`comparison_failure_batch_id`는 서버가 승인한 실제 실행에서 같은 실패 전이에 고정하며 원 추출 Job으로 재비교 실행을 추정하지 않는다. 이 필드와 현재 진단은 새 시도에서 비우고 과거 outbox snapshot은 바꾸지 않는다.
 
 - `WORLD_CANDIDATES_PUBLISHED` 이후 `SETTING_EXTRACTION`이 `AI_TOKEN_QUOTA_EXHAUSTED`로 중단되면 완료된 1차 추출·비교와 `Episode.ANALYZED`를 보존하고, 남은 세계관 후보만 같은 코드의 재개 가능한 중단 상태로 표시한다. 미해결 토큰 중단 후보나 해당 후보의 활성 `WORLD_SETTING_COMPARISON` Job이 남아 있는 동안 새 전체 분석 생성과 다른 실패 Job을 통한 우회 재시도를 차단하고 배치 단위 세계관 비교 재개 API로만 복구한다. 후보가 모두 완료·기각되고 활성 복구 Job이 사라지면 새 분석 생성은 다시 허용한다.
@@ -978,6 +978,13 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - `AnalysisRunStateService.prepareState(job)`의 `PreparedState`는 Job 잠금을 보유한 한 번의 처리에서만 지역 변수로 사용한다. 전역·ThreadLocal·요청 간 캐시로 보관하지 않는다. `projectedState()`는 읽기 전용 view이며 append 뒤에는 다시 얻는다.
 - 입력·선행 회차를 한 번 검증하고, append는 새 event만 기존 projection에 순서대로 적용한다. 중복 event의 동일 내용은 멱등 처리하고 충돌·잘못된 경로는 부분 반영 없이 거절한다. lease·원문·journal 상태 검증과 개별 이력·근거는 유지한다.
 - `AnalysisHumanRejectionPolicy.beginMatching()`도 같은 처리 안에서만 사용한다. 최신 references를 매번 확인하고, anchor 조회는 작품·후보 ID 및 도메인별로 재사용한다. 실제 후보 또는 원문 상태를 요청 간에 공유하지 않는다.
+
+### 캐릭터 비교 근거 수명 (#363)
+
+- V112는 `setting_candidates.stored_evidence_validation`을 DB가 파생하는 검증 기록으로 관리한다. 후보 저장/근거 변경 시 같은 출처의 DB 청크로 인용·Unicode 위치·시점·설정집 부모 프로필 근거를 검증하고, 입력 JSON 및 Job의 key/version/hash와 결속한다. 상태만 바뀌는 저장은 재청킹 후에도 기존 검증을 보존한다. 애플리케이션은 이 컬럼을 직접 쓰지 않는다.
+- 캐릭터 비교 준비·현재값/이력 capture는 이 기록을 재사용하며 S3를 다시 읽지 않는다. 검증 기록이나 과거 청크가 없으면 확정값을 유지하고 검증할 수 없는 인용·시점 근거만 제외한다. 원문 재조회 fallback과 현재 원문으로의 출처 대체는 금지한다. 잘못된 소유권·manifest·시점 구조·현재 시점 연결 등 결정적 계약 오류는 기존 검증을 유지한다.
+- 회차 파기 요청 INSERT와 같은 트랜잭션에서 해당 이전 Job의 `source_reference_invalidated_at`을 채운다. 이력 key/hash는 감사용으로 유지하며 더 이상 조회 권한을 뜻하지 않는다. 교체 요청의 retained key에 해당하는 새 Job은 제외한다. 읽기는 무효화·현재 원문 결속·파기 대기를 검사하고, 삭제된 출처의 `storageBinding`과 대표 시점 인용도 비교 입력에서 제외한다.
+- V112 이관은 현재 출처에 결속된 실제 DB 청크가 있는 근거만 인증한다. Python writer는 새 컬럼 없이 기존 INSERT/UPDATE를 계속 사용하며 PostgreSQL 트리거가 기록을 생성한다. 원문 미리보기와 설정집 자동 확정 등 실제 원문이 필요한 검증은 별도다. 동작·배포·제한은 `docs/stored-character-evidence.md`를 따른다.
 
 ### Tests
 

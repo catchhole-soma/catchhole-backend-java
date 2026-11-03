@@ -240,12 +240,13 @@ JSON snapshot 계약과 후속 TODO:
 
 confirm으로 생성된 Fact는 `setting_candidate_id`로 원본 후보를 연결합니다. 따라서 Fact의 구체적인 인용문과 offset은 연결된 `setting_candidates.evidence_spans`에서 정확히 조회합니다. V3 이전 Fact는 신뢰할 수 있는 후보를 추정해 backfill하지 않고 `NULL`로 유지하며, evidence JSON을 `character_facts`에 중복 저장하지 않습니다.
 
-V12 이후 Python Worker는 후보를 만들 때 `setting_candidates.source_content_s3_key`에 분석
-당시 `Episode.content_s3_key`도 함께 저장합니다. 회차 파일을 교체하면 Episode는 새 key를
-가리키지만 과거 S3 객체는 보존되므로, CharacterFact 근거 API는 후보에 고정된 key를 읽어
-offset 기준과 화면 원문이 어긋나지 않게 합니다. V12 이전 후보는 이 컬럼이 `NULL`이므로
-현재 Episode key로 fallback합니다. 저장소 조회가 실패하면 API 전체를 실패시키지 않고
-회차 정보와 `quote` 목록은 유지한 채 전체 원문만 `null`로 응답합니다.
+V12 이후 Python Worker는 후보에 분석 당시 `source_content_s3_key`를 고정합니다.
+회차 교체·삭제는 이전 원문과 파생 인용을 파기하므로, 과거 key가 남아 있다고 원문이 보존되는 것은 아닙니다.
+V112는 파기 접수와 함께 원 Job의 참조를 무효화합니다. 확정한 Fact 값은 유지하고 삭제된 원문의 인용은 재사용하지 않습니다.
+캐릭터 2차 비교는 저장 시 DB 청크로 확인한 검증 기록을 읽으며 S3를 다시 조회하지 않습니다.
+검증 기록이 없는 과거 인용은 확인 불가로 제외합니다. 원문을 보여주는 상세/미리보기 조회와
+설정집 자동 확정 검증은 목적이 다르므로 기존 원문 조회 경계를 유지합니다.
+상세 계약은 [저장 근거와 원문 참조 수명](stored-character-evidence.md)을 참고합니다.
 근거 offset은 Python 원문 slice와 같은 Unicode code point 기준이며, 브라우저는 이를
 UTF-16 인덱스로 변환한 뒤 `quote`와 실제 원문 범위가 같은 경우에만 하이라이트합니다.
 

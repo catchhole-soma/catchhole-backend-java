@@ -565,3 +565,13 @@ main의 PR #197이 피드백 V55/V56을 먼저 확정했다. 미배포 GH194 여
 `V83__add_model_weighted_token_charges.sql`은 #252의 계정 소수형·호출별 예약 정책을 추가합니다. 먼저 머지된 V82 인물 비교 묶음 변경을 그대로 보존하며, V82까지 적용한 기존 계정·사용량이 V83 뒤에도 유지되는지 검증합니다. 이전 원장에는 새 할인을 소급하지 않습니다.
 
 구 Java writer를 중지한 뒤 V83을 포함한 새 Java를 기동합니다. 적용 뒤에는 정수 계정 매핑만 지원하는 이미지로 되돌리지 않으며, 저장된 소수 잔액·예약 정책을 읽는 호환 수정본으로 복구합니다. 상세는 [AI 사용량 정책](ai-token-usage.md#v83-적용과-기존-데이터)을 따릅니다.
+
+## V112: 삭제 참조 무효화와 저장 근거 검증
+
+`analysis_jobs.source_reference_invalidated_at`과 DB 파생 `setting_candidates.stored_evidence_validation`을 추가합니다.
+현재 원문과 이미 달라졌거나 파기 대기/삭제된 과거 Job을 무효화하고, 기존 후보는 현재 출처와 DB 청크로 입증되는 인용만 이관합니다.
+S3·LLM 호출은 없습니다. 모든 기존 후보를 한 번 처리하므로 대규모 후보 수에서는 마이그레이션 시간과 테이블 잠금을 배포 전에 고려합니다.
+Python의 기존 writer와 호환되며 컬럼을 직접 채우거나 과거 migration을 수정하지 않습니다.
+빈 PostgreSQL의 전체 Flyway + JPA validate 및 V111→V112 이관은 `StoredCharacterEvidencePostgresIntegrationTest`로 검증합니다.
+이 migration을 유지한 코드 롤백은 스키마상 가능하지만 구 Java의 S3 재조회 동작도 돌아오므로 장애 수정이 유지된다고 보장하지 않습니다.
+[흐름과 검증 범위](stored-character-evidence.md)를 참고합니다.
