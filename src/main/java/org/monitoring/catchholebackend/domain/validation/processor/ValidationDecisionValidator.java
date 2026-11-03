@@ -35,8 +35,8 @@ public class ValidationDecisionValidator {
             for(var subject:question.path("subject_refs"))if(subject.asText().equals(entry.getValue().path("subject_ref").asText()))neededSettings.add(entry.getKey());
         for(var intent:check.getState().path("lookup_obligations"))if("BASELINE".equals(intent.path("operation").asText()))for(var ref:intent.path("evidence_refs"))neededSettings.add(ref.asText());
         if(!facts.equals(neededSettings))throw error(VALIDATION_RESULT_INVALID);known.addAll(facts);
-        Set<String> evidence=new HashSet<>(),comparisonEvidence=new HashSet<>();for(var row:bundle.path("evidence")) {
-            String ref=row.path("ref").asText();var source=p.context().sourceReferences().get(row.path("source_ref").asText());
+        Set<String> evidence=new HashSet<>(),comparisonEvidence=new HashSet<>();Map<String,JsonNode> evidenceRows=new HashMap<>();for(var row:bundle.path("evidence")) {
+            String ref=row.path("ref").asText();var source=p.context().sourceReferences().get(row.path("source_ref").asText());evidenceRows.put(ref,row);
             if(!ref.matches("E[1-9][0-9]*")||!evidence.add(ref)||source==null||!source.path("sourceKind").asText().equals(row.path("source_kind").asText())||!row.has("quote"))throw error(VALIDATION_RESULT_INVALID);
             if(!"T1".equals(row.path("source_ref").asText()))comparisonEvidence.add(ref);
         }known.addAll(evidence);
@@ -59,12 +59,49 @@ public class ValidationDecisionValidator {
         if(outcome.equals("NO_CONFLICT")) {if(decision.hasNonNull("impact")||decision.hasNonNull("impact_reason"))throw error(VALIDATION_RESULT_INVALID);}
         else if(!Set.of("SEVERE","CAUTION","REFERENCE").contains(decision.path("impact").asText())||!nonblank(decision,"impact_reason"))throw error(VALIDATION_RESULT_INVALID);
         if(Set.of("CONFLICT","SUSPECTED_CONFLICT").contains(outcome)&&textSet(decision.path("evidence_refs")).stream().noneMatch(ref->facts.contains(ref)||comparisonEvidence.contains(ref)))throw error(VALIDATION_RESULT_INVALID);
+        basisQuotes(decision.path("basis_quotes"),facts,knownSettings,evidenceRows,comparisonEvidence);
+        headline(decision.path("headline"),outcome);
         if(!decision.path("disagreements").isArray()||"DB_RAW_DISAGREEMENT".equals(decision.path("basis").asText())&&decision.path("disagreements").isEmpty())throw error(VALIDATION_RESULT_INVALID);
         for(var disagreement:decision.path("disagreements")) {
             if(!facts.contains(disagreement.path("fact_ref").asText())||!evidence.contains(disagreement.path("evidence_ref").asText())||!nonblank(disagreement,"reason"))throw error(VALIDATION_RESULT_INVALID);
             // A free-text model correction ref cannot establish the typed server correction's time/condition scope.
             if(!"NEEDS_CONTEXT".equals(outcome))throw error(VALIDATION_RESULT_INVALID);
         }
+    }
+    /**
+     * 오류 리포트 가독성(2026-11-02): 판정이 그대로 옮긴 근거 문장 0~3개. 없으면(이전 Worker) 그대로 통과한다.
+     * E 인용은 이 묶음의 비교 evidence 행(T1 제외) 안의 정확한 code point 구간이고, B 인용은 묶음 설정 행의 값 leaf 부분 문자열이다
+     * (원문 대조는 citation과 {@link ValidationPublicationValidator}의 basis_quotes 경로가 한다).
+     */
+    private static void basisQuotes(JsonNode quotes,Set<String> facts,Map<String,JsonNode> knownSettings,Map<String,JsonNode> evidenceRows,Set<String> comparisonEvidence) {
+        if(quotes.isMissingNode()||quotes.isNull())return;
+        if(!quotes.isArray()||quotes.size()>ValidationBasisQuotes.MAX_ITEMS)throw error(VALIDATION_RESULT_INVALID);
+        Set<String> seen=new HashSet<>();
+        for(var item:quotes) {
+            String ref=item.path("ref").asText(),quote=item.path("quote").asText();
+            if(!item.path("quote").isTextual()||quote.isBlank()||ValidationBasisQuotes.codePoints(quote)>ValidationBasisQuotes.MAX_QUOTE_CODE_POINTS||!seen.add(ref+"\u0000"+quote))throw error(VALIDATION_RESULT_INVALID);
+            if(ValidationBasisQuotes.EVIDENCE_REF.matcher(ref).matches()) {
+                var row=evidenceRows.get(ref);
+                if(row==null||!comparisonEvidence.contains(ref)||!item.path("start").isIntegralNumber()||!item.path("end").isIntegralNumber()
+                        ||!row.path("source_ref").asText().equals(item.path("source_ref").asText()))throw error(VALIDATION_RESULT_INVALID);
+                int start=item.path("start").asInt(),end=item.path("end").asInt(),from=row.path("start").asInt();
+                if(start<from||end>row.path("end").asInt()||!quote.equals(ValidationBasisQuotes.slice(row.path("quote").asText(),start-from,end-from)))throw error(VALIDATION_RESULT_INVALID);
+            } else if(ValidationBasisQuotes.ENTRY_REF.matcher(ref).matches()) {
+                if(!facts.contains(ref)||item.hasNonNull("source_ref")||item.hasNonNull("start")||item.hasNonNull("end")
+                        ||ValidationBasisQuotes.containing(knownSettings.get(ref),quote).isEmpty())throw error(VALIDATION_RESULT_INVALID);
+            } else throw error(VALIDATION_RESULT_INVALID);
+        }
+    }
+    /**
+     * 판정 작성 제목(headline, 2026-11-03, 공통 계약 {@code execution.judgeFlow.headline.server}): 작가 화면 제목으로 쓰는 판정의 한 줄.
+     * 없거나 null이면 그대로 통과한다(이전 Worker·Worker가 비운 제목). 값이 있으면 문자열이고 앞뒤 공백을 뗀 뒤 비어 있지 않으며
+     * {@value #MAX_HEADLINE_CODE_POINTS} code point 이하여야 한다. NO_CONFLICT는 발견 항목이 아니라 제목을 둘 수 없다.
+     */
+    public static final int MAX_HEADLINE_CODE_POINTS=80;
+    private static void headline(JsonNode headline,String outcome) {
+        if(headline.isMissingNode()||headline.isNull())return;
+        if(!headline.isTextual()||"NO_CONFLICT".equals(outcome)||headline.asText().isBlank()
+                ||ValidationBasisQuotes.codePoints(headline.asText())>MAX_HEADLINE_CODE_POINTS)throw error(VALIDATION_RESULT_INVALID);
     }
     /** Grid v4: obligations are no longer derived from the draft (it has no lookup_intents); a missing list means []. */
     public JsonNode state(JsonNode state,Set<String> subjects) {

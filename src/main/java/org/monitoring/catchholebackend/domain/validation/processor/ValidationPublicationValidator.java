@@ -112,6 +112,19 @@ public class ValidationPublicationValidator {
                 for(var context:field.getValue())validateCopy(p,context,citations,depth+1,true);
             }
             case "span" -> validateCopy(p,field.getValue(),citations,depth+1,false);
+            // 오류 리포트 가독성(2026-11-02): E 인용은 일반 인용과 같은 typed span이고, B 인용은 원문이 아니라 고정 설정 행의 값 leaf 부분 문자열이다.
+            case "basis_quotes" -> {
+                if(!field.getValue().isArray())throw error(VALIDATION_RESULT_INVALID);
+                Map<String,JsonNode> known=null;
+                for(var item:field.getValue()) {
+                    if(item.isObject()&&item.path("start").isIntegralNumber()) {validateCopy(p,item,citations,depth+1,false);continue;}
+                    if(!item.isObject()||!ValidationBasisQuotes.isSettingQuote(item)||!item.path("quote").isTextual()
+                            ||item.hasNonNull("source_ref")||item.hasNonNull("start")||item.hasNonNull("end"))throw error(VALIDATION_RESULT_INVALID);
+                    for(var key:item.properties())if(!Set.of("ref","source_ref","start","end","quote").contains(key.getKey()))throw error(VALIDATION_RESULT_INVALID);
+                    if(known==null)known=mapper.toValidationSettings(p.context().entries(),p.context().sourceReferences());
+                    if(ValidationBasisQuotes.containing(known.get(item.path("ref").asText()),item.path("quote").asText()).isEmpty())throw error(VALIDATION_RESULT_INVALID);
+                }
+            }
             case "settings" -> {
                 if(!field.getValue().isArray())throw error(VALIDATION_RESULT_INVALID);
                 var known=mapper.toValidationSettings(p.context().entries(),p.context().sourceReferences());

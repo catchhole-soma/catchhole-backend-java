@@ -96,7 +96,7 @@ public class ValidationResultServiceImpl implements ValidationResultService {
             else incomplete(check,body);
             check.decide(c.outcome(),body);
             // #314 B2: 대상·설정명·영향 등급은 이 revision의 질문 상태와 report 고정 기준으로 한 번만 기록한다(현재 설정값을 읽지 않는다).
-            if(!Set.of("NO_CONFLICT","INCOMPLETE").contains(c.outcome())) {var target=targets.describe(j.getReport(),check.getState());
+            if(!Set.of("NO_CONFLICT","INCOMPLETE").contains(c.outcome())) {var target=targets.describe(j.getReport(),check.getState(),body);
                 results.save(ValidationFinding.create(j.getReport(),ValidationBranch.SETTING,c.ref(),check.getId(),check.getRevision(),c.outcome(),body)
                         .describeTarget(ValidationFindingTargets.impact(body),target.subjectType(),target.subjectId(),target.subjectName(),target.settingKey(),target.settingName()));}
             saveEvidence(j,"CHECK:"+check.getId()+":"+check.getRevision(),c.citations());return new PublicationResult(mapper.toCheckResponse(check),true);
