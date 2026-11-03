@@ -1132,7 +1132,7 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - `RelationshipGraphContract`는 하나의 버전이 함께 바뀌는 Worker/공개 계약 record와 enum을 묶는 예외다. 세부 정책과 제한은 [docs/episode-relationships.md](docs/episode-relationships.md)를 단일 문서로 유지한다.
 - 과거 관계도는 회차까지 공개된 지식을 표현한다. 현재 프로필 이름/사진을 가져와 과거 화면에 합치지 않는다. 모델에는 O/H/N/R local refs만 전달하며, 근거는 원문 전체의 Unicode code point offset으로 검증한다.
 - 의미 분석 실패/내부 보류는 캐릭터·세계관 결과를 폐기하지 않는다. lease/권한/quota/원문/저장 오류를 FAILED 의미 처리로 우회하지 않는다. prepare의 S3 I/O는 DB 잠금 밖에서 읽고 돌아와 lease와 manifest를 재확인한다.
-- 재분석은 같은 회차와 후행 관계 상태를 무효화한다. 병렬 수동 작업도 동결 의존성 검증과 앞 회차 반영 시 후행 무효화를 적용한다. 일반 재분석은 후행 유료 분석이나 과거 백필을 자동으로 새로 시작하지 않는다. 아래 GH332 고정 캠페인의 순서 보정은 예외이며 서비스 부담으로 처리한다.
+- GH367 일반 회차 관계는 회차별 독립 이력이다. 앞 회차의 후발 반영은 후행 문맥·결과를 무효화하거나 유료 재분석하지 않는다. 같은 회차 재분석은 해당 회차만 대체하며, 조회는 회차 순서와 각 출처의 유효성을 따른다. 자동 event 의존성과 사용자 정정·삭제를 분리하고 원문·세대·lease 보호는 유지한다. 구 INVALIDATED Job은 안전한 동일 작업 재개에서 저장된 새 관측만으로 문맥을 다시 준비한다. 이유는 전체 무효화가 무관한 결과까지 숨기고 동일 Job 재시도를 영구 409로 막았기 때문이다. GH332 전용 백필의 순서 보정·공개/과금 계약은 별도로 유지한다.
 - 사용자 설명 정정과 삭제는 낭독 시점의 서사 변화가 아닌 오류 정정이다. 버전 충돌을 검사하며 삭제 slot을 자동 재생성하지 않는다. 원문 파기 시 후행 context에 복사된 HOLD 인용도 함께 지운다.
 
 ## GH332 선정 계정 관계 자동 백필
@@ -1149,9 +1149,9 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 ### GH359 관계 비교의 부분 완료
 
 - `supportsRelationshipPartialResults=true` Worker만 새 Job의 `relationshipPartialResultsEnabled`를 활성화한다. claim과 고정 Context의 `supportsPartialResults`가 모두 true일 때만 부분 계약을 사용한다. formatVersion은 1이고, 기존 PREPARED/COMPLETED/FAILED 문맥은 새 Worker의 재선점으로 승격하지 않는다. capability는 다시 false로 낮추지 않으며 구 Worker는 해당 Job과 현재 공개·생성 세대에 유효한 부분 실패가 있는 작품의 후속 관계 작업을 claim하지 않는다.
-- 새 부분 Context는 신규 O의 양쪽 인물이 하나씩 해소된 무방향 쌍에 필요한 R/H만 상한 검사 전에 포함한다. 미해소·다른 쌍의 H는 원래 이력에 보존한다. 사용자 정정/삭제 의존성도 해당 stable node UUID 쌍으로 한정하며 binding의 `dependencyPairScopeVersion=1`로 고정한다. marker가 없는 기존 frozen Context는 기존 전체 의존성 해시를 유지해 배포로 재해석하지 않는다. 과거 partial의 무관한 문맥 초과 실패는 기존 1회 복구 조건 안에서 새 관측만 꺼내 현재 문맥 preview를 통과할 때 복구한다.
+- 새 부분 Context는 신규 O의 양쪽 인물이 하나씩 해소된 무방향 쌍에 필요한 R/H만 상한 검사 전에 포함한다. 미해소·다른 쌍의 H는 원래 이력에 보존한다. 사용자 정정/삭제 의존성도 해당 stable node UUID 쌍으로 한정하며 binding의 `dependencyPairScopeVersion=1`로 고정한다. marker가 없는 기존 frozen Context를 새 hash로 무검증 승격하지 않으며, 일반 Job 재개는 GH367의 저장 관측 기반 재준비 경로를 따른다. 과거 partial의 무관한 문맥 초과 실패는 기존 1회 복구 조건 안에서 새 관측만 꺼내 현재 문맥 preview를 통과할 때 복구한다.
 - `Complete.failures`는 고정 새 O의 같은 무방향 인물 쌍 전체와 허용된 기술적 reasonCode만 받는다. 정상 결정과 실패의 출처는 겹치지 않고 전체 새 O를 덮어야 한다. lease·권한·quota·고정 문맥·원문·저장·provider 장애를 격리 실패로 받지 않는다. 실패를 HOLD로 바꾸지 않으며 일반 검증을 완화하지 않는다.
-- `relationship_graph_analyses.failures`와 APPLIED의 `PARTIAL_COMPARISON_FAILED` 마커를 보존한다. 실행 Job은 정상 종료해도 회차 항목은 PARTIAL이고 결과 완전 성공이 아니다. 같은 쌍의 이후 새 O는 안정된 node UUID로 계산한 `blockedPairs`에 따라 `RELATIONSHIP_PREDECESSOR_INCOMPLETE`로 남기고 독립 쌍은 진행한다. 순서 재구성·원문 파기·무효화 경계는 유지한다.
+- `relationship_graph_analyses.failures`와 APPLIED의 `PARTIAL_COMPARISON_FAILED` 마커를 보존한다. 실행 Job은 정상 종료해도 회차 항목은 PARTIAL이고 결과 완전 성공이 아니다. 같은 쌍의 이후 새 O는 안정된 node UUID로 계산한 `blockedPairs`에 따라 `RELATIONSHIP_PREDECESSOR_INCOMPLETE`로 남기고 독립 쌍은 진행한다. 원문 파기·동일 회차 대체와 GH332 순서 재구성 경계는 유지하며 일반 후행 결과는 GH367의 독립 이력 정책을 따른다.
 - 기술 실패가 있는 APPLIED 전이는 V111 trigger가 기존 outbox에 안전한 reason별 인물 쌍 개수만 기록한다. V107의 실행 시도·발송 묶음을 재사용하며 V109의 검사·발췌 정제를 유지하고, pair 알림은 실패 Job/후보 개수와 구분한다. 선행 실패의 파급은 재알림하지 않는다. 전체 추출 실패는 FAILED/BLOCKED이며 빈 결과를 정상 완료로 가장하지 않는다.
 - 공개 `updateIncomplete`/`incompleteEpisodeNos`는 기술적 누락만, 기존 `partial`은 의미상 HOLD도 포함한다. edge `lastVerifiedEpisodeNo`는 같은 쌍의 첫 실패 또는 위치를 특정할 수 없는 원문 누락 앞까지의 기술적 완료 구간이며 관계 변경 회차가 아니다. 0은 완료 구간이 없다는 뜻이다. 현재 공개 세대와 선택 회차를 넘는 실패·미래 이름을 노출하지 않는다.
 - 실제 연동 검증은 `RelationshipBackfillHttpPostgresIntegrationTest`에서 `GH332_AI_CHECKOUT`/`GH332_PYTHON`으로 로컬 Python Worker를 사용한다. `GH359_FRONT_CHECKOUT`을 추가하면 그 테스트가 만든 Spring·PostgreSQL에 실제 프런트 SDK·브라우저를 연결하며 `GH359_NODE`는 선택적인 Node 실행 경로다. 테스트 JWT는 0600 임시 파일로만 전달하고 종료 시 지운다. HTTP 응답을 대체하거나 운영·유료 LLM·외부 Discord에 연결하지 않는다. CI에는 환경 opt-in 없이 실행되는 PostgreSQL 부분 완료·outbox 회귀 테스트도 유지한다.

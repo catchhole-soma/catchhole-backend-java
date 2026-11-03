@@ -113,12 +113,15 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     public void beginRelationshipAnalysis(AnalysisJob job) {
         if (!job.isRelationshipAnalysisEnabled() || analyses.existsById(job.getId())) return;
         requireEligible(job);
-        // 새 시도는 이전 회차 결과와 그 결과를 읽은 후행 관계 상태를 섞지 않는다.
+        // Ordinary episode decisions remain independent records. A replacement supersedes only
+        // its own episode; private backfill retains its strictly ordered rebuild contract.
         for (var previous :
                 analyses.findAllByWorkIdOrderByEpisodeNoAscCreatedAtAscIdAsc(
                         job.getWork().getId())) {
             if (previous.getGeneration() == job.getRelationshipGeneration()
-                    && previous.getEpisodeNo() >= job.getSourceEpisodeNo()) previous.invalidate();
+                    && (previous.getEpisodeNo() == job.getSourceEpisodeNo()
+                        || job.getJobType() == AnalysisJobType.RELATIONSHIP_EXTRACTION
+                            && previous.getEpisodeNo() > job.getSourceEpisodeNo())) previous.invalidate();
         }
         var pending =
                 RelationshipGraphAnalysis.pending(
@@ -136,12 +139,13 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     public Optional<Context> getRelationshipAnalysis(UUID jobId, UUID lease) {
         AnalysisJob job = running(jobId, lease);
         return analyses.findById(jobId)
-                .filter(a -> a.getStatus() != AnalysisStatus.PENDING)
-                .map(
+                .flatMap(
                         a -> {
+                            prepareOrdinaryResume(a, job);
                             requireCurrent(a, job);
+                            if (a.getStatus() == AnalysisStatus.PENDING) return Optional.empty();
                             assertResumableDependency(a);
-                            return mapper.toContext(a, job.isRelationshipPartialResultsEnabled());
+                            return Optional.of(mapper.toContext(a, job.isRelationshipPartialResultsEnabled()));
                         });
     }
 
@@ -238,6 +242,144 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         if (analysis.getStatus() == AnalysisStatus.PENDING) return null;
         if (!Objects.equals(hash(mapper.toJson(request)), analysis.getRequestHash())) conflict();
         return mapper.toContext(analysis);
+    }
+
+    /** Only a worker's initial load may replace a legacy token; an in-flight complete must not. */
+    private void prepareOrdinaryResume(RelationshipGraphAnalysis analysis, AnalysisJob job) {
+        if (job.getJobType() != AnalysisJobType.SETTING_EXTRACTION
+                || analysis.getStatus() == AnalysisStatus.PENDING
+                || analysis.getStatus() == AnalysisStatus.APPLIED
+                || analysis.getStatus() == AnalysisStatus.FAILED) return;
+        boolean invalidated = analysis.getStatus() == AnalysisStatus.INVALIDATED;
+        boolean legacy = analysis.getBindings() == null
+                || analysis.getBindings().path("manualDependencyVersion").isMissingNode();
+        if (!invalidated && !legacy) return;
+        assertOrdinaryResumeSource(analysis, job);
+        if (events.existsByAnalysisId(analysis.getId())) conflict();
+
+        if (analysis.getContext() == null) {
+            // A pending marker can be invalidated before extraction has stored any observations.
+            // A purged or partially lost prepared context must never be treated as fresh input.
+            if (!invalidated || analysis.getBindings() != null || analysis.getContextToken() != null
+                    || analysis.getRequestHash() != null || analysis.getCompletionHash() != null
+                    || analysis.getDecisions() != null || analysis.getFailures() != null) conflict();
+            analysis.resumeInvalidated(analysis.getFailureCode() == null
+                    ? AnalysisStatus.PENDING : AnalysisStatus.FAILED);
+            return;
+        }
+        Context saved = checkedCachedContext(analysis, job);
+        AnalysisStatus phase = savedPhase(analysis);
+        if (!invalidated && phase != analysis.getStatus()) conflict();
+        if (phase == AnalysisStatus.FAILED) {
+            if (invalidated) analysis.resumeInvalidated(phase);
+            return;
+        }
+        if (!legacy) {
+            assertDependencyRevision(analysis);
+            if (invalidated) analysis.resumeInvalidated(phase);
+            return;
+        }
+
+        // Old hashes mix all predecessors with user edits. Do not overwrite that opaque baseline
+        // with the current value: check visible user edits, then rebuild from already verified O.
+        assertLegacyManualEditsUnchanged(analysis, saved);
+        Prepare request = mapper.toPrepareCachedObservations(
+                analysis.getSourceHash(), saved, analysis.getRejectedObservationCount());
+        BuiltContext rebuilt = buildContext(job, request);
+        analysis.prepareContext(hash(mapper.toJson(request)), rebuilt.context().contextToken(),
+                mapper.toJson(rebuilt.context()), rebuilt.bindings(), analysis.getRejectedObservationCount());
+        if (exceedsContextLimit(rebuilt.context())) analysis.fail(FailureCode.INPUT_TOO_LARGE.name());
+    }
+
+    private void assertOrdinaryResumeSource(RelationshipGraphAnalysis analysis, AnalysisJob job) {
+        if (analysis.isEvidencePurged()
+                || !Objects.equals(analysis.getWorkId(), job.getWork().getId())
+                || !Objects.equals(analysis.getEpisodeId(), job.getEpisode().getId())
+                || analysis.getEpisodeNo() != job.getSourceEpisodeNo()
+                || analysis.getGeneration() != job.getRelationshipGeneration()
+                || !Objects.equals(analysis.getSourceHash(), job.getSourceContentHash())
+                || !sourceAvailable(analysis)) conflict();
+        sourceGuard.assertCurrent(job, job.getEpisode());
+        var latestGraphs = analyses.findLatestIdsForEpisode(analysis.getWorkId(), analysis.getGeneration(),
+                analysis.getEpisodeNo(), org.springframework.data.domain.PageRequest.of(0, 1));
+        if (latestGraphs.isEmpty() || !latestGraphs.getFirst().equals(analysis.getId())) conflict();
+        // A newer, not-yet-claimed Job has no graph row yet. It still supersedes this retry.
+        var latestJobs = entityManager.createQuery("""
+                select j.id from AnalysisJob j where j.work.id=:work and j.episode.id=:episode
+                  and j.jobType=:type order by j.createdAt desc,j.id desc
+                """, UUID.class).setParameter("work", analysis.getWorkId())
+                .setParameter("episode", analysis.getEpisodeId())
+                .setParameter("type", AnalysisJobType.SETTING_EXTRACTION).setMaxResults(1).getResultList();
+        if (latestJobs.isEmpty() || !latestJobs.getFirst().equals(job.getId())) conflict();
+    }
+
+    private Context checkedCachedContext(RelationshipGraphAnalysis analysis, AnalysisJob job) {
+        if (analysis.getBindings() == null || !analysis.getBindings().isObject()
+                || analysis.getRequestHash() == null || analysis.getContextToken() == null
+                || !analysis.getContext().path("formatVersion").isInt()
+                || analysis.getContext().path("formatVersion").intValue() != 1) conflict();
+        Context saved;
+        try { saved = mapper.toContext(analysis); }
+        catch (IllegalArgumentException | NullPointerException malformed) { throw new AppException(RELATIONSHIP_GRAPH_CONFLICT); }
+        if (!Objects.equals(saved.sourceHash(), analysis.getSourceHash())
+                || saved.sourceEpisodeNo() != analysis.getEpisodeNo()
+                || !Objects.equals(saved.contextToken(), analysis.getContextToken())
+                || saved.supportsPartialResults() != job.isRelationshipPartialResultsEnabled()
+                || saved.observations() == null || saved.observations().size() > 384
+                || saved.nodes() == null || saved.relationships() == null || saved.heldObservations() == null)
+            conflict();
+        Set<String> refs = new HashSet<>();
+        for (var observation : saved.observations()) {
+            if (observation == null || observation.ref() == null || !observation.ref().matches("O[1-9][0-9]*")
+                    || !refs.add(observation.ref()) || observation.source() == null || observation.target() == null
+                    || observation.summary() == null || observation.evidence() == null
+                    || observation.evidence().isEmpty()
+                    || !Objects.equals(observation.sourceEpisodeNo(), analysis.getEpisodeNo())) conflict();
+            for (var evidence : observation.evidence()) {
+                if (evidence == null || evidence.startOffset() < 0 || evidence.endOffset() <= evidence.startOffset()
+                        || evidence.quote() == null || evidence.quote().isBlank()) conflict();
+            }
+        }
+        return saved;
+    }
+
+    private AnalysisStatus savedPhase(RelationshipGraphAnalysis analysis) {
+        if (analysis.getCompletionHash() != null) {
+            if (analysis.getDecisions() == null || !analysis.getDecisions().isArray()
+                    || analysis.getFailures() != null && !analysis.getFailures().isArray()) conflict();
+            Complete saved = new Complete(1, analysis.getContextToken(), mapper.decisions(analysis), mapper.failures(analysis));
+            if (!Objects.equals(analysis.getCompletionHash(), hash(mapper.toJson(saved)))) conflict();
+            return AnalysisStatus.COMPLETED;
+        }
+        if (analysis.getDecisions() != null || analysis.getFailures() != null) conflict();
+        if (analysis.getFailureCode() != null) return AnalysisStatus.FAILED;
+        return AnalysisStatus.PREPARED;
+    }
+
+    private void assertLegacyManualEditsUnchanged(RelationshipGraphAnalysis analysis, Context saved) {
+        var bound = analysis.getBindings().path("relationships");
+        Map<UUID, RelationshipGraphEdge> owned = edges.findAllByWorkId(analysis.getWorkId()).stream()
+                .collect(Collectors.toMap(RelationshipGraphEdge::getId, edge -> edge));
+        Set<UUID> frozenEdges = new HashSet<>();
+        for (var relationship : saved.relationships()) {
+            UUID edgeId;
+            try { edgeId = UUID.fromString(bound.path(relationship.ref()).asText()); }
+            catch (IllegalArgumentException malformed) { throw new AppException(RELATIONSHIP_GRAPH_CONFLICT); }
+            var edge = owned.get(edgeId);
+            if (edge == null || edge.isSuppressed()
+                    || edge.getCorrectedSummary() != null && !edge.getCorrectedSummary().equals(relationship.summary()))
+                conflict();
+            frozenEdges.add(edgeId);
+        }
+        Set<String> pairs = manualDependencyPairs(saved, analysis.getBindings());
+        for (var edge : owned.values()) {
+            // Legacy O-only context has no baseline for a later-created, manually changed edge.
+            // Never silently adopt that edit while upgrading its opaque predecessor hash.
+            if (!frozenEdges.contains(edge.getId())
+                    && (edge.isSuppressed() || edge.getCorrectedSummary() != null)
+                    && pairs.contains(RelationshipGraphRules.pair(
+                            edge.getSourceNodeId().toString(), edge.getTargetNodeId().toString()))) conflict();
+        }
     }
 
     @Override
@@ -375,12 +517,14 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         }
         linkConfirmedCharacters(job, analysis, context);
         analysis.apply();
-        // A later manual job may have prepared before this earlier episode completed.
-        for (var later :
-                analyses.findAllByWorkIdOrderByEpisodeNoAscCreatedAtAscIdAsc(
-                        job.getWork().getId())) {
-            if (later.getGeneration() == analysis.getGeneration()
-                    && later.getEpisodeNo() > analysis.getEpisodeNo()) later.invalidate();
+        // A late ordinary episode adds its own dated event. Later PRESENT decisions (including
+        // MERGE) remain the decisions made for their episodes, not materialized predecessor state.
+        if (job.getJobType() == AnalysisJobType.RELATIONSHIP_EXTRACTION) {
+            for (var later : analyses.findAllByWorkIdOrderByEpisodeNoAscCreatedAtAscIdAsc(
+                    job.getWork().getId())) {
+                if (later.getGeneration() == analysis.getGeneration()
+                        && later.getEpisodeNo() > analysis.getEpisodeNo()) later.invalidate();
+            }
         }
     }
 
@@ -591,6 +735,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         boolean pairScoped = job.isRelationshipPartialResultsEnabled();
         ObjectNode relationBindings = bindings.putObject("relationships");
         List<ContextRelationship> relationships = new ArrayList<>();
+        Set<UUID> sourceDependencies = new HashSet<>();
         Set<UUID> validPriorIds = validIds(allAnalyses, cutoff - 1);
         Map<UUID, Integer> firstKnown = new HashMap<>();
         events
@@ -611,6 +756,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                             : !relevant.contains(source) && !relevant.contains(target))) continue;
             String ref = "R" + (relationships.size() + 1);
             relationBindings.put(ref, edge.getId().toString());
+            sourceDependencies.add(event.getAnalysisId());
             relationships.add(
                     new ContextRelationship(
                             ref,
@@ -670,6 +816,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                                 mapped.sourceNodeRefs().stream(), mapped.targetNodeRefs().stream())
                         .noneMatch(relevant::contains)) continue;
                 held.add(mapped);
+                sourceDependencies.add(previous.getId());
                 ObjectNode origin = heldBindings.putObject(ref);
                 origin.put("episodeId", previous.getEpisodeId().toString());
                 origin.put("episodeNo", previous.getEpisodeNo());
@@ -728,6 +875,13 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                         List.copyOf(held),
                         job.isRelationshipPartialResultsEnabled(),
                         List.copyOf(blockedPairs));
+        if (job.getJobType() == AnalysisJobType.SETTING_EXTRACTION) {
+            bindings.put("manualDependencyVersion", 1);
+            bindings.put("manualDependencyRevision", manualDependencyRevision(workId,
+                    manualDependencyPairs(context, bindings)));
+            var sourceIds = bindings.putArray("sourceDependencies");
+            sourceDependencies.stream().sorted().forEach(id -> sourceIds.add(id.toString()));
+        }
         return new BuiltContext(context, bindings);
     }
 
@@ -1120,11 +1274,15 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     }
 
     private Set<UUID> validIds(Map<Integer, RelationshipGraphAnalysis> all, int cutoff) {
+        boolean privateBuild = !all.isEmpty() && backfillWorks.findById(all.values().iterator().next().getWorkId())
+                .map(state -> state.active()
+                        && state.getBuildingGeneration() == all.values().iterator().next().getGeneration()
+                        && state.getPublishedGeneration() != state.getBuildingGeneration()).orElse(false);
         int invalidFrom =
                 all.values().stream()
                         .filter(
                                 a ->
-                                        a.getStatus() == AnalysisStatus.INVALIDATED
+                                        privateBuild && a.getStatus() == AnalysisStatus.INVALIDATED
                                                 || !sourceAvailable(a))
                         .mapToInt(RelationshipGraphAnalysis::getEpisodeNo)
                         .min()
@@ -1241,6 +1399,17 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     }
 
     private void assertDependencyRevision(RelationshipGraphAnalysis analysis) {
+        JsonNode manualVersion = analysis.getBindings().path("manualDependencyVersion");
+        if (!manualVersion.isMissingNode()) {
+            if (!manualVersion.isInt() || manualVersion.intValue() != 1
+                    || !analysis.getBindings().path("manualDependencyRevision").isTextual()) conflict();
+            assertFrozenSourcesCurrent(analysis);
+            String actual = manualDependencyRevision(analysis.getWorkId(),
+                    manualDependencyPairs(mapper.toContext(analysis), analysis.getBindings()));
+            if (!Objects.equals(analysis.getBindings().path("manualDependencyRevision").textValue(), actual))
+                conflict();
+            return;
+        }
         JsonNode scope = analysis.getBindings().path("dependencyPairScopeVersion");
         Set<String> comparisonPairs = null;
         String revisionField = "dependencyRevision";
@@ -1255,6 +1424,46 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                 dependencyRevision(
                         analysis.getWorkId(), analysis.getEpisodeNo(), analysis.getGeneration(), comparisonPairs)))
             conflict();
+    }
+
+    private Set<String> manualDependencyPairs(Context context, JsonNode bindings) {
+        Set<String> result = stableComparisonPairs(context.observations(), bindings);
+        result.addAll(stableComparisonPairs(context.heldObservations(), bindings));
+        // Legacy non-partial contexts also contain neighboring relationships, not only O's pair.
+        for (var relationship : context.relationships()) {
+            String source = bindings.path("nodes").path(relationship.sourceNodeRef()).path("id").asText();
+            String target = bindings.path("nodes").path(relationship.targetNodeRef()).path("id").asText();
+            try { UUID.fromString(source); UUID.fromString(target); }
+            catch (IllegalArgumentException malformed) { throw new AppException(RELATIONSHIP_GRAPH_CONFLICT); }
+            result.add(RelationshipGraphRules.pair(source, target));
+        }
+        return result;
+    }
+
+    private String manualDependencyRevision(UUID workId, Set<String> pairs) {
+        // Automatic event creation/version increments are intentionally absent. Human corrections
+        // and suppression apply to this edge across all generations and all reader cutoffs.
+        var revision = edges.findAllByWorkId(workId).stream()
+                .filter(edge -> edge.isSuppressed() || edge.getCorrectedSummary() != null)
+                .filter(edge -> pairs.contains(RelationshipGraphRules.pair(
+                        edge.getSourceNodeId().toString(), edge.getTargetNodeId().toString())))
+                .sorted(Comparator.comparing(RelationshipGraphEdge::getId))
+                .map(edge -> List.of(edge.getId().toString(),
+                        edge.getCorrectedSummary() == null ? "" : edge.getCorrectedSummary(), edge.isSuppressed()))
+                .toList();
+        return hash(mapper.toJson(revision));
+    }
+
+    private void assertFrozenSourcesCurrent(RelationshipGraphAnalysis analysis) {
+        JsonNode sourceIds = analysis.getBindings().path("sourceDependencies");
+        if (!sourceIds.isArray()) conflict();
+        Set<UUID> ids = new HashSet<>();
+        for (JsonNode value : sourceIds) {
+            try { ids.add(UUID.fromString(value.asText())); }
+            catch (IllegalArgumentException malformed) { throw new AppException(RELATIONSHIP_GRAPH_CONFLICT); }
+        }
+        if (!ids.isEmpty() && analyses.countCurrentSources(ids, analysis.getWorkId(),
+                analysis.getGeneration(), analysis.getEpisodeNo()) != ids.size()) conflict();
     }
 
     private EpisodeRef episodeRef(UUID id, int no) {

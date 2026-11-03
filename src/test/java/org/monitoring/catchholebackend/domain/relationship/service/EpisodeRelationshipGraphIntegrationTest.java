@@ -25,10 +25,13 @@ import static org.monitoring.catchholebackend.domain.relationship.dto.Relationsh
 import static org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.TemporalScope;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import jakarta.persistence.EntityManager;
 
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobLeaseService;
@@ -43,6 +46,7 @@ import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodePurgeDataRepository;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.relationship.entity.RelationshipGraphNode;
+import org.monitoring.catchholebackend.domain.relationship.entity.RelationshipGraphEvent;
 import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipGraphAnalysisRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
@@ -53,6 +57,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -62,6 +67,7 @@ import java.util.UUID;
 
 @SpringBootTest(properties = "spring.config.import=")
 @ActiveProfiles("test")
+@DisplayName("회차별 관계 확정과 재시도는 원문·사용자 정정 경계를 보존한다")
 class EpisodeRelationshipGraphIntegrationTest {
     @Autowired RelationshipGraphService service;
     @Autowired EntityManager em;
@@ -214,6 +220,25 @@ class EpisodeRelationshipGraphIntegrationTest {
                 status -> service.finalizeRelationshipAnalysis(jobs.findById(id).orElseThrow()));
     }
 
+    private List<RelationshipGraphEvent> relationshipEvents() {
+        return tx.execute(t -> em.createQuery(
+                        "select e from RelationshipGraphEvent e where e.workId=:work"
+                                + " order by e.episodeNo, e.createdAt, e.id",
+                        RelationshipGraphEvent.class)
+                .setParameter("work", workId).getResultList());
+    }
+
+    // 이전 서버가 저장한 문맥에는 manual-only dependency marker가 없고 후행 무효화만 남아 있다.
+    private void invalidateLegacyContext(UUID id) {
+        tx.executeWithoutResult(t -> {
+            var analysis = analyses.findById(id).orElseThrow();
+            ObjectNode bindings = (ObjectNode) analysis.getBindings().deepCopy();
+            bindings.remove(List.of("manualDependencyVersion", "manualDependencyRevision", "sourceDependencies"));
+            ReflectionTestUtils.setField(analysis, "bindings", bindings);
+            analysis.invalidate();
+        });
+    }
+
     @Test
     @DisplayName("원문 추출 실패의 계약을 보존하고 실패 뒤 첫 관계도 완료 구간으로 오인하지 않는다")
     void failedExtractionRetainsFrozenCapabilityAndDoesNotVerifyLaterFirstEdge() {
@@ -362,48 +387,318 @@ class EpisodeRelationshipGraphIntegrationTest {
     }
 
     @Test
-    void earlierCompletionInvalidatesLaterPreparedContext() {
-        UUID first = job(1), second = job(2);
-        Context a = prepare(first), b = prepare(second);
-        apply(first, a, action(a, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
-        assertThatThrownBy(
-                        () ->
-                                service.completeRelationshipAnalysis(
-                                        second,
-                                        lease,
-                                        new Complete(
-                                                1,
-                                                b.contextToken(),
-                                                List.of(
-                                                        action(
-                                                                b,
-                                                                Operation.ADD,
-                                                                Kind.COMPANIONSHIP,
-                                                                "함께 여행한다")))))
-                .isInstanceOf(AppException.class);
-        assertThat(service.getRelationshipGraph(owner, workId, null).analysisStatus())
-                .isEqualTo("INVALIDATED");
+    @DisplayName("22화 비교 중 14화가 반영되어도 동결 문맥으로 조회·완료·확정한다")
+    void earlierCompletionPreservesLaterPreparedContext() {
+        UUID second = job(22);
+        Context b = prepare(second);
+        UUID first = job(14);
+        Context a = prepare(first);
+        apply(first, a, action(a, Operation.ADD, Kind.COMPANIONSHIP, "14화 동행"));
+
+        assertThat(service.getRelationshipAnalysis(second, lease)).contains(b);
+        assertThat(prepare(second)).isEqualTo(b);
+        verify(storage, times(2)).getText(anyString());
+        apply(second, b, action(b, Operation.ADD, Kind.COMPANIONSHIP, "22화 동행"));
+        assertThat(analyses.findById(second).orElseThrow().getStatus())
+                .isEqualTo(AnalysisStatus.APPLIED);
         assertThat(service.getRelationshipGraph(owner, workId, null).availableEpisodes())
                 .extracting(EpisodeRef::episodeNo)
-                .containsExactly(1);
+                .containsExactly(14, 22);
+        assertThat(service.getRelationshipGraph(owner, workId, null).edges())
+                .singleElement().extracting(Edge::summary).isEqualTo("22화 동행");
     }
 
     @Test
-    void earlierCompletionInvalidatesAlreadyAppliedLaterManualJob() {
-        UUID first = job(1), second = job(2);
-        Context b = prepare(second), a = prepare(first);
-        apply(second, b, action(b, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
-        apply(first, a, action(a, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
+    @DisplayName("뒤 회차 확정 후 앞 회차를 추가해도 같은 관계의 두 이력을 회차순으로 보존한다")
+    void earlierCompletionPreservesAlreadyAppliedLaterManualJob() {
+        UUID second = job(22);
+        Context b = prepare(second);
+        apply(second, b, action(b, Operation.ADD, Kind.COMPANIONSHIP, "22화 동행"));
+        UUID edgeId = service.getRelationshipGraph(owner, workId, null).edges().getFirst().id();
+        UUID first = job(14);
+        Context a = prepare(first);
+        apply(first, a, action(a, Operation.ADD, Kind.COMPANIONSHIP, "14화 동행"));
         assertThat(service.getRelationshipGraph(owner, workId, null).availableEpisodes())
                 .extracting(EpisodeRef::episodeNo)
-                .containsExactly(1);
+                .containsExactly(14, 22);
         assertThat(analyses.findById(second).orElseThrow().getStatus())
-                .isEqualTo(AnalysisStatus.INVALIDATED);
-        UUID retry = job(2);
-        Context refreshed = prepare(retry);
-        assertThat(refreshed.observations().getFirst().sourceNodeRefs()).hasSize(1);
-        assertThat(refreshed.observations().getFirst().targetNodeRefs()).hasSize(1);
-        assertThat(refreshed.relationships()).hasSize(1);
+                .isEqualTo(AnalysisStatus.APPLIED);
+        assertThat(service.getRelationshipGraph(owner, workId, 14).edges())
+                .singleElement().satisfies(e -> {
+                    assertThat(e.id()).isEqualTo(edgeId);
+                    assertThat(e.summary()).isEqualTo("14화 동행");
+                });
+        assertThat(service.getRelationshipGraph(owner, workId, 22).edges())
+                .singleElement().satisfies(e -> {
+                    assertThat(e.id()).isEqualTo(edgeId);
+                    assertThat(e.summary()).isEqualTo("22화 동행");
+                });
+        tx.executeWithoutResult(t -> {
+            service.finalizeRelationshipAnalysis(jobs.findById(first).orElseThrow());
+            service.finalizeRelationshipAnalysis(jobs.findById(second).orElseThrow());
+        });
+        assertThat(relationshipEvents()).extracting(RelationshipGraphEvent::getEpisodeNo)
+                .containsExactly(14, 22);
+        assertThat(relationshipEvents()).extracting(RelationshipGraphEvent::getEdgeId)
+                .containsOnly(edgeId);
+    }
+
+    @Test
+    @DisplayName("22화에서 끝난 관계는 늦게 반영한 14화 ADD로 되살아나지 않는다")
+    void laterEndRemainsEndedAfterLateEarlierAdd() {
+        UUID original = job(20);
+        Context seed = prepare(original);
+        apply(original, seed, action(seed, Operation.ADD, Kind.COMPANIONSHIP, "20화 동행"));
+        UUID second = job(22);
+        Context later = prepare(second);
+        apply(second, later, action(later, Operation.END, Kind.COMPANIONSHIP, "22화 동행 종료"));
+        UUID first = job(14);
+        Context earlier = prepare(first);
+        assertThat(earlier.relationships()).isEmpty();
+        apply(first, earlier, action(earlier, Operation.ADD, Kind.COMPANIONSHIP, "14화 동행"));
+
+        assertThat(service.getRelationshipGraph(owner, workId, 14).edges())
+                .singleElement().extracting(Edge::status).isEqualTo(EdgeStatus.ACTIVE);
+        assertThat(service.getRelationshipGraph(owner, workId, null).edges())
+                .singleElement().satisfies(e -> {
+                    assertThat(e.status()).isEqualTo(EdgeStatus.ENDED);
+                    assertThat(e.summary()).isEqualTo("22화 동행 종료");
+                });
+        assertThat(relationshipEvents()).extracting(RelationshipGraphEvent::getEpisodeNo)
+                .containsExactly(14, 20, 22);
+    }
+
+    @Test
+    @DisplayName("후행 MERGE도 독립된 현재 사실로 남아 앞 회차 수정 뒤 다시 분석하지 않는다")
+    void laterMergeRemainsIndependentPresentEventAfterEarlierUpdate() {
+        UUID original = job(1);
+        Context seed = prepare(original);
+        apply(original, seed, action(seed, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
+        UUID second = job(22);
+        Context later = prepare(second);
+        apply(second, later, action(later, Operation.MERGE, Kind.COMPANIONSHIP, "함께 여행한다"));
+        UUID first = job(14);
+        Context earlier = prepare(first);
+        apply(first, earlier, action(earlier, Operation.UPDATE, Kind.COMPANIONSHIP, "14화 별도의 동행"));
+
+        assertThat(analyses.findById(second).orElseThrow().getStatus()).isEqualTo(AnalysisStatus.APPLIED);
+        assertThat(service.getRelationshipGraph(owner, workId, 14).edges())
+                .singleElement().extracting(Edge::summary).isEqualTo("14화 별도의 동행");
+        assertThat(service.getRelationshipGraph(owner, workId, 22).edges())
+                .singleElement().extracting(Edge::summary).isEqualTo("함께 여행한다");
+        assertThat(relationshipEvents()).extracting(RelationshipGraphEvent::getEpisodeNo)
+                .containsExactly(1, 14, 22);
+    }
+
+    @Test
+    @DisplayName("구버전 후행 INVALIDATED 재시도는 자기 관측만 재사용하고 원문을 재추출하지 않는다")
+    void legacyInvalidatedRetryReusesOnlyOwnObservationsWithoutSourceRead() {
+        UUID original = job(1);
+        Context seed = prepare(original);
+        apply(original, seed, new Decision(List.of("O1"), Operation.HOLD, null, null,
+                null, null, null, null, null, null, TemporalScope.UNKNOWN, "새 근거를 기다린다"));
+        UUID second = job(22);
+        Context frozen = prepare(second);
+        assertThat(frozen.heldObservations()).hasSize(1);
+        invalidateLegacyContext(second);
+        UUID first = job(14);
+        Context earlier = prepare(first);
+        apply(first, earlier, action(earlier, Operation.ADD, Kind.COMPANIONSHIP, "14화 동행"));
+        clearInvocations(storage);
+
+        Context resumed = service.getRelationshipAnalysis(second, lease).orElseThrow();
+        assertThat(resumed.status()).isEqualTo(AnalysisStatus.PREPARED);
+        assertThat(resumed.contextToken()).isNotEqualTo(frozen.contextToken());
+        assertThat(resumed.sourceHash()).isEqualTo(frozen.sourceHash());
+        assertThat(resumed.sourceEpisodeNo()).isEqualTo(22);
+        assertThat(resumed.observations()).hasSize(1);
+        assertThat(resumed.observations().getFirst().ref()).isEqualTo("O1");
+        assertThat(resumed.observations().getFirst().evidence())
+                .isEqualTo(frozen.observations().getFirst().evidence());
+        assertThat(resumed.heldObservations()).hasSize(1);
+        assertThat(resumed.relationships()).hasSize(1);
+        assertThat(service.getRelationshipAnalysis(second, lease)).contains(resumed);
+        assertThat(prepare(second)).isEqualTo(resumed);
+        verify(storage, never()).getText(anyString());
+        apply(second, resumed, action(resumed, Operation.UPDATE, Kind.COMPANIONSHIP, "22화 동행"));
+        assertThat(analyses.findById(second).orElseThrow().getStatus()).isEqualTo(AnalysisStatus.APPLIED);
+    }
+
+    @Test
+    @DisplayName("구버전 완료 문맥도 자기 관측으로 재준비하되 부분 완료 계약과 원문 무조회는 보존한다")
+    void legacyInvalidatedCompletedRetryRepreparesOwnObservationsWithoutSourceRead() {
+        UUID id = job(22);
+        tx.executeWithoutResult(t -> jobs.findById(id).orElseThrow().enableRelationshipPartialResults());
+        Context frozen = prepare(id);
+        UUID sourceNode = boundNodeId(id, frozen.observations().getFirst().sourceNodeRefs().getFirst());
+        UUID targetNode = boundNodeId(id, frozen.observations().getFirst().targetNodeRefs().getFirst());
+        service.completeRelationshipAnalysis(id, lease, new Complete(1, frozen.contextToken(),
+                List.of(action(frozen, Operation.ADD, Kind.COMPANIONSHIP, "22화 동행"))));
+        invalidateLegacyContext(id);
+        assertThat(analyses.findById(id).orElseThrow().getDecisions()).isNotEmpty();
+        clearInvocations(storage);
+
+        Context resumed = service.getRelationshipAnalysis(id, lease).orElseThrow();
+        assertThat(resumed.status()).isEqualTo(AnalysisStatus.PREPARED);
+        assertThat(resumed.supportsPartialResults()).isTrue();
+        assertThat(resumed.failures()).isEmpty();
+        assertThat(resumed.contextToken()).isNotEqualTo(frozen.contextToken());
+        assertThat(resumed.observations())
+                .extracting(o -> tuple(o.ref(), o.source(), o.target(), o.summary(), o.evidence(), o.sourceEpisodeNo()))
+                .containsExactlyElementsOf(frozen.observations().stream()
+                        .map(o -> tuple(o.ref(), o.source(), o.target(), o.summary(), o.evidence(), o.sourceEpisodeNo()))
+                        .toList());
+        // N refs belong to the newly prepared context; the real character node identities persist.
+        assertThat(boundNodeId(id, resumed.observations().getFirst().sourceNodeRefs().getFirst())).isEqualTo(sourceNode);
+        assertThat(boundNodeId(id, resumed.observations().getFirst().targetNodeRefs().getFirst())).isEqualTo(targetNode);
+        assertThat(analyses.findById(id).orElseThrow().getDecisions()).isNull();
+        verify(storage, never()).getText(anyString());
+        apply(id, resumed, action(resumed, Operation.ADD, Kind.COMPANIONSHIP, "22화 동행"));
+        assertThat(relationshipEvents()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("새 완료 문맥은 앞 회차가 뒤늦게 반영되어도 비교 결과를 재사용하여 확정한다")
+    void earlierCompletionPreservesLaterCompletedContextAndDecisions() {
+        UUID second = job(22);
+        tx.executeWithoutResult(t -> jobs.findById(second).orElseThrow().enableRelationshipPartialResults());
+        Context later = prepare(second);
+        service.completeRelationshipAnalysis(second, lease, new Complete(1, later.contextToken(),
+                List.of(action(later, Operation.ADD, Kind.COMPANIONSHIP, "22화 동행"))));
+        var decisions = analyses.findById(second).orElseThrow().getDecisions().deepCopy();
+        UUID first = job(14);
+        Context earlier = prepare(first);
+        apply(first, earlier, action(earlier, Operation.ADD, Kind.COMPANIONSHIP, "14화 동행"));
+        clearInvocations(storage);
+
+        Context resumed = service.getRelationshipAnalysis(second, lease).orElseThrow();
+        assertThat(resumed.status()).isEqualTo(AnalysisStatus.COMPLETED);
+        assertThat(resumed.contextToken()).isEqualTo(later.contextToken());
+        assertThat(resumed.failures()).isEmpty();
+        assertThat(analyses.findById(second).orElseThrow().getDecisions()).isEqualTo(decisions);
+        tx.executeWithoutResult(t -> service.finalizeRelationshipAnalysis(jobs.findById(second).orElseThrow()));
+        verify(storage, never()).getText(anyString());
+        assertThat(relationshipEvents()).extracting(RelationshipGraphEvent::getEpisodeNo)
+                .containsExactly(14, 22);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"source-key", "source-version", "source-hash", "generation", "superseded", "purged"})
+    @DisplayName("구버전 복구도 원문 식별자·세대·최신 작업·근거 파기 보호를 우회하지 않는다")
+    void legacyInvalidatedRetryRejectsUnsafeSourcesAndSupersededJobs(String mutation) {
+        UUID id = job(22);
+        prepare(id);
+        invalidateLegacyContext(id);
+        if (mutation.equals("superseded")) {
+            job(22);
+        } else {
+            tx.executeWithoutResult(t -> {
+                AnalysisJob job = jobs.findById(id).orElseThrow();
+                Episode episode = job.getEpisode();
+                switch (mutation) {
+                    case "source-key" -> episode.updateContentStorage("source/replaced", "v1", episode.getContentHash());
+                    case "source-version" -> episode.updateContentStorage(episode.getContentS3Key(), "v2", episode.getContentHash());
+                    case "source-hash" -> episode.updateContentStorage(episode.getContentS3Key(), "v1", storage.contentHash("교체한 합성 원문"));
+                    case "generation" -> job.configureRelationship(job.getRelationshipGeneration() + 1, false);
+                    case "purged" -> purge.purgeNarrativeTimeEvidence(episode.getId());
+                    default -> throw new AssertionError(mutation);
+                }
+            });
+        }
+        clearInvocations(storage);
+        assertThatThrownBy(() -> service.getRelationshipAnalysis(id, lease)).isInstanceOf(AppException.class);
+        assertThatThrownBy(() -> prepare(id)).isInstanceOf(AppException.class);
+        verify(storage, never()).getText(anyString());
+        assertThat(relationshipEvents()).isEmpty();
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"correction", "deletion"})
+    @DisplayName("구버전 재개도 문맥 준비 뒤 사용자가 정정하거나 삭제한 관계를 덮어쓰지 않는다")
+    void legacyInvalidatedRetryPreservesManualConflict(String mutation) {
+        UUID first = job(1);
+        Context seed = prepare(first);
+        apply(first, seed, action(seed, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
+        UUID second = job(22);
+        prepare(second);
+        invalidateLegacyContext(second);
+        Edge edge = service.getRelationshipGraph(owner, workId, 1).edges().getFirst();
+        if (mutation.equals("correction"))
+            service.correctRelationshipEdge(owner, workId, edge.id(), new Correction(edge.version(), "사용자 정정"));
+        else service.deleteRelationshipEdge(owner, workId, edge.id(), edge.version());
+        clearInvocations(storage);
+
+        assertThatThrownBy(() -> service.getRelationshipAnalysis(second, lease)).isInstanceOf(AppException.class);
+        assertThatThrownBy(() -> prepare(second)).isInstanceOf(AppException.class);
+        verify(storage, never()).getText(anyString());
+        assertThat(relationshipEvents()).hasSize(1);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"correction", "deletion"})
+    @DisplayName("관계가 없던 구버전 문맥도 뒤늦게 생긴 같은 인물 쌍의 사용자 정정과 삭제를 우회하지 않는다")
+    void legacyObservationOnlyRetryRejectsLateManualEdgeChanges(String mutation) {
+        UUID second = job(22);
+        Context frozen = prepare(second);
+        assertThat(frozen.observations()).hasSize(1);
+        assertThat(frozen.relationships()).isEmpty();
+        invalidateLegacyContext(second);
+
+        UUID first = job(14);
+        Context earlier = prepare(first);
+        apply(first, earlier, action(earlier, Operation.ADD, Kind.COMPANIONSHIP, "14화 동행"));
+        Edge edge = service.getRelationshipGraph(owner, workId, 14).edges().getFirst();
+        if (mutation.equals("correction"))
+            service.correctRelationshipEdge(owner, workId, edge.id(), new Correction(edge.version(), "사용자 정정"));
+        else service.deleteRelationshipEdge(owner, workId, edge.id(), edge.version());
+        clearInvocations(storage);
+
+        assertThatThrownBy(() -> service.getRelationshipAnalysis(second, lease)).isInstanceOf(AppException.class);
+        assertThat(analyses.findById(second).orElseThrow().getStatus()).isEqualTo(AnalysisStatus.INVALIDATED);
+        assertThat(analyses.findById(second).orElseThrow().getContextToken()).isEqualTo(frozen.contextToken());
+        verify(storage, never()).getText(anyString());
+        assertThat(relationshipEvents()).extracting(RelationshipGraphEvent::getEpisodeNo).containsExactly(14);
+        if (mutation.equals("correction"))
+            assertThat(service.getRelationshipGraph(owner, workId, 14).edges())
+                    .singleElement().extracting(Edge::summary).isEqualTo("사용자 정정");
+        else assertThat(service.getRelationshipGraph(owner, workId, 14).edges()).isEmpty();
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"source-key", "source-version", "purged"})
+    @DisplayName("후행 문맥이 참조한 앞 회차 원문이 바뀌거나 파기되면 재개와 완료를 거부한다")
+    void copiedEarlierSourceProtectionStillRejectsStaleContext(String mutation) {
+        UUID first = job(1);
+        Context seed = prepare(first);
+        apply(first, seed, action(seed, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
+        UUID second = job(22);
+        Context frozen = prepare(second);
+        tx.executeWithoutResult(t -> {
+            Episode episode = jobs.findById(first).orElseThrow().getEpisode();
+            switch (mutation) {
+                case "source-key" -> episode.updateContentStorage("source/replaced", "v1", episode.getContentHash());
+                case "source-version" -> episode.updateContentStorage(episode.getContentS3Key(), "v2", episode.getContentHash());
+                case "purged" -> purge.purgeNarrativeTimeEvidence(episode.getId());
+                default -> throw new AssertionError(mutation);
+            }
+        });
+        clearInvocations(storage);
+        assertThatThrownBy(() -> service.getRelationshipAnalysis(second, lease)).isInstanceOf(AppException.class);
+        assertThatThrownBy(() -> service.completeRelationshipAnalysis(second, lease,
+                new Complete(1, frozen.contextToken(), List.of(action(frozen, Operation.UPDATE,
+                        Kind.COMPANIONSHIP, "새 설명"))))).isInstanceOf(AppException.class);
+        verify(storage, never()).getText(anyString());
+    }
+
+    @Test
+    @DisplayName("추출 전 구버전 INVALIDATED는 문맥을 꾸며내지 않고 준비 전 상태로 복구한다")
+    void legacyInvalidatedPendingRetryDoesNotInventCachedObservations() {
+        UUID id = job(22);
+        tx.executeWithoutResult(t -> analyses.findById(id).orElseThrow().invalidate());
+        clearInvocations(storage);
+        assertThat(service.getRelationshipAnalysis(id, lease)).isEmpty();
+        assertThat(analyses.findById(id).orElseThrow().getStatus()).isEqualTo(AnalysisStatus.PENDING);
+        verify(storage, never()).getText(anyString());
     }
 
     @Test
@@ -455,9 +750,8 @@ class EpisodeRelationshipGraphIntegrationTest {
                                 future.observations().getFirst().sourceNodeRefs().getFirst()))
                 .isEqualTo(ara);
         apply(first, past, action(past, Operation.ADD, Kind.COMPANIONSHIP, "1화 동행"));
-        assertThatThrownBy(() -> service.getRelationshipAnalysis(second, lease))
-                .isInstanceOf(AppException.class);
-        assertThatThrownBy(() -> prepare(second)).isInstanceOf(AppException.class);
+        assertThat(service.getRelationshipAnalysis(second, lease)).contains(future);
+        assertThat(prepare(second)).isEqualTo(future);
         Graph firstGraph = service.getRelationshipGraph(owner, workId, 1);
         assertThat(firstGraph.nodes()).extracting(n -> n.id()).containsExactlyInAnyOrder(ara, bora);
         assertThat(firstGraph.nodes()).allSatisfy(n -> assertThat(n.profileRegistered()).isFalse());
@@ -467,16 +761,7 @@ class EpisodeRelationshipGraphIntegrationTest {
                                 .evidence())
                 .allSatisfy(e -> assertThat(e.episodeNo()).isEqualTo(1));
 
-        UUID retry = job(2);
-        Context refreshed = prepare(retry);
-        assertThat(refreshed.observations().getFirst().sourceNodeRefs()).hasSize(1);
-        assertThat(refreshed.observations().getFirst().targetNodeRefs()).hasSize(1);
-        assertThat(refreshed.relationships()).hasSize(1);
-        assertThat(refreshed.nodes())
-                .filteredOn(n -> n.name().equals("아라"))
-                .singleElement()
-                .satisfies(n -> assertThat(n.profileRegistered()).isTrue());
-        apply(retry, refreshed, action(refreshed, Operation.UPDATE, Kind.COMPANIONSHIP, "2화 동행"));
+        apply(second, future, action(future, Operation.ADD, Kind.COMPANIONSHIP, "2화 동행"));
         Graph latest = service.getRelationshipGraph(owner, workId, 2);
         assertThat(latest.edges().getFirst().id()).isEqualTo(firstGraph.edges().getFirst().id());
         assertThat(latest.nodes()).extracting(n -> n.id()).containsExactlyInAnyOrder(ara, bora);
@@ -932,16 +1217,20 @@ class EpisodeRelationshipGraphIntegrationTest {
         assertThat(prepare(third).heldObservations()).isEmpty();
     }
 
-    @Test
-    void userCorrectionAfterPrepareRejectsStaleComparison() {
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"correction", "deletion"})
+    @DisplayName("준비 뒤 사용자 정정과 삭제는 새 독립 문맥에서도 조회와 완료를 거부한다")
+    void userCorrectionAfterPrepareRejectsStaleComparison(String mutation) {
         UUID first = job(1);
         Context a = prepare(first);
         apply(first, a, action(a, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
         UUID second = job(2);
         Context b = prepare(second);
         Edge edge = service.getRelationshipGraph(owner, workId, 1).edges().getFirst();
-        service.correctRelationshipEdge(
-                owner, workId, edge.id(), new Correction(edge.version(), "사용자가 바로잡은 설명"));
+        if (mutation.equals("correction"))
+            service.correctRelationshipEdge(
+                    owner, workId, edge.id(), new Correction(edge.version(), "사용자가 바로잡은 설명"));
+        else service.deleteRelationshipEdge(owner, workId, edge.id(), edge.version());
         assertThatThrownBy(() -> service.getRelationshipAnalysis(second, lease))
                 .isInstanceOf(AppException.class);
         assertThatThrownBy(() -> prepare(second)).isInstanceOf(AppException.class);
