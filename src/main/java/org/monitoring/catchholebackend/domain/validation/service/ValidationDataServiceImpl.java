@@ -3,34 +3,28 @@ package org.monitoring.catchholebackend.domain.validation.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.persistence.EntityManager;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal;
-import org.monitoring.catchholebackend.domain.episode.repository.EpisodeSourcePurgeRequestRepository;
 import org.monitoring.catchholebackend.domain.validation.dto.request.ValidationDataRequest;
 import org.monitoring.catchholebackend.domain.validation.entity.ValidationReport;
 import org.monitoring.catchholebackend.domain.validation.exception.ValidationErrorCode;
 import org.monitoring.catchholebackend.domain.validation.mapper.ValidationDataMapper;
 import org.monitoring.catchholebackend.domain.validation.repository.ValidationReportRepository;
 import org.monitoring.catchholebackend.global.exception.*;
-import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /** 저장 baseline만 읽는다. 원문 I/O 전후 scalar projection은 JPA 1차 캐시와 분리한다. */
 @Service @RequiredArgsConstructor @Transactional(readOnly = true)
 public class ValidationDataServiceImpl implements ValidationDataService {
-    private static final int MAX_SOURCE_BYTES = 2_000_000; // 기존 검색·인용 reader와 동일한 읽기 지원 범위
     private final ValidationReportRepository reports;
     private final org.monitoring.catchholebackend.domain.validation.repository.ValidationBaselineSourceRepository frozenSources;
-    private final EpisodeSourcePurgeRequestRepository purges;
-    private final ObjectStorageService storage;
     private final AnalysisStateJournal journal;
     private final ValidationDataMapper mapper;
     private final EntityManager em;
-    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationClueCollector clues;
     private final org.monitoring.catchholebackend.domain.validation.processor.ValidationExecutionAccess execution;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationSourceTexts texts;
 
     @Override
     public void validateSavedValidationSeed(Long memberId, UUID workId, UUID reportId) {
@@ -45,7 +39,7 @@ public class ValidationDataServiceImpl implements ValidationDataService {
         var stored=new HashSet<String>();for(var source:frozenSources.findAllByReportId(reportId))stored.add(journal.hash(source.getSourceManifest()));
         var expected=new HashSet<String>();for(var source:seed.path("sources"))expected.add(journal.hash(source));
         if(stored.size()!=seed.path("sources").size()||!stored.equals(expected))throw changed();
-        for(var source:mapper.toSourceReferences(r).entrySet())if(!"READY".equals(sourceStatus(workId,r.getSourceEpisodeNo(),source.getValue(),source.getKey().equals("T1"))))throw changed();
+        for(var source:mapper.toSourceReferences(r).entrySet())if(!"READY".equals(texts.status(workId,r.getSourceEpisodeNo(),source.getValue(),source.getKey().equals("T1"))))throw changed();
     }
 
     @Override
@@ -81,9 +75,27 @@ public class ValidationDataServiceImpl implements ValidationDataService {
                 int next = (int) Math.min(report.getBaselineEntries().size(), (long) request.offset() + request.limit());
                 response.put("nextOffset", next).put("hasMore", next < report.getBaselineEntries().size());
             }
+            case "SUBJECTS" -> {
+                // #349 grid v4: the Worker reads the subject list once at start; there is no paging (offset/limit are ignored).
+                var subjects=mapper.toValidationSubjectCatalogue(report.getBaselineEntries(),refs);
+                response.set("subjects",subjects);response.put("subjectCount",subjects.size()).put("entryCount",report.getBaselineEntries().size());
+            }
+            case "SETTINGS" -> {
+                // #349 grid v4: current rows of the requested subjects only (characters/worldSettings), in B order; worldHistory is never returned.
+                var wanted=request.subjectRefs();var known=new HashSet<String>();
+                ValidationDataMapper.toSubjectRefs(report.getBaselineEntries()).values().forEach(known::add);
+                if(wanted==null||wanted.isEmpty()||wanted.size()>100||wanted.stream().anyMatch(ref->ref==null||!ref.matches("S[1-9][0-9]*")||!known.contains(ref)))
+                    throw new AppException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
+                var rows=mapper.toValidationCurrentSettings(report.getBaselineEntries(),refs,wanted);var settings=response.putArray("settings");rows.forEach(settings::add);
+                var proofs=response.putArray("authorCorrectionProofs");
+                for(var row:rows) {
+                    var entry=report.getBaselineEntries().path(Integer.parseInt(row.path("entry_ref").asText().substring(1))-1);
+                    if(entry.path("state").path("explicitAuthorCorrections").isArray())proofs.addObject().put("entryRef",row.path("entry_ref").asText()).set("proofs",entry.path("state").path("explicitAuthorCorrections").deepCopy());
+                }
+            }
             case "VALIDATE" -> {
                 for (var entry : refs.entrySet()) {
-                    String status = sourceStatus(workId, report.getSourceEpisodeNo(), entry.getValue(), entry.getKey().equals("T1"));
+                    String status = texts.status(workId, report.getSourceEpisodeNo(), entry.getValue(), entry.getKey().equals("T1"));
                     if (!status.equals("READY")) return response.put("status", status);
                 }
             }
@@ -92,21 +104,15 @@ public class ValidationDataServiceImpl implements ValidationDataService {
                 if (source == null) throw new AppException(ValidationErrorCode.VALIDATION_NOT_FOUND);
                 if (!Objects.equals(request.expectedSourceHash(), source.path("contentHash").asText())
                         || !Objects.equals(request.expectedSourceVersion(), nullable(source, "contentS3Version"))) return response.put("status", "SOURCE_CHANGED");
-                String before = sourceStatus(workId, report.getSourceEpisodeNo(), source, request.sourceRef().equals("T1"));
-                if (!before.equals("READY")) return response.put("status", before);
-                String text;
-                try { text = storage.getText(source.path("contentS3Key").asText()); }
-                catch (RuntimeException exception) { requireCurrentReport(memberId, workId, reportId, request, jobId, leaseToken); return response.put("status", "SOURCE_UNREADABLE"); }
-                requireCurrentReport(memberId, workId, reportId, request, jobId, leaseToken);
-                String after = sourceStatus(workId, report.getSourceEpisodeNo(), source, request.sourceRef().equals("T1"));
-                if (!after.equals("READY")) return response.put("status", after);
-                if (text == null || text.getBytes(StandardCharsets.UTF_8).length > MAX_SOURCE_BYTES) return response.put("status", "SOURCE_UNREADABLE");
-                if (!storage.contentHash(text).equals(source.path("contentHash").asText())) return response.put("status", "SOURCE_CHANGED");
+                // 고정 출처 전문 읽기와 hash 확인은 작가 상세의 앞뒤 줄과 같은 경로(ValidationSourceTexts)다. 저장소 GET 직후 report·lease를 다시 확인한다.
+                var read = texts.read(workId, report.getSourceEpisodeNo(), source, request.sourceRef().equals("T1"),
+                        () -> requireCurrentReport(memberId, workId, reportId, request, jobId, leaseToken));
+                if (!read.ready()) return response.put("status", read.status());
+                String text = read.text();
                 int length = text.codePointCount(0, text.length());
                 int start = request.start() == null ? 0 : request.start();
                 int end = request.end() == null ? length : request.end();
                 if (start < 0 || end < start || end > length) return response.put("status", "INVALID_RANGE");
-                if(request.sourceRef().equals("T1")&&start==0&&end==length)response.set("modelClues",clues.collectValidationClues(text,mapper.toValidationNames(report.getBaselineEntries())));
                 response.put("sourceRef", request.sourceRef()).put("contentHash", source.path("contentHash").asText())
                         .put("start", start).put("end", end).put("totalCodePoints", length)
                         .put("text", text.substring(text.offsetByCodePoints(0, start), text.offsetByCodePoints(0, end)));
@@ -131,36 +137,6 @@ public class ValidationDataServiceImpl implements ValidationDataService {
                 || !Boolean.TRUE.equals(state[6]) || !Objects.equals(state[7],state[8])) throw changed();
     }
 
-    private String sourceStatus(UUID work, int targetNo, JsonNode source, boolean target) {
-        String kind = source.path("sourceKind").asText();
-        Object[] state;
-        if (kind.equals("EPISODE")) {
-            UUID id = UUID.fromString(source.path("episodeId").asText());
-            state = em.createQuery("""
-                    select e.contentS3Key, e.contentHash, e.contentS3Version, e.episodeNo, cast(e.status as string), e.contentRevision
-                    from Episode e where e.id = :id and e.work.id = :work
-                    """, Object[].class).setParameter("id", id).setParameter("work", work).getResultStream().findFirst().orElse(null);
-            if (state == null || "ARCHIVED".equals(state[4]) || purges.blocksSource(id,source.path("contentS3Key").asText())) return "SOURCE_PURGED";
-            if (source.path("contentRevision").isNumber() && !Objects.equals(state[5],source.path("contentRevision").asLong())) return "SOURCE_CHANGED";
-            if (!Objects.equals(state[3], source.path("episodeNo").asInt())
-                    || target && (int) state[3] != targetNo || !target && (int) state[3] >= targetNo) return "SOURCE_CHANGED";
-        } else if (kind.equals("SETTING_BOOK") && !target) {
-            state = em.createQuery("""
-                    select r.contentS3Key, r.contentHash, r.contentS3Version, r.revisionNo,
-                           cast(r.referenceTimeKind as string), r.referenceEpisodeNo, r.settingBook.id
-                    from SettingBookRevision r where r.id = :id and r.settingBook.batch.work.id = :work
-                    """, Object[].class).setParameter("id", UUID.fromString(source.path("revisionId").asText()))
-                    .setParameter("work", work).getResultStream().findFirst().orElse(null);
-            if (state == null) return "SOURCE_PURGED";
-            if (!Objects.equals(state[3], source.path("revisionNo").asInt()) || !Objects.equals(state[4], source.path("referenceTimeKind").asText())
-                    || !Objects.equals(state[5], source.path("referenceEpisodeNo").isNumber() ? source.path("referenceEpisodeNo").asInt() : null)
-                    || !Objects.equals(state[6].toString(), source.path("settingBookId").asText())
-                    || "EPISODE".equals(state[4]) && (int) state[5] >= targetNo) return "SOURCE_CHANGED";
-        } else return "SOURCE_CHANGED";
-        if (!Objects.equals(state[0], source.path("contentS3Key").asText()) || !Objects.equals(state[1], source.path("contentHash").asText())
-                || !Objects.equals(state[2], nullable(source, "contentS3Version"))) return "SOURCE_CHANGED";
-        return "READY";
-    }
     private String nullable(JsonNode node, String field) { return node.path(field).isTextual() ? node.path(field).asText() : null; }
     private AppException changed() { return new AppException(ValidationErrorCode.VALIDATION_SOURCE_VERSION_CONFLICT); }
 }

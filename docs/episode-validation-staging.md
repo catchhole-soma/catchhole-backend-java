@@ -45,7 +45,7 @@ Work 잠금 안에서 report와 대상의 **접수 당시 batch/episodeNo/hash/k
 | `status` | `PREPARING_BASELINE`, `WAITING_FOR_ERROR_REVIEW`, `HELD_INCOMPLETE`, `INVALIDATED` |
 | `holdReason` | `BASELINE_EVIDENCE_INVALID`, `BASELINE_SOURCE_UNAVAILABLE`, `BASELINE_SEED_INVALID`, `SOURCE_EVIDENCE_PURGED` 등 |
 | `confirmedStateHash`, `baselineHash` | 고정 확정 state/기준 seed hash |
-| `sourcePreparationStatus` | `NOT_PREPARED` — 검색/원문 전체 검사 완료를 주장하지 않음 |
+| `sourcePreparationStatus` | `NOT_PREPARED` — 검색/원문 전체 검사 완료를 주장하지 않음. 설정집 manifest 행은 접수 시점에 그 설정집의 현재·비보관 revision인지 `currentRevision`(boolean)을 함께 고정한다(2026-11-02, 접수 때 색인 채우기의 RAG 범위, `docs/validation-execution-v1.md`) |
 | `reviewStage` | GH312 S4 파생 검수 단계. 원고 목록·배치 요약·이력과 같은 계산식(`docs/validation-review-v1.md`) |
 
 현재 JSON의 `reviewComplete`/`approved`나 빈 findings 같은 클라이언트 값은 승인 증거가 아니며 추출을 시작하지 않는다. release API도 없다. 미래 상태/버튼 이름은 아래 제품 원칙이며 현재 DTO 필드나 실행 가능한 계약으로 오해하지 않는다.

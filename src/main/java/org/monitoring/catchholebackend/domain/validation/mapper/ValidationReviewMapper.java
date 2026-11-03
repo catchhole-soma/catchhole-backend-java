@@ -20,7 +20,9 @@ public class ValidationReviewMapper {
         for(var span:f.getBranch()==ValidationBranch.SETTING?p.path("target_spans"):JsonNodeFactory.instance.arrayNode().add(p.path("span")))
             if(span.isObject())spans.add(new Span(text(span,"source_ref"),number(span,"start"),number(span,"end"),text(span,"quote")));
         return new ValidationFindingSummaryResponse(f.getId(),f.getBranch(),f.getUnitRef(),f.getCheckId(),f.getCheckRevision(),f.getOutcome(),toJudgmentResponse(j),changed,
-                new Summary(text(p,"impact"),text(p,"reason"),text(p,"replacement"),List.copyOf(spans)),toSubjectResponse(f),f.getSettingName(),f.getSettingKey());
+                new Summary(text(p,"impact"),text(p,"reason"),text(p,"replacement"),List.copyOf(spans)),toSubjectResponse(f),f.getSettingName(),f.getSettingKey(),
+                org.monitoring.catchholebackend.domain.validation.processor.ValidationFindingLabels.topic(p),
+                org.monitoring.catchholebackend.domain.validation.processor.ValidationFindingLabels.headline(p));
     }
     /** #314 B2: 판정 저장 때 기록한 대상. 다시 계산하지 않는다. */
     public ValidationFindingSummaryResponse.Subject toSubjectResponse(ValidationFinding f) {
@@ -29,7 +31,9 @@ public class ValidationReviewMapper {
     public ValidationFindingSummaryResponse.Judgment toJudgmentResponse(ValidationJudgment j) {
         return j==null?new ValidationFindingSummaryResponse.Judgment(ValidationJudgmentValue.PENDING,0,null):new ValidationFindingSummaryResponse.Judgment(j.getJudgment(),j.getVersion(),j.getDecidedAt());
     }
-    public ValidationFindingDetailResponse toDetailResponse(ValidationFinding f,ValidationJudgment j,Long currentRevision,boolean changed,List<ValidationEvidence> evidence,
+    /** 근거 행(evidence)·근거 문장·회차 표기는 {@code ValidationFindingLabels}가 만든 작가용 view를 그대로 옮긴다. */
+    public ValidationFindingDetailResponse toDetailResponse(ValidationFinding f,ValidationJudgment j,Long currentRevision,boolean changed,
+            org.monitoring.catchholebackend.domain.validation.processor.ValidationFindingLabels.View readable,
             List<ValidationJudgmentHistory> history,Map<Long,String> changeReasons,List<PriorRevision> prior,List<org.monitoring.catchholebackend.domain.validation.processor.ValidationFindingTargets.Basis> basis) {
         var body=JsonNodeFactory.instance.objectNode();for(String field:DETAIL_FIELDS)if(f.getPayload().has(field))body.set(field,f.getPayload().path(field).deepCopy());
         // 완료 판정의 receipt ref는 비공개 호출 기록을 가리키므로 사유와 근거 ref만 남긴다.
@@ -37,11 +41,12 @@ public class ValidationReviewMapper {
         @SuppressWarnings("unchecked") var payload=(Map<String,Object>)transport.toTransportValue(body);
         return new ValidationFindingDetailResponse(f.getId(),f.getBranch(),f.getUnitRef(),f.getCheckId(),f.getCheckRevision(),currentRevision,f.getOutcome(),
                 f.getCheckId()!=null&&!Objects.equals(currentRevision,f.getCheckRevision()),changed,payload,
-                evidence.stream().map(e->new Evidence(e.getSourceRef(),e.getStart(),e.getEnd(),e.getQuote())).distinct().toList(),toJudgmentResponse(j),ValidationJudgmentValue.allowedFor(f.getBranch()),
+                readable.evidence().stream().distinct().toList(),toJudgmentResponse(j),ValidationJudgmentValue.allowedFor(f.getBranch()),
                 history.stream().map(h->new History(h.getFinding().getId(),h.getCheckRevision(),h.getFromJudgment(),h.getToJudgment(),h.getReason(),
                         h.getReason()==ValidationJudgmentHistoryReason.REVISION_SUPERSEDED?changeReasons.get(h.getCheckRevision()):null,h.getCreatedAt())).toList(),prior,
                 toSubjectResponse(f),f.getSettingName(),f.getSettingKey(),
-                basis.stream().map(b->new Basis(b.entryRef(),b.entryHash(),b.subjectType(),b.targetId(),b.subjectName(),b.factType(),b.factKey(),b.scopeName(),b.settingName(),b.currentVersion())).toList());
+                basis.stream().map(b->new Basis(b.entryRef(),b.entryHash(),b.subjectType(),b.targetId(),b.subjectName(),b.factType(),b.factKey(),b.scopeName(),b.settingName(),b.currentVersion())).toList(),
+                readable.topic(),readable.headline(),readable.targetEpisodeNo(),readable.basisQuotes(),readable.blocks());
     }
     public ValidationReviewSummaryResponse toReviewResponse(ValidationReport r,ValidationReviewGate.Review review) {
         var c=review.counts();

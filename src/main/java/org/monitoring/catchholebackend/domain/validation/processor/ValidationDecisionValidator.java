@@ -18,6 +18,8 @@ public class ValidationDecisionValidator {
     private final ValidationDataMapper frozen;
     private final AnalysisStateJournal journal;
     private static final Set<String> OUTCOMES=Set.of("CONFLICT","SUSPECTED_CONFLICT","NEEDS_CONTEXT","NO_CONFLICT");
+    /** #349 grid v4 reads: fixed rows, target context and semantic search only (no KEYWORD/DIRECT/NEIGHBORS raw-text reads). */
+    public static final Set<String> INTENT_OPERATIONS=Set.of("BASELINE","TARGET_CONTEXT","VECTOR");
     public void validate(Prepared p,ValidationCheck check,String outcome,JsonNode decision) {
         var bundle=decision.path("evidence_bundle");var question=check.getState().path("draft");var knownSettings=frozen.toValidationSettings(p.context().entries(),p.context().sourceReferences());
         if(!OUTCOMES.contains(outcome)||!"DECIDED".equals(decision.path("action").asText())||!outcome.equals(decision.path("outcome").asText())||!nonblank(decision,"reason")||!decision.path("completion").isObject()
@@ -28,11 +30,13 @@ public class ValidationDecisionValidator {
         Set<String> facts=new HashSet<>(),known=new HashSet<>();known.add("T1");
         if(!bundle.path("settings").isArray()||!bundle.path("evidence").isArray()||!bundle.path("receipts").isArray()||!bundle.path("target_context").isArray()||bundle.path("target_context").isEmpty()||!bundle.path("additional_target_context").isArray())throw error(VALIDATION_RESULT_INVALID);
         for(var setting:bundle.path("settings")) {setting(knownSettings,setting);if(!facts.add(setting.path("entry_ref").asText()))throw error(VALIDATION_RESULT_INVALID);}
-        Set<String> neededSettings=new HashSet<>();for(var entry:knownSettings.entrySet())for(var subject:question.path("subject_refs"))if(subject.asText().equals(entry.getValue().path("subject_ref").asText()))neededSettings.add(entry.getKey());
+        // #349 grid v4: the judge reads current rows only (characters/worldSettings); worldHistory rows are never bundle settings.
+        Set<String> neededSettings=new HashSet<>();for(var entry:knownSettings.entrySet())if(ValidationDataMapper.CURRENT_DOMAINS.contains(entry.getValue().path("domain").asText()))
+            for(var subject:question.path("subject_refs"))if(subject.asText().equals(entry.getValue().path("subject_ref").asText()))neededSettings.add(entry.getKey());
         for(var intent:check.getState().path("lookup_obligations"))if("BASELINE".equals(intent.path("operation").asText()))for(var ref:intent.path("evidence_refs"))neededSettings.add(ref.asText());
         if(!facts.equals(neededSettings))throw error(VALIDATION_RESULT_INVALID);known.addAll(facts);
-        Set<String> evidence=new HashSet<>(),comparisonEvidence=new HashSet<>();for(var row:bundle.path("evidence")) {
-            String ref=row.path("ref").asText();var source=p.context().sourceReferences().get(row.path("source_ref").asText());
+        Set<String> evidence=new HashSet<>(),comparisonEvidence=new HashSet<>();Map<String,JsonNode> evidenceRows=new HashMap<>();for(var row:bundle.path("evidence")) {
+            String ref=row.path("ref").asText();var source=p.context().sourceReferences().get(row.path("source_ref").asText());evidenceRows.put(ref,row);
             if(!ref.matches("E[1-9][0-9]*")||!evidence.add(ref)||source==null||!source.path("sourceKind").asText().equals(row.path("source_kind").asText())||!row.has("quote"))throw error(VALIDATION_RESULT_INVALID);
             if(!"T1".equals(row.path("source_ref").asText()))comparisonEvidence.add(ref);
         }known.addAll(evidence);
@@ -49,12 +53,14 @@ public class ValidationDecisionValidator {
             if(!nonblank(a,"reason")||!strings(a.path("evidence_refs"),known,true)||!strings(a.path("receipt_refs"),receiptRefs,true))throw error(VALIDATION_RESULT_INVALID);
         }
         if(!textSet(decision.path("completion").path("required_reads").path("receipt_refs")).equals(receiptRefs)||!textSet(decision.path("completion").path("comparison_context").path("evidence_refs")).contains("T1")||!strings(decision.path("evidence_refs"),known,false))throw error(VALIDATION_RESULT_INVALID);
-        if(outcome.equals("SUSPECTED_CONFLICT")&&textSet(decision.path("completion").path("changes_exceptions").path("receipt_refs")).stream().map(receipts::get).noneMatch(r->"CHANGES_EXCEPTIONS".equals(r.path("intent").path("kind").asText())&&Set.of("KEYWORD","VECTOR").contains(r.path("intent").path("operation").asText())))throw error(VALIDATION_RESULT_INVALID);
+        if(outcome.equals("SUSPECTED_CONFLICT")&&textSet(decision.path("completion").path("changes_exceptions").path("receipt_refs")).stream().map(receipts::get).noneMatch(r->"CHANGES_EXCEPTIONS".equals(r.path("intent").path("kind").asText())&&"VECTOR".equals(r.path("intent").path("operation").asText())))throw error(VALIDATION_RESULT_INVALID);
         String expected=Map.of("CONFLICT","DIRECT_CONTRADICTION","SUSPECTED_CONFLICT","CHANGE_NOT_FOUND","NEEDS_CONTEXT","AMBIGUOUS_MEANING","NO_CONFLICT","COMPATIBLE").get(outcome);
         if(!Set.of(expected,"DB_RAW_DISAGREEMENT").contains(decision.path("basis").asText()))throw error(VALIDATION_RESULT_INVALID);
         if(outcome.equals("NO_CONFLICT")) {if(decision.hasNonNull("impact")||decision.hasNonNull("impact_reason"))throw error(VALIDATION_RESULT_INVALID);}
         else if(!Set.of("SEVERE","CAUTION","REFERENCE").contains(decision.path("impact").asText())||!nonblank(decision,"impact_reason"))throw error(VALIDATION_RESULT_INVALID);
         if(Set.of("CONFLICT","SUSPECTED_CONFLICT").contains(outcome)&&textSet(decision.path("evidence_refs")).stream().noneMatch(ref->facts.contains(ref)||comparisonEvidence.contains(ref)))throw error(VALIDATION_RESULT_INVALID);
+        basisQuotes(decision.path("basis_quotes"),facts,knownSettings,evidenceRows,comparisonEvidence);
+        headline(decision.path("headline"),outcome);
         if(!decision.path("disagreements").isArray()||"DB_RAW_DISAGREEMENT".equals(decision.path("basis").asText())&&decision.path("disagreements").isEmpty())throw error(VALIDATION_RESULT_INVALID);
         for(var disagreement:decision.path("disagreements")) {
             if(!facts.contains(disagreement.path("fact_ref").asText())||!evidence.contains(disagreement.path("evidence_ref").asText())||!nonblank(disagreement,"reason"))throw error(VALIDATION_RESULT_INVALID);
@@ -62,20 +68,56 @@ public class ValidationDecisionValidator {
             if(!"NEEDS_CONTEXT".equals(outcome))throw error(VALIDATION_RESULT_INVALID);
         }
     }
+    /**
+     * 오류 리포트 가독성(2026-11-02): 판정이 그대로 옮긴 근거 문장 0~3개. 없으면(이전 Worker) 그대로 통과한다.
+     * E 인용은 이 묶음의 비교 evidence 행(T1 제외) 안의 정확한 code point 구간이고, B 인용은 묶음 설정 행의 값 leaf 부분 문자열이다
+     * (원문 대조는 citation과 {@link ValidationPublicationValidator}의 basis_quotes 경로가 한다).
+     */
+    private static void basisQuotes(JsonNode quotes,Set<String> facts,Map<String,JsonNode> knownSettings,Map<String,JsonNode> evidenceRows,Set<String> comparisonEvidence) {
+        if(quotes.isMissingNode()||quotes.isNull())return;
+        if(!quotes.isArray()||quotes.size()>ValidationBasisQuotes.MAX_ITEMS)throw error(VALIDATION_RESULT_INVALID);
+        Set<String> seen=new HashSet<>();
+        for(var item:quotes) {
+            String ref=item.path("ref").asText(),quote=item.path("quote").asText();
+            if(!item.path("quote").isTextual()||quote.isBlank()||ValidationBasisQuotes.codePoints(quote)>ValidationBasisQuotes.MAX_QUOTE_CODE_POINTS||!seen.add(ref+"\u0000"+quote))throw error(VALIDATION_RESULT_INVALID);
+            if(ValidationBasisQuotes.EVIDENCE_REF.matcher(ref).matches()) {
+                var row=evidenceRows.get(ref);
+                if(row==null||!comparisonEvidence.contains(ref)||!item.path("start").isIntegralNumber()||!item.path("end").isIntegralNumber()
+                        ||!row.path("source_ref").asText().equals(item.path("source_ref").asText()))throw error(VALIDATION_RESULT_INVALID);
+                int start=item.path("start").asInt(),end=item.path("end").asInt(),from=row.path("start").asInt();
+                if(start<from||end>row.path("end").asInt()||!quote.equals(ValidationBasisQuotes.slice(row.path("quote").asText(),start-from,end-from)))throw error(VALIDATION_RESULT_INVALID);
+            } else if(ValidationBasisQuotes.ENTRY_REF.matcher(ref).matches()) {
+                if(!facts.contains(ref)||item.hasNonNull("source_ref")||item.hasNonNull("start")||item.hasNonNull("end")
+                        ||ValidationBasisQuotes.containing(knownSettings.get(ref),quote).isEmpty())throw error(VALIDATION_RESULT_INVALID);
+            } else throw error(VALIDATION_RESULT_INVALID);
+        }
+    }
+    /**
+     * 판정 작성 제목(headline, 2026-11-03, 공통 계약 {@code execution.judgeFlow.headline.server}): 작가 화면 제목으로 쓰는 판정의 한 줄.
+     * 없거나 null이면 그대로 통과한다(이전 Worker·Worker가 비운 제목). 값이 있으면 문자열이고 앞뒤 공백을 뗀 뒤 비어 있지 않으며
+     * {@value #MAX_HEADLINE_CODE_POINTS} code point 이하여야 한다. NO_CONFLICT는 발견 항목이 아니라 제목을 둘 수 없다.
+     */
+    public static final int MAX_HEADLINE_CODE_POINTS=80;
+    private static void headline(JsonNode headline,String outcome) {
+        if(headline.isMissingNode()||headline.isNull())return;
+        if(!headline.isTextual()||"NO_CONFLICT".equals(outcome)||headline.asText().isBlank()
+                ||ValidationBasisQuotes.codePoints(headline.asText())>MAX_HEADLINE_CODE_POINTS)throw error(VALIDATION_RESULT_INVALID);
+    }
+    /** Grid v4: obligations are no longer derived from the draft (it has no lookup_intents); a missing list means []. */
     public JsonNode state(JsonNode state,Set<String> subjects) {
         if(!state.isObject())throw error(VALIDATION_RESULT_INVALID);draft(state.path("draft"),subjects);
-        var normalized=(ObjectNode)state.deepCopy();if(!normalized.has("lookup_obligations"))normalized.set("lookup_obligations",state.path("draft").path("lookup_intents").deepCopy());
+        var normalized=(ObjectNode)state.deepCopy();if(!normalized.has("lookup_obligations"))normalized.putArray("lookup_obligations");
         if(!normalized.path("lookup_obligations").isArray())throw error(VALIDATION_RESULT_INVALID);
         var obligations=JsonNodeFactory.instance.arrayNode();Set<String> signatures=new HashSet<>();
         for(var intent:normalized.path("lookup_obligations")) {validateIntent(intent);if(signatures.add(journal.hash(normalizeIntent(intent))))obligations.add(intent.deepCopy());}
-        for(var intent:state.path("draft").path("lookup_intents"))if(!signatures.contains(journal.hash(normalizeIntent(intent))))throw error(VALIDATION_RESULT_INVALID);
         normalized.set("lookup_obligations",obligations);return normalized;
     }
     public void draft(JsonNode q,Set<String> subjects) {
         if(!q.isObject()||!nonblank(q,"local_ref")||!q.path("target_spans").isArray()||q.path("target_spans").isEmpty()||!strings(q.path("subject_refs"),subjects,false)||!textArray(q.path("subject_mentions"))||!textArray(q.path("conditions"))
-                ||!Set.of("NARRATION","DIALOGUE","THOUGHT","HYPOTHETICAL","UNKNOWN").contains(q.path("assertion_mode").asText())||!nonblank(q,"property_or_rule")||!nonblank(q,"time_context")||!nonblank(q,"check_intent")||!nonblank(q,"reason")||!q.path("lookup_intents").isArray())throw error(VALIDATION_RESULT_INVALID);
+                ||!Set.of("NARRATION","DIALOGUE","THOUGHT","HYPOTHETICAL","UNKNOWN").contains(q.path("assertion_mode").asText())||!nonblank(q,"property_or_rule")||!nonblank(q,"time_context")||!nonblank(q,"check_intent")||!nonblank(q,"reason")
+                // #349 grid v4: the plan form has no "what to look up" list; the judge decides after reading the DB rows.
+                ||q.has("lookup_intents"))throw error(VALIDATION_RESULT_INVALID);
         for(var span:q.path("target_spans"))if(!"T1".equals(span.path("source_ref").asText())||!span.path("quote").isTextual()||!span.path("start").isIntegralNumber()||!span.path("end").isIntegralNumber())throw error(VALIDATION_RESULT_INVALID);
-        for(var intent:q.path("lookup_intents"))validateIntent(intent);
     }
     /**
      * GH349: bundle settings 행은 {entry_ref, subject_ref}다. entry_ref는 현재 고정 기준 항목이고 subject_ref가 그 항목과 같아야 한다.
@@ -88,7 +130,7 @@ public class ValidationDecisionValidator {
     }
     public Set<String> subjects(Prepared p) {var refs=new HashSet<String>();for(var value:frozen.toValidationSettings(p.context().entries(),p.context().sourceReferences()).values())refs.add(value.path("subject_ref").asText());return refs;}
     public void validateIntent(JsonNode intent) {
-        if(!nonblank(intent,"ref")||!nonblank(intent,"purpose")||!Set.of("COMPARISON_CONTEXT","CHANGES_EXCEPTIONS","NEW_CLUE").contains(intent.path("kind").asText())||!Set.of("BASELINE","TARGET_CONTEXT","DIRECT","KEYWORD","VECTOR","NEIGHBORS").contains(intent.path("operation").asText())||!textArray(intent.path("evidence_refs")))throw error(VALIDATION_RESULT_INVALID);
+        if(!nonblank(intent,"ref")||!nonblank(intent,"purpose")||!Set.of("COMPARISON_CONTEXT","CHANGES_EXCEPTIONS","NEW_CLUE").contains(intent.path("kind").asText())||!INTENT_OPERATIONS.contains(intent.path("operation").asText())||!textArray(intent.path("evidence_refs")))throw error(VALIDATION_RESULT_INVALID);
     }
     public boolean same(JsonNode a,JsonNode b) {return journal.hash(a).equals(journal.hash(b));}
     public JsonNode normalizeIntent(JsonNode n) {var r=JsonNodeFactory.instance.objectNode();for(String key:List.of("ref","kind","operation","purpose","query","source_ref","start","end","evidence_refs"))r.set(key,n.has(key)?n.path(key).deepCopy():NullNode.instance);return r;}

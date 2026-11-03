@@ -22,11 +22,18 @@ import org.springframework.transaction.annotation.Transactional;
 @TestPropertySource(locations="classpath:validation-execution-fixture.properties")
 @DisplayName("검수 전용 API와 불변 입력·독립 분기·원장")
 class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
+    @org.springframework.beans.factory.annotation.Autowired org.monitoring.catchholebackend.domain.upload.service.SettingBookService settingBooks;
     @Test @DisplayName("실제 전용 Job과 서버 소유 scope를 선점하고 추출은 만들지 않는다") void claimCreatesDedicatedOwnedJobAndNoExtraction() throws Exception {
         var report=start();var job=claim();
         assertThat(job.path("jobId").isTextual()).isTrue();assertThat(job.path("scope").path("reportId")).isEqualTo(report.path("reportId"));
         assertThat(job.path("memberId").asLong()).isEqualTo(member.getId());assertThat(job.path("workId").asText()).isEqualTo(work.getId().toString());
-        assertThat(job.path("models").path("RELATED_SELECTION").path("reasoningEffort").asText()).isEqualTo("high");
+        // #349 configuration v2: per-role model/effort/output cap from the explicit configuration; no retired roles; projection 2 without clues.
+        assertThat(job.path("configurationVersion").asInt()).isEqualTo(2);assertThat(job.path("projectionVersion").asInt()).isEqualTo(2);assertThat(job.has("clueVersion")).isFalse();
+        assertThat(job.path("models").path("JUDGE").path("model").asText()).isEqualTo("gpt-6-luna");assertThat(job.path("models").path("JUDGE").path("reasoningEffort").asText()).isEqualTo("high");
+        assertThat(job.path("models").path("PLANNER").path("reasoningEffort").asText()).isEqualTo("medium");assertThat(job.path("models").path("TYPO").path("reasoningEffort").asText()).isEqualTo("low");
+        assertThat(job.path("models").has("RELATED_SELECTION")).isFalse();assertThat(job.path("models").has("COVERAGE")).isFalse();
+        assertThat(job.path("budgets").path("roles").path("JUDGE").path("outputTokens").asInt()).isEqualTo(100);assertThat(job.path("budgets").path("setting").has("outputTokens")).isFalse();
+        assertThat(job.path("budgets").path("setting").has("cataloguePageSize")).isFalse();
         assertThat(claim().isNull()).isTrue();noExtraction();
     }
     @Test @DisplayName("전용 Worker 경로는 내부 key 인증을 요구한다") void workerRoutesRequireInternalKey() throws Exception {
@@ -51,7 +58,7 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
         internal(path(job,"/usage/reserve"),job,Map.of("scope",scope(job),"requestId",UUID.randomUUID(),"role","PLANNER","model","gpt-6.1-terra","reservedTokens",100),409);noExtraction();
     }
     @Test @DisplayName("동일 단계의 재전송은 원 receipt와 의미 version을 유지한다") void savedStagesHaveExactReplayAndStableCheckpoint() throws Exception {
-        source();start();var job=claim();var input=publication(job,"SETTING","PLANNER","TSEG1",Map.of("questions",List.of(),"segments",List.of(Map.of("segment_ref","TSEG1","status","NO_CHECK","reason","합성 완료")),"rules",List.of()));
+        source();start();var job=claim();var input=publication(job,"SETTING","PLANNER","TSEG1",Map.of("questions",List.of(),"segments",List.of(Map.of("segment_ref","TSEG1","status","NO_CHECK","reason","합성 완료"))));
         var first=internal(path(job,"/plans"),job,input,200);var replay=internal(path(job,"/plans"),job,input,200);assertThat(replay).isEqualTo(first);
         var before=get(UUID.fromString(job.path("scope").path("reportId").asText()));input.put("idempotencyKey","same-stage-new-receipt");internal(path(job,"/plans"),job,input,200);
         assertThat(get(UUID.fromString(job.path("scope").path("reportId").asText())).path("reportVersion")).isEqualTo(before.path("reportVersion"));
@@ -72,7 +79,7 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
     }
     @Test @DisplayName("원문 변경은 checkpoint를 지우고 늦은 게시를 거절한다") void sourceInvalidationErasesCheckpointAndRejectsLatePublish() throws Exception {
         source();var report=start();var job=claim();
-        var input=publication(job,"SETTING","PLANNER","TSEG1",Map.of("questions",List.of(),"segments",List.of(Map.of("segment_ref","TSEG1","status","NO_CHECK","reason","합성 완료")),"rules",List.of()));
+        var input=publication(job,"SETTING","PLANNER","TSEG1",Map.of("questions",List.of(),"segments",List.of(Map.of("segment_ref","TSEG1","status","NO_CHECK","reason","합성 완료"))));
         internal(path(job,"/plans"),job,input,200);replace("수정 원고");internal(path(job,"/plans"),job,input,409);
         assertThat(em.createNativeQuery("select count(*) from validation_stages").getSingleResult()).isEqualTo(0L);noExtraction();
     }
@@ -80,7 +87,7 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
         source();start();var job=claim();prePlan(job,List.of());savePlan(job,"MERGED_PLAN","PLAN",Map.of("questions",List.of()));
         var settingOnly=internal(path(job,"/complete"),job,Map.of("scope",scope(job),"idempotencyKey","stop-setting"),200);assertThat(settingOnly.path("status").asText()).isEqualTo("PARTIAL");
         var report=get(UUID.fromString(job.path("scope").path("reportId").asText()));postOk("/"+report.path("reportId").asText()+"/retries",Map.of("expectedReportVersion",report.path("reportVersion").asLong(),"idempotencyKey","both-retry"));
-        var next=claim();assertThat(next.path("checkpoint").path("stages").size()).isEqualTo(4);
+        var next=claim();assertThat(next.path("checkpoint").path("stages").size()).isEqualTo(2);
         internal(path(next,"/units"),next,unit(next,"TYPO","TSEG1","COMPLETED",typoEmpty()),200);
         var finish=Map.of("scope",scope(next),"idempotencyKey","both-complete");var result=internal(path(next,"/complete"),next,finish,200);
         assertThat(result.path("status").asText()).isEqualTo("COMPLETED");assertThat(result.path("completedChecks").asInt()).isZero();assertThat(result.path("findings").size()).isZero();
@@ -94,7 +101,6 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
         var citation=Map.of("sourceRef","T1","sourceHash",target.getContentHash(),"sourceVersion",target.getContentS3Version(),"start",0,"end",2,"quote","처음");
         var draft=draft("local-1",List.of(span));
         var planner=publication(job,"SETTING","PLANNER","TSEG1",batch("TSEG1",List.of(draft)));planner.put("citations",List.of(citation));internal(path(job,"/plans"),job,planner,200);
-        savePlan(job,"SUBJECT_RESOLUTION","TSEG1",Map.of("mentions",List.of()));savePlan(job,"COVERAGE","TSEG1",batch("TSEG1",List.of()));
         var plan=publication(job,"SETTING","MERGED_PLAN","PLAN",Map.of("questions",List.of(Map.of("localRef","Q1","originalRefs",List.of("PLANNER:TSEG1:local-1"),"state",Map.of("draft",draft)))));plan.put("citations",List.of(citation));
         var saved=internal(path(job,"/plans"),job,plan,200);var check=saved.path("checks").path(0);assertThat(check.path("checkId").isTextual()).isTrue();
         var assessment=Map.of("reason","실제 확인","evidence_refs",List.of("T1"),"receipt_refs",List.of("L1","L2"));
@@ -126,7 +132,7 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
     }
     @Test @DisplayName("실제 검수 원장은 UNKNOWN·실패·늦은 사용량을 정확히 정산한다") void realValidationLedgerSettlesFailureUnknownAndLateLeaseUsageExactly() throws Exception {
         start();var job=claim();UUID request=UUID.randomUUID();
-        var reserve=Map.of("scope",scope(job),"requestId",request,"role","RELATED_SELECTION","model","gpt-6.1-terra","reservedTokens",100);
+        var reserve=Map.of("scope",scope(job),"requestId",request,"role","PLANNER","model","gpt-6.1-terra","reservedTokens",100);
         var first=internal(path(job,"/usage/reserve"),job,reserve,200);assertThat(internal(path(job,"/usage/reserve"),job,reserve,200)).isEqualTo(first);
         var conflict=new LinkedHashMap<String,Object>(reserve);conflict.put("reservedTokens",101);internal(path(job,"/usage/reserve"),job,conflict,409);
         assertThat(em.createNativeQuery("select count(*) from ai_token_usages where validation_job_id is not null and analysis_job_id is null and chat_run_id is null").getSingleResult()).isEqualTo(1L);
@@ -145,8 +151,11 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
         internal(path(job,"/usage/reserve"),job,request,200);em.flush();em.createNativeQuery("update ai_token_accounts set granted_tokens=used_tokens+reserved_tokens where member_id=:m").setParameter("m",member.getId()).executeUpdate();em.clear();
         request.put("requestId",UUID.randomUUID());internal(path(job,"/usage/reserve"),job,request,409);replace("새 입력");internal(path(job,"/usage/reserve"),job,request,409);noExtraction();
     }
-    @Test @DisplayName("준비 계획만 성공한 종료는 FAILED이며 저장 계획은 남긴다") void plannerOnlySuccessIsFailedAndItsSavedPlanRemains() throws Exception {
-        source();start();var job=claim();savePlan(job,"PLANNER","TSEG1",batch("TSEG1",List.of()));
+    @Test @DisplayName("질문을 낸 계획만 성공한 종료는 FAILED이며 저장 계획은 남긴다") void plannerOnlySuccessIsFailedAndItsSavedPlanRemains() throws Exception {
+        source();start();var job=claim();
+        var span=Map.of("source_ref","T1","start",0,"end",2,"quote","처음");
+        var planner=publication(job,"SETTING","PLANNER","TSEG1",batch("TSEG1",List.of(draft("local-1",List.of(span)))));
+        planner.put("citations",List.of(Map.of("sourceRef","T1","sourceHash",target.getContentHash(),"sourceVersion",target.getContentS3Version(),"start",0,"end",2,"quote","처음")));internal(path(job,"/plans"),job,planner,200);
         var finish=internal(path(job,"/complete"),job,Map.of("scope",scope(job),"idempotencyKey","planner-only","failureCode","MODEL_CALL_FAILED"),200);
         assertThat(finish.path("status").asText()).isEqualTo("FAILED");assertThat(finish.path("coverage").path("completedStages").asInt()).isEqualTo(1);noExtraction();
     }
@@ -155,11 +164,13 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
         target.updateContentStorage(target.getContentS3Key(),target.getContentS3Version(),hash);org.springframework.test.util.ReflectionTestUtils.setField(target,"validationUploadEligible",true);em.flush();
         when(storage.getText(anyString())).thenReturn(text);
     }
+    @Test @DisplayName("grid v4의 질문 없는 NO_CHECK 계획 구간은 그 자체로 완료된 처리라 부분 성공으로 센다") void plannerNoCheckSegmentIsSuccessfulProcessing() throws Exception {
+        source();start();var job=claim();savePlan(job,"PLANNER","TSEG1",batch("TSEG1",List.of()));
+        var finish=internal(path(job,"/complete"),job,Map.of("scope",scope(job),"idempotencyKey","no-check-only","failureCode","MODEL_CALL_FAILED"),200);
+        assertThat(finish.path("status").asText()).isEqualTo("PARTIAL");assertThat(finish.path("completedNoCheckSegments").asInt()).isEqualTo(1);noExtraction();
+    }
     @Test @DisplayName("모든 필수 점검이 끝난 무질문 구간은 부분 성공으로 센다") void fullyCoveredNoCheckSegmentCountsBeforeAnotherSegmentFails() throws Exception {
-        targetText("가".repeat(105));String bookKey="synthetic/empty-book";String emptyHash=java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(new byte[0]));
-        var book=org.monitoring.catchholebackend.domain.upload.entity.UploadFile.create(em.find(org.monitoring.catchholebackend.domain.upload.entity.UploadBatch.class,batchId),org.monitoring.catchholebackend.domain.upload.type.UploadFileRole.SETTING_BOOK,"empty.txt","text/plain","s3://synthetic/empty",0);em.persist(book);
-        var revision=org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision.create(book,1,new org.monitoring.catchholebackend.global.storage.StoredTextObject(bookKey,"v1",emptyHash,0),org.monitoring.catchholebackend.domain.upload.type.SettingBookReferenceTimeKind.WORK_START,null);em.persist(revision);book.linkCurrentRevision(revision);em.flush();when(storage.getText(bookKey)).thenReturn("");
-        start();var job=claim();prePlan(job,List.of());savePlan(job,"BOOK_SOURCE","R2",Map.of("source_read_status","READY","planned_checks",0));
+        targetText("가".repeat(105));start();var job=claim();prePlan(job,List.of());
         var finish=internal(path(job,"/complete"),job,Map.of("scope",scope(job),"idempotencyKey","one-no-check","failureCode","MODEL_CALL_FAILED"),200);
         assertThat(finish.path("status").asText()).isEqualTo("PARTIAL");assertThat(finish.path("completedNoCheckSegments").asInt()).isEqualTo(1);noExtraction();
     }
@@ -169,7 +180,6 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
         source();String priorHash=java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest("합성 앞 원고".getBytes(java.nio.charset.StandardCharsets.UTF_8)));prior.updateContentStorage(prior.getContentS3Key(),prior.getContentS3Version(),priorHash);em.flush();start();var job=claim();
         var span=Map.of("source_ref","T1","start",0,"end",2,"quote","처음");var draft=draft("local-1",List.of(span));var citation=Map.of("sourceRef","T1","sourceHash",target.getContentHash(),"sourceVersion",target.getContentS3Version(),"start",0,"end",2,"quote","처음");
         var planner=publication(job,"SETTING","PLANNER","TSEG1",batch("TSEG1",List.of(draft)));planner.put("citations",List.of(citation));internal(path(job,"/plans"),job,planner,200);
-        savePlan(job,"SUBJECT_RESOLUTION","TSEG1",Map.of("mentions",List.of()));savePlan(job,"COVERAGE","TSEG1",batch("TSEG1",List.of()));
         var plan=publication(job,"SETTING","MERGED_PLAN","PLAN",Map.of("questions",List.of(Map.of("localRef","Q1","originalRefs",List.of("PLANNER:TSEG1:local-1"),"state",Map.of("draft",draft)))));plan.put("citations",List.of(citation));var check=internal(path(job,"/plans"),job,plan,200).path("checks").path(0);
         var bundle=evidenceBundle(draft);String quote=sourceRef.equals("T1")?"처음":"합성";bundle.put("evidence",List.of(Map.of("ref","E1","source_ref",sourceRef,"source_kind","EPISODE","start",0,"end",2,"quote",quote)));
         var assessment=Map.of("reason","실제 고정 자료 확인","evidence_refs",List.of("T1","E1"),"receipt_refs",List.of("L1","L2"));
@@ -199,41 +209,42 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
         }
         internal(path(job,"/usage/reserve"),job,Map.of("scope",scope(job),"requestId",UUID.randomUUID(),"role","PLANNER","model","gpt-6.1-terra","reservedTokens",100),409);noExtraction();
     }
-    @Test @DisplayName("소진 재시도는 거절하고 명시 cap 변경만 기존 누계에서 재개한다") void retryRejectsExhaustedRequiredRoleInsteadOfRequeueLoop() throws Exception {
+    @Test @DisplayName("역할 cap은 실행 한 번 기준이라 소진된 작가 재시도도 새 실행으로 처음부터 세고 명시 cap 변경은 새 budgetRevision이 된다")
+    void authorRetryStartsAFreshRunAndAdoptsExplicitCaps() throws Exception {
         var report=start();var job=claim();
         for(int i=0;i<20;i++) {UUID call=UUID.randomUUID();internal(path(job,"/usage/reserve"),job,Map.of("scope",scope(job),"requestId",call,"role","PLANNER","model","gpt-6.1-terra","reservedTokens",100),200);internal(path(job,"/usage/"+call),job,Map.of("scope",scope(job),"kind","UNKNOWN"),200);}
-        internal(path(job,"/complete"),job,Map.of("scope",scope(job),"idempotencyKey","stop-capped","failureCode","BUDGET_EXHAUSTED"),200);
-        var current=get(UUID.fromString(report.path("reportId").asText()));
-        conflict("/"+report.path("reportId").asText()+"/retries",Map.of("expectedReportVersion",current.path("reportVersion").asLong(),"idempotencyKey","no-loop"),"VALIDATION_EXECUTION_LIMIT_EXCEEDED");
+        internal(path(job,"/usage/reserve"),job,Map.of("scope",scope(job),"requestId",UUID.randomUUID(),"role","PLANNER","model","gpt-6.1-terra","reservedTokens",100),409);
+        internal(path(job,"/complete"),job,Map.of("scope",scope(job),"idempotencyKey","stop-capped","failureCode","VALIDATION_EXECUTION_LIMIT_EXCEEDED"),200);
         var raised=new java.util.EnumMap<org.monitoring.catchholebackend.domain.validation.type.ValidationRole,org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget>(executionProperties.roles());
-        raised.put(org.monitoring.catchholebackend.domain.validation.type.ValidationRole.PLANNER,new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget(21,22000));org.mockito.Mockito.when(executionProperties.roles()).thenReturn(raised);
-        var retry=Map.of("expectedReportVersion",current.path("reportVersion").asLong(),"idempotencyKey","raised-budget");var receipt=postOk("/"+report.path("reportId").asText()+"/retries",retry);var next=claim();
-        assertThat(next.path("budgetRevision").asInt()).isEqualTo(2);assertThat(next.path("budgets").path("roles").path("PLANNER").path("maxCalls").asInt()).isEqualTo(21);assertThat(next.path("usage").size()).isEqualTo(20);
+        var planner=raised.get(org.monitoring.catchholebackend.domain.validation.type.ValidationRole.PLANNER);raised.put(org.monitoring.catchholebackend.domain.validation.type.ValidationRole.PLANNER,new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget(21,22000,planner.outputTokens(),planner.model(),planner.reasoningEffort()));org.mockito.Mockito.when(executionProperties.roles()).thenReturn(raised);
+        var current=get(UUID.fromString(report.path("reportId").asText()));
+        var retry=Map.of("expectedReportVersion",current.path("reportVersion").asLong(),"idempotencyKey","fresh-run");var receipt=postOk("/"+report.path("reportId").asText()+"/retries",retry);var next=claim();
+        assertThat(next.path("budgetRevision").asInt()).isEqualTo(2);assertThat(next.path("budgets").path("roles").path("PLANNER").path("maxCalls").asInt()).isEqualTo(21);
+        assertThat(next.path("usage").size()).as("이전 실행의 원장 행은 보존된다").isEqualTo(20);
         assertThat(postOk("/"+report.path("reportId").asText()+"/retries",retry)).isEqualTo(receipt);
-        internal(path(next,"/usage/reserve"),next,Map.of("scope",scope(next),"requestId",UUID.randomUUID(),"role","PLANNER","model","gpt-6.1-terra","reservedTokens",100),200);
+        for(int i=0;i<21;i++)internal(path(next,"/usage/reserve"),next,Map.of("scope",scope(next),"requestId",UUID.randomUUID(),"role","PLANNER","model","gpt-6.1-terra","reservedTokens",100),200);
         internal(path(next,"/usage/reserve"),next,Map.of("scope",scope(next),"requestId",UUID.randomUUID(),"role","PLANNER","model","gpt-6.1-terra","reservedTokens",100),409);noExtraction();
     }
-    @Test @DisplayName("서버 발급 CL의 누락은 독립 보완 완료가 아니다") void coverageCannotOmitServerIssuedMechanicalClues() throws Exception {
-        targetText("😀20\u00a0살 월요일");start();var job=claim();savePlan(job,"PLANNER","TSEG1",batch("TSEG1",List.of()));
-        savePlan(job,"SUBJECT_RESOLUTION","TSEG1",Map.of("mentions",List.of()));
-        internal(path(job,"/plans"),job,publication(job,"SETTING","COVERAGE","TSEG1",batch("TSEG1",List.of())),400);
-        var body=new LinkedHashMap<String,Object>(batch("TSEG1",List.of()));body.put("clue_checks",List.of(Map.of("entry_ref","CL1","status","CHECKED","reason","수량 확인"),Map.of("entry_ref","CL2","status","NOT_APPLICABLE","reason","요일 문맥 확인")));
-        savePlan(job,"COVERAGE","TSEG1",body);noExtraction();
+    @Test @DisplayName("호출 한 번의 예약은 분기 입력 상한과 그 역할의 출력 상한의 합을 넘지 못한다")
+    void perCallReservationUsesTheRolesOwnOutputCap() throws Exception {
+        start();var job=claim();
+        internal(path(job,"/usage/reserve"),job,Map.of("scope",scope(job),"requestId",UUID.randomUUID(),"role","JUDGE","model","gpt-6-luna","reservedTokens",1100),200);
+        internal(path(job,"/usage/reserve"),job,Map.of("scope",scope(job),"requestId",UUID.randomUUID(),"role","JUDGE","model","gpt-6-luna","reservedTokens",1101),409);
+        internal(path(job,"/usage/reserve"),job,Map.of("scope",scope(job),"requestId",UUID.randomUUID(),"role","JUDGE","model","gpt-6.1-terra","reservedTokens",100),400);
+        internal(path(job,"/usage/reserve"),job,Map.of("scope",scope(job),"requestId",UUID.randomUUID(),"role","COVERAGE","model","gpt-6.1-terra","reservedTokens",100),400);noExtraction();
     }
-    @Test @DisplayName("grid v2는 page 선별 대신 SUBJECT_RESOLUTION 뒤 원고에 이름이 나온 주체의 모든 항목을 COVERAGE 규칙으로 요구한다")
-    void coverageRequiresSubjectResolutionAndEveryEntryOfMentionedSubjects() throws Exception {
-        targetText("합성 인물이 웃었다");start();var job=claim();savePlan(job,"PLANNER","TSEG1",batch("TSEG1",List.of()));
+    @Test @DisplayName("grid v4는 PLANNER·MERGED_PLAN만 받고 이전 단계(SUBJECT_RESOLUTION·COVERAGE·BOOK_*·RELATED_SELECTION)와 rules·clue_checks를 거절한다")
+    void gridV4RejectsRetiredStagesAndFields() throws Exception {
+        targetText("합성 인물이 웃었다");start();var job=claim();
+        internal(path(job,"/plans"),job,publication(job,"SETTING","SUBJECT_RESOLUTION","TSEG1",Map.of("mentions",List.of())),400);
+        internal(path(job,"/plans"),job,publication(job,"SETTING","COVERAGE","TSEG1",batch("TSEG1",List.of())),400);
         internal(path(job,"/plans"),job,publication(job,"SETTING","RELATED_SELECTION","TSEG1:PAGE1",Map.of("entries",List.of())),400);
-        internal(path(job,"/plans"),job,publication(job,"SETTING","COVERAGE","TSEG1",batch("TSEG1",List.of())),400);
-        internal(path(job,"/plans"),job,publication(job,"SETTING","SUBJECT_RESOLUTION","TSEG1",Map.of("mentions",List.of(Map.of("mention","그","subject_ref","S99","reason","없는 주체")))),400);
-        savePlan(job,"SUBJECT_RESOLUTION","TSEG1",Map.of("mentions",List.of()));
-        var entries=stored(get(UUID.fromString(job.path("scope").path("reportId").asText()))).getBaselineEntries();
-        var subjects=org.monitoring.catchholebackend.domain.validation.mapper.ValidationDataMapper.toSubjectRefs(entries);var mentioned=new HashSet<String>();
-        for(int i=0;i<entries.size();i++) {var state=entries.get(i).path("state");if("합성 인물".equals(state.path(state.hasNonNull("name")?"name":"subjectName").asText()))mentioned.add(subjects.get("B"+(i+1)));}
-        var rules=new ArrayList<Object>();subjects.forEach((entry,subject)->{if(mentioned.contains(subject))rules.add(Map.of("entry_ref",entry,"status","CHECKED","reason","합성 규칙 확인"));});
-        assertThat(rules).isNotEmpty();assertThat(rules.size()).isLessThan(entries.size());
-        internal(path(job,"/plans"),job,publication(job,"SETTING","COVERAGE","TSEG1",batch("TSEG1",List.of())),400);
-        var coverage=new LinkedHashMap<String,Object>(batch("TSEG1",List.of()));coverage.put("rules",rules);savePlan(job,"COVERAGE","TSEG1",coverage);noExtraction();
+        internal(path(job,"/plans"),job,publication(job,"SETTING","BOOK_SOURCE","R1",Map.of("source_read_status","READY","planned_checks",0)),400);
+        var withRules=new LinkedHashMap<String,Object>(batch("TSEG1",List.of()));withRules.put("rules",List.of());internal(path(job,"/plans"),job,publication(job,"SETTING","PLANNER","TSEG1",withRules),400);
+        var withClues=new LinkedHashMap<String,Object>(batch("TSEG1",List.of()));withClues.put("clue_checks",List.of());internal(path(job,"/plans"),job,publication(job,"SETTING","PLANNER","TSEG1",withClues),400);
+        savePlan(job,"PLANNER","TSEG1",batch("TSEG1",List.of()));
+        var stored=em.createQuery("select j from ValidationJob j",org.monitoring.catchholebackend.domain.validation.entity.ValidationJob.class).getSingleResult().getRequiredGrid().path("SETTING");
+        assertThat(stored.path("gridVersion").asInt()).isEqualTo(4);assertThat(stored.has("segmentSubjects")).isFalse();assertThat(stored.has("modelClues")).isFalse();assertThat(stored.has("books")).isFalse();noExtraction();
     }
     @Test @DisplayName("새 공개 재시도만 최신 회차를 검사하고 원 receipt와 기존 lease는 보존한다") void publicRetryRequiresLatestEpisodeButOriginalReceiptAndLeaseRecoveryDoNot() throws Exception {
         var report=start();var job=claim();internal(path(job,"/complete"),job,Map.of("scope",scope(job),"idempotencyKey","old-stop","failureCode","MODEL_CALL_FAILED"),200);
@@ -252,9 +263,9 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
         var recovered=start();assertThat(recovered.path("reportId")).isEqualTo(report.path("reportId"));var job=claim();
         var request=Map.of("scope",scope(job),"requestId",UUID.randomUUID(),"role","QUERY_EMBEDDING","model","text-embedding-3-small","reservedTokens",20);
         internal(path(job,"/usage/reserve"),job,request,400);internal(path(job,"/complete"),job,Map.of("scope",scope(job),"idempotencyKey","optional-stop","failureCode","VECTOR_NOT_READY"),200);
-        var roles=new java.util.EnumMap<org.monitoring.catchholebackend.domain.validation.type.ValidationRole,org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget>(executionProperties.roles());roles.put(org.monitoring.catchholebackend.domain.validation.type.ValidationRole.QUERY_EMBEDDING,new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget(2,1000));
+        var roles=new java.util.EnumMap<org.monitoring.catchholebackend.domain.validation.type.ValidationRole,org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget>(executionProperties.roles());roles.put(org.monitoring.catchholebackend.domain.validation.type.ValidationRole.QUERY_EMBEDDING,new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget(2,1000,null,null,null));
         org.mockito.Mockito.when(executionProperties.roles()).thenReturn(roles);org.mockito.Mockito.when(executionProperties.queryEmbeddingModel()).thenReturn("text-embedding-3-small");
-        org.mockito.Mockito.when(executionProperties.setting()).thenReturn(new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.Limits(21,101,61,1001,101,1,0,1,1));
+        org.mockito.Mockito.when(executionProperties.setting()).thenReturn(new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.Limits(21,101,61,1001,1,0,1));
         var current=get(UUID.fromString(report.path("reportId").asText()));postOk("/"+report.path("reportId").asText()+"/retries",Map.of("expectedReportVersion",current.path("reportVersion").asLong(),"idempotencyKey","explicit-embedding"));var next=claim();
         assertThat(next.path("models").path("QUERY_EMBEDDING").path("model").asText()).isEqualTo("text-embedding-3-small");assertThat(next.path("budgets").path("setting").path("segmentChars").asInt()).isEqualTo(100);assertThat(next.path("budgets").path("setting").path("searchLimit").asInt()).isEqualTo(10);assertThat(next.path("budgets").path("setting").path("modelCalls").asInt()).isEqualTo(21);
         var queryInput=Map.of("contractVersion",1,"inputDigest",next.at("/scope/inputDigest").asText(),"queryHash","a".repeat(64),"indexModel","text-embedding-3-small","indexVersion",next.at("/models/QUERY_EMBEDDING/version").asText(),"indexDimensions",1536,"manifestHash",next.path("manifestHash").asText());
@@ -279,18 +290,18 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
         org.mockito.Mockito.when(executionProperties.enabled()).thenReturn(true);var held=get(r.getId());conflict("/"+r.getId()+"/retries",Map.of("expectedReportVersion",held.path("reportVersion").asLong(),"idempotencyKey","no-seed"),"VALIDATION_SOURCE_VERSION_CONFLICT");
         replace("원문 파기");var purged=get(r.getId());conflict("/"+r.getId()+"/retries",Map.of("expectedReportVersion",purged.path("reportVersion").asLong(),"idempotencyKey","purged-seed"),"VALIDATION_SOURCE_VERSION_CONFLICT");assertThat(em.createNativeQuery("select count(*) from validation_jobs").getSingleResult()).isEqualTo(0L);assertThat(r.getBaselineSeed()).isNull();noExtraction();
     }
-    @Test @DisplayName("설정집 읽기 실패는 독립 오탈자와 초기 checkpoint 조회를 막지 않는다") void unreadableBookDoesNotBlockTargetTypoGridOrCheckpointBootstrap() throws Exception {
+    @Test @DisplayName("grid v4는 설정집을 필수 단계로 두지 않고 원문도 읽지 않아 읽을 수 없는 설정집이 SETTING 완료를 막지 않는다")
+    void settingBooksAreNotGridObligationsAndAreNeverRead() throws Exception {
         source();String bookKey="synthetic/unreadable-book",bookText="고정 설정집";String hash=java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bookText.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
         var book=org.monitoring.catchholebackend.domain.upload.entity.UploadFile.create(em.find(org.monitoring.catchholebackend.domain.upload.entity.UploadBatch.class,batchId),org.monitoring.catchholebackend.domain.upload.type.UploadFileRole.SETTING_BOOK,"book.txt","text/plain","s3://synthetic/book",30);em.persist(book);
         var revision=org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision.create(book,1,new org.monitoring.catchholebackend.global.storage.StoredTextObject(bookKey,"v1",hash,bookText.length()),org.monitoring.catchholebackend.domain.upload.type.SettingBookReferenceTimeKind.WORK_START,null);em.persist(revision);book.linkCurrentRevision(revision);em.flush();org.mockito.Mockito.when(storage.getText(bookKey)).thenThrow(new IllegalStateException("synthetic unavailable"));
         start();var job=claim();mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(WORKER+path(job,"/checkpoint")).header("X-Internal-Api-Key",KEY).header("X-Worker-Lease-Token",job.path("leaseToken").asText())).andExpect(status().isOk()).andExpect(jsonPath("$.data.gridReady").value(false));
         internal(path(job,"/plans"),job,publication(job,"SETTING","PLANNER","TSEG1",batch("TSEG1",List.of())),200);
-        internal(path(job,"/checkpoint"),job,Map.of("scope",scope(job),"idempotencyKey","partial-setting-checkpoint","branch","SETTING","expectedVersion",0,"payload",Map.of("saved_stage_refs",List.of("PLANNER:TSEG1")),"citations",List.of()),200);
-        internal(path(job,"/plans"),job,publication(job,"SETTING","BOOK_SOURCE","R2",Map.of("source_read_status","READY","planned_checks",1)),409);
-        internal(path(job,"/plans"),job,publication(job,"SETTING","MERGED_PLAN","PLAN",Map.of("questions",List.of())),400);
-        internal(path(job,"/units"),job,unit(job,"TYPO","TSEG1","COMPLETED",typoEmpty()),200);
-        var finish=internal(path(job,"/complete"),job,Map.of("scope",scope(job),"idempotencyKey","independent-book","failureCode","SOURCE_UNREADABLE"),200);
-        assertThat(finish.path("status").asText()).isEqualTo("PARTIAL");assertThat(finish.path("typoStatus").asText()).isEqualTo("COMPLETED");assertThat(finish.path("settingStatus").asText()).isEqualTo("FAILED");assertThat(finish.path("coverage").path("gridReady").asBoolean()).isFalse();assertThat(finish.path("completedNoCheckSegments").asInt()).isZero();org.mockito.Mockito.verify(storage,org.mockito.Mockito.times(1)).getText(bookKey);noExtraction();
+        internal(path(job,"/plans"),job,publication(job,"SETTING","BOOK_SOURCE","R2",Map.of("source_read_status","READY","planned_checks",1)),400);
+        internal(path(job,"/plans"),job,publication(job,"SETTING","MERGED_PLAN","PLAN",Map.of("questions",List.of())),200);
+        var finish=internal(path(job,"/complete"),job,Map.of("scope",scope(job),"idempotencyKey","no-book","failureCode","MODEL_CALL_FAILED"),200);
+        assertThat(finish.path("status").asText()).isEqualTo("PARTIAL");assertThat(finish.path("settingStatus").asText()).isEqualTo("COMPLETED");assertThat(finish.path("typoStatus").asText()).isEqualTo("FAILED");
+        org.mockito.Mockito.verify(storage,org.mockito.Mockito.never()).getText(bookKey);noExtraction();
     }
     @Test @DisplayName("TYPO의 최종 검증을 계획 endpoint로 우회할 수 없다") void typoCoverageCannotBypassUnitValidationThroughPlanRoute() throws Exception {
         source();var report=start();var job=claim();var before=get(UUID.fromString(report.path("reportId").asText()));
@@ -300,13 +311,81 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
     @Test @DisplayName("embedding 예약은 원 query identity와 실제 Job에 고정된다")
     void queryReservationIdentityCannotBeRebound() throws Exception {
         var roles=new java.util.EnumMap<org.monitoring.catchholebackend.domain.validation.type.ValidationRole,org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget>(executionProperties.roles());
-        roles.put(org.monitoring.catchholebackend.domain.validation.type.ValidationRole.QUERY_EMBEDDING,new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget(1,100));
+        roles.put(org.monitoring.catchholebackend.domain.validation.type.ValidationRole.QUERY_EMBEDDING,new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget(1,100,null,null,null));
         when(executionProperties.roles()).thenReturn(roles);when(executionProperties.queryEmbeddingModel()).thenReturn("text-embedding-3-small");
         start();var job=claim();UUID request=UUID.randomUUID();
         var proof=new LinkedHashMap<String,Object>(Map.of("contractVersion",1,"inputDigest",job.at("/scope/inputDigest").asText(),"queryHash","a".repeat(64),"indexModel","text-embedding-3-small","indexVersion","v1","indexDimensions",1536,"manifestHash",job.path("manifestHash").asText()));
         var body=new LinkedHashMap<String,Object>(Map.of("scope",scope(job),"requestId",request,"role","QUERY_EMBEDDING","model","text-embedding-3-small","reservedTokens",30,"queryInput",proof));
         internal(path(job,"/usage/reserve"),job,body,200);proof.put("queryHash","b".repeat(64));
         internal(path(job,"/usage/reserve"),job,body,409);noExtraction();
+    }
+    @Test @DisplayName("색인 채우기 예약은 이 실행의 고정 RAG 출처(앞 회차·현재 판 설정집) 하나에 묶이고 서비스 부담으로 작가 계정을 잡지 않는다")
+    void indexFillReservationIsBoundToAFrozenRagSourceAndServicePaid() throws Exception {
+        var roles=new java.util.EnumMap<org.monitoring.catchholebackend.domain.validation.type.ValidationRole,org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget>(executionProperties.roles());
+        roles.put(org.monitoring.catchholebackend.domain.validation.type.ValidationRole.QUERY_EMBEDDING,new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget(1,100,null,null,null));
+        roles.put(org.monitoring.catchholebackend.domain.validation.type.ValidationRole.INDEX_EMBEDDING,new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget(3,20000,null,null,null));
+        when(executionProperties.roles()).thenReturn(roles);when(executionProperties.queryEmbeddingModel()).thenReturn("text-embedding-3-small");
+        var book=org.monitoring.catchholebackend.domain.upload.entity.UploadFile.create(em.find(org.monitoring.catchholebackend.domain.upload.entity.UploadBatch.class,batchId),org.monitoring.catchholebackend.domain.upload.type.UploadFileRole.SETTING_BOOK,"book.txt","text/plain","s3://synthetic/book",30);em.persist(book);
+        org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision current=null;
+        for(int no=1;no<=2;no++) {
+            var revision=org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision.create(book,no,new org.monitoring.catchholebackend.global.storage.StoredTextObject("synthetic/book-"+no,"v1",String.valueOf(no).repeat(64),3),org.monitoring.catchholebackend.domain.upload.type.SettingBookReferenceTimeKind.WORK_START,null);
+            em.persist(revision);current=revision;
+        }
+        book.linkCurrentRevision(current);em.flush();
+        var report=start();var job=claim();
+        assertThat(job.path("models").path("INDEX_EMBEDDING").path("model").asText()).isEqualTo("text-embedding-3-small");
+        assertThat(job.path("budgets").path("roles").path("INDEX_EMBEDDING").path("maxCalls").asInt()).isEqualTo(3);
+        // Manifest order: R1 = the prior episode, then the setting-book revisions; only the current one is a RAG source.
+        var refs=new LinkedHashMap<String,JsonNode>();int index=1;for(var source:stored(report).getBaselineSeed().path("sources"))refs.put("R"+index++,source);
+        String episodeRef=null,currentRef=null,oldRef=null;
+        for(var entry:refs.entrySet()) {
+            var source=entry.getValue();
+            if("EPISODE".equals(source.path("sourceKind").asText()))episodeRef=entry.getKey();
+            else if(source.path("currentRevision").asBoolean())currentRef=entry.getKey();else oldRef=entry.getKey();
+        }
+        assertThat(episodeRef).isNotNull();assertThat(currentRef).isNotNull();assertThat(oldRef).isNotNull();
+        java.util.function.BiFunction<String,String,Map<String,Object>> input=(ref,hash)->{
+            var value=new LinkedHashMap<String,Object>();value.put("contractVersion",1);value.put("inputDigest",job.at("/scope/inputDigest").asText());value.put("manifestHash",job.path("manifestHash").asText());
+            value.put("sourceRef",ref);value.put("sourceHash",hash);value.put("chunkCount",2);value.put("chunkDigest","e".repeat(64));value.put("indexModel","text-embedding-3-small");value.put("indexVersion","v1");value.put("indexDimensions",1536);return value;};
+        java.util.function.BiFunction<Object,Long,Map<String,Object>> reserve=(index_,tokens)->{
+            var value=new LinkedHashMap<String,Object>();value.put("scope",scope(job));value.put("requestId",UUID.randomUUID());value.put("role","INDEX_EMBEDDING");value.put("model","text-embedding-3-small");value.put("reservedTokens",tokens);
+            if(index_!=null)value.put("indexInput",index_);return value;};
+        String episodeHash=refs.get(episodeRef).path("contentHash").asText(),currentHash=refs.get(currentRef).path("contentHash").asText();
+        long accountBefore=((Number)em.createNativeQuery("select count(*) from ai_token_accounts where member_id=? and reserved_tokens>0").setParameter(1,member.getId()).getSingleResult()).longValue();
+        // An embedding role is bounded by its run caps, not by the branch's per-call input cap (1,000 in this fixture).
+        var episode=reserve.apply(input.apply(episodeRef,episodeHash),5000L);var saved=internal(path(job,"/usage/reserve"),job,episode,200);
+        assertThat(saved.path("role").asText()).isEqualTo("INDEX_EMBEDDING");assertThat(saved.path("queryInput").path("sourceRef").asText()).isEqualTo(episodeRef);
+        internal(path(job,"/usage/reserve"),job,reserve.apply(input.apply(currentRef,currentHash),100L),200);
+        internal(path(job,"/usage/reserve"),job,reserve.apply(input.apply(oldRef,refs.get(oldRef).path("contentHash").asText()),100L),400);
+        internal(path(job,"/usage/reserve"),job,reserve.apply(input.apply(episodeRef,"f".repeat(64)),100L),400);
+        internal(path(job,"/usage/reserve"),job,reserve.apply(input.apply("R99",episodeHash),100L),400);
+        internal(path(job,"/usage/reserve"),job,reserve.apply(null,100L),400);
+        var query=new LinkedHashMap<>(reserve.apply(input.apply(episodeRef,episodeHash),100L));query.put("role","QUERY_EMBEDDING");
+        internal(path(job,"/usage/reserve"),job,query,400);
+        // A replay must carry the identical source identity.
+        var replay=new LinkedHashMap<>(episode);replay.put("indexInput",input.apply(currentRef,currentHash));internal(path(job,"/usage/reserve"),job,replay,409);
+        var row=(Object[])em.createNativeQuery("select charge_policy_version,reserved_charge from ai_token_usages where request_id=?").setParameter(1,episode.get("requestId")).getSingleResult();
+        assertThat(row[0]).isEqualTo("SERVICE_PAID_V1");assertThat((java.math.BigDecimal)row[1]).isEqualByComparingTo("0");
+        internal(path(job,"/usage/"+episode.get("requestId")),job,Map.of("scope",scope(job),"kind","SETTLE","inputTokens",1200,"cachedInputTokens",0,"outputTokens",0,"outcome","SUCCESS"),200);
+        var settled=(Object[])em.createNativeQuery("select status,charged_tokens,input_tokens from ai_token_usages where request_id=?").setParameter(1,episode.get("requestId")).getSingleResult();
+        assertThat(settled[0]).isEqualTo("SETTLED");assertThat((java.math.BigDecimal)settled[1]).isEqualByComparingTo("0");assertThat(((Number)settled[2]).longValue()).isEqualTo(1200);
+        assertThat(((Number)em.createNativeQuery("select count(*) from ai_token_accounts where member_id=? and reserved_tokens>0").setParameter(1,member.getId()).getSingleResult()).longValue()).isEqualTo(accountBefore);
+        // Run cap: the third call fits, a fourth does not (maxCalls 3; a rejected reservation is no call).
+        internal(path(job,"/usage/reserve"),job,reserve.apply(input.apply(episodeRef,episodeHash),100L),200);
+        assertThat(internal(path(job,"/usage/reserve"),job,reserve.apply(input.apply(episodeRef,episodeHash),100L),409).path("code").asText()).isEqualTo("VALIDATION_EXECUTION_LIMIT_EXCEEDED");
+        noExtraction();
+    }
+    @Test @DisplayName("설정집 수정·보관은 그 설정집의 RAG 색인을 같은 트랜잭션에서 지운다")
+    void settingBookChangeDeletesItsRetrievalIndex() {
+        var book=org.monitoring.catchholebackend.domain.upload.entity.UploadFile.create(em.find(org.monitoring.catchholebackend.domain.upload.entity.UploadBatch.class,batchId),org.monitoring.catchholebackend.domain.upload.type.UploadFileRole.SETTING_BOOK,"book.txt","text/plain","s3://synthetic/book",30);em.persist(book);
+        var revision=org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision.create(book,1,new org.monitoring.catchholebackend.global.storage.StoredTextObject("synthetic/book-1","v1","1".repeat(64),3),org.monitoring.catchholebackend.domain.upload.type.SettingBookReferenceTimeKind.WORK_START,null);em.persist(revision);book.linkCurrentRevision(revision);em.flush();
+        em.createNativeQuery("insert into retrieval_setting_book_sources(revision_id,setting_book_id,work_id,source_key,source_version,source_hash,chunk_policy,chunk_count,prepared_at) values (?,?,?,'synthetic/book-1','v1',?,'cl100k-800-100-boundary-v1',1,CURRENT_TIMESTAMP)")
+                .setParameter(1,revision.getId()).setParameter(2,book.getId()).setParameter(3,work.getId()).setParameter(4,"1".repeat(64)).executeUpdate();
+        em.createNativeQuery("insert into retrieval_setting_book_chunks(id,revision_id,chunk_index,chunk_text,start_offset,end_offset,chunk_hash,token_count,status,attempt_count) values (?,?,0,'설정',0,2,?,1,'MISSING',0)")
+                .setParameter(1,UUID.randomUUID()).setParameter(2,revision.getId()).setParameter(3,"2".repeat(64)).executeUpdate();
+        settingBooks.deleteSettingBook(member.getId(),work.getId(),book.getId());em.flush();
+        assertThat(((Number)em.createNativeQuery("select count(*) from retrieval_setting_book_chunks").getSingleResult()).longValue()).isZero();
+        assertThat(((Number)em.createNativeQuery("select count(*) from retrieval_setting_book_sources").getSingleResult()).longValue()).isZero();
     }
 
 }

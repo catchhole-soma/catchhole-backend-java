@@ -31,6 +31,8 @@ class EpisodeValidationOpenApiIntegrationTest {
     static final List<Endpoint> ENDPOINTS = List.of(
             new Endpoint("get", BASE + "/{reportId}/findings", "listValidationFindings", "PageResponseValidationFindingSummaryResponse", List.of("400", "404")),
             new Endpoint("get", BASE + "/{reportId}/findings/{findingId}", "getValidationFinding", "ValidationFindingDetailResponse", List.of("404")),
+            // 오류 리포트 문맥 블록(2026-11-03): 근거 원문 앞뒤 줄 더 보기
+            new Endpoint("get", BASE + "/{reportId}/findings/{findingId}/source-context", "getValidationFindingSourceContext", "ValidationSourceContextResponse", List.of("400", "404", "409")),
             new Endpoint("patch", BASE + "/{reportId}/findings/{findingId}/judgment", "saveValidationJudgment", "ValidationFindingSummaryResponse", List.of("400", "404", "409")),
             new Endpoint("get", BASE + "/{reportId}/review", "getValidationReviewSummary", "ValidationReviewSummaryResponse", List.of("404")),
             new Endpoint("post", BASE + "/{reportId}/review-completion", "completeValidationReview", "ValidationReviewCompletionResponse", List.of("400", "404", "409")),

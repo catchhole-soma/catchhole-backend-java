@@ -158,7 +158,8 @@ public class AiTokenUsage extends BaseEntity {
             AiTokenPurpose purpose, String model, long tokens) {
         var u=new AiTokenUsage();u.requestId=id;u.validationJob=job;u.validationLeaseToken=job.getLeaseToken();u.validationGeneration=job.getGeneration();
         u.work=job.getReport().getWork();u.member=job.getReport().getMember();u.purpose=purpose;u.attempt=job.getAttempt();u.modelName=model;
-        u.reservedTokens=tokens;u.freezeChargePolicy(AiTokenChargePolicy.forModel(model));u.status=AiTokenUsageStatus.RESERVED;return u;
+        // 접수 때 색인 채우기(INDEX_EMBEDDING)는 기존 검색 색인 임베딩(OPERATIONAL_BACKFILL)처럼 서비스 부담이다. 원장·실행 cap은 그대로 남는다.
+        u.reservedTokens=tokens;u.freezeChargePolicy(purpose==AiTokenPurpose.VALIDATION_INDEX_EMBEDDING?AiTokenChargePolicy.servicePaid():AiTokenChargePolicy.forModel(model));u.status=AiTokenUsageStatus.RESERVED;return u;
     }
 
     /** Lease loss releases the hold, but retains genuine call ownership for late measured usage. */

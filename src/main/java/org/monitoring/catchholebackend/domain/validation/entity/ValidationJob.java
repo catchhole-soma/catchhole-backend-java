@@ -19,6 +19,11 @@ public class ValidationJob extends BaseEntity {
     @JdbcTypeCode(SqlTypes.JSON) @Column(nullable=false,columnDefinition="jsonb") private JsonNode configuration;
     @Enumerated(EnumType.STRING) @Column(nullable=false,length=30) private ValidationExecutionStatus status;
     @Column(nullable=false) private long generation=1;
+    /**
+     * 작가 [다시 시도]로 시작한 현재 실행의 첫 generation(V113). 역할별 cap은 이 generation 이상의 사용량만 센다.
+     * Worker lease 회수(expire)는 같은 실행을 이어 가므로 바꾸지 않고, retry()만 새 generation으로 옮긴다.
+     */
+    @Column(name="run_start_generation",nullable=false) private long runStartGeneration=1;
     @Column(nullable=false) private int attempt;
     @Column(nullable=false) private int recoveries;
     @Column(name="lease_token") private UUID leaseToken;
@@ -35,7 +40,7 @@ public class ValidationJob extends BaseEntity {
     public boolean runningLease(UUID token) { return status==ValidationExecutionStatus.RUNNING&&token!=null&&token.equals(leaseToken)&&leaseExpiresAt!=null&&Instant.now().isBefore(leaseExpiresAt); }
     public void heartbeat(Duration lease) { leaseExpiresAt=Instant.now().plus(lease); }
     public void expire(int maxRecoveries) { recoveries++;generation++;leaseToken=null;leaseExpiresAt=null;status=recoveries<=maxRecoveries?ValidationExecutionStatus.QUEUED:ValidationExecutionStatus.FAILED;failureCode="WORKER_LEASE_EXPIRED"; }
-    public void retry() { generation++;recoveries=0;status=ValidationExecutionStatus.QUEUED;leaseToken=null;leaseExpiresAt=null;failureCode=null; }
+    public void retry() { generation++;runStartGeneration=generation;recoveries=0;status=ValidationExecutionStatus.QUEUED;leaseToken=null;leaseExpiresAt=null;failureCode=null; }
     public void initializeGrid(ValidationBranch branch,JsonNode grid) {
         if(requiredGrid==null)requiredGrid=com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
         ((com.fasterxml.jackson.databind.node.ObjectNode)requiredGrid).set(branch.name(),grid.deepCopy());

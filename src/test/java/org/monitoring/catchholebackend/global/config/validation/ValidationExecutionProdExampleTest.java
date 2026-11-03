@@ -28,8 +28,9 @@ import tools.jackson.databind.ObjectMapper;
 class ValidationExecutionProdExampleTest {
     static final Path EXAMPLE = Path.of("deploy/validation-execution.prod.example.json");
     static final ObjectMapper JSON = new ObjectMapper();
-    static final Limits SETTING = new Limits(100, 200, 1800, 40000, 20000, 2000, 300, 50, 10);
-    static final Limits TYPO = new Limits(20, 20, 900, 20000, 12000, 2000, 100, 50, 10);
+    // #349 grid v4 결정(2026-11-02): 호출 200·조회 300·60분·호출당 입력 8만·1만 자 구간·문맥 1,000자·top-k 10.
+    static final Limits SETTING = new Limits(200, 300, 3600, 80000, 10000, 1000, 10);
+    static final Limits TYPO = new Limits(20, 20, 900, 20000, 2000, 100, 10);
 
     static String exampleJson() throws IOException {
         assertThat(EXAMPLE).as("프로젝트 루트(Gradle 테스트 작업 디렉터리)에 %s가 있어야 한다", EXAMPLE).isRegularFile();
@@ -62,14 +63,16 @@ class ValidationExecutionProdExampleTest {
         assertThat(properties.maxLeaseRecoveries()).isEqualTo(2);
         assertThat(properties.setting()).isEqualTo(SETTING);
         assertThat(properties.typo()).isEqualTo(TYPO);
-        // RELATED_SELECTION 역할 예산은 grid v2의 SUBJECT_RESOLUTION 단계가 사용한다(#349).
-        assertThat(properties.roles()).containsOnlyKeys(ValidationRole.PLANNER, ValidationRole.RELATED_SELECTION,
-                ValidationRole.COVERAGE, ValidationRole.JUDGE, ValidationRole.TYPO, ValidationRole.QUERY_EMBEDDING);
-        for (var role : new ValidationRole[] {ValidationRole.PLANNER, ValidationRole.RELATED_SELECTION,
-                ValidationRole.COVERAGE, ValidationRole.JUDGE})
-            assertThat(properties.roles().get(role)).as(role.name()).isEqualTo(new RoleBudget(40, 2_400_000));
-        assertThat(properties.roles().get(ValidationRole.TYPO)).isEqualTo(new RoleBudget(20, 640_000));
-        assertThat(properties.roles().get(ValidationRole.QUERY_EMBEDDING)).isEqualTo(new RoleBudget(40, 400_000));
+        // configuration v2: 퇴역 역할(RELATED_SELECTION·COVERAGE)은 없고 생성 역할마다 출력 상한·모델·추론 강도를 둔다.
+        // 모델은 31화 비교 실험 결과(계획 Terra medium, 판정 Luna high, 오탈자 Terra low).
+        assertThat(properties.roles()).containsOnlyKeys(ValidationRole.PLANNER, ValidationRole.JUDGE, ValidationRole.TYPO,
+                ValidationRole.QUERY_EMBEDDING, ValidationRole.INDEX_EMBEDDING);
+        assertThat(properties.roles().get(ValidationRole.PLANNER)).isEqualTo(new RoleBudget(10, 800_000, 50_000, "gpt-6.1-terra", "medium"));
+        assertThat(properties.roles().get(ValidationRole.JUDGE)).isEqualTo(new RoleBudget(200, 10_000_000, 20_000, "gpt-6-luna", "high"));
+        assertThat(properties.roles().get(ValidationRole.TYPO)).isEqualTo(new RoleBudget(20, 640_000, 12_000, "gpt-6.1-terra", "low"));
+        assertThat(properties.roles().get(ValidationRole.QUERY_EMBEDDING)).isEqualTo(new RoleBudget(250, 400_000, null, null, null));
+        // 접수 때 색인 채우기(2026-11-02): 서비스 부담 임베딩. 32조각 묶음 예약(UTF-8 byte 상한)으로 약 1,000회차 작품까지 채운다.
+        assertThat(properties.roles().get(ValidationRole.INDEX_EMBEDDING)).isEqualTo(new RoleBudget(400, 40_000_000, null, null, null));
         assertThat(properties.queryEmbeddingModel()).isEqualTo("text-embedding-3-small");
     }
 
@@ -101,15 +104,46 @@ class ValidationExecutionProdExampleTest {
     }
 
     @Test
+    @DisplayName("이전 예시의 COVERAGE 역할 키가 남아 있으면 활성 기동이 실패한다")
+    void staleRetiredRoleKeysFailEnabledStartup() throws IOException {
+        var properties = flattenedExample();
+        properties.put("validation.execution.roles.COVERAGE.max-calls", 40);
+        properties.put("validation.execution.roles.COVERAGE.max-reserved-tokens", 2_400_000);
+        properties.put("validation.execution.enabled", true);
+        assertThatThrownBy(() -> bind(properties)).isInstanceOf(BindException.class)
+                .rootCause().isInstanceOf(IllegalArgumentException.class).hasMessageContaining("COVERAGE");
+        properties.put("validation.execution.enabled", false);
+        assertThat(bind(properties).enabled()).isFalse();
+    }
+
+    @Test
     @DisplayName("선택 임베딩 역할은 모델과 함께 빼면 활성 기동하고 모델만 빼면 실패한다")
     void queryEmbeddingRoleIsOptionalButNeedsItsModel() throws IOException {
         var withoutEmbedding = flattenedExample();
         assertThat(withoutEmbedding.keySet().removeIf(key -> key.startsWith("validation.execution.roles.QUERY_EMBEDDING.")
+                || key.startsWith("validation.execution.roles.INDEX_EMBEDDING.")
                 || key.equals("validation.execution.query-embedding-model"))).isTrue();
         withoutEmbedding.put("validation.execution.enabled", true);
         var bound = bind(withoutEmbedding);
-        assertThat(bound.roles()).doesNotContainKey(ValidationRole.QUERY_EMBEDDING);
+        assertThat(bound.roles()).doesNotContainKeys(ValidationRole.QUERY_EMBEDDING, ValidationRole.INDEX_EMBEDDING);
         assertThat(bound.queryEmbeddingModel()).isNull();
+
+        // 접수 때 색인 채우기는 선택이지만 검색(QUERY_EMBEDDING) 없이 색인만 채우는 설정은 활성 기동을 거절한다.
+        var withoutIndexFill = flattenedExample();
+        assertThat(withoutIndexFill.keySet().removeIf(key -> key.startsWith("validation.execution.roles.INDEX_EMBEDDING."))).isTrue();
+        withoutIndexFill.put("validation.execution.enabled", true);
+        assertThat(bind(withoutIndexFill).roles()).containsKey(ValidationRole.QUERY_EMBEDDING).doesNotContainKey(ValidationRole.INDEX_EMBEDDING);
+        var indexWithoutQuery = flattenedExample();
+        assertThat(indexWithoutQuery.keySet().removeIf(key -> key.startsWith("validation.execution.roles.QUERY_EMBEDDING.")
+                || key.equals("validation.execution.query-embedding-model"))).isTrue();
+        indexWithoutQuery.put("validation.execution.enabled", true);
+        assertThatThrownBy(() -> bind(indexWithoutQuery)).isInstanceOf(BindException.class)
+                .rootCause().isInstanceOf(IllegalArgumentException.class).hasMessage("검수 색인 채우기에는 검색 임베딩(QUERY_EMBEDDING) 예산이 필요합니다.");
+        var indexWithModel = flattenedExample();
+        indexWithModel.put("validation.execution.roles.INDEX_EMBEDDING.model", "text-embedding-3-small");
+        indexWithModel.put("validation.execution.enabled", true);
+        assertThatThrownBy(() -> bind(indexWithModel)).isInstanceOf(BindException.class)
+                .rootCause().isInstanceOf(IllegalArgumentException.class).hasMessage("검수 임베딩 역할에는 출력 상한·모델·추론 강도를 두지 않습니다.");
 
         var roleWithoutModel = flattenedExample();
         assertThat(roleWithoutModel.remove("validation.execution.query-embedding-model")).isEqualTo("text-embedding-3-small");

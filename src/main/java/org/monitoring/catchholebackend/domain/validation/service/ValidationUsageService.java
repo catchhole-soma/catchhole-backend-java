@@ -7,6 +7,5 @@ public interface ValidationUsageService {
     Map<String,Object> reserveValidationUsage(UUID id,UUID lease,Reserve command);
     Map<String,Object> reportValidationUsage(UUID id,UUID lease,UUID request,Usage command);
     void releaseReservedValidationUsage(ValidationJob job,AiTokenUsageOutcome reason);
-    void ensureValidationRetryCapacity(ValidationJob job);
     List<Map<String,Object>> getValidationUsage(UUID id);
 }

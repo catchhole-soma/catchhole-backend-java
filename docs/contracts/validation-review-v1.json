@@ -10,7 +10,8 @@
     "completeValidationReview": "POST /api/v1/works/{workId}/episode-validations/{reportId}/review-completion",
     "applyValidationSettings": "POST /api/v1/works/{workId}/episode-validations/{reportId}/settings-application",
     "listEpisodeValidationHistory": "GET /api/v1/works/{workId}/episode-validations/history?episodeId=&page=0&size=20",
-    "getEpisodeValidationEligibility": "GET /api/v1/works/{workId}/episode-validations/eligibility?episodeId="
+    "getEpisodeValidationEligibility": "GET /api/v1/works/{workId}/episode-validations/eligibility?episodeId=",
+    "getValidationFindingSourceContext": "GET /api/v1/works/{workId}/episode-validations/{reportId}/findings/{findingId}/source-context?sourceRef=&anchorStart=&anchorEnd=&before=0&after=0"
   },
   "requests": {
     "judgment": {
@@ -35,17 +36,34 @@
       "checkId": "00000000-0000-4000-8000-000000000102",
       "checkRevision": 2,
       "outcome": "CONFLICT",
-      "judgment": {"value": "NOT_CONFLICT", "version": 1, "decidedAt": "2026-10-30T10:15:00"},
+      "judgment": {
+        "value": "NOT_CONFLICT",
+        "version": 1,
+        "decidedAt": "2026-10-30T10:15:00"
+      },
       "changed": true,
       "summary": {
         "impact": "CAUTION",
         "reason": "합성 충돌 판정",
         "replacement": null,
-        "spans": [{"sourceRef": "T1", "start": 0, "end": 2, "quote": "처음"}]
+        "spans": [
+          {
+            "sourceRef": "T1",
+            "start": 0,
+            "end": 2,
+            "quote": "처음"
+          }
+        ]
       },
-      "subject": {"type": "CHARACTER", "id": "00000000-0000-4000-8000-000000000601", "name": "카일"},
+      "subject": {
+        "type": "CHARACTER",
+        "id": "00000000-0000-4000-8000-000000000601",
+        "name": "카일"
+      },
       "settingName": "나이",
-      "settingKey": "AGE:age"
+      "settingKey": "AGE:age",
+      "topic": "나이",
+      "headline": "카일의 나이가 기존 설정과 달라요"
     },
     "findingSummaryWorld": {
       "findingId": "00000000-0000-4000-8000-000000000104",
@@ -54,17 +72,34 @@
       "checkId": "00000000-0000-4000-8000-000000000105",
       "checkRevision": 1,
       "outcome": "SUSPECTED_CONFLICT",
-      "judgment": {"value": "PENDING", "version": 0, "decidedAt": null},
+      "judgment": {
+        "value": "PENDING",
+        "version": 0,
+        "decidedAt": null
+      },
       "changed": false,
       "summary": {
         "impact": "SEVERE",
         "reason": "합성 의심 판정",
         "replacement": null,
-        "spans": [{"sourceRef": "T1", "start": 3, "end": 5, "quote": "합성"}]
+        "spans": [
+          {
+            "sourceRef": "T1",
+            "start": 3,
+            "end": 5,
+            "quote": "합성"
+          }
+        ]
       },
-      "subject": {"type": "WORLD_SETTING", "id": "00000000-0000-4000-8000-000000000602", "name": "북부 왕국"},
+      "subject": {
+        "type": "WORLD_SETTING",
+        "id": "00000000-0000-4000-8000-000000000602",
+        "name": "북부 왕국"
+      },
       "settingName": "마법 / 사용 조건",
-      "settingKey": "[\"마법\",\"사용 조건\"]"
+      "settingKey": "[\"마법\",\"사용 조건\"]",
+      "topic": "사용 조건",
+      "headline": null
     },
     "findingSummaryTypo": {
       "findingId": "00000000-0000-4000-8000-000000000106",
@@ -73,17 +108,30 @@
       "checkId": null,
       "checkRevision": null,
       "outcome": "SPELLING",
-      "judgment": {"value": "PENDING", "version": 0, "decidedAt": null},
+      "judgment": {
+        "value": "PENDING",
+        "version": 0,
+        "decidedAt": null
+      },
       "changed": false,
       "summary": {
         "impact": null,
         "reason": "합성 맞춤법 제안",
         "replacement": "원교",
-        "spans": [{"sourceRef": "T1", "start": 6, "end": 8, "quote": "원고"}]
+        "spans": [
+          {
+            "sourceRef": "T1",
+            "start": 6,
+            "end": 8,
+            "quote": "원고"
+          }
+        ]
       },
       "subject": null,
       "settingName": null,
-      "settingKey": null
+      "settingKey": null,
+      "topic": null,
+      "headline": null
     },
     "findingDetail": {
       "findingId": "00000000-0000-4000-8000-000000000101",
@@ -95,25 +143,312 @@
       "outcome": "CONFLICT",
       "stale": false,
       "changed": true,
-      "payload": {"reason": "합성 충돌 판정", "basis": "DIRECT_CONTRADICTION", "impact": "CAUTION", "target_spans": [{"source_ref": "T1", "start": 0, "end": 2, "quote": "처음"}]},
-      "evidence": [{"sourceRef": "R1", "start": 0, "end": 2, "quote": "합성"}],
-      "judgment": {"value": "NOT_CONFLICT", "version": 1, "decidedAt": "2026-10-30T10:15:00"},
-      "allowedJudgments": ["PENDING", "NEEDS_FIX", "NOT_CONFLICT"],
+      "payload": {
+        "reason": "합성 충돌 판정",
+        "basis": "DIRECT_CONTRADICTION",
+        "impact": "CAUTION",
+        "target_spans": [
+          {
+            "source_ref": "T1",
+            "start": 0,
+            "end": 2,
+            "quote": "처음"
+          },
+          {
+            "source_ref": "T1",
+            "start": 6,
+            "end": 8,
+            "quote": "원고"
+          }
+        ],
+        "evidence_refs": [
+          "B1",
+          "E1"
+        ],
+        "basis_quotes": [
+          {
+            "ref": "B1",
+            "source_ref": null,
+            "start": null,
+            "end": null,
+            "quote": "20"
+          },
+          {
+            "ref": "E1",
+            "source_ref": "R1",
+            "start": 3,
+            "end": 7,
+            "quote": "앞 원고"
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "sourceRef": "T1",
+          "start": 0,
+          "end": 2,
+          "quote": "처음",
+          "sourceKind": "EPISODE",
+          "episodeNo": 101,
+          "label": "101화 · 1~2자",
+          "usedByDecision": false,
+          "highlights": []
+        },
+        {
+          "sourceRef": "T1",
+          "start": 6,
+          "end": 8,
+          "quote": "원고",
+          "sourceKind": "EPISODE",
+          "episodeNo": 101,
+          "label": "101화 · 7~8자",
+          "usedByDecision": false,
+          "highlights": []
+        },
+        {
+          "sourceRef": "R1",
+          "start": 0,
+          "end": 7,
+          "quote": "합성 앞 원고",
+          "sourceKind": "EPISODE",
+          "episodeNo": 100,
+          "label": "100화 · 1~7자",
+          "usedByDecision": true,
+          "highlights": [
+            {
+              "start": 3,
+              "end": 7
+            }
+          ]
+        },
+        {
+          "sourceRef": "R2",
+          "start": 0,
+          "end": 4,
+          "quote": "합성 설정",
+          "sourceKind": "SETTING_BOOK",
+          "episodeNo": null,
+          "label": "설정집 · 합성 설정집 · 1~4자",
+          "usedByDecision": false,
+          "highlights": []
+        }
+      ],
+      "judgment": {
+        "value": "NOT_CONFLICT",
+        "version": 1,
+        "decidedAt": "2026-10-30T10:15:00"
+      },
+      "allowedJudgments": [
+        "PENDING",
+        "NEEDS_FIX",
+        "NOT_CONFLICT"
+      ],
       "judgmentHistory": [
-        {"findingId": "00000000-0000-4000-8000-000000000103", "checkRevision": 1, "fromJudgment": "NOT_CONFLICT", "toJudgment": "PENDING", "reason": "REVISION_SUPERSEDED", "changeReason": "NEW_CLUE", "createdAt": "2026-10-30T10:05:00"},
-        {"findingId": "00000000-0000-4000-8000-000000000101", "checkRevision": 2, "fromJudgment": null, "toJudgment": "NOT_CONFLICT", "reason": "AUTHOR", "changeReason": null, "createdAt": "2026-10-30T10:15:00"}
+        {
+          "findingId": "00000000-0000-4000-8000-000000000103",
+          "checkRevision": 1,
+          "fromJudgment": "NOT_CONFLICT",
+          "toJudgment": "PENDING",
+          "reason": "REVISION_SUPERSEDED",
+          "changeReason": "NEW_CLUE",
+          "createdAt": "2026-10-30T10:05:00"
+        },
+        {
+          "findingId": "00000000-0000-4000-8000-000000000101",
+          "checkRevision": 2,
+          "fromJudgment": null,
+          "toJudgment": "NOT_CONFLICT",
+          "reason": "AUTHOR",
+          "changeReason": null,
+          "createdAt": "2026-10-30T10:15:00"
+        }
       ],
       "priorRevisions": [
-        {"checkRevision": 1, "outcome": "CONFLICT", "changeReason": null, "findingId": "00000000-0000-4000-8000-000000000103", "judgment": {"value": "NOT_CONFLICT", "version": 1, "decidedAt": "2026-10-30T10:01:00"}}
+        {
+          "checkRevision": 1,
+          "outcome": "CONFLICT",
+          "changeReason": null,
+          "findingId": "00000000-0000-4000-8000-000000000103",
+          "judgment": {
+            "value": "NOT_CONFLICT",
+            "version": 1,
+            "decidedAt": "2026-10-30T10:01:00"
+          }
+        }
       ],
-      "subject": {"type": "CHARACTER", "id": "00000000-0000-4000-8000-000000000601", "name": "카일"},
+      "subject": {
+        "type": "CHARACTER",
+        "id": "00000000-0000-4000-8000-000000000601",
+        "name": "카일"
+      },
       "settingName": "나이",
       "settingKey": "AGE:age",
       "basis": [
-        {"entryRef": "B1", "entryHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "subjectType": "CHARACTER", "targetId": "00000000-0000-4000-8000-000000000601", "subjectName": "카일",
-         "factType": "AGE", "factKey": "age", "scopeName": null, "settingName": null, "currentVersion": 3},
-        {"entryRef": "B2", "entryHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "subjectType": "WORLD_SETTING", "targetId": "00000000-0000-4000-8000-000000000602", "subjectName": "북부 왕국",
-         "factType": null, "factKey": null, "scopeName": null, "settingName": null, "currentVersion": 4}
+        {
+          "entryRef": "B1",
+          "entryHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "subjectType": "CHARACTER",
+          "targetId": "00000000-0000-4000-8000-000000000601",
+          "subjectName": "카일",
+          "factType": "AGE",
+          "factKey": "age",
+          "scopeName": null,
+          "settingName": null,
+          "currentVersion": 3
+        },
+        {
+          "entryRef": "B2",
+          "entryHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "subjectType": "WORLD_SETTING",
+          "targetId": "00000000-0000-4000-8000-000000000602",
+          "subjectName": "북부 왕국",
+          "factType": null,
+          "factKey": null,
+          "scopeName": null,
+          "settingName": null,
+          "currentVersion": 4
+        }
+      ],
+      "topic": "나이",
+      "headline": "카일의 나이가 기존 설정과 달라요",
+      "targetEpisodeNo": 101,
+      "basisQuotes": [
+        {
+          "kind": "SETTING",
+          "label": "설정 · 카일 · 나이",
+          "quote": "20",
+          "sourceRef": null,
+          "start": null,
+          "end": null,
+          "episodeNo": null,
+          "subjectName": "카일",
+          "settingName": "나이",
+          "settingBookTitle": null
+        },
+        {
+          "kind": "EPISODE",
+          "label": "100화",
+          "quote": "앞 원고",
+          "sourceRef": "R1",
+          "start": 3,
+          "end": 7,
+          "episodeNo": 100,
+          "subjectName": null,
+          "settingName": null,
+          "settingBookTitle": null
+        }
+      ],
+      "blocks": [
+        {
+          "kind": "TARGET",
+          "label": "101화 · 1~8자",
+          "quote": "처음",
+          "quotes": [
+            {
+              "quote": "처음",
+              "start": 0,
+              "end": 2
+            },
+            {
+              "quote": "원고",
+              "start": 6,
+              "end": 8
+            }
+          ],
+          "sourceRef": "T1",
+          "start": 0,
+          "end": 8,
+          "episodeNo": 101,
+          "settingValue": null,
+          "context": {
+            "sourceRef": "T1",
+            "start": 0,
+            "end": 8,
+            "totalCodePoints": 8,
+            "hasMoreBefore": false,
+            "hasMoreAfter": false,
+            "lines": [
+              {
+                "start": 0,
+                "end": 8,
+                "text": "처음 합성 원고"
+              }
+            ]
+          },
+          "contextStatus": "READY"
+        },
+        {
+          "kind": "SETTING",
+          "label": "설정 · 카일 · 나이",
+          "quote": "20",
+          "quotes": [
+            {
+              "quote": "20",
+              "start": null,
+              "end": null
+            }
+          ],
+          "sourceRef": null,
+          "start": null,
+          "end": null,
+          "episodeNo": null,
+          "settingValue": "20",
+          "context": null,
+          "contextStatus": null
+        },
+        {
+          "kind": "EPISODE",
+          "label": "100화 · 4~7자",
+          "quote": "앞 원고",
+          "quotes": [
+            {
+              "quote": "앞 원고",
+              "start": 3,
+              "end": 7
+            }
+          ],
+          "sourceRef": "R1",
+          "start": 3,
+          "end": 7,
+          "episodeNo": 100,
+          "settingValue": null,
+          "context": {
+            "sourceRef": "R1",
+            "start": 0,
+            "end": 7,
+            "totalCodePoints": 7,
+            "hasMoreBefore": false,
+            "hasMoreAfter": false,
+            "lines": [
+              {
+                "start": 0,
+                "end": 7,
+                "text": "합성 앞 원고"
+              }
+            ]
+          },
+          "contextStatus": "READY"
+        }
+      ]
+    },
+    "findingSourceContext": {
+      "sourceRef": "R1",
+      "start": 120,
+      "end": 154,
+      "totalCodePoints": 900,
+      "hasMoreBefore": true,
+      "hasMoreAfter": true,
+      "lines": [
+        {
+          "start": 120,
+          "end": 133,
+          "text": "합성 앞 원고의 위쪽 줄"
+        },
+        {
+          "start": 135,
+          "end": 154,
+          "text": "합성 앞 원고의 그 위 줄 하나 더"
+        }
       ]
     },
     "reviewSummary": {
@@ -121,19 +456,42 @@
       "reportVersion": 15,
       "executionStatus": "COMPLETED",
       "mode": "BEFORE_CONFIRMATION",
-      "counts": {"settingTotal": 1, "settingPending": 0, "settingNeedsFix": 0, "settingNotConflict": 1, "typoTotal": 2, "typoPending": 0, "typoNeedsFix": 0, "typoKeepOriginal": 2},
+      "counts": {
+        "settingTotal": 1,
+        "settingPending": 0,
+        "settingNeedsFix": 0,
+        "settingNotConflict": 1,
+        "typoTotal": 2,
+        "typoPending": 0,
+        "typoNeedsFix": 0,
+        "typoKeepOriginal": 2
+      },
       "judgmentLocked": true,
       "lockReason": "REVIEW_COMPLETED",
       "canCompleteReview": false,
       "completionMode": "COMPLETED",
       "holdReasons": [],
-      "allowedActions": ["APPLY_SETTINGS"],
-      "completion": {"completionId": "00000000-0000-4000-8000-000000000201", "trigger": "EXPLICIT", "completedAt": "2026-10-30T10:20:00", "extractionJobId": "00000000-0000-4000-8000-000000000301"},
+      "allowedActions": [
+        "APPLY_SETTINGS"
+      ],
+      "completion": {
+        "completionId": "00000000-0000-4000-8000-000000000201",
+        "trigger": "EXPLICIT",
+        "completedAt": "2026-10-30T10:20:00",
+        "extractionJobId": "00000000-0000-4000-8000-000000000301"
+      },
       "releaseHold": null,
       "application": {
         "status": "HELD_REVIEW",
         "attempt": 1,
-        "holdReasons": [{"code": "DECISION_PENDING", "candidateType": "CHARACTER", "candidateId": "00000000-0000-4000-8000-000000000401", "detail": "REVIEW_REQUIRED"}],
+        "holdReasons": [
+          {
+            "code": "DECISION_PENDING",
+            "candidateType": "CHARACTER",
+            "candidateId": "00000000-0000-4000-8000-000000000401",
+            "detail": "REVIEW_REQUIRED"
+          }
+        ],
         "appliedAt": null,
         "extractionJobGeneration": 1
       },
@@ -145,16 +503,38 @@
       "reportVersion": 17,
       "executionStatus": "COMPLETED",
       "mode": "BEFORE_CONFIRMATION",
-      "counts": {"settingTotal": 1, "settingPending": 0, "settingNeedsFix": 0, "settingNotConflict": 1, "typoTotal": 2, "typoPending": 0, "typoNeedsFix": 0, "typoKeepOriginal": 2},
+      "counts": {
+        "settingTotal": 1,
+        "settingPending": 0,
+        "settingNeedsFix": 0,
+        "settingNotConflict": 1,
+        "typoTotal": 2,
+        "typoPending": 0,
+        "typoNeedsFix": 0,
+        "typoKeepOriginal": 2
+      },
       "judgmentLocked": true,
       "lockReason": "REVIEW_COMPLETED",
       "canCompleteReview": false,
       "completionMode": "COMPLETED",
       "holdReasons": [],
-      "allowedActions": ["RECHECK"],
-      "completion": {"completionId": "00000000-0000-4000-8000-000000000201", "trigger": "EXPLICIT", "completedAt": "2026-10-30T10:20:00", "extractionJobId": "00000000-0000-4000-8000-000000000301"},
+      "allowedActions": [
+        "RECHECK"
+      ],
+      "completion": {
+        "completionId": "00000000-0000-4000-8000-000000000201",
+        "trigger": "EXPLICIT",
+        "completedAt": "2026-10-30T10:20:00",
+        "extractionJobId": "00000000-0000-4000-8000-000000000301"
+      },
       "releaseHold": null,
-      "application": {"status": "APPLIED", "attempt": 2, "holdReasons": [], "appliedAt": "2026-10-30T10:30:00", "extractionJobGeneration": 1},
+      "application": {
+        "status": "APPLIED",
+        "attempt": 2,
+        "holdReasons": [],
+        "appliedAt": "2026-10-30T10:30:00",
+        "extractionJobGeneration": 1
+      },
       "extractionState": "SUCCEEDED",
       "reviewStage": "APPLIED"
     },
@@ -171,7 +551,14 @@
       "status": "HELD_REVIEW",
       "trigger": "EXPLICIT",
       "attempt": 2,
-      "holdReasons": [{"code": "UNKNOWN_ERROR", "candidateType": "EPISODE", "candidateId": null, "detail": "WORLD_SETTING_CANDIDATE_GROUP_INVALID"}],
+      "holdReasons": [
+        {
+          "code": "UNKNOWN_ERROR",
+          "candidateType": "EPISODE",
+          "candidateId": null,
+          "detail": "WORLD_SETTING_CANDIDATE_GROUP_INVALID"
+        }
+      ],
       "appliedAt": null,
       "extractionJobId": "00000000-0000-4000-8000-000000000301",
       "extractionJobGeneration": 1,
@@ -189,9 +576,18 @@
           "baselineStatus": "READY",
           "requestedAt": "2026-10-30T11:00:00",
           "executionStatus": "COMPLETED",
-          "counts": {"settingFindings": 0, "typoFindings": 0},
-          "completion": {"trigger": "AUTOMATIC", "completedAt": "2026-10-30T11:05:00"},
-          "application": {"status": "APPLIED", "appliedAt": "2026-10-30T11:07:00"},
+          "counts": {
+            "settingFindings": 0,
+            "typoFindings": 0
+          },
+          "completion": {
+            "trigger": "AUTOMATIC",
+            "completedAt": "2026-10-30T11:05:00"
+          },
+          "application": {
+            "status": "APPLIED",
+            "appliedAt": "2026-10-30T11:07:00"
+          },
           "releaseHold": null,
           "invalidatedAt": null,
           "previousReportId": "00000000-0000-4000-8000-000000000001",
@@ -206,9 +602,18 @@
           "baselineStatus": "INVALIDATED",
           "requestedAt": "2026-10-30T10:00:00",
           "executionStatus": "CANCELED",
-          "counts": {"settingFindings": 0, "typoFindings": 0},
-          "completion": {"trigger": "EXPLICIT", "completedAt": "2026-10-30T10:20:00"},
-          "application": {"status": "HELD_REVIEW", "appliedAt": null},
+          "counts": {
+            "settingFindings": 0,
+            "typoFindings": 0
+          },
+          "completion": {
+            "trigger": "EXPLICIT",
+            "completedAt": "2026-10-30T10:20:00"
+          },
+          "application": {
+            "status": "HELD_REVIEW",
+            "appliedAt": null
+          },
           "releaseHold": null,
           "invalidatedAt": "2026-10-30T10:40:00",
           "previousReportId": null,
@@ -237,7 +642,14 @@
       "message": "이 회차의 검수를 시작할 수 있습니다.",
       "latestEpisode": true,
       "currentReport": null,
-      "nextEpisodeAdmission": {"allowed": true, "blockingReportId": null, "blockingEpisodeId": null, "blockingEpisodeNo": null, "blockingReviewStage": null, "message": null}
+      "nextEpisodeAdmission": {
+        "allowed": true,
+        "blockingReportId": null,
+        "blockingEpisodeId": null,
+        "blockingEpisodeNo": null,
+        "blockingReviewStage": null,
+        "message": null
+      }
     },
     "eligibilityNotLatestEpisode": {
       "episodeId": "00000000-0000-4000-8000-000000000002",
@@ -246,7 +658,14 @@
       "message": "마지막 회차 뒤에 단일 업로드한 새 원고만 검수를 시작할 수 있습니다.",
       "latestEpisode": false,
       "currentReport": null,
-      "nextEpisodeAdmission": {"allowed": true, "blockingReportId": null, "blockingEpisodeId": null, "blockingEpisodeNo": null, "blockingReviewStage": null, "message": null}
+      "nextEpisodeAdmission": {
+        "allowed": true,
+        "blockingReportId": null,
+        "blockingEpisodeId": null,
+        "blockingEpisodeNo": null,
+        "blockingReviewStage": null,
+        "message": null
+      }
     },
     "eligibilityNextEpisodeBlocked": {
       "episodeId": "00000000-0000-4000-8000-000000000003",
@@ -255,7 +674,14 @@
       "message": "이 회차의 검토와 설정 저장을 마친 뒤 다음 회차를 등록할 수 있어요.",
       "latestEpisode": true,
       "currentReport": null,
-      "nextEpisodeAdmission": {"allowed": false, "blockingReportId": "00000000-0000-4000-8000-000000000011", "blockingEpisodeId": "00000000-0000-4000-8000-000000000002", "blockingEpisodeNo": 101, "blockingReviewStage": "AWAITING_REVIEW", "message": "이 회차의 검토와 설정 저장을 마친 뒤 다음 회차를 등록할 수 있어요."}
+      "nextEpisodeAdmission": {
+        "allowed": false,
+        "blockingReportId": "00000000-0000-4000-8000-000000000011",
+        "blockingEpisodeId": "00000000-0000-4000-8000-000000000002",
+        "blockingEpisodeNo": 101,
+        "blockingReviewStage": "AWAITING_REVIEW",
+        "message": "이 회차의 검토와 설정 저장을 마친 뒤 다음 회차를 등록할 수 있어요."
+      }
     },
     "eligibilityWorkOnlyBlocked": {
       "episodeId": null,
@@ -264,7 +690,14 @@
       "message": null,
       "latestEpisode": null,
       "currentReport": null,
-      "nextEpisodeAdmission": {"allowed": false, "blockingReportId": "00000000-0000-4000-8000-000000000011", "blockingEpisodeId": "00000000-0000-4000-8000-000000000002", "blockingEpisodeNo": 101, "blockingReviewStage": "APPLICATION_HELD", "message": "이 회차의 검토와 설정 저장을 마친 뒤 다음 회차를 등록할 수 있어요."}
+      "nextEpisodeAdmission": {
+        "allowed": false,
+        "blockingReportId": "00000000-0000-4000-8000-000000000011",
+        "blockingEpisodeId": "00000000-0000-4000-8000-000000000002",
+        "blockingEpisodeNo": 101,
+        "blockingReviewStage": "APPLICATION_HELD",
+        "message": "이 회차의 검토와 설정 저장을 마친 뒤 다음 회차를 등록할 수 있어요."
+      }
     },
     "eligibilityReportExists": {
       "episodeId": "00000000-0000-4000-8000-000000000002",
@@ -272,13 +705,31 @@
       "reasonCode": "REPORT_EXISTS",
       "message": "이 회차에는 이미 검수가 있습니다. 새로 접수하지 말고 현재 검수를 확인해 주세요.",
       "latestEpisode": true,
-      "currentReport": {"reportId": "00000000-0000-4000-8000-000000000011", "revision": 1, "mode": "BEFORE_CONFIRMATION", "reviewStage": "AWAITING_REVIEW"},
-      "nextEpisodeAdmission": {"allowed": false, "blockingReportId": "00000000-0000-4000-8000-000000000011", "blockingEpisodeId": "00000000-0000-4000-8000-000000000002", "blockingEpisodeNo": 101, "blockingReviewStage": "AWAITING_REVIEW", "message": "이 회차의 검토와 설정 저장을 마친 뒤 다음 회차를 등록할 수 있어요."}
+      "currentReport": {
+        "reportId": "00000000-0000-4000-8000-000000000011",
+        "revision": 1,
+        "mode": "BEFORE_CONFIRMATION",
+        "reviewStage": "AWAITING_REVIEW"
+      },
+      "nextEpisodeAdmission": {
+        "allowed": false,
+        "blockingReportId": "00000000-0000-4000-8000-000000000011",
+        "blockingEpisodeId": "00000000-0000-4000-8000-000000000002",
+        "blockingEpisodeNo": 101,
+        "blockingReviewStage": "AWAITING_REVIEW",
+        "message": "이 회차의 검토와 설정 저장을 마친 뒤 다음 회차를 등록할 수 있어요."
+      }
     }
   },
   "correctionFromFindingBasis": {
     "description": "#314 B2. Values copied verbatim: staging fields from GET /{reportId}, entry/target/version/slot from findingDetail.basis[0]; edit is the author's full CharacterUpdateRequest that changes only that slot.",
-    "staging": {"baselineId": "00000000-0000-4000-8000-000000000001", "baselineRevision": 1, "baselineHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "reportVersion": 15, "baselineFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+    "staging": {
+      "baselineId": "00000000-0000-4000-8000-000000000001",
+      "baselineRevision": 1,
+      "baselineHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "reportVersion": 15,
+      "baselineFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
     "request": {
       "idempotencyKey": "synthetic-basis-correction-1",
       "expectedReportVersion": 15,
@@ -292,7 +743,18 @@
         "expectedSnapshotVersion": 3,
         "factType": "AGE",
         "factKey": "age",
-        "edit": {"name": "카일", "roleLabel": null, "currentAge": 21, "currentLevel": 1, "firstAppearanceEpisodeNo": null, "profile": [], "stats": [], "skills": [], "items": [], "statuses": []}
+        "edit": {
+          "name": "카일",
+          "roleLabel": null,
+          "currentAge": 21,
+          "currentLevel": 1,
+          "firstAppearanceEpisodeNo": null,
+          "profile": [],
+          "stats": [],
+          "skills": [],
+          "items": [],
+          "statuses": []
+        }
       },
       "worldSetting": null
     },
@@ -312,14 +774,28 @@
       "success": false,
       "message": "원고 버전이 변경되었습니다. 현재 원고를 다시 확인해 주세요.",
       "data": null,
-      "error": {"code": "VALIDATION_SOURCE_VERSION_CONFLICT", "status": 409, "details": [], "context": {"reason": "BASELINE_FINGERPRINT_REQUIRED"}},
+      "error": {
+        "code": "VALIDATION_SOURCE_VERSION_CONFLICT",
+        "status": 409,
+        "details": [],
+        "context": {
+          "reason": "BASELINE_FINGERPRINT_REQUIRED"
+        }
+      },
       "timestamp": "2026-10-30T11:00:00"
     },
     "recheckBaselineFingerprintMismatch": {
       "success": false,
       "message": "원고 버전이 변경되었습니다. 현재 원고를 다시 확인해 주세요.",
       "data": null,
-      "error": {"code": "VALIDATION_SOURCE_VERSION_CONFLICT", "status": 409, "details": [], "context": {"reason": "BASELINE_FINGERPRINT_MISMATCH"}},
+      "error": {
+        "code": "VALIDATION_SOURCE_VERSION_CONFLICT",
+        "status": 409,
+        "details": [],
+        "context": {
+          "reason": "BASELINE_FINGERPRINT_MISMATCH"
+        }
+      },
       "timestamp": "2026-10-30T11:00:00"
     },
     "nextEpisodeBlocked": {
@@ -330,40 +806,246 @@
         "code": "VALIDATION_NEXT_EPISODE_BLOCKED",
         "status": 409,
         "details": [],
-        "context": {"reportId": "00000000-0000-4000-8000-000000000011", "episodeId": "00000000-0000-4000-8000-000000000002", "episodeNo": 101, "reviewStage": "AWAITING_REVIEW"}
+        "context": {
+          "reportId": "00000000-0000-4000-8000-000000000011",
+          "episodeId": "00000000-0000-4000-8000-000000000002",
+          "episodeNo": 101,
+          "reviewStage": "AWAITING_REVIEW"
+        }
       },
       "timestamp": "2026-10-30T11:00:00"
     }
   },
   "nextEpisodeAdmissionCases": [
-    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "PREPARING_BASELINE", "blocks": true},
-    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "VALIDATING", "blocks": true},
-    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "AWAITING_REVIEW", "blocks": true},
-    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "REVIEW_COMPLETED", "blocks": true},
-    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "EXTRACTION_FAILED", "blocks": true},
-    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "APPLICATION_HELD", "blocks": true},
-    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "HELD_INCOMPLETE", "blocks": true},
-    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "APPLIED", "blocks": false},
-    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "INVALIDATED", "blocks": true},
-    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "INVALIDATED", "application": "APPLIED", "blocks": false},
-    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "INVALIDATED", "application": "HELD_REVIEW", "blocks": true},
-    {"mode": "BEFORE_CONFIRMATION", "reviewStage": "APPLICATION_HELD", "application": "HELD_REVIEW", "blocks": true},
-    {"mode": "DIAGNOSTIC_ONLY", "reviewStage": "VALIDATING", "blocks": false},
-    {"mode": "DIAGNOSTIC_ONLY", "reviewStage": "AWAITING_REVIEW", "blocks": false}
+    {
+      "mode": "BEFORE_CONFIRMATION",
+      "reviewStage": "PREPARING_BASELINE",
+      "blocks": true
+    },
+    {
+      "mode": "BEFORE_CONFIRMATION",
+      "reviewStage": "VALIDATING",
+      "blocks": true
+    },
+    {
+      "mode": "BEFORE_CONFIRMATION",
+      "reviewStage": "AWAITING_REVIEW",
+      "blocks": true
+    },
+    {
+      "mode": "BEFORE_CONFIRMATION",
+      "reviewStage": "REVIEW_COMPLETED",
+      "blocks": true
+    },
+    {
+      "mode": "BEFORE_CONFIRMATION",
+      "reviewStage": "EXTRACTION_FAILED",
+      "blocks": true
+    },
+    {
+      "mode": "BEFORE_CONFIRMATION",
+      "reviewStage": "APPLICATION_HELD",
+      "blocks": true
+    },
+    {
+      "mode": "BEFORE_CONFIRMATION",
+      "reviewStage": "HELD_INCOMPLETE",
+      "blocks": true
+    },
+    {
+      "mode": "BEFORE_CONFIRMATION",
+      "reviewStage": "APPLIED",
+      "blocks": false
+    },
+    {
+      "mode": "BEFORE_CONFIRMATION",
+      "reviewStage": "INVALIDATED",
+      "blocks": true
+    },
+    {
+      "mode": "BEFORE_CONFIRMATION",
+      "reviewStage": "INVALIDATED",
+      "application": "APPLIED",
+      "blocks": false
+    },
+    {
+      "mode": "BEFORE_CONFIRMATION",
+      "reviewStage": "INVALIDATED",
+      "application": "HELD_REVIEW",
+      "blocks": true
+    },
+    {
+      "mode": "BEFORE_CONFIRMATION",
+      "reviewStage": "APPLICATION_HELD",
+      "application": "HELD_REVIEW",
+      "blocks": true
+    },
+    {
+      "mode": "DIAGNOSTIC_ONLY",
+      "reviewStage": "VALIDATING",
+      "blocks": false
+    },
+    {
+      "mode": "DIAGNOSTIC_ONLY",
+      "reviewStage": "AWAITING_REVIEW",
+      "blocks": false
+    }
   ],
-  "reviewStages": ["PREPARING_BASELINE", "VALIDATING", "AWAITING_REVIEW", "REVIEW_COMPLETED", "EXTRACTION_FAILED", "APPLICATION_HELD", "APPLIED", "HELD_INCOMPLETE", "INVALIDATED"],
+  "reviewStages": [
+    "PREPARING_BASELINE",
+    "VALIDATING",
+    "AWAITING_REVIEW",
+    "REVIEW_COMPLETED",
+    "EXTRACTION_FAILED",
+    "APPLICATION_HELD",
+    "APPLIED",
+    "HELD_INCOMPLETE",
+    "INVALIDATED"
+  ],
   "reviewStageCases": [
-    {"name": "기준 준비 중", "input": {"current": true, "status": "PREPARING_BASELINE", "baselineStatus": "PENDING", "execution": "NOT_STARTED", "reviewCompleted": false, "extraction": "NOT_STARTED", "application": null}, "expected": "PREPARING_BASELINE"},
-    {"name": "검사 대기", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "QUEUED", "reviewCompleted": false, "extraction": "NOT_STARTED", "application": null}, "expected": "VALIDATING"},
-    {"name": "항목 판단 중", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "COMPLETED", "reviewCompleted": false, "extraction": "NOT_STARTED", "application": null}, "expected": "AWAITING_REVIEW"},
-    {"name": "부분 검사 뒤 판단", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "PARTIAL", "reviewCompleted": false, "extraction": "NOT_STARTED", "application": null}, "expected": "AWAITING_REVIEW"},
-    {"name": "검토 종료 후 추출 중", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "COMPLETED", "reviewCompleted": true, "extraction": "RUNNING", "application": null}, "expected": "REVIEW_COMPLETED"},
-    {"name": "추출 실패", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "COMPLETED", "reviewCompleted": true, "extraction": "FAILED", "application": null}, "expected": "EXTRACTION_FAILED"},
-    {"name": "반영 보류", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "COMPLETED", "reviewCompleted": true, "extraction": "SUCCEEDED", "application": "HELD_REVIEW"}, "expected": "APPLICATION_HELD"},
-    {"name": "반영 완료", "input": {"current": true, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "COMPLETED", "reviewCompleted": true, "extraction": "SUCCEEDED", "application": "APPLIED"}, "expected": "APPLIED"},
-    {"name": "기준 준비 보류", "input": {"current": true, "status": "HELD_INCOMPLETE", "baselineStatus": "FAILED", "execution": "NOT_STARTED", "reviewCompleted": false, "extraction": "NOT_STARTED", "application": null}, "expected": "HELD_INCOMPLETE"},
-    {"name": "원고 교체로 무효", "input": {"current": true, "status": "INVALIDATED", "baselineStatus": "INVALIDATED", "execution": "CANCELED", "reviewCompleted": false, "extraction": "NOT_STARTED", "application": null}, "expected": "INVALIDATED"},
-    {"name": "재검수로 퇴역한 반영 report", "input": {"current": false, "status": "WAITING_FOR_ERROR_REVIEW", "baselineStatus": "READY", "execution": "COMPLETED", "reviewCompleted": true, "extraction": "SUCCEEDED", "application": "APPLIED"}, "expected": "INVALIDATED"}
+    {
+      "name": "기준 준비 중",
+      "input": {
+        "current": true,
+        "status": "PREPARING_BASELINE",
+        "baselineStatus": "PENDING",
+        "execution": "NOT_STARTED",
+        "reviewCompleted": false,
+        "extraction": "NOT_STARTED",
+        "application": null
+      },
+      "expected": "PREPARING_BASELINE"
+    },
+    {
+      "name": "검사 대기",
+      "input": {
+        "current": true,
+        "status": "WAITING_FOR_ERROR_REVIEW",
+        "baselineStatus": "READY",
+        "execution": "QUEUED",
+        "reviewCompleted": false,
+        "extraction": "NOT_STARTED",
+        "application": null
+      },
+      "expected": "VALIDATING"
+    },
+    {
+      "name": "항목 판단 중",
+      "input": {
+        "current": true,
+        "status": "WAITING_FOR_ERROR_REVIEW",
+        "baselineStatus": "READY",
+        "execution": "COMPLETED",
+        "reviewCompleted": false,
+        "extraction": "NOT_STARTED",
+        "application": null
+      },
+      "expected": "AWAITING_REVIEW"
+    },
+    {
+      "name": "부분 검사 뒤 판단",
+      "input": {
+        "current": true,
+        "status": "WAITING_FOR_ERROR_REVIEW",
+        "baselineStatus": "READY",
+        "execution": "PARTIAL",
+        "reviewCompleted": false,
+        "extraction": "NOT_STARTED",
+        "application": null
+      },
+      "expected": "AWAITING_REVIEW"
+    },
+    {
+      "name": "검토 종료 후 추출 중",
+      "input": {
+        "current": true,
+        "status": "WAITING_FOR_ERROR_REVIEW",
+        "baselineStatus": "READY",
+        "execution": "COMPLETED",
+        "reviewCompleted": true,
+        "extraction": "RUNNING",
+        "application": null
+      },
+      "expected": "REVIEW_COMPLETED"
+    },
+    {
+      "name": "추출 실패",
+      "input": {
+        "current": true,
+        "status": "WAITING_FOR_ERROR_REVIEW",
+        "baselineStatus": "READY",
+        "execution": "COMPLETED",
+        "reviewCompleted": true,
+        "extraction": "FAILED",
+        "application": null
+      },
+      "expected": "EXTRACTION_FAILED"
+    },
+    {
+      "name": "반영 보류",
+      "input": {
+        "current": true,
+        "status": "WAITING_FOR_ERROR_REVIEW",
+        "baselineStatus": "READY",
+        "execution": "COMPLETED",
+        "reviewCompleted": true,
+        "extraction": "SUCCEEDED",
+        "application": "HELD_REVIEW"
+      },
+      "expected": "APPLICATION_HELD"
+    },
+    {
+      "name": "반영 완료",
+      "input": {
+        "current": true,
+        "status": "WAITING_FOR_ERROR_REVIEW",
+        "baselineStatus": "READY",
+        "execution": "COMPLETED",
+        "reviewCompleted": true,
+        "extraction": "SUCCEEDED",
+        "application": "APPLIED"
+      },
+      "expected": "APPLIED"
+    },
+    {
+      "name": "기준 준비 보류",
+      "input": {
+        "current": true,
+        "status": "HELD_INCOMPLETE",
+        "baselineStatus": "FAILED",
+        "execution": "NOT_STARTED",
+        "reviewCompleted": false,
+        "extraction": "NOT_STARTED",
+        "application": null
+      },
+      "expected": "HELD_INCOMPLETE"
+    },
+    {
+      "name": "원고 교체로 무효",
+      "input": {
+        "current": true,
+        "status": "INVALIDATED",
+        "baselineStatus": "INVALIDATED",
+        "execution": "CANCELED",
+        "reviewCompleted": false,
+        "extraction": "NOT_STARTED",
+        "application": null
+      },
+      "expected": "INVALIDATED"
+    },
+    {
+      "name": "재검수로 퇴역한 반영 report",
+      "input": {
+        "current": false,
+        "status": "WAITING_FOR_ERROR_REVIEW",
+        "baselineStatus": "READY",
+        "execution": "COMPLETED",
+        "reviewCompleted": true,
+        "extraction": "SUCCEEDED",
+        "application": "APPLIED"
+      },
+      "expected": "INVALIDATED"
+    }
   ],
   "invariants": {
     "historyIsSummaryOnly": "history rows never contain quotes, evidence, payload or judgment lists",
@@ -374,11 +1056,17 @@
     "nextEpisodeBlockRule": "a work is blocked while an active (non-ARCHIVED) episode has a current BEFORE_CONFIRMATION report whose reviewStage is not APPLIED (INVALIDATED included) and whose whole-episode application receipt is not APPLIED; a report with an APPLIED receipt never blocks even after a later invalidation; DIAGNOSTIC_ONLY reports, retired (current=false) reports and reports of deleted episodes are not consulted",
     "nextEpisodeBlockWritesNothing": "a blocked episode upload (every upload type) writes no UploadBatch, UploadFile, Episode or stored object; detect, file replacement, setting books and title edits are not blocked",
     "findingTargetIsFrozen": "subject/settingName/settingKey/impact are copied once when a SETTING finding is saved, from the question state of that revision and the report's frozen baselineEntries; current character/world values are never read; TYPO findings keep them null",
-    "findingSubjectRule": "subject = first question subject_ref (else the BASELINE lookup entries), preferring a characters/worldSettings entry, then baseline order; id is null unless the entry identity is an actual character/world setting id; names are never used to link",
+    "findingSubjectRule": "subject = the frozen entry named by the first payload.basis_quotes item with a B ref that exists in baselineEntries and is a characters/worldSettings entry (판정 작성 제목 2026-11-03: the stored value the judge copied as conflicting, so the narrator or a subject merely mentioned in the question never wins over it); without such a quote (no quotes, only E quotes, older Worker) the earlier rule: first question subject_ref (else the BASELINE lookup entries), preferring a characters/worldSettings entry, then baseline order; the detail basis uses the same primary entry; id is null unless the entry identity is an actual character/world setting id; names are never used to link; findings saved before this rule keep the subject they were saved with (no backfill)",
     "findingSettingRule": "settingKey/settingName are set only when property_or_rule equals (NFC, lower case, whitespace ignored) exactly one frozen slot key/factKey/schema display name or world settingName/'scope/settingName' of that subject; findings saved before V102 keep them null",
     "findingFiltersAreSql": "impact and subjectType filter in SQL on the copied columns; they exclude TYPO findings and findings without a subject; /review counts ignore every list filter",
+    "findingReadableLabels": "오류 리포트 가독성(2026-11-02): topic is the question property_or_rule (null when it looks like an internal ref or for TYPO); targetEpisodeNo is the report episode; evidence[].label/episodeNo/sourceKind are computed from the frozen source manifest ('N화 · s~e자' with 1-based code points, '설정집 · 제목 · s~e자' with the setting book's original file name without extension), never raw R/T refs; usedByDecision marks the comparison chunks named by evidence_refs, basis_quotes or disagreements; highlights are basis quote ranges inside a chunk (chunk-relative code points); a citation row that only exists for a basis quote is omitted from evidence",
+    "findingBasisQuotes": "basisQuotes copy payload.basis_quotes in order: an E quote becomes kind EPISODE ('N화') or SETTING_BOOK ('설정집 · 제목') with sourceRef/start/end of the server-verified citation; a B quote becomes kind SETTING labeled '설정 · 대상 · 설정명' where 설정명 is the character schema display name of the one slot (factValue) or the world 'scope / name' path of the one propertiesJson leaf containing the quote, or '설정 · 대상' when no single setting contains it; findings published before this change have []",
     "basisIsCorrectionInput": "findingDetail.basis lists the linked characters/worldSettings entries of the question (subject_refs and BASELINE lookups) with entryRef/entryHash/targetId/currentVersion; slot fields are set only on the subject entry when settingKey is set",
     "appliedRecheckAction": "allowedActions has RECHECK for a current APPLIED report exactly when ValidationRecheckAdmission admits its episode (latest active, no source purge pending, no PENDING/RUNNING extraction/comparison job, current upload batch) — the same rule recheckValidation enforces",
-    "recheckBaselineHashIsFingerprint": "expectedBaselineHash is the staging baselineFingerprint (never baselineHash); required unless correctionReceiptId is sent or the fingerprint itself is null; missing → 409 VALIDATION_SOURCE_VERSION_CONFLICT context.reason=BASELINE_FINGERPRINT_REQUIRED, different → BASELINE_FINGERPRINT_MISMATCH; manuscript conflicts keep an empty context"
+    "findingBlocks": "오류 리포트 문맥 블록(2026-11-03): blocks stack TARGET (target_spans in source position order; a TYPO finding has its one span) → SETTING (B basis quotes in order, settingValue = the whole stored leaf when exactly one leaf contains the quote and it is ≤1000 code points) → EPISODE (E basis quotes by episodeNo then start) → SETTING_BOOK (per book in quote order, positions ascending inside a book); labels are 'N화 · s~e자' / '설정집 · 제목 · s~e자' (1-based code points of the range the block covers) or the basis quote label, never raw refs; only quoted evidence appears (unquoted search chunks never become blocks); a text block carries the INITIAL_LINES=2 non-blank lines above and below its range, read once per source per request from the frozen manifest and shown only when the full text SHA-256 equals the frozen contentHash (else context null with contextStatus SOURCE_CHANGED/SOURCE_PURGED/SOURCE_UNREADABLE/SOURCE_UNAVAILABLE)",
+    "findingSourceContext": "GET source-context reads only a frozen manifest source cited by that finding (target spans/typo span and basis quotes with positions; others → 400) for the work owner (others → 404 WORK_NOT_FOUND) through the same hash-checked full read as the worker READ_SOURCE; lines end at \\r\\n, \\n or \\r (terminators never in text), whitespace-only lines are neither counted nor returned, lines longer than 500 code points are split after the last whitespace; the window is the lines the anchor touches plus up to before/after (0..30) lines, alternating up/down while the text total stays ≤3000 code points; a zero-length anchor at a window's start (before only) or end (after only) returns only new lines; anchor length ≤1000; hasMoreBefore/hasMoreAfter are false only at the first/last line; a changed, purged or unreadable source is 409 VALIDATION_SOURCE_CONTEXT_UNAVAILABLE with context.reason; nothing is written",
+    "recheckBaselineHashIsFingerprint": "expectedBaselineHash is the staging baselineFingerprint (never baselineHash); required unless correctionReceiptId is sent or the fingerprint itself is null; missing → 409 VALIDATION_SOURCE_VERSION_CONFLICT context.reason=BASELINE_FINGERPRINT_REQUIRED, different → BASELINE_FINGERPRINT_MISMATCH; manuscript conflicts keep an empty context",
+    "findingHeadline": "판정 작성 제목(2026-11-03): headline (summary and detail) is the judge-written payload.headline, stripped, when it is a non-blank string of at most 80 code points without internal refs or pipeline words; null for decisions published without it (older Worker, Worker-cleared title), for internal-looking text and for TYPO; the server rejects a non-null headline that is not a string, is blank, exceeds 80 code points or belongs to a NO_CONFLICT decision (shared execution contract judgeFlow.headline); headline is a top-level field and is not copied into payload; screens fall back to subject/topic when it is null",
+    "findingBlockMerge": "판정 작성 제목(2026-11-03): quotes lists every highlighted sentence of a block in source order ({quote,start,end}; SETTING has start/end null); a single-quote block has one item equal to its quote/start/end. Quotes of the same source (TARGET spans, or E quotes of one episode/setting book) merge into one block when the source is READY and each next quote's initial window (2 lines up/down) overlaps or touches the window of the block so far (only whitespace between them, so no line lies between); the merged block has quote = its first quote, start = the smallest start, end = the largest end, the label of that covering range and context = the window around that range, so a line never appears in two blocks. Unreadable/changed sources never merge. SETTING quotes merge only when they name the same stored entry, the same label and the same whole settingValue (highlighted in value order). basisQuotes itself is never merged. GET source-context keeps working for merged blocks (zero-length anchors at the window edges)"
   }
 }

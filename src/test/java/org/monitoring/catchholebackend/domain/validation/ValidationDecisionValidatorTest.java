@@ -35,9 +35,17 @@ class ValidationDecisionValidatorTest {
         ((ArrayNode)state.path("lookup_obligations")).add(f.path("requests").path("revisions").path("changes").path(0).path("state").path("lookup_obligations").path(0));
         check=ValidationCheck.create(mock(ValidationReport.class),"Q1",json.createArrayNode(),state,journal.hash(state));invalid();
     }
-    @Test @DisplayName("계획의 조회 의무를 빈 실행 목록으로 지울 수 없다") void stateCannotDropPlannedObligations() {
-        ((ObjectNode)state.path("draft")).set("lookup_intents",f.path("requests").path("revisions").path("changes").path(0).path("state").path("lookup_obligations"));
-        assertThatThrownBy(()->validator.state(state,Set.of())).isInstanceOf(AppException.class);
+    @Test @DisplayName("grid v4 계획 초안에는 조회 계획(lookup_intents)이 없고 있으면 거절하며 의무는 기본 빈 목록이다") void draftsCarryNoLookupIntentsAndObligationsDefaultToEmpty() {
+        var withIntents=state.deepCopy();((ObjectNode)withIntents.path("draft")).set("lookup_intents",json.createArrayNode());
+        assertThatThrownBy(()->validator.state(withIntents,Set.of())).isInstanceOf(AppException.class);
+        var withoutObligations=state.deepCopy();withoutObligations.remove("lookup_obligations");
+        assertThat(validator.state(withoutObligations,Set.of()).path("lookup_obligations")).isEqualTo(json.createArrayNode());
+    }
+    @Test @DisplayName("원문 키워드·직접·인접 읽기 의도는 grid v4에서 거절한다") void rawTextReadIntentsAreRejected() {
+        for(String operation:List.of("KEYWORD","DIRECT","NEIGHBORS"))
+            assertThatThrownBy(()->validator.validateIntent(json.createObjectNode().put("ref","X").put("kind","COMPARISON_CONTEXT").put("operation",operation).put("purpose","합성").set("evidence_refs",json.createArrayNode()))).as(operation).isInstanceOf(AppException.class);
+        for(String operation:List.of("BASELINE","TARGET_CONTEXT","VECTOR"))
+            assertThatCode(()->validator.validateIntent(json.createObjectNode().put("ref","X").put("kind","COMPARISON_CONTEXT").put("operation",operation).put("purpose","합성").set("evidence_refs",json.createArrayNode()))).as(operation).doesNotThrowAnyException();
     }
     @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.CsvSource({"CONFLICT,DIRECT_CONTRADICTION","SUSPECTED_CONFLICT,CHANGE_NOT_FOUND"})
     @DisplayName("현재 회차를 E 참조로 포장해도 과거 설정 충돌의 근거가 되지 않는다")
@@ -51,16 +59,42 @@ class ValidationDecisionValidatorTest {
         conflictBundle("R1",outcome,basis);
         assertThatCode(()->validator.validate(prepared,check,outcome,body)).doesNotThrowAnyException();
     }
+    @Test @DisplayName("충돌 의심은 변화·예외 VECTOR 검색 영수증이 있어야 하고 다른 조회 영수증으로 대신할 수 없다")
+    void suspectedConflictNeedsAVectorChangeSearch() {
+        conflictBundle("R1","SUSPECTED_CONFLICT","CHANGE_NOT_FOUND");
+        ((ObjectNode)body.path("evidence_bundle").path("receipts").path(2).path("intent")).put("kind","COMPARISON_CONTEXT");
+        assertThatThrownBy(()->validator.validate(prepared,check,"SUSPECTED_CONFLICT",body)).isInstanceOf(AppException.class);
+        ((ObjectNode)body.path("evidence_bundle").path("receipts").path(2).path("intent")).put("kind","CHANGES_EXCEPTIONS").put("operation","KEYWORD");
+        assertThatThrownBy(()->validator.validate(prepared,check,"SUSPECTED_CONFLICT",body)).isInstanceOf(AppException.class);
+    }
     void conflictBundle(String source,String outcome,String basis) {
         var refs=Map.<String,JsonNode>of("T1",json.createObjectNode().put("sourceKind","EPISODE").put("episodeNo",101),"R1",json.createObjectNode().put("sourceKind","EPISODE").put("episodeNo",100));
         var c=prepared.context();prepared=new ValidationPublicationValidator.Prepared(new ValidationPublicationValidator.Context(c.jobId(),c.lease(),c.scope(),c.member(),c.work(),c.baselineHash(),c.targetHash(),c.configuration(),c.entries(),refs),prepared.branch(),prepared.grid(),prepared.sources(),0);
         var bundle=(ObjectNode)body.path("evidence_bundle");bundle.set("source_catalogue",mapper.toValidationSourceCatalogue(refs));
         ((ArrayNode)bundle.path("evidence")).addObject().put("ref","E1").put("source_ref",source).put("source_kind","EPISODE").put("start",0).put("end",2).put("quote","😀가");
         var receipt=((ArrayNode)bundle.path("receipts")).addObject().put("ref","L3").put("status","SUCCEEDED").put("limited",false);
-        receipt.set("intent",json.createObjectNode().put("ref","CHANGES-1").put("kind","CHANGES_EXCEPTIONS").put("operation","KEYWORD").put("purpose","합성 변경 조회").set("evidence_refs",json.createArrayNode().add("E1")));
+        receipt.set("intent",json.createObjectNode().put("ref","CHANGES-1").put("kind","CHANGES_EXCEPTIONS").put("operation","VECTOR").put("purpose","합성 변경 조회").put("query","합성 변경").set("evidence_refs",json.createArrayNode().add("E1")));
         receipt.set("evidence_refs",json.createArrayNode().add("E1"));
         for(var assessment:body.path("completion"))((ObjectNode)assessment).set("receipt_refs",json.createArrayNode().add("L1").add("L2").add("L3"));
         body.put("outcome",outcome).put("basis",basis).put("impact","CAUTION").put("impact_reason","합성 비교 차이");body.set("evidence_refs",json.createArrayNode().add("T1").add("E1"));
+    }
+    @Test @DisplayName("판정 작성 제목 벡터: 없거나 null이면 통과, 글은 공백 아닌 80 code point 이하, 문제없음은 제목을 둘 수 없다(공통 계약 headline)")
+    void headlineVectorsFollowTheSharedContract() throws Exception {
+        var flow=f.path("judgeFlow").path("headline");
+        assertThat(flow.path("maxCodePoints").asInt()).isEqualTo(ValidationDecisionValidator.MAX_HEADLINE_CODE_POINTS);
+        assertThat(flow.path("vectors").size()).isGreaterThanOrEqualTo(10);
+        for(var v:flow.path("vectors")) {
+            fixture();String outcome=v.path("outcome").asText(),name=v.path("name").asText();
+            switch(outcome) {
+                case "CONFLICT" -> conflictBundle("R1","CONFLICT","DIRECT_CONTRADICTION");
+                case "SUSPECTED_CONFLICT" -> conflictBundle("R1","SUSPECTED_CONFLICT","CHANGE_NOT_FOUND");
+                case "NEEDS_CONTEXT" -> body.put("outcome","NEEDS_CONTEXT").put("basis","AMBIGUOUS_MEANING").put("impact","REFERENCE").put("impact_reason","합성 확인 필요");
+                default -> assertThat(outcome).isEqualTo("NO_CONFLICT");
+            }
+            if(!v.path("omit").asBoolean())body.set("headline",v.path("headline"));else body.remove("headline");
+            if(v.path("valid").asBoolean())assertThatCode(()->validator.validate(prepared,check,outcome,body)).as(name).doesNotThrowAnyException();
+            else assertThatThrownBy(()->validator.validate(prepared,check,outcome,body)).as(name).isInstanceOf(AppException.class);
+        }
     }
     @Test @DisplayName("bundle settings는 질문 대상 항목의 entry_ref·subject_ref만으로 완료한다") void refsOnlySettingsAccepted() {
         subjectS1(row("B1","S1"),row("B3","S1"));assertThatCode(()->validator.validate(prepared,check,"NO_CONFLICT",body)).doesNotThrowAnyException();
@@ -88,4 +122,14 @@ class ValidationDecisionValidatorTest {
         var bundle=(ObjectNode)body.path("evidence_bundle");bundle.set("question",draft.deepCopy());bundle.set("settings",json.createArrayNode().addAll(List.of(rows)));
     }
     void invalid() {assertThatThrownBy(()->validator.validate(prepared,check,"NO_CONFLICT",body)).isInstanceOf(AppException.class);}
+    @Test @DisplayName("판정은 현재값만 받아 같은 주체의 worldHistory 항목은 bundle settings에 들어가지 않는다")
+    void worldHistoryEntriesAreNeverBundleSettings() {
+        var entries=f.path("subjectCatalogueVector").path("entries");
+        var c=prepared.context();prepared=new ValidationPublicationValidator.Prepared(new ValidationPublicationValidator.Context(c.jobId(),c.lease(),c.scope(),c.member(),c.work(),c.baselineHash(),c.targetHash(),c.configuration(),entries,c.sourceReferences()),prepared.branch(),prepared.grid(),prepared.sources(),prepared.entryCount());
+        var draft=(ObjectNode)state.path("draft");draft.set("subject_refs",json.createArrayNode().add("S2"));
+        check=ValidationCheck.create(mock(ValidationReport.class),"Q1",json.createArrayNode().add("PLANNER:TSEG1:local-1"),state,journal.hash(state));
+        var bundle=(ObjectNode)body.path("evidence_bundle");bundle.set("question",draft.deepCopy());
+        bundle.set("settings",json.createArrayNode().add(row("B2","S2")));assertThatCode(()->validator.validate(prepared,check,"NO_CONFLICT",body)).doesNotThrowAnyException();
+        bundle.set("settings",json.createArrayNode().add(row("B2","S2")).add(row("B4","S2")));invalid();
+    }
 }

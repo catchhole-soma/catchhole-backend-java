@@ -39,7 +39,8 @@ TYPO segment는 성공 저장 뒤 같은 payload 재전송이 receipt만 반환�
 | 경로 | 요청/응답 |
 | --- | --- |
 | `GET /findings?branch=&judgment=&outcome=&impact=&subjectType=&page=0&size=20` | `PageResponse<ValidationFindingSummaryResponse>`. 현재 항목만 생성 순서로 반환한다. page는 0부터, size는 1~100(범위 밖 400). `judgment=PENDING`은 행 없음도 포함한다. evidence 행·단계·bundle은 읽지 않는다. B2의 `impact`·`subjectType`과 행의 `subject`·`settingName`·`settingKey`는 아래 B2 절 |
-| `GET /findings/{findingId}` | `ValidationFindingDetailResponse`: 공개 판정 내용(`payload`), 저장 때 검증한 인용(`evidence`, 재검증 없음), 현재 `judgment`, `allowedJudgments`, `judgmentHistory`, SETTING의 `priorRevisions`(이전 revision의 outcome·당시 판단·check history `changeReason`), `stale`. B2의 `subject`·`settingName`·`settingKey`·`basis`(정정 연결) |
+| `GET /findings/{findingId}` | `ValidationFindingDetailResponse`: 공개 판정 내용(`payload`), 저장 때 검증한 인용(`evidence`, 재검증 없음), 현재 `judgment`, `allowedJudgments`, `judgmentHistory`, SETTING의 `priorRevisions`(이전 revision의 outcome·당시 판단·check history `changeReason`), `stale`. B2의 `subject`·`settingName`·`settingKey`·`basis`(정정 연결). 가독성(2026-11-02)의 `topic`·`targetEpisodeNo`·`basisQuotes`와 `evidence[]`의 `sourceKind`·`episodeNo`·`label`·`usedByDecision`·`highlights`(아래 "상세 화면 표기"). 문맥 블록(2026-11-03)의 `blocks[]`(아래 "문맥 블록과 앞뒤 줄"). 판정 작성 제목(2026-11-03)의 `headline`·`blocks[].quotes`(아래 "판정 작성 제목과 블록 병합") |
+| `GET /findings/{findingId}/source-context?sourceRef=&anchorStart=&anchorEnd=&before=0&after=0` | 문맥 블록(2026-11-03). `ValidationSourceContextResponse{sourceRef,start,end,totalCodePoints,hasMoreBefore,hasMoreAfter,lines[{start,end,text}]}`: 이 항목이 인용한 고정 원문의 줄 단위 창(아래 "문맥 블록과 앞뒤 줄"). 400(인용하지 않은 출처·원문 밖 위치·상한 초과), 409 `VALIDATION_SOURCE_CONTEXT_UNAVAILABLE`(`error.context.reason`) |
 | `PATCH /findings/{findingId}/judgment` | `ValidationJudgmentRequest{judgment, expectedJudgmentVersion, expectedCheckRevision}` → `ValidationFindingSummaryResponse` |
 | `GET /review` | `ValidationReviewSummaryResponse` (S2: `completion` 포함) |
 | `POST /review-completion` | S2. `ValidationReviewCompletionRequest{expectedReportVersion, idempotencyKey}` → `ValidationReviewCompletionResponse` |
@@ -492,7 +493,10 @@ CHECK: impact·subject_type은 SETTING에서만 세 값/두 값, 대상이 없�
 `ValidationResultServiceImpl.publishValidationUnit`이 SETTING finding을 저장하는 순간 **그 check revision의 질문 상태와 report의 고정 기준(`baselineEntries`)만** 읽어 한 번 기록한다. 현재 캐릭터·세계관 값은 읽지 않으며 이후 설정 변경으로 다시 계산하지 않는다(판정과 같은 고정 기준).
 
 1. 항목 참조: `B<n>`은 `baselineEntries` 순번, `S<n>`은 `ValidationDataMapper.toSubjectRefs`(모델 투영 `toValidationSettings`와 같은 identity 규칙: 같은 대상의 세계관 항목과 확정 이력은 같은 S-ref)다.
-2. 대표 대상: 질문 `draft.subject_refs`의 첫 참조, 없으면 BASELINE 조회 의무의 `evidence_refs` 항목. 같은 대상의 항목이 여럿이면 정정 가능한 domain(characters·worldSettings)을 먼저, 그다음 기준 순서. 항목 identity가 `character:<uuid>`/`world:<uuid>`가 아니면(임시 대상·대상 없는 이력) `subject.id`는 null이고 **이름으로 연결하지 않는다**(A5).
+2. 대표 대상(2026-11-03 판정 작성 제목에서 바꿈): 저장할 판정의 `basis_quotes` 중 저장 설정값 인용(`B<n>` 참조)이 있으면 **그 첫 인용이 가리키는 고정 기준 항목**(그 항목이 있고 정정 가능한 domain일 때)이다.
+   판정이 "이 값과 어긋난다"고 옮긴 값의 대상이므로 서술자나 질문에 이름만 나온 대상보다 우선한다(31화 시험: 질문 대상 첫 참조가 서술자 얀델이라 정수 등급 충돌이 `얀델`로 표시됐다). 그런 인용이 없으면(근거 문장 없음·이전 회차/설정집 원문 인용만·이전 Worker)
+   이전 규칙: 질문 `draft.subject_refs`의 첫 참조, 없으면 BASELINE 조회 의무의 `evidence_refs` 항목. 같은 대상의 항목이 여럿이면 정정 가능한 domain(characters·worldSettings)을 먼저, 그다음 기준 순서.
+   상세 `basis`의 slot/path 연결도 같은 대표 대상을 쓴다. 이미 저장된 finding은 저장 때 기록한 대상을 그대로 두며 다시 계산하지 않는다(backfill 없음). 항목 identity가 `character:<uuid>`/`world:<uuid>`가 아니면(임시 대상·대상 없는 이력) `subject.id`는 null이고 **이름으로 연결하지 않는다**(A5).
 3. 설정: 질문 `property_or_rule`이 대표 대상의 고정 slot/path 하나와 정확히(NFC·소문자·공백 무시) 같을 때만. 캐릭터는 slot key·factKey·schema 표시명, 세계관은 설정명·`범위/설정명`과 비교한다. 0개 또는 2개 이상이면 null이다. `property_or_rule`은 모델이 쓴 자유 문구이므로 근사·부분 일치로 slot을 추정하지 않는다.
 
 ### 공개 API
@@ -543,6 +547,101 @@ GH310_EXECUTION_POSTGRES_JDBC_URL=jdbc:postgresql://127.0.0.1:<disposable-port>/
 - `basis`는 실제 대상에 연결된 characters·worldSettings 항목만 담는다. 세계관 확정 이력(worldHistory) 항목과 임시 대상은 정정 요청이 받지 않으므로 제외한다. slot/path가 null인 basis로 정정할 때는 작가가 편집한 slot의 factType/factKey(세계관은 현재 경로)를 Front가 요청에 넣는다.
 - 정정은 고정 기준과 현재 설정이 그대로일 때만 성공한다(기존 `VALIDATION_CORRECTION_CONFLICT` 규칙). 기준 이후 설정이 바뀐 APPLIED report의 basis는 표시용이며 정정은 409다.
 - 무효 report의 `RECHECK` 안내는 기존대로 회차 조건을 조회하지 않는다. 최신 회차가 아니면 요청이 `VALIDATION_TARGET_INVALID`다.
+
+## 상세 화면 표기 (오류 리포트 가독성, 2026-11-02)
+
+31화 로컬 리포트에 대한 소유자 피드백(제목이 판정 사유 전문 132자, 비교 기준이 검색 조각 전체 850자, 화면의 `T1`·`E2`·`limited`, 판정이 쓰지 않은 조각 10개를 모두 나열, `비교 원문 13` 같은 내부 출처 표기)에 따라
+상세가 내부 참조 없이 읽히도록 서버가 표기를 만든다. 계산은 `processor.ValidationFindingLabels`가 report 고정 출처(baselineSeed)·고정 기준(baselineEntries)과
+저장된 판정 payload(evidence_bundle 포함)만으로 하며 현재 설정값은 읽지 않는다. 기존 필드는 그대로 두고 필드만 더했다.
+
+| 필드 | 값 |
+|---|---|
+| `topic` (목록 요약에도) | 질문의 `property_or_rule`(예: "골강도와 방어력의 관계"). 내부 참조(`T1`·`E2`·`B83`…)나 조회 용어가 보이면 null, 오탈자는 null |
+| `targetEpisodeNo` | 이번 원고(T1) 회차 번호 = report의 `sourceEpisodeNo` |
+| `basisQuotes[]` | 판정이 그대로 옮긴 근거 문장 0~3개(`payload.basis_quotes`, `docs/validation-execution-v1.md` "판정 근거 문장" 절). `kind`=SETTING·EPISODE·SETTING_BOOK, `label`=`설정 · 대상 · 설정명`(설정명을 하나로 정할 수 없으면 `설정 · 대상`)·`N화`·`설정집 · 제목`, 원문이면 `sourceRef`·`start`·`end`(서버가 hash 확인한 citation과 같은 위치)·`episodeNo`, 설정이면 `subjectName`·`settingName`. 이 변경 전에 게시된 판정은 빈 배열 |
+| `evidence[].label` | `N화 · 시작~끝자`(1부터 센 code point, 이번 원고는 `targetEpisodeNo`), 설정집은 `설정집 · 제목 · 시작~끝자`. `R#`·`T1`을 화면에 쓰지 않는다 |
+| `evidence[].sourceKind`·`episodeNo` | 고정 출처 manifest의 종류와 회차 번호(설정집은 null) |
+| `evidence[].usedByDecision` | 판정이 실제로 쓴 비교 조각: `payload.evidence_refs`·`basis_quotes[].ref`·`disagreements[].evidence_ref`의 E 참조를 bundle evidence 행 위치로 바꿔 같은 인용 행을 표시. 이번 원고와 검색만 하고 쓰지 않은 조각은 false |
+| `evidence[].highlights[]` | 그 조각 안에 있는 근거 문장 구간(조각 quote 기준 code point [start,end)) |
+
+- 설정명: 캐릭터는 그 quote를 담은 slot 하나의 기존 schema 표시명(`ValidationFindingTargets`와 같은 `CharacterSettingDisplayNameResolver`), 세계관은 propertiesJson 경로의 `범위 / 설정명`(최상위면 설정명)이다.
+- 설정집 제목은 업로드 파일의 원래 파일명에서 `.txt`·`.docx`·`.hwp`·`.hwpx` 확장자를 뗀 값이며 조회 시점에 읽는다(없으면 `설정집`만).
+- 근거 문장 자체의 citation 행(작은 E 인용)은 `basisQuotes`로만 보여 주고 `evidence`에서는 뺀다(같은 위치의 검색 조각이면 남긴다).
+- 고정 출처가 지워진(무효화된) report는 이전 회차 표기를 `비교 자료 · …`로 둔다.
+- 공개 `payload`는 이전과 같은 필드만 옮긴다(`basis_quotes`·`evidence_bundle`·receipt ref는 싣지 않는다). `completion.*.reason`은 감사 기록이며 작가 화면은 쓰지 않는다.
+- 공통 fixture `docs/contracts/validation-review-v1.json`의 `findingDetail`·`findingSummary*` 예시와 `invariants.findingReadableLabels`·`findingBasisQuotes`가 이 표기를 고정하고 Front가 같은 파일을 쓴다.
+- 검증: `ValidationFindingReadabilityIntegrationTest`(세계관·이전 회차 근거와 label·used·강조, 캐릭터 schema 표시명, basis_quotes 없는 이전 판정, 내부 참조 같은 topic, 잘못된 근거 문장 거절), `ValidationExecutionContractTest`의 공통 벡터.
+
+## 판정 작성 제목과 블록 병합 (2026-11-03)
+
+31화에 틀린 문장을 넣은 로컬 시험(정수 후보 두 몬스터를 `9등급`으로 바꿈, 저장 설정은 둘 다 8등급)에 대한 소유자 피드백: 제목 `얀델 기존 정수 후보와 몬스터 등급이 기존 기록과 달라요`는
+대상이 틀렸고(서술자) 어색하며, 설명은 질문의 첫 위치(문맥 문장)를 인용해 원인·결과가 보이지 않고, 이웃한 두 위치가 거의 같은 `이번 원고` 블록 두 개로 나왔다.
+
+| 필드 | 값 |
+|---|---|
+| `headline` (목록 요약·상세) | 판정이 쓴 제목 한 줄(`payload.headline`, 예: `데스핀드와 키메라 울프의 정수 등급이 기존 설정과 달라요`). 앞뒤 공백을 뗀 글이 비어 있지 않고 80 code point 이하이며 내부 참조·조회 용어가 없을 때만 준다. 이전 Worker 결과·Worker가 비운 제목·오탈자는 null이고 화면은 대상·확인 항목으로 제목을 만든다. `payload`에는 복사하지 않는다 |
+| `blocks[].quotes[]` | 블록에서 강조할 문장 전부 `{quote, start, end}`(원문 위치 순, SETTING은 위치 null). 인용 하나인 블록은 `quote`·`start`·`end`와 같은 한 항목 |
+
+- 게시 검증(`ValidationDecisionValidator`, 공통 계약 `execution.judgeFlow.headline.server`): `headline`이 없거나 null이면 통과, 값이 있으면 문자열·공백 아님·80 code point 이하여야 하고 NO_CONFLICT 판정은 제목을 둘 수 없다(그 밖은 `VALIDATION_RESULT_INVALID`). 게시 인용 검사에서는 일반 글이다.
+- 판정 사유(`payload.reason`)는 그대로이며 새 Worker는 원인 → 결과 두 문장(`기존 설정은 … 그런데 31화에서는 …`)으로 쓴다(`docs/validation-execution-v1.md` "판정 작성 제목").
+- 블록 병합(`ValidationFindingContexts.Reader.grouped`·`ValidationSourceWindow.touching`): 같은 출처의 원문 인용(질문 `target_spans`끼리, 같은 회차·같은 설정집의 근거 문장끼리)을 위치 순으로 놓고, 다음 인용의 처음 창(위아래 2줄)이 지금 블록의 창과 겹치거나
+  맞닿으면(두 창 사이 원문이 공백·줄바꿈뿐이라 그 사이에 보여 줄 줄이 없으면) 한 블록으로 합친다. 합친 블록은 `quote`=첫 인용, `start`=가장 작은 start, `end`=가장 큰 end, `label`=그 구간 위치, `context`=그 구간 둘레 창이라 같은 줄이 두 블록에 나오지 않는다.
+  원문을 읽지 못했거나(READY 아님) 위치가 원문 밖이면 합치지 않는다. 저장 설정값 블록은 같은 고정 기준 항목·같은 label·같은 값 전체(`settingValue`)를 가리킬 때만 합치고 값 안의 위치 순으로 강조한다. `basisQuotes[]` 목록은 합치지 않는다.
+- 더 보기는 합친 블록에도 같다(창 경계의 길이 0 anchor). 인용 하나가 아닌 블록의 `start~end`가 1,000자를 넘으면 그 구간을 anchor로 다시 읽는 요청은 400이므로 Front의 `다시 불러오기`는 처음 창이 없는(READY가 아닌) 블록에만 있고, 그런 블록은 합치지 않는다.
+- 대상 귀속: 위 "#314 B2 계산 규칙" 2번(첫 저장 설정값 근거 문장의 항목 우선).
+- 공통 fixture: `findingSummary*`·`findingDetail`의 `headline`, `findingDetail.blocks[].quotes`(이번 원고 두 위치를 합친 블록), `invariants.findingHeadline`·`findingBlockMerge`·`findingSubjectRule`.
+- 검증: `ValidationFindingReadabilityIntegrationTest`(제목 목록·상세·이전 결과 null·거절·내부 참조 숨김, 첫 설정값 근거의 대상·근거 없음/원문 근거만이면 이전 규칙), `ValidationFindingSourceContextIntegrationTest`(이웃 위치·같은 회차 근거 병합과 더 보기,
+  떨어진 위치 분리, 같은 설정값 두 문장, 읽기 실패 시 병합 없음), `ValidationSourceWindowTest`(맞닿음 판정), `ValidationDecisionValidatorTest`(공통 headline 벡터), `ValidationReviewContractTest`.
+
+## 문맥 블록과 앞뒤 줄 (오류 리포트 문맥 블록, 2026-11-03)
+
+로컬 31화 리포트의 두 번째 소유자 피드백: 오탈자 diff가 `− 31화 “좁혔더” / + 제안 “좁혔다”` 한 쌍뿐이라 문장이 어디서 나왔는지 모른다, `31화 전체 원문 보기` 대신 GitHub처럼 위아래로 조금씩 더 보고 싶다,
+설정 비교도 근거 문장 둘레를 보고 싶다, `근거로 쓴 원문`이 판정이 참고만 한 13·20·29화 조각을 모두 나열한다, `−`/`+` 표시가 수정 전후처럼 보여 헷갈린다.
+합의한 화면은 GitHub 파일 머리말 같은 블록을 위에서부터 쌓는 것이다: `이번 원고 · 31화 · 2201~2241자` → `기준 · 설정 · 정수 · 드랍률` → `근거 · 13화 · 7534~7562자`.
+판정이 그대로 옮긴 근거 문장(`basis_quotes`)만 블록이 되고, 검색만 하고 쓰지 않은 조각은 블록이 되지 않는다.
+
+### `blocks[]` (상세 응답, `processor.ValidationFindingLabels`)
+
+| 순서 | `kind` | `label` | 본문 |
+|---|---|---|---|
+| 1 | `TARGET` | `N화 · s~e자`(질문 `target_spans` 원고 위치 순, 이웃한 위치는 한 블록 — 아래 "판정 작성 제목과 블록 병합", 오탈자는 `span` 하나) | `quote`·`quotes` + `context`(앞뒤 2줄) |
+| 2 | `SETTING` | 근거 문장 label `설정 · 대상 · 설정명` | `quote` + `settingValue`(그 문장을 담은 저장값이 하나뿐이고 1,000자 이하일 때 값 전체). 앞뒤 줄 없음 |
+| 3 | `EPISODE` | `N화 · s~e자`(회차 오름차순, 같은 회차는 위치 순) | `quote` + `context` |
+| 4 | `SETTING_BOOK` | `설정집 · 제목 · s~e자`(설정집마다 근거 문장 순서, 같은 설정집 안은 위치 순) | `quote` + `context` |
+
+- `s~e`는 인용 문장 자체의 위치(합친 블록은 인용 전체를 덮는 구간, 1부터 센 code point)이며 더 보기로 창이 넓어져도 바뀌지 않는다. 머리말의 `이번 원고`·`기준`·`근거`는 Front가 `kind`로 붙인다.
+- `context`는 아래 창 규칙으로 인용 위아래 `ValidationSourceWindow.INITIAL_LINES`(2)줄을 담아 첫 화면에 추가 요청이 없다. `contextStatus`는 `READY`·`SOURCE_CHANGED`·`SOURCE_PURGED`·`SOURCE_UNREADABLE`·`SOURCE_UNAVAILABLE`(고정 출처 기록 없음)이고 READY가 아니면 `context`는 null이다. SETTING은 둘 다 null.
+- 근거 문장이 없는 판정(이전 Worker 결과 포함)은 TARGET 블록만 있다. `evidence[]`는 그대로 응답하지만 화면은 더 쓰지 않는다.
+
+### 원문 읽기 (`processor.ValidationSourceTexts`)
+
+Worker의 `READ_SOURCE`와 같은 코드다. 고정 manifest(`toSourceReferences`)의 출처 하나에 대해 현재 행의 key·hash·version·contentRevision·회차 번호·보관/파기 대기를 확인 →
+저장소 전문 GET 한 번 → 같은 확인 반복 → UTF-8 2,000,000 byte 상한 → 전문 SHA-256이 고정 `contentHash`와 같을 때만 쓴다. 다르면 보여 주지 않고 현재 원문으로 대신하지도 않는다.
+상세 한 번은 출처마다 한 번만 읽는다(이번 원고 + 근거 문장의 회차·설정집, 최대 4개). 범위 GET·별도 캐시는 없다. 조회는 아무것도 쓰지 않고 reportVersion을 올리지 않는다.
+
+### 창 규칙 (`processor.ValidationSourceWindow`)
+
+- 줄 끝은 `\r\n`·`\n`·`\r`이고 줄 글에는 줄 끝 문자가 없다. 공백만 있는 줄은 세지도 돌려주지도 않는다(웹소설 원고는 문단 사이에 빈 줄을 둬서, 빈 줄을 세면 위아래 2줄이 문단 1개가 된다. 로컬 1~31화 합성 측정: 전체 줄의 절반이 빈 줄, 글 줄 최대 108자).
+- 500자보다 긴 줄은 그 안쪽 마지막 공백 뒤(없으면 500자)에서 나눠 여러 줄로 센다. 한 응답 크기를 줄 수와 글자 수로 함께 묶기 위함이다.
+- 창 = anchor가 걸친 줄 + 위 `before`줄 + 아래 `after`줄. 위·아래를 한 줄씩 번갈아 더하다가 줄 글 합계가 3,000자를 넘기면 그 방향을 멈춘다(anchor 줄은 항상 넣는다).
+  `hasMoreBefore`/`hasMoreAfter`는 첫 줄/마지막 줄에 닿았을 때만 false다.
+- 길이 0인 anchor는 줄 사이 경계다. `위로 더 보기`는 `anchorStart=anchorEnd=지금 창의 start, before=5`, `아래로 더 보기`는 `anchorStart=anchorEnd=지금 창의 end, after=5`로 보내 새 줄만 받는다(겹침 없음).
+
+### `GET /findings/{findingId}/source-context`
+
+| 검사 | 결과 |
+|---|---|
+| 작품 소유자 아님 / report·finding 없음 | 404 `WORK_NOT_FOUND` / `VALIDATION_NOT_FOUND` / `VALIDATION_FINDING_NOT_FOUND` |
+| `sourceRef`가 이 항목이 인용한 출처(설정 `target_spans`·오탈자 `span`의 출처, 위치가 있는 근거 문장의 출처)가 아니거나 고정 manifest에 없음 | 400 `REQUEST_VALIDATION_FAILED` |
+| `before`·`after`가 0~30 밖, `anchorStart<0`, `anchorEnd<anchorStart`, anchor 길이 1,000자 초과, `anchorEnd`가 원문 길이 초과 | 400 `REQUEST_VALIDATION_FAILED` |
+| 고정 출처 기록 없음, 원문 변경·보관·파기 대기·읽기 실패 | 409 `VALIDATION_SOURCE_CONTEXT_UNAVAILABLE`, `error.context.reason`=위 상태 |
+
+같은 원고의 다른 위치는 반복 요청으로 끝까지 읽을 수 있다(작가 자신의 원고이며 예전 `전체 원문 보기`를 대신한다). 요청마다 저장소 전문 GET 한 번이고 별도 호출 횟수 제한은 두지 않았다(아래 결정 필요는 진행 기록).
+
+- 공통 fixture: `docs/contracts/validation-review-v1.json`의 `routes.getValidationFindingSourceContext`, `findingDetail.blocks`, `findingSourceContext`, `invariants.findingBlocks`·`findingSourceContext`.
+- 검증: `ValidationSourceWindowTest`(CRLF·LF·CR, 공백 줄, 긴 줄 나누기, 처음 창, 위·아래 경계 확장, 걸친 anchor·빈 줄 anchor, 3,000자 상한, code point, 잘못된 요청),
+  `ValidationFindingSourceContextIntegrationTest`(블록 순서·label·처음 2줄·출처당 GET 한 번, 오탈자 블록, 위·아래 더 보기와 끝 표시·무쓰기, 소유자·인용 출처·상한, hash 불일치·읽기 실패·보관),
+  `ValidationReviewContractTest`(fixture 왕복과 블록·줄 일관성), `EpisodeValidationOpenApiIntegrationTest`(operationId·4xx).
 
 ## 무효화·파기
 

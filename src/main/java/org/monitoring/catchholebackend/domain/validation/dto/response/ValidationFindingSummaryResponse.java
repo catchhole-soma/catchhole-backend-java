@@ -16,7 +16,11 @@ public record ValidationFindingSummaryResponse(UUID findingId, ValidationBranch 
         @Schema(description = "#314 B2. 질문 속성이 대상의 고정 설정 하나와 정확히 맞을 때의 표시명. 캐릭터는 schema 표시명, 세계관은 \"범위 / 설정명\" 또는 \"설정명\"입니다. 맞는 설정이 없거나 여럿이면, 그리고 오탈자·V102 이전 항목은 null입니다.", example = "나이", nullable = true)
         String settingName,
         @Schema(description = "#314 B2. settingName의 원래 키. 캐릭터 \"factType:factKey\", 세계관 저장 경로 JSON 배열 [\"범위\",\"설정명\"]·[null,\"설정명\"]입니다.", example = "AGE:age", nullable = true)
-        String settingKey) {
+        String settingKey,
+        @Schema(description = "오류 리포트 가독성. 이 질문이 확인한 항목(판정 질문의 property_or_rule). 상세의 topic과 같으며 내부 참조처럼 보이면 null, 오탈자는 null", example = "골강도와 방어력의 관계", nullable = true)
+        String topic,
+        @Schema(description = "판정 작성 제목(2026-11-03). 상세의 headline과 같습니다. 이전 Worker 결과·제목을 쓰지 않은 판정·내부 참조처럼 보이는 값과 오탈자는 null입니다.", example = "합성 인물의 왼손 상태가 기존 설정과 달라요", nullable = true)
+        String headline) {
     @Schema(name = "ValidationFindingJudgment", description = "작가 판단. 저장한 적 없으면 PENDING/version 0")
     public record Judgment(ValidationJudgmentValue value, long version, LocalDateTime decidedAt) {}
     @Schema(name = "ValidationFindingSummary", description = "목록 표시용 요약. impact는 설정 항목의 SEVERE/CAUTION/REFERENCE, replacement는 오탈자 제안")

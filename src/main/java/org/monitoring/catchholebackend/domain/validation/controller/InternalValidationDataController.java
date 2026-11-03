@@ -20,7 +20,7 @@ public class InternalValidationDataController {
     private final ValidationDataMapper mapper;
 
     @PostMapping
-    @Operation(summary = "고정 검수 기준과 원문 읽기", description = "내부 API key로 인증한 서버가 회원·작품·report와 예상 fingerprint를 고정합니다. 전용 Job이 있으면 해당 Job ID와 실제 claim lease를 읽기 전후 확인합니다. 추출·결과·lease를 이 경로에서 생성하지 않습니다.")
+    @Operation(summary = "고정 검수 기준과 원문 읽기", description = "내부 API key로 인증한 서버가 회원·작품·report와 예상 fingerprint를 고정합니다. 전용 Job이 있으면 해당 Job ID와 실제 claim lease를 읽기 전후 확인합니다. operation은 INPUT(고정 출처 목록), SUBJECTS(주체 이름 목록, 한 번에 전체), SETTINGS(subjectRefs 최대 100개 주체의 현재값 행, 세계관 이력 제외), READ_SOURCE(원문 전체·범위), VALIDATE(출처 현재성 확인), ENTRIES(이전 계약 호환용 전체 항목 페이지)입니다. 추출·결과·lease를 이 경로에서 생성하지 않습니다.")
     public CommonResponse<Map<String, Object>> readValidationData(@RequestHeader("X-Validation-Member-Id") Long memberId,
             @PathVariable UUID workId, @PathVariable UUID reportId,
             @RequestHeader(value="X-Validation-Job-Id",required=false) UUID jobId,

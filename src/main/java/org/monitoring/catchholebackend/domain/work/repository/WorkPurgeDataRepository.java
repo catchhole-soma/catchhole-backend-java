@@ -70,6 +70,12 @@ public class WorkPurgeDataRepository {
                 (select episode_id from retrieval_sources where work_id = ?)
                 """, workId);
         deletedCount += update("delete from retrieval_sources where work_id = ?", workId);
+        // 설정집 RAG 색인(V114)은 설정집 revision보다 먼저 지운다.
+        deletedCount += update("""
+                delete from retrieval_setting_book_chunks where revision_id in
+                (select revision_id from retrieval_setting_book_sources where work_id = ?)
+                """, workId);
+        deletedCount += update("delete from retrieval_setting_book_sources where work_id = ?", workId);
         deletedCount += update("delete from chat_runs where work_id = ?", workId);
         deletedCount += update("delete from chat_questions where work_id = ?", workId);
         deletedCount += update("delete from chat_sessions where work_id = ?", workId);

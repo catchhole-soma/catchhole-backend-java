@@ -16,6 +16,7 @@ import org.monitoring.catchholebackend.domain.validation.dto.request.ValidationC
 import org.monitoring.catchholebackend.domain.validation.dto.request.ValidationJudgmentRequest;
 import org.monitoring.catchholebackend.domain.validation.dto.response.ValidationFindingDetailResponse;
 import org.monitoring.catchholebackend.domain.validation.dto.response.ValidationFindingSummaryResponse;
+import org.monitoring.catchholebackend.domain.validation.dto.response.ValidationSourceContextResponse;
 import org.monitoring.catchholebackend.domain.validation.dto.response.ValidationReviewSummaryResponse;
 import org.monitoring.catchholebackend.domain.validation.dto.response.ValidationCorrectionReceipt;
 import org.monitoring.catchholebackend.domain.validation.dto.response.ValidationStagingResponse;
@@ -154,6 +155,25 @@ public class EpisodeValidationController {
             @ApiResponse(responseCode="404", description="작품 소유권·검수 요청·발견 항목 없음")})
     public CommonResponse<ValidationFindingDetailResponse> finding(@AuthenticationPrincipal MemberPrincipal member,@PathVariable UUID workId,@PathVariable UUID reportId,@PathVariable UUID findingId) {
         return CommonResponse.success(reviews.getValidationFinding(member.memberId(),workId,reportId,findingId));
+    }
+
+    @GetMapping("/{reportId}/findings/{findingId}/source-context")
+    @Operation(operationId="getValidationFindingSourceContext", summary="발견 항목 근거 원문의 앞뒤 줄 더 보기",
+            description="오류 리포트 문맥 블록(2026-11-03). 상세 blocks[]의 원문 블록(sourceRef)이 가리키는 검사 당시 고정 원문에서 anchor [anchorStart,anchorEnd)가 걸친 줄과 그 위 before줄·아래 after줄을 반환합니다. "
+                    + "이번 원고와 이 항목의 근거 문장이 인용한 이전 회차·설정집만 읽을 수 있고, 현재 원문이 고정 hash와 다르면 보여 주지 않습니다. 공백만 있는 줄은 세지 않고 500자보다 긴 줄은 나눠 셉니다. "
+                    + "위로 더 보기는 anchorStart=anchorEnd=지금 창의 start, before만 주면 그 위의 새 줄만, 아래로 더 보기는 anchorStart=anchorEnd=지금 창의 end, after만 주면 그 아래의 새 줄만 돌려줍니다. "
+                    + "before·after는 0~30, anchor 길이는 1,000자 이하, 응답 줄 글 합계는 3,000자 이하입니다(넘치면 그 방향을 멈추고 hasMore로 알립니다). 조회는 아무것도 저장하지 않습니다.")
+    @ApiResponses({@ApiResponse(responseCode="200", description="조회 성공"),
+            @ApiResponse(responseCode="400", description="이 항목이 인용하지 않은 출처, 원문 밖 anchor, 줄 수·anchor 길이 상한 초과"),
+            @ApiResponse(responseCode="404", description="작품 소유권·검수 요청·발견 항목 없음"),
+            @ApiResponse(responseCode="409", description="고정 원문을 읽을 수 없음(VALIDATION_SOURCE_CONTEXT_UNAVAILABLE, context.reason=SOURCE_CHANGED·SOURCE_PURGED·SOURCE_UNREADABLE·SOURCE_UNAVAILABLE)")})
+    public CommonResponse<ValidationSourceContextResponse> findingSourceContext(@AuthenticationPrincipal MemberPrincipal member,@PathVariable UUID workId,@PathVariable UUID reportId,@PathVariable UUID findingId,
+            @Parameter(in=ParameterIn.QUERY,name="sourceRef",description="상세 blocks[].sourceRef 그대로(화면 표시용 아님)",required=true) @RequestParam String sourceRef,
+            @Parameter(in=ParameterIn.QUERY,name="anchorStart",description="기준 위치 시작(원문 전체 기준 code point, 0부터)",required=true) @RequestParam int anchorStart,
+            @Parameter(in=ParameterIn.QUERY,name="anchorEnd",description="기준 위치 끝(제외). 시작과 같으면 줄 사이 경계",required=true) @RequestParam int anchorEnd,
+            @Parameter(in=ParameterIn.QUERY,name="before",description="위로 더 읽을 줄 수(0~30)") @RequestParam(defaultValue="0") int before,
+            @Parameter(in=ParameterIn.QUERY,name="after",description="아래로 더 읽을 줄 수(0~30)") @RequestParam(defaultValue="0") int after) {
+        return CommonResponse.success(reviews.getValidationFindingSourceContext(member.memberId(),workId,reportId,findingId,sourceRef,anchorStart,anchorEnd,before,after));
     }
 
     @PatchMapping("/{reportId}/findings/{findingId}/judgment")

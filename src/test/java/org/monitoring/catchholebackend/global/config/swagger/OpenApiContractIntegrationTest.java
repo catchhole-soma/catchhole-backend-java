@@ -47,6 +47,17 @@ class OpenApiContractIntegrationTest {
     }
 
     @Test
+    @DisplayName("Jackson 2·3 JsonNode 필드는 모두 같은 자유 JSON schema로 문서화되어 생성 SDK에서 unknown으로 남는다")
+    void jsonNodeSchemaStaysFreeJson() throws Exception {
+        var result = mockMvc.perform(get("/v3/api-docs")).andExpect(status().isOk()).andReturn();
+        var schemas = new com.fasterxml.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString())
+                .path("components").path("schemas");
+        // Jackson 3 JsonNode를 bean으로 읽으면 nodeType·textual 같은 getter가 속성으로 새어 기존 자유 JSON 필드의 타입이 바뀐다.
+        org.assertj.core.api.Assertions.assertThat(schemas.path("JsonNode").has("properties")).isFalse();
+        org.assertj.core.api.Assertions.assertThat(schemas.path("WorkerAnalysisJobFailRequest").path("properties").path("failureDiagnostics").toString()).contains("JsonNode");
+    }
+
+    @Test
     @DisplayName("캐릭터 후보 전체 확인 필요 수는 기존 연결 필요 수와 함께 필수 int64로 문서화한다")
     void characterCandidateAttentionCountIsRequiredAndPreservesLegacyCount() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))

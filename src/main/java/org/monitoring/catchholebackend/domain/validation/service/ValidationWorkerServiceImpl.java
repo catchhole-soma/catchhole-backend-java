@@ -49,14 +49,8 @@ public class ValidationWorkerServiceImpl implements ValidationWorkerService {
         var input=JsonNodeFactory.instance.objectNode().put("contractVersion",1).put("reportId",r.getId().toString()).put("reportRevision",r.getRevision())
                 .put("baselineRevision",r.getBaselineRevision()).put("targetRevision",r.getSourceContentRevision()).put("baselineHash",r.getBaselineHash())
                 .put("targetHash",r.getSourceContentHash()).put("manifestHash",manifest);
-        var configuration=JsonNodeFactory.instance.objectNode().put("leaseMillis",properties.leaseDuration().toMillis()).put("maxLeaseRecoveries",properties.maxLeaseRecoveries());
-        var budgets=configuration.putObject("budgets");budgets.set("setting",mapper.toTree(properties.setting()));budgets.set("typo",mapper.toTree(properties.typo()));budgets.set("roles",mapper.toTree(properties.roles()));
-        configuration.put("budgetRevision",1).putArray("budgetHistory");
-        var models=configuration.putObject("models");for(var role:properties.roles().keySet()) {
-            var model=models.putObject(role.name()).put("model",role==ValidationRole.QUERY_EMBEDDING?properties.queryEmbeddingModel():"gpt-6.1-terra");
-            if(role.reasoningEffort()!=null)model.put("reasoningEffort",role.reasoningEffort());
-            else model.put("version",retrieval.retrievalEmbeddingVersion()).put("dimensions",1536);
-        }
+        // #349 grid v4: configuration v2 (role models/efforts/output caps) is written only by ValidationExecutionConfiguration.
+        var configuration=ValidationExecutionConfiguration.build(properties,retrieval);
         var job=jobs.save(ValidationJob.queue(r,journal.hash(input),manifest,configuration));r.attachValidationJob(job);
     }
     @Override @Transactional public Map<String,Object> claimValidationJob(Claim c) {
@@ -103,12 +97,15 @@ public class ValidationWorkerServiceImpl implements ValidationWorkerService {
         else {
             j=jobs.findForUpdate(j.getId()).orElseThrow();em.refresh(j);
             if(j.getStatus()!=ValidationExecutionStatus.PARTIAL&&j.getStatus()!=ValidationExecutionStatus.FAILED)throw error(VALIDATION_PUBLICATION_CONFLICT);
+            // #349 grid v4: a legacy configuration (no configurationVersion 2) is a pre-v4 run; its SETTING copies cannot be resumed.
+            boolean legacy=!ValidationExecutionConfiguration.isCurrent(j.getConfiguration());
             budgetPolicy.refreshForRetry(j);
-            // GH349: 이전 빌더의 SETTING grid는 현재 grid와 base가 달라 모든 SETTING 게시가 충돌한다. SETTING 분기 사본(finding·판단 포함)을
+            // GH349: 이전 빌더의 SETTING grid(v4가 아님)나 legacy 설정은 현재 grid와 맞지 않아 모든 SETTING 게시가 충돌한다. SETTING 분기 사본(finding·판단 포함)을
             // 버리고 새 grid로 다시 실행한다. report version은 아래 retry 전이에서 한 번 올린다.
             var stored=j.getRequiredGrid()==null?null:j.getRequiredGrid().get("SETTING");
-            if(stored!=null&&!ValidationPublicationValidator.currentSettingGrid(stored)) {results.discardSettingBranch(r.getId());j.discardSettingGrid();em.flush();}
-            usage.ensureValidationRetryCapacity(j);usage.releaseReservedValidationUsage(j,AiTokenUsageOutcome.USAGE_UNAVAILABLE);j.retry();r.advanceVersion();
+            if(stored!=null&&!ValidationPublicationValidator.currentSettingGrid(stored)||legacy) {results.discardSettingBranch(r.getId());j.discardSettingGrid();em.flush();}
+            // 역할별 cap은 실행 한 번 기준이라(run_start_generation) 새 실행은 언제나 처음부터 센다. 이전 실행의 소진으로 retry를 막지 않는다.
+            usage.releaseReservedValidationUsage(j,AiTokenUsageOutcome.USAGE_UNAVAILABLE);j.retry();r.advanceVersion();
         }
         var response=staging(r);var key=ValidationRequestKey.create(owner,c.idempotencyKey(),r,"RETRY",hash);key.recordRetryResponse(mapper.toTree(response));keys.save(key);em.flush();return response;
     }
