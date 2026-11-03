@@ -1,0 +1,491 @@
+{
+  "date": "2026-11-03",
+  "baseline_commit": "b6dc189",
+  "candidate": "GH365 working tree; same test and heap init files",
+  "environment": {
+    "java": "OpenJDK 21.0.11 Microsoft",
+    "postgres": "16.14",
+    "docker": "29.6.2",
+    "dockerMemoryBytes": 8320815104,
+    "jvmXmsMiB": 256,
+    "jvmXmxMiB": 768
+  },
+  "harness_sha256": {
+    "src/test/java/org/monitoring/catchholebackend/domain/worldsetting/service/WorldComparisonMemoryPostgresIntegrationTest.java": "751638dac8761612a8fc17b557caaef56b17917da0d3d6d8b5b68cea3c4201b9",
+    "src/test/java/org/monitoring/catchholebackend/support/JdbcResultMetrics.java": "0ee8162ef1ba68f75290b90411ebbaabd8b321e146dab28164126bc9db762f24",
+    "scripts/load-tests/comparison-memory/heap.init.gradle": "1e6de9b52343b97f3b25862ebc085099baa596ee0e0792ea107bb70181569faf"
+  },
+  "results": [
+    {
+      "directory": "baseline-legacy-final",
+      "exit_code": "0",
+      "fixture_count": 3,
+      "successful_claims": 9,
+      "parity_samples": 3,
+      "input_jsonb_text_bytes": [
+        1496423,
+        1496423,
+        1496423
+      ],
+      "journal_jsonb_text_bytes": [
+        5723311,
+        5723311,
+        5723311
+      ],
+      "first_claim_elapsed_ms_median": 2597.99,
+      "first_claim_sampled_peak_heap_mib": [
+        759.0,
+        748.98,
+        748.84
+      ],
+      "first_claim_allocated_mib": [
+        1084.59,
+        1060.52,
+        1059.25
+      ],
+      "first_claim_gc_ms": [
+        23,
+        21,
+        15
+      ],
+      "first_claim_candidate_rows_selecting_job_json": [
+        120,
+        120,
+        120
+      ],
+      "first_claim_logical_job_json_mib": [
+        826.23,
+        826.23,
+        826.23
+      ],
+      "append_elapsed_ms_median": 146.56,
+      "append_allocated_mib": [
+        551.5,
+        551.42,
+        551.39
+      ],
+      "append_gc_ms": [
+        13,
+        11,
+        7
+      ],
+      "append_process_cpu_ms": {
+        "median": 406.62,
+        "min": 311.33,
+        "max": 529.12
+      },
+      "claim_steps": {
+        "1": {
+          "pending_candidates": 60,
+          "samples": 3,
+          "elapsed_ms": {
+            "median": 2597.99,
+            "min": 2559.47,
+            "max": 2834.65
+          },
+          "sampled_peak_heap_mib": {
+            "median": 748.98,
+            "min": 748.84,
+            "max": 759.0
+          },
+          "allocated_mib": {
+            "median": 1060.52,
+            "min": 1059.25,
+            "max": 1084.59
+          },
+          "gc_ms": {
+            "median": 21.0,
+            "min": 15.0,
+            "max": 23.0
+          },
+          "process_cpu_ms": {
+            "median": 894.61,
+            "min": 889.0,
+            "max": 1561.83
+          }
+        },
+        "2": {
+          "pending_candidates": 40,
+          "samples": 3,
+          "elapsed_ms": {
+            "median": 1829.26,
+            "min": 1819.13,
+            "max": 1837.29
+          },
+          "sampled_peak_heap_mib": {
+            "median": 760.97,
+            "min": 755.43,
+            "max": 761.0
+          },
+          "allocated_mib": {
+            "median": 783.0,
+            "min": 782.96,
+            "max": 783.15
+          },
+          "gc_ms": {
+            "median": 76.0,
+            "min": 14.0,
+            "max": 100.0
+          },
+          "process_cpu_ms": {
+            "median": 1146.02,
+            "min": 703.69,
+            "max": 1313.26
+          }
+        },
+        "3": {
+          "pending_candidates": 20,
+          "samples": 3,
+          "elapsed_ms": {
+            "median": 1020.4,
+            "min": 989.24,
+            "max": 1024.77
+          },
+          "sampled_peak_heap_mib": {
+            "median": 751.47,
+            "min": 748.04,
+            "max": 761.42
+          },
+          "allocated_mib": {
+            "median": 506.77,
+            "min": 506.57,
+            "max": 506.77
+          },
+          "gc_ms": {
+            "median": 79.0,
+            "min": 9.0,
+            "max": 80.0
+          },
+          "process_cpu_ms": {
+            "median": 991.62,
+            "min": 506.91,
+            "max": 1021.89
+          }
+        }
+      },
+      "response_hashes": [
+        "c78eee7d45e66ad8e78554f99d075da32fe549f2e6baf2771acedfcff5881ae6"
+      ],
+      "history_evidence_hashes": [
+        "e93d791a1a6154a777871f171bf8bc70be5714ce5a83019dc26909811983fffe"
+      ]
+    },
+    {
+      "directory": "candidate-legacy",
+      "exit_code": "0",
+      "fixture_count": 3,
+      "successful_claims": 9,
+      "parity_samples": 3,
+      "input_jsonb_text_bytes": [
+        1496423,
+        1496423,
+        1496423
+      ],
+      "journal_jsonb_text_bytes": [
+        5723311,
+        5723311,
+        5723311
+      ],
+      "first_claim_elapsed_ms_median": 170.08,
+      "first_claim_sampled_peak_heap_mib": [
+        407.25,
+        397.86,
+        395.58
+      ],
+      "first_claim_allocated_mib": [
+        257.46,
+        233.39,
+        232.25
+      ],
+      "first_claim_gc_ms": [
+        5,
+        3,
+        3
+      ],
+      "first_claim_candidate_rows_selecting_job_json": [
+        0,
+        0,
+        0
+      ],
+      "first_claim_logical_job_json_mib": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "append_elapsed_ms_median": 149.13,
+      "append_allocated_mib": [
+        551.51,
+        551.43,
+        551.52
+      ],
+      "append_gc_ms": [
+        11,
+        10,
+        11
+      ],
+      "append_process_cpu_ms": {
+        "median": 507.08,
+        "min": 364.32,
+        "max": 555.43
+      },
+      "claim_steps": {
+        "1": {
+          "pending_candidates": 60,
+          "samples": 3,
+          "elapsed_ms": {
+            "median": 170.08,
+            "min": 153.56,
+            "max": 373.94
+          },
+          "sampled_peak_heap_mib": {
+            "median": 397.86,
+            "min": 395.58,
+            "max": 407.25
+          },
+          "allocated_mib": {
+            "median": 233.39,
+            "min": 232.25,
+            "max": 257.46
+          },
+          "gc_ms": {
+            "median": 3.0,
+            "min": 3.0,
+            "max": 5.0
+          },
+          "process_cpu_ms": {
+            "median": 321.17,
+            "min": 286.38,
+            "max": 851.03
+          }
+        },
+        "2": {
+          "pending_candidates": 40,
+          "samples": 3,
+          "elapsed_ms": {
+            "median": 159.64,
+            "min": 158.9,
+            "max": 191.47
+          },
+          "sampled_peak_heap_mib": {
+            "median": 446.25,
+            "min": 425.86,
+            "max": 473.58
+          },
+          "allocated_mib": {
+            "median": 231.43,
+            "min": 231.33,
+            "max": 231.75
+          },
+          "gc_ms": {
+            "median": 4.0,
+            "min": 1.0,
+            "max": 4.0
+          },
+          "process_cpu_ms": {
+            "median": 199.45,
+            "min": 148.62,
+            "max": 308.85
+          }
+        },
+        "3": {
+          "pending_candidates": 20,
+          "samples": 3,
+          "elapsed_ms": {
+            "median": 166.09,
+            "min": 165.49,
+            "max": 180.82
+          },
+          "sampled_peak_heap_mib": {
+            "median": 472.18,
+            "min": 453.71,
+            "max": 475.11
+          },
+          "allocated_mib": {
+            "median": 231.02,
+            "min": 230.81,
+            "max": 231.04
+          },
+          "gc_ms": {
+            "median": 9.0,
+            "min": 6.0,
+            "max": 10.0
+          },
+          "process_cpu_ms": {
+            "median": 321.27,
+            "min": 319.7,
+            "max": 417.51
+          }
+        }
+      },
+      "response_hashes": [
+        "c78eee7d45e66ad8e78554f99d075da32fe549f2e6baf2771acedfcff5881ae6"
+      ],
+      "history_evidence_hashes": [
+        "e93d791a1a6154a777871f171bf8bc70be5714ce5a83019dc26909811983fffe"
+      ]
+    },
+    {
+      "directory": "candidate-compact",
+      "exit_code": "0",
+      "fixture_count": 3,
+      "successful_claims": 9,
+      "parity_samples": 3,
+      "input_jsonb_text_bytes": [
+        1496423,
+        1496423,
+        1496423
+      ],
+      "journal_jsonb_text_bytes": [
+        43273,
+        43273,
+        43273
+      ],
+      "first_claim_elapsed_ms_median": 73.63,
+      "first_claim_sampled_peak_heap_mib": [
+        303.36,
+        291.94,
+        289.43
+      ],
+      "first_claim_allocated_mib": [
+        153.69,
+        132.25,
+        131.87
+      ],
+      "first_claim_gc_ms": [
+        3,
+        4,
+        3
+      ],
+      "first_claim_candidate_rows_selecting_job_json": [
+        0,
+        0,
+        0
+      ],
+      "first_claim_logical_job_json_mib": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "append_elapsed_ms_median": 32.74,
+      "append_allocated_mib": [
+        135.05,
+        134.87,
+        134.84
+      ],
+      "append_gc_ms": [
+        5,
+        2,
+        0
+      ],
+      "append_process_cpu_ms": {
+        "median": 61.53,
+        "min": 29.35,
+        "max": 116.11
+      },
+      "claim_steps": {
+        "1": {
+          "pending_candidates": 60,
+          "samples": 3,
+          "elapsed_ms": {
+            "median": 73.63,
+            "min": 72.24,
+            "max": 265.65
+          },
+          "sampled_peak_heap_mib": {
+            "median": 291.94,
+            "min": 289.43,
+            "max": 303.36
+          },
+          "allocated_mib": {
+            "median": 132.25,
+            "min": 131.87,
+            "max": 153.69
+          },
+          "gc_ms": {
+            "median": 3.0,
+            "min": 3.0,
+            "max": 4.0
+          },
+          "process_cpu_ms": {
+            "median": 272.49,
+            "min": 243.05,
+            "max": 700.18
+          }
+        },
+        "2": {
+          "pending_candidates": 40,
+          "samples": 3,
+          "elapsed_ms": {
+            "median": 59.17,
+            "min": 56.73,
+            "max": 111.08
+          },
+          "sampled_peak_heap_mib": {
+            "median": 439.94,
+            "min": 436.43,
+            "max": 452.36
+          },
+          "allocated_mib": {
+            "median": 131.02,
+            "min": 130.92,
+            "max": 131.46
+          },
+          "gc_ms": {
+            "median": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "process_cpu_ms": {
+            "median": 93.93,
+            "min": 82.29,
+            "max": 207.02
+          }
+        },
+        "3": {
+          "pending_candidates": 20,
+          "samples": 3,
+          "elapsed_ms": {
+            "median": 60.59,
+            "min": 60.35,
+            "max": 69.21
+          },
+          "sampled_peak_heap_mib": {
+            "median": 460.43,
+            "min": 455.36,
+            "max": 460.94
+          },
+          "allocated_mib": {
+            "median": 130.54,
+            "min": 130.36,
+            "max": 130.63
+          },
+          "gc_ms": {
+            "median": 2.0,
+            "min": 2.0,
+            "max": 2.0
+          },
+          "process_cpu_ms": {
+            "median": 82.7,
+            "min": 72.38,
+            "max": 134.04
+          }
+        }
+      },
+      "response_hashes": [
+        "c78eee7d45e66ad8e78554f99d075da32fe549f2e6baf2771acedfcff5881ae6"
+      ],
+      "history_evidence_hashes": [
+        "e93d791a1a6154a777871f171bf8bc70be5714ce5a83019dc26909811983fffe"
+      ]
+    }
+  ],
+  "limitations": [
+    "Synthetic localhost execution; production data and concurrent workload not replayed.",
+    "No OOM observed in the synthetic baseline.",
+    "Heap is sampled every 5ms, not RSS or an absolute peak.",
+    "Logical repeated JSON bytes are not network bytes or LLM input.",
+    "Three claims cover 60 unique PROCESSING candidates; no LLM call or analysis completion.",
+    "Each claim stage has three observations; stages with different pending counts are not pooled.",
+    "Candidate-legacy JUnit XML was overwritten before discovery of Gradle filename hashing; success remains recorded in Gradle log, exit code and nine claim artifacts. Runner now preserves hashed JUnit filename."
+  ]
+}

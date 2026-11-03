@@ -1,0 +1,2223 @@
+{
+  "formatVersion": 1,
+  "description": "Observed 27 localhost HTTP claims. Profile row counts are JDBC ResultSet.next() counts; SQL has placeholders only.",
+  "limitations": [
+    "No state JSON, bound parameters, source text, or fixture IDs are exported.",
+    "SQL dictionary contains only the four changed pending/group SELECT shapes; profiles cover every measured SELECT.",
+    "Logical repeated JSON bytes are not network bytes, retained heap, or model input.",
+    "Timing and sampled heap definitions are in gh365-comparison-memory.md."
+  ],
+  "uniqueSql": {
+    "candidate_pending_before": {
+      "sql": "select wsc1_0.id,wsc1_0.analysis_job_id,aj1_0.id,aj1_0.analysis_mode,aj1_0.analysis_run_id,aj1_0.attempt_requested_at,aj1_0.automatic_applied_at,aj1_0.automatic_input_state,aj1_0.batch_id,aj1_0.character_comparison_input_hash,aj1_0.character_comparisons_handed_off,aj1_0.checkpoint_stage,aj1_0.claim_attempt_count,aj1_0.completed_at,aj1_0.created_at,aj1_0.current_step,aj1_0.episode_id,aj1_0.error_message,aj1_0.failure_code,aj1_0.failure_diagnostics,aj1_0.input_state_hash,aj1_0.input_token_count,aj1_0.job_type,aj1_0.journal_invalidation_reason,aj1_0.journal_status,aj1_0.lease_expires_at,aj1_0.lease_token,aj1_0.metrics_attempt_no,aj1_0.metrics_request_episode_count,aj1_0.metrics_request_id,aj1_0.metrics_request_started_at,aj1_0.metrics_user_retry,aj1_0.model_name,aj1_0.output_token_count,aj1_0.pending_since,aj1_0.predecessor_job_id,aj1_0.relationship_analysis_enabled,aj1_0.relationship_generation,aj1_0.relationship_partial_results_enabled,aj1_0.relationship_service_paid,aj1_0.result_outcome,aj1_0.result_ready_at,aj1_0.review_application_held_at,aj1_0.review_mode,aj1_0.run_base_state,aj1_0.run_generation,aj1_0.run_sequence,aj1_0.setting_candidate_id,aj1_0.source_content_hash,aj1_0.source_content_s3_key,aj1_0.source_content_s3_version,aj1_0.source_episode_no,aj1_0.source_kind,aj1_0.source_reference_invalidated_at,aj1_0.source_setting_book_id,aj1_0.source_setting_book_revision_id,aj1_0.started_at,aj1_0.state_journal,aj1_0.status,aj1_0.summary_json,aj1_0.updated_at,aj1_0.work_id,aj1_0.world_setting_candidate_id,wsc1_0.applied_world_setting_version,wsc1_0.automatic_review_hold_reason,wsc1_0.base_world_setting_version,wsc1_0.before_value,wsc1_0.canonical_subject_key,wsc1_0.canonical_subject_name,wsc1_0.category,wsc1_0.compared_at,wsc1_0.comparison_batch_id,wsc1_0.comparison_candidate_ref,wsc1_0.comparison_decision_id,wsc1_0.comparison_diagnostics,wsc1_0.comparison_error_message,wsc1_0.comparison_failure_analysis_job_id,wsc1_0.comparison_failure_batch_id,wsc1_0.comparison_failure_code,wsc1_0.comparison_failure_diagnostics,wsc1_0.comparison_reason,wsc1_0.comparison_review_reason,wsc1_0.comparison_source_error_code,wsc1_0.comparison_source_reason_code,wsc1_0.comparison_status,wsc1_0.comparison_terminal_at,wsc1_0.comparison_terminal_outcome,wsc1_0.consolidation_status,wsc1_0.created_at,wsc1_0.effective_from_episode_no,wsc1_0.evidence_spans,wsc1_0.extracted_value,wsc1_0.extraction_confidence,wsc1_0.final_category,wsc1_0.final_operation,wsc1_0.final_scope_name,wsc1_0.final_setting_name,wsc1_0.final_subject_name,wsc1_0.final_value,wsc1_0.history_only,wsc1_0.matched_property_name,wsc1_0.matched_scope_name,wsc1_0.metrics_source_attempt_no,wsc1_0.preparation_failure_stage,wsc1_0.proposed_scope_name,wsc1_0.proposed_setting_name,wsc1_0.proposed_value,wsc1_0.provisional_subject_key,wsc1_0.raw_comparison_json,wsc1_0.raw_extraction_json,wsc1_0.resolved_provisional_subject_keys,wsc1_0.resolved_target_world_setting_ids,wsc1_0.review_note,wsc1_0.review_status,wsc1_0.reviewed_at,wsc1_0.reviewed_automatically,wsc1_0.reviewed_by,wsc1_0.scope_name,wsc1_0.setting_name,se1_0.id,se1_0.char_count,se1_0.content_hash,se1_0.content_revision,se1_0.content_s3_key,se1_0.content_s3_version,se1_0.content_updated_at,se1_0.created_at,se1_0.episode_no,se1_0.source_file_id,se1_0.status,se1_0.title,se1_0.updated_at,se1_0.validation_upload_eligible,se1_0.work_id,wsc1_0.source_kind,wsc1_0.source_setting_book_id,wsc1_0.source_setting_book_revision_id,wsc1_0.subject_name,wsc1_0.subject_resolution_type,wsc1_0.suggested_operation,wsc1_0.target_world_setting_id,wsc1_0.temporal_scope,wsc1_0.updated_at,wsc1_0.work_id,w3_0.id,w3_0.created_at,w3_0.description,w3_0.genre,w3_0.latest_episode_no,w3_0.lifecycle_status,w3_0.member_id,w3_0.relationship_input_version,w3_0.title,w3_0.updated_at from world_setting_candidates wsc1_0 join analysis_jobs aj1_0 on aj1_0.id=wsc1_0.analysis_job_id left join episodes se1_0 on se1_0.id=wsc1_0.source_episode_id join works w3_0 on w3_0.id=wsc1_0.work_id where wsc1_0.analysis_job_id=? and wsc1_0.review_status=? and wsc1_0.comparison_status=? order by wsc1_0.created_at,wsc1_0.id",
+      "sha256": "4fef1f44ae2b5d897a2cc7c51c575f2f6317cdba119eadf59c8aa641f207f095",
+      "resultSetColumns": [
+        "id",
+        "analysis_job_id",
+        "id",
+        "analysis_mode",
+        "analysis_run_id",
+        "attempt_requested_at",
+        "automatic_applied_at",
+        "automatic_input_state",
+        "batch_id",
+        "character_comparison_input_hash",
+        "character_comparisons_handed_off",
+        "checkpoint_stage",
+        "claim_attempt_count",
+        "completed_at",
+        "created_at",
+        "current_step",
+        "episode_id",
+        "error_message",
+        "failure_code",
+        "failure_diagnostics",
+        "input_state_hash",
+        "input_token_count",
+        "job_type",
+        "journal_invalidation_reason",
+        "journal_status",
+        "lease_expires_at",
+        "lease_token",
+        "metrics_attempt_no",
+        "metrics_request_episode_count",
+        "metrics_request_id",
+        "metrics_request_started_at",
+        "metrics_user_retry",
+        "model_name",
+        "output_token_count",
+        "pending_since",
+        "predecessor_job_id",
+        "relationship_analysis_enabled",
+        "relationship_generation",
+        "relationship_partial_results_enabled",
+        "relationship_service_paid",
+        "result_outcome",
+        "result_ready_at",
+        "review_application_held_at",
+        "review_mode",
+        "run_base_state",
+        "run_generation",
+        "run_sequence",
+        "setting_candidate_id",
+        "source_content_hash",
+        "source_content_s3_key",
+        "source_content_s3_version",
+        "source_episode_no",
+        "source_kind",
+        "source_reference_invalidated_at",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "started_at",
+        "state_journal",
+        "status",
+        "summary_json",
+        "updated_at",
+        "work_id",
+        "world_setting_candidate_id",
+        "applied_world_setting_version",
+        "automatic_review_hold_reason",
+        "base_world_setting_version",
+        "before_value",
+        "canonical_subject_key",
+        "canonical_subject_name",
+        "category",
+        "compared_at",
+        "comparison_batch_id",
+        "comparison_candidate_ref",
+        "comparison_decision_id",
+        "comparison_diagnostics",
+        "comparison_error_message",
+        "comparison_failure_analysis_job_id",
+        "comparison_failure_batch_id",
+        "comparison_failure_code",
+        "comparison_failure_diagnostics",
+        "comparison_reason",
+        "comparison_review_reason",
+        "comparison_source_error_code",
+        "comparison_source_reason_code",
+        "comparison_status",
+        "comparison_terminal_at",
+        "comparison_terminal_outcome",
+        "consolidation_status",
+        "created_at",
+        "effective_from_episode_no",
+        "evidence_spans",
+        "extracted_value",
+        "extraction_confidence",
+        "final_category",
+        "final_operation",
+        "final_scope_name",
+        "final_setting_name",
+        "final_subject_name",
+        "final_value",
+        "history_only",
+        "matched_property_name",
+        "matched_scope_name",
+        "metrics_source_attempt_no",
+        "preparation_failure_stage",
+        "proposed_scope_name",
+        "proposed_setting_name",
+        "proposed_value",
+        "provisional_subject_key",
+        "raw_comparison_json",
+        "raw_extraction_json",
+        "resolved_provisional_subject_keys",
+        "resolved_target_world_setting_ids",
+        "review_note",
+        "review_status",
+        "reviewed_at",
+        "reviewed_automatically",
+        "reviewed_by",
+        "scope_name",
+        "setting_name",
+        "id",
+        "char_count",
+        "content_hash",
+        "content_revision",
+        "content_s3_key",
+        "content_s3_version",
+        "content_updated_at",
+        "created_at",
+        "episode_no",
+        "source_file_id",
+        "status",
+        "title",
+        "updated_at",
+        "validation_upload_eligible",
+        "work_id",
+        "source_kind",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "subject_name",
+        "subject_resolution_type",
+        "suggested_operation",
+        "target_world_setting_id",
+        "temporal_scope",
+        "updated_at",
+        "work_id",
+        "id",
+        "created_at",
+        "description",
+        "genre",
+        "latest_episode_no",
+        "lifecycle_status",
+        "member_id",
+        "relationship_input_version",
+        "title",
+        "updated_at"
+      ]
+    },
+    "candidate_comparison_group_before": {
+      "sql": "select wsc1_0.id,wsc1_0.analysis_job_id,aj1_0.id,aj1_0.analysis_mode,aj1_0.analysis_run_id,aj1_0.attempt_requested_at,aj1_0.automatic_applied_at,aj1_0.automatic_input_state,aj1_0.batch_id,aj1_0.character_comparison_input_hash,aj1_0.character_comparisons_handed_off,aj1_0.checkpoint_stage,aj1_0.claim_attempt_count,aj1_0.completed_at,aj1_0.created_at,aj1_0.current_step,aj1_0.episode_id,aj1_0.error_message,aj1_0.failure_code,aj1_0.failure_diagnostics,aj1_0.input_state_hash,aj1_0.input_token_count,aj1_0.job_type,aj1_0.journal_invalidation_reason,aj1_0.journal_status,aj1_0.lease_expires_at,aj1_0.lease_token,aj1_0.metrics_attempt_no,aj1_0.metrics_request_episode_count,aj1_0.metrics_request_id,aj1_0.metrics_request_started_at,aj1_0.metrics_user_retry,aj1_0.model_name,aj1_0.output_token_count,aj1_0.pending_since,aj1_0.predecessor_job_id,aj1_0.relationship_analysis_enabled,aj1_0.relationship_generation,aj1_0.relationship_partial_results_enabled,aj1_0.relationship_service_paid,aj1_0.result_outcome,aj1_0.result_ready_at,aj1_0.review_application_held_at,aj1_0.review_mode,aj1_0.run_base_state,aj1_0.run_generation,aj1_0.run_sequence,aj1_0.setting_candidate_id,aj1_0.source_content_hash,aj1_0.source_content_s3_key,aj1_0.source_content_s3_version,aj1_0.source_episode_no,aj1_0.source_kind,aj1_0.source_reference_invalidated_at,aj1_0.source_setting_book_id,aj1_0.source_setting_book_revision_id,aj1_0.started_at,aj1_0.state_journal,aj1_0.status,aj1_0.summary_json,aj1_0.updated_at,aj1_0.work_id,aj1_0.world_setting_candidate_id,wsc1_0.applied_world_setting_version,wsc1_0.automatic_review_hold_reason,wsc1_0.base_world_setting_version,wsc1_0.before_value,wsc1_0.canonical_subject_key,wsc1_0.canonical_subject_name,wsc1_0.category,wsc1_0.compared_at,wsc1_0.comparison_batch_id,wsc1_0.comparison_candidate_ref,wsc1_0.comparison_decision_id,wsc1_0.comparison_diagnostics,wsc1_0.comparison_error_message,wsc1_0.comparison_failure_analysis_job_id,wsc1_0.comparison_failure_batch_id,wsc1_0.comparison_failure_code,wsc1_0.comparison_failure_diagnostics,wsc1_0.comparison_reason,wsc1_0.comparison_review_reason,wsc1_0.comparison_source_error_code,wsc1_0.comparison_source_reason_code,wsc1_0.comparison_status,wsc1_0.comparison_terminal_at,wsc1_0.comparison_terminal_outcome,wsc1_0.consolidation_status,wsc1_0.created_at,wsc1_0.effective_from_episode_no,wsc1_0.evidence_spans,wsc1_0.extracted_value,wsc1_0.extraction_confidence,wsc1_0.final_category,wsc1_0.final_operation,wsc1_0.final_scope_name,wsc1_0.final_setting_name,wsc1_0.final_subject_name,wsc1_0.final_value,wsc1_0.history_only,wsc1_0.matched_property_name,wsc1_0.matched_scope_name,wsc1_0.metrics_source_attempt_no,wsc1_0.preparation_failure_stage,wsc1_0.proposed_scope_name,wsc1_0.proposed_setting_name,wsc1_0.proposed_value,wsc1_0.provisional_subject_key,wsc1_0.raw_comparison_json,wsc1_0.raw_extraction_json,wsc1_0.resolved_provisional_subject_keys,wsc1_0.resolved_target_world_setting_ids,wsc1_0.review_note,wsc1_0.review_status,wsc1_0.reviewed_at,wsc1_0.reviewed_automatically,wsc1_0.reviewed_by,wsc1_0.scope_name,wsc1_0.setting_name,se1_0.id,se1_0.char_count,se1_0.content_hash,se1_0.content_revision,se1_0.content_s3_key,se1_0.content_s3_version,se1_0.content_updated_at,se1_0.created_at,se1_0.episode_no,se1_0.source_file_id,se1_0.status,se1_0.title,se1_0.updated_at,se1_0.validation_upload_eligible,se1_0.work_id,wsc1_0.source_kind,wsc1_0.source_setting_book_id,wsc1_0.source_setting_book_revision_id,wsc1_0.subject_name,wsc1_0.subject_resolution_type,wsc1_0.suggested_operation,wsc1_0.target_world_setting_id,wsc1_0.temporal_scope,wsc1_0.updated_at,wsc1_0.work_id from world_setting_candidates wsc1_0 join analysis_jobs aj1_0 on aj1_0.id=wsc1_0.analysis_job_id left join episodes se1_0 on se1_0.id=wsc1_0.source_episode_id where wsc1_0.analysis_job_id=? and (wsc1_0.source_episode_id=? or (? is null and wsc1_0.source_episode_id is null and wsc1_0.source_kind='SETTING_BOOK' and wsc1_0.source_setting_book_id=aj1_0.source_setting_book_id and wsc1_0.source_setting_book_revision_id=aj1_0.source_setting_book_revision_id)) and wsc1_0.category=? and wsc1_0.canonical_subject_key=? and wsc1_0.review_status=? and wsc1_0.comparison_status=? order by wsc1_0.created_at,wsc1_0.id",
+      "sha256": "0a0742ff1a2de02dff5ae2f6e93141adbbcba7e127bef324caab59faa8d06c73",
+      "resultSetColumns": [
+        "id",
+        "analysis_job_id",
+        "id",
+        "analysis_mode",
+        "analysis_run_id",
+        "attempt_requested_at",
+        "automatic_applied_at",
+        "automatic_input_state",
+        "batch_id",
+        "character_comparison_input_hash",
+        "character_comparisons_handed_off",
+        "checkpoint_stage",
+        "claim_attempt_count",
+        "completed_at",
+        "created_at",
+        "current_step",
+        "episode_id",
+        "error_message",
+        "failure_code",
+        "failure_diagnostics",
+        "input_state_hash",
+        "input_token_count",
+        "job_type",
+        "journal_invalidation_reason",
+        "journal_status",
+        "lease_expires_at",
+        "lease_token",
+        "metrics_attempt_no",
+        "metrics_request_episode_count",
+        "metrics_request_id",
+        "metrics_request_started_at",
+        "metrics_user_retry",
+        "model_name",
+        "output_token_count",
+        "pending_since",
+        "predecessor_job_id",
+        "relationship_analysis_enabled",
+        "relationship_generation",
+        "relationship_partial_results_enabled",
+        "relationship_service_paid",
+        "result_outcome",
+        "result_ready_at",
+        "review_application_held_at",
+        "review_mode",
+        "run_base_state",
+        "run_generation",
+        "run_sequence",
+        "setting_candidate_id",
+        "source_content_hash",
+        "source_content_s3_key",
+        "source_content_s3_version",
+        "source_episode_no",
+        "source_kind",
+        "source_reference_invalidated_at",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "started_at",
+        "state_journal",
+        "status",
+        "summary_json",
+        "updated_at",
+        "work_id",
+        "world_setting_candidate_id",
+        "applied_world_setting_version",
+        "automatic_review_hold_reason",
+        "base_world_setting_version",
+        "before_value",
+        "canonical_subject_key",
+        "canonical_subject_name",
+        "category",
+        "compared_at",
+        "comparison_batch_id",
+        "comparison_candidate_ref",
+        "comparison_decision_id",
+        "comparison_diagnostics",
+        "comparison_error_message",
+        "comparison_failure_analysis_job_id",
+        "comparison_failure_batch_id",
+        "comparison_failure_code",
+        "comparison_failure_diagnostics",
+        "comparison_reason",
+        "comparison_review_reason",
+        "comparison_source_error_code",
+        "comparison_source_reason_code",
+        "comparison_status",
+        "comparison_terminal_at",
+        "comparison_terminal_outcome",
+        "consolidation_status",
+        "created_at",
+        "effective_from_episode_no",
+        "evidence_spans",
+        "extracted_value",
+        "extraction_confidence",
+        "final_category",
+        "final_operation",
+        "final_scope_name",
+        "final_setting_name",
+        "final_subject_name",
+        "final_value",
+        "history_only",
+        "matched_property_name",
+        "matched_scope_name",
+        "metrics_source_attempt_no",
+        "preparation_failure_stage",
+        "proposed_scope_name",
+        "proposed_setting_name",
+        "proposed_value",
+        "provisional_subject_key",
+        "raw_comparison_json",
+        "raw_extraction_json",
+        "resolved_provisional_subject_keys",
+        "resolved_target_world_setting_ids",
+        "review_note",
+        "review_status",
+        "reviewed_at",
+        "reviewed_automatically",
+        "reviewed_by",
+        "scope_name",
+        "setting_name",
+        "id",
+        "char_count",
+        "content_hash",
+        "content_revision",
+        "content_s3_key",
+        "content_s3_version",
+        "content_updated_at",
+        "created_at",
+        "episode_no",
+        "source_file_id",
+        "status",
+        "title",
+        "updated_at",
+        "validation_upload_eligible",
+        "work_id",
+        "source_kind",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "subject_name",
+        "subject_resolution_type",
+        "suggested_operation",
+        "target_world_setting_id",
+        "temporal_scope",
+        "updated_at",
+        "work_id"
+      ]
+    },
+    "candidate_pending_after": {
+      "sql": "select wsc1_0.id,wsc1_0.analysis_job_id,wsc1_0.applied_world_setting_version,wsc1_0.automatic_review_hold_reason,wsc1_0.base_world_setting_version,wsc1_0.before_value,wsc1_0.canonical_subject_key,wsc1_0.canonical_subject_name,wsc1_0.category,wsc1_0.compared_at,wsc1_0.comparison_batch_id,wsc1_0.comparison_candidate_ref,wsc1_0.comparison_decision_id,wsc1_0.comparison_diagnostics,wsc1_0.comparison_error_message,wsc1_0.comparison_failure_analysis_job_id,wsc1_0.comparison_failure_batch_id,wsc1_0.comparison_failure_code,wsc1_0.comparison_failure_diagnostics,wsc1_0.comparison_reason,wsc1_0.comparison_review_reason,wsc1_0.comparison_source_error_code,wsc1_0.comparison_source_reason_code,wsc1_0.comparison_status,wsc1_0.comparison_terminal_at,wsc1_0.comparison_terminal_outcome,wsc1_0.consolidation_status,wsc1_0.created_at,wsc1_0.effective_from_episode_no,wsc1_0.evidence_spans,wsc1_0.extracted_value,wsc1_0.extraction_confidence,wsc1_0.final_category,wsc1_0.final_operation,wsc1_0.final_scope_name,wsc1_0.final_setting_name,wsc1_0.final_subject_name,wsc1_0.final_value,wsc1_0.history_only,wsc1_0.matched_property_name,wsc1_0.matched_scope_name,wsc1_0.metrics_source_attempt_no,wsc1_0.preparation_failure_stage,wsc1_0.proposed_scope_name,wsc1_0.proposed_setting_name,wsc1_0.proposed_value,wsc1_0.provisional_subject_key,wsc1_0.raw_comparison_json,wsc1_0.raw_extraction_json,wsc1_0.resolved_provisional_subject_keys,wsc1_0.resolved_target_world_setting_ids,wsc1_0.review_note,wsc1_0.review_status,wsc1_0.reviewed_at,wsc1_0.reviewed_automatically,wsc1_0.reviewed_by,wsc1_0.scope_name,wsc1_0.setting_name,se1_0.id,se1_0.char_count,se1_0.content_hash,se1_0.content_revision,se1_0.content_s3_key,se1_0.content_s3_version,se1_0.content_updated_at,se1_0.created_at,se1_0.episode_no,se1_0.source_file_id,se1_0.status,se1_0.title,se1_0.updated_at,se1_0.validation_upload_eligible,se1_0.work_id,wsc1_0.source_kind,wsc1_0.source_setting_book_id,wsc1_0.source_setting_book_revision_id,wsc1_0.subject_name,wsc1_0.subject_resolution_type,wsc1_0.suggested_operation,wsc1_0.target_world_setting_id,wsc1_0.temporal_scope,wsc1_0.updated_at,wsc1_0.work_id,w2_0.id,w2_0.created_at,w2_0.description,w2_0.genre,w2_0.latest_episode_no,w2_0.lifecycle_status,w2_0.member_id,w2_0.relationship_input_version,w2_0.title,w2_0.updated_at from world_setting_candidates wsc1_0 left join episodes se1_0 on se1_0.id=wsc1_0.source_episode_id join works w2_0 on w2_0.id=wsc1_0.work_id where wsc1_0.analysis_job_id=? and wsc1_0.review_status=? and wsc1_0.comparison_status=? order by wsc1_0.created_at,wsc1_0.id",
+      "sha256": "65034d07c875d4d8ddd78ab3772fcad34c7702e383a54129103f651b3ae470b4",
+      "resultSetColumns": [
+        "id",
+        "analysis_job_id",
+        "applied_world_setting_version",
+        "automatic_review_hold_reason",
+        "base_world_setting_version",
+        "before_value",
+        "canonical_subject_key",
+        "canonical_subject_name",
+        "category",
+        "compared_at",
+        "comparison_batch_id",
+        "comparison_candidate_ref",
+        "comparison_decision_id",
+        "comparison_diagnostics",
+        "comparison_error_message",
+        "comparison_failure_analysis_job_id",
+        "comparison_failure_batch_id",
+        "comparison_failure_code",
+        "comparison_failure_diagnostics",
+        "comparison_reason",
+        "comparison_review_reason",
+        "comparison_source_error_code",
+        "comparison_source_reason_code",
+        "comparison_status",
+        "comparison_terminal_at",
+        "comparison_terminal_outcome",
+        "consolidation_status",
+        "created_at",
+        "effective_from_episode_no",
+        "evidence_spans",
+        "extracted_value",
+        "extraction_confidence",
+        "final_category",
+        "final_operation",
+        "final_scope_name",
+        "final_setting_name",
+        "final_subject_name",
+        "final_value",
+        "history_only",
+        "matched_property_name",
+        "matched_scope_name",
+        "metrics_source_attempt_no",
+        "preparation_failure_stage",
+        "proposed_scope_name",
+        "proposed_setting_name",
+        "proposed_value",
+        "provisional_subject_key",
+        "raw_comparison_json",
+        "raw_extraction_json",
+        "resolved_provisional_subject_keys",
+        "resolved_target_world_setting_ids",
+        "review_note",
+        "review_status",
+        "reviewed_at",
+        "reviewed_automatically",
+        "reviewed_by",
+        "scope_name",
+        "setting_name",
+        "id",
+        "char_count",
+        "content_hash",
+        "content_revision",
+        "content_s3_key",
+        "content_s3_version",
+        "content_updated_at",
+        "created_at",
+        "episode_no",
+        "source_file_id",
+        "status",
+        "title",
+        "updated_at",
+        "validation_upload_eligible",
+        "work_id",
+        "source_kind",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "subject_name",
+        "subject_resolution_type",
+        "suggested_operation",
+        "target_world_setting_id",
+        "temporal_scope",
+        "updated_at",
+        "work_id",
+        "id",
+        "created_at",
+        "description",
+        "genre",
+        "latest_episode_no",
+        "lifecycle_status",
+        "member_id",
+        "relationship_input_version",
+        "title",
+        "updated_at"
+      ]
+    },
+    "candidate_comparison_group_after": {
+      "sql": "select wsc1_0.id,wsc1_0.analysis_job_id,wsc1_0.applied_world_setting_version,wsc1_0.automatic_review_hold_reason,wsc1_0.base_world_setting_version,wsc1_0.before_value,wsc1_0.canonical_subject_key,wsc1_0.canonical_subject_name,wsc1_0.category,wsc1_0.compared_at,wsc1_0.comparison_batch_id,wsc1_0.comparison_candidate_ref,wsc1_0.comparison_decision_id,wsc1_0.comparison_diagnostics,wsc1_0.comparison_error_message,wsc1_0.comparison_failure_analysis_job_id,wsc1_0.comparison_failure_batch_id,wsc1_0.comparison_failure_code,wsc1_0.comparison_failure_diagnostics,wsc1_0.comparison_reason,wsc1_0.comparison_review_reason,wsc1_0.comparison_source_error_code,wsc1_0.comparison_source_reason_code,wsc1_0.comparison_status,wsc1_0.comparison_terminal_at,wsc1_0.comparison_terminal_outcome,wsc1_0.consolidation_status,wsc1_0.created_at,wsc1_0.effective_from_episode_no,wsc1_0.evidence_spans,wsc1_0.extracted_value,wsc1_0.extraction_confidence,wsc1_0.final_category,wsc1_0.final_operation,wsc1_0.final_scope_name,wsc1_0.final_setting_name,wsc1_0.final_subject_name,wsc1_0.final_value,wsc1_0.history_only,wsc1_0.matched_property_name,wsc1_0.matched_scope_name,wsc1_0.metrics_source_attempt_no,wsc1_0.preparation_failure_stage,wsc1_0.proposed_scope_name,wsc1_0.proposed_setting_name,wsc1_0.proposed_value,wsc1_0.provisional_subject_key,wsc1_0.raw_comparison_json,wsc1_0.raw_extraction_json,wsc1_0.resolved_provisional_subject_keys,wsc1_0.resolved_target_world_setting_ids,wsc1_0.review_note,wsc1_0.review_status,wsc1_0.reviewed_at,wsc1_0.reviewed_automatically,wsc1_0.reviewed_by,wsc1_0.scope_name,wsc1_0.setting_name,se1_0.id,se1_0.char_count,se1_0.content_hash,se1_0.content_revision,se1_0.content_s3_key,se1_0.content_s3_version,se1_0.content_updated_at,se1_0.created_at,se1_0.episode_no,se1_0.source_file_id,se1_0.status,se1_0.title,se1_0.updated_at,se1_0.validation_upload_eligible,se1_0.work_id,wsc1_0.source_kind,wsc1_0.source_setting_book_id,wsc1_0.source_setting_book_revision_id,wsc1_0.subject_name,wsc1_0.subject_resolution_type,wsc1_0.suggested_operation,wsc1_0.target_world_setting_id,wsc1_0.temporal_scope,wsc1_0.updated_at,wsc1_0.work_id from world_setting_candidates wsc1_0 join analysis_jobs aj1_0 on aj1_0.id=wsc1_0.analysis_job_id left join episodes se1_0 on se1_0.id=wsc1_0.source_episode_id where wsc1_0.analysis_job_id=? and (wsc1_0.source_episode_id=? or (? is null and wsc1_0.source_episode_id is null and wsc1_0.source_kind='SETTING_BOOK' and wsc1_0.source_setting_book_id=aj1_0.source_setting_book_id and wsc1_0.source_setting_book_revision_id=aj1_0.source_setting_book_revision_id)) and wsc1_0.category=? and wsc1_0.canonical_subject_key=? and wsc1_0.review_status=? and wsc1_0.comparison_status=? order by wsc1_0.created_at,wsc1_0.id",
+      "sha256": "e55d60d67e3a6eafd2844e7ccb1bb7abdf8a70f524c03539f131be43545abf15",
+      "resultSetColumns": [
+        "id",
+        "analysis_job_id",
+        "applied_world_setting_version",
+        "automatic_review_hold_reason",
+        "base_world_setting_version",
+        "before_value",
+        "canonical_subject_key",
+        "canonical_subject_name",
+        "category",
+        "compared_at",
+        "comparison_batch_id",
+        "comparison_candidate_ref",
+        "comparison_decision_id",
+        "comparison_diagnostics",
+        "comparison_error_message",
+        "comparison_failure_analysis_job_id",
+        "comparison_failure_batch_id",
+        "comparison_failure_code",
+        "comparison_failure_diagnostics",
+        "comparison_reason",
+        "comparison_review_reason",
+        "comparison_source_error_code",
+        "comparison_source_reason_code",
+        "comparison_status",
+        "comparison_terminal_at",
+        "comparison_terminal_outcome",
+        "consolidation_status",
+        "created_at",
+        "effective_from_episode_no",
+        "evidence_spans",
+        "extracted_value",
+        "extraction_confidence",
+        "final_category",
+        "final_operation",
+        "final_scope_name",
+        "final_setting_name",
+        "final_subject_name",
+        "final_value",
+        "history_only",
+        "matched_property_name",
+        "matched_scope_name",
+        "metrics_source_attempt_no",
+        "preparation_failure_stage",
+        "proposed_scope_name",
+        "proposed_setting_name",
+        "proposed_value",
+        "provisional_subject_key",
+        "raw_comparison_json",
+        "raw_extraction_json",
+        "resolved_provisional_subject_keys",
+        "resolved_target_world_setting_ids",
+        "review_note",
+        "review_status",
+        "reviewed_at",
+        "reviewed_automatically",
+        "reviewed_by",
+        "scope_name",
+        "setting_name",
+        "id",
+        "char_count",
+        "content_hash",
+        "content_revision",
+        "content_s3_key",
+        "content_s3_version",
+        "content_updated_at",
+        "created_at",
+        "episode_no",
+        "source_file_id",
+        "status",
+        "title",
+        "updated_at",
+        "validation_upload_eligible",
+        "work_id",
+        "source_kind",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "subject_name",
+        "subject_resolution_type",
+        "suggested_operation",
+        "target_world_setting_id",
+        "temporal_scope",
+        "updated_at",
+        "work_id"
+      ]
+    }
+  },
+  "queryProfiles": {
+    "q01": {
+      "kind": "job_lease_lock",
+      "selectedColumnCount": 71,
+      "selectedJobJsonColumns": [
+        "automatic_input_state",
+        "state_journal"
+      ],
+      "candidateResult": false
+    },
+    "q02": {
+      "kind": "job_episode_targets",
+      "selectedColumnCount": 16,
+      "selectedJobJsonColumns": [],
+      "candidateResult": false
+    },
+    "q03": {
+      "kind": "validation_readiness",
+      "selectedColumnCount": 1,
+      "selectedJobJsonColumns": [],
+      "candidateResult": false
+    },
+    "q04": {
+      "kind": "job_run_predecessors",
+      "selectedColumnCount": 61,
+      "selectedJobJsonColumns": [
+        "automatic_input_state",
+        "state_journal"
+      ],
+      "candidateResult": false
+    },
+    "q05": {
+      "kind": "candidate_failed_status_check",
+      "selectedColumnCount": 69,
+      "selectedJobJsonColumns": [],
+      "candidateResult": true
+    },
+    "q06": {
+      "kind": "candidate_pending",
+      "selectedColumnCount": 154,
+      "selectedJobJsonColumns": [
+        "automatic_input_state",
+        "state_journal"
+      ],
+      "candidateResult": true,
+      "sqlRef": "candidate_pending_before"
+    },
+    "q07": {
+      "kind": "candidate_follow_on_lock",
+      "selectedColumnCount": 69,
+      "selectedJobJsonColumns": [],
+      "candidateResult": true
+    },
+    "q08": {
+      "kind": "candidate_claim_first",
+      "selectedColumnCount": 69,
+      "selectedJobJsonColumns": [],
+      "candidateResult": true
+    },
+    "q09": {
+      "kind": "candidate_comparison_group",
+      "selectedColumnCount": 144,
+      "selectedJobJsonColumns": [
+        "automatic_input_state",
+        "state_journal"
+      ],
+      "candidateResult": true,
+      "sqlRef": "candidate_comparison_group_before"
+    },
+    "q10": {
+      "kind": "candidate_pending",
+      "selectedColumnCount": 93,
+      "selectedJobJsonColumns": [],
+      "candidateResult": true,
+      "sqlRef": "candidate_pending_after"
+    },
+    "q11": {
+      "kind": "candidate_comparison_group",
+      "selectedColumnCount": 83,
+      "selectedJobJsonColumns": [],
+      "candidateResult": true,
+      "sqlRef": "candidate_comparison_group_after"
+    }
+  },
+  "phases": [
+    {
+      "run": "baseline-legacy-final",
+      "sample": 1,
+      "claim": 1,
+      "pendingCandidates": 60,
+      "runtime": {
+        "elapsedMillis": 2834.65175,
+        "heapBeforeBytes": 144045048,
+        "heapAfterBytes": 795872272,
+        "sampledPeakHeapBytes": 795872272,
+        "allocatedBytes": 1137279104,
+        "gcCollections": 8,
+        "gcMillis": 23,
+        "processCpuNanos": 1561834000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13544,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 5723311,
+      "candidateRowsSelectingJobJson": 120,
+      "candidateLogicalJobJsonBytes": 866368080,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q06": {
+          "executions": 1,
+          "consumedRows": 60
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 60
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q09": {
+          "executions": 1,
+          "consumedRows": 60
+        }
+      }
+    },
+    {
+      "run": "baseline-legacy-final",
+      "sample": 1,
+      "claim": 2,
+      "pendingCandidates": 40,
+      "runtime": {
+        "elapsedMillis": 1819.131625,
+        "heapBeforeBytes": 795872272,
+        "heapAfterBytes": 677426808,
+        "sampledPeakHeapBytes": 797969424,
+        "allocatedBytes": 821196248,
+        "gcCollections": 6,
+        "gcMillis": 14,
+        "processCpuNanos": 703693000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13563,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 5723311,
+      "candidateRowsSelectingJobJson": 80,
+      "candidateLogicalJobJsonBytes": 577578720,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q06": {
+          "executions": 1,
+          "consumedRows": 40
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 40
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q09": {
+          "executions": 1,
+          "consumedRows": 40
+        }
+      }
+    },
+    {
+      "run": "baseline-legacy-final",
+      "sample": 1,
+      "claim": 3,
+      "pendingCandidates": 20,
+      "runtime": {
+        "elapsedMillis": 989.235917,
+        "heapBeforeBytes": 677426808,
+        "heapAfterBytes": 699512440,
+        "sampledPeakHeapBytes": 784381560,
+        "allocatedBytes": 531386992,
+        "gcCollections": 4,
+        "gcMillis": 9,
+        "processCpuNanos": 506908000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13602,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 5723311,
+      "candidateRowsSelectingJobJson": 40,
+      "candidateLogicalJobJsonBytes": 288789360,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q06": {
+          "executions": 1,
+          "consumedRows": 20
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 20
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q09": {
+          "executions": 1,
+          "consumedRows": 20
+        }
+      }
+    },
+    {
+      "run": "baseline-legacy-final",
+      "sample": 2,
+      "claim": 1,
+      "pendingCandidates": 60,
+      "runtime": {
+        "elapsedMillis": 2559.469958,
+        "heapBeforeBytes": 146774872,
+        "heapAfterBytes": 776324400,
+        "sampledPeakHeapBytes": 785357656,
+        "allocatedBytes": 1112039504,
+        "gcCollections": 8,
+        "gcMillis": 21,
+        "processCpuNanos": 894607000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13544,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 5723311,
+      "candidateRowsSelectingJobJson": 120,
+      "candidateLogicalJobJsonBytes": 866368080,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q06": {
+          "executions": 1,
+          "consumedRows": 60
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 60
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q09": {
+          "executions": 1,
+          "consumedRows": 60
+        }
+      }
+    },
+    {
+      "run": "baseline-legacy-final",
+      "sample": 2,
+      "claim": 2,
+      "pendingCandidates": 40,
+      "runtime": {
+        "elapsedMillis": 1829.257333,
+        "heapBeforeBytes": 776324400,
+        "heapAfterBytes": 553196552,
+        "sampledPeakHeapBytes": 797934192,
+        "allocatedBytes": 821038392,
+        "gcCollections": 10,
+        "gcMillis": 100,
+        "processCpuNanos": 1313256000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13563,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 5723311,
+      "candidateRowsSelectingJobJson": 80,
+      "candidateLogicalJobJsonBytes": 577578720,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q06": {
+          "executions": 1,
+          "consumedRows": 40
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 40
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q09": {
+          "executions": 1,
+          "consumedRows": 40
+        }
+      }
+    },
+    {
+      "run": "baseline-legacy-final",
+      "sample": 2,
+      "claim": 3,
+      "pendingCandidates": 20,
+      "runtime": {
+        "elapsedMillis": 1024.773375,
+        "heapBeforeBytes": 553196552,
+        "heapAfterBytes": 540376120,
+        "sampledPeakHeapBytes": 787968312,
+        "allocatedBytes": 531385800,
+        "gcCollections": 6,
+        "gcMillis": 79,
+        "processCpuNanos": 1021894000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13602,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 5723311,
+      "candidateRowsSelectingJobJson": 40,
+      "candidateLogicalJobJsonBytes": 288789360,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q06": {
+          "executions": 1,
+          "consumedRows": 20
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 20
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q09": {
+          "executions": 1,
+          "consumedRows": 20
+        }
+      }
+    },
+    {
+      "run": "baseline-legacy-final",
+      "sample": 3,
+      "claim": 1,
+      "pendingCandidates": 60,
+      "runtime": {
+        "elapsedMillis": 2597.99025,
+        "heapBeforeBytes": 133002000,
+        "heapAfterBytes": 769061240,
+        "sampledPeakHeapBytes": 785216272,
+        "allocatedBytes": 1110702728,
+        "gcCollections": 8,
+        "gcMillis": 15,
+        "processCpuNanos": 888998000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13544,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 5723311,
+      "candidateRowsSelectingJobJson": 120,
+      "candidateLogicalJobJsonBytes": 866368080,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q06": {
+          "executions": 1,
+          "consumedRows": 60
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 60
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q09": {
+          "executions": 1,
+          "consumedRows": 60
+        }
+      }
+    },
+    {
+      "run": "baseline-legacy-final",
+      "sample": 3,
+      "claim": 2,
+      "pendingCandidates": 40,
+      "runtime": {
+        "elapsedMillis": 1837.293125,
+        "heapBeforeBytes": 769061240,
+        "heapAfterBytes": 539406352,
+        "sampledPeakHeapBytes": 792129912,
+        "allocatedBytes": 820989656,
+        "gcCollections": 13,
+        "gcMillis": 76,
+        "processCpuNanos": 1146022000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13563,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 5723311,
+      "candidateRowsSelectingJobJson": 80,
+      "candidateLogicalJobJsonBytes": 577578720,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q06": {
+          "executions": 1,
+          "consumedRows": 40
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 40
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q09": {
+          "executions": 1,
+          "consumedRows": 40
+        }
+      }
+    },
+    {
+      "run": "baseline-legacy-final",
+      "sample": 3,
+      "claim": 3,
+      "pendingCandidates": 20,
+      "runtime": {
+        "elapsedMillis": 1020.39875,
+        "heapBeforeBytes": 539406352,
+        "heapAfterBytes": 539495544,
+        "sampledPeakHeapBytes": 798404624,
+        "allocatedBytes": 531173312,
+        "gcCollections": 6,
+        "gcMillis": 80,
+        "processCpuNanos": 991618000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13602,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 5723311,
+      "candidateRowsSelectingJobJson": 40,
+      "candidateLogicalJobJsonBytes": 288789360,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q06": {
+          "executions": 1,
+          "consumedRows": 20
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 20
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q09": {
+          "executions": 1,
+          "consumedRows": 20
+        }
+      }
+    },
+    {
+      "run": "candidate-legacy",
+      "sample": 1,
+      "claim": 1,
+      "pendingCandidates": 60,
+      "runtime": {
+        "elapsedMillis": 373.93675,
+        "heapBeforeBytes": 144160312,
+        "heapAfterBytes": 427029640,
+        "sampledPeakHeapBytes": 427029640,
+        "allocatedBytes": 269970944,
+        "gcCollections": 3,
+        "gcMillis": 5,
+        "processCpuNanos": 851028000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13544,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 5723311,
+      "candidateRowsSelectingJobJson": 0,
+      "candidateLogicalJobJsonBytes": 0,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q10": {
+          "executions": 1,
+          "consumedRows": 60
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 60
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q11": {
+          "executions": 1,
+          "consumedRows": 60
+        }
+      }
+    },
+    {
+      "run": "candidate-legacy",
+      "sample": 1,
+      "claim": 2,
+      "pendingCandidates": 40,
+      "runtime": {
+        "elapsedMillis": 191.474208,
+        "heapBeforeBytes": 428078216,
+        "heapAfterBytes": 394376840,
+        "sampledPeakHeapBytes": 467924104,
+        "allocatedBytes": 243003376,
+        "gcCollections": 1,
+        "gcMillis": 4,
+        "processCpuNanos": 308851000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13563,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 5723311,
+      "candidateRowsSelectingJobJson": 0,
+      "candidateLogicalJobJsonBytes": 0,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q10": {
+          "executions": 1,
+          "consumedRows": 40
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 40
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q11": {
+          "executions": 1,
+          "consumedRows": 40
+        }
+      }
+    },
+    {
+      "run": "candidate-legacy",
+      "sample": 1,
+      "claim": 3,
+      "pendingCandidates": 20,
+      "runtime": {
+        "elapsedMillis": 180.815083,
+        "heapBeforeBytes": 394376840,
+        "heapAfterBytes": 326971864,
+        "sampledPeakHeapBytes": 498185864,
+        "allocatedBytes": 242259496,
+        "gcCollections": 4,
+        "gcMillis": 9,
+        "processCpuNanos": 417513000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13602,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 5723311,
+      "candidateRowsSelectingJobJson": 0,
+      "candidateLogicalJobJsonBytes": 0,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q10": {
+          "executions": 1,
+          "consumedRows": 20
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 20
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q11": {
+          "executions": 1,
+          "consumedRows": 20
+        }
+      }
+    },
+    {
+      "run": "candidate-legacy",
+      "sample": 2,
+      "claim": 1,
+      "pendingCandidates": 60,
+      "runtime": {
+        "elapsedMillis": 170.083125,
+        "heapBeforeBytes": 146794472,
+        "heapAfterBytes": 417184472,
+        "sampledPeakHeapBytes": 417184472,
+        "allocatedBytes": 244725624,
+        "gcCollections": 3,
+        "gcMillis": 3,
+        "processCpuNanos": 321167000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13544,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 5723311,
+      "candidateRowsSelectingJobJson": 0,
+      "candidateLogicalJobJsonBytes": 0,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q10": {
+          "executions": 1,
+          "consumedRows": 60
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 60
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q11": {
+          "executions": 1,
+          "consumedRows": 60
+        }
+      }
+    },
+    {
+      "run": "candidate-legacy",
+      "sample": 2,
+      "claim": 2,
+      "pendingCandidates": 40,
+      "runtime": {
+        "elapsedMillis": 159.639625,
+        "heapBeforeBytes": 417184472,
+        "heapAfterBytes": 395008080,
+        "sampledPeakHeapBytes": 446544600,
+        "allocatedBytes": 242670736,
+        "gcCollections": 1,
+        "gcMillis": 1,
+        "processCpuNanos": 148617000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13563,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 5723311,
+      "candidateRowsSelectingJobJson": 0,
+      "candidateLogicalJobJsonBytes": 0,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q10": {
+          "executions": 1,
+          "consumedRows": 40
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 40
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q11": {
+          "executions": 1,
+          "consumedRows": 40
+        }
+      }
+    },
+    {
+      "run": "candidate-legacy",
+      "sample": 2,
+      "claim": 3,
+      "pendingCandidates": 20,
+      "runtime": {
+        "elapsedMillis": 166.088875,
+        "heapBeforeBytes": 396056656,
+        "heapAfterBytes": 368500736,
+        "sampledPeakHeapBytes": 475748432,
+        "allocatedBytes": 242237984,
+        "gcCollections": 4,
+        "gcMillis": 10,
+        "processCpuNanos": 321268000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13602,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 5723311,
+      "candidateRowsSelectingJobJson": 0,
+      "candidateLogicalJobJsonBytes": 0,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q10": {
+          "executions": 1,
+          "consumedRows": 20
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 20
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q11": {
+          "executions": 1,
+          "consumedRows": 20
+        }
+      }
+    },
+    {
+      "run": "candidate-legacy",
+      "sample": 3,
+      "claim": 1,
+      "pendingCandidates": 60,
+      "runtime": {
+        "elapsedMillis": 153.555584,
+        "heapBeforeBytes": 147410024,
+        "heapAfterBytes": 414796904,
+        "sampledPeakHeapBytes": 414796904,
+        "allocatedBytes": 243532240,
+        "gcCollections": 3,
+        "gcMillis": 3,
+        "processCpuNanos": 286379000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13544,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 5723311,
+      "candidateRowsSelectingJobJson": 0,
+      "candidateLogicalJobJsonBytes": 0,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q10": {
+          "executions": 1,
+          "consumedRows": 60
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 60
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q11": {
+          "executions": 1,
+          "consumedRows": 60
+        }
+      }
+    },
+    {
+      "run": "candidate-legacy",
+      "sample": 3,
+      "claim": 2,
+      "pendingCandidates": 40,
+      "runtime": {
+        "elapsedMillis": 158.902708,
+        "heapBeforeBytes": 414796904,
+        "heapAfterBytes": 378725832,
+        "sampledPeakHeapBytes": 496585832,
+        "allocatedBytes": 242564192,
+        "gcCollections": 1,
+        "gcMillis": 4,
+        "processCpuNanos": 199447000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13563,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 5723311,
+      "candidateRowsSelectingJobJson": 0,
+      "candidateLogicalJobJsonBytes": 0,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q10": {
+          "executions": 1,
+          "consumedRows": 40
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 40
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q11": {
+          "executions": 1,
+          "consumedRows": 40
+        }
+      }
+    },
+    {
+      "run": "candidate-legacy",
+      "sample": 3,
+      "claim": 3,
+      "pendingCandidates": 20,
+      "runtime": {
+        "elapsedMillis": 165.493833,
+        "heapBeforeBytes": 378725832,
+        "heapAfterBytes": 337718800,
+        "sampledPeakHeapBytes": 495117768,
+        "allocatedBytes": 242026048,
+        "gcCollections": 4,
+        "gcMillis": 6,
+        "processCpuNanos": 319699000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13602,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 5723311,
+      "candidateRowsSelectingJobJson": 0,
+      "candidateLogicalJobJsonBytes": 0,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q10": {
+          "executions": 1,
+          "consumedRows": 20
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 20
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q11": {
+          "executions": 1,
+          "consumedRows": 20
+        }
+      }
+    },
+    {
+      "run": "candidate-compact",
+      "sample": 1,
+      "claim": 1,
+      "pendingCandidates": 60,
+      "runtime": {
+        "elapsedMillis": 265.647583,
+        "heapBeforeBytes": 144032088,
+        "heapAfterBytes": 318095704,
+        "sampledPeakHeapBytes": 318095704,
+        "allocatedBytes": 161156256,
+        "gcCollections": 3,
+        "gcMillis": 3,
+        "processCpuNanos": 700181000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13544,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 43273,
+      "candidateRowsSelectingJobJson": 0,
+      "candidateLogicalJobJsonBytes": 0,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q10": {
+          "executions": 1,
+          "consumedRows": 60
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 60
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q11": {
+          "executions": 1,
+          "consumedRows": 60
+        }
+      }
+    },
+    {
+      "run": "candidate-compact",
+      "sample": 1,
+      "claim": 2,
+      "pendingCandidates": 40,
+      "runtime": {
+        "elapsedMillis": 111.076042,
+        "heapBeforeBytes": 318095704,
+        "heapAfterBytes": 474333528,
+        "sampledPeakHeapBytes": 474333528,
+        "allocatedBytes": 137842440,
+        "gcCollections": 0,
+        "gcMillis": 0,
+        "processCpuNanos": 207023000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13563,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 43273,
+      "candidateRowsSelectingJobJson": 0,
+      "candidateLogicalJobJsonBytes": 0,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q10": {
+          "executions": 1,
+          "consumedRows": 40
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 40
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q11": {
+          "executions": 1,
+          "consumedRows": 40
+        }
+      }
+    },
+    {
+      "run": "candidate-compact",
+      "sample": 1,
+      "claim": 3,
+      "pendingCandidates": 20,
+      "runtime": {
+        "elapsedMillis": 69.206917,
+        "heapBeforeBytes": 474333528,
+        "heapAfterBytes": 298073456,
+        "sampledPeakHeapBytes": 477479256,
+        "allocatedBytes": 136974384,
+        "gcCollections": 1,
+        "gcMillis": 2,
+        "processCpuNanos": 134041000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13602,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 43273,
+      "candidateRowsSelectingJobJson": 0,
+      "candidateLogicalJobJsonBytes": 0,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q10": {
+          "executions": 1,
+          "consumedRows": 20
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 20
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q11": {
+          "executions": 1,
+          "consumedRows": 20
+        }
+      }
+    },
+    {
+      "run": "candidate-compact",
+      "sample": 2,
+      "claim": 1,
+      "pendingCandidates": 60,
+      "runtime": {
+        "elapsedMillis": 73.62775,
+        "heapBeforeBytes": 146736056,
+        "heapAfterBytes": 306119608,
+        "sampledPeakHeapBytes": 306119608,
+        "allocatedBytes": 138672256,
+        "gcCollections": 3,
+        "gcMillis": 4,
+        "processCpuNanos": 272493000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13544,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 43273,
+      "candidateRowsSelectingJobJson": 0,
+      "candidateLogicalJobJsonBytes": 0,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q10": {
+          "executions": 1,
+          "consumedRows": 60
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 60
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q11": {
+          "executions": 1,
+          "consumedRows": 60
+        }
+      }
+    },
+    {
+      "run": "candidate-compact",
+      "sample": 2,
+      "claim": 2,
+      "pendingCandidates": 40,
+      "runtime": {
+        "elapsedMillis": 59.165334,
+        "heapBeforeBytes": 306119608,
+        "heapAfterBytes": 461308856,
+        "sampledPeakHeapBytes": 461308856,
+        "allocatedBytes": 137386888,
+        "gcCollections": 0,
+        "gcMillis": 0,
+        "processCpuNanos": 93934000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13563,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 43273,
+      "candidateRowsSelectingJobJson": 0,
+      "candidateLogicalJobJsonBytes": 0,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q10": {
+          "executions": 1,
+          "consumedRows": 40
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 40
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q11": {
+          "executions": 1,
+          "consumedRows": 40
+        }
+      }
+    },
+    {
+      "run": "candidate-compact",
+      "sample": 2,
+      "claim": 3,
+      "pendingCandidates": 20,
+      "runtime": {
+        "elapsedMillis": 60.589834,
+        "heapBeforeBytes": 461308856,
+        "heapAfterBytes": 278301304,
+        "sampledPeakHeapBytes": 483328952,
+        "allocatedBytes": 136884568,
+        "gcCollections": 1,
+        "gcMillis": 2,
+        "processCpuNanos": 82703000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13602,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 43273,
+      "candidateRowsSelectingJobJson": 0,
+      "candidateLogicalJobJsonBytes": 0,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q10": {
+          "executions": 1,
+          "consumedRows": 20
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 20
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q11": {
+          "executions": 1,
+          "consumedRows": 20
+        }
+      }
+    },
+    {
+      "run": "candidate-compact",
+      "sample": 3,
+      "claim": 1,
+      "pendingCandidates": 60,
+      "runtime": {
+        "elapsedMillis": 72.240875,
+        "heapBeforeBytes": 147314184,
+        "heapAfterBytes": 303489064,
+        "sampledPeakHeapBytes": 303489064,
+        "allocatedBytes": 138271192,
+        "gcCollections": 3,
+        "gcMillis": 3,
+        "processCpuNanos": 243047000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13544,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 43273,
+      "candidateRowsSelectingJobJson": 0,
+      "candidateLogicalJobJsonBytes": 0,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q10": {
+          "executions": 1,
+          "consumedRows": 60
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 60
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q11": {
+          "executions": 1,
+          "consumedRows": 60
+        }
+      }
+    },
+    {
+      "run": "candidate-compact",
+      "sample": 3,
+      "claim": 2,
+      "pendingCandidates": 40,
+      "runtime": {
+        "elapsedMillis": 56.726125,
+        "heapBeforeBytes": 303489064,
+        "heapAfterBytes": 457629736,
+        "sampledPeakHeapBytes": 457629736,
+        "allocatedBytes": 137280648,
+        "gcCollections": 0,
+        "gcMillis": 0,
+        "processCpuNanos": 82287000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13563,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 43273,
+      "candidateRowsSelectingJobJson": 0,
+      "candidateLogicalJobJsonBytes": 0,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q10": {
+          "executions": 1,
+          "consumedRows": 40
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 40
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q11": {
+          "executions": 1,
+          "consumedRows": 40
+        }
+      }
+    },
+    {
+      "run": "candidate-compact",
+      "sample": 3,
+      "claim": 3,
+      "pendingCandidates": 20,
+      "runtime": {
+        "elapsedMillis": 60.3495,
+        "heapBeforeBytes": 457629736,
+        "heapAfterBytes": 270764520,
+        "sampledPeakHeapBytes": 482795560,
+        "allocatedBytes": 136688448,
+        "gcCollections": 1,
+        "gcMillis": 2,
+        "processCpuNanos": 72377000
+      },
+      "httpStatus": 200,
+      "httpResponseUtf8Bytes": 13602,
+      "inputJsonbTextBytes": 1496423,
+      "journalJsonbTextBytes": 43273,
+      "candidateRowsSelectingJobJson": 0,
+      "candidateLogicalJobJsonBytes": 0,
+      "queriesByProfile": {
+        "q01": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q02": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q03": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q04": {
+          "executions": 2,
+          "consumedRows": 2
+        },
+        "q05": {
+          "executions": 1,
+          "consumedRows": 0
+        },
+        "q10": {
+          "executions": 1,
+          "consumedRows": 20
+        },
+        "q07": {
+          "executions": 1,
+          "consumedRows": 20
+        },
+        "q08": {
+          "executions": 1,
+          "consumedRows": 1
+        },
+        "q11": {
+          "executions": 1,
+          "consumedRows": 20
+        }
+      }
+    }
+  ],
+  "verification": {
+    "phaseCount": 27,
+    "http200Count": 27,
+    "uniqueSqlCount": 4,
+    "rawRowAndLogicalByteCalculationsMatch": true,
+    "allSummaryStageDistributionsMatch": true
+  }
+}

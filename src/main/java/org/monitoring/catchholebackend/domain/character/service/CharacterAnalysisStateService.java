@@ -369,8 +369,7 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
             }
         }
         if (hold == null && (applied || operation == CharacterFactOperation.HISTORY_ONLY)) {
-            var history = priorTarget.path("historyFacts").isArray()
-                    ? (com.fasterxml.jackson.databind.node.ArrayNode) priorTarget.path("historyFacts").deepCopy() : JsonNodeFactory.instance.arrayNode();
+            var history = JsonNodeFactory.instance.arrayNode();
             var ended = new LinkedHashSet<CharacterSnapshotSlot>(removals);
             if (applied && operation != CharacterFactOperation.MERGE && operation != CharacterFactOperation.REMOVE) ended.add(proposed.slot());
             for (var slot : ended) {
@@ -385,8 +384,8 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
                         candidate.getValueJson(), operation.name(), candidate.getTemporalScope() == null ? null : candidate.getTemporalScope().name(),
                         candidate.getRemovedSnapshotEntriesJson(), origin));
             }
-            changes.add(new AnalysisStateChange(eventPrefix + ":history", List.of("characters", ref, "historyFacts"), history,
-                    false, operation.name(), sources));
+            changes.add(AnalysisStateChange.appendHistory(eventPrefix + ":history", ref, history,
+                    operation.name(), sources));
         }
         if (prepared == null) runStateService.appendValidatedChanges(job, job.getInputStateHash(), changes);
         else prepared.append(changes);
@@ -433,6 +432,12 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
             }
             if ("historyFacts".equals(field) && recorded.isArray()) {
                 List<JsonNode> incoming = new ArrayList<>(); recorded.forEach(incoming::add);
+                if (AnalysisStateChange.ValueMode.APPEND_HISTORY.name().equals(change.path("valueMode").asText())) {
+                    if (!held && !eventId.endsWith(":restore-history")) incoming.forEach(row -> history.add(row.deepCopy()));
+                    // 다음 v1 전체 대체 기록의 차이를 계산할 때는 보류된 기여도 당시 상태에 포함한다.
+                    originalHistory.addAll(incoming);
+                    continue;
+                }
                 // Stored arrays are cumulative. Replay each contribution's delta so a later valid array cannot resurrect held additions.
                 List<JsonNode> additions = new ArrayList<>(incoming), removals = new ArrayList<>(originalHistory);
                 for (JsonNode old : originalHistory) additions.remove(old);

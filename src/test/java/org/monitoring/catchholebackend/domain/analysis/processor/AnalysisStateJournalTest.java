@@ -11,7 +11,10 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
+@DisplayName("누적 분석 변경 기록의 불변 복원과 저장 호환성")
 class AnalysisStateJournalTest {
 
     private final ObjectMapper mapper = new ObjectMapper();
@@ -80,14 +83,99 @@ class AnalysisStateJournalTest {
         assertThat(journal.hash(first)).isNotEqualTo(journal.hash(mapper.readTree("{\"배열\":[2,1],\"값\":1,\"이름\":\"주인공\"}")));
     }
 
-    @Test
-    @DisplayName("Python 평가기와 공유하는 v1 기록의 상태와 SHA-256을 재현한다")
-    void replaysSharedContractFixture() throws Exception {
-        JsonNode fixture = mapper.readTree(getClass().getResourceAsStream("/analysis/ordered-journal-v1.json"));
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2})
+    @DisplayName("Python 평가기와 공유하는 v1·v2 기록의 상태와 SHA-256을 재현한다")
+    void replaysSharedContractFixture(int version) throws Exception {
+        JsonNode fixture = mapper.readTree(getClass().getResourceAsStream("/analysis/ordered-journal-v" + version + ".json"));
         JsonNode actual = journal.apply(fixture.path("baseState"), journal.fromJson(fixture.path("changes")));
         assertThat(actual).isEqualTo(fixture.path("expectedState"));
         assertThat(journal.canonicalJson(actual)).isEqualTo(fixture.path("expectedCanonical").asText());
         assertThat(journal.hash(actual)).isEqualTo(fixture.path("expectedHash").asText());
+    }
+
+    @Test
+    @DisplayName("과거 전체 배열과 새 증분 이력이 섞여도 순서·중복 사실·근거·최종 hash가 같다")
+    void mixesLegacyHistoryReplacementAndAppendWithoutDroppingEvidence() throws Exception {
+        JsonNode base = mapper.readTree("""
+                {"characters":{"hero":{"historyFacts":[{"factValue":"검술 1단","evidenceSpans":[{"quote":"첫 근거"}]}]}},
+                 "worldSettings":{},"references":{}}
+                """);
+        var first = base.at("/characters/hero/historyFacts").deepCopy();
+        var second = mapper.readTree("""
+                [{"factValue":"검술 2단","evidenceSpans":[{"quote":"승급 근거 😀"}]}]
+                """);
+        var third = mapper.readTree("""
+                [{"factValue":"검술 3단","sourceEpisodeNo":3}]
+                """);
+        var wholeSecond = ((com.fasterxml.jackson.databind.node.ArrayNode) first).deepCopy().addAll((com.fasterxml.jackson.databind.node.ArrayNode) second);
+        var legacy = change("legacy", List.of("characters", "hero", "historyFacts"), wholeSecond, false, "UPDATE");
+        var append = AnalysisStateChange.appendHistory("append", "hero", third, "HISTORY_ONLY", List.of());
+        // 동일 내용의 서로 다른 사건은 별도 이력으로 남고 동일 event 재전달만 제거한다.
+        var repeatedFact = AnalysisStateChange.appendHistory("another-event", "hero", third, "HISTORY_ONLY", List.of());
+        JsonNode expected = base.deepCopy();
+        ((ObjectNode) expected.path("characters").path("hero")).set("historyFacts", wholeSecond.deepCopy()
+                .addAll(((com.fasterxml.jackson.databind.node.ArrayNode) third).deepCopy())
+                .addAll(((com.fasterxml.jackson.databind.node.ArrayNode) third).deepCopy()));
+        var mixed = List.of(legacy, append, append, repeatedFact);
+        JsonNode actual = journal.apply(base, journal.fromJson(journal.toJson(mixed)));
+        assertThat(actual).isEqualTo(expected);
+        assertThat(journal.hash(actual)).isEqualTo(journal.hash(expected));
+        assertThat(journal.toJson(mixed).get(0).has("valueMode")).isFalse();
+        assertThat(journal.toJson(mixed).get(1).path("valueMode").asText()).isEqualTo("APPEND_HISTORY");
+        assertThat(append.value()).hasSize(1);
+        ((ObjectNode) third.get(0)).put("factValue", "나중에 바뀐 값");
+        assertThat(journal.apply(base, mixed)).isEqualTo(expected);
+        assertThat(base.at("/characters/hero/historyFacts")).hasSize(1);
+
+        var restore = change("restore", List.of("characters", "hero", "historyFacts"), first, false, "REVIEW_REQUIRED");
+        assertThat(journal.apply(base, List.of(legacy, append, restore))).isEqualTo(base);
+    }
+
+    @Test
+    @DisplayName("이력 추가는 캐릭터 이력 배열에만 허용하며 다른 모드의 동일 event를 충돌로 처리한다")
+    void rejectsInvalidAppendModesAndConflictingDuplicateEvents() throws Exception {
+        JsonNode empty = mapper.createArrayNode();
+        JsonNode base = mapper.readTree("""
+                {"characters":{"hero":{"historyFacts":[]}},"worldSettings":{},"references":{}}
+                """);
+        var append = AnalysisStateChange.appendHistory("event", "hero", empty, "UPDATE", List.of());
+        var replace = new AnalysisStateChange("event", append.path(), empty, false, "UPDATE", List.of());
+        assertThatThrownBy(() -> journal.apply(base, List.of(append, replace))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> AnalysisStateChange.appendHistory("bad", "hero", mapper.createObjectNode(), "UPDATE", List.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AnalysisStateChange("bad", List.of("worldSettings", "hero", "historyFacts"), empty,
+                false, "UPDATE", List.of(), AnalysisStateChange.ValueMode.APPEND_HISTORY)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AnalysisStateChange("bad", append.path(), null,
+                true, "REMOVE", List.of(), AnalysisStateChange.ValueMode.APPEND_HISTORY)).isInstanceOf(IllegalArgumentException.class);
+        ObjectNode encoded = (ObjectNode) journal.toJson(List.of(append)).get(0);
+        encoded.put("valueMode", "UNKNOWN");
+        assertThatThrownBy(() -> journal.fromJson(mapper.createArrayNode().add(encoded))).isInstanceOf(IllegalArgumentException.class);
+        encoded.putNull("valueMode");
+        assertThatThrownBy(() -> journal.fromJson(mapper.createArrayNode().add(encoded))).isInstanceOf(IllegalArgumentException.class);
+        ((ObjectNode) base.path("characters").path("hero")).put("historyFacts", "잘못된 기존값");
+        assertThatThrownBy(() -> journal.apply(base, List.of(append))).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("증분 이력의 원문 파기도 인용만 제거하고 설정·출처·저장 모드는 보존한다")
+    void purgesAppendedHistoryEvidenceWithoutLosingValuesOrStorageMode() throws Exception {
+        var additions = mapper.readTree("""
+                [{"factValue":"회복","sourceCandidateId":"candidate-1","supportingSource":{
+                    "sourceEpisodeNo":3,"evidenceSpans":[{"quote":"비공개 원문","startOffset":0,"endOffset":6}]}}]
+                """);
+        var change = AnalysisStateChange.appendHistory("history", "hero", additions, "REMOVE", List.of());
+        ObjectNode record = mapper.createObjectNode().put("formatVersion", 2).put("outputStateHash", "audit-hash");
+        record.set("changes", journal.toJson(List.of(change)));
+        JsonNode purged = journal.purgeSourceEvidence(record);
+        assertThat(purged.toString()).doesNotContain("비공개 원문");
+        assertThat(purged.at("/changes/0/value/0/factValue").asText()).isEqualTo("회복");
+        assertThat(purged.at("/changes/0/value/0/sourceCandidateId").asText()).isEqualTo("candidate-1");
+        assertThat(purged.at("/changes/0/valueMode").asText()).isEqualTo("APPEND_HISTORY");
+        assertThat(purged.path("formatVersion").asInt()).isEqualTo(2);
+        assertThat(purged.path("outputStateHash").asText()).isEqualTo("audit-hash");
+        assertThat(record.toString()).contains("비공개 원문");
+        assertThat(journal.purgeSourceEvidence(purged)).isEqualTo(purged);
     }
 
     private AnalysisStateChange change(String id, List<String> path, JsonNode value, boolean remove, String operation) {
