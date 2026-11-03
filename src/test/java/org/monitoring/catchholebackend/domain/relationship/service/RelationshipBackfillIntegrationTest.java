@@ -47,6 +47,7 @@ import org.monitoring.catchholebackend.global.storage.StoredTextObject;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.global.exception.AppException;
+import org.monitoring.catchholebackend.global.hash.Sha256Hasher;
 import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -79,6 +80,7 @@ class RelationshipBackfillIntegrationTest {
     @MockitoSpyBean AnalysisJobRepository jobs;
     @MockitoBean RelationshipBackfillManifest manifest;
     @MockitoBean ObjectStorageService storage;
+    @Autowired Sha256Hasher hasher;
     @MockitoBean AiTokenService tokens;
     UUID workId;
     Long owner;
@@ -113,7 +115,8 @@ class RelationshipBackfillIntegrationTest {
                             .getResultList()
                             .forEach(AnalysisJob::cancelForWorkPurge);
                 });
-        when(storage.contentHash(anyString())).thenCallRealMethod();
+        when(storage.contentHash(anyString()))
+                .thenAnswer(invocation -> hasher.hash(invocation.getArgument(0)));
         when(storage.getText(anyString())).thenReturn(source);
         when(tokens.getAnalysisJobTokenTotals(any())).thenReturn(new long[] {0, 0});
         selectedAt = LocalDateTime.now().plusSeconds(1);

@@ -47,6 +47,7 @@ import org.monitoring.catchholebackend.domain.relationship.repository.Relationsh
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.global.exception.AppException;
+import org.monitoring.catchholebackend.global.hash.Sha256Hasher;
 import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -74,6 +75,7 @@ class EpisodeRelationshipGraphIntegrationTest {
     @Autowired EpisodePurgeDataRepository purge;
     @MockitoBean AnalysisJobLeaseService leases;
     @MockitoBean ObjectStorageService storage;
+    @Autowired Sha256Hasher hasher;
     @MockitoSpyBean AnalysisRunStateService runState;
     private Long owner, other;
     private UUID workId;
@@ -82,7 +84,8 @@ class EpisodeRelationshipGraphIntegrationTest {
 
     @BeforeEach
     void setup() {
-        when(storage.contentHash(anyString())).thenCallRealMethod();
+        when(storage.contentHash(anyString()))
+                .thenAnswer(invocation -> hasher.hash(invocation.getArgument(0)));
         when(storage.getText(anyString()))
                 .thenAnswer(
                         invocation -> {

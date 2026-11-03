@@ -31,6 +31,7 @@ import org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysi
 import org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerAnalysisJobPayload;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.global.exception.AppException;
+import org.monitoring.catchholebackend.global.hash.Sha256Hasher;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
@@ -133,6 +134,7 @@ class AutomaticAnalysisIntegrationTest {
     @Autowired SettingCandidateRepository candidates;
     @Autowired AnalysisRunStateService states;
     @Autowired AnalysisJobService publicJobs;
+    @Autowired Sha256Hasher hasher;
     @Autowired CharacterAnalysisStateService characterStates;
     @Autowired SettingCandidateService characterReview;
     @Autowired AnalysisJobWorkerService worker;
@@ -154,7 +156,8 @@ class AutomaticAnalysisIntegrationTest {
         org.mockito.Mockito.when(storedEvidence.find(org.mockito.ArgumentMatchers.any())).thenAnswer(call -> verified.find(call.getArgument(0)));
 
         org.mockito.Mockito.when(storage.getText(org.mockito.ArgumentMatchers.startsWith("automatic-test/"))).thenReturn(SOURCE);
-        org.mockito.Mockito.when(storage.contentHash(org.mockito.ArgumentMatchers.anyString())).thenCallRealMethod();
+        org.mockito.Mockito.when(storage.contentHash(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(invocation -> hasher.hash(invocation.getArgument(0)));
     }
 
     private static List<String> currentFactValues(JsonNode input) {
