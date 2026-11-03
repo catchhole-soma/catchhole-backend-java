@@ -10,6 +10,7 @@ import org.monitoring.catchholebackend.domain.validation.entity.*;
 import org.monitoring.catchholebackend.domain.validation.mapper.ValidationReviewMapper;
 import org.monitoring.catchholebackend.domain.validation.processor.ValidationFindingTargets;
 import org.monitoring.catchholebackend.domain.validation.processor.ValidationReviewGate;
+import org.monitoring.catchholebackend.domain.validation.processor.ValidationSourceWindow;
 import org.monitoring.catchholebackend.domain.validation.repository.*;
 import org.monitoring.catchholebackend.domain.validation.type.*;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
@@ -36,6 +37,8 @@ public class ValidationReviewServiceImpl implements ValidationReviewService {
     private final ValidationReviewMapper mapper;
     private final EntityManager em;
     private final ValidationFindingTargets targets;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationFindingLabels labels;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationFindingContexts contexts;
 
     @Override public PageResponse<ValidationFindingSummaryResponse> getValidationFindings(Long memberId,UUID workId,UUID reportId,ValidationBranch branch,ValidationJudgmentValue judgment,String outcome,
             ValidationImpact impact,ValidationSubjectType subjectType,int page,int size) {
@@ -71,8 +74,17 @@ public class ValidationReviewServiceImpl implements ValidationReviewService {
                     :checkHistory.stream().filter(h->h.getRevision()==revision).map(ValidationCheckHistory::getState).findFirst().orElse(null);
             basis=targets.basis(r,state,f);
         }
-        return mapper.toDetailResponse(f,byFinding.get(f.getId()),current,!checkHistory.isEmpty(),evidence,
+        return mapper.toDetailResponse(f,byFinding.get(f.getId()),current,!checkHistory.isEmpty(),labels.describe(r,f,evidence),
                 histories.findAllByFindingIdInOrderByCreatedAtAscIdAsc(related.stream().map(ValidationFinding::getId).toList()),reasons,List.copyOf(prior),basis);
+    }
+    @Override public ValidationSourceContextResponse getValidationFindingSourceContext(Long memberId,UUID workId,UUID reportId,UUID findingId,String sourceRef,
+            int anchorStart,int anchorEnd,int before,int after) {
+        var r=report(memberId,workId,reportId);var f=reviews.finding(reportId,findingId).orElseThrow(()->error(VALIDATION_FINDING_NOT_FOUND));
+        // 한 요청이 읽는 양을 줄 수·anchor 길이로 묶는다(글자 수 상한은 창 계산이 지킨다). 원문은 고정 hash를 확인한 뒤에만 자른다.
+        if(anchorStart<0||anchorEnd<anchorStart||anchorEnd-anchorStart>ValidationSourceWindow.MAX_ANCHOR_CODE_POINTS
+                ||before<0||after<0||before>ValidationSourceWindow.MAX_LINES_PER_SIDE||after>ValidationSourceWindow.MAX_LINES_PER_SIDE)
+            throw new AppException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
+        return contexts.window(r,f,sourceRef,anchorStart,anchorEnd,before,after);
     }
     @Override @Transactional
     public ValidationFindingSummaryResponse saveValidationJudgment(Long memberId,UUID workId,UUID reportId,UUID findingId,ValidationJudgmentRequest request) {
